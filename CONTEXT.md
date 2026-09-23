@@ -59,3 +59,15 @@ _Avoid_: main process, IPC, bridge
 **Pane**:
 One view inside a client's window (a conversation, a terminal, files, a diff, the browser dock); which panes are open and how they are laid out is client-local presentation, not organisation state.
 _Avoid_: tab, panel, dock (the region that holds panes; the proper name "browser dock" for the embedded-browser pane is the one exception)
+
+**Workspace**:
+Where a session's code lives on its environment: a directory the environment has, a worktree the environment created from a repository it has, or a scratch directory that lives with the session. Every session has exactly one.
+_Avoid_: folder, cwd, project (for the place), none (there is no session without a workspace)
+
+**Repository identity**:
+The canonical remote URL of the repository a workspace belongs to, recorded on the session so clients can relate work on the same repository across environments; absent when the workspace is outside any repository, and copied to the new session on hand-off. Never a server-side object.
+_Avoid_: project, logical project
+
+**Hand-off**:
+Continuing a session on another environment as a new, linked session seeded with a summary and a workspace for the same repository; the original stays where it is.
+_Avoid_: move, migrate, transfer
