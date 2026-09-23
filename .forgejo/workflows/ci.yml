@@ -1,0 +1,61 @@
+# CI for a repository on this Forgejo. Copied from david/ci templates/ci.yml;
+# add the project's own steps at the end of the job (typecheck, lint, test,
+# build - cortex reference/playbooks/ci-standard.md lists them) and leave the
+# rest as it is, so a fix in the template can be copied over again.
+#
+# It runs on the shared `ci` runners in the Dokploy VM, which every repository
+# on the instance shares. The secret scan is david/ci's scripts/secret-scan.sh,
+# checked out at run time, so a new gitleaks pin reaches every repository at
+# once. Reading david/ci takes CI_READ_TOKEN, a user-level secret on `david`
+# (a read-only user that can see david/ci and nothing else).
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    # Forgejo marks a draft with a "WIP:" title and has no `ready_for_review`:
+    # a draft leaves draft by an `edited` event that changes the title. The
+    # job's `if` lets only that edit through.
+    types: [opened, synchronize, reopened, edited]
+
+# A push to a pull request that supersedes an earlier one cancels the old run.
+# Pushes to main queue instead: cancelling one because another merge landed
+# seconds later would leave that commit with no verdict.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  ci:
+    runs-on: ci
+    # A draft is unfinished by declaration: it is not built until it leaves
+    # draft. A push to main is always built.
+    if: >-
+      github.event_name != 'pull_request' || (
+        !github.event.pull_request.draft && (
+          github.event.action != 'edited' ||
+          startsWith(github.event.changes.title.from, 'WIP') ||
+          startsWith(github.event.changes.title.from, '[WIP]')))
+    timeout-minutes: 10
+    steps:
+      # Pinned to a commit, not a tag. Forgejo resolves `actions/checkout` to
+      # its mirror on data.forgejo.org, which carries GitHub's commits.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The secret scan reads every commit.
+          fetch-depth: 0
+
+      - name: Check out david/ci
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: david/ci
+          token: ${{ secrets.CI_READ_TOKEN }}
+          path: .ci
+          persist-credentials: false
+
+      - name: Scan every commit for secrets
+        run: bash .ci/scripts/secret-scan.sh
+
+      # The project's own steps go here.

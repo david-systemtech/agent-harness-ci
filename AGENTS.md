@@ -22,3 +22,10 @@ exist in the repo. See `docs/agents/triage-labels.md`.
 
 Single-context: one `CONTEXT.md` and one `docs/adr/` at the repo root.
 See `docs/agents/domain.md`.
+
+## Merging
+
+`main` is merged only when every check is green, and nothing is pushed to it
+directly. CI and the AI pre-review run on the shared Forgejo runners from
+`david/ci` (see its `README.md`). The review is a lead to check, not an
+approval: prove a finding before acting on it.

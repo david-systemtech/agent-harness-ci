@@ -1,0 +1,142 @@
+# A cheap model reads the pull request before we do.
+#
+# Copied from david/ci templates/ai-review.yml. Change only REVIEW_PROJECT,
+# REVIEW_SKIP and, if the rules are not in AGENTS.md, REVIEW_RULES; the rest is
+# the same in every repository, so a fix in the template can be copied over.
+#
+# It leaves one comment, ending in a JSON block: the prose is for whoever
+# reviews the pull request, the JSON for an agent that re-checks the findings
+# before anyone acts on them. A finding is a lead, never a verdict. It
+# approves nothing, is not a required check, and never fails: a rate-limited
+# provider or a model that runs out of time ends in a comment that says there
+# is no review, and a green check.
+#
+# The work is david/ci's scripts/ai_review.py, checked out at run time from
+# david/ci's main - the same script, byte for byte, as the GitHub repositories
+# carry in .github/scripts. This repository's BASE commit is checked out for
+# the rules the model is told; the pull request's changes arrive as text
+# through the API, so nothing in a pull request runs here or rewrites the
+# rules it is judged by.
+#
+# When it runs: when a pull request opens, reopens or leaves draft (on Forgejo,
+# a title edit that drops the "WIP:" prefix), and after that only when someone
+# adds the `ai-review` label. The label comes off again after every run that
+# found it on, so it can be added a second time. `no-ai-review` suppresses it.
+# Create both labels on the repository.
+#
+# Where it runs: the shared `review` runners in the Dokploy VM, never `ci`. A
+# large review generates for twenty minutes or more while only waiting on
+# HTTP, and `ci` must not queue behind it.
+
+name: AI review
+
+on:
+  pull_request:
+    types: [opened, reopened, edited, labeled]
+
+# Two requests for a review must not leave two reviews racing to rewrite one
+# comment. Runs woken by some other label, or by an edit that is not leaving
+# draft, get a group of their own so they cannot cancel a review on the way.
+concurrency:
+  group: >-
+    ai-review-${{ github.event.pull_request.number }}-${{
+    (github.event.action == 'labeled' && github.event.label.name != 'ai-review') && 'other-label' ||
+    (github.event.action == 'edited' &&
+      !startsWith(github.event.changes.title.from, 'WIP') &&
+      !startsWith(github.event.changes.title.from, '[WIP]')) && 'other-edit' ||
+    'review' }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    if: >-
+      !github.event.pull_request.draft &&
+      !contains(github.event.pull_request.labels.*.name, 'no-ai-review') &&
+      (github.event.action != 'labeled' || github.event.label.name == 'ai-review') &&
+      (github.event.action != 'edited' ||
+        startsWith(github.event.changes.title.from, 'WIP') ||
+        startsWith(github.event.changes.title.from, '[WIP]'))
+    runs-on: review
+    # A backstop only. The script abandons a review at REVIEW_DEADLINE_S and
+    # exits green, and the step has its own timeout under continue-on-error.
+    timeout-minutes: 55
+    steps:
+      # The base commit, never the head.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+
+      - name: Check out david/ci
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: david/ci
+          token: ${{ secrets.CI_READ_TOKEN }}
+          path: .ci
+          persist-credentials: false
+
+      - name: Review the diff
+        continue-on-error: true
+        # Longer than the script's own deadline, shorter than the job's.
+        timeout-minutes: 50
+        env:
+          # A user-level secret on `david`, from OpenBao
+          # systemtechdev/infrastructure/openrouter.
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          # The job's own token: it may comment on this repository's pull
+          # requests, and its comments are by `forgejo-actions`.
+          GITHUB_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REVIEW_MODEL: z-ai/glm-5.3-flash
+          # max, high or low - the only three this model accepts. max found 6
+          # of 8 planted bugs against 1 of 6 at high (David's call, 2026-09-18).
+          REVIEW_EFFORT: max
+          # The ceiling on the script's own deadline, which it sizes to the
+          # diff: about twelve minutes for an ordinary pull request.
+          REVIEW_DEADLINE_S: 2700
+          # What the model is told the project is.
+          REVIEW_PROJECT: >-
+            A server-first coding-agent harness under a working name, the
+            replacement for Artemis: a server on every machine, every client
+            (desktop, web, TUI) a remote client of a local server, one
+            renderer, with skills, memory banks, key managers and a setup
+            wizard as first-class features. It is in planning: the repository
+            holds a wayfinder map as Forgejo issues, research write-ups and
+            decision records, and no application code yet.
+          # Rules files, read from the base commit. Default AGENTS.md.
+          # REVIEW_RULES: AGENTS.md
+          # Noise on top of the lockfiles, images and fonts the script always
+          # leaves out. Put every generated file here: the script sizes its
+          # reasoning to the diff, and a large generated file can take a
+          # review to its token ceiling with nothing to show.
+          REVIEW_SKIP: docs/research/*
+        run: python3 .ci/scripts/ai_review.py
+
+  # The label is a button, not a state: `labeled` fires only when a label goes
+  # on, so one left on cannot be pressed again. It comes off after every run
+  # that found it on, whether or not the review ran - a request declined for a
+  # draft or for `no-ai-review` must not leave a label that looks armed.
+  take-the-request-label-off:
+    needs: review
+    if: >-
+      always() &&
+      contains(github.event.pull_request.labels.*.name, 'ai-review') &&
+      (github.event.action != 'labeled' || github.event.label.name == 'ai-review')
+    runs-on: review
+    timeout-minutes: 5
+    steps:
+      # Green even when it fails, with a warning that says what to do.
+      - name: Take the label off
+        continue-on-error: true
+        env:
+          TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          url="$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/labels/ai-review"
+          for attempt in 1 2 3; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' -X DELETE -H "Authorization: token $TOKEN" "$url" || true)
+            # 422 is Forgejo's answer when the label is already off.
+            case "$code" in 2??|404|422) exit 0 ;; esac
+            sleep $((attempt * 10))
+          done
+          echo "::warning::The ai-review label could not be removed. Remove it by hand, then add it again to ask for a review."
