@@ -107,3 +107,23 @@ _Avoid_: track, ring, branch
 **Launcher**:
 The stable process the service runs, which owns the installed versions, the pending-update record and the database snapshot, and starts the chosen server version as its child.
 _Avoid_: supervisor, wrapper, bootstrap
+
+**Routine**:
+An environment-owned definition of unattended work: instructions run on a schedule or trigger with a chosen account, model, mode, workspace, skills, pre-check and delivery targets. Fires with no client connected.
+_Avoid_: cron job, scheduled task, automation, job
+
+**Firing**:
+One execution of a routine; always a session, tagged with the routine and, if any, its bot.
+_Avoid_: run (a firing is a session; its turns are runs), tick, execution
+
+**Bot**:
+An environment-owned identity with a persona, default account, model and mode, and skills, that owns routines; its chat front-ends live outside the harness.
+_Avoid_: agent (the model doing the work), persona (only the bot's instructions), profile (Hermes's word; also Artemis's retired word for an account)
+
+**Delivery target**:
+Where a firing's result is sent: a kind (client notice, signed webhook, later others), a target and a success or failure split.
+_Avoid_: notification channel, sink, home channel
+
+**Pre-check**:
+A script or URL a routine runs before each firing; if its output is unchanged since the last firing, the model run is skipped.
+_Avoid_: monitor, probe, guard
