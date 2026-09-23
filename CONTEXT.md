@@ -91,3 +91,19 @@ _Avoid_: blocklist, blacklist, guardrails
 **Parked prompt**:
 A permission prompt or question a run is waiting on with nobody having answered yet; shown to every client until answered; denied after its TTL unless the TTL is never.
 _Avoid_: pending approval, ask (the Artemis UI word; fine for the "Parked asks" view name)
+
+**Idle**:
+The state of an environment with no run starting or running and no run started or ended in the last ten minutes; a run parked on a prompt counts as busy for ten minutes only.
+_Avoid_: quiet, inactive, free
+
+**Drain**:
+An environment refusing new runs and waiting a bounded time for running ones to finish before it restarts for an update.
+_Avoid_: graceful shutdown, quiesce
+
+**Channel**:
+Which releases an environment follows for updates: stable (releases only) or beta (prereleases too); a pinned version follows none.
+_Avoid_: track, ring, branch
+
+**Launcher**:
+The stable process the service runs, which owns the installed versions, the pending-update record and the database snapshot, and starts the chosen server version as its child.
+_Avoid_: supervisor, wrapper, bootstrap
