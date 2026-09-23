@@ -59,8 +59,12 @@ jobs:
     # `WIP:` and `[WIP]` are the instance's draft prefixes: Forgejo 16's
     # default WORK_IN_PROGRESS_PREFIXES, not overridden in app.ini (checked
     # 2026-09-23). If that setting changes, change these checks with it.
+    # Renovate's pull requests are version bumps with nothing for a reviewer
+    # to say, as Dependabot's were on GitHub. Adding `ai-review` to one is a
+    # person's run and gets a review.
     if: >-
       !github.event.pull_request.draft &&
+      github.actor != 'renovate' &&
       !contains(github.event.pull_request.labels.*.name, 'no-ai-review') &&
       (github.event.action != 'labeled' || github.event.label.name == 'ai-review') &&
       (github.event.action != 'edited' ||
