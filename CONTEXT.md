@@ -147,3 +147,15 @@ _Avoid_: prompt library, house rules, system prompt (the whole thing the provide
 **Trust gate**:
 The one-time, per-repository decision that lets a repository's own skills, instructions and hooks load into runs on this environment.
 _Avoid_: allowlist, safe mode, workspace trust
+
+**Bank**:
+A git-backed, self-describing collection of memories (a `BANK.md` manifest naming its kind, purpose, entities, orientation facts and landing) that an environment attaches to accounts and repositories and lands changes to through the forge.
+_Avoid_: memory store, knowledge base, vault (the key manager)
+
+**Orientation facts**:
+The few memories a bank marks as always loaded, regardless of relevance, under a cap the bank respects when authoring: where the key vault is, which forge is primary, which banks exist.
+_Avoid_: pinned (a user's session-time choice), summary, README
+
+**Bank registry**:
+The environment's record of which banks it carries, each with a role, an enabled flag, an account scope, a repository scope and the account's default write target.
+_Avoid_: memory-banks.json, cerebro config, catalogue
