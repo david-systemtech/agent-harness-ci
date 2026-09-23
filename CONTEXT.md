@@ -175,3 +175,11 @@ _Avoid_: dependency, prerequisite, binary
 **Scrub registry**:
 The one list of values the harness has resolved or injected, consulted by transcripts, the event log, tool outputs, logs and renders so none of those values is ever shown or stored; secrets the model handles on its own are not in it.
 _Avoid_: redaction list, filter, mask
+
+**Forge account**:
+An environment's one identity on one forge host (GitHub, Forgejo, Gitea; GitLab later) with its credential source and known scopes; the only thing banks, skill sources, the tracker, pull requests, releases and repository creation authenticate with on that host.
+_Avoid_: token (the credential, not the account), git account, forge connection
+
+**Primary forge**:
+The one forge host a user has marked as the default, flagged on that host's account on every environment: where new repositories are created and the release channel is read unless another forge is named.
+_Avoid_: default remote, main forge, home forge
