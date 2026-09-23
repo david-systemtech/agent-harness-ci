@@ -39,15 +39,16 @@ on:
 # some other label - gets a group of its own, because concurrency applies
 # before that `if` and such a run would otherwise cancel a review on the way.
 #
-# Edits get a group of their own too, and queue in it rather than cancel.
-# Forgejo's `edited` event says nothing about what changed (no `changes` in
-# its payload, measured 2026-09-23), so the `if` cannot tell an edit that
-# takes the pull request out of draft from a description edit: every edit
-# reaches the script, which asks the timeline and leaves all but the first
-# kind alone. A cancelling group would let the next description edit end a
-# leaving-draft review half way, and one title edit can arrive twice.
-# Forgejo evaluates `cancel-in-progress` as an expression (runner v12.13.2,
-# jobparser.EvaluateWorkflowConcurrency).
+# Every edit reaches the job too. Forgejo's `edited` event says nothing
+# about what changed (no `changes` in its payload, measured 2026-09-23), so
+# the `if` cannot tell an edit that takes the pull request out of draft from
+# a description edit; the script asks the timeline and leaves all but the
+# first kind alone. An edit shares the review's group but queues in it rather
+# than cancelling: a description edit waits behind a review that is running
+# instead of ending it, a title edit that arrives twice is answered once, and
+# a label pressed during a leaving-draft review replaces it, as a label always
+# has. Forgejo evaluates `cancel-in-progress` as an expression (runner
+# v12.13.2, jobparser.EvaluateWorkflowConcurrency).
 #
 # Such a run still posts its job as the check's latest status, so after a
 # description edit the review's check reads as a short green run. The comment
@@ -57,7 +58,6 @@ concurrency:
     ai-review-${{ github.event.pull_request.number }}-${{
     github.event.pull_request.draft && 'draft' ||
     (github.event.action == 'labeled' && github.event.label.name != 'ai-review') && 'other-label' ||
-    github.event.action == 'edited' && 'edit' ||
     'review' }}
   cancel-in-progress: ${{ github.event.action != 'edited' }}
 
