@@ -117,5 +117,8 @@ Used by `/wayfinder`. The **map** is a single issue with **child** issues as tic
   works through the public URL unchanged. The web UI does not: it is behind SSO.
 - A `405 "Please try again later"` on a merge means Forgejo is still recomputing
   mergeability after the base moved. Retry with ~3s backoff.
-- This repo is **private**, as are all repos on this instance. Anonymous clones
-  and unauthenticated API reads will 404, not 403.
+- This repo is **private**, as are all repos on this instance. Unauthenticated
+  API reads return **403**, and so does a request for a repo that does not
+  exist — the status cannot tell you which, so do not read a 403 as "wrong
+  token scope". Anonymous git clones prompt for credentials and fail without
+  them. Measured 2026-09-23.
