@@ -47,3 +47,15 @@ _Avoid_: done, completed, closed
 **Snoozed**:
 The state of a session kept out of the active list until a chosen time.
 _Avoid_: muted, hidden
+
+**Client runtime**:
+The UI-free package every client renders from: connections, pairing, subscriptions with their caches and outbox, projections, command dispatch and capability flags. The only place session semantics live on the client side.
+_Avoid_: SDK, store, bridge
+
+**Desktop shell**:
+The small set of things only a desktop app can do for a client (native dialogs, file pickers, the embedded web view, window chrome, notifications), reached through capability flags and never carrying session state.
+_Avoid_: main process, IPC, bridge
+
+**Pane**:
+One view inside a client's window (a conversation, a terminal, files, a diff, the browser dock); which panes are open and how they are laid out is client-local presentation, not organisation state.
+_Avoid_: tab, panel, dock (the region that holds panes; the proper name "browser dock" for the embedded-browser pane is the one exception)
