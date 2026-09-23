@@ -199,3 +199,11 @@ _Avoid_: subfolder, tag, cluster (the harness's proposal, not the result)
 **Pointer**:
 The one way an index, a search result or a read names a place in a bank: bank:path/ for a folder or topic, bank:name for a memory.
 _Avoid_: link, path (alone), reference
+
+**Paired Chrome**:
+A browser that has completed the one-time code pairing with an environment on its own machine and is stored there by name; every client of that environment can choose it for a session.
+_Avoid_: connected browser, extension instance, my Chrome (the picker's label, not the object)
+
+**Browser relay**:
+The path a browser verb takes from the environment running a session to the client that started it, then to that client's local environment and its paired Chrome, and back with the answer.
+_Avoid_: tunnel, bridge (Artemis's word for the desktop listener), proxy
