@@ -31,3 +31,19 @@ _Avoid_: query, task, job
 **Pairing**:
 The one-time act by which a client proves to an environment that it may connect, producing a session credential that the environment can list and revoke.
 _Avoid_: login, token exchange
+
+**Group**:
+A named container of sessions owned by one environment; a session belongs to at most one group. Clients may merge same-named groups from several environments into one heading, which is a view, not state.
+_Avoid_: project (which is the repository being worked in), folder
+
+**Tag**:
+A free-form label a user attaches to a session, stored by the environment; several per session.
+_Avoid_: label
+
+**Settled**:
+The state of a session the user or auto-settle has moved to the settled shelf; unsettling clears it.
+_Avoid_: done, completed, closed
+
+**Snoozed**:
+The state of a session kept out of the active list until a chosen time.
+_Avoid_: muted, hidden
