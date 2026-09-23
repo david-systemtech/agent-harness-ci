@@ -1,0 +1,7 @@
+packages:
+  - packages/*
+
+# esbuild arrives through tsx and ships its binary as an optional dependency,
+# so its install script is not needed.
+ignoredBuiltDependencies:
+  - esbuild
