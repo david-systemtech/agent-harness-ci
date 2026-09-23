@@ -219,3 +219,19 @@ _Avoid_: subprocess, worker, session process
 **Instruction channel**:
 The way an adapter delivers standing instructions and always-on skills to its provider: a system-prompt append for Claude, developerInstructions for Codex, the prompt for a local model.
 _Avoid_: system prompt append (Claude's mechanism only), prompt injection
+
+**Set up**:
+The re-runnable checklist of steps; graphical clients show it as the whole window on first launch and afterwards as the first row of Settings, the terminal UI shows its summary with a pointer; its health is per environment.
+_Avoid_: wizard (fine in prose; the surface's name is Set up), onboarding, installer
+
+**Step**:
+One entry of the checklist: the settings it writes on an environment, the health check that says whether they hold, the settings pane it links to. Optional or skippable, never absent for a feature that has settings.
+_Avoid_: page, screen, stage
+
+**Health check**:
+The test a step runs against an environment to report done, needs attention or skipped; re-running the checklist jumps to the first step that needs attention (done and skipped both pass).
+_Avoid_: validation, status, probe (the account step's local-model scan)
+
+**Step registry**:
+The harness's list of every step with what it writes, checks and links; a feature that adds a setting without an entry fails a contract test.
+_Avoid_: wizard config, step list (the rendered rail)
