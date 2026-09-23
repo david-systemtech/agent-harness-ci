@@ -232,6 +232,10 @@ _Avoid_: page, screen, stage
 The test a step runs against an environment to report done, needs attention or skipped; re-running the checklist jumps to the first step that needs attention (done and skipped both pass).
 _Avoid_: validation, status, probe (the account step's local-model scan)
 
+**Minted session**:
+A session a Set up step creates on the user's behalf, with a workspace that fits its artefact, the picked account, model family and effort, a tag naming the step, and the step's prompt sent as its first message, or held as its draft when no account or model resolves; an ordinary session in every other way.
+_Avoid_: wizard run, setup task, LLM step (the step, not the session)
+
 **Step registry**:
 The harness's list of every step with what it writes, checks and links; a feature that adds a setting without an entry fails a contract test.
 _Avoid_: wizard config, step list (the rendered rail)
