@@ -15,10 +15,13 @@ on:
   push:
     branches: [main]
   pull_request:
-    # Forgejo marks a draft with a "WIP:" title and has no `ready_for_review`:
-    # a draft leaves draft by an `edited` event that changes the title. The
-    # job's `if` lets only that edit through.
-    types: [opened, synchronize, reopened, edited]
+    # Drafts are built too. Forgejo marks a draft with a "WIP:" title and has
+    # no `ready_for_review`, so skipping drafts would mean listening for
+    # `edited` to see one leave draft - and then every edit of a description
+    # would start a run whose job is skipped, which cancels the run in flight
+    # and posts "skipped" over the check's last verdict. The pool is ours and
+    # this job is cheap; building a draft costs nothing that matters.
+    types: [opened, synchronize, reopened]
 
 # A push to a pull request that supersedes an earlier one cancels the old run.
 # Pushes to main queue instead: cancelling one because another merge landed
@@ -30,14 +33,6 @@ concurrency:
 jobs:
   ci:
     runs-on: ci
-    # A draft is unfinished by declaration: it is not built until it leaves
-    # draft. A push to main is always built.
-    if: >-
-      github.event_name != 'pull_request' || (
-        !github.event.pull_request.draft && (
-          github.event.action != 'edited' ||
-          startsWith(github.event.changes.title.from, 'WIP') ||
-          startsWith(github.event.changes.title.from, '[WIP]')))
     timeout-minutes: 10
     steps:
       # Pinned to a commit, not a tag. Forgejo resolves `actions/checkout` to

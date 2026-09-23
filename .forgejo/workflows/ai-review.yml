@@ -35,11 +35,18 @@ on:
     types: [opened, reopened, edited, labeled]
 
 # Two requests for a review must not leave two reviews racing to rewrite one
-# comment. Runs woken by some other label, or by an edit that is not leaving
-# draft, get a group of their own so they cannot cancel a review on the way.
+# comment. Every run the job's `if` will skip - one on a draft, one woken by
+# some other label, one for an edit that is not leaving draft - gets a group
+# of its own, because concurrency applies before that `if` and such a run
+# would otherwise cancel a review on the way.
+#
+# Such a run still posts its skipped job as the check's latest status, so after
+# a description edit the review's check reads "skipped". The comment is what
+# counts, and it is left alone.
 concurrency:
   group: >-
     ai-review-${{ github.event.pull_request.number }}-${{
+    github.event.pull_request.draft && 'draft' ||
     (github.event.action == 'labeled' && github.event.label.name != 'ai-review') && 'other-label' ||
     (github.event.action == 'edited' &&
       !startsWith(github.event.changes.title.from, 'WIP') &&
