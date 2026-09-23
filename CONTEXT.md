@@ -207,3 +207,15 @@ _Avoid_: connected browser, extension instance, my Chrome (the picker's label, n
 **Browser relay**:
 The path a browser verb takes from the environment running a session to the client that started it, then to that client's local environment and its paired Chrome, and back with the answer.
 _Avoid_: tunnel, bridge (Artemis's word for the desktop listener), proxy
+
+**Adapter**:
+The environment's implementation of one provider (Claude, Codex, an OpenAI-compatible server, OpenCode) behind the one contract: capabilities, credentials, runs as an event stream, sessions, usage, models, an instruction channel, tool servers, a permission broker.
+_Avoid_: driver (T3's word), integration, connector
+
+**Provider process**:
+A long-lived process an adapter needs (Claude's per-conversation process, Codex's daemon), started, reused and stopped by the environment; never owned by a run or a client.
+_Avoid_: subprocess, worker, session process
+
+**Instruction channel**:
+The way an adapter delivers standing instructions and always-on skills to its provider: a system-prompt append for Claude, developerInstructions for Codex, the prompt for a local model.
+_Avoid_: system prompt append (Claude's mechanism only), prompt injection
