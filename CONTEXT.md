@@ -159,3 +159,19 @@ _Avoid_: pinned (a user's session-time choice), summary, README
 **Bank registry**:
 The environment's record of which banks it carries, each with a role, an enabled flag, an account scope, a repository scope and the account's default write target.
 _Avoid_: memory-banks.json, cerebro config, catalogue
+
+**Key manager**:
+A secrets service an environment is connected to (OpenBao or Vault, Doppler, 1Password, Bitwarden Secrets Manager) whose credential the environment keeps in its own vault and whose environment block it injects into runs.
+_Avoid_: secret manager, vault (the product; also the environment's local credential store), keychain
+
+**Orientation block**:
+The text the harness renders into every run from live environment state: the environment itself, its key managers and their verified token status, its forges and which is primary, its banks, and the environments the client knows.
+_Avoid_: setup prompt (the wizard's editable prose), system prompt, preamble
+
+**Managed tool**:
+A CLI the harness depends on and tracks per environment: detected on PATH, compared against its latest version, installed or updated by one click in a terminal pane, verified by one command.
+_Avoid_: dependency, prerequisite, binary
+
+**Scrub registry**:
+The one list of values the harness has resolved or injected, consulted by transcripts, the event log, tool outputs, logs and renders so none of those values is ever shown or stored; secrets the model handles on its own are not in it.
+_Avoid_: redaction list, filter, mask

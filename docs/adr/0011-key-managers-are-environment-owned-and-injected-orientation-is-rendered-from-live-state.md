@@ -1,0 +1,21 @@
+---
+status: accepted
+---
+
+# Key managers are environment-owned and injected into runs; orientation is rendered from live state; one scrub registry; managed tools
+
+Decided 2026-09-23 on the map ticket "Decision: key manager as first-class and agent orientation: the model knows where its forge, keys and banks are" (david/agent-harness issue 25). In Artemis the key manager was a desktop-only registry whose only consumer was a memory bank's git credential; the server and the terminal UI had none, nothing was injected into a run, and the model was never told a key manager existed, so sessions began by hunting for the forge and the vault. The harness makes the **key-manager registry environment state**: each environment holds its connections (OpenBao or Vault with userpass, token or AppRole; Doppler; 1Password; Bitwarden Secrets Manager, behind one key-manager provider interface) and keeps each credential in its own vault, a keychain on a desktop or a 0600 file on a headless machine, never on the wire. A run on an environment with a signed-in connection receives the key manager's whitelisted environment block (with explicit empty shadows for stray `VAULT_*` values, which `bao` falls back to, and for Doppler's deprecated `ENCLAVE_*` aliases, which outrank `DOPPLER_*`), so the model reads secrets through the vendor CLI on every model provider that gives it a shell; the harness resolves references for its own needs (forge tokens, bank landing, endpoint keys, skill readiness) through the registry, never through the model. **Orientation** is a block the harness renders into the user instruction layer on every run from live registry state: this environment, its key managers with token status verified at most every fifteen minutes, its forges and which is primary, its banks, and the environments this client knows; bank-owned facts come from bank orientation memories (ADR 0010), and the wizard's generated prompts are editable prose around the block, never the facts. Every value the harness resolves or injects is registered with **one scrub registry** shared by transcripts, the event log, tool outputs, logs and client renders; a secret the model handles on its own (one it is given in chat, or reads with the CLI) is outside the registry, which is why the standing rule sends such keys into the key manager rather than onto disk.
+
+## Considered options
+
+- A wizard-generated standing instruction carrying the facts: rejected; it goes stale when a token or host changes and nobody edits it.
+- A harness `secret_get` tool as the model's read path in milestone 1: deferred; the vendor CLI works on every model provider that gives the model a shell, and a read-only tool for shell-less models can be added later.
+- Requiring a key manager for forge and bank credentials: rejected; the harness prefers a key-manager reference and allows a per-item stored token as the fallback for people who use none (David: never force a key manager).
+
+## Consequences
+
+- Injection is governed by a setting with approve-all or deny-all plus overrides per account, per routine and per bot; the injected token is the connection's read-scoped one; routines and bots reach the vault the same way attended runs do.
+- A failed verification raises a client notice and a wizard health-check failure; the block says "verified 3 min ago" or "expired since …, sign in again".
+- Validation refuses a secret-shaped string in a memory draft or an issue body; injected environment is process-only and never written to disk or the log.
+- The orientation block carries the standing rule: check the key manager before saying you have no key; save a key you are given into the key manager under the project's folder, never into a file; never print a secret.
+- A **Managed tools** registry on each environment covers every CLI the harness calls (`claude`, `codex`, `bao` or `vault`, `doppler`, `op`, `bws`, `gh` where used): detection on PATH, installed against latest version, per-platform install and update commands, a one-click install or update that runs in a terminal pane, and a verify command. Wizard steps, settings, the CLI-updates ticket and the health checks all use it. The user always clicks; silent or forced updates of Claude Code and Codex stay out of scope.
