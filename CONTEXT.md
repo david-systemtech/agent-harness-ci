@@ -17,8 +17,16 @@ A client's saved way to reach one environment: its address plus the client's ses
 _Avoid_: remote, link, pairing (which is the act, not the record)
 
 **Account**:
-A provider login held by an environment, through which runs are billed and authenticated.
+A provider login held by an environment in one config directory of its own, adopted from the machine's provider directory or harness-owned, through which runs are billed and authenticated; labelled uniquely per environment.
 _Avoid_: profile
+
+**Account identity**:
+The provider plus the login an account signed in as, its email and, when present, its organisation; one account per identity per environment, and the same identity on several environments pools plan usage.
+_Avoid_: email (the display field), profile id
+
+**Adopted account**:
+An account whose config directory is the machine's own provider directory, registered in place; never moved, linked or deleted by the harness.
+_Avoid_: carried-over profile, imported account
 
 **Session**:
 One conversation with an agent, owned by exactly one environment.
