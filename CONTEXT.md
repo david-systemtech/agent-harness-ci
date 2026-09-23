@@ -127,3 +127,23 @@ _Avoid_: notification channel, sink, home channel
 **Pre-check**:
 A script or URL a routine runs before each firing; if its output is unchanged since the last firing, the model run is skipped.
 _Avoid_: monitor, probe, guard
+
+**Skill set**:
+The skills an environment offers an account: its tracked skill sources, its own skills directory and the trusted repository's skills, merged in that order into one directory each adapter maps.
+_Avoid_: plugin directory (Claude's delivery mechanism), skills.json, catalogue (the suggestions list)
+
+**Skill source**:
+A git repository and folder the environment tracks for skills, following a branch or pinned to a commit.
+_Avoid_: mirror, skills repo, marketplace
+
+**Readiness**:
+Whether a skill can help right now on this environment: ready, setup needed (with the failing check named) or unsupported, computed by the harness from the checks the skill or its overlay declares.
+_Avoid_: compatibility (the spec's free-text field), prerequisites (the prose)
+
+**Standing instructions**:
+Text appended to every run through the provider's instruction channel, composed on the run's environment from the user, team bank, project and session layers and, for a bot, its persona.
+_Avoid_: prompt library, house rules, system prompt (the whole thing the provider builds)
+
+**Trust gate**:
+The one-time, per-repository decision that lets a repository's own skills, instructions and hooks load into runs on this environment.
+_Avoid_: allowlist, safe mode, workspace trust
