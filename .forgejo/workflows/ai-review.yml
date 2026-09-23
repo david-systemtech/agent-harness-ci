@@ -36,40 +36,45 @@ on:
 
 # Two requests for a review must not leave two reviews racing to rewrite one
 # comment. Every run the job's `if` will skip - one on a draft, one woken by
-# some other label, one for an edit that is not leaving draft - gets a group
-# of its own, because concurrency applies before that `if` and such a run
-# would otherwise cancel a review on the way.
+# some other label - gets a group of its own, because concurrency applies
+# before that `if` and such a run would otherwise cancel a review on the way.
 #
-# Such a run still posts its skipped job as the check's latest status, so after
-# a description edit the review's check reads "skipped". The comment is what
-# counts, and it is left alone.
+# Edits get a group of their own too, and queue in it rather than cancel.
+# Forgejo's `edited` event says nothing about what changed (no `changes` in
+# its payload, measured 2026-09-23), so the `if` cannot tell an edit that
+# takes the pull request out of draft from a description edit: every edit
+# reaches the script, which asks the timeline and leaves all but the first
+# kind alone. A cancelling group would let the next description edit end a
+# leaving-draft review half way, and one title edit can arrive twice.
+# Forgejo evaluates `cancel-in-progress` as an expression (runner v12.13.2,
+# jobparser.EvaluateWorkflowConcurrency).
+#
+# Such a run still posts its job as the check's latest status, so after a
+# description edit the review's check reads as a short green run. The comment
+# is what counts, and it is left alone.
 concurrency:
   group: >-
     ai-review-${{ github.event.pull_request.number }}-${{
     github.event.pull_request.draft && 'draft' ||
     (github.event.action == 'labeled' && github.event.label.name != 'ai-review') && 'other-label' ||
-    (github.event.action == 'edited' &&
-      !startsWith(github.event.changes.title.from, 'WIP') &&
-      !startsWith(github.event.changes.title.from, '[WIP]')) && 'other-edit' ||
+    github.event.action == 'edited' && 'edit' ||
     'review' }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event.action != 'edited' }}
 
 jobs:
   review:
     # `WIP:` and `[WIP]` are the instance's draft prefixes: Forgejo 16's
     # default WORK_IN_PROGRESS_PREFIXES, not overridden in app.ini (checked
-    # 2026-09-23). If that setting changes, change these checks with it.
-    # Renovate's pull requests are version bumps with nothing for a reviewer
-    # to say, as Dependabot's were on GitHub. Adding `ai-review` to one is a
-    # person's run and gets a review.
+    # 2026-09-23). The script's WIP_PREFIXES names them; if that setting
+    # changes, change it with it. An edit is let through here and judged by
+    # the script (see concurrency, above). Renovate's pull requests are
+    # version bumps with nothing for a reviewer to say, as Dependabot's were
+    # on GitHub. Adding `ai-review` to one is a person's run and gets a review.
     if: >-
       !github.event.pull_request.draft &&
       github.actor != 'renovate' &&
       !contains(github.event.pull_request.labels.*.name, 'no-ai-review') &&
-      (github.event.action != 'labeled' || github.event.label.name == 'ai-review') &&
-      (github.event.action != 'edited' ||
-        startsWith(github.event.changes.title.from, 'WIP') ||
-        startsWith(github.event.changes.title.from, '[WIP]'))
+      (github.event.action != 'labeled' || github.event.label.name == 'ai-review')
     runs-on: review
     # A backstop only. The script abandons a review at REVIEW_DEADLINE_S and
     # exits green, and the step has its own timeout under continue-on-error.
