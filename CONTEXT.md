@@ -183,3 +183,19 @@ _Avoid_: token (the credential, not the account), git account, forge connection
 **Primary forge**:
 The one forge host a user has marked as the default, flagged on that host's account on every environment: where new repositories are created and the release channel is read unless another forge is named.
 _Avoid_: default remote, main forge, home forge
+
+**Tier**:
+One of the four layers of the rendered bank index: the bank line, orientation, root breadcrumbs, and an expanded folder index; each capped when written, never cut when read.
+_Avoid_: level (a scope depth), section, budget (the number, not the layer)
+
+**Breadcrumb**:
+An index line that points at a folder or topic rather than a memory: its pointer, its count and its one-liner.
+_Avoid_: crumb (fine in prose, not in the contract), heading, category
+
+**Topic**:
+An authored sub-folder inside a scope folder's memories, declared in the parent's PROJECT.md or SYSTEM.md, used once the folder's index would exceed forty lines.
+_Avoid_: subfolder, tag, cluster (the harness's proposal, not the result)
+
+**Pointer**:
+The one way an index, a search result or a read names a place in a bank: bank:path/ for a folder or topic, bank:name for a memory.
+_Avoid_: link, path (alone), reference
