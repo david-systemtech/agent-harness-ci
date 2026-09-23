@@ -56,6 +56,9 @@ concurrency:
 
 jobs:
   review:
+    # `WIP:` and `[WIP]` are the instance's draft prefixes: Forgejo 16's
+    # default WORK_IN_PROGRESS_PREFIXES, not overridden in app.ini (checked
+    # 2026-09-23). If that setting changes, change these checks with it.
     if: >-
       !github.event.pull_request.draft &&
       !contains(github.event.pull_request.labels.*.name, 'no-ai-review') &&
@@ -142,7 +145,10 @@ jobs:
           url="$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/labels/ai-review"
           for attempt in 1 2 3; do
             code=$(curl -s -o /dev/null -w '%{http_code}' -X DELETE -H "Authorization: token $TOKEN" "$url" || true)
-            # 422 is Forgejo's answer when the label is already off.
+            # Forgejo takes the label's name here as well as its id
+            # (routers/api/v1/repo/issue_label.go; measured 2026-09-23 on
+            # david/ci#1 and david/agent-harness#54, where it came off), and
+            # answers 422 when the label is already off.
             case "$code" in 2??|404|422) exit 0 ;; esac
             sleep $((attempt * 10))
           done
