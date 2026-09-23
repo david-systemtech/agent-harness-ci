@@ -71,3 +71,23 @@ _Avoid_: project, logical project
 **Hand-off**:
 Continuing a session on another environment as a new, linked session seeded with a summary and a workspace for the same repository; the original stays where it is.
 _Avoid_: move, migrate, transfer
+
+**Mode**:
+What an agent may do without asking during a run: one of acceptEdits, plan, auto, bypassPermissions, mapped by each adapter onto its provider.
+_Avoid_: permission level, approval policy, trust level
+
+**Ceiling**:
+The highest mode a connection, and anything created through it, may use; set at pairing, raised only with admin scope.
+_Avoid_: limit, cap, max mode
+
+**Containment**:
+Where a run may reach on its environment, independent of its mode: off, workspace only, or workspace with no network, enforced by the operating system or the container.
+_Avoid_: sandbox (the mechanism, not the setting), jail, isolation
+
+**Denylist**:
+The environment's user-editable list of browser domains, paths, commands and hosts that are never auto-approved in any mode.
+_Avoid_: blocklist, blacklist, guardrails
+
+**Parked prompt**:
+A permission prompt or question a run is waiting on with nobody having answered yet; shown to every client until answered; denied after its TTL unless the TTL is never.
+_Avoid_: pending approval, ask (the Artemis UI word; fine for the "Parked asks" view name)
