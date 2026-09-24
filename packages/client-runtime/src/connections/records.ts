@@ -1,4 +1,5 @@
-import { Ceiling, EnvironmentId, ScopeSet, type ByeReason, type CapabilityFlags, type Scope } from "@agent-harness/contracts";
+import { Ceiling, EnvironmentId, ScopeSet, Timestamp, type ByeReason, type CapabilityFlags, type Scope } from "@agent-harness/contracts";
+import type { ConnectionAction } from "./state-machine.js";
 
 /**
  * The connection record and the client-local documents the registry keeps
@@ -24,13 +25,16 @@ export type BlockedReason = (typeof BLOCKED_REASONS)[number];
 
 /**
  * The specification's connection phases ("The connection state machine and
- * reconnect"). This runtime makes one attempt when asked and reaches:
- * `disabled`; `service-down` (the local environment: no grant, or nothing
- * answers); `starting` and `draining` (from discovery or `bye`); `updating`
- * (from `bye`); `connecting` (discovery read, `auth` sent, awaiting
- * `hello`); `ready`; `blocked`; and `backoff` for a failure that a retry may
- * cure, where no retry is scheduled until the reconnect machine (#126), so
- * it waits for `retryNow`. `syncing` is the subscriptions' (#127).
+ * reconnect"), which the connection state machine (`state-machine.ts`)
+ * moves through: `disabled`; `service-down` (the local environment: no
+ * grant, or nothing answers; retried on the ladder, and offering
+ * `service.start`); `starting` (discovery says so; polled every two seconds);
+ * `draining` and `updating` (from `bye`, or discovery saying draining; polled
+ * on the ladder until discovery says ready); `connecting` (discovery read,
+ * then `auth` sent and `hello` awaited); `ready` (the socket and `hello` are
+ * good, nothing more); `backoff` (a failure a retry may cure, with
+ * `retryAt`, or parked while offline); and `blocked`. `syncing` is the
+ * subscriptions' (#127).
  */
 export type ConnectionPhase =
   | "disabled"
@@ -67,6 +71,8 @@ export interface SavedConnection {
   readonly ceiling: Ceiling | null;
   readonly descriptor: EnvironmentDescriptor;
   readonly blocked: BlockedReason | null;
+  /** When the client session's token expires, from the exchange that made it or the last refresh; null when not known. */
+  readonly expiresAt: string | null;
 }
 
 /** A connection as `connections.list` shows it. */
@@ -76,6 +82,14 @@ export interface ConnectionRecord extends SavedConnection {
   readonly phase: ConnectionPhase;
   /** The reason of the last `bye` the environment said on this connection, until the next `hello`. */
   readonly bye: ByeReason | null;
+  /** When the next attempt is due (`backoff`, and the polls of `starting`, `draining`, `updating` and `service-down`); null when none is scheduled, as while offline. */
+  readonly retryAt: string | null;
+  /** Since when the environment has not been reached: the first failure after `ready`, or the start when there is cached data. Null once ready. */
+  readonly unreachableSince: string | null;
+  /** Why the last token refresh failed, until one succeeds; the socket stays up either way. */
+  readonly refreshFailed: string | null;
+  /** What David can do about where the connection is: start the local service, re-pair, or update one side. */
+  readonly action: ConnectionAction | null;
 }
 
 /**
@@ -156,6 +170,7 @@ export const readPairedConnections = (stored: unknown): Map<string, SavedConnect
     const scopes = ScopeSet.safeParse(entry["scopes"]);
     const ceiling = Ceiling.safeParse(entry["ceiling"]);
     const blocked = entry["blocked"];
+    const expiresAt = Timestamp.safeParse(entry["expiresAt"]);
     out.set(id, {
       address: entry["address"],
       kind: "paired",
@@ -164,6 +179,7 @@ export const readPairedConnections = (stored: unknown): Map<string, SavedConnect
       ceiling: ceiling.success ? ceiling.data : null,
       descriptor,
       blocked: (BLOCKED_REASONS as readonly unknown[]).includes(blocked) ? (blocked as BlockedReason) : null,
+      expiresAt: expiresAt.success ? expiresAt.data : null,
     });
   }
   return out;
@@ -176,7 +192,15 @@ export const writePairedConnections = (saved: Iterable<[string, SavedConnection]
       .filter(([, connection]) => connection.kind === "paired")
       .map(([id, c]) => [
         id,
-        { address: c.address, clientSessionId: c.clientSessionId, scopes: c.scopes, ceiling: c.ceiling, descriptor: c.descriptor, blocked: c.blocked },
+        {
+          address: c.address,
+          clientSessionId: c.clientSessionId,
+          scopes: c.scopes,
+          ceiling: c.ceiling,
+          descriptor: c.descriptor,
+          blocked: c.blocked,
+          expiresAt: c.expiresAt,
+        },
       ]),
   );
 

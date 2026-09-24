@@ -1,4 +1,4 @@
-import { DISCOVERY_PATH, DiscoveryDocument, PRODUCT_NAME } from "@agent-harness/contracts";
+import { DISCOVERY_PATH, DiscoveryDocument, PRODUCT_NAME, type HelloFrame } from "@agent-harness/contracts";
 import type { HttpFetch } from "./platform.js";
 
 /** What reading an environment's discovery document came to. */
@@ -68,4 +68,16 @@ export const checkDiscovery = (
     };
   }
   return { ok: true };
+};
+
+/** Whether a `hello` may be used for `environmentId`: it names that environment, and speaks the client's protocol. */
+export const admitHello = (
+  hello: HelloFrame,
+  environmentId: string,
+  protocolVersion: number,
+): { readonly reason: "different-environment" | ProtocolRefusal; readonly message: string } | undefined => {
+  if (hello.environmentId !== environmentId) {
+    return { reason: "different-environment", message: `The environment that answered is ${hello.environmentName}, not the one its address named.` };
+  }
+  return compareProtocol(hello.protocolVersion, protocolVersion);
 };

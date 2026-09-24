@@ -4,9 +4,11 @@ import { describe, expect, it } from "vitest";
 import { HARNESS_VERSION } from "../../environment/src/serve/start.js";
 import { failingFetch, originOf, recordingWebSocket, rewritingWebSocket, until, useHarness } from "../test/harness.js";
 import type { Runtime } from "./runtime.js";
-import { inMemoryPlatform } from "./testing/in-memory-platform.js";
+import { inMemoryPlatform, manualClock } from "./testing/in-memory-platform.js";
 
 const harness = useHarness();
+
+const DAY = 24 * 60 * 60 * 1000;
 
 const only = (runtime: Runtime) => {
   const [record, ...rest] = runtime.connections.list.read();
@@ -66,7 +68,8 @@ describe("hello", () => {
     impostor = true;
     await runtime.connections.retryNow(t.env.id);
 
-    expect(only(runtime)).toEqual({ ...cached, phase: "blocked", blocked: "different-environment" });
+    // A block is a failure after ready: the environment is unreachable from then.
+    expect(only(runtime)).toEqual({ ...cached, phase: "blocked", blocked: "different-environment", unreachableSince: platform.clock.now().toISOString() });
     await until(() => t.env.sockets() === 0, "the blocked socket to close");
 
     impostor = false;
@@ -89,6 +92,41 @@ describe("hello", () => {
   });
 });
 
+describe("token refresh", () => {
+  it("refreshes on connect through access.sessions.refresh when fewer than seven days remain, and keeps the new token", async () => {
+    const t = await harness.environment();
+    const platform = inMemoryPlatform();
+    const runtime = harness.runtime(platform);
+    await runtime.start();
+    await runtime.connections.add({ link: (await t.createPairing()).link });
+    const { clientSessionId, expiresAt } = only(runtime);
+    expect(Date.parse(expiresAt ?? "") - platform.clock.now().getTime()).toBe(30 * DAY);
+    const before = await platform.secrets.get(t.env.id);
+    await runtime.close();
+
+    // 24 days on, with no socket open: six days are left.
+    t.clock.advance(24 * DAY);
+    const later = inMemoryPlatform({ clock: manualClock(t.clock.now()), documents: platform.documents, secrets: platform.secrets });
+    const again = harness.runtime(later);
+    await again.start();
+
+    const renewed = only(again);
+    expect(renewed).toMatchObject({ phase: "ready", clientSessionId, refreshFailed: null });
+    expect(Date.parse(renewed.expiresAt ?? "") - t.clock.now().getTime()).toBe(30 * DAY);
+    const token = await platform.secrets.get(t.env.id);
+    expect(token).not.toBe(before);
+    const admin = await t.client();
+    const { sessions } = await admin.apply("access.sessions.list", {});
+    expect(sessions.find((s) => s.id === clientSessionId)?.expiresAt).toBe(renewed.expiresAt);
+
+    // The new token is the one the next connect sends.
+    await again.close();
+    const third = harness.runtime(inMemoryPlatform({ clock: manualClock(t.clock.now()), documents: platform.documents, secrets: platform.secrets }));
+    await third.start();
+    expect(only(third).phase).toBe("ready");
+  });
+});
+
 describe("the in-process connections API", () => {
   it("reconnects on an address edit", async () => {
     const t = await harness.environment();
@@ -107,14 +145,21 @@ describe("the in-process connections API", () => {
   it("blocks an address edit that reaches another environment, sends it no token, and keeps the old cache", async () => {
     const a = await harness.environment({ name: "desk" });
     const b = await harness.environment({ name: "laptop" });
-    const runtime = harness.runtime(inMemoryPlatform());
+    const platform = inMemoryPlatform();
+    const runtime = harness.runtime(platform);
     await runtime.start();
     await runtime.connections.add({ link: (await a.createPairing()).link });
     const cached = only(runtime);
 
     await runtime.connections.setAddress(a.env.id, originOf(b.address));
 
-    expect(only(runtime)).toEqual({ ...cached, address: originOf(b.address), phase: "blocked", blocked: "different-environment" });
+    expect(only(runtime)).toEqual({
+      ...cached,
+      address: originOf(b.address),
+      phase: "blocked",
+      blocked: "different-environment",
+      unreachableSince: platform.clock.now().toISOString(),
+    });
     expect(b.env.sockets()).toBe(0);
 
     await runtime.connections.setAddress(a.env.id, originOf(a.address));

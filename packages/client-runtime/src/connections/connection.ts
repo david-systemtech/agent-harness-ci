@@ -5,9 +5,10 @@ import { wireUrl } from "./address.js";
 
 /**
  * One socket to one environment: opened, authenticated with `auth`, and
- * answered with `hello`. This runtime makes one attempt; the reconnect
- * machine (#126) owns retries, the establishment timeout, the watchdog and
- * what each `bye` means, and reads `closed` and `onFrame` to do it.
+ * answered with `hello`. The connection state machine (`state-machine.ts`,
+ * run by `runner.ts`) owns retries, the establishment timeout, the watchdog,
+ * the `pong` replies and what each `bye` means, and reads `closed` and
+ * `onFrame` to do it.
  */
 
 /** How a socket closed: the WebSocket close code and reason, and the environment's `bye` before it, if it said one. */
@@ -33,7 +34,9 @@ export interface LiveSocket {
   readonly hello: HelloFrame;
   /** Sends a `request` and settles with its `response`; rejects with `SocketClosedError` if the socket closes first. */
   request(method: string, params: Record<string, unknown>): Promise<ResponseFrame>;
-  /** Hears every frame after `hello`, pings and responses included: the seam subscriptions (#127) and the watchdog (#126) attach to. */
+  /** Sends a frame as it is: the machine's `pong`. */
+  send(frame: Frame): void;
+  /** Hears every frame after `hello`, pings and responses included: the seam subscriptions (#127) and the watchdog attach to. */
   onFrame(listener: (frame: Frame) => void): () => void;
   /** Settles once, when the socket has closed, whichever side closed it. */
   readonly closed: Promise<SocketClosed>;
@@ -51,11 +54,21 @@ export interface AuthenticateOptions {
   readonly protocolVersion: number;
 }
 
+/** A socket being opened: its `hello` or its close, and a way to abandon it, which closes the socket. */
+export interface Dialing {
+  readonly answer: Promise<Authentication>;
+  abort(): void;
+}
+
 /** A normal close, from this side. */
 const CLOSE_NORMAL = 1000;
 
-export const authenticate = (options: AuthenticateOptions): Promise<Authentication> =>
-  new Promise((resolve) => {
+/** Opens a socket, sends `auth` once it opens, and answers with its `hello` or how it closed. */
+export const authenticate = (options: AuthenticateOptions): Promise<Authentication> => dial(options).answer;
+
+export const dial = (options: AuthenticateOptions): Dialing => {
+  let abort: () => void = () => undefined;
+  const answer = new Promise<Authentication>((resolve) => {
     let hello: HelloFrame | undefined;
     let bye: ByeFrame | undefined;
     let settled = false;
@@ -82,6 +95,7 @@ export const authenticate = (options: AuthenticateOptions): Promise<Authenticati
           socket.send(encodeFrame({ type: "request", id, method, params }));
         });
       },
+      send: (frame) => socket.send(encodeFrame(frame)),
       onFrame(listener) {
         listeners.add(listener);
         return () => void listeners.delete(listener);
@@ -97,7 +111,6 @@ export const authenticate = (options: AuthenticateOptions): Promise<Authenticati
         hello = frame;
         return settle({ ok: true, socket: live() });
       }
-      if (frame.type === "ping") socket.send(encodeFrame({ type: "pong" }));
       if (frame.type === "response") {
         const waiting = pending.get(frame.id);
         pending.delete(frame.id);
@@ -136,4 +149,7 @@ export const authenticate = (options: AuthenticateOptions): Promise<Authenticati
         settle({ ok: false, closed: how });
       },
     });
+    abort = () => socket.close(CLOSE_NORMAL);
   });
+  return { answer, abort: () => abort() };
+};

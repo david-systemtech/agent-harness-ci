@@ -1,7 +1,8 @@
-import type { DiscoveryDocument, Frame, HelloFrame, ResponseFrame } from "@agent-harness/contracts";
-import { exchangeGrant, readsGrant, type GrantExchange, type LocalFailureReason, type LocalStatus } from "../bootstrap.js";
-import { checkDiscovery, compareProtocol, readDiscovery, type ProtocolRefusal } from "../discovery.js";
+import { ClientSessionCredential, commandResponse, type DiscoveryDocument, type Frame, type ResponseFrame } from "@agent-harness/contracts";
+import { exchangeGrant, readsGrant, type GrantExchange, type LocalStatus } from "../bootstrap.js";
+import { admitHello, checkDiscovery, readDiscovery } from "../discovery.js";
 import { uuidv7 } from "../ids.js";
+import type { Notices } from "../notices.js";
 import { notifyAll, writable, type Observable } from "../observable.js";
 import {
   discoveryFailure,
@@ -14,7 +15,7 @@ import {
 } from "../pairing.js";
 import type { Platform, Timer } from "../platform.js";
 import { parseAddress } from "./address.js";
-import { SocketClosedError, authenticate, type LiveSocket, type SocketClosed } from "./connection.js";
+import { SocketClosedError, authenticate, dial, type LiveSocket, type SocketClosed } from "./connection.js";
 import {
   LOCAL_ENVIRONMENT_DOCUMENT,
   NO_PREFERENCES,
@@ -25,20 +26,22 @@ import {
   readPreferences,
   readRememberedLocal,
   writePairedConnections,
-  type BlockedReason,
   type ClientPreferences,
-  type ConnectionPhase,
   type ConnectionRecord,
   type EnvironmentDescriptor,
   type SavedConnection,
 } from "./records.js";
+import { createRunner, type Runner, type RunnerHost } from "./runner.js";
+import { actionOf, initialMachine, type DiscoveryAnswer, type RefreshOutcome } from "./state-machine.js";
 
 /**
  * The connection registry (docs/specs/client-runtime.md, "The connection
  * registry"): every connection by environment id, the client-local
- * preferences, and the in-process `connections.*` API. Each connection
- * makes one attempt when asked (start, add, an address edit, enable,
- * `retryNow`); the reconnect machine (#126) will own retries.
+ * preferences, and the in-process `connections.*` API. Each connection has
+ * one runner of the connection state machine (`runner.ts`,
+ * `state-machine.ts`), which owns its socket and its retries; the registry
+ * is the runner's host: discovery and the grant exchange, the token, the
+ * record, the notices.
  */
 
 /** What removing a connection did about its client session on the environment. */
@@ -67,15 +70,33 @@ export interface Connections {
    * token, the record and what hangs off it. Says whether the revoke happened.
    */
   remove(environmentId: string): Promise<RemoveResult>;
-  /** Makes the connection's attempt again now: the local grant exchange if it is due, discovery, `auth`, `hello`. */
+  /**
+   * Makes the connection's attempt again now, whatever its phase but
+   * `disabled`: the local grant exchange if it is due, discovery, `auth`,
+   * `hello`. A block is re-checked against discovery. Settles once the
+   * attempt has.
+   */
   retryNow(environmentId: string): Promise<void>;
+  /**
+   * The `service.start` action: starts the local environment's service
+   * through the platform shell's `service.start`, then reconnects. Rejects
+   * when the connection is not the local one, or the platform has no shell
+   * `service` (the terminal UI runs the CLI's `service start` itself, then
+   * `retryNow`).
+   */
+  startService(environmentId: string): Promise<void>;
 }
 
-/** Where the rest of the runtime attaches to connections: #126's machine, #127's subscriptions, #128's outbox. Internal: never on `Runtime`. */
+/** Where the rest of the runtime attaches to connections: #127's subscriptions, #128's outbox. Internal: never on `Runtime`. */
 export interface ConnectionSeams {
   /** Every frame after `hello` on any connection, with its environment. */
   onFrame(listener: (environmentId: string, frame: Frame) => void): () => void;
-  /** A ready socket closed without this runtime closing it. */
+  /**
+   * A ready socket is gone for a reason this runtime did not choose: the
+   * environment or the network closed it, or the watchdog or a failed probe
+   * gave it up as dead. Not heard for `retryNow`, an address edit, disabling,
+   * removing or closing.
+   */
   onClose(listener: (environmentId: string, closed: SocketClosed) => void): () => void;
   /** An environment was removed: drop its caches, cursors and outbox. Awaited before `remove` settles. */
   onForget(listener: (environmentId: string) => void | Promise<void>): () => void;
@@ -85,11 +106,12 @@ export interface ConnectionSeams {
 
 export interface Registry extends Connections {
   readonly preferences: Observable<ClientPreferences>;
+  readonly notices: Notices;
   readonly local: Observable<LocalStatus>;
   readonly seams: ConnectionSeams;
   /** One connection's record. */
   record(environmentId: string): ConnectionRecord | undefined;
-  /** Reads the saved connections and preferences, exchanges the local grant, and makes one attempt on every enabled connection. */
+  /** Reads the saved connections and preferences, exchanges the local grant, and starts every connection's machine; settles once each first attempt has. */
   start(): Promise<void>;
   close(): void;
 }
@@ -99,11 +121,8 @@ export const REVOKE_TIMEOUT_MS = 10_000;
 
 interface Entry {
   saved: SavedConnection;
-  phase: ConnectionPhase;
-  bye: ConnectionRecord["bye"];
-  socket: LiveSocket | undefined;
-  /** Bumped by every attempt and every close this runtime makes, so a stale attempt's outcome is dropped. */
-  attempt: number;
+  /** The connection's state machine and the one owner of its socket, timers and retries. */
+  readonly runner: Runner;
   /** A local connection's token, held in memory only: it lives as long as the record, which is never saved. */
   token: string | undefined;
 }
@@ -118,53 +137,10 @@ const fromDiscovery = (descriptor: EnvironmentDescriptor, document: DiscoveryDoc
   capabilities: [...document.capabilities],
 });
 
-/** Whether a `hello` may be used for `environmentId`: it names that environment, and speaks the client's protocol. */
-const admitHello = (
-  hello: HelloFrame,
-  environmentId: string,
-  protocolVersion: number,
-): { readonly reason: "different-environment" | ProtocolRefusal; readonly message: string } | undefined => {
-  if (hello.environmentId !== environmentId) {
-    return { reason: "different-environment", message: `The environment that answered is ${hello.environmentName}, not the one its address named.` };
-  }
-  return compareProtocol(hello.protocolVersion, protocolVersion);
-};
+const iso = (ms: number | null) => (ms === null ? null : new Date(ms).toISOString());
 
-/** Where a close leaves a connection, by the `bye` before it (the spec's "`bye` reasons"); clearing the token and the notice are #126's. */
-const afterClose = (closed: SocketClosed, protocolVersion: number): { phase: ConnectionPhase; blocked?: BlockedReason } => {
-  switch (closed.bye?.reason) {
-    case "revoked":
-    case "unauthorized":
-      return { phase: "blocked", blocked: "revoked" };
-    case "expired":
-      return { phase: "blocked", blocked: "expired" };
-    case "protocol": {
-      const theirs = closed.bye.protocolVersion;
-      return { phase: "blocked", blocked: (theirs === undefined ? undefined : compareProtocol(theirs, protocolVersion)?.reason) ?? "protocol-mismatch" };
-    }
-    case "draining":
-      return { phase: "draining" };
-    case "updating":
-      return { phase: "updating" };
-    case undefined:
-      return { phase: "backoff" };
-  }
-};
-
-/** Where a failed local grant exchange leaves the local connection. */
-const afterLocalFailure = (reason: LocalFailureReason): { phase: ConnectionPhase; blocked?: BlockedReason } => {
-  switch (reason) {
-    case "service-down":
-    case "starting":
-    case "draining":
-      return { phase: reason };
-    case "unsupported-client":
-    case "protocol-mismatch":
-      return { phase: "blocked", blocked: reason };
-    case "refused":
-      return { phase: "backoff" };
-  }
-};
+/** A refresh's response: the receipt, and the fresh credential when the refresh applied. */
+const RefreshResponse = commandResponse(ClientSessionCredential);
 
 /** Whether a revoke's response says the client session is revoked: accepted, or rejected as unknown. */
 const revokedBy = (response: ResponseFrame): boolean => {
@@ -172,7 +148,7 @@ const revokedBy = (response: ResponseFrame): boolean => {
   return receipt?.status === "accepted" || (receipt?.status === "rejected" && receipt.reason === "not_found");
 };
 
-export const createRegistry = (platform: Platform, protocolVersion: number): Registry => {
+export const createRegistry = (platform: Platform, protocolVersion: number, notices: Notices): Registry => {
   const entries = new Map<string, Entry>();
   const prefs = writable<ClientPreferences>(NO_PREFERENCES);
   const list = writable<readonly ConnectionRecord[]>([]);
@@ -181,18 +157,27 @@ export const createRegistry = (platform: Platform, protocolVersion: number): Reg
   const closeListeners = new Set<(environmentId: string, closed: SocketClosed) => void>();
   const forgetListeners = new Set<(environmentId: string) => void | Promise<void>>();
   let closed = false;
+  let stopNetwork: (() => void) | undefined;
   // Writes go one after another, so an older write never lands over a newer one.
   let writes: Promise<void> = Promise.resolve();
 
   const isEnabled = (environmentId: string) => prefs.read()["environments.enabled"][environmentId] !== false;
 
-  const toRecord = (environmentId: string, entry: Entry): ConnectionRecord => ({
-    environmentId,
-    ...entry.saved,
-    enabled: isEnabled(environmentId),
-    phase: entry.phase,
-    bye: entry.bye,
-  });
+  const toRecord = (environmentId: string, entry: Entry): ConnectionRecord => {
+    const machine = entry.runner.state;
+    return {
+      environmentId,
+      ...entry.saved,
+      blocked: machine.blocked,
+      enabled: isEnabled(environmentId),
+      phase: machine.phase,
+      bye: machine.bye,
+      retryAt: iso(machine.retryAt),
+      unreachableSince: iso(machine.unreachableSince),
+      refreshFailed: machine.refreshFailed,
+      action: actionOf(machine),
+    };
+  };
 
   /** The known connections in the saved sequence; any the sequence does not name follow, in the order they became known. */
   const publish = () => {
@@ -239,65 +224,14 @@ export const createRegistry = (platform: Platform, protocolVersion: number): Reg
     await setPreferences((p) => ({ ...p, "environments.sequence": at === "first" ? [environmentId, ...sequence] : [...sequence, environmentId] }));
   };
 
-  const update = (environmentId: string, entry: Entry, change: Partial<Entry>) => {
-    Object.assign(entry, change);
-    if (entries.get(environmentId) === entry) publish();
-  };
-
-  const updateSaved = async (environmentId: string, entry: Entry, change: Partial<SavedConnection>, phase?: ConnectionPhase) => {
-    update(environmentId, entry, { saved: { ...entry.saved, ...change }, ...(phase !== undefined && { phase }) });
+  const updateSaved = async (environmentId: string, entry: Entry, change: Partial<SavedConnection>) => {
+    entry.saved = { ...entry.saved, ...change };
     if (entries.get(environmentId) !== entry) return;
+    publish();
     await (entry.saved.kind === "paired" ? savePaired() : rememberLocal(environmentId, entry.saved));
   };
 
-  /** Closes the socket this runtime holds, as this runtime's own close: no `onClose` is heard for it. */
-  const drop = (entry: Entry) => {
-    entry.attempt++;
-    const socket = entry.socket;
-    entry.socket = undefined;
-    socket?.close();
-  };
-
-  const settle = (environmentId: string, entry: Entry, outcome: { phase: ConnectionPhase; blocked?: BlockedReason }) =>
-    outcome.blocked === undefined
-      ? update(environmentId, entry, { phase: outcome.phase })
-      : updateSaved(environmentId, entry, { blocked: outcome.blocked }, "blocked");
-
-  const tokenOf = async (environmentId: string, entry: Entry) =>
-    entry.saved.kind === "local" ? entry.token : platform.secrets.get(environmentId);
-
-  /** Takes a socket `hello` was said and admitted on: the record is filled from it and the seams hear it. */
-  const attach = async (environmentId: string, entry: Entry, socket: LiveSocket, document: DiscoveryDocument) => {
-    const { hello } = socket;
-    entry.socket = socket;
-    socket.onFrame((frame) => notifyAll(frameListeners, environmentId, frame));
-    void socket.closed.then((how) => {
-      if (entry.socket !== socket) return;
-      entry.socket = undefined;
-      entry.bye = how.bye?.reason ?? null;
-      void settle(environmentId, entry, afterClose(how, protocolVersion));
-      notifyAll(closeListeners, environmentId, how);
-    });
-    entry.bye = null;
-    await updateSaved(
-      environmentId,
-      entry,
-      {
-        clientSessionId: hello.clientSessionId,
-        scopes: [...hello.scopes],
-        ceiling: hello.ceiling,
-        blocked: null,
-        descriptor: {
-          ...fromDiscovery(entry.saved.descriptor, document),
-          name: hello.environmentName,
-          protocolVersion: hello.protocolVersion,
-          capabilities: [...hello.capabilities],
-          lastSeen: platform.clock.now().toISOString(),
-        },
-      },
-      "ready",
-    );
-  };
+  const isCurrent = (environmentId: string, entry: Entry) => entries.get(environmentId) === entry && !closed;
 
   /**
    * Revokes `clientSessionId` with `token`, over `socket` when one is given,
@@ -340,20 +274,19 @@ export const createRegistry = (platform: Platform, protocolVersion: number): Reg
     }
   };
 
-  /** Exchanges the local grant for this entry: its token and client session, or where the failure leaves it. */
-  const exchangeLocal = async (environmentId: string, entry: Entry, current: () => boolean): Promise<boolean> => {
+  /** Exchanges the local grant for this entry: its token and client session kept, or what the failure was. */
+  const exchangeLocal = async (environmentId: string, entry: Entry): Promise<DiscoveryAnswer> => {
     const exchange = await exchangeGrant({ fetch: platform.fetch, grant: platform.grant, client: platform.client, protocolVersion });
-    if (!current()) return false;
+    if (!isCurrent(environmentId, entry)) return { kind: "unreachable", message: "The connection was forgotten." };
     if (!exchange.ok) {
       local.set(exchange.status);
-      if (exchange.status.state === "failed") await settle(environmentId, entry, afterLocalFailure(exchange.status.reason));
-      return false;
+      const status = exchange.status;
+      return status.state === "failed"
+        ? { kind: "grant-failed", reason: status.reason, message: status.message }
+        : { kind: "grant-failed", reason: "service-down", message: "This client reads no grant." };
     }
-    if (exchange.discovery.environmentId !== environmentId) {
-      // The grant is now another environment's: the next start takes that one as the local environment.
-      await settle(environmentId, entry, { phase: "blocked", blocked: "different-environment" });
-      return false;
-    }
+    // A grant that is now another environment's: discovery's check blocks it `different-environment`, and the next start takes that one as the local environment.
+    if (exchange.discovery.environmentId !== environmentId) return { kind: "document", document: exchange.discovery };
     entry.token = exchange.credential.token;
     local.set({ state: "exchanged", environmentId });
     await updateSaved(environmentId, entry, {
@@ -361,68 +294,114 @@ export const createRegistry = (platform: Platform, protocolVersion: number): Reg
       clientSessionId: exchange.credential.clientSessionId,
       scopes: [...exchange.credential.scopes],
       ceiling: exchange.credential.ceiling,
+      expiresAt: exchange.credential.expiresAt,
     });
-    return true;
+    return { kind: "document", document: exchange.discovery };
   };
 
-  /**
-   * One attempt: for a local connection without a token, the grant exchange
-   * first; then discovery at the record's address, checked for readiness,
-   * protocol and the environment's id before any token is sent; then `auth`;
-   * then `hello`, checked for the id and protocol again, which fills the record.
-   */
-  const connect = async (environmentId: string): Promise<void> => {
-    const entry = entryOf(environmentId);
-    drop(entry);
-    if (closed) return;
-    if (!isEnabled(environmentId)) return update(environmentId, entry, { phase: "disabled" });
-    const attempt = entry.attempt;
-    const current = () => entry.attempt === attempt && entries.get(environmentId) === entry && !closed;
-    update(environmentId, entry, { phase: "connecting" });
-
-    if (entry.saved.kind === "local" && entry.token === undefined && !(await exchangeLocal(environmentId, entry, current))) return;
-    if (!current()) return;
-    const discovery = await readDiscovery(platform.fetch, entry.saved.address);
-    if (!current()) return;
-    if (!discovery.ok) return update(environmentId, entry, { phase: entry.saved.kind === "local" ? "service-down" : "backoff" });
-    const document = discovery.document;
-    const check = checkDiscovery(document, { protocolVersion, environmentId });
-    if (!check.ok) {
-      if (check.reason === "starting" || check.reason === "draining") {
-        return updateSaved(environmentId, entry, { blocked: null, descriptor: fromDiscovery(entry.saved.descriptor, document) }, check.reason);
-      }
-      return settle(environmentId, entry, { phase: "blocked", blocked: check.reason });
+  /** Keeps a refreshed token where this connection's token lives, and its expiry on the record. */
+  const refreshOver = async (environmentId: string, entry: Entry, socket: LiveSocket): Promise<RefreshOutcome | undefined> => {
+    let response: ResponseFrame;
+    try {
+      response = await socket.request("access.sessions.refresh", { commandId: uuidv7(platform.clock.now()) });
+    } catch (error) {
+      // The socket closed first: the machine hears of the close, and the refresh is tried on the next connect.
+      if (error instanceof SocketClosedError) return undefined;
+      return { ok: false, message: error instanceof Error ? error.message : String(error) };
     }
-    const token = await tokenOf(environmentId, entry);
-    if (!current()) return;
-    // A connection with no token has no client session to use: it is paired again, as a revoked one is.
-    if (token === undefined) return settle(environmentId, entry, { phase: "blocked", blocked: "revoked" });
-
-    const answer = await authenticate({ webSocket: platform.webSocket, origin: entry.saved.address, token, client: platform.client, protocolVersion });
-    if (!current()) {
-      if (answer.ok) answer.socket.close();
-      return;
-    }
-    if (!answer.ok) {
-      entry.bye = answer.closed.bye?.reason ?? null;
-      return settle(environmentId, entry, afterClose(answer.closed, protocolVersion));
-    }
-    const refusal = admitHello(answer.socket.hello, environmentId, protocolVersion);
-    if (refusal) {
-      answer.socket.close();
-      return settle(environmentId, entry, { phase: "blocked", blocked: refusal.reason });
-    }
-    await attach(environmentId, entry, answer.socket, document);
+    if (response.error) return { ok: false, message: response.error.message };
+    const answer = RefreshResponse.safeParse(response.result);
+    if (!answer.success) return { ok: false, message: "The environment's answer to access.sessions.refresh is not a credential." };
+    const { receipt, result } = answer.data;
+    if (receipt.status === "rejected") return { ok: false, message: receipt.error.message };
+    // A retry answered from its receipt carries no credential; this runtime never retries one, so it is a fault.
+    if (!result) return { ok: false, message: "The environment accepted the refresh but sent no credential." };
+    if (!isCurrent(environmentId, entry)) return undefined;
+    if (entry.saved.kind === "local") entry.token = result.token;
+    else await platform.secrets.set(environmentId, result.token);
+    await updateSaved(environmentId, entry, { expiresAt: result.expiresAt });
+    return { ok: true, expiresAt: Date.parse(result.expiresAt) };
   };
 
-  const newEntry = (saved: SavedConnection, token?: string): Entry => ({
-    saved,
-    phase: "disabled",
-    bye: null,
-    socket: undefined,
-    attempt: 0,
-    token,
+  /** What the runner of `entry` needs of the registry. */
+  const hostFor = (environmentId: string, entry: () => Entry): RunnerHost => ({
+    clock: platform.clock,
+    random: platform.random ?? Math.random,
+    async discover() {
+      const e = entry();
+      if (e.saved.kind === "local" && e.token === undefined) return exchangeLocal(environmentId, e);
+      const read = await readDiscovery(platform.fetch, e.saved.address);
+      return read.ok ? { kind: "document", document: read.document } : { kind: "unreachable", message: read.message };
+    },
+    token: async () => {
+      const e = entry();
+      return e.saved.kind === "local" ? e.token : platform.secrets.get(environmentId);
+    },
+    expiresAt: () => {
+      const at = entry().saved.expiresAt;
+      return at === null ? null : Date.parse(at);
+    },
+    dial: (token) => dial({ webSocket: platform.webSocket, origin: entry().saved.address, token, client: platform.client, protocolVersion }),
+    async attach(socket, document) {
+      const e = entry();
+      const { hello } = socket;
+      socket.onFrame((frame) => notifyAll(frameListeners, environmentId, frame));
+      const descriptor = document ? fromDiscovery(e.saved.descriptor, document) : e.saved.descriptor;
+      await updateSaved(environmentId, e, {
+        clientSessionId: hello.clientSessionId,
+        scopes: [...hello.scopes],
+        ceiling: hello.ceiling,
+        blocked: null,
+        descriptor: {
+          ...descriptor,
+          name: hello.environmentName,
+          protocolVersion: hello.protocolVersion,
+          capabilities: [...hello.capabilities],
+          lastSeen: platform.clock.now().toISOString(),
+        },
+      });
+    },
+    describe: (document) => updateSaved(environmentId, entry(), { descriptor: fromDiscovery(entry().saved.descriptor, document) }),
+    async clearToken() {
+      const e = entry();
+      if (e.saved.kind === "local") e.token = undefined;
+      else if (isCurrent(environmentId, e)) await platform.secrets.delete(environmentId);
+    },
+    refresh: (socket) => refreshOver(environmentId, entry(), socket),
+    notice: (draft) => {
+      if (isCurrent(environmentId, entry())) notices.raise(environmentId, draft);
+    },
+    changed(next, previous) {
+      const e = entry();
+      if (!isCurrent(environmentId, e)) return;
+      if (next.blocked !== previous.blocked) return updateSaved(environmentId, e, { blocked: next.blocked });
+      publish();
+    },
+    lost: (how) => notifyAll(closeListeners, environmentId, how),
   });
+
+  const newEntry = (environmentId: string, saved: SavedConnection, token?: string): Entry => {
+    const machine = initialMachine({
+      environmentId,
+      protocolVersion,
+      kind: saved.kind,
+      name: saved.descriptor.name,
+      blocked: saved.blocked,
+      capabilities: saved.descriptor.capabilities,
+    });
+    const entry: Entry = { saved, token, runner: createRunner(hostFor(environmentId, () => entry), machine) };
+    return entry;
+  };
+
+  /** Starts `entry`'s machine: an attempt if enabled and online. */
+  const begin = (environmentId: string, entry: Entry) =>
+    entry.runner.feed({
+      type: "start",
+      enabled: isEnabled(environmentId),
+      network: platform.network.read(),
+      // What #127 caches hangs off an environment reached before; until then, one with a `hello` on record.
+      hasCache: entry.saved.descriptor.lastSeen !== null,
+    });
 
   /**
    * Takes the local connection from a grant exchange. A paired connection to
@@ -433,7 +412,7 @@ export const createRegistry = (platform: Platform, protocolVersion: number): Reg
   const adoptLocal = async (exchange: Extract<GrantExchange, { ok: true }>) => {
     const id = exchange.discovery.environmentId;
     const previous = entries.get(id);
-    if (previous) drop(previous);
+    previous?.runner.stop();
     if (previous?.saved.kind === "paired") {
       const token = await platform.secrets.get(id);
       if (previous.saved.clientSessionId !== null && token !== undefined) {
@@ -449,8 +428,9 @@ export const createRegistry = (platform: Platform, protocolVersion: number): Reg
       ceiling: exchange.credential.ceiling,
       descriptor: fromDiscovery(previous?.saved.descriptor ?? emptyDescriptor(exchange.discovery.environmentName), exchange.discovery),
       blocked: null,
+      expiresAt: exchange.credential.expiresAt,
     };
-    entries.set(id, newEntry(saved, exchange.credential.token));
+    entries.set(id, newEntry(id, saved, exchange.credential.token));
     if (previous?.saved.kind === "paired") await savePaired();
     await rememberLocal(id, saved);
     await enterSequence(id, "first");
@@ -460,6 +440,7 @@ export const createRegistry = (platform: Platform, protocolVersion: number): Reg
     list,
     preferences: prefs,
     local,
+    notices,
     seams: {
       onFrame(listener) {
         frameListeners.add(listener);
@@ -474,7 +455,7 @@ export const createRegistry = (platform: Platform, protocolVersion: number): Reg
         return () => void forgetListeners.delete(listener);
       },
       request(environmentId, method, params) {
-        const socket = entries.get(environmentId)?.socket;
+        const socket = entries.get(environmentId)?.runner.socket();
         if (!socket) return Promise.reject(new Error(`Environment ${environmentId} is not connected.`));
         return socket.request(method, params);
       },
@@ -492,7 +473,10 @@ export const createRegistry = (platform: Platform, protocolVersion: number): Reg
         Promise.all(PREFERENCE_KEYS.map(async (key) => [key, await platform.documents.get(key)] as const)),
       ]);
       prefs.set(readPreferences(Object.fromEntries(stored) as Record<keyof ClientPreferences, unknown>));
-      for (const [id, saved] of readPairedConnections(paired)) entries.set(id, newEntry(saved));
+      // A start after one that failed begins again from what was saved.
+      for (const entry of entries.values()) entry.runner.stop();
+      entries.clear();
+      for (const [id, saved] of readPairedConnections(paired)) entries.set(id, newEntry(id, saved));
       publish();
 
       if (readsGrant(platform.grant, platform.client)) {
@@ -502,22 +486,29 @@ export const createRegistry = (platform: Platform, protocolVersion: number): Reg
           local.set({ state: "exchanged", environmentId: exchange.discovery.environmentId });
         } else {
           local.set(exchange.status);
-          // The local environment stays listed from what was remembered of it, with where the failure leaves it.
+          // The local environment stays listed from what was remembered of it; its machine tries the grant again on the ladder.
           const known = readRememberedLocal(remembered);
           if (known && !entries.has(known.environmentId) && exchange.status.state === "failed") {
-            const entry = newEntry({ address: known.address, kind: "local", clientSessionId: null, scopes: [], ceiling: null, descriptor: known.descriptor, blocked: null });
-            entries.set(known.environmentId, entry);
+            const saved: SavedConnection = {
+              address: known.address,
+              kind: "local",
+              clientSessionId: null,
+              scopes: [],
+              ceiling: null,
+              descriptor: known.descriptor,
+              blocked: null,
+              expiresAt: null,
+            };
+            entries.set(known.environmentId, newEntry(known.environmentId, saved));
             await enterSequence(known.environmentId, "first");
-            if (isEnabled(known.environmentId)) await settle(known.environmentId, entry, afterLocalFailure(exchange.status.reason));
           }
         }
       }
-      // A local connection whose exchange failed at start waits for `retryNow`.
-      await Promise.all(
-        [...entries]
-          .filter(([, entry]) => !(entry.saved.kind === "local" && entry.token === undefined))
-          .map(([id]) => connect(id)),
-      );
+      stopNetwork ??= platform.network.subscribe((network) => {
+        for (const entry of entries.values()) entry.runner.feed({ type: "network", network });
+      });
+      for (const [id, entry] of entries) begin(id, entry);
+      await Promise.all([...entries.values()].map((entry) => entry.runner.settled()));
     },
 
     async add(input, options = {}) {
@@ -570,25 +561,25 @@ export const createRegistry = (platform: Platform, protocolVersion: number): Reg
         ceiling: credential.ceiling,
         descriptor: fromDiscovery(existing?.saved.descriptor ?? emptyDescriptor(document.environmentName), document),
         blocked: null,
+        expiresAt: credential.expiresAt,
       };
-      const entry = existing ?? newEntry(saved);
+      const entry = existing ?? newEntry(id, saved);
       if (existing) {
-        drop(existing);
         await updateSaved(id, existing, saved);
       } else {
         entries.set(id, entry);
         await savePaired();
         await enterSequence(id, "last");
       }
-      if (!answer.ok) {
-        entry.bye = answer.closed.bye?.reason ?? null;
-        await settle(id, entry, afterClose(answer.closed, protocolVersion));
-      } else if (isEnabled(id)) {
-        await attach(id, entry, answer.socket, document);
+      if (answer.ok && isEnabled(id)) {
+        // The socket pairing tried is the connection's first one.
+        entry.runner.adopt(answer.socket, document);
       } else {
-        answer.socket.close();
-        update(id, entry, { phase: "disabled" });
+        // Closed before `hello`, or disabled: the machine starts from where it is, as at a start.
+        if (answer.ok) answer.socket.close();
+        begin(id, entry);
       }
+      await entry.runner.settled();
       return { status: "paired", environmentId: id };
     },
 
@@ -596,17 +587,17 @@ export const createRegistry = (platform: Platform, protocolVersion: number): Reg
       const entry = entryOf(environmentId);
       const origin = parseAddress(address);
       if (!origin) throw new RangeError(`"${address}" is not an address.`);
-      drop(entry);
       await updateSaved(environmentId, entry, { address: origin });
-      await connect(environmentId);
+      entry.runner.feed({ type: "retryNow" });
+      await entry.runner.settled();
     },
 
     async setEnabled(environmentId, enabled) {
       const entry = entryOf(environmentId);
       await setPreferences((p) => ({ ...p, "environments.enabled": { ...p["environments.enabled"], [environmentId]: enabled } }));
-      if (enabled) return connect(environmentId);
-      drop(entry);
-      update(environmentId, entry, { phase: "disabled" });
+      if (!enabled) return entry.runner.feed({ type: "disable" });
+      begin(environmentId, entry);
+      await entry.runner.settled();
     },
 
     async setOrder(environmentIds) {
@@ -650,7 +641,7 @@ export const createRegistry = (platform: Platform, protocolVersion: number): Reg
           origin: entry.saved.address,
           token,
           clientSessionId: entry.saved.clientSessionId,
-          socket: entry.phase === "ready" ? entry.socket : undefined,
+          socket: entry.runner.socket(),
         }))
       ) {
         result = { revoked: true };
@@ -661,7 +652,7 @@ export const createRegistry = (platform: Platform, protocolVersion: number): Reg
           message: `${name} could not be reached, so this client's session there is still live: revoke it from another client.`,
         };
       }
-      drop(entry);
+      entry.runner.stop();
       entries.delete(environmentId);
       await platform.secrets.delete(environmentId);
       await savePaired();
@@ -684,13 +675,26 @@ export const createRegistry = (platform: Platform, protocolVersion: number): Reg
     },
 
     async retryNow(environmentId) {
-      entryOf(environmentId);
-      await connect(environmentId);
+      const entry = entryOf(environmentId);
+      entry.runner.feed({ type: "retryNow" });
+      await entry.runner.settled();
+    },
+
+    async startService(environmentId) {
+      const entry = entryOf(environmentId);
+      if (entry.saved.kind !== "local") throw new Error(`${entry.saved.descriptor.name} is not this machine's local environment: its service is started on its own machine.`);
+      const service = platform.shell?.service;
+      if (!service) throw new Error("This client cannot start the local environment's service: only the desktop app can; run `agent-harness service start`, then retry.");
+      await service.start();
+      entry.runner.feed({ type: "retryNow" });
+      await entry.runner.settled();
     },
 
     close() {
       closed = true;
-      for (const entry of entries.values()) drop(entry);
+      stopNetwork?.();
+      stopNetwork = undefined;
+      for (const entry of entries.values()) entry.runner.stop();
     },
   };
   return registry;
