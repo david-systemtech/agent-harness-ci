@@ -236,6 +236,10 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
           // A provider queue that does not steer reads what it holds when the turn ends, in a turn of its own.
           const queued = untaken.splice(0);
           const next = nextScripts.shift() ?? options.script ?? replyScript;
+          // An adopted turn has no input of its own: the provider opens it, and the host mints its run id only when it
+          // adopts it, so no provider can know the id. The fake replays the previous run's input with the id left blank
+          // (never the previous run's id, which is a different run) and the queued messages as the prompt; the
+          // context is the previous run's, as the adoption hook is (`RunContext.adopt`).
           const turn = play({ ...input, runId: "", prompt: queued }, context, next, true);
           context.adopt({ ...turn, messageIds: queued.map((message) => message.messageId) });
         }

@@ -176,7 +176,7 @@ export const MessageRequeuedPayload = z
   .object({ ...runPart, messageId: MessageId })
   .meta({
     description:
-      "message.requeued: an interrupt of the run took back a message the provider still held; the environment holds it now, in its original order (ADR 0022).",
+      "message.requeued: a message of the run came back to the environment's queue, which holds it now, in its original order (ADR 0022: nothing is lost): the provider still held it when an interrupt or any end but the adapter's own completion cut the run, the provider refused to take it, the host did not adopt the turn the provider opened with it, or the run's adapter never received it (its creation failed).",
   });
 export type MessageRequeuedPayload = z.infer<typeof MessageRequeuedPayload>;
 
