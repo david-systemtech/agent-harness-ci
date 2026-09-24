@@ -43,6 +43,7 @@ import {
   sessionsUnsnooze,
   sessionsUntag,
 } from "./methods/sessions.js";
+import { runsInterrupt, runsSend, runsStart, runsStopTask } from "./methods/runs.js";
 import { settingsGet, settingsUpdate } from "./methods/settings.js";
 
 /**
@@ -88,6 +89,10 @@ export const methods = [
   groupsList,
   sessionsSubscribe,
   sessionsSubscribeSession,
+  runsStart,
+  runsSend,
+  runsInterrupt,
+  runsStopTask,
   settingsGet,
   settingsUpdate,
 ] as const;

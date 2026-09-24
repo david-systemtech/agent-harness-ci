@@ -3,8 +3,8 @@ import type { Clock } from "./clock.js";
 
 /**
  * The runs the lifecycle reads (env spec, "Lifecycle"; ADR 0007): the seam
- * the adapter host (#119) fills, the in-memory registry that stands in until
- * then, and the idle rule over them.
+ * the adapter host (`adapter/host.ts`) fills, the in-memory registry it
+ * fills, and the idle rule over them.
  */
 
 /** A run that started or ended this recently keeps the environment busy (ADR 0007). */
@@ -36,10 +36,10 @@ export interface RunRegistry {
 }
 
 /**
- * The in-memory registry: the environment's preset, empty until the adapter
- * host (#119) records runs in it or brings its own, and the registry the
- * tests drive. Each change is stamped with the clock and heard by every
- * listener. An ended run is forgotten once it no longer counts.
+ * The in-memory registry: the one the adapter host records its runs in, as
+ * they start, run and end, and the one tests drive directly. Each change is
+ * stamped with the clock and heard by every listener. An ended run is
+ * forgotten once it no longer counts.
  */
 export interface MemoryRunRegistry extends RunRegistry {
   /** A new run, starting: admitted first, so it is refused while the environment drains. */

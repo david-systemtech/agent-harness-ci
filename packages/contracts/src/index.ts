@@ -1,6 +1,7 @@
 export { PRODUCT_NAME } from "./product.js";
 
 export * from "./access-log.js";
+export * from "./adapter.js";
 export * from "./bootstrap.js";
 export * from "./discovery.js";
 export * from "./envelope.js";
@@ -39,6 +40,7 @@ export {
   Timestamp,
 } from "./primitives.js";
 export type { MintedPairing } from "./methods/access.js";
+export { AttachmentInput, MAX_ATTACHMENT_BYTES } from "./methods/runs.js";
 export { CommandReceipt, commandResponse, type CommandResponseSchema } from "./receipt.js";
 export * from "./registry.js";
 export * from "./schema-export.js";
@@ -47,3 +49,4 @@ export * from "./sessions.js";
 export * from "./settings.js";
 export * from "./steps.js";
 export * from "./summary-fields.js";
+export * from "./transcript.js";

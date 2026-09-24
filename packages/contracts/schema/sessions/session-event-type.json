@@ -26,11 +26,26 @@
     "session.pull-request-linked",
     "session.pull-request-unlinked",
     "session.pull-request-synced",
-    "run.started",
-    "run.ended",
-    "message.sent",
     "prompt.opened",
-    "prompt.answered"
+    "prompt.answered",
+    "run.started",
+    "message.sent",
+    "message.delivered",
+    "message.requeued",
+    "assistant.delta",
+    "assistant.text",
+    "assistant.thinking",
+    "tool.started",
+    "tool.updated",
+    "tool.ended",
+    "command.ran",
+    "tasks.changed",
+    "usage.reported",
+    "plan.limit",
+    "session.provider-linked",
+    "session.forked",
+    "session.rewound",
+    "run.ended"
   ],
-  "description": "The event types of a session stream: the session.* organisation events, the forge workstream's pull-request events, and the reserved run.started, run.ended, message.sent, prompt.opened and prompt.answered."
+  "description": "The event types of a session stream: the session.* organisation events, the forge workstream's pull-request events, the reserved prompt.opened and prompt.answered, and the transcript vocabulary a run leaves (run.started to run.ended)."
 }

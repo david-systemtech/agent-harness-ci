@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RunError",
+  "type": "object",
+  "properties": {
+    "message": {
+      "type": "string",
+      "minLength": 1
+    },
+    "code": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The provider's or the environment's code for it, when there is one."
+    }
+  },
+  "required": [
+    "message",
+    "code"
+  ],
+  "description": "What went wrong in a run: a message and, when there is one, a code."
+}

@@ -41,6 +41,57 @@ export { SESSION_LIST_PROJECTOR, sessionListProjector } from "./sessions/session
 export { SESSION_LIST_SELECTOR, sessionMethods, type SessionMethodsOptions } from "./sessions/methods.js";
 export { groupMethods, type GroupMethodsOptions } from "./sessions/group-methods.js";
 export { acceptAnyRunParameters, type RunParameters, type RunParametersCheck } from "./sessions/run-parameters.js";
+export {
+  ADAPTER_EVENT_TYPES,
+  type AccountRef,
+  type Adapter,
+  type AdapterCredentialSpec,
+  type AdapterDescriptor,
+  type AdapterEvent,
+  type AdapterEventType,
+  type AdapterRun,
+  type AttachmentData,
+  type ModelCatalogue,
+  type ModelOption,
+  type PermissionBroker,
+  type PromptDecision,
+  type PromptKind,
+  type PromptMessage,
+  type PromptRequest,
+  type ProviderCommand,
+  type ProviderSessionInfo,
+  type ProviderTurn,
+  type RunContext,
+  type RunEnd,
+  type RunInput,
+  type RunTarget,
+  type ToolServer,
+  type TranscriptEvent,
+  type UsageReading,
+  type UsageWindow,
+} from "./adapter/contract.js";
+export { HOST_ACTOR, createAdapterHost, type ActiveRun, type AdapterHost, type AdapterHostOptions, type HostAccount } from "./adapter/host.js";
+export type { AccountFacts, LiveRunFacts, PlannedRun, QueuedSend, StartFacts } from "./runs/run-decider.js";
+export { createAdapterRegistry, type AdapterRegistry } from "./adapter/registry.js";
+export { createScopedAppend, type ScopedAppend } from "./adapter/scoped-append.js";
+export {
+  autoDenyBroker,
+  composeInstructions,
+  identityClamp,
+  noToolServers,
+  orientationPlaceholder,
+  type ClampedMode,
+  type InstructionComposer,
+  type InstructionLayers,
+  type InstructionScope,
+  type ModeClamp,
+  type ToolServerFactory,
+  type ToolServerScope,
+} from "./adapter/seams.js";
+export { capability, requireCapability, unsupported } from "./adapter/capabilities.js";
+export { RUNS_PROJECTOR, runsProjector } from "./runs/runs-projector.js";
+export { runMethods, type RunMethodsOptions } from "./runs/run-methods.js";
+export { foldTranscript, type TranscriptParts } from "./runs/transcript.js";
 export { SETTLE_SWEEP_ACTOR, SETTLE_SWEEP_INTERVAL_MS, createSettleSweep, type SettleSweep, type SweepOutcome } from "./sessions/settle-sweep.js";
 export { settingsMethods, type SettingsMethodsOptions } from "./settings/methods.js";
 export { SETTINGS_PROJECTOR, readSettings, settingsProjector } from "./settings/settings-store.js";

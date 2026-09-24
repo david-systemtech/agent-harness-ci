@@ -12,10 +12,10 @@ import {
   type Frame,
   type ParamsOf,
 } from "@agent-harness/contracts";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { MANUAL_CLOCK_START, manualClock } from "../../test/clock.js";
-import { fakeProvider, type FakeProviderOptions } from "../../test/fake-provider.js";
+import { fakeAdapter, type FakeAdapterOptions } from "../../test/fake-adapter.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { updateSettings } from "../../test/shelf.js";
 import {
@@ -47,8 +47,8 @@ const MINUTE = 60_000;
 const DAY = 24 * 60 * MINUTE;
 const GRACE_MS = 30 * DAY;
 
-const start = async (provider: FakeProviderOptions = {}, options: Omit<TestEnvironmentOptions, "provider"> = {}): Promise<TestEnvironment> => {
-  const t = await startTestEnvironment({ ...options, provider: fakeProvider([], provider) });
+const start = async (adapter: FakeAdapterOptions = {}, options: Omit<TestEnvironmentOptions, "adapter"> = {}): Promise<TestEnvironment> => {
+  const t = await startTestEnvironment({ ...options, adapter: fakeAdapter(adapter) });
   onCleanup(() => t.close());
   return t;
 };
@@ -192,11 +192,13 @@ describe("sessions.delete", () => {
 
 describe("a deleted session", () => {
   /**
-   * The params of every session command but create, restore and purge, on
-   * `sessionId`. The test below refuses a served session command missing
-   * here, so each ticket that serves one adds it.
+   * The params of every command that names a session or a run, but create,
+   * restore and purge, on `sessionId` and its run `runId`. The test below
+   * refuses a served command whose params carry a `sessionId` or a `runId`
+   * and that is missing here, so each ticket that serves one (#117, the
+   * run verbs) adds it.
    */
-  const onDeleted = (sessionId: string): Partial<{ [N in CommandMethodName]: Omit<ParamsOf<N>, "commandId"> }> => ({
+  const onDeleted = (sessionId: string, runId: string): Partial<{ [N in CommandMethodName]: Omit<ParamsOf<N>, "commandId"> }> => ({
     "sessions.rename": { sessionId, title: "Back from the dead" },
     "sessions.archive": { sessionId },
     "sessions.unarchive": { sessionId },
@@ -214,18 +216,31 @@ describe("a deleted session", () => {
     "sessions.snooze": { sessionId, until: "2020-01-01T00:00:00.000Z" },
     "sessions.unsnooze": { sessionId },
     "sessions.delete": { sessionId },
+    "runs.start": { sessionId, text: "Back to work" },
+    "runs.send": { sessionId, text: "Anyone there?" },
+    "runs.interrupt": { runId },
+    "runs.stopTask": { runId, taskId: "t-1" },
   });
 
-  it("rejects every served session command but restore and purge not_found, kind session, in a receipt, and appends nothing", async () => {
+  /** Whether a command's params name a session or a run. */
+  const namesSessionOrRun = (method: (typeof methods)[number]): boolean => {
+    const shape = (method.params as unknown as { readonly shape?: Record<string, unknown> }).shape ?? {};
+    return "sessionId" in shape || "runId" in shape;
+  };
+
+  it("rejects every served command naming the session or its run but restore and purge not_found, kind session, in a receipt, and appends nothing", async () => {
     const t = await start();
     const client = await t.client();
     const { id } = await create(client);
     await command(client, "sessions.pin", { sessionId: id });
     await command(client, "sessions.tag", { sessionId: id, tag: "wip" });
+    const started = registry["runs.start"].response.parse(await client.request("runs.start", { commandId: randomUUID(), sessionId: id, text: "One run" }));
+    const runId = started.result?.runId as string;
+    await vi.waitFor(() => expect(t.env.log.readStream({ kind: "session", id }).map((event) => event.type)).toContain("run.ended"));
     await deleteSession(client, id);
-    const cases = onDeleted(id);
+    const cases = onDeleted(id, runId);
     const served = methods
-      .filter((method) => isCommand(method) && method.name.startsWith("sessions.") && t.env.methods.get(method.name)?.handler !== undefined)
+      .filter((method) => isCommand(method) && namesSessionOrRun(method) && t.env.methods.get(method.name)?.handler !== undefined)
       .map((method) => method.name)
       .filter((name) => !["sessions.create", "sessions.restore", "sessions.purge"].includes(name));
     expect(served.sort()).toEqual(Object.keys(cases).sort());
@@ -366,7 +381,7 @@ describe("sessions.purge", () => {
     const list = await listStream(client, t.env.log.head());
     await purgeSession(client, id);
     expect((await list.next()).payload).toEqual({ providerTranscript: { outcome: "kept" } });
-    expect(t.provider.deletedTranscripts).toEqual([]);
+    expect(t.adapter.deletedTranscripts).toEqual([]);
   });
 
   it("has the adapter delete the provider's transcript when the delete asked and the adapter declares it, recording deleted in the tombstone", async () => {
@@ -377,7 +392,7 @@ describe("sessions.purge", () => {
     const list = await listStream(client, t.env.log.head());
     await purgeSession(client, id);
     expect((await list.next()).payload).toEqual({ providerTranscript: { outcome: "deleted" } });
-    expect(t.provider.deletedTranscripts).toEqual([id]);
+    expect(t.adapter.deletedTranscripts).toEqual([id]);
   });
 
   it("records unsupported when the delete asked and the adapter does not declare transcript delete", async () => {
@@ -388,7 +403,18 @@ describe("sessions.purge", () => {
     const list = await listStream(client, t.env.log.head());
     await purgeSession(client, id);
     expect((await list.next()).payload).toEqual({ providerTranscript: { outcome: "unsupported" } });
-    expect(t.provider.deletedTranscripts).toEqual([]);
+    expect(t.adapter.deletedTranscripts).toEqual([]);
+  });
+
+  it("records unsupported when the session's provider is not known here, rather than asking another adapter", async () => {
+    const t = await start({ deleteTranscript: true }, { accounts: [] });
+    const client = await t.client();
+    const { id } = await create(client);
+    await deleteSession(client, id, true);
+    const list = await listStream(client, t.env.log.head());
+    await purgeSession(client, id);
+    expect((await list.next()).payload).toEqual({ providerTranscript: { outcome: "unsupported" } });
+    expect(t.adapter.deletedTranscripts).toEqual([]);
   });
 
   it("records failed with the adapter's message when its delete throws, and still purges", async () => {
@@ -399,7 +425,7 @@ describe("sessions.purge", () => {
     const list = await listStream(client, t.env.log.head());
     expect((await purgeSession(client, id)).receipt).toMatchObject({ status: "accepted", changed: true });
     expect((await list.next()).payload).toEqual({ providerTranscript: { outcome: "failed", message: "The transcript file is locked." } });
-    expect(t.provider.deletedTranscripts).toEqual([id]);
+    expect(t.adapter.deletedTranscripts).toEqual([id]);
   });
 
   it("refuses an adapter whose delete answers later: the purge fails and commits nothing, and the session stays deleted", async () => {
@@ -410,7 +436,7 @@ describe("sessions.purge", () => {
     const head = t.env.log.head();
     expect(await refusal(purgeSession(client, id))).toMatchObject({ code: "internal" });
     expect(t.env.log.head()).toBe(head);
-    expect(t.provider.deletedTranscripts).toEqual([id]);
+    expect(t.adapter.deletedTranscripts).toEqual([id]);
     expect((await client.request("sessions.listDeleted", {})).sessions.map((summary) => summary.id)).toEqual([id]);
   });
 
@@ -456,13 +482,13 @@ describe("the purge sweep", () => {
     const events = (await listFromStart(client)).filter((event) => event.sequence > cursor);
     expect(events.map((event) => [event.streamId, event.type])).toEqual([[first.id, "session.purged"]]);
     expect(events[0]).toMatchObject({ actor: { kind: "system", id: "sweep" }, payload: { providerTranscript: { outcome: "deleted" } } });
-    expect(t.provider.deletedTranscripts).toEqual([first.id]);
+    expect(t.adapter.deletedTranscripts).toEqual([first.id]);
     expect((await client.request("sessions.listDeleted", {})).sessions.map((summary) => summary.id)).toEqual([second.id]);
 
     client = await pass(t, client, 10 * DAY);
     expect(await client.request("sessions.listDeleted", {})).toEqual({ sessions: [] });
     expect((await client.request("sessions.list", {})).sessions.map((summary) => summary.id)).toEqual([live.id]);
-    expect(t.provider.deletedTranscripts).toEqual([first.id]);
+    expect(t.adapter.deletedTranscripts).toEqual([first.id]);
   });
 });
 
@@ -501,7 +527,7 @@ describe("a session past its purgeAt before the sweep reaches it", () => {
     expect(events).toEqual([
       expect.objectContaining({ type: "session.purged", actor: { kind: "system", id: "sweep" }, payload: { providerTranscript: { outcome: "deleted" } } }),
     ]);
-    expect(t.provider.deletedTranscripts).toEqual([id]);
+    expect(t.adapter.deletedTranscripts).toEqual([id]);
     expect(await again.request("sessions.listDeleted", {})).toEqual({ sessions: [] });
   });
 });
@@ -548,7 +574,7 @@ describe("sessions.subscribeSession", () => {
       type: "snapshot",
       subscription,
       sequence: head,
-      payload: { sequence: head, summary: freshSummary(id, { title: "Watched", titleSource: "user" }), transcript: {} },
+      payload: { sequence: head, summary: freshSummary(id, { title: "Watched", titleSource: "user" }), runs: [], items: [], parkedPrompts: [] },
     });
     expect(await client.next((f) => "subscription" in f && f.subscription === subscription)).toEqual({
       type: "synchronized",

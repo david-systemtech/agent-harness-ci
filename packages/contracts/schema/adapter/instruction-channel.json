@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "InstructionChannel",
+  "type": "object",
+  "properties": {
+    "kind": {
+      "type": "string",
+      "enum": [
+        "system-prompt-append",
+        "developer-instructions",
+        "prompt",
+        "none"
+      ],
+      "description": "How an adapter delivers standing instructions to its provider: system-prompt-append (Claude), developer-instructions (Codex), prompt (a local model), or none."
+    },
+    "maxCharacters": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The most characters the channel carries; null when it has no cap."
+    }
+  },
+  "required": [
+    "kind",
+    "maxCharacters"
+  ],
+  "description": "An adapter's instruction channel: its kind and its character cap."
+}

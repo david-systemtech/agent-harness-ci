@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TasksChangedPayload",
+  "type": "object",
+  "properties": {
+    "runId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "A run's id: a version 4 UUID the environment mints when the run starts or is adopted."
+    },
+    "tasks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "taskId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The provider's task id, stable for the task's life; runs.stopTask names it."
+          },
+          "kind": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The provider's own word for the kind of work (local_bash, local_agent); an open set."
+          },
+          "description": {
+            "type": "string",
+            "description": "The provider's one-line description of the task."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "running",
+              "paused",
+              "completed",
+              "failed",
+              "stopped"
+            ],
+            "description": "Where a piece of delegated work has got to: pending, running or paused (live), completed, failed or stopped (settled)."
+          },
+          "startedAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+            "description": "When the environment first heard of the task."
+          },
+          "endedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                "description": "An instant as an ISO 8601 UTC timestamp."
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When it settled; null while it is live."
+          },
+          "subagentType": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The agent type of a subagent (Explore, Plan), else null."
+          },
+          "toolCallId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The tool call that started it, when the provider says."
+          },
+          "error": {
+            "description": "Why it failed, when it did.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "taskId",
+          "kind",
+          "description",
+          "status",
+          "startedAt",
+          "endedAt",
+          "subagentType",
+          "toolCallId",
+          "error"
+        ],
+        "description": "One piece of delegated work a run holds: a subagent or a background task, with its status."
+      },
+      "description": "The whole ledger after the change, settled rows included: replace, never merge."
+    }
+  },
+  "required": [
+    "runId",
+    "tasks"
+  ],
+  "description": "tasks.changed: the run's delegated-work ledger changed."
+}
