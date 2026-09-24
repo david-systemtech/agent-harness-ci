@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BypassAcknowledgedPayload",
+  "type": "object",
+  "properties": {
+    "setting": {
+      "type": "string",
+      "minLength": 1,
+      "description": "What bypassPermissions was chosen for: the settings key (permissions.unattended.mode)."
+    },
+    "sentence": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The sentence that was shown and acknowledged, verbatim."
+    }
+  },
+  "required": [
+    "setting",
+    "sentence"
+  ],
+  "description": "bypass.acknowledged: bypassPermissions was chosen for the first time, with the sentence acknowledged."
+}

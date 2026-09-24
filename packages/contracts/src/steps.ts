@@ -68,6 +68,26 @@ export const STEP_REGISTRY = [
     checks: [{ key: "providers.processIdleMinutes", check: anyValidValue("providers.processIdleMinutes") }],
     links: [{ pane: "accounts", band: "default-model" }],
   },
+  {
+    // The Permissions step (#129's keys; #141 owns the entry and its real checks): the Access band's
+    // Permissions row, `access.permissions` (ADR 0027).
+    id: "permissions",
+    writes: [
+      "permissions.defaultCeiling",
+      "permissions.unattended.mode",
+      "permissions.unattended.bypassAcknowledgedAt",
+      "permissions.parkedPrompt.ttl",
+      "permissions.containment.default",
+    ],
+    checks: [
+      { key: "permissions.defaultCeiling", check: anyValidValue("permissions.defaultCeiling") },
+      { key: "permissions.unattended.mode", check: anyValidValue("permissions.unattended.mode") },
+      { key: "permissions.unattended.bypassAcknowledgedAt", check: anyValidValue("permissions.unattended.bypassAcknowledgedAt") },
+      { key: "permissions.parkedPrompt.ttl", check: anyValidValue("permissions.parkedPrompt.ttl") },
+      { key: "permissions.containment.default", check: anyValidValue("permissions.containment.default") },
+    ],
+    links: [{ pane: "permissions", band: "access" }],
+  },
 ] as const satisfies readonly Step[];
 
 export type StepId = (typeof STEP_REGISTRY)[number]["id"];

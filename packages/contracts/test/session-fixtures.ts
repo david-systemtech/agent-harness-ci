@@ -104,7 +104,11 @@ const eventPayloads: Record<string, Fixtures> = {
       { title: null, tags: [], groupId: null, workspace, repositoryIdentity: null, account: null, model: null, mode: null },
       { title: "Fix it", tags: ["wip"], groupId, workspace, repositoryIdentity: null, account: "claude-max", model: "opus", mode: "plan" },
     ],
-    invalid: [{ title: null, tags: [], groupId: null, repositoryIdentity: null, account: null, model: null, mode: null }, { title: "" }],
+    invalid: [
+      { title: null, tags: [], groupId: null, repositoryIdentity: null, account: null, model: null, mode: null },
+      { title: "" },
+      { title: null, tags: [], groupId: null, workspace, repositoryIdentity: null, account: null, model: null, mode: "default" },
+    ],
   },
   "session.title-set": {
     valid: [{ title: "Fix it", source: "user" }, { title: null, source: "user" }],
@@ -260,6 +264,7 @@ export const sessionMethodFixtures: Record<string, { params: Fixtures; result: F
         { commandId, id: sessionId, workspace, title: "x".repeat(201) },
         { commandId, id: sessionId, workspace, tags: [""] },
         { commandId, id: sessionId, workspace: { kind: "scratch" } },
+        { commandId, id: sessionId, workspace, mode: "dontAsk" },
       ],
     },
     result: summaryResult,

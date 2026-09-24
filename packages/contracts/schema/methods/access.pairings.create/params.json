@@ -27,9 +27,14 @@
       "uniqueItems": true
     },
     "ceiling": {
-      "description": "The client session's ceiling; the environment's default ceiling when absent.",
+      "description": "The client session's ceiling; the environment's default ceiling (the setting permissions.defaultCeiling) when absent.",
       "type": "string",
-      "minLength": 1
+      "enum": [
+        "plan",
+        "acceptEdits",
+        "auto",
+        "bypassPermissions"
+      ]
     }
   },
   "required": [

@@ -35,7 +35,7 @@ import {
 } from "./decider.js";
 import { createDeletion, type Deletion } from "./deletion.js";
 import { groupExists, listGroups } from "./group-reads.js";
-import { acceptAnyRunParameters, type RunParametersCheck } from "./run-parameters.js";
+import { acceptAnyRunParameters, keepSessionMode, type RunParametersCheck, type SessionModeClamp } from "./run-parameters.js";
 import { listDeleted, listSummaries, readDeletion, readSessionState, readSummary, type Reader } from "./session-reads.js";
 import { sessionTranscript, type TranscriptParts } from "../runs/transcript.js";
 import { sessionStream } from "./streams.js";
@@ -63,6 +63,8 @@ export interface SessionMethodsOptions {
   readonly log: EventLog;
   /** The account, model and mode check `sessions.create` runs: the environment passes the adapter host's (`validateSessionInput`); preset: every value accepted. */
   readonly validateRunParameters?: RunParametersCheck;
+  /** The clamp a mode `sessions.create` is given goes through before it is stored (#129); preset: kept as given. */
+  readonly clampSessionMode?: SessionModeClamp;
   /** The environment's clock, which stamps the times a command records (`archivedAt`, `pinnedAt`); preset: the system's. */
   readonly clock?: () => Date;
   /** The purge `sessions.purge` runs; preset: one over `log` whose adapter cannot delete a transcript. The environment shares its own with the sweep. */
@@ -78,6 +80,7 @@ export const SESSION_LIST_SELECTOR = {
 export const sessionMethods = (options: SessionMethodsOptions): MethodHandlers => {
   const { log } = options;
   const validateRunParameters = options.validateRunParameters ?? acceptAnyRunParameters;
+  const clampSessionMode = options.clampSessionMode ?? keepSessionMode;
   const clock = options.clock ?? (() => new Date());
   const deletion = options.deletion ?? createDeletion({ log });
   // The log's query-only read: inside a command it reads that command's own transaction.
@@ -140,9 +143,11 @@ export const sessionMethods = (options: SessionMethodsOptions): MethodHandlers =
   return {
     "sessions.create": (params, context) => {
       const id = params.id.toLowerCase();
-      const run = { account: params.account ?? null, model: params.model ?? null, mode: params.mode ?? null };
-      const issues = validateRunParameters(run);
+      const asked = { account: params.account ?? null, model: params.model ?? null, mode: params.mode ?? null };
+      const issues = validateRunParameters(asked);
       if (issues.length > 0) throw new ContractError(invalidParams(issues, "The account, model or mode is not one this environment offers."));
+      // The mode is stored as the caller's ceiling allows it (#129).
+      const run = { ...asked, mode: asked.mode === null ? null : clampSessionMode(asked.mode, asked.account, context.clientSession) };
       const groupId = params.groupId?.toLowerCase() ?? null;
       const command = { id, title: params.title ?? null, tags: params.tags ?? [], groupId, workspace: params.workspace, ...run };
       return carryOut(id, decideCreate(stateOf(id), command, { groupExists: groupId !== null && groupExists(reader, groupId) }), context);

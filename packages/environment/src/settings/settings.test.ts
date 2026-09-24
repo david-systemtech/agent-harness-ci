@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
-import { Ceiling, presetSettings, type Scope } from "@agent-harness/contracts";
+import { Ceiling, presetPermissionSettings, presetSettings, type Scope } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { MANUAL_CLOCK_START } from "../../test/clock.js";
@@ -40,6 +40,7 @@ describe("settings.get", () => {
         "sessions.autoSettleOnMerge": false,
         "sessions.transcriptCompactAfterDays": 90,
         "providers.processIdleMinutes": 30,
+        ...presetPermissionSettings(),
       },
     });
   });
@@ -90,7 +91,9 @@ describe("settings.update", () => {
     const t = await start();
     const client = await t.client();
     const head = t.env.log.head();
-    for (const values of [{}, presets, { "sessions.autoSettleOnMerge": false }]) {
+    // The generic keys at their presets; the permission keys are permissions.settings.set's to write (#129).
+    const generic = { "sessions.autoSettleAfterIdle": presets["sessions.autoSettleAfterIdle"], "sessions.autoSettleOnMerge": presets["sessions.autoSettleOnMerge"] };
+    for (const values of [{}, generic, { "sessions.autoSettleOnMerge": false }]) {
       expect(await updateSettings(client, values)).toEqual({ receipt: { status: "accepted", sequence: head, changed: false }, result: { values: presets } });
     }
     await updateSettings(client, { "sessions.autoSettleAfterIdle": null });

@@ -79,9 +79,14 @@
       "minLength": 1
     },
     "mode": {
-      "description": "The mode the session's runs start in; the permissions workstream's to validate.",
+      "description": "The mode the session's runs start in, clamped at each run; permissions.mode.set changes it.",
       "type": "string",
-      "minLength": 1
+      "enum": [
+        "plan",
+        "acceptEdits",
+        "auto",
+        "bypassPermissions"
+      ]
     }
   },
   "required": [
