@@ -1,4 +1,4 @@
-import { existsSync, rmSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync, rmdirSync, rmSync } from "node:fs";
 import { posix } from "node:path";
 import { writeDefinition } from "./definition.js";
 import type { ServicePlatform } from "./platform.js";
@@ -56,7 +56,7 @@ export const renderSystemdUnit = (spec: ServiceSpec): string =>
 /** Removes a directory only when it exists and holds nothing. */
 const removeIfEmpty = (dir: string): void => {
   try {
-    if (existsSync(dir) && readdirSync(dir).length === 0) rmSync(dir, { recursive: false, force: true });
+    if (existsSync(dir) && readdirSync(dir).length === 0) rmdirSync(dir);
   } catch {
     // A directory that cannot be read or removed is left alone.
   }
