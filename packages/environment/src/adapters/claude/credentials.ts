@@ -208,8 +208,11 @@ export const spawnCommand: CommandRunner = (executable, argv, env, timeoutMs) =>
       child.kill("SIGTERM");
       finish({ code: null, stdout, stderr: `${stderr}\nTimed out after ${timeoutMs} ms.` });
     }, timeoutMs);
-    child.stdout.on("data", (chunk: Buffer) => (stdout += chunk.toString()));
-    child.stderr.on("data", (chunk: Buffer) => (stderr += chunk.toString()));
+    // Decoded by the streams, which hold a character split across two chunks until it is whole.
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk: string) => (stdout += chunk));
+    child.stderr.on("data", (chunk: string) => (stderr += chunk));
     child.on("error", (error) => finish({ code: null, stdout, stderr: error.message }));
     child.on("close", (code) => finish({ code, stdout, stderr }));
   });

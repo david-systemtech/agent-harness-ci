@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { CLAUDE_CONFIG_DIR, CLAUDE_STRIPPED_VARIABLES, ambientConfigDirectory, claudeCredentials, composeRunEnvironment, isScrubbed, parseClaudeStatus, readClaudeStatus } from "./credentials.js";
+import { CLAUDE_CONFIG_DIR, CLAUDE_STRIPPED_VARIABLES, ambientConfigDirectory, claudeCredentials, composeRunEnvironment, isScrubbed, parseClaudeStatus, readClaudeStatus, spawnCommand } from "./credentials.js";
 
 /**
  * The Claude credential spec (claude-adapter spec, "The adapter contract";
@@ -220,5 +220,18 @@ describe("reading the status through the bundled binary", () => {
     });
     expect(ran).toBe(false);
     expect(status).toMatchObject({ signedIn: false, error: expect.stringMatching(/bundled Claude binary/) });
+  });
+});
+
+describe("the command runner", () => {
+  it("decodes what the binary prints once, so a character split across two writes arrives whole", async () => {
+    // The two bytes of é, written apart on each stream, so they reach the runner as separate chunks.
+    const script = [
+      "process.stdout.write(Buffer.from([0xc3]));",
+      "process.stderr.write(Buffer.from([0xc3]));",
+      "setTimeout(() => { process.stdout.write(Buffer.from([0xa9])); process.stderr.write(Buffer.from([0xa9])); }, 50);",
+    ].join(" ");
+    const result = await spawnCommand(process.execPath, ["-e", script], { PATH: process.env["PATH"] ?? "" }, 10_000);
+    expect(result).toEqual({ code: 0, stdout: "é", stderr: "é" });
   });
 });
