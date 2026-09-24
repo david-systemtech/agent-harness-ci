@@ -1,10 +1,17 @@
-import type { ClientPreferences, EnvironmentView, LocalStatus, Notice } from "@agent-harness/client-runtime";
+import { LOCAL_PLACEHOLDER_ID, type ClientPreferences, type EnvironmentView, type LocalStatus, type Notice } from "@agent-harness/client-runtime";
 
 /**
  * What the screen shows, derived from the runtime's projections with no
  * state of its own: the phase words, the environment the header is about,
  * whether the service-down offer stands, a notice's line.
  */
+
+/**
+ * An environment's name as the screen says it: the runtime's placeholder
+ * for a local environment that has not answered yet has none, and is "this
+ * machine" (docs/specs/client-runtime.md, the #181 notes).
+ */
+export const nameOf = (view: EnvironmentView): string => view.name ?? "this machine";
 
 /** A connection phase in the words the rail and `/environment` use. */
 export const phaseWords = (view: EnvironmentView): string => {
@@ -39,22 +46,34 @@ export const headingState = (view: EnvironmentView, startingService: boolean): s
 
 /** Matches `--environment`: an id exactly, or a name ignoring case. */
 export const findEnvironment = (views: readonly EnvironmentView[], wanted: string): EnvironmentView | undefined =>
-  views.find((v) => v.environmentId === wanted) ?? views.find((v) => v.name.toLowerCase() === wanted.trim().toLowerCase());
+  views.find((v) => v.environmentId === wanted) ?? views.find((v) => v.name?.toLowerCase() === wanted.trim().toLowerCase());
+
+/** The runtime's stand-in for a local environment that has not answered yet (#181): listed, but no environment to use. */
+export const isPlaceholder = (view: EnvironmentView): boolean => view.environmentId === LOCAL_PLACEHOLDER_ID;
+
+/** The environments there are to use: every listed one but the placeholder. */
+export const knownEnvironments = (views: readonly EnvironmentView[]): readonly EnvironmentView[] => views.filter((v) => !isPlaceholder(v));
 
 /**
  * The environment the header is about (ADR 0005's default-environment
  * rule): the one `--environment` names, else the last used, else the local
- * one, else the primary, which `projections.environments` lists first.
+ * one, else the primary, the first of the others `projections.environments`
+ * lists; the placeholder only when there is nothing else.
  */
 export const currentEnvironment = (
   views: readonly EnvironmentView[],
   preferences: ClientPreferences,
   wanted: string | undefined,
-): EnvironmentView | undefined =>
-  (wanted === undefined ? undefined : findEnvironment(views, wanted)) ??
-  views.find((v) => v.environmentId === preferences["environments.lastUsed"]) ??
-  localEnvironment(views) ??
-  views[0];
+): EnvironmentView | undefined => {
+  const known = knownEnvironments(views);
+  return (
+    (wanted === undefined ? undefined : findEnvironment(known, wanted)) ??
+    known.find((v) => v.environmentId === preferences["environments.lastUsed"]) ??
+    localEnvironment(known) ??
+    known[0] ??
+    views[0]
+  );
+};
 
 /** The local environment, when the runtime lists it. */
 export const localEnvironment = (views: readonly EnvironmentView[]): EnvironmentView | undefined => views.find((v) => v.kind === "local");

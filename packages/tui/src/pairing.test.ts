@@ -1,4 +1,5 @@
 import type { FakeAnswer } from "@agent-harness/client-runtime/testing/fake-wire";
+import { LOCAL_PLACEHOLDER_ID } from "@agent-harness/client-runtime";
 import { PROTOCOL_VERSION, SCOPES } from "@agent-harness/contracts";
 import { afterEach, describe, expect, it } from "vitest";
 import { KEY, renderApp, type RenderedApp } from "../test/harness.js";
@@ -35,7 +36,8 @@ describe("/pair", () => {
     await run(app, `/pair ${app.environment("laptop").wire.link}`);
     await app.waitFor("Paired with laptop.");
     await app.waitFor("● laptop ready");
-    expect(app.runtime().connections.list.read()).toMatchObject([{ kind: "paired", phase: "ready" }]);
+    // Beside the placeholder the runtime lists for this machine, which has no environment running (#181).
+    expect(app.runtime().connections.list.read().filter((r) => r.environmentId !== LOCAL_PLACEHOLDER_ID)).toMatchObject([{ kind: "paired", phase: "ready" }]);
     expect(app.frame()).not.toContain("Pair this terminal");
   });
 
@@ -101,7 +103,7 @@ describe("/pair", () => {
     const next = app.frame().split("\n")[app.frame().split("\n").indexOf(row) + 1] ?? "";
     // The line after it is the question line or the composer, not the failure wrapping on.
     expect(next.trim() === "" || next.includes("›"), app.frame()).toBe(true);
-    expect(app.runtime().connections.list.read()).toEqual([]);
+    expect(app.runtime().connections.list.read().map((r) => r.environmentId)).toEqual([LOCAL_PLACEHOLDER_ID]);
   });
 });
 
@@ -166,9 +168,9 @@ describe("/pair create", () => {
     await app.waitFor("Creating a pairing code on desk was rejected: Too many codes.");
   });
 
-  it("needs an environment to mint on", async () => {
+  it("says why it cannot mint on this machine when it has no environment running", async () => {
     const app = await launch({ script: { environments: [] } });
     await run(app, "/pair create");
-    await app.waitFor("There is no environment to create a pairing code on");
+    await app.waitFor("Cannot create a pairing code on this machine:");
   });
 });

@@ -1,7 +1,7 @@
 import { Box, Text } from "ink";
 import type { EnvironmentView } from "@agent-harness/client-runtime";
 import { PRODUCT_NAME } from "@agent-harness/contracts";
-import { headingState } from "../view.js";
+import { headingState, nameOf } from "../view.js";
 
 /**
  * Artemis's layout skeleton (docs/specs/tui.md, "The screen"): the header
@@ -25,7 +25,7 @@ export const Header = (props: { readonly current: EnvironmentView | undefined; r
         <Text dimColor> · </Text>
         {current ? (
           <Text color={current.phase === "ready" ? "green" : "yellow"}>
-            ● {current.name} {state ?? "ready"}
+            ● {nameOf(current)} {state ?? "ready"}
           </Text>
         ) : (
           <Text dimColor>no environment</Text>
@@ -44,7 +44,7 @@ export const Rail = (props: { readonly views: readonly EnvironmentView[]; readon
       return (
         <Box key={view.environmentId} flexDirection="column">
           <Text wrap="truncate-end" bold dimColor={view.phase !== "ready"}>
-            {view.name}
+            {nameOf(view)}
           </Text>
           {state && (
             <Text wrap="truncate-end" dimColor>

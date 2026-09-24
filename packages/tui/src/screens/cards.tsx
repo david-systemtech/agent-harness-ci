@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import type { EnvironmentView } from "@agent-harness/client-runtime";
 import { actionWords, type ClientSessionRow, type EnvironmentAction } from "../commands/environment.js";
 import type { MintedLines } from "../commands/pair.js";
-import { clockTime, phaseWords } from "../view.js";
+import { clockTime, nameOf, phaseWords } from "../view.js";
 
 /** The open card: `/environment`'s list, a connection's actions, its client sessions, a minted pairing code. */
 
@@ -26,7 +26,7 @@ export const EnvironmentsCard = (props: { readonly views: readonly EnvironmentVi
     {props.views.map((view, index) => (
       <Box key={view.environmentId} flexDirection="column">
         <Row selected={index === props.cursor} dim={!view.enabled}>
-          {pad(view.name, 16)}
+          {pad(nameOf(view), 16)}
           {pad(view.kind, 8)}
           {pad(phaseWords(view), 24)}
           {pad(view.version ?? "unknown", 12)}
@@ -46,7 +46,7 @@ export const EnvironmentsCard = (props: { readonly views: readonly EnvironmentVi
 export const EnvironmentMenu = (props: { readonly view: EnvironmentView; readonly actions: readonly EnvironmentAction[]; readonly cursor: number }) => (
   <Box flexDirection="column" paddingX={1}>
     <Text bold>
-      {props.view.name} <Text dimColor>↑↓ move · Enter choose · Esc back</Text>
+      {nameOf(props.view)} <Text dimColor>↑↓ move · Enter choose · Esc back</Text>
     </Text>
     {props.actions.map((action, index) => (
       <Row key={action} selected={index === props.cursor}>
@@ -65,7 +65,7 @@ export const ClientSessionsCard = (props: {
 }) => (
   <Box flexDirection="column" paddingX={1}>
     <Text bold>
-      Client sessions on {props.view.name} <Text dimColor>↑↓ move · Enter revoke · Esc back</Text>
+      Client sessions on {nameOf(props.view)} <Text dimColor>↑↓ move · Enter revoke · Esc back</Text>
     </Text>
     {props.rows === undefined && <Text dimColor>Listing…</Text>}
     {props.rows?.map((row, index) => (

@@ -50,6 +50,8 @@ export interface ServiceScript {
   readonly installed?: boolean;
   /** What `service start` answers: preset it succeeds and the local environment's discovery answers `starting`. */
   readonly start?: ServiceOutcome;
+  /** Whether a start that succeeds brings discovery up to `starting`: preset true. */
+  readonly comesUp?: boolean;
 }
 
 const scriptedService = (world: ScriptedWorld, script: ServiceScript = {}): ScriptedService => {
@@ -72,7 +74,7 @@ const scriptedService = (world: ScriptedWorld, script: ServiceScript = {}): Scri
     start: async () => {
       calls.push("start");
       const outcome = script.start ?? { ok: true, message: "Started." };
-      if (outcome.ok) localEnvironment()?.discovery("starting");
+      if (outcome.ok && script.comesUp !== false) localEnvironment()?.discovery("starting");
       return outcome;
     },
     readiness: async () => {

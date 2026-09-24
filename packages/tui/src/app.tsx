@@ -12,7 +12,19 @@ import type { LocalService } from "./platform/services.js";
 import type { RuntimeHost } from "./runtime-host.js";
 import { ClientSessionsCard, EnvironmentMenu, EnvironmentsCard, MintedCard } from "./screens/cards.js";
 import { Composer, Header, Line, PairingPrompt, RAIL_MIN_COLUMNS, Rail } from "./screens/layout.js";
-import { activityLine, currentEnvironment, findEnvironment, localEnvironment, localIsDown, messageOf, offerLine, type Fault } from "./view.js";
+import {
+  activityLine,
+  currentEnvironment,
+  findEnvironment,
+  isPlaceholder,
+  knownEnvironments,
+  localEnvironment,
+  localIsDown,
+  messageOf,
+  nameOf,
+  offerLine,
+  type Fault,
+} from "./view.js";
 
 /**
  * The Ink root (docs/specs/tui.md, "Rendering"): Ink 7 on the alternate
@@ -174,6 +186,9 @@ export const App = (props: AppProps) => {
   const faults = (props.faults ?? NO_FAULTS).read();
   const current = currentEnvironment(views, preferences, props.flags.environment);
   const localView = localEnvironment(views);
+  // The placeholder stands for a local environment never seen: it is no reason to offer a start on its own.
+  const rememberedLocal = localView !== undefined && !isPlaceholder(localView);
+  const known = knownEnvironments(views);
   const down = started && localIsDown(views, local);
 
   // `--environment` names the environment the header is about: it becomes the last used once it is known,
@@ -182,13 +197,13 @@ export const App = (props: AppProps) => {
   useEffect(() => {
     const wanted = props.flags.environment;
     if (wanted === undefined || named.current.found || !started) return;
-    const found = findEnvironment(views, wanted);
+    const found = findEnvironment(known, wanted);
     if (found) {
       named.current = { ...named.current, found: true };
       void runtime.connections.setLastUsed(found.environmentId).catch(() => undefined);
     } else if (!named.current.missSaid) {
       named.current = { ...named.current, missSaid: true };
-      say(`No environment named ${wanted} is known here; showing ${current?.name ?? "none"}.`);
+      say(`No environment named ${wanted} is known here; showing ${current ? nameOf(current) : "none"}.`);
     }
   });
 
@@ -222,7 +237,7 @@ export const App = (props: AppProps) => {
     down &&
     screen.installed !== undefined &&
     (screen.offer === "open" || screen.offer === "handed-over") &&
-    (screen.grantPresent === true || localView !== undefined || screen.installed);
+    (screen.grantPresent === true || rememberedLocal || screen.installed);
   const startingService = screen.offer === "running";
 
   const startService = () => {
@@ -273,7 +288,7 @@ export const App = (props: AppProps) => {
         return pair(command.input);
       case "pair-create": {
         if (!current) return say("There is no environment to create a pairing code on: /pair one first.");
-        say(`Creating a pairing code on ${current.name}…`);
+        say(`Creating a pairing code on ${nameOf(current)}…`);
         // A card opened while the code was minted stays: the code then comes on the line, never lost.
         const cardAsked = screen.card;
         void mintPairing(runtime, current, props.newCommandId()).then((outcome) =>
@@ -334,7 +349,7 @@ export const App = (props: AppProps) => {
       if (action === "remove") {
         return update({
           question: {
-            text: `Remove ${view.name}? Its client session there is revoked and its saved connection forgotten. y/n`,
+            text: `Remove ${nameOf(view)}? Its client session there is revoked and its saved connection forgotten. y/n`,
             yes: () => {
               update({ card: { kind: "environments", cursor: 0 } });
               void removeEnvironment(runtime, view).then(say);
@@ -351,7 +366,7 @@ export const App = (props: AppProps) => {
       if (!view || !row) return;
       update({
         question: {
-          text: `Revoke ${row.label} on ${view.name}? y/n`,
+          text: `Revoke ${row.label} on ${nameOf(view)}? y/n`,
           yes: () => void revokeClientSession(runtime, view, row, props.newCommandId()).then((line) => {
             say(line);
             openClientSessions(view);
@@ -448,9 +463,9 @@ export const App = (props: AppProps) => {
             <ClientSessionsCard view={menuView} rows={card.rows} own={own} cursor={clampCursor(card.cursor, card.rows?.length ?? 0)} />
           )}
           {card.kind === "minted" && <MintedCard lines={card.lines} />}
-          {card.kind === "none" && started && views.length === 0 && <PairingPrompt />}
+          {card.kind === "none" && started && known.length === 0 && <PairingPrompt />}
           {card.kind === "none" && !started && <Text dimColor> Connecting…</Text>}
-          {card.kind === "none" && started && views.length > 0 && <Text dimColor> No session is open.</Text>}
+          {card.kind === "none" && started && known.length > 0 && <Text dimColor> No session is open.</Text>}
         </Box>
       </Box>
       <Line text={screen.line} />

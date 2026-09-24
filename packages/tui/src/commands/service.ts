@@ -9,8 +9,9 @@ import { localEnvironment } from "../view.js";
  * the CLI's `service start` (`service install` first when no service is
  * installed), then waits for the environment to answer and hands over to
  * the runtime, which shows `starting` until `ready`. A local connection the
- * runtime lists is retried at once; one it never saw is found by a fresh
- * runtime once the environment is ready (`RuntimeHost.restart`). `signal`
+ * runtime lists (the #181 placeholder for one never seen included) is
+ * retried at once; a runtime that lists none is replaced by a fresh one
+ * once the environment is ready (`RuntimeHost.restart`). `signal`
  * is the terminal UI quitting: the wait stops at once, and nothing is
  * retried or restarted after it.
  */

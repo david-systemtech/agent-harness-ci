@@ -105,7 +105,7 @@ describe("service down", () => {
   });
 
   it("stops waiting for the environment when the terminal UI quits, and starts no runtime after", async () => {
-    const app = await launch({ script: { environments: [{ name: "desk", reach: "local", discovery: "nothing" }] } });
+    const app = await launch({ script: { environments: [{ name: "desk", reach: "local", discovery: "nothing" }] }, service: { comesUp: false } });
     await app.waitFor(OFFER);
     await app.press("y");
     await app.advance(3000);
@@ -201,7 +201,8 @@ describe("nothing local and nothing paired", () => {
     expect(app.frame()).toContain("/pair <link>");
     expect(app.frame()).toContain("/pair <address> <code>");
     expect(app.frame()).not.toContain("y/n");
-    expect(app.frame().split("\n")[0]).toContain("no environment");
+    // The runtime's placeholder for an environment never seen here (#181), nameless, is "this machine".
+    expect(app.frame().split("\n")[0]).toContain("● this machine service down");
   });
 
   it("is the pairing prompt with the start offer when a service is installed but stopped", async () => {

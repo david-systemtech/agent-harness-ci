@@ -1,6 +1,6 @@
 import type { EnvironmentView, Runtime } from "@agent-harness/client-runtime";
 import type { ResultOf } from "@agent-harness/contracts";
-import { messageOf } from "../view.js";
+import { messageOf, nameOf } from "../view.js";
 
 /**
  * `/environment` (docs/specs/tui.md, "First launch"): the saved
@@ -39,10 +39,10 @@ export const applyAction = async (
       // Every saved connection, disabled ones included, as the runtime lists them now: `setOrder` takes the whole sequence.
       const others = runtime.projections.environments.read().filter((v) => v.environmentId !== view.environmentId);
       await runtime.connections.setOrder([view.environmentId, ...others.map((v) => v.environmentId)]);
-      return `${view.name} is the primary environment.`;
+      return `${nameOf(view)} is the primary environment.`;
     }
     await runtime.connections.setEnabled(view.environmentId, action === "enable");
-    return action === "enable" ? `${view.name} is enabled.` : `${view.name} is disabled: its cache and saved connection stay.`;
+    return action === "enable" ? `${nameOf(view)} is enabled.` : `${nameOf(view)} is disabled: its cache and saved connection stay.`;
   } catch (error) {
     return messageOf(error);
   }
@@ -52,7 +52,7 @@ export const applyAction = async (
 export const removeEnvironment = async (runtime: Runtime, view: EnvironmentView): Promise<string> => {
   try {
     const result = await runtime.connections.remove(view.environmentId);
-    return result.revoked ? `Removed ${view.name}; its client session there is revoked.` : `Removed ${view.name}. ${result.message}`;
+    return result.revoked ? `Removed ${nameOf(view)}; its client session there is revoked.` : `Removed ${nameOf(view)}. ${result.message}`;
   } catch (error) {
     return messageOf(error);
   }
@@ -65,14 +65,14 @@ export type ClientSessionsOutcome = { readonly ok: true; readonly rows: readonly
 /** The environment's live client sessions, or why they cannot be listed (`requests.call` answers absent with the reason without `admin`). */
 export const listClientSessions = async (runtime: Runtime, view: EnvironmentView): Promise<ClientSessionsOutcome> => {
   const answer = await runtime.requests.call(view.environmentId, "access.sessions.list", { live: true });
-  if (!answer.ok) return { ok: false, line: `Cannot list the client sessions on ${view.name}: ${answer.error.message}` };
+  if (!answer.ok) return { ok: false, line: `Cannot list the client sessions on ${nameOf(view)}: ${answer.error.message}` };
   return { ok: true, rows: answer.result.sessions };
 };
 
 /** Revokes one client session; answers the line to show. */
 export const revokeClientSession = async (runtime: Runtime, view: EnvironmentView, row: ClientSessionRow, commandId: string): Promise<string> => {
   const answer = await runtime.requests.call(view.environmentId, "access.sessions.revoke", { commandId, clientSessionId: row.id });
-  if (!answer.ok) return `Cannot revoke ${row.label} on ${view.name}: ${answer.error.message}`;
+  if (!answer.ok) return `Cannot revoke ${row.label} on ${nameOf(view)}: ${answer.error.message}`;
   const { receipt } = answer.result;
-  return receipt.status === "accepted" ? `Revoked ${row.label} on ${view.name}.` : `Revoking ${row.label} on ${view.name} was rejected: ${receipt.error.message}`;
+  return receipt.status === "accepted" ? `Revoked ${row.label} on ${nameOf(view)}.` : `Revoking ${row.label} on ${nameOf(view)} was rejected: ${receipt.error.message}`;
 };

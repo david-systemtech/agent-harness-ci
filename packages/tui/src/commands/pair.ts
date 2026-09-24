@@ -1,7 +1,7 @@
 import { formatPairingCode, type MintedPairing } from "@agent-harness/contracts";
 import type { EnvironmentView, PairingOutcome, Runtime } from "@agent-harness/client-runtime";
 import { renderUnicodeCompact } from "uqr";
-import { clockTime } from "../view.js";
+import { clockTime, nameOf } from "../view.js";
 
 /**
  * `/pair` both ways (docs/specs/tui.md, "First launch: local detection,
@@ -14,7 +14,8 @@ import { clockTime } from "../view.js";
 export const pairingLine = (outcome: PairingOutcome, views: readonly EnvironmentView[]): string => {
   switch (outcome.status) {
     case "paired": {
-      const name = views.find((v) => v.environmentId === outcome.environmentId)?.name ?? "the environment";
+      const found = views.find((v) => v.environmentId === outcome.environmentId);
+      const name = found ? nameOf(found) : "the environment";
       const replaced = outcome.replaced && !outcome.replaced.revoked ? ` ${outcome.replaced.message}` : "";
       return `Paired with ${name}.${replaced}`;
     }
@@ -48,9 +49,9 @@ export type MintOutcome = { readonly ok: true; readonly lines: MintedLines } | {
 /** `/pair create` on `environment`: absent with the reason `requests.call` gives without `admin`, else the minted code. */
 export const mintPairing = async (runtime: Runtime, environment: EnvironmentView, commandId: string): Promise<MintOutcome> => {
   const answer = await runtime.requests.call(environment.environmentId, "access.pairings.create", { commandId });
-  if (!answer.ok) return { ok: false, line: `Cannot create a pairing code on ${environment.name}: ${answer.error.message}` };
+  if (!answer.ok) return { ok: false, line: `Cannot create a pairing code on ${nameOf(environment)}: ${answer.error.message}` };
   const { receipt, result } = answer.result;
-  if (receipt.status === "rejected") return { ok: false, line: `Creating a pairing code on ${environment.name} was rejected: ${receipt.error.message}` };
-  if (!result) return { ok: false, line: `${environment.name} accepted the pairing but sent no code; try again.` };
-  return { ok: true, lines: mintedLines(environment.name, result) };
+  if (receipt.status === "rejected") return { ok: false, line: `Creating a pairing code on ${nameOf(environment)} was rejected: ${receipt.error.message}` };
+  if (!result) return { ok: false, line: `${nameOf(environment)} accepted the pairing but sent no code; try again.` };
+  return { ok: true, lines: mintedLines(nameOf(environment), result) };
 };
