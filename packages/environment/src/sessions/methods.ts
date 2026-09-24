@@ -8,6 +8,8 @@ import {
 } from "@agent-harness/contracts";
 import type { EventEnvelope, EventLog } from "../event-log/event-log.js";
 import type { CommandAnswer, CommandContext, MethodHandlers } from "../serve/methods.js";
+import { appendDecided } from "./companions.js";
+import { decideSettle, decideSnooze, decideUnsettle, decideUnsnooze } from "./shelf-decider.js";
 import {
   PURGED_STATE,
   decideArchive,
@@ -26,6 +28,7 @@ import {
   decideUnpin,
   decideUntag,
   sessionNotFound,
+  stampedAt,
   type Decision,
   type Refusal,
   type SessionState,
@@ -34,21 +37,26 @@ import { createDeletion, type Deletion } from "./deletion.js";
 import { groupExists, listGroups } from "./group-reads.js";
 import { acceptAnyRunParameters, keepSessionMode, type RunParametersCheck, type SessionModeClamp } from "./run-parameters.js";
 import { listDeleted, listSummaries, readDeletion, readSessionState, readSummary, type Reader } from "./session-reads.js";
-import { foldTranscript } from "../runs/transcript.js";
-import { sessionStream, stamp } from "./streams.js";
+import { foldTranscript, readTranscriptEvents } from "../runs/transcript.js";
+import { sessionStream } from "./streams.js";
 
 /**
  * The session-organisation handlers on the method table (session-state
- * spec, "Commands" and "Subscriptions"): each session command runs its
- * decider over the projection and appends what it decides through the
- * command's transaction (create and rename; archive, pin and the reorders,
- * tags and the draft; the group a session is in; delete, restore and
- * purge, the purge carried out by `deletion.ts`); `sessions.list`,
- * `sessions.get`, `sessions.listDeleted` and `sessions.subscribe` read the
- * session-list projection, and `sessions.subscribeSession` follows one
- * session's stream. The group commands are `group-methods.ts`'s; the other
- * session methods are registered in the contracts and served by #117
- * (`OWED_HANDLERS`).
+ * spec, "Commands" and "Subscriptions"). Each session command runs its
+ * decider over the projection and appends what it decides, its own events
+ * and their companions, through the command's transaction:
+ * `sessions.create`, `sessions.rename`, `sessions.archive`,
+ * `sessions.unarchive`, `sessions.pin`, `sessions.unpin`,
+ * `sessions.reorderPinned`, `sessions.reorderActive`, `sessions.tag`,
+ * `sessions.untag`, `sessions.setDraft`, `sessions.setGroup`,
+ * `sessions.settle`, `sessions.unsettle`, `sessions.snooze`,
+ * `sessions.unsnooze`, `sessions.delete`, `sessions.restore` and
+ * `sessions.purge` (the purge carried out by `deletion.ts`). The queries
+ * `sessions.list`, `sessions.get` and `sessions.listDeleted` and the stream
+ * `sessions.subscribe` read the session-list projection;
+ * `sessions.subscribeSession` follows one session's stream. The group
+ * commands are `group-methods.ts`'s, the settings methods
+ * `settings/methods.ts`'s, and the shelf's sweep `settle-sweep.ts`'s.
  */
 
 export interface SessionMethodsOptions {
@@ -110,9 +118,7 @@ export const sessionMethods = (options: SessionMethodsOptions): MethodHandlers =
   ): CommandAnswer<R, Refusal["code"]> => {
     const aggregate = sessionStream(id);
     if (decision.rejected !== undefined) return { aggregate, rejected: decision.rejected };
-    if (decision.events.length > 0) {
-      log.append(aggregate, decision.events, { tx: context.tx, actor: context.actor, commandId: context.commandId });
-    }
+    appendDecided(log, aggregate, decision, { tx: context.tx, actor: context.actor, commandId: context.commandId });
     return { aggregate, result: result === undefined ? ({ summary: summaryAfter(id) } as R) : result() };
   };
 
@@ -131,8 +137,7 @@ export const sessionMethods = (options: SessionMethodsOptions): MethodHandlers =
     const id = sessionId.toLowerCase();
     const at = clock().toISOString();
     const decision = decide(stateOf(id), id, at);
-    const stamped: Decision = decision.rejected === undefined ? { events: stamp(decision.events, at) } : decision;
-    return carryOut(id, stamped, context, result === undefined ? undefined : () => result(id));
+    return carryOut(id, stampedAt(decision, at), context, result === undefined ? undefined : () => result(id));
   };
 
   return {
@@ -168,6 +173,26 @@ export const sessionMethods = (options: SessionMethodsOptions): MethodHandlers =
 
     "sessions.reorderActive": (params, context) =>
       onSession(params.sessionId, context, (state, sessionId) => decideReorderActive(state, { sessionId, orderKey: params.orderKey })),
+
+    // The shelf (#117): settle and unsettle are never refused for lifecycle reasons; their companions share the command's transaction.
+    "sessions.settle": (params, context) =>
+      onSession(params.sessionId, context, (state, sessionId, at) => decideSettle(state, { sessionId, at, by: "user" })),
+
+    "sessions.unsettle": (params, context) =>
+      onSession(params.sessionId, context, (state, sessionId, at) => decideUnsettle(state, { sessionId, at })),
+
+    // Not found first, then the window against the command's own instant: an until outside it is rejected
+    // out_of_window in the receipt; one that is not a UTC timestamp was invalid_params at the wire.
+    "sessions.snooze": (params, context) => {
+      const id = params.sessionId.toLowerCase();
+      const at = clock().toISOString();
+      const decision = decideSnooze(stateOf(id), { sessionId: id, at, until: params.until });
+      if (decision.rejected?.code === "out_of_window") return { aggregate: sessionStream(id), rejected: decision.rejected };
+      return carryOut(id, stampedAt(decision as Decision, at), context);
+    },
+
+    "sessions.unsnooze": (params, context) =>
+      onSession(params.sessionId, context, (state, sessionId) => decideUnsnooze(state, { sessionId, reason: "user" })),
 
     "sessions.tag": (params, context) => onSession(params.sessionId, context, (state, sessionId) => decideTag(state, { sessionId, tag: params.tag })),
 
@@ -254,7 +279,7 @@ export const sessionMethods = (options: SessionMethodsOptions): MethodHandlers =
       return {
         stream: sessionStream(id),
         // The runs, items and parked prompts are folded from the stream as it stands (`runs/transcript.ts`).
-        snapshot: () => ({ sequence: log.head(), summary: summaryOf(), ...foldTranscript(log.readStream(sessionStream(id))) }),
+        snapshot: () => ({ sequence: log.head(), summary: summaryOf(), ...foldTranscript(readTranscriptEvents(log, id)) }),
         endOn: (event) =>
           event.type === "session.purged" || (event.type === "session.deleted" && holdsNow(event)) ? "deleted" : undefined,
       };

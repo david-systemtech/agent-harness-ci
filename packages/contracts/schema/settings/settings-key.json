@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SettingsKey",
+  "type": "string",
+  "enum": [
+    "sessions.autoSettleAfterIdle",
+    "sessions.autoSettleOnMerge",
+    "permissions.defaultCeiling",
+    "permissions.unattended.mode",
+    "permissions.unattended.bypassAcknowledgedAt",
+    "permissions.parkedPrompt.ttl",
+    "permissions.containment.default"
+  ],
+  "description": "A settings key: sessions.autoSettleAfterIdle, sessions.autoSettleOnMerge, permissions.defaultCeiling, permissions.unattended.mode, permissions.unattended.bypassAcknowledgedAt, permissions.parkedPrompt.ttl, permissions.containment.default."
+}

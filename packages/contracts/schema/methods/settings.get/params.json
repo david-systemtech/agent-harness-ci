@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "settings.get params",
+  "type": "object",
+  "properties": {
+    "keys": {
+      "description": "The keys to read; every key when absent.",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "sessions.autoSettleAfterIdle",
+          "sessions.autoSettleOnMerge",
+          "permissions.defaultCeiling",
+          "permissions.unattended.mode",
+          "permissions.unattended.bypassAcknowledgedAt",
+          "permissions.parkedPrompt.ttl",
+          "permissions.containment.default"
+        ],
+        "description": "A settings key: sessions.autoSettleAfterIdle, sessions.autoSettleOnMerge, permissions.defaultCeiling, permissions.unattended.mode, permissions.unattended.bypassAcknowledgedAt, permissions.parkedPrompt.ttl, permissions.containment.default."
+      },
+      "uniqueItems": true
+    }
+  }
+}

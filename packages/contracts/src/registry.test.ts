@@ -150,6 +150,7 @@ describe("the method registry", () => {
       "runs.send",
       "runs.interrupt",
       "runs.stopTask",
+      "settings.update",
       "permissions.mode.set",
       "permissions.settings.set",
     ]);
@@ -269,6 +270,8 @@ describe("the method registry", () => {
       | "runs.send"
       | "runs.interrupt"
       | "runs.stopTask"
+      | "settings.get"
+      | "settings.update"
       | "permissions.mode.set"
       | "permissions.settings.get"
       | "permissions.settings.set"

@@ -360,6 +360,7 @@ export const SessionGroupSetPayload = z
 export const SessionSettledPayload = z
   .object({ settledAt: Timestamp, by: SettledBy })
   .meta({ description: "session.settled: the session moved to the settled shelf; its settledOverride is settled." });
+export type SessionSettledPayload = z.infer<typeof SessionSettledPayload>;
 
 /** Why a session was unsettled: by the user, or by new activity. */
 export const UNSETTLE_REASONS = ["user", "activity"] as const;
@@ -368,10 +369,12 @@ export const UnsettleReason = z.enum(UNSETTLE_REASONS).meta({
 });
 export const SessionUnsettledPayload = z
   .object({ unsettledAt: Timestamp, reason: UnsettleReason })
-  .meta({ description: "session.unsettled: the session left the settled shelf." });
+  .meta({ description: "session.unsettled: the session left the settled shelf; by the user, a session not settled is held active against auto-settle." });
+export type SessionUnsettledPayload = z.infer<typeof SessionUnsettledPayload>;
 export const SessionSnoozedPayload = z
   .object({ snoozedUntil: Timestamp, snoozedAt: Timestamp })
   .meta({ description: "session.snoozed: the session is kept out of the active list until snoozedUntil." });
+export type SessionSnoozedPayload = z.infer<typeof SessionSnoozedPayload>;
 
 /** Why a snoozed session woke: the user, the time passed, activity, or a settle. */
 export const UNSNOOZE_REASONS = ["user", "expired", "activity", "settled"] as const;
@@ -381,6 +384,7 @@ export const UnsnoozeReason = z.enum(UNSNOOZE_REASONS).meta({
 export const SessionUnsnoozedPayload = z
   .object({ reason: UnsnoozeReason })
   .meta({ description: "session.unsnoozed: the session woke from its snooze." });
+export type SessionUnsnoozedPayload = z.infer<typeof SessionUnsnoozedPayload>;
 export const SessionDeletedPayload = z
   .object({
     deletedAt: Timestamp,

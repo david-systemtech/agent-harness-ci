@@ -639,6 +639,18 @@ describe("permissions.settings.set", () => {
     expect((await send(admin, "permissions.settings.set", { values: { "permissions.containment.default": "off" } })).receipt).toMatchObject({ status: "accepted" });
   });
 
+  it("leaves the permission keys to it: the generic settings.update refuses them, settings.get reads what it wrote on the settings stream", async () => {
+    const t = await start();
+    const admin = await t.client();
+    const refused = await refusal(admin.request("settings.update", { commandId: randomUUID(), values: { "permissions.unattended.mode": "bypassPermissions" } } as never));
+    expect(refused).toMatchObject({ code: "invalid_params" });
+    expect((await admin.request("permissions.settings.get", {})).values["permissions.unattended.mode"]).toBe("acceptEdits");
+    await send(admin, "permissions.settings.set", { values: { "permissions.parkedPrompt.ttl": "never" } });
+    expect(await admin.request("settings.get", { keys: ["permissions.parkedPrompt.ttl"] })).toEqual({ values: { "permissions.parkedPrompt.ttl": "never" } });
+    const [updated] = t.env.log.readStream({ kind: "settings", id: t.env.id }).map(toWireEnvelope);
+    expect(updated).toMatchObject({ type: "settings.updated", actor: { kind: "client_session", id: admin.hello.clientSessionId }, payload: { values: { "permissions.parkedPrompt.ttl": "never" } } });
+  });
+
   it("needs admin", async () => {
     const t = await start();
     const driver = await pairedClient(t, "bypassPermissions", ["read", "runs:drive", "sessions:write"]);

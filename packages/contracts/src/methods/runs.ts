@@ -18,6 +18,9 @@ import { AttachmentKind } from "../transcript.js";
 /** The largest attachment a message carries, in bytes before encoding. */
 export const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 
+/** How many bytes a padded base64 string decodes to. */
+const decodedLength = (data: string): number => (data.length / 4) * 3 - (data.endsWith("==") ? 2 : data.endsWith("=") ? 1 : 0);
+
 /**
  * An attachment as a client sends it: what it is, and its bytes in base64.
  * The environment keeps the bytes for the run and logs only the kind, name,
@@ -28,11 +31,19 @@ export const AttachmentInput = z
     kind: AttachmentKind,
     name: z.string().min(1).max(255),
     mediaType: z.string().regex(/^[a-z]+\/[a-z0-9.+-]+$/i).meta({ description: "Its media type: image/png." }),
+    // Standard base64 with its padding: whole groups of four, the last ending in = or == when the bytes do not fill it.
+    // The export publishes that grammar as one pattern; zod checks it as a flat pattern and the length rule, since the
+    // grammar's repeated group overflows a backtracking engine's stack on a 20 MiB string.
     data: z
       .string()
       .regex(/^[A-Za-z0-9+/]*={0,2}$/)
       .max(Math.ceil(MAX_ATTACHMENT_BYTES / 3) * 4)
-      .meta({ description: "Its bytes, in base64; the log never holds them." }),
+      .refine((data) => data.length % 4 === 0, { message: "Base64 comes in whole groups of four characters, padded with =." })
+      .refine((data) => decodedLength(data) <= MAX_ATTACHMENT_BYTES, { message: `An attachment is at most ${MAX_ATTACHMENT_BYTES} bytes.` })
+      .meta({
+        pattern: "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+        description: `Its bytes, in standard padded base64, at most ${MAX_ATTACHMENT_BYTES} bytes decoded (the maxLength bounds it within two bytes; the environment checks the decoded size); the log never holds them.`,
+      }),
   })
   .meta({ description: "An attachment as a client sends it: kind, name, media type and its bytes in base64." });
 export type AttachmentInput = z.infer<typeof AttachmentInput>;
@@ -45,15 +56,17 @@ const message = {
 
 /**
  * Starts a run on the session with `text` as its prompt. The account and
- * workspace are the session's, and the model, effort and mode default to the
- * session's; the mode is clamped to the client session's ceiling and the
- * account's modes, the clamp recorded on `run.started` and the whole policy
- * on `run.policy.resolved`: a mode above them is lowered, not refused. While
- * a run is live it is rejected `conflict` (reason `run_active`: `runs.send`
- * is the way in); an account that is not on this environment or not signed
- * in is rejected `conflict` (reason `account_unavailable`), and one with no
- * mode available at or below the ceiling `conflict` (reason
- * `mode_unavailable`); while the environment drains it is `unavailable`.
+ * workspace are the session's, and the model and mode default to the
+ * session's (the effort to the model's own: a session has none); the mode is
+ * clamped to the client session's ceiling (and, for a run that reads queued
+ * messages, each sender's) and the account's modes, the clamp recorded on
+ * `run.started` and the whole policy on `run.policy.resolved`: a mode above
+ * them is lowered, not refused. While a run is live it is rejected
+ * `conflict` (reason `run_active`: `runs.send` is the way in); an account
+ * that is not on this environment or not signed in is rejected `conflict`
+ * (reason `account_unavailable`), and one with no mode available at or below
+ * the ceiling `conflict` (reason `mode_unavailable`); while the environment
+ * drains it is `unavailable`.
  */
 export const runsStart = defineMethod({
   name: "runs.start",
@@ -101,6 +114,10 @@ export const runsInterrupt = defineMethod({
   result: z.object({
     runId: RunId,
     ended: z.boolean().meta({ description: "True when the run had ended already, so nothing was interrupted." }),
+    unrecorded: z
+      .literal(true)
+      .optional()
+      .meta({ description: "Present when the run ended here but its run.ended could not be appended; the recovery sweep at the next start records it." }),
   }),
   errors: [],
 });

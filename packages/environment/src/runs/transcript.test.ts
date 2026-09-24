@@ -1,7 +1,7 @@
 import { SessionSnapshot } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
-import type { EventEnvelope } from "../event-log/event-log.js";
-import { foldTranscript } from "./transcript.js";
+import { openEventLog, type EventEnvelope } from "../event-log/event-log.js";
+import { foldTranscript, readTranscriptEvents } from "./transcript.js";
 
 /**
  * The fold that gives a session's snapshot its runs, items and parked
@@ -149,5 +149,25 @@ describe("the transcript fold", () => {
       event("prompt.answered", { promptId: "p-1", decision: "allow" }),
     ];
     expect(foldTranscript(events).parkedPrompts).toEqual([{ promptId: "p-2", sequence: 2, openedAt: at(2), prompt: { promptId: "p-2", kind: "question" } }]);
+  });
+});
+
+describe("the read the fold takes", () => {
+  it("is the session's stream in order without its deltas, which the settled text carries whole", () => {
+    const log = openEventLog({ path: ":memory:", projectors: [] });
+    try {
+      const stream = { kind: "session", id: sessionId } as const;
+      const other = { kind: "session", id: "0f8fad5b-d9cb-469f-a165-70867728950e" } as const;
+      log.append(stream, [{ type: "assistant.delta", payload: { runId, itemId: "i-1", fragments: [{ kind: "text", text: "Hel" }] } }], { actor: "adapter:fake" });
+      log.append(other, [{ type: "assistant.text", payload: { runId, itemId: "i-9", text: "Elsewhere", aborted: false } }], { actor: "adapter:fake" });
+      log.append(stream, [{ type: "assistant.text", payload: { runId, itemId: "i-1", text: "Hello.", aborted: false } }], { actor: "adapter:fake" });
+      log.append(stream, [{ type: "plugin.said", payload: { note: "kept, opaque" } }], { actor: "adapter:fake" });
+      expect(readTranscriptEvents(log, sessionId).map((read) => [read.type, read.sequence])).toEqual([
+        ["assistant.text", 3],
+        ["plugin.said", 4],
+      ]);
+    } finally {
+      log.close();
+    }
   });
 });

@@ -1,0 +1,81 @@
+/**
+ * Fixtures for the settings schemas and methods: a valid and an invalid
+ * instance of every settings schema the export writes, and params and
+ * results for `settings.get` and `settings.update`. `fixtures.ts` folds them
+ * into the package's fixture table.
+ */
+
+interface Fixtures {
+  readonly valid: readonly unknown[];
+  readonly invalid: readonly unknown[];
+}
+
+const commandId = "0f8fad5b-d9cb-469f-a165-70867728950e";
+
+/** The permission keys (#129) at their presets: every value set holds them too. */
+const permissionPresets = {
+  "permissions.defaultCeiling": "acceptEdits",
+  "permissions.unattended.mode": "acceptEdits",
+  "permissions.unattended.bypassAcknowledgedAt": null,
+  "permissions.parkedPrompt.ttl": { amount: 24, unit: "hours" },
+  "permissions.containment.default": "off",
+};
+const presets = { "sessions.autoSettleAfterIdle": { amount: 14, unit: "days" }, "sessions.autoSettleOnMerge": false, ...permissionPresets };
+const changed = { "sessions.autoSettleAfterIdle": null, "sessions.autoSettleOnMerge": true };
+
+const idleSpans: Fixtures = {
+  valid: [
+    { amount: 1, unit: "days" },
+    { amount: 2, unit: "weeks" },
+    { amount: 1000, unit: "months" },
+  ],
+  invalid: [{ amount: 0, unit: "days" }, { amount: 1001, unit: "days" }, { amount: 1.5, unit: "weeks" }, { amount: 3, unit: "years" }, { unit: "days" }],
+};
+
+const patches: Fixtures = {
+  valid: [{}, presets, changed, { "sessions.autoSettleOnMerge": true }],
+  invalid: [{ "sessions.autoSettleOnMerge": null }, { "sessions.autoSettleAfterIdle": 14 }, { theme: "artemis" }, []],
+};
+
+export const settingsSchemaFixtures: Record<string, Fixtures> = {
+  "settings/settings-key.json": { valid: ["sessions.autoSettleAfterIdle", "sessions.autoSettleOnMerge", "permissions.defaultCeiling"], invalid: ["theme", ""] },
+  "settings/idle-span-unit.json": { valid: ["days", "weeks", "months"], invalid: ["years", "Days"] },
+  "settings/idle-span.json": idleSpans,
+  "settings/keys/sessions.autoSettleAfterIdle.json": { valid: [null, ...idleSpans.valid], invalid: [false, ...idleSpans.invalid] },
+  "settings/keys/sessions.autoSettleOnMerge.json": { valid: [true, false], invalid: [null, "true"] },
+  "settings/settings-values.json": {
+    valid: [presets, { ...permissionPresets, ...changed }],
+    invalid: [{}, { "sessions.autoSettleOnMerge": false }, { ...presets, theme: "artemis" }, changed],
+  },
+  "settings/settings-patch.json": patches,
+  "settings/settings-event-type.json": { valid: ["settings.updated"], invalid: ["setting.updated", ""] },
+  "settings/events/settings.updated.json": {
+    valid: [{ values: changed }, { values: { "sessions.autoSettleOnMerge": true } }, { values: { "permissions.parkedPrompt.ttl": "never" } }],
+    invalid: [{}, { values: { theme: "artemis" } }],
+  },
+};
+
+export const settingsMethodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
+  "settings.get": {
+    params: {
+      valid: [{}, { keys: [] }, { keys: ["sessions.autoSettleAfterIdle", "sessions.autoSettleOnMerge"] }],
+      invalid: [{ keys: ["theme"] }, { keys: ["sessions.autoSettleOnMerge", "sessions.autoSettleOnMerge"] }, { keys: "sessions.autoSettleOnMerge" }],
+    },
+    result: { valid: [{ values: presets }, { values: {} }], invalid: [{}, { values: { theme: "artemis" } }] },
+  },
+  "settings.update": {
+    params: {
+      valid: [
+        { commandId, values: changed },
+        { commandId, values: {} },
+      ],
+      invalid: [
+        { values: changed },
+        { commandId, values: { "sessions.autoSettleOnMerge": "yes" } },
+        { commandId, values: { theme: "artemis" } },
+        { commandId, values: { "permissions.unattended.mode": "bypassPermissions" } },
+      ],
+    },
+    result: { valid: [{ values: presets }], invalid: [{ values: {} }, {}] },
+  },
+};

@@ -1,6 +1,7 @@
 import {
   ContractError,
   invalidParams,
+  lowerMode,
   type AccountIdentity,
   type AttachmentInput,
   type AttachmentRecord,
@@ -67,9 +68,13 @@ export interface StartFacts {
   readonly queued: readonly QueuedMessage[];
   /** The provider's session the run resumes, when the adapter can resume and a run linked one. */
   readonly resumeFrom: string | null;
-  /** Who asked: its kind, whether a person is present, and the ceiling the mode is clamped to (ADR 0006). */
+  /**
+   * Who asked (ADR 0006): its kind and its ceiling. The mode is clamped to
+   * that ceiling and to the ceiling of every queued message the run reads,
+   * so a run is never above the lowest ceiling of whoever sent what it reads.
+   */
   readonly actor: RunActor;
-  /** The policy resolver (#129): the run's mode clamped to the actor's ceiling and the account's modes. */
+  /** The policy resolver (#129): the run's mode clamped to the ceiling and the account's modes. */
   readonly resolvePolicy: PolicySeam;
   /** The id the run gets. */
   readonly runId: string;
@@ -201,8 +206,10 @@ export const decideStart = (facts: StartFacts, command: StartCommand): StartDeci
   const effort = command.effort ?? null;
   if (effort !== null && !model.efforts.includes(effort)) throw invalid("effort", `The model ${model.id} does not take the effort ${effort}.`);
   const requested = command.mode ?? session.mode;
-  const policy = facts.resolvePolicy({ actor: facts.actor, requested, accountModes: descriptor.modes });
-  if ("refused" in policy) return conflict(sessionId, "mode_unavailable", policy.refused, { accountId: account.id, ceiling: facts.actor.ceiling });
+  // The lowest of the asker's ceiling and each queued sender's (#119), which the policy resolves under (#129).
+  const ceiling = [facts.actor.ceiling, ...facts.queued.map((queued) => queued.ceiling)].reduce(lowerMode);
+  const policy = facts.resolvePolicy({ actor: { ...facts.actor, ceiling }, requested, accountModes: descriptor.modes });
+  if ("refused" in policy) return conflict(sessionId, "mode_unavailable", policy.refused, { accountId: account.id, ceiling });
 
   const queuedIds = facts.queued.map((message) => message.messageId);
   if (command.message === null && queuedIds.length === 0) throw new Error(`A run of session ${sessionId} was asked to start with nothing to read.`);
@@ -227,7 +234,7 @@ export const decideStart = (facts: StartFacts, command: StartCommand): StartDeci
   }
   if (command.message !== null) {
     const { messageId, text } = command.message;
-    events.push(sentEvent({ runId, messageId, text, attachments: attachments.records, delivery: "prompt", heldBy: null }));
+    events.push(sentEvent({ runId, messageId, text, attachments: attachments.records, delivery: "prompt", heldBy: null, ceiling: facts.actor.ceiling }));
   }
   return {
     events,
@@ -287,6 +294,7 @@ export const decideSend = (facts: StartFacts, message: SentMessage): SendDecisio
     attachments: attachments.records,
     delivery: "queued",
     heldBy,
+    ceiling: facts.actor.ceiling,
   };
   return {
     events: [sentEvent(payload)],
@@ -302,6 +310,8 @@ export interface RunFacts {
   readonly session: SessionFacts | null;
   /** The live run's adapter's descriptor, when this run is the session's live run; null once it has ended. */
   readonly live: AdapterDescriptor | null;
+  /** The descriptor of the adapter the run went through, live or ended; null when its account is no longer here. */
+  readonly descriptor?: AdapterDescriptor | null;
 }
 
 export type RunCommandDecision = { readonly rejected: RunRefusal } | { readonly rejected?: undefined; readonly ended: boolean };
@@ -328,7 +338,9 @@ export const decideInterrupt = (facts: RunFacts): RunCommandDecision => {
 export const decideStopTask = (facts: RunFacts, taskStatus: string | null): RunCommandDecision => {
   const refusal = presentRun(facts);
   if (refusal !== null) return { rejected: refusal };
+  // What the adapter cannot do is refused whether or not the run has ended.
+  const descriptor = facts.live ?? facts.descriptor ?? null;
+  if (descriptor !== null) requireCapability(descriptor, "subagents", ["taskId"], "stop delegated work");
   if (facts.live === null) return { ended: true };
-  requireCapability(facts.live, "subagents", ["taskId"], "stop delegated work");
   return { ended: taskStatus !== null && ["completed", "failed", "stopped"].includes(taskStatus) };
 };

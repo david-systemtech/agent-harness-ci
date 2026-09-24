@@ -1228,7 +1228,8 @@
             "properties": {
               "kind": {
                 "type": "string",
-                "minLength": 1
+                "pattern": "^(?!(?:user-message|assistant-text|assistant-thinking|tool-call|command|tasks)$).+$",
+                "description": "Any kind but the known ones (user-message, assistant-text, assistant-thinking, tool-call, command, tasks), which must match their own schema."
               },
               "sequence": {
                 "type": "integer",

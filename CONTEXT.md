@@ -76,6 +76,10 @@ _Avoid_: done, completed, closed
 The state of a session kept out of the active list until a chosen time.
 _Avoid_: muted, hidden
 
+**Shelf**:
+Where a session sits when it is not in the active list: the settled, snoozed or archived shelf, each following from the session's own state rather than from where a client put it.
+_Avoid_: bucket, folder, section
+
 **Tombstone**:
 The one event left in an environment's log for a purged session: it says the session is gone and what became of the provider's transcript, so a client that last saw the session learns to drop it.
 _Avoid_: purge marker, deletion record

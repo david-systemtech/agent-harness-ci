@@ -5,12 +5,14 @@ import {
   ContractError,
   MODES,
   PERMISSION_SETTINGS_KEYS,
+  SETTINGS_STREAM_KIND,
   invalidParams,
   type Mode,
   type ModeAvailability,
   type PermissionSettingsKey,
   type PermissionSettingsValues,
   type SessionModeSetPayload,
+  type SettingsUpdatedPayload,
 } from "@agent-harness/contracts";
 import type { AdapterHost } from "../adapter/host.js";
 import { byClientSession, type AccessLog } from "../auth/access-log.js";
@@ -41,6 +43,8 @@ export interface PermissionMethodsOptions {
   readonly host: AdapterHost;
   readonly accessLog: Pick<AccessLog, "record" | "stream">;
   readonly clock: Clock;
+  /** The environment's id: the id of its settings stream, which the permission settings' values are on. */
+  readonly environmentId: string;
   /** A client session's ceiling as it is now; undefined once it is revoked or expired. */
   readonly ceilingOf: (clientSessionId: string) => Mode | undefined;
 }
@@ -121,10 +125,13 @@ export const permissionMethods = (options: PermissionMethodsOptions): Required<P
      * bypassPermissions it needs `acknowledgeBypass: true`, or it is
      * `invalid_params` and nothing changes; then the time is recorded and
      * `bypass.acknowledged` appended. A containment default this environment
-     * cannot enforce is rejected `containment_unavailable`.
+     * cannot enforce is rejected `containment_unavailable`. The values that
+     * change are the settings stream's `settings.updated` (the command's
+     * aggregate), and the access log's `settings.changed` in the same
+     * transaction.
      */
     "permissions.settings.set": (params, context) => {
-      const aggregate = accessLog.stream;
+      const aggregate = { kind: SETTINGS_STREAM_KIND, id: options.environmentId };
       const held = readPermissionSettings(reader);
       const asked = params.values;
       const containment = asked["permissions.containment.default"];
@@ -150,13 +157,10 @@ export const permissionMethods = (options: PermissionMethodsOptions): Required<P
       if (keys.length === 0) return { aggregate, result: { values } };
       const attribution = byClientSession(context.clientSession.id, context.commandId);
       if (firstBypass) accessLog.record(context.tx, "bypass.acknowledged", { setting: "permissions.unattended.mode", sentence: BYPASS_SENTENCE }, attribution);
-      accessLog.record(
-        context.tx,
-        "settings.changed",
-        { area: "permissions", keys, values: Object.fromEntries(keys.map((key) => [key, next[key]])) },
-        attribution,
-      );
-      return { aggregate, result: { values } };
+      const changed = Object.fromEntries(keys.map((key) => [key, next[key]]));
+      accessLog.record(context.tx, "settings.changed", { area: "permissions", keys, values: changed }, attribution);
+      const updated: SettingsUpdatedPayload = { values: changed };
+      return { aggregate, result: { values }, events: [{ type: "settings.updated", payload: updated }] };
     },
   };
 };

@@ -117,7 +117,7 @@ describe("runs.start", () => {
         queuedMessageIds: [],
       },
     });
-    expect(sent.payload).toEqual({ runId, messageId, text: "Fix the receipts", attachments: [], delivery: "prompt", heldBy: null });
+    expect(sent.payload).toEqual({ runId, messageId, text: "Fix the receipts", attachments: [], delivery: "prompt", heldBy: null, ceiling: "bypassPermissions" });
     expect(text).toMatchObject({ actor: { kind: "adapter", id: "fake" }, payload: { runId, text: "Working" } });
     expect(ended.payload).toMatchObject({ runId, reason: "completed", cause: null, error: null, durationMs: 1000 });
 
@@ -147,9 +147,75 @@ describe("runs.start", () => {
     const session = await watch(client, id, t.env.log.head());
     const { runId } = await startRun(client, id);
     const events = await session.until("run.ended", runId);
-    expect(events.map((event) => event.type)).toEqual(["run.started", "run.policy.resolved", "message.sent", "run.ended"]);
-    expect(events[3]).toMatchObject({ actor: { kind: "system", id: "adapter-host" }, payload: { reason: "error", error: { message: "No process could be started." } } });
+    // Its message never reached the adapter, so it is queued again before the end.
+    expect(events.map((event) => event.type)).toEqual(["run.started", "run.policy.resolved", "message.sent", "message.requeued", "run.ended"]);
+    expect(events[4]).toMatchObject({ actor: { kind: "system", id: "adapter-host" }, payload: { reason: "error", error: { message: "No process could be started." } } });
     expect((await client.request("sessions.get", { sessionId: id })).summary.activity).toMatchObject({ state: "idle" });
+  });
+
+  it("queues again the message of a run its adapter could not create, and the next start reads it first; nothing starts on its own", async () => {
+    const adapter = fakeAdapter();
+    const create_ = adapter.createRun;
+    let calls = 0;
+    const t = await start({
+      ...adapter,
+      createRun: (input, context) => {
+        calls += 1;
+        if (calls === 1) throw new Error("No process could be started.");
+        return create_(input, context);
+      },
+    });
+    const client = await t.client();
+    const { id } = await create(client);
+    const session = await watch(client, id, t.env.log.head());
+    const first = await startRun(client, id, "One");
+    const failed = await session.until("run.ended", first.runId);
+    expect(failed.map((event) => event.type)).toEqual(["run.started", "run.policy.resolved", "message.sent", "message.requeued", "run.ended"]);
+    expect(failed[3]).toMatchObject({ actor: { kind: "system", id: "adapter-host" }, payload: { runId: first.runId, messageId: first.messageId } });
+    expect(calls).toBe(1);
+
+    const second = await startRun(client, id, "Two");
+    const [started] = await session.until("run.started", second.runId);
+    expect(started?.payload).toMatchObject({ queuedMessageIds: [first.messageId], promptMessageId: second.messageId });
+    await session.until("run.ended", second.runId);
+    expect(t.adapter.lastRun().input.prompt.map((message) => message.text)).toEqual(["One", "Two"]);
+  });
+
+  it("queues again, bytes and all, what a run of the environment's queue could not be created with", async () => {
+    const held = gate();
+    const adapter = fakeAdapter({ capabilities: { providerQueue: false, steering: false }, script: async function* ({ input }) {
+      if (input.prompt[0]?.text === "First") await held.opened;
+      yield end();
+    } });
+    const create_ = adapter.createRun;
+    let calls = 0;
+    const t = await start({
+      ...adapter,
+      createRun: (input, context) => {
+        calls += 1;
+        if (calls === 2) throw new Error("No process could be started.");
+        return create_(input, context);
+      },
+    });
+    const client = await t.client();
+    const { id } = await create(client);
+    const session = await watch(client, id, t.env.log.head());
+    const first = await startRun(client, id, "First");
+    const image = { kind: "image" as const, name: "screen.png", mediaType: "image/png", data: Buffer.from("pixels").toString("base64") };
+    const queued = await run(client, "runs.send", { sessionId: id, text: "Queued", attachments: [image] });
+    held.open();
+    await session.until("run.ended", first.runId);
+    const failed = await session.until("run.ended");
+    expect(failed.map((event) => event.type)).toEqual(["run.started", "run.policy.resolved", "message.delivered", "message.requeued", "run.ended"]);
+    expect(calls).toBe(2);
+
+    const next = await startRun(client, id, "Next");
+    const [started] = await session.until("run.started", next.runId);
+    expect(started?.payload).toMatchObject({ queuedMessageIds: [queued.result?.messageId] });
+    await session.until("run.ended", next.runId);
+    const prompt = t.adapter.lastRun().input.prompt;
+    expect(prompt.map((message) => message.text)).toEqual(["Queued", "Next"]);
+    expect(Buffer.from(prompt[0]?.attachments[0]?.data ?? []).toString()).toBe("pixels");
   });
 
   it("takes the account, workspace and defaults from the session, and the model, effort and mode from the command when it names them", async () => {
@@ -401,6 +467,31 @@ describe("runs.send", () => {
     expect(t.adapter.lastRun().sent.map((message) => message.messageId)).toEqual([messageId]);
   });
 
+  it("delivers a live subscriber the message and then its requeue when the provider throws taking it", async () => {
+    const held = gate();
+    const adapter = fakeAdapter({ capabilities: { steering: false }, script: heldScript(held) });
+    const create_ = adapter.createRun;
+    const t = await start({
+      ...adapter,
+      createRun: (input, context) => ({
+        ...create_(input, context),
+        send: () => {
+          throw new Error("The provider's queue is closed.");
+        },
+      }),
+    });
+    const client = await t.client();
+    const { id } = await create(client);
+    const session = await watch(client, id, t.env.log.head());
+    const { runId } = await startRun(client, id);
+    await session.until("assistant.text", runId);
+    const sent = await run(client, "runs.send", { sessionId: id, text: "Also this" });
+    const events = await session.until("message.requeued");
+    expect(events.map((event) => event.type)).toEqual(["message.sent", "message.requeued"]);
+    expect(events[1]).toMatchObject({ actor: { kind: "system", id: "adapter-host" }, payload: { runId, messageId: sent.result?.messageId } });
+    held.open();
+  });
+
   it("queues a message in the environment when the adapter has no queue of its own, and starts the next run with it when the turn ends", async () => {
     const held = gate();
     const t = await start({ capabilities: { providerQueue: false, steering: false }, script: async function* ({ input }) {
@@ -427,6 +518,24 @@ describe("runs.send", () => {
     expect(next.map((event) => event.type)).toEqual(["run.started", "run.policy.resolved", "message.delivered", "message.delivered", "assistant.text", "run.ended"]);
     expect(next[2]?.payload).toEqual({ runId: second, messageId: one.result?.messageId, delivery: "prompt" });
     expect(next[4]?.payload).toMatchObject({ text: "Read: Second + Third" });
+  });
+
+  it("hands a run of the environment's queue the bytes of the messages it reads", async () => {
+    const held = gate();
+    const t = await start({ capabilities: { providerQueue: false, steering: false }, script: async function* ({ input }) {
+      if (input.prompt[0]?.text === "First") await held.opened;
+      yield end();
+    } });
+    const client = await t.client();
+    const { id } = await create(client);
+    const session = await watch(client, id, t.env.log.head());
+    const first = await startRun(client, id, "First");
+    const image = { kind: "image" as const, name: "screen.png", mediaType: "image/png", data: Buffer.from("pixels").toString("base64") };
+    await run(client, "runs.send", { sessionId: id, text: "Queued", attachments: [image] });
+    held.open();
+    await session.until("run.ended", first.runId);
+    await session.until("run.ended");
+    expect(Buffer.from(t.adapter.lastRun().input.prompt[0]?.attachments[0]?.data ?? []).toString()).toBe("pixels");
   });
 });
 
@@ -463,8 +572,13 @@ describe("runs.interrupt", () => {
     expect(sent.result).toMatchObject({ heldBy: "provider" });
 
     await run(client, "runs.interrupt", { runId });
-    const events = await session.until("message.requeued");
-    expect(events.at(-1)?.payload).toEqual({ runId, messageId: sent.result?.messageId });
+    const events = await session.until("run.ended", runId);
+    // Taken back before the run's end is heard, so a client that starts a run on seeing the end finds it queued.
+    expect(events.slice(-2).map((event) => [event.type, event.actor])).toEqual([
+      ["message.requeued", { kind: "system", id: "adapter-host" }],
+      ["run.ended", { kind: "adapter", id: "fake" }],
+    ]);
+    expect(events.at(-2)?.payload).toEqual({ runId, messageId: sent.result?.messageId });
     held.open();
     expect(t.adapter.runs).toHaveLength(1);
 
@@ -473,6 +587,29 @@ describe("runs.interrupt", () => {
     const [started] = await session.until("run.started", next.runId);
     expect(started?.payload).toMatchObject({ queuedMessageIds: [sent.result?.messageId], promptMessageId: next.messageId });
     expect(t.adapter.lastRun().input.prompt.map((message) => message.text)).toEqual(["Held by the provider", "Now"]);
+  });
+
+  it("keeps the bytes of a provider-held message it takes back, for the run that reads it", async () => {
+    const held = gate();
+    const t = await start({ capabilities: { steering: false }, script: heldScript(held) });
+    const client = await t.client();
+    const { id } = await create(client);
+    const session = await watch(client, id, t.env.log.head());
+    const { runId } = await startRun(client, id);
+    await session.until("assistant.text", runId);
+    const bytes = Buffer.from("a screenshot");
+    const image = { kind: "image" as const, name: "screen.png", mediaType: "image/png", data: bytes.toString("base64") };
+    const sent = await run(client, "runs.send", { sessionId: id, text: "Look at this", attachments: [image] });
+    expect(sent.result).toMatchObject({ heldBy: "provider" });
+    await run(client, "runs.interrupt", { runId });
+    await session.until("run.ended", runId);
+    held.open();
+
+    const next = await startRun(client, id, "Now");
+    await session.until("run.ended", next.runId);
+    const [requeued] = t.adapter.lastRun().input.prompt;
+    expect(requeued?.messageId).toBe(sent.result?.messageId);
+    expect(Buffer.from(requeued?.attachments[0]?.data ?? []).toString()).toBe("a screenshot");
   });
 
   it("refuses a run that is not on this environment not_found, kind run", async () => {
@@ -544,6 +681,19 @@ describe("runs.stopTask", () => {
     });
     held.open();
   });
+
+  it("is refused on such an adapter after the run has ended too, rather than answered ended", async () => {
+    const t = await start({ capabilities: { subagents: false } });
+    const client = await t.client();
+    const { id } = await create(client);
+    const session = await watch(client, id, t.env.log.head());
+    const { runId } = await startRun(client, id);
+    await session.until("run.ended", runId);
+    expect(await refusal(client.request("runs.stopTask", { commandId: randomUUID(), runId, taskId: "t-1" }))).toMatchObject({
+      code: "invalid_params",
+      data: { reason: "unsupported", capability: "subagents" },
+    });
+  });
 });
 
 describe("a provider-opened turn", () => {
@@ -613,6 +763,8 @@ describe("a session deleted or purged", () => {
     await deleteSession(client, id);
     const events = t.env.log.readStream({ kind: "session", id });
     expect(events.at(-1)).toMatchObject({ type: "run.ended", actor: "system:adapter-host", payload: { runId, reason: "disposed" } });
+    // The session is out of the list already, so the end, flagged as it is, carries no patch.
+    expect(events.at(-1)?.metadata).toEqual({});
     expect(t.adapter.lastRun().disposed).toBe(true);
     held.open();
   });

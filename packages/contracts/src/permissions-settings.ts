@@ -2,16 +2,17 @@ import { z } from "zod";
 import { ContainmentLevel } from "./permissions.js";
 import { Mode } from "./permissions-modes.js";
 import { Timestamp } from "./primitives.js";
+import type { SettingDefinition } from "./settings.js";
 
 /**
  * The permission settings (permissions spec, "Ceilings", "Attended and
  * unattended runs", "Prompts, parked prompts and the TTL", "Containment";
- * ADR 0016): a key table in the shape of the session-state workstream's
- * settings table (#117, `settings.ts` there), each key with its schema, its
- * preset and the Set up step that writes it, so the keys slot into that
- * table when the two meet. `permissions.settings.get` and
- * `permissions.settings.set` read and write them; a change is recorded in
- * the access log as `settings.changed` with area `permissions`.
+ * ADR 0016): their entries in the settings key table (`settings.ts`, which
+ * spreads them in), each with its schema, its preset, the Set up step that
+ * writes it, and `writtenBy`, so only `permissions.settings.set` writes them
+ * (the generic `settings.update` refuses them). Their values are the
+ * settings stream's (`settings.updated`); a change is also recorded in the
+ * access log as `settings.changed` with area `permissions`.
  */
 
 /** The unattended default's two values (ADR 0006): what an unattended run that names no mode runs in. */
@@ -48,19 +49,7 @@ const UNIT_MS = { minutes: 60_000, hours: 3_600_000, days: 86_400_000 } as const
 /** A TTL in milliseconds; null for `never`. */
 export const parkedPromptTtlMs = (ttl: ParkedPromptTtl): number | null => (ttl === "never" ? null : ttl.amount * UNIT_MS[ttl.unit]);
 
-/** Where a key sits in Set up: the step whose registry entry writes it, and the band of its settings pane (#117's `SettingPlace`). */
-interface SettingPlace {
-  readonly id: string;
-  readonly band: string;
-}
-
-/** One key: its schema, the value it holds until it is set, and the step that writes it (#117's `SettingDefinition`). */
-interface SettingDefinition<S extends z.ZodType = z.ZodType> {
-  readonly schema: S;
-  readonly preset: z.infer<S>;
-  readonly step: SettingPlace;
-}
-
+/** A key's definition, its preset checked against its schema by the compiler. */
 const setting = <const S extends z.ZodType>(definition: SettingDefinition<S>): SettingDefinition<S> => definition;
 
 /**
@@ -68,6 +57,9 @@ const setting = <const S extends z.ZodType>(definition: SettingDefinition<S>): S
  * band, whose Permissions row is `access.permissions` (ADR 0027).
  */
 const PERMISSIONS_STEP = { id: "permissions", band: "access" } as const;
+
+/** The one method that writes a permission key: the generic `settings.update` refuses them (#117's `writtenBy`). */
+const WRITTEN_BY = "permissions.settings.set";
 
 /**
  * Every permission settings key. The containment default's preset is `off`
@@ -78,21 +70,21 @@ export const PERMISSION_SETTINGS = {
   "permissions.defaultCeiling": setting({
     schema: Mode.meta({ description: "The ceiling a pairing gives when none is chosen." }),
     preset: "acceptEdits",
-    step: PERMISSIONS_STEP,
+    step: PERMISSIONS_STEP, writtenBy: WRITTEN_BY,
   }),
-  "permissions.unattended.mode": setting({ schema: UnattendedMode, preset: "acceptEdits", step: PERMISSIONS_STEP }),
+  "permissions.unattended.mode": setting({ schema: UnattendedMode, preset: "acceptEdits", step: PERMISSIONS_STEP, writtenBy: WRITTEN_BY }),
   "permissions.unattended.bypassAcknowledgedAt": setting({
     schema: Timestamp.nullable().meta({
       description: "When bypassPermissions was first acknowledged as the unattended mode; null until it has been. Recorded by the environment, never set directly.",
     }),
     preset: null,
-    step: PERMISSIONS_STEP,
+    step: PERMISSIONS_STEP, writtenBy: WRITTEN_BY,
   }),
-  "permissions.parkedPrompt.ttl": setting({ schema: ParkedPromptTtl, preset: { amount: 24, unit: "hours" }, step: PERMISSIONS_STEP }),
+  "permissions.parkedPrompt.ttl": setting({ schema: ParkedPromptTtl, preset: { amount: 24, unit: "hours" }, step: PERMISSIONS_STEP, writtenBy: WRITTEN_BY }),
   "permissions.containment.default": setting({
     schema: ContainmentLevel.meta({ description: "The containment level of a run whose session names none." }),
     preset: "off",
-    step: PERMISSIONS_STEP,
+    step: PERMISSIONS_STEP, writtenBy: WRITTEN_BY,
   }),
 } as const;
 
