@@ -53,7 +53,7 @@ const run = (input: AppenderInput, post: (message: AppenderMessage) => void): vo
       payload: { appender: input.name, round, i },
     }));
     const result = log.append(input.stream, events, {
-      actor: input.name,
+      actor: `system:${input.name}`,
       commandId: `${input.name}-${round}`,
       receipt: { status: "accepted" },
     });

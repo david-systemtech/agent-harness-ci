@@ -107,6 +107,14 @@
       "title": "EventEnvelope"
     },
     {
+      "path": "notices/environment-notice-type.json",
+      "title": "EnvironmentNoticeType"
+    },
+    {
+      "path": "notices/environment-notice.json",
+      "title": "EnvironmentNotice"
+    },
+    {
       "path": "errors/error-code.json",
       "title": "ErrorCode"
     },

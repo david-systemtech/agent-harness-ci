@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "EnvironmentNotice",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "environment.started"
+        },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "harnessVersion": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The harness version that started."
+            },
+            "protocolVersion": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "description": "A wire protocol version: one integer, bumped only on a breaking change."
+            }
+          },
+          "required": [
+            "harnessVersion",
+            "protocolVersion"
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "payload"
+      ],
+      "description": "The environment finished starting and accepts work: which version started."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "environment.updated"
+        },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "fromVersion": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The harness version that ran before the update."
+            },
+            "toVersion": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The harness version the environment was updated to."
+            }
+          },
+          "required": [
+            "fromVersion",
+            "toVersion"
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "payload"
+      ],
+      "description": "The environment now runs another harness version: from which, to which."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "environment.draining"
+        },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "drainingSince": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+              "description": "An instant as an ISO 8601 UTC timestamp."
+            }
+          },
+          "required": [
+            "drainingSince"
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "payload"
+      ],
+      "description": "The environment refuses new runs and lets running ones finish before a restart: since when."
+    }
+  ],
+  "description": "An event on the environment stream, as environment.subscribe delivers it: its type and payload, read from the event's envelope."
+}

@@ -95,7 +95,7 @@ describe("concurrent appends to one stream", () => {
 
     // Each appender's events keep its own order in the log.
     for (const [name, appends] of [["left", left], ["right", right]] as const) {
-      const inLog = events.filter((e) => e.actor === name).map((e) => e.eventId);
+      const inLog = events.filter((e) => e.actor === `system:${name}`).map((e) => e.eventId);
       expect(inLog).toEqual(appends.flat().map((e) => e.eventId));
     }
 

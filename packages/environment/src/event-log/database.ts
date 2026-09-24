@@ -65,7 +65,7 @@ export const decodeEvent = (row: EventRow): EventEnvelope => ({
   causationId: row.causation_id,
   correlationId: row.correlation_id,
   actor: row.actor,
-  payload: JSON.parse(row.payload) as unknown,
+  payload: JSON.parse(row.payload) as JsonObject,
   metadata: JSON.parse(row.metadata) as JsonObject,
 });
 
