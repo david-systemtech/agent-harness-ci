@@ -1,7 +1,8 @@
 import { parseArgs } from "node:util";
-import { DISCOVERY_PATH, PRODUCT_NAME } from "@agent-harness/contracts";
+import { Ceiling, DISCOVERY_PATH, PRODUCT_NAME, SCOPES, ScopeSet } from "@agent-harness/contracts";
 import {
   HARNESS_VERSION,
+  defaultDataDirectory,
   processUserCheck,
   refusePrivilegedUser,
   RootRefusedError,
@@ -10,10 +11,12 @@ import {
   type EnvironmentHandle,
   type EnvironmentOptions,
 } from "@agent-harness/environment";
+import { PairFailure, mintPairing, renderPairing, type Net, type PairArgs } from "./pair.js";
 
 const USAGE = [
   `usage: ${PRODUCT_NAME} --version`,
   `       ${PRODUCT_NAME} serve [--data-dir <path>] [--port <n>] [--name <name>]`,
+  `       ${PRODUCT_NAME} pair [--scopes <a,b>] [--ceiling <mode>] [--data-dir <path>] [--port <n>]`,
   "",
 ].join("\n");
 
@@ -27,7 +30,9 @@ export interface CliContext {
    * or environment variable reaches them, so nothing a user can type lifts
    * the root refusal.
    */
-  readonly environment?: Pick<EnvironmentOptions, "user" | "launcher" | "runs">;
+  readonly environment?: Pick<EnvironmentOptions, "user" | "launcher" | "runs" | "interfaces">;
+  /** The network `pair` uses; preset: the platform's `fetch` and `WebSocket`. */
+  readonly net?: Net;
 }
 
 /**
@@ -77,6 +82,55 @@ const parseServe = (args: readonly string[]): Pick<EnvironmentOptions, "dataDir"
   };
 };
 
+const parsePair = (args: readonly string[]): PairArgs => {
+  let values: { "data-dir"?: string; port?: string; scopes?: string; ceiling?: string };
+  try {
+    ({ values } = parseArgs({
+      args: [...args],
+      options: { "data-dir": { type: "string" }, port: { type: "string" }, scopes: { type: "string" }, ceiling: { type: "string" } },
+      strict: true,
+      allowPositionals: false,
+    }));
+  } catch (error) {
+    throw new UsageError(error instanceof Error ? error.message : String(error));
+  }
+  const { port } = values;
+  if (port !== undefined && !(/^\d+$/.test(port) && Number(port) >= 1 && Number(port) <= 65535)) {
+    throw new UsageError(`--port takes a port number from 1 to 65535; got ${port}.`);
+  }
+  let scopes: ScopeSet | undefined;
+  if (values.scopes !== undefined) {
+    const parsed = ScopeSet.safeParse(values.scopes === "" ? [] : values.scopes.split(",").map((scope) => scope.trim()));
+    if (!parsed.success) throw new UsageError(`--scopes takes a comma-separated set of ${SCOPES.join(", ")}; got ${values.scopes}.`);
+    scopes = parsed.data;
+  }
+  let ceiling: Ceiling | undefined;
+  if (values.ceiling !== undefined) {
+    const parsed = Ceiling.safeParse(values.ceiling);
+    if (!parsed.success) throw new UsageError("--ceiling takes a mode name.");
+    ceiling = parsed.data;
+  }
+  return { dataDir: values["data-dir"] ?? defaultDataDirectory(), port: port === undefined ? undefined : Number(port), scopes, ceiling };
+};
+
+/**
+ * `pair`: mints a pairing code on the environment running on this machine as
+ * this OS user, through the bootstrap grant, and prints it as a link, a QR of
+ * the link and the short code. The environment must be running.
+ */
+const pair = async (args: readonly string[], context: CliContext): Promise<number> => {
+  const parsed = parsePair(args);
+  const net: Net = context.net ?? { fetch: globalThis.fetch, WebSocket: globalThis.WebSocket };
+  try {
+    context.stdout(renderPairing(await mintPairing(parsed, net)));
+    return 0;
+  } catch (error) {
+    if (!(error instanceof PairFailure)) throw error;
+    context.stderr(`${error.message}\n`);
+    return 1;
+  }
+};
+
 /**
  * `serve`: runs the environment, printing the discovery address once it is
  * ready, until a drain ends: one SIGINT or SIGTERM starts, or the launcher's
@@ -123,6 +177,7 @@ export const runCli = async (args: readonly string[], overrides: Partial<CliCont
       return 0;
     }
     if (args[0] === "serve") return await serve(args.slice(1), context);
+    if (args[0] === "pair") return await pair(args.slice(1), context);
     throw new UsageError(args.length === 0 ? "No command given." : `Unknown command ${args[0]}.`);
   } catch (error) {
     if (!(error instanceof UsageError)) throw error;

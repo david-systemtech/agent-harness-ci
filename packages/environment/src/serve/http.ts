@@ -1,6 +1,7 @@
 import { STATUS_CODES, createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import type { Duplex } from "node:stream";
+import { formatHostPort } from "@agent-harness/contracts";
 
 /** Where a listener is bound. */
 export interface Address {
@@ -87,15 +88,21 @@ const hostOf = (header: string): string | undefined => {
 };
 
 /**
- * Whether a Host header names loopback or the environment's own tailnet name,
- * with or without a port. Anything else, a missing header included, is how a
- * DNS-rebinding page would reach the listener, and is refused.
+ * Whether a Host header names loopback, the environment's own tailnet name,
+ * or one of the addresses it is bound to, with or without a port. Anything
+ * else, a missing header included, is how a DNS-rebinding page would reach
+ * the listener, and is refused. A bound address is safe to admit: rebinding
+ * needs a name the attacker controls.
  */
-export const isAllowedHost = (header: string | undefined, tailnetName?: string): boolean => {
+export const isAllowedHost = (header: string | undefined, tailnetName?: string, boundAddresses: readonly string[] = []): boolean => {
   if (header === undefined) return false;
   const host = hostOf(header);
   if (!host) return false;
-  return LOOPBACK_HOSTS.includes(host) || (tailnetName !== undefined && host === tailnetName.toLowerCase());
+  return (
+    LOOPBACK_HOSTS.includes(host) ||
+    (tailnetName !== undefined && host === tailnetName.toLowerCase()) ||
+    boundAddresses.some((address) => formatHostPort(address.toLowerCase()) === host)
+  );
 };
 
 /** Answers an upgrade with a JSON error and closes the connection, as the route table answers a request. */
@@ -111,28 +118,43 @@ export const refuseUpgrade = (socket: Duplex, status: number, body: unknown): vo
 };
 
 export interface HttpSurface extends HttpRoutes {
-  readonly server: Server;
   /** Routes an upgrade request at `path` to `handler`, behind the same Host check as every route. */
   upgrade(path: string, handler: UpgradeHandler): void;
+  /** Starts one more listener on `host`, with the same routes: loopback first, then the tailnet or LAN address. */
   listen(host: string, port: number): Promise<Address>;
+  /** Closes every listener; after a failure, closing again retries the ones that did not close. */
   close(): Promise<void>;
 }
 
+export interface HttpSurfaceOptions {
+  /** The environment's own tailnet name, which the Host check admits while the tailnet is bound; read on every request, since both are found at the bind. */
+  readonly tailnetName?: () => string | undefined;
+}
+
 /**
- * The environment's one HTTP listener: the Host check before every route,
- * then the route table, then 404 or 405. Upgrades (the WebSocket at `/ws`)
- * arrive on the same server and pass the same Host check before their own
- * table; a plain request to an upgrade path is answered 426.
+ * The environment's HTTP listeners, one per bound address, sharing one route
+ * table: the Host check before every route, then the route table, then 404
+ * or 405. Upgrades (the WebSocket at `/ws`) arrive on the same listeners and
+ * pass the same Host check before their own table; a plain request to an
+ * upgrade path is answered 426.
  */
-export const createHttpSurface = (options: { readonly tailnetName?: string | undefined }): HttpSurface => {
+export const createHttpSurface = (options: HttpSurfaceOptions = {}): HttpSurface => {
   const routes = new Map<string, Map<string, RouteHandler>>();
   const upgrades = new Map<string, UpgradeHandler>();
+  const servers: { readonly server: Server; readonly host: string }[] = [];
 
-  const server = createServer((request, response) => {
-    if (!isAllowedHost(request.headers.host, options.tailnetName)) {
+  const allowed = (header: string | undefined): boolean =>
+    isAllowedHost(
+      header,
+      options.tailnetName?.(),
+      servers.map((entry) => entry.host),
+    );
+
+  const onRequest = (request: IncomingMessage, response: ServerResponse): void => {
+    if (!allowed(request.headers.host)) {
       sendJson(response, 421, {
         error: "misdirected",
-        message: "The Host header names neither loopback nor this environment's tailnet name.",
+        message: "The Host header names neither loopback, this environment's tailnet name, nor an address it is bound to.",
       });
       return;
     }
@@ -167,16 +189,16 @@ export const createHttpSurface = (options: { readonly tailnetName?: string | und
         if (!response.headersSent) sendJson(response, 500, { error: "internal", message: "The environment failed." });
         else response.destroy();
       });
-  });
+  };
 
-  server.on("upgrade", (request: IncomingMessage, socket: Duplex, head: Buffer) => {
+  const onUpgrade = (request: IncomingMessage, socket: Duplex, head: Buffer): void => {
     // A socket error after the upgrade is the handler's; before it, one must not crash the environment.
     const onError = () => socket.destroy();
     socket.on("error", onError);
-    if (!isAllowedHost(request.headers.host, options.tailnetName)) {
+    if (!allowed(request.headers.host)) {
       return refuseUpgrade(socket, 421, {
         error: "misdirected",
-        message: "The Host header names neither loopback nor this environment's tailnet name.",
+        message: "The Host header names neither loopback, this environment's tailnet name, nor an address it is bound to.",
       });
     }
     let path: string;
@@ -189,12 +211,9 @@ export const createHttpSurface = (options: { readonly tailnetName?: string | und
     if (!handler) return refuseUpgrade(socket, 404, { error: "not_found", message: `Nothing upgrades at ${path}.` });
     socket.off("error", onError);
     handler(request, socket, head);
-  });
-
-  let listening = false;
+  };
 
   return {
-    server,
     upgrade(path, handler) {
       if (upgrades.has(path)) throw new Error(`Upgrades at ${path} are already routed.`);
       upgrades.set(path, handler);
@@ -207,24 +226,33 @@ export const createHttpSurface = (options: { readonly tailnetName?: string | und
     },
     listen: (host, port) =>
       new Promise<Address>((resolve, reject) => {
+        const server = createServer(onRequest);
+        server.on("upgrade", onUpgrade);
         const onError = (error: Error) => reject(error);
         server.once("error", onError);
         server.listen({ host, port, exclusive: true }, () => {
           server.off("error", onError);
-          listening = true;
           const address = server.address() as AddressInfo;
+          servers.push({ server, host: address.address });
           resolve({ host: address.address, port: address.port });
         });
       }),
-    close: () =>
-      new Promise<void>((resolve, reject) => {
-        if (!listening) return resolve();
-        server.close((error) => {
-          if (error) return reject(error);
-          listening = false;
-          resolve();
-        });
-        server.closeAllConnections();
-      }),
+    async close() {
+      const results = await Promise.allSettled(
+        [...servers].map(
+          (entry) =>
+            new Promise<void>((resolve, reject) => {
+              entry.server.close((error) => {
+                if (error) return reject(error);
+                servers.splice(servers.indexOf(entry), 1);
+                resolve();
+              });
+              entry.server.closeAllConnections();
+            }),
+        ),
+      );
+      const failed = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
+      if (failed) throw failed.reason;
+    },
   };
 };

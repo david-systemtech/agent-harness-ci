@@ -30,6 +30,14 @@ export const AuthPolicy = z.enum(AUTH_POLICIES).meta({
 });
 export type AuthPolicy = z.infer<typeof AuthPolicy>;
 
+/**
+ * A host as a URL or a Host header writes it, with `:port` when one is
+ * given: an IPv6 address in brackets (`[fd7a::1]:7433`), anything else as it
+ * is. The one place the harness brackets an address.
+ */
+export const formatHostPort = (host: string, port?: number): string =>
+  `${host.includes(":") ? `[${host}]` : host}${port === undefined ? "" : `:${port}`}`;
+
 /** Where an environment answers, unauthenticated, who it is and whether it is ready. */
 export const DISCOVERY_PATH = `/.well-known/${PRODUCT_NAME}/environment`;
 

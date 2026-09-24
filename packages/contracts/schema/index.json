@@ -43,6 +43,10 @@
       "title": "ClientSessionId"
     },
     {
+      "path": "pairing-id.json",
+      "title": "PairingId"
+    },
+    {
       "path": "request-id.json",
       "title": "RequestId"
     },
@@ -119,6 +123,66 @@
       "title": "ClientSessionCredential"
     },
     {
+      "path": "pair/request.json",
+      "title": "PairRequest"
+    },
+    {
+      "path": "pair/error.json",
+      "title": "PairError"
+    },
+    {
+      "path": "access/event-type.json",
+      "title": "AccessEventType"
+    },
+    {
+      "path": "access/client-session-origin.json",
+      "title": "ClientSessionOrigin"
+    },
+    {
+      "path": "access/revocation-reason.json",
+      "title": "RevocationReason"
+    },
+    {
+      "path": "access/events/pairing.created.json",
+      "title": "PairingCreatedPayload"
+    },
+    {
+      "path": "access/events/pairing.exchanged.json",
+      "title": "PairingExchangedPayload"
+    },
+    {
+      "path": "access/events/pairing.expired.json",
+      "title": "PairingExpiredPayload"
+    },
+    {
+      "path": "access/events/client-session.created.json",
+      "title": "ClientSessionCreatedPayload"
+    },
+    {
+      "path": "access/events/client-session.refreshed.json",
+      "title": "ClientSessionRefreshedPayload"
+    },
+    {
+      "path": "access/events/client-session.revoked.json",
+      "title": "ClientSessionRevokedPayload"
+    },
+    {
+      "path": "access/events/socket.opened.json",
+      "title": "SocketOpenedPayload"
+    },
+    {
+      "path": "access/events/socket.closed.json",
+      "title": "SocketClosedPayload"
+    },
+    {
+      "path": "access/events/scope.granted.json",
+      "title": "ScopeGrantedPayload"
+    },
+    {
+      "path": "access/events/ceiling.changed.json",
+      "title": "CeilingChangedPayload"
+    },
+    {
       "path": "actor.json",
       "title": "Actor"
     },
@@ -181,6 +245,22 @@
     {
       "path": "errors/rate_limited.json",
       "title": "RateLimitedError"
+    },
+    {
+      "path": "errors/pairing_invalid.json",
+      "title": "PairingInvalidError"
+    },
+    {
+      "path": "errors/pairing_expired.json",
+      "title": "PairingExpiredError"
+    },
+    {
+      "path": "errors/pairing_used.json",
+      "title": "PairingUsedError"
+    },
+    {
+      "path": "errors/protocol_mismatch.json",
+      "title": "ProtocolMismatchError"
     },
     {
       "path": "frames/frame.json",
@@ -331,6 +411,18 @@
       "title": "access.sessions.revoke error"
     },
     {
+      "path": "methods/access.sessions.refresh/params.json",
+      "title": "access.sessions.refresh params"
+    },
+    {
+      "path": "methods/access.sessions.refresh/result.json",
+      "title": "access.sessions.refresh result"
+    },
+    {
+      "path": "methods/access.sessions.refresh/error.json",
+      "title": "access.sessions.refresh error"
+    },
+    {
       "path": "methods/access.log.list/params.json",
       "title": "access.log.list params"
     },
@@ -406,6 +498,15 @@
       "params": "methods/access.sessions.revoke/params.json",
       "result": "methods/access.sessions.revoke/result.json",
       "error": "methods/access.sessions.revoke/error.json"
+    },
+    {
+      "name": "access.sessions.refresh",
+      "scope": "read",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/access.sessions.refresh/params.json",
+      "result": "methods/access.sessions.refresh/result.json",
+      "error": "methods/access.sessions.refresh/error.json"
     },
     {
       "name": "access.log.list",

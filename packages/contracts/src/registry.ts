@@ -1,5 +1,11 @@
 import type { z } from "zod";
-import { accessLogList, accessPairingsCreate, accessSessionsList, accessSessionsRevoke } from "./methods/access.js";
+import {
+  accessLogList,
+  accessPairingsCreate,
+  accessSessionsList,
+  accessSessionsRefresh,
+  accessSessionsRevoke,
+} from "./methods/access.js";
 import {
   environmentDrain,
   environmentRebuildProjections,
@@ -19,6 +25,7 @@ export const methods = [
   accessPairingsCreate,
   accessSessionsList,
   accessSessionsRevoke,
+  accessSessionsRefresh,
   accessLogList,
 ] as const;
 

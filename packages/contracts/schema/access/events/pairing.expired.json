@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PairingExpiredPayload",
+  "type": "object",
+  "properties": {
+    "pairingId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "A pairing's id, as the access log names it; the code itself is never logged."
+    }
+  },
+  "required": [
+    "pairingId"
+  ],
+  "description": "pairing.expired: a pairing code's ten minutes ended before anyone exchanged it."
+}

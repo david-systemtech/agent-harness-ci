@@ -24,6 +24,7 @@ import {
   type Address,
   type EnvironmentHandle,
   type EnvironmentOptions,
+  type InterfaceDetector,
   type LauncherChannel,
   type StartupStep,
   type UserCheck,
@@ -35,6 +36,8 @@ const { version: packageVersion } = JSON.parse(
 ) as { version: string };
 
 const notPrivileged: UserCheck = { isPrivileged: () => false };
+/** No Tailscale on the machine as far as these tests know, so none binds a real tailnet address. */
+const interfaces: InterfaceDetector = { tailscaleAddress: async () => undefined, tailnetName: async () => undefined };
 const privileged: UserCheck = { isPrivileged: () => true };
 
 const { onCleanup, tempDir } = useCleanups();
@@ -68,6 +71,7 @@ const start = async (options: EnvironmentOptions = {}): Promise<EnvironmentHandl
     port: 0,
     user: notPrivileged,
     launcher: recordingLauncher().channel,
+    interfaces,
     ...options,
   });
   onCleanup(() => handle.close());
@@ -221,10 +225,10 @@ describe("binding and the Host check", () => {
     }
   });
 
-  it("accepts the environment's own tailnet name", async () => {
+  it("refuses the environment's own tailnet name while the tailnet is not bound (binding.test.ts has it bound)", async () => {
     const env = await start({ tailnetName: "desk.tail1234.ts.net" });
     for (const host of ["desk.tail1234.ts.net", `desk.tail1234.ts.net:${env.address.port}`]) {
-      expect((await getWithHost(env.address, DISCOVERY_PATH, host)).status, host).toBe(200);
+      expect((await getWithHost(env.address, DISCOVERY_PATH, host)).status, host).toBe(421);
     }
   });
 
@@ -324,7 +328,7 @@ describe("the environment record and the signing key", () => {
     vi.stubEnv("TMPDIR", temp);
     const before = tree(home);
 
-    const env = await startEnvironment({ port: 0, user: notPrivileged, launcher: recordingLauncher().channel });
+    const env = await startEnvironment({ port: 0, user: notPrivileged, launcher: recordingLauncher().channel, interfaces });
     onCleanup(() => env.close());
     await getJson(env.address, DISCOVERY_PATH);
     await env.close();
@@ -368,6 +372,7 @@ describe("the startup gate", () => {
     const failure = startEnvironment({
       dataDir: join(tempDir(), "data"),
       port: 0,
+      interfaces,
       user: notPrivileged,
       launcher: launcher.channel,
       hooks: {
@@ -385,7 +390,7 @@ describe("the startup gate", () => {
     const taken = await start();
     const dataDir = join(tempDir(), "data");
     const launcher = recordingLauncher();
-    const failure = startEnvironment({ dataDir, port: taken.address.port, user: notPrivileged, launcher: launcher.channel });
+    const failure = startEnvironment({ dataDir, port: taken.address.port, user: notPrivileged, launcher: launcher.channel, interfaces });
     await expect(failure).rejects.toMatchObject({ step: "listen" });
     expect(launcher.signals).toEqual(["close"]);
 
@@ -398,6 +403,7 @@ describe("the startup gate", () => {
     const failure = startEnvironment({
       dataDir: join(tempDir(), "data"),
       port: 0,
+      interfaces,
       user: notPrivileged,
       launcher: {
         present: () => true,

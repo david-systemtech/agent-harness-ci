@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ClientSessionRevokedPayload",
+  "type": "object",
+  "properties": {
+    "clientSessionId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "A client session's id, as hello names it and the access methods list and revoke it."
+    },
+    "reason": {
+      "type": "string",
+      "enum": [
+        "requested",
+        "replaced",
+        "idle"
+      ],
+      "description": "Why a client session was revoked: requested (access.sessions.revoke), replaced (a newer desktop bootstrap), or idle (a tui local client session whose last socket closed an hour before)."
+    }
+  },
+  "required": [
+    "clientSessionId",
+    "reason"
+  ],
+  "description": "client-session.revoked: a client session was revoked; its sockets were closed and its token is refused."
+}

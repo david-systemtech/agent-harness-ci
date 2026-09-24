@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SocketClosedPayload",
+  "type": "object",
+  "properties": {
+    "clientSessionId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "A client session's id, as hello names it and the access methods list and revoke it."
+    },
+    "socketId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The socket's id, the same on its opened and closed events."
+    }
+  },
+  "required": [
+    "clientSessionId",
+    "socketId"
+  ],
+  "description": "socket.closed: a WebSocket of the client session closed."
+}

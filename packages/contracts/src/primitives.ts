@@ -67,6 +67,13 @@ export const ClientSessionId = z
   .meta({ description: "A client session's id, as hello names it and the access methods list and revoke it." });
 export type ClientSessionId = z.infer<typeof ClientSessionId>;
 
+/** A pairing's id: what the access log names a pairing by, since the code itself is never written down. */
+export const PairingId = z
+  .string()
+  .min(1)
+  .meta({ description: "A pairing's id, as the access log names it; the code itself is never logged." });
+export type PairingId = z.infer<typeof PairingId>;
+
 /** The clients there are: `program` is a script or bot driving the environment through the wire. */
 export const CLIENT_KINDS = ["desktop", "tui", "web", "program"] as const;
 export const ClientKind = z.enum(CLIENT_KINDS).meta({
