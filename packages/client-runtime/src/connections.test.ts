@@ -7,7 +7,7 @@ import { PAIRED_CONNECTIONS_DOCUMENT } from "./connections/records.js";
 import { REVOKE_TIMEOUT_MS } from "./connections/registry.js";
 import type { HttpFetch, WebSocketFactory } from "./platform.js";
 import type { Runtime } from "./runtime.js";
-import { globalFetch, globalWebSocket, inMemoryPlatform } from "./testing/in-memory-platform.js";
+import { globalFetch, globalWebSocket, inMemoryDocuments, inMemoryPlatform, type InMemoryDocumentStore } from "./testing/in-memory-platform.js";
 
 const harness = useHarness();
 
@@ -310,6 +310,61 @@ describe("the in-process connections API", () => {
     await runtime.connections.setEnabled(t.env.id, false);
     expect(only(runtime)).toMatchObject({ phase: "disabled", blocked: null });
     await until(() => savedBlocked() === null, "the cleared reason to be saved");
+  });
+
+  /** A paired connection blocked as `revoked` on a platform whose network `down()` controls. */
+  const blockedByRevoke = async (options: { documents?: InMemoryDocumentStore; down: () => boolean }) => {
+    const t = await harness.environment();
+    const platform = inMemoryPlatform({ fetch: failingFetch(options.down), ...(options.documents && { documents: options.documents }) });
+    const runtime = harness.runtime(platform);
+    await runtime.start();
+    await runtime.connections.add({ link: (await t.createPairing()).link });
+    const admin = await t.client();
+    await admin.apply("access.sessions.revoke", { commandId: randomUUID(), clientSessionId: String(only(runtime).clientSessionId) });
+    await until(() => only(runtime).phase === "blocked", "the revoke to block the connection");
+    const savedBlocked = () => (platform.documents.entries()[PAIRED_CONNECTIONS_DOCUMENT] as Record<string, { blocked: unknown }>)[t.env.id]?.blocked;
+    return { t, platform, runtime, savedBlocked };
+  };
+
+  it("reports a background write that fails, never leaving it to reject unobserved", async () => {
+    const base = inMemoryDocuments();
+    let failNext = false;
+    const documents: InMemoryDocumentStore = {
+      ...base,
+      set: async (key, value) => {
+        if (failNext && key === PAIRED_CONNECTIONS_DOCUMENT) {
+          failNext = false;
+          throw new Error("the disk is full");
+        }
+        return base.set(key, value);
+      },
+    };
+    let down = false;
+    const { t, platform, runtime } = await blockedByRevoke({ documents, down: () => down });
+
+    failNext = true;
+    down = true;
+    await runtime.connections.retryNow(t.env.id);
+
+    expect(only(runtime)).toMatchObject({ phase: "backoff", blocked: null });
+    await until(() => platform.reported.length > 0, "the failed write to be reported");
+    expect(platform.reported).toEqual([expect.objectContaining({ message: "the disk is full" })]);
+  });
+
+  it("a renderer whose connections.list listener throws stops neither the attempt nor its persistence, and is reported", async () => {
+    let down = false;
+    const { t, platform, runtime, savedBlocked } = await blockedByRevoke({ down: () => down });
+    const fault = new Error("the renderer failed");
+    runtime.connections.list.subscribe(() => {
+      throw fault;
+    });
+
+    down = true;
+    await runtime.connections.retryNow(t.env.id);
+
+    expect(only(runtime)).toMatchObject({ phase: "backoff", blocked: null });
+    await until(() => savedBlocked() === null, "the cleared reason to be saved");
+    expect(platform.reported).toContain(fault);
   });
 
   it("retries now: runs the connect again after a failure", async () => {

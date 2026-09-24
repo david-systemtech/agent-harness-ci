@@ -171,9 +171,11 @@ const revokedBy = (response: ResponseFrame): boolean => {
 
 export const createRegistry = (platform: Platform, protocolVersion: number): Registry => {
   const entries = new Map<string, Entry>();
-  const prefs = writable<ClientPreferences>(NO_PREFERENCES);
-  const list = writable<readonly ConnectionRecord[]>([]);
-  const local = writable<LocalStatus>({ state: "none" });
+  // A fault with no caller to take it: a renderer's listener that threw, a background write that failed.
+  const report = (error: unknown): void => (platform.reportError ? platform.reportError(error) : void Promise.reject(error));
+  const prefs = writable<ClientPreferences>(NO_PREFERENCES, report);
+  const list = writable<readonly ConnectionRecord[]>([], report);
+  const local = writable<LocalStatus>({ state: "none" }, report);
   const frameListeners = new Set<(environmentId: string, frame: Frame) => void>();
   const closeListeners = new Set<(environmentId: string, closed: SocketClosed) => void>();
   const forgetListeners = new Set<(environmentId: string) => void | Promise<void>>();
@@ -243,7 +245,7 @@ export const createRegistry = (platform: Platform, protocolVersion: number): Reg
     if (unblocked) entry.saved = { ...entry.saved, blocked: null };
     if (entries.get(environmentId) !== entry) return;
     publish();
-    if (unblocked && entry.saved.kind === "paired") void savePaired();
+    if (unblocked && entry.saved.kind === "paired") savePaired().catch(report);
   };
 
   const updateSaved = async (environmentId: string, entry: Entry, change: Partial<SavedConnection>, phase?: ConnectionPhase) => {
@@ -260,10 +262,13 @@ export const createRegistry = (platform: Platform, protocolVersion: number): Reg
     socket?.close();
   };
 
-  const settle = (environmentId: string, entry: Entry, outcome: { phase: ConnectionPhase; blocked?: BlockedReason }) =>
-    outcome.blocked === undefined
+  const settle = (environmentId: string, entry: Entry, outcome: { phase: ConnectionPhase; blocked?: BlockedReason }) => {
+    // A local connection's client session revoked or expired is dead: its token is dropped, so the next attempt exchanges the grant again.
+    if (entry.saved.kind === "local" && (outcome.blocked === "revoked" || outcome.blocked === "expired")) entry.token = undefined;
+    return outcome.blocked === undefined
       ? update(environmentId, entry, { phase: outcome.phase })
       : updateSaved(environmentId, entry, { blocked: outcome.blocked }, "blocked");
+  };
 
   const tokenOf = async (environmentId: string, entry: Entry) =>
     entry.saved.kind === "local" ? entry.token : platform.secrets.get(environmentId);
@@ -277,7 +282,7 @@ export const createRegistry = (platform: Platform, protocolVersion: number): Reg
       if (entry.socket !== socket) return;
       entry.socket = undefined;
       entry.bye = how.bye?.reason ?? null;
-      void settle(environmentId, entry, afterClose(how, protocolVersion));
+      Promise.resolve(settle(environmentId, entry, afterClose(how, protocolVersion))).catch(report);
       notifyAll(closeListeners, environmentId, how);
     });
     entry.bye = null;

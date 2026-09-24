@@ -51,6 +51,9 @@ describe("capability answers", () => {
 
     expect(bare.capability(t.env.id, "shell.dialogs")).toEqual(absent("no-shell"));
     expect(desktop.capability(t.env.id, "shell.dialogs")).toEqual(absent("no-shell"));
+    // A desktop can lack a member too: the line says what this client's shell is missing, not that only a desktop can.
+    expect(desktop.capability(t.env.id, "shell.dialogs")).toMatchObject({ message: expect.stringContaining("its shell has no shell.dialogs") });
+    expect(desktop.capability(t.env.id, "shell.dialogs")).toMatchObject({ message: expect.not.stringContaining("desktop") });
     expect(desktop.capability(t.env.id, "shell.notifications.show")).toEqual(absent("no-shell"));
     expect(desktop.capability(t.env.id, "shell.window")).toEqual({ status: "present" });
   });

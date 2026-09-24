@@ -54,14 +54,15 @@ export const manualClock = (start: Date | string = MANUAL_CLOCK_START): ManualCl
     },
     advance(ms) {
       if (!(ms >= 0)) throw new RangeError(`Time moves forward; got ${ms} ms.`);
-      const until = now + ms;
+      let until = now + ms;
       for (let timer = nextDue(until); timer; timer = nextDue(until)) {
         now = Math.max(now, timer.due);
         timers.delete(timer.id);
         timer.callback();
+        // A callback may advance the clock itself, past `until`: time never moves back, and every timer due by then runs.
+        until = Math.max(until, now);
       }
-      // A timer's callback may advance the clock itself, past `until`: time never moves back.
-      now = Math.max(now, until);
+      now = until;
     },
     pending: () => timers.size,
   };
@@ -187,10 +188,14 @@ export interface InMemoryPlatform extends Platform {
   readonly secrets: SecretStore;
   readonly clock: ManualClock;
   readonly network: InMemoryNetwork;
+  readonly reportError: (error: unknown) => void;
+  /** Every fault handed to `reportError`, oldest first. */
+  readonly reported: readonly unknown[];
 }
 
 export const inMemoryPlatform = (options: InMemoryPlatformOptions = {}): InMemoryPlatform => {
   const kind = options.kind ?? "tui";
+  const reported: unknown[] = [];
   return {
     documents: options.documents ?? inMemoryDocuments(),
     secrets: options.secrets ?? inMemorySecrets(),
@@ -201,5 +206,7 @@ export const inMemoryPlatform = (options: InMemoryPlatformOptions = {}): InMemor
     client: { kind, label: options.label ?? `a ${kind} under test`, version: options.version ?? "0.0.0-test" },
     ...(options.grant !== undefined && { grant: options.grant }),
     ...(options.shell !== undefined && { shell: options.shell }),
+    reportError: (error) => void reported.push(error),
+    reported,
   };
 };

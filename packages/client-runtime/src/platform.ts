@@ -30,6 +30,13 @@ export interface Platform {
   readonly grant?: GrantReader;
   /** What only a desktop can do; absent in the terminal UI and the browser tab. */
   readonly shell?: Shell;
+  /**
+   * Hears a fault the runtime has no caller to hand to: a renderer's listener
+   * that threw, a background write that failed. Absent, the fault surfaces as
+   * an unhandled rejection, which the host reports, once the runtime's own
+   * work is done.
+   */
+  readonly reportError?: (error: unknown) => void;
 }
 
 /** The clients the runtime serves. A `program` drives the wire without the runtime. */

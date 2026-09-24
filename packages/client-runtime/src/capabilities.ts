@@ -61,7 +61,7 @@ const isFlag = (name: string): name is KnownCapabilityFlag => (CAPABILITY_FLAG_L
 /** The answer for `name` on the connection `record` (undefined when there is none), with the platform's `shell`. */
 export const answerCapability = (name: CapabilityName, record: ConnectionRecord | undefined, shell: Shell | undefined): CapabilityAnswer => {
   if (isShellMember(name)) {
-    return hasShellMember(shell, name) ? PRESENT : absent("no-shell", `This client cannot ${SHELL_MEMBER_PURPOSE[name]}: only the desktop app can.`);
+    return hasShellMember(shell, name) ? PRESENT : absent("no-shell", `This client cannot ${SHELL_MEMBER_PURPOSE[name]}: its shell has no ${name}.`);
   }
   if (!record) return absent("unreachable", "This client has no connection to that environment.");
   const environment = record.descriptor.name;

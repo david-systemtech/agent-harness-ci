@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { DISCOVERY_PATH, SCOPES } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { TOP_CEILING } from "../../environment/src/auth/client-sessions.js";
@@ -116,6 +117,24 @@ describe("the bootstrap grant", () => {
     proxied = true;
     await runtime.connections.retryNow(t.env.id);
     expect(runtime.connections.list.read()[0]?.phase).toBe("backoff");
+  });
+
+  it("exchanges the grant again on a retry after the local client session was revoked", async () => {
+    const t = await harness.environment();
+    const runtime = harness.runtime(inMemoryPlatform({ kind: "tui", grant: grantReader(t) }));
+    await runtime.start();
+    const revoked = runtime.connections.list.read()[0]?.clientSessionId;
+    const admin = await t.client();
+    await admin.apply("access.sessions.revoke", { commandId: randomUUID(), clientSessionId: String(revoked) });
+    await until(() => runtime.connections.list.read()[0]?.phase === "blocked", "the revoke to block the local connection");
+
+    await runtime.connections.retryNow(t.env.id);
+
+    const record = runtime.connections.list.read()[0];
+    expect(record).toMatchObject({ kind: "local", phase: "ready", blocked: null });
+    expect(record?.clientSessionId).not.toBe(revoked);
+    const { sessions } = await admin.apply("access.sessions.list", { live: true });
+    expect(sessions.map((s) => s.id)).toContain(record?.clientSessionId);
   });
 
   it("keeps an absent local environment's place in the sequence when the others are reordered", async () => {
