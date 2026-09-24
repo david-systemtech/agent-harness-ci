@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TtlUnit",
+  "type": "string",
+  "enum": [
+    "minutes",
+    "hours",
+    "days"
+  ],
+  "description": "What a duration is counted in: minutes, hours or days."
+}

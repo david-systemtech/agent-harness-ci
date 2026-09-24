@@ -30,6 +30,7 @@ const run = (overrides: Partial<RunInput> = {}): RunInput => ({
   model: "opus",
   effort: "high",
   mode: "acceptEdits",
+  ceiling: "acceptEdits",
   instructions: "Orientation.\n\nThe session's own instructions.",
   target: { kind: "fresh" },
   toolServers: [],
@@ -82,12 +83,12 @@ describe("the options a run is handed", () => {
 
   it("offers acceptEdits, plan, auto and bypassPermissions, and never default or dontAsk", () => {
     expect([...CLAUDE_MODES]).toEqual(["acceptEdits", "plan", "auto", "bypassPermissions"]);
-    expect(() => buildRunOptions(input({ mode: "default" }))).toThrow(/mode/);
-    expect(() => buildRunOptions(input({ mode: "dontAsk" }))).toThrow(/mode/);
+    expect(() => buildRunOptions(input({ mode: "default" as never }))).toThrow(/mode/);
+    expect(() => buildRunOptions(input({ mode: "dontAsk" as never }))).toThrow(/mode/);
   });
 
   it("runs a run with no mode of its own in acceptEdits", () => {
-    expect(buildRunOptions(input({ mode: null })).permissionMode).toBe("acceptEdits");
+    expect(buildRunOptions(input({ mode: null as never })).permissionMode).toBe("acceptEdits");
   });
 
   it("keeps the claude_code preset and appends the composed instructions", () => {

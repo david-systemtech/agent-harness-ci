@@ -529,7 +529,7 @@ describe("a parked process", () => {
 
     // The prompt stays open in the log and in the snapshot a client gets: nothing answered it, and nothing but the run's end was appended after it.
     expect(prompts.open()).toBe(1);
-    expect(eventsOf(t, id).map((event) => event.type)).toEqual(["session.created", "run.started", "message.sent", "assistant.text", "prompt.opened", "run.ended"]);
+    expect(eventsOf(t, id).map((event) => event.type)).toEqual(["session.created", "run.started", "run.policy.resolved", "message.sent", "assistant.text", "prompt.opened", "run.ended"]);
     const { subscription } = await client.subscribe("sessions.subscribeSession", { sessionId: id, afterSequence: t.env.log.head() + 1000 });
     const frame = await client.next((f) => f.type === "snapshot" && f.subscription === subscription);
     const snapshot = SessionSnapshot.parse(frame.type === "snapshot" && frame.payload);

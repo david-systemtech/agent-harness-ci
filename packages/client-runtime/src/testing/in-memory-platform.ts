@@ -18,8 +18,9 @@ import { standardWebSocketFactory } from "../web-socket.js";
  * The in-memory platform the runtime's tests run on, and any client's
  * (docs/specs/client-runtime.md, "Testing Decisions"): documents and secrets
  * in memory, a clock that moves only when told, a network signal the test
- * toggles, and a fake shell. It talks to a real environment over the global
- * `fetch` and `WebSocket` unless given others.
+ * toggles, a seeded jitter source, and a fake shell. It talks to a real
+ * environment over the global `fetch` and `WebSocket` unless given others;
+ * `fake-wire.ts` gives it a scripted one.
  */
 
 /** A clock that stands still until `advance` moves it; timers run as it passes them. */
@@ -65,6 +66,18 @@ export const manualClock = (start: Date | string = MANUAL_CLOCK_START): ManualCl
       now = until;
     },
     pending: () => timers.size,
+  };
+};
+
+/** A deterministic source of numbers in [0, 1) (mulberry32), so a test's backoff jitter is the same on every run. */
+export const seededRandom = (seed = 1): (() => number) => {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 };
 
@@ -177,6 +190,8 @@ export interface InMemoryPlatformOptions {
   readonly documents?: InMemoryDocumentStore;
   readonly secrets?: SecretStore;
   readonly clock?: ManualClock;
+  /** The backoff's jitter source. Preset: `seededRandom()`. */
+  readonly random?: () => number;
   /** Preset: the global `fetch`. */
   readonly fetch?: HttpFetch;
   /** Preset: the global `WebSocket`. */
@@ -184,6 +199,7 @@ export interface InMemoryPlatformOptions {
 }
 
 export interface InMemoryPlatform extends Platform {
+  readonly random: () => number;
   readonly documents: InMemoryDocumentStore;
   readonly secrets: SecretStore;
   readonly clock: ManualClock;
@@ -202,6 +218,7 @@ export const inMemoryPlatform = (options: InMemoryPlatformOptions = {}): InMemor
     webSocket: options.webSocket ?? globalWebSocket(),
     fetch: options.fetch ?? globalFetch(),
     clock: options.clock ?? manualClock(),
+    random: options.random ?? seededRandom(),
     network: inMemoryNetwork(),
     client: { kind, label: options.label ?? `a ${kind} under test`, version: options.version ?? "0.0.0-test" },
     ...(options.grant !== undefined && { grant: options.grant }),

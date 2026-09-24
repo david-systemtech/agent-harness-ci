@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { MessageId, RunId, SendResponse } from "../adapter.js";
 import { commandParams, defineMethod } from "../method.js";
+import { Mode } from "../permissions-modes.js";
 import { SessionId } from "../sessions.js";
 import { AttachmentKind } from "../transcript.js";
 
@@ -56,11 +57,16 @@ const message = {
 /**
  * Starts a run on the session with `text` as its prompt. The account and
  * workspace are the session's, and the model and mode default to the
- * session's (the effort to the model's own: a session has none); the mode is clamped to the connection's ceiling and the clamp
- * recorded on `run.started`. While a run is live it is rejected `conflict`
- * (reason `run_active`: `runs.send` is the way in); an account that is not on
- * this environment or not signed in is rejected `conflict` (reason
- * `account_unavailable`); while the environment drains it is `unavailable`.
+ * session's (the effort to the model's own: a session has none); the mode is
+ * clamped to the client session's ceiling (and, for a run that reads queued
+ * messages, each sender's) and the account's modes, the clamp recorded on
+ * `run.started` and the whole policy on `run.policy.resolved`: a mode above
+ * them is lowered, not refused. While a run is live it is rejected
+ * `conflict` (reason `run_active`: `runs.send` is the way in); an account
+ * that is not on this environment or not signed in is rejected `conflict`
+ * (reason `account_unavailable`), and one with no mode available at or below
+ * the ceiling `conflict` (reason `mode_unavailable`); while the environment
+ * drains it is `unavailable`.
  */
 export const runsStart = defineMethod({
   name: "runs.start",
@@ -71,7 +77,7 @@ export const runsStart = defineMethod({
     ...message,
     model: z.string().min(1).optional().meta({ description: "The model for this run; the session's when absent." }),
     effort: z.string().min(1).optional().meta({ description: "The reasoning effort for this run; the model's own when absent." }),
-    mode: z.string().min(1).optional().meta({ description: "The mode for this run, clamped to the connection's ceiling; the session's when absent." }),
+    mode: Mode.optional().meta({ description: "The mode for this run, clamped to the client session's ceiling and the account's modes; the session's when absent." }),
   }),
   result: z.object({ runId: RunId, messageId: MessageId }),
   errors: [],

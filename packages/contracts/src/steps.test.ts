@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AUTO_SETTLE_KEYS, SETTINGS, STEP_REGISTRY, presetSettings, type SettingsKey } from "./index.js";
+import { AUTO_SETTLE_KEYS, PERMISSION_SETTINGS_KEYS, SETTINGS, STEP_REGISTRY, presetSettings, type SettingsKey } from "./index.js";
 
 /**
  * The step registry's contract test (ADR 0016; session-state spec,
@@ -52,6 +52,8 @@ const stepRegistryProblems = (settings: LooseSettings, steps: readonly LooseStep
 const settings = SETTINGS as LooseSettings;
 const steps = STEP_REGISTRY as readonly LooseStep[];
 const [appearance, account] = steps as [LooseStep, LooseStep];
+/** The auto-settle keys alone: the table the Appearance step's broken-on-purpose registries are checked against. */
+const sessionSettings = Object.fromEntries(AUTO_SETTLE_KEYS.map((key) => [key, SETTINGS[key]])) as LooseSettings;
 
 describe("the step registry", () => {
   it("has every settings key named by, written by and linked from one registered step, each written key checked", () => {
@@ -59,10 +61,17 @@ describe("the step registry", () => {
   });
 
   it("puts both auto-settle keys under the Appearance entry's Sessions band", () => {
-    expect(STEP_REGISTRY.map((step) => step.id)).toEqual(["appearance", "account"]);
+    expect(STEP_REGISTRY.map((step) => step.id)).toEqual(["appearance", "account", "permissions"]);
     expect(appearance.writes).toEqual(["sessions.autoSettleAfterIdle", "sessions.autoSettleOnMerge"]);
     expect(appearance.links).toEqual([{ pane: "appearance", band: "sessions" }]);
     for (const key of AUTO_SETTLE_KEYS) expect(SETTINGS[key].step, key).toEqual({ id: "appearance", band: "sessions" });
+  });
+
+  it("puts the five permission keys under the Permissions entry, in the Access band (ADR 0027: access.permissions)", () => {
+    const permissions = steps.find((step) => step.id === "permissions");
+    expect(permissions?.writes).toEqual([...PERMISSION_SETTINGS_KEYS]);
+    expect(permissions?.links).toEqual([{ pane: "permissions", band: "access" }]);
+    for (const key of PERMISSION_SETTINGS_KEYS) expect(SETTINGS[key].step, key).toEqual({ id: "permissions", band: "access" });
   });
 
   it("puts providers.processIdleMinutes under the Account entry's Default model band, checked done on any valid value", () => {
@@ -87,29 +96,29 @@ describe("the step registry", () => {
 
   it("fails when a key is written by a step other than the one it names, or by two", () => {
     const other: LooseStep = { id: "permissions", writes: ["sessions.autoSettleOnMerge"], checks: [], links: [] };
-    expect(stepRegistryProblems(settings, [{ ...appearance, writes: ["sessions.autoSettleAfterIdle"], checks: appearance.checks.slice(0, 1) }, other, account])).toEqual([
+    expect(stepRegistryProblems(sessionSettings, [{ ...appearance, writes: ["sessions.autoSettleAfterIdle"], checks: appearance.checks.slice(0, 1) }, other])).toEqual([
       "sessions.autoSettleOnMerge: names appearance but permissions writes it",
       "permissions: needs one health check of sessions.autoSettleOnMerge",
     ]);
-    expect(stepRegistryProblems(settings, [appearance, { ...other, checks: [appearance.checks[1] as LooseStep["checks"][number]] }, account])).toEqual([
+    expect(stepRegistryProblems(sessionSettings, [appearance, { ...other, checks: [appearance.checks[1] as LooseStep["checks"][number]] }])).toEqual([
       "sessions.autoSettleOnMerge: written by appearance, permissions",
     ]);
   });
 
   it("fails when a step writes a key that is not a setting, writes a key it does not check, or links to no band a key sits in", () => {
-    expect(stepRegistryProblems(settings, [{ ...appearance, writes: [...appearance.writes, "appearance.theme"] }, account])).toEqual([
+    expect(stepRegistryProblems(sessionSettings, [{ ...appearance, writes: [...appearance.writes, "appearance.theme"] }])).toEqual([
       "appearance: writes appearance.theme, which is not a setting",
       "appearance: needs one health check of appearance.theme",
     ]);
-    expect(stepRegistryProblems(settings, [{ ...appearance, checks: [] }, account])).toEqual([
+    expect(stepRegistryProblems(sessionSettings, [{ ...appearance, checks: [] }])).toEqual([
       "appearance: needs one health check of sessions.autoSettleAfterIdle",
       "appearance: needs one health check of sessions.autoSettleOnMerge",
     ]);
-    expect(stepRegistryProblems(settings, [{ ...appearance, links: [{ pane: "appearance", band: "theme" }] }, account])).toEqual([
+    expect(stepRegistryProblems(sessionSettings, [{ ...appearance, links: [{ pane: "appearance", band: "theme" }] }])).toEqual([
       "sessions.autoSettleAfterIdle: appearance links to no sessions band",
       "sessions.autoSettleOnMerge: appearance links to no sessions band",
     ]);
-    expect(stepRegistryProblems(settings, [appearance, appearance, account])).toEqual([
+    expect(stepRegistryProblems(sessionSettings, [appearance, appearance])).toEqual([
       "appearance: registered twice",
       "sessions.autoSettleAfterIdle: written by appearance, appearance",
       "sessions.autoSettleOnMerge: written by appearance, appearance",

@@ -22,7 +22,12 @@ export interface Platform {
    */
   readonly fetch: HttpFetch;
   readonly clock: Clock;
-  /** Online or offline, foreground or background. Read by the reconnect machine (#126). */
+  /**
+   * A number in [0, 1) for the backoff's jitter; `Math.random` when absent.
+   * Not in the specification's list: a test hands in a deterministic one.
+   */
+  readonly random?: () => number;
+  /** Online or offline, foreground or background: offline parks a connection's retry, a foreground wakeup probes its socket. */
   readonly network: NetworkSignal;
   /** Who this client is, as the environment records it. */
   readonly client: ClientIdentity;

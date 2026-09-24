@@ -1,15 +1,16 @@
 import { PROTOCOL_VERSION } from "@agent-harness/contracts";
 import { answerCapability } from "./capabilities.js";
 import { createRegistry, type ConnectionSeams } from "./connections/registry.js";
+import { createNotices } from "./notices.js";
 import type { Platform } from "./platform.js";
 import { environmentsProjection } from "./projections/environments.js";
 import type { Runtime } from "./runtime.js";
 
 /**
  * The runtime together with its internal seams: raw frames, socket closes,
- * forgetting, and requests on a connection's socket. The reconnect machine
- * (#126), subscriptions (#127) and the outbox (#128) attach here, inside the
- * package; renderers never do (ADR 0004). This module is not exported from
+ * forgetting, and requests on a connection's socket. Subscriptions (#127)
+ * and the outbox (#128) attach here, inside the package; renderers never do
+ * (ADR 0004). This module is not exported from
  * the package, so a renderer cannot import it.
  */
 export interface RuntimeWithSeams {
@@ -23,7 +24,8 @@ export interface InternalOptions {
 }
 
 export const createRuntimeWithSeams = (platform: Platform, options: InternalOptions = {}): RuntimeWithSeams => {
-  const registry = createRegistry(platform, options.protocolVersion ?? PROTOCOL_VERSION);
+  const notices = createNotices(platform.clock);
+  const registry = createRegistry(platform, options.protocolVersion ?? PROTOCOL_VERSION, notices);
   const environments = environmentsProjection(registry.list);
   let started: Promise<void> | undefined;
 
@@ -44,9 +46,11 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
       setLastUsed: (environmentId) => registry.setLastUsed(environmentId),
       remove: (environmentId) => registry.remove(environmentId),
       retryNow: (environmentId) => registry.retryNow(environmentId),
+      startService: (environmentId) => registry.startService(environmentId),
     },
     preferences: registry.preferences,
-    projections: { environments },
+    projections: { environments, notices: notices.list },
+    notices: { dismiss: (id) => notices.dismiss(id) },
     capability: (environmentId, name) => answerCapability(name, registry.record(environmentId), platform.shell),
     async close() {
       registry.close();

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { EventTypeEntry } from "./event-types.js";
+import { PERMISSION_SETTINGS } from "./permissions-settings.js";
 import { PROCESS_IDLE_MINUTES_PRESET, ProcessIdleMinutes } from "./methods/providers.js";
 
 /**
@@ -58,6 +59,13 @@ export interface SettingDefinition<S extends z.ZodType = z.ZodType> {
   readonly schema: S;
   readonly preset: z.infer<S>;
   readonly step: SettingPlace;
+  /**
+   * The one method that writes the key, when a rule guards it (the
+   * permission settings: `permissions.settings.set`, with the bypass
+   * acknowledgement, #129): the generic `settings.update` refuses it. Absent,
+   * `settings.update` writes it.
+   */
+  readonly writtenBy?: `${string}.${string}`;
 }
 
 /** A key's definition, its preset checked against its schema by the compiler. */
@@ -70,6 +78,8 @@ const setting = <const S extends z.ZodType>(definition: SettingDefinition<S>): S
  * (#120) sits under the Account step's entry, in the Default model band of
  * the Accounts pane (ADR 0027's `accounts.default-model` row, which absorbs
  * Artemis's Runs pane); the Account step's own keys (#134) join it there.
+ * The permission keys (#129) are the Permissions step's, written through
+ * `permissions.settings.set` only.
  */
 export const SETTINGS = {
   "sessions.autoSettleAfterIdle": setting({
@@ -87,6 +97,7 @@ export const SETTINGS = {
     preset: PROCESS_IDLE_MINUTES_PRESET,
     step: { id: "account", band: "default-model" },
   }),
+  ...PERMISSION_SETTINGS,
 } as const;
 
 export type SettingsKey = keyof typeof SETTINGS;
@@ -117,6 +128,12 @@ export const SettingsPatch = z.strictObject(settingsShape).partial().meta({
   description: "Some settings' values by key, each valid for its key; a key that is not a setting is refused.",
 });
 export type SettingsPatch = z.infer<typeof SettingsPatch>;
+
+/** The keys the generic `settings.update` writes: every key no single method owns (`writtenBy`). */
+export const GENERIC_SETTINGS_KEYS = SETTINGS_KEYS.filter((key) => (SETTINGS[key] as SettingDefinition).writtenBy === undefined);
+
+/** Whether the generic `settings.update` may write `key`. */
+export const isGenericSettingsKey = (key: string): boolean => (GENERIC_SETTINGS_KEYS as readonly string[]).includes(key);
 
 /** Every key at its preset: the settings of an environment nobody has changed. */
 export const presetSettings = (): SettingsValues =>

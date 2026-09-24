@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RunActorKind",
+  "type": "string",
+  "enum": [
+    "client",
+    "routine",
+    "bot",
+    "completions"
+  ],
+  "description": "Who started a run: client (a client session; attended), routine, bot, or completions (a program on the completions surface; unattended unless it asks otherwise)."
+}

@@ -77,6 +77,7 @@ const runInput = (overrides: Partial<RunInput> = {}): RunInput => ({
   model: "opus",
   effort: null,
   mode: "acceptEdits",
+  ceiling: "acceptEdits",
   instructions: "",
   target: { kind: "fresh" },
   toolServers: [],
@@ -193,8 +194,8 @@ describe("a run", () => {
 
   it("is refused before anything spawns for a mode Claude does not offer, or an unknown effort", () => {
     const adapter = adapterWith();
-    expect(() => adapter.createRun(runInput({ mode: "default" }), contextWith())).toThrow(/mode default/);
-    expect(() => adapter.createRun(runInput({ mode: "dontAsk" }), contextWith())).toThrow(/mode dontAsk/);
+    expect(() => adapter.createRun(runInput({ mode: "default" as never }), contextWith())).toThrow(/mode default/);
+    expect(() => adapter.createRun(runInput({ mode: "dontAsk" as never }), contextWith())).toThrow(/mode dontAsk/);
     expect(() => adapter.createRun(runInput({ effort: "ludicrous" }), contextWith())).toThrow(/effort/);
     expect(fake.queries).toHaveLength(0);
   });
@@ -913,7 +914,7 @@ describe("status, models and commands", () => {
   it("describes itself: the four modes, the append channel, a provider queue that steers", () => {
     expect(CLAUDE_DESCRIPTOR).toMatchObject({
       provider: "claude",
-      modes: ["acceptEdits", "plan", "auto", "bypassPermissions"],
+      modes: ["acceptEdits", "plan", "auto", "bypassPermissions"].map((mode) => ({ mode, available: true, reason: null })),
       instructionChannel: { kind: "system-prompt-append", maxCharacters: null },
       providerQueue: true,
       steering: true,
