@@ -285,7 +285,11 @@ export interface AdapterRun {
 /** A turn the provider opened on its own: a run the host adopts into the same session, and the queued messages it opened with. */
 export interface ProviderTurn extends AdapterRun {
   readonly messageIds: readonly string[];
-  /** Tells the turn the run id the host adopted it under, before its events are read, so what it asks the broker names its run. */
+  /**
+   * Tells the turn the run id the host adopted it under, once the run is
+   * registered and before its events are read, so what it asks the broker
+   * names its run and parks it; a turn the host lets go is never told one.
+   */
   onAdopted?(runId: string): void;
 }
 

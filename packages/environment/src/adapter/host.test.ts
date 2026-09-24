@@ -552,6 +552,80 @@ describe("the host's own bookkeeping", () => {
     expect(eventsOf(t).filter((event) => event.type === "run.started")).toHaveLength(1);
   });
 
+  it("tells an adopted turn its run id once the run is registered, so an ask it makes then parks the run", async () => {
+    let captured: RunContext | undefined;
+    const requests: PromptRequest[] = [];
+    const broker: PermissionBroker = { request: (request) => (requests.push(request), new Promise(() => undefined)) };
+    const t = await setup(
+      fakeAdapter({
+        script: ({ context }) => {
+          captured = context;
+          return [end()];
+        },
+      }),
+      { broker },
+    );
+    await untilEnded(t, startRun(t));
+    let adoptedAs: string | undefined;
+    const turn: ProviderTurn = {
+      messageIds: [],
+      // A turn that has not ended: it waits on its prompt.
+      events: { [Symbol.asyncIterator]: () => ({ next: () => new Promise<IteratorResult<AdapterEvent>>(() => undefined) }) },
+      send: () => undefined,
+      interrupt: async () => ({ stillQueued: [] }),
+      dispose: () => undefined,
+      release: () => undefined,
+      onAdopted: (runId) => {
+        adoptedAs = runId;
+        // Asked at once, as a subagent's prompt turn does once it has its run id.
+        void captured?.broker.request({ sessionId: t.sessionId, runId, kind: "permission", detail: {} });
+      },
+    };
+    captured?.adopt(turn);
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.runId).toBe(adoptedAs);
+    expect([...t.host.runs.runs()].find((run) => run.id === adoptedAs)?.state).toBe("parked");
+    expect(t.host.processes.list()[0]).toMatchObject({ state: "parked", runId: adoptedAs });
+  });
+
+  it("never tells a turn a run id when its start cannot be recorded", async () => {
+    let captured: RunContext | undefined;
+    const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    let failStart = false;
+    const t = await setup(
+      fakeAdapter({
+        script: ({ context }) => {
+          captured = context;
+          return [end()];
+        },
+      }),
+      {},
+      (log) => ({
+        ...log,
+        append: (stream, events, options) => {
+          if (failStart && events.some((event) => event.type === "run.started")) throw new Error("The database is busy.");
+          return log.append(stream, events, options);
+        },
+      }),
+    );
+    await untilEnded(t, startRun(t));
+    failStart = true;
+    let told = false;
+    let disposed = false;
+    captured?.adopt({
+      messageIds: [],
+      events: { [Symbol.asyncIterator]: () => ({ next: async () => ({ value: end(), done: false }) }) },
+      send: () => undefined,
+      interrupt: async () => ({ stillQueued: [] }),
+      dispose: () => void (disposed = true),
+      release: () => undefined,
+      onAdopted: () => void (told = true),
+    });
+    errors.mockRestore();
+    expect(disposed).toBe(true);
+    expect(told).toBe(false);
+  });
+
   it("never leaves a rejection unhandled when handling a provider's refusal fails too", async () => {
     const held = gate();
     const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);

@@ -585,11 +585,14 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
 
   /**
    * The broker as a session's runs are handed it. A request parks the
-   * session's run live at the time it is made (a turn the provider opened on
-   * its own asks through the context of the run it followed), under the
-   * prompt's id, the adapter's own or one the host mints, until the request
-   * settles, the provider withdraws it (its signal aborts, or had aborted
-   * before it was made) or `answerPrompt` answers it, whichever comes first.
+   * session's run live at the time it is made, under the prompt's id, the
+   * adapter's own or one the host mints. A turn the provider opened on its
+   * own asks through the broker of the run it followed, but only once the
+   * host has adopted it and told it its run id (`onAdopted`), by which time
+   * that run is registered as the session's live one: the run it parks is its
+   * own. The run is parked until the request settles, the provider withdraws
+   * it (its signal aborts, or had aborted before the request was made) or
+   * `answerPrompt` answers it, whichever comes first.
    */
   const brokerFor = (sessionId: string): PermissionBroker => ({
     request: async (request) => {
@@ -736,7 +739,6 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       refuse("the drain refused");
       return;
     }
-    safely(() => turn.onAdopted?.(runId), (e) => console.error("Telling an adopted turn its run id failed:", e));
     const plan: PlannedRun = { ...previous, runId, prompt: [], resumeFrom: null };
     const started: RunStartedPayload = {
       runId,
@@ -766,7 +768,12 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     }
     // The provider read them, bytes and all.
     for (const messageId of turn.messageIds) heldAttachments.delete(messageId);
-    begin(plan, () => turn);
+    begin(plan, () => {
+      // Told its run id once the run is registered (live, in the run registry, on its process) and before its events are
+      // read, so a prompt it asks at once parks it; a turn let go before this is never told one.
+      safely(() => turn.onAdopted?.(runId), (e) => console.error("Telling an adopted turn its run id failed:", e));
+      return turn;
+    });
   };
 
   /** A provider-opened turn the host will not run: the messages it opened with, still the provider's, are the environment's again. */
