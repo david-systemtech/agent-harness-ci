@@ -303,6 +303,26 @@ describe("run.policy.resolved", () => {
     expect(t.adapter.runs[1]).toMatchObject({ adopted: true, modeChanges: ["plan"] });
   });
 
+  it("resolves a turn the provider opened under the lowest ceiling of whoever sent what it reads", async () => {
+    const held = gate();
+    const t = await start({ capabilities: { providerQueue: true, steering: false } });
+    t.adapter.nextScripts.push(heldScript(held));
+    const desktop = await t.client();
+    const { id } = await create(desktop, { mode: "bypassPermissions" });
+    const { runId: first } = await startRun(desktop, id);
+    await vi.waitFor(() => expect(runEvents(t, id, first).map((event) => event.type)).toContain("assistant.text"));
+    const planner = await pairedClient(t, "plan");
+    await send(planner, "runs.send", { sessionId: id, text: "From a planner" });
+    held.open();
+    await vi.waitFor(() => expect(sessionEvents(t, id).filter((event) => event.type === "run.ended")).toHaveLength(2));
+    const adopted = sessionEvents(t, id).filter((event) => event.type === "run.started")[1];
+    expect(adopted?.payload["origin"]).toBe("provider");
+    expect(policyOf(t, id, adopted?.payload["runId"] as string)).toMatchObject({
+      mode: { requested: "bypassPermissions", effective: "plan", ceiling: "plan", clamped: true, clampReason: "ceiling" },
+    });
+    expect(t.adapter.runs[1]).toMatchObject({ adopted: true, modeChanges: ["plan"] });
+  });
+
   it("lets a provider-opened turn go and reads its messages from the queue when the adapter cannot bring it to the mode resolved", async () => {
     const held = gate();
     const t = await start({ capabilities: { providerQueue: true, steering: false, modeChange: false } });
