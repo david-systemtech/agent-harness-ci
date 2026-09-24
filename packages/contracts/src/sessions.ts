@@ -95,7 +95,8 @@ export type StoredDraft = z.infer<typeof StoredDraft>;
  */
 export const GroupName = z
   .string()
-  .regex(/^\s*[^\s\p{Cc}\p{Cf}](?:(?:[^\p{Cc}\p{Cf}]|\s){0,78}[^\s\p{Cc}\p{Cf}])?\s*$/u)
+  // Inside the name, white space is any character that is not control or format, plus the control characters that are white space (tab, line feeds, form feed, return); `\s` would re-admit the byte-order mark, which is `Cf`.
+  .regex(/^\s*[^\s\p{Cc}\p{Cf}](?:(?:[^\p{Cc}\p{Cf}]|[\t\n\v\f\r]){0,78}[^\s\p{Cc}\p{Cf}])?\s*$/u)
   .meta({
     description:
       "A group's name: 1 to 80 characters once trimmed, no control or format (zero-width) characters other than white space; stored trimmed with white space collapsed, unique per environment ignoring case.",

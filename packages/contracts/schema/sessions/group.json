@@ -11,7 +11,7 @@
     },
     "name": {
       "type": "string",
-      "pattern": "^\\s*[^\\s\\p{Cc}\\p{Cf}](?:(?:[^\\p{Cc}\\p{Cf}]|\\s){0,78}[^\\s\\p{Cc}\\p{Cf}])?\\s*$",
+      "pattern": "^\\s*[^\\s\\p{Cc}\\p{Cf}](?:(?:[^\\p{Cc}\\p{Cf}]|[\\t\\n\\v\\f\\r]){0,78}[^\\s\\p{Cc}\\p{Cf}])?\\s*$",
       "description": "A group's name: 1 to 80 characters once trimmed, no control or format (zero-width) characters other than white space; stored trimmed with white space collapsed, unique per environment ignoring case."
     },
     "orderKey": {
