@@ -2,6 +2,7 @@ import type { RunEndedPayload } from "@agent-harness/contracts";
 import type { EventLog } from "../event-log/event-log.js";
 import type { Clock } from "../serve/clock.js";
 import type { Reader } from "../sessions/session-reads.js";
+import { appendRunEvents } from "../sessions/activity-companions.js";
 import { sessionStream } from "../sessions/streams.js";
 import { providerHeld } from "../runs/run-reads.js";
 import { HOST_ACTOR, requeuedEvents } from "./host.js";
@@ -14,7 +15,9 @@ import { HOST_ACTOR, requeuedEvents } from "./host.js";
  * each such run ends `interrupted` with cause `restart`, as the adapter
  * host's own end: the messages its provider still held come back to the
  * environment's queue as `message.requeued`, in the end's transaction and
- * just before it (ADR 0022: nothing is lost), and its prompts stay raised,
+ * just before it (ADR 0022: nothing is lost), the end is appended through
+ * `appendRunEvents` with the companions it owes (a snoozed session wakes,
+ * session-state spec, #122), and its prompts stay raised,
  * so they are there again for a client to answer (ADR 0007). The bytes of a
  * queued message's attachments were held in memory and are gone: the run
  * that reads the message reads its text alone, and the log keeps the record
@@ -50,9 +53,11 @@ export const recoverCutRuns = (options: { readonly log: EventLog; readonly clock
       resultText: null,
     };
     try {
-      log.atomically(() => {
+      log.atomically((tx) => {
         const held = requeuedEvents(run.run_id, providerHeld(reader, run.session_id, run.run_id));
-        log.append(sessionStream(run.session_id), [...held, { type: "run.ended", payload }], { actor: HOST_ACTOR, correlationId: run.run_id });
+        const attribution = { tx, actor: HOST_ACTOR, correlationId: run.run_id };
+        if (held.length > 0) log.append(sessionStream(run.session_id), held, attribution);
+        appendRunEvents(log, run.session_id, [{ type: "run.ended", payload }], attribution);
       });
       ended.push(run.run_id);
     } catch (error) {

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { join } from "node:path";
 import { registry, type ParamsOf, type ResponseOf } from "@agent-harness/contracts";
 import { describe, expect, it, vi } from "vitest";
 import type { Adapter, AdapterDescriptor, AdapterRun } from "../adapter/contract.js";
@@ -25,7 +26,7 @@ import type { WireClient } from "../../test/wire-client.js";
  * writes the provider's tag field.
  */
 
-const { onCleanup } = useCleanups();
+const { onCleanup, tempDir } = useCleanups();
 
 const start = async (adapter: FakeAdapterOptions | FakeAdapter = {}): Promise<TestEnvironment> => {
   const t = await startTestEnvironment({ adapter: "descriptor" in adapter ? adapter : fakeAdapter(adapter) });
@@ -333,6 +334,34 @@ describe("a run's end", () => {
       expect((await get(client, id)).snoozedUntil).toBeNull();
     },
   );
+
+  it("wakes a session snoozed when a restart cut its run: the recovery sweep's end owes the companion as every other end does", async () => {
+    const dataDir = join(tempDir(), "data");
+    const held = gate();
+    onCleanup(() => held.open());
+    const t = await startTestEnvironment({ dataDir, adapter: fakeAdapter({ script: heldScript(held) }) });
+    onCleanup(() => t.close());
+    const client = await t.client();
+    const { id } = await create(client);
+    const { runId } = await startRun(client, id);
+    await waitForEvent(t, id, 0, "assistant.text", runId);
+    await command(client, "sessions.snooze", { sessionId: id, until: at(DAY) });
+
+    // The environment dies with the run mid-flight: its end never reaches the log.
+    const loud = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    await client.close();
+    t.env.log.close();
+    await t.close();
+    loud.mockRestore();
+
+    const again = await startTestEnvironment({ dataDir, clock: t.clock });
+    onCleanup(() => again.close());
+    const [ended, woken] = eventsOf(again, id, 0).slice(-2) as [EventEnvelope, EventEnvelope];
+    expect(ended).toMatchObject({ type: "run.ended", actor: "system:adapter-host", payload: { runId, reason: "interrupted", cause: "restart" } });
+    expect(woken).toMatchObject({ type: "session.unsnoozed", actor: "system:adapter-host", causationId: ended.eventId, correlationId: runId, payload: { reason: "activity" } });
+    expectOneTransaction([ended, woken]);
+    expect(await get(await again.client(), id)).toMatchObject({ snoozedUntil: null, activity: { state: "idle" } });
+  });
 
   it("owes nothing on a session that is not snoozed, archived or settled though it be: its start brought it back", async () => {
     const held = gate();
