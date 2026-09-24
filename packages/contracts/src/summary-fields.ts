@@ -59,6 +59,8 @@ export const SUMMARY_FIELD_OWNERS = {
   parkedPromptCount: { event: "prompt.opened" },
   accountId: { event: "run.started" },
   model: { event: "run.started" },
+  // Mode: the permissions workstream's command (#129); `sessions.create` records the first value.
+  mode: { command: "permissions.mode.set" },
   // Forge (ADR 0012): the forge workstream's events.
   pullRequests: { event: "session.pull-request-linked" },
   // Composer: an absolute setter, which a client's outbox coalesces.

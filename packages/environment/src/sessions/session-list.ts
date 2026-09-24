@@ -11,6 +11,7 @@ import {
   type SessionDeletedPayload,
   type SessionDraftSetPayload,
   type SessionGroupSetPayload,
+  type SessionModeSetPayload,
   type SessionPinReorderedPayload,
   type SessionPinnedPayload,
   type SessionSummary,
@@ -92,8 +93,8 @@ const SESSION_PROJECTIONS: Partial<Record<string, Projection>> = {
     const { title, source } = titleOf(payload.title, null);
     db.run(
       `INSERT INTO sessions (id, created_at, updated_at, title, title_source, user_title, group_id, workspace,
-                             repository_identity, activity)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                             repository_identity, activity, mode)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       event.streamId,
       event.occurredAt,
       event.occurredAt,
@@ -104,9 +105,12 @@ const SESSION_PROJECTIONS: Partial<Record<string, Projection>> = {
       JSON.stringify(payload.workspace),
       payload.repositoryIdentity,
       JSON.stringify({ state: "idle", since: event.occurredAt }),
+      payload.mode,
     );
     insertTags(db, event.streamId, payload.tags);
   },
+  // The mode the permissions workstream gave the session (#129, #179); not an organisation change, so `updatedAt` stays.
+  "session.mode.set": (event, db) => setColumns(event, db, { mode: (event.payload as SessionModeSetPayload).mode.effective }),
   "session.title-set": (event, db) => {
     const payload = event.payload as SessionTitleSetPayload;
     const [row] = db.all<Pick<SessionRow, "generated_title">>("SELECT generated_title FROM sessions WHERE id = ?", event.streamId);
