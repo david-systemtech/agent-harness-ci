@@ -1,3 +1,4 @@
+import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
   getSessionMessages as sdkGetSessionMessages,
@@ -8,6 +9,8 @@ import {
   type Query,
   type SDKUserMessage,
   type SessionStore,
+  type SpawnOptions,
+  type SpawnedProcess,
 } from "@anthropic-ai/claude-agent-sdk";
 import type { PromptDecision, PromptKind, PromptMessage, RunContext, RunEnd, RunInput } from "../../adapter/contract.js";
 import type { Clock, Timer } from "../../serve/clock.js";
@@ -48,11 +51,13 @@ import { worktreeCheckout } from "./workspace.js";
  * watchdog. A CLI that does not narrate is read as Artemis did before it
  * did: a waiting run's prompt opens the next turn.
  *
- * It is let go when the host has released every turn and nothing holds it
- * (Artemis's retention rule): a live background task, a cron job or a
- * wakeup, the settle grace after a task settles, the grace a queued message
- * has to open its turn, an unanswered prompt. `idleMs` keeps it that much
- * longer for the next run; the pool (#120) is what will own that clock.
+ * The pool (`adapter/pool.ts`, #120) decides when it stops: `release()`
+ * keeps it for the next run, `stopProcess` stops it (or kills its child at
+ * once), and what holds it from the pool's idle stop is told through the
+ * run context's `process` port (Artemis's retention rule): a `task` hold per
+ * live background task, by the provider's task id, and one `schedule` hold,
+ * under a synthetic id, while a cron job or a wakeup is registered. A
+ * process that dies on its own tells the port it `exited`.
  */
 
 /** What a process needs from its adapter. */
@@ -78,14 +83,10 @@ export interface ProcessDeps {
 export interface ProcessTimings {
   /** How long a settled background task holds the process for the provider's turn about it (Artemis: 2 s). */
   readonly settleGraceMs: number;
-  /** How long an ended turn holds the process for the queued turn a sent message becomes (Artemis: 5 s). */
-  readonly queuedTurnGraceMs: number;
   /** How long an interrupt waits for the control channel before the transport is forced down (Artemis: 8 s). */
   readonly interruptTimeoutMs: number;
   /** How long a prompt waits for the pump to learn whose turn the CLI opened (Artemis: 500 ms). */
   readonly decisionSettleMs: number;
-  /** How long an idle, released process is kept for the next run; 0 lets it go at once. */
-  readonly idleMs: number;
   /** How long a model, mode or effort change on a kept process may take before the run fails. */
   readonly controlTimeoutMs: number;
   /** How long a run's prompt may sit unopened while the CLI serves no turn before the run ends error. */
@@ -99,6 +100,8 @@ export interface ProcessTimings {
  * own opens with no message behind it, which is the wakeup firing.
  */
 const CRON_CREATE = "CronCreate";
+/** The one schedule hold's id: the port holds a schedule while any is registered. */
+export const SCHEDULE_HOLD_ID = "claude-schedules";
 const CRON_DELETE = "CronDelete";
 const WAKEUP = "ScheduleWakeup";
 
@@ -252,16 +255,19 @@ export class ClaudeProcess implements TurnControl {
   /** The permission table: prompts parked on the broker, by prompt id, answerable here too, with the turn that asked. */
   readonly #permissions = new Map<string, { readonly answer: (decision: PromptDecision) => void; readonly turn: ClaudeTurn }>();
 
-  /** Live background tasks, from the level alone (Artemis: retention reads the level, never the ledger). */
-  #liveTasks = 0;
+  /** Live background tasks by id, from the level alone (Artemis: retention reads the level, never the ledger), each held on the port. */
+  readonly #liveTasks = new Set<string>();
   #crons = 0;
   #wakeups = 0;
   #settling = false;
   #settleOwed = false;
   #settleTimer: Timer | undefined;
-  #awaitingQueuedTurn = false;
-  #queuedTurnTimer: Timer | undefined;
-  #idleTimer: Timer | undefined;
+  /** Whether the port holds the schedule hold. */
+  #scheduleHeld = false;
+  /** The child the SDK spawned through this process's spawner, so a kill reaches it. */
+  #child: ChildProcess | undefined;
+  /** Resolves once the pump has ended (and the child, when there is one, has exited). */
+  #stopped: Promise<void> = Promise.resolve();
   #openTimer: Timer | undefined;
 
   #closed = false;
@@ -297,7 +303,7 @@ export class ClaudeProcess implements TurnControl {
    * schedule or a grace alone is not: a run it cannot serve lets it go.
    */
   get busy(): boolean {
-    return this.#current !== undefined || this.#waiting.length > 0 || this.#undecided !== undefined || this.#liveTasks > 0 || this.#permissions.size > 0;
+    return this.#current !== undefined || this.#waiting.length > 0 || this.#undecided !== undefined || this.#liveTasks.size > 0 || this.#permissions.size > 0;
   }
 
   /** Whether a run can be served on this process rather than a fresh one. */
@@ -331,7 +337,6 @@ export class ClaudeProcess implements TurnControl {
   /** A later run on the live process: moves it onto the run's model, mode and effort, then queues the prompt. */
   attach(input: RunInput, context: RunContext): ClaudeTurn {
     this.#context = context;
-    this.#idleTimer?.cancel();
     const turn = this.#runTurn(input);
     void (async () => {
       try {
@@ -372,7 +377,6 @@ export class ClaudeProcess implements TurnControl {
     if (at !== -1) this.#waiting.splice(at, 1);
     turn.end(end);
     this.#armOpenWatch();
-    this.#maybeLetGo();
   }
 
   async #apply(input: RunInput): Promise<void> {
@@ -418,6 +422,7 @@ export class ClaudeProcess implements TurnControl {
         sessionStore: this.#deps.sessionStore,
         resumePoint: await this.#resumePoint(input),
         canUseTool: this.#canUseTool,
+        spawnProcess: this.#spawnProcess,
         abortController: this.#abort,
         stderr: (data) => this.#deps.diagnostic(`Claude (session ${this.sessionId}): ${data.trimEnd()}`),
       });
@@ -436,10 +441,12 @@ export class ClaudeProcess implements TurnControl {
     } catch (error) {
       this.#waitingEnds(turn, { reason: "error", error: { message: describe(error), code: "launch" } });
       this.#close();
+      // No process ever ran: the pool records it stopped on its own.
+      if (this.#disposing === undefined) this.#context.process.exited();
       return;
     }
     this.#armOpenWatch();
-    void this.#pump(this.#query);
+    this.#stopped = this.#pump(this.#query);
   }
 
   async #pump(query: Query): Promise<void> {
@@ -470,8 +477,51 @@ export class ClaudeProcess implements TurnControl {
       this.#settleWaiters();
       this.#denyAll(DISPOSED_DENY_MESSAGE);
       if (this.#promptTurn !== undefined) this.#endPromptTurn(this.#promptTurn);
+      const onItsOwn = this.#disposing === undefined;
       this.#close();
+      // Died on its own (a transport failure, the CLI quitting): the pool records it stopped and the next run starts cold.
+      if (onItsOwn) {
+        this.#unholdAll();
+        this.#context.process.exited();
+      }
+      const child = this.#child;
+      if (child !== undefined && child.exitCode === null && child.signalCode === null) await new Promise<void>((resolve) => child.once("exit", () => resolve()));
     }
+  }
+
+  /**
+   * The SDK's spawn, made here (`spawnClaudeCodeProcess`), so the process
+   * holds its child: `stopProcess` with `kill` sends it SIGKILL at once
+   * rather than waiting out the SDK's graceful close. Stdin, stdout and
+   * stderr are piped as the SDK's own spawn pipes them; stderr goes to the
+   * diagnostic.
+   */
+  readonly #spawnProcess = (spawnOptions: SpawnOptions): SpawnedProcess => {
+    const child = spawn(spawnOptions.command, spawnOptions.args, {
+      ...(spawnOptions.cwd !== undefined && { cwd: spawnOptions.cwd }),
+      env: spawnOptions.env,
+      signal: spawnOptions.signal,
+      stdio: ["pipe", "pipe", "pipe"],
+      windowsHide: true,
+    });
+    child.stderr?.on("data", (chunk: Buffer) => this.#deps.diagnostic(`Claude (session ${this.sessionId}): ${chunk.toString().trimEnd()}`));
+    child.on("error", () => undefined);
+    this.#child = child;
+    return child as unknown as SpawnedProcess;
+  };
+
+  /**
+   * Stops the process for the pool: the transport closed, the pump's end
+   * awaited, so the promise resolves once it has stopped. With `kill`, the
+   * child is sent SIGKILL at once and nothing is waited for.
+   */
+  stop(options: { readonly kill?: boolean } = {}): Promise<void> {
+    void this.dispose();
+    if (options.kill === true) {
+      this.#child?.kill("SIGKILL");
+      return Promise.resolve();
+    }
+    return this.#stopped;
   }
 
   /** What a message says about the process, before any turn sees it: the live tasks, a settle, a rate-limit verdict. */
@@ -479,10 +529,19 @@ export class ClaudeProcess implements TurnControl {
     const verdict = readRateLimit(message);
     if (verdict !== null) this.#deps.onRateLimit(verdict);
     if (!isRecord(message) || message["type"] !== "system" || message["subtype"] !== "background_tasks_changed" || !Array.isArray(message["tasks"])) return;
-    const had = this.#liveTasks > 0;
-    this.#liveTasks = message["tasks"].length;
-    // The empty set arrives a beat before the provider's turn about the work that finished: hold for it.
-    if (had && this.#liveTasks === 0) this.#awaitSettleTurn();
+    const had = this.#liveTasks.size > 0;
+    const now = new Set<string>();
+    for (const task of message["tasks"]) {
+      const id = isRecord(task) && typeof task["task_id"] === "string" && task["task_id"] !== "" ? task["task_id"] : null;
+      if (id !== null) now.add(id);
+    }
+    // Replace, not merge: the level is the whole live set after the change. Each live task holds the process from the pool's idle stop.
+    for (const id of this.#liveTasks) if (!now.has(id)) this.#context.process.unhold("task", id);
+    for (const id of now) if (!this.#liveTasks.has(id)) this.#context.process.hold("task", id);
+    this.#liveTasks.clear();
+    for (const id of now) this.#liveTasks.add(id);
+    // The empty set arrives a beat before the provider's turn about the work that finished: a turn opening then is about it.
+    if (had && this.#liveTasks.size === 0) this.#awaitSettleTurn();
   }
 
   #route(message: unknown): void {
@@ -523,7 +582,7 @@ export class ClaudeProcess implements TurnControl {
 
   /** No queued message, settle or live task that a turn could be about instead of the waiting run. */
   #nothingElseOwed(): boolean {
-    return this.#queuedSends.size === 0 && !this.#settling && !this.#settleOwed && this.#liveTasks === 0;
+    return this.#queuedSends.size === 0 && !this.#settling && !this.#settleOwed && this.#liveTasks.size === 0;
   }
 
   /** Maps a message onto the open turn, noting a steer it read and a schedule it registered, and closes the turn at its end. */
@@ -537,6 +596,7 @@ export class ClaudeProcess implements TurnControl {
       if (event.payload.name === CRON_CREATE) this.#crons += 1;
       else if (event.payload.name === CRON_DELETE) this.#crons = Math.max(0, this.#crons - 1);
       else if (event.payload.name === WAKEUP) this.#wakeups += 1;
+      this.#holdSchedule();
     }
     if (turn.state.providerSessionId !== null) this.#providerSessionId = turn.state.providerSessionId;
     // Work that changed between turns is reported by the next turn to hear anything (Artemis's `#flushTasks`).
@@ -571,7 +631,10 @@ export class ClaudeProcess implements TurnControl {
       for (const messageId of opened) turn.emit({ type: "message.delivered", payload: { messageId, delivery: "prompt" } });
     } else {
       // A turn of the provider's own with no message behind it is a wakeup firing, when one is registered.
-      if (opened.length === 0 && this.#wakeups > 0) this.#wakeups -= 1;
+      if (opened.length === 0 && this.#wakeups > 0) {
+        this.#wakeups -= 1;
+        this.#holdSchedule();
+      }
       this.#current = this.#providerTurn(opened, false);
     }
     this.#settleWaiters();
@@ -592,8 +655,6 @@ export class ClaudeProcess implements TurnControl {
       // A turn opening ends the settle grace's wait; its end re-arms it while the debt is owed.
       this.#settling = false;
       this.#settleTimer?.cancel();
-      this.#awaitingQueuedTurn = false;
-      this.#queuedTurnTimer?.cancel();
     }
     this.#deps.diagnostic(
       `Claude (session ${this.sessionId}): the provider opened a turn of its own${forPrompt ? " for a subagent's prompt" : ""}${messageIds.length > 0 ? ` with ${messageIds.length} queued message(s)` : ""}.`,
@@ -602,20 +663,10 @@ export class ClaudeProcess implements TurnControl {
     return turn;
   }
 
-  /** A turn ended: hold the process for what is coming (a queued turn, the turn about settled work), else let it go once released. */
+  /** A turn ended: the settle debt re-arms its grace, and the watchdog watches any run still waiting. The ids of queued messages are kept, so a turn opening later still reports reading them. */
   #afterTurn(atResult: boolean): void {
     if (this.#settleOwed && atResult) this.#awaitSettleTurn();
-    if (this.#queuedSends.size > 0) {
-      this.#awaitingQueuedTurn = true;
-      this.#queuedTurnTimer?.cancel();
-      this.#queuedTurnTimer = this.#deps.clock.setTimeout(() => {
-        // No turn opened within the grace: the hold ends. The ids are kept, so a turn opening later still reports reading them.
-        this.#awaitingQueuedTurn = false;
-        this.#maybeLetGo();
-      }, this.#deps.timings.queuedTurnGraceMs);
-    }
     this.#armOpenWatch();
-    this.#maybeLetGo();
   }
 
   /**
@@ -631,7 +682,6 @@ export class ClaudeProcess implements TurnControl {
       for (const turn of this.#waiting.splice(0)) {
         turn.end({ reason: "error", error: { message: `The Claude process did not open this run's turn within ${this.#deps.timings.openTimeoutMs} ms; send again.`, code: "not_opened" } });
       }
-      this.#maybeLetGo();
     }, this.#deps.timings.openTimeoutMs);
   }
 
@@ -643,39 +693,32 @@ export class ClaudeProcess implements TurnControl {
     this.#settleTimer = this.#deps.clock.setTimeout(() => {
       this.#settling = false;
       this.#settleOwed = false;
-      this.#maybeLetGo();
     }, this.#deps.timings.settleGraceMs);
   }
 
-  /** Whether something a turn boundary must not kill is running or owed. */
-  #holdsWork(): boolean {
-    return this.#liveTasks > 0 || this.#crons > 0 || this.#wakeups > 0 || this.#settling || this.#awaitingQueuedTurn || this.#permissions.size > 0;
+  /** Holds the process for a registered schedule while one is (a cron job or a wakeup), under one synthetic id. */
+  #holdSchedule(): void {
+    const registered = this.#crons > 0 || this.#wakeups > 0;
+    if (registered === this.#scheduleHeld) return;
+    this.#scheduleHeld = registered;
+    if (registered) this.#context.process.hold("schedule", SCHEDULE_HOLD_ID);
+    else this.#context.process.unhold("schedule", SCHEDULE_HOLD_ID);
   }
 
-  #idle(): boolean {
-    return !this.closed && this.#current === undefined && this.#waiting.length === 0 && this.#undecided === undefined && this.#unsettled.size === 0 && !this.#holdsWork();
-  }
-
-  /** Lets the process go when no turn is open, waiting or unreleased and nothing holds it; after the idle time when one is set. */
-  #maybeLetGo(): void {
-    if (!this.#idle()) return;
-    this.#idleTimer?.cancel();
-    if (this.#deps.timings.idleMs <= 0) {
-      this.#close();
-      return;
-    }
-    this.#idleTimer = this.#deps.clock.setTimeout(() => {
-      if (this.#idle()) this.#close();
-    }, this.#deps.timings.idleMs);
+  /** Lets go of every hold this process took: it is being replaced or stopped. */
+  #unholdAll(): void {
+    for (const id of this.#liveTasks) this.#context.process.unhold("task", id);
+    this.#liveTasks.clear();
+    this.#crons = 0;
+    this.#wakeups = 0;
+    this.#holdSchedule();
   }
 
   /** Takes the transport down; the pump's own ending does the rest. */
   #close(): void {
     if (!this.#closed) this.#deps.diagnostic(`Claude (session ${this.sessionId}): letting the process go.`);
     this.#closed = true;
-    this.#idleTimer?.cancel();
     this.#settleTimer?.cancel();
-    this.#queuedTurnTimer?.cancel();
     this.#openTimer?.cancel();
     this.#prompts.close();
     try {
@@ -747,14 +790,15 @@ export class ClaudeProcess implements TurnControl {
         blockedPath: options.blockedPath ?? null,
         agentId: options.agentID ?? null,
       }) as Record<string, unknown>;
-      return this.#result(await Promise.race([answered, this.#context.broker.request({ sessionId: this.sessionId, runId, kind, detail })]), input, toolUseID);
+      // The permission table's id is the prompt's: an answer through the host's `answerPrompt` names the same prompt.
+      const asked = this.#context.broker.request({ sessionId: this.sessionId, runId, kind, detail, promptId, signal: options.signal });
+      return this.#result(await Promise.race([answered, asked]), input, toolUseID);
     } catch (error) {
       return { behavior: "deny", message: `The request could not be asked: ${describe(error)}`, toolUseID };
     } finally {
       options.signal.removeEventListener("abort", aborted);
       this.#permissions.delete(promptId);
       this.#endPromptTurn(turn);
-      this.#maybeLetGo();
     }
   };
 
@@ -889,9 +933,9 @@ export class ClaudeProcess implements TurnControl {
     await this.#query?.stopTask(taskId);
   }
 
+  /** The host is done with an ended turn: the process is kept for the next run, until the pool stops it. */
   release(turn: ClaudeTurn): void {
     this.#unsettled.delete(turn);
-    this.#maybeLetGo();
   }
 
   /** Stops the process now: the host has let a run go (its session deleted, the environment closing), or a fresh process replaces it. */
@@ -903,8 +947,7 @@ export class ClaudeProcess implements TurnControl {
       this.#promptTurn = undefined;
       this.#waiting.length = 0;
       this.#undecided = undefined;
-      this.#crons = 0;
-      this.#wakeups = 0;
+      this.#unholdAll();
       this.#settleWaiters();
       this.#close();
       this.#abort.abort();

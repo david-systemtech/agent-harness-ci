@@ -61,6 +61,8 @@ export interface RunOptionsInput {
   readonly resumePoint: ResumePoint | null;
   /** The host's broker seam, through the process's permission table. */
   readonly canUseTool: CanUseTool;
+  /** The process's own spawn of the CLI, so a kill reaches the child; absent, the SDK spawns it. */
+  readonly spawnProcess?: NonNullable<Options["spawnClaudeCodeProcess"]>;
   readonly abortController: AbortController;
   readonly stderr?: (data: string) => void;
 }
@@ -143,6 +145,7 @@ export const buildRunOptions = (input: RunOptionsInput): Options => {
     ...(mode === "bypassPermissions" && { allowDangerouslySkipPermissions: true }),
     permissionPrompts: "host",
     canUseTool: input.canUseTool,
+    ...(input.spawnProcess !== undefined && { spawnClaudeCodeProcess: input.spawnProcess }),
     systemPrompt: systemPrompt(run.instructions),
     settingSources,
     strictMcpConfig: true,

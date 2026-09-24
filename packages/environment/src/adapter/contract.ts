@@ -171,6 +171,12 @@ export interface PromptRequest {
   readonly kind: PromptKind;
   /** What the provider asks, in its terms; the broker (#130) fixes the shape it records. */
   readonly detail: JsonObject;
+  /**
+   * Aborted when the provider withdraws the request (the tool call became
+   * moot, the turn was interrupted): the adapter has answered it itself, so
+   * the host counts the prompt answered and the broker may close it.
+   */
+  readonly signal?: AbortSignal;
 }
 
 /** The answer to a prompt: allowed or denied, with a message for the model. */

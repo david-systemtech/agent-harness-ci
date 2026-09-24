@@ -588,9 +588,15 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       const parks = entry !== undefined && !entry.ended ? entry : undefined;
       const promptId = request.promptId ?? randomUUID();
       if (parks !== undefined) raised(parks, promptId);
+      // A request the provider withdraws is answered by its adapter: the run is not parked on it any longer.
+      const withdrawn = (): void => {
+        if (parks !== undefined) answered(parks, promptId);
+      };
+      request.signal?.addEventListener("abort", withdrawn, { once: true });
       try {
         return await broker.request({ ...request, promptId });
       } finally {
+        request.signal?.removeEventListener("abort", withdrawn);
         if (parks !== undefined) answered(parks, promptId);
       }
     },

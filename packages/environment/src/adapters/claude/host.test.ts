@@ -25,7 +25,7 @@ vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
 const { createClaudeAdapter } = await import("./index.js");
 const { openEventLog } = await import("../../event-log/event-log.js");
 const { createAdapterHost } = await import("../../adapter/host.js");
-const { decideStart } = await import("../../runs/run-decider.js");
+const { decideSend, decideStart } = await import("../../runs/run-decider.js");
 const { runsProjector } = await import("../../runs/runs-projector.js");
 const { sessionListProjector } = await import("../../sessions/session-list.js");
 const { autoDenyBroker } = await import("../../adapter/seams.js");
@@ -72,7 +72,7 @@ const setup = async (broker?: PermissionBroker) => {
   await host.refresh();
   const sessionId = randomUUID();
   log.append({ kind: "session", id: sessionId }, [created], { actor: "system:test" });
-  return { log, host, sessionId, controlQueries: fake.queries.length };
+  return { log, host, clock, sessionId, controlQueries: fake.queries.length };
 };
 
 type Setup = Awaited<ReturnType<typeof setup>>;
@@ -124,16 +124,31 @@ describe("a Claude run through the adapter host", () => {
     for (const event of events) expect(event.correlationId, event.type).toBe(runId);
     expect(events.slice(2).map((event) => event.actor)).toEqual(Array(5).fill("adapter:claude"));
     expect(events.at(-1)?.payload).toMatchObject({ reason: "completed", resultText: "Done.", turnCount: 1, usage: [expect.objectContaining({ model: "claude-fable-5", costUsd: 0.01 })] });
-    // Released with nothing holding it, the process is let go.
-    await vi.waitFor(() => expect(query.closed).toBe(true));
+    // Released, the process is kept for the next run until the pool's idle stop.
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    expect(query.closed).toBe(false);
   });
 
-  it("resumes the provider session its first run linked, on the session's next run", async () => {
+  it("serves the session's next run on the kept process, resuming the provider session its first run linked", async () => {
     const t = await setup();
     const first = startRun(t);
     const query = await runQuery(t, 1);
     query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [first.messageId]), sdk.result(PROVIDER_SESSION));
     await vi.waitFor(() => expect(eventsOf(t).filter((event) => event.type === "run.ended")).toHaveLength(1));
+    const again = startRun(t, "Again");
+    await query.promptsPushed(2);
+    expect(query.prompts[1]).toMatchObject({ uuid: again.messageId });
+    expect(fake.queries).toHaveLength(t.controlQueries + 1);
+  });
+
+  it("starts the next run cold on a fresh process, resuming, once the pool has stopped the kept one", async () => {
+    const t = await setup();
+    const first = startRun(t);
+    const query = await runQuery(t, 1);
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [first.messageId]), sdk.result(PROVIDER_SESSION));
+    await vi.waitFor(() => expect(eventsOf(t).filter((event) => event.type === "run.ended")).toHaveLength(1));
+    t.clock.advance(30 * 60 * 1000);
+    await vi.waitFor(() => expect(query.closed).toBe(true));
     startRun(t, "Again");
     const next = await runQuery(t, 2);
     expect(next.options.resume).toBe(PROVIDER_SESSION);
@@ -145,13 +160,11 @@ describe("a Claude run through the adapter host", () => {
     const query = await runQuery(t, 1);
     query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [first.messageId]));
     await vi.waitFor(() => expect(eventsOf(t).map((event) => event.type)).toContain("session.provider-linked"));
-    const queued = randomUUID();
-    t.log.append(
-      { kind: "session", id: t.sessionId },
-      [{ type: "message.sent", payload: { runId: first.runId, messageId: queued, text: "Also this", attachments: [], delivery: "queued", heldBy: "provider" } }],
-      { actor: "client_session:test" },
-    );
-    t.host.queue({ runId: first.runId, heldBy: "provider", message: { messageId: queued, text: "Also this", attachments: [] } });
+    const send = decideSend(t.host.startFacts(t.sessionId, "bypassPermissions"), { messageId: randomUUID(), text: "Also this", attachments: [] });
+    if (send.rejected !== undefined || send.queued === undefined) throw new Error("The message was not queued.");
+    t.log.append({ kind: "session", id: t.sessionId }, send.events, { actor: "client_session:test", correlationId: send.result.runId });
+    t.host.queue(send.queued);
+    const queued = send.result.messageId;
     await query.promptsPushed(2);
     // The turn ends without folding it in; the CLI opens its queued turn with it.
     query.emit(sdk.text("msg_1", "First turn done."), sdk.result(PROVIDER_SESSION));
@@ -214,6 +227,35 @@ describe("a Claude run through the adapter host", () => {
     expect(settled).toBe(false);
     answer({ decision: "allow" });
     expect(await asked).toEqual({ behavior: "allow", updatedInput: { file_path: "/work/repo/a.ts" }, toolUseID: "toolu_edit" });
+  });
+
+  it("parks the run under the permission table's id, and an answer through the host's answerPrompt settles the tool call and unparks it", async () => {
+    const t = await setup({ request: () => new Promise<PromptDecision>(() => undefined) });
+    const { runId, messageId } = startRun(t);
+    const query = await runQuery(t, 1);
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [messageId]));
+    await vi.waitFor(() => expect(eventsOf(t).map((event) => event.type)).toContain("session.provider-linked"));
+    const asked = query.canUseTool("Edit", { file_path: "/work/repo/a.ts" }, { toolUseID: "toolu_edit" });
+    const state = () => [...t.host.runs.runs()].find((run) => run.id === runId)?.state;
+    await vi.waitFor(() => expect(state()).toBe("parked"));
+    t.host.answerPrompt(runId, "toolu_edit", { decision: "allow" });
+    expect(await asked).toEqual({ behavior: "allow", updatedInput: { file_path: "/work/repo/a.ts" }, toolUseID: "toolu_edit" });
+    expect(state()).toBe("running");
+  });
+
+  it("unparks the run when the provider aborts the request it parked on", async () => {
+    const t = await setup({ request: () => new Promise<PromptDecision>(() => undefined) });
+    const { runId, messageId } = startRun(t);
+    const query = await runQuery(t, 1);
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [messageId]));
+    await vi.waitFor(() => expect(eventsOf(t).map((event) => event.type)).toContain("session.provider-linked"));
+    const abort = new AbortController();
+    const asked = query.canUseTool("Bash", { command: "sleep 1" }, { toolUseID: "toolu_sleep", signal: abort.signal });
+    const state = () => [...t.host.runs.runs()].find((run) => run.id === runId)?.state;
+    await vi.waitFor(() => expect(state()).toBe("parked"));
+    abort.abort();
+    expect(await asked).toMatchObject({ behavior: "deny", message: "The provider aborted this tool call." });
+    expect(state()).toBe("running");
   });
 
   it("stops a process kept for a background task when its session is deleted, so no later turn lands on the deleted stream", async () => {

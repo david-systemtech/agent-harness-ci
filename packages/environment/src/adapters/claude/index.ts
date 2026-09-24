@@ -63,10 +63,8 @@ export const CLAUDE_DESCRIPTOR: AdapterDescriptor = {
 
 export const DEFAULT_TIMINGS: ProcessTimings & { readonly statusTimeoutMs: number } = {
   settleGraceMs: 2_000,
-  queuedTurnGraceMs: 5_000,
   interruptTimeoutMs: 8_000,
   decisionSettleMs: 500,
-  idleMs: 0,
   controlTimeoutMs: 15_000,
   openTimeoutMs: 60_000,
   statusTimeoutMs: 15_000,
@@ -97,8 +95,7 @@ export interface ClaudeAdapterOptions {
 export interface ClaudeAdapter extends Adapter {
   readonly commands: NonNullable<Adapter["commands"]>;
   readonly usage: NonNullable<Adapter["usage"]>;
-  readonly stopProcess: NonNullable<Adapter["stopProcess"]>;
-  readonly close: () => void;
+  readonly stopProcess: (sessionId: string, options?: { readonly kill?: boolean }) => Promise<void>;
 }
 
 /**
@@ -233,14 +230,10 @@ export const createClaudeAdapter = (options: ClaudeAdapterOptions = {}): ClaudeA
         return [];
       }
     },
-    stopProcess(sessionId) {
+    async stopProcess(sessionId, stopOptions) {
       const kept = processes.get(sessionId);
       processes.delete(sessionId);
-      if (kept !== undefined) void kept.dispose();
-    },
-    close() {
-      for (const kept of [...processes.values()]) void kept.dispose();
-      processes.clear();
+      if (kept !== undefined) await kept.stop(stopOptions);
     },
   };
 };

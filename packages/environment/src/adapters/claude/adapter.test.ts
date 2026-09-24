@@ -41,12 +41,15 @@ const PROVIDER_SESSION = "5d1e9c3a-7b2f-4e8d-9a6c-3f0b1e2d4c5a";
 let fake: FakeSdk;
 let clock: ManualClock;
 let diagnostics: string[];
+/** What the pool's port was told, in order: `hold task:<id>`, `unhold schedule:<id>`, `exited`. */
+let port: string[];
 
 beforeEach(() => {
   fake = new FakeSdk();
   hooks.sdk = fake;
   clock = manualClock();
   diagnostics = [];
+  port = [];
 });
 
 afterEach(() => {
@@ -97,7 +100,12 @@ const contextWith = (decide?: (request: PromptRequest) => Promise<PromptDecision
       return decide?.(request) ?? new Promise<PromptDecision>(() => undefined);
     },
   };
-  return { broker, adopt: (turn) => adopted.push(turn), adopted, asked, process: { hold: () => undefined, unhold: () => undefined, exited: () => undefined } };
+  return { broker, adopt: (turn) => adopted.push(turn), adopted, asked, process: {
+      hold: (kind, id) => port.push(`hold ${kind}:${id}`),
+      unhold: (kind, id) => port.push(`unhold ${kind}:${id}`),
+      exited: () => port.push("exited"),
+    },
+  };
 };
 
 /** Reads a run's events to its end. */
@@ -285,6 +293,9 @@ describe("canUseTool on the broker seam", () => {
       sessionId: SESSION,
       runId: input.runId,
       kind: "permission",
+      // The permission table's id: an answer through the host's answerPrompt names the same prompt.
+      promptId: "toolu_rm",
+      signal: expect.any(AbortSignal),
       detail: expect.objectContaining({ promptId: "toolu_rm", toolName: "Bash", input: { command: "rm -rf build" }, title: "Claude wants to run rm -rf build" }),
     });
     let settled = false;
@@ -456,12 +467,17 @@ describe("the process across turns", () => {
     } };
   };
 
-  it("lets an idle process go when its run is released and nothing holds it", async () => {
+  it("keeps the process when its run is released, holding nothing, until the pool stops it", async () => {
     const adapter = adapterWith();
     const turn = await oneTurn(adapter, runInput());
     await turn.finish();
+    expect(turn.query.closed).toBe(false);
+    expect(port).toEqual([]);
+    await adapter.stopProcess(SESSION);
     expect(turn.query.closed).toBe(true);
     expect(turn.query.promptEnded).toBe(true);
+    // The pool stopped it: no exit of its own is reported.
+    expect(port).toEqual([]);
   });
 
   it("keeps the process while a background task outlives the turn, and serves the next run on it with no second spawn", async () => {
@@ -469,6 +485,7 @@ describe("the process across turns", () => {
     const first = await oneTurn(adapter, runInput());
     await first.finish(sdk.tasks({ task_id: "task_1", description: "Explore" }));
     expect(first.query.closed).toBe(false);
+    expect(port).toEqual(["hold task:task_1"]);
     const next = runInput({ model: "sonnet", mode: "plan", effort: "high", target: { kind: "resume", providerSessionId: PROVIDER_SESSION } });
     const second = await oneTurn(adapter, next, first.query);
     expect(fake.queries).toHaveLength(1);
@@ -488,35 +505,44 @@ describe("the process across turns", () => {
     expect([first.query.models, first.query.modes, first.query.flags]).toEqual([[], [], []]);
   });
 
-  it("keeps an idle process for the idle time, then lets it go", async () => {
-    const adapter = adapterWith({ timings: { idleMs: 60_000 } });
+  it("holds the process for each live background task on the pool's port, and lets each go as it settles", async () => {
+    const adapter = adapterWith();
     const turn = await oneTurn(adapter, runInput());
-    await turn.finish();
+    await turn.finish(sdk.tasks({ task_id: "task_1" }, { task_id: "task_2" }));
+    turn.query.emit(sdk.tasks({ task_id: "task_2" }), sdk.taskNotification("task_1"), sdk.tasks());
+    await flush();
+    expect(port).toEqual(["hold task:task_1", "hold task:task_2", "unhold task:task_1", "unhold task:task_2"]);
     expect(turn.query.closed).toBe(false);
-    clock.advance(59_999);
-    expect(turn.query.closed).toBe(false);
-    clock.advance(1);
-    expect(turn.query.closed).toBe(true);
   });
 
-  it("lets it go when the last task settles and no turn about it comes within the grace", async () => {
+  it("holds the process for a registered schedule under one synthetic id", async () => {
+    const adapter = adapterWith();
+    const turn = await oneTurn(adapter, runInput());
+    await turn.finish(sdk.toolUse("toolu_cron", "CronCreate", { cron: "0 * * * *" }), sdk.toolResult("toolu_cron"), sdk.toolUse("toolu_wake", "ScheduleWakeup"), sdk.toolResult("toolu_wake"));
+    expect(port).toEqual(["hold schedule:claude-schedules"]);
+    expect(turn.query.closed).toBe(false);
+  });
+
+  it("tells the port the process exited when it dies on its own, and lets its holds go", async () => {
     const adapter = adapterWith();
     const turn = await oneTurn(adapter, runInput());
     await turn.finish(sdk.tasks({ task_id: "task_1" }));
-    turn.query.emit(sdk.taskNotification("task_1"), sdk.tasks());
-    await new Promise((resolve) => setTimeout(resolve, 5));
-    expect(turn.query.closed).toBe(false);
-    clock.advance(1_999);
-    expect(turn.query.closed).toBe(false);
-    clock.advance(1);
-    expect(turn.query.closed).toBe(true);
+    turn.query.fail(new Error("the CLI exited with code 1"));
+    await vi.waitFor(() => expect(port).toContain("exited"));
+    expect(port).toEqual(["hold task:task_1", "unhold task:task_1", "exited"]);
   });
 
-  it("keeps a process that registered a schedule", async () => {
+  it("kills the process's child with SIGKILL when stopped with kill, waiting for nothing", async () => {
     const adapter = adapterWith();
     const turn = await oneTurn(adapter, runInput());
-    await turn.finish(sdk.toolUse("toolu_cron", "CronCreate", { cron: "0 * * * *" }), sdk.toolResult("toolu_cron"));
-    expect(turn.query.closed).toBe(false);
+    const spawnProcess = turn.query.options.spawnClaudeCodeProcess;
+    expect(typeof spawnProcess).toBe("function");
+    const abort = new AbortController();
+    const child = spawnProcess?.({ command: process.execPath, args: ["-e", "setInterval(() => undefined, 1000)"], env: { PATH: process.env["PATH"] }, signal: abort.signal }) as unknown as import("node:child_process").ChildProcess;
+    const exited = new Promise<NodeJS.Signals | null>((resolve) => child.once("exit", (_code, signal) => resolve(signal)));
+    await adapter.stopProcess(SESSION, { kill: true });
+    expect(await exited).toBe("SIGKILL");
+    expect(turn.query.closed).toBe(true);
   });
 
   it("spawns fresh for a run that asks for bypass of a process started without it, and refuses while it holds work", async () => {
@@ -557,12 +583,13 @@ describe("the process across turns", () => {
     expect(fake.queries).toHaveLength(0);
   });
 
-  it("stops every process it keeps when the adapter closes", async () => {
+  it("stops the session's process for the pool whatever it holds, and resolves once it has stopped", async () => {
     const adapter = adapterWith();
     const turn = await oneTurn(adapter, runInput());
     await turn.finish(sdk.tasks({ task_id: "task_1" }));
-    adapter.close();
+    await adapter.stopProcess(SESSION);
     expect(turn.query.closed).toBe(true);
+    await adapter.stopProcess(SESSION);
   });
 });
 
@@ -854,7 +881,7 @@ describe("a run that joins a kept process", () => {
   };
 
   it("gives the one waiting run a turn the CLI opens with a delivery-failure result that names no one", async () => {
-    const adapter = adapterWith({ timings: { idleMs: 60_000 } });
+    const adapter = adapterWith();
     const context = contextWith();
     const input = runInput();
     const first = adapter.createRun(input, context);
@@ -933,7 +960,7 @@ describe("a run that joins a kept process", () => {
     expect(prompts.map((prompt) => prompt.uuid)).toEqual([bypass.prompt[0]?.messageId, queued.messageId]);
   });
 
-  it("stops holding the process for a schedule once CronDelete removes it", async () => {
+  it("lets the schedule hold go once CronDelete removes the job", async () => {
     const adapter = adapterWith();
     const context = contextWith();
     const input = runInput();
@@ -949,7 +976,7 @@ describe("a run that joins a kept process", () => {
     query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_2", [next.prompt[0]?.messageId as string]), sdk.toolUse("toolu_d", "CronDelete"), sdk.toolResult("toolu_d"), sdk.result(PROVIDER_SESSION));
     await drain(second);
     second.release();
-    expect(query.closed).toBe(true);
+    expect(port).toEqual(["hold schedule:claude-schedules", "unhold schedule:claude-schedules"]);
   });
 
   it("fails the run, rather than hanging, when the process does not take the run's model in time", async () => {
