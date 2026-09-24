@@ -32,6 +32,8 @@ export interface SessionState {
   readonly pinnedAt: string | null;
   readonly pinOrderKey: string | null;
   readonly activeOrderKey: string | null;
+  /** The group the session is in, or null. */
+  readonly groupId: string | null;
   readonly settledAt: string | null;
   readonly snoozedUntil: string | null;
   /** As the summary holds them: trimmed, one per case-folded key, sorted by it. */
@@ -47,6 +49,7 @@ export const PURGED_STATE: SessionState = {
   pinnedAt: null,
   pinOrderKey: null,
   activeOrderKey: null,
+  groupId: null,
   settledAt: null,
   snoozedUntil: null,
   tags: [],
@@ -92,6 +95,13 @@ export const sessionNotFound = (sessionId: string): Refusal & { readonly code: "
   data: { kind: "session", sessionId },
 });
 
+/** The one refusal of a group that is not on this environment: never created, or deleted. */
+export const groupNotFound = (groupId: string): Refusal & { readonly code: "not_found" } => ({
+  code: "not_found",
+  message: `No group ${groupId} is on this environment.`,
+  data: { kind: "group", groupId },
+});
+
 /** A tag's case-folded key: what a session's tags are unique on and sorted by, here and in the session-tags table. */
 export const tagKey = (tag: string): string => tag.toLowerCase();
 
@@ -126,15 +136,7 @@ export const decideCreate = (state: SessionState | null, command: CreateSession,
       rejected: { code: "conflict", message: `A session ${command.id} exists already.`, data: { reason: "exists", sessionId: command.id } },
     };
   }
-  if (command.groupId !== null && !context.groupExists) {
-    return {
-      rejected: {
-        code: "not_found",
-        message: `No group ${command.groupId} is on this environment.`,
-        data: { kind: "group", groupId: command.groupId },
-      },
-    };
-  }
+  if (command.groupId !== null && !context.groupExists) return { rejected: groupNotFound(command.groupId) };
   const payload: SessionCreatedPayload = {
     title: userTitle(command.title),
     tags: normaliseTags(command.tags),

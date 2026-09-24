@@ -27,6 +27,7 @@ export const readSessionState = (reader: Reader, id: string): SessionState | nul
     pinnedAt: row.pinned_at,
     pinOrderKey: row.pin_order_key,
     activeOrderKey: row.active_order_key,
+    groupId: row.group_id,
     settledAt: row.settled_at,
     snoozedUntil: row.snoozed_until,
     tags: tagsOf(reader, id),
@@ -38,9 +39,19 @@ export const readSessionState = (reader: Reader, id: string): SessionState | nul
 export const listSummaries = (reader: Reader): SessionSummary[] =>
   reader.all<SessionRow>("SELECT * FROM sessions WHERE deleted_at IS NULL ORDER BY created_at, id").map((row) => toSummary(reader, row));
 
-/** Every group, oldest first. */
+/**
+ * Every group, in the order the contracts' `sortGroups` gives one
+ * environment's: keyed ascending (order keys compare as plain strings, as
+ * SQLite's binary collation does), then keyless by `createdAt` (ISO 8601
+ * UTC, so as text), each tie by id.
+ */
 export const listGroups = (reader: Reader): Group[] =>
-  reader.all<GroupRow>("SELECT id, name, order_key, created_at, updated_at FROM groups ORDER BY created_at, id").map(toGroup);
+  reader
+    .all<GroupRow>(
+      `SELECT id, name, order_key, created_at, updated_at FROM groups
+       ORDER BY order_key IS NULL, order_key, CASE WHEN order_key IS NULL THEN created_at END, id`,
+    )
+    .map(toGroup);
 
 /** Whether a group with this id is on this environment. */
 export const groupExists = (reader: Reader, id: string): boolean => reader.all("SELECT 1 FROM groups WHERE id = ?", id).length > 0;

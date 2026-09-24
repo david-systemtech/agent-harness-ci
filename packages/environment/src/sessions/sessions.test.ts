@@ -433,6 +433,14 @@ describe("the field table's behavioural half", () => {
       await command(client, "sessions.setDraft", { sessionId: id, draft: "Now the retention sweep" });
       return { id, list, type: "session.draft-set" };
     },
+    "sessions.setGroup": async (client) => {
+      const groupId = randomUUID();
+      await client.request("groups.create", { commandId: randomUUID(), id: groupId, name: `Group ${groupId}` });
+      const { id } = await create(client);
+      const list = await watch(client);
+      await command(client, "sessions.setGroup", { sessionId: id, groupId });
+      return { id, list, type: "session.group-set" };
+    },
   };
 
   it("changes every field a served command owns: its event on the list, the event's patch naming the field, and the summary showing the new value", async () => {

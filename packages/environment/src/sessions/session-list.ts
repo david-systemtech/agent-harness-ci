@@ -1,11 +1,15 @@
 import {
+  GROUP_STREAM_KIND,
   LIST_PATCH_KEY,
   SESSION_STREAM_KIND,
   isListEvent,
+  type Group,
+  type GroupPatch,
   type SessionActiveReorderedPayload,
   type SessionArchivedPayload,
   type SessionCreatedPayload,
   type SessionDraftSetPayload,
+  type SessionGroupSetPayload,
   type SessionPinReorderedPayload,
   type SessionPinnedPayload,
   type SessionSummary,
@@ -16,6 +20,8 @@ import {
 } from "@agent-harness/contracts";
 import type { EventEnvelope, ProjectionDb, Projector, SqlValue } from "../event-log/event-log.js";
 import { tagKey } from "./decider.js";
+import { projectGroupEvent } from "./group-list.js";
+import { readGroup } from "./group-reads.js";
 import { readSummary } from "./session-reads.js";
 import { SESSION_LIST_TABLES, titleOf, type SessionRow } from "./session-tables.js";
 
@@ -44,6 +50,13 @@ export const summaryPatch = (id: string, before: SessionSummary | null, after: S
   if (after === null) return { op: "remove", sessionId: id };
   if (before === null) return { op: "add", summary: after };
   return { op: "set", sessionId: id, fields: changedFields(before, after) };
+};
+
+/** The patch taking the groups from a group's `before` to its `after`: added, its changed fields set, or removed. */
+export const groupPatch = (id: string, before: Group | null, after: Group | null): GroupPatch => {
+  if (after === null) return { op: "remove", groupId: id };
+  if (before === null) return { op: "add", group: after };
+  return { op: "set", groupId: id, fields: changedFields(before, after) };
 };
 
 /** How one `list`-flagged session event type changes the tables; each ticket that appends a type adds its projection. */
@@ -129,20 +142,28 @@ const SESSION_PROJECTIONS: Partial<Record<string, Projection>> = {
   },
   // The draft is not an organisation change, so it leaves updatedAt where it was.
   "session.draft-set": (event, db) => setColumns(event, db, { draft: (event.payload as SessionDraftSetPayload).draft }),
+  // Membership lives on the session; a group's deletion ungroups each member with one of these.
+  "session.group-set": (event, db) => organise(event, db, { group_id: (event.payload as SessionGroupSetPayload).groupId }),
 };
 
 /**
  * The projector. Every `list`-flagged session event is projected and its
- * patch attached. A flagged event it has no projection for fails its append,
- * so no flagged event reaches a client without its patch: the session types
- * later tickets append (#115 to #122), and every group event, whose
- * projection and group patch #116 adds. Other events are not the list's.
+ * summary patch attached, every group event and its group patch. A flagged
+ * event it has no projection for fails its append, so no flagged event
+ * reaches a client without its patch: the session types later tickets
+ * append (#117 to #122). Other events are not the list's.
  */
 export const sessionListProjector: Projector = {
   name: SESSION_LIST_PROJECTOR,
   tables: SESSION_LIST_TABLES,
   apply(event, db, context) {
     if (!isListEvent(event.streamKind, event.type)) return;
+    if (event.streamKind === GROUP_STREAM_KIND) {
+      const before = readGroup(db, event.streamId);
+      projectGroupEvent(event, db);
+      context.attachMetadata({ [LIST_PATCH_KEY]: groupPatch(event.streamId, before, readGroup(db, event.streamId)) });
+      return;
+    }
     const projection = event.streamKind === SESSION_STREAM_KIND ? SESSION_PROJECTIONS[event.type] : undefined;
     if (projection === undefined) throw new Error(`The session list does not project ${event.type} events yet.`);
     const before = readSummary(db, event.streamId);

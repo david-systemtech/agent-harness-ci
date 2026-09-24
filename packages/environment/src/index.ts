@@ -39,6 +39,7 @@ export {
 } from "./event-log/event-log.js";
 export { SESSION_LIST_PROJECTOR, sessionListProjector } from "./sessions/session-list.js";
 export { SESSION_LIST_SELECTOR, sessionMethods, type SessionMethodsOptions } from "./sessions/methods.js";
+export { groupMethods, type GroupMethodsOptions } from "./sessions/group-methods.js";
 export { acceptAnyRunParameters, type RunParameters, type RunParametersCheck } from "./sessions/run-parameters.js";
 
 export { DEFAULT_LOG_PAGE } from "./auth/access-log.js";

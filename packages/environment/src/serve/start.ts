@@ -32,6 +32,7 @@ import {
 import { createPairings, pairRoute, type Pairings } from "../auth/pairings.js";
 import { createRateLimiter } from "../auth/rate-limit.js";
 import { formatActor, openEventLog, type EventLog, type Projector } from "../event-log/event-log.js";
+import { groupMethods } from "../sessions/group-methods.js";
 import { sessionMethods } from "../sessions/methods.js";
 import { sessionListProjector } from "../sessions/session-list.js";
 import type { SubscriptionHooks } from "../wire/subscriptions.js";
@@ -331,6 +332,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     }),
     ...accessMethods({ pairings, clientSessions, accessLog }),
     ...sessionMethods({ log, clock: now }),
+    ...groupMethods({ log, clock: now }),
   });
 
   // The two exchanges and the wire are routed before the bind; all three refuse work until the gate below.

@@ -54,7 +54,8 @@ export type SessionCommand =
   | "sessions.reorderActive"
   | "sessions.tag"
   | "sessions.untag"
-  | "sessions.setDraft";
+  | "sessions.setDraft"
+  | "sessions.setGroup";
 
 /** Sends a session command with a fresh command id (unless one is given); resolves with what its response carries, checked against its schema. */
 export const command = async <N extends SessionCommand>(client: WireClient, method: N, params: SessionCommandParams<N>): Promise<ResponseOf<N>> =>
