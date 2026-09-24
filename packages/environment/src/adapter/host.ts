@@ -676,13 +676,17 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       }
       if (answer instanceof Promise) {
         changingMode.set(previous.sessionId, { runId: followed.runId, descriptor, policy: previous.policy });
+        // Runs once the change has answered, in a promise callback: nothing it does may throw out of it, or the rejection would be nobody's.
         const settled = (work: () => void): void => {
           changingMode.delete(previous.sessionId);
-          const now = readSessionFacts(log, reader, previous.sessionId);
-          let admitted = !closing && now !== null && !now.deleted;
+          let admitted: boolean;
           try {
+            const now = readSessionFacts(log, reader, previous.sessionId);
+            admitted = !closing && now !== null && !now.deleted;
             if (admitted) registry.admit();
-          } catch {
+          } catch (error) {
+            // The session could not be read, or the drain refused: the turn is let go either way.
+            if (!closing) console.error(`Reading session ${previous.sessionId} after its turn's mode change failed:`, error);
             admitted = false;
           }
           if (!admitted) {
@@ -693,8 +697,12 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
           work();
         };
         answer.then(
-          () => settled(() => adoptIn(mode)),
-          (error: unknown) => settled(() => refuse(`changing its mode from ${followed.mode} to ${mode} failed: ${messageOf(error)}`)),
+          () => safely(() => settled(() => adoptIn(mode)), (e) => console.error("Adopting a turn after its mode change failed:", e)),
+          (error: unknown) =>
+            safely(
+              () => settled(() => refuse(`changing its mode from ${followed.mode} to ${mode} failed: ${messageOf(error)}`)),
+              (e) => console.error("Letting a turn go after its mode change failed:", e),
+            ),
         );
         return;
       }
