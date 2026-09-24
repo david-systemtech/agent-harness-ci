@@ -15,6 +15,7 @@ import {
 } from "@agent-harness/contracts";
 import { createBootstrapGrant } from "../auth/bootstrap.js";
 import { SWEEP_INTERVAL_MS, createClientSessions, type ClientSessionIssuer, type ClientSessions } from "../auth/client-sessions.js";
+import { createRateLimiter } from "../auth/rate-limit.js";
 import { openEventLog, type EventLog, type Projector } from "../event-log/event-log.js";
 import { createWire } from "../wire/wire.js";
 import { systemClock, type Clock } from "./clock.js";
@@ -122,11 +123,11 @@ export interface EnvironmentHandle {
   readonly http: HttpRoutes;
   /** Issuing and revoking client sessions: the seam pairing and the access methods (#109) build on. */
   readonly clientSessions: ClientSessionIssuer;
-  /** How many WebSocket connections are open. */
-  connections(): number;
+  /** How many WebSocket sockets are open on the wire. */
+  sockets(): number;
   /**
-   * Stops the sweep, removes the bootstrap grant file, closes every
-   * connection (1001), stops listening, closes the event log, then closes the
+   * Stops the sweep, removes the bootstrap grant file, says `bye: draining`
+   * to every socket and closes it (1001), stops listening, closes the event log, then closes the
    * launcher channel, each even when another fails. Idempotent; after a failure, calling it
    * again retries what did not close.
    */
@@ -180,13 +181,13 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   });
 
   // The record, the signing key and the auth tables: client sessions are read once, here, into memory.
-  const { record, sessions } = await step("identity", async () => {
+  const { record, clientSessions } = await step("identity", async () => {
     const name = (options.name ?? hostname()).trim();
     if (!name) throw new Error("An environment's name cannot be empty.");
     const loaded: EnvironmentRecord = loadOrCreateRecord(dataDir, name, now);
     const key = await ensureSigningKey(options.vault ?? fileVault(join(dataDir, VAULT_FILE)));
-    const loadedSessions: ClientSessions = createClientSessions({ table: log.clientSessions, key, environmentId: loaded.id, clock });
-    return { record: loaded, sessions: loadedSessions };
+    const loadedClientSessions: ClientSessions = createClientSessions({ table: log.clientSessions, key, environmentId: loaded.id, clock });
+    return { record: loaded, clientSessions: loadedClientSessions };
   });
 
   // The adapter host (#119) starts here; there is none yet.
@@ -216,16 +217,21 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   };
 
   // The grant file and the wire are routed before the bind; both refuse work until the gate below.
-  const grant = createBootstrapGrant({ dataDir, sessions, readiness: () => readiness });
+  const grant = createBootstrapGrant({
+    dataDir,
+    clientSessions,
+    rateLimiter: createRateLimiter({ clock }),
+    readiness: () => readiness,
+  });
   surface.route("POST", BOOTSTRAP_PATH, grant.exchange);
-  const wire = createWire({ environment: record, capabilities, sessions, methods, clock });
+  const wire = createWire({ environment: record, capabilities, clientSessions, methods, clock });
   surface.upgrade(WIRE_PATH, wire.upgrade);
 
   const bound = await step("listen", async () => {
     closers.push(() => surface.close());
     const listening = await surface.listen(LOOPBACK, options.port ?? DEFAULT_PORT);
     address = listening;
-    // Closed before the listener, so no connection holds its close open.
+    // Closed before the listener, so no socket holds its close open.
     closers.push(() => wire.close());
     closers.push(() => grant.remove());
     grant.issue(listening);
@@ -235,7 +241,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   await step("prepared", () => launcher.prepared());
   readiness = "ready";
   wire.open();
-  const sweep = clock.setInterval(() => sessions.sweep(), SWEEP_INTERVAL_MS);
+  const sweep = clock.setInterval(() => clientSessions.sweep(), SWEEP_INTERVAL_MS);
   closers.push(() => sweep.cancel());
 
   // Concurrent closes share one attempt; a close after a failed one retries what did not close.
@@ -248,8 +254,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     readiness: () => readiness,
     methods,
     http: { route: (method, path, handler) => surface.route(method, path, handler) },
-    clientSessions: { issue: (request) => sessions.issue(request), revoke: (id) => sessions.revoke(id) },
-    connections: () => wire.connections(),
+    clientSessions: { issue: (request) => clientSessions.issue(request), revoke: (id) => clientSessions.revoke(id) },
+    sockets: () => wire.sockets(),
     close: () => (closing ??= closers.closeAll().finally(() => (closing = undefined))),
   };
 };

@@ -4,6 +4,7 @@ import { AuthPolicy, DiscoveryDocument, EnvironmentReadiness, HealthDocument } f
 import { Actor, EventEnvelope } from "./envelope.js";
 import {
   ErrorCode,
+  RateLimitedError,
   SHARED_ERRORS,
   SchemaIssue,
   SharedError,
@@ -87,6 +88,7 @@ export const exportedSchemas = (): ExportedSchema[] => [
     const code = member.shape.code.value;
     return { path: `errors/${code}.json`, title: `${pascal(code)}Error`, schema: member };
   }),
+  { path: "errors/rate_limited.json", title: "RateLimitedError", schema: RateLimitedError },
   { path: "frames/frame.json", title: "Frame", schema: Frame },
   ...FRAME_TYPES.map((kind) => ({ path: `frames/${kind}.json`, title: `${pascal(kind)}Frame`, schema: FRAME_SCHEMAS[kind] })),
   { path: "frames/end-reason.json", title: "EndReason", schema: EndReason },

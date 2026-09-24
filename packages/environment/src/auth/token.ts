@@ -1,64 +1,29 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { Ceiling, ClientKind, ClientSessionId, EnvironmentId, ScopeSet, type Scope } from "@agent-harness/contracts";
+import { ClientSessionId, EnvironmentId } from "@agent-harness/contracts";
+import { z } from "zod";
 
 /**
- * A client session token: `v1.<claims>.<signature>`, the claims base64url
- * JSON and the signature base64url HMAC-SHA256, under the environment's
- * signing key, of `v1.<claims>`. It carries everything `hello` and the scope
- * check need, so a connection is authenticated with no database read; the
- * environment still refuses a session it does not know or has revoked, from
- * memory. Clients treat it as opaque: they store it and send it in `auth`.
+ * A client session token: `v1.<claims>.<signature>`, the version first, the
+ * claims base64url JSON and the signature base64url HMAC-SHA256, under the
+ * environment's signing key, of `v1.<claims>`. The claims name the client
+ * session and the environment that issued it, and when; everything else
+ * (kind, scopes, ceiling, the local flag, expiry) lives in the client
+ * sessions table, which the environment mirrors in memory, so a ceiling
+ * raised or an expiry moved applies at the next auth. Verifying reads no
+ * database. Clients treat the token as opaque: they store it and send it in
+ * `auth`.
  */
 const VERSION = "v1";
 
-export interface TokenClaims {
+const TokenClaims = z.object({
   /** The client session's id. */
-  readonly sid: string;
+  sid: ClientSessionId,
   /** The environment that issued it, so a token is never taken as another environment's. */
-  readonly env: string;
-  readonly kind: ClientKind;
-  readonly scopes: readonly Scope[];
-  readonly ceiling: Ceiling;
-  /** Issued through the bootstrap grant rather than by pairing. */
-  readonly local: boolean;
+  env: EnvironmentId,
   /** Issued at, in milliseconds since the epoch. */
-  readonly iat: number;
-  /** Expires at, in milliseconds since the epoch. */
-  readonly exp: number;
-}
-
-const isTime = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) >= 0;
-
-/** The claims in `value`, with only the claims' own fields; undefined when it is not claims. */
-const claimsOf = (value: unknown): TokenClaims | undefined => {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
-  const { sid, env, kind, scopes, ceiling, local, iat, exp } = value as Record<string, unknown>;
-  const parsedKind = ClientKind.safeParse(kind);
-  const parsedScopes = ScopeSet.safeParse(scopes);
-  const parsedCeiling = Ceiling.safeParse(ceiling);
-  if (
-    !ClientSessionId.safeParse(sid).success ||
-    !EnvironmentId.safeParse(env).success ||
-    !parsedKind.success ||
-    !parsedScopes.success ||
-    !parsedCeiling.success ||
-    typeof local !== "boolean" ||
-    !isTime(iat) ||
-    !isTime(exp)
-  ) {
-    return undefined;
-  }
-  return {
-    sid: sid as string,
-    env: env as string,
-    kind: parsedKind.data,
-    scopes: parsedScopes.data,
-    ceiling: parsedCeiling.data,
-    local,
-    iat,
-    exp,
-  };
-};
+  iat: z.int().nonnegative(),
+});
+export type TokenClaims = z.infer<typeof TokenClaims>;
 
 const sign = (key: Buffer, signed: string): Buffer => createHmac("sha256", key).update(signed).digest();
 
@@ -69,7 +34,7 @@ export const signToken = (key: Buffer, claims: TokenClaims): string => {
 
 const BASE64URL = /^[A-Za-z0-9_-]+$/;
 
-/** The claims of `token` when it is well formed and signed under `key`; undefined otherwise. Expiry is the caller's. */
+/** The claims of `token` when it is well formed and signed under `key`; undefined otherwise. */
 export const readToken = (key: Buffer, token: string): TokenClaims | undefined => {
   const parts = token.split(".");
   if (parts.length !== 3) return undefined;
@@ -86,5 +51,6 @@ export const readToken = (key: Buffer, token: string): TokenClaims | undefined =
   } catch {
     return undefined;
   }
-  return claimsOf(json);
+  const claims = TokenClaims.safeParse(json);
+  return claims.success ? claims.data : undefined;
 };

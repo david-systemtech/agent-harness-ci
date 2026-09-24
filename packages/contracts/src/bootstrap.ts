@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { InternalError, InvalidParamsError, UnauthorizedError, UnavailableError } from "./errors.js";
+import { InternalError, InvalidParamsError, RateLimitedError, UnauthorizedError, UnavailableError } from "./errors.js";
 import { ClientSessionId, Timestamp } from "./primitives.js";
 import { Ceiling, ScopeSet } from "./scopes.js";
 
@@ -72,10 +72,11 @@ export type ClientSessionCredential = z.infer<typeof ClientSessionCredential>;
 /**
  * What a refused exchange answers: `unauthorized` for a wrong or used secret
  * (401) or a request not over loopback (403), `invalid_params` for a body
- * that is not a `BootstrapRequest` (400), `unavailable` before the startup
- * gate (503), `internal` when the environment failed (500).
+ * that is not a `BootstrapRequest` (400), `rate_limited` when one address
+ * exchanges too often (429), `unavailable` before the startup gate (503),
+ * `internal` when the environment failed (500).
  */
 export const BootstrapError = z
-  .discriminatedUnion("code", [UnauthorizedError, InvalidParamsError, UnavailableError, InternalError])
+  .discriminatedUnion("code", [UnauthorizedError, InvalidParamsError, RateLimitedError, UnavailableError, InternalError])
   .meta({ description: "Why a bootstrap exchange was refused." });
 export type BootstrapError = z.infer<typeof BootstrapError>;

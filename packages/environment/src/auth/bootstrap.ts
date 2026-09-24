@@ -13,6 +13,7 @@ import {
 import { writeFileAtomic } from "../serve/files.js";
 import { BodyTooLargeError, readBody, sendJson, type Address, type RouteHandler } from "../serve/http.js";
 import type { ClientSessions } from "./client-sessions.js";
+import type { RateLimiter } from "./rate-limit.js";
 
 /** The most an exchange's body may be; a label is at most 200 characters. */
 export const MAX_EXCHANGE_BYTES = 16 * 1024;
@@ -35,12 +36,18 @@ const digest = (text: string): Buffer => createHash("sha256").update(text, "utf8
 /** Compares in constant time over digests, so neither the length nor a prefix of the secret leaks. */
 const sameSecret = (given: string, expected: string): boolean => timingSafeEqual(digest(given), digest(expected));
 
-const refuse = (response: Parameters<RouteHandler>[1], status: number, error: BootstrapError): void =>
-  sendJson(response, status, error, { "cache-control": "no-store" });
+const refuse = (
+  response: Parameters<RouteHandler>[1],
+  status: number,
+  error: BootstrapError,
+  headers: Record<string, string> = {},
+): void => sendJson(response, status, error, { "cache-control": "no-store", ...headers });
 
 export interface BootstrapGrantOptions {
   readonly dataDir: string;
-  readonly sessions: ClientSessions;
+  readonly clientSessions: ClientSessions;
+  /** Every exchange, refused or not, spends from its remote address's bucket. */
+  readonly rateLimiter: RateLimiter;
   /** The environment's readiness; the exchange answers `unavailable` unless it is `ready`. */
   readonly readiness: () => EnvironmentReadiness;
 }
@@ -77,6 +84,21 @@ export const createBootstrapGrant = (options: BootstrapGrantOptions): BootstrapG
         data: {},
       });
     }
+    const remote = request.socket.remoteAddress ?? "";
+    const taken = options.rateLimiter.take(remote);
+    if (!taken.ok) {
+      const seconds = Math.ceil(taken.retryAfterMs / 1000);
+      return refuse(
+        response,
+        429,
+        {
+          code: "rate_limited",
+          message: `Too many exchanges from this address; try again in ${seconds} seconds.`,
+          data: { retryAfterMs: taken.retryAfterMs },
+        },
+        { "retry-after": String(seconds) },
+      );
+    }
     const readiness = options.readiness();
     if (readiness !== "ready") {
       return refuse(response, 503, {
@@ -110,7 +132,7 @@ export const createBootstrapGrant = (options: BootstrapGrantOptions): BootstrapG
       });
     }
     issue(current.address);
-    const credential: ClientSessionCredential = options.sessions.issueLocal(parsed.data.kind, parsed.data.label);
+    const credential: ClientSessionCredential = options.clientSessions.issueLocal(parsed.data.kind, parsed.data.label);
     sendJson(response, 200, credential, { "cache-control": "no-store" });
   };
 

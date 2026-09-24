@@ -28,7 +28,7 @@ export const WAIT_MS = 3000;
 /** The URL of the wire at `address`: no query, no token, ever. */
 export const wireUrl = (address: Address): string => `ws://${address.host}:${address.port}${WIRE_PATH}`;
 
-/** How a connection closed: the WebSocket close code and reason, and the `bye` before it, if any. */
+/** How a socket closed: the WebSocket close code and reason, and the `bye` before it, if any. */
 export interface Closed {
   readonly code: number;
   readonly reason: string;
@@ -36,9 +36,9 @@ export interface Closed {
 }
 
 /** One WebSocket to the environment, frames sent and received as they are. */
-export interface WireConnection {
-  /** Sends a frame: an object as JSON, a string as it is. */
-  send(frame: object | string): void;
+export interface ClientSocket {
+  /** Sends a frame: an object as JSON, a string as it is, bytes as a binary frame. */
+  send(frame: object | string | Uint8Array): void;
   /** Every frame received so far, in order. */
   readonly received: readonly Frame[];
   /**
@@ -75,8 +75,8 @@ export interface OpenOptions {
 }
 
 /** Opens a WebSocket to the wire at `address` and resolves once it is open. */
-export const openWire = async (address: Address, options: OpenOptions = {}): Promise<WireConnection> => {
-  const socket = new WebSocket(wireUrl(address));
+export const openSocket = async (address: Address, options: OpenOptions = {}): Promise<ClientSocket> => {
+  const ws = new WebSocket(wireUrl(address));
   const received: Frame[] = [];
   const returned = new Set<number>();
   const waiters = new Set<() => void>();
@@ -88,7 +88,7 @@ export const openWire = async (address: Address, options: OpenOptions = {}): Pro
   };
 
   const closed = new Promise<Closed>((resolve) => {
-    socket.addEventListener("close", (event) => {
+    ws.addEventListener("close", (event) => {
       open = false;
       const bye = received.find((frame): frame is ByeFrame => frame.type === "bye");
       resolve({ code: event.code, reason: event.reason, bye });
@@ -96,7 +96,7 @@ export const openWire = async (address: Address, options: OpenOptions = {}): Pro
     });
   });
 
-  socket.addEventListener("message", (event) => {
+  ws.addEventListener("message", (event) => {
     if (typeof event.data !== "string") {
       failure = new Error("The environment sent a binary frame.");
       return wake();
@@ -104,8 +104,8 @@ export const openWire = async (address: Address, options: OpenOptions = {}): Pro
     try {
       const frame = decodeFrame(event.data);
       received.push(frame);
-      if (frame.type === "ping" && options.autoPong !== false && socket.readyState === WebSocket.OPEN) {
-        socket.send(JSON.stringify({ type: "pong" }));
+      if (frame.type === "ping" && options.autoPong !== false && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: "pong" }));
       }
     } catch (error) {
       failure = new Error(`The environment sent a frame the codec refuses: ${event.data}`, { cause: error });
@@ -115,11 +115,11 @@ export const openWire = async (address: Address, options: OpenOptions = {}): Pro
 
   await withTimeout(
     new Promise<void>((resolve, reject) => {
-      socket.addEventListener("open", () => {
+      ws.addEventListener("open", () => {
         open = true;
         resolve();
       });
-      socket.addEventListener("error", () => reject(new Error(`Could not open ${wireUrl(address)}.`)));
+      ws.addEventListener("error", () => reject(new Error(`Could not open ${wireUrl(address)}.`)));
     }),
     "the WebSocket to open",
   );
@@ -140,9 +140,9 @@ export const openWire = async (address: Address, options: OpenOptions = {}): Pro
             waiters.delete(look);
             return resolve(received[index] as Frame);
           }
-          if (isClosed || socket.readyState === WebSocket.CLOSED) {
+          if (isClosed || ws.readyState === WebSocket.CLOSED) {
             waiters.delete(look);
-            reject(new Error(`The connection closed before the frame came; received ${JSON.stringify(received)}.`));
+            reject(new Error(`The socket closed before the frame came; received ${JSON.stringify(received)}.`));
           }
         };
         waiters.add(look);
@@ -152,13 +152,13 @@ export const openWire = async (address: Address, options: OpenOptions = {}): Pro
     );
 
   return {
-    send: (frame) => socket.send(typeof frame === "string" ? frame : JSON.stringify(frame)),
+    send: (frame) => ws.send(typeof frame === "string" || frame instanceof Uint8Array ? frame : JSON.stringify(frame)),
     received,
-    next: next as WireConnection["next"],
+    next: next as ClientSocket["next"],
     closed,
-    isOpen: () => open && socket.readyState === WebSocket.OPEN,
+    isOpen: () => open && ws.readyState === WebSocket.OPEN,
     close: async () => {
-      if (socket.readyState !== WebSocket.CLOSED) socket.close(1000);
+      if (ws.readyState !== WebSocket.CLOSED) ws.close(1000);
       await withTimeout(closed, "the WebSocket to close");
     },
   };
@@ -179,8 +179,8 @@ export class ByeError extends Error {
   }
 }
 
-/** A connection that has authenticated: it holds its `hello` and makes typed requests. */
-export interface WireClient extends WireConnection {
+/** A socket that has authenticated: it holds its `hello` and makes typed requests. */
+export interface WireClient extends ClientSocket {
   readonly hello: HelloFrame;
   /** Calls a method: its result, or a thrown `ContractError` carrying the response's error. */
   request<N extends MethodName>(method: N, params: ParamsOf<N>): Promise<ResultOf<N>>;
@@ -199,18 +199,18 @@ export interface AuthOptions extends OpenOptions {
 
 let requestIds = 0;
 
-/** Makes a connection into a client: typed requests, answered by id. */
-export const asClient = (connection: WireConnection, hello: HelloFrame): WireClient => {
+/** Makes a socket into a client: typed requests, answered by id. */
+export const asClient = (socket: ClientSocket, hello: HelloFrame): WireClient => {
   const call = async (method: string, params: Record<string, unknown>) => {
     const id = `r${++requestIds}`;
-    connection.send({ type: "request", id, method, params });
-    return connection.next(
+    socket.send({ type: "request", id, method, params });
+    return socket.next(
       (frame): frame is ResponseFrame | SubscribedFrame =>
         (frame.type === "response" || frame.type === "subscribed") && frame.id === id,
     );
   };
   return {
-    ...connection,
+    ...socket,
     hello,
     call,
     async request(method, params) {
@@ -224,8 +224,8 @@ export const asClient = (connection: WireConnection, hello: HelloFrame): WireCli
 
 /** Opens the wire, sends `auth`, and resolves with the client once `hello` arrives; a `bye` rejects with `ByeError`. */
 export const connectClient = async (address: Address, options: AuthOptions): Promise<WireClient> => {
-  const connection = await openWire(address, options);
-  connection.send({
+  const socket = await openSocket(address, options);
+  socket.send({
     type: "auth",
     token: options.token,
     protocolVersion: options.protocolVersion ?? PROTOCOL_VERSION,
@@ -233,9 +233,9 @@ export const connectClient = async (address: Address, options: AuthOptions): Pro
     harnessVersion: options.harnessVersion ?? "0.0.0-test",
   });
   const first = await Promise.race([
-    connection.next((frame) => frame.type === "hello" || frame.type === "bye"),
-    connection.closed.then(() => undefined),
+    socket.next((frame) => frame.type === "hello" || frame.type === "bye"),
+    socket.closed.then(() => undefined),
   ]).catch(() => undefined);
-  if (first?.type === "hello") return asClient(connection, first);
-  throw new ByeError(await withTimeout(connection.closed, "the connection to close after bye"));
+  if (first?.type === "hello") return asClient(socket, first);
+  throw new ByeError(await withTimeout(socket.closed, "the socket to close after bye"));
 };

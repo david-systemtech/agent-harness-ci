@@ -10,6 +10,7 @@ import {
   decodeFrame,
   encodeFrame,
   type InvalidParamsError as InvalidParams,
+  peekProtocolVersion,
 } from "./index.js";
 
 /** The `invalid_params` error `decode` threw, checked against the error's own schema. */
@@ -121,5 +122,26 @@ describe("the frame codec", () => {
     const [result, error] = validFrames.response;
     expect(decodeFrame(JSON.stringify(result))).toHaveProperty("result");
     expect(decodeFrame(JSON.stringify(error))).toHaveProperty("error.code", "not_found");
+  });
+});
+
+describe("peekProtocolVersion", () => {
+  it("reads the protocol version of an auth frame, whatever else the frame holds", () => {
+    expect(peekProtocolVersion(JSON.stringify(validFrames.auth[0]))).toBe(1);
+    expect(peekProtocolVersion(JSON.stringify({ type: "auth", protocolVersion: 2, credentials: { bearer: "x" } }))).toBe(2);
+  });
+
+  it("reads nothing from anything else", () => {
+    for (const text of [
+      "not json",
+      JSON.stringify([{ type: "auth", protocolVersion: 2 }]),
+      JSON.stringify({ type: "request", protocolVersion: 2 }),
+      JSON.stringify({ type: "auth", protocolVersion: "2" }),
+      JSON.stringify({ type: "auth", protocolVersion: 1.5 }),
+      JSON.stringify({ type: "auth", protocolVersion: 0 }),
+      JSON.stringify({ type: "auth" }),
+    ]) {
+      expect(peekProtocolVersion(text), text).toBeUndefined();
+    }
   });
 });

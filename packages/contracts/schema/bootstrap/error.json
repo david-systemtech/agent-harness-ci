@@ -85,6 +85,38 @@
       "properties": {
         "code": {
           "type": "string",
+          "const": "rate_limited"
+        },
+        "message": {
+          "type": "string"
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "retryAfterMs": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991,
+              "description": "Milliseconds until the next exchange is taken."
+            }
+          },
+          "required": [
+            "retryAfterMs"
+          ]
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "data"
+      ],
+      "description": "Too many exchanges from this address; data.retryAfterMs says when to try again."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
           "const": "unavailable"
         },
         "message": {

@@ -4,63 +4,66 @@ import {
   WIRE_PATH,
   decodeFrame,
   encodeFrame,
-  invalidParams,
-  isMethodName,
+  peekProtocolVersion,
   registry,
   type ByeFrame,
   type CapabilityFlags,
   type Frame,
   type HelloFrame,
-  type IssueInput,
-  type RequestFrame,
-  type WireError,
 } from "@agent-harness/contracts";
 import { WebSocketServer, type RawData, type WebSocket } from "ws";
-import type { ClientSessions, VerifiedSession } from "../auth/client-sessions.js";
+import type { ClientSessions, VerifiedClientSession } from "../auth/client-sessions.js";
 import type { Clock, Timer } from "../serve/clock.js";
 import { refuseUpgrade, type UpgradeHandler } from "../serve/http.js";
-import type { MethodContext, MethodHandlers } from "../serve/methods.js";
+import type { MethodHandlers } from "../serve/methods.js";
+import { createDispatch, type Answer } from "./dispatch.js";
 
-/** How often the environment pings each connection (env spec, "The wire"; Artemis's measured value). */
+/** How often the environment pings each socket (env spec, "The wire"; Artemis's measured value). */
 export const PING_INTERVAL_MS = 15_000;
 
-/** How long a new connection has to send `auth` once the environment is ready. A chosen default. */
+/** How long a new socket has to send `auth` once the environment is ready. A chosen default. */
 export const AUTH_TIMEOUT_MS = 10_000;
 
-/** The largest frame taken; a larger one closes the connection with 1009. */
+/** The largest frame taken; `ws` closes a socket that sends a larger one with 1009. */
 export const MAX_FRAME_BYTES = 16 * 1024 * 1024;
 
-/** How long closing waits for connections to finish their close handshake before cutting them. */
+/** How long closing waits for sockets to finish their close handshake before cutting them. */
 const CLOSE_GRACE_MS = 1000;
+
+/** WebSocket close codes: a `bye` said why; 1001 the environment is going away; 1002 and 1003 protocol faults. */
+const CLOSE = { bye: 1000, goingAway: 1001, protocolError: 1002, unsupportedData: 1003 } as const;
 
 export interface WireOptions {
   readonly environment: { readonly id: string; readonly name: string };
   readonly capabilities: CapabilityFlags;
-  readonly sessions: ClientSessions;
+  readonly clientSessions: ClientSessions;
   readonly methods: MethodHandlers;
   readonly clock: Clock;
 }
 
-/** The wire: one WebSocket per client connection at `/ws`. */
+/** The wire: one WebSocket per client socket at `/ws`. */
 export interface Wire {
   /** Takes an upgrade at `WIRE_PATH`; the Host check has passed. */
   readonly upgrade: UpgradeHandler;
   /** Passes the startup gate: auth frames held until now are answered, and requests are served from here on. */
   open(): void;
-  /** How many connections are open. */
-  connections(): number;
-  /** Closes every connection (1001) and refuses new ones. */
+  /** How many sockets are open. */
+  sockets(): number;
+  /** Says `bye: draining` to every socket, closes it (1001), and refuses new ones. */
   close(): Promise<void>;
 }
 
-interface Connection {
-  readonly socket: WebSocket;
-  /** Waiting for `auth`, authenticated, or closing after a `bye` or an error. */
+/** A text frame, decoded once: the frame, or why it is not one. */
+type Decoded = { readonly ok: true; readonly frame: Frame } | { readonly ok: false; readonly error: ContractError };
+
+interface Socket {
+  readonly ws: WebSocket;
+  /** Waiting for `auth`, authenticated, or closing after a `bye`. */
   phase: "awaiting-auth" | "authenticated" | "closing";
   /** An `auth` frame that arrived before the gate, answered when it opens. */
-  heldAuth: string | undefined;
+  held: { readonly text: string; readonly decoded: Decoded } | undefined;
   authTimer: Timer | undefined;
-  session: VerifiedSession | undefined;
+  clientSession: VerifiedClientSession | undefined;
   ping: Timer | undefined;
 }
 
@@ -71,199 +74,155 @@ const textOf = (data: RawData, isBinary: boolean): string | undefined => {
   return Buffer.from(data as ArrayBuffer).toString("utf8");
 };
 
-/** The JSON in `text` when it is an object; undefined otherwise. */
-const objectOf = (text: string): Record<string, unknown> | undefined => {
+const decode = (text: string): Decoded => {
+  try {
+    return { ok: true, frame: decodeFrame(text) };
+  } catch (error) {
+    if (error instanceof ContractError) return { ok: false, error };
+    throw error;
+  }
+};
+
+/** The id of a request frame too malformed to decode, so its refusal can be answered: read only on that path. */
+const requestIdOf = (text: string): string | undefined => {
   try {
     const value: unknown = JSON.parse(text);
-    return typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
+    if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+    const id = (value as Record<string, unknown>)["id"];
+    return typeof id === "string" && id !== "" ? id : undefined;
   } catch {
     return undefined;
   }
 };
 
-/** What `safeParse` gives back, as far as dispatch needs it, so the wire needs no schema library of its own. */
-interface Parser {
-  safeParse(value: unknown): { success: true; data: unknown } | { success: false; error: { issues: readonly IssueInput[] } };
-}
-
-const error = (code: string, message: string, data: Record<string, unknown> = {}): WireError => ({ code, message, data });
+/** The first issue of a refused frame, for the `bye` that names the fault. */
+const faultOf = (error: ContractError): string => {
+  const issues = error.data["issues"];
+  const first = Array.isArray(issues) ? (issues[0] as { message?: unknown } | undefined) : undefined;
+  return typeof first?.message === "string" ? first.message : error.message;
+};
 
 export const createWire = (options: WireOptions): Wire => {
-  const { sessions, methods, clock } = options;
+  const { clientSessions, clock } = options;
+  const dispatch = createDispatch(options.methods, registry);
   const server = new WebSocketServer({ noServer: true, maxPayload: MAX_FRAME_BYTES, clientTracking: false });
-  const open = new Set<Connection>();
-  const bySession = new Map<string, Set<Connection>>();
+  const open = new Set<Socket>();
   let ready = false;
   let closed = false;
 
-  const send = (connection: Connection, frame: Frame): void => {
-    if (connection.socket.readyState === connection.socket.OPEN) connection.socket.send(encodeFrame(frame));
+  const send = (socket: Socket, frame: Frame): void => {
+    if (socket.ws.readyState === socket.ws.OPEN) socket.ws.send(encodeFrame(frame));
   };
 
-  const stopTimers = (connection: Connection): void => {
-    connection.authTimer?.cancel();
-    connection.authTimer = undefined;
-    connection.ping?.cancel();
-    connection.ping = undefined;
+  const stopTimers = (socket: Socket): void => {
+    socket.authTimer?.cancel();
+    socket.authTimer = undefined;
+    socket.ping?.cancel();
+    socket.ping = undefined;
   };
 
-  /** Says why, then closes. Nothing the client sends after is read. */
-  const bye = (connection: Connection, frame: Omit<ByeFrame, "type">): void => {
-    if (connection.phase === "closing") return;
-    connection.phase = "closing";
-    stopTimers(connection);
-    send(connection, { type: "bye", ...frame });
-    connection.socket.close(1000, frame.reason);
+  /** Every server-side close: the `bye` that says why, then the close with `code`. Nothing the client sends after is read. */
+  const closeWith = (socket: Socket, bye: Omit<ByeFrame, "type">, code: number): void => {
+    if (socket.phase === "closing") return;
+    socket.phase = "closing";
+    stopTimers(socket);
+    send(socket, { type: "bye", ...bye });
+    socket.ws.close(code, bye.reason);
   };
 
-  /** Closes without a `bye`: the client sent something no bye reason covers. */
-  const drop = (connection: Connection, code: number, reason: string): void => {
-    if (connection.phase === "closing") return;
-    connection.phase = "closing";
-    stopTimers(connection);
-    connection.socket.close(code, reason);
-  };
+  const protocolFault = (socket: Socket, message: string, code: number = CLOSE.protocolError): void =>
+    closeWith(socket, { reason: "protocol", protocolVersion: PROTOCOL_VERSION, message }, code);
 
-  const armAuthTimer = (connection: Connection): void => {
-    connection.authTimer = clock.setTimeout(
-      () => bye(connection, { reason: "unauthorized", message: `No auth frame came within ${AUTH_TIMEOUT_MS / 1000} seconds.` }),
+  const respond = (socket: Socket, id: string, answer: Answer): void => send(socket, { type: "response", id, ...answer } as Frame);
+
+  const armAuthTimer = (socket: Socket): void => {
+    socket.authTimer = clock.setTimeout(
+      () =>
+        closeWith(socket, { reason: "unauthorized", message: `No auth frame came within ${AUTH_TIMEOUT_MS / 1000} seconds.` }, CLOSE.bye),
       AUTH_TIMEOUT_MS,
     );
   };
 
-  const tick = (connection: Connection): void => {
-    const session = connection.session;
-    if (session && clock.now().getTime() >= session.expiresAt) {
-      return bye(connection, { reason: "expired", message: "The client session's token has expired." });
+  const tick = (socket: Socket): void => {
+    const clientSession = socket.clientSession;
+    if (clientSession && clock.now().getTime() >= clientSession.expiresAt) {
+      return closeWith(socket, { reason: "expired", message: "The client session's token has expired." }, CLOSE.bye);
     }
     // A missing pong is the client's watchdog to act on, not the environment's.
-    send(connection, { type: "ping" });
+    send(socket, { type: "ping" });
   };
 
   /** The first frame, once the gate is open: the protocol check, then the token, then `hello`. */
-  const authenticate = (connection: Connection, text: string | undefined): void => {
-    connection.authTimer?.cancel();
-    connection.authTimer = undefined;
-    const raw = text === undefined ? undefined : objectOf(text);
-    // Before the frame's schema: a client of another version may shape its auth differently.
-    if (raw?.["type"] === "auth" && Number.isInteger(raw["protocolVersion"]) && raw["protocolVersion"] !== PROTOCOL_VERSION) {
-      return bye(connection, {
-        reason: "protocol",
-        protocolVersion: PROTOCOL_VERSION,
-        message: `The client speaks protocol ${String(raw["protocolVersion"])}; this environment speaks ${PROTOCOL_VERSION}.`,
-      });
+  const authenticate = (socket: Socket, text: string, decoded: Decoded): void => {
+    socket.authTimer?.cancel();
+    socket.authTimer = undefined;
+    // The version comes first, and from the text itself when the frame does not decode: another version may shape auth differently.
+    const version = decoded.ok ? (decoded.frame.type === "auth" ? decoded.frame.protocolVersion : undefined) : peekProtocolVersion(text);
+    if (version !== undefined && version !== PROTOCOL_VERSION) {
+      return closeWith(
+        socket,
+        {
+          reason: "protocol",
+          protocolVersion: PROTOCOL_VERSION,
+          message: `The client speaks protocol ${version}; this environment speaks ${PROTOCOL_VERSION}.`,
+        },
+        CLOSE.bye,
+      );
     }
-    let frame: Frame | undefined;
-    try {
-      frame = text === undefined ? undefined : decodeFrame(text);
-    } catch {
-      frame = undefined;
+    if (!decoded.ok || decoded.frame.type !== "auth") {
+      return closeWith(socket, { reason: "unauthorized", message: "The first frame must be a well-formed auth frame." }, CLOSE.bye);
     }
-    if (frame?.type !== "auth") {
-      return bye(connection, { reason: "unauthorized", message: "The first frame must be a well-formed auth frame." });
-    }
-    const verification = sessions.verify(frame.token);
-    if (!verification.ok) return bye(connection, { reason: verification.reason, message: verification.message });
+    const verification = clientSessions.verify(decoded.frame.token);
+    if (!verification.ok) return closeWith(socket, { reason: verification.reason, message: verification.message }, CLOSE.bye);
 
-    const session = verification.session;
-    connection.phase = "authenticated";
-    connection.session = session;
-    const peers = bySession.get(session.id) ?? new Set<Connection>();
-    peers.add(connection);
-    bySession.set(session.id, peers);
-    // #109 appends "connection opened" to the access stream here, and "connection closed" in onClose.
-    sessions.connected(session.id);
+    const clientSession = verification.clientSession;
+    socket.phase = "authenticated";
+    socket.clientSession = clientSession;
+    // #109 appends the access log's event for this socket opening here, and for its closing in onClose.
+    clientSessions.socketOpened(clientSession.id);
     const hello: HelloFrame = {
       type: "hello",
       protocolVersion: PROTOCOL_VERSION,
       capabilities: [...options.capabilities],
       environmentId: options.environment.id,
       environmentName: options.environment.name,
-      clientSessionId: session.id,
-      scopes: [...session.scopes],
-      ceiling: session.ceiling,
+      clientSessionId: clientSession.id,
+      scopes: [...clientSession.scopes],
+      ceiling: clientSession.ceiling,
       serverTime: clock.now().toISOString(),
     };
-    send(connection, hello);
-    connection.ping = clock.setInterval(() => tick(connection), PING_INTERVAL_MS);
-  };
-
-  const respond = (connection: Connection, id: string, answer: { result: Record<string, unknown> } | { error: WireError }) =>
-    send(connection, { type: "response", id, ...answer } as Frame);
-
-  /**
-   * A request on an authenticated connection. The scope check is here, once,
-   * before the params are read or a handler is looked up, for queries,
-   * commands and streams alike.
-   */
-  const dispatch = async (connection: Connection, session: VerifiedSession, request: RequestFrame): Promise<void> => {
-    const { id, method, params } = request;
-    if (!isMethodName(method)) return respond(connection, id, { error: error("not_found", `No method is named ${method}.`) });
-    const entry = registry[method];
-    if (!session.scopes.includes(entry.scope)) {
-      return respond(connection, id, {
-        error: error("forbidden", `${method} needs the ${entry.scope} scope, which this client session does not hold.`, {
-          scope: entry.scope,
-        }),
-      });
-    }
-    // Subscriptions are #110: a stream passes the scope check above, then is not served yet.
-    if (entry.kind === "stream") {
-      return respond(connection, id, { error: error("not_found", `${method} is a stream, and this environment serves no subscriptions yet.`) });
-    }
-    const parsed = (entry.params as Parser).safeParse(params);
-    if (!parsed.success) {
-      return respond(connection, id, { error: invalidParams(parsed.error.issues, `The params do not match ${method}'s schema.`) });
-    }
-    // Command receipts (#111) wrap the handlers of command methods, keyed by the client session and commandId.
-    const handler = methods[method] as ((params: unknown, context: MethodContext) => unknown) | undefined;
-    if (!handler) return respond(connection, id, { error: error("not_found", `${method} is not served by this environment yet.`) });
-    let result: unknown;
-    try {
-      result = await handler(parsed.data, { clientSession: session });
-    } catch (thrown) {
-      if (thrown instanceof ContractError) return respond(connection, id, { error: thrown.toWire() });
-      console.error(`The handler for ${method} failed:`, thrown);
-      return respond(connection, id, { error: error("internal", "The environment failed.") });
-    }
-    const checked = (entry.result as Parser).safeParse(result);
-    if (!checked.success) {
-      console.error(`The handler for ${method} answered outside its result schema:`, checked.error.issues);
-      return respond(connection, id, { error: error("internal", "The environment failed.") });
-    }
-    respond(connection, id, { result: checked.data as Record<string, unknown> });
+    send(socket, hello);
+    socket.ping = clock.setInterval(() => tick(socket), PING_INTERVAL_MS);
   };
 
   /** Before the gate: requests are answered `unavailable`, the first `auth` is held, anything else is refused. */
-  const beforeGate = (connection: Connection, text: string | undefined): void => {
-    const raw = text === undefined ? undefined : objectOf(text);
-    if (raw?.["type"] === "auth" && connection.phase === "awaiting-auth" && connection.heldAuth === undefined) {
-      connection.heldAuth = text;
-      return;
-    }
-    if (raw?.["type"] === "request" && typeof raw["id"] === "string" && raw["id"] !== "") {
-      return respond(connection, raw["id"], {
-        error: error("unavailable", "The environment is starting.", { readiness: "starting" }),
+  const beforeGate = (socket: Socket, text: string, decoded: Decoded): void => {
+    if (decoded.ok && decoded.frame.type === "request") {
+      return respond(socket, decoded.frame.id, {
+        error: { code: "unavailable", message: "The environment is starting.", data: { readiness: "starting" } },
       });
     }
-    bye(connection, { reason: "unauthorized", message: "Before the environment is ready it takes auth and requests only." });
+    const isAuth = decoded.ok ? decoded.frame.type === "auth" : peekProtocolVersion(text) !== undefined;
+    if (isAuth && socket.phase === "awaiting-auth" && socket.held === undefined) {
+      socket.held = { text, decoded };
+      return;
+    }
+    closeWith(socket, { reason: "unauthorized", message: "Before the environment is ready it takes one auth and requests." }, CLOSE.bye);
   };
 
-  /** A frame on an authenticated connection. */
-  const afterAuth = (connection: Connection, session: VerifiedSession, text: string | undefined): void => {
-    if (text === undefined) return drop(connection, 1003, "The wire takes JSON text frames only.");
-    let frame: Frame;
-    try {
-      frame = decodeFrame(text);
-    } catch (thrown) {
-      const id = objectOf(text)?.["id"];
-      const refusal = thrown instanceof ContractError ? thrown.toWire() : error("invalid_params", "The frame is malformed.");
-      if (typeof id === "string" && id !== "") return respond(connection, id, { error: refusal });
-      return drop(connection, 1002, "A malformed frame with no request id to answer.");
+  /** A frame on an authenticated socket. */
+  const afterAuth = (socket: Socket, clientSession: VerifiedClientSession, text: string, decoded: Decoded): void => {
+    if (!decoded.ok) {
+      const id = requestIdOf(text);
+      if (id !== undefined) return respond(socket, id, { error: decoded.error.toWire() });
+      return protocolFault(socket, `The frame is malformed and has no request id to answer: ${faultOf(decoded.error)}`);
     }
+    const { frame } = decoded;
     switch (frame.type) {
       case "request":
-        void dispatch(connection, session, frame).catch((thrown: unknown) => console.error("Dispatch failed:", thrown));
+        void dispatch(frame, clientSession, (answer) => respond(socket, frame.id, answer)).catch((thrown: unknown) =>
+          console.error("Dispatch failed:", thrown),
+        );
         return;
       case "pong":
         return;
@@ -271,103 +230,90 @@ export const createWire = (options: WireOptions): Wire => {
         // Subscriptions are #110; there is none to end yet.
         return;
       default:
-        return drop(connection, 1002, `A client does not send ${frame.type} frames here.`);
+        return protocolFault(socket, `A client does not send ${frame.type} frames once authenticated.`);
     }
   };
 
-  const onMessage = (connection: Connection, data: RawData, isBinary: boolean): void => {
+  const onMessage = (socket: Socket, data: RawData, isBinary: boolean): void => {
+    if (socket.phase === "closing") return;
     const text = textOf(data, isBinary);
-    if (connection.phase === "closing") return;
-    if (!ready) return beforeGate(connection, text);
-    if (connection.phase === "awaiting-auth") return authenticate(connection, text);
-    if (connection.session) afterAuth(connection, connection.session, text);
+    if (text === undefined) return protocolFault(socket, "The wire takes JSON text frames only.", CLOSE.unsupportedData);
+    const decoded = decode(text);
+    if (!ready) return beforeGate(socket, text, decoded);
+    if (socket.phase === "awaiting-auth") return authenticate(socket, text, decoded);
+    if (socket.clientSession) afterAuth(socket, socket.clientSession, text, decoded);
   };
 
-  const onClose = (connection: Connection): void => {
-    stopTimers(connection);
-    connection.phase = "closing";
-    const session = connection.session;
-    if (session) {
-      const peers = bySession.get(session.id);
-      peers?.delete(connection);
-      if (peers?.size === 0) bySession.delete(session.id);
-      sessions.disconnected(session.id);
-    }
-    open.delete(connection);
+  const onClose = (socket: Socket): void => {
+    stopTimers(socket);
+    socket.phase = "closing";
+    if (socket.clientSession) clientSessions.socketClosed(socket.clientSession.id);
+    open.delete(socket);
   };
 
-  const accept = (socket: WebSocket): void => {
-    const connection: Connection = {
-      socket,
-      phase: "awaiting-auth",
-      heldAuth: undefined,
-      authTimer: undefined,
-      session: undefined,
-      ping: undefined,
-    };
-    open.add(connection);
-    socket.on("message", (data, isBinary) => onMessage(connection, data, isBinary));
-    socket.on("close", () => onClose(connection));
-    // An oversized or broken frame: ws closes the socket itself, and the close above follows.
-    socket.on("error", () => undefined);
-    if (ready) armAuthTimer(connection);
+  const accept = (ws: WebSocket): void => {
+    const socket: Socket = { ws, phase: "awaiting-auth", held: undefined, authTimer: undefined, clientSession: undefined, ping: undefined };
+    open.add(socket);
+    ws.on("message", (data, isBinary) => onMessage(socket, data, isBinary));
+    ws.on("close", () => onClose(socket));
+    // An oversized or broken frame: ws closes the socket itself (1009 or 1002), and the close above follows.
+    ws.on("error", () => undefined);
+    if (ready) armAuthTimer(socket);
   };
 
-  const stopRevoked = sessions.onRevoked((id) => {
-    for (const connection of [...(bySession.get(id) ?? [])]) {
-      bye(connection, { reason: "revoked", message: "This client session has been revoked." });
+  const stopRevoked = clientSessions.onRevoked((id) => {
+    for (const socket of [...open]) {
+      if (socket.clientSession?.id === id) {
+        closeWith(socket, { reason: "revoked", message: "This client session has been revoked." }, CLOSE.bye);
+      }
     }
   });
 
   return {
-    upgrade(request, socket, head) {
-      if (closed) return refuseUpgrade(socket, 503, { error: "closing", message: "The environment is stopping." });
+    upgrade(request, rawSocket, head) {
+      if (closed) return refuseUpgrade(rawSocket, 503, { error: "closing", message: "The environment is stopping." });
       // A token never travels in a URL, so the wire takes none: a query is refused before the upgrade.
       if ((request.url ?? "").includes("?")) {
-        return refuseUpgrade(socket, 400, {
+        return refuseUpgrade(rawSocket, 400, {
           error: "bad_request",
           message: `${WIRE_PATH} takes no query; the token goes in the auth frame.`,
         });
       }
-      server.handleUpgrade(request, socket, head, accept);
+      server.handleUpgrade(request, rawSocket, head, accept);
     },
 
     open() {
       if (ready) return;
       ready = true;
-      for (const connection of [...open]) {
-        if (connection.phase !== "awaiting-auth") continue;
-        const held = connection.heldAuth;
-        connection.heldAuth = undefined;
-        if (held === undefined) armAuthTimer(connection);
-        else authenticate(connection, held);
+      for (const socket of [...open]) {
+        if (socket.phase !== "awaiting-auth") continue;
+        const held = socket.held;
+        socket.held = undefined;
+        if (held === undefined) armAuthTimer(socket);
+        else authenticate(socket, held.text, held.decoded);
       }
     },
 
-    connections: () => open.size,
+    sockets: () => open.size,
 
-    // A drain (#112) says `bye: draining` to every connection before this runs.
+    // #112 refines this into the drain sequence: runs finish first, then the same bye.
     async close() {
       closed = true;
       stopRevoked();
       const closing = [...open].map(
-        (connection) =>
+        (socket) =>
           new Promise<void>((resolve) => {
-            stopTimers(connection);
-            connection.phase = "closing";
-            if (connection.socket.readyState === connection.socket.CLOSED) return resolve();
-            connection.socket.once("close", () => resolve());
-            connection.socket.close(1001, "The environment is stopping.");
+            if (socket.ws.readyState === socket.ws.CLOSED) return resolve();
+            socket.ws.once("close", () => resolve());
+            if (socket.phase === "closing") return;
+            closeWith(socket, { reason: "draining", message: "The environment is stopping." }, CLOSE.goingAway);
           }),
       );
-      let grace: NodeJS.Timeout | undefined;
-      await Promise.race([
-        Promise.all(closing),
-        new Promise<void>((resolve) => (grace = setTimeout(resolve, CLOSE_GRACE_MS))),
-      ]);
-      clearTimeout(grace);
-      // Cut what has not finished, and wait for its close too, so every disconnect is recorded before the log closes.
-      for (const connection of open) connection.socket.terminate();
+      let grace: Timer | undefined;
+      await Promise.race([Promise.all(closing), new Promise<void>((resolve) => (grace = clock.setTimeout(resolve, CLOSE_GRACE_MS)))]);
+      grace?.cancel();
+      // Cut what has not finished, and wait for its close too, so every socket's close is recorded before the log closes.
+      for (const socket of open) socket.ws.terminate();
       await Promise.all(closing);
       await new Promise<void>((resolve) => server.close(() => resolve()));
     },

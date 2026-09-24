@@ -32,8 +32,9 @@ export {
   TUI_REVOKE_AFTER_MS,
   type ClientSessionIssuer,
   type IssueRequest,
-  type VerifiedSession,
+  type VerifiedClientSession,
 } from "./auth/client-sessions.js";
+export { EXCHANGE_RATE } from "./auth/rate-limit.js";
 export { systemClock, type Clock, type Timer } from "./serve/clock.js";
 export { defaultDataDirectory, prepareDataDirectory, type PlatformContext } from "./serve/data-directory.js";
 export { isAllowedHost, type Address, type HttpRoutes, type RouteHandler } from "./serve/http.js";

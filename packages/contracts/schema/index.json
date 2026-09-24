@@ -151,6 +151,10 @@
       "title": "InternalError"
     },
     {
+      "path": "errors/rate_limited.json",
+      "title": "RateLimitedError"
+    },
+    {
       "path": "frames/frame.json",
       "title": "Frame"
     },

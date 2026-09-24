@@ -30,7 +30,7 @@ const start = async (options: TestEnvironmentOptions = {}): Promise<TestEnvironm
   return t;
 };
 
-/** The bye a connection attempt with `token` ends with, or `hello` when it is accepted. */
+/** The bye an auth with `credential` ends with, or `hello` when it is accepted. */
 const outcome = async (t: TestEnvironment, credential: Credential, clientKind: "desktop" | "tui" = "tui") => {
   try {
     const client = await t.client({ token: credential.token, clientKind });
@@ -151,6 +151,26 @@ describe("POST /api/bootstrap", () => {
     expect(BootstrapError.parse(answer.body)).toMatchObject({ code: "invalid_params" });
   });
 
+  it("takes 10 exchanges a minute from one address, then answers 429 rate_limited until the bucket refills", async () => {
+    const t = await start();
+    for (let i = 0; i < 10; i++) expect((await t.exchange({ secret: "a guess", kind: "tui", label: "guess" })).status).toBe(401);
+    const limited = await fetch(`http://${t.address.host}:${t.address.port}${BOOTSTRAP_PATH}`, {
+      method: "POST",
+      body: JSON.stringify({ secret: t.grant().secret, kind: "tui", label: "right, but too soon" }),
+    });
+    expect(limited.status).toBe(429);
+    expect(limited.headers.get("retry-after")).toBe("6");
+    expect(BootstrapError.parse(await limited.json())).toEqual({
+      code: "rate_limited",
+      message: expect.any(String),
+      data: { retryAfterMs: 6000 },
+    });
+    // The refused exchange did not spend the secret.
+    t.clock.advance(6000);
+    expect((await t.exchange({ secret: t.grant().secret, kind: "tui", label: "on time" })).status).toBe(200);
+    expect((await t.exchange({ secret: t.grant().secret, kind: "tui", label: "too soon" })).status).toBe(429);
+  });
+
   it("takes POST only", async () => {
     const t = await start();
     const response = await fetch(`http://${t.address.host}:${t.address.port}${BOOTSTRAP_PATH}`);
@@ -199,8 +219,8 @@ describe("POST /api/bootstrap", () => {
   });
 });
 
-describe("desktop local sessions", () => {
-  it("are replaced by a new desktop exchange: the old one's connection gets bye revoked and its token is refused", async () => {
+describe("desktop local client sessions", () => {
+  it("are replaced by a new desktop exchange: the old one's socket gets bye revoked and its token is refused", async () => {
     const t = await start();
     const first = await t.bootstrap("desktop", "desktop at 9");
     const window = await t.client({ token: first.token, clientKind: "desktop" });
@@ -226,7 +246,7 @@ describe("desktop local sessions", () => {
   });
 });
 
-describe("tui local sessions", () => {
+describe("tui local client sessions", () => {
   it("are not replaced by another tui exchange: several run at once", async () => {
     const t = await start();
     const one = await t.bootstrap("tui", "left pane");
@@ -239,7 +259,7 @@ describe("tui local sessions", () => {
     expect(await oneClient.request("environment.status", {})).toEqual({ readiness: "ready" });
   });
 
-  it("are revoked once their connection has been closed for an hour", async () => {
+  it("are revoked once their last socket has been closed for an hour", async () => {
     const t = await start();
     const tui = await t.bootstrap("tui");
     const client = await t.client({ token: tui.token });
@@ -256,7 +276,7 @@ describe("tui local sessions", () => {
     expect(TUI_REVOKE_AFTER_MS).toBe(HOUR);
   });
 
-  it("are kept while a connection is open, however long", async () => {
+  it("are kept while a socket is open, however long", async () => {
     const t = await start();
     const tui = await t.bootstrap("tui");
     const client = await t.client({ token: tui.token });

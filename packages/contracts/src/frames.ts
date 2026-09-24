@@ -247,6 +247,27 @@ const malformed = (issues: readonly IssueInput[]): ContractError =>
 export const encodeFrame = (frame: z.input<typeof Frame>): string => JSON.stringify(frame);
 
 /**
+ * The protocol version `text` declares when it is an auth frame, read before
+ * and apart from the frame's schema: a client of another version may shape
+ * the rest of its auth differently, and must still be told `bye: protocol`.
+ * Undefined for anything that is not a JSON object of type `auth` with a
+ * positive integer `protocolVersion`.
+ */
+export const peekProtocolVersion = (text: string): number | undefined => {
+  let json: unknown;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+  if (typeof json !== "object" || json === null || Array.isArray(json)) return undefined;
+  const { type, protocolVersion } = json as Record<string, unknown>;
+  if (type !== "auth") return undefined;
+  const version = ProtocolVersion.safeParse(protocolVersion);
+  return version.success ? version.data : undefined;
+};
+
+/**
  * The frame in `text`. Throws a `ContractError` with code `invalid_params`,
  * carrying the schema's issues under `data.issues`, when the text is not JSON,
  * names no known kind, or does not match its kind's schema.

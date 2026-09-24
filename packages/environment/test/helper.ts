@@ -12,7 +12,16 @@ import type { Address } from "../src/serve/http.js";
 import { startEnvironment, type EnvironmentHandle, type StartupHooks } from "../src/serve/start.js";
 import { manualClock, type ManualClock } from "./clock.js";
 import { fakeProvider, type FakeProvider } from "./fake-provider.js";
-import { WAIT_MS, connectClient, openWire, type AuthOptions, type OpenOptions, type WireClient, type WireConnection } from "./wire-client.js";
+import {
+  ByeError,
+  WAIT_MS,
+  connectClient,
+  openSocket,
+  type AuthOptions,
+  type ClientSocket,
+  type OpenOptions,
+  type WireClient,
+} from "./wire-client.js";
 
 /**
  * The primary seam (env spec, "Testing Decisions"): an environment started
@@ -34,7 +43,13 @@ export interface TestEnvironmentOptions {
 }
 
 export interface ClientOptions extends OpenOptions, Partial<Omit<AuthOptions, "token">> {
-  /** The token to authenticate with; preset: a fresh `tui` bootstrap exchange's. */
+  /**
+   * The token to authenticate with. Preset: the helper's default client
+   * session, a `tui` bootstrap exchanged on first use and shared by every
+   * client that names no token, so a test opening many clients stays under
+   * the exchange's rate limit; it is exchanged again if it has been revoked
+   * or has expired.
+   */
   readonly token?: string;
 }
 
@@ -56,10 +71,10 @@ export interface TestEnvironment {
   exchange(body: unknown): Promise<ExchangeAnswer>;
   /** Exchanges the current grant for a local client session of `kind`; throws unless the exchange succeeds. */
   bootstrap(kind?: BootstrapKind, label?: string): Promise<ClientSessionCredential>;
-  /** A client that has authenticated: with the token given, or a fresh `tui` session's. Closed by `close`. */
+  /** A client that has authenticated: with the token given, or the default client session's. Closed by `close`. */
   client(options?: ClientOptions): Promise<WireClient>;
   /** A WebSocket that has sent nothing yet. Closed by `close`. */
-  open(options?: OpenOptions): Promise<WireConnection>;
+  open(options?: OpenOptions): Promise<ClientSocket>;
   /** Closes every client, then the environment, then removes the data directory if the helper made it. */
   close(): Promise<void>;
 }
@@ -123,24 +138,37 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
     throw error;
   }
 
-  const connections = new Set<WireConnection>();
+  const sockets = new Set<ClientSocket>();
   /**
-   * Tracks a connection for `close`, and makes its own `close` wait until the
+   * Tracks a socket for `close`, and makes its own `close` wait until the
    * environment has seen it go, so a test that moves the clock next moves it
-   * after the disconnect, never before.
+   * after the socket closed, never before.
    */
-  const track = <C extends WireConnection>(connection: C): C => {
+  const track = <C extends ClientSocket>(socket: C): C => {
     const tracked: C = {
-      ...connection,
+      ...socket,
       close: async () => {
-        const before = env.connections();
-        const wasOpen = connection.isOpen();
-        await connection.close();
-        if (wasOpen) await until(() => env.connections() < before, "the environment to see the connection close");
+        const before = env.sockets();
+        const wasOpen = socket.isOpen();
+        await socket.close();
+        if (wasOpen) await until(() => env.sockets() < before, "the environment to see the socket close");
       },
     };
-    connections.add(tracked);
+    sockets.add(tracked);
     return tracked;
+  };
+
+  let defaultToken: string | undefined;
+  const defaultClient = async (options: ClientOptions): Promise<WireClient> => {
+    defaultToken ??= (await bootstrapExchange(env.address, dataDir, "tui", "the helper's default client")).token;
+    try {
+      return await connectClient(env.address, { ...options, token: defaultToken });
+    } catch (error) {
+      const reason = error instanceof ByeError ? error.bye?.reason : undefined;
+      if (reason !== "revoked" && reason !== "expired") throw error;
+      defaultToken = (await bootstrapExchange(env.address, dataDir, "tui", "the helper's default client")).token;
+      return connectClient(env.address, { ...options, token: defaultToken });
+    }
   };
 
   return {
@@ -153,13 +181,13 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
     exchange: (body) => postExchange(env.address, body),
     bootstrap: (kind, label) => bootstrapExchange(env.address, dataDir, kind, label),
     async client(clientOptions = {}) {
-      const token = clientOptions.token ?? (await bootstrapExchange(env.address, dataDir, "tui")).token;
-      return track(await connectClient(env.address, { ...clientOptions, token }));
+      const { token } = clientOptions;
+      return track(token === undefined ? await defaultClient(clientOptions) : await connectClient(env.address, { ...clientOptions, token }));
     },
-    open: async (openOptions) => track(await openWire(env.address, openOptions)),
+    open: async (openOptions) => track(await openSocket(env.address, openOptions)),
     async close() {
-      await Promise.allSettled([...connections].map((connection) => connection.close()));
-      connections.clear();
+      await Promise.allSettled([...sockets].map((socket) => socket.close()));
+      sockets.clear();
       try {
         await env.close();
       } finally {

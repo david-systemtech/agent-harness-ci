@@ -15,7 +15,7 @@ import WebSocketClient from "ws";
 import { useCleanups } from "../../test/cleanups.js";
 import { manualClock } from "../../test/clock.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
-import { ByeError, connectClient, openWire, wireUrl } from "../../test/wire-client.js";
+import { ByeError, connectClient, openSocket, wireUrl } from "../../test/wire-client.js";
 import type { Address } from "../serve/http.js";
 import type { StartupStep } from "../serve/start.js";
 import { AUTH_TIMEOUT_MS, PING_INTERVAL_MS } from "./wire.js";
@@ -179,7 +179,7 @@ describe("auth and hello", () => {
     expect(await client.request("environment.status", {})).toEqual({ readiness: "ready" });
   });
 
-  it("lets one client session hold several connections", async () => {
+  it("lets one client session hold several sockets", async () => {
     const t = await start();
     const { token } = await t.bootstrap();
     const one = await t.client({ token });
@@ -202,9 +202,9 @@ describe("bye", () => {
 
   it("protocol: even when the rest of the auth frame is in a shape this version does not know", async () => {
     const t = await start();
-    const connection = await t.open();
-    connection.send({ type: "auth", protocolVersion: 2, credentials: { bearer: "x" } });
-    expect((await connection.closed).bye).toMatchObject({ reason: "protocol", protocolVersion: PROTOCOL_VERSION });
+    const socket = await t.open();
+    socket.send({ type: "auth", protocolVersion: 2, credentials: { bearer: "x" } });
+    expect((await socket.closed).bye).toMatchObject({ reason: "protocol", protocolVersion: PROTOCOL_VERSION });
   });
 
   it("unauthorized: an invalid token", async () => {
@@ -220,7 +220,8 @@ describe("bye", () => {
     const { token } = await t.bootstrap();
     const [version, payload, signature] = token.split(".") as [string, string, string];
     const claims = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as Record<string, unknown>;
-    const forged = Buffer.from(JSON.stringify({ ...claims, exp: Number(claims["exp"]) + 365 * DAY })).toString("base64url");
+    const other = issue(t, ["read"]);
+    const forged = Buffer.from(JSON.stringify({ ...claims, sid: other.clientSessionId })).toString("base64url");
     expect((await byeOf(t.client({ token: `${version}.${forged}.${signature}` }))).bye?.reason).toBe("unauthorized");
   });
 
@@ -252,11 +253,11 @@ describe("bye", () => {
       "not json",
       { type: "auth", protocolVersion: PROTOCOL_VERSION, clientKind: "tui", harnessVersion: "1" },
     ]) {
-      const connection = await t.open();
-      connection.send(first);
-      const closed = await connection.closed;
+      const socket = await t.open();
+      socket.send(first);
+      const closed = await socket.closed;
       expect(closed.bye?.reason, JSON.stringify(first)).toBe("unauthorized");
-      expect(connection.received.filter((frame) => frame.type !== "bye")).toEqual([]);
+      expect(socket.received.filter((frame) => frame.type !== "bye")).toEqual([]);
     }
   });
 
@@ -275,7 +276,7 @@ describe("bye", () => {
 
   it("expired: a token past its 30 days", async () => {
     const t = await start();
-    // A desktop session, since a tui one left unconnected is revoked after an hour.
+    // A desktop client session, since a tui one left unconnected is revoked after an hour.
     const credential = await t.bootstrap("desktop");
     expect(Date.parse(credential.expiresAt) - t.clock.now().getTime()).toBe(30 * DAY);
 
@@ -286,7 +287,7 @@ describe("bye", () => {
     expect((await byeOf(t.client({ token: credential.token, clientKind: "desktop" }))).bye?.reason).toBe("expired");
   });
 
-  it("expired: at the first ping after the token expires on an open connection", async () => {
+  it("expired: at the first ping after the token expires on an open socket", async () => {
     const t = await start();
     const credential = await t.bootstrap("desktop");
     t.clock.advance(30 * DAY - 20 * SECOND);
@@ -298,7 +299,7 @@ describe("bye", () => {
     expect((await client.closed).bye?.reason).toBe("expired");
   });
 
-  it("revoked: an open connection when its client session is revoked, and its token from then on", async () => {
+  it("revoked: an open socket when its client session is revoked, and its token from then on", async () => {
     const t = await start();
     const credential = issue(t, ["read"]);
     const client = await t.client({ token: credential.token });
@@ -337,7 +338,7 @@ describe("before the startup gate", () => {
     const address = await hold.reached;
     if (!address) throw new Error("the listener was not bound before the prepared step");
 
-    const early = await openWire(address);
+    const early = await openSocket(address);
     early.send({ type: "request", id: "before-auth", method: "environment.status", params: {} });
     expect(await early.next((f) => f.type === "response")).toEqual({
       type: "response",
@@ -409,7 +410,7 @@ describe("requests", () => {
     });
   });
 
-  it("answers a malformed request that has an id invalid_params, and keeps the connection", async () => {
+  it("answers a malformed request that has an id invalid_params, and keeps the socket", async () => {
     const t = await start();
     const client = await t.client();
     client.send({ type: "request", id: "bad", method: "environment.status", params: [] });
@@ -420,13 +421,36 @@ describe("requests", () => {
     expect(await client.request("environment.status", {})).toEqual({ readiness: "ready" });
   });
 
-  it("closes a connection that sends a frame it cannot answer, with no id", async () => {
+  it("says bye protocol, naming the fault, and closes 1002, on a malformed frame with no id to answer", async () => {
+    const t = await start();
+    for (const frame of ["{ not json", JSON.stringify({ type: "request", method: "environment.status", params: {} }), "[]"]) {
+      const client = await t.client();
+      client.send(frame);
+      const closed = await client.closed;
+      expect(closed.code, frame).toBe(1002);
+      expect(closed.bye, frame).toMatchObject({ reason: "protocol", message: expect.stringContaining("malformed") });
+    }
+  });
+
+  it("says bye protocol and closes 1003 on a binary frame", async () => {
     const t = await start();
     const client = await t.client();
-    client.send("{ not json");
+    client.send(new TextEncoder().encode(JSON.stringify({ type: "request", id: "1", method: "environment.status", params: {} })));
     const closed = await client.closed;
-    expect(closed.code).toBe(1002);
-    expect(closed.bye).toBeUndefined();
+    expect(closed.code).toBe(1003);
+    expect(closed.bye).toMatchObject({ reason: "protocol", message: expect.stringContaining("text") });
+  });
+
+  it("says bye protocol and closes 1002 on a frame kind a client does not send, a second auth included", async () => {
+    const t = await start();
+    const { token } = await t.bootstrap();
+    for (const frame of [authFrame(token), { type: "ping" }, { type: "bye", reason: "draining" }, { type: "subscribed", id: "1", subscription: "s" }]) {
+      const client = await t.client();
+      client.send(frame);
+      const closed = await client.closed;
+      expect(closed.code, frame.type).toBe(1002);
+      expect(closed.bye, frame.type).toMatchObject({ reason: "protocol", message: expect.stringContaining(frame.type) });
+    }
   });
 
   it("answers a stream method, once its scope is held, not_found until subscriptions exist (#110)", async () => {
@@ -465,7 +489,7 @@ describe("ping", () => {
     expect(client.isOpen()).toBe(true);
   });
 
-  it("never closes a connection that does not answer: the watchdog is the client's", async () => {
+  it("never closes a socket that does not answer: the watchdog is the client's", async () => {
     const t = await start();
     const client = await t.client({ autoPong: false });
     t.clock.advance(10 * MINUTE);
@@ -473,7 +497,7 @@ describe("ping", () => {
     expect(client.received.filter((frame: Frame) => frame.type === "ping")).toHaveLength(40);
   });
 
-  it("stops when the connection closes", async () => {
+  it("stops when the socket closes", async () => {
     const t = await start();
     const before = t.clock.pending();
     const client = await t.client();
@@ -484,12 +508,17 @@ describe("ping", () => {
 });
 
 describe("closing the environment", () => {
-  it("closes its open connections", async () => {
+  it("says bye draining to every open socket, then closes each 1001", async () => {
     const t = await startTestEnvironment({ clock: manualClock() });
-    const client = await t.client();
+    const one = await t.client();
+    const two = await t.client({ token: issue(t, ["read"]).token });
+    const unauthenticated = await t.open();
     await t.env.close();
-    const closed = await client.closed;
-    expect(closed.code).toBe(1001);
+    for (const socket of [one, two, unauthenticated]) {
+      const closed = await socket.closed;
+      expect(closed.code).toBe(1001);
+      expect(closed.bye).toMatchObject({ reason: "draining" });
+    }
     await t.close();
   });
 });

@@ -1,12 +1,13 @@
+import { Ceiling, ClientKind, ScopeSet, type Scope } from "@agent-harness/contracts";
 import type { Sql, Transaction } from "./database.js";
 
 /** One client session as the `client_sessions` table keeps it. Times are ISO 8601, UTC. */
 export interface ClientSessionRow {
   readonly id: string;
-  readonly kind: string;
+  readonly kind: ClientKind;
   readonly label: string;
-  readonly scopes: readonly string[];
-  readonly ceiling: string;
+  readonly scopes: readonly Scope[];
+  readonly ceiling: Ceiling;
   /** Issued through the bootstrap grant rather than by pairing. */
   readonly local: boolean;
   readonly createdAt: string;
@@ -43,12 +44,13 @@ interface Row {
   revoked_at: string | null;
 }
 
+/** A row as the environment uses it, its kind, scopes and ceiling read through the contracts' schemas: a row that fails them fails the start. */
 const decode = (row: Row): ClientSessionRow => ({
   id: row.id,
-  kind: row.kind,
+  kind: ClientKind.parse(row.kind),
   label: row.label,
-  scopes: JSON.parse(row.scopes) as string[],
-  ceiling: row.ceiling,
+  scopes: ScopeSet.parse(JSON.parse(row.scopes)),
+  ceiling: Ceiling.parse(row.ceiling),
   local: row.local === 1,
   createdAt: row.created_at,
   lastSeenAt: row.last_seen_at,

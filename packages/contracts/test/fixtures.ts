@@ -42,6 +42,9 @@ export const validDiscovery = {
   readiness: "starting",
 };
 
+/** An exchange refused for coming too often. */
+const validRateLimited = { code: "rate_limited", message: "Too many exchanges; try again in 6 seconds.", data: { retryAfterMs: 6000 } };
+
 /** A bootstrap grant file's contents. */
 const validGrant = { secret: "q9vXk0yZ3n0", address: { host: "127.0.0.1", port: 7433 } };
 
@@ -358,8 +361,23 @@ export const schemaFixtures: Record<string, Fixtures> = {
     ],
   },
   "bootstrap/error.json": {
-    valid: [sharedErrors.unauthorized, sharedErrors.invalid_params, sharedErrors.unavailable, sharedErrors.internal],
+    valid: [
+      sharedErrors.unauthorized,
+      sharedErrors.invalid_params,
+      sharedErrors.unavailable,
+      sharedErrors.internal,
+      validRateLimited,
+    ],
     invalid: [sharedErrors.forbidden, sharedErrors.not_found, { code: "unauthorized", message: "m" }],
+  },
+  "errors/rate_limited.json": {
+    valid: [validRateLimited, { ...validRateLimited, data: { retryAfterMs: 0 } }],
+    invalid: [
+      { ...validRateLimited, data: {} },
+      { ...validRateLimited, data: { retryAfterMs: -1 } },
+      { ...validRateLimited, data: { retryAfterMs: 1.5 } },
+      { ...validRateLimited, code: "throttled" },
+    ],
   },
   "client-session-credential.json": {
     valid: [validCredential],

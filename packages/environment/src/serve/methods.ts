@@ -1,9 +1,9 @@
 import type { MethodName, ParamsOf, ResultOf } from "@agent-harness/contracts";
-import type { VerifiedSession } from "../auth/client-sessions.js";
+import type { VerifiedClientSession } from "../auth/client-sessions.js";
 
 /** Who is calling: the client session the connection authenticated as. */
 export interface MethodContext {
-  readonly clientSession: VerifiedSession;
+  readonly clientSession: VerifiedClientSession;
 }
 
 /**
