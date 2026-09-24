@@ -315,6 +315,13 @@ describe("permissions.prompts.list", () => {
       data: { scope: "runs:drive" },
     });
   });
+
+  it("refuses a session that is not on the environment not_found, kind session, as every query naming a session does", async () => {
+    const t = await start();
+    const client = await t.client();
+    const unknown = randomUUID();
+    expect(await refusal(client.request("permissions.prompts.list", { sessionId: unknown }))).toEqual({ code: "not_found", data: { kind: "session", sessionId: unknown } });
+  });
 });
 
 describe("permissions.prompts.answer", () => {
