@@ -52,11 +52,26 @@ ruleTester.run("no-session-types-in-shell", rule, {
       code: `import type { SessionSummary } from "./projections.js";`,
       errors: [{ messageId: "sessionType", data: { name: "SessionSummary" } }],
     },
-    // A namespace or default import from contracts cannot be checked name by name.
+    // A namespace or default import cannot be checked name by name, whatever its source.
     {
       filename: shell,
       code: `import * as contracts from "@agent-harness/contracts";`,
-      errors: [{ messageId: "wholeContracts" }],
+      errors: [{ messageId: "wholeModule" }],
+    },
+    {
+      filename: shell,
+      code: `import * as projections from "./projections.js";`,
+      errors: [{ messageId: "wholeModule" }],
+    },
+    {
+      filename: shell,
+      code: `export * from "./projections.js";`,
+      errors: [{ messageId: "wholeModule" }],
+    },
+    {
+      filename: shell,
+      code: `export type Projections = import("./projections.js");`,
+      errors: [{ messageId: "wholeModule" }],
     },
   ],
 });

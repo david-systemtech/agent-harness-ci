@@ -42,7 +42,7 @@ export default defineConfig([
   {
     files: ["packages/contracts/**/*.ts"],
     rules: forbidImports(
-      "^(@agent-harness/|agent-harness(/|$))",
+      "^(@agent-harness/(?!contracts(/|$))|agent-harness(/|$))",
       "contracts depends on no other workspace package; the others depend on it.",
     ),
   },

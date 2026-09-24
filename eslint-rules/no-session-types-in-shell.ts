@@ -22,8 +22,10 @@ import { createRule } from "./create-rule.js";
  * by the name it has in the module it comes from, and every qualifier of an
  * `import("...")` type. Any source counts, not only `@agent-harness/contracts`,
  * because a contracts type re-exported through another module is the same
- * leak. A namespace or default import, `export *` or a dynamic import of
- * contracts is refused outright, since its names cannot be checked one by one.
+ * leak. For the same reason a namespace or default import, `export *`, a
+ * dynamic import or an unqualified `import("...")` type is refused outright
+ * from any source, since its names cannot be checked one by one; the shell
+ * interface is small enough to name every import.
  */
 export const SESSION_WORDS: ReadonlySet<string> = new Set([
   "session",
@@ -51,9 +53,6 @@ export const isSessionType = (name: string): boolean =>
     (word, i, all) => SESSION_WORDS.has(word) && !(word.startsWith("session") && all[i - 1] === "client"),
   );
 
-const isContracts = (source: string): boolean =>
-  source === "@agent-harness/contracts" || source.startsWith("@agent-harness/contracts/");
-
 const nameOf = (node: TSESTree.Identifier | TSESTree.StringLiteral): string =>
   node.type === AST_NODE_TYPES.Identifier ? node.name : node.value;
 
@@ -77,8 +76,8 @@ export const rule = createRule({
     messages: {
       sessionType:
         "The desktop shell must not carry '{{name}}': nothing about sessions, runs or organisation passes through the shell (ADR 0004). Pass a string the runtime parses, or a title and body the renderer composed.",
-      wholeContracts:
-        "Import named types from contracts into the desktop shell interface, so each can be checked for session, run and group types (ADR 0004).",
+      wholeModule:
+        "Import named types into the desktop shell interface, so each can be checked for session, run and group types (ADR 0004).",
     },
   },
   defaultOptions: [],
@@ -91,8 +90,8 @@ export const rule = createRule({
         for (const specifier of node.specifiers) {
           if (specifier.type === AST_NODE_TYPES.ImportSpecifier) {
             check(specifier, nameOf(specifier.imported));
-          } else if (isContracts(node.source.value)) {
-            context.report({ node: specifier, messageId: "wholeContracts" });
+          } else {
+            context.report({ node: specifier, messageId: "wholeModule" });
           }
         }
       },
@@ -101,16 +100,14 @@ export const rule = createRule({
         for (const specifier of node.specifiers) check(specifier, nameOf(specifier.local));
       },
       ExportAllDeclaration(node) {
-        if (isContracts(node.source.value)) context.report({ node, messageId: "wholeContracts" });
+        context.report({ node, messageId: "wholeModule" });
       },
       ImportExpression(node) {
-        if (node.source.type === AST_NODE_TYPES.Literal && isContracts(String(node.source.value))) {
-          context.report({ node, messageId: "wholeContracts" });
-        }
+        context.report({ node, messageId: "wholeModule" });
       },
       TSImportType(node) {
         if (!node.qualifier) {
-          if (isContracts(node.source.value)) context.report({ node, messageId: "wholeContracts" });
+          context.report({ node, messageId: "wholeModule" });
           return;
         }
         for (const part of qualifierNames(node.qualifier)) check(part, part.name);
