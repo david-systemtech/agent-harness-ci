@@ -49,7 +49,7 @@ import { signInNotBuilt, type SignInDirector, type SignInDirectorFactory, type S
  * - **Add** makes an owned directory under `<data dir>/accounts/<id>` and
  *   hands the account to the sign-in director (#135 fills it).
  * - **One identity is one account**: an owned account whose first identity
- *   (the sign-in's, read before it was ever signed in) is one another
+ *   (the sign-in's, read before it ever read as signed in) is one another
  *   account holds is refused, "already added as <label>", removed and its
  *   directory deleted; adopting a directory signed in as a held identity is
  *   rejected the same way.
@@ -330,15 +330,17 @@ export const createAccountService = (options: AccountServiceOptions): AccountSer
    */
   const recordObserved = (accountId: string, observed: Observed): { change: AccountChange; warning: string | null } | null =>
     log.atomically((tx) => {
-      const current = liveAccount(reader, accountId);
-      if (current === null) return null;
+      const stored = readAccount(reader, accountId);
+      if (stored === null || stored.removed) return null;
+      const current = stored.record;
       const events: EventInput[] = [];
       let change: AccountChange | null = null;
       let warning: string | null = null;
       const identity = observed.identity;
       if (identity !== null && !sameIdentity(identity, current.identity)) {
         const holder = accountByIdentity(reader, identity);
-        const firstSignIn = current.directory.kind === "owned" && current.identity === null && current.status.state !== "signed-in";
+        // Never signed in until this read, by the store's record rather than its current status, which a lapse resets.
+        const firstSignIn = current.directory.kind === "owned" && current.identity === null && !stored.everSignedIn;
         if (holder !== null && holder.id !== accountId && firstSignIn) {
           // The sign-in's refusal (ADR 0018): one identity is one account, so the new account goes with its directory. An
           // account that has been signed in may have run, and its directory hold history: it is only warned of, below.

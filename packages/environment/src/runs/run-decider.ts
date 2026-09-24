@@ -173,7 +173,7 @@ const attachmentsOf = (descriptor: AdapterDescriptor, attachments: readonly Atta
  */
 const modelOf = (account: AccountFacts, asked: string | null, family: string | null): ModelOption => {
   if (asked === null) {
-    const ofFamily = account.models.filter((option) => option.family === family);
+    const ofFamily = family === null ? [] : account.models.filter((option) => option.family === family);
     const strongest = [...(ofFamily.length > 0 ? ofFamily : account.models)].sort((a, b) => b.tier - a.tier)[0];
     if (strongest === undefined) throw invalid("model", `The account ${account.id} offers no model.`);
     return strongest;

@@ -327,6 +327,29 @@ describe("accounts.add", () => {
     expect(existsSync(added.directory.path)).toBe(true);
     expect(notices(t).at(-1)).toEqual({ accountId: added.id, change: "identity-mismatch", warning: expect.stringContaining(`already added as ${DAVID}`) });
   });
+
+  it("only warns, and keeps the directory, when an account signed in once with no identity read has since expired and then reads as a held identity", async () => {
+    const ambient = makeAmbient();
+    const t = await start({ fake: { ambientDirectory: ambient, status: statusBy(ambient) } });
+    const client = await t.client();
+    const adopted = await adoptAmbient(client);
+    const added = (await applied(client, "accounts.add", { label: "Second" })).account;
+    const only = (status: AuthStatus) => (ref: { readonly id: string; readonly directory: string | null }) =>
+      ref.directory === added.directory.path ? status : statusBy(ambient)(ref);
+    t.adapter.setStatus(only({ ...signedInAs("unnamed@example.com"), email: null }));
+    await client.request("accounts.refresh", { accountId: added.id });
+    // It has run as signed in; now its login lapses, so the snapshot says neither signed in nor an identity.
+    t.adapter.setStatus(only({ ...signedInAs(null), expired: true }));
+    await client.request("accounts.refresh", { accountId: added.id });
+    expect((await list(client)).find((account) => account.id === added.id)).toMatchObject({ identity: null, status: { state: "expired" } });
+    t.adapter.setStatus(statusBy(ambient, { [added.directory.path]: DAVID }));
+    await client.request("accounts.refresh", { accountId: added.id });
+    expect((await list(client)).map((account) => account.id)).toEqual([adopted.id, added.id]);
+    expect(existsSync(added.directory.path)).toBe(true);
+    expect(accountEvents(t, added.id).map((event) => event.type)).not.toContain("account.removed");
+    // Its status changed back to signed in by the same read, which the notice names, with the warning.
+    expect(notices(t).at(-1)).toEqual({ accountId: added.id, change: "status-changed", warning: expect.stringContaining(`already added as ${DAVID}`) });
+  });
 });
 
 describe("accounts.relabel", () => {

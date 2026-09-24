@@ -22,7 +22,10 @@ import type { Reader } from "../sessions/session-tables.js";
  * rebuilt from the log. A removed account keeps its row, marked removed, so
  * its provider is still known (a purge routes a transcript delete by it) and
  * a directory whose deletion was recorded but not carried out is removed at
- * the next start. Two live accounts never share a label ignoring case, nor
+ * the next start. A row also remembers whether the account has ever read
+ * as signed in, which its current status cannot say once it has lapsed: an
+ * account that has may have run, and is never refused as a duplicate
+ * identity with its directory. Two live accounts never share a label ignoring case, nor
  * an identity: the partial unique indexes hold what the account service
  * checks before it appends.
  */
@@ -43,6 +46,7 @@ export const ACCOUNTS_TABLES = {
     status TEXT NOT NULL CHECK (status IN ('signed-in', 'signed-out', 'expired', 'unreadable')),
     status_detail TEXT,
     status_at TEXT,
+    signed_in_ever INTEGER NOT NULL DEFAULT 0 CHECK (signed_in_ever IN (0, 1)),
     created_at TEXT NOT NULL,
     removed_at TEXT,
     directory_deleted_at TEXT
@@ -107,7 +111,14 @@ export const accountsProjector: Projector = {
       }
       case "account.status-changed": {
         const { accountId, status, detail } = event.payload as AccountStatusChangedPayload;
-        db.run("UPDATE accounts SET status = ?, status_detail = ?, status_at = ? WHERE id = ?", status, detail, event.occurredAt, accountId);
+        db.run(
+          "UPDATE accounts SET status = ?, status_detail = ?, status_at = ?, signed_in_ever = MAX(signed_in_ever, ?) WHERE id = ?",
+          status,
+          detail,
+          event.occurredAt,
+          status === "signed-in" ? 1 : 0,
+          accountId,
+        );
         return;
       }
       case "account.relabelled": {
@@ -136,6 +147,7 @@ interface AccountRow {
   status: AccountStatusState;
   status_detail: string | null;
   status_at: string | null;
+  signed_in_ever: number;
   created_at: string;
   removed_at: string | null;
   directory_deleted_at: string | null;
@@ -146,9 +158,12 @@ export interface StoredAccount {
   readonly record: AccountRecord;
   readonly removed: boolean;
   readonly directoryDeleted: boolean;
+  /** Whether a status read has ever found it signed in, whatever it reads now. */
+  readonly everSignedIn: boolean;
 }
 
-const COLUMNS = "id, provider, label, directory_kind, directory, identity, status, status_detail, status_at, created_at, removed_at, directory_deleted_at";
+const COLUMNS =
+  "id, provider, label, directory_kind, directory, identity, status, status_detail, status_at, signed_in_ever, created_at, removed_at, directory_deleted_at";
 
 const stored = (row: AccountRow): StoredAccount => ({
   record: {
@@ -162,6 +177,7 @@ const stored = (row: AccountRow): StoredAccount => ({
   },
   removed: row.removed_at !== null,
   directoryDeleted: row.directory_deleted_at !== null,
+  everSignedIn: row.signed_in_ever === 1,
 });
 
 /** The accounts the environment holds, in the order they were adopted or added. */
