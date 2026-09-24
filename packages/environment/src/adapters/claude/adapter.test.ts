@@ -266,6 +266,11 @@ describe("the streaming input", () => {
     await expect(run.send(image("image/svg+xml"))).rejects.toThrow(/image\/svg\+xml/);
   });
 
+  it("has the fake SDK tell a test waiting for prompts when the stream ends short, rather than wait for ever", async () => {
+    const query = fake.query({ prompt: (async function* () { yield { type: "user", message: { role: "user", content: "Only one" }, parent_tool_use_id: null } as never; })() });
+    await expect(query.promptsPushed(2)).rejects.toThrow(/ended after 1 prompt/);
+  });
+
   it("pushes a message sent during the turn, and reports it steered when the turn reads it", async () => {
     const adapter = adapterWith();
     const input = runInput();

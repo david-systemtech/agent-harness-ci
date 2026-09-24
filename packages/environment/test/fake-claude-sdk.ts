@@ -76,11 +76,16 @@ export class FakeQuery {
 
   /** Reads the streaming input as the CLI does, for the whole life of the query. */
   async #read(prompt: AsyncIterable<SDKUserMessage>): Promise<void> {
-    for await (const message of prompt) {
-      this.prompts.push(message);
+    try {
+      for await (const message of prompt) {
+        this.prompts.push(message);
+        for (const wake of this.#promptWaiters.splice(0)) wake();
+      }
+    } finally {
+      // Ended or failed: whoever waits for more prompts is told there will be none.
+      this.promptEnded = true;
       for (const wake of this.#promptWaiters.splice(0)) wake();
     }
-    this.promptEnded = true;
   }
 
   /** The environment the CLI would have been spawned with. */
@@ -90,7 +95,10 @@ export class FakeQuery {
 
   /** Resolves once the adapter has pushed `count` prompts in all. */
   async promptsPushed(count: number): Promise<SDKUserMessage[]> {
-    while (this.prompts.length < count) await new Promise<void>((resolve) => this.#promptWaiters.push(resolve));
+    while (this.prompts.length < count) {
+      if (this.promptEnded) throw new Error(`The prompt stream ended after ${this.prompts.length} prompt(s), not ${count}.`);
+      await new Promise<void>((resolve) => this.#promptWaiters.push(resolve));
+    }
     return this.prompts;
   }
 
