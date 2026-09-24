@@ -189,8 +189,8 @@ export interface LoadedKeymap {
 /**
  * The keymap from a parsed keybindings object: unknown ids and key names
  * reported and ignored, an action left with no key, or a move action given
- * other than an up and a down key, keeping its defaults, a clash refusing
- * the whole mapping.
+ * other than two different keys (up, then down), keeping its defaults, a
+ * clash refusing the whole mapping.
  */
 export const resolveKeymap = (mapping: unknown, source = "keybindings.json"): LoadedKeymap => {
   if (typeof mapping !== "object" || mapping === null || Array.isArray(mapping)) {
@@ -214,9 +214,9 @@ export const resolveKeymap = (mapping: unknown, source = "keybindings.json"): Lo
       if (name === undefined) problems.push(`${source}: ${JSON.stringify(k)} is not a key name; ignored for ${id}.`);
       else names.push(name);
     }
-    if (MOVE_ACTIONS.has(id) && names.length !== 2) {
-      // `moveOf` reads a move action's first key as up and its second as down.
-      problems.push(`${source}: ${id} takes two keys, up then down; its default keys stand.`);
+    if (MOVE_ACTIONS.has(id) && (names.length !== 2 || names[0] === names[1])) {
+      // `moveOf` reads a move action's first key as up and its second as down, so they must be two and differ.
+      problems.push(`${source}: ${id} takes two different keys, up then down; its default keys stand.`);
       continue;
     }
     if (names.length === 0) {
