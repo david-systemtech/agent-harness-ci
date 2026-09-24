@@ -94,13 +94,12 @@ const taskUser = (installContext: InstallContext): string => {
 /**
  * What `schtasks /Query /XML` printed, as text. The runner decodes output as
  * UTF-8; when schtasks writes UTF-16 instead (as its exported task XML is),
- * the decoded text carries the NUL bytes, which this turns back into the
- * characters. A byte order mark is dropped either way.
+ * the decoded text carries a NUL after every ASCII character and a mangled
+ * byte order mark in front of the first `<`. Dropping those recovers ASCII XML exactly, which
+ * is what the rendered task is; a non-ASCII user name would come back
+ * damaged, which the checklist's Windows section asks to check.
  */
-export const decodeTaskXml = (output: string): string => {
-  const text = output.includes("\u0000") ? Buffer.from(output, "utf8").toString("utf16le") : output;
-  return text.replace(/^\ufeff/, "");
-};
+export const decodeTaskXml = (output: string): string => output.split("\u0000").join("").replace(/^[^<]+/, "");
 
 export const taskSchedulerPlatform = (installContext: InstallContext, commands: ServiceCommands): ServicePlatform => {
   const name = SERVICE_LABEL;
