@@ -131,7 +131,7 @@ const start = async (args: readonly string[], context: ServiceContext): Promise<
 const serviceStatus = async (args: readonly string[], context: ServiceContext): Promise<number> => {
   const values = parseOptions(args, { "data-dir": { type: "string" }, port: { type: "string" }, json: { type: "boolean" } });
   const { platform, dataDir } = resolveService(context, values["data-dir"]);
-  const port = parsePort(values.port, 1) ?? readServiceRecord(dataDir)?.port ?? DEFAULT_PORT;
+  const port = parsePort(values.port, 1) ?? servicePort(dataDir);
   const address = environmentAddress(port);
   const [installed, running, discovery] = await Promise.all([
     platform.isInstalled(),
@@ -166,14 +166,8 @@ const serviceStatus = async (args: readonly string[], context: ServiceContext): 
 /** Whether a service is installed for this OS user, as `service status`'s first line reads it: the terminal UI's service-down offer asks. */
 export const serviceInstalled = (context: Pick<ServiceContext, "seams">): Promise<boolean> => resolveService(context, undefined).platform.isInstalled();
 
-/** The port the installed service's environment answers on (`service status`'s rule): the record's, else `DEFAULT_PORT`. */
-export const servicePort = (dataDir: string): number => {
-  try {
-    return readServiceRecord(dataDir)?.port ?? DEFAULT_PORT;
-  } catch {
-    return DEFAULT_PORT;
-  }
-};
+/** The port the installed service's environment answers on: the record's, else `DEFAULT_PORT`; a record that cannot be read is a `ServiceError`. */
+export const servicePort = (dataDir: string): number => readServiceRecord(dataDir)?.port ?? DEFAULT_PORT;
 
 const VERBS = new Map<string, (args: readonly string[], context: ServiceContext) => Promise<number>>([
   ["install", install],

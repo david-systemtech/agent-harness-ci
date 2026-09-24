@@ -116,10 +116,6 @@ describe("agent-harness tui", () => {
     expect(await harness().launch("--continue")).toMatchObject({ continueLatest: true });
   });
 
-  it("reads the grant of another environment on this machine with --data-dir", async () => {
-    expect(await harness().launch("--data-dir", "other/data")).toMatchObject({ dataDir: resolve("other/data") });
-  });
-
   it("exits with the terminal UI's exit code", async () => {
     const cli = harness({ exitCode: 1 });
     expect(await cli.run("tui")).toBe(1);
@@ -133,11 +129,12 @@ describe("agent-harness tui", () => {
       ["tui", "--environment", ""],
       ["tui", "--session", "0199aa00-0000-4000-8000-000000000001", "-c"],
       ["tui", "--no-such-flag"],
+      ["tui", "--data-dir", "other"],
     ]) {
       const cli = harness();
       expect(await cli.run(...args), args.join(" ")).toBe(2);
       expect(cli.err(), args.join(" ")).toContain(
-        "agent-harness tui [--environment <name or id>] [--session <id> | -c] [--cwd <path>] [--keybindings <file>] [--data-dir <path>]",
+        "agent-harness tui [--environment <name or id>] [--session <id> | -c] [--cwd <path>] [--keybindings <file>]",
       );
       expect(cli.launched).toEqual([]);
     }
@@ -167,7 +164,7 @@ describe("the service verbs agent-harness tui hands the terminal UI", () => {
 
   it("installs the service with the service install verb, into the data directory the terminal UI reads", async () => {
     const cli = harness();
-    const { services, dataDir } = await cli.launch("--data-dir", join(cli.home, "second"));
+    const { services, dataDir } = await cli.launch();
     expect(await services.install()).toMatchObject({ ok: true });
     expect(existsSync(unitPath(cli.home))).toBe(true);
     expect(readFileSync(unitPath(cli.home), "utf8")).toContain(`--data-dir ${dataDir}`);

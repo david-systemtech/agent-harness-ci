@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
 import { PRODUCT_NAME } from "@agent-harness/contracts";
 import { defaultDataDirectory, HARNESS_VERSION } from "@agent-harness/environment";
-import type { LocalReadiness, LocalService, ServiceOutcome, TuiOptions } from "@agent-harness/tui";
+import type { LocalService, ServiceOutcome, TuiOptions } from "@agent-harness/tui";
 import { parseOptions, UsageError } from "./args.js";
 import { discoverEnvironment } from "./discover.js";
 import { service, serviceInstalled, servicePort, type ServiceContext } from "./service/verbs.js";
@@ -15,7 +15,7 @@ import { service, serviceInstalled, servicePort, type ServiceContext } from "./s
  * the service-down offer runs. Artemis's `-p` and `ls` are not carried.
  */
 
-export const TUI_USAGE = `${PRODUCT_NAME} tui [--environment <name or id>] [--session <id> | -c] [--cwd <path>] [--keybindings <file>] [--data-dir <path>]`;
+export const TUI_USAGE = `${PRODUCT_NAME} tui [--environment <name or id>] [--session <id> | -c] [--cwd <path>] [--keybindings <file>]`;
 
 /** The terminal UI's entry point: `runTui`, loaded only when `tui` runs, so `serve` never loads Ink and React. */
 export type RunTui = (options: TuiOptions) => Promise<number>;
@@ -25,7 +25,7 @@ export interface TuiContext extends Pick<ServiceContext, "fetch" | "user" | "sea
   readonly runTui?: RunTui | undefined;
 }
 
-type TuiFlags = Pick<TuiOptions, "environment" | "session" | "continueLatest" | "cwd" | "keybindings"> & { readonly dataDir?: string };
+type TuiFlags = Pick<TuiOptions, "environment" | "session" | "continueLatest" | "cwd" | "keybindings">;
 
 const nonEmpty = (flag: string, value: string | undefined): string | undefined => {
   if (value !== undefined && value.trim() === "") throw new UsageError(`${flag} takes a value; got an empty one.`);
@@ -39,20 +39,17 @@ const parseTui = (args: readonly string[]): TuiFlags => {
     continue: { type: "boolean", short: "c" },
     cwd: { type: "string" },
     keybindings: { type: "string" },
-    "data-dir": { type: "string" },
   });
   const session = nonEmpty("--session", values.session);
   if (session !== undefined && values.continue) throw new UsageError("--session and -c each name the session to open; give one.");
   const cwd = nonEmpty("--cwd", values.cwd);
   const keybindings = nonEmpty("--keybindings", values.keybindings);
-  const dataDir = nonEmpty("--data-dir", values["data-dir"]);
   return {
     environment: nonEmpty("--environment", values.environment),
     session,
     continueLatest: values.continue ?? false,
     cwd: cwd === undefined ? undefined : resolve(cwd),
     keybindings: keybindings === undefined ? undefined : resolve(keybindings),
-    ...(dataDir !== undefined && { dataDir: resolve(dataDir) }),
   };
 };
 
@@ -82,15 +79,14 @@ const runVerb = async (args: readonly string[], context: TuiContext): Promise<Se
 
 /**
  * The local environment's service as the terminal UI drives it: `service
- * install` (into the data directory `tui` reads, when `--data-dir` named
- * one) and `service start`, and the environment's readiness from its
+ * install` and `service start`, and the environment's readiness from its
  * discovery URL on the port the service was installed on.
  */
-export const localService = (context: TuiContext, dataDir: string, dataDirNamed: boolean): LocalService => ({
+export const localService = (context: TuiContext, dataDir: string): LocalService => ({
   installed: () => serviceInstalled(context),
-  install: () => runVerb(["install", ...(dataDirNamed ? ["--data-dir", dataDir] : [])], context),
+  install: () => runVerb(["install"], context),
   start: () => runVerb(["start"], context),
-  readiness: async (): Promise<LocalReadiness> => {
+  readiness: async () => {
     const discovery = await discoverEnvironment(context.fetch, servicePort(dataDir));
     return discovery.kind === "environment" ? discovery.document.readiness : "nothing";
   },
@@ -98,9 +94,10 @@ export const localService = (context: TuiContext, dataDir: string, dataDirNamed:
 
 /** `tui`: runs the terminal UI until it quits, and exits with its code. */
 export const tui = async (args: readonly string[], context: TuiContext): Promise<number> => {
-  const { dataDir: namedDataDir, ...flags } = parseTui(args);
+  const flags = parseTui(args);
+  // The data directory `serve` and the service verbs use when given none; the service seam's install context in tests.
   const installContext = context.seams.installContext;
-  const dataDir = namedDataDir ?? (installContext ? defaultDataDirectory(installContext) : defaultDataDirectory());
+  const dataDir = installContext ? defaultDataDirectory(installContext) : defaultDataDirectory();
   const runTui = context.runTui ?? (await import("@agent-harness/tui")).runTui;
-  return runTui({ ...flags, dataDir, version: HARNESS_VERSION, services: localService(context, dataDir, namedDataDir !== undefined) });
+  return runTui({ ...flags, dataDir, version: HARNESS_VERSION, services: localService(context, dataDir) });
 };
