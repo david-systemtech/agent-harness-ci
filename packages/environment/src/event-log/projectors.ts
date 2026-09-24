@@ -115,12 +115,14 @@ export const createProjections = (sql: Sql, transaction: Transaction, clock: () 
       if (projectors.some((p) => p.name === projector.name)) {
         throw new Error(`A projector named ${projector.name} is already registered.`);
       }
+      // SQLite resolves table names ignoring ASCII case, so every ownership check compares lowercased names.
       for (const table of Object.keys(projector.tables)) {
-        if (!TABLE_NAME.test(table) || table.startsWith("sqlite_")) {
+        const name = table.toLowerCase();
+        if (!TABLE_NAME.test(table) || name.startsWith("sqlite_")) {
           throw new Error(`Projector ${projector.name} declared ${JSON.stringify(table)}, which is not a table name.`);
         }
-        if (logTables().has(table)) throw new Error(`Table ${table} is owned by the event log itself.`);
-        const owner = tableOwners.get(table);
+        if (logTables().has(name)) throw new Error(`Table ${table} is owned by the event log itself.`);
+        const owner = tableOwners.get(name);
         if (owner) throw new Error(`Table ${table} is owned by projector ${owner}.`);
       }
       transaction(() => {
@@ -131,7 +133,7 @@ export const createProjections = (sql: Sql, transaction: Transaction, clock: () 
         catchUpOne(projector);
       });
       projectors.push(projector);
-      for (const table of Object.keys(projector.tables)) tableOwners.set(table, projector.name);
+      for (const table of Object.keys(projector.tables)) tableOwners.set(table.toLowerCase(), projector.name);
     },
 
     /** Drops every registered projector's tables, recreates them and replays the whole log, in one transaction. */

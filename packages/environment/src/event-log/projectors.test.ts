@@ -212,6 +212,11 @@ describe("projectors", () => {
     });
     expect(() => log.registerProjector(claiming("type_counts"))).toThrow(/owned/);
     expect(() => log.registerProjector(claiming("events"))).toThrow(/owned/);
+    // SQLite ignores ASCII case in table names, so a case variant is the same table.
+    expect(() => log.registerProjector(claiming("Events"))).toThrow(/owned/);
+    expect(() => log.registerProjector(claiming("TYPE_COUNTS"))).toThrow(/owned/);
+    expect(() => log.registerProjector(claiming("SQLITE_master"))).toThrow(/not a table name/);
+    expect(log.readStream({ kind: "session", id: "any" })).toEqual([]);
   });
 
   it("are refused a declared table their statements do not create", () => {

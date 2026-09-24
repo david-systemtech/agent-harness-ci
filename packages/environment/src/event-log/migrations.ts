@@ -99,7 +99,8 @@ export const applyMigrations = (db: DatabaseSync, migrations: readonly Migration
       }
       db.exec("COMMIT");
     } catch (error) {
-      db.exec("ROLLBACK");
+      // SQLite rolls back on its own after some failures (disk full, I/O error); a second ROLLBACK would mask the cause.
+      if (db.isTransaction) db.exec("ROLLBACK");
       throw error;
     }
   }
