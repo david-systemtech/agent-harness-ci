@@ -55,7 +55,8 @@ export type SessionCommand =
   | "sessions.tag"
   | "sessions.untag"
   | "sessions.setDraft"
-  | "sessions.setGroup";
+  | "sessions.setGroup"
+  | "sessions.restore";
 
 /** The group commands, by name. */
 export type GroupCommand = "groups.create" | "groups.rename" | "groups.reorder" | "groups.delete";
@@ -66,6 +67,20 @@ export type GroupCommand = "groups.create" | "groups.rename" | "groups.reorder" 
  */
 export const command = async <N extends SessionCommand | GroupCommand>(client: WireClient, method: N, params: CommandParams<N>): Promise<ResponseOf<N>> =>
   registry[method].response.parse(await client.request(method, { commandId: randomUUID(), ...params } as ParamsOf<N>)) as ResponseOf<N>;
+
+/** Sends `sessions.delete` with a fresh command id; resolves with what its response carries. */
+export const deleteSession = async (client: WireClient, sessionId: string, deleteProviderTranscript?: boolean) =>
+  registry["sessions.delete"].response.parse(
+    await client.request("sessions.delete", {
+      commandId: randomUUID(),
+      sessionId,
+      ...(deleteProviderTranscript !== undefined && { deleteProviderTranscript }),
+    }),
+  );
+
+/** Sends `sessions.purge` with a fresh command id; resolves with what its response carries. */
+export const purgeSession = async (client: WireClient, sessionId: string) =>
+  registry["sessions.purge"].response.parse(await client.request("sessions.purge", { commandId: randomUUID(), sessionId }));
 
 /** The summary `sessions.get` answers. */
 export const get = async (client: WireClient, sessionId: string): Promise<SessionSummary> =>

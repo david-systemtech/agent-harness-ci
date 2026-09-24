@@ -76,6 +76,10 @@ _Avoid_: done, completed, closed
 The state of a session kept out of the active list until a chosen time.
 _Avoid_: muted, hidden
 
+**Tombstone**:
+The one event left in an environment's log for a purged session: it says the session is gone and what became of the provider's transcript, so a client that last saw the session learns to drop it.
+_Avoid_: purge marker, deletion record
+
 **Client runtime**:
 The UI-free package every client renders from: connections, pairing, subscriptions with their caches and outbox, projections, command dispatch and capability flags. The only place session semantics live on the client side.
 _Avoid_: SDK, store, bridge

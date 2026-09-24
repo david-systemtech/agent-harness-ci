@@ -180,7 +180,11 @@ const deletion = z.object({
   purgeAt: Timestamp.meta({ description: "When the session is purged, unless it is restored first." }),
 });
 
-/** Delete the session: it leaves the list at once and can be restored for thirty days. */
+/**
+ * Delete the session: it leaves the list at once and can be restored for
+ * thirty days, then it is purged. A session already deleted is rejected
+ * `not_found`, as every command but restore and purge is.
+ */
 export const sessionsDelete = defineMethod({
   name: "sessions.delete",
   scope: "sessions:write",
@@ -195,10 +199,19 @@ export const sessionsDelete = defineMethod({
   errors: [],
 });
 
-/** Bring a deleted session back unchanged, within its grace period. */
+/**
+ * Bring a deleted session back unchanged, within its grace period; after
+ * `purgeAt`, or once purged, it is rejected `not_found`. A session that is
+ * not deleted is unchanged.
+ */
 export const sessionsRestore = sessionCommand("sessions.restore");
 
-/** Purge a deleted session now rather than at the end of its grace period. */
+/**
+ * Purge a deleted session now rather than at the end of its grace period:
+ * its events, snapshots and read models go, and `session.purged` is the one
+ * event left on its stream. A session that is not deleted is rejected
+ * `conflict` (reason `not_deleted`); an unknown or purged one `not_found`.
+ */
 export const sessionsPurge = defineMethod({
   name: "sessions.purge",
   scope: "sessions:write",
@@ -273,7 +286,7 @@ export const sessionsGet = defineMethod({
   errors: [],
 });
 
-/** The deleted sessions that can still be restored, with when each will be purged. */
+/** The deleted sessions that can still be restored, with when each was deleted and will be purged, oldest deletion first. */
 export const sessionsListDeleted = defineMethod({
   name: "sessions.listDeleted",
   scope: "read",
@@ -310,8 +323,9 @@ export const sessionsSubscribe = defineMethod({
 /**
  * One session: its snapshot is the summary and the transcript, whose shape
  * is the adapter workstream's (#119); its events are every event of the
- * session's stream. It ends with reason `deleted` when the session is
- * deleted; an unknown or purged id is `not_found`.
+ * session's stream. It delivers `session.deleted` and ends with reason
+ * `deleted` when the session is deleted; an unknown, deleted or purged id
+ * is `not_found`.
  */
 export const sessionsSubscribeSession = defineMethod({
   name: "sessions.subscribeSession",

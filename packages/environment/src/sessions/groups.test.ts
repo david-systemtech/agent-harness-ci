@@ -1,11 +1,23 @@
 import { randomUUID } from "node:crypto";
-import { SessionListSnapshot, sortGroups, type EventEnvelope, type EventFrame, type Group } from "@agent-harness/contracts";
+import { LIST_PATCH_KEY, SessionListSnapshot, sortGroups, type EventEnvelope, type EventFrame, type Group } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { MANUAL_CLOCK_START } from "../../test/clock.js";
 import { createGroup, groupPatchOf, listGroups } from "../../test/groups.js";
 import { startTestEnvironment, type TestEnvironment } from "../../test/helper.js";
-import { command, create, freshSummary, get, listStream, patchOf, reduce, refusal, workspace, type GroupCommand } from "../../test/sessions.js";
+import {
+  command,
+  create,
+  deleteSession,
+  freshSummary,
+  get,
+  listStream,
+  patchOf,
+  reduce,
+  refusal,
+  workspace,
+  type GroupCommand,
+} from "../../test/sessions.js";
 import type { WireClient } from "../../test/wire-client.js";
 
 /**
@@ -287,9 +299,33 @@ describe("groups.reorder", () => {
 });
 
 describe("groups.delete", () => {
-  it.todo(
-    "ungroups a deleted member when its group is deleted: its session.group-set carries no patch, and a restore brings it back with groupId null (needs sessions.delete and sessions.restore, #118)",
-  );
+  it("ungroups a deleted member when its group is deleted: its session.group-set carries no patch, and a restore brings it back with groupId null, otherwise as deletion left it but for updatedAt", async () => {
+    const t = await start();
+    const client = await t.client();
+    const { id: groupId } = await createGroup(client, { name: "Doomed" });
+    const { id } = await create(client, { groupId, title: "Grouped", tags: ["wip"] });
+    await command(client, "sessions.pin", { sessionId: id, orderKey: "m" });
+    const asDeleted = await get(client, id);
+    await deleteSession(client, id);
+    const { list } = await withList(t);
+
+    await command(client, "groups.delete", { groupId });
+    const events = [await list.next(), await list.next()];
+    const ungrouped = events.find((event) => event.type === "session.group-set");
+    expect(ungrouped).toMatchObject({ streamId: id, payload: { groupId: null } });
+    expect(ungrouped?.metadata).not.toHaveProperty(LIST_PATCH_KEY);
+    expect(events.map((event) => event.type).sort()).toEqual(["group.deleted", "session.group-set"]);
+
+    t.clock.advance(60_000);
+    const restored = await command(client, "sessions.restore", { sessionId: id });
+    // The ungrouping moved updatedAt to its own instant; the restore itself moves nothing.
+    const expected = { ...asDeleted, groupId: null, updatedAt: at(60_000) };
+    expect(restored.result).toEqual({ summary: expected });
+    const back = await list.next();
+    expect(back).toMatchObject({ type: "session.restored", streamId: id });
+    expect(patchOf(back)).toEqual({ op: "add", summary: expected });
+    expect(await get(client, id)).toEqual(expected);
+  });
 
   it("deletes the group and, in the same transaction, ungroups each member with one session.group-set whose causation is the group event", async () => {
     const t = await start();

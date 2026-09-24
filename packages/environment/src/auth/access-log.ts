@@ -21,7 +21,7 @@ export const SYSTEM = {
   bootstrap: { actor: { kind: "system", id: "bootstrap" } },
   /** The pairing exchange at `/api/pair`. */
   exchange: { actor: { kind: "system", id: "exchange" } },
-  /** The minute sweep: expired pairings, idle `tui` local client sessions. */
+  /** The minute sweep: expired pairings, idle `tui` local client sessions, and the purge of deleted sessions past their grace period. */
   sweep: { actor: { kind: "system", id: "sweep" } },
   /** The process embedding the environment, through its handle. */
   owner: { actor: { kind: "system", id: "owner" } },

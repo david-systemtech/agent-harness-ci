@@ -107,12 +107,6 @@ export const OWED_HANDLERS = {
   "sessions.unsettle": "#117",
   "sessions.snooze": "#117",
   "sessions.unsnooze": "#117",
-  // Deletion (#118).
-  "sessions.delete": "#118",
-  "sessions.restore": "#118",
-  "sessions.purge": "#118",
-  "sessions.listDeleted": "#118",
-  "sessions.subscribeSession": "#118",
 } as const satisfies { readonly [N in MethodName]?: `#${number}` };
 export type Registry = { readonly [M in Registered as M["name"]]: M };
 

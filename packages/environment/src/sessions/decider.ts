@@ -4,6 +4,7 @@ import {
   type SessionArchivedPayload,
   type SessionActiveReorderedPayload,
   type SessionCreatedPayload,
+  type SessionDeletedPayload,
   type SessionDraftSetPayload,
   type SessionGroupSetPayload,
   type SessionPinReorderedPayload,
@@ -28,7 +29,12 @@ import type { EventInput, JsonObject } from "../event-log/event-log.js";
  * user title, and the summary fields the filing commands decide on.
  */
 export interface SessionState {
+  /** Deleted: in its grace period, or purged. */
   readonly deleted: boolean;
+  /** Purged: deleted with nothing left of it but its tombstone; its id stays used. */
+  readonly purged: boolean;
+  /** When a deleted session in its grace period is purged, as ISO 8601 UTC; null for one not deleted, or purged. */
+  readonly purgeAt: string | null;
   readonly userTitle: string | null;
   readonly archivedAt: string | null;
   readonly pinnedAt: string | null;
@@ -46,6 +52,8 @@ export interface SessionState {
 /** A purged session: its id stays used, so it reads as deleted with nothing left of it. */
 export const PURGED_STATE: SessionState = {
   deleted: true,
+  purged: true,
+  purgeAt: null,
   userTitle: null,
   archivedAt: null,
   pinnedAt: null,
@@ -162,7 +170,7 @@ const present = (state: SessionState | null, sessionId: string): SessionState | 
   state === null || state.deleted ? { rejected: sessionNotFound(sessionId) } : state;
 
 /** A `conflict` naming the session and why its state does not allow the command. */
-const conflict = (sessionId: string, reason: string, message: string, data: JsonObject = {}): Decision => ({
+const conflict = (sessionId: string, reason: string, message: string, data: JsonObject = {}): { readonly rejected: Refusal } => ({
   rejected: { code: "conflict", message, data: { reason, sessionId, ...data } },
 });
 
@@ -331,6 +339,63 @@ export const decideSetDraft = (state: SessionState | null, command: SetDraft): D
   if (draft === session.draft) return unchanged;
   const payload: SessionDraftSetPayload = { draft };
   return { events: [{ type: "session.draft-set", payload }] };
+};
+
+/** How long a deleted session can be restored before it is purged: thirty days, a constant rather than a setting. */
+export const DELETION_GRACE_MS = 30 * 24 * 60 * 60 * 1000;
+
+/** `sessions.delete`: when it runs, and whether the purge is to delete the provider's transcript too. */
+export interface DeleteSession extends OnSession, AtTime {
+  readonly deleteProviderTranscript: boolean;
+}
+
+/**
+ * Deletes the session at `at`: one `session.deleted`, purged `DELETION_GRACE_MS`
+ * later unless restored, with the transcript flag as asked. A session already
+ * deleted is not found, as it is for every command but restore and purge.
+ *
+ * What deletion obliges elsewhere (stopping the session's provider process,
+ * closing its terminals) is the adapter's and the terminal workstreams',
+ * triggered by this event on the log; restore touches neither.
+ */
+export const decideDelete = (state: SessionState | null, command: DeleteSession): Decision => {
+  const session = present(state, command.sessionId);
+  if ("rejected" in session) return session;
+  const payload: SessionDeletedPayload = {
+    deletedAt: command.at,
+    purgeAt: new Date(Date.parse(command.at) + DELETION_GRACE_MS).toISOString(),
+    deleteProviderTranscript: command.deleteProviderTranscript,
+  };
+  return { events: [{ type: "session.deleted", payload }] };
+};
+
+/**
+ * Restores a deleted session before its `purgeAt`: one `session.restored`,
+ * which brings it back as it was. Once `purgeAt` has come it is not found,
+ * whether or not the sweep has purged it yet; so is one purged or never
+ * created. A session that is not deleted is unchanged.
+ */
+export const decideRestore = (state: SessionState | null, command: OnSession & AtTime): Decision => {
+  if (state === null || state.purged) return { rejected: sessionNotFound(command.sessionId) };
+  if (!state.deleted) return unchanged;
+  if (state.purgeAt === null || command.at >= state.purgeAt) return { rejected: sessionNotFound(command.sessionId) };
+  return { events: [{ type: "session.restored", payload: {} }] };
+};
+
+/**
+ * Whether `sessions.purge` may purge the session now: only a deleted one,
+ * in its grace period or past it. One not deleted is a conflict
+ * (`not_deleted`); one purged or never created is not found. The purge
+ * itself (`deletion.ts`) writes the tombstone, since what it records of the
+ * provider's transcript is known only once the adapter has been asked.
+ */
+export const decidePurge = (
+  state: SessionState | null,
+  command: OnSession,
+): { readonly purge: true; readonly rejected?: undefined } | { readonly rejected: Refusal } => {
+  if (state === null || state.purged) return { rejected: sessionNotFound(command.sessionId) };
+  if (!state.deleted) return conflict(command.sessionId, "not_deleted", `The session ${command.sessionId} is not deleted, so it cannot be purged.`);
+  return { purge: true };
 };
 
 /** `sessions.setGroup`: the group, in lowercase, or null for none. */
