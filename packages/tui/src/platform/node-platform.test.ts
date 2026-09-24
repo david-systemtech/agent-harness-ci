@@ -192,6 +192,17 @@ describe("the terminal UI's platform", () => {
     expect(await platform.grant?.read()).toBeUndefined();
   });
 
+  it("reads no grant, and says why once, when the grant file cannot be read", async () => {
+    const reported: unknown[] = [];
+    const { stateDir, dataDir } = platformIn();
+    mkdirSync(join(dataDir, BOOTSTRAP_GRANT_FILE));
+    const platform = nodePlatform({ stateDir, dataDir, version: "1.2.3", identity, reportError: (error) => reported.push(error) });
+    expect(await platform.grant?.read()).toBeUndefined();
+    expect(await platform.grant?.read()).toBeUndefined();
+    expect(reported).toHaveLength(1);
+    expect(String(reported[0])).toContain(BOOTSTRAP_GRANT_FILE);
+  });
+
   it("tells the time by the system clock, and its timers fire and cancel", async () => {
     const { platform } = platformIn();
     expect(Math.abs(platform.clock.now().getTime() - Date.now())).toBeLessThan(1000);

@@ -86,6 +86,8 @@ export interface RenderOptions {
   readonly service?: ServiceScript;
   readonly flags?: Partial<ScreenFlags>;
   readonly keymap?: Keymap;
+  /** The grant reader the screen asks for the service-down offer, when it should differ from the runtime's (a reader that fails). */
+  readonly screenGrant?: GrantReader;
   readonly notes?: readonly string[];
   /** The protocol version the runtime speaks, to be the newer side of a mismatch; preset this build's. */
   readonly protocolVersion?: number;
@@ -176,7 +178,7 @@ export const appUnderTest = async (options: RenderOptions): Promise<AppUnderTest
     host,
     clock,
     services: service,
-    grant,
+    grant: options.screenGrant ?? grant,
     keymap: options.keymap ?? DEFAULT_KEYMAP,
     flags: { workspace: "~/code/harness", ...options.flags },
     notes: options.notes ?? [],

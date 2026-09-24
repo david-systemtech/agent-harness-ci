@@ -177,9 +177,28 @@ describe("nothing local and nothing paired", () => {
     await app.waitFor(OFFER);
   });
 
-  it("quits on Ctrl+C", async () => {
+  it("quits on Ctrl+C: the screen stops answering keys and draws nothing more", async () => {
     const app = await launch({ script: { environments: [] }, service: { installed: false } });
+    await app.type("/pa");
     await app.press(KEY.ctrlC);
-    expect(app.frame()).toBeDefined();
+    expect(app.frame()).not.toContain("› /pa");
+    await app.press(KEY.ctrlC);
+    const frames = app.frames();
+    const last = app.frame();
+    await app.type("/pair");
+    await app.tick(3);
+    expect(app.frames()).toBe(frames);
+    expect(app.frame()).toBe(last);
+    expect(app.frame()).not.toContain("› /pair");
+  });
+
+  it("offers the start when reading the grant file fails, the failure taken as no grant", async () => {
+    const app = await launch({
+      script: { environments: [] },
+      service: { installed: true },
+      screenGrant: { read: () => Promise.reject(new Error("EACCES: permission denied, open 'bootstrap-grant.json'")) },
+    });
+    await app.waitFor("Pair this terminal with an environment.");
+    await app.waitFor(OFFER);
   });
 });

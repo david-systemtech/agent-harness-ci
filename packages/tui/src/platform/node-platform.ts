@@ -12,6 +12,7 @@ import {
   type WebSocketFactory,
 } from "@agent-harness/client-runtime";
 import { BOOTSTRAP_GRANT_FILE, BootstrapGrant, PRODUCT_NAME } from "@agent-harness/contracts";
+import { messageOf } from "../view.js";
 import { readTextIfPresent } from "./files.js";
 import { clientLabel, currentIdentity, type TerminalIdentity } from "./identity.js";
 import { jsonDocuments } from "./json-documents.js";
@@ -63,19 +64,37 @@ export const stateDirectory = (context: StateContext = currentContext()): string
   return posix.join(xdg && posix.isAbsolute(xdg) ? xdg : posix.join(home, ".local", "state"), PRODUCT_NAME, "tui");
 };
 
-/** Reads `bootstrap-grant.json` in the environment's data directory: undefined when there is none, or none an environment wrote. */
-export const grantFileReader = (dataDir: string): GrantReader => ({
-  read: async () => {
-    const text = readTextIfPresent(join(dataDir, BOOTSTRAP_GRANT_FILE));
-    if (text === undefined) return undefined;
-    try {
-      const grant = BootstrapGrant.safeParse(JSON.parse(text));
-      return grant.success ? grant.data : undefined;
-    } catch {
-      return undefined;
-    }
-  },
-});
+/**
+ * Reads `bootstrap-grant.json` in the environment's data directory:
+ * undefined when there is none, or none an environment wrote, or when it
+ * cannot be read at all (a permission, a directory in its place), which
+ * `report` hears once until a read succeeds again. It never rejects: the
+ * runtime and the service-down offer take an unreadable grant as none.
+ */
+export const grantFileReader = (dataDir: string, report?: (error: unknown) => void): GrantReader => {
+  let reported = false;
+  return {
+    read: async () => {
+      const path = join(dataDir, BOOTSTRAP_GRANT_FILE);
+      let text: string | undefined;
+      try {
+        text = readTextIfPresent(path);
+      } catch (error) {
+        if (!reported) report?.(new Error(`The grant file ${path} cannot be read: ${messageOf(error)}`));
+        reported = true;
+        return undefined;
+      }
+      reported = false;
+      if (text === undefined) return undefined;
+      try {
+        const grant = BootstrapGrant.safeParse(JSON.parse(text));
+        return grant.success ? grant.data : undefined;
+      } catch {
+        return undefined;
+      }
+    },
+  };
+};
 
 /** Time from the system; timers do not keep the process alive on their own (Ink's hold on the terminal does). */
 export const systemClock: Clock = {
@@ -122,6 +141,6 @@ export const nodePlatform = (options: NodePlatformOptions): Platform => ({
   clock: systemClock,
   network: socketFailureNetwork(),
   client: { kind: "tui", label: clientLabel(options.identity ?? currentIdentity()), version: options.version },
-  grant: grantFileReader(options.dataDir),
+  grant: grantFileReader(options.dataDir, options.reportError),
   ...(options.reportError && { reportError: options.reportError }),
 });

@@ -185,8 +185,10 @@ export const App = (props: AppProps) => {
   useEffect(() => {
     if (!down || asked.current) return;
     asked.current = true;
-    void Promise.all([props.services.installed().catch(() => false), props.grant?.read().then((g) => g !== undefined) ?? Promise.resolve(false)]).then(
-      ([installed, grantPresent]) => update({ installed, grantPresent }),
+    // Either answer failing is taken as no: the offer still stands on the other.
+    const grantPresent = props.grant?.read().then((g) => g !== undefined) ?? Promise.resolve(false);
+    void Promise.all([props.services.installed().catch(() => false), grantPresent.catch(() => false)]).then(([installed, present]) =>
+      update({ installed, grantPresent: present }),
     );
   });
 
