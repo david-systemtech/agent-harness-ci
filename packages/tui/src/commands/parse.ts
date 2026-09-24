@@ -23,10 +23,13 @@ export const parseCommand = (typed: string): Command => {
   switch (name) {
     case "pair": {
       if (rest.length === 1 && rest[0] === "create") return { kind: "pair-create" };
-      if (rest.length === 1) return { kind: "pair", input: { link: rest[0] as string } };
-      if (rest.length === 2) return { kind: "pair", input: { address: rest[0] as string, code: rest[1] as string } };
-      // A code typed in its two groups, `K7Q2M XH4RT`, is one code.
-      if (rest.length === 3) return { kind: "pair", input: { address: rest[0] as string, code: `${rest[1]}${rest[2]}` } };
+      const [first = "", second, third] = rest;
+      if (rest.length === 1) return { kind: "pair", input: { link: first } };
+      // A link carries its code: anything after it is a mistake, not a code.
+      if (first.includes("#")) return { kind: "usage", line: PAIR_USAGE };
+      if (rest.length === 2) return { kind: "pair", input: { address: first, code: second as string } };
+      // A code typed in its two groups of five, `K7Q2M XH4RT`, is one code; three words of any other shape are a mistake.
+      if (rest.length === 3 && second?.length === 5 && third?.length === 5) return { kind: "pair", input: { address: first, code: `${second}${third}` } };
       return { kind: "usage", line: PAIR_USAGE };
     }
     case "environment":

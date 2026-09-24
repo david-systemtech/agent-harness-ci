@@ -65,11 +65,15 @@ describe("/pair", () => {
     );
   });
 
-  it("answers a malformed /pair with its usage", async () => {
-    const app = await launch({ script: { environments: [] } });
-    await run(app, "/pair");
-    await app.waitFor("Usage: /pair <link>, /pair <address> <code>, or /pair create.");
-  });
+  it.each(["/pair", "/pair laptop.test 1234 extra", "/pair http://laptop.test:7433/pair#K7Q2MXH4RT extra", "/pair a b c d"])(
+    "answers the malformed %j with its usage, sending nothing",
+    async (typed) => {
+      const app = await launch({ script: { environments: [] } });
+      await run(app, typed);
+      await app.waitFor("Usage: /pair <link>, /pair <address> <code>, or /pair create.");
+      expect(app.frame()).not.toContain("Pairing with");
+    },
+  );
 
   // Each typed failure with the runtime's own line for it.
   const failures = [
