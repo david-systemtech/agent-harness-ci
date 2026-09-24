@@ -13,7 +13,17 @@ export const useCleanups = () => {
   afterEach(async () => {
     const pending = cleanups.reverse();
     cleanups = [];
-    for (const cleanup of pending) await cleanup();
+    // Every cleanup runs even when one throws, so a failed removal leaks nothing else.
+    const failures: unknown[] = [];
+    for (const cleanup of pending) {
+      try {
+        await cleanup();
+      } catch (error) {
+        failures.push(error);
+      }
+    }
+    if (failures.length === 1) throw failures[0];
+    if (failures.length > 1) throw new AggregateError(failures, `${failures.length} cleanups failed.`);
   });
   const onCleanup = (cleanup: () => void | Promise<void>): void => void cleanups.push(cleanup);
   const tempDir = (prefix = "agent-harness-test-"): string => {

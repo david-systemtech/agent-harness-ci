@@ -44,6 +44,11 @@ describe("the launcher channel preset", () => {
     expect(events).toEqual([{ type: "prepared" }]);
   });
 
+  it("fails the signal when the launcher disconnected before the gate", async () => {
+    const channel = processLauncherChannel({ send: () => true, connected: false, disconnect: () => undefined });
+    await expect(channel.prepared()).rejects.toThrow(/disconnected/);
+  });
+
   it("does nothing when the environment runs in the foreground, with no launcher", async () => {
     const disconnect = () => {
       throw new Error("nothing to disconnect");

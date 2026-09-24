@@ -35,13 +35,16 @@ const ipcOf = (proc: NodeJS.Process): IpcProcess => {
 /**
  * The preset channel: over the IPC channel when a launcher spawned the
  * environment with one, and a no-op when `serve` runs in the foreground.
- * A signal the channel cannot deliver fails the start; `close` disconnects
- * the channel if it is still connected.
+ * A signal the channel cannot deliver, or a launcher that disconnected before
+ * the gate, fails the start; `close` disconnects the channel if it is still
+ * connected.
  */
 export const processLauncherChannel = (proc: IpcProcess = ipcOf(process)): LauncherChannel => ({
   prepared: () => {
     const send = proc.send;
-    if (!send || !proc.connected) return Promise.resolve();
+    if (!send) return Promise.resolve();
+    // A launcher spawned this environment and has since gone: the gate cannot be reported, so the start fails.
+    if (!proc.connected) return Promise.reject(new Error("The launcher's channel disconnected before prepared could be sent."));
     return new Promise<void>((resolve, reject) => {
       send(PREPARED_MESSAGE, (error) => (error ? reject(error) : resolve()));
     });
