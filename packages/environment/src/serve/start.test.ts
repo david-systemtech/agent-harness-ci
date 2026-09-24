@@ -191,6 +191,18 @@ describe("discovery and health", () => {
   });
 });
 
+describe("a request target the URL parser refuses", () => {
+  it("is answered 400 rather than crashing the environment", async () => {
+    const env = await start();
+    for (const target of ["//", "///", "http://"]) {
+      const answer = await getWithHost(env.address, target, "localhost");
+      expect(answer.status, target).toBe(400);
+    }
+    const health = await fetch(`http://${env.address.host}:${env.address.port}/health`);
+    expect(health.status).toBe(200);
+  });
+});
+
 describe("binding and the Host check", () => {
   it("binds loopback", async () => {
     const env = await start();

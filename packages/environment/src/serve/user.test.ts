@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mandatoryLevel, PrivilegeCheckError, processUserCheck, ROOT_REFUSAL, rootRefusal } from "./user.js";
+import { mandatoryLevel, PrivilegeCheckError, processUserCheck, ROOT_REFUSAL, rootRefusal, RootRefusedError, refusePrivilegedUser } from "./user.js";
 
 const WHOAMI_MEDIUM = `
 GROUP INFORMATION
@@ -47,6 +47,23 @@ describe("the privileged-user check on POSIX", () => {
     expect(processUserCheck({ platform: "darwin", geteuid: () => 0, getuid: () => 501 }).isPrivileged()).toBe(true);
     expect(processUserCheck({ platform: "linux", geteuid: () => 1000, getuid: () => 0 }).isPrivileged()).toBe(true);
     expect(processUserCheck({ platform: "linux", geteuid: () => 1000, getuid: () => 1000 }).isPrivileged()).toBe(false);
+  });
+
+  it("fails closed when the process exposes no uid at all", () => {
+    expect(() => processUserCheck({ platform: "linux" }).isPrivileged()).toThrow(PrivilegeCheckError);
+    expect(() => refusePrivilegedUser(processUserCheck({ platform: "linux" }))).toThrow(RootRefusedError);
+  });
+
+  it("keeps the failed check as the refusal's cause", () => {
+    const failing = { isPrivileged: () => { throw new PrivilegeCheckError("whoami could not run"); } };
+    let refused: unknown;
+    try {
+      refusePrivilegedUser(failing);
+    } catch (error) {
+      refused = error;
+    }
+    expect(refused).toBeInstanceOf(RootRefusedError);
+    expect((refused as Error).cause).toBeInstanceOf(PrivilegeCheckError);
   });
 });
 

@@ -25,8 +25,8 @@ export const rootRefusal = (uncheckedBecause?: string): string =>
 
 /** Starting as root, or elevated on Windows, or unchecked, was refused before anything was created or opened. */
 export class RootRefusedError extends Error {
-  constructor(uncheckedBecause?: string) {
-    super(rootRefusal(uncheckedBecause));
+  constructor(uncheckedBecause?: string, options?: ErrorOptions) {
+    super(rootRefusal(uncheckedBecause), options);
     this.name = "RootRefusedError";
   }
 }
@@ -48,7 +48,7 @@ export const refusePrivilegedUser = (user: UserCheck): void => {
   try {
     privileged = user.isPrivileged();
   } catch (error) {
-    throw new RootRefusedError(error instanceof Error ? error.message : String(error));
+    throw new RootRefusedError(error instanceof Error ? error.message : String(error), { cause: error });
   }
   if (privileged) throw new RootRefusedError();
 };
@@ -96,7 +96,12 @@ const whoamiPath = (env: Readonly<Record<string, string | undefined>>): string =
  */
 export const processUserCheck = (identity: ProcessIdentity = currentProcess()): UserCheck => ({
   isPrivileged: () => {
-    if (identity.platform !== "win32") return identity.geteuid?.() === 0 || identity.getuid?.() === 0;
+    if (identity.platform !== "win32") {
+      if (!identity.geteuid && !identity.getuid) {
+        throw new PrivilegeCheckError("the process exposes neither geteuid nor getuid, so the user cannot be told");
+      }
+      return identity.geteuid?.() === 0 || identity.getuid?.() === 0;
+    }
     const whoami = whoamiPath(identity.env ?? {});
     let output: string;
     try {

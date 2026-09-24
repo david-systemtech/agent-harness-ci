@@ -82,7 +82,14 @@ export const createHttpSurface = (options: { readonly tailnetName?: string | und
       });
       return;
     }
-    const path = new URL(request.url ?? "/", "http://localhost").pathname;
+    // Node forwards request targets the URL parser refuses (`//`, `http://`); a bad target is a 400, never a crash.
+    let path: string;
+    try {
+      path = new URL(request.url ?? "/", "http://localhost").pathname;
+    } catch {
+      sendJson(response, 400, { error: "bad_request", message: "The request target could not be parsed." });
+      return;
+    }
     const byMethod = routes.get(path);
     if (!byMethod) {
       sendJson(response, 404, { error: "not_found", message: `Nothing is served at ${path}.` });

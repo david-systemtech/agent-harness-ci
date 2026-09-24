@@ -72,7 +72,8 @@ describe("agent-harness serve, as a privileged user", () => {
   });
 });
 
-describe.skipIf(runningAsRoot)("agent-harness serve, as the ordinary user running this test", () => {
+// Windows has no SIGTERM handling: kill() terminates the child outright, so the exit code proves nothing there.
+describe.skipIf(runningAsRoot || process.platform === "win32")("agent-harness serve, as the ordinary user running this test", () => {
   it("tells the launcher it is prepared over IPC, prints the discovery address, and exits 0 on SIGTERM", async () => {
     const child = fork(entry, ["serve", "--data-dir", join(tempDir(), "data"), "--port", "0"], {
       execArgv: ["--conditions=@agent-harness/source", "--import", tsx],
