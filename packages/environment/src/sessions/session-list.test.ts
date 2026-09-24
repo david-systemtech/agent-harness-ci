@@ -43,7 +43,7 @@ describe("the session-list projector", () => {
     const head = log.head();
     for (const [kind, type] of [
       ["session", "session.settled"],
-      ["session", "run.started"],
+      ["session", "prompt.opened"],
     ] as const) {
       expect(() => log.append({ kind, id }, [{ type, payload: {} }], { actor: "system:test" }), type).toThrow(/does not project/);
     }

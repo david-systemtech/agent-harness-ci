@@ -27,7 +27,7 @@ import { IDLE_WINDOW_MS, PARKED_PROMPT_WINDOW_MS } from "./run-registry.js";
  * The lifecycle through the primary seam: idle and busy on `environment.status`
  * and the launcher's query, the drain from each trigger, the projection
  * rebuild, and who manages updates. Runs come from the helper's run registry,
- * which stands where the adapter host (#119) will; time is the manual clock,
+ * the one the adapter host fills, driven here directly; time is the manual clock,
  * which also owns the one turn a drain takes before it closes (`advance(0)`).
  */
 
@@ -389,7 +389,7 @@ describe("environment.rebuildProjections", () => {
     // A rebuild appends no event: its receipt is accepted and unchanged, in the transaction of the rebuild.
     expect(await client.request("environment.rebuildProjections", { commandId: randomUUID() })).toEqual({
       receipt: { status: "accepted", sequence: t.env.log.head(), changed: false },
-      result: { projectors: ["session-list", "probe-counts"], sequence: t.env.log.head() },
+      result: { projectors: ["session-list", "runs", "probe-counts"], sequence: t.env.log.head() },
     });
     expect(applied).toEqual(probeSequences);
     expect(await snapshot()).toEqual(before);

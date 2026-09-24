@@ -5,6 +5,7 @@ import {
   isListEvent,
   type Group,
   type GroupPatch,
+  type RunStartedPayload,
   type SessionActiveReorderedPayload,
   type SessionArchivedPayload,
   type SessionCreatedPayload,
@@ -163,6 +164,19 @@ const SESSION_PROJECTIONS: Partial<Record<string, Projection>> = {
   },
   // Membership lives on the session; a group's deletion ungroups each member with one of these.
   "session.group-set": (event, db) => organise(event, db, { group_id: (event.payload as SessionGroupSetPayload).groupId }),
+  // A run's start and end (the adapter's vocabulary, #119): what the session's runs are doing and since when, when it was
+  // last active, and the account and model its latest run used. Not organisation changes, so updatedAt stays where it was.
+  "run.started": (event, db) => {
+    const payload = event.payload as RunStartedPayload;
+    setColumns(event, db, {
+      activity: JSON.stringify({ state: "running", since: event.occurredAt }),
+      last_activity_at: event.occurredAt,
+      account_id: payload.accountId,
+      model: payload.model,
+    });
+  },
+  "run.ended": (event, db) =>
+    setColumns(event, db, { activity: JSON.stringify({ state: "idle", since: event.occurredAt }), last_activity_at: event.occurredAt }),
 };
 
 /**

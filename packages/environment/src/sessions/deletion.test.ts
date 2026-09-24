@@ -15,7 +15,7 @@ import {
 import { describe, expect, it } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { MANUAL_CLOCK_START, manualClock } from "../../test/clock.js";
-import { fakeProvider, type FakeProviderOptions } from "../../test/fake-provider.js";
+import { fakeAdapter, type FakeAdapterOptions } from "../../test/fake-adapter.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import {
   command,
@@ -46,8 +46,8 @@ const MINUTE = 60_000;
 const DAY = 24 * 60 * MINUTE;
 const GRACE_MS = 30 * DAY;
 
-const start = async (provider: FakeProviderOptions = {}, options: Omit<TestEnvironmentOptions, "provider"> = {}): Promise<TestEnvironment> => {
-  const t = await startTestEnvironment({ ...options, provider: fakeProvider([], provider) });
+const start = async (adapter: FakeAdapterOptions = {}, options: Omit<TestEnvironmentOptions, "adapter"> = {}): Promise<TestEnvironment> => {
+  const t = await startTestEnvironment({ ...options, adapter: fakeAdapter(adapter) });
   onCleanup(() => t.close());
   return t;
 };
@@ -360,7 +360,7 @@ describe("sessions.purge", () => {
     const list = await listStream(client, t.env.log.head());
     await purgeSession(client, id);
     expect((await list.next()).payload).toEqual({ providerTranscript: { outcome: "kept" } });
-    expect(t.provider.deletedTranscripts).toEqual([]);
+    expect(t.adapter.deletedTranscripts).toEqual([]);
   });
 
   it("has the adapter delete the provider's transcript when the delete asked and the adapter declares it, recording deleted in the tombstone", async () => {
@@ -371,7 +371,7 @@ describe("sessions.purge", () => {
     const list = await listStream(client, t.env.log.head());
     await purgeSession(client, id);
     expect((await list.next()).payload).toEqual({ providerTranscript: { outcome: "deleted" } });
-    expect(t.provider.deletedTranscripts).toEqual([id]);
+    expect(t.adapter.deletedTranscripts).toEqual([id]);
   });
 
   it("records unsupported when the delete asked and the adapter does not declare transcript delete", async () => {
@@ -382,7 +382,7 @@ describe("sessions.purge", () => {
     const list = await listStream(client, t.env.log.head());
     await purgeSession(client, id);
     expect((await list.next()).payload).toEqual({ providerTranscript: { outcome: "unsupported" } });
-    expect(t.provider.deletedTranscripts).toEqual([]);
+    expect(t.adapter.deletedTranscripts).toEqual([]);
   });
 
   it("records failed with the adapter's message when its delete throws, and still purges", async () => {
@@ -393,7 +393,7 @@ describe("sessions.purge", () => {
     const list = await listStream(client, t.env.log.head());
     expect((await purgeSession(client, id)).receipt).toMatchObject({ status: "accepted", changed: true });
     expect((await list.next()).payload).toEqual({ providerTranscript: { outcome: "failed", message: "The transcript file is locked." } });
-    expect(t.provider.deletedTranscripts).toEqual([id]);
+    expect(t.adapter.deletedTranscripts).toEqual([id]);
   });
 
   it("refuses an adapter whose delete answers later: the purge fails and commits nothing, and the session stays deleted", async () => {
@@ -404,7 +404,7 @@ describe("sessions.purge", () => {
     const head = t.env.log.head();
     expect(await refusal(purgeSession(client, id))).toMatchObject({ code: "internal" });
     expect(t.env.log.head()).toBe(head);
-    expect(t.provider.deletedTranscripts).toEqual([id]);
+    expect(t.adapter.deletedTranscripts).toEqual([id]);
     expect((await client.request("sessions.listDeleted", {})).sessions.map((summary) => summary.id)).toEqual([id]);
   });
 
@@ -448,13 +448,13 @@ describe("the purge sweep", () => {
     const events = (await listFromStart(client)).filter((event) => event.sequence > cursor);
     expect(events.map((event) => [event.streamId, event.type])).toEqual([[first.id, "session.purged"]]);
     expect(events[0]).toMatchObject({ actor: { kind: "system", id: "sweep" }, payload: { providerTranscript: { outcome: "deleted" } } });
-    expect(t.provider.deletedTranscripts).toEqual([first.id]);
+    expect(t.adapter.deletedTranscripts).toEqual([first.id]);
     expect((await client.request("sessions.listDeleted", {})).sessions.map((summary) => summary.id)).toEqual([second.id]);
 
     client = await pass(t, client, 10 * DAY);
     expect(await client.request("sessions.listDeleted", {})).toEqual({ sessions: [] });
     expect((await client.request("sessions.list", {})).sessions.map((summary) => summary.id)).toEqual([live.id]);
-    expect(t.provider.deletedTranscripts).toEqual([first.id]);
+    expect(t.adapter.deletedTranscripts).toEqual([first.id]);
   });
 });
 
@@ -493,7 +493,7 @@ describe("a session past its purgeAt before the sweep reaches it", () => {
     expect(events).toEqual([
       expect.objectContaining({ type: "session.purged", actor: { kind: "system", id: "sweep" }, payload: { providerTranscript: { outcome: "deleted" } } }),
     ]);
-    expect(t.provider.deletedTranscripts).toEqual([id]);
+    expect(t.adapter.deletedTranscripts).toEqual([id]);
     expect(await again.request("sessions.listDeleted", {})).toEqual({ sessions: [] });
   });
 });
@@ -540,7 +540,7 @@ describe("sessions.subscribeSession", () => {
       type: "snapshot",
       subscription,
       sequence: head,
-      payload: { sequence: head, summary: freshSummary(id, { title: "Watched", titleSource: "user" }), transcript: {} },
+      payload: { sequence: head, summary: freshSummary(id, { title: "Watched", titleSource: "user" }), runs: [], items: [], parkedPrompts: [] },
     });
     expect(await client.next((f) => "subscription" in f && f.subscription === subscription)).toEqual({
       type: "synchronized",

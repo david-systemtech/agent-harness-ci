@@ -32,7 +32,13 @@ import {
 import { createPairings, pairRoute, type Pairings } from "../auth/pairings.js";
 import { createRateLimiter } from "../auth/rate-limit.js";
 import { formatActor, openEventLog, type EventLog, type Projector } from "../event-log/event-log.js";
-import { createDeletion, type ProviderTranscripts } from "../sessions/deletion.js";
+import type { Adapter } from "../adapter/contract.js";
+import { createAdapterHost, type AdapterHost, type HostAccount } from "../adapter/host.js";
+import type { InstructionComposer, ModeClamp, ToolServerFactory } from "../adapter/seams.js";
+import type { PermissionBroker } from "../adapter/contract.js";
+import { runMethods } from "../runs/run-methods.js";
+import { runsProjector } from "../runs/runs-projector.js";
+import { createDeletion } from "../sessions/deletion.js";
 import { groupMethods } from "../sessions/group-methods.js";
 import { sessionMethods } from "../sessions/methods.js";
 import { sessionListProjector } from "../sessions/session-list.js";
@@ -48,7 +54,7 @@ import { processLauncherChannel, type LauncherChannel } from "./launcher.js";
 import { processContainerDetector, type ContainerDetector } from "./container.js";
 import { createLifecycle, type DrainOutcome } from "./lifecycle.js";
 import { createMethodTable, type MethodTable } from "./methods.js";
-import { createRunRegistry, type RunRegistry } from "./run-registry.js";
+import type { MemoryRunRegistry } from "./run-registry.js";
 import { processUserCheck, refusePrivilegedUser, type UserCheck } from "./user.js";
 import { fileVault, VAULT_FILE, type Vault } from "./vault.js";
 
@@ -138,16 +144,23 @@ export interface EnvironmentOptions {
   readonly hooks?: StartupHooks;
   /** Test seams for subscriptions: hold a catch-up, slow a socket down. */
   readonly subscriptionHooks?: SubscriptionHooks;
-  /** The runs the idle rule and the drain read, and the drain's admission gate. Preset: an empty in-memory registry, until the adapter host (#119). */
-  readonly runs?: RunRegistry;
+  /** The run registry the adapter host fills and the idle rule and the drain read, with the drain's admission gate. Preset: a fresh one. */
+  readonly runs?: MemoryRunRegistry;
   /** Whether this is a container; with no launcher present too, updates are managed outside. Preset: `processContainerDetector`. */
   readonly containerDetector?: ContainerDetector;
-  /**
-   * The adapter's transcript-delete capability, which a purge calls when the
-   * session's delete asked for it. Preset: none, so such a purge records
-   * `unsupported`; the adapter host (#119) supplies it.
-   */
-  readonly transcripts?: ProviderTranscripts;
+  /** The adapters the adapter host holds, one per provider. Preset: none, until the Claude adapter (#121). */
+  readonly adapters?: readonly Adapter[];
+  /** The accounts runs go through. Preset: none, until the account store (#134) supplies them. */
+  readonly accounts?: readonly HostAccount[];
+  /** The account a session with none of its own runs on. Preset: the first account. */
+  readonly defaultAccountId?: string;
+  /** The adapter host's seams other workstreams fill; each has a preset (`adapter/seams.ts`). */
+  readonly adapterSeams?: {
+    readonly toolServers?: ToolServerFactory;
+    readonly instructions?: InstructionComposer;
+    readonly broker?: PermissionBroker;
+    readonly clampMode?: ModeClamp;
+  };
 }
 
 /** A running environment. */
@@ -261,7 +274,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   });
 
   await step("projectors", () => {
-    for (const projector of [sessionListProjector, ...(options.projectors ?? [])]) log.registerProjector(projector);
+    for (const projector of [sessionListProjector, runsProjector, ...(options.projectors ?? [])]) log.registerProjector(projector);
   });
 
   // Where pairing links point: set when the listeners are bound, before any request is served.
@@ -294,8 +307,22 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     return { record: loaded, clientSessions: loadedClientSessions, pairings: loadedPairings, accessLog: access };
   });
 
-  // The adapter host (#119) starts here; there is none yet.
-  await step("adapter-host", () => undefined);
+  // The adapter host: the adapters, the accounts' sign-in states read through their probes, the run registry.
+  const host: AdapterHost = await step("adapter-host", async () => {
+    const created = createAdapterHost({
+      log,
+      clock,
+      ...(options.runs !== undefined && { runs: options.runs }),
+      ...(options.adapters !== undefined && { adapters: options.adapters }),
+      ...(options.accounts !== undefined && { accounts: options.accounts }),
+      ...(options.defaultAccountId !== undefined && { defaultAccountId: options.defaultAccountId }),
+      ...options.adapterSeams,
+    });
+    // Closed before the event log, so a run the close ends has its end appended: drained when a drain's cap cut it.
+    closers.push(() => created.close(readiness === "draining" ? "drained" : "disposed"));
+    await created.refresh();
+    return created;
+  });
 
   const surface = createHttpSurface({ tailnetName: () => tailnetName });
   const noStore = { "cache-control": "no-store" };
@@ -320,10 +347,10 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   const environmentStream = { kind: ENVIRONMENT_STREAM_KIND, id: record.id };
   const detector = options.containerDetector ?? processContainerDetector();
   // The purge: `sessions.purge` runs it at once, the minute sweep for every session past its grace period.
-  const deletion = createDeletion({ log, ...(options.transcripts !== undefined && { transcripts: options.transcripts }) });
+  const deletion = createDeletion({ log, transcripts: host.transcripts });
   const lifecycle = createLifecycle({
     clock,
-    runs: options.runs ?? createRunRegistry({ clock }),
+    runs: host.runs,
     log,
     stream: environmentStream,
     updatesManagedOutside: detector.inContainer() && !launcher.present(),
@@ -340,8 +367,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       result: { projectors: [...log.rebuildProjections()], sequence: log.head() },
     }),
     ...accessMethods({ pairings, clientSessions, accessLog }),
-    ...sessionMethods({ log, clock: now, deletion }),
+    ...sessionMethods({ log, clock: now, deletion, validateRunParameters: host.validateSessionInput }),
     ...groupMethods({ log, clock: now }),
+    ...runMethods({ log, host }),
   });
 
   // The two exchanges and the wire are routed before the bind; all three refuse work until the gate below.
