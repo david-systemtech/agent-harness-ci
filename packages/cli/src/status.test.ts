@@ -5,7 +5,7 @@ import { DISCOVERY_PATH, PROTOCOL_VERSION, type DiscoveryDocument } from "@agent
 import { HARNESS_VERSION, startEnvironment } from "@agent-harness/environment";
 import { afterEach, describe, expect, it } from "vitest";
 import { runCli, type CliContext } from "./cli.js";
-import { probeEnvironment } from "./probe.js";
+import { discoverEnvironment } from "./discover.js";
 
 let cleanups: (() => void | Promise<void>)[] = [];
 afterEach(async () => {
@@ -50,16 +50,16 @@ const cli = (fetch: typeof globalThis.fetch) => {
   return { context, out: () => out, err: () => err };
 };
 
-describe("probing the discovery URL", () => {
+describe("asking the discovery URL", () => {
   it("returns the environment's discovery document from the loopback discovery path on the port", async () => {
     const { fetch, urls } = stubFetch(async () => json(document));
-    expect(await probeEnvironment(fetch, 7433)).toEqual({ kind: "environment", document });
+    expect(await discoverEnvironment(fetch, 7433)).toEqual({ kind: "environment", document });
     expect(urls).toEqual([`http://127.0.0.1:7433${DISCOVERY_PATH}`]);
   });
 
   it("reports nothing answering when the connection is refused", async () => {
     const { fetch } = stubFetch(refused);
-    expect(await probeEnvironment(fetch, 7433)).toEqual({ kind: "none" });
+    expect(await discoverEnvironment(fetch, 7433)).toEqual({ kind: "none" });
   });
 
   it("reports nothing answering when the answer does not come within the timeout", async () => {
@@ -67,7 +67,7 @@ describe("probing the discovery URL", () => {
       (_, init) =>
         new Promise((_resolve, reject) => init?.signal?.addEventListener("abort", () => reject(init.signal?.reason))),
     );
-    expect(await probeEnvironment(fetch, 7433, { timeoutMs: 20 })).toEqual({ kind: "none" });
+    expect(await discoverEnvironment(fetch, 7433, { timeoutMs: 20 })).toEqual({ kind: "none" });
   });
 
   it("reports something else answering when the answer is not a discovery document", async () => {
@@ -77,7 +77,7 @@ describe("probing the discovery URL", () => {
       () => new Response("<html></html>", { status: 200 }),
     ]) {
       const { fetch } = stubFetch(async () => response());
-      expect(await probeEnvironment(fetch, 7433)).toMatchObject({ kind: "other" });
+      expect(await discoverEnvironment(fetch, 7433)).toMatchObject({ kind: "other" });
     }
   });
 });
@@ -117,7 +117,7 @@ describe("agent-harness status", () => {
     expect(run.out()).toMatch(/^Something answers at http:\/\/127\.0\.0\.1:7433, but not as an agent-harness environment/);
   });
 
-  it("probes the port it is given", async () => {
+  it("asks on the port it is given", async () => {
     const stub = stubFetch(refused);
     const run = cli(stub.fetch);
     expect(await runCli(["status", "--port", "9100"], run.context)).toBe(3);

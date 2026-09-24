@@ -2,21 +2,23 @@ import { resolve } from "node:path";
 import { PRODUCT_NAME } from "@agent-harness/contracts";
 import { DEFAULT_PORT, defaultDataDirectory, refusePrivilegedUser, RootRefusedError, type UserCheck } from "@agent-harness/environment";
 import { parseOptions, parsePort, UsageError } from "../args.js";
-import { environmentAddress, probeEnvironment } from "../probe.js";
-import { NOT_ANSWERING } from "../status.js";
+import { discoverEnvironment, environmentAddress } from "../discover.js";
+import { NOT_READY } from "../status.js";
+import { prepareServiceDirectories, removeEmptyDirectories } from "./definition.js";
 import { ServiceError } from "./errors.js";
 import { createServicePlatform, type ServicePlatform } from "./platform.js";
+import { readServiceRecord, removeServiceRecord, writeServiceRecord } from "./record.js";
 import { processRunner, type CommandRunner } from "./runner.js";
-import { currentHost, resolveProgram, SERVICE_LABEL, type ServiceHost } from "./spec.js";
-import { serviceVerdict } from "./status.js";
+import { currentInstallContext, resolveProgram, type InstallContext } from "./spec.js";
+import { serviceVerdict, type DiscoveryAnswer } from "./status.js";
 
 /**
- * Seams for tests: the host the service is installed for, the runner the
+ * Seams for tests: the context the service is installed in, the runner the
  * service manager commands go through, and the program the service runs.
  * `main.ts` passes none, and no flag or environment variable reaches them.
  */
 export interface ServiceSeams {
-  readonly host?: ServiceHost;
+  readonly installContext?: InstallContext;
   readonly runner?: CommandRunner;
   readonly program?: readonly string[];
 }
@@ -29,21 +31,43 @@ export interface ServiceContext {
   readonly seams: ServiceSeams;
 }
 
-const platformFor = (context: ServiceContext): { host: ServiceHost; platform: ServicePlatform } => {
-  const host = context.seams.host ?? currentHost();
-  return { host, platform: createServicePlatform(host, context.seams.runner ?? processRunner) };
+/** The platform's service manager, and the data directory `--data-dir` names or the platform's default. */
+const resolveService = (context: ServiceContext, dataDirOption: string | undefined): { platform: ServicePlatform; dataDir: string } => {
+  const installContext = context.seams.installContext ?? currentInstallContext();
+  const platform = createServicePlatform(installContext, context.seams.runner ?? processRunner);
+  const dataDir = dataDirOption === undefined ? defaultDataDirectory(installContext) : resolve(dataDirOption);
+  return { platform, dataDir };
 };
 
-/** `service install`: writes the definition for this platform, running `serve` as the current user. */
+/**
+ * `service install`: prepares the data directory, writes the definition for
+ * this platform, running `serve` as the current user, and records what it
+ * wrote in the data directory's `service.json`.
+ */
 const install = async (args: readonly string[], context: ServiceContext): Promise<number> => {
   refusePrivilegedUser(context.user);
   const values = parseOptions(args, { "data-dir": { type: "string" }, port: { type: "string" } });
   const port = parsePort(values.port, 1) ?? DEFAULT_PORT;
-  const { host, platform } = platformFor(context);
-  const dataDir = values["data-dir"] === undefined ? defaultDataDirectory(host) : resolve(values["data-dir"]);
+  const { platform, dataDir } = resolveService(context, values["data-dir"]);
   const program = context.seams.program ?? resolveProgram();
+  const spec = { program, dataDir, port };
 
-  await platform.install({ label: SERVICE_LABEL, program, dataDir, port });
+  const previous = readServiceRecord(dataDir);
+  const dataDirectories = prepareServiceDirectories(spec);
+  let installed;
+  try {
+    installed = await platform.install(spec);
+  } catch (error) {
+    removeEmptyDirectories(dataDirectories);
+    throw error;
+  }
+  const created = [...(previous?.createdDirectories ?? []), ...installed.createdDirectories, ...dataDirectories];
+  writeServiceRecord(dataDir, {
+    platform: platform.kind,
+    definitionPath: platform.definitionPath(),
+    port,
+    createdDirectories: [...new Set(created)],
+  });
   context.stdout(
     [
       `Installed ${platform.definitionPath()}: \`${PRODUCT_NAME} serve\` on port ${port}, data directory ${dataDir}.`,
@@ -54,16 +78,22 @@ const install = async (args: readonly string[], context: ServiceContext): Promis
   return 0;
 };
 
-/** `service uninstall`: stops the service and removes exactly the definition install wrote; the data directory stays. */
+/**
+ * `service uninstall`: stops the service, removes the definition and the
+ * record, and removes the folders install created that are now empty; the
+ * data directory's contents stay.
+ */
 const uninstall = async (args: readonly string[], context: ServiceContext): Promise<number> => {
-  parseOptions(args, {});
-  const { platform } = platformFor(context);
-  if (!(await platform.isInstalled())) {
-    context.stdout("No service is installed.\n");
-    return 0;
-  }
-  await platform.uninstall();
-  context.stdout(`Removed ${platform.definitionPath()}. The data directory is left as it was.\n`);
+  const values = parseOptions(args, { "data-dir": { type: "string" } });
+  const { platform, dataDir } = resolveService(context, values["data-dir"]);
+  const record = readServiceRecord(dataDir);
+  const installed = await platform.isInstalled();
+  if (installed) await platform.uninstall();
+  removeServiceRecord(dataDir);
+  removeEmptyDirectories(record?.createdDirectories ?? []);
+  context.stdout(
+    installed ? `Removed ${platform.definitionPath()}. The data directory keeps what the environment wrote.\n` : "No service is installed.\n",
+  );
   return 0;
 };
 
@@ -71,7 +101,7 @@ const uninstall = async (args: readonly string[], context: ServiceContext): Prom
 const start = async (args: readonly string[], context: ServiceContext): Promise<number> => {
   refusePrivilegedUser(context.user);
   parseOptions(args, {});
-  const { platform } = platformFor(context);
+  const { platform } = resolveService(context, undefined);
   if (!(await platform.isInstalled())) {
     context.stderr(`No service is installed. \`${PRODUCT_NAME} service install\` installs it.\n`);
     return 1;
@@ -83,48 +113,43 @@ const start = async (args: readonly string[], context: ServiceContext): Promise<
 
 /**
  * `service status`: installed and running from the service manager, ready
- * from the discovery URL on the port (preset `DEFAULT_PORT`). Exits 0 only
- * when all three hold, else 3.
+ * from the discovery URL on the port the service was installed on (from the
+ * record; `--port` overrides, `DEFAULT_PORT` when there is no record). Exits
+ * 0 only when all three hold, else `NOT_READY`.
  */
 const serviceStatus = async (args: readonly string[], context: ServiceContext): Promise<number> => {
-  const values = parseOptions(args, { port: { type: "string" }, json: { type: "boolean" } });
-  const port = parsePort(values.port, 1) ?? DEFAULT_PORT;
-  const { platform } = platformFor(context);
+  const values = parseOptions(args, { "data-dir": { type: "string" }, port: { type: "string" }, json: { type: "boolean" } });
+  const { platform, dataDir } = resolveService(context, values["data-dir"]);
+  const port = parsePort(values.port, 1) ?? readServiceRecord(dataDir)?.port ?? DEFAULT_PORT;
   const address = environmentAddress(port);
-  const [installed, running, probe] = await Promise.all([
+  const [installed, running, discovery] = await Promise.all([
     platform.isInstalled(),
     platform.isRunning(),
-    probeEnvironment(context.fetch, port),
+    discoverEnvironment(context.fetch, port),
   ]);
-  const readiness = probe.kind === "environment" ? probe.document.readiness : undefined;
+  const answer: DiscoveryAnswer =
+    discovery.kind === "environment" ? discovery.document.readiness : discovery.kind === "other" ? "not-an-environment" : "nothing";
   const notes = installed ? await platform.notes() : [];
-  const verdict = serviceVerdict({ installed, running, readiness }, address);
+  const verdict = serviceVerdict({ installed, running, answer }, address);
   const definition = platform.definitionPath();
 
   if (values.json) {
-    const report = { installed, running, readiness: readiness ?? null, ready: verdict.ready, definition, address, summary: verdict.summary, notes };
+    const readiness = discovery.kind === "environment" ? discovery.document.readiness : null;
+    const report = { installed, running, readiness, ready: verdict.ready, definition, address, summary: verdict.summary, notes };
     context.stdout(`${JSON.stringify(report, null, 2)}\n`);
   } else {
-    const why =
-      probe.kind === "none"
-        ? `nothing answers at ${address}`
-        : probe.kind === "other"
-          ? `something other than an environment answers at ${address}`
-          : readiness !== "ready"
-            ? readiness
-            : `the service is not ${installed ? "running" : "installed"}`;
     context.stdout(
       [
         `Installed: ${installed ? `yes (${definition})` : "no"}`,
         `Running: ${running ? "yes" : "no"}`,
-        `Ready: ${verdict.ready ? "yes" : `no (${why})`}`,
+        `Ready: ${verdict.readyLine}`,
         verdict.summary,
         ...notes,
         "",
       ].join("\n"),
     );
   }
-  return verdict.ready ? 0 : NOT_ANSWERING;
+  return verdict.ready ? 0 : NOT_READY;
 };
 
 const VERBS = new Map<string, (args: readonly string[], context: ServiceContext) => Promise<number>>([

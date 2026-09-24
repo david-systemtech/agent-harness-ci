@@ -1,9 +1,9 @@
-import { existsSync, readFileSync } from "node:fs";
-import { join, relative, sep } from "node:path";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join, relative, sep } from "node:path";
 import { DISCOVERY_PATH, PROTOCOL_VERSION } from "@agent-harness/contracts";
 import { defaultDataDirectory, HARNESS_VERSION, ROOT_REFUSAL } from "@agent-harness/environment";
 import { afterEach, describe, expect, it } from "vitest";
-import { hostAt, makeTempDir, stubRunner, tree, type Answer } from "../../test/service-helpers.js";
+import { installContextAt, makeTempDir, snapshot, stubRunner, tree, type Answer } from "../../test/service-helpers.js";
 import { runCli, type CliContext } from "../cli.js";
 
 let cleanups: (() => void)[] = [];
@@ -49,7 +49,7 @@ const harness = (
     stderr: (text) => void (err += text),
     fetch: options.fetch ?? refused,
     environment: { user: { isPrivileged: () => options.privileged ?? false } },
-    service: { host: hostAt(platform, home, options.env), runner: stub.runner, program: PROGRAM },
+    service: { installContext: installContextAt(platform, home, options.env), runner: stub.runner, program: PROGRAM },
   };
   const run = (...args: string[]) => runCli(args, context);
   return { home, run, calls: stub.calls, out: () => out, err: () => err };
@@ -80,7 +80,7 @@ describe.each([
 
     expect(await cli.run("service", "install")).toBe(0);
 
-    const dataDir = defaultDataDirectory(hostAt(platform, cli.home));
+    const dataDir = defaultDataDirectory(installContextAt(platform, cli.home));
     const added = tree(cli.home).filter((path) => !before.includes(path));
     expect(outsideDataDir(cli.home, added, dataDir).sort()).toEqual(
       outsideDataDir(cli.home, withAncestors(cli.home, definition(cli.home)), dataDir).sort(),
@@ -91,23 +91,67 @@ describe.each([
     expect(cli.err()).toBe("");
   });
 
-  it("uninstall removes the definition install wrote, leaving the data directory and the standard folders it sits in", async () => {
+  it("uninstall leaves the home byte-for-byte as it was before install", async () => {
     const cli = harness(platform, { answer: (_, args) => (args[0] === "print" ? { code: 113 } : undefined) });
-    const before = tree(cli.home);
+    writeFileSync(join(cli.home, ".profile"), "export PATH\n");
+    const before = snapshot(cli.home);
     expect(await cli.run("service", "install")).toBe(0);
+    expect(existsSync(definition(cli.home))).toBe(true);
     expect(await cli.run("service", "uninstall")).toBe(0);
+    expect(snapshot(cli.home)).toEqual(before);
+  });
 
-    const dataDir = defaultDataDirectory(hostAt(platform, cli.home));
-    const left = tree(cli.home).filter((path) => !before.includes(path));
+  it("uninstall keeps the data directory, and the folders above the definition, when something else lives in them", async () => {
+    const cli = harness(platform, { answer: (_, args) => (args[0] === "print" ? { code: 113 } : undefined) });
+    expect(await cli.run("service", "install")).toBe(0);
+    const dataDir = defaultDataDirectory(installContextAt(platform, cli.home));
+    writeFileSync(join(dataDir, "logs", "service.log"), "http://127.0.0.1:7433\n");
+    writeFileSync(join(dirname(definition(cli.home)), "other"), "");
+    expect(await cli.run("service", "uninstall")).toBe(0);
     expect(existsSync(definition(cli.home))).toBe(false);
-    expect(outsideDataDir(cli.home, left, dataDir).sort()).toEqual(
-      outsideDataDir(cli.home, withAncestors(cli.home, definition(cli.home)).slice(0, -1), dataDir).sort(),
-    );
-    expect(existsSync(dataDir)).toBe(true);
+    expect(existsSync(join(dataDir, "service.json"))).toBe(false);
+    expect(readFileSync(join(dataDir, "logs", "service.log"), "utf8")).toBe("http://127.0.0.1:7433\n");
+    expect(existsSync(join(dirname(definition(cli.home)), "other"))).toBe(true);
   });
 });
 
 describe("agent-harness service install", () => {
+  it("records the platform, the definition, the port and the folders it created in the data directory's service.json", async () => {
+    const cli = harness("linux");
+    expect(await cli.run("service", "install", "--port", "7500")).toBe(0);
+    const dataDir = join(cli.home, ".local", "state", "agent-harness");
+    expect(JSON.parse(readFileSync(join(dataDir, "service.json"), "utf8"))).toEqual({
+      platform: "systemd",
+      definitionPath: unitPath(cli.home),
+      port: 7500,
+      createdDirectories: [
+        join(cli.home, ".config"),
+        join(cli.home, ".config", "systemd"),
+        join(cli.home, ".config", "systemd", "user"),
+        join(cli.home, ".local"),
+        join(cli.home, ".local", "state"),
+        dataDir,
+        join(dataDir, "logs"),
+      ],
+    });
+  });
+
+  it("keeps the folders an earlier install created in the record when it installs again", async () => {
+    const cli = harness("linux");
+    expect(await cli.run("service", "install")).toBe(0);
+    const record = join(cli.home, ".local", "state", "agent-harness", "service.json");
+    const first = JSON.parse(readFileSync(record, "utf8")) as { createdDirectories: string[] };
+    expect(await cli.run("service", "install", "--port", "7501")).toBe(0);
+    expect(JSON.parse(readFileSync(record, "utf8"))).toMatchObject({ port: 7501, createdDirectories: first.createdDirectories });
+  });
+
+  it("leaves the home as it was when the service manager refuses the definition", async () => {
+    const cli = harness("linux", { answer: (_, args) => (args.includes("enable") ? { code: 1, stderr: "Access denied" } : undefined) });
+    const before = snapshot(cli.home);
+    expect(await cli.run("service", "install")).toBe(1);
+    expect(snapshot(cli.home)).toEqual(before);
+  });
+
   it("runs serve with the program that is running, an absolute data directory and the port given", async () => {
     const cli = harness("linux");
     const cwd = process.cwd();
@@ -246,7 +290,43 @@ describe("agent-harness service status", () => {
     expect(cli.out()).toContain("loginctl enable-linger david");
   });
 
-  it("probes the port it is given and prints JSON with --json", async () => {
+  it("asks on the port the service was installed on, unless --port says otherwise", async () => {
+    const urls: string[] = [];
+    const fetch = (async (input: string | URL | Request) => {
+      urls.push(String(input));
+      return discovery("ready");
+    }) as typeof globalThis.fetch;
+    const cli = harness("linux", { answer: active, fetch });
+    await cli.run("service", "install", "--port", "7500");
+    expect(await cli.run("service", "status")).toBe(0);
+    expect(await cli.run("service", "status", "--port", "7502")).toBe(0);
+    expect(urls).toEqual([`http://127.0.0.1:7500${DISCOVERY_PATH}`, `http://127.0.0.1:7502${DISCOVERY_PATH}`]);
+  });
+
+  it("finds the record of a service installed with another data directory through --data-dir", async () => {
+    const urls: string[] = [];
+    const fetch = (async (input: string | URL | Request) => {
+      urls.push(String(input));
+      return discovery("ready");
+    }) as typeof globalThis.fetch;
+    const cli = harness("linux", { answer: active, fetch });
+    const dataDir = join(cli.home, "second");
+    await cli.run("service", "install", "--data-dir", dataDir, "--port", "7600");
+    expect(await cli.run("service", "status", "--data-dir", dataDir)).toBe(0);
+    expect(urls).toEqual([`http://127.0.0.1:7600${DISCOVERY_PATH}`]);
+    expect(await cli.run("service", "uninstall", "--data-dir", dataDir)).toBe(0);
+    expect(existsSync(dataDir)).toBe(false);
+  });
+
+  it("says in a sentence, and exits 1, when the service record cannot be read", async () => {
+    const cli = harness("linux", { answer: active });
+    await cli.run("service", "install");
+    writeFileSync(join(cli.home, ".local", "state", "agent-harness", "service.json"), "{ not json");
+    expect(await cli.run("service", "status")).toBe(1);
+    expect(cli.err()).toMatch(/service\.json/);
+  });
+
+  it("asks on the port it is given and prints JSON with --json", async () => {
     const urls: string[] = [];
     const fetch = (async (input: string | URL | Request) => {
       urls.push(String(input));
@@ -280,7 +360,7 @@ describe("agent-harness service, arguments", () => {
       ["service", "install", "--name", "x"],
       ["service", "start", "extra"],
       ["service", "uninstall", "--port", "7433"],
-      ["service", "status", "--data-dir", "/x"],
+      ["service", "status", "--name", "x"],
     ]) {
       const cli = harness("linux");
       expect(await cli.run(...args), args.join(" ")).toBe(2);

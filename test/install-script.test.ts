@@ -3,13 +3,13 @@
  * `id` on PATH and a fake release: nothing here touches the network, and the
  * artefact's `agent-harness` only records how it was called.
  */
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 const script = join(import.meta.dirname, "..", "scripts", "install.sh");
 const run = promisify(execFile);
@@ -95,7 +95,7 @@ const release = (tag: string, assets: string[]) =>
 /** A home, a fake PATH and a fake release `tag` holding a Linux x64 artefact and, unless told, its checksum. */
 const fixture = async (
   tag = "v0.1.0",
-  options: { checksum?: "right" | "wrong" | "none"; assetName?: string } = {},
+  options: { checksum?: "right" | "wrong" | "none"; assetName?: string; withoutBinary?: boolean } = {},
 ): Promise<Fixture> => {
   const root = mkdtempSync(join(tmpdir(), "agent-harness-install-"));
   cleanups.push(() => rmSync(root, { recursive: true, force: true }));
@@ -112,7 +112,8 @@ const fixture = async (
   write(join(fakeBin, "id"), '#!/bin/sh\necho "${FAKE_UID:-1000}"\n', 0o755);
 
   const assetName = options.assetName ?? "agent-harness-linux-x64.tar.gz";
-  write(join(staging, "bin", "agent-harness"), FAKE_BINARY, 0o755);
+  if (options.withoutBinary) write(join(staging, "bin", "README"), "no binary here\n");
+  else write(join(staging, "bin", "agent-harness"), FAKE_BINARY, 0o755);
   const tarball = join(assets, assetName);
   const names = [assetName];
   await run("tar", ["-czf", tarball, "-C", staging, "bin"]);
@@ -203,7 +204,7 @@ describe.skipIf(process.platform === "win32")("scripts/install.sh", () => {
         `Download: ${FORGE}/david/agent-harness/releases/download/v0.1.0/agent-harness-linux-x64.tar.gz\n`,
       );
       expect(result.stdout).toContain(`Checksum: ${FORGE}/david/agent-harness/releases/download/v0.1.0/agent-harness-linux-x64.tar.gz.sha256\n`);
-      const target = join(f.home, ".local", "share", "agent-harness", "0.1.0");
+      const target = join(f.home, ".local", "state", "agent-harness", "versions", "0.1.0");
       expect(result.stdout).toContain(`Unpack into: ${target}\n`);
       expect(result.stdout).toContain(`${target}/bin/agent-harness service install\n`);
       expect(result.stdout).toContain(`${target}/bin/agent-harness service start\n`);
@@ -227,25 +228,39 @@ describe.skipIf(process.platform === "win32")("scripts/install.sh", () => {
     expect(result.stdout).toContain("/v0.2.0/agent-harness-darwin-arm64.tar.gz\n");
   });
 
-  it("downloads, verifies and unpacks the artefact, then installs, starts and reports the service", async () => {
+  it("unpacks under the data directory by default: XDG state on Linux, an absolute XDG_STATE_HOME, Application Support on macOS", async () => {
+    const f = await fixture("v0.1.0", { assetName: "agent-harness-darwin-arm64.tar.gz" });
+    const mac = await install(f, ["--dry-run"], { XDG_STATE_HOME: "relative/state", FAKE_UNAME_S: "Darwin", FAKE_UNAME_M: "arm64" });
+    expect(mac.stdout).toContain(`Unpack into: ${join(f.home, "Library", "Application Support", "agent-harness", "versions", "0.1.0")}\n`);
+    const g = await fixture("v0.1.0");
+    const xdg = join(g.home, "xdg-state");
+    expect((await install(g, ["--dry-run"], { XDG_STATE_HOME: xdg })).stdout).toContain(`Unpack into: ${join(xdg, "agent-harness", "versions", "0.1.0")}\n`);
+    expect((await install(g, ["--dry-run"], { XDG_STATE_HOME: "relative" })).stdout).toContain(
+      `Unpack into: ${join(g.home, ".local", "state", "agent-harness", "versions", "0.1.0")}\n`,
+    );
+  });
+
+  it("downloads, verifies and unpacks the artefact under --data-dir, then installs, starts and reports the service", async () => {
     const f = await fixture("v0.1.0");
-    const result = await install(f, ["--port", "7500", "--data-dir", "/srv/my data"]);
+    const dataDir = join(f.home, "my data");
+    const result = await install(f, ["--port", "7500", "--data-dir", dataDir]);
     expect(result.stderr).toBe("");
     expect(result.code).toBe(0);
 
-    const target = join(f.home, ".local", "share", "agent-harness", "0.1.0");
+    const target = join(dataDir, "versions", "0.1.0");
     expect(existsSync(join(target, "bin", "agent-harness"))).toBe(true);
     expect(f.calls()).toEqual([
       `curl ${API}/latest`,
       `curl ${FORGE}/david/agent-harness/releases/download/v0.1.0/agent-harness-linux-x64.tar.gz`,
       `curl ${FORGE}/david/agent-harness/releases/download/v0.1.0/agent-harness-linux-x64.tar.gz.sha256`,
-      "agent-harness service install --data-dir /srv/my data --port 7500",
+      `agent-harness service install --data-dir ${dataDir} --port 7500`,
       "agent-harness service start",
       "agent-harness service status --port 7500",
       "agent-harness service status --port 7500",
     ]);
     expect(result.stdout).toMatch(/Ready: yes\n$/);
-    expect(readdirSync(join(f.home, ".local", "share", "agent-harness"))).toEqual(["0.1.0"]);
+    expect(readdirSync(join(dataDir, "versions"))).toEqual(["0.1.0"]);
+    expect(readdirSync(f.home)).toEqual(["my data"]);
   });
 
   it("unpacks under --prefix when given one", async () => {
@@ -267,7 +282,7 @@ describe.skipIf(process.platform === "win32")("scripts/install.sh", () => {
     const result = await install(f);
     expect(result.code).toBe(1);
     expect(result.stderr).toMatch(/checksum/i);
-    expect(existsSync(join(f.home, ".local", "share", "agent-harness", "0.1.0"))).toBe(false);
+    expect(existsSync(join(f.home, ".local", "state", "agent-harness", "versions", "0.1.0"))).toBe(false);
     expect(f.calls().filter((call) => call.startsWith("agent-harness"))).toEqual([]);
   });
 
@@ -302,5 +317,54 @@ describe.skipIf(process.platform === "win32")("scripts/install.sh", () => {
     expect(f.calls()[0]).toBe(`curl ${API}/latest`);
     expect(f.calls().filter((call) => call.startsWith("curl"))).toHaveLength(1);
     expect(again.stdout).toContain("already unpacked");
+  });
+
+  it("replaces a stale version folder that holds no binary instead of moving into it", async () => {
+    const f = await fixture();
+    const target = join(f.home, ".local", "state", "agent-harness", "versions", "0.1.0");
+    mkdirSync(join(target, "bin"), { recursive: true });
+    writeFileSync(join(target, "stale"), "left by an interrupted install\n");
+
+    expect((await install(f)).code).toBe(0);
+    expect(readdirSync(target).sort()).toEqual(["bin"]);
+    expect(existsSync(join(target, "bin", "agent-harness"))).toBe(true);
+  });
+
+  it("leaves no partial folder behind when the artefact holds no binary", async () => {
+    const f = await fixture("v0.1.0", { withoutBinary: true });
+    const result = await install(f);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("bin/agent-harness");
+    expect(readdirSync(join(f.home, ".local", "state", "agent-harness", "versions"))).toEqual([]);
+  });
+
+  it("exits 143 when terminated, removing its temporary files", async () => {
+    const f = await fixture();
+    const child = spawn("sh", [script], { env: { ...f.env, FAKE_STATUS_CODE: "3", INSTALL_READY_TIMEOUT: "30" } });
+    const exited = new Promise<number | null>((resolve) => child.on("exit", (code) => resolve(code)));
+    cleanups.push(() => void child.kill("SIGKILL"));
+    await vi.waitFor(() => expect(f.calls()).toContain("agent-harness service start"), { timeout: 5000 });
+    child.kill("SIGTERM");
+    expect(await exited).toBe(143);
+  });
+
+  it("exits 143 when terminated while reusing an unpacked version", async () => {
+    const f = await fixture();
+    expect((await install(f)).code).toBe(0);
+    writeFileSync(f.log, "");
+    const child = spawn("sh", [script], { env: { ...f.env, FAKE_STATUS_CODE: "3", INSTALL_READY_TIMEOUT: "30" } });
+    const exited = new Promise<number | null>((resolve) => child.on("exit", (code) => resolve(code)));
+    cleanups.push(() => void child.kill("SIGKILL"));
+    await vi.waitFor(() => expect(f.calls()).toContain("agent-harness service start"), { timeout: 5000 });
+    child.kill("SIGTERM");
+    expect(await exited).toBe(143);
+  });
+
+  it("refuses a release tag that does not name a plain version folder", async () => {
+    const f = await fixture("v../../escape");
+    const result = await install(f);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("v../../escape");
+    expect(f.calls().filter((call) => !call.startsWith("curl") || !call.endsWith("/latest"))).toEqual([]);
   });
 });

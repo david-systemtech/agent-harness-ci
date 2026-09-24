@@ -39,6 +39,8 @@ export interface ServiceCommands {
   query(command: string, args: readonly string[]): Promise<CommandResult>;
   /** Runs a command that must succeed; a non-zero exit is a `ServiceCommandError`. */
   run(command: string, args: readonly string[]): Promise<CommandResult>;
+  /** Runs a command while putting things back after a failure: its own failure is ignored, so the first error is the one reported. */
+  attempt(command: string, args: readonly string[]): Promise<void>;
 }
 
 export const serviceCommands = (runner: CommandRunner): ServiceCommands => {
@@ -52,6 +54,9 @@ export const serviceCommands = (runner: CommandRunner): ServiceCommands => {
   };
   return {
     query,
+    attempt: async (command, args) => {
+      await query(command, args).catch(() => undefined);
+    },
     run: async (command, args) => {
       const result = await query(command, args);
       if (result.code !== 0) throw new ServiceCommandError(command, args, result);

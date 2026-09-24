@@ -9,21 +9,18 @@ const fixture = (name: string): string =>
   readFileSync(new URL(`../../test/fixtures/service/${name}`, import.meta.url), "utf8");
 
 const macSpec: ServiceSpec = {
-  label: SERVICE_LABEL,
   program: ["/opt/homebrew/bin/node", "/Users/david/.local/share/agent-harness/0.1.0/dist/main.js"],
   dataDir: "/Users/david/Library/Application Support/agent-harness",
   port: 7433,
 };
 
 const linuxSpec: ServiceSpec = {
-  label: SERVICE_LABEL,
   program: ["/usr/bin/node", "/home/david/.local/share/agent-harness/0.1.0/dist/main.js"],
   dataDir: "/home/david/.local/state/agent-harness",
   port: 7433,
 };
 
 const windowsSpec: ServiceSpec = {
-  label: SERVICE_LABEL,
   program: [
     "C:\\Program Files\\nodejs\\node.exe",
     "C:\\Users\\david\\AppData\\Local\\Programs\\agent-harness\\0.1.0\\dist\\main.js",

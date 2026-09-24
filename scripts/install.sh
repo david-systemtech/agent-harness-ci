@@ -16,12 +16,22 @@
 # whose first word is the SHA-256 of the tarball. The release build must
 # publish exactly that.
 #
-# Versions are unpacked into ${XDG_DATA_HOME:-~/.local/share}/agent-harness/<version>
-# on both platforms: on macOS, ~/Library/Application Support/agent-harness is
-# the environment's data directory, and versions stay out of it. A version
-# already unpacked there is reused, not downloaded again.
+# Versions are unpacked into <data dir>/versions/<version>, under the
+# environment's data directory (XDG state on Linux, Application Support on
+# macOS, or --data-dir): the env spec lets nothing but the service definition
+# live outside it. ADR 0007 gives the versions directory to the launcher; this
+# layout is a stand-in until the launcher (phase B) takes it over. A version
+# already unpacked there is reused, not downloaded again; a folder for it that
+# holds no binary is replaced.
 
 set -eu
+
+# Temporary files, removed on any exit; INT and TERM exit as a shell killed by them would report.
+work=""
+partial=""
+trap 'rm -rf ${work:+"$work"} ${partial:+"$partial"}' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 NAME=agent-harness
 FORGE=https://git.systemtech.dev:5526
@@ -34,8 +44,9 @@ Usage: install.sh [--version <tag>] [--prefix <dir>] [--data-dir <dir>] [--port 
 Installs the $NAME environment as a user service on this machine and starts it.
 
   --version <tag>   the release to install; preset: the latest release
-  --prefix <dir>    where versions are unpacked; preset: \${XDG_DATA_HOME:-~/.local/share}/$NAME
-  --data-dir <dir>  the environment's data directory, passed to \`$NAME service install\`
+  --prefix <dir>    where versions are unpacked; preset: <data dir>/versions
+  --data-dir <dir>  the environment's data directory, passed to \`$NAME service install\`;
+                    preset: \$XDG_STATE_HOME/$NAME (Linux) or ~/Library/Application Support/$NAME (macOS)
   --port <n>        the environment's port, passed to \`service install\` and \`service status\`
   --dry-run         resolve the release and print the plan; download and change nothing
                     (INSTALL_DRY_RUN=1 does the same)
@@ -135,7 +146,25 @@ asset_url=$(member browser_download_url | grep "/$asset_pattern\$" | head -n 1) 
 checksum_url=$(member browser_download_url | grep "/$asset_pattern\\.sha256\$" | head -n 1) || true
 
 release_version=${tag#v}
-versions=${prefix:-${XDG_DATA_HOME:-$HOME/.local/share}/$NAME}
+# The version names a folder the script replaces, so it must be a plain name.
+case $release_version in
+  "" | .* | *[!A-Za-z0-9._+-]*) fail "release tag $tag does not name a version this script can unpack." ;;
+esac
+
+# The data directory `serve` would choose (the environment's defaultDataDirectory), unless --data-dir names one.
+if [ -z "$data_dir" ]; then
+  if [ "$os" = darwin ]; then
+    environment_dir="$HOME/Library/Application Support/$NAME"
+  else
+    case ${XDG_STATE_HOME:-} in
+      /*) environment_dir="$XDG_STATE_HOME/$NAME" ;;
+      *) environment_dir="$HOME/.local/state/$NAME" ;;
+    esac
+  fi
+else
+  environment_dir=$data_dir
+fi
+versions=${prefix:-$environment_dir/versions}
 target="$versions/$release_version"
 bin="$target/bin/$NAME"
 
@@ -171,8 +200,6 @@ if [ -x "$bin" ]; then
   printf '%s %s is already unpacked in %s.\n' "$NAME" "$release_version" "$target"
 else
   work=$(mktemp -d)
-  trap 'rm -rf "$work"' EXIT
-  trap 'exit 130' INT TERM
   printf 'Downloading %s %s.\n' "$asset" "$tag"
   forge_curl -o "$work/$asset" "$asset_url" || fail "could not download $asset_url."
 
@@ -193,13 +220,16 @@ else
     printf 'No checksum is published for %s; installing it unverified.\n' "$asset"
   fi
 
-  # Unpacked beside the target and moved into place, so a failed unpack never leaves a half version.
-  mkdir -p "$versions"
+  # Unpacked beside the target and moved into place, so a failed unpack never
+  # leaves a half version; the EXIT trap removes the partial folder on any failure.
+  (umask 077 && mkdir -p "$versions")
   partial=$(mktemp -d "$versions/.$release_version.XXXXXX")
-  tar -xzf "$work/$asset" -C "$partial" || { rm -rf "$partial"; fail "could not unpack $asset."; }
-  [ -x "$partial/bin/$NAME" ] || { rm -rf "$partial"; fail "$asset holds no bin/$NAME."; }
+  tar -xzf "$work/$asset" -C "$partial" || fail "could not unpack $asset."
+  [ -x "$partial/bin/$NAME" ] || fail "$asset holds no bin/$NAME."
+  # A folder for this version without a binary is what an interrupted install left: replace it.
+  rm -rf "$target"
   mv "$partial" "$target"
-  chmod 755 "$target"
+  partial=""
   printf 'Unpacked %s %s into %s.\n' "$NAME" "$release_version" "$target"
 fi
 

@@ -1,10 +1,10 @@
 import { existsSync, rmSync } from "node:fs";
 import { posix } from "node:path";
-import { installDefinition, prepareServiceDirectories } from "./definition.js";
+import { writeDefinition } from "./definition.js";
 import { ServiceError } from "./errors.js";
 import type { ServicePlatform } from "./platform.js";
 import type { ServiceCommands } from "./runner.js";
-import { LOG_DIRECTORY, LOG_FILE, serveArguments, SERVICE_LABEL, type ServiceHost, type ServiceSpec } from "./spec.js";
+import { LOG_DIRECTORY, LOG_FILE, serveArguments, SERVICE_LABEL, type InstallContext, type ServiceSpec } from "./spec.js";
 import { escapeXml } from "./xml.js";
 
 const string = (text: string): string => `<string>${escapeXml(text)}</string>`;
@@ -20,11 +20,11 @@ export const renderLaunchdPlist = (spec: ServiceSpec): string => {
   return [
     '<?xml version="1.0" encoding="UTF-8"?>',
     '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">',
-    `<!-- The ${spec.label} environment. Written by "${SERVICE_LABEL} service install"; "${SERVICE_LABEL} service uninstall" removes it. -->`,
+    `<!-- The ${SERVICE_LABEL} environment. Written by "${SERVICE_LABEL} service install"; "${SERVICE_LABEL} service uninstall" removes it. -->`,
     '<plist version="1.0">',
     "<dict>",
     "\t<key>Label</key>",
-    `\t${string(spec.label)}`,
+    `\t${string(SERVICE_LABEL)}`,
     "\t<key>ProgramArguments</key>",
     "\t<array>",
     ...serveArguments(spec).map((arg) => `\t\t${string(arg)}`),
@@ -52,11 +52,11 @@ export const renderLaunchdPlist = (spec: ServiceSpec): string => {
  * loads it (and `RunAtLoad` starts it), kickstart starts a loaded one, bootout
  * stops and unloads it.
  */
-export const launchdPlatform = (host: ServiceHost, commands: ServiceCommands): ServicePlatform => {
-  if (host.uid === undefined) throw new ServiceError("launchd needs the user id to name the user's domain, and this process has none.");
-  const domain = `gui/${host.uid}`;
+export const launchdPlatform = (installContext: InstallContext, commands: ServiceCommands): ServicePlatform => {
+  if (installContext.uid === undefined) throw new ServiceError("launchd needs the user id to name the user's domain, and this process has none.");
+  const domain = `gui/${installContext.uid}`;
   const target = `${domain}/${SERVICE_LABEL}`;
-  const path = posix.join(host.homedir, "Library", "LaunchAgents", `${SERVICE_LABEL}.plist`);
+  const path = posix.join(installContext.homedir, "Library", "LaunchAgents", `${SERVICE_LABEL}.plist`);
   const launchctl = (...args: string[]) => commands.run("launchctl", args);
 
   /** What `launchctl print` says of the job: nothing when it is not loaded. */
@@ -69,16 +69,24 @@ export const launchdPlatform = (host: ServiceHost, commands: ServiceCommands): S
   return {
     kind: "launchd",
     definitionPath: () => path,
-    render: renderLaunchdPlist,
     install: async (spec) => {
-      prepareServiceDirectories(spec);
-      await installDefinition(path, renderLaunchdPlist(spec), async () => {
+      const written = writeDefinition(path, renderLaunchdPlist(spec));
+      let bootedOut = false;
+      try {
         const print = await printed();
-        if (print === undefined) return;
-        // launchd keeps a loaded job's old definition: unload it, and load the new one only if the old one was running.
-        await launchctl("bootout", target);
-        if (running(print)) await launchctl("bootstrap", domain, path);
-      });
+        if (print !== undefined) {
+          // launchd keeps a loaded job's old definition: unload it, and load the new one only if the old one was running.
+          await launchctl("bootout", target);
+          bootedOut = true;
+          if (running(print)) await launchctl("bootstrap", domain, path);
+        }
+      } catch (error) {
+        written.restore();
+        // The old agent was unloaded for the new one: load it again from its restored file.
+        if (bootedOut && written.previous !== undefined) await commands.attempt("launchctl", ["bootstrap", domain, path]);
+        throw error;
+      }
+      return { createdDirectories: written.createdDirectories };
     },
     uninstall: async () => {
       if ((await printed()) !== undefined) await launchctl("bootout", target);

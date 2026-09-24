@@ -2,7 +2,7 @@ import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { makeTempDir } from "../../test/service-helpers.js";
-import { resolveProgram, serveArguments, SERVICE_LABEL } from "./spec.js";
+import { resolveProgram, serveArguments } from "./spec.js";
 
 let cleanups: (() => void)[] = [];
 afterEach(() => {
@@ -51,7 +51,7 @@ describe("the program a service runs", () => {
 
 describe("the serve command line", () => {
   it("is the program, then serve with the data directory and the port", () => {
-    expect(serveArguments({ label: SERVICE_LABEL, program: ["/n", "/m.js"], dataDir: "/d", port: 7433 })).toEqual([
+    expect(serveArguments({ program: ["/n", "/m.js"], dataDir: "/d", port: 7433 })).toEqual([
       "/n",
       "/m.js",
       "serve",

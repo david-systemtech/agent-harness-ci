@@ -1,7 +1,7 @@
 import { UnsupportedPlatformError } from "./errors.js";
 import { launchdPlatform } from "./launchd.js";
 import { serviceCommands, type CommandRunner } from "./runner.js";
-import type { ServiceHost, ServiceSpec } from "./spec.js";
+import type { InstallContext, ServiceSpec } from "./spec.js";
 import { systemdPlatform } from "./systemd.js";
 import { taskSchedulerPlatform } from "./task-scheduler.js";
 
@@ -14,15 +14,14 @@ export interface ServicePlatform {
   readonly kind: "launchd" | "systemd" | "task-scheduler";
   /** Where the definition lives: a file for launchd and systemd, the task's path in Task Scheduler on Windows. */
   definitionPath(): string;
-  /** The definition for `spec`, as written. Pure. */
-  render(spec: ServiceSpec): string;
   /**
-   * Prepares the data directory and its log folder, writes the definition and
-   * registers it to run at logon. A definition already there is replaced; a
-   * service that was running is restarted onto the new one, one that was not
-   * is left stopped. On a refusal the previous definition is put back.
+   * Writes the definition and registers it to run at logon; the data
+   * directory must exist. A definition already there is replaced; a service
+   * that was running is restarted onto the new one, one that was not is left
+   * stopped. On a refusal the previous definition, and the service manager's
+   * hold on it, are put back.
    */
-  install(spec: ServiceSpec): Promise<void>;
+  install(spec: ServiceSpec): Promise<InstalledDefinition>;
   /** Stops the service and removes the definition. Call only when installed. */
   uninstall(): Promise<void>;
   /** Starts the installed service now. */
@@ -34,18 +33,24 @@ export interface ServicePlatform {
   notes(): Promise<string[]>;
 }
 
-/** The service manager for `host`'s platform. */
-export const createServicePlatform = (host: ServiceHost, runner: CommandRunner): ServicePlatform => {
+/** What an install left outside the data directory beside the definition itself. */
+export interface InstalledDefinition {
+  /** The folders created to hold the definition, outermost first. */
+  readonly createdDirectories: readonly string[];
+}
+
+/** The service manager for the install context's platform. */
+export const createServicePlatform = (installContext: InstallContext, runner: CommandRunner): ServicePlatform => {
   const commands = serviceCommands(runner);
-  switch (host.platform) {
+  switch (installContext.platform) {
     case "darwin":
-      return launchdPlatform(host, commands);
+      return launchdPlatform(installContext, commands);
     case "linux":
-      return systemdPlatform(host, commands);
+      return systemdPlatform(installContext, commands);
     case "win32":
-      return taskSchedulerPlatform(host, commands);
+      return taskSchedulerPlatform(installContext, commands);
     default:
-      throw new UnsupportedPlatformError(host.platform);
+      throw new UnsupportedPlatformError(installContext.platform);
   }
 };
 

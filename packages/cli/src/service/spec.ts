@@ -11,7 +11,6 @@ export const SERVICE_LABEL = PRODUCT_NAME;
 
 /** What a service definition is rendered from. */
 export interface ServiceSpec {
-  readonly label: string;
   /**
    * The absolute command line that runs the `agent-harness` binary, before its
    * verb: node and the CLI's entry, or the executable alone (`resolveProgram`).
@@ -39,14 +38,14 @@ export const serveArguments = (spec: ServiceSpec): string[] => [
 ];
 
 /** The machine and user a service is installed for; the running process's own unless a test says otherwise. */
-export interface ServiceHost extends PlatformContext {
+export interface InstallContext extends PlatformContext {
   /** The POSIX user id, which names the launchd domain; undefined on Windows. */
   readonly uid: number | undefined;
   /** The login name, for `loginctl` and the Windows task's principal. */
   readonly username: string;
 }
 
-export const currentHost = (): ServiceHost => ({
+export const currentInstallContext = (): InstallContext => ({
   platform: process.platform,
   env: process.env,
   homedir: homedir(),

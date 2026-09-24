@@ -1,9 +1,9 @@
 import { existsSync, rmSync } from "node:fs";
 import { posix } from "node:path";
-import { installDefinition, prepareServiceDirectories } from "./definition.js";
+import { writeDefinition } from "./definition.js";
 import type { ServicePlatform } from "./platform.js";
 import type { ServiceCommands } from "./runner.js";
-import { LOG_DIRECTORY, LOG_FILE, serveArguments, SERVICE_LABEL, type ServiceHost, type ServiceSpec } from "./spec.js";
+import { LOG_DIRECTORY, LOG_FILE, serveArguments, SERVICE_LABEL, type InstallContext, type ServiceSpec } from "./spec.js";
 
 /** Characters that make systemd split or unescape a word: whitespace, quotes, backslash, and `;` which separates commands. */
 const NEEDS_QUOTES = /[\s"'\\;]/;
@@ -29,10 +29,10 @@ const logPath = (spec: ServiceSpec): string => posix.join(spec.dataDir, LOG_DIRE
  */
 export const renderSystemdUnit = (spec: ServiceSpec): string =>
   [
-    `# The ${spec.label} environment. Written by "${SERVICE_LABEL} service install";`,
+    `# The ${SERVICE_LABEL} environment. Written by "${SERVICE_LABEL} service install";`,
     `# "${SERVICE_LABEL} service uninstall" removes it.`,
     "[Unit]",
-    `Description=${spec.label} environment`,
+    `Description=${SERVICE_LABEL} environment`,
     "",
     "[Service]",
     "Type=simple",
@@ -53,25 +53,33 @@ export const renderSystemdUnit = (spec: ServiceSpec): string =>
  * the user manager's: with lingering off it starts at the first login and
  * stops at the last logout, which `notes` says.
  */
-export const systemdPlatform = (host: ServiceHost, commands: ServiceCommands): ServicePlatform => {
+export const systemdPlatform = (installContext: InstallContext, commands: ServiceCommands): ServicePlatform => {
   const unit = `${SERVICE_LABEL}.service`;
-  const xdg = host.env["XDG_CONFIG_HOME"];
-  const configHome = xdg && posix.isAbsolute(xdg) ? xdg : posix.join(host.homedir, ".config");
+  const xdg = installContext.env["XDG_CONFIG_HOME"];
+  const configHome = xdg && posix.isAbsolute(xdg) ? xdg : posix.join(installContext.homedir, ".config");
   const path = posix.join(configHome, "systemd", "user", unit);
   const systemctl = (...args: string[]) => commands.run("systemctl", ["--user", ...args]);
 
   return {
     kind: "systemd",
     definitionPath: () => path,
-    render: renderSystemdUnit,
     install: async (spec) => {
-      prepareServiceDirectories(spec);
-      await installDefinition(path, renderSystemdUnit(spec), async () => {
+      const written = writeDefinition(path, renderSystemdUnit(spec));
+      let enabled = false;
+      try {
         await systemctl("daemon-reload");
         await systemctl("enable", unit);
+        enabled = true;
         // try-restart restarts a running unit onto the new definition and leaves a stopped one stopped.
         await systemctl("try-restart", unit);
-      });
+      } catch (error) {
+        // A unit that did not exist before is disabled again; a replaced one keeps the enablement it had.
+        if (enabled && written.previous === undefined) await commands.attempt("systemctl", ["--user", "disable", unit]);
+        written.restore();
+        await commands.attempt("systemctl", ["--user", "daemon-reload"]);
+        throw error;
+      }
+      return { createdDirectories: written.createdDirectories };
     },
     uninstall: async () => {
       await systemctl("disable", "--now", unit);
@@ -84,11 +92,11 @@ export const systemdPlatform = (host: ServiceHost, commands: ServiceCommands): S
     isInstalled: async () => existsSync(path),
     isRunning: async () => (await commands.query("systemctl", ["--user", "is-active", unit])).code === 0,
     notes: async () => {
-      const linger = await commands.query("loginctl", ["show-user", host.username, "--property=Linger", "--value"]);
+      const linger = await commands.query("loginctl", ["show-user", installContext.username, "--property=Linger", "--value"]);
       if (linger.code !== 0 || linger.stdout.trim() !== "no") return [];
       return [
-        `Lingering is off for ${host.username}, so the service starts at your first login and stops at your last logout. ` +
-          `To keep it running with nobody logged in, an administrator runs \`loginctl enable-linger ${host.username}\`.`,
+        `Lingering is off for ${installContext.username}, so the service starts at your first login and stops at your last logout. ` +
+          `To keep it running with nobody logged in, an administrator runs \`loginctl enable-linger ${installContext.username}\`.`,
       ];
     },
   };

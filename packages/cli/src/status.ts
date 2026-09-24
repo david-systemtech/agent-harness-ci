@@ -1,45 +1,49 @@
 import { PRODUCT_NAME } from "@agent-harness/contracts";
 import { DEFAULT_PORT, HARNESS_VERSION } from "@agent-harness/environment";
 import { parseOptions, parsePort } from "./args.js";
-import { environmentAddress, probeEnvironment } from "./probe.js";
+import { environmentAddress, discoverEnvironment } from "./discover.js";
 
 export interface StatusContext {
   readonly stdout: (text: string) => void;
   readonly fetch: typeof globalThis.fetch;
 }
 
-/** Exit code when no environment answers: 3, as LSB init scripts report "not running". */
-export const NOT_ANSWERING = 3;
+/**
+ * Exit code when the environment is not ready: nothing answers (`status`), or
+ * the service is not installed, not running or not ready (`service status`).
+ * 3, as LSB init scripts report "not running".
+ */
+export const NOT_READY = 3;
 
 /**
  * `status`: who answers at the discovery URL on the port (preset
  * `DEFAULT_PORT`), with its identity, version and readiness, or a plain
  * sentence that nothing does. Exits 0 when an environment answers, whatever
- * its readiness, and 3 when none does.
+ * its readiness, and `NOT_READY` when none does.
  */
 export const status = async (args: readonly string[], context: StatusContext): Promise<number> => {
   const values = parseOptions(args, { port: { type: "string" }, json: { type: "boolean" } });
   const port = parsePort(values.port, 1) ?? DEFAULT_PORT;
   const address = environmentAddress(port);
-  const probe = await probeEnvironment(context.fetch, port);
+  const discovery = await discoverEnvironment(context.fetch, port);
 
   if (values.json) {
     const report =
-      probe.kind === "environment"
-        ? { address, answering: true, environment: probe.document }
-        : { address, answering: false, ...(probe.kind === "other" && { detail: probe.detail }) };
+      discovery.kind === "environment"
+        ? { address, answering: true, environment: discovery.document }
+        : { address, answering: false, ...(discovery.kind === "other" && { detail: discovery.detail }) };
     context.stdout(`${JSON.stringify(report, null, 2)}\n`);
-    return probe.kind === "environment" ? 0 : NOT_ANSWERING;
+    return discovery.kind === "environment" ? 0 : NOT_READY;
   }
-  if (probe.kind === "none") {
+  if (discovery.kind === "none") {
     context.stdout(`No environment answers at ${address}.\n`);
-    return NOT_ANSWERING;
+    return NOT_READY;
   }
-  if (probe.kind === "other") {
-    context.stdout(`Something answers at ${address}, but not as an ${PRODUCT_NAME} environment: ${probe.detail}.\n`);
-    return NOT_ANSWERING;
+  if (discovery.kind === "other") {
+    context.stdout(`Something answers at ${address}, but not as an ${PRODUCT_NAME} environment: ${discovery.detail}.\n`);
+    return NOT_READY;
   }
-  const { document } = probe;
+  const { document } = discovery;
   const mismatch = document.harnessVersion === HARNESS_VERSION ? "" : ` (this CLI is ${HARNESS_VERSION})`;
   context.stdout(
     [

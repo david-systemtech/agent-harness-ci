@@ -3,11 +3,11 @@ import { DISCOVERY_PATH, DiscoveryDocument } from "@agent-harness/contracts";
 /** The loopback address every environment binds (the env spec's "Binding and discovery"). */
 export const LOOPBACK = "127.0.0.1";
 
-/** How long a probe waits for the discovery URL before calling it silent. */
-export const PROBE_TIMEOUT_MS = 2000;
+/** How long `discoverEnvironment` waits for the discovery URL before calling it silent. */
+export const DISCOVERY_TIMEOUT_MS = 2000;
 
 /** What answered at the discovery URL: an environment, something else, or nothing. */
-export type Probe =
+export type Discovery =
   | { readonly kind: "environment"; readonly document: DiscoveryDocument }
   | { readonly kind: "other"; readonly detail: string }
   | { readonly kind: "none" };
@@ -20,11 +20,11 @@ export const environmentAddress = (port: number): string => `http://${LOOPBACK}:
  * connection or no answer within the timeout is `none`; an answer that is not
  * a discovery document is `other`.
  */
-export const probeEnvironment = async (
+export const discoverEnvironment = async (
   fetch: typeof globalThis.fetch,
   port: number,
-  { timeoutMs = PROBE_TIMEOUT_MS }: { timeoutMs?: number } = {},
-): Promise<Probe> => {
+  { timeoutMs = DISCOVERY_TIMEOUT_MS }: { timeoutMs?: number } = {},
+): Promise<Discovery> => {
   let response: Response;
   const signal = AbortSignal.timeout(timeoutMs);
   try {

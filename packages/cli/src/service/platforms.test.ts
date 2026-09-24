@@ -1,10 +1,10 @@
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { hostAt, makeTempDir, stubRunner, type Answer } from "../../test/service-helpers.js";
+import { installContextAt, makeTempDir, stubRunner, type Answer } from "../../test/service-helpers.js";
 import { renderLaunchdPlist } from "./launchd.js";
 import { createServicePlatform, ServiceCommandError, UnsupportedPlatformError } from "./platform.js";
-import { SERVICE_LABEL, type ServiceSpec } from "./spec.js";
+import type { ServiceSpec } from "./spec.js";
 import { renderSystemdUnit } from "./systemd.js";
 import { renderTaskXml } from "./task-scheduler.js";
 
@@ -21,15 +21,21 @@ const tempHome = (): string => {
 };
 
 const specIn = (home: string): ServiceSpec => ({
-  label: SERVICE_LABEL,
   program: ["/usr/bin/node", "/opt/agent-harness/dist/main.js"],
   dataDir: join(home, "state", "agent-harness"),
   port: 7433,
 });
 
+/** A spec whose data directory exists, as the install verb leaves it before the platform writes into it. */
+const preparedSpecIn = (home: string): ServiceSpec => {
+  const spec = specIn(home);
+  mkdirSync(spec.dataDir, { recursive: true });
+  return spec;
+};
+
 const platformFor = (platform: NodeJS.Platform, home: string, answer?: Answer, env: Record<string, string> = {}) => {
   const stub = stubRunner(answer);
-  return { ...stub, service: createServicePlatform(hostAt(platform, home, env), stub.runner) };
+  return { ...stub, service: createServicePlatform(installContextAt(platform, home, env), stub.runner) };
 };
 
 describe("the platform choice", () => {
@@ -61,42 +67,79 @@ describe("the systemd user unit", () => {
     );
   });
 
-  it("install writes the unit, creates the log directory, reloads, enables, and restarts only a running unit", async () => {
+  it("install writes the unit, reloads, enables, restarts only a running unit, and reports the folders it created", async () => {
     const home = tempHome();
     const spec = specIn(home);
     const { service, calls } = platformFor("linux", home);
 
-    await service.install(spec);
+    const installed = await service.install(spec);
 
     expect(readFileSync(unitPath(home), "utf8")).toBe(renderSystemdUnit(spec));
-    expect(statSync(join(spec.dataDir, "logs")).isDirectory()).toBe(true);
-    expect(calls).toEqual([
+    expect(installed.createdDirectories).toEqual([
+      join(home, ".config"),
+      join(home, ".config", "systemd"),
+      join(home, ".config", "systemd", "user"),
+    ]);
+    expect((await service.install(spec)).createdDirectories).toEqual([]);
+    expect(calls.slice(0, 3)).toEqual([
       "systemctl --user daemon-reload",
       "systemctl --user enable agent-harness.service",
       "systemctl --user try-restart agent-harness.service",
     ]);
   });
 
-  it("install removes the unit it wrote when systemd refuses it, and says what systemd said", async () => {
+  it("install removes the unit and the folders it wrote when systemd refuses it, reloads, and says what systemd said", async () => {
     const home = tempHome();
-    const { service } = platformFor("linux", home, (_, args) =>
-      args.includes("daemon-reload") ? { code: 1, stderr: "Failed to connect to bus: No medium found" } : undefined,
+    let reloads = 0;
+    const { service, calls } = platformFor("linux", home, (_, args) =>
+      args.includes("daemon-reload") && reloads++ === 0 ? { code: 1, stderr: "Failed to connect to bus: No medium found" } : undefined,
     );
 
     const failure = service.install(specIn(home));
     await expect(failure).rejects.toThrow(ServiceCommandError);
     await expect(failure).rejects.toThrow(/systemctl --user daemon-reload.*Failed to connect to bus/s);
     expect(existsSync(unitPath(home))).toBe(false);
+    expect(existsSync(join(home, ".config"))).toBe(false);
+    expect(calls).toEqual(["systemctl --user daemon-reload", "systemctl --user daemon-reload"]);
   });
 
-  it("install puts back the unit it replaced when systemd refuses the new one", async () => {
+  it("install disables a new unit it had enabled when a later step fails, then removes it and reloads", async () => {
     const home = tempHome();
-    mkdirSync(dirname(unitPath(home)), { recursive: true });
-    writeFileSync(unitPath(home), "the previous unit\n");
-    const { service } = platformFor("linux", home, (_, args) => (args.includes("enable") ? { code: 1 } : undefined));
+    const { service, calls } = platformFor("linux", home, (_, args) => (args.includes("try-restart") ? { code: 1 } : undefined));
 
     await expect(service.install(specIn(home))).rejects.toThrow(ServiceCommandError);
-    expect(readFileSync(unitPath(home), "utf8")).toBe("the previous unit\n");
+    expect(existsSync(unitPath(home))).toBe(false);
+    expect(calls).toEqual([
+      "systemctl --user daemon-reload",
+      "systemctl --user enable agent-harness.service",
+      "systemctl --user try-restart agent-harness.service",
+      "systemctl --user disable agent-harness.service",
+      "systemctl --user daemon-reload",
+    ]);
+  });
+
+  it("install puts back the unit it replaced, leaves its enablement alone and reloads, when systemd refuses the new one", async () => {
+    for (const failing of ["enable", "try-restart"]) {
+      const home = tempHome();
+      mkdirSync(dirname(unitPath(home)), { recursive: true });
+      writeFileSync(unitPath(home), "the previous unit\n");
+      const { service, calls } = platformFor("linux", home, (_, args) => (args.includes(failing) ? { code: 1 } : undefined));
+
+      await expect(service.install(specIn(home)), failing).rejects.toThrow(ServiceCommandError);
+      expect(readFileSync(unitPath(home), "utf8")).toBe("the previous unit\n");
+      expect(calls.filter((call) => call.includes("disable")), failing).toEqual([]);
+      expect(calls.at(-1)).toBe("systemctl --user daemon-reload");
+    }
+  });
+
+  it("install changes nothing and runs nothing when the existing unit cannot be read", async () => {
+    const home = tempHome();
+    mkdirSync(unitPath(home), { recursive: true });
+    const { service, calls } = platformFor("linux", home);
+
+    await expect(service.install(specIn(home))).rejects.toThrow(/could not read the existing definition/i);
+    expect(statSync(unitPath(home)).isDirectory()).toBe(true);
+    expect(calls).toEqual([]);
   });
 
   it("uninstall stops and disables the unit, removes the file and reloads", async () => {
@@ -165,16 +208,44 @@ describe("the launchd agent", () => {
     expect(platformFor("darwin", home).service.definitionPath()).toBe(plistPath(home));
   });
 
-  it("install writes the agent and creates the log directory, loading nothing when no agent was loaded", async () => {
+  it("install writes the agent, loading nothing when no agent was loaded, and reports the folders it created", async () => {
     const home = tempHome();
     const spec = specIn(home);
     const { service, calls } = platformFor("darwin", home, notLoaded);
 
-    await service.install(spec);
+    const installed = await service.install(spec);
 
     expect(readFileSync(plistPath(home), "utf8")).toBe(renderLaunchdPlist(spec));
-    expect(statSync(join(spec.dataDir, "logs")).isDirectory()).toBe(true);
+    expect(installed.createdDirectories).toEqual([join(home, "Library"), join(home, "Library", "LaunchAgents")]);
     expect(calls).toEqual(["launchctl print gui/501/agent-harness"]);
+  });
+
+  it("install puts back the agent it replaced and bootstraps it again when the new one will not load", async () => {
+    const home = tempHome();
+    mkdirSync(dirname(plistPath(home)), { recursive: true });
+    writeFileSync(plistPath(home), "the previous agent\n");
+    let bootstraps = 0;
+    const { service, calls } = platformFor("darwin", home, (command, args) => {
+      if (args[0] === "bootstrap" && bootstraps++ === 0) return { code: 5, stderr: "Bootstrap failed: 5: Input/output error" };
+      return loaded("running")(command, args);
+    });
+
+    await expect(service.install(specIn(home))).rejects.toThrow(/Input\/output error/);
+    expect(readFileSync(plistPath(home), "utf8")).toBe("the previous agent\n");
+    expect(calls).toEqual([
+      "launchctl print gui/501/agent-harness",
+      "launchctl bootout gui/501/agent-harness",
+      `launchctl bootstrap gui/501 ${plistPath(home)}`,
+      `launchctl bootstrap gui/501 ${plistPath(home)}`,
+    ]);
+  });
+
+  it("install changes nothing and runs nothing when the existing agent cannot be read", async () => {
+    const home = tempHome();
+    mkdirSync(plistPath(home), { recursive: true });
+    const { service, calls } = platformFor("darwin", home, loaded("running"));
+    await expect(service.install(specIn(home))).rejects.toThrow(/could not read the existing definition/i);
+    expect(calls).toEqual([]);
   });
 
   it("install boots out a loaded agent and bootstraps the new one when the old one was running", async () => {
@@ -228,7 +299,7 @@ describe("the launchd agent", () => {
 
   it("fails with a sentence when the platform has no user id to name the launchd domain", () => {
     const stub = stubRunner();
-    expect(() => createServicePlatform({ ...hostAt("darwin", tempHome()), uid: undefined }, stub.runner)).toThrow(
+    expect(() => createServicePlatform({ ...installContextAt("darwin", tempHome()), uid: undefined }, stub.runner)).toThrow(
       /user id/,
     );
   });
@@ -240,7 +311,7 @@ describe("the Task Scheduler logon task", () => {
 
   it("install renders the task XML into the data directory as UTF-16, creates the task from it, and removes the file", async () => {
     const home = tempHome();
-    const spec = specIn(home);
+    const spec = preparedSpecIn(home);
     const xmlFile = join(spec.dataDir, "service-task.xml");
     let written: Buffer | undefined;
     const { service, calls } = platformFor(
@@ -262,12 +333,11 @@ describe("the Task Scheduler logon task", () => {
     expect(written?.subarray(0, 2)).toEqual(Buffer.from([0xff, 0xfe]));
     expect(written?.subarray(2).toString("utf16le")).toBe(renderTaskXml(spec, "GAMINGPC\\david"));
     expect(existsSync(xmlFile)).toBe(false);
-    expect(statSync(join(spec.dataDir, "logs")).isDirectory()).toBe(true);
   });
 
   it("install removes the XML file even when schtasks refuses the task", async () => {
     const home = tempHome();
-    const spec = specIn(home);
+    const spec = preparedSpecIn(home);
     const { service } = platformFor("win32", home, (_, args) =>
       args[0] === "/Create" ? { code: 1, stderr: "ERROR: Access is denied." } : { code: 1 },
     );
@@ -277,7 +347,7 @@ describe("the Task Scheduler logon task", () => {
 
   it("install ends and reruns a task that was running, onto the new definition", async () => {
     const home = tempHome();
-    const spec = specIn(home);
+    const spec = preparedSpecIn(home);
     const { service, calls } = platformFor("win32", home, running);
     await service.install(spec);
     expect(calls).toEqual([
@@ -290,7 +360,7 @@ describe("the Task Scheduler logon task", () => {
 
   it("names the task's user with its domain when Windows gives one", async () => {
     const home = tempHome();
-    const spec = specIn(home);
+    const spec = preparedSpecIn(home);
     let written = "";
     const { service } = platformFor("win32", home, (_, args) => {
       if (args[0] === "/Create") written = readFileSync(join(spec.dataDir, "service-task.xml")).subarray(2).toString("utf16le");

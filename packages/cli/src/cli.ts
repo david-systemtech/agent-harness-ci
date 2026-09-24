@@ -18,9 +18,9 @@ const USAGE = [
   `       ${PRODUCT_NAME} serve [--data-dir <path>] [--port <n>] [--name <name>]`,
   `       ${PRODUCT_NAME} status [--port <n>] [--json]`,
   `       ${PRODUCT_NAME} service install [--data-dir <path>] [--port <n>]`,
-  `       ${PRODUCT_NAME} service uninstall`,
+  `       ${PRODUCT_NAME} service uninstall [--data-dir <path>]`,
   `       ${PRODUCT_NAME} service start`,
-  `       ${PRODUCT_NAME} service status [--port <n>] [--json]`,
+  `       ${PRODUCT_NAME} service status [--data-dir <path>] [--port <n>] [--json]`,
   "",
 ].join("\n");
 
@@ -35,7 +35,7 @@ export interface CliContext {
    * the root refusal.
    */
   readonly environment?: Pick<EnvironmentOptions, "user" | "launcher">;
-  /** The fetch `status` and `service status` probe the discovery URL with; a seam for tests. */
+  /** The fetch `status` and `service status` ask the discovery URL with; a seam for tests. */
   readonly fetch?: typeof globalThis.fetch;
   /** Seams into the service verbs for tests, under the same rule as `environment`. */
   readonly service?: ServiceSeams;
