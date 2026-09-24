@@ -16,7 +16,9 @@ import { readRun, readSessionFacts, taskStatus } from "./run-reads.js";
  * transaction has committed, so a run never starts for a command that did
  * not. A new run passes the drain's gate first: while the environment
  * drains, `runs.start`, and a `runs.send` that would start a run, are
- * `unavailable`.
+ * `unavailable`. The one thing done before the commit is staging a queued
+ * message's attachment bytes on disk (#185), so its receipt means a restart
+ * keeps them; a stage that fails refuses the send `internal`.
  */
 
 export interface RunMethodsOptions {
@@ -79,6 +81,8 @@ export const runMethods = (options: RunMethodsOptions): MethodHandlers => {
       if (facts.session !== null && !facts.session.deleted && facts.live === null) host.admit();
       const decision = decideSend(facts, { messageId: randomUUID(), text: params.text, attachments: params.attachments ?? [] });
       if (decision.rejected !== undefined) return { aggregate, rejected: decision.rejected };
+      // A queued message's bytes are on disk before anything of it is recorded, so its receipt means a restart keeps them (#185).
+      if (decision.queued !== undefined) host.stageAttachments(decision.queued.message);
       appendIn(context, sessionId, decision.result.runId, decision.events);
       if (decision.run !== undefined) {
         const run = decision.run;

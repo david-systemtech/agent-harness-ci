@@ -35,7 +35,8 @@ import { formatActor, openEventLog, type EventLog, type Projector } from "../eve
 import type { Adapter } from "../adapter/contract.js";
 import { createAdapterHost, type AdapterHost, type HostAccount } from "../adapter/host.js";
 import { processMethods } from "../adapter/processes-methods.js";
-import { recoverCutRuns } from "../adapter/recovery.js";
+import { ATTACHMENTS_DIRECTORY, createAttachmentStage } from "../adapter/attachment-stage.js";
+import { recoverCutRuns, recoverStagedAttachments } from "../adapter/recovery.js";
 import type { InstructionComposer, ModeClamp, ToolServerFactory } from "../adapter/seams.js";
 import type { PermissionBroker } from "../adapter/contract.js";
 import { runMethods } from "../runs/run-methods.js";
@@ -324,9 +325,14 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     // First the recovery sweep: a run the log left without an end was cut by the last stop, and is ended before anything can read it.
     const recovered = recoverCutRuns({ log, clock });
     if (recovered.length > 0) console.error(`The recovery sweep ended ${recovered.length} run(s) a restart cut: ${recovered.join(", ")}.`);
+    // Then the queued messages' attachment bytes, read back from the stage, so a message the sweep handed back keeps them (#185).
+    const attachmentStage = createAttachmentStage(join(dataDir, ATTACHMENTS_DIRECTORY));
+    const stagedAttachments = recoverStagedAttachments({ log, stage: attachmentStage });
     const created = createAdapterHost({
       log,
       clock,
+      attachmentStage,
+      stagedAttachments,
       ...(options.runs !== undefined && { runs: options.runs }),
       ...(options.adapters !== undefined && { adapters: options.adapters }),
       ...(options.accounts !== undefined && { accounts: options.accounts }),
