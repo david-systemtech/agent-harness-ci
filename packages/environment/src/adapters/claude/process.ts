@@ -500,6 +500,7 @@ export class ClaudeProcess implements TurnControl {
       for (const message of input.prompt) this.#prompts.push(userMessage(message));
       for (const message of carried) {
         this.#queuedSends.set(message.messageId, message);
+        turn.queued.add(message.messageId);
         this.#prompts.push(userMessage(message));
       }
       this.#query = sdkQuery({ prompt: this.#prompts, options });
@@ -981,6 +982,7 @@ export class ClaudeProcess implements TurnControl {
     checkImages([message]);
     // Stamped with the harness's id: the CLI names it when a turn reads it, and an interrupt's receipt lists it.
     this.#queuedSends.set(message.messageId, message);
+    turn.queued.add(message.messageId);
     this.#prompts.push(userMessage(message));
   }
 
@@ -996,10 +998,13 @@ export class ClaudeProcess implements TurnControl {
     }
     const query = this.#query;
     if (!turn.opened) {
-      // Not spawned yet, or its prompt withdrawn from the CLI's queue: the run ends here.
-      if (query === undefined || (this.#featuresOf(query).cancelById && (await this.#withdraw(query, turn.promptIds)))) {
+      // Not spawned yet, or its prompt withdrawn from the CLI's queue together with what was queued with the run (sent
+      // onto it, or handed on at its spawn), which the CLI would otherwise run later: the run ends here, those handed back.
+      const withIt = [...turn.queued].filter((id) => this.#queuedSends.has(id));
+      if (query === undefined || (this.#featuresOf(query).cancelById && (await this.#withdraw(query, [...turn.promptIds, ...withIt])))) {
+        for (const id of withIt) this.#queuedSends.delete(id);
         this.#waitingEnds(turn, { reason: "interrupted", cause: "user" });
-        return { stillQueued: [] };
+        return { stillQueued: withIt };
       }
       // The CLI may be running another turn ahead of it, which is not this run's to stop: wait for it to open this one.
       await turn.whenOpened();

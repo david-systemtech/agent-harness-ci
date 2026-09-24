@@ -49,6 +49,8 @@ export interface TurnOptions {
 export class ClaudeTurn implements ProviderTurn {
   readonly origin: "run" | "provider";
   readonly promptIds: readonly string[];
+  /** The messages queued at the CLI with this run: those sent onto it, and those a replaced process handed on at its spawn. */
+  readonly queued = new Set<string>();
   readonly messageIds: readonly string[];
   readonly state: MapperState;
   #runId: string;

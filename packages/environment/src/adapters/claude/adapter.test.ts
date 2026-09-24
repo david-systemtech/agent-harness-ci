@@ -1304,6 +1304,20 @@ describe("a run that joins a kept process", () => {
     expect(ends(await read.done)).toEqual([expect.objectContaining({ reason: "error", error: expect.objectContaining({ code: "not_opened" }) })]);
   });
 
+  it("withdraws what was sent onto a run that has not opened with its prompt, and hands those messages back", async () => {
+    fake.controls = { cancelled: () => true };
+    const adapter = adapterWith();
+    const input = runInput();
+    const run = adapter.createRun(input, contextWith());
+    const query = await started();
+    const followUp = message("And this");
+    await run.send(followUp);
+    await query.promptsPushed(2);
+    expect(await run.interrupt()).toEqual({ stillQueued: [followUp.messageId] });
+    expect(query.cancelRequests).toEqual([input.prompt[0]?.messageId, followUp.messageId]);
+    expect(ends(await drain(run))).toEqual([expect.objectContaining({ reason: "interrupted" })]);
+  });
+
   it("interrupts a run whose prompt waits behind the CLI's own turn only once that run opens, never the turn ahead of it", async () => {
     fake.controls = { cancelled: () => false };
     const adapter = adapterWith();
