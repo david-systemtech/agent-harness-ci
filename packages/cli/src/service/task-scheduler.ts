@@ -91,6 +91,17 @@ const taskUser = (installContext: InstallContext): string => {
  * `schtasks`. The definition is not a file the user owns: `/Create` takes the
  * XML from a file in the data directory, which is removed at once.
  */
+/**
+ * What `schtasks /Query /XML` printed, as text. The runner decodes output as
+ * UTF-8; when schtasks writes UTF-16 instead (as its exported task XML is),
+ * the decoded text carries the NUL bytes, which this turns back into the
+ * characters. A byte order mark is dropped either way.
+ */
+export const decodeTaskXml = (output: string): string => {
+  const text = output.includes("\u0000") ? Buffer.from(output, "utf8").toString("utf16le") : output;
+  return text.replace(/^\ufeff/, "");
+};
+
 export const taskSchedulerPlatform = (installContext: InstallContext, commands: ServiceCommands): ServicePlatform => {
   const name = SERVICE_LABEL;
   const schtasks = (...args: string[]) => commands.run("schtasks", args);
@@ -108,7 +119,7 @@ export const taskSchedulerPlatform = (installContext: InstallContext, commands: 
       const wasRunning = await isRunning();
       // The previous task, kept so a refusal after /Create can put it back (the ServicePlatform contract).
       const previous = await commands.query("schtasks", ["/Query", "/TN", name, "/XML"]);
-      const previousXml = previous.code === 0 && previous.stdout.trim() !== "" ? previous.stdout : undefined;
+      const previousXml = previous.code === 0 && previous.stdout.trim() !== "" ? decodeTaskXml(previous.stdout) : undefined;
       const file = join(spec.dataDir, TASK_XML_FILE);
       const createFrom = async (xml: string) => {
         // schtasks reads task XML reliably only as UTF-16 with a byte order mark.

@@ -39,7 +39,8 @@ any of those folders left empty.
 1. From an ordinary (not elevated) terminal, `agent-harness service install`. Expect `Installed \agent-harness`; `schtasks /Query /TN agent-harness /V /FO LIST` shows a logon trigger for your user and the `conhost.exe --headless` action. If `/Create` says access is denied, record it: the task needs another principal shape.
 2. `agent-harness service start`, then `agent-harness service status`: ready, exit 0. No console window opened, and no Windows Terminal window either.
 3. Sign out and back in. `service status` shows ready without a start, and still no window.
-4. End the `node.exe` process in Task Manager: the task should restart within a minute. Restart-on-failure is unproven on Windows (Task Scheduler may not count a killed process as a failure); record what happens.
+4. Also confirm `schtasks /Query /TN agent-harness /XML` prints readable XML through the CLI's runner (it may print UTF-16; the install's put-back decodes both) by installing twice with the second install's `/End` forced to fail, if you can, and checking the first task survives.
+5. End the `node.exe` process in Task Manager: the task should restart within a minute. Restart-on-failure is unproven on Windows (Task Scheduler may not count a killed process as a failure); record what happens.
 5. `agent-harness service uninstall`. `schtasks /Query /TN agent-harness` finds nothing, nothing answers on port 7433, `%LOCALAPPDATA%\agent-harness\service-task.xml` does not exist, and the data directory is still there.
 6. On a Windows set to a language other than English, note whether `service status` still says `Running: yes`: it reads the English task status, so the running check is English-only until proven otherwise.
 

@@ -6,7 +6,7 @@ import { renderLaunchdPlist } from "./launchd.js";
 import { createServicePlatform, ServiceCommandError, UnsupportedPlatformError } from "./platform.js";
 import type { ServiceSpec } from "./spec.js";
 import { renderSystemdUnit } from "./systemd.js";
-import { renderTaskXml } from "./task-scheduler.js";
+import { renderTaskXml, decodeTaskXml } from "./task-scheduler.js";
 
 let cleanups: (() => void)[] = [];
 afterEach(() => {
@@ -429,7 +429,7 @@ describe("the Task Scheduler logon task", () => {
     }
   });
 
-  it("names the task's user with its domain when Windows gives one", async () => {
+  it("names the task's user without a domain when Windows gives none", async () => {
     const home = tempHome();
     const spec = preparedSpecIn(home);
     let written = "";
@@ -439,6 +439,14 @@ describe("the Task Scheduler logon task", () => {
     });
     await service.install(spec);
     expect(written).toBe(renderTaskXml(spec, "david"));
+  });
+
+  it("reads a previous task that schtasks printed as UTF-16 back into text before putting it back", async () => {
+    const xml = '<?xml version="1.0" encoding="UTF-16"?><Task>previous</Task>';
+    const asUtf16 = Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(xml, "utf16le")]).toString("utf8");
+    expect(decodeTaskXml(asUtf16)).toBe(xml);
+    expect(decodeTaskXml(`\ufeff${xml}`)).toBe(xml);
+    expect(decodeTaskXml(xml)).toBe(xml);
   });
 
   it("start runs the task; uninstall ends a running task and deletes it", async () => {
