@@ -22,8 +22,7 @@ export const SETTINGS_PROJECTOR = "settings";
 export const SETTINGS_TABLES = {
   settings: `CREATE TABLE settings (
     key TEXT PRIMARY KEY,
-    value TEXT NOT NULL,
-    updated_at TEXT NOT NULL
+    value TEXT NOT NULL
   ) STRICT`,
 } as const;
 
@@ -34,13 +33,7 @@ export const settingsProjector: Projector = {
     if (event.streamKind !== SETTINGS_STREAM_KIND || event.type !== "settings.updated") return;
     const { values } = event.payload as SettingsUpdatedPayload;
     for (const [key, value] of Object.entries(values)) {
-      db.run(
-        `INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)
-         ON CONFLICT (key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
-        key,
-        JSON.stringify(value),
-        event.occurredAt,
-      );
+      db.run("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value", key, JSON.stringify(value));
     }
   },
 };

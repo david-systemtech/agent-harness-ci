@@ -11,14 +11,16 @@ import { readSettings } from "./settings-store.js";
  * before a handler runs. An update records the keys whose value it changes
  * as one `settings.updated` on the environment's settings stream, in the
  * command's transaction with its receipt; one that changes nothing appends
- * nothing. What a change sets off (the auto-settle sweep) hears the event
- * on the log.
+ * nothing. What a change sets off (the auto-settle sweep) runs from the
+ * command's commit hook, so it has run before the command is answered.
  */
 
 export interface SettingsMethodsOptions {
   readonly log: EventLog;
   /** The environment's id: the id of its settings stream. */
   readonly environmentId: string;
+  /** Called once an update that changed `keys` has committed, before it is answered; preset: nothing. */
+  readonly onChange?: (keys: readonly SettingsKey[]) => void;
 }
 
 /** Two values of one key, compared as the JSON they are stored as; a key's schema gives its fields one order. */
@@ -36,13 +38,16 @@ export const settingsMethods = (options: SettingsMethodsOptions): MethodHandlers
       return { values: Object.fromEntries((keys ?? SETTINGS_KEYS).map((key) => [key, values[key]])) as SettingsPatch };
     },
 
-    "settings.update": ({ values }) => {
+    "settings.update": ({ values }, context) => {
       const held = readSettings(reader);
       const changed = Object.fromEntries(
         (Object.entries(values) as [SettingsKey, SettingsValues[SettingsKey]][]).filter(([key, value]) => !same(held[key], value)),
       ) as SettingsPatch;
       const result = { values: { ...held, ...changed } as SettingsValues };
-      if (Object.keys(changed).length === 0) return { aggregate: stream, result };
+      const keys = Object.keys(changed) as SettingsKey[];
+      if (keys.length === 0) return { aggregate: stream, result };
+      const { onChange } = options;
+      if (onChange !== undefined) context.tx.afterCommit(() => onChange(keys));
       return { aggregate: stream, result, events: [{ type: "settings.updated", payload: { values: changed } }] };
     },
   };

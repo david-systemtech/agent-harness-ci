@@ -1,6 +1,5 @@
 import type {
   IdleSpan,
-  IssueInput,
   SessionActiveReorderedPayload,
   SessionSettledPayload,
   SessionSnoozedPayload,
@@ -10,8 +9,7 @@ import type {
   SettledBy,
 } from "@agent-harness/contracts";
 import type { EventInput } from "../event-log/event-log.js";
-import { companion } from "./companions.js";
-import { present, unchanged, type Decision, type SessionState } from "./decider.js";
+import { decided, present, unchanged, type Decision, type SessionState } from "./decider.js";
 
 /**
  * The shelf's deciders (session-state spec, "Commands", "Events",
@@ -66,12 +64,11 @@ export const decideSettle = (state: SessionState | null, command: SettleSession)
   const cleared: SessionActiveReorderedPayload = { activeOrderKey: null };
   const woken: SessionUnsnoozedPayload = { reason: "settled" };
   const companions: EventInput[] = [
-    ...(session.pinnedAt !== null ? [companion({ type: "session.unpinned", payload: {} })] : []),
-    ...(session.activeOrderKey !== null ? [companion({ type: "session.active-reordered", payload: cleared })] : []),
-    ...(session.snoozedUntil !== null ? [companion({ type: "session.unsnoozed", payload: woken })] : []),
+    ...(session.pinnedAt !== null ? [{ type: "session.unpinned", payload: {} }] : []),
+    ...(session.activeOrderKey !== null ? [{ type: "session.active-reordered", payload: cleared }] : []),
+    ...(session.snoozedUntil !== null ? [{ type: "session.unsnoozed", payload: woken }] : []),
   ];
-  if (session.settledAt !== null) return { events: companions };
-  return { events: [{ type: "session.settled", payload: settled }, ...companions] };
+  return decided(session.settledAt !== null ? [] : [{ type: "session.settled", payload: settled }], companions);
 };
 
 /**
@@ -89,17 +86,42 @@ export const decideUnsettle = (state: SessionState | null, command: UnsettleSess
   return { events: [{ type: "session.unsettled", payload }] };
 };
 
+/** A snooze's `until` outside its window: the time asked, the environment's now, and the latest time taken. */
+export type SnoozeWindow = {
+  readonly until: string;
+  readonly now: string;
+  readonly limit: string;
+};
+
+/** The refusal of a snooze whose `until` is not after now or is more than a year ahead, which its receipt carries. */
+export interface OutOfWindow {
+  readonly code: "out_of_window";
+  readonly message: string;
+  readonly data: SnoozeWindow;
+}
+
 /**
- * Snoozes the session until `until`, stamping `snoozedAt`; snoozed until the
- * same time already, it is unchanged. The time is checked beforehand
- * (`snoozeUntilIssues`). A settled or archived session is snoozed too, and
- * stays on its shelf, which `shelfOf` ranks above snoozed.
+ * Snoozes the session until `until`, stamping `snoozedAt`. A session not
+ * there is not found, first; then an `until` not after `at` or more than a
+ * calendar year after it is `out_of_window`, a refusal its receipt carries,
+ * so a snooze replayed late from an outbox retires through it. `until` is
+ * kept as the environment writes a timestamp; snoozed until the same time
+ * already, the session is unchanged. A settled or archived session is
+ * snoozed too, and stays on its shelf, which `shelfOf` ranks above snoozed.
  */
-export const decideSnooze = (state: SessionState | null, command: SnoozeSession): Decision => {
+export const decideSnooze = (state: SessionState | null, command: SnoozeSession): Decision | { readonly rejected: OutOfWindow } => {
   const session = present(state, command.sessionId);
   if ("rejected" in session) return session;
-  if (session.snoozedUntil === command.until) return unchanged;
-  const payload: SessionSnoozedPayload = { snoozedUntil: command.until, snoozedAt: command.at };
+  const until = new Date(command.until);
+  const now = new Date(command.at);
+  const limit = addCalendarMonths(now, 12);
+  if (until.getTime() <= now.getTime() || until.getTime() > limit.getTime()) {
+    const window: SnoozeWindow = { until: until.toISOString(), now: command.at, limit: limit.toISOString() };
+    const message = `A snooze ends after now (${window.now}) and by ${window.limit}; ${window.until} does not.`;
+    return { rejected: { code: "out_of_window", message, data: window } };
+  }
+  if (session.snoozedUntil === until.toISOString()) return unchanged;
+  const payload: SessionSnoozedPayload = { snoozedUntil: until.toISOString(), snoozedAt: command.at };
   return { events: [{ type: "session.snoozed", payload }] };
 };
 
@@ -135,22 +157,6 @@ export const spanEnd = (anchor: Date, span: IdleSpan): Date => {
   if (span.unit === "months") return addCalendarMonths(anchor, span.amount);
   const days = span.unit === "weeks" ? span.amount * 7 : span.amount;
   return new Date(anchor.getTime() + days * DAY_MS);
-};
-
-/**
- * What makes `until` a time a session may be snoozed to, at `at`: after it,
- * and at most one calendar year ahead. The issues that make it
- * `invalid_params`, with the path naming the param, or none.
- */
-export const snoozeUntilIssues = (until: string, at: string): IssueInput[] => {
-  const time = Date.parse(until);
-  const now = new Date(at);
-  if (time <= now.getTime()) return [{ code: "custom", path: ["until"], message: `A snooze ends after now (${at}); ${until} does not.` }];
-  const limit = addCalendarMonths(now, 12);
-  if (time > limit.getTime()) {
-    return [{ code: "custom", path: ["until"], message: `A snooze ends at most a year ahead, by ${limit.toISOString()}; ${until} is later.` }];
-  }
-  return [];
 };
 
 /** What the auto-settle rules read of a session: its summary's fields, and when its last snooze ended. */

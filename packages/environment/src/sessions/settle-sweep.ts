@@ -1,9 +1,9 @@
-import { AUTO_SETTLE_KEYS, SESSION_STREAM_KIND, SETTINGS_STREAM_KIND, type SettingsUpdatedPayload } from "@agent-harness/contracts";
-import { formatActor, type EventEnvelope, type EventInput, type EventLog, type StreamRef } from "../event-log/event-log.js";
+import { AUTO_SETTLE_KEYS, SESSION_STREAM_KIND, type SettingsKey } from "@agent-harness/contracts";
+import { formatActor, type EventLog, type StreamRef } from "../event-log/event-log.js";
 import type { Clock } from "../serve/clock.js";
 import { readSettings } from "../settings/settings-store.js";
 import { appendDecided } from "./companions.js";
-import type { Decision } from "./decider.js";
+import { stampedAt, type Decision, type SessionState } from "./decider.js";
 import { readSessionState } from "./session-reads.js";
 import { toSummary, type Reader, type SessionRow } from "./session-tables.js";
 import { autoSettleBy, decideSettle, decideUnsnooze, type AutoSettleRules, type SettleFacts } from "./shelf-decider.js";
@@ -13,11 +13,13 @@ import { autoSettleBy, decideSettle, decideUnsnooze, type AutoSettleRules, type 
  * and "Snooze expiry"): it wakes every session whose snooze has passed
  * (`session.unsnoozed`, reason `expired`), then settles every candidate the
  * auto-settle rules pick (`session.settled` by `auto-idle` or `auto-merge`,
- * with the settle's companions). A pass is one transaction, its events
- * appended as the sweep with the pass's time. It
- * runs at startup, every five minutes, and whenever a `settings.updated`
- * changes either auto-settle key; it only ever settles and wakes, so
- * changing a rule never reopens a settled session.
+ * with the settle's companions). Each session is decided and appended in a
+ * transaction of its own, as the sweep, with the pass's time, and a session
+ * that fails is logged and left for the next pass, so it cannot hold up the
+ * others. It runs at startup, every five minutes, and when a
+ * `settings.update` changes either auto-settle key (`settingsChanged`, from
+ * that command's commit hook); it only ever settles and wakes, so changing a
+ * rule never reopens a settled session.
  */
 
 /** How often the sweep runs. */
@@ -26,20 +28,19 @@ export const SETTLE_SWEEP_INTERVAL_MS = 5 * 60 * 1000;
 /** Who the sweep's events are appended as. */
 export const SETTLE_SWEEP_ACTOR = formatActor({ kind: "system", id: "settle-sweep" });
 
-/** What one pass did: the sessions it woke and the ones it settled, with who settled them. */
+/** What one pass did: the sessions it woke, the ones it settled with who settled them, and the ones that failed. */
 export interface SweepOutcome {
   readonly woken: readonly string[];
   readonly settled: readonly { readonly sessionId: string; readonly by: "auto-idle" | "auto-merge" }[];
+  readonly failed: readonly string[];
 }
 
 export interface SettleSweep {
   /** One pass at the clock's time now. */
   sweep(): SweepOutcome;
-  /**
-   * Runs a pass now, then every five minutes and after every change to an
-   * auto-settle setting, each one's failure logged rather than thrown;
-   * returns what stops it.
-   */
+  /** Runs a pass when `keys`, the keys a committed `settings.update` changed, include an auto-settle key. */
+  settingsChanged(keys: readonly SettingsKey[]): void;
+  /** Runs a pass now, then every five minutes; returns what stops the timer. */
   start(): () => void;
 }
 
@@ -50,62 +51,78 @@ export interface SettleSweepOptions {
 
 const sessionStream = (id: string): StreamRef => ({ kind: SESSION_STREAM_KIND, id });
 
-/** Whether an event changed either auto-settle setting. */
-const changesAutoSettle = (event: EventEnvelope): boolean =>
-  event.streamKind === SETTINGS_STREAM_KIND &&
-  event.type === "settings.updated" &&
-  AUTO_SETTLE_KEYS.some((key) => Object.hasOwn((event.payload as SettingsUpdatedPayload).values, key));
+/** What a pass decides for one session: the decision, and what to report when it appends. */
+type SessionStep<T> = (facts: SettleFacts, state: SessionState) => { readonly decision: Decision; readonly value: T } | null;
 
 export const createSettleSweep = (options: SettleSweepOptions): SettleSweep => {
   const { log, clock } = options;
   const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
 
-  /**
-   * One pass, in one transaction: every read sees what the pass appended
-   * before it, and every event is published once it commits. Each session's
-   * events are one decision's, appended as the sweep at the pass's time.
-   */
-  const sweep = (): SweepOutcome =>
-    log.atomically((tx) => {
-      const now = clock.now();
-      const at = now.toISOString();
-      const append = (id: string, decision: Decision): boolean => {
-        if (decision.rejected !== undefined || decision.events.length === 0) return false;
-        const stamped: EventInput[] = decision.events.map((event) => ({ ...event, occurredAt: at }));
-        appendDecided(log, sessionStream(id), stamped, { tx, actor: SETTLE_SWEEP_ACTOR });
-        return true;
-      };
+  const sweep = (): SweepOutcome => {
+    const now = clock.now();
+    const at = now.toISOString();
+    const failed: string[] = [];
 
-      // Snoozes first, so a session whose snooze has just ended is judged from its end.
-      const woken = reader
-        .all<Pick<SessionRow, "id" | "snoozed_until">>(
-          "SELECT id, snoozed_until FROM sessions WHERE deleted_at IS NULL AND snoozed_until IS NOT NULL ORDER BY snoozed_until, id",
-        )
-        .filter((row) => row.snoozed_until !== null && Date.parse(row.snoozed_until) <= now.getTime())
-        .filter((row) => append(row.id, decideUnsnooze(readSessionState(reader, row.id), { sessionId: row.id, reason: "expired" })))
-        .map((row) => row.id);
+    /**
+     * Decides and appends for one session in a transaction of its own, on
+     * the session as it is inside it: the step's value when it appended,
+     * else null. A failure rolls that session back, is logged with its id,
+     * and leaves the pass going.
+     */
+    const onSession = <T>(id: string, step: SessionStep<T>): T | null => {
+      try {
+        return log.atomically((tx) => {
+          const [row] = reader.all<SessionRow>("SELECT * FROM sessions WHERE id = ? AND deleted_at IS NULL", id);
+          const state = readSessionState(reader, id);
+          if (row === undefined || state === null) return null;
+          const decided = step({ ...toSummary(reader, row), snoozeEndedAt: row.snooze_ended_at }, state);
+          if (decided === null) return null;
+          const stamped = stampedAt(decided.decision, at);
+          if (stamped.rejected !== undefined) return null;
+          return appendDecided(log, sessionStream(id), stamped, { tx, actor: SETTLE_SWEEP_ACTOR }).length > 0 ? decided.value : null;
+        });
+      } catch (error) {
+        console.error(`The settle sweep failed on session ${id}:`, error);
+        failed.push(id);
+        return null;
+      }
+    };
+    const passed = (time: string | null): boolean => time !== null && Date.parse(time) <= now.getTime();
 
-      const values = readSettings(reader);
-      const rules: AutoSettleRules = { afterIdle: values["sessions.autoSettleAfterIdle"], onMerge: values["sessions.autoSettleOnMerge"] };
-      const settled: { sessionId: string; by: "auto-idle" | "auto-merge" }[] = [];
-      if (rules.afterIdle === null && !rules.onMerge) return { woken, settled };
+    // Snoozes first, so a session whose snooze has just ended is judged from its end.
+    const snoozed = reader.all<Pick<SessionRow, "id" | "snoozed_until">>(
+      "SELECT id, snoozed_until FROM sessions WHERE deleted_at IS NULL AND snoozed_until IS NOT NULL ORDER BY snoozed_until, id",
+    );
+    const woken = snoozed
+      .filter((row) => passed(row.snoozed_until))
+      .flatMap(({ id }) =>
+        onSession(id, (facts, state) =>
+          passed(facts.snoozedUntil) ? { decision: decideUnsnooze(state, { sessionId: id, reason: "expired" }), value: id } : null,
+        ) ?? [],
+      );
+
+    const values = readSettings(reader);
+    const rules: AutoSettleRules = { afterIdle: values["sessions.autoSettleAfterIdle"], onMerge: values["sessions.autoSettleOnMerge"] };
+    const settled: { sessionId: string; by: "auto-idle" | "auto-merge" }[] = [];
+    if (rules.afterIdle !== null || rules.onMerge) {
       // The exclusions a column answers; `autoSettleBy` checks every one again with the rest.
-      const candidates = reader.all<SessionRow>(
-        `SELECT * FROM sessions
+      const candidates = reader.all<Pick<SessionRow, "id">>(
+        `SELECT id FROM sessions
          WHERE deleted_at IS NULL AND archived_at IS NULL AND settled_at IS NULL AND settled_override IS NULL AND parked_prompt_count = 0
          ORDER BY created_at, id`,
       );
-      for (const row of candidates) {
-        const facts: SettleFacts = { ...toSummary(reader, row), snoozeEndedAt: row.snooze_ended_at };
-        const by = autoSettleBy(facts, rules, now);
-        if (by !== null && append(row.id, decideSettle(readSessionState(reader, row.id), { sessionId: row.id, at, by }))) {
-          settled.push({ sessionId: row.id, by });
-        }
+      for (const { id } of candidates) {
+        const by = onSession(id, (facts, state) => {
+          const settledBy = autoSettleBy(facts, rules, now);
+          return settledBy === null ? null : { decision: decideSettle(state, { sessionId: id, at, by: settledBy }), value: settledBy };
+        });
+        if (by !== null) settled.push({ sessionId: id, by });
       }
-      return { woken, settled };
-    });
+    }
+    return { woken, settled, failed };
+  };
 
-  /** A pass whose failure is logged: the sweep runs again at its next time. */
+  /** A pass whose failure outside any one session is logged: the sweep runs again at its next time. */
   const run = (): void => {
     try {
       sweep();
@@ -116,17 +133,13 @@ export const createSettleSweep = (options: SettleSweepOptions): SettleSweep => {
 
   return {
     sweep,
+    settingsChanged(keys) {
+      if (keys.some((key) => (AUTO_SETTLE_KEYS as readonly SettingsKey[]).includes(key))) run();
+    },
     start() {
       run();
       const timer = clock.setInterval(run, SETTLE_SWEEP_INTERVAL_MS);
-      // Heard after the change commits; what the pass appends is published after it, in order.
-      const unsubscribe = log.subscribe((event) => {
-        if (changesAutoSettle(event)) run();
-      });
-      return () => {
-        unsubscribe();
-        timer.cancel();
-      };
+      return () => timer.cancel();
     },
   };
 };

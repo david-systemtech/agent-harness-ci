@@ -15,7 +15,6 @@ import {
   type Workspace,
 } from "@agent-harness/contracts";
 import type { EventInput, JsonObject } from "../event-log/event-log.js";
-import { companion } from "./companions.js";
 
 /**
  * The session aggregate's decider (session-state spec, "Modules and
@@ -66,7 +65,30 @@ export type Refusal =
   | { readonly code: "conflict"; readonly message: string; readonly data: JsonObject & { readonly reason: string } };
 
 /** What a command decides: the events to append (none for a command that changes nothing), or its refusal. */
-export type Decision = { readonly events: readonly EventInput[]; readonly rejected?: undefined } | { readonly rejected: Refusal };
+export type Decision =
+  | {
+      /** The command's own events. */
+      readonly events: readonly EventInput[];
+      /**
+       * The events its own events make necessary (session-state spec, "Events": settle unpins and wakes, a pin
+       * unsettles and wakes), appended after them in the same transaction, each naming the last own event as its
+       * causation (`appendDecided`). Absent when there are none.
+       */
+      readonly companions?: readonly EventInput[];
+      readonly rejected?: undefined;
+    }
+  | { readonly rejected: Refusal };
+
+/** The decision with every event, its own and its companions, stamped with the instant `at`; a refusal as it is. */
+export const stampedAt = (decision: Decision, at: string): Decision => {
+  if (decision.rejected !== undefined) return decision;
+  const stamp = (events: readonly EventInput[]) => events.map((event) => ({ ...event, occurredAt: at }));
+  return decided(stamp(decision.events), stamp(decision.companions ?? []));
+};
+
+/** A decision of `events` and their `companions`, the latter left out when there are none. */
+export const decided = (events: readonly EventInput[], companions: readonly EventInput[]): Decision =>
+  companions.length > 0 ? { events, companions } : { events };
 
 /** `sessions.create` as the decider takes it: the absent optional params filled in. */
 export interface CreateSession {
@@ -256,13 +278,10 @@ export const decidePin = (state: SessionState | null, command: PinSession): Deci
   }
   const unsettled: SessionUnsettledPayload = { unsettledAt: command.at, reason: "user" };
   const woken: SessionUnsnoozedPayload = { reason: "user" };
-  return {
-    events: [
-      ...own,
-      ...(session.settledAt !== null ? [companion({ type: "session.unsettled", payload: unsettled })] : []),
-      ...(session.snoozedUntil !== null ? [companion({ type: "session.unsnoozed", payload: woken })] : []),
-    ],
-  };
+  return decided(own, [
+    ...(session.settledAt !== null ? [{ type: "session.unsettled", payload: unsettled }] : []),
+    ...(session.snoozedUntil !== null ? [{ type: "session.unsnoozed", payload: woken }] : []),
+  ]);
 };
 
 /** Unpins the session, dropping its key in the pinned block; one not pinned is unchanged. Its active key is kept. */

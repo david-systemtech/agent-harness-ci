@@ -8,7 +8,6 @@ import {
   decideUnsettle,
   decideUnsnooze,
   settleAnchor,
-  snoozeUntilIssues,
   spanEnd,
   type AutoSettleRules,
   type SettleFacts,
@@ -36,10 +35,10 @@ const eventsOf = (decision: Decision) => {
 };
 
 /** The types a decision appends, each marked when it is a companion; or its refusal's code and reason. */
-const outcome = (decision: Decision) =>
+const outcome = (decision: Decision | ReturnType<typeof decideSnooze>) =>
   decision.rejected === undefined
-    ? decision.events.map((event) => ("companion" in event ? `+${event.type}` : event.type))
-    : { code: decision.rejected.code, reason: decision.rejected.data["reason"] };
+    ? [...decision.events.map((event) => event.type), ...(decision.companions ?? []).map((event) => `+${event.type}`)]
+    : { code: decision.rejected.code, reason: (decision.rejected.data as Record<string, unknown>)["reason"] };
 
 describe("deciding sessions.settle", () => {
   it("settles at the time given, by the user, with nothing else to do on an active session", () => {
@@ -51,11 +50,11 @@ describe("deciding sessions.settle", () => {
   it("unpins, clears the active key and wakes a snooze (reason settled) as companions, after the settle", () => {
     const busy = live({ pinnedAt: earlier, pinOrderKey: "m", activeOrderKey: "g", snoozedUntil: later });
     expect(decideSettle(busy, { sessionId: id, at, by: "user" })).toEqual({
-      events: [
-        { type: "session.settled", payload: { settledAt: at, by: "user" } },
-        { type: "session.unpinned", payload: {}, companion: true },
-        { type: "session.active-reordered", payload: { activeOrderKey: null }, companion: true },
-        { type: "session.unsnoozed", payload: { reason: "settled" }, companion: true },
+      events: [{ type: "session.settled", payload: { settledAt: at, by: "user" } }],
+      companions: [
+        { type: "session.unpinned", payload: {} },
+        { type: "session.active-reordered", payload: { activeOrderKey: null } },
+        { type: "session.unsnoozed", payload: { reason: "settled" } },
       ],
     });
   });
@@ -108,10 +107,8 @@ describe("deciding sessions.unsettle", () => {
 describe("deciding sessions.pin on the shelf", () => {
   it("pins a settled session and unsettles it, reason user, as a companion", () => {
     expect(decidePin(live({ settledAt: earlier, settledOverride: "settled" }), { sessionId: id, orderKey: null, at })).toEqual({
-      events: [
-        { type: "session.pinned", payload: { pinnedAt: at, pinOrderKey: null } },
-        { type: "session.unsettled", payload: { unsettledAt: at, reason: "user" }, companion: true },
-      ],
+      events: [{ type: "session.pinned", payload: { pinnedAt: at, pinOrderKey: null } }],
+      companions: [{ type: "session.unsettled", payload: { unsettledAt: at, reason: "user" } }],
     });
   });
 
@@ -120,10 +117,12 @@ describe("deciding sessions.pin on the shelf", () => {
       "session.pinned",
       "+session.unsnoozed",
     ]);
-    expect(eventsOf(decidePin(live({ settledAt: earlier, snoozedUntil: later }), { sessionId: id, orderKey: null, at })).slice(1)).toEqual([
-      { type: "session.unsettled", payload: { unsettledAt: at, reason: "user" }, companion: true },
-      { type: "session.unsnoozed", payload: { reason: "user" }, companion: true },
-    ]);
+    expect(decidePin(live({ settledAt: earlier, snoozedUntil: later }), { sessionId: id, orderKey: null, at })).toMatchObject({
+      companions: [
+        { type: "session.unsettled", payload: { unsettledAt: at, reason: "user" } },
+        { type: "session.unsnoozed", payload: { reason: "user" } },
+      ],
+    });
   });
 
   it("wakes a pinned session that was snoozed, and moves it too when given another key", () => {
@@ -159,15 +158,33 @@ describe("deciding sessions.snooze and sessions.unsnooze", () => {
     expect(outcome(decideUnsnooze(live(), { sessionId: id, reason: "user" }))).toEqual([]);
   });
 
-  it("takes a time after now and at most one calendar year ahead", () => {
-    expect(snoozeUntilIssues(later, at)).toEqual([]);
-    expect(snoozeUntilIssues("2027-09-24T01:02:03.456Z", at)).toEqual([]);
+  it("takes a time after now and at most one calendar year ahead; one outside is out_of_window with the window", () => {
+    const snooze = (until: string, now = at) => decideSnooze(live(), { sessionId: id, at: now, until });
+    expect(outcome(snooze(later))).toEqual(["session.snoozed"]);
+    expect(outcome(snooze("2027-09-24T01:02:03.456Z"))).toEqual(["session.snoozed"]);
     for (const until of [at, earlier, "2027-09-24T01:02:03.457Z", "2030-01-01T00:00:00.000Z"]) {
-      expect(snoozeUntilIssues(until, at), until).toEqual([expect.objectContaining({ path: ["until"] })]);
+      expect(snooze(until), until).toEqual({
+        rejected: {
+          code: "out_of_window",
+          message: expect.any(String),
+          data: { until: new Date(until).toISOString(), now: at, limit: "2027-09-24T01:02:03.456Z" },
+        },
+      });
     }
     // A year after February 29th is February 28th.
-    expect(snoozeUntilIssues("2029-02-28T12:00:00.000Z", "2028-02-29T12:00:00.000Z")).toEqual([]);
-    expect(snoozeUntilIssues("2029-03-01T12:00:00.000Z", "2028-02-29T12:00:00.000Z")).toHaveLength(1);
+    expect(outcome(snooze("2029-02-28T12:00:00.000Z", "2028-02-29T12:00:00.000Z"))).toEqual(["session.snoozed"]);
+    expect(outcome(snooze("2029-03-01T12:00:00.000Z", "2028-02-29T12:00:00.000Z"))).toEqual({ code: "out_of_window", reason: undefined });
+  });
+
+  it("refuses a session not there not_found before it looks at the time", () => {
+    expect(outcome(decideSnooze(null, { sessionId: id, at, until: earlier }))).toEqual({ code: "not_found", reason: undefined });
+    expect(outcome(decideSnooze(PURGED_STATE, { sessionId: id, at, until: earlier }))).toEqual({ code: "not_found", reason: undefined });
+  });
+
+  it("keeps until as the environment writes a timestamp", () => {
+    expect(decideSnooze(live(), { sessionId: id, at, until: "2026-09-29T09:00:00Z" })).toMatchObject({
+      events: [{ payload: { snoozedUntil: "2026-09-29T09:00:00.000Z" } }],
+    });
   });
 });
 

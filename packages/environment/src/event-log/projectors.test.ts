@@ -215,6 +215,45 @@ describe("projectors", () => {
     expect(log.readStream({ kind: "session", id: "any" })).toEqual([]);
   });
 
+  it("are rebuilt from the log when a declared table was made by other statements: a column added since, an index dropped", () => {
+    const path = tempDatabase();
+    const older = countingProjector();
+    const first = openEventLog({
+      path,
+      projectors: [{ ...older.projector, tables: { ...older.projector.tables, type_counts: "CREATE TABLE type_counts (type TEXT PRIMARY KEY, count INTEGER NOT NULL)" } }],
+    });
+    appendSome(first);
+    first.close();
+
+    const { projector, applied } = countingProjector();
+    const newer: Projector = {
+      ...projector,
+      tables: {
+        ...projector.tables,
+        type_counts: `CREATE TABLE type_counts (type TEXT PRIMARY KEY, count INTEGER NOT NULL, note TEXT);
+          CREATE INDEX type_counts_by_count ON type_counts (count)`,
+      },
+    };
+    const reopened = track(openEventLog({ path, projectors: [newer] }));
+    expect(applied).toEqual([1, 2, 3, 4]);
+    expect(reopened.read("SELECT note FROM type_counts WHERE type = 'note.added'")).toEqual([{ note: null }]);
+    expect(readModel(reopened).types).toEqual([
+      { type: "note.added", count: 3 },
+      { type: "title.set", count: 1 },
+    ]);
+    reopened.close();
+
+    // The same statements again, however spaced or cased, resume from the cursor; dropping the index rebuilds once more.
+    const again = countingProjector();
+    const respaced = (newer.tables["stream_counts"] as string).replace(/\s+/g, "  ").replace("CREATE TABLE", "create table if not exists");
+    track(openEventLog({ path, projectors: [{ ...newer, apply: again.projector.apply, tables: { ...newer.tables, stream_counts: respaced } }] })).close();
+    expect(again.applied).toEqual([]);
+    const withoutIndex = countingProjector();
+    const noIndex = "CREATE TABLE type_counts (type TEXT PRIMARY KEY, count INTEGER NOT NULL, note TEXT)";
+    track(openEventLog({ path, projectors: [{ ...withoutIndex.projector, tables: { ...newer.tables, type_counts: noIndex } }] }));
+    expect(withoutIndex.applied).toEqual([1, 2, 3, 4]);
+  });
+
   it("accept a declared table whose statement creates it under another case, as SQLite does", () => {
     const log = track(openEventLog({ path: ":memory:" }));
     log.registerProjector({ name: "cased", tables: { Counts: "CREATE TABLE counts (x INTEGER)" }, apply: () => {} });

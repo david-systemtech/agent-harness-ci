@@ -324,6 +324,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     onDraining: () => void (readiness = "draining"),
     close: () => close(),
   });
+  // The shelf's sweep (#117): started once the environment is ready; a settings change runs it from the change's commit.
+  const settleSweep = createSettleSweep({ log, clock });
   const table = createMethodTable({
     ...lifecycle.handlers,
     "environment.subscribe": () => lifecycle.source,
@@ -333,7 +335,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       result: { projectors: [...log.rebuildProjections()], sequence: log.head() },
     }),
     // The generic settings (#117), on the environment's settings stream.
-    ...settingsMethods({ log, environmentId: record.id }),
+    ...settingsMethods({ log, environmentId: record.id, onChange: (keys) => settleSweep.settingsChanged(keys) }),
     ...accessMethods({ pairings, clientSessions, accessLog }),
     ...sessionMethods({ log, clock: now }),
   });
@@ -400,8 +402,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     await closers.closeAll().catch((closeError: unknown) => console.error("Closing after a failed start failed:", closeError));
     throw new StartupError("prepared", error);
   }
-  // The shelf's sweep (#117): a pass now, before the wire opens, then every five minutes and on an auto-settle setting's change.
-  closers.push(createSettleSweep({ log, clock }).start());
+  // The shelf's sweep (#117): a pass now, before the wire opens, then every five minutes.
+  closers.push(settleSweep.start());
   wire.open();
   launcher.onQuery((query) => lifecycle.answer(query));
   // The minute sweep: expired pairings, idle `tui` local client sessions, and receipts past their 30 days.

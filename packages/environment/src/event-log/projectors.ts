@@ -5,6 +5,14 @@ import { logTables } from "./migrations.js";
 /** Events read per page when a projector catches up. */
 const CATCH_UP_PAGE = 500;
 
+/** A statement as compared with the one SQLite keeps: trimmed, white space collapsed, case folded, `IF NOT EXISTS` dropped. */
+const normalisedStatement = (statement: string): string =>
+  statement
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLowerCase()
+    .replace(/^create (unique )?(table|index) if not exists /, "create $1$2 ");
+
 /** A name a projector may give a table: a plain SQL identifier, never SQLite's own. */
 const TABLE_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
@@ -81,6 +89,20 @@ export const createProjections = (
 
   const tableExists = (name: string): boolean =>
     sql.get("SELECT 1 AS found FROM sqlite_schema WHERE type = 'table' AND lower(name) = lower(?)", name) !== undefined;
+
+  /**
+   * Whether the table's statements in the database are the ones declared: its
+   * `CREATE TABLE` and any index on it, as SQLite keeps them (`sqlite_schema.sql`),
+   * against the declared statements, both with white space collapsed, case
+   * folded and `IF NOT EXISTS` dropped, as SQLite drops it.
+   */
+  const hasDeclaredShape = (table: string, statements: string): boolean => {
+    const held = sql
+      .all<{ sql: string }>("SELECT sql FROM sqlite_schema WHERE lower(tbl_name) = lower(?) AND sql IS NOT NULL ORDER BY rowid", table)
+      .map((row) => normalisedStatement(row.sql));
+    const declared = statements.split(";").map(normalisedStatement).filter((statement) => statement !== "");
+    return held.length === declared.length && held.every((statement, i) => statement === declared[i]);
+  };
 
   /** Drops the projector's tables, creates them again and puts its cursor back to zero. */
   const reset = (projector: Projector): void => {
@@ -166,7 +188,11 @@ export const createProjections = (
       });
     },
 
-    /** Creates the projector's tables if needed and catches it up from its cursor. */
+    /**
+     * Creates the projector's tables if needed and catches it up from its
+     * cursor; with no cursor, or a declared table missing or made by other
+     * statements than those declared, it rebuilds the projector from the log.
+     */
     register(projector: Projector): void {
       if (projectors.some((p) => p.name === projector.name)) {
         throw new Error(`A projector named ${projector.name} is already registered.`);
@@ -182,9 +208,11 @@ export const createProjections = (
         if (owner) throw new Error(`Table ${table} is owned by projector ${owner}.`);
       }
       transaction(() => {
-        // No cursor, or a declared table missing: the read model cannot be trusted, so it starts again from zero.
+        // No cursor, a declared table missing, or one made by other statements (an older version's, without a
+        // column added since): the read model cannot be trusted, so it starts again from zero, from the log.
         const mustReset =
-          cursorOf(projector.name) === undefined || Object.keys(projector.tables).some((table) => !tableExists(table));
+          cursorOf(projector.name) === undefined ||
+          Object.entries(projector.tables).some(([table, statements]) => !tableExists(table) || !hasDeclaredShape(table, statements));
         if (mustReset) reset(projector);
         catchUpOne(projector);
       });

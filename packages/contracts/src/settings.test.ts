@@ -23,7 +23,7 @@ import {
 describe("the settings keys", () => {
   it("are the two auto-settle keys, preset to 14 days idle and no settle on merge", () => {
     expect(SETTINGS_KEYS).toEqual(["sessions.autoSettleAfterIdle", "sessions.autoSettleOnMerge"]);
-    expect(AUTO_SETTLE_KEYS).toEqual(SETTINGS_KEYS);
+    for (const key of AUTO_SETTLE_KEYS) expect(SETTINGS_KEYS, key).toContain(key);
     expect(presetSettings()).toEqual({
       "sessions.autoSettleAfterIdle": { amount: 14, unit: "days" },
       "sessions.autoSettleOnMerge": false,

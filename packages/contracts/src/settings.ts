@@ -88,7 +88,7 @@ export const SETTINGS_KEYS = Object.keys(SETTINGS) as [SettingsKey, ...SettingsK
 /** The auto-settle keys: a change to either runs the sweep at once. */
 export const AUTO_SETTLE_KEYS = ["sessions.autoSettleAfterIdle", "sessions.autoSettleOnMerge"] as const satisfies readonly SettingsKey[];
 
-export const SettingsKeyName = z.enum(SETTINGS_KEYS).meta({ description: "A settings key: sessions.autoSettleAfterIdle, sessions.autoSettleOnMerge." });
+export const SettingsKeyName = z.enum(SETTINGS_KEYS).meta({ description: `A settings key: ${SETTINGS_KEYS.join(", ")}.` });
 
 type SettingsShape = { readonly [K in SettingsKey]: (typeof SETTINGS)[K]["schema"] };
 const settingsShape = Object.fromEntries(SETTINGS_KEYS.map((key) => [key, SETTINGS[key].schema])) as unknown as SettingsShape;

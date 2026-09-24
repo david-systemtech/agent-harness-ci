@@ -256,19 +256,53 @@ describe("sessions.snooze and sessions.unsnooze", () => {
     await expectNoOp(t, () => command(client, "sessions.snooze", { sessionId: id, until: "2026-09-29T09:00:00.000Z" }));
   });
 
-  it("refuses a time not after now, more than a year ahead, or not a UTC timestamp invalid_params naming until, and appends nothing", async () => {
+  it("rejects a time not after now or more than a year ahead out_of_window in a receipt, with the window, so a late replay retires; appends nothing", async () => {
     const t = await start();
     const { client, id } = await withSession(t);
     const head = t.env.log.head();
-    for (const until of [at(MINUTE), at(0), at(365 * DAY + MINUTE + 1), "2030-01-01T00:00:00.000Z", "tuesday", "2026-09-29", "2026-09-29T09:00:00+02:00"]) {
-      expect(await refusal(command(client, "sessions.snooze", { sessionId: id, until })), until).toMatchObject({
-        code: "invalid_params",
-        data: { issues: [expect.objectContaining({ path: ["until"] })] },
-      });
+    for (const until of [at(MINUTE), at(0), at(365 * DAY + MINUTE + 1), "2030-01-01T00:00:00.000Z"]) {
+      const commandId = randomUUID();
+      const answer = await command(client, "sessions.snooze", { sessionId: id, until, commandId });
+      const receipt = {
+        status: "rejected",
+        sequence: head,
+        changed: false,
+        reason: "out_of_window",
+        error: { code: "out_of_window", message: expect.any(String), data: { until, now: at(MINUTE), limit: "2027-09-24T00:01:00.000Z" } },
+      };
+      expect(answer, until).toEqual({ receipt });
+      // A retry answers the stored receipt.
+      expect(await command(client, "sessions.snooze", { sessionId: id, until, commandId })).toEqual({ receipt });
     }
     expect(t.env.log.head()).toBe(head);
     // A calendar year ahead to the millisecond is taken.
     expect((await command(client, "sessions.snooze", { sessionId: id, until: "2027-09-24T00:01:00.000Z" })).receipt).toMatchObject({ changed: true });
+  });
+
+  it("refuses a value that is not a UTC timestamp invalid_params naming until, with no receipt", async () => {
+    const t = await start();
+    const { client, id } = await withSession(t);
+    const head = t.env.log.head();
+    for (const until of ["tuesday", "2026-09-29", "2026-09-29T09:00:00+02:00"]) {
+      const commandId = randomUUID();
+      expect(await refusal(command(client, "sessions.snooze", { sessionId: id, until, commandId })), until).toMatchObject({
+        code: "invalid_params",
+        data: { issues: [expect.objectContaining({ path: ["until"] })] },
+      });
+      expect(t.env.log.receipt(`client_session:${client.hello.clientSessionId}`, commandId)).toBeNull();
+    }
+    expect(t.env.log.head()).toBe(head);
+  });
+
+  it("rejects an unknown session not_found before it looks at the time", async () => {
+    const t = await start();
+    const client = await t.client();
+    const sessionId = randomUUID();
+    expect((await command(client, "sessions.snooze", { sessionId, until: at(-DAY) })).receipt).toMatchObject({
+      status: "rejected",
+      reason: "not_found",
+      error: { data: { kind: "session", sessionId } },
+    });
   });
 
   it("wakes a snoozed session: session.unsnoozed with reason user, clearing snoozedUntil and snoozedAt; an awake one is unchanged", async () => {

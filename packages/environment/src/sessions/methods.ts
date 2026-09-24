@@ -9,7 +9,7 @@ import {
 import type { EventLog, StreamRef } from "../event-log/event-log.js";
 import type { CommandAnswer, CommandContext, MethodHandlers } from "../serve/methods.js";
 import { appendDecided } from "./companions.js";
-import { decideSettle, decideSnooze, decideUnsettle, decideUnsnooze, snoozeUntilIssues } from "./shelf-decider.js";
+import { decideSettle, decideSnooze, decideUnsettle, decideUnsnooze } from "./shelf-decider.js";
 import {
   PURGED_STATE,
   decideArchive,
@@ -24,6 +24,7 @@ import {
   decideUnpin,
   decideUntag,
   sessionNotFound,
+  stampedAt,
   type Decision,
   type Refusal,
   type SessionState,
@@ -87,9 +88,7 @@ export const sessionMethods = (options: SessionMethodsOptions): MethodHandlers =
   const carryOut = (id: string, decision: Decision, context: CommandContext): CommandAnswer<{ summary: SessionSummary }, Refusal["code"]> => {
     const aggregate = sessionStream(id);
     if (decision.rejected !== undefined) return { aggregate, rejected: decision.rejected };
-    if (decision.events.length > 0) {
-      appendDecided(log, aggregate, decision.events, { tx: context.tx, actor: context.actor, commandId: context.commandId });
-    }
+    appendDecided(log, aggregate, decision, { tx: context.tx, actor: context.actor, commandId: context.commandId });
     return { aggregate, result: { summary: summaryAfter(id) } };
   };
 
@@ -107,8 +106,7 @@ export const sessionMethods = (options: SessionMethodsOptions): MethodHandlers =
     const id = sessionId.toLowerCase();
     const at = clock().toISOString();
     const decision = decide(stateOf(id), id, at);
-    const stamped: Decision = decision.rejected === undefined ? { events: decision.events.map((event) => ({ ...event, occurredAt: at })) } : decision;
-    return carryOut(id, stamped, context);
+    return carryOut(id, stampedAt(decision, at), context);
   };
 
   return {
@@ -150,13 +148,15 @@ export const sessionMethods = (options: SessionMethodsOptions): MethodHandlers =
     "sessions.unsettle": (params, context) =>
       onSession(params.sessionId, context, (state, sessionId, at) => decideUnsettle(state, { sessionId, at })),
 
-    // The time is checked against the command's own instant; a time outside the window is invalid_params, which stores no receipt.
-    "sessions.snooze": (params, context) =>
-      onSession(params.sessionId, context, (state, sessionId, at) => {
-        const issues = snoozeUntilIssues(params.until, at);
-        if (issues.length > 0) throw new ContractError(invalidParams(issues, "A snooze ends after now and at most a year ahead."));
-        return decideSnooze(state, { sessionId, at, until: new Date(params.until).toISOString() });
-      }),
+    // Not found first, then the window against the command's own instant: an until outside it is rejected
+    // out_of_window in the receipt; one that is not a UTC timestamp was invalid_params at the wire.
+    "sessions.snooze": (params, context) => {
+      const id = params.sessionId.toLowerCase();
+      const at = clock().toISOString();
+      const decision = decideSnooze(stateOf(id), { sessionId: id, at, until: params.until });
+      if (decision.rejected?.code === "out_of_window") return { aggregate: sessionStream(id), rejected: decision.rejected };
+      return carryOut(id, stampedAt(decision as Decision, at), context);
+    },
 
     "sessions.unsnooze": (params, context) =>
       onSession(params.sessionId, context, (state, sessionId) => decideUnsnooze(state, { sessionId, reason: "user" })),
