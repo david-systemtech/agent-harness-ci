@@ -69,9 +69,17 @@ export const decodeEvent = (row: EventRow): EventEnvelope => ({
   metadata: JSON.parse(row.metadata) as JsonObject,
 });
 
-/** `value` as JSON text; throws for a value JSON cannot hold, such as `undefined`. */
+/**
+ * `value` as JSON text; throws for a value JSON cannot hold: `undefined` at the top,
+ * a non-finite number anywhere (JSON.stringify would silently write `null`), a bigint or a cycle.
+ */
 export const toJson = (value: unknown, what: string): string => {
-  const json = JSON.stringify(value);
+  const json = JSON.stringify(value, (key, v: unknown) => {
+    if (typeof v === "number" && !Number.isFinite(v)) {
+      throw new TypeError(`${what} holds ${String(v)}${key ? ` at "${key}"` : ""}, which JSON cannot hold.`);
+    }
+    return v;
+  });
   if (json === undefined) throw new TypeError(`${what} is not a JSON value.`);
   return json;
 };

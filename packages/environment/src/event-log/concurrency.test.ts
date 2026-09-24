@@ -31,16 +31,26 @@ const startAppender = (input: AppenderInput) => {
       fixture: new URL("./appender.worker.ts", import.meta.url).href,
     },
   });
+  // A failure before `ready` rejects both promises, so an early throw surfaces instead of a timeout.
   let onReady: () => void = () => {};
-  const ready = new Promise<void>((resolve) => (onReady = resolve));
+  let onNotReady: (error: Error) => void = () => {};
+  const ready = new Promise<void>((resolve, reject) => {
+    onReady = resolve;
+    onNotReady = reject;
+  });
   const done = new Promise<readonly (readonly WrittenEvent[])[]>((resolve, reject) => {
+    const fail = (error: Error) => {
+      onNotReady(error);
+      reject(error);
+    };
     worker.on("message", (message: AppenderMessage) => {
       if (message.kind === "ready") onReady();
       if (message.kind === "done") resolve(message.appends);
-      if (message.kind === "failed") reject(new Error(message.error));
+      if (message.kind === "failed") fail(new Error(message.error));
     });
-    worker.on("error", reject);
+    worker.on("error", fail);
   });
+  ready.catch(() => {});
   done.finally(() => void worker.terminate()).catch(() => {});
   return { ready, done };
 };

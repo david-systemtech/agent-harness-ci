@@ -242,6 +242,13 @@ describe("appending", () => {
     );
     expect(log.readStream(s1)).toEqual([]);
   });
+
+  it("refuses a payload holding a non-finite number rather than storing null", () => {
+    const log = memoryLog();
+    expect(() => log.append(s1, [{ type: "bad", payload: { text: NaN } }], { actor: "test" })).toThrow(/NaN/);
+    expect(() => log.append(s1, [{ type: "bad", payload: [Infinity] }], { actor: "test" })).toThrow(/Infinity/);
+    expect(log.readStream(s1)).toEqual([]);
+  });
 });
 
 describe("one transaction for events, projections and the receipt", () => {
