@@ -82,6 +82,20 @@ describe("the task ledger", () => {
     expect(tasks.snapshot()[0]).toMatchObject({ status: "failed", error: "exit 1", endedAt: "2026-09-24T00:00:00.000Z" });
   });
 
+  it("revives a settled row a patch sets live again, clearing its end as the level does, and keeps the first end when a settled row is settled again", () => {
+    const { clock, tasks } = ledger();
+    tasks.observe(level({ task_id: "t1" }));
+    clock.advance(1_000);
+    tasks.observe(updated("t1", { status: "completed" }));
+    expect(tasks.snapshot()[0]).toMatchObject({ status: "completed", endedAt: "2026-09-24T00:00:01.000Z" });
+    clock.advance(1_000);
+    tasks.observe(updated("t1", { status: "stopped" }));
+    expect(tasks.snapshot()[0]).toMatchObject({ status: "stopped", endedAt: "2026-09-24T00:00:01.000Z" });
+    tasks.observe(updated("t1", { status: "running" }));
+    expect(tasks.snapshot()[0]).toMatchObject({ status: "running", endedAt: null });
+    expect(tasks.liveCount).toBe(1);
+  });
+
   it("does not revive a settled row on a late progress message, but does when the level names it again", () => {
     const { tasks } = ledger();
     tasks.observe(level({ task_id: "t1", description: "One" }));

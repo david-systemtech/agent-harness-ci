@@ -182,7 +182,8 @@ export class TaskLedger {
       ...(status !== undefined && { status }),
       description: text(fields["description"]) ?? existing.description,
       error: text(fields["error"]) ?? existing.error,
-      ...(status !== undefined && !LIVE.has(status) && { endedAt: this.#now() }),
+      // A live status revives a settled row, its end cleared as the level's revival clears it; a settled one keeps the first end.
+      ...(status !== undefined && { endedAt: LIVE.has(status) ? null : (existing.endedAt ?? this.#now()) }),
     });
   }
 
