@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AssistantDeltaPayload",
+  "type": "object",
+  "properties": {
+    "runId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "A run's id: a version 4 UUID the environment mints when the run starts or is adopted."
+    },
+    "itemId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The open item the fragments extend; its assistant.text or assistant.thinking closes it."
+    },
+    "fragments": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "text",
+              "thinking"
+            ],
+            "description": "What a fragment extends: the open item's text, or its thinking."
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "text"
+        ],
+        "description": "One fragment of text or thinking."
+      }
+    }
+  },
+  "required": [
+    "runId",
+    "itemId",
+    "fragments"
+  ],
+  "description": "assistant.delta: a batch of fragments for the open item, flushed every 100 ms or 512 bytes; the snapshot holds settled items only, and a client applies deltas to the open item."
+}

@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ProcessHoldKind",
+  "type": "string",
+  "enum": [
+    "task",
+    "schedule"
+  ],
+  "description": "What holds an idle provider process from its idle stop: task (a live background task), schedule (a schedule registered in its session)."
+}

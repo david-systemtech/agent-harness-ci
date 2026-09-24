@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "runs.send params",
+  "type": "object",
+  "properties": {
+    "commandId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+      "description": "The client-generated UUID every command takes; a retry with the same id applies once."
+    },
+    "sessionId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "A session's id: a version 4 UUID the creating client mints (never the provider's resume id), kept in lowercase."
+    },
+    "text": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The message's text."
+    },
+    "attachments": {
+      "description": "Images or files sent with the text; none when absent.",
+      "maxItems": 20,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "image",
+              "file"
+            ],
+            "description": "What an attachment is: an image (the adapter needs imageInput) or a file (fileInput)."
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "mediaType": {
+            "type": "string",
+            "pattern": "^[a-z]+\\/[a-z0-9.+-]+$",
+            "description": "Its media type: image/png."
+          },
+          "data": {
+            "type": "string",
+            "maxLength": 27962028,
+            "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+            "description": "Its bytes, in standard padded base64, at most 20971520 bytes decoded (the maxLength bounds it within two bytes; the environment checks the decoded size); the log never holds them."
+          }
+        },
+        "required": [
+          "kind",
+          "name",
+          "mediaType",
+          "data"
+        ],
+        "description": "An attachment as a client sends it: kind, name, media type and its bytes in base64."
+      }
+    }
+  },
+  "required": [
+    "commandId",
+    "sessionId",
+    "text"
+  ]
+}

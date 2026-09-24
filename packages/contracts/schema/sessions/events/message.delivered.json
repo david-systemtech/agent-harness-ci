@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MessageDeliveredPayload",
+  "type": "object",
+  "properties": {
+    "runId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "A run's id: a version 4 UUID the environment mints when the run starts or is adopted."
+    },
+    "messageId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "A user message's id: a version 4 UUID the environment mints when a client sends it, and the id the provider is handed."
+    },
+    "delivery": {
+      "type": "string",
+      "enum": [
+        "prompt",
+        "steered"
+      ],
+      "description": "steered: the provider folded it into the running turn; prompt: a turn that opened with it read it."
+    }
+  },
+  "required": [
+    "runId",
+    "messageId",
+    "delivery"
+  ],
+  "description": "message.delivered: a queued message was read, by the run runId names."
+}

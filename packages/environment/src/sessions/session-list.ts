@@ -175,10 +175,11 @@ const SESSION_PROJECTIONS: Partial<Record<string, Projection>> = {
  * summary patch attached, every group event and its group patch. A flagged
  * event it has no projection for fails its append, so no flagged event
  * reaches a client without its patch when it changes the list: the session
- * types later tickets append (#119 to #122). A flagged session event that
- * leaves its session out of the list before and after (a deleted session
- * ungrouped when its group is deleted) carries no patch, and a client skips
- * it. Other events are not the list's.
+ * types later tickets append (#120 to #122). A flagged session event that
+ * leaves its session out of the list before and after carries no patch, and
+ * a client skips it: a deleted session ungrouped when its group is deleted,
+ * and the `run.ended` (`disposed`) of a run the session's deletion let go.
+ * Other events are not the list's.
  */
 export const sessionListProjector: Projector = {
   name: SESSION_LIST_PROJECTOR,

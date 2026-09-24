@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MessageRequeuedPayload",
+  "type": "object",
+  "properties": {
+    "runId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "A run's id: a version 4 UUID the environment mints when the run starts or is adopted."
+    },
+    "messageId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "A user message's id: a version 4 UUID the environment mints when a client sends it, and the id the provider is handed."
+    }
+  },
+  "required": [
+    "runId",
+    "messageId"
+  ],
+  "description": "message.requeued: a message of the run came back to the environment's queue, which holds it now, in its original order (ADR 0022: nothing is lost): the provider still held it when an interrupt or any end but the adapter's own completion cut the run, the provider refused to take it, the host did not adopt the turn the provider opened with it, or the run's adapter never received it (its creation failed)."
+}
