@@ -3,6 +3,9 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=22.16.0"
+  },
   "exports": {
     ".": {
       "@agent-harness/source": "./src/index.ts",
