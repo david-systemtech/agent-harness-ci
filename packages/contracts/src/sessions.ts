@@ -55,10 +55,10 @@ export type UserTitle = z.infer<typeof UserTitle>;
  */
 export const Tag = z
   .string()
-  .regex(/^\s*[^\s\p{Cc}](?:\P{Cc}{0,38}[^\s\p{Cc}])?\s*$/u)
+  .regex(/^\s*[^\s\p{Cc}\p{Cf}](?:[^\p{Cc}\p{Cf}]{0,38}[^\s\p{Cc}\p{Cf}])?\s*$/u)
   .meta({
     description:
-      "A free-form tag: 1 to 40 characters once trimmed, no control characters; stored trimmed, unique per session ignoring case.",
+      "A free-form tag: 1 to 40 characters once trimmed, no control or format (zero-width) characters; stored trimmed, unique per session ignoring case.",
   });
 export type Tag = z.infer<typeof Tag>;
 
@@ -90,15 +90,17 @@ export const StoredDraft = Draft.min(1)
 export type StoredDraft = z.infer<typeof StoredDraft>;
 
 /**
- * A group's name: 1 to 80 characters once trimmed; stored trimmed with white
+ * A group's name: 1 to 80 characters once trimmed, no control or format
+ * (zero-width) characters other than white space; stored trimmed with white
  * space collapsed, unique per environment ignoring case.
  */
 export const GroupName = z
   .string()
-  .regex(/^\s*\S(?:[\s\S]{0,78}\S)?\s*$/)
+  // Inside the name: any character that is neither control nor format, plus the control characters that are white space (tab, line feeds, form feed, return); `\s` would re-admit the byte-order mark, which is `Cf`. With the `u` flag the cap counts code points, as `Tag` does.
+  .regex(/^\s*[^\s\p{Cc}\p{Cf}](?:(?:[^\p{Cc}\p{Cf}]|[\t\n\v\f\r]){0,78}[^\s\p{Cc}\p{Cf}])?\s*$/u)
   .meta({
     description:
-      "A group's name: 1 to 80 characters once trimmed; stored trimmed with white space collapsed, unique per environment ignoring case.",
+      "A group's name: 1 to 80 characters once trimmed, no control or format (zero-width) characters other than white space; stored trimmed with white space collapsed, unique per environment ignoring case.",
   });
 export type GroupName = z.infer<typeof GroupName>;
 
