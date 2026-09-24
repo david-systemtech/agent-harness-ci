@@ -378,7 +378,16 @@ export class ClaudeProcess implements TurnControl {
         return;
       }
       if (turn.ended) return;
-      for (const message of input.prompt) this.#prompts.push(userMessage(message));
+      // Built whole before any is pushed, and a message that cannot be built ends the run rather than rejecting unheard
+      // (the adapter checks the images before it attaches a run, so this is the process's own guard).
+      let prompts: SDKUserMessage[];
+      try {
+        prompts = input.prompt.map(userMessage);
+      } catch (error) {
+        this.#waitingEnds(turn, { reason: "error", error: { message: describe(error), code: "launch" } });
+        return;
+      }
+      for (const prompt of prompts) this.#prompts.push(prompt);
       this.#armOpenWatch();
     })();
     return turn;
