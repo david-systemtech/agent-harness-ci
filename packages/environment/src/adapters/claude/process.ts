@@ -257,8 +257,6 @@ export class ClaudeProcess implements TurnControl {
   #current: ClaudeTurn | undefined;
   /** Runs whose prompt is queued at the CLI, not yet opened, in order. */
   readonly #waiting: ClaudeTurn[] = [];
-  /** Turns handed out and not yet released by the host. */
-  readonly #unsettled = new Set<ClaudeTurn>();
   /** The messages of a turn whose owner is not known yet, from its `init`. */
   #undecided: unknown[] | undefined;
   readonly #decisionWaiters: (() => void)[] = [];
@@ -396,7 +394,6 @@ export class ClaudeProcess implements TurnControl {
       ledger: this.#ledger,
     });
     this.#waiting.push(turn);
-    this.#unsettled.add(turn);
     return turn;
   }
 
@@ -729,7 +726,6 @@ export class ClaudeProcess implements TurnControl {
   #providerTurn(messageIds: readonly string[], forPrompt: boolean): ClaudeTurn {
     const turn = new ClaudeTurn({ origin: "provider", runId: "", promptIds: [], messageIds, control: this, clock: this.#deps.clock, ledger: this.#ledger });
     turn.markOpened();
-    this.#unsettled.add(turn);
     if (forPrompt) this.#forPrompt.add(turn);
     else {
       // A turn opening ends the settle grace's wait; its end re-arms it while the debt is owed.
@@ -1090,9 +1086,9 @@ export class ClaudeProcess implements TurnControl {
     await this.#within(query.stopTask(taskId), this.#deps.timings.controlTimeoutMs);
   }
 
-  /** The host is done with an ended turn: the process is kept for the next run, until the pool stops it. */
-  release(turn: ClaudeTurn): void {
-    this.#unsettled.delete(turn);
+  /** The host is done with an ended turn: nothing is let go, since the process is kept for the next run until the pool stops it. */
+  release(): void {
+    // The process's state is its turns' and holds', none of which a release changes.
   }
 
   /** Stops the process now: the host has let a run go (its session deleted, the environment closing), or a fresh process replaces it. */

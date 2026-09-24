@@ -55,7 +55,8 @@ export class FakeQuery {
   constructor(params: { prompt: string | AsyncIterable<SDKUserMessage>; options?: Options }, controls: FakeControls) {
     this.options = params.options ?? {};
     this.controls = controls;
-    if (typeof params.prompt !== "string") void this.#read(params.prompt);
+    // A prompt stream that fails ends the query as a transport failure would, rather than as an unhandled rejection.
+    if (typeof params.prompt !== "string") this.#read(params.prompt).catch((error: unknown) => this.fail(error));
     if (controls.usage !== undefined) {
       const { name, answer } = controls.usage;
       (this as unknown as Record<string, unknown>)[name] = async () => answer();
