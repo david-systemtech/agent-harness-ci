@@ -153,7 +153,7 @@ export const fakeWire = (options: FakeWireOptions): FakeWire => {
       token: `fake-token-${++tokens}`,
       clientSessionId,
       scopes: [...SCOPES],
-      ceiling: Ceiling.parse("top"),
+      ceiling: Ceiling.parse("bypassPermissions"),
       expiresAt: new Date(clock.now().getTime() + TOKEN_LIFETIME_MS).toISOString(),
     };
     return issued;
@@ -277,7 +277,7 @@ export const fakeWire = (options: FakeWireOptions): FakeWire => {
         environmentName: discovery.environmentName,
         clientSessionId: issued?.clientSessionId ?? "fake-client-session",
         scopes: issued?.scopes ?? [...SCOPES],
-        ceiling: issued?.ceiling ?? Ceiling.parse("top"),
+        ceiling: issued?.ceiling ?? Ceiling.parse("bypassPermissions"),
         serverTime: clock.now().toISOString(),
         ...helloOverrides,
       });
