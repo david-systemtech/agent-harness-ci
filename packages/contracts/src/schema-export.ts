@@ -41,11 +41,11 @@ import {
   IdleSpan,
   IdleSpanUnit,
   SETTINGS_EVENT_TYPES,
-  TranscriptCompactAfterDays,
   SettingsEventType,
   SettingsKeyName,
   SettingsPatch,
   SettingsValues,
+  TranscriptCompactAfterDays,
 } from "./settings.js";
 import { isCommand } from "./method.js";
 import { CommandReceipt } from "./receipt.js";
