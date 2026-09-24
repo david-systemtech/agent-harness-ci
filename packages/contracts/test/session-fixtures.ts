@@ -172,6 +172,7 @@ export const sessionSchemaFixtures: Record<string, Fixtures> = {
     invalid: ["", " ", "x".repeat(41), "a\tb", "a\u0085b"],
   },
   "sessions/draft.json": { valid: ["", "Now the retention sweep", "x".repeat(65_536)], invalid: [null, "x".repeat(65_537)] },
+  "sessions/stored-draft.json": { valid: [null, "Now the retention sweep", "x".repeat(65_536)], invalid: ["", "x".repeat(65_537), 7] },
   "sessions/group-name.json": {
     valid: ["Brandsolidate", "x".repeat(80), ` ${"x".repeat(80)} `],
     invalid: ["", "  ", "x".repeat(81)],

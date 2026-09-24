@@ -211,6 +211,10 @@
       "title": "Draft"
     },
     {
+      "path": "sessions/stored-draft.json",
+      "title": "StoredDraft"
+    },
+    {
       "path": "sessions/group-name.json",
       "title": "GroupName"
     },
