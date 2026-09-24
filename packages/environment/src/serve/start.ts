@@ -38,9 +38,10 @@ import { createAdapterHost, type AdapterHost, type HostAccount } from "../adapte
 import { processMethods } from "../adapter/processes-methods.js";
 import { ATTACHMENTS_DIRECTORY, createAttachmentStage } from "../adapter/attachment-stage.js";
 import { recoverCutRuns, recoverStagedAttachments } from "../adapter/recovery.js";
-import type { InstructionComposer, PolicySeam, ToolServerFactory } from "../adapter/seams.js";
-import type { PermissionBroker } from "../adapter/contract.js";
+import type { InstructionComposer, PolicySeam, PromptAutoAnswer, ToolServerFactory } from "../adapter/seams.js";
 import { permissionMethods, sessionModeClamp } from "../permissions/methods.js";
+import { promptMethods } from "../permissions/prompt-methods.js";
+import { startPromptNotices } from "../permissions/prompt-notices.js";
 import { permissionsProjector, readPermissionSettings } from "../permissions/permissions-store.js";
 import { policySettings, resolvePolicy } from "../permissions/resolver.js";
 import { runMethods } from "../runs/run-methods.js";
@@ -179,7 +180,8 @@ export interface EnvironmentOptions {
   readonly adapterSeams?: {
     readonly toolServers?: ToolServerFactory;
     readonly instructions?: InstructionComposer;
-    readonly broker?: PermissionBroker;
+    /** The broker's automatic answers (#131); preset: none, every prompt parks for a person. */
+    readonly autoAnswer?: PromptAutoAnswer;
     /** Preset: the policy resolver on the environment's permission settings (#129). */
     readonly resolvePolicy?: PolicySeam;
   };
@@ -392,6 +394,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
 
   // The environment's own notices: environment.subscribe's stream, whose snapshot is the status.
   const environmentStream = { kind: ENVIRONMENT_STREAM_KIND, id: record.id };
+  // A prompt that parks, and its answer, are told to every client there (#130); stopped before the event log closes.
+  closers.push(startPromptNotices({ log, stream: environmentStream }));
   const detector = options.containerDetector ?? processContainerDetector();
   // The purge: `sessions.purge` runs it at once, the minute sweep for every session past its grace period.
   const deletion = createDeletion({ log, transcripts: host.transcripts });
@@ -438,6 +442,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ...groupMethods({ log, clock: now }),
     ...runMethods({ log, host, ceilingOf: (id) => clientSessions.ceiling(id) }),
     ...permissionMethods({ log, host, accessLog, clock, environmentId: record.id, ceilingOf: (id) => clientSessions.ceiling(id) }),
+    ...promptMethods({ log, host, environmentId: record.id }),
     ...processMethods({ log, host }),
   });
 

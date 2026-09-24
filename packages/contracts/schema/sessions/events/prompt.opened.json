@@ -1,0 +1,239 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PromptOpenedPayload",
+  "type": "object",
+  "properties": {
+    "runId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "A run's id: a version 4 UUID the environment mints when the run starts or is adopted."
+    },
+    "promptId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The prompt's id: the adapter's own for the call when it names one, else one the environment minted."
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "permission",
+        "denylist",
+        "question",
+        "plan"
+      ],
+      "description": "What a prompt asks: permission (a tool call the mode does not allow without asking), denylist (a call that touches the denylist), question (the model asks its user), or plan (a plan to approve, with the mode to continue in)."
+    },
+    "toolName": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The tool the call is for; null when the prompt is about no tool."
+    },
+    "toolCallId": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The provider's id for the tool call, when it names one."
+    },
+    "input": {
+      "anyOf": [
+        {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {}
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The tool's input as the model gave it; null when there is none."
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 300,
+      "description": "One line saying what is asked, for a list, a notification or a card's title."
+    },
+    "blockedPath": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The path that made the provider ask, when one did."
+    },
+    "reason": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Why the provider asked, in its own words, when it says."
+    },
+    "questions": {
+      "anyOf": [
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "header": {
+                "type": "string",
+                "description": "A short label for the question, shown as a chip; empty when the provider gives none."
+              },
+              "question": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The question as the model asks it; an answer is keyed by it."
+              },
+              "options": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "label": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "What the option says, as the person picks it."
+                    },
+                    "description": {
+                      "type": "string",
+                      "description": "What choosing it means; empty when the provider gives none."
+                    }
+                  },
+                  "required": [
+                    "label",
+                    "description"
+                  ],
+                  "description": "One option of a question: its label and what it means."
+                },
+                "description": "The choices offered; a person may also answer in their own words."
+              },
+              "multiSelect": {
+                "type": "boolean",
+                "description": "Whether several options may be chosen."
+              }
+            },
+            "required": [
+              "header",
+              "question",
+              "options",
+              "multiSelect"
+            ],
+            "description": "One question the model asks: header, question, options and whether several may be chosen."
+          }
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "A question prompt's questions; null for the other kinds."
+    },
+    "plan": {
+      "description": "A plan prompt's plan text; null for the other kinds, or when the provider gives none.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "suggestions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "propertyNames": {
+          "type": "string"
+        },
+        "additionalProperties": {}
+      },
+      "description": "The provider's remember-suggestions, in its own terms: what answering with remember 'session' applies. Empty when it offers none."
+    },
+    "agentId": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The subagent that asked; null for the run's own agent."
+    },
+    "mode": {
+      "type": "string",
+      "enum": [
+        "plan",
+        "acceptEdits",
+        "auto",
+        "bypassPermissions"
+      ],
+      "description": "The mode the run was in when it asked."
+    },
+    "ceiling": {
+      "type": "string",
+      "enum": [
+        "plan",
+        "acceptEdits",
+        "auto",
+        "bypassPermissions"
+      ],
+      "description": "The ceiling the run was resolved under: a plan's continue mode is clamped to it."
+    },
+    "ttlExpiresAt": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+          "description": "An instant as an ISO 8601 UTC timestamp."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "When the prompt is denied unanswered (permissions.parkedPrompt.ttl, fixed when it opens); null when it never is."
+    }
+  },
+  "required": [
+    "runId",
+    "promptId",
+    "kind",
+    "toolName",
+    "toolCallId",
+    "input",
+    "summary",
+    "blockedPath",
+    "reason",
+    "questions",
+    "plan",
+    "suggestions",
+    "agentId",
+    "mode",
+    "ceiling",
+    "ttlExpiresAt"
+  ],
+  "description": "prompt.opened: a run asked a person something; it is parked until its one prompt.answered."
+}

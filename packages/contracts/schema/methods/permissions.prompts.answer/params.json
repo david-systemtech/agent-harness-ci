@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "permissions.prompts.answer params",
+  "type": "object",
+  "properties": {
+    "commandId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+      "description": "The client-generated UUID every command takes; a retry with the same id applies once."
+    },
+    "promptId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The prompt to answer."
+    },
+    "decision": {
+      "type": "string",
+      "enum": [
+        "allow",
+        "deny"
+      ],
+      "description": "Whether the call may go ahead: allow, or deny."
+    },
+    "message": {
+      "description": "A message for the model.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 10000
+    },
+    "answers": {
+      "description": "A question prompt's answers, keyed by the question's text.",
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "updatedInput": {
+      "description": "The tool's input as edited; the model's own when absent.",
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {}
+    },
+    "mode": {
+      "description": "A plan prompt's mode to continue in, clamped to the run's ceiling; acceptEdits when absent.",
+      "type": "string",
+      "enum": [
+        "plan",
+        "acceptEdits",
+        "auto",
+        "bypassPermissions"
+      ]
+    },
+    "remember": {
+      "description": "Ask no more for this tool in this session: permission prompts only, with an allow.",
+      "type": "string",
+      "const": "session"
+    }
+  },
+  "required": [
+    "commandId",
+    "promptId",
+    "decision"
+  ]
+}

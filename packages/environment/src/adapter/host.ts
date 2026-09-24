@@ -9,6 +9,8 @@ import {
   type MessageRequeuedPayload,
   type Mode,
   type ProcessStopReason,
+  type PromptAnsweredPayload,
+  type PromptOpenedPayload,
   type ProviderProcess,
   type RunEndedPayload,
   type RunPolicy,
@@ -17,6 +19,16 @@ import {
   type Workspace,
 } from "@agent-harness/contracts";
 import { formatActor, type EventEnvelope, type EventLog, type EventInput } from "../event-log/event-log.js";
+import {
+  RUN_ENDED_MESSAGE,
+  STOPPED_MESSAGE,
+  UNRECORDED_MESSAGE,
+  WITHDRAWN_MESSAGE,
+  autoDenial,
+  nextRunText,
+  openedPayload,
+} from "../permissions/broker.js";
+import { answersFor, parkedPromptsOfRun } from "../permissions/prompts-store.js";
 import type { RunActor } from "../permissions/resolver.js";
 import { environmentQueue, latestRun, messageCeilings, providerHeld, providerSessionOf, readRun, readSessionFacts } from "../runs/run-reads.js";
 import {
@@ -44,6 +56,7 @@ import type {
   AdapterRun,
   AttachmentData,
   PermissionBroker,
+  PromptDecision,
   PromptMessage,
   ProviderCommand,
   ProviderTurn,
@@ -53,16 +66,17 @@ import type {
 } from "./contract.js";
 import type { AttachmentStage } from "./attachment-stage.js";
 import { createProcessPool } from "./pool.js";
-import { PromptClosed, type PromptDecision } from "./contract.js";
+import { PromptClosed } from "./contract.js";
 import { createAdapterRegistry, type AdapterRegistry } from "./registry.js";
 import { createScopedAppend, type ScopedAppend } from "./scoped-append.js";
 import {
-  autoDenyBroker,
   composeInstructions,
+  noAutoAnswer,
   noToolServers,
   presetPolicy,
   type InstructionComposer,
   type PolicySeam,
+  type PromptAutoAnswer,
   type ToolServerFactory,
 } from "./seams.js";
 
@@ -72,7 +86,8 @@ import {
  * rest of the environment. It holds the adapter registry and the accounts'
  * sign-in states and catalogues, fills the run registry the lifecycle reads
  * for idle and drain (#112), and supplies each run with its seams (tool
- * servers, composed instructions, the broker, the policy resolver). It starts a
+ * servers, composed instructions, the policy resolver) and the permission
+ * broker (#130). It starts a
  * run through its adapter once the command that asked for it has committed,
  * consumes the run's event stream once, appending each event through the
  * run's scoped append and nothing else, and appends the run's one
@@ -86,6 +101,20 @@ import {
  * `titleRead` (`sessions/titles.ts` records it), and once a user title
  * commits it mirrors it to the provider when the adapter of the session's
  * latest run declares `titleWrite`, best effort and never read back.
+ *
+ * The broker (permissions spec, "Modules"; ADR 0006, ADR 0007): a run's
+ * request is recorded as `prompt.opened` on the session's stream, correlated
+ * to the run, in a transaction of its own as the ask reaches the host, and
+ * the run is parked until it is answered. A person's answer
+ * (`permissions.prompts.answer`) reaches the run through `deliverAnswer`
+ * once it has committed: through the adapter's `answerPrompt` and the
+ * request itself. A run that ends on its own (its adapter's end, or an
+ * error the host records) closes its open prompts with `prompt.answered`,
+ * `auto: run_ended`, in the transaction of its `run.ended`; a run the host
+ * stops (parked, an admin's stop, a deletion, a drain, the environment
+ * closing) and the recovery sweep's `restart` leave them open in the log
+ * (ADR 0007), denied in memory only, and an answer given later is kept for
+ * the session's next run, which reads it as its first message.
  */
 
 /** An account the host serves runs through: its id, its provider, and its config directory. The account store (#134) will supply these. */
@@ -107,7 +136,8 @@ export interface AdapterHostOptions {
   readonly defaultAccountId?: string;
   readonly toolServers?: ToolServerFactory;
   readonly instructions?: InstructionComposer;
-  readonly broker?: PermissionBroker;
+  /** The broker's automatic answers (#131); preset: none, every prompt parks. */
+  readonly autoAnswer?: PromptAutoAnswer;
   /** The policy resolver runs start through; preset: the resolver on the settings' presets. */
   readonly resolvePolicy?: PolicySeam;
   /**
@@ -198,12 +228,24 @@ export interface AdapterHost {
   stopTask(runId: string, taskId: string): void;
   /** Changes a live run's mode through its adapter (`modeChange`), once the command that asked has committed; its resolved policy stays. */
   setMode(runId: string, mode: Mode): void;
+  /** Whether the live run `runId` waits on prompt `promptId`: false once the run has ended, or the prompt was answered. */
+  holdsPrompt(runId: string, promptId: string): boolean;
+  /**
+   * Hands a person's answer, once it has committed, to the run that waits on
+   * it: through its adapter's `answerPrompt` when the adapter takes answers
+   * (`interactivePrompts`), with the same refusals, and by settling the
+   * broker's request, whatever the adapter says, so the run is never left
+   * waiting on an answer the log holds. An approved plan's mode becomes the
+   * mode the host knows the run is in.
+   */
+  deliverAnswer(runId: string, promptId: string, decision: PromptDecision): void | Promise<void>;
   /**
    * Answers a prompt the run raised through the broker: handed to its
-   * adapter (`interactivePrompts`), and the run no longer parked on it. The
-   * way every answer a client gives reaches a run (#130). Refused `conflict`
-   * with reason `run_ended` when the run is no longer live (a prompt kept
-   * open across its end is #130's to deliver another way), and
+   * adapter (`interactivePrompts`), and the run no longer parked on it.
+   * `deliverAnswer` is how a person's answer reaches a run (#130). Refused
+   * `conflict` with reason `run_ended` when the run is no longer live (a
+   * prompt kept open across its end is answered into the session's next
+   * run instead), and
    * `prompt_not_open` when the live run has not raised it or it is answered
    * already (the host's own record), or the adapter holds it no longer: thrown
    * when the adapter answers at once, and the returned promise rejected
@@ -346,7 +388,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
   const registry = options.runs ?? createRunRegistry({ clock });
   const toolServers = options.toolServers ?? noToolServers;
   const instructions = options.instructions ?? composeInstructions();
-  const broker = options.broker ?? autoDenyBroker;
+  const autoAnswer = options.autoAnswer ?? noAutoAnswer;
   const resolvePolicy = options.resolvePolicy ?? presetPolicy;
   const configs = options.accounts ?? [];
   const defaultAccountId = options.defaultAccountId ?? configs[0]?.id ?? null;
@@ -378,6 +420,12 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
    * reads them back and a message it hands back keeps its bytes.
    */
   const heldAttachments = options.stagedAttachments ?? new Map<string, StagedAttachments>();
+  /**
+   * The broker's open requests, by prompt id: each run's prompts nobody has
+   * answered yet, settled by a person's answer (`deliverAnswer`), the
+   * provider's withdrawal, or the run's end, which denies them in memory.
+   */
+  const waiters = new Map<string, { readonly runId: string; settle(decision: PromptDecision): void }>();
   const stage = options.attachmentStage;
   let closing = false;
 
@@ -628,7 +676,11 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       turnCount: full.turnCount ?? null,
       resultText: full.resultText ?? null,
     };
+    // Its adapter's end, or an error the host records, is a run ending on its own; every other end the host makes is a stop.
+    const closesPrompts = ended.by === "adapter" || ended.stop === "failed";
     const letRunGo = (): void => {
+      // Whatever it still waits on is denied in memory; the log keeps a stopped run's prompts open.
+      denyWaiters(entry.runId, closesPrompts ? RUN_ENDED_MESSAGE : STOPPED_MESSAGE);
       if (ended.by === "host") {
         safely(() => entry.run?.dispose(), (e) => console.error(`Disposing run ${entry.runId} failed:`, e));
         void pool.stop(entry.sessionId, ended.stop);
@@ -644,6 +696,13 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
         // A run whose adapter never had its input read none of it: what it was launched with is the environment's queue again.
         if (!entry.received) requeueUnread(entry);
         if (by === "host" || reason !== "completed") requeue(entry.sessionId, entry.runId);
+        // A run that ends on its own closes its open prompts, just before its end; a run the host stops leaves them open (ADR 0007).
+        if (closesPrompts) {
+          for (const open of parkedPromptsOfRun(reader, entry.runId)) {
+            const closed: PromptAnsweredPayload = autoDenial(open.prompt, "run_ended");
+            log.append(sessionStream(entry.sessionId), [{ type: "prompt.answered", payload: closed }], { tx, actor: HOST_ACTOR, correlationId: entry.runId });
+          }
+        }
         const actor = ended.by === "adapter" ? entry.actor : (ended.actor ?? HOST_ACTOR);
         const commandId = ended.by === "host" ? ended.commandId : undefined;
         const attribution = { tx, actor, correlationId: entry.runId, ...(commandId !== undefined && { commandId }) };
@@ -734,41 +793,92 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     pool.unpark(entry.sessionId, entry.runId);
   };
 
+  /** Denies in memory every request of the run still waiting: the run has ended, whether or not the log closed its prompts. */
+  const denyWaiters = (runId: string, message: string): void => {
+    for (const waiter of [...waiters.values()]) if (waiter.runId === runId) waiter.settle({ decision: "deny", message });
+  };
+
   /**
-   * The broker as a session's runs are handed it. A request parks the
-   * session's run live at the time it is made, under the prompt's id, the
-   * adapter's own or one the host mints. A turn the provider opened on its
-   * own asks through the broker of the run it followed, but only once the
-   * host has adopted it and told it its run id (`onAdopted`), by which time
-   * that run is registered as the session's live one: the run it parks is its
-   * own. The run is parked until the request settles, the provider withdraws
-   * it (its signal aborts, or had aborted before the request was made) or
-   * `answerPrompt` answers it, whichever comes first.
+   * The broker as a session's runs are handed it. A request is recorded as
+   * `prompt.opened` on the session's stream, correlated to the session's run
+   * live at the time it is made, under the prompt's id (the adapter's own
+   * when it names one, else one the host mints), and parks that run. A turn
+   * the provider opened on its own asks through the broker of the run it
+   * followed, but only once the host has adopted it and told it its run id
+   * (`onAdopted`), by which time that run is registered as the session's live
+   * one: the run it parks is its own. An automatic rule (`autoAnswer`, #131)
+   * answers in the same transaction, and nothing parks. Otherwise the run is
+   * parked until the request is answered: by a person (`deliverAnswer`), by
+   * the provider withdrawing it (its signal aborts: closed `withdrawn`), or
+   * by the run's end, which denies it in memory. A request made when no run
+   * is live, withdrawn before it was made, or that the log would not take, is
+   * denied at once and parks nothing.
    */
   const brokerFor = (sessionId: string): PermissionBroker => ({
     request: async (request) => {
       const entry = live.get(sessionId);
-      const parks = entry !== undefined && !entry.ended ? entry : undefined;
+      if (entry === undefined || entry.ended) return { decision: "deny", message: RUN_ENDED_MESSAGE };
+      if (request.signal?.aborted === true) return { decision: "deny", message: WITHDRAWN_MESSAGE };
       const promptId = request.promptId ?? randomUUID();
-      if (parks !== undefined) raised(parks, promptId);
-      // The request answers its own raise once, withdrawn or settled, whichever is first: a later request that
-      // reuses its id, raised once this one was withdrawn, is another prompt, which this one's settling leaves parked.
-      let open = parks !== undefined;
-      const answer = (): void => {
-        if (!open || parks === undefined) return;
-        open = false;
-        answered(parks, promptId);
-      };
-      // A request the provider withdraws is answered by its adapter: the run is not parked on it any longer.
-      request.signal?.addEventListener("abort", answer, { once: true });
-      // Withdrawn before it was made: an aborted signal fires no more.
-      if (request.signal?.aborted === true) answer();
+      const stream = sessionStream(sessionId);
+      const opened: PromptOpenedPayload = openedPayload({
+        runId: entry.runId,
+        promptId,
+        kind: request.kind,
+        detail: request.detail,
+        mode: entry.mode,
+        ceiling: entry.plan.policy.mode.ceiling,
+        // The TTL is fixed here once its sweeper exists (#131); until then nothing expires.
+        ttlExpiresAt: null,
+      });
+      const automatic = autoAnswer({ kind: request.kind, attended: entry.plan.policy.attended, mode: entry.mode });
       try {
-        return await broker.request({ ...request, promptId });
-      } finally {
-        request.signal?.removeEventListener("abort", answer);
-        answer();
+        log.atomically((tx) => {
+          log.append(stream, [{ type: "prompt.opened", payload: opened }], { tx, actor: entry.actor, correlationId: entry.runId });
+          if (automatic !== null) {
+            const { decision } = automatic;
+            const payload: PromptAnsweredPayload = {
+              ...autoDenial(opened, automatic.auto, decision.message ?? null),
+              decision: decision.decision,
+              answers: decision.answers === undefined ? null : { ...decision.answers },
+              updatedInput: decision.updatedInput ?? null,
+              delivery: "live",
+            };
+            log.append(stream, [{ type: "prompt.answered", payload }], { tx, actor: HOST_ACTOR, correlationId: entry.runId });
+          }
+        });
+      } catch (error) {
+        console.error(`Recording prompt ${promptId} of run ${entry.runId} failed; it is denied, and nobody was asked:`, error);
+        return { decision: "deny", message: UNRECORDED_MESSAGE };
       }
+      if (automatic !== null) return automatic.decision;
+      raised(entry, promptId);
+      return new Promise<PromptDecision>((resolve) => {
+        let open = true;
+        const settle = (decision: PromptDecision): void => {
+          if (!open) return;
+          open = false;
+          if (waiters.get(promptId) === waiter) waiters.delete(promptId);
+          request.signal?.removeEventListener("abort", withdraw);
+          answered(entry, promptId);
+          resolve(decision);
+        };
+        // The provider withdrew it and answered it itself: the log closes it, unless someone answered first.
+        const withdraw = (): void => {
+          if (!open) return;
+          try {
+            if (parkedPromptsOfRun(reader, entry.runId).some((prompt) => prompt.promptId === promptId)) {
+              log.append(stream, [{ type: "prompt.answered", payload: autoDenial(opened, "withdrawn") }], { actor: entry.actor, correlationId: entry.runId });
+            }
+          } catch (error) {
+            console.error(`Recording the withdrawal of prompt ${promptId} of run ${entry.runId} failed:`, error);
+          }
+          settle({ decision: "deny", message: WITHDRAWN_MESSAGE });
+        };
+        const waiter = { runId: entry.runId, settle };
+        waiters.set(promptId, waiter);
+        request.signal?.addEventListener("abort", withdraw, { once: true });
+      });
     },
   });
 
@@ -827,11 +937,31 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     return adapter;
   };
 
+  /**
+   * The answers kept for the run as its first messages: given to prompts
+   * whose run had gone (a restart, a stop), taken by this run's start
+   * (`prompts-store.ts`), each told as a message of its own, in the order
+   * they were given (ADR 0007).
+   */
+  const keptAnswers = (runId: string): PromptMessage[] => {
+    try {
+      return answersFor(reader, runId).flatMap((kept) =>
+        kept.answer === null ? [] : [{ messageId: randomUUID(), text: nextRunText(kept.prompt, kept.answer), attachments: [] }],
+      );
+    } catch (error) {
+      console.error(`Reading the answers kept for run ${runId} failed; it starts without them:`, error);
+      return [];
+    }
+  };
+
   const launch = (plan: PlannedRun): void => {
-    const prompt: PromptMessage[] = plan.prompt.map((message) => {
-      const held = heldAttachments.get(message.messageId);
-      return held === undefined || message.attachments.length > 0 ? message : { ...message, attachments: held.attachments };
-    });
+    const prompt: PromptMessage[] = [
+      ...keptAnswers(plan.runId),
+      ...plan.prompt.map((message) => {
+        const held = heldAttachments.get(message.messageId);
+        return held === undefined || message.attachments.length > 0 ? message : { ...message, attachments: held.attachments };
+      }),
+    ];
     const scope = { sessionId: plan.sessionId, accountId: plan.account.id, workspace: plan.workspace };
     begin(plan, (entry) => {
       const run = adapterOf(plan.account).createRun(
@@ -1180,6 +1310,45 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     return issues;
   };
 
+  /**
+   * Answers a prompt its live run raised, through the run's adapter
+   * (`AdapterHost.answerPrompt`): the refusals are the caller's `conflict`,
+   * any other failure `internal`, at once or asynchronously.
+   */
+  const answerPrompt = (runId: string, promptId: string, decision: PromptDecision): void | Promise<void> => {
+    const entry = byRunId(runId);
+    const run = entry?.run;
+    const closed = (reason: "run_ended" | "prompt_not_open", message: string): ContractError =>
+      new ContractError({ code: "conflict", message, data: { reason, runId, promptId } });
+    if (entry === undefined || run === undefined) throw closed("run_ended", `Run ${runId} has ended, so prompt ${promptId} can no longer be answered through it.`);
+    const answer = capability(entry.descriptor, "interactivePrompts", run.answerPrompt, "answer a prompt", "answerPrompt");
+    // The host's own record first, whatever the adapter would say: a prompt this live run has not raised, or that is
+    // answered already, is not open.
+    if (!entry.prompts.has(promptId)) throw closed("prompt_not_open", `Run ${runId} has no prompt ${promptId} open.`);
+    // Answered either way: a prompt the adapter no longer holds open parks nothing.
+    answered(entry, promptId);
+    // One contract, at once or asynchronously: a closed prompt is the caller's `conflict`; any other failure is logged
+    // and refused `internal`, so the caller knows the answer did not land.
+    const refusal = (error: unknown): ContractError => {
+      if (error instanceof PromptClosed) return closed(error.reason === "run_ended" ? "run_ended" : "prompt_not_open", error.message);
+      console.error(`Answering prompt ${promptId} of run ${runId} failed:`, error);
+      return new ContractError({ code: "internal", message: `Answering prompt ${promptId} failed: ${messageOf(error)}`, data: {} });
+    };
+    let answering: void | Promise<void>;
+    try {
+      answering = answer.call(run, promptId, decision);
+    } catch (error) {
+      throw refusal(error);
+    }
+    // An adapter that answers asynchronously refuses through the promise, which the caller is handed with the same mapping.
+    if (answering instanceof Promise) {
+      return answering.catch((error: unknown) => {
+        throw refusal(error);
+      });
+    }
+    return undefined;
+  };
+
   return {
     adapters,
     runs: registry,
@@ -1251,39 +1420,21 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
         },
       );
     },
-    answerPrompt(runId, promptId, decision) {
+    holdsPrompt: (runId, promptId) => byRunId(runId)?.prompts.has(promptId) === true,
+    deliverAnswer(runId, promptId, decision) {
       const entry = byRunId(runId);
-      const run = entry?.run;
-      const closed = (reason: "run_ended" | "prompt_not_open", message: string): ContractError =>
-        new ContractError({ code: "conflict", message, data: { reason, runId, promptId } });
-      if (entry === undefined || run === undefined) throw closed("run_ended", `Run ${runId} has ended, so prompt ${promptId} can no longer be answered through it.`);
-      const answer = capability(entry.descriptor, "interactivePrompts", run.answerPrompt, "answer a prompt", "answerPrompt");
-      // The host's own record first, whatever the adapter would say: a prompt this live run has not raised, or that is
-      // answered already, is not open.
-      if (!entry.prompts.has(promptId)) throw closed("prompt_not_open", `Run ${runId} has no prompt ${promptId} open.`);
-      // Answered either way: a prompt the adapter no longer holds open parks nothing.
-      answered(entry, promptId);
-      // One contract, at once or asynchronously: a closed prompt is the caller's `conflict`; any other failure is logged
-      // and refused `internal`, so the caller knows the answer did not land.
-      const refusal = (error: unknown): ContractError => {
-        if (error instanceof PromptClosed) return closed(error.reason === "run_ended" ? "run_ended" : "prompt_not_open", error.message);
-        console.error(`Answering prompt ${promptId} of run ${runId} failed:`, error);
-        return new ContractError({ code: "internal", message: `Answering prompt ${promptId} failed: ${messageOf(error)}`, data: {} });
-      };
-      let answering: void | Promise<void>;
       try {
-        answering = answer.call(run, promptId, decision);
-      } catch (error) {
-        throw refusal(error);
+        if (entry !== undefined && entry.descriptor.interactivePrompts && entry.run?.answerPrompt !== undefined) {
+          return answerPrompt(runId, promptId, decision);
+        }
+        return undefined;
+      } finally {
+        // The answer is in the log: the request is settled whatever the adapter said, so nothing waits on it.
+        waiters.get(promptId)?.settle(decision);
+        if (entry !== undefined && !entry.ended && decision.decision === "allow" && decision.mode !== undefined) entry.mode = decision.mode;
       }
-      // An adapter that answers asynchronously refuses through the promise, which the caller is handed with the same mapping.
-      if (answering instanceof Promise) {
-        return answering.catch((error: unknown) => {
-          throw refusal(error);
-        });
-      }
-      return undefined;
     },
+    answerPrompt,
     stopTask(runId, taskId) {
       const entry = byRunId(runId);
       const run = entry?.run;

@@ -1,6 +1,9 @@
 import { z } from "zod";
 import { ProtocolVersion } from "./flags.js";
 import { DrainStarted } from "./lifecycle.js";
+import { DecidedBy, PromptDecisionValue, PromptKind, PROMPT_SUMMARY_MAX } from "./prompts.js";
+import { RunId } from "./adapter.js";
+import { SessionId } from "./sessions.js";
 
 /**
  * The environment's own notices: the events on its `environment` stream,
@@ -15,12 +18,14 @@ export const ENVIRONMENT_STREAM_KIND = "environment";
 /**
  * The notices there are: the environment finished starting; it was updated
  * from one harness version to another (appended by the launcher ticket); it
- * began to drain (appended by the lifecycle ticket, #112).
+ * began to drain (appended by the lifecycle ticket, #112); a prompt parked,
+ * waiting for a person, and a parked prompt was resolved (#130), so every
+ * connected client learns of it whatever else it is subscribed to.
  */
-export const ENVIRONMENT_NOTICE_TYPES = ["environment.started", "environment.updated", "environment.draining"] as const;
+export const ENVIRONMENT_NOTICE_TYPES = ["environment.started", "environment.updated", "environment.draining", "prompt.parked", "prompt.resolved"] as const;
 export const EnvironmentNoticeType = z.enum(ENVIRONMENT_NOTICE_TYPES).meta({
   description:
-    "An environment notice's event type: environment.started (startup finished), environment.updated (a new harness version now runs), environment.draining (new runs are refused before a restart).",
+    "An environment notice's event type: environment.started (startup finished), environment.updated (a new harness version now runs), environment.draining (new runs are refused before a restart), prompt.parked (a run waits for a person's answer), prompt.resolved (a parked prompt was answered).",
 });
 export type EnvironmentNoticeType = z.infer<typeof EnvironmentNoticeType>;
 
@@ -51,13 +56,40 @@ const EnvironmentDraining = z
   })
   .meta({ description: "The environment refuses new runs and lets running ones finish before a restart: since when, and what started it." });
 
+const PromptParked = z
+  .object({
+    type: z.literal("prompt.parked"),
+    payload: z.object({
+      sessionId: SessionId,
+      runId: RunId,
+      promptId: z.string().min(1),
+      kind: PromptKind,
+      title: z.string().min(1).meta({ description: "The session's title as the list shows it, for a notification." }),
+      summary: z.string().min(1).max(PROMPT_SUMMARY_MAX).meta({ description: "The prompt's one-line summary." }),
+    }),
+  })
+  .meta({ description: "A run is parked on a prompt, waiting for a person: which session, run and prompt, the session's title and what is asked." });
+
+const PromptResolved = z
+  .object({
+    type: z.literal("prompt.resolved"),
+    payload: z.object({
+      sessionId: SessionId,
+      runId: RunId,
+      promptId: z.string().min(1),
+      decision: PromptDecisionValue,
+      decidedBy: DecidedBy,
+    }),
+  })
+  .meta({ description: "A parked prompt was answered, by a person or a rule: which one, the decision, and who made it." });
+
 /**
  * One environment notice, as an event's `type` and `payload`. Parsing an
  * event envelope with it reads the notice and leaves the envelope's other
  * fields aside, so a client parses the `event` of an `event` frame directly.
  */
 export const EnvironmentNotice = z
-  .discriminatedUnion("type", [EnvironmentStarted, EnvironmentUpdated, EnvironmentDraining])
+  .discriminatedUnion("type", [EnvironmentStarted, EnvironmentUpdated, EnvironmentDraining, PromptParked, PromptResolved])
   .meta({
     description:
       "An event on the environment stream, as environment.subscribe delivers it: its type and payload, read from the event's envelope.",

@@ -3,8 +3,8 @@ import { validEnvironmentStartedEvent } from "../test/fixtures.js";
 import { ENVIRONMENT_NOTICE_TYPES, ENVIRONMENT_STREAM_KIND, EnvironmentNotice, EventEnvelope } from "./index.js";
 
 describe("environment notices", () => {
-  it("are started, updated and draining, on the environment stream", () => {
-    expect(ENVIRONMENT_NOTICE_TYPES).toEqual(["environment.started", "environment.updated", "environment.draining"]);
+  it("are started, updated, draining, a prompt parked and a prompt resolved, on the environment stream", () => {
+    expect(ENVIRONMENT_NOTICE_TYPES).toEqual(["environment.started", "environment.updated", "environment.draining", "prompt.parked", "prompt.resolved"]);
     expect(ENVIRONMENT_STREAM_KIND).toBe("environment");
   });
 

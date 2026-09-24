@@ -7,6 +7,8 @@ import type {
   ModelOption,
   ProcessPort,
   PromptDecision,
+  PromptDetail,
+  PromptKind,
   PromptMessage,
   ProviderTurn,
   RunContext,
@@ -92,6 +94,8 @@ export interface FakeRunRecord {
   readonly stoppedTasks: string[];
   /** The modes `setMode` changed the live run to, in order. */
   readonly modeChanges: Mode[];
+  /** The answers the host handed it through `answerPrompt`, in order. */
+  readonly answers: { readonly promptId: string; readonly decision: PromptDecision }[];
 }
 
 export interface FakeAdapterOptions {
@@ -173,6 +177,44 @@ export const say = (text: string, itemId: string = randomUUID()): TranscriptEven
 
 /** The end of a run: completed unless told otherwise. */
 export const end = (reason: RunEnd["reason"] = "completed", extra: Omit<RunEnd, "type" | "reason"> = {}): RunEnd => ({ type: "end", reason, ...extra });
+
+/** What an asking script says once it is answered: the decision it got, as JSON, so a test reads what reached the run. */
+export const toldText = (decision: PromptDecision): string => `Told ${JSON.stringify(decision)}`;
+
+export interface AskOptions {
+  /** The prompt's id, as an adapter with its own permission table names it; the host mints one when absent. */
+  readonly promptId?: string;
+  /** Waited on before asking; preset: asks at once. */
+  readonly before?: Promise<unknown>;
+  /** Withdraws the request when it aborts, as a provider cancelling the tool call does. */
+  readonly signal?: AbortSignal;
+  /** How the run ends once answered; preset: completed. */
+  readonly then?: RunEnd;
+}
+
+/**
+ * A run that asks through the broker (permissions spec, "Prompts"): it says
+ * it is working, asks a prompt of `kind` with `detail`, says what it was told
+ * (`toldText`) and ends. An answer a person gives reaches it through the
+ * broker's request, which the host settles, and through `answerPrompt`,
+ * which the fake records (`nextAnswer`).
+ */
+export const ask =
+  (kind: PromptKind, detail: PromptDetail = {}, options: AskOptions = {}): Script =>
+  async function* ({ context, input }) {
+    yield say("Working");
+    await options.before;
+    const decision = await context.broker.request({
+      sessionId: input.sessionId,
+      runId: input.runId,
+      kind,
+      detail,
+      ...(options.promptId !== undefined && { promptId: options.promptId }),
+      ...(options.signal !== undefined && { signal: options.signal }),
+    });
+    yield say(toldText(decision));
+    yield options.then ?? end();
+  };
 
 /** The preset script: one reply naming the prompt, then completed. */
 export const replyScript: Script = ({ input }) => [say(`Done: ${input.prompt.map((message) => message.text).join(" / ")}`), end()];
@@ -323,6 +365,7 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
       released: false,
       stoppedTasks: [],
       modeChanges: [],
+      answers: [],
     };
     runs.push(record);
     const events = channel();
@@ -426,6 +469,7 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
       },
       answerPrompt(promptId, decision) {
         const answer = { promptId, decision };
+        record.answers.push(answer);
         const taker = answerTakers.shift();
         if (taker !== undefined) taker(answer);
         else answers.push(answer);

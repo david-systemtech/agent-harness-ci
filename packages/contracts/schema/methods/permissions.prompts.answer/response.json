@@ -1,0 +1,317 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "permissions.prompts.answer response",
+  "type": "object",
+  "properties": {
+    "receipt": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string",
+              "const": "accepted"
+            },
+            "sequence": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991,
+              "description": "The log's head once the command committed: its last event, or the head it saw when it appended none."
+            },
+            "changed": {
+              "type": "boolean",
+              "description": "False for a command that was accepted and changed nothing, so appended no event."
+            }
+          },
+          "required": [
+            "status",
+            "sequence",
+            "changed"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string",
+              "const": "rejected"
+            },
+            "sequence": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991,
+              "description": "The log's head when the command was rejected."
+            },
+            "changed": {
+              "type": "boolean",
+              "const": false
+            },
+            "reason": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "description": "Why the command was rejected, the code of its error: not_found when its target does not exist."
+            },
+            "error": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9_]*$",
+                  "description": "A stable error code in snake case."
+                },
+                "message": {
+                  "type": "string"
+                },
+                "data": {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "additionalProperties": {}
+                }
+              },
+              "required": [
+                "code",
+                "message",
+                "data"
+              ],
+              "description": "The rejection as an error: its code (the reason), a message for people and structured data."
+            }
+          },
+          "required": [
+            "status",
+            "sequence",
+            "changed",
+            "reason",
+            "error"
+          ]
+        }
+      ],
+      "description": "A command's receipt: accepted (with the head sequence after it and whether it changed anything) or rejected (with the reason and the error). A retry with the same commandId answers the same receipt."
+    },
+    "result": {
+      "description": "The method's result, present when this request applied the command; absent on a retry and on a rejection.",
+      "type": "object",
+      "properties": {
+        "sessionId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+          "description": "A session's id: a version 4 UUID the creating client mints (never the provider's resume id), kept in lowercase."
+        },
+        "runId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+          "description": "A run's id: a version 4 UUID the environment mints when the run starts or is adopted."
+        },
+        "promptId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "decision": {
+          "type": "string",
+          "enum": [
+            "allow",
+            "deny"
+          ],
+          "description": "Whether the call may go ahead: allow, or deny."
+        },
+        "message": {
+          "description": "A message for the model, with an allow or a deny; null for none.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "answers": {
+          "anyOf": [
+            {
+              "type": "object",
+              "propertyNames": {
+                "type": "string",
+                "minLength": 1
+              },
+              "additionalProperties": {
+                "type": "string"
+              }
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "A question prompt's answers, keyed by the question's text; several options chosen are joined with a comma and a space. Null for the other kinds."
+        },
+        "updatedInput": {
+          "anyOf": [
+            {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {}
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The tool's input as the person edited it; null when it runs as the model gave it."
+        },
+        "mode": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "requested": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "plan",
+                        "acceptEdits",
+                        "auto",
+                        "bypassPermissions"
+                      ],
+                      "description": "What an agent may do without asking during a run, in the order ceilings use: plan < acceptEdits < auto < bypassPermissions. Claude's default and dontAsk are never used."
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The mode asked for; null when none was, so a default applied (acceptEdits, or the unattended default)."
+                },
+                "effective": {
+                  "type": "string",
+                  "enum": [
+                    "plan",
+                    "acceptEdits",
+                    "auto",
+                    "bypassPermissions"
+                  ],
+                  "description": "The mode it got."
+                },
+                "ceiling": {
+                  "type": "string",
+                  "enum": [
+                    "plan",
+                    "acceptEdits",
+                    "auto",
+                    "bypassPermissions"
+                  ],
+                  "description": "The ceiling it was clamped to."
+                },
+                "clamped": {
+                  "type": "boolean",
+                  "description": "Whether the mode got is below the one asked for; false when none was asked for, since a default applied then and nothing was clamped."
+                },
+                "clampReason": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "ceiling",
+                        "unavailable"
+                      ],
+                      "description": "Why a mode was lowered: ceiling (above the ceiling, lowered to it), or unavailable (the mode it would have had is one the account lists as unavailable, so the next lower available one)."
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "Why the mode asked for was lowered; null when it was not, or when none was asked for."
+                }
+              },
+              "required": [
+                "requested",
+                "effective",
+                "ceiling",
+                "clamped",
+                "clampReason"
+              ],
+              "description": "A mode as the resolver decided it: requested, effective, the ceiling, and whether and why it was clamped."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "An approved plan's mode to continue in, clamped to the run's ceiling and its account's modes (acceptEdits when none was asked for); null otherwise."
+        },
+        "remember": {
+          "anyOf": [
+            {
+              "type": "string",
+              "const": "session"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "session: no further prompt for this tool in this session (permission prompts only, with an allow); null otherwise."
+        },
+        "decidedBy": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "A client session's id, as hello names it and the access methods list and revoke it."
+            },
+            {
+              "type": "object",
+              "properties": {
+                "auto": {
+                  "type": "string",
+                  "enum": [
+                    "unattended",
+                    "bypass",
+                    "ttl",
+                    "run_ended",
+                    "reviewer",
+                    "withdrawn"
+                  ],
+                  "description": "What answered a prompt when no person did: unattended (nobody is present for the run), bypass (a residual prompt in bypassPermissions), ttl (it waited past its TTL), run_ended (its run ended on its own first), reviewer (a provider's automatic reviewer), withdrawn (the provider withdrew the request, its tool call cancelled)."
+                }
+              },
+              "required": [
+                "auto"
+              ],
+              "description": "An automatic rule answered it."
+            }
+          ],
+          "description": "Who answered a prompt: the id of the client session a person answered from, or {auto} naming the rule."
+        },
+        "delivery": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "live",
+                "next-run"
+              ],
+              "description": "Where an answer went: live (handed to the run that asked, still waiting on it), or next-run (the run had gone, a restart or a parked stop taking it, so the answer is the first message of the session's next run)."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Where a person's answer went; null for one no run was waiting for (an automatic end, or a withdrawal)."
+        }
+      },
+      "required": [
+        "sessionId",
+        "runId",
+        "promptId",
+        "decision",
+        "message",
+        "answers",
+        "updatedInput",
+        "mode",
+        "remember",
+        "decidedBy",
+        "delivery"
+      ]
+    }
+  },
+  "required": [
+    "receipt"
+  ]
+}

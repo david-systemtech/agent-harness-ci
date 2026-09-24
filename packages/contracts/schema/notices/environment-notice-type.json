@@ -5,7 +5,9 @@
   "enum": [
     "environment.started",
     "environment.updated",
-    "environment.draining"
+    "environment.draining",
+    "prompt.parked",
+    "prompt.resolved"
   ],
-  "description": "An environment notice's event type: environment.started (startup finished), environment.updated (a new harness version now runs), environment.draining (new runs are refused before a restart)."
+  "description": "An environment notice's event type: environment.started (startup finished), environment.updated (a new harness version now runs), environment.draining (new runs are refused before a restart), prompt.parked (a run waits for a person's answer), prompt.resolved (a parked prompt was answered)."
 }

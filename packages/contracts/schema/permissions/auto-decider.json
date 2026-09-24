@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AutoDecider",
+  "type": "string",
+  "enum": [
+    "unattended",
+    "bypass",
+    "ttl",
+    "run_ended",
+    "reviewer",
+    "withdrawn"
+  ],
+  "description": "What answered a prompt when no person did: unattended (nobody is present for the run), bypass (a residual prompt in bypassPermissions), ttl (it waited past its TTL), run_ended (its run ended on its own first), reviewer (a provider's automatic reviewer), withdrawn (the provider withdrew the request, its tool call cancelled)."
+}

@@ -7,9 +7,8 @@ import { readSummary, type Reader } from "./session-reads.js";
 
 /**
  * The run and prompt projections at the lower seam: what the activity
- * fields read after each sequence of events, the runs' with the payloads
- * the adapter host appends (#119), the prompts' from their types and times
- * alone (provisional until #130).
+ * fields read after each sequence of events, with the payloads the adapter
+ * host (#119) and the broker (#130) append.
  */
 
 let logs: EventLog[] = [];
@@ -56,9 +55,24 @@ describe("the activity projections", () => {
     expect(seed("prompt.answered")).toMatchObject({ activity: { state: "running", since: "2026-09-24T00:05:00.000Z" }, parkedPromptCount: 0 });
   });
 
-  it("leave a run that ended idle when a prompt it opened is answered after the end", () => {
+  it("keep a session parked when its run was stopped with a prompt still open, and make it idle once that prompt is answered", () => {
     const { seed } = withSession();
-    expect(seed("run.started", "prompt.opened", "run.ended")).toMatchObject({ activity: { state: "idle", since: "2026-09-24T00:03:00.000Z" }, parkedPromptCount: 0 });
-    expect(seed("prompt.answered")).toMatchObject({ activity: { state: "idle", since: "2026-09-24T00:03:00.000Z" }, parkedPromptCount: 0, lastActivityAt: "2026-09-24T00:04:00.000Z" });
+    // A stop leaves the prompt open (ADR 0007): the session still waits on a person.
+    expect(seed("run.started", "prompt.opened", "run.ended")).toMatchObject({ activity: { state: "parked", since: "2026-09-24T00:02:00.000Z" }, parkedPromptCount: 1 });
+    expect(seed("prompt.answered")).toMatchObject({ activity: { state: "idle", since: "2026-09-24T00:04:00.000Z" }, parkedPromptCount: 0, lastActivityAt: "2026-09-24T00:04:00.000Z" });
+  });
+
+  it("run a session a new run started on while an older prompt is still open, keeping the count, and make it idle when that run ends", () => {
+    const { seed } = withSession();
+    seed("run.started", "prompt.opened", "run.ended");
+    expect(seed("run.started")).toMatchObject({ activity: { state: "running", since: "2026-09-24T00:04:00.000Z" }, parkedPromptCount: 1 });
+    expect(seed("prompt.answered")).toMatchObject({ activity: { state: "running", since: "2026-09-24T00:04:00.000Z" }, parkedPromptCount: 0 });
+    expect(seed("run.ended")).toMatchObject({ activity: { state: "idle", since: "2026-09-24T00:06:00.000Z" } });
+  });
+
+  it("close a run's prompts before its end when it ends on its own, so the end leaves the session idle", () => {
+    const { seed } = withSession();
+    seed("run.started", "prompt.opened");
+    expect(seed("prompt.answered", "run.ended")).toMatchObject({ activity: { state: "idle", since: "2026-09-24T00:04:00.000Z" }, parkedPromptCount: 0 });
   });
 });

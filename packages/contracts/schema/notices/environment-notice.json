@@ -107,6 +107,151 @@
         "payload"
       ],
       "description": "The environment refuses new runs and lets running ones finish before a restart: since when, and what started it."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "prompt.parked"
+        },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "sessionId": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+              "description": "A session's id: a version 4 UUID the creating client mints (never the provider's resume id), kept in lowercase."
+            },
+            "runId": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+              "description": "A run's id: a version 4 UUID the environment mints when the run starts or is adopted."
+            },
+            "promptId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "permission",
+                "denylist",
+                "question",
+                "plan"
+              ],
+              "description": "What a prompt asks: permission (a tool call the mode does not allow without asking), denylist (a call that touches the denylist), question (the model asks its user), or plan (a plan to approve, with the mode to continue in)."
+            },
+            "title": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The session's title as the list shows it, for a notification."
+            },
+            "summary": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 300,
+              "description": "The prompt's one-line summary."
+            }
+          },
+          "required": [
+            "sessionId",
+            "runId",
+            "promptId",
+            "kind",
+            "title",
+            "summary"
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "payload"
+      ],
+      "description": "A run is parked on a prompt, waiting for a person: which session, run and prompt, the session's title and what is asked."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "prompt.resolved"
+        },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "sessionId": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+              "description": "A session's id: a version 4 UUID the creating client mints (never the provider's resume id), kept in lowercase."
+            },
+            "runId": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+              "description": "A run's id: a version 4 UUID the environment mints when the run starts or is adopted."
+            },
+            "promptId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "decision": {
+              "type": "string",
+              "enum": [
+                "allow",
+                "deny"
+              ],
+              "description": "Whether the call may go ahead: allow, or deny."
+            },
+            "decidedBy": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "A client session's id, as hello names it and the access methods list and revoke it."
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "auto": {
+                      "type": "string",
+                      "enum": [
+                        "unattended",
+                        "bypass",
+                        "ttl",
+                        "run_ended",
+                        "reviewer",
+                        "withdrawn"
+                      ],
+                      "description": "What answered a prompt when no person did: unattended (nobody is present for the run), bypass (a residual prompt in bypassPermissions), ttl (it waited past its TTL), run_ended (its run ended on its own first), reviewer (a provider's automatic reviewer), withdrawn (the provider withdrew the request, its tool call cancelled)."
+                    }
+                  },
+                  "required": [
+                    "auto"
+                  ],
+                  "description": "An automatic rule answered it."
+                }
+              ],
+              "description": "Who answered a prompt: the id of the client session a person answered from, or {auto} naming the rule."
+            }
+          },
+          "required": [
+            "sessionId",
+            "runId",
+            "promptId",
+            "decision",
+            "decidedBy"
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "payload"
+      ],
+      "description": "A parked prompt was answered, by a person or a rule: which one, the decision, and who made it."
     }
   ],
   "description": "An event on the environment stream, as environment.subscribe delivers it: its type and payload, read from the event's envelope."
