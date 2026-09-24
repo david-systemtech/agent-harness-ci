@@ -67,9 +67,9 @@ const cursorOf = (log: EventLog, name: string) =>
   log.read<{ cursor: number }>("SELECT cursor FROM projection_state WHERE name = ?", name)[0]?.cursor;
 
 const appendSome = (log: EventLog) => {
-  log.append({ kind: "session", id: "a" }, [note("1"), note("2")], { actor: "test" });
-  log.append({ kind: "session", id: "b" }, [{ type: "title.set", payload: { title: "B" } }], { actor: "test" });
-  log.append({ kind: "group", id: "g" }, [note("3")], { actor: "test" });
+  log.append({ kind: "session", id: "a" }, [note("1"), note("2")], { actor: "system:test" });
+  log.append({ kind: "session", id: "b" }, [{ type: "title.set", payload: { title: "B" } }], { actor: "system:test" });
+  log.append({ kind: "group", id: "g" }, [note("3")], { actor: "system:test" });
 };
 
 describe("projectors", () => {
@@ -104,7 +104,7 @@ describe("projectors", () => {
     first.close();
 
     const bare = openEventLog({ path });
-    bare.append({ kind: "session", id: "a" }, [note("while the projector was away")], { actor: "test" });
+    bare.append({ kind: "session", id: "a" }, [note("while the projector was away")], { actor: "system:test" });
     bare.close();
 
     const { projector, applied } = countingProjector();
@@ -125,7 +125,7 @@ describe("projectors", () => {
     expect(applied).toEqual([]);
     expect(readModel(reopened)).toEqual(before);
 
-    reopened.append({ kind: "session", id: "b" }, [note("new")], { actor: "test" });
+    reopened.append({ kind: "session", id: "b" }, [note("new")], { actor: "system:test" });
     expect(applied).toEqual([5]);
     expect(cursorOf(reopened, "counts")).toBe(5);
   });
@@ -134,7 +134,7 @@ describe("projectors", () => {
     const { projector, applied } = countingProjector();
     const log = track(openEventLog({ path: ":memory:", projectors: [projector] }));
     appendSome(log);
-    log.append({ kind: "session", id: "a" }, [note("4")], { actor: "test" });
+    log.append({ kind: "session", id: "a" }, [note("4")], { actor: "system:test" });
     const before = readModel(log);
     applied.length = 0;
 
@@ -163,7 +163,7 @@ describe("projectors", () => {
     log.rebuildProjections();
     applied.length = 0;
 
-    log.append({ kind: "session", id: "a" }, [note("after rebuild")], { actor: "test" });
+    log.append({ kind: "session", id: "a" }, [note("after rebuild")], { actor: "system:test" });
     expect(applied).toEqual([5]);
     expect(readModel(log).streams).toContainEqual({ stream_kind: "session", stream_id: "a", count: 3 });
   });
@@ -186,7 +186,7 @@ describe("projectors", () => {
   it("leave the events, receipts and snapshots alone when rebuilt", () => {
     const log = track(openEventLog({ path: ":memory:", projectors: [countingProjector().projector] }));
     log.append({ kind: "session", id: "a" }, [note("1")], {
-      actor: "client:1",
+      actor: "client_session:1",
       commandId: "c-1",
       receipt: { status: "accepted" },
     });
@@ -194,7 +194,7 @@ describe("projectors", () => {
 
     log.rebuildProjections();
     expect(log.readStream({ kind: "session", id: "a" })).toHaveLength(1);
-    expect(log.receipt("client:1", "c-1")).not.toBeNull();
+    expect(log.receipt("client_session:1", "c-1")).not.toBeNull();
     expect(log.readSnapshot({ kind: "session", id: "a" })).not.toBeNull();
   });
 

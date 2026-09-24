@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { createClientSessionTable, type ClientSessionTable } from "./client-sessions.js";
 import { createSql, decodeEvent, toJson, type EventRow, type SqlValue, type Transaction } from "./database.js";
-import type { EventEnvelope, EventInput, JsonObject, StreamRef } from "./envelope.js";
+import { requireActor, type EventEnvelope, type EventInput, type JsonObject, type StreamRef } from "./envelope.js";
 import { applyMigrations } from "./migrations.js";
 import { createProjections, type Projector } from "./projectors.js";
 import { createReceipts, type CommandReceipt, type ReceiptRequest } from "./receipts.js";
@@ -23,7 +23,7 @@ export const REPLAY_BOUND = { events: 1000, bytes: 8 * 1024 * 1024 } as const;
 const BUSY_TIMEOUT_MS = 5000;
 
 interface AppendContext {
-  /** The client session, routine, adapter or system component appending. */
+  /** The client session, routine, adapter or system component appending, as `kind:id` (`formatActor`); any other form is refused. */
   readonly actor: string;
   readonly causationId?: string;
   readonly correlationId?: string;
@@ -208,6 +208,7 @@ export const openEventLog = (options: EventLogOptions): EventLog => {
           `A rejected command appends no events; command ${options.commandId} carried ${inputs.length}.`,
         );
       }
+      requireActor(options.actor);
       for (const input of inputs) {
         requireObject(input.payload, `The payload of a ${input.type} event`);
         if (input.metadata !== undefined) requireObject(input.metadata, `The metadata of a ${input.type} event`);

@@ -32,10 +32,11 @@ describe("the wire's envelope of a logged event", () => {
     });
   });
 
-  it("throws for an event whose stored actor is not kind:id", () => {
+  it("throws for an event whose stored actor is not kind:id, a row written around append", () => {
     withLog((log) => {
-      const { events } = log.append({ kind: "probe", id: "a" }, [{ type: "probe.poked", payload: {} }], { actor: "test" });
-      expect(() => events.map(toWireEnvelope)).toThrow(/not kind:id/);
+      const [event] = log.append({ kind: "probe", id: "a" }, [{ type: "probe.poked", payload: {} }], { actor: "system:test" }).events;
+      if (!event) throw new Error("nothing was appended");
+      expect(() => toWireEnvelope({ ...event, actor: "test" })).toThrow(/not kind:id/);
     });
   });
 });

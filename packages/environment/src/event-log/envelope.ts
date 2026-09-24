@@ -55,17 +55,32 @@ export interface StreamRef {
  */
 export const formatActor = (actor: Actor): string => `${actor.kind}:${actor.id}`;
 
-/**
- * The actor a stored string names. A string that is not `kind:id` with a
- * known kind and an id is a write that broke the format, and throws rather
- * than being read as some other actor.
- */
-export const parseActor = (actor: string): Actor => {
+/** The actor `actor` names when it is `kind:id` with a known kind and an id; undefined otherwise. */
+const actorOf = (actor: string): Actor | undefined => {
   const colon = actor.indexOf(":");
   const kind = actor.slice(0, colon);
   const id = actor.slice(colon + 1);
-  if (colon < 0 || id === "" || !(ACTOR_KINDS as readonly string[]).includes(kind)) {
-    throw new Error(`The log holds an actor that is not kind:id of a known kind (${ACTOR_KINDS.join(", ")}): ${JSON.stringify(actor)}.`);
-  }
+  if (colon < 0 || id === "" || !(ACTOR_KINDS as readonly string[]).includes(kind)) return undefined;
   return { kind: kind as Actor["kind"], id };
+};
+
+const notKindId = (actor: string): string => `not kind:id of a known kind (${ACTOR_KINDS.join(", ")}): ${JSON.stringify(actor)}.`;
+
+/**
+ * Refuses an actor about to be appended unless it is `kind:id` with a known
+ * kind and an id, so every stored actor reads back with `parseActor`.
+ */
+export const requireActor = (actor: string): void => {
+  if (!actorOf(actor)) throw new TypeError(`The actor of an append is ${notKindId(actor)}`);
+};
+
+/**
+ * The actor a stored string names. `append` refuses any other form, so a
+ * string that is not `kind:id` with a known kind and an id is a write that
+ * went around it, and throws rather than being read as some other actor.
+ */
+export const parseActor = (actor: string): Actor => {
+  const parsed = actorOf(actor);
+  if (!parsed) throw new Error(`The log holds an actor that is ${notKindId(actor)}`);
+  return parsed;
 };

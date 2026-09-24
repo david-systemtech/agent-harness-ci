@@ -78,7 +78,7 @@ describe("opening the event log", () => {
   it("applies no migration twice when a database file is reopened", () => {
     const path = tempDatabase();
     const first = openEventLog({ path });
-    first.append(s1, [note("kept")], { actor: "test" });
+    first.append(s1, [note("kept")], { actor: "system:test" });
     first.close();
 
     const second = track(openEventLog({ path }));
@@ -100,11 +100,11 @@ describe("opening the event log", () => {
 describe("reading rows", () => {
   it("refuses a statement that writes, and leaves the log intact", () => {
     const log = memoryLog();
-    log.append(s1, [note("kept")], { actor: "test" });
+    log.append(s1, [note("kept")], { actor: "system:test" });
 
     expect(() => log.read("DELETE FROM events")).toThrow(/readonly/);
     expect(log.readStream(s1)).toHaveLength(1);
-    log.append(s1, [note("still writable")], { actor: "test" });
+    log.append(s1, [note("still writable")], { actor: "system:test" });
     expect(log.readStream(s1)).toHaveLength(2);
   });
 
@@ -122,7 +122,7 @@ describe("reading rows", () => {
         },
       ],
     });
-    log.append(s1, [{ type: "title.set", payload: { title: "Hello" } }], { actor: "test" });
+    log.append(s1, [{ type: "title.set", payload: { title: "Hello" } }], { actor: "system:test" });
     expect(log.read("SELECT stream_id, title FROM titles WHERE stream_id = ?", "s1")).toEqual([
       { stream_id: "s1", title: "Hello" },
     ]);
@@ -132,10 +132,10 @@ describe("reading rows", () => {
 describe("appending", () => {
   it("gives each event the next global sequence and the next version of its own stream", () => {
     const log = memoryLog();
-    log.append({ kind: "session", id: "a" }, [note("a1"), note("a2")], { actor: "test" });
-    log.append({ kind: "session", id: "b" }, [note("b1")], { actor: "test" });
-    log.append({ kind: "session", id: "a" }, [note("a3")], { actor: "test" });
-    log.append({ kind: "group", id: "a" }, [note("group a1")], { actor: "test" });
+    log.append({ kind: "session", id: "a" }, [note("a1"), note("a2")], { actor: "system:test" });
+    log.append({ kind: "session", id: "b" }, [note("b1")], { actor: "system:test" });
+    log.append({ kind: "session", id: "a" }, [note("a3")], { actor: "system:test" });
+    log.append({ kind: "group", id: "a" }, [note("group a1")], { actor: "system:test" });
 
     const versions = (kind: string, id: string) =>
       log.readStream({ kind, id }).map((e) => [e.sequence, e.streamVersion]);
@@ -154,7 +154,7 @@ describe("appending", () => {
     const { events } = log.append(
       s1,
       [note("first"), { type: "title.set", payload: { title: "Hi" }, metadata: { summary: { title: "Hi" } } }],
-      { actor: "client:desktop", commandId: "c-1", causationId: "cause-1", correlationId: "corr-1" },
+      { actor: "client_session:desktop", commandId: "c-1", causationId: "cause-1", correlationId: "corr-1" },
     );
 
     expect(events).toEqual([
@@ -169,7 +169,7 @@ describe("appending", () => {
         commandId: "c-1",
         causationId: "cause-1",
         correlationId: "corr-1",
-        actor: "client:desktop",
+        actor: "client_session:desktop",
         payload: { text: "first" },
         metadata: {},
       },
@@ -190,16 +190,16 @@ describe("appending", () => {
     const [event] = log.append(
       s1,
       [{ ...note("x"), eventId: "evt-1", occurredAt: "2026-01-01T00:00:00.000Z" }],
-      { actor: "test" },
+      { actor: "system:test" },
     ).events;
     expect(event).toMatchObject({ eventId: "evt-1", occurredAt: "2026-01-01T00:00:00.000Z" });
   });
 
   it("reads one stream after a sequence, in order", () => {
     const log = memoryLog();
-    log.append(s1, [note("1"), note("2")], { actor: "test" });
-    log.append({ kind: "session", id: "other" }, [note("elsewhere")], { actor: "test" });
-    log.append(s1, [note("3")], { actor: "test" });
+    log.append(s1, [note("1"), note("2")], { actor: "system:test" });
+    log.append({ kind: "session", id: "other" }, [note("elsewhere")], { actor: "system:test" });
+    log.append(s1, [note("3")], { actor: "system:test" });
 
     expect(log.readStream(s1, 1).map((e) => e.payload)).toEqual([{ text: "2" }, { text: "3" }]);
     expect(log.readStream(s1, 4)).toEqual([]);
@@ -208,8 +208,8 @@ describe("appending", () => {
   it("names its head: the last sequence given out, 0 before the first, never lowered by a rollback", () => {
     const log = memoryLog();
     expect(log.head()).toBe(0);
-    log.append(s1, [note("1"), note("2")], { actor: "test" });
-    log.append({ kind: "session", id: "other" }, [note("elsewhere")], { actor: "test" });
+    log.append(s1, [note("1"), note("2")], { actor: "system:test" });
+    log.append({ kind: "session", id: "other" }, [note("elsewhere")], { actor: "system:test" });
     expect(log.head()).toBe(3);
     const failing: Projector = {
       name: "failing",
@@ -219,14 +219,14 @@ describe("appending", () => {
       },
     };
     log.registerProjector(failing);
-    expect(() => log.append(s1, [{ type: "boom", payload: {} }], { actor: "test" })).toThrow(/projection failed/);
+    expect(() => log.append(s1, [{ type: "boom", payload: {} }], { actor: "system:test" })).toThrow(/projection failed/);
     expect(log.head()).toBe(3);
   });
 
   it("is unique on stream kind, stream id and stream version", () => {
     const path = tempDatabase();
     const log = track(openEventLog({ path }));
-    log.append(s1, [note("one")], { actor: "test" });
+    log.append(s1, [note("one")], { actor: "system:test" });
 
     const raw = new (loadSqlite().DatabaseSync)(path);
     cleanups.push(() => raw.close());
@@ -243,14 +243,29 @@ describe("appending", () => {
 
   it("writes none of an append's events when one of them fails", () => {
     const log = memoryLog();
-    log.append(s1, [{ ...note("first"), eventId: "taken" }], { actor: "test" });
+    log.append(s1, [{ ...note("first"), eventId: "taken" }], { actor: "system:test" });
 
     expect(() =>
       log.append(s1, [note("would be version 2"), { ...note("clash"), eventId: "taken" }], {
-        actor: "test",
+        actor: "system:test",
       }),
     ).toThrow(/UNIQUE/);
     expect(log.readStream(s1).map((e) => e.payload)).toEqual([{ text: "first" }]);
+  });
+
+  it("refuses an actor that is not kind:id of a known kind, naming it, and writes nothing", () => {
+    const log = memoryLog();
+    log.append(s1, [note("before")], { actor: "system:test" });
+    const before = log.readStream(s1);
+    for (const actor of ["test", "client:desktop", "user:david", ":x", "system:", ""]) {
+      expect(() => log.append(s1, [note("refused")], { actor }), actor).toThrow(
+        `The actor of an append is not kind:id of a known kind (client_session, routine, adapter, system): ${JSON.stringify(actor)}.`,
+      );
+      expect(() => log.append(s1, [], { actor, commandId: "c-1", receipt: { status: "accepted" } }), actor).toThrow(/not kind:id/);
+    }
+    expect(log.readStream(s1)).toEqual(before);
+    expect(log.head()).toBe(1);
+    expect(log.receipt("", "c-1")).toBeNull();
   });
 
   it("refuses a payload or metadata that is not a JSON object, naming the event, and writes none of the append", () => {
@@ -263,28 +278,28 @@ describe("appending", () => {
       [3, "a number"],
     ] as const) {
       const bad = { type: "bad", payload: payload as unknown as JsonObject };
-      expect(() => log.append(s1, [note("fine"), bad], { actor: "test" }), String(payload)).toThrow(
+      expect(() => log.append(s1, [note("fine"), bad], { actor: "system:test" }), String(payload)).toThrow(
         `The payload of a bad event must be a JSON object; got ${got}.`,
       );
     }
     const badMetadata = { type: "bad", payload: {}, metadata: ["m"] as unknown as JsonObject };
-    expect(() => log.append(s1, [badMetadata], { actor: "test" })).toThrow("The metadata of a bad event must be a JSON object; got an array.");
+    expect(() => log.append(s1, [badMetadata], { actor: "system:test" })).toThrow("The metadata of a bad event must be a JSON object; got an array.");
     expect(log.readStream(s1)).toEqual([]);
   });
 
   it("refuses a payload holding a non-finite number rather than storing null", () => {
     const log = memoryLog();
-    expect(() => log.append(s1, [{ type: "bad", payload: { text: NaN } }], { actor: "test" })).toThrow(/NaN/);
-    expect(() => log.append(s1, [{ type: "bad", payload: { list: [Infinity] } }], { actor: "test" })).toThrow(/Infinity/);
+    expect(() => log.append(s1, [{ type: "bad", payload: { text: NaN } }], { actor: "system:test" })).toThrow(/NaN/);
+    expect(() => log.append(s1, [{ type: "bad", payload: { list: [Infinity] } }], { actor: "system:test" })).toThrow(/Infinity/);
     expect(log.readStream(s1)).toEqual([]);
   });
 
   it("refuses a payload holding a nested undefined, function or symbol rather than dropping it", () => {
     const log = memoryLog();
-    expect(() => log.append(s1, [{ type: "bad", payload: { text: undefined } }], { actor: "test" })).toThrow(/undefined/);
-    expect(() => log.append(s1, [{ type: "bad", payload: { list: [undefined] } }], { actor: "test" })).toThrow(/undefined/);
-    expect(() => log.append(s1, [{ type: "bad", payload: { f: () => 1 } }], { actor: "test" })).toThrow(/cannot hold/);
-    expect(() => log.append(s1, [{ type: "bad", payload: {}, metadata: { s: Symbol("x") } }], { actor: "test" })).toThrow(
+    expect(() => log.append(s1, [{ type: "bad", payload: { text: undefined } }], { actor: "system:test" })).toThrow(/undefined/);
+    expect(() => log.append(s1, [{ type: "bad", payload: { list: [undefined] } }], { actor: "system:test" })).toThrow(/undefined/);
+    expect(() => log.append(s1, [{ type: "bad", payload: { f: () => 1 } }], { actor: "system:test" })).toThrow(/cannot hold/);
+    expect(() => log.append(s1, [{ type: "bad", payload: {}, metadata: { s: Symbol("x") } }], { actor: "system:test" })).toThrow(
       /cannot hold/,
     );
     expect(log.readStream(s1)).toEqual([]);
@@ -297,21 +312,21 @@ describe("one transaction for events, projections and the receipt", () => {
 
     expect(() =>
       log.append(s1, [note("fine"), { type: "boom", payload: {} }], {
-        actor: "client:1",
+        actor: "client_session:1",
         commandId: "c-1",
         receipt: { status: "accepted" },
       }),
     ).toThrow(/projector refused boom/);
     expect(log.readStream(s1)).toEqual([]);
-    expect(log.receipt("client:1", "c-1")).toBeNull();
+    expect(log.receipt("client_session:1", "c-1")).toBeNull();
     expect(log.read("SELECT * FROM fails_seen")).toEqual([]);
   });
 
   it("leaves the log usable after a rolled-back append", () => {
     const log = memoryLog({ projectors: [failingOn("boom")] });
-    expect(() => log.append(s1, [{ type: "boom", payload: {} }], { actor: "test" })).toThrow();
+    expect(() => log.append(s1, [{ type: "boom", payload: {} }], { actor: "system:test" })).toThrow();
 
-    const { events } = log.append(s1, [note("after")], { actor: "test" });
+    const { events } = log.append(s1, [note("after")], { actor: "system:test" });
     expect(events.map((e) => e.streamVersion)).toEqual([1]);
     expect(log.read("SELECT sequence FROM fails_seen")).toEqual([{ sequence: events[0]?.sequence }]);
   });
@@ -330,7 +345,7 @@ describe("subscribers", () => {
       }),
     );
 
-    log.append(s1, [note("1"), note("2")], { actor: "test" });
+    log.append(s1, [note("1"), note("2")], { actor: "system:test" });
     expect(seen).toEqual([
       { sequence: 1, visibleElsewhere: true },
       { sequence: 2, visibleElsewhere: true },
@@ -343,11 +358,11 @@ describe("subscribers", () => {
     const heardByB: number[] = [];
     log.subscribe((event) => {
       heardByA.push(event.sequence);
-      if (event.sequence === 1) log.append(s1, [note("from A")], { actor: "a" });
+      if (event.sequence === 1) log.append(s1, [note("from A")], { actor: "system:a" });
     });
     log.subscribe((event) => heardByB.push(event.sequence));
 
-    log.append(s1, [note("1"), note("2")], { actor: "test" });
+    log.append(s1, [note("1"), note("2")], { actor: "system:test" });
     expect(heardByA).toEqual([1, 2, 3]);
     expect(heardByB).toEqual([1, 2, 3]);
   });
@@ -357,7 +372,7 @@ describe("subscribers", () => {
     const seen: number[] = [];
     log.subscribe((event) => seen.push(event.sequence));
 
-    expect(() => log.append(s1, [note("ok"), { type: "boom", payload: {} }], { actor: "test" })).toThrow();
+    expect(() => log.append(s1, [note("ok"), { type: "boom", payload: {} }], { actor: "system:test" })).toThrow();
     expect(seen).toEqual([]);
   });
 
@@ -365,9 +380,9 @@ describe("subscribers", () => {
     const log = memoryLog();
     const seen: number[] = [];
     const unsubscribe = log.subscribe((event) => seen.push(event.sequence));
-    log.append(s1, [note("heard")], { actor: "test" });
+    log.append(s1, [note("heard")], { actor: "system:test" });
     unsubscribe();
-    log.append(s1, [note("not heard")], { actor: "test" });
+    log.append(s1, [note("not heard")], { actor: "system:test" });
     expect(seen).toEqual([1]);
   });
 
@@ -380,7 +395,7 @@ describe("subscribers", () => {
     });
     log.subscribe((event) => seen.push(event.sequence));
 
-    const { events } = log.append(s1, [note("x")], { actor: "test" });
+    const { events } = log.append(s1, [note("x")], { actor: "system:test" });
     expect(events).toHaveLength(1);
     expect(seen).toEqual([1]);
     expect(errors).toEqual([new Error("subscriber bug")]);
@@ -392,13 +407,13 @@ describe("command receipts", () => {
     const { clock } = manualClock("2026-09-24T10:00:00.000Z");
     const log = memoryLog({ clock });
     const result = log.append(s1, [note("1"), note("2")], {
-      actor: "client:1",
+      actor: "client_session:1",
       commandId: "c-1",
       receipt: { status: "accepted" },
     });
 
     const expected = {
-      actor: "client:1",
+      actor: "client_session:1",
       commandId: "c-1",
       stream: s1,
       status: "accepted",
@@ -408,14 +423,14 @@ describe("command receipts", () => {
     };
     expect(result.receipt).toEqual(expected);
     expect(result.duplicate).toBe(false);
-    expect(log.receipt("client:1", "c-1")).toEqual(expected);
+    expect(log.receipt("client_session:1", "c-1")).toEqual(expected);
   });
 
   it("answer a repeated command id from the same actor with the stored receipt and append nothing", () => {
     const log = memoryLog();
     const published: number[] = [];
     log.subscribe((event) => published.push(event.sequence));
-    const options = { actor: "client:1", commandId: "c-1", receipt: { status: "accepted" } } as const;
+    const options = { actor: "client_session:1", commandId: "c-1", receipt: { status: "accepted" } } as const;
     const first = log.append(s1, [note("once")], options);
 
     const retry = log.append(s1, [note("once")], options);
@@ -426,21 +441,21 @@ describe("command receipts", () => {
 
   it("treat the same command id from another actor as another command", () => {
     const log = memoryLog();
-    log.append(s1, [note("a")], { actor: "client:1", commandId: "c-1", receipt: { status: "accepted" } });
+    log.append(s1, [note("a")], { actor: "client_session:1", commandId: "c-1", receipt: { status: "accepted" } });
     const other = log.append(s1, [note("b")], {
-      actor: "client:2",
+      actor: "client_session:2",
       commandId: "c-1",
       receipt: { status: "accepted" },
     });
     expect(other.duplicate).toBe(false);
     expect(log.readStream(s1)).toHaveLength(2);
-    expect(log.receipt("client:2", "c-1")).toMatchObject({ resultingSequence: 2 });
+    expect(log.receipt("client_session:2", "c-1")).toMatchObject({ resultingSequence: 2 });
   });
 
   it("record an accepted command with no events as changed false", () => {
     const log = memoryLog();
     const { receipt, events } = log.append(s1, [], {
-      actor: "client:1",
+      actor: "client_session:1",
       commandId: "c-1",
       receipt: { status: "accepted" },
     });
@@ -451,7 +466,7 @@ describe("command receipts", () => {
   it("record a rejection with reason not_found and no events, and answer its retry with the rejection", () => {
     const log = memoryLog();
     const options = {
-      actor: "client:1",
+      actor: "client_session:1",
       commandId: "c-1",
       receipt: { status: "rejected", reason: "not_found", message: "no session s9" },
     } as const;
@@ -473,24 +488,24 @@ describe("command receipts", () => {
     const log = memoryLog();
     expect(() =>
       log.append(s1, [note("x")], {
-        actor: "client:1",
+        actor: "client_session:1",
         commandId: "c-1",
         receipt: { status: "rejected", reason: "conflict" },
       }),
     ).toThrow(/rejected/);
     expect(log.readStream(s1)).toEqual([]);
-    expect(log.receipt("client:1", "c-1")).toBeNull();
+    expect(log.receipt("client_session:1", "c-1")).toBeNull();
   });
 
   it("are absent for a command never seen", () => {
-    expect(memoryLog().receipt("client:1", "nope")).toBeNull();
+    expect(memoryLog().receipt("client_session:1", "nope")).toBeNull();
   });
 
   it("older than 30 days are removed by the retention pass and younger ones stay", () => {
     const time = manualClock("2026-08-01T00:00:00.000Z");
     const log = memoryLog({ clock: time.clock });
     const command = (commandId: string) =>
-      log.append(s1, [], { actor: "client:1", commandId, receipt: { status: "accepted" } });
+      log.append(s1, [], { actor: "client_session:1", commandId, receipt: { status: "accepted" } });
 
     command("old");
     time.set("2026-08-02T00:00:00.000Z");
@@ -500,25 +515,25 @@ describe("command receipts", () => {
 
     const removed = log.pruneReceipts(new Date(new Date("2026-08-02T00:00:00.000Z").getTime() + 30 * DAY));
     expect(removed).toBe(1);
-    expect(log.receipt("client:1", "old")).toBeNull();
-    expect(log.receipt("client:1", "exactly-30-days")).not.toBeNull();
-    expect(log.receipt("client:1", "young")).not.toBeNull();
+    expect(log.receipt("client_session:1", "old")).toBeNull();
+    expect(log.receipt("client_session:1", "exactly-30-days")).not.toBeNull();
+    expect(log.receipt("client_session:1", "young")).not.toBeNull();
 
     // "Older than 30 days": one millisecond past the boundary is old.
     expect(log.pruneReceipts(new Date(new Date("2026-08-02T00:00:00.000Z").getTime() + 30 * DAY + 1))).toBe(1);
-    expect(log.receipt("client:1", "exactly-30-days")).toBeNull();
-    expect(log.receipt("client:1", "young")).not.toBeNull();
+    expect(log.receipt("client_session:1", "exactly-30-days")).toBeNull();
+    expect(log.receipt("client_session:1", "young")).not.toBeNull();
   });
 });
 
 describe("the replay bound", () => {
   it("counts the events and bytes of one stream after a cursor", () => {
     const log = memoryLog();
-    log.append(s1, [note("first")], { actor: "test" });
+    log.append(s1, [note("first")], { actor: "system:test" });
     log.append(s1, [note("second"), { type: "t", payload: { list: [1, 2] }, metadata: { k: "v" } }], {
-      actor: "test",
+      actor: "system:test",
     });
-    log.append({ kind: "session", id: "other" }, [note("not counted")], { actor: "test" });
+    log.append({ kind: "session", id: "other" }, [note("not counted")], { actor: "system:test" });
 
     const bytes = [
       JSON.stringify({ text: "second" }) + JSON.stringify({}),
@@ -531,10 +546,10 @@ describe("the replay bound", () => {
   it("holds 1,000 events and no more", () => {
     expect(REPLAY_BOUND.events).toBe(1000);
     const log = memoryLog();
-    log.append(s1, Array.from({ length: 1000 }, (_, i) => note(String(i))), { actor: "test" });
+    log.append(s1, Array.from({ length: 1000 }, (_, i) => note(String(i))), { actor: "system:test" });
     expect(log.replayBound(s1, 0)).toMatchObject({ events: 1000, withinBound: true });
 
-    log.append(s1, [note("1001")], { actor: "test" });
+    log.append(s1, [note("1001")], { actor: "system:test" });
     expect(log.replayBound(s1, 0)).toMatchObject({ events: 1001, withinBound: false });
     expect(log.replayBound(s1, 1)).toMatchObject({ events: 1000, withinBound: true });
   });
@@ -543,10 +558,10 @@ describe("the replay bound", () => {
     expect(REPLAY_BOUND.bytes).toBe(8 * 1024 * 1024);
     const log = memoryLog();
     const threeMiB = { type: "transcript.chunk", payload: { text: "x".repeat(3 * 1024 * 1024) } };
-    log.append(s1, [threeMiB, threeMiB], { actor: "test" });
+    log.append(s1, [threeMiB, threeMiB], { actor: "system:test" });
     expect(log.replayBound(s1, 0)).toMatchObject({ events: 2, withinBound: true });
 
-    log.append(s1, [threeMiB], { actor: "test" });
+    log.append(s1, [threeMiB], { actor: "system:test" });
     const over = log.replayBound(s1, 0);
     expect(over.events).toBe(3);
     expect(over.bytes).toBeGreaterThan(REPLAY_BOUND.bytes);
@@ -558,10 +573,10 @@ describe("the replay bound", () => {
     const log = memoryLog();
     // The stored payload is `{"text":"…"}`, eleven bytes around the text; metadata is stored as `{}`, two bytes.
     const exact = { type: "transcript.chunk", payload: { text: "x".repeat(REPLAY_BOUND.bytes - 13) } };
-    log.append(s1, [exact], { actor: "test" });
+    log.append(s1, [exact], { actor: "system:test" });
     expect(log.replayBound(s1, 0)).toMatchObject({ bytes: REPLAY_BOUND.bytes, withinBound: true });
 
-    log.append(s1, [{ type: "transcript.chunk", payload: {} }], { actor: "test" });
+    log.append(s1, [{ type: "transcript.chunk", payload: {} }], { actor: "system:test" });
     const over = log.replayBound(s1, 0);
     expect(over.bytes).toBe(REPLAY_BOUND.bytes + 4);
     expect(over.withinBound).toBe(false);
@@ -571,7 +586,7 @@ describe("the replay bound", () => {
     const log = memoryLog();
     // 2.5 Mi characters of a two-byte character: 5 MiB each, 10 MiB for two, 5 Mi characters.
     const wide = { type: "transcript.chunk", payload: { text: "é".repeat(2.5 * 1024 * 1024) } };
-    log.append(s1, [wide, wide], { actor: "test" });
+    log.append(s1, [wide, wide], { actor: "system:test" });
     const bound = log.replayBound(s1, 0);
     expect(bound.bytes).toBe(2 * (Buffer.byteLength(JSON.stringify(wide.payload)) + 2));
     expect(bound.withinBound).toBe(false);
