@@ -60,6 +60,10 @@ describe("the workspace", () => {
     expect(deps.filter((d) => d === "@agent-harness/environment" || d === "agent-harness")).toEqual([]);
   });
 
+  it("ships the terminal UI in the CLI's artefact, so one install gives serve and tui (ADR 0004)", () => {
+    expect(runtimeDependencies(manifest("agent-harness"))).toContain("@agent-harness/tui");
+  });
+
   it("requires Node 22.16 or later, the first with node:sqlite's busy timeout and isTransaction", () => {
     const engines = (dir: string) =>
       (JSON.parse(readFileSync(join(root, dir, "package.json"), "utf8")) as { engines?: { node?: string } }).engines

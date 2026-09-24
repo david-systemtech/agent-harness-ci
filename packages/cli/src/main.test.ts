@@ -40,6 +40,16 @@ describe("agent-harness", () => {
     await expect(cli("--no-such-flag")).rejects.toMatchObject({ code: 2, stderr: expect.stringContaining("usage: agent-harness") });
   });
 
+  it("has a tui verb, which loads the terminal UI and refuses to draw anywhere but a terminal", async () => {
+    const stateDir = join(tempDir(), "tui");
+    const env = { ...process.env, AGENT_HARNESS_TUI_STATE_DIR: stateDir };
+    await expect(run(entry, ["tui"], env)).rejects.toMatchObject({
+      code: 1,
+      stdout: "",
+      stderr: "agent-harness tui needs a terminal: its standard input and output must be one.\n",
+    });
+    expect(existsSync(stateDir)).toBe(false);
+  });
 });
 
 describe("agent-harness serve, as a privileged user", () => {

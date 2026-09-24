@@ -32,7 +32,7 @@ export interface ServiceContext {
 }
 
 /** The platform's service manager, and the data directory `--data-dir` names or the platform's default. */
-const resolveService = (context: ServiceContext, dataDirOption: string | undefined): { platform: ServicePlatform; dataDir: string } => {
+const resolveService = (context: Pick<ServiceContext, "seams">, dataDirOption: string | undefined): { platform: ServicePlatform; dataDir: string } => {
   const installContext = context.seams.installContext ?? currentInstallContext();
   const platform = createServicePlatform(installContext, context.seams.runner ?? processRunner);
   const dataDir = dataDirOption === undefined ? defaultDataDirectory(installContext) : resolve(dataDirOption);
@@ -161,6 +161,18 @@ const serviceStatus = async (args: readonly string[], context: ServiceContext): 
     );
   }
   return verdict.ready ? 0 : NOT_READY;
+};
+
+/** Whether a service is installed for this OS user, as `service status`'s first line reads it: the terminal UI's service-down offer asks. */
+export const serviceInstalled = (context: Pick<ServiceContext, "seams">): Promise<boolean> => resolveService(context, undefined).platform.isInstalled();
+
+/** The port the installed service's environment answers on (`service status`'s rule): the record's, else `DEFAULT_PORT`. */
+export const servicePort = (dataDir: string): number => {
+  try {
+    return readServiceRecord(dataDir)?.port ?? DEFAULT_PORT;
+  } catch {
+    return DEFAULT_PORT;
+  }
 };
 
 const VERBS = new Map<string, (args: readonly string[], context: ServiceContext) => Promise<number>>([
