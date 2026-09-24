@@ -4,6 +4,7 @@ import { join } from "node:path";
 import {
   BOOTSTRAP_PATH,
   DISCOVERY_PATH,
+  ENVIRONMENT_STREAM_KIND,
   HEALTH_PATH,
   PAIR_PATH,
   PROTOCOL_VERSION,
@@ -28,7 +29,8 @@ import {
 } from "../auth/client-sessions.js";
 import { createPairings, pairRoute, type Pairings } from "../auth/pairings.js";
 import { createRateLimiter } from "../auth/rate-limit.js";
-import { openEventLog, type EventLog, type Projector } from "../event-log/event-log.js";
+import { formatActor, openEventLog, type EventLog, type Projector } from "../event-log/event-log.js";
+import type { SubscriptionHooks } from "../wire/subscriptions.js";
 import { createWire } from "../wire/wire.js";
 import { systemClock, type Clock } from "./clock.js";
 import { createCloserStack } from "./closers.js";
@@ -37,7 +39,7 @@ import { createHttpSurface, sendJson, type Address, type HttpRoutes } from "./ht
 import { ensureSigningKey, loadOrCreateRecord, type EnvironmentRecord } from "./identity.js";
 import { LOOPBACK, bindList, tailscaleDetector, type BoundInterface, type InterfaceDetector } from "./interfaces.js";
 import { processLauncherChannel, type LauncherChannel } from "./launcher.js";
-import type { MethodHandlers } from "./methods.js";
+import { createMethodTable, type MethodHandlers, type MethodTable } from "./methods.js";
 import { processUserCheck, refusePrivilegedUser, type UserCheck } from "./user.js";
 import { fileVault, VAULT_FILE, type Vault } from "./vault.js";
 
@@ -125,6 +127,8 @@ export interface EnvironmentOptions {
    */
   readonly clock?: Clock;
   readonly hooks?: StartupHooks;
+  /** Test seams for subscriptions: hold a catch-up, slow a socket down. */
+  readonly subscriptionHooks?: SubscriptionHooks;
 }
 
 /** A running environment. */
@@ -139,14 +143,25 @@ export interface EnvironmentHandle {
   /** `local-only` when only loopback is bound, `tailnet` otherwise. */
   readonly authPolicy: AuthPolicy;
   readiness(): EnvironmentReadiness;
-  /** The handlers the wire dispatches into, by method name, after its scope check. */
-  readonly methods: MethodHandlers;
+  /**
+   * The methods the wire dispatches into after its scope check: every
+   * registry method, with its handler once one is registered. A feature that
+   * starts after the environment registers its handlers here.
+   */
+  readonly methods: MethodTable;
   /** The listener's route table, behind the Host check. */
   readonly http: HttpRoutes;
   /** Issuing (by an in-process pairing) and revoking client sessions from the embedding process. */
   readonly clientSessions: ClientSessionIssuer;
   /** How many WebSocket sockets are open on the wire. */
   sockets(): number;
+  /** How many subscriptions are open on the wire, across every socket: a count for tests and diagnostics. */
+  subscriptions(): number;
+  /**
+   * The event log: the one sink, whose committed events reach every
+   * subscription to their stream. The environment opened it and closes it.
+   */
+  readonly log: EventLog;
   /**
    * Stops the sweep, removes the bootstrap grant file, says `bye: draining`
    * to every socket and closes it (1001), stops listening, closes the event log, then closes the
@@ -268,10 +283,14 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     sendJson(response, 200, health, noStore);
   });
 
+  // The environment's own notices: environment.subscribe's stream, whose snapshot is the status.
+  const environmentStream = { kind: ENVIRONMENT_STREAM_KIND, id: record.id };
   const methods: MethodHandlers = {
     "environment.status": () => ({ readiness }),
+    "environment.subscribe": () => ({ stream: environmentStream, snapshot: () => ({ status: { readiness } }) }),
     ...accessMethods({ pairings, clientSessions, accessLog, atomically: accessLog.atomically }),
   };
+  const table = createMethodTable(methods);
 
   // The two exchanges and the wire are routed before the bind; all three refuse work until the gate below.
   const grant = createBootstrapGrant({
@@ -291,8 +310,10 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     environment: record,
     capabilities,
     clientSessions: socketSessions(clientSessions, accessLog.atomically),
-    methods,
+    methods: table,
     clock,
+    log,
+    ...(options.subscriptionHooks !== undefined && { subscriptionHooks: options.subscriptionHooks }),
   });
   surface.upgrade(WIRE_PATH, wire.upgrade);
 
@@ -322,6 +343,17 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
 
   await step("prepared", () => launcher.prepared());
   readiness = "ready";
+  // Only a start the launcher accepted is noted, and before the wire opens, so a first subscriber finds it.
+  try {
+    log.append(
+      environmentStream,
+      [{ type: "environment.started", payload: { harnessVersion: HARNESS_VERSION, protocolVersion: PROTOCOL_VERSION } }],
+      { actor: formatActor({ kind: "system", id: "lifecycle" }) },
+    );
+  } catch (error) {
+    await closers.closeAll().catch((closeError: unknown) => console.error("Closing after a failed start failed:", closeError));
+    throw new StartupError("prepared", error);
+  }
   wire.open();
   const sweep = clock.setInterval(() => {
     try {
@@ -345,7 +377,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     addresses: bound.addresses,
     authPolicy,
     readiness: () => readiness,
-    methods,
+    methods: table,
     http: { route: (method, path, handler) => surface.route(method, path, handler) },
     clientSessions: {
       issue(request) {
@@ -357,6 +389,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       revoke: (id) => accessLog.atomically((tx) => clientSessions.revoke(tx, id, "requested", SYSTEM.owner))?.changed === true,
     },
     sockets: () => wire.sockets(),
+    subscriptions: () => wire.subscriptions(),
+    log,
     close: () => (closing ??= closers.closeAll().finally(() => (closing = undefined))),
   };
 };

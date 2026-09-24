@@ -10,7 +10,7 @@ describe("environment", () => {
   it("exports the event log from the package root", () => {
     const log: EventLog = openEventLog({ path: ":memory:" });
     const stream: StreamRef = { kind: "session", id: "s1" };
-    log.append(stream, [{ type: "note.added", payload: { text: "hi" } }], { actor: "test" });
+    log.append(stream, [{ type: "note.added", payload: { text: "hi" } }], { actor: "system:test" });
     expect(log.readStream(stream).map((e) => e.payload)).toEqual([{ text: "hi" }]);
     log.close();
   });

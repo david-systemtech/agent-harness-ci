@@ -453,11 +453,11 @@ describe("requests", () => {
     }
   });
 
-  it("answers a stream method, once its scope is held, not_found until subscriptions exist (#110)", async () => {
+  it("answers a stream method, once its scope is held, with subscribed rather than a response", async () => {
     const t = await start();
     const client = await t.client();
     const answer = await client.call("environment.subscribe", { afterSequence: 0 });
-    expect(answer).toMatchObject({ type: "response", error: { code: "not_found", message: expect.stringContaining("environment.subscribe") } });
+    expect(answer).toEqual({ type: "subscribed", id: expect.any(String), subscription: expect.any(String) });
   });
 
   it("answers a registered method with no handler yet not_found", async () => {

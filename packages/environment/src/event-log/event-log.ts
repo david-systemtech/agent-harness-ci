@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { createClientSessionTable, type ClientSessionTable } from "./client-sessions.js";
 import { createSql, decodeEvent, toJson, type EventRow, type SqlValue, type Transaction } from "./database.js";
-import type { EventEnvelope, EventInput, StreamRef } from "./envelope.js";
+import { requireActor, type EventEnvelope, type EventInput, type JsonObject, type StreamRef } from "./envelope.js";
 import { applyMigrations } from "./migrations.js";
 import { createProjections, type Projector } from "./projectors.js";
 import { createPairingTable, type PairingTable } from "./pairings.js";
@@ -13,7 +13,7 @@ import { loadSqlite } from "./sqlite.js";
 export type { ClientSessionRow, ClientSessionTable } from "./client-sessions.js";
 export type { PairingRow, PairingTable } from "./pairings.js";
 export type { SqlValue } from "./database.js";
-export type { EventEnvelope, EventInput, JsonObject, StreamRef } from "./envelope.js";
+export { formatActor, parseActor, type EventEnvelope, type EventInput, type JsonObject, type StreamRef } from "./envelope.js";
 export type { ProjectionDb, Projector } from "./projectors.js";
 export { RECEIPT_RETENTION_MS, type CommandReceipt, type ReceiptRequest } from "./receipts.js";
 export type { Snapshot } from "./snapshots.js";
@@ -35,7 +35,7 @@ export interface Tx {
 }
 
 interface AppendContext {
-  /** The client session, routine, adapter or system component appending. */
+  /** The client session, routine, adapter or system component appending, as `kind:id` (`formatActor`); any other form is refused. */
   readonly actor: string;
   /** The `atomically` the append must be part of; the append throws unless it is the one open. */
   readonly tx?: Tx;
@@ -91,6 +91,8 @@ export interface EventLog {
   readStream(stream: StreamRef, afterSequence?: number, limit?: number): EventEnvelope[];
   /** Measures one stream's events after a cursor against the replay bound, in SQL, before decoding. */
   replayBound(stream: StreamRef, afterSequence: number): ReplayMeasure;
+  /** The last sequence the log has given out, on any stream; 0 before the first event. */
+  head(): number;
   /**
    * Hears every committed event. Every subscriber hears sequences in
    * ascending order: events committed while subscribers are being called
@@ -124,6 +126,13 @@ export interface EventLog {
   readonly pairings: PairingTable;
   close(): void;
 }
+
+/** Throws unless `value` is a JSON object: the contracts' envelope carries payload and metadata as objects. */
+const requireObject: (value: unknown, what: string) => asserts value is JsonObject = (value, what) => {
+  if (typeof value === "object" && value !== null && !Array.isArray(value)) return;
+  const got = value === null ? "null" : Array.isArray(value) ? "an array" : `a ${typeof value}`;
+  throw new TypeError(`${what} must be a JSON object; got ${got}.`);
+};
 
 const configure = (db: DatabaseSync, path: string): void => {
   const mode = db.prepare("PRAGMA journal_mode = WAL").get()?.["journal_mode"];
@@ -241,6 +250,11 @@ export const openEventLog = (options: EventLogOptions): EventLog => {
           `A rejected command appends no events; command ${options.commandId} carried ${inputs.length}.`,
         );
       }
+      requireActor(options.actor);
+      for (const input of inputs) {
+        requireObject(input.payload, `The payload of a ${input.type} event`);
+        if (input.metadata !== undefined) requireObject(input.metadata, `The metadata of a ${input.type} event`);
+      }
       const now = clock().toISOString();
       const rows: SqlValue[][] = inputs.map((input) => [
         input.eventId ?? randomUUID(),
@@ -340,6 +354,11 @@ export const openEventLog = (options: EventLogOptions): EventLog => {
         bytes: row.bytes,
         withinBound: row.events <= REPLAY_BOUND.events && row.bytes <= REPLAY_BOUND.bytes,
       };
+    },
+
+    head() {
+      // The autoincrement's own counter: what a rolled-back append never took, and what a purge never lowers.
+      return sql.get<{ head: number }>("SELECT seq AS head FROM sqlite_sequence WHERE name = 'events'")?.head ?? 0;
     },
 
     subscribe(listener) {

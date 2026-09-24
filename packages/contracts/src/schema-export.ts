@@ -33,6 +33,7 @@ import {
   PairingUsedError,
   ProtocolMismatchError,
 } from "./pairing.js";
+import { EnvironmentNotice, EnvironmentNoticeType } from "./notices.js";
 import { methods } from "./registry.js";
 import { Ceiling, Scope, ScopeSet } from "./scopes.js";
 
@@ -101,6 +102,8 @@ export const exportedSchemas = (): ExportedSchema[] => [
   })),
   { path: "actor.json", title: "Actor", schema: Actor },
   { path: "event-envelope.json", title: "EventEnvelope", schema: EventEnvelope },
+  { path: "notices/environment-notice-type.json", title: "EnvironmentNoticeType", schema: EnvironmentNoticeType },
+  { path: "notices/environment-notice.json", title: "EnvironmentNotice", schema: EnvironmentNotice },
   { path: "errors/error-code.json", title: "ErrorCode", schema: ErrorCode },
   { path: "errors/schema-issue.json", title: "SchemaIssue", schema: SchemaIssue },
   { path: "errors/wire-error.json", title: "WireError", schema: WireError },

@@ -4,7 +4,9 @@ import { PROTOCOL_VERSION } from "@agent-harness/contracts";
 export const ENVIRONMENT_PROTOCOL_VERSION: number = PROTOCOL_VERSION;
 
 export {
+  formatActor,
   openEventLog,
+  parseActor,
   RECEIPT_RETENTION_MS,
   REPLAY_BOUND,
   type AppendOptions,
@@ -28,7 +30,6 @@ export {
   type StreamRef,
 } from "./event-log/event-log.js";
 
-export { actorKey, actorOf, toWireEnvelope } from "./event-log/wire-envelope.js";
 export { DEFAULT_LOG_PAGE } from "./auth/access-log.js";
 export {
   DEFAULT_CEILING,
@@ -56,7 +57,7 @@ export {
 } from "./serve/interfaces.js";
 export { RECORD_FILE, SIGNING_KEY, type EnvironmentRecord } from "./serve/identity.js";
 export { PREPARED_MESSAGE, processLauncherChannel, type IpcProcess, type LauncherChannel } from "./serve/launcher.js";
-export type { MethodContext, MethodHandler, MethodHandlers } from "./serve/methods.js";
+export type { HandlerResult, MethodContext, MethodHandler, MethodHandlers, MethodTable, ServedMethod } from "./serve/methods.js";
 export {
   DATABASE_FILE,
   DEFAULT_PORT,
@@ -83,3 +84,5 @@ export {
 } from "./serve/user.js";
 export { fileVault, VAULT_FILE, type Vault } from "./serve/vault.js";
 export { AUTH_TIMEOUT_MS, PING_INTERVAL_MS } from "./wire/wire.js";
+export { toWireEnvelope } from "./wire/envelope.js";
+export type { Outlet, StreamSource, SubscriptionHooks } from "./wire/subscriptions.js";

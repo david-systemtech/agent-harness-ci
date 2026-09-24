@@ -5,8 +5,9 @@ import {
   type Actor,
   type EventEnvelope as WireEnvelope,
 } from "@agent-harness/contracts";
+import { formatActor } from "../event-log/envelope.js";
 import type { EventLog, StreamRef, Tx } from "../event-log/event-log.js";
-import { actorKey, toWireEnvelope } from "../event-log/wire-envelope.js";
+import { toWireEnvelope } from "../wire/envelope.js";
 
 /** Who caused an access event, and the command that did when one did. */
 export interface Attribution {
@@ -54,7 +55,7 @@ export const createAccessLog = (log: EventLog, environmentId: string): AccessLog
     record(tx, type, payload, attribution) {
       log.append(stream, [{ type, payload }], {
         tx,
-        actor: actorKey(attribution.actor),
+        actor: formatActor(attribution.actor),
         ...(attribution.commandId !== undefined && { commandId: attribution.commandId }),
       });
     },

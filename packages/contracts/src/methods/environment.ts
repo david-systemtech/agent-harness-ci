@@ -21,7 +21,11 @@ export const environmentStatus = defineMethod({
   kind: "query",
 });
 
-/** Environment-level notices: updated-to, draining, account status. Its snapshot is the status. */
+/**
+ * The environment's notices (`EnvironmentNotice`, the `environment` stream):
+ * started, updated-to and draining now, account status from a later ticket.
+ * Its snapshot, sent when replay from the cursor is out of bounds, is the status.
+ */
 export const environmentSubscribe = defineMethod({
   name: "environment.subscribe",
   scope: "read",

@@ -486,8 +486,9 @@ describe("never root", () => {
 describe("environment.status", () => {
   it("is registered with its readiness result", async () => {
     const env = await start();
-    const handler = env.methods["environment.status"];
-    if (!handler) throw new Error("environment.status has no handler");
+    const served = env.methods.get("environment.status");
+    if (served?.kind !== "query" || !served.handler) throw new Error("environment.status has no handler");
+    const { handler } = served;
     const clientSession = { id: "cs-1", kind: "tui", scopes: ["read"], ceiling: TOP_CEILING, local: true, expiresAt: 0 } as const;
     const result = await handler({}, { clientSession });
     expect(result).toEqual({ readiness: "ready" });
