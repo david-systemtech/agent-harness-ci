@@ -31,9 +31,9 @@ import {
   anyAccountEver,
   listAccounts,
   liveAccount,
-  ownedAccounts,
   readAccount,
   sameIdentity,
+  sameLogin,
 } from "./account-store.js";
 import { signInNotBuilt, type SignInDirector, type SignInDirectorFactory, type SignInOutcome } from "./sign-in.js";
 
@@ -49,9 +49,13 @@ import { signInNotBuilt, type SignInDirector, type SignInDirectorFactory, type S
  * - **Add** makes an owned directory under `<data dir>/accounts/<id>` and
  *   hands the account to the sign-in director (#135 fills it).
  * - **One identity is one account**: an owned account whose first identity
- *   (the sign-in's) is one another account holds is refused, "already added
- *   as <label>", removed and its directory deleted; adopting a directory
- *   signed in as a held identity is rejected the same way.
+ *   (the sign-in's, read before it was ever signed in) is one another
+ *   account holds is refused, "already added as <label>", removed and its
+ *   directory deleted; adopting a directory signed in as a held identity is
+ *   rejected the same way.
+ * - **Deleting** reaches only an owned directory, under the data directory,
+ *   that no account the environment holds and no provider's own directory
+ *   is, holds or lies inside.
  * - **Status** is read at startup, when `accounts.refresh` asks, and at most
  *   every fifteen minutes otherwise: one timer per account on the
  *   environment's clock, armed at each read. A change of state (signed in,
@@ -195,6 +199,9 @@ const classify = (provider: string, status: AuthStatus): Observed => {
 
 const describeIdentity = (identity: AccountIdentity): string => (identity.organisation === null ? identity.email : `${identity.email} (${identity.organisation})`);
 
+/** Whether `path` is `root` or lies inside it. */
+const within = (path: string, root: string): boolean => path === root || path.startsWith(`${root}${sep}`);
+
 const isDirectory = (path: string): boolean => {
   try {
     return statSync(path).isDirectory();
@@ -257,11 +264,30 @@ export const createAccountService = (options: AccountServiceOptions): AccountSer
     }
   };
 
-  /** Removes an owned directory, and only one under the owned root: never the machine's own, never anything outside the data directory. */
+  /** The directories nothing may delete: every account's the environment holds, and each provider's own on this machine. */
+  const directoriesInUse = (): string[] => [
+    ...listAccounts(reader).map((record) => resolve(record.directory.path)),
+    ...adapters.list().flatMap((adapter) => {
+      const own = adapter.ambientDirectory?.() ?? null;
+      return own === null ? [] : [resolve(own)];
+    }),
+  ];
+
+  /**
+   * Removes an owned directory, and only one under the owned root that no
+   * held account or provider's own directory is, holds or lies inside:
+   * never the machine's own, never anything outside the data directory.
+   * Run once the removal has committed, so the account it was is no longer held.
+   */
   const deleteOwned = (path: string): void => {
     const target = resolve(path);
-    if (ownedRoot === null || !target.startsWith(`${ownedRoot}${sep}`)) {
+    if (ownedRoot === null || !within(target, ownedRoot) || target === ownedRoot) {
       console.error(`REFUSING TO DELETE ${target}: it is not under the environment's own account directories.`);
+      return;
+    }
+    const used = directoriesInUse().find((directory) => within(directory, target) || within(target, directory));
+    if (used !== undefined) {
+      console.error(`REFUSING TO DELETE ${target}: ${used} is an account's directory or the machine's own provider directory.`);
       return;
     }
     try {
@@ -312,8 +338,10 @@ export const createAccountService = (options: AccountServiceOptions): AccountSer
       const identity = observed.identity;
       if (identity !== null && !sameIdentity(identity, current.identity)) {
         const holder = accountByIdentity(reader, identity);
-        if (holder !== null && holder.id !== accountId && current.identity === null && current.directory.kind === "owned") {
-          // The sign-in's refusal (ADR 0018): one identity is one account, so the new account goes with its directory.
+        const firstSignIn = current.directory.kind === "owned" && current.identity === null && current.status.state !== "signed-in";
+        if (holder !== null && holder.id !== accountId && firstSignIn) {
+          // The sign-in's refusal (ADR 0018): one identity is one account, so the new account goes with its directory. An
+          // account that has been signed in may have run, and its directory hold history: it is only warned of, below.
           warning = `The sign-in of ${current.label} yielded ${describeIdentity(identity)}, which is already added as ${holder.label}; ${current.label} was removed and its directory deleted.`;
           refusals.set(accountId, `${describeIdentity(identity)} is already added as ${holder.label}.`);
           log.append(
@@ -355,7 +383,11 @@ export const createAccountService = (options: AccountServiceOptions): AccountSer
     }
     timers.set(
       accountId,
-      clock.setTimeout(() => void readStatus(accountId), STATUS_READ_INTERVAL_MS),
+      clock.setTimeout(() => {
+        void readStatus(accountId);
+        // A catalogue a failed read left unknown is read again too, so the account is not left with no model to run.
+        if (!catalogues.has(accountId)) void readModels(accountId);
+      }, STATUS_READ_INTERVAL_MS),
     );
   };
 
@@ -461,21 +493,31 @@ export const createAccountService = (options: AccountServiceOptions): AccountSer
           console.error(`The configured account ${account.id} names no provider served here, no directory, or an id that is not a label; it is left out.`);
           continue;
         }
+        // Read in this transaction: an id or a label (ignoring case) an earlier entry took leaves this one out, as the store's indexes would refuse it.
+        if (readAccount(reader, account.id) !== null || accountByLabel(reader, label.data) !== null) {
+          console.error(`The configured account ${account.id} repeats an id or a label another configured account has; it is left out.`);
+          continue;
+        }
         const payload = { accountId: account.id, provider: account.provider, label: label.data, directory: resolve(directory) };
         log.append(accountStream(account.id), [{ type: "account.adopted", payload }], { actor: ACCOUNT_STORE_ACTOR, tx });
       }
     });
   };
 
-  /** Owned directories whose deletion was recorded but not carried out, and directories the store never held (an add that did not commit). */
+  /**
+   * Removes what the owned root holds and no account should: an owned
+   * directory whose deletion was recorded but not carried out, and a
+   * directory named for no account the store ever held (an add that did not
+   * commit). `deleteOwned` still keeps any that a held account or a
+   * provider's own directory uses, whatever its name.
+   */
   const sweepOwnedDirectories = (): void => {
     if (ownedRoot === null || !isDirectory(ownedRoot)) return;
-    const known = new Map(ownedAccounts(reader).map((account) => [account.record.id, account]));
     for (const entry of readdirSync(ownedRoot, { withFileTypes: true })) {
       if (!entry.isDirectory()) continue;
-      const account = known.get(entry.name) ?? (readAccount(reader, entry.name) === null ? undefined : null);
-      if (account === null) continue;
-      if (account === undefined || account.directoryDeleted) deleteOwned(join(ownedRoot, entry.name));
+      const account = readAccount(reader, entry.name);
+      const leftOver = account === null || (account.record.directory.kind === "owned" && account.directoryDeleted);
+      if (leftOver) deleteOwned(join(ownedRoot, entry.name));
     }
   };
 
@@ -682,7 +724,7 @@ export const createAccountService = (options: AccountServiceOptions): AccountSer
 
     crossCheck(accountId, identity, runId) {
       const current = liveAccount(reader, accountId);
-      if (current === null || current.identity === null || sameIdentity(identity, current.identity)) return;
+      if (current === null || current.identity === null || sameLogin(identity, current.identity)) return;
       notice(
         accountId,
         "identity-mismatch",

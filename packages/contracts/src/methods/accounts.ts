@@ -67,9 +67,10 @@ export const accountsRefresh = defineMethod({
  * Registers the machine's own provider directory in place as an account,
  * labelled `label`, else with the email it is signed in as. Nothing in the
  * directory is moved, linked or deleted, now or when the account is removed.
- * It uses the directory's latest read (startup, `accounts.probe` or the
- * fifteen-minute read): unless that read found it present and signed in the
- * command is rejected `conflict` (reason `ambient_unavailable`); an
+ * It uses the directory's latest read (at startup, or by `accounts.probe`,
+ * which the Account step calls first; the fifteen-minute reads are of
+ * accounts, never of it): unless that read found it present and signed in
+ * the command is rejected `conflict` (reason `ambient_unavailable`); an
  * account holding the directory already, or the identity it is signed in as,
  * is `conflict` (reason `already_added`, "already added as <label>").
  */

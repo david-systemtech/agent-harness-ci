@@ -288,6 +288,7 @@ describe("accounts.add", () => {
 
   it("refuses a sign-in that yields an identity another account holds, already added as its label, and deletes the new directory", async () => {
     const ambient = makeAmbient();
+    const before = snapshotOf(ambient);
     const signIn = scriptedSignIn();
     const t = await start({ fake: { ambientDirectory: ambient, status: statusBy(ambient) }, signIn: signIn.factory });
     const client = await t.client();
@@ -306,8 +307,25 @@ describe("accounts.add", () => {
       { type: "account.directory-deleted", payload: { accountId: added.id, directory: added.directory.path } },
     ]);
     expect(notices(t).at(-1)).toEqual({ accountId: added.id, change: "removed", warning: expect.stringContaining(`already added as ${DAVID}`) });
-    expect(snapshotOf(ambient)).toBeDefined();
-    expect(existsSync(ambient)).toBe(true);
+    expect(snapshotOf(ambient)).toEqual(before);
+  });
+
+  it("only warns when an account that has been signed in, with no identity read, later reads as an identity another account holds", async () => {
+    const ambient = makeAmbient();
+    const t = await start({ fake: { ambientDirectory: ambient, status: statusBy(ambient) } });
+    const client = await t.client();
+    const adopted = await adoptAmbient(client);
+    const added = (await applied(client, "accounts.add", { label: "Second" })).account;
+    // Signed in by hand, its status names no email: signed in, with no identity to hold.
+    t.adapter.setStatus((ref) => (ref.directory === added.directory.path ? { ...signedInAs("unnamed@example.com"), email: null } : statusBy(ambient)(ref)));
+    await client.request("accounts.refresh", { accountId: added.id });
+    expect((await list(client)).find((account) => account.id === added.id)).toMatchObject({ identity: null, status: { state: "signed-in" } });
+    // Then it reads as David's login, which the adopted account holds: it ran as signed in, so it is kept, and warned of.
+    t.adapter.setStatus(statusBy(ambient, { [added.directory.path]: DAVID }));
+    await client.request("accounts.refresh", { accountId: added.id });
+    expect((await list(client)).map((account) => account.id)).toEqual([adopted.id, added.id]);
+    expect(existsSync(added.directory.path)).toBe(true);
+    expect(notices(t).at(-1)).toEqual({ accountId: added.id, change: "identity-mismatch", warning: expect.stringContaining(`already added as ${DAVID}`) });
   });
 });
 
@@ -374,6 +392,27 @@ describe("accounts.remove", () => {
     expect(existsSync(stray)).toBe(false);
     expect(existsSync(kept.directory.path)).toBe(true);
   });
+
+  it("at the next start never removes a directory under the owned root that another account or the machine's own directory uses", async () => {
+    const dataDir = join(tempDir(), "data");
+    const root = join(dataDir, ACCOUNTS_DIRECTORY);
+    const configured = join(root, "configured");
+    const ambient = join(root, "ambient");
+    const stray = join(root, randomUUID());
+    for (const directory of [configured, ambient, stray]) mkdirSync(directory, { recursive: true });
+    writeFileSync(join(configured, ".credentials.json"), "{}");
+    writeFileSync(join(ambient, ".credentials.json"), "{}");
+    const t = await startTestEnvironment({
+      accounts: [{ id: "claude-max", provider: "fake", directory: configured }],
+      adapter: fakeAdapter({ ambientDirectory: ambient }),
+      dataDir,
+    });
+    onCleanup(() => t.close());
+    expect(existsSync(stray)).toBe(false);
+    expect(readdirSync(configured)).toEqual([".credentials.json"]);
+    expect(readdirSync(ambient)).toEqual([".credentials.json"]);
+    expect((await list(await t.client())).map((account) => account.directory)).toEqual([{ kind: "adopted", path: configured }]);
+  });
 });
 
 describe("status", () => {
@@ -430,10 +469,8 @@ describe("status", () => {
     // A probe that never answers gives up after the timeout, and reads unreadable.
     t.adapter.setStatus(() => signedInAs("claude-max@example.com"));
     await client.request("accounts.refresh", {});
-    const hung = t.adapter.status;
-    Object.assign(t.adapter, { status: () => new Promise(() => undefined) });
+    t.adapter.setStatus(() => new Promise<AuthStatus>(() => undefined));
     const answer = await client.request("accounts.refresh", {});
-    Object.assign(t.adapter, { status: hung });
     expect(answer.accounts[0]?.status).toMatchObject({ state: "unreadable", detail: expect.stringContaining("20 ms") });
     expect(accountEvents(t, "claude-max").filter((event) => event.type === "account.status-changed").map((event) => event.payload["status"])).toEqual([
       "signed-in",
@@ -472,13 +509,44 @@ describe("status", () => {
     onCleanup(() => t.close());
     const client = await t.client();
     const { id } = await create(client);
-    const reads = readsOf(t.adapter, (await list(client))[0]?.directory.path as string);
+    const directory = (await list(client))[0]?.directory.path as string;
+    const reads = readsOf(t.adapter, directory);
     await startRun(client, id);
     await vi.waitFor(() => expect(notices(t)).toHaveLength(1));
     const [notice] = notices(t);
     expect(notice).toEqual({ accountId: "claude-max", change: "identity-mismatch", warning: expect.stringMatching(/someone-else@example\.com \(Acme\).*claude-max@example\.com/) });
     // The status is read again at once.
-    await vi.waitFor(() => expect(readsOf(t.adapter, (t.adapter.statusReads.at(-1)?.directory ?? "") as string)).toBe(reads + 1));
+    await vi.waitFor(() => expect(readsOf(t.adapter, directory)).toBe(reads + 1));
+  });
+
+  it("matches a run's identity on the email ignoring case when either side names no organisation, and tells two organisations apart", async () => {
+    const reported: { email: string; organisation: string | null }[] = [
+      { email: "CLAUDE-MAX@example.com", organisation: null },
+      { email: "claude-max@example.com", organisation: "Acme" },
+      { email: "claude-max@example.com", organisation: "Other" },
+    ];
+    const t = await startTestEnvironment({
+      accounts: [{ id: "claude-max", provider: "fake" }],
+      adapter: fakeAdapter({
+        status: () => signedInAs("claude-max@example.com", "Acme"),
+        script: ({ context }) => {
+          const next = reported.shift();
+          if (next !== undefined) context.reportIdentity({ provider: "fake", ...next });
+          return [say("Done"), end()];
+        },
+      }),
+    });
+    onCleanup(() => t.close());
+    const client = await t.client();
+    for (let run = 0; run < 3; run += 1) {
+      const { id } = await create(client);
+      const before = t.adapter.runs.length;
+      await startRun(client, id);
+      await vi.waitFor(() => expect(t.adapter.runs.length).toBe(before + 1));
+      await vi.waitFor(() => expect(reported).toHaveLength(2 - run));
+    }
+    await vi.waitFor(() => expect(notices(t)).toHaveLength(1));
+    expect(notices(t)[0]).toMatchObject({ change: "identity-mismatch", warning: expect.stringContaining("(Other)") });
   });
 });
 
@@ -534,6 +602,38 @@ describe("the default account and the Account step's settings keys", () => {
     onCleanup(() => second.close());
     const client = await second.client();
     expect((await list(client)).map((account) => account.id)).toEqual(["claude-max"]);
+  });
+
+  it("carries over the first of two configured accounts whose ids are one label ignoring case, and starts", async () => {
+    const t = await startTestEnvironment({ accounts: [{ id: "Max", provider: "fake" }, { id: "max", provider: "fake" }] });
+    onCleanup(() => t.close());
+    expect((await list(await t.client())).map((account) => account.id)).toEqual(["Max"]);
+  });
+});
+
+describe("the fifteen-minute reads", () => {
+  it("read again the models a failed read left unknown, and stop when the environment closes", async () => {
+    let listings = 0;
+    const base = fakeAdapter();
+    const flaky = {
+      ...base,
+      models: async () => {
+        listings += 1;
+        if (listings === 1) throw new Error("The listing failed.");
+        return { live: false, models: [{ id: "opus", family: "opus", tier: 3, efforts: ["high"] }] };
+      },
+    } as FakeAdapter;
+    const t = await startTestEnvironment({ accounts: [{ id: "claude-max", provider: "fake" }], adapter: flaky });
+    expect(listings).toBe(1);
+    t.clock.advance(STATUS_READ_INTERVAL_MS);
+    await vi.waitFor(() => expect(listings).toBe(2));
+    t.clock.advance(STATUS_READ_INTERVAL_MS);
+    await vi.waitFor(() => expect(base.statusReads.length).toBe(3));
+    expect(listings).toBe(2);
+    await t.close();
+    t.clock.advance(STATUS_READ_INTERVAL_MS * 2);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(base.statusReads.length).toBe(3);
   });
 });
 

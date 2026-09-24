@@ -8,6 +8,7 @@ import {
   type AccountIdentitySetPayload,
   type AccountRecord,
   type AccountRelabelledPayload,
+  type AccountRemovedPayload,
   type AccountStatusChangedPayload,
   type AccountStatusState,
 } from "@agent-harness/contracts";
@@ -63,6 +64,17 @@ export const identityKey = (identity: AccountIdentity): string => `${identity.pr
 export const sameIdentity = (a: AccountIdentity | null, b: AccountIdentity | null): boolean =>
   a === null || b === null ? a === b : identityKey(a) === identityKey(b);
 
+/**
+ * Whether the identity a run's provider reports is the login the store
+ * holds, for the cross-check: the provider and the email ignoring case, and
+ * the organisation only when both name one, since the provider's two reads
+ * (Claude's `accountInfo` and `auth status`) need not both carry it.
+ */
+export const sameLogin = (reported: AccountIdentity, held: AccountIdentity): boolean =>
+  reported.provider === held.provider &&
+  reported.email.toLowerCase() === held.email.toLowerCase() &&
+  (reported.organisation === null || held.organisation === null || reported.organisation === held.organisation);
+
 const created = (db: ProjectionDb, event: EventEnvelope, kind: AccountDirectoryKind, payload: AccountAdoptedPayload | AccountAddedPayload): void => {
   db.run(
     `INSERT INTO accounts (id, position, provider, label, label_key, directory_kind, directory, status, created_at)
@@ -104,7 +116,7 @@ export const accountsProjector: Projector = {
         return;
       }
       case "account.removed":
-        db.run("UPDATE accounts SET removed_at = ? WHERE id = ?", event.occurredAt, (event.payload as { accountId: string }).accountId);
+        db.run("UPDATE accounts SET removed_at = ? WHERE id = ?", event.occurredAt, (event.payload as AccountRemovedPayload).accountId);
         return;
       case "account.directory-deleted":
         db.run("UPDATE accounts SET directory_deleted_at = ? WHERE id = ?", event.occurredAt, (event.payload as AccountDirectoryDeletedPayload).accountId);
@@ -185,10 +197,6 @@ export const accountByDirectory = (reader: Reader, path: string): AccountRecord 
   const [row] = reader.all<AccountRow>(`SELECT ${COLUMNS} FROM accounts WHERE removed_at IS NULL AND directory = ?`, path);
   return row === undefined ? null : stored(row).record;
 };
-
-/** Every owned account, removed or not: the directories under the data directory the store knows of. */
-export const ownedAccounts = (reader: Reader): StoredAccount[] =>
-  reader.all<AccountRow>(`SELECT ${COLUMNS} FROM accounts WHERE directory_kind = 'owned' ORDER BY position`).map(stored);
 
 /** Whether the store has ever held an account (a row is never deleted): an environment that has not takes its configured accounts (#119) as adopted. */
 export const anyAccountEver = (reader: Reader): boolean => reader.all<{ found: number }>("SELECT 1 AS found FROM accounts LIMIT 1").length > 0;

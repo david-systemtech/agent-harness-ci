@@ -108,8 +108,8 @@ export interface FakeAdapterOptions {
   readonly capabilities?: Partial<Omit<AdapterCapabilities, "provider" | "displayName">>;
   /** Every run's script, unless a run is given its own through `nextScripts`. Preset: one reply, then completed. */
   readonly script?: Script;
-  /** The stub status probe. Preset: signed in as `<account id>@example.com`. */
-  readonly status?: (account: AccountRef) => AuthStatus;
+  /** The stub status probe, answering at once or when its promise settles. Preset: signed in as `<account id>@example.com`. */
+  readonly status?: (account: AccountRef) => AuthStatus | Promise<AuthStatus>;
   /** The machine's own directory for the fake provider (`accounts.adopt`). Preset: a path that is not there. */
   readonly ambientDirectory?: string | null;
   /** Declares `commands` with these commands, recording each listing. Preset: not declared. */
@@ -168,7 +168,7 @@ export interface FakeAdapter extends Adapter {
   /** Every status read, in order: the account reference it was asked with. */
   readonly statusReads: readonly AccountRef[];
   /** Replaces the status probe from now on. */
-  setStatus(status: (account: AccountRef) => AuthStatus): void;
+  setStatus(status: (account: AccountRef) => AuthStatus | Promise<AuthStatus>): void;
   /** Every commands listing, in order. */
   readonly commandListings: readonly { readonly account: AccountRef; readonly workspace: string }[];
 }

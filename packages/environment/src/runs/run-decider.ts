@@ -210,7 +210,12 @@ export const decideStart = (facts: StartFacts, command: StartCommand): StartDeci
   }
   const account = facts.account;
   if (account === null || !account.signedIn) {
-    const which = facts.accountId === null ? "No account is set for the session or the environment" : `The account ${facts.accountId} is not signed in on this environment`;
+    const which =
+      facts.accountId === null
+        ? "No account is set for the session or the environment"
+        : account === null
+          ? `The account ${facts.accountId} is not on this environment`
+          : `The account ${facts.accountId} is not signed in on this environment`;
     return conflict(sessionId, "account_unavailable", `${which}, so no run can start.`, { accountId: facts.accountId });
   }
   const { descriptor } = account;

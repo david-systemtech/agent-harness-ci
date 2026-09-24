@@ -257,7 +257,11 @@ describe("runs.start", () => {
     const other = await create(client, { account: "claude-max" });
     await client.request("accounts.remove", { commandId: randomUUID(), accountId: "claude-max" });
     const removed = await run(client, "runs.start", { sessionId: other.id, text: "Go" });
-    expect(removed.receipt).toMatchObject({ status: "rejected", reason: "conflict", error: { data: { reason: "account_unavailable", accountId: "claude-max" } } });
+    expect(removed.receipt).toMatchObject({
+      status: "rejected",
+      reason: "conflict",
+      error: { message: expect.stringContaining("claude-max is not on this environment"), data: { reason: "account_unavailable", accountId: "claude-max" } },
+    });
   });
 
   it("refuses an unknown or deleted session not_found, kind session, in a receipt", async () => {
