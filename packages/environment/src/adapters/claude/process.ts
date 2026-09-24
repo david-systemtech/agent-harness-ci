@@ -752,11 +752,6 @@ export class ClaudeProcess implements TurnControl {
   }
 
   /**
-   * The watchdog for a run whose prompt the CLI never opens: while runs wait
-   * and the CLI serves no turn, the open timeout runs; when it passes, every
-   * waiting run ends error, so none pins the process for ever.
-   */
-  /**
    * An init nobody is named in yet waits for what follows it to say whose
    * turn it is (a narrating CLI). One that says nothing more within the open
    * timeout is a CLI gone quiet: the init is dropped, so it holds nothing
@@ -774,9 +769,17 @@ export class ClaudeProcess implements TurnControl {
     }, this.#deps.timings.openTimeoutMs);
   }
 
+  /**
+   * The watchdog for a run whose prompt the CLI never opens: while runs wait
+   * and the CLI serves no turn, the open timeout runs; when it passes, every
+   * waiting run ends error, so none pins the process for ever. While an init
+   * is undecided its own bound (`#armUndecidedWatch`) holds the slot and is
+   * left running: a run ending meanwhile does not restart or cancel it.
+   */
   #armOpenWatch(): void {
+    if (this.#undecided !== undefined) return;
     this.#openTimer?.cancel();
-    if (this.closed || this.#waiting.length === 0 || this.#current !== undefined || this.#undecided !== undefined) return;
+    if (this.closed || this.#waiting.length === 0 || this.#current !== undefined) return;
     this.#openTimer = this.#deps.clock.setTimeout(() => {
       if (this.#current !== undefined || this.#undecided !== undefined) return;
       for (const turn of this.#waiting.splice(0)) {

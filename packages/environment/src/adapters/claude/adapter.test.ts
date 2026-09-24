@@ -1156,6 +1156,29 @@ describe("a run that joins a kept process", () => {
     expect(context.adopted).toEqual([]);
   });
 
+  it("keeps the bound on an undecided init when a waiting run is interrupted meanwhile, so the silence still lets the process go", async () => {
+    fake.controls = { cancelled: () => true };
+    const adapter = adapterWith();
+    const run = adapter.createRun(runInput(), contextWith());
+    const query = await started();
+    query.emit(sdk.init(PROVIDER_SESSION));
+    await flush();
+    // Withdrawn from the CLI's queue while the init waits for what follows it.
+    const interrupting = run.interrupt();
+    await flush();
+    // The interrupt waits out the decision's settle first, and the window goes on.
+    clock.advance(DEFAULT_TIMINGS.decisionSettleMs);
+    expect(await interrupting).toEqual({ stillQueued: [] });
+    expect(ends(await drain(run))).toEqual([expect.objectContaining({ reason: "interrupted" })]);
+    run.release();
+    clock.advance(DEFAULT_TIMINGS.openTimeoutMs - DEFAULT_TIMINGS.decisionSettleMs);
+    await flush();
+    // The init was dropped: a run the process cannot serve replaces it rather than being refused as busy.
+    adapter.createRun(runInput({ mode: "bypassPermissions", ceiling: "bypassPermissions", target: { kind: "resume", providerSessionId: PROVIDER_SESSION } }), contextWith());
+    await started(2);
+    expect(query.closed).toBe(true);
+  });
+
   it("clears a settle debt however the turn it waited on ended, so a later delivery failure is still the waiting run's", async () => {
     const adapter = adapterWith();
     const context = contextWith();
