@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Options, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -117,6 +118,9 @@ const reading = (run: AdapterRun) => {
 };
 
 const ends = (events: AdapterEvent[]) => events.filter((event) => event.type === "end");
+
+/** Lets the pump read what a test emitted. */
+const flush = () => new Promise((resolve) => setTimeout(resolve, 5));
 
 /** The query of the run the adapter just started, once its prompt is in. */
 const started = async (index = 1): Promise<FakeQuery> => {
@@ -297,6 +301,7 @@ describe("canUseTool on the broker seam", () => {
     adapter.createRun(runInput(), context);
     const query = await started();
     query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [query.prompts[0]?.uuid as string]));
+    await flush();
     expect(await query.canUseTool("Write", { file_path: "/etc/hosts" }, { toolUseID: "toolu_w" })).toEqual({
       behavior: "deny",
       message: "Nobody can ask here.",
@@ -310,6 +315,7 @@ describe("canUseTool on the broker seam", () => {
     adapter.createRun(runInput(), context);
     const query = await started();
     query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [query.prompts[0]?.uuid as string]));
+    await flush();
     await query.canUseTool("AskUserQuestion", { questions: [] });
     await query.canUseTool("ExitPlanMode", { plan: "Do it" });
     expect(context.asked.map((request) => request.kind)).toEqual(["question", "plan"]);
@@ -328,16 +334,17 @@ describe("canUseTool on the broker seam", () => {
     expect(query.closed).toBe(true);
   });
 
-  it("denies at once when the provider withdraws the request", async () => {
+  it("denies at once when the provider aborts the request", async () => {
     const adapter = adapterWith();
     adapter.createRun(runInput(), contextWith());
     const query = await started();
     query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [query.prompts[0]?.uuid as string]));
+    await flush();
     const abort = new AbortController();
     const asked = query.canUseTool("Bash", { command: "ls" }, { toolUseID: "toolu_ls", signal: abort.signal });
     await new Promise((resolve) => setTimeout(resolve, 1));
     abort.abort();
-    expect(await asked).toMatchObject({ behavior: "deny", message: "The provider withdrew this tool call." });
+    expect(await asked).toMatchObject({ behavior: "deny", message: "The provider aborted this tool call." });
   });
 });
 
@@ -355,10 +362,32 @@ describe("an interrupt", () => {
     expect(ends(await read.done)).toEqual([{ type: "end", reason: "interrupted", cause: "user", error: null, usage: null, turnCount: 1, resultText: null }]);
   });
 
-  it("withdraws the messages the receipt says the CLI still holds, hands back those, and drops the ids it cannot place", async () => {
+  it("cancels the queue in the interrupt itself, and hands back the messages it sent that the receipt names cancelled", async () => {
+    const steer = message("Wait, do this instead");
+    const other = message("And this");
+    fake.controls = {
+      // As the CLI does: with cancelQueued it withdraws everything it held in the same request; without it, they survive and run next.
+      interruptReceipt: async (options) =>
+        options?.cancelQueued === true ? { still_queued: [], cancelled: [steer.messageId, other.messageId, "cron-trigger-uuid"] } : { still_queued: [steer.messageId, other.messageId] },
+      cancelled: () => false,
+    };
+    const adapter = adapterWith();
+    const run = adapter.createRun(runInput(), contextWith());
+    const query = await started();
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [query.prompts[0]?.uuid as string]));
+    await flush();
+    await run.send(steer);
+    await run.send(other);
+    expect(await run.interrupt()).toEqual({ stillQueued: [steer.messageId, other.messageId] });
+    expect(query.interruptOptions).toEqual([{ cancelQueued: true }]);
+    expect(query.cancelRequests).toEqual([]);
+  });
+
+  it("falls back to withdrawing one by one on an SDK whose interrupt takes no options, handing back only what it withdrew", async () => {
     const steer = message("Wait, do this instead");
     const stuck = message("And this");
     fake.controls = {
+      plainInterrupt: true,
       interruptReceipt: async () => ({ still_queued: [steer.messageId, stuck.messageId, "cron-trigger-uuid"] }),
       cancelled: (uuid) => uuid === steer.messageId,
     };
@@ -366,11 +395,13 @@ describe("an interrupt", () => {
     const run = adapter.createRun(runInput(), contextWith());
     const query = await started();
     query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [query.prompts[0]?.uuid as string]));
-    await vi.waitFor(() => expect(query.prompts).toHaveLength(1));
+    await flush();
     await run.send(steer);
     await run.send(stuck);
     expect(await run.interrupt()).toEqual({ stillQueued: [steer.messageId] });
+    expect(query.interruptOptions).toEqual([undefined]);
     expect(query.cancelRequests).toEqual([steer.messageId, stuck.messageId]);
+    expect(diagnostics.some((line) => /cannot cancel the queue with an interrupt/.test(line))).toBe(true);
   });
 
   it("is a no-op on a run that has ended", async () => {
@@ -639,14 +670,38 @@ describe("a turn the provider opens on its own", () => {
     query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [input.prompt[0]?.messageId as string]), sdk.tasks({ task_id: "task_1" }), sdk.result(PROVIDER_SESSION));
     await drain(run);
     run.release();
-    context.adopt = (turn) => {
-      context.adopted.push(turn);
-      turn.onAdopted?.("run-for-the-subagent");
-    };
     void query.canUseTool("Bash", { command: "npm test" }, { toolUseID: "toolu_sub", agentID: "agent-1" });
+    await vi.waitFor(() => expect(context.adopted).toHaveLength(1));
+    // The host has not named the run yet (it may still be ending the run before): the broker is not asked with no run id.
+    await flush();
+    expect(context.asked).toEqual([]);
+    context.adopted[0]?.onAdopted?.("run-for-the-subagent");
     await vi.waitFor(() => expect(context.asked).toHaveLength(1));
-    expect(context.adopted).toHaveLength(1);
     expect(context.asked[0]).toMatchObject({ runId: "run-for-the-subagent", kind: "permission", detail: { agentId: "agent-1" } });
+  });
+
+  it("keeps a subagent's prompt turn open across the CLI's next turn, until the prompt is answered", async () => {
+    const adapter = adapterWith();
+    const context = contextWith();
+    const input = runInput();
+    const run = adapter.createRun(input, context);
+    const query = await started();
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [input.prompt[0]?.messageId as string]), sdk.tasks({ task_id: "task_1" }), sdk.result(PROVIDER_SESSION));
+    await drain(run);
+    run.release();
+    const asked = query.canUseTool("Bash", { command: "npm test" }, { toolUseID: "toolu_sub", agentID: "agent-1" });
+    await vi.waitFor(() => expect(context.adopted).toHaveLength(1));
+    const promptTurn = context.adopted[0] as ProviderTurn;
+    promptTurn.onAdopted?.("run-prompt");
+    const read = reading(promptTurn);
+    // The CLI opens a turn of its own meanwhile (the task settling): it is a turn of its own, and the prompt's stays open.
+    query.emit(sdk.taskNotification("task_1"), sdk.tasks(), sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_2", []), sdk.text("msg_2", "Task done."), sdk.result(PROVIDER_SESSION));
+    await vi.waitFor(() => expect(context.adopted).toHaveLength(2));
+    await flush();
+    expect(ends(read.events)).toEqual([]);
+    promptTurn.answerPrompt?.("toolu_sub", { decision: "allow" });
+    expect(await asked).toMatchObject({ behavior: "allow" });
+    expect(ends(await read.done)).toEqual([expect.objectContaining({ reason: "completed" })]);
   });
 });
 
@@ -783,5 +838,216 @@ describe("a turn opened for a subagent's prompt", () => {
     expect(await asked).toMatchObject({ behavior: "deny" });
     expect(ends(await read.done)).toEqual([expect.objectContaining({ reason: "interrupted", cause: "user" })]);
     expect(query.interrupts).toBe(0);
+  });
+});
+
+describe("a run that joins a kept process", () => {
+  /** A first run whose turn leaves the process kept by a live task, released as the host does. */
+  const keptByTask = async (adapter: ReturnType<typeof adapterWith>, context: Context) => {
+    const input = runInput();
+    const run = adapter.createRun(input, context);
+    const query = await started();
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [input.prompt[0]?.messageId as string]), sdk.tasks({ task_id: "task_1" }), sdk.result(PROVIDER_SESSION));
+    await drain(run);
+    run.release();
+    return query;
+  };
+
+  it("gives the one waiting run a turn the CLI opens with a delivery-failure result that names no one", async () => {
+    const adapter = adapterWith({ timings: { idleMs: 60_000 } });
+    const context = contextWith();
+    const input = runInput();
+    const first = adapter.createRun(input, context);
+    const query = await started();
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [input.prompt[0]?.messageId as string]), sdk.result(PROVIDER_SESSION));
+    await drain(first);
+    first.release();
+    const next = runInput({ target: { kind: "resume", providerSessionId: PROVIDER_SESSION } });
+    const run = adapter.createRun(next, context);
+    await query.promptsPushed(2);
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.result(PROVIDER_SESSION, { subtype: "success", is_error: true, result: "API Error: 529 overloaded", num_turns: 0 }));
+    expect(ends(await drain(run))).toEqual([expect.objectContaining({ reason: "error" })]);
+    expect(context.adopted).toEqual([]);
+  });
+
+  it("ends a run the CLI never opens with an error once the open timeout passes with no turn served", async () => {
+    const adapter = adapterWith();
+    const context = contextWith();
+    const query = await keptByTask(adapter, context);
+    const next = runInput({ target: { kind: "resume", providerSessionId: PROVIDER_SESSION } });
+    const run = adapter.createRun(next, context);
+    await query.promptsPushed(2);
+    const read = reading(run);
+    // The CLI answers something else, naming no one, with a task still live: that turn is the provider's own.
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_2", []), sdk.text("msg_2", "Still exploring."), sdk.result(PROVIDER_SESSION));
+    await vi.waitFor(() => expect(context.adopted).toHaveLength(1));
+    await flush();
+    clock.advance(59_999);
+    await flush();
+    expect(read.events).toEqual([]);
+    clock.advance(1);
+    expect(ends(await read.done)).toEqual([expect.objectContaining({ reason: "error", error: expect.objectContaining({ code: "not_opened" }) })]);
+  });
+
+  it("interrupts a run whose prompt waits behind the CLI's own turn only once that run opens, never the turn ahead of it", async () => {
+    fake.controls = { cancelled: () => false };
+    const adapter = adapterWith();
+    const context = contextWith();
+    const query = await keptByTask(adapter, context);
+    const next = runInput({ target: { kind: "resume", providerSessionId: PROVIDER_SESSION } });
+    const run = adapter.createRun(next, context);
+    await query.promptsPushed(2);
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_2", []));
+    await vi.waitFor(() => expect(context.adopted).toHaveLength(1));
+    const read = reading(run);
+    const interrupted = run.interrupt();
+    await flush();
+    expect(query.interrupts).toBe(0);
+    expect(query.cancelRequests).toEqual([next.prompt[0]?.messageId]);
+    query.emit(sdk.result(PROVIDER_SESSION), sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_3", [next.prompt[0]?.messageId as string]));
+    expect(await interrupted).toEqual({ stillQueued: [] });
+    expect(query.interrupts).toBe(1);
+    query.emit(sdk.interruptedResult(PROVIDER_SESSION));
+    expect(ends(await read.done)).toEqual([expect.objectContaining({ reason: "interrupted", cause: "user" })]);
+  });
+
+  it("lets a process kept only for a schedule go for a run it cannot serve, handing the fresh one a queued message it never opened", async () => {
+    const adapter = adapterWith();
+    const context = contextWith();
+    const input = runInput();
+    const run = adapter.createRun(input, context);
+    const query = await started();
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [input.prompt[0]?.messageId as string]), sdk.toolUse("toolu_cron", "CronCreate", { cron: "0 * * * *" }), sdk.toolResult("toolu_cron"));
+    await flush();
+    const queued = message("Then tidy up");
+    await run.send(queued);
+    query.emit(sdk.result(PROVIDER_SESSION));
+    await drain(run);
+    run.release();
+    expect(query.closed).toBe(false);
+    const bypass = runInput({ mode: "bypassPermissions", target: { kind: "resume", providerSessionId: PROVIDER_SESSION } });
+    adapter.createRun(bypass, context);
+    const fresh = await fake.made(2);
+    const prompts = await fresh.promptsPushed(2);
+    expect(query.closed).toBe(true);
+    expect(prompts.map((prompt) => prompt.uuid)).toEqual([bypass.prompt[0]?.messageId, queued.messageId]);
+  });
+
+  it("stops holding the process for a schedule once CronDelete removes it", async () => {
+    const adapter = adapterWith();
+    const context = contextWith();
+    const input = runInput();
+    const run = adapter.createRun(input, context);
+    const query = await started();
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [input.prompt[0]?.messageId as string]), sdk.toolUse("toolu_c", "CronCreate"), sdk.toolResult("toolu_c"), sdk.result(PROVIDER_SESSION));
+    await drain(run);
+    run.release();
+    expect(query.closed).toBe(false);
+    const next = runInput({ target: { kind: "resume", providerSessionId: PROVIDER_SESSION } });
+    const second = adapter.createRun(next, context);
+    await query.promptsPushed(2);
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_2", [next.prompt[0]?.messageId as string]), sdk.toolUse("toolu_d", "CronDelete"), sdk.toolResult("toolu_d"), sdk.result(PROVIDER_SESSION));
+    await drain(second);
+    second.release();
+    expect(query.closed).toBe(true);
+  });
+
+  it("fails the run, rather than hanging, when the process does not take the run's model in time", async () => {
+    const adapter = adapterWith();
+    const context = contextWith();
+    const query = await keptByTask(adapter, context);
+    query.setModel = () => new Promise<void>(() => undefined);
+    const run = adapter.createRun(runInput({ model: "sonnet", target: { kind: "resume", providerSessionId: PROVIDER_SESSION } }), context);
+    const read = reading(run);
+    await flush();
+    clock.advance(15_000);
+    expect(ends(await read.done)).toEqual([expect.objectContaining({ reason: "error", error: expect.objectContaining({ code: "settings" }) })]);
+  });
+
+  it("still reports a queued message read by a turn that opens after the five-second grace", async () => {
+    const adapter = adapterWith();
+    const context = contextWith();
+    const input = runInput();
+    const run = adapter.createRun(input, context);
+    const query = await started();
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [input.prompt[0]?.messageId as string]), sdk.tasks({ task_id: "task_1" }));
+    await flush();
+    const queued = message("Afterwards, summarise");
+    await run.send(queued);
+    query.emit(sdk.result(PROVIDER_SESSION));
+    await drain(run);
+    run.release();
+    clock.advance(5_000);
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_2", [queued.messageId]), sdk.result(PROVIDER_SESSION));
+    await vi.waitFor(() => expect(context.adopted).toHaveLength(1));
+    expect(context.adopted[0]?.messageIds).toEqual([queued.messageId]);
+  });
+});
+
+describe("stopping a session's process", () => {
+  it("stops a process kept for a task, so no later turn of it is adopted", async () => {
+    const adapter = adapterWith();
+    const context = contextWith();
+    const input = runInput();
+    const run = adapter.createRun(input, context);
+    const query = await started();
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [input.prompt[0]?.messageId as string]), sdk.tasks({ task_id: "task_1" }), sdk.result(PROVIDER_SESSION));
+    await drain(run);
+    run.release();
+    expect(query.closed).toBe(false);
+    adapter.stopProcess(SESSION);
+    expect(query.closed).toBe(true);
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_2", []), sdk.result(PROVIDER_SESSION));
+    await flush();
+    expect(context.adopted).toEqual([]);
+  });
+});
+
+describe("the environment the adapter was made with", () => {
+  it("is copied once: a directory the config-directory queue writes later never reaches a run, and an account with none gets the ambient default", async () => {
+    const saved = { dir: process.env["CLAUDE_CONFIG_DIR"], key: process.env["ANTHROPIC_API_KEY"] };
+    delete process.env["CLAUDE_CONFIG_DIR"];
+    try {
+      const adapter = createClaudeAdapter({ clock, executablePath: "/sdk/claude", diagnostic: () => undefined });
+      // What the queue does while a helper of another account runs.
+      process.env["CLAUDE_CONFIG_DIR"] = "/data/accounts/other";
+      process.env["ANTHROPIC_API_KEY"] = "sk-ant-late";
+      adapter.createRun(runInput({ account: { id: "ambient", directory: null } }), contextWith());
+      const query = await started();
+      expect(query.env["CLAUDE_CONFIG_DIR"]).toBe(join(process.env["HOME"] ?? homedir(), ".claude"));
+      expect(query.env).not.toHaveProperty("ANTHROPIC_API_KEY");
+    } finally {
+      if (saved.dir === undefined) delete process.env["CLAUDE_CONFIG_DIR"];
+      else process.env["CLAUDE_CONFIG_DIR"] = saved.dir;
+      if (saved.key === undefined) delete process.env["ANTHROPIC_API_KEY"];
+      else process.env["ANTHROPIC_API_KEY"] = saved.key;
+    }
+  });
+
+  it("reads an account with no directory's status under the ambient default, set explicitly", async () => {
+    const seen: string[] = [];
+    const adapter = adapterWith({
+      hostEnv: { PATH: "/usr/bin", HOME: "/home/seth" },
+      runCommand: async (_executable, _argv, env) => {
+        seen.push(env["CLAUDE_CONFIG_DIR"] ?? "unset");
+        return { code: 1, stdout: '{"loggedIn": false}', stderr: "" };
+      },
+    });
+    await adapter.status({ id: "ambient", directory: null });
+    expect(seen).toEqual(["/home/seth/.claude"]);
+  });
+});
+
+describe("the unsampled queries", () => {
+  it("keep no transcript, load no plugins for a model listing, and load a trusted repository's commands with its project settings", async () => {
+    fake.controls = { supportedModels: async () => [], supportedCommands: async () => [] };
+    const adapter = adapterWith({ pluginDirectory: () => "/data/skills/work" });
+    await adapter.models({ id: "work", directory: "/d" });
+    expect(fake.last().options).toMatchObject({ persistSession: false, settingSources: [] });
+    expect(fake.last().options).not.toHaveProperty("plugins");
+    await adapter.commands({ id: "work", directory: "/d" }, { kind: "directory", path: "/work/repo" }, { trusted: true });
+    expect(fake.last().options).toMatchObject({ persistSession: false, settingSources: ["project"], plugins: [{ type: "local", path: "/data/skills/work" }] });
+    await adapter.commands({ id: "work", directory: "/d" }, { kind: "directory", path: "/work/repo" });
+    expect(fake.last().options.settingSources).toEqual([]);
   });
 });

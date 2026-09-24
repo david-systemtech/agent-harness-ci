@@ -216,6 +216,21 @@ describe("a Claude run through the adapter host", () => {
     expect(await asked).toEqual({ behavior: "allow", updatedInput: { file_path: "/work/repo/a.ts" }, toolUseID: "toolu_edit" });
   });
 
+  it("stops a process kept for a background task when its session is deleted, so no later turn lands on the deleted stream", async () => {
+    const t = await setup();
+    const { messageId } = startRun(t);
+    const query = await runQuery(t, 1);
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [messageId]), sdk.tasks({ task_id: "task_1" }), sdk.result(PROVIDER_SESSION));
+    await vi.waitFor(() => expect(eventsOf(t).filter((event) => event.type === "run.ended")).toHaveLength(1));
+    expect(query.closed).toBe(false);
+    t.log.append({ kind: "session", id: t.sessionId }, [{ type: "session.deleted", payload: { deletedAt: "2026-09-24T00:00:00.000Z", purgeAt: "2026-10-24T00:00:00.000Z", deleteProviderTranscript: false } }], { actor: "client_session:test" });
+    expect(query.closed).toBe(true);
+    // A turn the CLI would have opened about the task finds no process to open it on.
+    query.emit(sdk.taskNotification("task_1"), sdk.tasks(), sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_2", []), sdk.text("msg_2", "Done."), sdk.result(PROVIDER_SESSION));
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(eventsOf(t).filter((event) => event.type === "run.started")).toHaveLength(1);
+  });
+
   it("ends the run once, disposed, and stops the process when the environment closes mid-run", async () => {
     const t = await setup();
     startRun(t);

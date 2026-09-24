@@ -15,7 +15,10 @@ type Message = unknown;
 
 /** The control answers a test sets per query. */
 export interface FakeControls {
-  interruptReceipt?: () => Promise<{ still_queued: string[] } | undefined>;
+  /** What an interrupt answers, given the options it was called with; preset: nothing still queued, nothing cancelled. */
+  interruptReceipt?: (options: { cancelQueued?: boolean } | undefined) => Promise<{ still_queued: string[]; cancelled?: string[] } | undefined>;
+  /** Leaves `interrupt` taking no options, as an SDK without `cancelQueued` has it. */
+  plainInterrupt?: boolean;
   /** What `cancelAsyncMessage` answers per uuid; absent means the method is absent. */
   cancelled?: (uuid: string) => boolean;
   accountInfo?: () => Promise<{ email?: string; organization?: string }>;
@@ -35,6 +38,8 @@ export class FakeQuery {
   readonly #promptWaiters: (() => void)[] = [];
   closed = false;
   interrupts = 0;
+  /** The options of each interrupt, in order. */
+  readonly interruptOptions: ({ cancelQueued?: boolean } | undefined)[] = [];
   readonly models: string[] = [];
   readonly modes: string[] = [];
   readonly flags: unknown[] = [];
@@ -50,6 +55,10 @@ export class FakeQuery {
     if (controls.usage !== undefined) {
       const { name, answer } = controls.usage;
       (this as unknown as Record<string, unknown>)[name] = async () => answer();
+    }
+    if (controls.plainInterrupt === true) {
+      const counted = this.interrupt.bind(this);
+      (this as unknown as Record<string, unknown>)["interrupt"] = () => counted(undefined);
     }
     if (controls.cancelled !== undefined) {
       const cancelled = controls.cancelled;
@@ -131,9 +140,11 @@ export class FakeQuery {
     return ask(toolName, input, { signal: new AbortController().signal, toolUseID: `toolu_${Math.random().toString(36).slice(2)}`, requestId: crypto.randomUUID(), ...extra });
   }
 
-  async interrupt(): Promise<{ still_queued: string[] } | undefined> {
+  // The pinned SDK's run-time signature: `interrupt(e)`, taking `{cancelQueued}` its declarations omit.
+  async interrupt(options?: { cancelQueued?: boolean }): Promise<{ still_queued: string[]; cancelled?: string[] } | undefined> {
     this.interrupts += 1;
-    return this.controls.interruptReceipt?.() ?? { still_queued: [] };
+    this.interruptOptions.push(options);
+    return this.controls.interruptReceipt?.(options) ?? { still_queued: [], ...(options?.cancelQueued === true && { cancelled: [] }) };
   }
 
   async setModel(model?: string): Promise<void> {

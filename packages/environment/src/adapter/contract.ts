@@ -284,8 +284,11 @@ export interface Adapter {
   createRun(input: RunInput, context: RunContext): AdapterRun;
   /** Plan usage per window, with the account's identity (`planUsage`). */
   usage?(account: AccountRef): Promise<UsageReading>;
-  /** The slash commands for an account and workspace, spending no tokens (`commands`). */
-  commands?(account: AccountRef, workspace: Workspace): Promise<readonly ProviderCommand[]>;
+  /**
+   * The slash commands for an account and workspace, spending no tokens
+   * (`commands`); a trusted repository's own commands among them.
+   */
+  commands?(account: AccountRef, workspace: Workspace, scope?: { readonly trusted: boolean }): Promise<readonly ProviderCommand[]>;
   /** The provider's sessions (`sessionListing`). */
   listSessions?(account: AccountRef): Promise<readonly ProviderSessionInfo[]>;
   /** The title the provider generated for a session (`titleRead`). */
@@ -300,6 +303,13 @@ export interface Adapter {
    * purge's transaction (`sessions/deletion.ts`, `ProviderTranscripts`).
    */
   deleteTranscript?(sessionId: string): undefined;
+  /**
+   * Stops the provider process the adapter keeps for a session, whatever it
+   * holds (a background task, a schedule): the session is deleted, so no turn
+   * of it may reach a stream the purge removes. The host calls it on
+   * `session.deleted` (#120 calls it for its own stops too).
+   */
+  stopProcess?(sessionId: string): void;
   /**
    * The environment is closing: stop every provider process the adapter
    * still holds, including one kept for work that outlived its run (a

@@ -1,5 +1,5 @@
 import { readFileSync, statSync } from "node:fs";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 
 /**
  * The checkout a worktree belongs to (claude-adapter spec, options per run:
@@ -20,6 +20,8 @@ export const worktreeCheckout = (workspace: string): string | null => {
     const gitDir = isAbsolute(match[1]) ? match[1] : resolve(workspace, match[1]);
     const common = readFileSync(join(gitDir, "commondir"), "utf8").trim();
     const commonDir = isAbsolute(common) ? common : resolve(gitDir, common);
+    // Only a checkout whose git directory is its own `.git`: a bare repository's worktree has no checkout to take settings from.
+    if (basename(commonDir) !== ".git") return null;
     const checkout = dirname(commonDir);
     return checkout === workspace ? null : checkout;
   } catch {

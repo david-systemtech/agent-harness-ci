@@ -43,15 +43,17 @@ export interface ResumePoint {
 
 export interface RunOptionsInput {
   readonly run: RunInput;
-  /** The environment the process inherits from, before the scrub. */
+  /** The environment the process inherits from, before the scrub: the adapter's copy, taken once. */
   readonly hostEnv: HostEnvironment;
+  /** The account's config directory, resolved: the ambient default for an account with none. */
+  readonly configDirectory: string;
   /** The SDK's bundled binary; null leaves the SDK to find it itself. */
   readonly executablePath: string | null;
   /** The account's skill-set plugin directory (ADR 0009, ticket 89); null until it has one. */
   readonly pluginDirectory: string | null;
   /** The environment's auto-memory directory for the repository (ADR 0018); null to leave the CLI's own. */
   readonly autoMemoryDirectory: string | null;
-  /** The checkout a worktree belongs to, whose project settings the run takes; null for a plain checkout. */
+  /** The checkout a worktree belongs to, whose project settings a trusted run takes; null for a plain checkout. */
   readonly checkoutRoot: string | null;
   /** The environment's SDK session store (#137); passed on every run once there is one. */
   readonly sessionStore: SessionStore | null;
@@ -124,8 +126,9 @@ export const buildRunOptions = (input: RunOptionsInput): Options => {
   const settingSources: SettingSource[] = run.trusted ? ["project"] : [];
   return {
     cwd: run.workspace.path,
-    ...(input.checkoutRoot !== null && { projectConfigRoot: input.checkoutRoot }),
-    env: composeRunEnvironment(input.hostEnv, run.account.directory, {
+    // Only for a trusted repository: an untrusted one loads nothing of its project, from the branch or from its checkout.
+    ...(run.trusted && input.checkoutRoot !== null && { projectConfigRoot: input.checkoutRoot }),
+    env: composeRunEnvironment(input.hostEnv, input.configDirectory, {
       // The harness session names the project directory, so the transcript is found whatever the working directory.
       CLAUDE_CODE_PROJECT_DIR_NAME: run.sessionId,
       CLAUDE_AGENT_SDK_CLIENT_APP: CLIENT_APP,

@@ -18,9 +18,13 @@ export interface ControlQueryOptions {
   readonly clock: Pick<Clock, "setTimeout">;
   readonly hostEnv: HostEnvironment;
   readonly executablePath: string | null;
-  readonly directory: string | null;
+  /** The account's config directory, resolved. */
+  readonly directory: string;
   readonly cwd: string;
+  /** Plugins to load: only the commands listing passes them, since only it describes what a run would offer. */
   readonly pluginDirectory?: string | null;
+  /** Whether the workspace's repository passed the trust gate: its project settings then load, as a run's would. */
+  readonly trusted?: boolean;
   readonly timeoutMs: number;
 }
 
@@ -41,9 +45,11 @@ export const withControlQuery = async <T>(options: ControlQueryOptions, ask: (qu
     cwd: options.cwd,
     env: composeRunEnvironment(options.hostEnv, options.directory, { CLAUDE_AGENT_SDK_CLIENT_APP: CLIENT_APP }),
     abortController: abort,
-    settingSources: [],
+    settingSources: options.trusted === true ? ["project"] : [],
     strictMcpConfig: true,
     includePartialMessages: false,
+    // Nothing is said, so nothing is kept: no transcript file for a query that never ran a turn.
+    persistSession: false,
     ...(options.executablePath !== null && { pathToClaudeCodeExecutable: options.executablePath }),
     ...(options.pluginDirectory !== undefined && options.pluginDirectory !== null && { plugins: [{ type: "local", path: options.pluginDirectory }] }),
   };

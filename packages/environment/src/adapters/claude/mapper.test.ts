@@ -58,6 +58,15 @@ describe("a turn of text and thinking", () => {
     expect(state.providerSessionId).toBe("5d1e9c3a-7b2f-4e8d-9a6c-3f0b1e2d4c5a");
   });
 
+  it("settles a thinking block that comes back empty with the text it streamed", () => {
+    const { state } = setup();
+    const messages = fixture("text-turn");
+    const settled = messages[6] as { message: { content: { thinking: string }[] } };
+    const emptied = { ...settled, message: { ...settled.message, content: [{ ...settled.message.content[0], thinking: "" }] } };
+    const events = mapAll([...messages.slice(0, 6), emptied], state);
+    expect(events.at(-1)).toEqual({ type: "assistant.thinking", payload: { itemId: "msg_01:0", text: "The user wants a greeting.", aborted: false } });
+  });
+
   it("links the session once per run, however many inits the turn sees", () => {
     const { state } = setup();
     const [init] = fixture("text-turn");

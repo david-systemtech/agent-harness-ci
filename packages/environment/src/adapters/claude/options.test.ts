@@ -41,6 +41,7 @@ const run = (overrides: Partial<RunInput> = {}): RunInput => ({
 const input = (overrides: Partial<RunInput> = {}, extra: Partial<RunOptionsInput> = {}): RunOptionsInput => ({
   run: run(overrides),
   hostEnv: { PATH: "/usr/bin", HOME: "/home/david", ANTHROPIC_API_KEY: "sk-ant-shell", IS_SANDBOX: "1", CLAUDE_CODE_BUBBLEWRAP: "1" },
+  configDirectory: "/data/accounts/work",
   executablePath: "/sdk/claude-agent-sdk-linux-x64/claude",
   pluginDirectory: "/data/skills/work",
   autoMemoryDirectory: "/data/auto-memory/repo",
@@ -61,8 +62,9 @@ describe("the options a run is handed", () => {
     expect(options).not.toHaveProperty("projectConfigRoot");
   });
 
-  it("takes project settings from the checkout a worktree belongs to", () => {
-    expect(buildRunOptions(input({}, { checkoutRoot: "/work/repo-main" })).projectConfigRoot).toBe("/work/repo-main");
+  it("takes a trusted repository's project settings from the checkout a worktree belongs to, and an untrusted one's from nowhere", () => {
+    expect(buildRunOptions(input({ trusted: true }, { checkoutRoot: "/work/repo-main" })).projectConfigRoot).toBe("/work/repo-main");
+    expect(buildRunOptions(input({ trusted: false }, { checkoutRoot: "/work/repo-main" }))).not.toHaveProperty("projectConfigRoot");
   });
 
   it("leaves the effort to the model when none is asked for, and refuses one the SDK does not know", () => {

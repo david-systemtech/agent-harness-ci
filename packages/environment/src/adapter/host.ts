@@ -499,6 +499,8 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     adoptions.delete(event.streamId);
     const entry = live.get(event.streamId);
     if (entry !== undefined) finish(entry, { type: "end", reason: "disposed" }, "host");
+    // A process kept past its runs (a background task, a schedule) goes too, or its next turn would be adopted into a deleted session.
+    for (const adapter of adapters.list()) safely(() => adapter.stopProcess?.(event.streamId), (e) => console.error(`Stopping the ${adapter.descriptor.provider} process of session ${event.streamId} failed:`, e));
   });
 
   /** The adapter that holds a session's provider transcript: its latest run's account's, else the default account's. */

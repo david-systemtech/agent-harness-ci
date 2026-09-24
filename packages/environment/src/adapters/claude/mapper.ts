@@ -187,7 +187,10 @@ const mapAssistant = (message: Record_, state: MapperState): TranscriptEvent[] =
       case "thinking": {
         if (parent !== null) return;
         const kind = block["type"];
-        const said = typeof block[kind] === "string" ? (block[kind] as string) : "";
+        const streamed = state.openItems.get(itemId)?.text ?? "";
+        const own = typeof block[kind] === "string" ? (block[kind] as string) : "";
+        // A settled block can come back empty (thinking omitted from the settled copy) though its text streamed: the streamed text stands.
+        const said = own === "" ? streamed : own;
         state.openItems.delete(itemId);
         if (kind === "thinking" && said === "") return;
         events.push(event(kind === "text" ? "assistant.text" : "assistant.thinking", { itemId, text: said, aborted }));

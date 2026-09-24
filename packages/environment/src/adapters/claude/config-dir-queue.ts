@@ -17,20 +17,48 @@ import { CLAUDE_CONFIG_DIR } from "./credentials.js";
  * a call that fails does not wedge the ones after it.
  */
 export interface ConfigDirQueue {
-  /** Runs `helper` with the variable at `directory` (null: the host's own), after every call queued before it. */
-  run<T>(directory: string | null, helper: () => Promise<T>): Promise<T>;
+  /**
+   * Runs `helper` with the variable at `directory` (always given: an account
+   * with none has the ambient default resolved for it), after every call
+   * queued before it. A helper that has not answered within the timeout is
+   * refused, so a wedged one cannot hold every later call.
+   */
+  run<T>(directory: string, helper: () => Promise<T>): Promise<T>;
 }
 
-export const createConfigDirQueue = (env: Record<string, string | undefined> = process.env): ConfigDirQueue => {
+export interface ConfigDirQueueOptions {
+  /** How long one helper may take; preset 30 s. */
+  readonly timeoutMs?: number;
+  readonly setTimeout?: (callback: () => void, ms: number) => { cancel(): void };
+}
+
+export const CONFIG_DIR_QUEUE_TIMEOUT_MS = 30_000;
+
+const realTimeout = (callback: () => void, ms: number) => {
+  const handle = setTimeout(callback, ms);
+  handle.unref?.();
+  return { cancel: () => clearTimeout(handle) };
+};
+
+export const createConfigDirQueue = (env: Record<string, string | undefined> = process.env, options: ConfigDirQueueOptions = {}): ConfigDirQueue => {
+  const timeoutMs = options.timeoutMs ?? CONFIG_DIR_QUEUE_TIMEOUT_MS;
+  const later = options.setTimeout ?? realTimeout;
   let tail: Promise<unknown> = Promise.resolve();
   return {
-    run<T>(directory: string | null, helper: () => Promise<T>): Promise<T> {
+    run<T>(directory: string, helper: () => Promise<T>): Promise<T> {
       const call = tail.then(async () => {
         const previous = env[CLAUDE_CONFIG_DIR];
-        if (directory !== null) env[CLAUDE_CONFIG_DIR] = directory;
+        env[CLAUDE_CONFIG_DIR] = directory;
+        let timer: { cancel(): void } | undefined;
         try {
-          return await helper();
+          return await new Promise<T>((resolve, reject) => {
+            timer = later(() => reject(new Error(`A Claude session helper did not answer within ${timeoutMs} ms.`)), timeoutMs);
+            Promise.resolve()
+              .then(helper)
+              .then(resolve, (error: unknown) => reject(error instanceof Error ? error : new Error(String(error))));
+          });
         } finally {
+          timer?.cancel();
           if (previous === undefined) delete env[CLAUDE_CONFIG_DIR];
           else env[CLAUDE_CONFIG_DIR] = previous;
         }

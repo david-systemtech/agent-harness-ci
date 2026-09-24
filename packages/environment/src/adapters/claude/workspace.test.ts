@@ -31,6 +31,17 @@ describe("a worktree's checkout", () => {
     expect(worktreeCheckout(worktree)).toBe(main);
   });
 
+  it("is nothing for a worktree of a bare repository, whose common directory is not a checkout's .git", () => {
+    const root = temp();
+    const bare = join(root, "repo.git");
+    const worktree = join(root, "wt");
+    mkdirSync(join(bare, "worktrees", "wt"), { recursive: true });
+    writeFileSync(join(bare, "worktrees", "wt", "commondir"), "../..\n");
+    mkdirSync(worktree);
+    writeFileSync(join(worktree, ".git"), `gitdir: ${join(bare, "worktrees", "wt")}\n`);
+    expect(worktreeCheckout(worktree)).toBeNull();
+  });
+
   it("is nothing for a plain checkout, a directory without git, or one that does not exist", () => {
     const root = temp();
     mkdirSync(join(root, "plain", ".git"), { recursive: true });

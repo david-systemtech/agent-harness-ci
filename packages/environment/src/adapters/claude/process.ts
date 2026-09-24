@@ -42,21 +42,26 @@ import { worktreeCheckout } from "./workspace.js";
  * (`user_message_uuid(s)`), and a prompt is stamped with the harness's
  * message id, so an `init` is held until a message names its owner. A turn
  * naming a waiting run's prompt is that run's; any other is the provider's
- * own, adopted, and the waiting run keeps waiting behind it. A CLI that does
- * not narrate is read as Artemis did before it did: a waiting run's prompt
- * opens the next turn.
+ * own, adopted, and the waiting run keeps waiting behind it, except a
+ * delivery failure the SDK leaves unnamed, which is the one waiting run's
+ * when nothing else is owed. A run the CLI never opens is ended by a
+ * watchdog. A CLI that does not narrate is read as Artemis did before it
+ * did: a waiting run's prompt opens the next turn.
  *
  * It is let go when the host has released every turn and nothing holds it
- * (Artemis's retention rule): a live background task, a registered schedule,
- * the settle grace after a task settles, the grace a sent message has to
- * open its queued turn, an unanswered prompt. `idleMs` keeps it that much
+ * (Artemis's retention rule): a live background task, a cron job or a
+ * wakeup, the settle grace after a task settles, the grace a queued message
+ * has to open its turn, an unanswered prompt. `idleMs` keeps it that much
  * longer for the next run; the pool (#120) is what will own that clock.
  */
 
 /** What a process needs from its adapter. */
 export interface ProcessDeps {
   readonly clock: Clock;
+  /** The adapter's copy of the environment, taken once. */
   readonly hostEnv: HostEnvironment;
+  /** An account's config directory, resolved: the ambient default for an account with none. */
+  readonly configDirectory: (account: RunInput["account"]) => string;
   readonly executablePath: () => string | null;
   readonly sessionStore: SessionStore | null;
   readonly pluginDirectory: (input: RunInput) => string | null;
@@ -81,16 +86,27 @@ export interface ProcessTimings {
   readonly decisionSettleMs: number;
   /** How long an idle, released process is kept for the next run; 0 lets it go at once. */
   readonly idleMs: number;
+  /** How long a model, mode or effort change on a kept process may take before the run fails. */
+  readonly controlTimeoutMs: number;
+  /** How long a run's prompt may sit unopened while the CLI serves no turn before the run ends error. */
+  readonly openTimeoutMs: number;
 }
 
-/** The tools that leave a job in the process that only fires while it idles (Artemis's list): a process that called one is kept. */
-const SCHEDULING_TOOLS: ReadonlySet<string> = new Set(["CronCreate", "ScheduleWakeup", "CronUpdate"]);
+/**
+ * The tools that leave a job in the process that only fires while it idles
+ * (Artemis's list): a process holding one is kept. A cron job is counted
+ * until `CronDelete` removes one; a wakeup until a turn of the provider's
+ * own opens with no message behind it, which is the wakeup firing.
+ */
+const CRON_CREATE = "CronCreate";
+const CRON_DELETE = "CronDelete";
+const WAKEUP = "ScheduleWakeup";
 
 /** The tools whose prompt is a question or a plan rather than a permission (the permissions spec's kinds). */
 const PROMPT_KINDS: Readonly<Record<string, PromptKind>> = { AskUserQuestion: "question", ExitPlanMode: "plan" };
 
 export const DISPOSED_DENY_MESSAGE = "The run was stopped before this could be answered.";
-export const WITHDRAWN_DENY_MESSAGE = "The provider withdrew this tool call.";
+export const ABORTED_DENY_MESSAGE = "The provider aborted this tool call.";
 const DEFAULT_DENY_MESSAGE = "The request was denied.";
 
 type Record_ = Record<string, unknown>;
@@ -111,6 +127,19 @@ const ownersOf = (message: unknown): string[] => {
     if (prompt) owners.push(message["uuid"]);
   }
   return owners;
+};
+
+/**
+ * A message that names no owner where the SDK says one may be missing: a
+ * result that failed to deliver or came back zeroed, or the synthetic
+ * assistant message a delivery failure writes (the signed-out answer).
+ */
+const deliveryFailure = (message: unknown): boolean => {
+  if (!isRecord(message) || message["parent_tool_use_id"] != null) return false;
+  if (message["type"] === "result") return true;
+  if (message["type"] !== "assistant") return false;
+  const body = message["message"];
+  return message["is_api_error_message"] === true || (isRecord(body) && body["model"] === "<synthetic>");
 };
 
 /** A message that says the turn has begun without naming its owner: the model speaking on the main thread, or the turn's result. */
@@ -141,18 +170,11 @@ const userMessage = (message: PromptMessage): SDKUserMessage => {
 
 /** What a spawn fixed, which a later run must share to attach. */
 interface SpawnKey {
-  readonly directory: string | null;
+  readonly directory: string;
   readonly trusted: boolean;
   readonly toolServers: string;
   readonly bypassAllowed: boolean;
 }
-
-const spawnKeyOf = (input: RunInput, mode: ClaudeMode): SpawnKey => ({
-  directory: input.account.directory,
-  trusted: input.trusted,
-  toolServers: input.toolServers.map((server) => server.name).join("\n"),
-  bypassAllowed: mode === "bypassPermissions",
-});
 
 /** What the process last applied, so an attached run sends only what differs. */
 interface Applied {
@@ -160,6 +182,33 @@ interface Applied {
   mode: ClaudeMode;
   effort: string | null;
 }
+
+/** The control requests the pinned SDK has at run time without declaring them, detected once per process. */
+interface Features {
+  /** `interrupt({cancelQueued: true})`: the interrupt withdraws what the CLI still holds and names it under `cancelled`. */
+  readonly cancelQueued: boolean;
+  /** `cancelAsyncMessage(uuid)`: withdraws one queued message. */
+  readonly cancelById: boolean;
+}
+
+type InterruptReceipt = { readonly still_queued?: readonly string[]; readonly cancelled?: readonly string[] } | undefined;
+
+/** The undeclared surface of the pinned SDK's `Query`, as the adapter reaches it. */
+interface QueryControls {
+  interrupt(options?: { cancelQueued?: boolean }): Promise<InterruptReceipt>;
+  cancelAsyncMessage?: (uuid: string) => Promise<boolean>;
+}
+
+/** Whether a query has the undeclared controls, and whether the CLI advertised the cancel on its `init`. */
+export const detectFeatures = (query: unknown, capabilities: readonly string[] | null): Features => {
+  const bag = (query ?? {}) as Record<string, unknown>;
+  const interrupt = bag["interrupt"];
+  const takesOptions = typeof interrupt === "function" && interrupt.length >= 1;
+  return {
+    cancelQueued: takesOptions && (capabilities === null || capabilities.includes("interrupt_cancel_queued_v1")),
+    cancelById: typeof bag["cancelAsyncMessage"] === "function",
+  };
+};
 
 export class ClaudeProcess implements TurnControl {
   readonly sessionId: string;
@@ -171,6 +220,8 @@ export class ClaudeProcess implements TurnControl {
   #applied: Applied;
   #context: RunContext;
   #query: Query | undefined;
+  #features: Features | undefined;
+  #capabilities: readonly string[] | null = null;
   #providerSessionId: string | null = null;
 
   /** The turn the CLI is serving now. */
@@ -186,25 +237,32 @@ export class ClaudeProcess implements TurnControl {
   #narrates = false;
   /** Whether the CLI has opened any turn on this process yet. */
   #anyOpened = false;
-  /** Whether the spawn resumed nothing, so its first turn can only be its own run's. */
+  /** Whether the spawn started a conversation, so its first turn can only be its own run's. */
   readonly #spawnedFresh: boolean;
-  /** Turns opened for a subagent's prompt between the CLI's turns, with no turn of the CLI's behind them. */
+  /**
+   * A turn opened for a subagent's prompt between the CLI's turns: no turn
+   * of the CLI's is behind it, so it is not the current one, and it ends
+   * once the prompts it carries are answered.
+   */
+  #promptTurn: ClaudeTurn | undefined;
   readonly #forPrompt = new WeakSet<ClaudeTurn>();
 
-  /** Messages sent during a turn, by id, that no turn has been seen to read yet. */
-  readonly #pendingSends = new Set<string>();
+  /** Queued messages: sent during a turn, by id, and not yet seen read by any turn. */
+  readonly #queuedSends = new Map<string, PromptMessage>();
   /** The permission table: prompts parked on the broker, by prompt id, answerable here too, with the turn that asked. */
   readonly #permissions = new Map<string, { readonly answer: (decision: PromptDecision) => void; readonly turn: ClaudeTurn }>();
 
   /** Live background tasks, from the level alone (Artemis: retention reads the level, never the ledger). */
   #liveTasks = 0;
-  #registeredSchedule = false;
+  #crons = 0;
+  #wakeups = 0;
   #settling = false;
   #settleOwed = false;
   #settleTimer: Timer | undefined;
   #awaitingQueuedTurn = false;
   #queuedTurnTimer: Timer | undefined;
   #idleTimer: Timer | undefined;
+  #openTimer: Timer | undefined;
 
   #closed = false;
   #disposing: Promise<void> | undefined;
@@ -215,34 +273,58 @@ export class ClaudeProcess implements TurnControl {
     this.#deps = deps;
     this.#context = context;
     this.#ledger = new TaskLedger(deps.clock);
-    this.#spawn = spawnKeyOf(first, mode);
-    this.#spawnedFresh = first.target.kind !== "resume";
+    this.#spawn = this.#spawnKeyOf(first, mode);
+    this.#spawnedFresh = first.target.kind === "fresh";
     this.#applied = { model: first.model, mode, effort: first.effort };
+  }
+
+  #spawnKeyOf(input: RunInput, mode: ClaudeMode): SpawnKey {
+    return {
+      directory: this.#deps.configDirectory(input.account),
+      trusted: input.trusted,
+      toolServers: input.toolServers.map((server) => server.name).join("\n"),
+      bypassAllowed: mode === "bypassPermissions",
+    };
   }
 
   get closed(): boolean {
     return this.#closed || this.#disposing !== undefined;
   }
 
-  /** Whether the process has a turn open or waiting, or work a turn boundary must not kill. */
+  /**
+   * Whether the process has work a fresh process would destroy: a turn open,
+   * waiting or undecided, a prompt parked, a live background task. A
+   * schedule or a grace alone is not: a run it cannot serve lets it go.
+   */
   get busy(): boolean {
-    return this.#current !== undefined || this.#waiting.length > 0 || this.#undecided !== undefined || this.#liveTasks > 0 || this.#registeredSchedule;
+    return this.#current !== undefined || this.#waiting.length > 0 || this.#undecided !== undefined || this.#liveTasks > 0 || this.#permissions.size > 0;
   }
 
   /** Whether a run can be served on this process rather than a fresh one. */
   canServe(input: RunInput): boolean {
     if (this.closed || this.#current !== undefined || this.#waiting.length > 0 || this.#undecided !== undefined) return false;
     if (input.target.kind !== "resume" || input.target.providerSessionId !== this.#providerSessionId) return false;
-    const key = spawnKeyOf(input, claudeMode(input.mode));
+    const key = this.#spawnKeyOf(input, claudeMode(input.mode));
     if (key.directory !== this.#spawn.directory || key.trusted !== this.#spawn.trusted || key.toolServers !== this.#spawn.toolServers) return false;
     // Bypass needs the SDK's opt-in at spawn; a process started without it cannot enter bypass.
     return !key.bypassAllowed || this.#spawn.bypassAllowed;
   }
 
-  /** The first run: spawns the CLI behind the turn's stream, and answers the turn at once. */
-  open(input: RunInput): ClaudeTurn {
+  /**
+   * The queued messages the CLI has not opened a turn with, taken back: a
+   * process let go for a run it cannot serve hands them to the fresh one
+   * rather than dropping them.
+   */
+  takeQueuedSends(): PromptMessage[] {
+    const taken = [...this.#queuedSends.values()];
+    this.#queuedSends.clear();
+    return taken;
+  }
+
+  /** The first run: spawns the CLI behind the turn's stream, and answers the turn at once. `carried` are a let-go process's queued messages. */
+  open(input: RunInput, carried: readonly PromptMessage[] = []): ClaudeTurn {
     const turn = this.#runTurn(input);
-    void this.#start(input, turn);
+    void this.#start(input, turn, carried);
     return turn;
   }
 
@@ -262,7 +344,9 @@ export class ClaudeProcess implements TurnControl {
         this.#waitingEnds(turn, { reason: "error", error: { message: "The Claude process closed before this run could start; send again.", code: "transport" } });
         return;
       }
+      if (turn.ended) return;
       for (const message of input.prompt) this.#prompts.push(userMessage(message));
+      this.#armOpenWatch();
     })();
     return turn;
   }
@@ -287,6 +371,7 @@ export class ClaudeProcess implements TurnControl {
     const at = this.#waiting.indexOf(turn);
     if (at !== -1) this.#waiting.splice(at, 1);
     turn.end(end);
+    this.#armOpenWatch();
     this.#maybeLetGo();
   }
 
@@ -295,9 +380,10 @@ export class ClaudeProcess implements TurnControl {
     if (query === undefined) return;
     const mode = claudeMode(input.mode);
     const effort = claudeEffort(input.effort);
-    if (input.model !== this.#applied.model) await query.setModel(input.model);
-    if (mode !== this.#applied.mode) await query.setPermissionMode(mode);
-    if (input.effort !== this.#applied.effort) await query.applyFlagSettings({ effortLevel: effort });
+    const limit = this.#deps.timings.controlTimeoutMs;
+    if (input.model !== this.#applied.model) await this.#within(query.setModel(input.model), limit);
+    if (mode !== this.#applied.mode) await this.#within(query.setPermissionMode(mode), limit);
+    if (input.effort !== this.#applied.effort) await this.#within(query.applyFlagSettings({ effortLevel: effort }), limit);
     this.#applied = { model: input.model, mode, effort: input.effort };
   }
 
@@ -308,7 +394,7 @@ export class ClaudeProcess implements TurnControl {
     if (anchor === null || target.kind === "fresh" || target.kind === "resume") return null;
     const stored = await readStoredSession({
       queue: this.#deps.queue,
-      directory: input.account.directory,
+      directory: this.#deps.configDirectory(input.account),
       providerSessionId: target.providerSessionId,
       sessionStore: this.#deps.sessionStore,
       getSessionMessages: sdkGetSessionMessages,
@@ -318,12 +404,13 @@ export class ClaudeProcess implements TurnControl {
     return point;
   }
 
-  async #start(input: RunInput, turn: ClaudeTurn): Promise<void> {
+  async #start(input: RunInput, turn: ClaudeTurn, carried: readonly PromptMessage[]): Promise<void> {
     let options: Options;
     try {
       options = buildRunOptions({
         run: input,
         hostEnv: this.#deps.hostEnv,
+        configDirectory: this.#deps.configDirectory(input.account),
         executablePath: this.#deps.executablePath(),
         pluginDirectory: this.#deps.pluginDirectory(input),
         autoMemoryDirectory: this.#deps.autoMemoryDirectory(input),
@@ -341,12 +428,17 @@ export class ClaudeProcess implements TurnControl {
         return;
       }
       for (const message of input.prompt) this.#prompts.push(userMessage(message));
+      for (const message of carried) {
+        this.#queuedSends.set(message.messageId, message);
+        this.#prompts.push(userMessage(message));
+      }
       this.#query = sdkQuery({ prompt: this.#prompts, options });
     } catch (error) {
       this.#waitingEnds(turn, { reason: "error", error: { message: describe(error), code: "launch" } });
       this.#close();
       return;
     }
+    this.#armOpenWatch();
     void this.#pump(this.#query);
   }
 
@@ -377,6 +469,7 @@ export class ClaudeProcess implements TurnControl {
       }
       this.#settleWaiters();
       this.#denyAll(DISPOSED_DENY_MESSAGE);
+      if (this.#promptTurn !== undefined) this.#endPromptTurn(this.#promptTurn);
       this.#close();
     }
   }
@@ -397,24 +490,27 @@ export class ClaudeProcess implements TurnControl {
       this.#undecided.push(message);
       const owners = ownersOf(message);
       if (owners.length > 0) this.#decide(owners);
-      // The first turn of a spawn that resumed nothing is its own run's: no work of an earlier process can be answered ahead of it.
+      // The first turn of a spawn that started a conversation is its own run's: no earlier work can be answered ahead of it.
       // A result naming nobody before any turn opened is the spawn's run failing to start, whatever it resumed.
       else if (!this.#anyOpened && this.#waiting.length > 0 && (this.#spawnedFresh ? speaksWithoutOwner(message) : isRecord(message) && message["type"] === "result")) {
+        this.#decide("first-waiting");
+      } else if (deliveryFailure(message) && this.#waiting.length === 1 && this.#nothingElseOwed()) {
+        // The SDK omits the owners on a delivery failure or a zeroed result; with one run waiting and nothing else owed, it is that run's.
         this.#decide("first-waiting");
       } else if (speaksWithoutOwner(message)) this.#decide([]);
       return;
     }
-    // A turn opened for a subagent's prompt between turns has no turn of the CLI's behind it: the next `init` ends it.
-    if (isInit(message) && this.#current !== undefined && this.#forPrompt.has(this.#current)) {
-      this.#current.end({ reason: "completed" });
-      this.#current = undefined;
-      this.#afterTurn(false);
-    }
     if (this.#current === undefined) {
       if (isInit(message)) {
         this.#undecided = [message];
+        this.#openTimer?.cancel();
         const capabilities = isRecord(message) ? message["capabilities"] : undefined;
-        if (Array.isArray(capabilities)) this.#narrates = capabilities.includes("msg_lifecycle_v1");
+        if (Array.isArray(capabilities) && this.#capabilities === null) {
+          // The first `init` says what this CLI can do; detection runs again once, with it.
+          this.#capabilities = capabilities.filter((one): one is string => typeof one === "string");
+          this.#narrates = this.#capabilities.includes("msg_lifecycle_v1");
+          this.#features = undefined;
+        }
         if (!this.#narrates) this.#decide(this.#waiting.length > 0 ? "first-waiting" : []);
         return;
       }
@@ -425,14 +521,22 @@ export class ClaudeProcess implements TurnControl {
     this.#serve(this.#current, message);
   }
 
+  /** No queued message, settle or live task that a turn could be about instead of the waiting run. */
+  #nothingElseOwed(): boolean {
+    return this.#queuedSends.size === 0 && !this.#settling && !this.#settleOwed && this.#liveTasks === 0;
+  }
+
   /** Maps a message onto the open turn, noting a steer it read and a schedule it registered, and closes the turn at its end. */
   #serve(turn: ClaudeTurn, message: unknown): void {
     for (const owner of ownersOf(message)) {
-      if (!this.#pendingSends.delete(owner)) continue;
+      if (!this.#queuedSends.delete(owner)) continue;
       turn.emit({ type: "message.delivered", payload: { messageId: owner, delivery: "steered" } });
     }
     for (const event of turn.map(message)) {
-      if (event.type === "tool.started" && SCHEDULING_TOOLS.has(event.payload.name)) this.#registeredSchedule = true;
+      if (event.type !== "tool.started") continue;
+      if (event.payload.name === CRON_CREATE) this.#crons += 1;
+      else if (event.payload.name === CRON_DELETE) this.#crons = Math.max(0, this.#crons - 1);
+      else if (event.payload.name === WAKEUP) this.#wakeups += 1;
     }
     if (turn.state.providerSessionId !== null) this.#providerSessionId = turn.state.providerSessionId;
     // Work that changed between turns is reported by the next turn to hear anything (Artemis's `#flushTasks`).
@@ -445,40 +549,55 @@ export class ClaudeProcess implements TurnControl {
 
   /**
    * Opens the turn the held messages belong to: the waiting run whose prompt
-   * the owners name (or the first waiting run, for a CLI that does not
-   * narrate), else a turn of the provider's own, handed to the adoption hook
-   * with the sent messages it opened with. Then the held messages are served.
+   * the owners name (or the first waiting run), else a turn of the
+   * provider's own, handed to the adoption hook with the queued messages it
+   * opened with. Then the held messages are served. A run the host asked to
+   * interrupt before it opened is interrupted now, and not before: the turn
+   * the CLI ran ahead of it was not the run's to stop.
    */
   #decide(owners: readonly string[] | "first-waiting"): void {
     const held = this.#undecided ?? [];
     this.#undecided = undefined;
     this.#anyOpened = true;
+    this.#openTimer?.cancel();
     const named = owners === "first-waiting" ? [] : owners;
     const at = owners === "first-waiting" ? (this.#waiting.length > 0 ? 0 : -1) : this.#waiting.findIndex((turn) => turn.promptIds.some((id) => named.includes(id)));
-    const opened = named.filter((id) => this.#pendingSends.delete(id));
+    const opened = named.filter((id) => this.#queuedSends.delete(id));
     if (at !== -1) {
       const turn = this.#waiting.splice(at, 1)[0] as ClaudeTurn;
-      turn.opened = true;
       this.#current = turn;
-      // Sent messages the CLI folded into this run's opening turn were read by it.
+      turn.markOpened();
+      // Queued messages the CLI folded into this run's opening turn were read by it.
       for (const messageId of opened) turn.emit({ type: "message.delivered", payload: { messageId, delivery: "prompt" } });
-    } else this.#providerTurn(opened);
+    } else {
+      // A turn of the provider's own with no message behind it is a wakeup firing, when one is registered.
+      if (opened.length === 0 && this.#wakeups > 0) this.#wakeups -= 1;
+      this.#current = this.#providerTurn(opened, false);
+    }
     this.#settleWaiters();
     for (const message of held) this.#route(message);
   }
 
-  /** A turn the provider opened on its own, adopted by the host as a run of the session. */
-  #providerTurn(messageIds: readonly string[]): ClaudeTurn {
+  /**
+   * A turn the provider opened on its own, adopted by the host as a run of
+   * the session: the CLI's own turn (`forPrompt` false, the current one), or
+   * one carrying a subagent's prompt between the CLI's turns.
+   */
+  #providerTurn(messageIds: readonly string[], forPrompt: boolean): ClaudeTurn {
     const turn = new ClaudeTurn({ origin: "provider", runId: "", promptIds: [], messageIds, control: this, clock: this.#deps.clock, ledger: this.#ledger });
-    turn.opened = true;
-    this.#current = turn;
+    turn.markOpened();
     this.#unsettled.add(turn);
-    // A turn opening ends the settle grace's wait; its end re-arms it while the debt is owed.
-    this.#settling = false;
-    this.#settleTimer?.cancel();
-    this.#awaitingQueuedTurn = false;
-    this.#queuedTurnTimer?.cancel();
-    this.#deps.diagnostic(`Claude (session ${this.sessionId}): the provider opened a turn of its own${messageIds.length > 0 ? ` with ${messageIds.length} queued message(s)` : ""}.`);
+    if (forPrompt) this.#forPrompt.add(turn);
+    else {
+      // A turn opening ends the settle grace's wait; its end re-arms it while the debt is owed.
+      this.#settling = false;
+      this.#settleTimer?.cancel();
+      this.#awaitingQueuedTurn = false;
+      this.#queuedTurnTimer?.cancel();
+    }
+    this.#deps.diagnostic(
+      `Claude (session ${this.sessionId}): the provider opened a turn of its own${forPrompt ? " for a subagent's prompt" : ""}${messageIds.length > 0 ? ` with ${messageIds.length} queued message(s)` : ""}.`,
+    );
     this.#context.adopt(turn);
     return turn;
   }
@@ -486,17 +605,34 @@ export class ClaudeProcess implements TurnControl {
   /** A turn ended: hold the process for what is coming (a queued turn, the turn about settled work), else let it go once released. */
   #afterTurn(atResult: boolean): void {
     if (this.#settleOwed && atResult) this.#awaitSettleTurn();
-    if (this.#pendingSends.size > 0) {
+    if (this.#queuedSends.size > 0) {
       this.#awaitingQueuedTurn = true;
       this.#queuedTurnTimer?.cancel();
       this.#queuedTurnTimer = this.#deps.clock.setTimeout(() => {
-        // No turn opened: the messages were folded in without a word on the stream.
+        // No turn opened within the grace: the hold ends. The ids are kept, so a turn opening later still reports reading them.
         this.#awaitingQueuedTurn = false;
-        this.#pendingSends.clear();
         this.#maybeLetGo();
       }, this.#deps.timings.queuedTurnGraceMs);
     }
+    this.#armOpenWatch();
     this.#maybeLetGo();
+  }
+
+  /**
+   * The watchdog for a run whose prompt the CLI never opens: while runs wait
+   * and the CLI serves no turn, the open timeout runs; when it passes, every
+   * waiting run ends error, so none pins the process for ever.
+   */
+  #armOpenWatch(): void {
+    this.#openTimer?.cancel();
+    if (this.closed || this.#waiting.length === 0 || this.#current !== undefined || this.#undecided !== undefined) return;
+    this.#openTimer = this.#deps.clock.setTimeout(() => {
+      if (this.#current !== undefined || this.#undecided !== undefined) return;
+      for (const turn of this.#waiting.splice(0)) {
+        turn.end({ reason: "error", error: { message: `The Claude process did not open this run's turn within ${this.#deps.timings.openTimeoutMs} ms; send again.`, code: "not_opened" } });
+      }
+      this.#maybeLetGo();
+    }, this.#deps.timings.openTimeoutMs);
   }
 
   #awaitSettleTurn(): void {
@@ -513,23 +649,24 @@ export class ClaudeProcess implements TurnControl {
 
   /** Whether something a turn boundary must not kill is running or owed. */
   #holdsWork(): boolean {
-    return this.#liveTasks > 0 || this.#registeredSchedule || this.#settling || this.#awaitingQueuedTurn || this.#permissions.size > 0;
+    return this.#liveTasks > 0 || this.#crons > 0 || this.#wakeups > 0 || this.#settling || this.#awaitingQueuedTurn || this.#permissions.size > 0;
+  }
+
+  #idle(): boolean {
+    return !this.closed && this.#current === undefined && this.#waiting.length === 0 && this.#undecided === undefined && this.#unsettled.size === 0 && !this.#holdsWork();
   }
 
   /** Lets the process go when no turn is open, waiting or unreleased and nothing holds it; after the idle time when one is set. */
   #maybeLetGo(): void {
-    if (this.closed || this.#current !== undefined || this.#waiting.length > 0 || this.#undecided !== undefined || this.#unsettled.size > 0 || this.#holdsWork()) return;
+    if (!this.#idle()) return;
     this.#idleTimer?.cancel();
     if (this.#deps.timings.idleMs <= 0) {
       this.#close();
       return;
     }
-    this.#idleTimer = this.#deps.clock.setTimeout(() => this.#maybeLetGoNow(), this.#deps.timings.idleMs);
-  }
-
-  #maybeLetGoNow(): void {
-    if (this.closed || this.#current !== undefined || this.#waiting.length > 0 || this.#undecided !== undefined || this.#unsettled.size > 0 || this.#holdsWork()) return;
-    this.#close();
+    this.#idleTimer = this.#deps.clock.setTimeout(() => {
+      if (this.#idle()) this.#close();
+    }, this.#deps.timings.idleMs);
   }
 
   /** Takes the transport down; the pump's own ending does the rest. */
@@ -539,6 +676,7 @@ export class ClaudeProcess implements TurnControl {
     this.#idleTimer?.cancel();
     this.#settleTimer?.cancel();
     this.#queuedTurnTimer?.cancel();
+    this.#openTimer?.cancel();
     this.#prompts.close();
     try {
       this.#query?.close();
@@ -570,9 +708,10 @@ export class ClaudeProcess implements TurnControl {
    * `canUseTool`, on the broker seam: every request is handed to the host's
    * broker (the auto-deny placeholder until #130) and parked in the
    * permission table until the broker or `answerPrompt` settles it, or the
-   * provider withdraws it. A request arriving with no turn open is a
+   * provider aborts it. A request arriving with no turn open is a
    * subagent's, parked long after its own turn ended: a turn of the
-   * provider's own is opened for it, so somebody can see it.
+   * provider's own carries it, and the broker is asked once the host has
+   * adopted that turn and named its run.
    */
   readonly #canUseTool: CanUseTool = async (toolName, input, options) => {
     const toolUseID = options.toolUseID;
@@ -580,53 +719,57 @@ export class ClaudeProcess implements TurnControl {
     await this.#decided();
     let turn = this.#current;
     if (turn === undefined) {
-      turn = this.#providerTurn([]);
-      this.#forPrompt.add(turn);
+      turn = this.#promptTurn !== undefined && !this.#promptTurn.ended ? this.#promptTurn : this.#providerTurn([], true);
+      this.#promptTurn = turn;
     }
     const promptId = toolUseID === "" ? randomUUID() : toolUseID;
-    const kind = PROMPT_KINDS[toolName] ?? "permission";
-    const detail = toJson({
-      promptId,
-      toolName,
-      input,
-      toolUseId: toolUseID,
-      title: options.title ?? null,
-      description: options.description ?? null,
-      decisionReason: options.decisionReason ?? null,
-      blockedPath: options.blockedPath ?? null,
-      agentId: options.agentID ?? null,
-    }) as Record<string, unknown>;
     let answer!: (decision: PromptDecision) => void;
     const answered = new Promise<PromptDecision>((resolve) => (answer = resolve));
     this.#permissions.set(promptId, { answer, turn });
-    const withdrawn = (): void => answer({ decision: "deny", message: WITHDRAWN_DENY_MESSAGE });
-    options.signal.addEventListener("abort", withdrawn, { once: true });
+    const aborted = (): void => answer({ decision: "deny", message: ABORTED_DENY_MESSAGE });
+    options.signal.addEventListener("abort", aborted, { once: true });
     try {
-      const decision = await Promise.race([answered, this.#context.broker.request({ sessionId: this.sessionId, runId: turn.runId, kind, detail })]);
-      const result: PermissionResult =
-        decision.decision === "allow"
-          ? { behavior: "allow", updatedInput: input, toolUseID }
-          : { behavior: "deny", message: decision.message ?? DEFAULT_DENY_MESSAGE, toolUseID };
-      return result;
+      const runId = await Promise.race([turn.adoptedRunId(), answered.then(() => null)]);
+      if (runId === null) {
+        // Settled before the host named a run for it (aborted, answered, the process let go): the broker is never asked.
+        const early = await Promise.race([answered, Promise.resolve<PromptDecision>({ decision: "deny", message: DISPOSED_DENY_MESSAGE })]);
+        return this.#result(early, input, toolUseID);
+      }
+      const kind = PROMPT_KINDS[toolName] ?? "permission";
+      const detail = toJson({
+        promptId,
+        toolName,
+        input,
+        toolUseId: toolUseID,
+        title: options.title ?? null,
+        description: options.description ?? null,
+        decisionReason: options.decisionReason ?? null,
+        blockedPath: options.blockedPath ?? null,
+        agentId: options.agentID ?? null,
+      }) as Record<string, unknown>;
+      return this.#result(await Promise.race([answered, this.#context.broker.request({ sessionId: this.sessionId, runId, kind, detail })]), input, toolUseID);
     } catch (error) {
       return { behavior: "deny", message: `The request could not be asked: ${describe(error)}`, toolUseID };
     } finally {
-      options.signal.removeEventListener("abort", withdrawn);
+      options.signal.removeEventListener("abort", aborted);
       this.#permissions.delete(promptId);
       this.#endPromptTurn(turn);
       this.#maybeLetGo();
     }
   };
 
-  /** A turn opened only to carry a subagent's prompts ends once none of them is parked: no result of the CLI's will end it. */
+  #result(decision: PromptDecision, input: Record<string, unknown>, toolUseID: string): PermissionResult {
+    return decision.decision === "allow"
+      ? { behavior: "allow", updatedInput: input, toolUseID }
+      : { behavior: "deny", message: decision.message ?? DEFAULT_DENY_MESSAGE, toolUseID };
+  }
+
+  /** A turn carrying only a subagent's prompts ends once none of them is parked: no result of the CLI's will end it. */
   #endPromptTurn(turn: ClaudeTurn, end: Omit<RunEnd, "type"> = { reason: "completed" }): void {
     if (!this.#forPrompt.has(turn) || turn.ended) return;
     if ([...this.#permissions.values()].some((parked) => parked.turn === turn)) return;
     turn.end(end);
-    if (this.#current === turn) {
-      this.#current = undefined;
-      this.#afterTurn(false);
-    }
+    if (this.#promptTurn === turn) this.#promptTurn = undefined;
   }
 
   #denyAll(message: string, only?: ClaudeTurn): void {
@@ -637,13 +780,23 @@ export class ClaudeProcess implements TurnControl {
     }
   }
 
+  /** The undeclared controls this process has, detected once it has a query and re-read after an `init`; a missing one is said once. */
+  #featuresOf(query: Query): Features {
+    if (this.#features !== undefined) return this.#features;
+    const features = detectFeatures(query, this.#capabilities);
+    this.#features = features;
+    if (!features.cancelQueued) this.#deps.diagnostic(`Claude (session ${this.sessionId}): this SDK or CLI cannot cancel the queue with an interrupt; queued messages are withdrawn one by one, and may run first.`);
+    if (!features.cancelById) this.#deps.diagnostic(`Claude (session ${this.sessionId}): this SDK has no cancel-by-id control; a queued message cannot be withdrawn and runs as the provider's next turn.`);
+    return features;
+  }
+
   // The turn control: what a turn asks of its process.
 
   async send(turn: ClaudeTurn, message: PromptMessage): Promise<void> {
     if (this.closed || this.#prompts.closed) throw new Error("The Claude process is closing and takes no more messages.");
     if (turn.ended) throw new Error("The run has ended; its messages go to the next run.");
     // Stamped with the harness's id: the CLI names it when a turn reads it, and an interrupt's receipt lists it.
-    this.#pendingSends.add(message.messageId);
+    this.#queuedSends.set(message.messageId, message);
     this.#prompts.push(userMessage(message));
   }
 
@@ -658,19 +811,36 @@ export class ClaudeProcess implements TurnControl {
       return { stillQueued: [] };
     }
     const query = this.#query;
-    // A run whose prompt the CLI has not taken yet is withdrawn from its queue, and ends there.
-    if (!turn.opened && query !== undefined && (await this.#cancelAll(query, turn.promptIds))) {
-      this.#waitingEnds(turn, { reason: "interrupted", cause: "user" });
-      return { stillQueued: [] };
+    if (!turn.opened) {
+      // Not spawned yet, or its prompt withdrawn from the CLI's queue: the run ends here.
+      if (query === undefined || (this.#featuresOf(query).cancelById && (await this.#withdraw(query, turn.promptIds)))) {
+        this.#waitingEnds(turn, { reason: "interrupted", cause: "user" });
+        return { stillQueued: [] };
+      }
+      // The CLI may be running another turn ahead of it, which is not this run's to stop: wait for it to open this one.
+      await turn.whenOpened();
+      if (turn.ended || this.#current !== turn) return { stillQueued: [] };
     }
-    if (query === undefined) {
-      this.#waitingEnds(turn, { reason: "interrupted", cause: "user" });
-      return { stillQueued: [] };
-    }
-    let stillQueued: readonly string[];
+    if (query === undefined) return { stillQueued: [] };
+    return this.#interruptOpen(query);
+  }
+
+  /**
+   * Interrupts the open turn and takes the queue back with it (ADR 0022: an
+   * interrupt re-owns the queue and starts nothing). The pinned SDK's
+   * `interrupt({cancelQueued: true})`, present at run time though its
+   * declarations omit the argument, withdraws in the same request everything
+   * the CLI still holds and names it under `cancelled`, so no queued message
+   * can run as the next turn in between; the ones this process sent go back
+   * to the host. A CLI without it gets the plain interrupt and the
+   * one-by-one withdrawal, which can lose that race.
+   */
+  async #interruptOpen(query: Query): Promise<{ readonly stillQueued: readonly string[] }> {
+    const features = this.#featuresOf(query);
+    const controls = query as unknown as QueryControls;
+    let receipt: InterruptReceipt;
     try {
-      const receipt = await this.#within(query.interrupt(), this.#deps.timings.interruptTimeoutMs);
-      stillQueued = receipt?.still_queued ?? [];
+      receipt = await this.#within(features.cancelQueued ? controls.interrupt({ cancelQueued: true }) : controls.interrupt(), this.#deps.timings.interruptTimeoutMs);
     } catch (error) {
       // The control channel did not answer: the transport comes down and the pump ends the turn interrupted.
       this.#deps.diagnostic(`Claude (session ${this.sessionId}): the interrupt did not complete; forcing the process down.`, describe(error));
@@ -678,31 +848,30 @@ export class ClaudeProcess implements TurnControl {
       this.#close();
       return { stillQueued: [] };
     }
-    // The receipt names what the CLI would still run; each is withdrawn from its queue, and only those are handed back.
     const reowned: string[] = [];
-    for (const id of stillQueued) {
-      if (!this.#pendingSends.has(id)) continue;
-      if (await this.#cancelAll(query, [id])) {
-        this.#pendingSends.delete(id);
+    if (features.cancelQueued) {
+      // Only ids this process sent are handed back; the CLI may list its own (a cron trigger, an auto-resume).
+      for (const id of receipt?.cancelled ?? []) if (this.#queuedSends.delete(id)) reowned.push(id);
+      return { stillQueued: reowned };
+    }
+    for (const id of receipt?.still_queued ?? []) {
+      if (!this.#queuedSends.has(id)) continue;
+      if (features.cancelById && (await this.#withdraw(query, [id]))) {
+        this.#queuedSends.delete(id);
         reowned.push(id);
       }
     }
     return { stillQueued: reowned };
   }
 
-  /**
-   * Withdraws queued messages by id through the cancel-by-id control. The
-   * pinned 0.3.281 declares the control request (`cancel_async_message`)
-   * and its `Query` has the method at run time without declaring it, so it
-   * is looked up; absent, nothing is withdrawn and the CLI runs what it holds.
-   */
-  async #cancelAll(query: Query, ids: readonly string[]): Promise<boolean> {
-    const cancel = (query as unknown as { cancelAsyncMessage?: (uuid: string) => Promise<boolean> }).cancelAsyncMessage;
+  /** Withdraws queued messages by id through the cancel-by-id control (`cancelAsyncMessage`); true only when every one was withdrawn. */
+  async #withdraw(query: Query, ids: readonly string[]): Promise<boolean> {
+    const cancel = (query as unknown as QueryControls).cancelAsyncMessage;
     if (typeof cancel !== "function" || ids.length === 0) return false;
     let all = true;
     for (const id of ids) {
       try {
-        if ((await cancel.call(query, id)) !== true) all = false;
+        if ((await this.#within(cancel.call(query, id), this.#deps.timings.controlTimeoutMs)) !== true) all = false;
       } catch {
         all = false;
       }
@@ -725,14 +894,17 @@ export class ClaudeProcess implements TurnControl {
     this.#maybeLetGo();
   }
 
-  /** Stops the process now: the host has let a run go (its session deleted, the environment closing). */
+  /** Stops the process now: the host has let a run go (its session deleted, the environment closing), or a fresh process replaces it. */
   dispose(): Promise<void> {
     this.#disposing ??= (async () => {
       this.#denyAll(DISPOSED_DENY_MESSAGE);
-      for (const turn of [this.#current, ...this.#waiting]) turn?.close();
+      for (const turn of [this.#current, this.#promptTurn, ...this.#waiting]) turn?.close();
       this.#current = undefined;
+      this.#promptTurn = undefined;
       this.#waiting.length = 0;
       this.#undecided = undefined;
+      this.#crons = 0;
+      this.#wakeups = 0;
       this.#settleWaiters();
       this.#close();
       this.#abort.abort();
@@ -761,5 +933,4 @@ export class ClaudeProcess implements TurnControl {
       );
     });
   }
-
 }

@@ -57,6 +57,9 @@ export class ClaudeTurn implements ProviderTurn {
   opened = false;
   /** Whether the host is done with it (`release` or `dispose`). */
   settled = false;
+  readonly #adopted: Promise<string | null>;
+  #resolveAdopted!: (runId: string | null) => void;
+  #whenOpened: (() => void)[] = [];
 
   constructor(options: TurnOptions) {
     this.origin = options.origin;
@@ -65,6 +68,8 @@ export class ClaudeTurn implements ProviderTurn {
     this.messageIds = options.messageIds;
     this.#control = options.control;
     this.state = createMapperState({ ledger: options.ledger, now: () => options.clock.now().getTime() });
+    this.#adopted = new Promise((resolve) => (this.#resolveAdopted = resolve));
+    if (options.origin === "run") this.#resolveAdopted(options.runId);
     this.#batcher = createDeltaBatcher(options.clock, (event) => {
       this.#stream.push(event);
       if (event.type === "end") this.#stream.close();
@@ -82,6 +87,24 @@ export class ClaudeTurn implements ProviderTurn {
   /** The host adopted the turn under this run id. */
   onAdopted(runId: string): void {
     this.#runId = runId;
+    this.#resolveAdopted(runId);
+  }
+
+  /** The turn's run id once the host has one for it; null when it is let go first. A run's is known from the start. */
+  adoptedRunId(): Promise<string | null> {
+    return this.#adopted;
+  }
+
+  /** Resolves once the CLI opens the turn, or it ends without opening. */
+  whenOpened(): Promise<void> {
+    if (this.opened || this.state.ended) return Promise.resolve();
+    return new Promise((resolve) => this.#whenOpened.push(resolve));
+  }
+
+  /** The CLI opened the turn. */
+  markOpened(): void {
+    this.opened = true;
+    for (const wake of this.#whenOpened.splice(0)) wake();
   }
 
   get events(): AsyncIterable<AdapterEvent> {
@@ -91,7 +114,10 @@ export class ClaudeTurn implements ProviderTurn {
   /** Puts an event on the turn's stream, deltas through the batcher; nothing after the end. */
   emit(event: AdapterEvent): void {
     this.#batcher.push(event);
-    if (event.type === "end") this.#batcher.close();
+    if (event.type === "end") {
+      this.#batcher.close();
+      for (const wake of this.#whenOpened.splice(0)) wake();
+    }
   }
 
   /** Maps one SDK message onto the turn; answers what it emitted. */
@@ -111,6 +137,8 @@ export class ClaudeTurn implements ProviderTurn {
     this.state.ended = true;
     this.#batcher.close();
     this.#stream.close();
+    this.#resolveAdopted(null);
+    for (const wake of this.#whenOpened.splice(0)) wake();
   }
 
   send(message: PromptMessage): Promise<void> {

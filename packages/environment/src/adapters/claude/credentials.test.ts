@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { CLAUDE_CONFIG_DIR, CLAUDE_STRIPPED_VARIABLES, claudeCredentials, composeRunEnvironment, parseClaudeStatus, readClaudeStatus } from "./credentials.js";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { CLAUDE_CONFIG_DIR, CLAUDE_STRIPPED_VARIABLES, ambientConfigDirectory, claudeCredentials, composeRunEnvironment, isScrubbed, parseClaudeStatus, readClaudeStatus } from "./credentials.js";
 
 /**
  * The Claude credential spec (claude-adapter spec, "The adapter contract";
@@ -118,9 +120,43 @@ describe("a Claude process's environment", () => {
     expect(env).not.toHaveProperty("ANTHROPIC_API_KEY");
   });
 
-  it("leaves the provider's own default directory alone for an account with none", () => {
-    expect(composeRunEnvironment(host, null)[CLAUDE_CONFIG_DIR]).toBe("/home/david/.claude-other");
-    expect(composeRunEnvironment({ PATH: "/usr/bin" }, null)).not.toHaveProperty(CLAUDE_CONFIG_DIR);
+  it("scrubs by family: a stray refresh token, a backend selector, a token by descriptor, other endpoints", () => {
+    const env = composeRunEnvironment(
+      {
+        PATH: "/usr/bin",
+        CLAUDE_CODE_OAUTH_REFRESH_TOKEN: "refresh",
+        CLAUDE_CODE_USE_ANTHROPIC_AWS: "1",
+        CLAUDE_CODE_USE_MANTLE: "1",
+        CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR: "3",
+        CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR: "4",
+        CLAUDE_CODE_GATEWAY_TOKEN_FILE_DESCRIPTOR: "5",
+        CLAUDE_CODE_API_BASE_URL: "https://elsewhere.example",
+        CLAUDE_CODE_CUSTOM_OAUTH_URL: "https://login.example",
+        ANTHROPIC_DEFAULT_MODEL: "claude-x",
+        ANTHROPIC_FOUNDRY_API_KEY: "key",
+        ANTHROPIC_CONFIG_DIR: "/elsewhere",
+        GITHUB_TOKEN: "ghp_x",
+        AWS_SESSION_TOKEN: "aws",
+        CLAUDE_CODE_MAX_OUTPUT_TOKENS: "64000",
+        MAX_THINKING_TOKENS: "10000",
+        CLAUDE_CODE_IDLE_TOKEN_THRESHOLD: "5",
+      },
+      "/data/accounts/work",
+    );
+    expect(Object.keys(env).sort()).toEqual(["CLAUDE_CODE_IDLE_TOKEN_THRESHOLD", "CLAUDE_CODE_MAX_OUTPUT_TOKENS", CLAUDE_CONFIG_DIR, "MAX_THINKING_TOKENS", "PATH"].sort());
+  });
+
+  it("keeps the numeric token limits, which carry no credential", () => {
+    for (const name of ["CLAUDE_CODE_MAX_OUTPUT_TOKENS", "MAX_MCP_OUTPUT_TOKENS", "CLAUDE_CODE_RESUME_TOKEN_THRESHOLD", "CLAUDE_CODE_ENABLE_TOKEN_USAGE_ATTACHMENT", "CLAUDE_CODE_TOTAL_TOKENS_REMINDER"]) {
+      expect(isScrubbed(name), name).toBe(false);
+    }
+    for (const name of ["CLAUDE_BG_SOCKET_TOKENS_PATH", "CLAUDE_TRUSTED_DEVICE_TOKEN", "ANTHROPIC_IDENTITY_TOKEN_FILE"]) expect(isScrubbed(name), name).toBe(true);
+  });
+
+  it("resolves an account with no directory of its own to the ambient default, set explicitly", () => {
+    expect(ambientConfigDirectory({ CLAUDE_CONFIG_DIR: "/home/david/.claude-other" })).toBe("/home/david/.claude-other");
+    expect(ambientConfigDirectory({ HOME: "/home/seth" })).toBe("/home/seth/.claude");
+    expect(ambientConfigDirectory({})).toBe(join(homedir(), ".claude"));
   });
 
   it("does not touch the host's environment", () => {

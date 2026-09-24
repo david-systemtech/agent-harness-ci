@@ -72,7 +72,8 @@ export const resolveForkPoint = (messages: readonly StoredMessage[], promptUuid:
 
 export interface StoredSessionRead {
   readonly queue: ConfigDirQueue;
-  readonly directory: string | null;
+  /** The account's config directory, resolved. */
+  readonly directory: string;
   readonly providerSessionId: string;
   readonly sessionStore: SessionStore | null;
   /** The SDK's helper; injected so the adapter hands in the one it imported. */

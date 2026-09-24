@@ -3,11 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AccountIdentity } from "@agent-harness/contracts";
 import type { SessionStore } from "@anthropic-ai/claude-agent-sdk";
-import type { AccountRef, Adapter, AdapterDescriptor, ProviderCommand, RunInput } from "../../adapter/contract.js";
+import type { AccountRef, Adapter, AdapterDescriptor, PromptMessage, ProviderCommand, RunInput } from "../../adapter/contract.js";
 import { systemClock, type Clock } from "../../serve/clock.js";
 import { configDirQueue as processQueue, type ConfigDirQueue } from "./config-dir-queue.js";
 import { withControlQuery } from "./control-query.js";
-import { claudeCredentials, readClaudeStatus, type CommandRunner, type HostEnvironment } from "./credentials.js";
+import { ambientConfigDirectory, claudeCredentials, readClaudeStatus, type CommandRunner, type HostEnvironment } from "./credentials.js";
 import { bundledExecutable } from "./executable.js";
 import { catalogueOf, staticCatalogue } from "./models.js";
 import { CLAUDE_MODES, claudeEffort, claudeMode } from "./options.js";
@@ -29,9 +29,10 @@ export const CLAUDE_PROVIDER = "claude";
 
 /**
  * What Claude can do. `providerQueue` and `steering` rest on the pinned
- * SDK's interrupt receipt (`still_queued`, the `interrupt_receipt_v1`
- * capability the bundled 2.1.281 advertises) and its cancel-by-id control
- * (`cancel_async_message`), both verified present in 0.3.281. Session
+ * SDK's interrupt that cancels the queue (`interrupt({cancelQueued: true})`,
+ * answering `cancelled`; `interrupt_cancel_queued_v1` on the bundled
+ * 2.1.281's `init`) and its cancel-by-id control (`cancelAsyncMessage`),
+ * both present at run time in 0.3.281 and undeclared (`sdk-surface.test.ts`). Session
  * listing, subagent transcripts, titles and transcript delete are the store's
  * and #137's and #122's; file attachments wait on the staging Artemis does.
  */
@@ -60,20 +61,21 @@ export const CLAUDE_DESCRIPTOR: AdapterDescriptor = {
   modes: [...CLAUDE_MODES],
 };
 
-export const DEFAULT_TIMINGS: ProcessTimings & { readonly controlTimeoutMs: number; readonly statusTimeoutMs: number } = {
+export const DEFAULT_TIMINGS: ProcessTimings & { readonly statusTimeoutMs: number } = {
   settleGraceMs: 2_000,
   queuedTurnGraceMs: 5_000,
   interruptTimeoutMs: 8_000,
   decisionSettleMs: 500,
   idleMs: 0,
   controlTimeoutMs: 15_000,
+  openTimeoutMs: 60_000,
   statusTimeoutMs: 15_000,
 };
 
 export interface ClaudeAdapterOptions {
   /** The environment's clock; preset: the system clock. */
   readonly clock?: Clock;
-  /** The environment the Claude processes inherit, before the scrub; preset: this process's. */
+  /** The environment the Claude processes inherit, before the scrub; preset: this process's, copied once when the adapter is made. */
   readonly hostEnv?: HostEnvironment;
   /** The binary runs, status and sign-in use; preset: the SDK's bundled one, found once. Null leaves the SDK to find it. */
   readonly executablePath?: string | null;
@@ -95,6 +97,7 @@ export interface ClaudeAdapterOptions {
 export interface ClaudeAdapter extends Adapter {
   readonly commands: NonNullable<Adapter["commands"]>;
   readonly usage: NonNullable<Adapter["usage"]>;
+  readonly stopProcess: NonNullable<Adapter["stopProcess"]>;
   readonly close: () => void;
 }
 
@@ -118,7 +121,11 @@ export const autoMemoryDirectory = (root: string, input: Pick<RunInput, "reposit
 
 export const createClaudeAdapter = (options: ClaudeAdapterOptions = {}): ClaudeAdapter => {
   const clock = options.clock ?? systemClock;
-  const hostEnv = options.hostEnv ?? process.env;
+  // A copy, taken once: the config-directory queue writes CLAUDE_CONFIG_DIR into process.env while a helper runs,
+  // and no process composed meanwhile may inherit another account's directory from it.
+  const hostEnv: HostEnvironment = { ...(options.hostEnv ?? process.env) };
+  const ambient = ambientConfigDirectory(hostEnv);
+  const configDirectory = (account: Pick<AccountRef, "directory">): string => account.directory ?? ambient;
   const timings = { ...DEFAULT_TIMINGS, ...options.timings };
   const diagnostic = options.diagnostic ?? ((message: string, detail?: unknown) => console.error(message, ...(detail === undefined ? [] : [detail])));
   let executable = options.executablePath;
@@ -129,7 +136,7 @@ export const createClaudeAdapter = (options: ClaudeAdapterOptions = {}): ClaudeA
   const status = (account: AccountRef) =>
     readClaudeStatus({
       executable: executablePath(),
-      directory: account.directory,
+      directory: configDirectory(account),
       hostEnv,
       timeoutMs: timings.statusTimeoutMs,
       ...(options.runCommand !== undefined && { run: options.runCommand }),
@@ -139,10 +146,9 @@ export const createClaudeAdapter = (options: ClaudeAdapterOptions = {}): ClaudeA
     clock,
     hostEnv,
     executablePath: executablePath(),
-    directory: account.directory,
+    directory: configDirectory(account),
     cwd,
     timeoutMs: timings.controlTimeoutMs,
-    pluginDirectory: options.pluginDirectory?.(account) ?? null,
   });
 
   const usage = createPlanUsageReader({
@@ -169,6 +175,7 @@ export const createClaudeAdapter = (options: ClaudeAdapterOptions = {}): ClaudeA
   const deps = (account: AccountRef): ProcessDeps => ({
     clock,
     hostEnv,
+    configDirectory,
     executablePath,
     sessionStore: options.sessionStore ?? null,
     pluginDirectory: (input) => options.pluginDirectory?.(input.account) ?? null,
@@ -200,25 +207,36 @@ export const createClaudeAdapter = (options: ClaudeAdapterOptions = {}): ClaudeA
       claudeEffort(input.effort);
       if (input.prompt.length === 0) throw new Error("A Claude run starts with a message.");
       const kept = processes.get(input.sessionId);
+      let carried: PromptMessage[] = [];
       if (kept !== undefined && !kept.closed) {
         if (kept.canServe(input)) return kept.attach(input, context);
         if (kept.busy) throw new Error("This conversation's Claude process still has work running; stop it before starting a run it cannot serve.");
-        // Retained and idle: let it go, so a fresh process resumes a transcript nobody is writing.
+        // Kept only for a schedule or a grace: let it go, so a fresh process resumes a transcript nobody is writing,
+        // and hand the fresh one the queued messages the old one had not opened a turn with.
+        diagnostic(`Claude (session ${input.sessionId}): letting the kept process go for a run it cannot serve.`);
+        carried = kept.takeQueuedSends();
         void kept.dispose();
       }
       const started = new ClaudeProcess(input, context, deps(input.account));
       processes.set(input.sessionId, started);
-      return started.open(input);
+      return started.open(input, carried);
     },
     usage: (account) => usage.read(account),
-    async commands(account, workspace): Promise<readonly ProviderCommand[]> {
+    async commands(account, workspace, scope): Promise<readonly ProviderCommand[]> {
       try {
-        const commands = await withControlQuery(control(account, workspace.path), (query) => query.supportedCommands());
+        // What a run here would offer: the account's plugins, and a trusted repository's own commands.
+        const asked = { ...control(account, workspace.path), pluginDirectory: options.pluginDirectory?.(account) ?? null, trusted: scope?.trusted === true };
+        const commands = await withControlQuery(asked, (query) => query.supportedCommands());
         return commands.filter((command) => command.name !== "").map((command) => ({ name: command.name, description: command.description }));
       } catch (error) {
         diagnostic(`Listing the commands of the Claude account ${account.id} failed.`, error);
         return [];
       }
+    },
+    stopProcess(sessionId) {
+      const kept = processes.get(sessionId);
+      processes.delete(sessionId);
+      if (kept !== undefined) void kept.dispose();
     },
     close() {
       for (const kept of [...processes.values()]) void kept.dispose();

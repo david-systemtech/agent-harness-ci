@@ -51,9 +51,17 @@ describe("the config-directory queue", () => {
     expect(bare).not.toHaveProperty("CLAUDE_CONFIG_DIR");
   });
 
-  it("leaves the ambient directory in place for the provider's own default", async () => {
-    const env: Record<string, string | undefined> = { CLAUDE_CONFIG_DIR: "/home/david/.claude" };
-    expect(await createConfigDirQueue(env).run(null, async () => env["CLAUDE_CONFIG_DIR"])).toBe("/home/david/.claude");
+  it("refuses a helper that does not answer in time, restores the variable, and runs the next", async () => {
+    const env: Record<string, string | undefined> = {};
+    let fire: (() => void) | undefined;
+    const queue = createConfigDirQueue(env, { timeoutMs: 1_000, setTimeout: (callback) => ((fire = callback), { cancel: () => undefined }) });
+    const wedged = queue.run("/accounts/a", () => new Promise<never>(() => undefined));
+    const next = queue.run("/accounts/b", async () => env["CLAUDE_CONFIG_DIR"]);
+    await tick();
+    fire?.();
+    await expect(wedged).rejects.toThrow(/did not answer within 1000 ms/);
+    await expect(next).resolves.toBe("/accounts/b");
+    expect(env).not.toHaveProperty("CLAUDE_CONFIG_DIR");
   });
 
   it("keeps going after a helper throws, with the variable restored", async () => {

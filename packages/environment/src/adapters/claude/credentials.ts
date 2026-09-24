@@ -1,4 +1,6 @@
 import { spawn } from "node:child_process";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import type { AuthStatus } from "@agent-harness/contracts";
 import type { AdapterCredentialSpec } from "../../adapter/contract.js";
 import { CLAUDE_LOGIN_ARGV, CLAUDE_LOGOUT_ARGV, CLAUDE_STATUS_ARGV } from "./sign-in.js";
@@ -35,58 +37,93 @@ export const CLAUDE_STRIPPED_VARIABLES = [
 ] as const;
 
 /**
- * What else never reaches a run from the host's environment (Artemis's
- * composer, ported): the variables that would retarget the account at another
- * backend or endpoint, or at another config directory, and the one that puts
- * the CLI in bare mode. Bare mode (`CLAUDE_CODE_SIMPLE`, the `--bare` flag)
- * turns off OAuth, auto memory, plugins and every configured MCP server; the
- * pinned SDK never passes `--bare` and has no option that opts out, but the
- * CLI it spawns inherits the variable, so leaving it out of the run's
- * environment is the opt-out (verified against the bundled 2.1.281: with it
- * set, `init` lists three tools, no MCP server and no auto-memory path).
- * The config directory and the project directory name are stripped here and
- * set again from the run, never inherited.
+ * What else never reaches a Claude process from the host's environment
+ * (Artemis's composer, widened to prefixes): anything that would
+ * authenticate, retarget the account at another backend or endpoint, or
+ * point it at another config directory, and the variable that puts the CLI
+ * in bare mode. Scrubbed by name and by family:
+ *
+ * - every `ANTHROPIC_*` (keys, tokens, base URLs, headers, model overrides,
+ *   the cloud backends' settings, `ANTHROPIC_CONFIG_DIR`); the SDK needs none
+ *   of them to run a subscription login;
+ * - every `CLAUDE_CODE_USE_*` (the backend selectors) and `CLAUDE_CODE_OAUTH_*`
+ *   (the token, the refresh token, the token's file descriptor);
+ * - every name holding `_TOKEN` or ending `_FILE_DESCRIPTOR` (a refresh token,
+ *   a gateway token passed by descriptor, a forge token a run must reach
+ *   through the harness's credential helper instead, ADR 0020), except the
+ *   numeric limits and thresholds that only share the word (`*_TOKENS`,
+ *   `CLAUDE_CODE_IDLE_TOKEN_THRESHOLD`, `CLAUDE_CODE_RESUME_TOKEN_THRESHOLD`,
+ *   `CLAUDE_CODE_ENABLE_TOKEN_USAGE_ATTACHMENT`, the total-tokens reminders),
+ *   which the CLI reads as tuning and which carry no credential;
+ * - `CLAUDE_CODE_API_BASE_URL`, `CLAUDE_CODE_CUSTOM_OAUTH_URL`, the secure
+ *   storage directory, and `CLAUDE_CODE_SIMPLE`: bare mode (`--bare`) turns
+ *   off OAuth, auto memory, plugins and every configured MCP server; the
+ *   pinned SDK never passes `--bare` and has no option that opts out, but the
+ *   CLI inherits the variable (verified on the bundled 2.1.281), so leaving
+ *   it out is the opt-out;
+ * - `CLAUDE_CONFIG_DIR` and `CLAUDE_CODE_PROJECT_DIR_NAME`, set again from
+ *   the run, never inherited.
+ *
+ * What the SDK itself sets (`CLAUDE_CODE_ENTRYPOINT`) or the harness sets
+ * (`CLAUDE_AGENT_SDK_CLIENT_APP`) is layered on after the scrub.
  */
 export const CLAUDE_SCRUBBED_VARIABLES: readonly string[] = [
   ...CLAUDE_STRIPPED_VARIABLES,
-  "ANTHROPIC_API_KEY_HELPER",
-  "ANTHROPIC_BASE_URL",
-  "ANTHROPIC_CUSTOM_HEADERS",
-  "ANTHROPIC_MODEL",
-  "ANTHROPIC_SMALL_FAST_MODEL",
-  "CLAUDE_CODE_USE_BEDROCK",
-  "CLAUDE_CODE_USE_VERTEX",
-  "CLAUDE_CODE_USE_FOUNDRY",
+  "CLAUDE_CODE_API_BASE_URL",
+  "CLAUDE_CODE_CUSTOM_OAUTH_URL",
   CLAUDE_CONFIG_DIR,
   "CLAUDE_SECURESTORAGE_CONFIG_DIR",
   "CLAUDE_CODE_SIMPLE",
   "CLAUDE_CODE_PROJECT_DIR_NAME",
 ];
 
-/** The model overrides come as a family of names (`ANTHROPIC_DEFAULT_OPUS_MODEL`), scrubbed by pattern. */
-const SCRUBBED_PATTERN = /^ANTHROPIC_DEFAULT_[A-Z0-9_]+_MODEL$/;
+/** The families scrubbed by pattern. */
+const SCRUBBED_PATTERNS: readonly RegExp[] = [/^ANTHROPIC_/, /^CLAUDE_CODE_USE_/, /^CLAUDE_CODE_OAUTH_/, /_TOKEN/, /_FILE_DESCRIPTOR$/];
+
+/** Names that hold the word token and no credential: limits and thresholds the CLI reads as tuning. */
+const TOKEN_TUNING: readonly RegExp[] = [
+  /_TOKENS$/,
+  /^CLAUDE_CODE_TOTAL_TOKENS_REMINDER/,
+  /^CLAUDE_CODE_(IDLE|RESUME)_TOKEN_THRESHOLD$/,
+  /^CLAUDE_CODE_ENABLE_TOKEN_USAGE_ATTACHMENT$/,
+];
+
+/** Whether a host variable is kept out of every Claude process. */
+export const isScrubbed = (name: string): boolean => {
+  if (CLAUDE_SCRUBBED_VARIABLES.includes(name)) return true;
+  // The credential families go whatever else they say.
+  if (/^ANTHROPIC_|^CLAUDE_CODE_USE_|^CLAUDE_CODE_OAUTH_/.test(name)) return true;
+  if (!SCRUBBED_PATTERNS.some((pattern) => pattern.test(name))) return false;
+  return !TOKEN_TUNING.some((pattern) => pattern.test(name));
+};
+
+/**
+ * The directory an account with none of its own reads: the host's
+ * `CLAUDE_CONFIG_DIR`, else the CLI's own default under the home directory.
+ * Resolved once, when the adapter is made, so every process is handed a
+ * directory explicitly and none depends on what the process environment
+ * holds at the moment (the config-directory queue writes it while a helper runs).
+ */
+export const ambientConfigDirectory = (host: HostEnvironment): string => {
+  const set = host[CLAUDE_CONFIG_DIR];
+  if (set !== undefined && set !== "") return set;
+  return join(host["HOME"] ?? host["USERPROFILE"] ?? homedir(), ".claude");
+};
 
 /**
  * A Claude process's environment: the host's, with every scrubbed variable
- * removed, then the account's directory and `extra` layered on top. A null
- * directory is the provider's own default, so the host's `CLAUDE_CONFIG_DIR`
- * (if any) stands. Answers a fresh object: the SDK's `env` option replaces
- * the child's environment wholesale, so nothing here is merged later.
+ * removed, then the account's directory and `extra` layered on top. The
+ * directory is always given and always set. Answers a fresh object: the
+ * SDK's `env` option replaces the child's environment wholesale, so nothing
+ * here is merged later.
  */
-export const composeRunEnvironment = (
-  host: HostEnvironment,
-  directory: string | null,
-  extra: Readonly<Record<string, string>> = {},
-): Record<string, string> => {
-  const scrubbed = new Set(CLAUDE_SCRUBBED_VARIABLES);
+export const composeRunEnvironment = (host: HostEnvironment, directory: string, extra: Readonly<Record<string, string>> = {}): Record<string, string> => {
   const env: Record<string, string> = {};
   for (const [key, value] of Object.entries(host)) {
-    if (value === undefined || scrubbed.has(key) || SCRUBBED_PATTERN.test(key)) continue;
+    if (value === undefined || isScrubbed(key)) continue;
     env[key] = value;
   }
-  const ambient = host[CLAUDE_CONFIG_DIR];
-  if (directory !== null) env[CLAUDE_CONFIG_DIR] = directory;
-  else if (ambient !== undefined && ambient !== "") env[CLAUDE_CONFIG_DIR] = ambient;
+  env[CLAUDE_CONFIG_DIR] = directory;
   for (const [key, value] of Object.entries(extra)) {
     // The stripped variables are never set, whoever asks.
     if ((CLAUDE_STRIPPED_VARIABLES as readonly string[]).includes(key)) continue;
@@ -180,7 +217,8 @@ export const spawnCommand: CommandRunner = (executable, argv, env, timeoutMs) =>
 export interface StatusReadOptions {
   /** The bundled binary; null when this platform has none, which reads as an error rather than a spawn of the user's own `claude`. */
   readonly executable: string | null;
-  readonly directory: string | null;
+  /** The account's directory, resolved: the ambient default for an account with none. */
+  readonly directory: string;
   readonly hostEnv: HostEnvironment;
   readonly run?: CommandRunner;
   readonly timeoutMs?: number;
