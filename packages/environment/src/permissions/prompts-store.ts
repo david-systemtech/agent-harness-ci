@@ -2,6 +2,7 @@ import {
   PromptAnsweredPayload,
   PromptOpenedPayload,
   type ListedPrompt,
+  type MessageRequeuedPayload,
   type RunStartedPayload,
 } from "@agent-harness/contracts";
 import type { EventEnvelope, ProjectionDb } from "../event-log/event-log.js";
@@ -16,7 +17,11 @@ import type { Reader } from "../sessions/session-reads.js";
  * session's next run (`delivery: next-run`) is taken by the next run the
  * environment starts on the session (a `run.started` of any origin but the
  * provider's, whose turn is open already), which reads it as its first
- * message (`adapter/host.ts`). The session's tombstone removes its rows.
+ * message (`adapter/host.ts`). A run whose adapter never received its
+ * input (its creation failed) hands its start's messages back to the
+ * environment's queue (`message.requeued`, ADR 0022), and the answers it
+ * took with them: the session's next run takes them again. The session's
+ * tombstone removes its rows.
  *
  * The projection holds the rule "exactly one answer per prompt": a
  * `prompt.answered` for a prompt that is not parked, or a `prompt.opened`
@@ -33,7 +38,8 @@ export const PROMPTS_TABLES = {
     prompt TEXT NOT NULL,
     answered_sequence INTEGER,
     answer TEXT,
-    delivered_run_id TEXT
+    delivered_run_id TEXT,
+    delivered_with TEXT
   ) STRICT;
   CREATE INDEX prompts_by_id ON prompts (prompt_id, sequence);
   CREATE INDEX prompts_by_session ON prompts (session_id, sequence)`,
@@ -49,6 +55,8 @@ interface PromptRow {
   answered_sequence: number | null;
   answer: string | null;
   delivered_run_id: string | null;
+  /** The messages the run that took the answer started with (JSON): one of them queued again means that run never received it. */
+  delivered_with: string | null;
 }
 
 /** A prompt as the read model holds it: where and when it was opened, what it asks, and its answer once it has one. */
@@ -107,11 +115,24 @@ export const projectPrompt = (event: EventEnvelope, db: ProjectionDb): void => {
       const payload = event.payload as RunStartedPayload;
       // A turn the provider opened is open already: nothing can be put before its first message.
       if (payload.origin === "provider") return;
+      const startedWith = [...(payload.promptMessageId === null ? [] : [payload.promptMessageId]), ...payload.queuedMessageIds];
       db.run(
-        `UPDATE prompts SET delivered_run_id = ? WHERE session_id = ? AND delivered_run_id IS NULL AND answer IS NOT NULL
+        `UPDATE prompts SET delivered_run_id = ?, delivered_with = ? WHERE session_id = ? AND delivered_run_id IS NULL AND answer IS NOT NULL
          AND json_extract(answer, '$.delivery') = 'next-run'`,
         payload.runId,
+        JSON.stringify(startedWith),
         event.streamId,
+      );
+      return;
+    }
+    case "message.requeued": {
+      // A message the run started with, queued again: its adapter never received its input, nor the answers it took.
+      const { runId, messageId } = event.payload as MessageRequeuedPayload;
+      db.run(
+        `UPDATE prompts SET delivered_run_id = NULL, delivered_with = NULL
+         WHERE delivered_run_id = ? AND EXISTS (SELECT 1 FROM json_each(prompts.delivered_with) WHERE value = ?)`,
+        runId,
+        messageId,
       );
       return;
     }

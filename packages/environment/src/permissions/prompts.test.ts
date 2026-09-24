@@ -512,6 +512,39 @@ describe("a prompt whose run ends", () => {
     expect(t.adapter.lastRun().input.prompt.map((m) => m.text)).toEqual(["And again"]);
   });
 
+  it("keeps an answer for the run after a next run whose adapter never received it, as its messages are queued again", async () => {
+    const adapter = fakeAdapter();
+    adapter.nextScripts.push(ask("permission", permission, { promptId: "p-1" }));
+    const create_ = adapter.createRun;
+    let calls = 0;
+    const t = await start({
+      ...adapter,
+      createRun: (input, context) => {
+        calls += 1;
+        if (calls === 2) throw new Error("No process could be started.");
+        return create_(input, context);
+      },
+    });
+    const client = await t.client();
+    const { id } = await create(client);
+    const { runId } = await startRun(client, id);
+    await untilOpened(t, id);
+    await send(client, "providers.processes.stop", { sessionId: id });
+    await untilEnded(t, id, runId);
+    expect((await answer(client, "p-1", { decision: "allow", message: "Yes, clear it" })).result).toMatchObject({ delivery: "next-run" });
+
+    // The next run takes the answer, but its adapter never receives it: the answer waits for the run after, with the message.
+    const failed = await startRun(client, id, "Carry on");
+    expect(await untilEnded(t, id, failed.runId)).toMatchObject({ payload: { reason: "error" } });
+    const next = await startRun(client, id, "Try again");
+    await untilEnded(t, id, next.runId);
+    expect(calls).toBe(3);
+    const texts = t.adapter.lastRun().input.prompt.map((message) => message.text);
+    expect(texts).toHaveLength(3);
+    expect(texts[0]).toContain("Yes, clear it");
+    expect(texts.slice(1)).toEqual(["Carry on", "Try again"]);
+  });
+
   it("is withdrawn when the provider withdraws the request, and the run goes on", async () => {
     const withdraw = new AbortController();
     const t = await start({

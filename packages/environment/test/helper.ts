@@ -72,7 +72,7 @@ export interface TestEnvironmentOptions {
   readonly containerDetector?: ContainerDetector;
   /** Preset: a test launcher that says no launcher is present. */
   readonly launcher?: TestLauncher;
-  /** The adapter host's seams (the broker, the clamp, ...); preset: each seam's own. */
+  /** The adapter host's seams (the broker's automatic answers, the policy resolver, ...); preset: each seam's own. */
   readonly adapterSeams?: EnvironmentOptions["adapterSeams"];
   /** The idle time of a provider process, in minutes; preset: the setting's preset. */
   readonly processIdleMinutes?: () => number;
