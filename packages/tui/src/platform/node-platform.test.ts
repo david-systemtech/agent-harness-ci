@@ -1,6 +1,9 @@
-import { mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { execFile } from "node:child_process";
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { promisify } from "node:util";
 import { BOOTSTRAP_GRANT_FILE } from "@agent-harness/contracts";
 import { SHELL_MEMBERS, createRuntime } from "@agent-harness/client-runtime";
 import { fakeWire, flush } from "@agent-harness/client-runtime/testing/fake-wire";
@@ -36,6 +39,9 @@ const platformIn = (overrides: Partial<Parameters<typeof nodePlatform>[0]> = {})
 };
 
 const mode = (path: string) => statSync(path).mode & 0o777;
+const spawnNode = promisify(execFile);
+/** How many secrets each of two processes sets at once. */
+const KEYS = 300;
 
 describe("the state directory", () => {
   it.each([
@@ -77,7 +83,7 @@ describe("the terminal UI's platform", () => {
     await platform.documents.delete("never.written");
   });
 
-  it("keeps secrets in one file only its owner can read, and never among the documents", async () => {
+  it("keeps each secret in a file of its own only its owner can read, and never among the documents", async () => {
     const { platform, stateDir } = platformIn();
     await platform.secrets.set("env-1", "token-1");
     await platform.secrets.set("env-2", "token-2");
@@ -85,11 +91,63 @@ describe("the terminal UI's platform", () => {
     await platform.secrets.delete("env-1");
     expect(await platform.secrets.get("env-1")).toBeUndefined();
     expect(await platform.secrets.get("env-2")).toBe("token-2");
+    await platform.secrets.delete("never-set");
     if (process.platform !== "win32") {
-      expect(mode(join(stateDir, "secrets.json"))).toBe(0o600);
+      expect(mode(join(stateDir, "secrets"))).toBe(0o700);
+      expect(mode(join(stateDir, "secrets", "env-2.secret"))).toBe(0o600);
       expect(mode(stateDir)).toBe(0o700);
     }
-    expect(readdirSync(stateDir).sort()).toEqual(["secrets.json"]);
+    expect(readdirSync(stateDir, { recursive: true }).map(String).sort()).toEqual(["secrets", join("secrets", "env-2.secret")]);
+  });
+
+  it("never loses one terminal UI's secret to another's on the same state directory: a set or delete of one key rewrites no other", async () => {
+    const { stateDir, dataDir } = platformIn();
+    const one = nodePlatform({ stateDir, dataDir, version: "1.2.3", identity });
+    const two = nodePlatform({ stateDir, dataDir, version: "1.2.3", identity: { ...identity, tty: "pts/4" } });
+    await Promise.all([one.secrets.set("env-1", "token-1"), two.secrets.set("env-2", "token-2")]);
+    expect(await one.secrets.get("env-2")).toBe("token-2");
+    expect(await two.secrets.get("env-1")).toBe("token-1");
+    await two.secrets.delete("env-2");
+    expect(await one.secrets.get("env-1")).toBe("token-1");
+    expect(await one.secrets.get("env-2")).toBeUndefined();
+  });
+
+  it("keeps every secret two terminal UI processes set at once on one state directory", async () => {
+    const { stateDir } = platformIn();
+    const script = join(temp(), "set-secrets.mts");
+    writeFileSync(
+      script,
+      [
+        `import { nodePlatform } from ${JSON.stringify(join(import.meta.dirname, "node-platform.ts"))};`,
+        `const KEYS = ${KEYS};`,
+        "const [stateDir, prefix, at] = process.argv.slice(2);",
+        'const platform = nodePlatform({ stateDir, dataDir: stateDir, version: "0", identity: { user: "u", host: "h", tty: prefix } });',
+        // Both processes start setting at the same instant, so their writes overlap.
+        "await new Promise((resolve) => setTimeout(resolve, Math.max(0, Number(at) - Date.now())));",
+        "for (let i = 0; i < KEYS; i++) await platform.secrets.set(`${prefix}-${i}`, `token-${prefix}-${i}`);",
+      ].join("\n"),
+    );
+    const tsx = createRequire(import.meta.url).resolve("tsx");
+    const at = String(Date.now() + 3000);
+    const run = (prefix: string) => spawnNode(process.execPath, ["--conditions=@agent-harness/source", "--import", tsx, script, stateDir, prefix, at]);
+    await Promise.all([run("a"), run("b")]);
+    const reader = nodePlatform({ stateDir, dataDir: stateDir, version: "0", identity });
+    for (const prefix of ["a", "b"]) {
+      for (let i = 0; i < KEYS; i++) expect(await reader.secrets.get(`${prefix}-${i}`), `${prefix}-${i}`).toBe(`token-${prefix}-${i}`);
+    }
+  });
+
+  it("moves the secrets of an earlier build's one secrets.json into files of their own on first use, keeping every token", async () => {
+    const { stateDir, dataDir } = platformIn();
+    mkdirSync(stateDir, { recursive: true });
+    writeFileSync(join(stateDir, "secrets.json"), JSON.stringify({ "env-1": "token-1", "env-2": "token-2" }), { mode: 0o600 });
+    const platform = nodePlatform({ stateDir, dataDir, version: "1.2.3", identity });
+    await platform.secrets.set("env-3", "token-3");
+    expect(await platform.secrets.get("env-1")).toBe("token-1");
+    expect(await platform.secrets.get("env-2")).toBe("token-2");
+    expect(await platform.secrets.get("env-3")).toBe("token-3");
+    expect(readdirSync(stateDir).sort()).toEqual(["secrets"]);
+    expect(readdirSync(join(stateDir, "secrets")).sort()).toEqual(["env-1.secret", "env-2.secret", "env-3.secret"]);
   });
 
   it("reads the local environment's grant file from its data directory, and none when there is none", async () => {
@@ -125,7 +183,7 @@ describe("the terminal UI's platform", () => {
     }
   });
 
-  it("holds only the runtime's documents and the secrets file after pairing: no pins, groups, archive or drafts", async () => {
+  it("holds only the runtime's documents and the secrets after pairing: no pins, groups, archive or drafts", async () => {
     const { platform: real, stateDir } = platformIn();
     const clock = real.clock;
     const wire = fakeWire({ clock, name: "laptop" });
@@ -145,7 +203,8 @@ describe("the terminal UI's platform", () => {
       "documents/environments.enabled.json",
       "documents/environments.lastUsed.json",
       "documents/environments.sequence.json",
-      "secrets.json",
+      "secrets",
+      `secrets/${wire.environmentId}.secret`,
     ]);
     for (const file of files) for (const word of FORBIDDEN_WORDS) expect(file.toLowerCase()).not.toContain(word);
   });

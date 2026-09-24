@@ -15,7 +15,7 @@ import { BOOTSTRAP_GRANT_FILE, BootstrapGrant, PRODUCT_NAME } from "@agent-harne
 import { readTextIfPresent } from "./files.js";
 import { clientLabel, currentIdentity, type TerminalIdentity } from "./identity.js";
 import { jsonDocuments } from "./json-documents.js";
-import { secretsFile } from "./secrets-file.js";
+import { secretsDirectory } from "./secrets-directory.js";
 
 export { clientLabel, type TerminalIdentity } from "./identity.js";
 
@@ -23,7 +23,7 @@ export { clientLabel, type TerminalIdentity } from "./identity.js";
  * The terminal UI as a platform for the client runtime (docs/specs/tui.md,
  * "The entry point and the platform"; docs/specs/client-runtime.md,
  * "Package and platform"). The state directory holds client-local things
- * only: the runtime's documents (`documents/`), the secrets file, and the
+ * only: the runtime's documents (`documents/`), the secrets (`secrets/`), and the
  * terminal UI's own presentation (the keybindings file). No pins, groups,
  * archive or drafts: those are the environment's (ADR 0003).
  */
@@ -33,8 +33,10 @@ export const STATE_DIR_VARIABLE = "AGENT_HARNESS_TUI_STATE_DIR";
 
 /** Where the runtime's documents live, inside the state directory. */
 export const DOCUMENTS_DIRECTORY = "documents";
-/** The client session tokens, inside the state directory, mode 0600. */
-export const SECRETS_FILE = "secrets.json";
+/** The client session tokens, one 0600 file each, inside the state directory. */
+export const SECRETS_DIRECTORY = "secrets";
+/** Where earlier builds kept every token in one file; moved into `SECRETS_DIRECTORY` on first use. */
+const LEGACY_SECRETS_FILE = "secrets.json";
 
 export interface StateContext {
   readonly platform: NodeJS.Platform;
@@ -114,7 +116,7 @@ export interface NodePlatformOptions {
 /** The terminal UI's platform, with no shell: every shell member is absent with reason `no-shell` (ADR 0004). */
 export const nodePlatform = (options: NodePlatformOptions): Platform => ({
   documents: jsonDocuments(join(options.stateDir, DOCUMENTS_DIRECTORY)),
-  secrets: secretsFile(join(options.stateDir, SECRETS_FILE)),
+  secrets: secretsDirectory(join(options.stateDir, SECRETS_DIRECTORY), join(options.stateDir, LEGACY_SECRETS_FILE)),
   webSocket: options.webSocket ?? standardWebSocketFactory(globalThis.WebSocket),
   fetch: options.fetch ?? ((url, request) => globalThis.fetch(url, request)),
   clock: systemClock,
