@@ -43,6 +43,7 @@ import { permissionsProjector, readPermissionSettings } from "../permissions/per
 import { policySettings, resolvePolicy } from "../permissions/resolver.js";
 import { runMethods } from "../runs/run-methods.js";
 import { runsProjector } from "../runs/runs-projector.js";
+import { createCompactionSweep } from "../sessions/compaction.js";
 import { createDeletion } from "../sessions/deletion.js";
 import { groupMethods } from "../sessions/group-methods.js";
 import { sessionMethods } from "../sessions/methods.js";
@@ -500,6 +501,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   }
   // The shelf's sweep (#117): a pass now, before the wire opens, then every five minutes.
   closers.push(settleSweep.start());
+  // Transcript compaction (#123): a pass now, before the wire opens, then once a day.
+  closers.push(createCompactionSweep({ log, clock }).start());
   wire.open();
   launcher.onQuery((query) => lifecycle.answer(query));
   // The minute sweep: expired pairings, idle `tui` local client sessions, receipts past their 30 days, and
