@@ -71,6 +71,7 @@ export {
   type UsageWindow,
 } from "./adapter/contract.js";
 export { HOST_ACTOR, createAdapterHost, type ActiveRun, type AdapterHost, type AdapterHostOptions, type HostAccount } from "./adapter/host.js";
+export type { AccountFacts, LiveRunFacts, PlannedRun, QueuedSend, StartFacts } from "./runs/run-decider.js";
 export { createAdapterRegistry, type AdapterRegistry } from "./adapter/registry.js";
 export { createScopedAppend, type ScopedAppend } from "./adapter/scoped-append.js";
 export {

@@ -232,9 +232,9 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
   const accounts = new Map<string, HeldAccount>();
   /** Live runs by session: at most one each. */
   const live = new Map<string, LiveRun>();
-  /** Turns a provider opened while the run before them was still live, waiting for it to end, each with the run it followed. */
   /** Runs that ended here with their end not in the log. */
   const unrecordedRuns = new Set<string>();
+  /** Turns a provider opened while the run before them was still live, waiting for it to end, each with the run it followed. */
   const adoptions = new Map<string, { readonly previous: PlannedRun; readonly turn: ProviderTurn }[]>();
   /**
    * The bytes of the attachments of messages sent during a run, whoever
