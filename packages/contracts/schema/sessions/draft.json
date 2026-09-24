@@ -3,5 +3,5 @@
   "title": "Draft",
   "type": "string",
   "maxLength": 65536,
-  "description": "A session's composer draft: the text typed and not sent, up to 65,536 characters; an empty draft is stored as none (null)."
+  "description": "A session's composer draft as sent: the text typed and not sent, up to 65536 characters counted as UTF-16 code units; an empty draft is stored as none (null)."
 }

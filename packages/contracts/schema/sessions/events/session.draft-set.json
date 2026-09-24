@@ -9,13 +9,13 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 65536,
-          "description": "A session's composer draft: the text typed and not sent, up to 65,536 characters; an empty draft is stored as none (null)."
+          "description": "A session's composer draft as sent: the text typed and not sent, up to 65536 characters counted as UTF-16 code units; an empty draft is stored as none (null)."
         },
         {
           "type": "null"
         }
       ],
-      "description": "The draft that replaces the stored one; null clears it."
+      "description": "A session's composer draft as stored: the text typed and not sent, 1 to 65536 characters counted as UTF-16 code units, or null when there is none."
     }
   },
   "required": [

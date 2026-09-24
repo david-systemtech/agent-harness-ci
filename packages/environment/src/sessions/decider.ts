@@ -1,5 +1,6 @@
 import {
   MAX_TAGS,
+  awakeShelfOf,
   type SessionArchivedPayload,
   type SessionActiveReorderedPayload,
   type SessionCreatedPayload,
@@ -125,45 +126,6 @@ export const normaliseTags = (tags: readonly string[]): string[] => {
 /** A user title as a session keeps it: trimmed, or null for none. */
 const userTitle = (title: string | null): string | null => (title === null ? null : title.trim());
 
-/**
- * Creates a session that has never existed: one `session.created`, with no
- * repository identity until the workspace workstream resolves it. An id
- * that was used before, even by a session since deleted or purged, is a
- * conflict; a group that is not on this environment is not found.
- */
-export const decideCreate = (state: SessionState | null, command: CreateSession, context: CreateContext): Decision => {
-  if (state !== null) {
-    return {
-      rejected: { code: "conflict", message: `A session ${command.id} exists already.`, data: { reason: "exists", sessionId: command.id } },
-    };
-  }
-  if (command.groupId !== null && !context.groupExists) return { rejected: groupNotFound(command.groupId) };
-  const payload: SessionCreatedPayload = {
-    title: userTitle(command.title),
-    tags: normaliseTags(command.tags),
-    groupId: command.groupId,
-    workspace: command.workspace,
-    repositoryIdentity: null,
-    account: command.account,
-    model: command.model,
-    mode: command.mode,
-  };
-  return { events: [{ type: "session.created", payload }] };
-};
-
-/**
- * Sets the session's user title, trimmed, or clears it with null; a title
- * the session already has changes nothing. A session that does not exist or
- * is deleted is not found.
- */
-export const decideRename = (state: SessionState | null, command: RenameSession): Decision => {
-  if (state === null || state.deleted) return { rejected: sessionNotFound(command.sessionId) };
-  const next = userTitle(command.title);
-  if (next === state.userTitle) return { events: [] };
-  const payload: SessionTitleSetPayload = { title: next, source: "user" };
-  return { events: [{ type: "session.title-set", payload }] };
-};
-
 /** A command aimed at one session: its id, in lowercase. */
 interface OnSession {
   readonly sessionId: string;
@@ -206,6 +168,49 @@ const conflict = (sessionId: string, reason: string, message: string, data: Json
 
 const unchanged: Decision = { events: [] };
 
+/** A pinned session moved in the pinned block: what both `sessions.pin` at a new key and `sessions.reorderPinned` append. */
+const pinReordered = (pinOrderKey: string): Decision => {
+  const payload: SessionPinReorderedPayload = { pinOrderKey };
+  return { events: [{ type: "session.pin-reordered", payload }] };
+};
+
+/**
+ * Creates a session that has never existed: one `session.created`, with no
+ * repository identity until the workspace workstream resolves it. An id
+ * that was used before, even by a session since deleted or purged, is a
+ * conflict; a group that is not on this environment is not found.
+ */
+export const decideCreate = (state: SessionState | null, command: CreateSession, context: CreateContext): Decision => {
+  if (state !== null) return conflict(command.id, "exists", `A session ${command.id} exists already.`);
+  if (command.groupId !== null && !context.groupExists) return { rejected: groupNotFound(command.groupId) };
+  const payload: SessionCreatedPayload = {
+    title: userTitle(command.title),
+    tags: normaliseTags(command.tags),
+    groupId: command.groupId,
+    workspace: command.workspace,
+    repositoryIdentity: null,
+    account: command.account,
+    model: command.model,
+    mode: command.mode,
+  };
+  return { events: [{ type: "session.created", payload }] };
+};
+
+/**
+ * Sets the session's user title, trimmed, or clears it with null; a title
+ * the session already has changes nothing. A session that does not exist or
+ * is deleted is not found.
+ */
+export const decideRename = (state: SessionState | null, command: RenameSession): Decision => {
+  const session = present(state, command.sessionId);
+  if ("rejected" in session) return session;
+  const next = userTitle(command.title);
+  if (next === session.userTitle) return unchanged;
+  const payload: SessionTitleSetPayload = { title: next, source: "user" };
+  return { events: [{ type: "session.title-set", payload }] };
+};
+
+
 /** Archives the session at `at`; an archived session is unchanged. */
 export const decideArchive = (state: SessionState | null, command: OnSession & AtTime): Decision => {
   const session = present(state, command.sessionId);
@@ -240,8 +245,7 @@ export const decidePin = (state: SessionState | null, command: PinSession): Deci
   if ("rejected" in session) return session;
   if (session.pinnedAt !== null) {
     if (command.orderKey === null || command.orderKey === session.pinOrderKey) return unchanged;
-    const payload: SessionPinReorderedPayload = { pinOrderKey: command.orderKey };
-    return { events: [{ type: "session.pin-reordered", payload }] };
+    return pinReordered(command.orderKey);
   }
   const payload: SessionPinnedPayload = { pinnedAt: command.at, pinOrderKey: command.orderKey };
   return { events: [{ type: "session.pinned", payload }] };
@@ -267,8 +271,7 @@ export const decideReorderPinned = (state: SessionState | null, command: Reorder
     return conflict(command.sessionId, "not_pinned", `The session ${command.sessionId} is not pinned, so it has no place in the pinned block.`);
   }
   if (session.pinOrderKey === command.orderKey) return unchanged;
-  const payload: SessionPinReorderedPayload = { pinOrderKey: command.orderKey };
-  return { events: [{ type: "session.pin-reordered", payload }] };
+  return pinReordered(command.orderKey);
 };
 
 /**
@@ -279,9 +282,10 @@ export const decideReorderPinned = (state: SessionState | null, command: Reorder
 export const decideReorderActive = (state: SessionState | null, command: ReorderSession): Decision => {
   const session = present(state, command.sessionId);
   if ("rejected" in session) return session;
-  const elsewhere = session.pinnedAt !== null ? "pinned" : session.settledAt !== null ? "settled" : session.archivedAt !== null ? "archived" : null;
-  if (elsewhere !== null) {
-    return conflict(command.sessionId, "not_active", `The session ${command.sessionId} is ${elsewhere}, so it has no place in the active list.`);
+  // The shelf it is on once any snooze passes: a snoozed session keeps its active slot.
+  const shelf = awakeShelfOf(session);
+  if (shelf !== "active") {
+    return conflict(command.sessionId, "not_active", `The session ${command.sessionId} is ${shelf}, so it has no place in the active list.`);
   }
   if (session.activeOrderKey === command.orderKey) return unchanged;
   const payload: SessionActiveReorderedPayload = { activeOrderKey: command.orderKey };
