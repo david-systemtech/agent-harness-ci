@@ -43,6 +43,8 @@ export interface RunnerHost {
   changed(next: MachineState, previous: MachineState): Promise<void> | void;
   /** An open socket is gone for a reason this runtime did not choose: the environment or the network closed it, or it was given up as dead. */
   lost(closed: SocketClosed): void;
+  /** A fault with no caller to hand it to: a listener that threw, a background write that failed. */
+  report(error: unknown): void;
 }
 
 export interface Runner {
@@ -80,12 +82,21 @@ export const createRunner = (host: RunnerHost, initial: MachineState): Runner =>
     for (const resolve of waiting) resolve();
   };
 
-  /** Work whose end `settled` waits for. A failure is swallowed: the establishment timer recovers an attempt that never answers. */
+  /** Runs `step`, handing what it throws to the host: one fault never starves the rest of a transition. */
+  const guarded = (step: () => void) => {
+    try {
+      step();
+    } catch (error) {
+      host.report(error);
+    }
+  };
+
+  /** Work whose end `settled` waits for. A failure is reported; the establishment timer recovers an attempt that never answers. */
   const track = (work: Promise<unknown> | void) => {
     if (!work) return;
     writes++;
     void work
-      .catch(() => undefined)
+      .catch((error: unknown) => host.report(error))
       .finally(() => {
         writes--;
         wake();
@@ -104,8 +115,10 @@ export const createRunner = (host: RunnerHost, initial: MachineState): Runner =>
     void live.closed.then((closed) => {
       if (socket !== live) return;
       socket = undefined;
-      if (state.attempt === attempt && state.step === "open") host.lost(closed);
+      const wasOpen = state.attempt === attempt && state.step === "open";
+      // The machine hears of the close first, so a listener that throws cannot keep it from reconnecting.
       feed(closedInput(attempt, closed));
+      if (wasOpen) guarded(() => host.lost(closed));
     });
   };
 
@@ -136,14 +149,14 @@ export const createRunner = (host: RunnerHost, initial: MachineState): Runner =>
             feed({ type: "discovery-result", attempt, answer });
           },
           // The establishment timer ends an attempt whose discovery failed to answer at all.
-          () => undefined,
+          (error: unknown) => host.report(error),
         );
       }
       case "describe":
         return track(host.describe(effect.document));
       case "open-socket":
-        // Settling waits on the machine's step, which the answer moves; a throw is left to the establishment timer.
-        return void openSocket(effect.attempt).catch(() => undefined);
+        // Settling waits on the machine's step, which the answer moves; after a throw the establishment timer ends the attempt.
+        return void openSocket(effect.attempt).catch((error: unknown) => host.report(error));
       case "attach": {
         if (adopting) {
           const taken = adopting;
@@ -173,7 +186,7 @@ export const createRunner = (host: RunnerHost, initial: MachineState): Runner =>
         socket = undefined;
         opening?.abort();
         live?.close();
-        if (effect.lost && live) host.lost({ code: 1006, reason: "The socket went silent.", bye: undefined });
+        if (effect.lost && live) guarded(() => host.lost({ code: 1006, reason: "The socket went silent.", bye: undefined }));
         return;
       }
       case "arm-timer": {
@@ -195,16 +208,18 @@ export const createRunner = (host: RunnerHost, initial: MachineState): Runner =>
         const live = socket;
         if (!live) return;
         const { attempt } = effect;
-        return track(
-          host.refresh(live).then((result) => {
+        // Not waited on by `settled`: a request has no timeout, and an unanswered refresh must not hold up `retryNow` or `start`.
+        return void host.refresh(live).then(
+          (result) => {
             if (result) feed({ type: "refresh-result", attempt, result });
-          }),
+          },
+          (error: unknown) => host.report(error),
         );
       }
       case "clear-token":
         return track(host.clearToken());
       case "notice":
-        return host.notice(effect.notice);
+        return guarded(() => host.notice(effect.notice));
     }
   };
 
@@ -213,8 +228,9 @@ export const createRunner = (host: RunnerHost, initial: MachineState): Runner =>
     const { state: next, effects } = reduce(previous, input, { now: host.clock.now().getTime(), random: host.random() });
     state = next;
     if (next.attempt !== previous.attempt && input.type !== "discovery-result") document = undefined;
-    if (next !== previous) track(host.changed(next, previous));
-    for (const effect of effects) perform(effect);
+    // The effects first, each on its own: a renderer's listener throwing from `changed` must not cost the timers and the socket.
+    for (const effect of effects) guarded(() => perform(effect));
+    if (next !== previous) guarded(() => track(host.changed(next, previous)));
   };
 
   function feed(input: MachineInput): void {

@@ -109,6 +109,8 @@ describe("token refresh", () => {
     const later = inMemoryPlatform({ clock: manualClock(t.clock.now()), documents: platform.documents, secrets: platform.secrets });
     const again = harness.runtime(later);
     await again.start();
+    // The refresh is not waited on by start: it is under way once the connection is ready.
+    await until(() => only(again).expiresAt !== expiresAt, "the refresh to land");
 
     const renewed = only(again);
     expect(renewed).toMatchObject({ phase: "ready", clientSessionId, refreshFailed: null });

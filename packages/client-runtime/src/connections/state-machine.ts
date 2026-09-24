@@ -142,7 +142,8 @@ export type MachineInput =
   /** The runtime started, or David enabled the connection. `hasCache`: there is cached data it serves while unreachable. */
   | { readonly type: "start"; readonly enabled: boolean; readonly network: NetworkState; readonly hasCache: boolean }
   | { readonly type: "disable" }
-  | { readonly type: "retryNow" }
+  /** Try at once. `fresh`: the ladder starts over, as after David started the local service. */
+  | { readonly type: "retryNow"; readonly fresh?: boolean }
   | { readonly type: "discovery-result"; readonly attempt: number; readonly answer: DiscoveryAnswer }
   /** The connection has no token to send. */
   | { readonly type: "no-token"; readonly attempt: number }
@@ -217,6 +218,9 @@ export const actionOf = (state: MachineState): ConnectionAction | null => {
 
 const needsRefresh = (state: MachineState, now: number) => state.expiresAt === null || state.expiresAt - now < REFRESH_WITHIN_MS;
 
+/** Whether a retry waits for a wakeup: offline, for a remote environment. The local one is on loopback, which going offline does not touch. */
+const parks = (state: MachineState) => !state.network.online && state.kind !== "local";
+
 /** A phase that says why the environment is not there, kept while discovery is read again. */
 const saysWhy = (phase: ConnectionPhase) =>
   phase === "starting" || phase === "draining" || phase === "updating" || phase === "service-down" || phase === "blocked";
@@ -240,42 +244,62 @@ export const reduce = (state: MachineState, input: MachineInput, context: Machin
     return { ...s, phase: saysWhy(s.phase) ? s.phase : "connecting", step: "discovery" };
   };
 
-  /** Waits `ms` for the next attempt, in `phase`; offline, parks until a wakeup instead. */
+  /**
+   * Waits `ms` for the next attempt, in `phase`. Offline, a remote
+   * connection parks until a wakeup instead; the local one, on loopback,
+   * never does.
+   */
   const wait = (s: MachineState, phase: ConnectionPhase, ms: number): MachineState => {
-    if (!s.network.online) return { ...s, phase, parked: true, retryAt: null };
+    if (parks(s)) return { ...s, phase, parked: true, retryAt: null };
     out.push({ type: "arm-timer", timer: "retry", ms });
     return { ...s, phase, parked: false, retryAt: now + ms };
   };
 
-  /** A failure a retry may cure: one more rung of the ladder, waited in `phase`. */
+  /** A re-check of a block that could not finish: back to blocked, quietly, with no retry; only discovery and `hello` agreeing clear it. */
+  const reblock = (s: MachineState): MachineState => ({ ...unreachable(halt(s)), phase: "blocked" });
+
+  /** A failure a retry may cure: one more rung of the ladder, waited in `phase`. A block being re-checked stays blocked. */
   const fail = (s: MachineState, phase: ConnectionPhase): MachineState => {
+    if (s.blocked !== null) return reblock(s);
     const halted = unreachable(halt(s));
     const failures = halted.failures + 1;
     return wait({ ...halted, failures }, phase, backoffDelay(failures, context.random));
   };
 
-  /** A declared dead socket: closed, and replaced at once as a transient failure. */
-  const lose = (s: MachineState): MachineState => begin({ ...unreachable(halt(s, true)), phase: "connecting" });
+  /** Discovery says `starting`: polled every two seconds with no failure counted. A block being re-checked stays blocked. */
+  const starting = (s: MachineState): MachineState =>
+    s.blocked !== null ? reblock(s) : wait(unreachable(halt(s)), "starting", STARTING_POLL_MS);
+
+  /** A declared dead socket: closed, and replaced at once as a transient failure; if the replacement fails, the ladder starts at its first rung. */
+  const lose = (s: MachineState): MachineState => begin({ ...unreachable(halt(s, true)), phase: "connecting", failures: 0 });
 
   const noticeFor = (s: MachineState, reason: BlockedReason, theirs: number | undefined): NoticeDraft | undefined => {
     const versions = theirs === undefined ? "" : ` ${s.name} speaks protocol ${theirs} and this client ${s.protocolVersion}:`;
+    // The local environment is never paired: a retry exchanges its grant for a new client session.
+    const way = s.kind === "local" ? "retry to exchange the local grant again" : "pair again to reconnect";
     switch (reason) {
       case "revoked":
-        return { kind: "revoked", message: `This client's session on ${s.name} was revoked; pair again to reconnect.`, action: null };
+        return { kind: "revoked", message: `This client's session on ${s.name} was revoked; ${way}.`, action: null };
       case "expired":
         return {
           kind: "expired",
-          message: `This client's session on ${s.name} expired; pair again to reconnect.`,
+          message: `This client's session on ${s.name} expired; ${way}.`,
           action: s.kind === "paired" ? "re-pair" : null,
         };
       case "unsupported-client":
         return { kind: "unsupported-client", message: `${s.name} is newer than this client.${versions} update this client.`, action: "update-client" };
       case "protocol-mismatch":
-        return {
-          kind: "protocol-mismatch",
-          message: `${s.name} is older than this client.${versions} update ${s.name} to this client's version.`,
-          action: s.selfUpdate ? "update-environment" : null,
-        };
+        return s.selfUpdate
+          ? {
+              kind: "protocol-mismatch",
+              message: `${s.name} is older than this client.${versions} update ${s.name} to this client's version.`,
+              action: "update-environment",
+            }
+          : {
+              kind: "protocol-mismatch",
+              message: `${s.name} is older than this client.${versions} ${s.name} cannot update itself from here; update it on its own machine, or use a client of its version.`,
+              action: null,
+            };
       case "different-environment":
         return undefined;
     }
@@ -339,7 +363,7 @@ export const reduce = (state: MachineState, input: MachineInput, context: Machin
       case "service-down":
         return fail(s, unanswered(s));
       case "starting":
-        return wait(unreachable(halt(s)), "starting", STARTING_POLL_MS);
+        return starting(s);
       case "draining":
         return fail(s, s.phase === "updating" ? "updating" : "draining");
       case "unsupported-client":
@@ -367,14 +391,13 @@ export const reduce = (state: MachineState, input: MachineInput, context: Machin
         }
         const check = checkDiscovery(document, { protocolVersion: s.protocolVersion, environmentId: s.environmentId });
         if (check.ok) {
-          // What discovery checks, it clears; a revoked or expired block waits for `hello`.
-          const blocked = known.blocked === "revoked" || known.blocked === "expired" ? known.blocked : null;
+          // A block clears only on `hello`: until then a re-check says blocked, so the record never shows a reason beside another phase.
           out.push({ type: "open-socket", attempt: known.attempt }, { type: "arm-timer", timer: "establish", ms: ESTABLISH_TIMEOUT_MS });
-          return { ...known, blocked, phase: "connecting", step: "dialing" };
+          return { ...known, phase: known.blocked === null ? "connecting" : "blocked", step: "dialing" };
         }
         switch (check.reason) {
           case "starting":
-            return wait(unreachable(halt(known)), "starting", STARTING_POLL_MS);
+            return starting(known);
           case "draining":
             return fail(known, known.phase === "updating" ? "updating" : "draining");
           default:
@@ -394,11 +417,14 @@ export const reduce = (state: MachineState, input: MachineInput, context: Machin
         return block(said, "expired");
       case "protocol": {
         const theirs = frame.protocolVersion;
-        return block(said, (theirs === undefined ? undefined : compareProtocol(theirs, s.protocolVersion)?.reason) ?? "protocol-mismatch", theirs);
+        if (theirs === undefined) return block(said, "protocol-mismatch");
+        // The same version on both sides is no version gap: a fault on the environment's side, retried on the ladder.
+        const gap = compareProtocol(theirs, s.protocolVersion);
+        return gap ? block(said, gap.reason, theirs) : fail(said, "backoff");
       }
       case "draining":
       case "updating":
-        return wait(unreachable(halt(said)), frame.reason, BYE_WAIT_MS);
+        return s.blocked !== null ? reblock(said) : wait(unreachable(halt(said)), frame.reason, BYE_WAIT_MS);
     }
   };
 
@@ -430,13 +456,14 @@ export const reduce = (state: MachineState, input: MachineInput, context: Machin
       case "start": {
         const halted = { ...halt(state), network: input.network, unreachableSince: input.hasCache ? now : null };
         if (!input.enabled) return { ...halted, phase: "disabled", unreachableSince: null };
-        if (!input.network.online) return { ...halted, phase: halted.blocked === null ? "backoff" : "blocked", parked: true };
+        if (parks(halted)) return { ...halted, phase: halted.blocked === null ? "backoff" : "blocked", parked: true };
         return begin(halted);
       }
       case "disable":
         return { ...halt(state), phase: "disabled", failures: 0, unreachableSince: null };
       case "retryNow":
-        return state.phase === "disabled" ? state : begin(halt(state));
+        if (state.phase === "disabled") return state;
+        return begin(halt(input.fresh ? { ...state, failures: 0 } : state));
       case "discovery-result":
         return live(input.attempt, "discovery") ? discovered(state, input.answer) : state;
       case "no-token":
@@ -461,7 +488,7 @@ export const reduce = (state: MachineState, input: MachineInput, context: Machin
         const s = { ...state, network };
         if (state.phase === "disabled") return s;
         if (!network.online) {
-          if (s.retryAt === null) return s;
+          if (s.retryAt === null || !parks(s)) return s;
           out.push({ type: "cancel-timer", timer: "retry" });
           return { ...s, retryAt: null, parked: true };
         }
@@ -472,7 +499,8 @@ export const reduce = (state: MachineState, input: MachineInput, context: Machin
             out.push({ type: "probe", attempt: s.attempt }, { type: "arm-timer", timer: "probe", ms: PROBE_TIMEOUT_MS });
             return { ...s, probing: true };
           }
-          if (s.phase === "backoff" && s.retryAt !== null) return begin(halt(s));
+          // A retry waiting out the ladder is tried at once; the five seconds after `bye: draining` or `updating`, and the `starting` polls, are not cut short.
+          if ((s.phase === "backoff" || s.phase === "service-down") && s.retryAt !== null) return begin(halt(s));
         }
         return s;
       }

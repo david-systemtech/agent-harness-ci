@@ -202,10 +202,14 @@ export interface InMemoryPlatform extends Platform {
   readonly secrets: SecretStore;
   readonly clock: ManualClock;
   readonly network: InMemoryNetwork;
+  readonly reportError: (error: unknown) => void;
+  /** Every fault handed to `reportError`, oldest first. */
+  readonly reported: readonly unknown[];
 }
 
 export const inMemoryPlatform = (options: InMemoryPlatformOptions = {}): InMemoryPlatform => {
   const kind = options.kind ?? "tui";
+  const reported: unknown[] = [];
   return {
     documents: options.documents ?? inMemoryDocuments(),
     secrets: options.secrets ?? inMemorySecrets(),
@@ -217,5 +221,7 @@ export const inMemoryPlatform = (options: InMemoryPlatformOptions = {}): InMemor
     client: { kind, label: options.label ?? `a ${kind} under test`, version: options.version ?? "0.0.0-test" },
     ...(options.grant !== undefined && { grant: options.grant }),
     ...(options.shell !== undefined && { shell: options.shell }),
+    reportError: (error) => void reported.push(error),
+    reported,
   };
 };

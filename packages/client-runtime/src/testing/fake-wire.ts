@@ -82,11 +82,12 @@ export interface FakeWire {
   readonly server: FakeServer;
   /**
    * What discovery answers from now on: `unreachable` (nothing listens:
-   * discovery, the exchanges and new sockets all fail), or the discovery
+   * discovery, the exchanges and new sockets all fail), `hanging` (discovery
+   * never answers, as a black-holed address; the rest answers), or the discovery
    * document with these fields changed from the environment's own
    * (`readiness`, `protocolVersion`, `capabilities`, even `environmentId`).
    */
-  discovery(answer: "unreachable" | Partial<DiscoveryDocument>): void;
+  discovery(answer: "unreachable" | "hanging" | Partial<DiscoveryDocument>): void;
   /**
    * How requests for `method` are answered on every socket: a response
    * body, or undefined to leave them unanswered. Preset:
@@ -125,7 +126,7 @@ export const fakeWire = (options: FakeWireOptions): FakeWire => {
   const name = options.name ?? "fake";
   const address = options.address ?? { host: "fake.test", port: 7433 };
   const origin = originOf(address);
-  let overrides: "unreachable" | Partial<DiscoveryDocument> = {};
+  let overrides: "unreachable" | "hanging" | Partial<DiscoveryDocument> = {};
   const sockets: FakeSocket[] = [];
   const consumed = new WeakSet<Frame>();
   let waiters: { readonly type: Frame["type"]; readonly resolve: (frame: Frame) => void }[] = [];
@@ -142,7 +143,7 @@ export const fakeWire = (options: FakeWireOptions): FakeWire => {
     capabilities: [...(options.capabilities ?? [])],
     authPolicy: "tailnet",
     readiness: "ready",
-    ...(overrides === "unreachable" ? {} : overrides),
+    ...(typeof overrides === "string" ? {} : overrides),
   });
 
   const issue = (clientSessionId = uuidv7(clock.now())): ClientSessionCredential => {
@@ -231,7 +232,7 @@ export const fakeWire = (options: FakeWireOptions): FakeWire => {
     const path = url.startsWith(`${origin}/`) ? url.slice(origin.length) : undefined;
     if (path === DISCOVERY_PATH) reads++;
     if (path === undefined || unreachable()) throw new TypeError("fetch failed");
-    if (path === DISCOVERY_PATH) return json(200, document());
+    if (path === DISCOVERY_PATH) return overrides === "hanging" ? new Promise<never>(() => undefined) : json(200, document());
     if ((path === PAIR_PATH || path === BOOTSTRAP_PATH) && request?.method === "POST") return json(200, issue());
     return json(404, { code: "not_found", message: `The fake environment serves nothing at ${path}.` });
   };

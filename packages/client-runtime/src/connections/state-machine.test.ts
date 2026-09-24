@@ -94,8 +94,8 @@ const drive = (options: { kind?: "local" | "paired"; blocked?: MachineState["blo
     start(network = { online: true, foreground: true }, hasCache = false) {
       return d.feed({ type: "start", enabled: true, network, hasCache });
     },
-    discovered(answer: DiscoveryAnswer) {
-      return d.feed({ type: "discovery-result", attempt: state.attempt, answer });
+    discovered(answer: DiscoveryAnswer, random = 0.5) {
+      return d.feed({ type: "discovery-result", attempt: state.attempt, answer }, random);
     },
     /** From wherever the machine is: discovery answers ready, the socket opens, `hello` comes. */
     connect(expiresAt: number | null = options.expiresAt === undefined ? now + 30 * DAY : options.expiresAt) {
@@ -115,6 +115,12 @@ const has = (effects: readonly Effect[], type: Effect["type"]) => effects.some((
 const notices = (effects: readonly Effect[]) => effects.flatMap((e) => (e.type === "notice" ? [e.notice] : []));
 
 describe("the backoff ladder", () => {
+  it("lengthens each rung by the draw's share of 25 percent", () => {
+    expect(backoffDelay(1, 0.5)).toBe(1125);
+    expect(backoffDelay(3, 0.5)).toBe(4500);
+    expect(backoffDelay(6, 1)).toBe(37_500);
+  });
+
   it("is 1, 2, 4, 8, 16 then 30 seconds, each with up to 25 percent jitter", () => {
     const expected = [1000, 2000, 4000, 8000, 16000, 30000, 30000, 30000];
     expect(BACKOFF_LADDER_MS).toEqual([1000, 2000, 4000, 8000, 16000, 30000]);
@@ -248,6 +254,18 @@ describe("the watchdog", () => {
     d.discovered({ kind: "unreachable", message: "gone" });
     expect(armed(d.effects, "retry")).toEqual([backoffDelay(1, 0.5)]);
   });
+
+  it("a failed probe's reconnect starts the ladder at its first rung, even inside 30 seconds of a failure", () => {
+    const d = drive().ready();
+    d.feed({ type: "close", attempt: d.state.attempt });
+    d.feed({ type: "timer", timer: "retry" }).connect();
+    expect(d.state.failures).toBe(1);
+    d.feed({ type: "network", network: { online: true, foreground: false } });
+    d.feed({ type: "network", network: { online: true, foreground: true } });
+    d.feed({ type: "probe-result", attempt: d.state.attempt, ok: false });
+    d.discovered({ kind: "unreachable", message: "gone" }, 0);
+    expect(armed(d.effects, "retry")).toEqual([1000]);
+  });
 });
 
 describe("bye", () => {
@@ -279,6 +297,16 @@ describe("bye", () => {
     const local = drive({ kind: "local" }).ready();
     local.feed({ type: "bye", attempt: local.state.attempt, bye: bye("expired") });
     expect(actionOf(local.state)).toBeNull();
+    expect(notices(local.effects)[0]?.message).toContain("exchange the local grant again");
+    expect(notices(local.effects)[0]?.message).not.toContain("pair again");
+  });
+
+  it("protocol naming the client's own version is a fault, retried on the ladder, not a version block", () => {
+    const d = drive().ready();
+    d.feed({ type: "bye", attempt: d.state.attempt, bye: bye("protocol", { protocolVersion: CLIENT }) }, 0);
+    expect(d.state).toMatchObject({ phase: "backoff", blocked: null, bye: "protocol" });
+    expect(armed(d.effects, "retry")).toEqual([1000]);
+    expect(notices(d.effects)).toEqual([]);
   });
 
   it.each([
@@ -359,7 +387,10 @@ describe("the protocol integer", () => {
     const plain = drive({ capabilities: [] }).start();
     plain.discovered({ kind: "document", document: document({ protocolVersion: older }) });
     expect(plain.state).toMatchObject({ phase: "blocked", blocked: "protocol-mismatch" });
-    expect(notices(plain.effects)).toEqual([expect.objectContaining({ kind: "protocol-mismatch", action: null })]);
+    expect(notices(plain.effects)).toEqual([
+      expect.objectContaining({ kind: "protocol-mismatch", action: null, message: expect.stringContaining("cannot update itself") }),
+    ]);
+    expect(notices(plain.effects)[0]?.message).not.toContain("update desk to");
     expect(actionOf(plain.state)).toBeNull();
 
     const selfUpdating = drive().start();
@@ -398,9 +429,39 @@ describe("the protocol integer", () => {
 
     d.feed({ type: "retryNow" });
     d.discovered({ kind: "document", document: document() });
-    expect(d.state).toMatchObject({ phase: "connecting", blocked: null });
+    // Discovery agreeing is not enough: the block holds until `hello` agrees too.
+    expect(d.state).toMatchObject({ phase: "blocked", blocked: "unsupported-client", step: "dialing" });
+    expect(d.effects).toContainEqual({ type: "open-socket", attempt: d.state.attempt });
     d.feed({ type: "hello", attempt: d.state.attempt, hello: hello(), expiresAt: null });
     expect(d.state).toMatchObject({ phase: "ready", blocked: null });
+  });
+
+  it.each([
+    ["nothing answers", (d: ReturnType<typeof drive>) => d.discovered({ kind: "unreachable", message: "refused" })],
+    ["discovery is not a document", (d: ReturnType<typeof drive>) => d.discovered({ kind: "malformed", message: "HTTP 502" })],
+    ["discovery says starting", (d: ReturnType<typeof drive>) => d.discovered({ kind: "document", document: document({ readiness: "starting" }) })],
+    ["discovery says draining", (d: ReturnType<typeof drive>) => d.discovered({ kind: "document", document: document({ readiness: "draining" }) })],
+    ["discovery never answers", (d: ReturnType<typeof drive>) => d.at(ESTABLISH_TIMEOUT_MS).feed({ type: "timer", timer: "establish" })],
+    [
+      "the socket closes before hello",
+      (d: ReturnType<typeof drive>) => {
+        d.discovered({ kind: "document", document: document() });
+        d.feed({ type: "close", attempt: d.state.attempt });
+      },
+    ],
+  ] as const)("a saved block whose re-check cannot finish (%s) stays blocked, quietly, with no retry and its action", (_, recheck) => {
+    const d = drive({ blocked: "unsupported-client" }).start();
+    recheck(d);
+    expect(d.state).toMatchObject({ phase: "blocked", blocked: "unsupported-client", retryAt: null, step: "idle" });
+    expect(armed(d.effects, "retry")).toEqual([]);
+    expect(notices(d.effects)).toEqual([]);
+    expect(actionOf(d.state)).toBe("update-client");
+  });
+
+  it("a saved revoked block stays blocked when its re-check cannot reach the environment", () => {
+    const d = drive({ blocked: "revoked" }).start();
+    d.discovered({ kind: "unreachable", message: "refused" });
+    expect(d.state).toMatchObject({ phase: "blocked", blocked: "revoked", retryAt: null });
   });
 });
 
@@ -425,6 +486,33 @@ describe("the network signal", () => {
     d.feed({ type: "close", attempt: d.state.attempt });
     expect(d.state).toMatchObject({ phase: "backoff", parked: true, retryAt: null });
     expect(armed(d.effects, "retry")).toEqual([]);
+  });
+
+  it("never parks the local connection, which is on loopback", () => {
+    const d = drive({ kind: "local" }).start({ online: false, foreground: true });
+    expect(d.state).toMatchObject({ phase: "connecting", parked: false });
+    expect(d.effects).toContainEqual({ type: "poll-discovery", attempt: d.state.attempt });
+    d.connect();
+    d.feed({ type: "close", attempt: d.state.attempt }, 0);
+    expect(d.state).toMatchObject({ phase: "backoff", parked: false, retryAt: d.now + 1000 });
+    expect(armed(d.effects, "retry")).toEqual([1000]);
+    d.feed({ type: "network", network: { online: false, foreground: true } });
+    expect(d.state.retryAt).toBe(d.now + 1000);
+    expect(d.effects).toEqual([]);
+  });
+
+  it("a foreground wakeup tries a service-down retry at once too, but not the wait after a bye", () => {
+    const local = drive({ kind: "local" }).start();
+    local.discovered({ kind: "unreachable", message: "refused" });
+    local.feed({ type: "network", network: { online: true, foreground: false } });
+    local.feed({ type: "network", network: { online: true, foreground: true } });
+    expect(local.effects).toContainEqual({ type: "poll-discovery", attempt: local.state.attempt });
+
+    const draining = drive().ready();
+    draining.feed({ type: "bye", attempt: draining.state.attempt, bye: bye("draining") });
+    draining.feed({ type: "network", network: { online: true, foreground: false } });
+    draining.feed({ type: "network", network: { online: true, foreground: true } });
+    expect(has(draining.effects, "poll-discovery")).toBe(false);
   });
 
   it("starts parked when offline", () => {
@@ -567,6 +655,16 @@ describe("enable, disable and retryNow", () => {
     const d = drive().feed({ type: "start", enabled: false, network: { online: true, foreground: true }, hasCache: true });
     expect(d.state.phase).toBe("disabled");
     expect(d.effects.filter((e) => e.type !== "cancel-timer")).toEqual([]);
+  });
+
+  it("a fresh retryNow starts the ladder over", () => {
+    const d = drive({ kind: "local" }).start();
+    for (let i = 0; i < 6; i++) d.discovered({ kind: "unreachable", message: "refused" }).feed({ type: "timer", timer: "retry" });
+    d.discovered({ kind: "unreachable", message: "refused" }, 0);
+    expect(armed(d.effects, "retry")).toEqual([30_000]);
+    d.feed({ type: "retryNow", fresh: true });
+    d.discovered({ kind: "unreachable", message: "refused" }, 0);
+    expect(armed(d.effects, "retry")).toEqual([1000]);
   });
 
   it("retryNow tries at once from backoff, even offline", () => {

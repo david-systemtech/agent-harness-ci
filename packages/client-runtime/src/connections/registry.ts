@@ -150,6 +150,8 @@ const revokedBy = (response: ResponseFrame): boolean => {
 
 export const createRegistry = (platform: Platform, protocolVersion: number, notices: Notices): Registry => {
   const entries = new Map<string, Entry>();
+  // A fault with no caller to take it: a renderer's listener that threw, a background write that failed.
+  const report = (error: unknown): void => (platform.reportError ? platform.reportError(error) : void Promise.reject(error));
   const prefs = writable<ClientPreferences>(NO_PREFERENCES);
   const list = writable<readonly ConnectionRecord[]>([]);
   const local = writable<LocalStatus>({ state: "none" });
@@ -378,6 +380,7 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
       publish();
     },
     lost: (how) => notifyAll(closeListeners, environmentId, how),
+    report,
   });
 
   const newEntry = (environmentId: string, saved: SavedConnection, token?: string): Entry => {
@@ -686,7 +689,8 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
       const service = platform.shell?.service;
       if (!service) throw new Error("This client cannot start the local environment's service: only the desktop app can; run `agent-harness service start`, then retry.");
       await service.start();
-      entry.runner.feed({ type: "retryNow" });
+      // A service just started is tried at once and then from the ladder's first rung, not 30 seconds out.
+      entry.runner.feed({ type: "retryNow", fresh: true });
       await entry.runner.settled();
     },
 

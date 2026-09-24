@@ -44,6 +44,28 @@ const paired = async (setup: Setup = {}) => {
   return s;
 };
 
+/** A terminal UI whose local environment is the fake, started and ready. */
+const local = async (setup: { readonly offline?: boolean; readonly shell?: InMemoryPlatformOptions["shell"] } = {}) => {
+  const clock = manualClock();
+  const wire = fakeWire({ clock, name: "desk" });
+  const platform = inMemoryPlatform({
+    clock,
+    kind: "tui",
+    grant: wire.grant,
+    fetch: wire.fetch,
+    webSocket: wire.webSocket,
+    ...(setup.shell && { shell: setup.shell }),
+  });
+  if (setup.offline) platform.network.setOnline(false);
+  const { runtime } = createRuntimeWithSeams(platform);
+  onTestFinished(() => runtime.close());
+  const starting = runtime.start();
+  await wire.server.accept();
+  await starting;
+  expect(record(runtime)).toMatchObject({ kind: "local", phase: "ready" });
+  return { clock, wire, platform, runtime };
+};
+
 const record = (runtime: Runtime) => {
   const [only, ...rest] = runtime.connections.list.read();
   if (!only || rest.length > 0) throw new Error(`Expected one connection, found ${runtime.connections.list.read().length}.`);
@@ -139,6 +161,28 @@ describe("the backoff ladder", () => {
     expect(delay).toBeLessThanOrEqual(1250);
   });
 
+  it("gives a discovery read that never answers 15 seconds too", async () => {
+    const { wire, clock, runtime } = await paired();
+    wire.server.drop();
+    await flush();
+    wire.discovery("hanging");
+    const reads = wire.discoveries();
+    clock.advance(untilRetry(runtime, clock.now()));
+    await flush();
+    expect(wire.discoveries()).toBe(reads + 1);
+    expect(record(runtime)).toMatchObject({ phase: "connecting", retryAt: null });
+
+    clock.advance(14_999);
+    await flush();
+    expect(record(runtime).phase).toBe("connecting");
+    clock.advance(1);
+    await flush();
+    expect(record(runtime).phase).toBe("backoff");
+    const delay = untilRetry(runtime, clock.now());
+    expect(delay).toBeGreaterThanOrEqual(2000);
+    expect(delay).toBeLessThanOrEqual(2500);
+  });
+
   it("gives an attempt 15 seconds from opening the socket to hello", async () => {
     const { wire, clock, runtime } = await paired();
     wire.server.drop();
@@ -195,6 +239,22 @@ describe("the network signal", () => {
     await wire.server.accept();
     await flush();
     expect(record(runtime).phase).toBe("ready");
+  });
+
+  it("never parks the local connection: offline, it connects over loopback and a drop is retried on the ladder", async () => {
+    const { wire, clock, platform, runtime } = await local({ offline: true });
+    expect(platform.network.read().online).toBe(false);
+
+    wire.server.drop();
+    await flush();
+    const delay = untilRetry(runtime, clock.now());
+    expect(delay).toBeGreaterThanOrEqual(1000);
+    expect(delay).toBeLessThanOrEqual(1250);
+    clock.advance(delay);
+    await wire.server.accept();
+    await flush();
+    expect(record(runtime).phase).toBe("ready");
+    expect(wire.opened()).toBe(2);
   });
 
   it("probes a connected socket on a foreground wakeup, and replaces it only when the probe fails", async () => {
@@ -307,6 +367,78 @@ describe("bye", () => {
   });
 });
 
+describe("a renderer's listener that throws", () => {
+  it("is reported, and costs the connection nothing: a drop still arms its retry and reconnects", async () => {
+    const { wire, clock, platform, runtime } = await paired();
+    runtime.connections.list.subscribe(() => {
+      throw new Error("a renderer's bug");
+    });
+    runtime.projections.environments.subscribe(() => {
+      throw new Error("another renderer's bug");
+    });
+
+    wire.server.drop();
+    await flush();
+    expect(record(runtime).phase).toBe("backoff");
+    clock.advance(untilRetry(runtime, clock.now()));
+    await wire.server.accept();
+    await flush();
+    expect(record(runtime).phase).toBe("ready");
+    expect(wire.opened()).toBe(2);
+    expect(platform.reported.length).toBeGreaterThan(0);
+  });
+});
+
+describe("a saved block", () => {
+  /** A connection blocked `unsupported-client` and saved, then started again on what it saved while discovery answers `answer`. */
+  const relaunched = async (answer: "unreachable" | { readonly readiness: "starting" }) => {
+    const { wire, clock, platform, runtime } = await paired();
+    wire.discovery({ protocolVersion: PROTOCOL_VERSION + 1 });
+    await runtime.connections.retryNow(wire.environmentId);
+    expect(record(runtime)).toMatchObject({ phase: "blocked", blocked: "unsupported-client" });
+    await runtime.close();
+
+    wire.discovery(answer);
+    const again = createRuntimeWithSeams(
+      inMemoryPlatform({ clock, fetch: wire.fetch, webSocket: wire.webSocket, documents: platform.documents, secrets: platform.secrets }),
+    ).runtime;
+    onTestFinished(() => again.close());
+    return { wire, clock, again };
+  };
+
+  it.each([["unreachable" as const], [{ readiness: "starting" } as const]])(
+    "stays blocked when its re-check at launch cannot read discovery (%o), with its action and no retries",
+    async (answer) => {
+      const { wire, clock, again } = await relaunched(answer);
+      const reads = wire.discoveries();
+      await again.start();
+      for (let minute = 0; minute < 20; minute++) {
+        clock.advance(60_000);
+        await flush();
+      }
+
+      expect(wire.discoveries()).toBe(reads + 1);
+      expect(record(again)).toMatchObject({ phase: "blocked", blocked: "unsupported-client", action: "update-client", retryAt: null });
+      expect(view(again)).toMatchObject({ phase: "blocked", blocked: "unsupported-client", action: "update-client" });
+      expect(again.projections.notices.read()).toEqual([]);
+    },
+  );
+
+  it("clears only when discovery and hello agree", async () => {
+    const { wire, again } = await relaunched("unreachable");
+    await again.start();
+
+    wire.discovery({});
+    const retrying = again.connections.retryNow(wire.environmentId);
+    await wire.server.expect("auth");
+    // Discovery agrees; until hello does, the record says blocked.
+    expect(record(again)).toMatchObject({ phase: "blocked", blocked: "unsupported-client" });
+    wire.server.hello();
+    await retrying;
+    expect(record(again)).toMatchObject({ phase: "ready", blocked: null, action: null });
+  });
+});
+
 describe("hello", () => {
   it("naming another environment blocks different-environment and keeps the old cache", async () => {
     const { wire, runtime } = await paired();
@@ -377,7 +509,13 @@ describe("discovery", () => {
       expect(record(runtime)).toMatchObject({ phase: "blocked", blocked, action });
       expect(view(runtime)).toMatchObject({ phase: "blocked", blocked, action });
       expect(runtime.projections.notices.read()).toEqual([
-        expect.objectContaining({ kind: blocked, action, message: expect.stringContaining(blocked === "unsupported-client" ? "update this client" : "update fake") }),
+        expect.objectContaining({
+          kind: blocked,
+          action,
+          message: expect.stringContaining(
+            action === "update-client" ? "update this client" : action === "update-environment" ? "update fake to this client's version" : "cannot update itself",
+          ),
+        }),
       ]);
       clock.advance(10 * 60_000);
       await flush();
@@ -439,6 +577,44 @@ describe("the local environment", () => {
     expect(record(runtime)).toMatchObject({ phase: "ready", action: null });
   });
 
+  it("startService starts the ladder over, so a service still coming up is tried again within a second", async () => {
+    const shell = fakeShell();
+    const { wire, clock, runtime } = await local({ shell });
+    wire.discovery("unreachable");
+    wire.server.drop();
+    await flush();
+    for (let failure = 0; failure < 7; failure++) {
+      clock.advance(untilRetry(runtime, clock.now()));
+      await flush();
+    }
+    expect(untilRetry(runtime, clock.now())).toBeGreaterThanOrEqual(30_000);
+    expect(record(runtime).phase).toBe("service-down");
+
+    await runtime.connections.startService(wire.environmentId);
+    expect(shell.calls).toContainEqual(["service.start", undefined]);
+    const delay = untilRetry(runtime, clock.now());
+    expect(delay).toBeGreaterThanOrEqual(1000);
+    expect(delay).toBeLessThanOrEqual(1250);
+  });
+
+  it("revoked, it says a retry exchanges the grant again, and retryNow does", async () => {
+    const { wire, runtime } = await local();
+    const first = wire.credential()?.token;
+    wire.server.bye("revoked");
+    await flush();
+    expect(record(runtime)).toMatchObject({ phase: "blocked", blocked: "revoked" });
+    expect(runtime.projections.notices.read()).toEqual([
+      expect.objectContaining({ kind: "revoked", message: expect.stringContaining("exchange the local grant again") }),
+    ]);
+
+    const retrying = runtime.connections.retryNow(wire.environmentId);
+    const auth = await wire.server.accept();
+    await retrying;
+    expect(auth.token).toBe(wire.credential()?.token);
+    expect(auth.token).not.toBe(first);
+    expect(record(runtime)).toMatchObject({ phase: "ready", blocked: null });
+  });
+
   it("startService is refused without a shell service, and for a paired connection", async () => {
     const { wire, runtime } = await paired();
     await expect(runtime.connections.startService(wire.environmentId)).rejects.toThrow(/not this machine's local environment/);
@@ -483,6 +659,21 @@ describe("token refresh", () => {
     platform.network.setOnline(true);
     await wire.server.accept();
     expect(await wire.server.expect("request")).toMatchObject({ method: "access.sessions.refresh" });
+  });
+
+  it("left unanswered, holds up neither retryNow nor the socket", async () => {
+    const { wire, clock, platform, runtime } = await paired();
+    platform.network.setOnline(false);
+    wire.server.drop();
+    await flush();
+    clock.advance(25 * DAY);
+    wire.answer("access.sessions.refresh", () => undefined);
+
+    const retrying = runtime.connections.retryNow(wire.environmentId);
+    await wire.server.accept();
+    await retrying;
+    expect(await wire.server.expect("request")).toMatchObject({ method: "access.sessions.refresh" });
+    expect(record(runtime)).toMatchObject({ phase: "ready", refreshFailed: null });
   });
 
   it("reports a failure on the connection and never closes a healthy socket", async () => {
