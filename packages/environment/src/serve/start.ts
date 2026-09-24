@@ -110,8 +110,9 @@ export interface EnvironmentHandle {
   /** The listener's route table, behind the Host check. */
   readonly http: HttpRoutes;
   /**
-   * Stops listening and closes the event log, each even when the other fails.
-   * Idempotent; after a failure, calling it again retries what did not close.
+   * Stops listening, closes the event log, then closes the launcher channel,
+   * each even when another fails. Idempotent; after a failure, calling it
+   * again retries what did not close.
    */
   close(): Promise<void>;
 }
@@ -136,6 +137,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   let readiness: EnvironmentReadiness = "starting";
   let address: Address | undefined;
   const closers = createCloserStack();
+  // Pushed first, so it closes last: after the listener and the event log, and after a failed start too.
+  closers.push(() => launcher.close());
 
   const step = async <T>(name: StartupStep, work: () => T | Promise<T>): Promise<T> => {
     try {

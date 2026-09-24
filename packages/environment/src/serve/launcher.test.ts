@@ -2,20 +2,37 @@ import { describe, expect, it } from "vitest";
 import { processLauncherChannel, type IpcProcess } from "./launcher.js";
 
 /** A process with an IPC channel whose send succeeds, or fails with `error`. */
-const ipcProcess = (events: unknown[], error: Error | null = null): IpcProcess => ({
-  connected: true,
-  send: (message, callback) => {
-    events.push(message);
-    callback(error);
-    return error === null;
-  },
-  disconnect: () => void events.push("disconnect"),
-});
+const ipcProcess = (events: unknown[], error: Error | null = null): IpcProcess => {
+  let connected = true;
+  return {
+    get connected() {
+      return connected;
+    },
+    send: (message, callback) => {
+      events.push(message);
+      callback(error);
+      return error === null;
+    },
+    disconnect: () => {
+      connected = false;
+      events.push("disconnect");
+    },
+  };
+};
 
 describe("the launcher channel preset", () => {
-  it("sends prepared over the IPC channel the launcher spawned the environment with, then lets the channel go", async () => {
+  it("sends prepared over the IPC channel the launcher spawned the environment with, and keeps the channel open", async () => {
     const events: unknown[] = [];
     await processLauncherChannel(ipcProcess(events)).prepared();
+    expect(events).toEqual([{ type: "prepared" }]);
+  });
+
+  it("lets the channel go when closed, once", async () => {
+    const events: unknown[] = [];
+    const channel = processLauncherChannel(ipcProcess(events));
+    await channel.prepared();
+    await channel.close();
+    await channel.close();
     expect(events).toEqual([{ type: "prepared" }, "disconnect"]);
   });
 
@@ -31,9 +48,8 @@ describe("the launcher channel preset", () => {
     const disconnect = () => {
       throw new Error("nothing to disconnect");
     };
-    await expect(processLauncherChannel({ connected: false, disconnect }).prepared()).resolves.toBeUndefined();
-    await expect(
-      processLauncherChannel({ connected: false, send: undefined, disconnect }).prepared(),
-    ).resolves.toBeUndefined();
+    const foreground = processLauncherChannel({ connected: false, send: undefined, disconnect });
+    await expect(foreground.prepared()).resolves.toBeUndefined();
+    await expect(foreground.close()).resolves.toBeUndefined();
   });
 });

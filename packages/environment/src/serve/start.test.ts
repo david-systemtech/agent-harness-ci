@@ -43,12 +43,16 @@ afterEach(() => {
 });
 
 /** A launcher channel that records what reaches it. */
-const recordingLauncher = (onPrepared?: () => void | Promise<void>) => {
+const recordingLauncher = (onPrepared?: () => void | Promise<void>, onClose?: () => void | Promise<void>) => {
   const signals: string[] = [];
   const channel: LauncherChannel = {
     prepared: async () => {
       signals.push("prepared");
       await onPrepared?.();
+    },
+    close: async () => {
+      signals.push("close");
+      await onClose?.();
     },
   };
   return { signals, channel };
@@ -359,7 +363,7 @@ describe("the startup gate", () => {
     });
     await expect(failure).rejects.toBeInstanceOf(StartupError);
     await expect(failure).rejects.toMatchObject({ step: "adapter-host", message: expect.stringContaining("adapter-host") });
-    expect(launcher.signals).toEqual([]);
+    expect(launcher.signals).toEqual(["close"]);
   });
 
   it("leaves no prepared signal when the listener cannot bind, and the data directory usable", async () => {
@@ -368,7 +372,7 @@ describe("the startup gate", () => {
     const launcher = recordingLauncher();
     const failure = startEnvironment({ dataDir, port: taken.address.port, user: notPrivileged, launcher: launcher.channel });
     await expect(failure).rejects.toMatchObject({ step: "listen" });
-    expect(launcher.signals).toEqual([]);
+    expect(launcher.signals).toEqual(["close"]);
 
     const retry = await start({ dataDir });
     expect(retry.readiness()).toBe("ready");
@@ -384,6 +388,7 @@ describe("the startup gate", () => {
         prepared: () => {
           throw new Error("the launcher has gone");
         },
+        close: () => undefined,
       },
       hooks: { beforeStep: (_step, progress) => void (address = progress.address) },
     });
@@ -407,7 +412,7 @@ describe("the startup gate", () => {
       const launcher = recordingLauncher();
       await expect(start({ dataDir, launcher: launcher.channel }), corrupt).rejects.toMatchObject({ step: "identity" });
       expect(readFileSync(join(dataDir, "environment.json"), "utf8")).toBe(corrupt);
-      expect(launcher.signals).toEqual([]);
+      expect(launcher.signals).toEqual(["close"]);
     }
   });
 });
@@ -492,6 +497,27 @@ describe("closing", () => {
 
     await env.close();
     expect(await refusesConnections(env.address)).toBe(true);
+  });
+
+  it("lets the launcher channel go last, after the listener and the event log are closed", async () => {
+    const running: { env?: EnvironmentHandle } = {};
+    const seenAtClose: { refusing: boolean; walPresent: boolean }[] = [];
+    const launcher = recordingLauncher(undefined, async () => {
+      if (!running.env) throw new Error("closed before the environment started");
+      seenAtClose.push({
+        refusing: await refusesConnections(running.env.address),
+        walPresent: existsSync(join(running.env.dataDir, "environment.db-wal")),
+      });
+    });
+    const env = await start({ launcher: launcher.channel });
+    running.env = env;
+    expect(launcher.signals).toEqual(["prepared"]);
+
+    await env.close();
+    expect(launcher.signals).toEqual(["prepared", "close"]);
+    expect(seenAtClose).toEqual([{ refusing: true, walPresent: false }]);
+    await env.close();
+    expect(launcher.signals).toEqual(["prepared", "close"]);
   });
 
   it("stops listening, and may be called twice", async () => {

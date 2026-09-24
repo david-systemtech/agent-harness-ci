@@ -25,13 +25,14 @@ const harness = () => {
   const stopped = new Promise<void>((resolve) => (stop = resolve));
   cleanups.push(() => stop());
   const prepared = vi.fn();
+  const close = vi.fn();
   const context: CliContext = {
     stdout: (text) => void (out += text),
     stderr: (text) => void (err += text),
     stopRequested: () => stopped,
-    environment: { user: { isPrivileged: () => false }, launcher: { prepared } },
+    environment: { user: { isPrivileged: () => false }, launcher: { prepared, close } },
   };
-  return { context, stop, prepared, out: () => out, err: () => err };
+  return { context, stop, prepared, close, out: () => out, err: () => err };
 };
 
 describe("agent-harness serve", () => {
@@ -46,8 +47,10 @@ describe("agent-harness serve", () => {
     const discovery = (await (await fetch(address)).json()) as Record<string, unknown>;
     expect(discovery).toMatchObject({ environmentName: "cli", readiness: "ready" });
 
+    expect(cli.close).not.toHaveBeenCalled();
     cli.stop();
     expect(await exit).toBe(0);
+    expect(cli.close).toHaveBeenCalledOnce();
     await expect(fetch(address)).rejects.toThrow();
     expect(cli.err()).toBe("");
   });

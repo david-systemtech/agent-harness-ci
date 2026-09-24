@@ -1,11 +1,14 @@
 /**
- * The child's side of the launcher's channel (ADR 0007): the environment
- * says `prepared` once its startup gate is passed, so a trial version that
- * cannot serve is rolled back. The idle and drain queries arrive with the
- * lifecycle ticket (#112).
+ * The child's side of the launcher's channel (ADR 0007). The environment says
+ * `prepared` once its startup gate is passed, so a trial version that cannot
+ * serve is rolled back. The channel stays open after that, for the idle and
+ * drain queries the lifecycle ticket (#112) adds, and is let go by `close`,
+ * which the environment calls last when it closes (or when a start fails), so
+ * an open channel never keeps a finished process alive.
  */
 export interface LauncherChannel {
   prepared(): void | Promise<void>;
+  close(): void | Promise<void>;
 }
 
 /** The message a launcher that spawned the environment with an IPC channel receives. */
@@ -32,20 +35,18 @@ const ipcOf = (proc: NodeJS.Process): IpcProcess => {
 /**
  * The preset channel: over the IPC channel when a launcher spawned the
  * environment with one, and a no-op when `serve` runs in the foreground.
- * Once `prepared` is delivered the channel is let go, so it no longer keeps
- * the process alive after the environment closes; the #112 queries will keep
- * it open instead. A signal the channel cannot deliver fails the start.
+ * A signal the channel cannot deliver fails the start; `close` disconnects
+ * the channel if it is still connected.
  */
 export const processLauncherChannel = (proc: IpcProcess = ipcOf(process)): LauncherChannel => ({
   prepared: () => {
     const send = proc.send;
     if (!send || !proc.connected) return Promise.resolve();
     return new Promise<void>((resolve, reject) => {
-      send(PREPARED_MESSAGE, (error) => {
-        if (error) return reject(error);
-        proc.disconnect();
-        resolve();
-      });
+      send(PREPARED_MESSAGE, (error) => (error ? reject(error) : resolve()));
     });
+  },
+  close: async () => {
+    if (proc.send && proc.connected) proc.disconnect();
   },
 });
