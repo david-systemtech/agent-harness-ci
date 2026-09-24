@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SocketOpenedPayload",
+  "type": "object",
+  "properties": {
+    "clientSessionId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "A client session's id, as hello names it and the access methods list and revoke it."
+    },
+    "socketId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The socket's id, the same on its opened and closed events."
+    },
+    "remoteAddress": {
+      "description": "The address the socket came from, when known.",
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "clientSessionId",
+    "socketId",
+    "remoteAddress"
+  ],
+  "description": "socket.opened: a WebSocket authenticated as the client session."
+}

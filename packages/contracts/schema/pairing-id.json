@@ -1,0 +1,7 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PairingId",
+  "type": "string",
+  "minLength": 1,
+  "description": "A pairing's id, as the access log names it; the code itself is never logged."
+}

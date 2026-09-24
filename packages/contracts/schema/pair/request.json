@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PairRequest",
+  "type": "object",
+  "properties": {
+    "code": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "description": "The pairing code, as typed or as the link's fragment carries it; case, spaces and hyphens are ignored."
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "desktop",
+        "tui",
+        "web",
+        "program"
+      ],
+      "description": "What kind of client a client session belongs to: the desktop window, the terminal UI, a browser tab, or a program (a script or bot driving the wire)."
+    },
+    "label": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "description": "A name for the client session, for people."
+    },
+    "protocolVersion": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "description": "A wire protocol version: one integer, bumped only on a breaking change."
+    }
+  },
+  "required": [
+    "code",
+    "kind",
+    "label",
+    "protocolVersion"
+  ],
+  "description": "A client's exchange of a pairing code for a client session."
+}

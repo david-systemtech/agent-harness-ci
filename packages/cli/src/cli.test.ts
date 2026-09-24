@@ -41,6 +41,7 @@ const harness = () => {
       user: { isPrivileged: () => false },
       launcher: { present: () => true, prepared, close, onQuery: (respond) => void (answer = respond) },
       runs,
+      interfaces: { tailscaleAddress: async () => undefined, tailnetName: async () => undefined },
     },
   };
   return { context, stop, prepared, close, ask, runs, out: () => out, err: () => err };

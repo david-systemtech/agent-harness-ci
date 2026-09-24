@@ -10,7 +10,7 @@
       "maximum": 9007199254740991
     },
     "limit": {
-      "description": "At most this many events, 1 to 1000.",
+      "description": "At most this many events, 1 to 1000; 100 when absent.",
       "type": "integer",
       "minimum": 1,
       "maximum": 1000

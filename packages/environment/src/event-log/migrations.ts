@@ -71,7 +71,6 @@ export const MIGRATIONS: readonly Migration[] = [
   {
     version: 2,
     name: "auth: client sessions",
-    // Pairings and the access stream join these with #109.
     sql: `
       CREATE TABLE client_sessions (
         id TEXT PRIMARY KEY,
@@ -84,6 +83,26 @@ export const MIGRATIONS: readonly Migration[] = [
         last_seen_at TEXT,
         expires_at TEXT NOT NULL,
         revoked_at TEXT
+      ) STRICT;
+    `,
+  },
+  {
+    version: 3,
+    name: "auth: pairings",
+    // The code itself is never stored: a code is looked up by its SHA-256.
+    sql: `
+      CREATE TABLE pairings (
+        id TEXT PRIMARY KEY,
+        code_hash TEXT NOT NULL UNIQUE,
+        scopes TEXT NOT NULL,
+        ceiling TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        exchanged_at TEXT,
+        client_session_id TEXT REFERENCES client_sessions (id),
+        expired_at TEXT,
+        CHECK ((exchanged_at IS NULL) = (client_session_id IS NULL)),
+        CHECK (exchanged_at IS NULL OR expired_at IS NULL)
       ) STRICT;
     `,
   },

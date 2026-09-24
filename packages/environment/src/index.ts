@@ -19,6 +19,8 @@ export {
   type EventLog,
   type EventLogOptions,
   type JsonObject,
+  type PairingRow,
+  type PairingTable,
   type ProjectionDb,
   type Projector,
   type ReceiptRequest,
@@ -28,7 +30,10 @@ export {
   type StreamRef,
 } from "./event-log/event-log.js";
 
+export { DEFAULT_LOG_PAGE } from "./auth/access-log.js";
 export {
+  DEFAULT_CEILING,
+  SWEEP_INTERVAL_MS,
   TOKEN_LIFETIME_MS,
   TOP_CEILING,
   TUI_REVOKE_AFTER_MS,
@@ -40,6 +45,16 @@ export { EXCHANGE_RATE } from "./auth/rate-limit.js";
 export { systemClock, type Clock, type Timer } from "./serve/clock.js";
 export { defaultDataDirectory, prepareDataDirectory, type PlatformContext } from "./serve/data-directory.js";
 export { isAllowedHost, type Address, type HttpRoutes, type RouteHandler } from "./serve/http.js";
+export {
+  LOOPBACK,
+  bindList,
+  processRunner,
+  tailscaleDetector,
+  type BindChoice,
+  type BoundInterface,
+  type CommandRunner,
+  type InterfaceDetector,
+} from "./serve/interfaces.js";
 export { RECORD_FILE, SIGNING_KEY, type EnvironmentRecord } from "./serve/identity.js";
 export {
   PREPARED_MESSAGE,

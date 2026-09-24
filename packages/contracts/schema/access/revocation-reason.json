@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RevocationReason",
+  "type": "string",
+  "enum": [
+    "requested",
+    "replaced",
+    "idle"
+  ],
+  "description": "Why a client session was revoked: requested (access.sessions.revoke), replaced (a newer desktop bootstrap), or idle (a tui local client session whose last socket closed an hour before)."
+}

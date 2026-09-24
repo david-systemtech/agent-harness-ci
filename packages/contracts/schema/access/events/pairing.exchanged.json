@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PairingExchangedPayload",
+  "type": "object",
+  "properties": {
+    "pairingId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "A pairing's id, as the access log names it; the code itself is never logged."
+    },
+    "clientSessionId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "A client session's id, as hello names it and the access methods list and revoke it."
+    }
+  },
+  "required": [
+    "pairingId",
+    "clientSessionId"
+  ],
+  "description": "pairing.exchanged: a pairing code was exchanged for the client session named."
+}

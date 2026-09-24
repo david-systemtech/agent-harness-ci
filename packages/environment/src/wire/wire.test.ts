@@ -6,6 +6,7 @@ import {
   HelloFrame,
   PROTOCOL_VERSION,
   SCOPES,
+  methods,
   type ClientSessionCredential,
   type Frame,
   type Scope,
@@ -33,7 +34,7 @@ const start = async (options: TestEnvironmentOptions = {}): Promise<TestEnvironm
   return t;
 };
 
-/** A client session issued straight from the environment, as pairing (#109) will: here, to hold fewer scopes. */
+/** A client session issued through the handle's in-process pairing: here, to hold fewer scopes. */
 const issue = (t: TestEnvironment, scopes: readonly Scope[]): ClientSessionCredential =>
   t.env.clientSessions.issue({ kind: "program", label: "a narrow program", scopes, ceiling: Ceiling.parse("acceptEdits") });
 
@@ -460,11 +461,9 @@ describe("requests", () => {
     expect(answer).toEqual({ type: "subscribed", id: expect.any(String), subscription: expect.any(String) });
   });
 
-  it("answers a registered method with no handler yet not_found", async () => {
+  it("serves every registered method, so none is answered not_found for want of a handler (dispatch.test.ts covers one without)", async () => {
     const t = await start();
-    const client = await t.client();
-    const answer = await client.call("access.sessions.list", {});
-    expect(answer).toMatchObject({ type: "response", error: { code: "not_found" } });
+    expect(methods.filter((method) => t.env.methods.get(method.name)?.handler === undefined).map((method) => method.name)).toEqual([]);
   });
 });
 

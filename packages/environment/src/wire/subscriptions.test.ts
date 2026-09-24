@@ -15,7 +15,7 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { useCleanups } from "../../test/cleanups.js";
-import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
+import { NO_INTERFACES, startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { WAIT_MS, type WireClient } from "../../test/wire-client.js";
 import { REPLAY_BOUND, type EventInput, type JsonObject, type StreamRef } from "../event-log/event-log.js";
 import { HARNESS_VERSION, startEnvironment } from "../serve/start.js";
@@ -138,9 +138,10 @@ const valve = () => {
 describe("a subscription", () => {
   it("is answered subscribed, then the events after the cursor, then synchronized, then live events, all carrying its id", async () => {
     const t = await start();
+    // Connected first: opening a socket appends to the access stream, which would move the head.
+    const client = await t.client();
     const earlier = append(t, "a", 3);
     const [head] = append(t, "b", 1);
-    const client = await t.client();
 
     const subscribed = await client.subscribe("probe.subscribe", { probe: "a", afterSequence: 0 });
     expect(subscribed).toEqual({ type: "subscribed", id: expect.any(String), subscription: expect.any(String) });
@@ -195,9 +196,9 @@ describe("a subscription", () => {
 
   it(`sends one snapshot instead when ${REPLAY_BOUND.events + 1} events follow the cursor, then synchronized, then live`, async () => {
     const t = await start();
+    const client = await t.client();
     const sequences = append(t, "a", REPLAY_BOUND.events + 1);
     const head = sequences.at(-1) as number;
-    const client = await t.client();
     const { subscription } = await client.subscribe("probe.subscribe", { probe: "a", afterSequence: 0 });
 
     const snapshot = await frame(client, subscription, "snapshot");
@@ -228,8 +229,8 @@ describe("a subscription", () => {
 
   it("sends a snapshot for a cursor past the log's head, which is no cursor of this log", async () => {
     const t = await start();
-    const [head] = append(t, "a", 2).slice(-1);
     const client = await t.client();
+    const [head] = append(t, "a", 2).slice(-1);
     const { subscription } = await client.subscribe("probe.subscribe", { probe: "a", afterSequence: (head as number) + 50 });
     expect(await frame(client, subscription, "snapshot")).toMatchObject({ sequence: head, payload: { count: 2 } });
     expect((await frame(client, subscription, "synchronized")).sequence).toBe(head);
@@ -252,8 +253,8 @@ describe("a subscription", () => {
   it("delivers the events appended while catch-up is in progress, with no gap and none twice", async () => {
     const hold = holdCatchUp();
     const t = await start({ subscriptionHooks: hold.hooks });
-    const before = append(t, "a", 3);
     const client = await t.client();
+    const before = append(t, "a", 3);
 
     const subscribing = client.subscribe("probe.subscribe", { probe: "a", afterSequence: 0 });
     await hold.reached;
@@ -594,8 +595,8 @@ describe("environment.subscribe", () => {
       type: "environment.started",
       payload: { harnessVersion: HARNESS_VERSION, protocolVersion: 1 },
     }));
-    const { events } = t.env.log.append({ kind: ENVIRONMENT_STREAM_KIND, id: t.env.id }, notices, { actor: "system:test" });
     const client = await t.client();
+    const { events } = t.env.log.append({ kind: ENVIRONMENT_STREAM_KIND, id: t.env.id }, notices, { actor: "system:test" });
     const { subscription } = await client.subscribe("environment.subscribe", { afterSequence: 0 });
     expect(await frame(client, subscription, "snapshot")).toEqual({
       type: "snapshot",
@@ -619,6 +620,7 @@ describe("environment.subscribe", () => {
         onQuery: () => undefined,
         close: () => undefined,
       },
+      interfaces: NO_INTERFACES,
     });
     await expect(failed).rejects.toMatchObject({ step: "prepared" });
 

@@ -4,19 +4,16 @@ import { join } from "node:path";
 import {
   BOOTSTRAP_GRANT_FILE,
   BootstrapRequest,
-  invalidParams,
   type BootstrapError,
   type BootstrapGrant,
-  type ClientSessionCredential,
   type EnvironmentReadiness,
 } from "@agent-harness/contracts";
+import type { Tx } from "../event-log/event-log.js";
 import { writeFileAtomic } from "../serve/files.js";
-import { BodyTooLargeError, readBody, sendJson, type Address, type RouteHandler } from "../serve/http.js";
+import type { Address, RouteHandler } from "../serve/http.js";
 import type { ClientSessions } from "./client-sessions.js";
+import { exchangeRoute } from "./exchange.js";
 import type { RateLimiter } from "./rate-limit.js";
-
-/** The most an exchange's body may be; a label is at most 200 characters. */
-export const MAX_EXCHANGE_BYTES = 16 * 1024;
 
 const SECRET_BYTES = 32;
 
@@ -36,16 +33,11 @@ const digest = (text: string): Buffer => createHash("sha256").update(text, "utf8
 /** Compares in constant time over digests, so neither the length nor a prefix of the secret leaks. */
 const sameSecret = (given: string, expected: string): boolean => timingSafeEqual(digest(given), digest(expected));
 
-const refuse = (
-  response: Parameters<RouteHandler>[1],
-  status: number,
-  error: BootstrapError,
-  headers: Record<string, string> = {},
-): void => sendJson(response, status, error, { "cache-control": "no-store", ...headers });
-
 export interface BootstrapGrantOptions {
   readonly dataDir: string;
-  readonly clientSessions: ClientSessions;
+  readonly clientSessions: Pick<ClientSessions, "issueLocal">;
+  /** Opens the transaction the exchange's client session and access-log events are written in. */
+  readonly atomically: <T>(work: (tx: Tx) => T) => T;
   /** Every exchange past the loopback gate, refused or not, spends from its remote address's bucket. */
   readonly rateLimiter: RateLimiter;
   /** The environment's readiness; the exchange answers `unavailable` unless it is `ready`. */
@@ -76,65 +68,30 @@ export const createBootstrapGrant = (options: BootstrapGrantOptions): BootstrapG
     current = grant;
   };
 
-  const exchange: RouteHandler = async (request, response) => {
-    if (!isLoopbackAddress(request.socket.remoteAddress)) {
-      return refuse(response, 403, {
-        code: "unauthorized",
-        message: "The bootstrap grant is exchanged over loopback only.",
-        data: {},
-      });
-    }
-    const remote = request.socket.remoteAddress ?? "";
-    const taken = options.rateLimiter.take(remote);
-    if (!taken.ok) {
-      const seconds = Math.ceil(taken.retryAfterMs / 1000);
-      return refuse(
-        response,
-        429,
-        {
-          code: "rate_limited",
-          message: `Too many exchanges from this address; try again in ${seconds} seconds.`,
-          data: { retryAfterMs: taken.retryAfterMs },
-        },
-        { "retry-after": String(seconds) },
-      );
-    }
-    const readiness = options.readiness();
-    if (readiness !== "ready") {
-      return refuse(response, 503, {
-        code: "unavailable",
-        message: `The environment is ${readiness}; try again once it is ready.`,
-        data: { readiness },
-      });
-    }
-    let text: string;
-    try {
-      text = await readBody(request, MAX_EXCHANGE_BYTES);
-    } catch (error) {
-      if (!(error instanceof BodyTooLargeError)) throw error;
-      return refuse(response, 413, invalidParams([{ code: "too_big", path: [], message: error.message }], error.message));
-    }
-    let json: unknown;
-    try {
-      json = JSON.parse(text);
-    } catch {
-      return refuse(response, 400, invalidParams([{ code: "custom", path: [], message: "The body is not JSON." }], "The body is not JSON."));
-    }
-    const parsed = BootstrapRequest.safeParse(json);
-    if (!parsed.success) return refuse(response, 400, invalidParams(parsed.error.issues, "The body is not a bootstrap exchange."));
-
-    // From here to the answer nothing awaits, so one secret is exchanged once however many requests race.
-    if (!current || !sameSecret(parsed.data.secret, current.secret)) {
-      return refuse(response, 401, {
-        code: "unauthorized",
-        message: "The secret is not the grant's current one: read the grant file again.",
-        data: {},
-      });
-    }
-    issue(current.address);
-    const credential: ClientSessionCredential = options.clientSessions.issueLocal(parsed.data.kind, parsed.data.label);
-    sendJson(response, 200, credential, { "cache-control": "no-store" });
-  };
+  const exchange: RouteHandler = exchangeRoute<BootstrapRequest, BootstrapError>({
+    body: BootstrapRequest,
+    what: "a bootstrap exchange",
+    rateLimiter: options.rateLimiter,
+    readiness: options.readiness,
+    admit: (request) =>
+      isLoopbackAddress(request.socket.remoteAddress)
+        ? undefined
+        : { status: 403, error: { code: "unauthorized", message: "The bootstrap grant is exchanged over loopback only.", data: {} } },
+    // Nothing here awaits, so one secret is exchanged once however many requests race.
+    exchange: (body) => {
+      if (!current || !sameSecret(body.secret, current.secret)) {
+        return {
+          ok: false,
+          refusal: {
+            status: 401,
+            error: { code: "unauthorized", message: "The secret is not the grant's current one: read the grant file again.", data: {} },
+          },
+        };
+      }
+      issue(current.address);
+      return { ok: true, credential: options.atomically((tx) => options.clientSessions.issueLocal(tx, body.kind, body.label)) };
+    },
+  });
 
   return {
     issue,

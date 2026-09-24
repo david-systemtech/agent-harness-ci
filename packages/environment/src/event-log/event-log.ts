@@ -5,11 +5,13 @@ import { createSql, decodeEvent, toJson, type EventRow, type SqlValue, type Tran
 import { requireActor, type EventEnvelope, type EventInput, type JsonObject, type StreamRef } from "./envelope.js";
 import { applyMigrations } from "./migrations.js";
 import { createProjections, type Projector } from "./projectors.js";
+import { createPairingTable, type PairingTable } from "./pairings.js";
 import { createReceipts, type CommandReceipt, type ReceiptRequest } from "./receipts.js";
 import { createSnapshots, type Snapshot } from "./snapshots.js";
 import { loadSqlite } from "./sqlite.js";
 
 export type { ClientSessionRow, ClientSessionTable } from "./client-sessions.js";
+export type { PairingRow, PairingTable } from "./pairings.js";
 export type { SqlValue } from "./database.js";
 export { formatActor, parseActor, type EventEnvelope, type EventInput, type JsonObject, type StreamRef } from "./envelope.js";
 export type { ProjectionDb, Projector } from "./projectors.js";
@@ -22,9 +24,21 @@ export const REPLAY_BOUND = { events: 1000, bytes: 8 * 1024 * 1024 } as const;
 /** How long a connection waits for another's write lock before an append fails. */
 const BUSY_TIMEOUT_MS = 5000;
 
+/**
+ * An open `atomically`: what an auth-table write and an access-log append
+ * take, so none of them happens outside one. It is valid only while its
+ * `atomically` runs.
+ */
+export interface Tx {
+  /** Runs `callback` once the transaction has committed; never, if it rolls back. For memory that mirrors what was written. */
+  afterCommit(callback: () => void): void;
+}
+
 interface AppendContext {
   /** The client session, routine, adapter or system component appending, as `kind:id` (`formatActor`); any other form is refused. */
   readonly actor: string;
+  /** The `atomically` the append must be part of; the append throws unless it is the one open. */
+  readonly tx?: Tx;
   readonly causationId?: string;
   readonly correlationId?: string;
 }
@@ -73,8 +87,8 @@ export interface EventLog {
    * writes and the receipt; subscribers hear of them only after it commits.
    */
   append(stream: StreamRef, events: readonly EventInput[], options: AppendOptions): AppendResult;
-  /** One stream's events with a sequence above `afterSequence`, in order. */
-  readStream(stream: StreamRef, afterSequence?: number): EventEnvelope[];
+  /** One stream's events with a sequence above `afterSequence`, in order: every one, or the first `limit`. */
+  readStream(stream: StreamRef, afterSequence?: number, limit?: number): EventEnvelope[];
   /** Measures one stream's events after a cursor against the replay bound, in SQL, before decoding. */
   replayBound(stream: StreamRef, afterSequence: number): ReplayMeasure;
   /** The last sequence the log has given out, on any stream; 0 before the first event. */
@@ -98,8 +112,18 @@ export interface EventLog {
   /** Writes a stream's snapshot, replacing any earlier one. */
   writeSnapshot(stream: StreamRef, snapshot: { readonly sequence: number; readonly payload: unknown }): void;
   readSnapshot(stream: StreamRef): Snapshot | null;
+  /**
+   * Runs `work` in one write transaction, handing it the `Tx` that every
+   * auth-table write and access-log append inside takes: all of it commits
+   * together or not at all. After the commit the `afterCommit` callbacks run,
+   * then subscribers hear the appended events. Neither a projector nor
+   * another `atomically` may call it: one caller owns the transaction.
+   */
+  atomically<T>(work: (tx: Tx) => T): T;
   /** The auth table of client sessions, which the environment loads once on start and then only writes. */
   readonly clientSessions: ClientSessionTable;
+  /** The auth table of pairing codes, loaded once on start and then only written. */
+  readonly pairings: PairingTable;
   close(): void;
 }
 
@@ -139,8 +163,15 @@ export const openEventLog = (options: EventLogOptions): EventLog => {
   let closed = false;
 
   let inTransaction = false;
+  /** The `atomically` open now: an append inside joins its transaction rather than opening one. */
+  let openTx: Tx | undefined;
+  /** Inside a projector's `apply`, which may not write anywhere but its own tables. */
+  let projecting = false;
+  /** Events appended inside `atomically`, published once it commits. */
+  let held: EventEnvelope[] | undefined;
+
   /** BEGIN IMMEDIATE takes the write lock up front, so concurrent writers queue on the busy timeout. */
-  const transaction: Transaction = (work) => {
+  const begin: Transaction = (work) => {
     if (inTransaction) {
       throw new Error("The event log does not nest transactions: a projector may not append, register or rebuild.");
     }
@@ -160,10 +191,20 @@ export const openEventLog = (options: EventLogOptions): EventLog => {
     }
   };
 
-  const projections = createProjections(sql, transaction, clock);
+  /** An append's transaction: its own, or the one `atomically` holds open. */
+  const transaction: Transaction = (work) => (openTx !== undefined && !projecting ? work() : begin(work));
+
+  /** Throws unless `tx` is the `atomically` open now, and no projector is running. */
+  const requireTx = (tx: Tx): void => {
+    if (projecting) throw new Error("A projector may not append or write the auth tables.");
+    if (tx !== openTx) throw new Error("This write needs the transaction of the atomically open now.");
+  };
+
+  const projections = createProjections(sql, begin, clock);
   const receipts = createReceipts(sql);
   const snapshots = createSnapshots(sql, clock);
-  const clientSessions = createClientSessionTable(sql, transaction);
+  const clientSessions = createClientSessionTable(sql, requireTx);
+  const pairings = createPairingTable(sql, requireTx);
 
   const insertEvent = `
     INSERT INTO events (event_id, stream_kind, stream_id, stream_version, type, occurred_at,
@@ -202,6 +243,7 @@ export const openEventLog = (options: EventLogOptions): EventLog => {
 
   const log: EventLog = {
     append(stream, inputs, options) {
+      if (options.tx !== undefined) requireTx(options.tx);
       const request = options.receipt;
       if (request?.status === "rejected" && inputs.length > 0) {
         throw new TypeError(
@@ -234,7 +276,12 @@ export const openEventLog = (options: EventLogOptions): EventLog => {
           if (stored) return { events: [], receipt: stored, duplicate: true };
         }
         const events = rows.map((row) => decodeEvent(sql.get<EventRow>(insertEvent, ...row) as EventRow));
-        projections.catchUp(events);
+        projecting = true;
+        try {
+          projections.catchUp(events);
+        } finally {
+          projecting = false;
+        }
         const receipt = request
           ? receipts.write(
               { actor: options.actor, commandId: options.commandId, stream, createdAt: now },
@@ -244,19 +291,49 @@ export const openEventLog = (options: EventLogOptions): EventLog => {
           : null;
         return { events, receipt, duplicate: false };
       });
-      publish(result.events);
+      if (held) held.push(...result.events);
+      else publish(result.events);
       return result;
     },
 
-    readStream(stream, afterSequence = 0) {
+    readStream(stream, afterSequence = 0, limit) {
       return sql
         .all<EventRow>(
-          "SELECT * FROM events WHERE stream_kind = ? AND stream_id = ? AND sequence > ? ORDER BY sequence",
+          // SQLite reads a negative LIMIT as none.
+          "SELECT * FROM events WHERE stream_kind = ? AND stream_id = ? AND sequence > ? ORDER BY sequence LIMIT ?",
           stream.kind,
           stream.id,
           afterSequence,
+          limit ?? -1,
         )
         .map(decodeEvent);
+    },
+
+    atomically(work) {
+      if (projecting) throw new Error("A projector may not append or write the auth tables.");
+      if (openTx !== undefined) throw new Error("An atomically is open already: its owner passes its Tx on rather than opening another.");
+      const appended: EventEnvelope[] = [];
+      const committed: (() => void)[] = [];
+      const tx: Tx = { afterCommit: (callback) => void committed.push(callback) };
+      const result = begin(() => {
+        openTx = tx;
+        held = appended;
+        try {
+          return work(tx);
+        } finally {
+          openTx = undefined;
+          held = undefined;
+        }
+      });
+      for (const callback of committed) {
+        try {
+          callback();
+        } catch (error) {
+          onSubscriberError(error);
+        }
+      }
+      publish(appended);
+      return result;
     },
 
     replayBound(stream, afterSequence) {
@@ -309,6 +386,7 @@ export const openEventLog = (options: EventLogOptions): EventLog => {
     writeSnapshot: (stream, snapshot) => snapshots.write(stream, snapshot),
     readSnapshot: (stream) => snapshots.read(stream),
     clientSessions,
+    pairings,
 
     close() {
       if (closed) return;

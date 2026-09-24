@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -6,17 +7,24 @@ import {
   BOOTSTRAP_PATH,
   BootstrapGrant,
   ClientSessionCredential,
+  PAIR_PATH,
+  PROTOCOL_VERSION,
   type BootstrapKind,
+  type Ceiling,
+  type ClientKind,
+  type ResultOf,
+  type Scope,
   type Method,
   type MethodName,
   type Registry,
 } from "@agent-harness/contracts";
 import type { z } from "zod";
 import type { Address } from "../src/serve/http.js";
+import type { InterfaceDetector } from "../src/serve/interfaces.js";
+import { startEnvironment, type EnvironmentHandle, type EnvironmentOptions, type StartupHooks } from "../src/serve/start.js";
 import type { ContainerDetector } from "../src/serve/container.js";
 import { createRunRegistry, type MemoryRunRegistry } from "../src/serve/run-registry.js";
 import type { HandlerResult, MethodContext, MethodHandler } from "../src/serve/methods.js";
-import { startEnvironment, type EnvironmentHandle, type StartupHooks } from "../src/serve/start.js";
 import type { SubscriptionHooks } from "../src/wire/subscriptions.js";
 import { manualClock, type ManualClock } from "./clock.js";
 import { fakeProvider, type FakeProvider } from "./fake-provider.js";
@@ -49,12 +57,31 @@ export interface TestEnvironmentOptions {
   readonly name?: string;
   /** Startup hooks, to hold the startup gate. */
   readonly hooks?: StartupHooks;
+  /** Preset: a machine with no Tailscale address and no tailnet name (`NO_INTERFACES`), so a test never binds a real interface. */
+  readonly interfaces?: InterfaceDetector;
+  readonly bindTailnet?: boolean;
+  readonly bindLan?: boolean;
+  readonly lanAddress?: string;
+  readonly tailnetName?: string;
   /** Subscription seams: hold a catch-up, slow a socket down. */
   readonly subscriptionHooks?: SubscriptionHooks;
   /** Preset: whatever the machine is, reported as no container, so updates are not managed outside. */
   readonly containerDetector?: ContainerDetector;
   /** Preset: a test launcher that says no launcher is present. */
   readonly launcher?: TestLauncher;
+}
+
+/** A machine with no Tailscale address and no tailnet name. */
+export const NO_INTERFACES: InterfaceDetector = { tailscaleAddress: async () => undefined, tailnetName: async () => undefined };
+
+/** What a pairing is minted with, and the client session its exchange asks for. */
+export interface PairOptions {
+  readonly scopes?: readonly Scope[];
+  readonly ceiling?: Ceiling;
+  /** Preset `program`. */
+  readonly kind?: ClientKind;
+  /** Preset `a paired <kind>`. */
+  readonly label?: string;
 }
 
 export interface ClientOptions extends OpenOptions, Partial<Omit<AuthOptions, "token">> {
@@ -93,6 +120,12 @@ export interface TestEnvironment {
   exchange(body: unknown): Promise<ExchangeAnswer>;
   /** Exchanges the current grant for a local client session of `kind`; throws unless the exchange succeeds. */
   bootstrap(kind?: BootstrapKind, label?: string): Promise<ClientSessionCredential>;
+  /** Posts `body` to the pairing exchange as it is. */
+  pairExchange(body: unknown): Promise<ExchangeAnswer>;
+  /** Mints a pairing through the default client (`access.pairings.create`), on a socket closed after, and returns its result. */
+  createPairing(options?: Pick<PairOptions, "scopes" | "ceiling">): Promise<ResultOf<"access.pairings.create">>;
+  /** Mints a pairing and exchanges it at `/api/pair`; throws unless both succeed. */
+  pair(options?: PairOptions): Promise<ClientSessionCredential>;
   /** A client that has authenticated: with the token given, or the default client session's. Closed by `close`. */
   client(options?: ClientOptions): Promise<WireClient>;
   /** A WebSocket that has sent nothing yet. Closed by `close`. */
@@ -129,6 +162,16 @@ export const postExchange = async (address: Address, body: unknown): Promise<Exc
   return { status: response.status, body: (await response.json()) as Record<string, unknown> };
 };
 
+/** Posts `body` as JSON to the pairing exchange at `address`. */
+export const postPair = async (address: Address, body: unknown): Promise<ExchangeAnswer> => {
+  const response = await fetch(`http://${address.host}:${address.port}${PAIR_PATH}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: typeof body === "string" ? body : JSON.stringify(body),
+  });
+  return { status: response.status, body: (await response.json()) as Record<string, unknown> };
+};
+
 /** The grant file in `dataDir`, checked against its schema. */
 export const readGrant = (dataDir: string): BootstrapGrant =>
   BootstrapGrant.parse(JSON.parse(readFileSync(join(dataDir, BOOTSTRAP_GRANT_FILE), "utf8")));
@@ -154,6 +197,14 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
   const runs = createRunRegistry({ clock });
   const launcher = options.launcher ?? testLauncher();
 
+  const passed: Partial<EnvironmentOptions> = {
+    ...(options.name !== undefined && { name: options.name }),
+    ...(options.hooks !== undefined && { hooks: options.hooks }),
+    ...(options.bindTailnet !== undefined && { bindTailnet: options.bindTailnet }),
+    ...(options.bindLan !== undefined && { bindLan: options.bindLan }),
+    ...(options.lanAddress !== undefined && { lanAddress: options.lanAddress }),
+    ...(options.tailnetName !== undefined && { tailnetName: options.tailnetName }),
+  };
   let env: EnvironmentHandle;
   try {
     env = await startEnvironment({
@@ -165,8 +216,8 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
       launcher,
       runs,
       containerDetector: options.containerDetector ?? { inContainer: () => false },
-      ...(options.name !== undefined && { name: options.name }),
-      ...(options.hooks !== undefined && { hooks: options.hooks }),
+      interfaces: options.interfaces ?? NO_INTERFACES,
+      ...passed,
       ...(options.subscriptionHooks !== undefined && { subscriptionHooks: options.subscriptionHooks }),
     });
   } catch (error) {
@@ -207,6 +258,20 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
     }
   };
 
+  /** Mints a pairing over a socket of the default client session, opened for the request and closed after, so no socket stays open for time to be advanced over. */
+  const createPairing = async (pairOptions: Pick<PairOptions, "scopes" | "ceiling"> = {}) => {
+    const admin = track(await defaultClient({}));
+    try {
+      return await admin.request("access.pairings.create", {
+        commandId: randomUUID(),
+        ...(pairOptions.scopes !== undefined && { scopes: [...pairOptions.scopes] }),
+        ...(pairOptions.ceiling !== undefined && { ceiling: pairOptions.ceiling }),
+      });
+    } finally {
+      await admin.close();
+    }
+  };
+
   return {
     env,
     address: env.address,
@@ -218,6 +283,20 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
     grant: () => readGrant(dataDir),
     exchange: (body) => postExchange(env.address, body),
     bootstrap: (kind, label) => bootstrapExchange(env.address, dataDir, kind, label),
+    pairExchange: (body) => postPair(env.address, body),
+    createPairing,
+    async pair(pairOptions = {}) {
+      const { code } = await createPairing(pairOptions);
+      const kind = pairOptions.kind ?? "program";
+      const answer = await postPair(env.address, {
+        code,
+        kind,
+        label: pairOptions.label ?? `a paired ${kind}`,
+        protocolVersion: PROTOCOL_VERSION,
+      });
+      if (answer.status !== 200) throw new Error(`The pairing exchange answered ${answer.status}: ${JSON.stringify(answer.body)}`);
+      return ClientSessionCredential.parse(answer.body);
+    },
     async client(clientOptions = {}) {
       const { token } = clientOptions;
       return track(token === undefined ? await defaultClient(clientOptions) : await connectClient(env.address, { ...clientOptions, token }));

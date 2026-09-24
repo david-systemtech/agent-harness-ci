@@ -71,7 +71,7 @@ describe("opening the event log", () => {
     const tables = log
       .read<{ name: string }>("SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")
       .map((t) => t.name);
-    expect(tables.sort()).toEqual(["client_sessions", "command_receipts", "events", "projection_state", "snapshots"]);
+    expect(tables.sort()).toEqual(["client_sessions", "command_receipts", "events", "pairings", "projection_state", "snapshots"]);
     expect(log.read("PRAGMA user_version")).toEqual([{ user_version: MIGRATIONS.length }]);
   });
 
@@ -205,6 +205,13 @@ describe("appending", () => {
     expect(log.readStream(s1, 4)).toEqual([]);
   });
 
+  it("reads at most a limit of one stream's events", () => {
+    const log = memoryLog();
+    log.append(s1, [note("1"), note("2"), note("3")], { actor: "system:test" });
+    expect(log.readStream(s1, 0, 2).map((e) => e.payload)).toEqual([{ text: "1" }, { text: "2" }]);
+    expect(log.readStream(s1, 2, 5).map((e) => e.payload)).toEqual([{ text: "3" }]);
+  });
+
   it("names its head: the last sequence given out, 0 before the first, never lowered by a rollback", () => {
     const log = memoryLog();
     expect(log.head()).toBe(0);
@@ -329,6 +336,83 @@ describe("one transaction for events, projections and the receipt", () => {
     const { events } = log.append(s1, [note("after")], { actor: "system:test" });
     expect(events.map((e) => e.streamVersion)).toEqual([1]);
     expect(log.read("SELECT sequence FROM fails_seen")).toEqual([{ sequence: events[0]?.sequence }]);
+  });
+});
+
+describe("atomically", () => {
+  const row = (id: string) => ({
+    id,
+    kind: "program" as const,
+    label: id,
+    scopes: ["read" as const],
+    ceiling: "plan" as never,
+    local: false,
+    createdAt: "2026-09-24T00:00:00.000Z",
+    lastSeenAt: null,
+    expiresAt: "2026-10-24T00:00:00.000Z",
+    revokedAt: null,
+  });
+
+  it("commits appends and auth-table writes together, then runs the after-commit callbacks, then publishes", () => {
+    const log = memoryLog();
+    const order: string[] = [];
+    log.subscribe((event) => order.push(`heard ${event.sequence}, row stored: ${log.clientSessions.all().length === 1}`));
+    log.atomically((tx) => {
+      log.clientSessions.insert(tx, row("cs-1"), []);
+      log.append(s1, [note("one")], { actor: "system:test", tx });
+      log.append(s1, [note("two")], { actor: "system:test", tx });
+      tx.afterCommit(() => order.push("committed"));
+      expect(order).toEqual([]);
+    });
+    expect(order).toEqual(["committed", "heard 1, row stored: true", "heard 2, row stored: true"]);
+  });
+
+  it("writes none of it when the work throws, and runs no after-commit callback and publishes nothing", () => {
+    const log = memoryLog();
+    const heard: number[] = [];
+    let committed = false;
+    log.subscribe((event) => heard.push(event.sequence));
+    expect(() =>
+      log.atomically((tx) => {
+        log.clientSessions.insert(tx, row("cs-1"), []);
+        log.append(s1, [note("one")], { actor: "system:test", tx });
+        tx.afterCommit(() => (committed = true));
+        throw new Error("changed my mind");
+      }),
+    ).toThrow("changed my mind");
+    expect(log.readStream(s1)).toEqual([]);
+    expect(log.clientSessions.all()).toEqual([]);
+    expect(heard).toEqual([]);
+    expect(committed).toBe(false);
+    log.append(s1, [note("after")], { actor: "system:test" });
+    expect(heard).toHaveLength(1);
+  });
+
+  it("refuses to open inside another: one caller owns the transaction", () => {
+    const log = memoryLog();
+    expect(() => log.atomically(() => log.atomically(() => undefined))).toThrow(/open already/);
+  });
+
+  it("refuses an auth-table write or an append made with a transaction that is not the open one", () => {
+    const log = memoryLog();
+    let stale: Parameters<Parameters<EventLog["atomically"]>[0]>[0] | undefined;
+    log.atomically((tx) => (stale = tx));
+    if (!stale) throw new Error("no transaction");
+    const old = stale;
+    expect(() => log.clientSessions.insert(old, row("cs-1"), [])).toThrow(/transaction/);
+    expect(() => log.append(s1, [note("late")], { actor: "system:test", tx: old })).toThrow(/transaction/);
+    expect(() => log.pairings.expire(old, "p-1", "2026-09-24T00:00:00.000Z")).toThrow(/transaction/);
+  });
+
+  it("is refused to a projector", () => {
+    const log = memoryLog();
+    log.registerProjector({
+      name: "sneaky",
+      tables: { sneaky_seen: "CREATE TABLE sneaky_seen (sequence INTEGER PRIMARY KEY)" },
+      apply: () => log.atomically(() => undefined),
+    });
+    expect(() => log.append(s1, [note("one")], { actor: "system:test" })).toThrow(/projector/);
+    expect(log.readStream(s1)).toEqual([]);
   });
 });
 
