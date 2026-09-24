@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "QueueHolder",
+  "type": "string",
+  "enum": [
+    "provider",
+    "environment"
+  ],
+  "description": "Who holds a queued message: the provider's queue (it may steer it into the running turn), or the environment's (the next run starts with it)."
+}

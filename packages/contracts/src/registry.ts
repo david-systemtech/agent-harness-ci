@@ -43,6 +43,7 @@ import {
   sessionsUnsnooze,
   sessionsUntag,
 } from "./methods/sessions.js";
+import { runsInterrupt, runsSend, runsStart, runsStopTask } from "./methods/runs.js";
 
 /**
  * Every method the environment answers, in one typed table: the environment's
@@ -87,6 +88,10 @@ export const methods = [
   groupsList,
   sessionsSubscribe,
   sessionsSubscribeSession,
+  runsStart,
+  runsSend,
+  runsInterrupt,
+  runsStopTask,
 ] as const;
 
 type Registered = (typeof methods)[number];

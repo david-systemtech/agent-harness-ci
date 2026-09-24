@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { commandParams, defineMethod, subscriptionParams } from "../method.js";
-import { JsonObject, Sequence, Timestamp } from "../primitives.js";
+import { Sequence, Timestamp } from "../primitives.js";
 import { OrderKey } from "../ordering.js";
 import {
   DeletedSessionSummary,
@@ -16,6 +16,7 @@ import {
   UserTitle,
   Workspace,
 } from "../sessions.js";
+import { SessionSnapshot } from "../transcript.js";
 
 /**
  * The session and group methods (session-state spec, "Commands" and
@@ -321,21 +322,17 @@ export const sessionsSubscribe = defineMethod({
 });
 
 /**
- * One session: its snapshot is the summary and the transcript, whose shape
- * is the adapter workstream's (#119); its events are every event of the
- * session's stream. It delivers `session.deleted` and ends with reason
- * `deleted` when the session is deleted; an unknown, deleted or purged id
- * is `not_found`.
+ * One session: its snapshot is the summary, the runs, the settled items of
+ * the transcript and the parked prompts (`SessionSnapshot`, the adapter's
+ * vocabulary); its events are every event of the session's stream. It
+ * delivers `session.deleted` and ends with reason `deleted` when the session
+ * is deleted; an unknown, deleted or purged id is `not_found`.
  */
 export const sessionsSubscribeSession = defineMethod({
   name: "sessions.subscribeSession",
   scope: "read",
   kind: "stream",
   params: subscriptionParams(sessionTarget),
-  result: z.object({
-    sequence: Sequence,
-    summary: SessionSummary,
-    transcript: JsonObject.meta({ description: "The session's transcript; its shape is the adapter workstream's (#119)." }),
-  }),
+  result: SessionSnapshot,
   errors: [],
 });

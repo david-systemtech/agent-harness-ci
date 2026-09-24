@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SessionForkedPayload",
+  "type": "object",
+  "properties": {
+    "fromSessionId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "A session's id: a version 4 UUID the creating client mints (never the provider's resume id), kept in lowercase."
+    },
+    "atMessageId": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+          "description": "A user message's id: a version 4 UUID the environment mints when a client sends it, and the id the provider is handed."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The user message the fork was taken before; null for a fork of the whole session."
+    }
+  },
+  "required": [
+    "fromSessionId",
+    "atMessageId"
+  ],
+  "description": "session.forked: the session was forked from another; on the new session's stream."
+}

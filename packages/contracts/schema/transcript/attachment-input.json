@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AttachmentInput",
+  "type": "object",
+  "properties": {
+    "kind": {
+      "type": "string",
+      "enum": [
+        "image",
+        "file"
+      ],
+      "description": "What an attachment is: an image (the adapter needs imageInput) or a file (fileInput)."
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "mediaType": {
+      "type": "string",
+      "pattern": "^[a-z]+\\/[a-z0-9.+-]+$",
+      "description": "Its media type: image/png."
+    },
+    "data": {
+      "type": "string",
+      "maxLength": 27962028,
+      "pattern": "^[A-Za-z0-9+/]*={0,2}$",
+      "description": "Its bytes, in base64; the log never holds them."
+    }
+  },
+  "required": [
+    "kind",
+    "name",
+    "mediaType",
+    "data"
+  ],
+  "description": "An attachment as a client sends it: kind, name, media type and its bytes in base64."
+}

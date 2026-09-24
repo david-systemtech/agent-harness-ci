@@ -391,6 +391,78 @@
       "title": "SessionPullRequestSyncedPayload"
     },
     {
+      "path": "sessions/events/run.started.json",
+      "title": "RunStartedPayload"
+    },
+    {
+      "path": "sessions/events/message.sent.json",
+      "title": "MessageSentPayload"
+    },
+    {
+      "path": "sessions/events/message.delivered.json",
+      "title": "MessageDeliveredPayload"
+    },
+    {
+      "path": "sessions/events/message.requeued.json",
+      "title": "MessageRequeuedPayload"
+    },
+    {
+      "path": "sessions/events/assistant.delta.json",
+      "title": "AssistantDeltaPayload"
+    },
+    {
+      "path": "sessions/events/assistant.text.json",
+      "title": "AssistantTextPayload"
+    },
+    {
+      "path": "sessions/events/assistant.thinking.json",
+      "title": "AssistantThinkingPayload"
+    },
+    {
+      "path": "sessions/events/tool.started.json",
+      "title": "ToolStartedPayload"
+    },
+    {
+      "path": "sessions/events/tool.updated.json",
+      "title": "ToolUpdatedPayload"
+    },
+    {
+      "path": "sessions/events/tool.ended.json",
+      "title": "ToolEndedPayload"
+    },
+    {
+      "path": "sessions/events/command.ran.json",
+      "title": "CommandRanPayload"
+    },
+    {
+      "path": "sessions/events/tasks.changed.json",
+      "title": "TasksChangedPayload"
+    },
+    {
+      "path": "sessions/events/usage.reported.json",
+      "title": "UsageReportedPayload"
+    },
+    {
+      "path": "sessions/events/plan.limit.json",
+      "title": "PlanLimitPayload"
+    },
+    {
+      "path": "sessions/events/session.provider-linked.json",
+      "title": "SessionProviderLinkedPayload"
+    },
+    {
+      "path": "sessions/events/session.forked.json",
+      "title": "SessionForkedPayload"
+    },
+    {
+      "path": "sessions/events/session.rewound.json",
+      "title": "SessionRewoundPayload"
+    },
+    {
+      "path": "sessions/events/run.ended.json",
+      "title": "RunEndedPayload"
+    },
+    {
       "path": "sessions/events/group.created.json",
       "title": "GroupCreatedPayload"
     },
@@ -405,6 +477,130 @@
     {
       "path": "sessions/events/group.deleted.json",
       "title": "GroupDeletedPayload"
+    },
+    {
+      "path": "adapter/run-id.json",
+      "title": "RunId"
+    },
+    {
+      "path": "adapter/message-id.json",
+      "title": "MessageId"
+    },
+    {
+      "path": "adapter/provider-id.json",
+      "title": "ProviderId"
+    },
+    {
+      "path": "adapter/account-identity.json",
+      "title": "AccountIdentity"
+    },
+    {
+      "path": "adapter/instruction-channel-kind.json",
+      "title": "InstructionChannelKind"
+    },
+    {
+      "path": "adapter/instruction-channel.json",
+      "title": "InstructionChannel"
+    },
+    {
+      "path": "adapter/capability-flag.json",
+      "title": "AdapterCapabilityFlag"
+    },
+    {
+      "path": "adapter/capabilities.json",
+      "title": "AdapterCapabilities"
+    },
+    {
+      "path": "adapter/credential-spec.json",
+      "title": "CredentialSpec"
+    },
+    {
+      "path": "adapter/auth-status.json",
+      "title": "AuthStatus"
+    },
+    {
+      "path": "adapter/message-delivery.json",
+      "title": "MessageDelivery"
+    },
+    {
+      "path": "adapter/queue-holder.json",
+      "title": "QueueHolder"
+    },
+    {
+      "path": "adapter/send-response.json",
+      "title": "SendResponse"
+    },
+    {
+      "path": "adapter/delegated-work-status.json",
+      "title": "DelegatedWorkStatus"
+    },
+    {
+      "path": "adapter/delegated-work-row.json",
+      "title": "DelegatedWorkRow"
+    },
+    {
+      "path": "adapter/run-suggestion.json",
+      "title": "RunSuggestion"
+    },
+    {
+      "path": "transcript/run-origin.json",
+      "title": "RunOrigin"
+    },
+    {
+      "path": "transcript/run-end-reason.json",
+      "title": "RunEndReason"
+    },
+    {
+      "path": "transcript/interrupt-cause.json",
+      "title": "InterruptCause"
+    },
+    {
+      "path": "transcript/attachment-kind.json",
+      "title": "AttachmentKind"
+    },
+    {
+      "path": "transcript/attachment-record.json",
+      "title": "AttachmentRecord"
+    },
+    {
+      "path": "transcript/attachment-input.json",
+      "title": "AttachmentInput"
+    },
+    {
+      "path": "transcript/run-mode.json",
+      "title": "RunMode"
+    },
+    {
+      "path": "transcript/model-usage.json",
+      "title": "ModelUsage"
+    },
+    {
+      "path": "transcript/run-error.json",
+      "title": "RunError"
+    },
+    {
+      "path": "transcript/run-state.json",
+      "title": "RunState"
+    },
+    {
+      "path": "transcript/tool-status.json",
+      "title": "ToolStatus"
+    },
+    {
+      "path": "transcript/run-summary.json",
+      "title": "RunSummary"
+    },
+    {
+      "path": "transcript/transcript-item.json",
+      "title": "TranscriptItem"
+    },
+    {
+      "path": "transcript/parked-prompt.json",
+      "title": "ParkedPrompt"
+    },
+    {
+      "path": "transcript/session-snapshot.json",
+      "title": "SessionSnapshot"
     },
     {
       "path": "actor.json",
@@ -1117,6 +1313,70 @@
     {
       "path": "methods/sessions.subscribeSession/error.json",
       "title": "sessions.subscribeSession error"
+    },
+    {
+      "path": "methods/runs.start/params.json",
+      "title": "runs.start params"
+    },
+    {
+      "path": "methods/runs.start/result.json",
+      "title": "runs.start result"
+    },
+    {
+      "path": "methods/runs.start/response.json",
+      "title": "runs.start response"
+    },
+    {
+      "path": "methods/runs.start/error.json",
+      "title": "runs.start error"
+    },
+    {
+      "path": "methods/runs.send/params.json",
+      "title": "runs.send params"
+    },
+    {
+      "path": "methods/runs.send/result.json",
+      "title": "runs.send result"
+    },
+    {
+      "path": "methods/runs.send/response.json",
+      "title": "runs.send response"
+    },
+    {
+      "path": "methods/runs.send/error.json",
+      "title": "runs.send error"
+    },
+    {
+      "path": "methods/runs.interrupt/params.json",
+      "title": "runs.interrupt params"
+    },
+    {
+      "path": "methods/runs.interrupt/result.json",
+      "title": "runs.interrupt result"
+    },
+    {
+      "path": "methods/runs.interrupt/response.json",
+      "title": "runs.interrupt response"
+    },
+    {
+      "path": "methods/runs.interrupt/error.json",
+      "title": "runs.interrupt error"
+    },
+    {
+      "path": "methods/runs.stopTask/params.json",
+      "title": "runs.stopTask params"
+    },
+    {
+      "path": "methods/runs.stopTask/result.json",
+      "title": "runs.stopTask result"
+    },
+    {
+      "path": "methods/runs.stopTask/response.json",
+      "title": "runs.stopTask response"
+    },
+    {
+      "path": "methods/runs.stopTask/error.json",
+      "title": "runs.stopTask error"
     }
   ],
   "methods": [
@@ -1489,6 +1749,46 @@
       "params": "methods/sessions.subscribeSession/params.json",
       "result": "methods/sessions.subscribeSession/result.json",
       "error": "methods/sessions.subscribeSession/error.json"
+    },
+    {
+      "name": "runs.start",
+      "scope": "runs:drive",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/runs.start/params.json",
+      "result": "methods/runs.start/result.json",
+      "response": "methods/runs.start/response.json",
+      "error": "methods/runs.start/error.json"
+    },
+    {
+      "name": "runs.send",
+      "scope": "runs:drive",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/runs.send/params.json",
+      "result": "methods/runs.send/result.json",
+      "response": "methods/runs.send/response.json",
+      "error": "methods/runs.send/error.json"
+    },
+    {
+      "name": "runs.interrupt",
+      "scope": "runs:drive",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/runs.interrupt/params.json",
+      "result": "methods/runs.interrupt/result.json",
+      "response": "methods/runs.interrupt/response.json",
+      "error": "methods/runs.interrupt/error.json"
+    },
+    {
+      "name": "runs.stopTask",
+      "scope": "runs:drive",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/runs.stopTask/params.json",
+      "result": "methods/runs.stopTask/result.json",
+      "response": "methods/runs.stopTask/response.json",
+      "error": "methods/runs.stopTask/error.json"
     }
   ]
 }

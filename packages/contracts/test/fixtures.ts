@@ -7,6 +7,7 @@
  * less than the whole package.
  */
 import { FRAME_TYPES, SHARED_ERROR_CODES, methodPath, methods, type FrameType } from "../src/index.js";
+import { runMethodFixtures, runSchemaFixtures } from "./run-fixtures.js";
 import { sessionMethodFixtures, sessionSchemaFixtures } from "./session-fixtures.js";
 
 const uuid = "0f8fad5b-d9cb-469f-a165-70867728950e";
@@ -436,6 +437,7 @@ const methodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
     result: { valid: [{ events: [] }, { events: [validEnvelope] }], invalid: [{ events: [{}] }, {}] },
   },
   ...sessionMethodFixtures,
+  ...runMethodFixtures,
 };
 
 /** Receipts as a command's response carries them: accepted with a change, a no-op, and a rejection. */
@@ -683,5 +685,6 @@ export const schemaFixtures: Record<string, Fixtures> = {
     invalid: [...FRAME_TYPES.flatMap(malformedJson), { type: "nonsense" }, {}],
   },
   ...sessionSchemaFixtures,
+  ...runSchemaFixtures,
   ...methodSchemaFixtures,
 };

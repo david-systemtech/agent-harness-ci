@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ToolStatus",
+  "type": "string",
+  "enum": [
+    "ok",
+    "error",
+    "cancelled"
+  ],
+  "description": "How a tool call ended: ok, error, or cancelled."
+}

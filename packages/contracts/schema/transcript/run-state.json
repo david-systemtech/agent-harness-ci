@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RunState",
+  "type": "string",
+  "enum": [
+    "running",
+    "ended"
+  ],
+  "description": "Where a run is: running (started, not ended) or ended."
+}

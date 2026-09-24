@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AccountIdentity",
+  "type": "object",
+  "properties": {
+    "provider": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$",
+      "description": "A provider's id, as the environment's adapter registry keys it: lowercase letters, digits and hyphens (claude)."
+    },
+    "email": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The login's email, as the provider's status reports it."
+    },
+    "organisation": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The organisation the login belongs to, when the provider reports one."
+    }
+  },
+  "required": [
+    "provider",
+    "email",
+    "organisation"
+  ],
+  "description": "Who an account signed in as: the provider, the email and the organisation when present; one account per identity per environment."
+}

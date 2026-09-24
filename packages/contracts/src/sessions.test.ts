@@ -165,10 +165,8 @@ describe("the event-type table", () => {
     expect(eventTableProblems(broken)).toEqual(["group group.renamed: list-flagged with no patch schema"]);
   });
 
-  it("flags every session and group type but message.sent, with the summary patch and the group patch", () => {
-    for (const [type, entry] of Object.entries(SESSION_EVENT_TYPES)) {
-      if (type !== "message.sent") expect(entry, type).toMatchObject({ list: true, patch: SummaryPatch });
-    }
+  it("flags every organisation and group type, with the summary patch and the group patch", () => {
+    for (const [type, entry] of Object.entries(SESSION_EVENT_TYPES)) expect(entry, type).toMatchObject({ list: true, patch: SummaryPatch });
     for (const entry of Object.values(GROUP_EVENT_TYPES)) expect(entry).toMatchObject({ list: true, patch: GroupPatch });
   });
 
@@ -182,18 +180,16 @@ describe("the event-type table", () => {
     expect(isListEvent("session", "toString")).toBe(false);
   });
 
-  it("reserves the run, message and prompt names for their workstreams with payloads left to them; message.sent changes no summary field, so it is not flagged", () => {
-    const reserved = Object.entries(SESSION_EVENT_TYPES).flatMap(([type, entry]) =>
+  it("reserves the prompt names for the permissions workstream with payloads left to it, flagged list; the run and message types are the transcript vocabulary's", () => {
+    const reserved = Object.entries(EVENT_TYPES.session).flatMap(([type, entry]) =>
       "reservedFor" in entry ? [[type, entry.reservedFor, entry.list]] : [],
     );
     expect(reserved).toEqual([
-      ["run.started", "the adapter workstream (#119)", true],
-      ["run.ended", "the adapter workstream (#119)", true],
-      ["message.sent", "the adapter workstream (#119)", false],
       ["prompt.opened", "the permissions workstream (#130)", true],
       ["prompt.answered", "the permissions workstream (#130)", true],
     ]);
     expect(isListEvent("session", "message.sent")).toBe(false);
+    expect(isListEvent("session", "run.started")).toBe(true);
   });
 
   it("lists the flagged types the session list carries", () => {
