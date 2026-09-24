@@ -72,8 +72,9 @@ export type ClientSessionCredential = z.infer<typeof ClientSessionCredential>;
 /**
  * What a refused exchange answers: `unauthorized` for a wrong or used secret
  * (401) or a request not over loopback (403), `invalid_params` for a body
- * that is not a `BootstrapRequest` (400), `rate_limited` when one address
- * exchanges too often (429), `unavailable` before the startup gate (503),
+ * that is not a `BootstrapRequest` (400) or too large to be one (413),
+ * `rate_limited` when one address exchanges too often (429), `unavailable`
+ * before the startup gate (503),
  * `internal` when the environment failed (500).
  */
 export const BootstrapError = z

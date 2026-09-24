@@ -46,7 +46,7 @@ const refuse = (
 export interface BootstrapGrantOptions {
   readonly dataDir: string;
   readonly clientSessions: ClientSessions;
-  /** Every exchange, refused or not, spends from its remote address's bucket. */
+  /** Every exchange past the loopback gate, refused or not, spends from its remote address's bucket. */
   readonly rateLimiter: RateLimiter;
   /** The environment's readiness; the exchange answers `unavailable` unless it is `ready`. */
   readonly readiness: () => EnvironmentReadiness;
