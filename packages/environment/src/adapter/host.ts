@@ -53,7 +53,7 @@ import type {
 } from "./contract.js";
 import type { AttachmentStage } from "./attachment-stage.js";
 import { createProcessPool } from "./pool.js";
-import type { PromptDecision } from "./contract.js";
+import { PromptClosed, type PromptDecision } from "./contract.js";
 import { createAdapterRegistry, type AdapterRegistry } from "./registry.js";
 import { createScopedAppend, type ScopedAppend } from "./scoped-append.js";
 import {
@@ -201,9 +201,17 @@ export interface AdapterHost {
   /**
    * Answers a prompt the run raised through the broker: handed to its
    * adapter (`interactivePrompts`), and the run no longer parked on it. The
-   * way every answer a client gives reaches a run (#130).
+   * way every answer a client gives reaches a run (#130). Refused `conflict`
+   * with reason `run_ended` when the run is no longer live (a prompt kept
+   * open across its end is #130's to deliver another way), and
+   * `prompt_not_open` when the live run has not raised it or it is answered
+   * already (the host's own record), or the adapter holds it no longer: thrown
+   * when the adapter answers at once, and the returned promise rejected
+   * when it answers asynchronously, so the caller awaits what it returns.
+   * Any other failure of the adapter's is logged and refused `internal`, the
+   * same way at once or asynchronously.
    */
-  answerPrompt(runId: string, promptId: string, decision: PromptDecision): void;
+  answerPrompt(runId: string, promptId: string, decision: PromptDecision): void | Promise<void>;
   /** Plan usage for an account, with its identity (`planUsage`). */
   usage(accountId: string): Promise<UsageReading>;
   /** The slash commands for an account and workspace (`commands`). */
@@ -495,6 +503,25 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     append(sessionId, runId, HOST_ACTOR, requeuedEvents(runId, held));
   };
 
+  /**
+   * Takes back the messages an interrupt reports its provider no longer
+   * holds, whichever run of the session each was sent during: a provider's
+   * queue is the session's, so cancelling it can return a message an earlier
+   * run left with the provider (one a replaced process handed on). Each is
+   * requeued under its own run, in the order sent; an id the provider does
+   * not hold for the session is ignored, so one a run's end took back
+   * already is not taken back again.
+   */
+  const requeueReported = (sessionId: string, messageIds: readonly string[]): void => {
+    if (messageIds.length === 0) return;
+    const held = reader
+      .all<{ message_id: string; run_id: string }>("SELECT message_id, run_id FROM run_messages WHERE session_id = ? AND held_by = 'provider' ORDER BY sequence", sessionId)
+      .filter((row) => messageIds.includes(row.message_id));
+    log.atomically(() => {
+      for (const row of held) append(sessionId, row.run_id, HOST_ACTOR, requeuedEvents(row.run_id, [row.message_id]));
+    });
+  };
+
   const startFacts = (sessionId: string, actor: RunActor): StartFacts => {
     const session = readSessionFacts(log, reader, sessionId);
     const accountId = session?.account ?? defaultAccountId;
@@ -709,10 +736,14 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
 
   /**
    * The broker as a session's runs are handed it. A request parks the
-   * session's run live at the time it is made (a turn the provider opened on
-   * its own asks through the context of the run it followed), under the
-   * prompt's id, the adapter's own or one the host mints, until the request
-   * settles or `answerPrompt` answers it, whichever comes first.
+   * session's run live at the time it is made, under the prompt's id, the
+   * adapter's own or one the host mints. A turn the provider opened on its
+   * own asks through the broker of the run it followed, but only once the
+   * host has adopted it and told it its run id (`onAdopted`), by which time
+   * that run is registered as the session's live one: the run it parks is its
+   * own. The run is parked until the request settles, the provider withdraws
+   * it (its signal aborts, or had aborted before the request was made) or
+   * `answerPrompt` answers it, whichever comes first.
    */
   const brokerFor = (sessionId: string): PermissionBroker => ({
     request: async (request) => {
@@ -720,10 +751,23 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       const parks = entry !== undefined && !entry.ended ? entry : undefined;
       const promptId = request.promptId ?? randomUUID();
       if (parks !== undefined) raised(parks, promptId);
+      // The request answers its own raise once, withdrawn or settled, whichever is first: a later request that
+      // reuses its id, raised once this one was withdrawn, is another prompt, which this one's settling leaves parked.
+      let open = parks !== undefined;
+      const answer = (): void => {
+        if (!open || parks === undefined) return;
+        open = false;
+        answered(parks, promptId);
+      };
+      // A request the provider withdraws is answered by its adapter: the run is not parked on it any longer.
+      request.signal?.addEventListener("abort", answer, { once: true });
+      // Withdrawn before it was made: an aborted signal fires no more.
+      if (request.signal?.aborted === true) answer();
       try {
         return await broker.request({ ...request, promptId });
       } finally {
-        if (parks !== undefined) answered(parks, promptId);
+        request.signal?.removeEventListener("abort", answer);
+        answer();
       }
     },
   });
@@ -843,10 +887,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
   const adoptNow = (followed: LiveRun, turn: ProviderTurn): void => {
     const previous = followed.plan;
     /** The turn is not run, and no run starts for it: it is disposed, and what it was to read comes back to the environment's queue for the next start. */
-    const letGo = (why: string): void => {
-      safely(() => turn.dispose(), (e) => console.error(`Disposing a turn ${why} failed:`, e));
-      requeueTurn(previous, turn);
-    };
+    const letGo = (why: string, stop: ProcessStopReason = "failed"): void => letTurnGo(previous, turn, why, stop);
     let session: ReturnType<typeof readSessionFacts>;
     try {
       session = readSessionFacts(log, reader, previous.sessionId);
@@ -857,13 +898,13 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     }
     if (session === null || session.deleted) {
       // Deleted (or purged) since the run it followed: no run of it may start.
-      letGo("of a deleted session");
+      letGo("of a deleted session", "deleted");
       return;
     }
     try {
       registry.admit();
     } catch {
-      letGo("the drain refused");
+      letGo("the drain refused", "drain");
       return;
     }
     /** The turn cannot run under the policy as it resolves now: it is let go, and a run of the queue reads its messages under that policy. */
@@ -960,13 +1001,17 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       log.atomically((tx) => appendRunEvents(log, plan.sessionId, events, { ...attribution, tx }));
     } catch (error) {
       console.error(`Recording a turn the provider opened for session ${previous.sessionId} failed; it is let go:`, error);
-      safely(() => turn.dispose(), (e) => console.error("Disposing a turn failed:", e));
-      requeueTurn(previous, turn);
+      letTurnGo(previous, turn, "whose start could not be recorded", "failed");
       return;
     }
     // The provider read them, bytes and all.
     for (const messageId of turn.messageIds) unstage(messageId);
-    begin(plan, () => turn);
+    begin(plan, () => {
+      // Told its run id once the run is registered (live, in the run registry, on its process) and before its events are
+      // read, so a prompt it asks at once parks it; a turn let go before this is never told one.
+      safely(() => turn.onAdopted?.(runId), (e) => console.error("Telling an adopted turn its run id failed:", e));
+      return turn;
+    });
   };
 
   /** A provider-opened turn the host will not run: the messages it opened with, still the provider's, are the environment's again. */
@@ -976,6 +1021,20 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     } catch (error) {
       console.error(`Taking back the messages of a turn of session ${previous.sessionId} failed:`, error);
     }
+  };
+
+  /**
+   * Lets go of a turn the provider opened that no run will carry: it is
+   * disposed, what it was to read comes back to the environment's queue, and,
+   * since a dispose leaves the provider's state unknown, the session's
+   * process is stopped through the pool for `stop`'s reason, as for a run
+   * the host ends itself; not while another run is live on it.
+   */
+  const letTurnGo = (previous: PlannedRun, turn: ProviderTurn, why: string, stop: ProcessStopReason): void => {
+    safely(() => turn.dispose(), (e) => console.error(`Disposing a turn ${why} failed:`, e));
+    requeueTurn(previous, turn);
+    const current = live.get(previous.sessionId);
+    if (current === undefined || current.ended) void pool.stop(previous.sessionId, stop);
   };
 
   /** Lets go of every turn waiting to be adopted into the session, its messages taken back. */
@@ -1180,9 +1239,10 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       safely(
         async () => {
           const { stillQueued } = await run.interrupt();
-          // What the provider still held comes back to the environment's queue, in its order (ADR 0022). If the run's
-          // end came first, its end took back everything the provider held, these among them.
-          if (!closing && !entry.ended) requeue(entry.sessionId, runId, stillQueued);
+          // What the provider no longer holds comes back to the environment's queue, in its order (ADR 0022), this run's
+          // and any an earlier run left with the provider, even when the run's end came first: the end took back this
+          // run's only, and a message it took back is the environment's already, so nothing is taken back twice.
+          if (!closing) requeueReported(entry.sessionId, stillQueued);
         },
         (error) => {
           // The adapter could not interrupt: the host ends the run itself, interrupted as asked, and disposes it.
@@ -1194,10 +1254,35 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     answerPrompt(runId, promptId, decision) {
       const entry = byRunId(runId);
       const run = entry?.run;
-      if (entry === undefined || run === undefined) return;
+      const closed = (reason: "run_ended" | "prompt_not_open", message: string): ContractError =>
+        new ContractError({ code: "conflict", message, data: { reason, runId, promptId } });
+      if (entry === undefined || run === undefined) throw closed("run_ended", `Run ${runId} has ended, so prompt ${promptId} can no longer be answered through it.`);
       const answer = capability(entry.descriptor, "interactivePrompts", run.answerPrompt, "answer a prompt", "answerPrompt");
+      // The host's own record first, whatever the adapter would say: a prompt this live run has not raised, or that is
+      // answered already, is not open.
+      if (!entry.prompts.has(promptId)) throw closed("prompt_not_open", `Run ${runId} has no prompt ${promptId} open.`);
+      // Answered either way: a prompt the adapter no longer holds open parks nothing.
       answered(entry, promptId);
-      safely(() => answer.call(run, promptId, decision), (error) => console.error(`Answering prompt ${promptId} of run ${runId} failed:`, error));
+      // One contract, at once or asynchronously: a closed prompt is the caller's `conflict`; any other failure is logged
+      // and refused `internal`, so the caller knows the answer did not land.
+      const refusal = (error: unknown): ContractError => {
+        if (error instanceof PromptClosed) return closed(error.reason === "run_ended" ? "run_ended" : "prompt_not_open", error.message);
+        console.error(`Answering prompt ${promptId} of run ${runId} failed:`, error);
+        return new ContractError({ code: "internal", message: `Answering prompt ${promptId} failed: ${messageOf(error)}`, data: {} });
+      };
+      let answering: void | Promise<void>;
+      try {
+        answering = answer.call(run, promptId, decision);
+      } catch (error) {
+        throw refusal(error);
+      }
+      // An adapter that answers asynchronously refuses through the promise, which the caller is handed with the same mapping.
+      if (answering instanceof Promise) {
+        return answering.catch((error: unknown) => {
+          throw refusal(error);
+        });
+      }
+      return undefined;
     },
     stopTask(runId, taskId) {
       const entry = byRunId(runId);

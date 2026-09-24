@@ -43,6 +43,7 @@ export { groupMethods, type GroupMethodsOptions } from "./sessions/group-methods
 export { acceptAnyRunParameters, type RunParameters, type RunParametersCheck } from "./sessions/run-parameters.js";
 export {
   ADAPTER_EVENT_TYPES,
+  PromptClosed,
   type AccountRef,
   type Adapter,
   type AdapterCredentialSpec,
@@ -102,6 +103,17 @@ export {
   type ToolServerScope,
 } from "./adapter/seams.js";
 export { capability, requireCapability, unsupported } from "./adapter/capabilities.js";
+export {
+  CLAUDE_DESCRIPTOR,
+  CLAUDE_MODES,
+  CLAUDE_PROVIDER,
+  autoMemoryDirectory,
+  claudeCredentials,
+  createClaudeAdapter,
+  parseClaudeStatus,
+  type ClaudeAdapter,
+  type ClaudeAdapterOptions,
+} from "./adapters/claude/index.js";
 export { RUNS_PROJECTOR, runsProjector } from "./runs/runs-projector.js";
 export {
   ATTENDED_DEFAULT_MODE,

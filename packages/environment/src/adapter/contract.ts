@@ -69,6 +69,8 @@ export interface UsageWindow {
   /** How much is used, 0 to 1 and beyond; null when the provider does not say. */
   readonly utilisation: number | null;
   readonly resetsAt: string | null;
+  /** The latest rate-limit verdict a run reported for the window (`plan.limit`), folded in after the reading. */
+  readonly verdict?: "allowed" | "warning" | "rejected";
 }
 
 /** Plan usage for an account (`planUsage`), with the identity a client pools it by (ADR 0005, ADR 0018). */
@@ -76,6 +78,12 @@ export interface UsageReading {
   readonly identity: AccountIdentity;
   readonly windows: readonly UsageWindow[];
   readonly readAt: string;
+  /**
+   * Why there are no windows, when the provider reported none: an API-key
+   * login, a binary whose usage method was renamed, a read that failed. A
+   * client degrades to absent-with-reason on it. Absent on a reading with windows.
+   */
+  readonly unavailableReason?: string;
 }
 
 /** A slash command the provider offers an account in a workspace (`commands`). */
@@ -167,6 +175,30 @@ export interface PromptRequest {
   readonly kind: PromptKind;
   /** What the provider asks, in its terms; the broker (#130) fixes the shape it records. */
   readonly detail: JsonObject;
+  /**
+   * Aborted when the provider withdraws the request (the tool call became
+   * moot, the turn was interrupted): the adapter has answered it itself, so
+   * the host counts the prompt answered, once, and at once when it had
+   * aborted before the request was made, and the broker may close it.
+   */
+  readonly signal?: AbortSignal;
+}
+
+/**
+ * What an adapter's `answerPrompt` throws when the answer cannot reach a
+ * tool call: `run_ended`, the run the prompt belongs to has ended (the call
+ * is denied, never allowed), or `not_open`, the adapter has no such prompt
+ * open. The host refuses the answer `conflict` with the reason, so whoever
+ * answered can say so (#130).
+ */
+export class PromptClosed extends Error {
+  constructor(
+    message: string,
+    readonly reason: "run_ended" | "not_open",
+  ) {
+    super(message);
+    this.name = "PromptClosed";
+  }
 }
 
 /** The answer to a prompt: allowed or denied, with a message for the model. */
@@ -252,7 +284,12 @@ export interface AdapterRun {
    * takes back into the environment's queue (ADR 0022).
    */
   interrupt(): Promise<{ readonly stillQueued: readonly string[] }>;
-  /** Answers a parked prompt (`interactivePrompts`). */
+  /**
+   * Answers a parked prompt (`interactivePrompts`); throws `PromptClosed`
+   * when the answer can reach no tool call. An adapter denies its run's
+   * parked prompts itself as the run ends, however it ends: once a run is no
+   * longer live the host refuses answers `run_ended` without asking it.
+   */
   answerPrompt?(promptId: string, decision: PromptDecision): void | Promise<void>;
   /** Stops one piece of delegated work (`subagents`). */
   stopTask?(taskId: string): void | Promise<void>;
@@ -280,6 +317,12 @@ export interface AdapterRun {
 /** A turn the provider opened on its own: a run the host adopts into the same session, and the queued messages it opened with. */
 export interface ProviderTurn extends AdapterRun {
   readonly messageIds: readonly string[];
+  /**
+   * Tells the turn the run id the host adopted it under, once the run is
+   * registered and before its events are read, so what it asks the broker
+   * names its run and parks it; a turn the host lets go is never told one.
+   */
+  onAdopted?(runId: string): void;
 }
 
 /**
@@ -350,8 +393,11 @@ export interface Adapter {
   stopProcess(sessionId: string, options?: { readonly kill?: boolean }): void | Promise<void>;
   /** Plan usage per window, with the account's identity (`planUsage`). */
   usage?(account: AccountRef): Promise<UsageReading>;
-  /** The slash commands for an account and workspace, spending no tokens (`commands`). */
-  commands?(account: AccountRef, workspace: Workspace): Promise<readonly ProviderCommand[]>;
+  /**
+   * The slash commands for an account and workspace, spending no tokens
+   * (`commands`); a trusted repository's own commands among them.
+   */
+  commands?(account: AccountRef, workspace: Workspace, scope?: { readonly trusted: boolean }): Promise<readonly ProviderCommand[]>;
   /** The provider's sessions (`sessionListing`). */
   listSessions?(account: AccountRef): Promise<readonly ProviderSessionInfo[]>;
   /**
