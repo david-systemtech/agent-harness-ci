@@ -48,6 +48,17 @@ import { permissionsModeSet, permissionsSettingsGet, permissionsSettingsSet } fr
 import { runsInterrupt, runsSend, runsStart, runsStopTask } from "./methods/runs.js";
 import { providersList, providersProcessesList, providersProcessesStop } from "./methods/providers.js";
 import { settingsGet, settingsUpdate } from "./methods/settings.js";
+import {
+  accountsAdd,
+  accountsAdopt,
+  accountsList,
+  accountsProbe,
+  accountsRefresh,
+  accountsRelabel,
+  accountsRemove,
+  commandsList,
+  modelsList,
+} from "./methods/accounts.js";
 
 /**
  * Every method the environment answers, in one typed table: the environment's
@@ -100,6 +111,15 @@ export const methods = [
   providersList,
   providersProcessesList,
   providersProcessesStop,
+  accountsList,
+  accountsProbe,
+  accountsRefresh,
+  accountsAdopt,
+  accountsAdd,
+  accountsRelabel,
+  accountsRemove,
+  modelsList,
+  commandsList,
   settingsGet,
   settingsUpdate,
   permissionsModeSet,

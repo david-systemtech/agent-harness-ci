@@ -18,7 +18,7 @@ import { PromptClosed, type PromptDecision, type PromptKind, type PromptMessage,
 import type { Clock, Timer } from "../../serve/clock.js";
 import { AsyncQueue } from "./async-queue.js";
 import type { ConfigDirQueue } from "./config-dir-queue.js";
-import type { HostEnvironment } from "./credentials.js";
+import { CLAUDE_PROVIDER, type HostEnvironment } from "./credentials.js";
 import { readStoredSession, resolveForkPoint, resolveRewindPoint } from "./history.js";
 import { readRateLimit, toJson } from "./mapper.js";
 import { buildRunOptions, claudeEffort, claudeMode, type ClaudeMode, type ResumePoint } from "./options.js";
@@ -253,6 +253,8 @@ export class ClaudeProcess implements TurnControl {
   #features: Features | undefined;
   #capabilities: readonly string[] | null = null;
   #providerSessionId: string | null = null;
+  /** Whether the host has been told who this process's CLI is signed in as (`accountInfo`, asked once per process). */
+  #identityAsked = false;
 
   /** The turn the CLI is serving now. */
   #current: ClaudeTurn | undefined;
@@ -641,6 +643,7 @@ export class ClaudeProcess implements TurnControl {
     }
     if (this.#current === undefined) {
       if (isInit(message)) {
+        this.#reportIdentity();
         this.#undecided = [message];
         this.#armUndecidedWatch();
         const capabilities = isRecord(message) ? message["capabilities"] : undefined;
@@ -658,6 +661,28 @@ export class ClaudeProcess implements TurnControl {
       return;
     }
     this.#serve(this.#current, message);
+  }
+
+  /**
+   * Tells the host who the CLI says it is signed in as, once the process's
+   * first `init` shows it is up: the account store cross-checks it against
+   * the identity it holds (#134). Best effort: a CLI that cannot say, or
+   * says no email, reports nothing.
+   */
+  #reportIdentity(): void {
+    const query = this.#query;
+    if (this.#identityAsked || query === undefined) return;
+    this.#identityAsked = true;
+    const context = this.#context;
+    query.accountInfo().then(
+      (info) => {
+        const email = info.email ?? "";
+        if (email === "") return;
+        const organisation = info.organization ?? "";
+        context.reportIdentity({ provider: CLAUDE_PROVIDER, email, organisation: organisation === "" ? null : organisation });
+      },
+      (error: unknown) => this.#deps.diagnostic(`Claude (session ${this.sessionId}): reading who the CLI is signed in as failed.`, error),
+    );
   }
 
   /** No queued message, settle, live task or scheduled job (whose firing is a turn with no message behind it) that a turn could be about instead of the waiting run. */

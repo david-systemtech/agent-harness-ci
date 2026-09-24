@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SignInStart",
+  "type": "object",
+  "properties": {
+    "started": {
+      "type": "boolean",
+      "description": "Whether the environment started signing the account in."
+    },
+    "message": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "What to tell a person when it did not: why, and what to do instead."
+    }
+  },
+  "required": [
+    "started",
+    "message"
+  ],
+  "description": "Whether accounts.add started the account's sign-in, and why not when it did not."
+}

@@ -30,6 +30,8 @@ const { decideSend, decideStart } = await import("../../runs/run-decider.js");
 const { runsProjector } = await import("../../runs/runs-projector.js");
 const { sessionListProjector } = await import("../../sessions/session-list.js");
 const { permissionsProjector } = await import("../../permissions/permissions-store.js");
+const { accountsProjector } = await import("../../accounts/account-store.js");
+const { storeAccounts } = await import("../../../test/accounts.js");
 const { autoDenyBroker } = await import("../../adapter/seams.js");
 
 const PROVIDER_SESSION = "5d1e9c3a-7b2f-4e8d-9a6c-3f0b1e2d4c5a";
@@ -55,7 +57,7 @@ const created = {
 
 const setup = async (broker?: PermissionBroker) => {
   const clock = manualClock();
-  const log = openEventLog({ path: ":memory:", projectors: [sessionListProjector, runsProjector, permissionsProjector], clock: () => clock.now() });
+  const log = openEventLog({ path: ":memory:", projectors: [sessionListProjector, runsProjector, permissionsProjector, accountsProjector], clock: () => clock.now() });
   const adapter = createClaudeAdapter({
     clock,
     executablePath: "/sdk/claude",
@@ -63,16 +65,17 @@ const setup = async (broker?: PermissionBroker) => {
     diagnostic: () => undefined,
     runCommand: async () => ({ code: 0, stdout: JSON.stringify({ loggedIn: true, authMethod: "claude.ai", email: "david@example.com" }), stderr: "" }),
   });
+  // The account store holds the account, read once as startup reads it.
+  const accounts = await storeAccounts({ log, clock, adapters: [adapter], accounts: [{ id: "acct", provider: "claude", directory: "/data/accounts/work" }] });
   const host = createAdapterHost({
     log,
     clock,
     adapters: [adapter],
-    accounts: [{ id: "acct", provider: "claude", directory: "/data/accounts/work" }],
+    accounts,
     ceilingOf: () => undefined,
     ...(broker !== undefined && { broker }),
   });
-  closers.push(() => log.close(), () => host.close("disposed"));
-  await host.refresh();
+  closers.push(() => log.close(), () => host.close("disposed"), () => accounts.close());
   const sessionId = randomUUID();
   log.append({ kind: "session", id: sessionId }, [created], { actor: "system:test" });
   return { log, host, clock, sessionId, controlQueries: fake.queries.length };

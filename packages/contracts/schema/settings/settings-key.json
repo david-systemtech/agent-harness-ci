@@ -6,6 +6,9 @@
     "sessions.autoSettleAfterIdle",
     "sessions.autoSettleOnMerge",
     "sessions.transcriptCompactAfterDays",
+    "accounts.defaultAccount",
+    "accounts.defaultModelFamily",
+    "accounts.defaultEffort",
     "providers.processIdleMinutes",
     "permissions.defaultCeiling",
     "permissions.unattended.mode",
@@ -13,5 +16,5 @@
     "permissions.parkedPrompt.ttl",
     "permissions.containment.default"
   ],
-  "description": "A settings key: sessions.autoSettleAfterIdle, sessions.autoSettleOnMerge, sessions.transcriptCompactAfterDays, providers.processIdleMinutes, permissions.defaultCeiling, permissions.unattended.mode, permissions.unattended.bypassAcknowledgedAt, permissions.parkedPrompt.ttl, permissions.containment.default."
+  "description": "A settings key: sessions.autoSettleAfterIdle, sessions.autoSettleOnMerge, sessions.transcriptCompactAfterDays, accounts.defaultAccount, accounts.defaultModelFamily, accounts.defaultEffort, providers.processIdleMinutes, permissions.defaultCeiling, permissions.unattended.mode, permissions.unattended.bypassAcknowledgedAt, permissions.parkedPrompt.ttl, permissions.containment.default."
 }

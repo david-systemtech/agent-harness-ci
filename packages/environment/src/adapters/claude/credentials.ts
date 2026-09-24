@@ -13,6 +13,9 @@ import { CLAUDE_LOGIN_ARGV, CLAUDE_LOGOUT_ARGV, CLAUDE_STATUS_ARGV } from "./sig
  * login; it strips them from every process it starts.
  */
 
+/** Claude's provider id: what the host registers the adapter by, and an account identity's provider. */
+export const CLAUDE_PROVIDER = "claude";
+
 /** A process environment as it is inherited: some variables unset. */
 export type HostEnvironment = Readonly<Record<string, string | undefined>>;
 

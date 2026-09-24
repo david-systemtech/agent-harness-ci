@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AccountStatusChangedPayload",
+  "type": "object",
+  "properties": {
+    "accountId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "description": "An account's id on its environment: a version 4 UUID the environment mints when it adopts or adds the account; an account carried over from configuration keeps the id it was configured with."
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "signed-in",
+        "signed-out",
+        "expired",
+        "unreadable"
+      ],
+      "description": "What an account's status read found: signed-in (it can run), signed-out, expired (the provider says its login has lapsed), or unreadable (the read failed or timed out). Only a signed-in account runs."
+    },
+    "previous": {
+      "type": "string",
+      "enum": [
+        "signed-in",
+        "signed-out",
+        "expired",
+        "unreadable"
+      ],
+      "description": "What an account's status read found: signed-in (it can run), signed-out, expired (the provider says its login has lapsed), or unreadable (the read failed or timed out). Only a signed-in account runs."
+    },
+    "detail": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Why, when the read said: the provider's error on an unreadable read."
+    }
+  },
+  "required": [
+    "accountId",
+    "status",
+    "previous",
+    "detail"
+  ],
+  "description": "account.status-changed: a status read found the account in another state than the last; appended only on a change."
+}

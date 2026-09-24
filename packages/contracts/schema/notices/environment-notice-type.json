@@ -5,7 +5,8 @@
   "enum": [
     "environment.started",
     "environment.updated",
-    "environment.draining"
+    "environment.draining",
+    "account.updated"
   ],
-  "description": "An environment notice's event type: environment.started (startup finished), environment.updated (a new harness version now runs), environment.draining (new runs are refused before a restart)."
+  "description": "An environment notice's event type: environment.started (startup finished), environment.updated (a new harness version now runs), environment.draining (new runs are refused before a restart), account.updated (an account changed; a client refreshes what it caches of the accounts)."
 }

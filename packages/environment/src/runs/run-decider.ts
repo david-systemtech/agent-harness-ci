@@ -76,6 +76,13 @@ export interface StartFacts {
   readonly actor: RunActor;
   /** The policy resolver (#129): the run's mode clamped to the ceiling and the account's modes. */
   readonly resolvePolicy: PolicySeam;
+  /**
+   * The Account step's defaults (#134): the family whose strongest model a
+   * run takes when neither it nor its session names one, and the effort it
+   * takes when it names none and its model takes that effort; null for the
+   * catalogue's strongest model and the model's own effort.
+   */
+  readonly defaults: { readonly modelFamily: string | null; readonly effort: string | null };
   /** The id the run gets. */
   readonly runId: string;
 }
@@ -158,10 +165,16 @@ const attachmentsOf = (descriptor: AdapterDescriptor, attachments: readonly Atta
   return { data, records };
 };
 
-/** The model a run uses: the one asked for, else the session's, else the catalogue's strongest; refused when the catalogue lacks it. */
-const modelOf = (account: AccountFacts, asked: string | null): ModelOption => {
+/**
+ * The model a run uses: the one asked for, else the session's, else the
+ * strongest of the default family (`accounts.defaultModelFamily`) when the
+ * catalogue has it, else the catalogue's strongest; refused when the
+ * catalogue lacks the one asked for.
+ */
+const modelOf = (account: AccountFacts, asked: string | null, family: string | null): ModelOption => {
   if (asked === null) {
-    const strongest = [...account.models].sort((a, b) => b.tier - a.tier)[0];
+    const ofFamily = account.models.filter((option) => option.family === family);
+    const strongest = [...(ofFamily.length > 0 ? ofFamily : account.models)].sort((a, b) => b.tier - a.tier)[0];
     if (strongest === undefined) throw invalid("model", `The account ${account.id} offers no model.`);
     return strongest;
   }
@@ -202,9 +215,12 @@ export const decideStart = (facts: StartFacts, command: StartCommand): StartDeci
   }
   const { descriptor } = account;
   const attachments = attachmentsOf(descriptor, command.message?.attachments ?? []);
-  const model = modelOf(account, command.model ?? session.model);
-  const effort = command.effort ?? null;
-  if (effort !== null && !model.efforts.includes(effort)) throw invalid("effort", `The model ${model.id} does not take the effort ${effort}.`);
+  const model = modelOf(account, command.model ?? session.model, facts.defaults.modelFamily);
+  // The command's effort, which the model must take; else the default (`accounts.defaultEffort`) when the model takes it; else the model's own.
+  const asked = command.effort ?? null;
+  if (asked !== null && !model.efforts.includes(asked)) throw invalid("effort", `The model ${model.id} does not take the effort ${asked}.`);
+  const fallback = facts.defaults.effort;
+  const effort = asked ?? (fallback !== null && model.efforts.includes(fallback) ? fallback : null);
   const requested = command.mode ?? session.mode;
   // The lowest of the asker's ceiling and each queued sender's (#119), which the policy resolves under (#129).
   const ceiling = [facts.actor.ceiling, ...facts.queued.map((queued) => queued.ceiling)].reduce(lowerMode);

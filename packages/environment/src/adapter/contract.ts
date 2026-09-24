@@ -358,6 +358,13 @@ export interface RunContext {
   /** Held work on the session's provider process (the pool's port). */
   readonly process: ProcessPort;
   /**
+   * Who the provider says the run is signed in as (Claude's `accountInfo`),
+   * when it says: the account store checks it against the identity it holds
+   * for the run's account, and a mismatch is an `account.updated` notice with
+   * a warning, and a fresh status read (#134).
+   */
+  reportIdentity(identity: AccountIdentity): void;
+  /**
    * The adoption hook: a turn the provider opened on its own is reported
    * here, and the host registers it as a run of the same session once the
    * run it followed has ended.
@@ -368,8 +375,10 @@ export interface RunContext {
 /**
  * An adapter: one provider behind the contract. `createRun` answers at once
  * with the live run; any start-up it needs happens behind its event stream.
- * `status` is the probe the host reads each account's sign-in state and
- * identity with; `models` the catalogue it validates models against.
+ * `status` is the probe the account store reads each account's sign-in
+ * state and identity with, and the machine's own directory
+ * (`ambientDirectory`) before it is adopted; `models` the catalogue a run's
+ * model is validated against.
  *
  * The provider process a session's runs share is the environment's to start
  * and stop (ADR 0015), through the pool: `createRun` starts the session's
@@ -381,6 +390,12 @@ export interface Adapter {
   readonly descriptor: AdapterDescriptor;
   readonly credentials: AdapterCredentialSpec;
   status(account: AccountRef): Promise<AuthStatus>;
+  /**
+   * The machine's own config directory for this provider (Claude's
+   * `CLAUDE_CONFIG_DIR`, else `~/.claude`), which `accounts.adopt` registers
+   * in place; absent, or null, when the provider has none here.
+   */
+  ambientDirectory?(): string | null;
   models(account: AccountRef): Promise<ModelCatalogue>;
   createRun(input: RunInput, context: RunContext): AdapterRun;
   /**

@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "accounts.refresh params",
+  "type": "object",
+  "properties": {
+    "accountId": {
+      "description": "The account to read; every account when absent.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    }
+  }
+}

@@ -14,7 +14,7 @@ import { describe, expect, it } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { MANUAL_CLOCK_START } from "../../test/clock.js";
 import { DRAIN_CAP_MS } from "../serve/lifecycle.js";
-import { end, fakeAdapter, gate, say, type FakeAdapter, type FakeAdapterOptions, type Gate } from "../../test/fake-adapter.js";
+import { end, fakeAdapter, gate, say, signedInAs, type FakeAdapter, type FakeAdapterOptions, type Gate } from "../../test/fake-adapter.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { create, deleteSession, listStream, patchOf, purgeSession, refusal } from "../../test/sessions.js";
 import type { WireClient } from "../../test/wire-client.js";
@@ -244,15 +244,20 @@ describe("runs.start", () => {
     held.open();
   });
 
-  it("refuses an account that is not signed in, conflict account_unavailable", async () => {
-    const t = await start(
-      { status: (account) => ({ signedIn: account.id !== "signed-out", authMethod: null, email: `${account.id}@example.com`, orgName: null, subscriptionType: null, error: null }) },
-      { accounts: [{ id: "claude-max", provider: "fake" }, { id: "signed-out", provider: "fake" }] },
-    );
+  it("refuses an account that is not signed in, or that the store no longer holds, conflict account_unavailable, through the account store (#134)", async () => {
+    const t = await start({}, { accounts: [{ id: "claude-max", provider: "fake" }, { id: "second", provider: "fake" }] });
     const client = await t.client();
-    const { id } = await create(client, { account: "signed-out" });
+    const { id } = await create(client, { account: "second" });
+    // The account signs out; the next status read (here, accounts.refresh) records it, and a run on it is refused.
+    t.adapter.setStatus((account) => signedInAs(account.id === "second" ? null : `${account.id}@example.com`));
+    await client.request("accounts.refresh", { accountId: "second" });
     const answer = await run(client, "runs.start", { sessionId: id, text: "Go" });
-    expect(answer.receipt).toMatchObject({ status: "rejected", reason: "conflict", error: { data: { reason: "account_unavailable", accountId: "signed-out" } } });
+    expect(answer.receipt).toMatchObject({ status: "rejected", reason: "conflict", error: { data: { reason: "account_unavailable", accountId: "second" } } });
+    // Removed, it is not on this environment at all: the same refusal.
+    const other = await create(client, { account: "claude-max" });
+    await client.request("accounts.remove", { commandId: randomUUID(), accountId: "claude-max" });
+    const removed = await run(client, "runs.start", { sessionId: other.id, text: "Go" });
+    expect(removed.receipt).toMatchObject({ status: "rejected", reason: "conflict", error: { data: { reason: "account_unavailable", accountId: "claude-max" } } });
   });
 
   it("refuses an unknown or deleted session not_found, kind session, in a receipt", async () => {
@@ -773,14 +778,17 @@ describe("a session deleted or purged", () => {
 });
 
 describe("sessions.create", () => {
-  it("delegates the account, model and mode to the adapter host, which refuses what no account offers", async () => {
-    const t = await start();
+  it("delegates the account, model and mode to the adapter host, which refuses an account that cannot run and what no account offers", async () => {
+    const t = await start({}, { accounts: [{ id: "claude-max", provider: "fake" }, { id: "second", provider: "fake" }] });
     const client = await t.client();
-    const workspace = { kind: "directory", path: "/work" };
-    expect(await refusal(client.request("sessions.create", { commandId: randomUUID(), id: randomUUID(), workspace, account: "nobody" }))).toMatchObject({
-      code: "invalid_params",
-      data: { issues: [expect.objectContaining({ path: ["account"] })] },
-    });
+    const workspace = { kind: "directory", path: "/work" } as const;
+    // An account the store does not hold, or one not signed in, cannot run: refused in a receipt, as runs.start refuses it (#134).
+    const nobody = await client.request("sessions.create", { commandId: randomUUID(), id: randomUUID(), workspace, account: "nobody" });
+    expect(nobody.receipt).toMatchObject({ status: "rejected", reason: "conflict", error: { data: { reason: "account_unavailable", accountId: "nobody" } } });
+    t.adapter.setStatus((account) => signedInAs(account.id === "second" ? null : `${account.id}@example.com`));
+    await client.request("accounts.refresh", {});
+    const signedOut = await client.request("sessions.create", { commandId: randomUUID(), id: randomUUID(), workspace, account: "second" });
+    expect(signedOut.receipt).toMatchObject({ status: "rejected", reason: "conflict", error: { data: { reason: "account_unavailable", accountId: "second" } } });
     expect(await refusal(client.request("sessions.create", { commandId: randomUUID(), id: randomUUID(), workspace, model: "gpt-9" }))).toMatchObject({
       code: "invalid_params",
       data: { issues: [expect.objectContaining({ path: ["model"] })] },
