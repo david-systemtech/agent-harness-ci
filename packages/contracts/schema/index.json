@@ -671,6 +671,42 @@
       "title": "EnvironmentNotice"
     },
     {
+      "path": "settings/settings-key.json",
+      "title": "SettingsKey"
+    },
+    {
+      "path": "settings/idle-span-unit.json",
+      "title": "IdleSpanUnit"
+    },
+    {
+      "path": "settings/idle-span.json",
+      "title": "IdleSpan"
+    },
+    {
+      "path": "settings/keys/sessions.autoSettleAfterIdle.json",
+      "title": "AutoSettleAfterIdle"
+    },
+    {
+      "path": "settings/keys/sessions.autoSettleOnMerge.json",
+      "title": "AutoSettleOnMerge"
+    },
+    {
+      "path": "settings/settings-values.json",
+      "title": "SettingsValues"
+    },
+    {
+      "path": "settings/settings-patch.json",
+      "title": "SettingsPatch"
+    },
+    {
+      "path": "settings/settings-event-type.json",
+      "title": "SettingsEventType"
+    },
+    {
+      "path": "settings/events/settings.updated.json",
+      "title": "SettingsUpdatedPayload"
+    },
+    {
       "path": "errors/error-code.json",
       "title": "ErrorCode"
     },
@@ -1431,6 +1467,34 @@
       "title": "runs.stopTask error"
     },
     {
+      "path": "methods/settings.get/params.json",
+      "title": "settings.get params"
+    },
+    {
+      "path": "methods/settings.get/result.json",
+      "title": "settings.get result"
+    },
+    {
+      "path": "methods/settings.get/error.json",
+      "title": "settings.get error"
+    },
+    {
+      "path": "methods/settings.update/params.json",
+      "title": "settings.update params"
+    },
+    {
+      "path": "methods/settings.update/result.json",
+      "title": "settings.update result"
+    },
+    {
+      "path": "methods/settings.update/response.json",
+      "title": "settings.update response"
+    },
+    {
+      "path": "methods/settings.update/error.json",
+      "title": "settings.update error"
+    },
+    {
       "path": "methods/terminals.open/params.json",
       "title": "terminals.open params"
     },
@@ -1977,6 +2041,25 @@
       "result": "methods/runs.stopTask/result.json",
       "response": "methods/runs.stopTask/response.json",
       "error": "methods/runs.stopTask/error.json"
+    },
+    {
+      "name": "settings.get",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/settings.get/params.json",
+      "result": "methods/settings.get/result.json",
+      "error": "methods/settings.get/error.json"
+    },
+    {
+      "name": "settings.update",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/settings.update/params.json",
+      "result": "methods/settings.update/result.json",
+      "response": "methods/settings.update/response.json",
+      "error": "methods/settings.update/error.json"
     },
     {
       "name": "terminals.open",

@@ -34,6 +34,8 @@ export interface SessionRow {
   unsettled_at: string | null;
   snoozed_until: string | null;
   snoozed_at: string | null;
+  /** When the last snooze ended, which auto-settle counts a span from: its snoozedUntil when it expired, else when it was woken. */
+  snooze_ended_at: string | null;
   workspace: string;
   repository_identity: string | null;
   activity: string;
@@ -77,6 +79,7 @@ export const SESSION_LIST_TABLES = {
     unsettled_at TEXT,
     snoozed_until TEXT,
     snoozed_at TEXT,
+    snooze_ended_at TEXT,
     workspace TEXT NOT NULL,
     repository_identity TEXT,
     activity TEXT NOT NULL,

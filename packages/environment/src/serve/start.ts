@@ -45,6 +45,9 @@ import { sessionListProjector } from "../sessions/session-list.js";
 import { createTerminalService } from "../terminals/service.js";
 import type { TerminalsOptions } from "../terminals/terminals.js";
 import { workspaceMethods } from "../workspace/methods.js";
+import { createSettleSweep } from "../sessions/settle-sweep.js";
+import { settingsMethods } from "../settings/methods.js";
+import { settingsProjector } from "../settings/settings-store.js";
 import type { SubscriptionHooks } from "../wire/subscriptions.js";
 import { createWire } from "../wire/wire.js";
 import { systemClock, type Clock } from "./clock.js";
@@ -279,7 +282,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   });
 
   await step("projectors", () => {
-    for (const projector of [sessionListProjector, runsProjector, ...(options.projectors ?? [])]) log.registerProjector(projector);
+    for (const projector of [sessionListProjector, runsProjector, settingsProjector, ...(options.projectors ?? [])]) log.registerProjector(projector);
   });
 
   // Where pairing links point: set when the listeners are bound, before any request is served.
@@ -366,6 +369,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // The terminals (#124): their output never enters the log; closed before the log is, and on a session's deletion.
   const terminalService = createTerminalService({ log, clock, ...options.terminals });
   closers.push(() => terminalService.close());
+  // The shelf's sweep (#117): started once the environment is ready; a settings change runs it from the change's commit.
+  const settleSweep = createSettleSweep({ log, clock });
   const table = createMethodTable({
     ...lifecycle.handlers,
     "environment.subscribe": () => lifecycle.source,
@@ -374,6 +379,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       aggregate: environmentStream,
       result: { projectors: [...log.rebuildProjections()], sequence: log.head() },
     }),
+    // The generic settings (#117), on the environment's settings stream.
+    ...settingsMethods({ log, environmentId: record.id, onChange: (keys) => settleSweep.settingsChanged(keys) }),
     ...accessMethods({ pairings, clientSessions, accessLog }),
     ...sessionMethods({ log, clock: now, deletion, validateRunParameters: host.validateSessionInput }),
     ...groupMethods({ log, clock: now }),
@@ -450,6 +457,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   } catch (error) {
     console.error("The startup purge failed; the minute sweep will try again:", error);
   }
+  // The shelf's sweep (#117): a pass now, before the wire opens, then every five minutes.
+  closers.push(settleSweep.start());
   wire.open();
   launcher.onQuery((query) => lifecycle.answer(query));
   // The minute sweep: expired pairings, idle `tui` local client sessions, receipts past their 30 days, and

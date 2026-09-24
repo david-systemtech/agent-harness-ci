@@ -17,7 +17,7 @@
     "streamKind": {
       "type": "string",
       "minLength": 1,
-      "description": "The kind of stream the event belongs to: environment, access, session; terminal for a terminal's output, which terminals.subscribe carries and the log never holds."
+      "description": "The kind of stream the event belongs to: environment, access, session, group, settings; terminal for a terminal's output, which terminals.subscribe carries and the log never holds."
     },
     "streamId": {
       "type": "string",

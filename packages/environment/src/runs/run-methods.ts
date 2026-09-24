@@ -42,7 +42,13 @@ export const runMethods = (options: RunMethodsOptions): MethodHandlers => {
   /** The facts about a run a command names. */
   const runFacts = (runId: string): RunFacts => {
     const run = readRun(reader, runId);
-    return { runId, run, session: run === null ? null : readSessionFacts(log, reader, run.sessionId), live: host.liveRun(runId)?.descriptor ?? null };
+    return {
+      runId,
+      run,
+      session: run === null ? null : readSessionFacts(log, reader, run.sessionId),
+      live: host.liveRun(runId)?.descriptor ?? null,
+      descriptor: run === null ? null : (host.account(run.accountId)?.descriptor ?? null),
+    };
   };
 
   return {

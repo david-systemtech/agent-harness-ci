@@ -28,7 +28,7 @@ export const EventEnvelope = z
     eventId: z.uuid(),
     streamKind: z.string().min(1).meta({
       description:
-        "The kind of stream the event belongs to: environment, access, session; terminal for a terminal's output, which terminals.subscribe carries and the log never holds.",
+        "The kind of stream the event belongs to: environment, access, session, group, settings; terminal for a terminal's output, which terminals.subscribe carries and the log never holds.",
     }),
     streamId: z.string().min(1),
     streamVersion: z.int().positive().meta({ description: "The event's place in its own stream, from 1." }),

@@ -35,6 +35,17 @@ import {
   ProtocolMismatchError,
 } from "./pairing.js";
 import { EnvironmentNotice, EnvironmentNoticeType } from "./notices.js";
+import {
+  AutoSettleAfterIdle,
+  AutoSettleOnMerge,
+  IdleSpan,
+  IdleSpanUnit,
+  SETTINGS_EVENT_TYPES,
+  SettingsEventType,
+  SettingsKeyName,
+  SettingsPatch,
+  SettingsValues,
+} from "./settings.js";
 import { isCommand } from "./method.js";
 import { CommandReceipt } from "./receipt.js";
 import {
@@ -281,6 +292,19 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "event-envelope.json", title: "EventEnvelope", schema: EventEnvelope },
   { path: "notices/environment-notice-type.json", title: "EnvironmentNoticeType", schema: EnvironmentNoticeType },
   { path: "notices/environment-notice.json", title: "EnvironmentNotice", schema: EnvironmentNotice },
+  { path: "settings/settings-key.json", title: "SettingsKey", schema: SettingsKeyName },
+  { path: "settings/idle-span-unit.json", title: "IdleSpanUnit", schema: IdleSpanUnit },
+  { path: "settings/idle-span.json", title: "IdleSpan", schema: IdleSpan },
+  { path: "settings/keys/sessions.autoSettleAfterIdle.json", title: "AutoSettleAfterIdle", schema: AutoSettleAfterIdle },
+  { path: "settings/keys/sessions.autoSettleOnMerge.json", title: "AutoSettleOnMerge", schema: AutoSettleOnMerge },
+  { path: "settings/settings-values.json", title: "SettingsValues", schema: SettingsValues },
+  { path: "settings/settings-patch.json", title: "SettingsPatch", schema: SettingsPatch },
+  { path: "settings/settings-event-type.json", title: "SettingsEventType", schema: SettingsEventType },
+  ...Object.entries(SETTINGS_EVENT_TYPES).map(([type, entry]) => ({
+    path: `settings/events/${type}.json`,
+    title: `${pascal(type)}Payload`,
+    schema: entry.payload,
+  })),
   { path: "errors/error-code.json", title: "ErrorCode", schema: ErrorCode },
   { path: "errors/schema-issue.json", title: "SchemaIssue", schema: SchemaIssue },
   { path: "errors/wire-error.json", title: "WireError", schema: WireError },

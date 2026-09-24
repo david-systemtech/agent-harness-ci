@@ -119,13 +119,15 @@ const payloads: Record<string, Fixtures> = {
   },
   "message.sent": {
     valid: [
-      { runId, messageId, text: "Fix the receipts", attachments: [attachment], delivery: "prompt", heldBy: null },
-      { runId, messageId, text: "Also the tests", attachments: [], delivery: "queued", heldBy: "environment" },
+      { runId, messageId, text: "Fix the receipts", attachments: [attachment], delivery: "prompt", heldBy: null, ceiling: "bypassPermissions" },
+      { runId, messageId, text: "Also the tests", attachments: [], delivery: "queued", heldBy: "environment", ceiling: "acceptEdits" },
     ],
     invalid: [
-      { runId, messageId, text: "x", attachments: [], delivery: "steered", heldBy: null },
-      { runId, messageId, text: "x", attachments: [{ ...attachment, size: -1 }], delivery: "prompt", heldBy: null },
-      { runId, text: "x", attachments: [], delivery: "prompt", heldBy: null },
+      { runId, messageId, text: "x", attachments: [], delivery: "steered", heldBy: null, ceiling: "acceptEdits" },
+      { runId, messageId, text: "x", attachments: [{ ...attachment, size: -1 }], delivery: "prompt", heldBy: null, ceiling: "acceptEdits" },
+      { runId, text: "x", attachments: [], delivery: "prompt", heldBy: null, ceiling: "acceptEdits" },
+      { runId, messageId, text: "x", attachments: [], delivery: "queued", heldBy: "provider" },
+      { runId, messageId, text: "x", attachments: [], delivery: "queued", heldBy: "provider", ceiling: "" },
     ],
   },
   "message.delivered": {
@@ -315,7 +317,16 @@ export const runSchemaFixtures: Record<string, Fixtures> = {
     valid: [runSummary, runningSummary],
     invalid: [{ ...runSummary, state: "done" }, { ...runSummary, startedAt: "then" }, { runId, state: "ended" }],
   },
-  "transcript/transcript-item.json": { valid: items, invalid: [{ sequence: 3 }, { kind: "plan-card" }, { kind: 3, sequence: 3 }, { kind: "plan-card", sequence: 0 }] },
+  "transcript/transcript-item.json": { valid: items, invalid: [
+      { sequence: 3 },
+      { kind: "plan-card" },
+      { kind: 3, sequence: 3 },
+      { kind: "plan-card", sequence: 0 },
+      // A known kind is held to its own schema: a malformed one is never kept opaque.
+      { kind: "user-message", sequence: 3 },
+      { kind: "tool-call", sequence: 3, runId, toolCallId: "t-1" },
+    ],
+  },
   "transcript/parked-prompt.json": { valid: [parkedPrompt], invalid: [{ ...parkedPrompt, promptId: "" }, { ...parkedPrompt, prompt: "Allow?" }] },
   "transcript/session-snapshot.json": {
     valid: [snapshot, { sequence: 0, summary: freshSummary, runs: [], items: [], parkedPrompts: [] }],

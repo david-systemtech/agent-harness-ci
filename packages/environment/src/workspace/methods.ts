@@ -1,7 +1,6 @@
 import type { EventLog } from "../event-log/event-log.js";
-import { foldTranscript } from "../runs/transcript.js";
+import { foldTranscript, readTranscriptEvents } from "../runs/transcript.js";
 import type { MethodHandlers } from "../serve/methods.js";
-import { sessionStream } from "../sessions/streams.js";
 import { sessionDiff, workingTreeDiff } from "./diffs.js";
 import { listFiles, readWorkspaceFile } from "./files.js";
 import { workspaceRoot } from "./paths.js";
@@ -32,8 +31,8 @@ export const workspaceMethods = ({ log }: WorkspaceMethodsOptions): MethodHandle
       const recorded = requireSessionWorkspace(log, sessionId);
       // Its data is the log's, so a workspace directory that is gone does not stop it: the recorded path is a root.
       const real = await workspaceRoot(recorded).catch(() => undefined);
-      // The runs' tool calls, as the session's snapshot folds them from its stream (`runs/transcript.ts`).
-      const { items } = foldTranscript(log.readStream(sessionStream(sessionId)));
+      // The runs' tool calls, as the session's snapshot folds them from its stream, deltas left out (`runs/transcript.ts`).
+      const { items } = foldTranscript(readTranscriptEvents(log, sessionId));
       return sessionDiff(real === undefined || real === recorded ? [recorded] : [recorded, real], items);
     },
   };

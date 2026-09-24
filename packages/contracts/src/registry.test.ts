@@ -164,6 +164,7 @@ describe("the method registry", () => {
       "runs.send",
       "runs.interrupt",
       "runs.stopTask",
+      "settings.update",
       "terminals.open",
       "terminals.write",
       "terminals.resize",
@@ -284,6 +285,8 @@ describe("the method registry", () => {
       | "runs.send"
       | "runs.interrupt"
       | "runs.stopTask"
+      | "settings.get"
+      | "settings.update"
       | "terminals.open"
       | "terminals.write"
       | "terminals.resize"

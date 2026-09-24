@@ -9,6 +9,7 @@
 import { FRAME_TYPES, SHARED_ERROR_CODES, methodPath, methods, type FrameType } from "../src/index.js";
 import { runMethodFixtures, runSchemaFixtures } from "./run-fixtures.js";
 import { sessionMethodFixtures, sessionSchemaFixtures } from "./session-fixtures.js";
+import { settingsMethodFixtures, settingsSchemaFixtures } from "./settings-fixtures.js";
 import { terminalMethodFixtures, terminalSchemaFixtures } from "./terminal-fixtures.js";
 
 const uuid = "0f8fad5b-d9cb-469f-a165-70867728950e";
@@ -439,6 +440,7 @@ const methodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
   },
   ...sessionMethodFixtures,
   ...runMethodFixtures,
+  ...settingsMethodFixtures,
   ...terminalMethodFixtures,
 };
 
@@ -688,6 +690,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
   },
   ...sessionSchemaFixtures,
   ...runSchemaFixtures,
+  ...settingsSchemaFixtures,
   ...terminalSchemaFixtures,
   ...methodSchemaFixtures,
 };

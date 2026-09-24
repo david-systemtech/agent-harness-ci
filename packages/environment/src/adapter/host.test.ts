@@ -4,11 +4,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { manualClock } from "../../test/clock.js";
 import { end, fakeAdapter, gate, say, type FakeAdapter } from "../../test/fake-adapter.js";
 import { openEventLog, type EventEnvelope, type EventLog } from "../event-log/event-log.js";
-import { decideStart, type StartCommand } from "../runs/run-decider.js";
+import { decideSend, decideStart, type StartCommand } from "../runs/run-decider.js";
+import { environmentQueue } from "../runs/run-reads.js";
 import { runsProjector } from "../runs/runs-projector.js";
 import { sessionListProjector } from "../sessions/session-list.js";
 import type { AdapterEvent, TranscriptEvent } from "./contract.js";
-import { createAdapterHost, type AdapterHost, type AdapterHostOptions } from "./host.js";
+import { createAdapterHost, type AdapterHost, type AdapterHostOptions, type StagedAttachments } from "./host.js";
 import { createScopedAppend } from "./scoped-append.js";
 import { composeInstructions } from "./seams.js";
 
@@ -40,10 +41,10 @@ interface Setup {
   readonly sessionId: string;
 }
 
-const setup = async (adapter: FakeAdapter = fakeAdapter(), options: Partial<AdapterHostOptions> = {}): Promise<Setup> => {
+const setup = async (adapter: FakeAdapter = fakeAdapter(), options: Partial<AdapterHostOptions> = {}, wrap: (log: EventLog) => EventLog = (log) => log): Promise<Setup> => {
   const clock = manualClock();
   const log = openEventLog({ path: ":memory:", projectors: [sessionListProjector, runsProjector], clock: () => clock.now() });
-  const host = createAdapterHost({ log, clock, adapters: [adapter], accounts: [{ id: "acct", provider: adapter.descriptor.provider }], ...options });
+  const host = createAdapterHost({ log: wrap(log), clock, adapters: [adapter], accounts: [{ id: "acct", provider: adapter.descriptor.provider }], ...options });
   closers.push(() => log.close(), () => host.close("disposed"));
   await host.refresh();
   const sessionId = randomUUID();
@@ -52,14 +53,27 @@ const setup = async (adapter: FakeAdapter = fakeAdapter(), options: Partial<Adap
 };
 
 /** Starts a run as `runs.start` does, outside the wire: the facts, the decider, the append, then the launch. */
-const startRun = (t: Setup, text = "Go", command: Partial<Omit<StartCommand, "message">> & { attachments?: AttachmentInput[] } = {}): string => {
-  const facts = t.host.startFacts(t.sessionId, "bypassPermissions");
+const startRun = (
+  t: Setup,
+  text = "Go",
+  command: Partial<Omit<StartCommand, "message">> & { attachments?: AttachmentInput[]; ceiling?: string } = {},
+): string => {
+  const facts = t.host.startFacts(t.sessionId, command.ceiling ?? "bypassPermissions");
   t.host.admit();
   const decision = decideStart(facts, { origin: "client", ...command, message: { messageId: randomUUID(), text, attachments: command.attachments ?? [] } });
   if (decision.rejected !== undefined) throw new Error(decision.rejected.message);
   t.log.append({ kind: "session", id: t.sessionId }, decision.events, { actor: "client_session:test", correlationId: decision.run.runId });
   t.host.launch(decision.run);
   return decision.run.runId;
+};
+
+/** Sends the session a message during its live run, as `runs.send` does; resolves with its id. */
+const sendDuring = (t: Setup, text: string, ceiling = "bypassPermissions"): string => {
+  const decision = decideSend(t.host.startFacts(t.sessionId, ceiling), { messageId: randomUUID(), text, attachments: [] });
+  if (decision.rejected !== undefined || decision.queued === undefined) throw new Error("The message was not queued.");
+  t.log.append({ kind: "session", id: t.sessionId }, decision.events, { actor: "client_session:test", correlationId: decision.result.runId });
+  t.host.queue(decision.queued);
+  return decision.result.messageId;
 };
 
 /** The session's events after its creation. */
@@ -208,10 +222,12 @@ describe("one end per run on every exit path", () => {
     const t = await setup(fakeAdapter({ script: () => [say("Fine"), bad, say("Never")] }));
     const runId = startRun(t);
     expect((await onlyEnd(t, runId)).payload).toMatchObject({ reason: "error" });
+    // Its stream may still be open, so the provider's turn is stopped, never kept for the next.
+    expect(t.adapter.lastRun()).toMatchObject({ disposed: true, released: false });
     expect(eventsOf(t).map((event) => event.type)).toEqual(["run.started", "message.sent", "assistant.text", "run.ended"]);
   });
 
-  it("ends the run disposed when the host lets it go mid-run, disposes it, and drops what it yields after", async () => {
+  it("ends the run drained when the environment closes while draining mid-run, disposes it, and drops what it yields after", async () => {
     const held = gate();
     const t = await setup(
       fakeAdapter({
@@ -313,7 +329,7 @@ describe("an adapter that fails the host", () => {
     } as FakeAdapter);
     const first = startRun(t, "First");
     const messageId = randomUUID();
-    t.log.append({ kind: "session", id: t.sessionId }, [{ type: "message.sent", payload: { runId: first, messageId, text: "Also this", attachments: [], delivery: "queued", heldBy: "provider" } }], { actor: "client_session:test" });
+    t.log.append({ kind: "session", id: t.sessionId }, [{ type: "message.sent", payload: { runId: first, messageId, text: "Also this", attachments: [], delivery: "queued", heldBy: "provider", ceiling: "bypassPermissions" } }], { actor: "client_session:test" });
     t.host.queue({ runId: first, heldBy: "provider", message: { messageId, text: "Also this", attachments: [] } });
     expect(eventsOf(t).at(-1)).toMatchObject({ type: "message.requeued", actor: "system:adapter-host", payload: { runId: first, messageId } });
     held.open();
@@ -321,6 +337,228 @@ describe("an adapter that fails the host", () => {
     const next = eventsOf(t).filter((event) => event.type === "run.started")[1];
     expect(next?.payload).toMatchObject({ origin: "client", promptMessageId: null, queuedMessageIds: [messageId] });
     expect(t.adapter.lastRun().input.prompt.map((message) => message.text)).toEqual(["Also this"]);
+  });
+});
+
+describe("a provider's held messages when the host ends the run (ADR 0022: nothing is lost)", () => {
+  /** A provider queue that does not steer, whose first run works until `held` opens, then does as `after` says. */
+  const holding = (held: ReturnType<typeof gate>, after: "complete" | "throw" | "wait") =>
+    fakeAdapter({
+      capabilities: { steering: false },
+      script: async function* ({ adopted }) {
+        if (adopted) {
+          yield end();
+          return;
+        }
+        yield say("Working");
+        await held.opened;
+        if (after === "throw") throw new Error("The provider went away.");
+        if (after === "wait") await new Promise(() => undefined);
+        yield end();
+      },
+    });
+
+  const queuedIds = (t: Setup) => environmentQueue({ all: (sql, ...params) => t.log.read(sql, ...params) }, t.sessionId).map((queued) => queued.messageId);
+
+  /** The requeue of `messageId` by the host, just before the run's end. */
+  const expectRequeuedBeforeEnd = (t: Setup, runId: string, messageId: string) => {
+    const events = eventsOf(t);
+    const ended = events.findIndex((event) => event.type === "run.ended" && event.payload["runId"] === runId);
+    expect(events[ended - 1]).toMatchObject({ type: "message.requeued", actor: "system:adapter-host", payload: { runId, messageId } });
+  };
+
+  it("takes them back when the run ends error", async () => {
+    const held = gate();
+    const t = await setup(holding(held, "throw"));
+    const runId = startRun(t);
+    await vi.waitFor(() => expect(eventsOf(t).some((event) => event.type === "assistant.text")).toBe(true));
+    const messageId = sendDuring(t, "Also this");
+    held.open();
+    await untilEnded(t, runId);
+    expectRequeuedBeforeEnd(t, runId, messageId);
+    // A run that failed is followed by a run of the environment's queue, which reads it.
+    await vi.waitFor(() => expect(eventsOf(t).filter((event) => event.type === "run.started")).toHaveLength(2));
+    expect(eventsOf(t).filter((event) => event.type === "run.started")[1]?.payload).toMatchObject({ queuedMessageIds: [messageId] });
+  });
+
+  it("takes them back when the run ends disposed", async () => {
+    const held = gate();
+    const t = await setup(holding(held, "wait"));
+    const runId = startRun(t);
+    await vi.waitFor(() => expect(eventsOf(t).some((event) => event.type === "assistant.text")).toBe(true));
+    const messageId = sendDuring(t, "Also this");
+    t.host.close("disposed");
+    expect(endsOf(t, runId)[0]?.payload).toMatchObject({ reason: "disposed" });
+    expectRequeuedBeforeEnd(t, runId, messageId);
+    expect(queuedIds(t)).toEqual([messageId]);
+  });
+
+  it("takes them back when the adapter's interrupt fails and the host ends the run", async () => {
+    const held = gate();
+    const adapter = holding(held, "wait");
+    const create = adapter.createRun;
+    const t = await setup({
+      ...adapter,
+      createRun: (input, context) => ({ ...create(input, context), interrupt: () => Promise.reject(new Error("No answer.")) }),
+    } as FakeAdapter);
+    const runId = startRun(t);
+    await vi.waitFor(() => expect(eventsOf(t).some((event) => event.type === "assistant.text")).toBe(true));
+    const messageId = sendDuring(t, "Also this");
+    t.host.interrupt(runId);
+    await untilEnded(t, runId);
+    expectRequeuedBeforeEnd(t, runId, messageId);
+    expect(queuedIds(t)).toEqual([messageId]);
+  });
+
+  it("takes back what a turn the provider opened was to read when a drain refuses to adopt it", async () => {
+    const held = gate();
+    const t = await setup(holding(held, "complete"));
+    const runId = startRun(t);
+    await vi.waitFor(() => expect(eventsOf(t).some((event) => event.type === "assistant.text")).toBe(true));
+    const messageId = sendDuring(t, "Also this");
+    t.host.runs.refuseNewRuns();
+    held.open();
+    await untilEnded(t, runId);
+    await vi.waitFor(() => expect(eventsOf(t).at(-1)).toMatchObject({ type: "message.requeued", actor: "system:adapter-host", payload: { runId, messageId } }));
+    expect(eventsOf(t).filter((event) => event.type === "run.started")).toHaveLength(1);
+    expect(t.adapter.runs.map((run) => [run.adopted, run.disposed])).toEqual([[false, false], [true, true]]);
+    expect(environmentQueue({ all: (sql, ...params) => t.log.read(sql, ...params) }, t.sessionId).map((queued) => queued.messageId)).toEqual([messageId]);
+  });
+
+  it("leaves them with the provider when its turn completed, for the turn it opens to read", async () => {
+    const held = gate();
+    const t = await setup(holding(held, "complete"));
+    const runId = startRun(t);
+    await vi.waitFor(() => expect(eventsOf(t).some((event) => event.type === "assistant.text")).toBe(true));
+    sendDuring(t, "Also this");
+    held.open();
+    await vi.waitFor(() => expect(eventsOf(t).filter((event) => event.type === "run.ended")).toHaveLength(2));
+    expect(eventsOf(t).filter((event) => event.type === "message.requeued")).toEqual([]);
+    expect(endsOf(t, runId)).toHaveLength(1);
+  });
+});
+
+describe("the host's own bookkeeping", () => {
+  it("leaves no live run behind when the drain refuses a launch", async () => {
+    const t = await setup();
+    const facts = t.host.startFacts(t.sessionId, "bypassPermissions");
+    const decision = decideStart(facts, { origin: "client", message: { messageId: randomUUID(), text: "Go", attachments: [] } });
+    if (decision.rejected !== undefined) throw new Error(decision.rejected.message);
+    t.host.runs.refuseNewRuns();
+    expect(() => t.host.launch(decision.run)).toThrow(ContractError);
+    expect(t.host.live(t.sessionId)).toBeNull();
+    expect(t.host.activeRuns()).toEqual([]);
+  });
+
+  it("keeps a run live, as the log says, when its end cannot be appended, and logs it loudly", async () => {
+    let failEnds = false;
+    const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const held = gate();
+    const t = await setup(
+      fakeAdapter({ script: async function* () { yield say("Working"); await held.opened; yield end(); } }),
+      {},
+      (log) => ({
+        ...log,
+        append: (stream, events, options) => {
+          if (failEnds && events.some((event) => event.type === "run.ended")) throw new Error("The disk is full.");
+          return log.append(stream, events, options);
+        },
+      }),
+    );
+    const runId = startRun(t);
+    await vi.waitFor(() => expect(eventsOf(t).some((event) => event.type === "assistant.text")).toBe(true));
+    failEnds = true;
+    held.open();
+    await vi.waitFor(() => expect(t.adapter.lastRun().released).toBe(true));
+    expect(endsOf(t, runId)).toEqual([]);
+    expect(t.host.live(t.sessionId)).toMatchObject({ runId });
+    expect([...t.host.runs.runs()]).toMatchObject([{ id: runId, state: "running" }]);
+    expect(errors.mock.calls.some(([message]) => String(message).startsWith(`THE END OF RUN ${runId}`))).toBe(true);
+    errors.mockRestore();
+  });
+
+  it("names no cause for an interrupted end the host did not ask for", async () => {
+    const t = await setup(fakeAdapter({ script: () => [end("interrupted")] }));
+    const runId = startRun(t);
+    await untilEnded(t, runId);
+    expect(endsOf(t, runId)[0]?.payload).toMatchObject({ reason: "interrupted", cause: null });
+  });
+
+  it("clamps a run of the environment's queue to the ceiling of every sender, not only the last run's starter", async () => {
+    const held = gate();
+    const t = await setup(
+      fakeAdapter({
+        capabilities: { providerQueue: false, steering: false },
+        script: async function* ({ input }) {
+          if (input.prompt[0]?.text === "First") await held.opened;
+          yield end();
+        },
+      }),
+      { clampMode: (requested, ceiling) => (ceiling === "plan" && requested !== "plan" ? { mode: "plan", clamped: true } : { mode: requested, clamped: false }) },
+    );
+    const first = startRun(t, "First", { mode: "auto", ceiling: "bypassPermissions" });
+    sendDuring(t, "From a planner", "plan");
+    held.open();
+    await untilEnded(t, first);
+    await vi.waitFor(() => expect(eventsOf(t).filter((event) => event.type === "run.ended")).toHaveLength(2));
+    const [, next] = eventsOf(t).filter((event) => event.type === "run.started");
+    expect(next?.payload).toMatchObject({ mode: { requested: "auto", effective: "plan", clamped: true } });
+  });
+
+  it("keys a queued message by its session: an event of another session naming its id leaves it queued", async () => {
+    const t = await setup();
+    const other = randomUUID();
+    t.log.append({ kind: "session", id: other }, [created], { actor: "system:test" });
+    const messageId = randomUUID();
+    const runId = randomUUID();
+    t.log.append({ kind: "session", id: t.sessionId }, [{ type: "message.sent", payload: { runId, messageId, text: "Mine", attachments: [], delivery: "queued", heldBy: "environment", ceiling: "plan" } }], { actor: "system:test" });
+    t.log.append({ kind: "session", id: other }, [{ type: "message.delivered", payload: { runId, messageId, delivery: "prompt" } }], { actor: "system:test" });
+    expect(environmentQueue({ all: (sql, ...params) => t.log.read(sql, ...params) }, t.sessionId)).toEqual([{ messageId, text: "Mine", ceiling: "plan" }]);
+  });
+
+  it("keeps a queued message's bytes through the session's deletion, for a restore, and drops them when it is purged", async () => {
+    const held = gate();
+    const staged = new Map<string, StagedAttachments>();
+    const t = await setup(
+      fakeAdapter({ capabilities: { providerQueue: false, steering: false }, script: async function* () { await held.opened; yield end(); } }),
+      { stagedAttachments: staged },
+    );
+    const runId = startRun(t, "First");
+    const decision = decideSend(t.host.startFacts(t.sessionId, "bypassPermissions"), {
+      messageId: randomUUID(),
+      text: "With a picture",
+      attachments: [{ kind: "image", name: "a.png", mediaType: "image/png", data: Buffer.from("pixels").toString("base64") }],
+    });
+    if (decision.rejected !== undefined || decision.queued === undefined) throw new Error("The message was not queued.");
+    t.log.append({ kind: "session", id: t.sessionId }, decision.events, { actor: "client_session:test", correlationId: runId });
+    t.host.queue(decision.queued);
+    expect([...staged.values()].map((entry) => entry.sessionId)).toEqual([t.sessionId]);
+
+    const stream = { kind: "session", id: t.sessionId } as const;
+    t.log.append(stream, [{ type: "session.deleted", payload: { deletedAt: "2026-09-24T00:00:00.000Z", purgeAt: "2026-10-24T00:00:00.000Z", deleteProviderTranscript: false } }], { actor: "system:test" });
+    expect(staged.size).toBe(1);
+    t.log.append(stream, [{ type: "session.purged", payload: { providerTranscript: { outcome: "kept" } } }], { actor: "system:test" });
+    expect(staged.size).toBe(0);
+    held.open();
+  });
+
+  it("gives up on a status probe that never answers, so startup goes on with the account signed out", async () => {
+    const adapter = fakeAdapter();
+    const t = await setup({ ...adapter, status: () => new Promise(() => undefined) } as FakeAdapter, { probeTimeoutMs: 20 });
+    expect(t.host.account("acct")).toMatchObject({ signedIn: false });
+  });
+
+  it("refuses a transcript delete as unsupported when the session's provider is not known here", async () => {
+    const t = await setup(fakeAdapter({ deleteTranscript: true }), { accounts: [] });
+    let thrown: unknown;
+    try {
+      t.host.transcripts.deleteTranscript?.(t.sessionId);
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(ContractError);
+    expect((thrown as ContractError).data).toMatchObject({ reason: "unsupported" });
+    expect(t.adapter.deletedTranscripts).toEqual([]);
   });
 });
 
@@ -433,7 +671,7 @@ describe("the adoption hook", () => {
     );
     const first = startRun(t, "First");
     const messageId = randomUUID();
-    t.log.append({ kind: "session", id: t.sessionId }, [{ type: "message.sent", payload: { runId: first, messageId, text: "Also this", attachments: [], delivery: "queued", heldBy: "provider" } }], { actor: "client_session:test" });
+    t.log.append({ kind: "session", id: t.sessionId }, [{ type: "message.sent", payload: { runId: first, messageId, text: "Also this", attachments: [], delivery: "queued", heldBy: "provider", ceiling: "bypassPermissions" } }], { actor: "client_session:test" });
     t.host.queue({ runId: first, heldBy: "provider", message: { messageId, text: "Also this", attachments: [] } });
     held.open();
     await vi.waitFor(() => expect(eventsOf(t).filter((event) => event.type === "run.ended")).toHaveLength(2));

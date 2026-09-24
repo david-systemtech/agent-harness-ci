@@ -91,20 +91,31 @@ export const providerSessionOf = (reader: Reader, sessionId: string): string | n
   return row?.provider_session_id ?? null;
 };
 
-/** A queued message not yet read. */
+/** A queued message not yet read, with the ceiling of the connection that sent it. */
 export interface QueuedMessage {
   readonly messageId: string;
   readonly text: string;
+  readonly ceiling: string;
 }
 
 /** The messages the environment holds for the session (ADR 0022), in the order they were sent. */
 export const environmentQueue = (reader: Reader, sessionId: string): QueuedMessage[] =>
   reader
-    .all<{ message_id: string; text: string }>(
-      "SELECT message_id, text FROM run_messages WHERE session_id = ? AND held_by = 'environment' ORDER BY sequence",
+    .all<{ message_id: string; text: string; ceiling: string }>(
+      "SELECT message_id, text, ceiling FROM run_messages WHERE session_id = ? AND held_by = 'environment' ORDER BY sequence",
       sessionId,
     )
-    .map((row) => ({ messageId: row.message_id, text: row.text }));
+    .map((row) => ({ messageId: row.message_id, text: row.text, ceiling: row.ceiling }));
+
+/** The messages sent during the run that its provider still holds, in the order they were sent. */
+export const providerHeld = (reader: Reader, sessionId: string, runId: string): string[] =>
+  reader
+    .all<{ message_id: string }>(
+      "SELECT message_id FROM run_messages WHERE session_id = ? AND run_id = ? AND held_by = 'provider' ORDER BY sequence",
+      sessionId,
+      runId,
+    )
+    .map((row) => row.message_id);
 
 /** A task's status as the run's latest ledger holds it; null when the ledger never named it. */
 export const taskStatus = (reader: Reader, runId: string, taskId: string): string | null => {
