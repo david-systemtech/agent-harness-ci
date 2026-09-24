@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, rmdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmdirSync, rmSync, writeFileSync, renameSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { prepareDataDirectory } from "@agent-harness/environment";
 import { ServiceError } from "./errors.js";
@@ -51,7 +51,10 @@ export interface WrittenDefinition {
  * as "no previous definition": any other failure to read the existing one
  * fails before anything is written.
  */
-export const writeDefinition = (path: string, content: string): WrittenDefinition => {
+/** How the bytes reach the disk; tests swap in a failing writer. */
+export type WriteFile = (path: string, content: string) => void;
+
+export const writeDefinition = (path: string, content: string, write: WriteFile = writeFileSync): WrittenDefinition => {
   let previous: string | undefined;
   try {
     previous = readFileSync(path, "utf8");
@@ -64,12 +67,28 @@ export const writeDefinition = (path: string, content: string): WrittenDefinitio
   }
   const createdDirectories = missingDirectories(dirname(path));
   mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, content);
+  // Written beside the definition and renamed over it, so a write that fails leaves the previous file whole.
+  const replace = (text: string) => {
+    const temp = `${path}.${process.pid}.tmp`;
+    try {
+      write(temp, text);
+      renameSync(temp, path);
+    } catch (error) {
+      rmSync(temp, { force: true });
+      throw error;
+    }
+  };
+  try {
+    replace(content);
+  } catch (error) {
+    if (previous === undefined) removeEmptyDirectories(createdDirectories);
+    throw error;
+  }
   return {
     previous,
     createdDirectories,
     restore: () => {
-      if (previous !== undefined) return writeFileSync(path, previous);
+      if (previous !== undefined) return replace(previous);
       rmSync(path, { force: true });
       removeEmptyDirectories(createdDirectories);
     },
