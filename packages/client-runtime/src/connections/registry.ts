@@ -439,8 +439,12 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
     };
     const entry = newEntry(id, saved, undefined, failures);
     entries.set(id, entry);
+    // In the sequence before any write is awaited, so the list that first shows it shows it first.
+    const entering = enterSequence(id, "first");
+    // Awaited below; marked handled here so a write failing first leaves no unhandled rejection behind.
+    entering.catch(() => undefined);
     await rememberLocal(id, saved);
-    await enterSequence(id, "first");
+    await entering;
     return entry;
   };
 
@@ -688,9 +692,13 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
       expiresAt: exchange.credential.expiresAt,
     };
     entries.set(id, newEntry(id, saved, exchange.credential.token, failures));
+    // In the sequence before any write is awaited, so the list that first shows it shows it first; one already there keeps its place.
+    const entering = enterSequence(id, "first");
+    // Awaited below; marked handled here so a write failing first leaves no unhandled rejection behind.
+    entering.catch(() => undefined);
     if (previous?.saved.kind === "paired") await savePaired();
     await rememberLocal(id, saved);
-    await enterSequence(id, "first");
+    await entering;
   };
 
   /**

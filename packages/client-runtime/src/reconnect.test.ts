@@ -865,6 +865,41 @@ describe("the local environment", () => {
     expect(runtime.local.read()).toEqual({ state: "exchanged", environmentId: wire.environmentId });
   });
 
+  it("puts the environment that replaces the placeholder first in the very publication that lists it, ahead of a paired one", async () => {
+    const clock = manualClock();
+    const local = fakeWire({ clock, name: "desk" });
+    const remote = fakeWire({ clock, name: "laptop", address: { host: "laptop.test", port: 7433 } });
+    const route = (url: string) => (url.includes("laptop.test") ? remote : local);
+    local.discovery("unreachable");
+    const { runtime } = createRuntimeWithSeams(
+      inMemoryPlatform({
+        clock,
+        kind: "tui",
+        grant: local.grant,
+        fetch: (url, request) => route(url).fetch(url, request),
+        webSocket: (url, handlers) => route(url).webSocket(url, handlers),
+      }),
+    );
+    onTestFinished(() => runtime.close());
+    await runtime.start();
+    const adding = runtime.connections.add({ link: remote.link });
+    await remote.server.accept();
+    await adding;
+    expect(runtime.connections.list.read().map((r) => r.environmentId)).toEqual([LOCAL_PLACEHOLDER_ID, remote.environmentId]);
+
+    const orders: string[][] = [];
+    runtime.connections.list.subscribe((list) => orders.push(list.map((r) => r.environmentId)));
+    // It answers, still starting: listed under its own id, and first from the first publication that lists it.
+    local.discovery({ readiness: "starting" });
+    const retryAt = runtime.connections.list.read()[0]?.retryAt as string;
+    clock.advance(Date.parse(retryAt) - clock.now().getTime());
+    await flush();
+    await flush();
+    const listed = orders.filter((order) => order.includes(local.environmentId));
+    expect(listed.length).toBeGreaterThan(0);
+    for (const order of listed) expect(order).toEqual([local.environmentId, remote.environmentId]);
+  });
+
   it("on a first launch whose environment answers starting lists it under its own id, never a placeholder", async () => {
     const clock = manualClock();
     const wire = fakeWire({ clock, name: "desk" });

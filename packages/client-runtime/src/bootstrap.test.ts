@@ -155,6 +155,22 @@ describe("the bootstrap grant", () => {
     expect(noReader.preferences.read()["environments.sequence"]).toEqual([b.env.id, t.env.id, a.env.id]);
   });
 
+  it("keeps the place David gave the local environment when the next start derives it again", async () => {
+    const t = await harness.environment({ name: "local" });
+    const a = await harness.environment({ name: "a" });
+    const platform = inMemoryPlatform({ kind: "tui", grant: grantReader(t) });
+    const first = harness.runtime(platform);
+    await first.start();
+    await first.connections.add({ link: (await a.createPairing()).link });
+    await first.connections.setOrder([a.env.id, t.env.id]);
+    await first.close();
+
+    const again = harness.runtime(inMemoryPlatform({ kind: "tui", grant: grantReader(t), documents: platform.documents, secrets: platform.secrets }));
+    await again.start();
+    expect(again.preferences.read()["environments.sequence"]).toEqual([a.env.id, t.env.id]);
+    expect(again.connections.list.read().map((r) => r.environmentId)).toEqual([a.env.id, t.env.id]);
+  });
+
   it("replaces the previous desktop client session on a second desktop start", async () => {
     const t = await harness.environment();
     const first = harness.runtime(inMemoryPlatform({ kind: "desktop", grant: grantReader(t) }));
