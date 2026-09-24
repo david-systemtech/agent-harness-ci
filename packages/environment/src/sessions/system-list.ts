@@ -60,7 +60,8 @@ export const systemProjections = (setColumns: ColumnWriter): Readonly<Record<str
   "prompt.answered": (event, db) => {
     const row = rowOf(db, event.streamId);
     const count = Math.max(0, (row?.parked_prompt_count ?? 0) - 1);
-    const parked = row !== undefined && (JSON.parse(row.activity) as SessionActivity).state === "parked";
+    const held = row === undefined ? undefined : (JSON.parse(row.activity) as SessionActivity);
+    const parked = held?.state === "parked";
     setColumns(event, db, {
       parked_prompt_count: count,
       last_activity_at: event.occurredAt,
