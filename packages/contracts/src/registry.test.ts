@@ -111,6 +111,15 @@ describe("the method registry", () => {
     expect(isMethodName("runs.answerPrompt")).toBe(false);
   });
 
+  it("gives the providers methods the claude-adapter spec's scopes: the list at read, the processes at admin", () => {
+    const providerMethods = methods.filter((m) => m.name.startsWith("providers."));
+    expect(Object.fromEntries(providerMethods.map((m) => [m.name, [m.kind, m.scope]]))).toEqual({
+      "providers.list": ["query", "read"],
+      "providers.processes.list": ["query", "admin"],
+      "providers.processes.stop": ["command", "admin"],
+    });
+  });
+
   it("owes a handler only for a registered method, each to a named ticket", () => {
     for (const [name, ticket] of Object.entries(OWED_HANDLERS)) {
       expect(isMethodName(name), name).toBe(true);
@@ -148,6 +157,7 @@ describe("the method registry", () => {
       "runs.send",
       "runs.interrupt",
       "runs.stopTask",
+      "providers.processes.stop",
       "settings.update",
     ]);
   });
@@ -265,6 +275,9 @@ describe("the method registry", () => {
       | "runs.send"
       | "runs.interrupt"
       | "runs.stopTask"
+      | "providers.list"
+      | "providers.processes.list"
+      | "providers.processes.stop"
       | "settings.get"
       | "settings.update"
     >();

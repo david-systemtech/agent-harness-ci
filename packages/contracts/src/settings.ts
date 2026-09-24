@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { EventTypeEntry } from "./event-types.js";
+import { PROCESS_IDLE_MINUTES_PRESET, ProcessIdleMinutes } from "./methods/providers.js";
 
 /**
  * The environment's settings (session-state spec, "Commands" and "Auto-settle:
@@ -82,7 +83,10 @@ const setting = <const S extends z.ZodType>(definition: SettingDefinition<S>): S
  * Every settings key. The two auto-settle keys sit under the Appearance
  * step's entry, in a Sessions band of its pane (session-state spec), and the
  * transcript compaction window (#123) beside them; the Set up workstream
- * (#88) may re-home them.
+ * (#88) may re-home them. `providers.processIdleMinutes`
+ * (#120) sits under the Account step's entry, in the Default model band of
+ * the Accounts pane (ADR 0027's `accounts.default-model` row, which absorbs
+ * Artemis's Runs pane); the Account step's own keys (#134) join it there.
  */
 export const SETTINGS = {
   "sessions.autoSettleAfterIdle": setting({
@@ -99,6 +103,11 @@ export const SETTINGS = {
     schema: TranscriptCompactAfterDays,
     preset: 90,
     step: { id: "appearance", band: "sessions" },
+  }),
+  "providers.processIdleMinutes": setting({
+    schema: ProcessIdleMinutes,
+    preset: PROCESS_IDLE_MINUTES_PRESET,
+    step: { id: "account", band: "default-model" },
   }),
 } as const;
 

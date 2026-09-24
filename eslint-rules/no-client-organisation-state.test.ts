@@ -12,6 +12,8 @@ ruleTester.run("no-client-organisation-state", rule, {
     { filename: tui("app.ts"), code: `const connections = createStore([]);` },
     { filename: tui("app.ts"), code: `const preferences = { theme: "dark", fontSize: 14 };` },
     { filename: tui("app.ts"), code: `localStorage.setItem("lastEnvironment", "a");` },
+    { filename: clientRuntime("runtime.ts"), code: `function make() { const connections = writable([]); return derived([connections], (c) => c); }` },
+    { filename: clientRuntime("runtime.ts"), code: `await platform.documents.set("environments.sequence", []);` },
     // Module-scope functions, classes and constant literals are not stores.
     { filename: tui("app.ts"), code: `export function titleOf(summary: { title: string }) { return summary.title; }` },
     { filename: tui("app.ts"), code: `export const titleOf = (summary: { title: string }) => summary.title;` },
@@ -101,6 +103,17 @@ ruleTester.run("no-client-organisation-state", rule, {
       filename: tui("app.ts"),
       code: `export const titles = observable(new Map());`,
       errors: [error("titles", "title")],
+    },
+    // The client runtime's own observables are stores wherever they are made.
+    {
+      filename: clientRuntime("connections/registry.ts"),
+      code: `function make() { const pinnedSessions = writable([]); return pinnedSessions; }`,
+      errors: [error("pinnedSessions", "pin")],
+    },
+    {
+      filename: clientRuntime("projections/list.ts"),
+      code: `function make(list) { const archivedRows = derived([list], (rows) => rows); return archivedRows; }`,
+      errors: [error("archivedRows", "archive")],
     },
     {
       filename: tui("app.ts"),
@@ -197,6 +210,12 @@ ruleTester.run("no-client-organisation-state", rule, {
       filename: clientRuntime("connections.ts"),
       code: `await platform.storage.put("archiveCursor", doc);`,
       errors: [error("archiveCursor", "archive")],
+    },
+    // The platform's document storage, as the client runtime names it.
+    {
+      filename: clientRuntime("connections/registry.ts"),
+      code: `await platform.documents.set("session.pins", []);`,
+      errors: [error("session.pins", "pin")],
     },
     // Web storage and IndexedDB object stores.
     {

@@ -44,11 +44,11 @@ export const anyValidValue =
     SETTINGS[key].schema.safeParse(value).success || `${key} does not hold a valid value.`;
 
 /**
- * Every step. Only the Appearance step is registered so far, for the
- * auto-settle keys in its Sessions band (session-state spec, "Auto-settle:
- * rules and settings") and the transcript compaction window beside them
- * (#123); the milestone-1 steps arrive with Set up (#88), and Appearance
- * gains its theme (ADR 0023) there.
+ * Every step. Two are registered so far: Appearance, for the auto-settle
+ * keys in its Sessions band (session-state spec, "Auto-settle: rules and
+ * settings") and the transcript compaction window beside them (#123), and
+ * Account, for the process idle time (#120); the milestone-1 steps arrive
+ * with Set up (#88), and Appearance gains its theme (ADR 0023) there.
  */
 export const STEP_REGISTRY = [
   {
@@ -60,6 +60,13 @@ export const STEP_REGISTRY = [
       { key: "sessions.transcriptCompactAfterDays", check: anyValidValue("sessions.transcriptCompactAfterDays") },
     ],
     links: [{ pane: "appearance", band: "sessions" }],
+  },
+  {
+    // The Account step (ADR 0018): the entry #134 completes with the default account, model family and effort.
+    id: "account",
+    writes: ["providers.processIdleMinutes"],
+    checks: [{ key: "providers.processIdleMinutes", check: anyValidValue("providers.processIdleMinutes") }],
+    links: [{ pane: "accounts", band: "default-model" }],
   },
 ] as const satisfies readonly Step[];
 

@@ -39,6 +39,7 @@ describe("settings.get", () => {
         "sessions.autoSettleAfterIdle": { amount: 14, unit: "days" },
         "sessions.autoSettleOnMerge": false,
         "sessions.transcriptCompactAfterDays": 90,
+        "providers.processIdleMinutes": 30,
       },
     });
   });
@@ -163,7 +164,7 @@ describe("settings.update", () => {
     const dataDir = join(tempDir(), "data");
     const first = await start(dataDir);
     const client = await first.client();
-    const values = { "sessions.autoSettleAfterIdle": { amount: 3, unit: "months" }, "sessions.autoSettleOnMerge": true } as const;
+    const values = { "sessions.autoSettleAfterIdle": { amount: 3, unit: "months" }, "sessions.autoSettleOnMerge": true, "providers.processIdleMinutes": 45 } as const;
     await updateSettings(client, values);
     await first.close();
 

@@ -5,7 +5,8 @@
   "enum": [
     "sessions.autoSettleAfterIdle",
     "sessions.autoSettleOnMerge",
-    "sessions.transcriptCompactAfterDays"
+    "sessions.transcriptCompactAfterDays",
+    "providers.processIdleMinutes"
   ],
-  "description": "A settings key: sessions.autoSettleAfterIdle, sessions.autoSettleOnMerge, sessions.transcriptCompactAfterDays."
+  "description": "A settings key: sessions.autoSettleAfterIdle, sessions.autoSettleOnMerge, sessions.transcriptCompactAfterDays, providers.processIdleMinutes."
 }

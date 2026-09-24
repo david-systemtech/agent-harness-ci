@@ -12,8 +12,18 @@ interface Fixtures {
 
 const commandId = "0f8fad5b-d9cb-469f-a165-70867728950e";
 
-const presets = { "sessions.autoSettleAfterIdle": { amount: 14, unit: "days" }, "sessions.autoSettleOnMerge": false, "sessions.transcriptCompactAfterDays": 90 };
-const changed = { "sessions.autoSettleAfterIdle": null, "sessions.autoSettleOnMerge": true, "sessions.transcriptCompactAfterDays": 30 };
+const presets = {
+  "sessions.autoSettleAfterIdle": { amount: 14, unit: "days" },
+  "sessions.autoSettleOnMerge": false,
+  "sessions.transcriptCompactAfterDays": 90,
+  "providers.processIdleMinutes": 30,
+};
+const changed = {
+  "sessions.autoSettleAfterIdle": null,
+  "sessions.autoSettleOnMerge": true,
+  "sessions.transcriptCompactAfterDays": 30,
+  "providers.processIdleMinutes": 5,
+};
 
 const idleSpans: Fixtures = {
   valid: [
@@ -30,6 +40,7 @@ const patches: Fixtures = {
     { "sessions.autoSettleOnMerge": null },
     { "sessions.autoSettleAfterIdle": 14 },
     { "sessions.transcriptCompactAfterDays": null },
+    { "providers.processIdleMinutes": 0 },
     { theme: "artemis" },
     [],
   ],
@@ -37,7 +48,7 @@ const patches: Fixtures = {
 
 export const settingsSchemaFixtures: Record<string, Fixtures> = {
   "settings/settings-key.json": {
-    valid: ["sessions.autoSettleAfterIdle", "sessions.autoSettleOnMerge", "sessions.transcriptCompactAfterDays"],
+    valid: ["sessions.autoSettleAfterIdle", "sessions.autoSettleOnMerge", "sessions.transcriptCompactAfterDays", "providers.processIdleMinutes"],
     invalid: ["theme", ""],
   },
   "settings/idle-span-unit.json": { valid: ["days", "weeks", "months"], invalid: ["years", "Days"] },
@@ -45,6 +56,7 @@ export const settingsSchemaFixtures: Record<string, Fixtures> = {
   "settings/keys/sessions.autoSettleAfterIdle.json": { valid: [null, ...idleSpans.valid], invalid: [false, ...idleSpans.invalid] },
   "settings/keys/sessions.autoSettleOnMerge.json": { valid: [true, false], invalid: [null, "true"] },
   "settings/keys/sessions.transcriptCompactAfterDays.json": { valid: [1, 90, 3650], invalid: [0, 3651, 1.5, null, "90"] },
+  "settings/keys/providers.processIdleMinutes.json": { valid: [1, 30, 1440], invalid: [0, 1441, 1.5, "30"] },
   "settings/settings-values.json": {
     valid: [presets, changed],
     invalid: [{}, { "sessions.autoSettleOnMerge": false }, { ...presets, theme: "artemis" }],

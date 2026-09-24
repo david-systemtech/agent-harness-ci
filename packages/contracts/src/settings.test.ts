@@ -22,13 +22,14 @@ import {
  */
 
 describe("the settings keys", () => {
-  it("are the two auto-settle keys and the transcript compaction window, preset to 14 days idle, no settle on merge and 90 days", () => {
-    expect(SETTINGS_KEYS).toEqual(["sessions.autoSettleAfterIdle", "sessions.autoSettleOnMerge", "sessions.transcriptCompactAfterDays"]);
+  it("are the two auto-settle keys, the transcript compaction window and the process idle time, preset to 14 days idle, no settle on merge, 90 days and 30 minutes", () => {
+    expect(SETTINGS_KEYS).toEqual(["sessions.autoSettleAfterIdle", "sessions.autoSettleOnMerge", "sessions.transcriptCompactAfterDays", "providers.processIdleMinutes"]);
     for (const key of AUTO_SETTLE_KEYS) expect(SETTINGS_KEYS, key).toContain(key);
     expect(presetSettings()).toEqual({
       "sessions.autoSettleAfterIdle": { amount: 14, unit: "days" },
       "sessions.autoSettleOnMerge": false,
       "sessions.transcriptCompactAfterDays": 90,
+      "providers.processIdleMinutes": 30,
     });
     for (const key of SETTINGS_KEYS) expect(SETTINGS[key].schema.safeParse(SETTINGS[key].preset).success, key).toBe(true);
   });

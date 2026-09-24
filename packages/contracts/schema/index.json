@@ -543,6 +543,26 @@
       "title": "RunSuggestion"
     },
     {
+      "path": "adapter/process-state.json",
+      "title": "ProcessState"
+    },
+    {
+      "path": "adapter/process-stop-reason.json",
+      "title": "ProcessStopReason"
+    },
+    {
+      "path": "adapter/process-hold-kind.json",
+      "title": "ProcessHoldKind"
+    },
+    {
+      "path": "adapter/process-hold.json",
+      "title": "ProcessHold"
+    },
+    {
+      "path": "adapter/provider-process.json",
+      "title": "ProviderProcess"
+    },
+    {
       "path": "transcript/run-origin.json",
       "title": "RunOrigin"
     },
@@ -641,6 +661,10 @@
     {
       "path": "settings/keys/sessions.transcriptCompactAfterDays.json",
       "title": "TranscriptCompactAfterDays"
+    },
+    {
+      "path": "settings/keys/providers.processIdleMinutes.json",
+      "title": "ProcessIdleMinutes"
     },
     {
       "path": "settings/settings-values.json",
@@ -1419,6 +1443,46 @@
       "title": "runs.stopTask error"
     },
     {
+      "path": "methods/providers.list/params.json",
+      "title": "providers.list params"
+    },
+    {
+      "path": "methods/providers.list/result.json",
+      "title": "providers.list result"
+    },
+    {
+      "path": "methods/providers.list/error.json",
+      "title": "providers.list error"
+    },
+    {
+      "path": "methods/providers.processes.list/params.json",
+      "title": "providers.processes.list params"
+    },
+    {
+      "path": "methods/providers.processes.list/result.json",
+      "title": "providers.processes.list result"
+    },
+    {
+      "path": "methods/providers.processes.list/error.json",
+      "title": "providers.processes.list error"
+    },
+    {
+      "path": "methods/providers.processes.stop/params.json",
+      "title": "providers.processes.stop params"
+    },
+    {
+      "path": "methods/providers.processes.stop/result.json",
+      "title": "providers.processes.stop result"
+    },
+    {
+      "path": "methods/providers.processes.stop/response.json",
+      "title": "providers.processes.stop response"
+    },
+    {
+      "path": "methods/providers.processes.stop/error.json",
+      "title": "providers.processes.stop error"
+    },
+    {
       "path": "methods/settings.get/params.json",
       "title": "settings.get params"
     },
@@ -1857,6 +1921,34 @@
       "result": "methods/runs.stopTask/result.json",
       "response": "methods/runs.stopTask/response.json",
       "error": "methods/runs.stopTask/error.json"
+    },
+    {
+      "name": "providers.list",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/providers.list/params.json",
+      "result": "methods/providers.list/result.json",
+      "error": "methods/providers.list/error.json"
+    },
+    {
+      "name": "providers.processes.list",
+      "scope": "admin",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/providers.processes.list/params.json",
+      "result": "methods/providers.processes.list/result.json",
+      "error": "methods/providers.processes.list/error.json"
+    },
+    {
+      "name": "providers.processes.stop",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/providers.processes.stop/params.json",
+      "result": "methods/providers.processes.stop/result.json",
+      "response": "methods/providers.processes.stop/response.json",
+      "error": "methods/providers.processes.stop/error.json"
     },
     {
       "name": "settings.get",

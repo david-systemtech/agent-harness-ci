@@ -1,10 +1,12 @@
 import { randomUUID } from "node:crypto";
-import type { AdapterCapabilities, AuthStatus } from "@agent-harness/contracts";
+import type { AdapterCapabilities, AuthStatus, ProcessHoldKind } from "@agent-harness/contracts";
 import type {
   AccountRef,
   Adapter,
   AdapterEvent,
   ModelOption,
+  ProcessPort,
+  PromptDecision,
   PromptMessage,
   ProviderTurn,
   RunContext,
@@ -28,6 +30,12 @@ import type {
  * the end an interrupt causes. A provider queue that does not steer holds
  * what it is sent and, when the turn completes, opens a turn with it on its
  * own, reported through the adoption hook, as a provider reading its queue does.
+ *
+ * It keeps a provider process per session as a real adapter would: a
+ * `createRun` for a session with none starts one, the next reuses it, and
+ * `stopProcess` stops it; the records say which process each run went to.
+ * A script holds the process with background work through the run
+ * context's port (`backgroundTask`).
  */
 
 /** What a script is handed: the run's input, its context, and the messages the run is sent while it plays. */
@@ -36,6 +44,10 @@ export interface ScriptControls {
   readonly context: RunContext;
   /** Resolves with the next message the run is sent (a steer), or at once with one sent and not taken yet. */
   nextSent(): Promise<PromptMessage>;
+  /** Opens a turn now with the messages the provider holds, as a provider that reads its queue mid-turn would; the host is told through the adoption hook. */
+  openTurn(): void;
+  /** Resolves with the next answer the host hands the run through `answerPrompt`. */
+  nextAnswer(): Promise<{ readonly promptId: string; readonly decision: PromptDecision }>;
   /** Aborted when the run is interrupted or disposed. */
   readonly signal: AbortSignal;
   /** Whether this run is a turn the fake opened on its own. */
@@ -45,9 +57,24 @@ export interface ScriptControls {
 /** A run's script: the events it plays, in order, ending (or not, or throwing) as a test needs. */
 export type Script = (controls: ScriptControls) => Iterable<AdapterEvent> | AsyncIterable<AdapterEvent>;
 
+/** One provider process as the fake keeps it: its session, how many runs it served, and whether it has been stopped. */
+export interface FakeProcessRecord {
+  readonly sessionId: string;
+  /** The runs `createRun` started on it. */
+  runs: number;
+  /** Set when `stopProcess` is called for it. */
+  stopping: boolean;
+  /** Set when its stop has finished. */
+  stopped: boolean;
+  /** Set when the environment gave up waiting and killed it. */
+  killed: boolean;
+}
+
 /** One run as the fake saw it. */
 export interface FakeRunRecord {
   readonly input: RunInput;
+  /** The process it ran on; an adopted turn runs on the process of the run it followed. */
+  readonly process: FakeProcessRecord;
   readonly adopted: boolean;
   /** The messages the host handed it during the turn. */
   readonly sent: PromptMessage[];
@@ -78,6 +105,8 @@ export interface FakeAdapterOptions {
    * contract would. Preset: not declared.
    */
   readonly deleteTranscript?: true | "async" | { readonly fails: string };
+  /** A gate every process stop waits on before it finishes, so a test sees a process `stopping`. Preset: none. */
+  readonly holdStops?: Gate;
 }
 
 export interface FakeAdapter extends Adapter {
@@ -89,6 +118,12 @@ export interface FakeAdapter extends Adapter {
   readonly nextScripts: Script[];
   /** The most recent run. */
   lastRun(): FakeRunRecord;
+  /** Every provider process started, in order. */
+  readonly processes: readonly FakeProcessRecord[];
+  /** The session's processes, in the order they were started. */
+  processesOf(sessionId: string): readonly FakeProcessRecord[];
+  /** The session's live process exits on its own, and says so through the port its last run was handed. */
+  exit(sessionId: string): void;
 }
 
 /** A gate a script waits on until a test opens it. */
@@ -111,6 +146,20 @@ export const end = (reason: RunEnd["reason"] = "completed", extra: Omit<RunEnd, 
 
 /** The preset script: one reply naming the prompt, then completed. */
 export const replyScript: Script = ({ input }) => [say(`Done: ${input.prompt.map((message) => message.text).join(" / ")}`), end()];
+
+/**
+ * A run that leaves work behind on its process, as a provider's background
+ * task or a schedule registered in the session does: it holds the process
+ * through the context's port, says so and completes; the hold is let go when
+ * `done` settles, long after the run has ended.
+ */
+export const backgroundTask =
+  (id: string, done: Promise<void>, kind: ProcessHoldKind = "task"): Script =>
+  ({ context }) => {
+    context.process.hold(kind, id);
+    void done.then(() => context.process.unhold(kind, id));
+    return [say(`Started ${kind} ${id} in the background`), end()];
+  };
 
 const PRESET_MODELS: readonly ModelOption[] = [
   { id: "opus", family: "opus", tier: 3, efforts: ["low", "medium", "high", "max"] },
@@ -205,11 +254,32 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
   const runs: FakeRunRecord[] = [];
   const deletedTranscripts: string[] = [];
   const nextScripts: Script[] = [];
+  const processes: FakeProcessRecord[] = [];
+  /** The port each process's latest run was handed. */
+  const ports = new Map<FakeProcessRecord, ProcessPort>();
 
-  /** One run, played from `script`: `input.prompt` is what it opened with. */
-  const play = (input: RunInput, context: RunContext, script: Script, adopted: boolean): ProviderTurn => {
+  /** The session's process as it is now: its latest, unless that one has been told to stop or has exited. */
+  const liveProcess = (sessionId: string): FakeProcessRecord | undefined => {
+    const latest = processes.findLast((process) => process.sessionId === sessionId);
+    return latest === undefined || latest.stopping || latest.stopped ? undefined : latest;
+  };
+
+  /** The session's process for a new run: the live one, or one started cold. */
+  const processFor = (sessionId: string): FakeProcessRecord => {
+    let process = liveProcess(sessionId);
+    if (process === undefined) {
+      process = { sessionId, runs: 0, stopping: false, stopped: false, killed: false };
+      processes.push(process);
+    }
+    process.runs += 1;
+    return process;
+  };
+
+  /** One run, played from `script` on `process`: `input.prompt` is what it opened with. */
+  const play = (input: RunInput, context: RunContext, script: Script, adopted: boolean, process: FakeProcessRecord): ProviderTurn => {
     const record: FakeRunRecord = {
       input,
+      process,
       adopted,
       sent: [],
       iterations: 0,
@@ -224,6 +294,8 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
     /** Sent messages a steering provider has not folded yet, or a non-steering queue holds. */
     const untaken: PromptMessage[] = [];
     const takers: ((message: PromptMessage) => void)[] = [];
+    const answers: { promptId: string; decision: PromptDecision }[] = [];
+    const answerTakers: ((answer: { promptId: string; decision: PromptDecision }) => void)[] = [];
     let ended = false;
 
     const push = (event: AdapterEvent): void => {
@@ -232,19 +304,26 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
       if (event.type === "end") {
         ended = true;
         events.close();
-        if (event.reason === "completed" && untaken.length > 0 && descriptor.providerQueue && !descriptor.steering) {
-          // A provider queue that does not steer reads what it holds when the turn ends, in a turn of its own.
-          const queued = untaken.splice(0);
-          const next = nextScripts.shift() ?? options.script ?? replyScript;
-          // An adopted turn has no input of its own: the provider opens it, and the host mints its run id only when it
-          // adopts it, so no provider can know the id. The fake replays the previous run's input with the id left blank
-          // (never the previous run's id, which is a different run) and the queued messages as the prompt; the
-          // context is the previous run's, as the adoption hook is (`RunContext.adopt`).
-          const turn = play({ ...input, runId: "", prompt: queued }, context, next, true);
-          context.adopt({ ...turn, messageIds: queued.map((message) => message.messageId) });
-        }
+        // A provider queue that does not steer reads what it holds when the turn ends, in a turn of its own.
+        if (event.reason === "completed" && untaken.length > 0 && descriptor.providerQueue && !descriptor.steering) openTurn();
       }
     };
+
+    /**
+     * Opens a turn on its own with the messages the provider holds, reported
+     * through the adoption hook. An adopted turn has no input of its own: the
+     * provider opens it, and the host mints its run id only when it adopts
+     * it, so no provider can know the id. The fake replays the previous run's
+     * input with the id left blank (never the previous run's id, which is a
+     * different run) and the queued messages as the prompt; the context is
+     * the previous run's, as the adoption hook is (`RunContext.adopt`).
+     */
+    function openTurn(): void {
+      const queued = untaken.splice(0);
+      const next = nextScripts.shift() ?? options.script ?? replyScript;
+      const turn = play({ ...input, runId: "", prompt: queued }, context, next, true, process);
+      context.adopt({ ...turn, messageIds: queued.map((message) => message.messageId) });
+    }
 
     const controls: ScriptControls = {
       input,
@@ -256,6 +335,13 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
           const ready = untaken.shift();
           if (ready !== undefined) resolve(ready);
           else takers.push(resolve);
+        }),
+      openTurn,
+      nextAnswer: () =>
+        new Promise((resolve) => {
+          const ready = answers.shift();
+          if (ready !== undefined) resolve(ready);
+          else answerTakers.push(resolve);
         }),
     };
 
@@ -302,6 +388,12 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
         push({ type: "end", reason: "interrupted", cause: "user" });
         return { stillQueued };
       },
+      answerPrompt(promptId, decision) {
+        const answer = { promptId, decision };
+        const taker = answerTakers.shift();
+        if (taker !== undefined) taker(answer);
+        else answers.push(answer);
+      },
       stopTask(taskId) {
         record.stoppedTasks.push(taskId);
       },
@@ -338,7 +430,27 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
         error: null,
       },
     models: async () => ({ live: false, models: options.models ?? PRESET_MODELS }),
-    createRun: (input, context) => play(input, context, nextScripts.shift() ?? options.script ?? replyScript, false),
+    createRun: (input, context) => {
+      const process = processFor(input.sessionId);
+      ports.set(process, context.process);
+      return play(input, context, nextScripts.shift() ?? options.script ?? replyScript, false, process);
+    },
+    async stopProcess(sessionId, stopOptions) {
+      if (stopOptions?.kill === true) {
+        for (const process of processes) {
+          if (process.sessionId !== sessionId || process.stopped) continue;
+          process.stopping = true;
+          process.killed = true;
+          process.stopped = true;
+        }
+        return;
+      }
+      const process = liveProcess(sessionId);
+      if (process === undefined) return;
+      process.stopping = true;
+      await options.holdStops?.opened;
+      process.stopped = true;
+    },
     usage: async (account): Promise<UsageReading> => ({
       identity: { provider, email: `${account.id}@example.com`, organisation: null },
       windows: [{ window: "five_hour", utilisation: 0.25, resetsAt: "2026-09-24T05:00:00.000Z" }],
@@ -356,6 +468,14 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
     runs,
     deletedTranscripts,
     nextScripts,
+    processes,
+    processesOf: (sessionId) => processes.filter((process) => process.sessionId === sessionId),
+    exit(sessionId) {
+      const process = liveProcess(sessionId);
+      if (process === undefined) throw new Error(`The fake has no live process for session ${sessionId}.`);
+      process.stopped = true;
+      ports.get(process)?.exited();
+    },
     lastRun() {
       const last = runs.at(-1);
       if (last === undefined) throw new Error("The fake adapter has run nothing yet.");
