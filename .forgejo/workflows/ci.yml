@@ -54,3 +54,8 @@ jobs:
         run: bash .ci/scripts/secret-scan.sh
 
       # The project's own steps go here.
+      - run: corepack enable && corepack prepare --activate
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm test

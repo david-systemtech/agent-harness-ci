@@ -23,6 +23,19 @@ exist in the repo. See `docs/agents/triage-labels.md`.
 Single-context: one `CONTEXT.md` and one `docs/adr/` at the repo root.
 See `docs/agents/domain.md`.
 
+## Building
+
+A pnpm workspace (`packages/`: `contracts`, `environment`, `client-runtime`,
+`tui`, and `cli`, the `agent-harness` binary). Node 22.12 or later; pnpm comes
+from the `packageManager` pin through `corepack enable`.
+
+- `pnpm install`, then `pnpm typecheck` (`tsc -b`), `pnpm lint` and `pnpm test`
+  (Vitest, every package's suite); CI runs the same three.
+- Two local lint rules in `eslint-rules/` enforce ADR 0003 and 0004:
+  `agent-harness/no-client-organisation-state` (its allowlisted modules and the
+  enumerated presentation keys are constants at the top of the rule) and
+  `agent-harness/no-session-types-in-shell`. `eslint.config.ts` scopes both.
+
 ## Merging
 
 `main` is merged only when every check is green, and nothing is pushed to it

@@ -1,0 +1,26 @@
+{
+  // Everything that is not a package's shipped source: tests, configs and the
+  // lint rules. Type-checked only; the packages it imports resolve to their
+  // referenced projects' declarations.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "outDir": ".tsbuild/tooling",
+    "emitDeclarationOnly": true,
+    "types": ["node"]
+  },
+  "include": [
+    "*.ts",
+    "eslint-rules",
+    "test",
+    "packages/*/vitest.config.ts",
+    "packages/*/src/**/*.test.ts"
+  ],
+  "references": [
+    { "path": "packages/contracts" },
+    { "path": "packages/environment" },
+    { "path": "packages/client-runtime" },
+    { "path": "packages/tui" },
+    { "path": "packages/cli" }
+  ]
+}

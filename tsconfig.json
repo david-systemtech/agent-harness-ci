@@ -1,0 +1,13 @@
+{
+  // The solution: `tsc -b` builds every package in dependency order and
+  // type-checks the tests, configs and lint rules alongside.
+  "files": [],
+  "references": [
+    { "path": "packages/contracts" },
+    { "path": "packages/environment" },
+    { "path": "packages/client-runtime" },
+    { "path": "packages/tui" },
+    { "path": "packages/cli" },
+    { "path": "tsconfig.tooling.json" }
+  ]
+}
