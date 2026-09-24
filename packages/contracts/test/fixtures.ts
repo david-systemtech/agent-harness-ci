@@ -42,6 +42,21 @@ export const validDiscovery = {
   readiness: "starting",
 };
 
+/** An exchange refused for coming too often. */
+const validRateLimited = { code: "rate_limited", message: "Too many exchanges; try again in 6 seconds.", data: { retryAfterMs: 6000 } };
+
+/** A bootstrap grant file's contents. */
+const validGrant = { secret: "q9vXk0yZ3n0", address: { host: "127.0.0.1", port: 7433 } };
+
+/** A local client session as the bootstrap exchange answers it. */
+const validCredential = {
+  token: "token-fixture-one",
+  clientSessionId: "cs-1",
+  scopes: ["read", "sessions:write", "runs:drive", "terminal", "admin"],
+  ceiling: "bypassPermissions",
+  expiresAt: at,
+};
+
 /** A copy of `value` without its `key`. */
 const without = (value: Record<string, unknown>, key: string): Record<string, unknown> =>
   Object.fromEntries(Object.entries(value).filter(([k]) => k !== key));
@@ -323,6 +338,56 @@ export const schemaFixtures: Record<string, Fixtures> = {
   "timestamp.json": {
     valid: ["2026-09-24T01:02:03Z", at],
     invalid: ["2026-09-24", "2026-09-24T01:02:03+01:00", "yesterday"],
+  },
+  "bootstrap/kind.json": { valid: ["desktop", "tui"], invalid: ["web", "program", ""] },
+  "bootstrap/grant.json": {
+    valid: [validGrant],
+    invalid: [
+      without(validGrant, "secret"),
+      { ...validGrant, secret: "" },
+      { ...validGrant, address: { host: "127.0.0.1", port: 0 } },
+      { ...validGrant, address: { host: "", port: 7433 } },
+      { secret: "s", address: "127.0.0.1:7433" },
+    ],
+  },
+  "bootstrap/request.json": {
+    valid: [{ secret: "s3cret", kind: "desktop", label: "MacBook desktop" }, { secret: "s3cret", kind: "tui", label: "t" }],
+    invalid: [
+      { secret: "s3cret", kind: "web", label: "browser" },
+      { secret: "", kind: "tui", label: "t" },
+      { secret: "s3cret", kind: "tui", label: "" },
+      { secret: "s3cret", kind: "tui", label: "x".repeat(201) },
+      { kind: "tui", label: "t" },
+    ],
+  },
+  "bootstrap/error.json": {
+    valid: [
+      sharedErrors.unauthorized,
+      sharedErrors.invalid_params,
+      sharedErrors.unavailable,
+      sharedErrors.internal,
+      validRateLimited,
+    ],
+    invalid: [sharedErrors.forbidden, sharedErrors.not_found, { code: "unauthorized", message: "m" }],
+  },
+  "errors/rate_limited.json": {
+    valid: [validRateLimited, { ...validRateLimited, data: { retryAfterMs: 0 } }],
+    invalid: [
+      { ...validRateLimited, data: {} },
+      { ...validRateLimited, data: { retryAfterMs: -1 } },
+      { ...validRateLimited, data: { retryAfterMs: 1.5 } },
+      { ...validRateLimited, code: "throttled" },
+    ],
+  },
+  "client-session-credential.json": {
+    valid: [validCredential],
+    invalid: [
+      without(validCredential, "token"),
+      { ...validCredential, token: "" },
+      { ...validCredential, scopes: [] },
+      { ...validCredential, ceiling: "" },
+      { ...validCredential, expiresAt: "in a month" },
+    ],
   },
   "actor.json": {
     valid: [validActor, { kind: "system", id: "maintenance" }, { kind: "routine", id: "r-1" }, { kind: "adapter", id: "claude" }],

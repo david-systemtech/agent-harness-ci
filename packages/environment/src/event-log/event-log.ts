@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
+import { createClientSessionTable, type ClientSessionTable } from "./client-sessions.js";
 import { createSql, decodeEvent, toJson, type EventRow, type SqlValue, type Transaction } from "./database.js";
 import type { EventEnvelope, EventInput, StreamRef } from "./envelope.js";
 import { applyMigrations } from "./migrations.js";
@@ -8,6 +9,7 @@ import { createReceipts, type CommandReceipt, type ReceiptRequest } from "./rece
 import { createSnapshots, type Snapshot } from "./snapshots.js";
 import { loadSqlite } from "./sqlite.js";
 
+export type { ClientSessionRow, ClientSessionTable } from "./client-sessions.js";
 export type { SqlValue } from "./database.js";
 export type { EventEnvelope, EventInput, JsonObject, StreamRef } from "./envelope.js";
 export type { ProjectionDb, Projector } from "./projectors.js";
@@ -94,6 +96,8 @@ export interface EventLog {
   /** Writes a stream's snapshot, replacing any earlier one. */
   writeSnapshot(stream: StreamRef, snapshot: { readonly sequence: number; readonly payload: unknown }): void;
   readSnapshot(stream: StreamRef): Snapshot | null;
+  /** The auth table of client sessions, which the environment loads once on start and then only writes. */
+  readonly clientSessions: ClientSessionTable;
   close(): void;
 }
 
@@ -150,6 +154,7 @@ export const openEventLog = (options: EventLogOptions): EventLog => {
   const projections = createProjections(sql, transaction, clock);
   const receipts = createReceipts(sql);
   const snapshots = createSnapshots(sql, clock);
+  const clientSessions = createClientSessionTable(sql, transaction);
 
   const insertEvent = `
     INSERT INTO events (event_id, stream_kind, stream_id, stream_version, type, occurred_at,
@@ -284,6 +289,7 @@ export const openEventLog = (options: EventLogOptions): EventLog => {
     pruneReceipts: (now) => receipts.prune(now),
     writeSnapshot: (stream, snapshot) => snapshots.write(stream, snapshot),
     readSnapshot: (stream) => snapshots.read(stream),
+    clientSessions,
 
     close() {
       if (closed) return;

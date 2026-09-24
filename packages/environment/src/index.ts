@@ -9,6 +9,8 @@ export {
   REPLAY_BOUND,
   type AppendOptions,
   type AppendResult,
+  type ClientSessionRow,
+  type ClientSessionTable,
   type CommandReceipt,
   type EventEnvelope,
   type EventInput,
@@ -24,11 +26,21 @@ export {
   type StreamRef,
 } from "./event-log/event-log.js";
 
+export {
+  TOKEN_LIFETIME_MS,
+  TOP_CEILING,
+  TUI_REVOKE_AFTER_MS,
+  type ClientSessionIssuer,
+  type IssueRequest,
+  type VerifiedClientSession,
+} from "./auth/client-sessions.js";
+export { EXCHANGE_RATE } from "./auth/rate-limit.js";
+export { systemClock, type Clock, type Timer } from "./serve/clock.js";
 export { defaultDataDirectory, prepareDataDirectory, type PlatformContext } from "./serve/data-directory.js";
 export { isAllowedHost, type Address, type HttpRoutes, type RouteHandler } from "./serve/http.js";
 export { RECORD_FILE, SIGNING_KEY, type EnvironmentRecord } from "./serve/identity.js";
 export { PREPARED_MESSAGE, processLauncherChannel, type IpcProcess, type LauncherChannel } from "./serve/launcher.js";
-export type { MethodHandler, MethodHandlers } from "./serve/methods.js";
+export type { MethodContext, MethodHandler, MethodHandlers } from "./serve/methods.js";
 export {
   DATABASE_FILE,
   DEFAULT_PORT,
@@ -54,3 +66,4 @@ export {
   type UserCheck,
 } from "./serve/user.js";
 export { fileVault, VAULT_FILE, type Vault } from "./serve/vault.js";
+export { AUTH_TIMEOUT_MS, PING_INTERVAL_MS } from "./wire/wire.js";

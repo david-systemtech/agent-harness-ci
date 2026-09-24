@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BootstrapRequest",
+  "type": "object",
+  "properties": {
+    "secret": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The secret from the grant file."
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "desktop",
+        "tui"
+      ],
+      "description": "The kind of local client exchanging the bootstrap grant: desktop (a new exchange replaces the previous desktop's client session) or tui (several run at once; each is revoked an hour after its connection closed)."
+    },
+    "label": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "description": "A name for the client session, for people."
+    }
+  },
+  "required": [
+    "secret",
+    "kind",
+    "label"
+  ],
+  "description": "A local client's exchange of the bootstrap grant's secret for a local client session."
+}
