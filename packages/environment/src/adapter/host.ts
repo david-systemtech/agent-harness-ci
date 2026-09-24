@@ -83,7 +83,7 @@ export interface AdapterHostOptions {
   readonly clampMode?: ModeClamp;
   /** How long an account's status or model probe may take before it counts as failed, so a hung probe cannot hang startup. Preset: `PROBE_TIMEOUT_MS`. */
   readonly probeTimeoutMs?: number;
-  /** Where the bytes of sent messages' attachments wait until a run reads them, by message id. Preset: a fresh in-memory map (#120 stages them on disk). */
+  /** Where the bytes of sent messages' attachments wait until a run reads them, by message id. Preset: a fresh in-memory map, lost on a restart; staging them durably is #185's. */
   readonly stagedAttachments?: Map<string, StagedAttachments>;
 }
 
@@ -208,11 +208,19 @@ const withTimeout = <T>(work: () => Promise<T>, ms: number, what: string): Promi
 
 /** Runs `work` and hands a promise it answers, or a throw, to `onError`; never an unhandled rejection. */
 const safely = (work: () => unknown, onError: (error: unknown) => void): void => {
+  // `onError` may throw too (a requeue whose append fails, an end whose adoption fails): that is logged, never left unhandled.
+  const handle = (error: unknown): void => {
+    try {
+      onError(error);
+    } catch (handlerError) {
+      console.error("Handling a failure failed as well:", handlerError, "the failure was:", error);
+    }
+  };
   try {
     const answer = work();
-    if (answer instanceof Promise) answer.catch(onError);
+    if (answer instanceof Promise) answer.catch(handle);
   } catch (error) {
-    onError(error);
+    handle(error);
   }
 };
 
@@ -241,7 +249,8 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
    * holds them, until a run reads them (the launch of a run of the queue, a
    * steer's `message.delivered`, an adopted turn), since an interrupt may hand
    * a provider-held message back; a purged session's are dropped. They are
-   * never logged, and not kept across a restart (#120).
+   * never logged, and not kept across a restart: the `run_messages` rows
+   * keep a queued message's text, and its bytes are #185's to keep.
    */
   const heldAttachments = options.stagedAttachments ?? new Map<string, StagedAttachments>();
   let closing = false;
@@ -565,19 +574,29 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
    */
   const adoptNow = (previous: PlannedRun, turn: ProviderTurn): void => {
     const runId = randomUUID();
-    const session = readSessionFacts(log, reader, previous.sessionId);
-    if (session === null || session.deleted) {
-      // Deleted (or purged) since the run it followed: no run of it may start; what the turn was to read goes back.
-      safely(() => turn.dispose(), (e) => console.error("Disposing a turn of a deleted session failed:", e));
+    /** The turn is not run: it is disposed, and what it was to read comes back to the environment's queue for the next start. */
+    const refuse = (why: string): void => {
+      safely(() => turn.dispose(), (e) => console.error(`Disposing a turn ${why} failed:`, e));
       requeueTurn(previous, turn);
+    };
+    let deleted: boolean;
+    try {
+      const session = readSessionFacts(log, reader, previous.sessionId);
+      deleted = session === null || session.deleted;
+    } catch (error) {
+      console.error(`Reading session ${previous.sessionId} to adopt a turn failed:`, error);
+      refuse("whose session could not be read");
+      return;
+    }
+    if (deleted) {
+      // Deleted (or purged) since the run it followed: no run of it may start.
+      refuse("of a deleted session");
       return;
     }
     try {
       registry.admit();
     } catch {
-      // The drain refuses the turn: what it opened with comes back to the environment's queue for the next start.
-      safely(() => turn.dispose(), (e) => console.error("Disposing a turn the drain refused failed:", e));
-      requeueTurn(previous, turn);
+      refuse("the drain refused");
       return;
     }
     const plan: PlannedRun = { ...previous, runId, prompt: [], resumeFrom: null };
@@ -599,7 +618,14 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       const payload: MessageDeliveredPayload = { runId, messageId, delivery: "prompt" };
       return { type: "message.delivered", payload };
     });
-    append(plan.sessionId, runId, formatActor({ kind: "adapter", id: plan.account.descriptor.provider }), [{ type: "run.started", payload: started }, ...delivered]);
+    try {
+      append(plan.sessionId, runId, formatActor({ kind: "adapter", id: plan.account.descriptor.provider }), [{ type: "run.started", payload: started }, ...delivered]);
+    } catch (error) {
+      // No run was recorded, so none begins: the turn is let go like a refused one.
+      console.error(`Appending the start of a turn adopted into session ${plan.sessionId} failed:`, error);
+      refuse("whose start could not be appended");
+      return;
+    }
     // The provider read them, bytes and all.
     for (const messageId of turn.messageIds) heldAttachments.delete(messageId);
     begin(plan, () => turn);

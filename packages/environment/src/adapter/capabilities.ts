@@ -41,7 +41,7 @@ export const capability = <F>(
   flag: AdapterCapabilityFlag,
   method: F | undefined,
   what: string,
-  methodName = "its method",
+  methodName: string,
 ): F => {
   requireCapability(descriptor, flag, [], what);
   if (method === undefined) throw unsupported(descriptor, flag, [], what, `it declares ${flag} but has no ${methodName}`);
