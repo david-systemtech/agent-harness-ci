@@ -106,17 +106,30 @@ export const taskSchedulerPlatform = (installContext: InstallContext, commands: 
     definitionPath: () => `\\${name}`,
     install: async (spec) => {
       const wasRunning = await isRunning();
+      // The previous task, kept so a refusal after /Create can put it back (the ServicePlatform contract).
+      const previous = await commands.query("schtasks", ["/Query", "/TN", name, "/XML"]);
+      const previousXml = previous.code === 0 && previous.stdout.trim() !== "" ? previous.stdout : undefined;
       const file = join(spec.dataDir, TASK_XML_FILE);
-      // schtasks reads task XML reliably only as UTF-16 with a byte order mark.
-      writeFileSync(file, Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(renderTaskXml(spec, taskUser(installContext)), "utf16le")]));
-      try {
-        await schtasks("/Create", "/TN", name, "/XML", file, "/F");
-      } finally {
-        rmSync(file, { force: true });
-      }
+      const createFrom = async (xml: string) => {
+        // schtasks reads task XML reliably only as UTF-16 with a byte order mark.
+        writeFileSync(file, Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(xml, "utf16le")]));
+        try {
+          await schtasks("/Create", "/TN", name, "/XML", file, "/F");
+        } finally {
+          rmSync(file, { force: true });
+        }
+      };
+      await createFrom(renderTaskXml(spec, taskUser(installContext)));
       if (wasRunning) {
-        await schtasks("/End", "/TN", name);
-        await schtasks("/Run", "/TN", name);
+        try {
+          await schtasks("/End", "/TN", name);
+          await schtasks("/Run", "/TN", name);
+        } catch (error) {
+          // Put the previous task back, or remove the new one when there was none; the original error is the one reported.
+          if (previousXml === undefined) await commands.attempt("schtasks", ["/Delete", "/TN", name, "/F"]);
+          else await createFrom(previousXml).catch(() => undefined);
+          throw error;
+        }
       }
       return { createdDirectories: [] };
     },

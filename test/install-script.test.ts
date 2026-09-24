@@ -255,8 +255,8 @@ describe.skipIf(process.platform === "win32")("scripts/install.sh", () => {
       `curl ${FORGE}/david/agent-harness/releases/download/v0.1.0/agent-harness-linux-x64.tar.gz.sha256`,
       `agent-harness service install --data-dir ${dataDir} --port 7500`,
       "agent-harness service start",
-      "agent-harness service status --port 7500",
-      "agent-harness service status --port 7500",
+      `agent-harness service status --data-dir ${dataDir} --port 7500`,
+      `agent-harness service status --data-dir ${dataDir} --port 7500`,
     ]);
     expect(result.stdout).toMatch(/Ready: yes\n$/);
     expect(readdirSync(join(dataDir, "versions"))).toEqual(["0.1.0"]);

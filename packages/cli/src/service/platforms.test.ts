@@ -354,6 +354,7 @@ describe("the Task Scheduler logon task", () => {
 
     expect(calls).toEqual([
       "schtasks /Query /TN agent-harness /FO CSV /NH",
+      "schtasks /Query /TN agent-harness /XML",
       `schtasks /Create /TN agent-harness /XML ${xmlFile} /F`,
     ]);
     expect(written?.subarray(0, 2)).toEqual(Buffer.from([0xff, 0xfe]));
@@ -378,10 +379,31 @@ describe("the Task Scheduler logon task", () => {
     await service.install(spec);
     expect(calls).toEqual([
       "schtasks /Query /TN agent-harness /FO CSV /NH",
+      "schtasks /Query /TN agent-harness /XML",
       `schtasks /Create /TN agent-harness /XML ${join(spec.dataDir, "service-task.xml")} /F`,
       "schtasks /End /TN agent-harness",
       "schtasks /Run /TN agent-harness",
     ]);
+  });
+
+  it("install puts the previous task back, or removes the new one, when rerunning the task fails after /Create", async () => {
+    for (const previous of [undefined, '<?xml version="1.0" encoding="UTF-16"?><Task>previous</Task>']) {
+      const home = tempHome();
+      const spec = preparedSpecIn(home);
+      const { service, calls } = platformFor("win32", home, (_, args) => {
+        if (args.includes("/XML") && args.includes("/Query")) return { code: previous ? 0 : 1, stdout: previous ?? "" };
+        if (args.includes("/End")) return { code: 1, stderr: "ERROR: The task is not running." };
+        return running(_, args);
+      });
+      await expect(service.install(spec), previous ? "previous" : "none").rejects.toThrow(ServiceCommandError);
+      const create = `schtasks /Create /TN agent-harness /XML ${join(spec.dataDir, "service-task.xml")} /F`;
+      expect(calls.slice(2), previous ? "previous" : "none").toEqual([
+        create,
+        "schtasks /End /TN agent-harness",
+        previous ? create : "schtasks /Delete /TN agent-harness /F",
+      ]);
+      expect(existsSync(join(spec.dataDir, "service-task.xml"))).toBe(false);
+    }
   });
 
   it("names the task's user with its domain when Windows gives one", async () => {

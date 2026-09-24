@@ -177,6 +177,7 @@ service_install() {
 }
 service_status() {
   set -- service status
+  [ -z "$data_dir" ] || set -- "$@" --data-dir "$data_dir"
   [ -z "$port" ] || set -- "$@" --port "$port"
   "$bin" "$@"
 }

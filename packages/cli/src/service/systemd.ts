@@ -47,12 +47,6 @@ export const renderSystemdUnit = (spec: ServiceSpec): string =>
     "",
   ].join("\n");
 
-/**
- * The unit in the user's systemd configuration directory (`$XDG_CONFIG_HOME`
- * when absolute, as systemd reads it, else `~/.config`). Starting at logon is
- * the user manager's: with lingering off it starts at the first login and
- * stops at the last logout, which `notes` says.
- */
 /** Removes a directory only when it exists and holds nothing. */
 const removeIfEmpty = (dir: string): void => {
   try {
@@ -62,6 +56,12 @@ const removeIfEmpty = (dir: string): void => {
   }
 };
 
+/**
+ * The unit in the user's systemd configuration directory (`$XDG_CONFIG_HOME`
+ * when absolute, as systemd reads it, else `~/.config`). Starting at logon is
+ * the user manager's: with lingering off it starts at the first login and
+ * stops at the last logout, which `notes` says.
+ */
 export const systemdPlatform = (installContext: InstallContext, commands: ServiceCommands): ServicePlatform => {
   const unit = `${SERVICE_LABEL}.service`;
   const xdg = installContext.env["XDG_CONFIG_HOME"];
