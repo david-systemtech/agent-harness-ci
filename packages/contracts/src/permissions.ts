@@ -2,6 +2,7 @@ import { z } from "zod";
 import { RunId } from "./adapter.js";
 import type { EventTypeEntry } from "./event-types.js";
 import { Mode } from "./permissions-modes.js";
+import { SummaryPatch } from "./sessions.js";
 
 /**
  * The permissions vocabulary (permissions spec, "Modes and the Claude
@@ -129,10 +130,10 @@ export const SessionModeSetPayload = z
   });
 export type SessionModeSetPayload = z.infer<typeof SessionModeSetPayload>;
 
-/** The permission events on a session's stream: neither changes the session list. */
+/** The permission events on a session's stream: `session.mode.set` changes the summary's `mode` (#179), so it is `list`-flagged with a patch; the policy record changes nothing listed. */
 export const PERMISSION_SESSION_EVENT_TYPES = {
   "run.policy.resolved": { list: false, payload: RunPolicyResolvedPayload },
-  "session.mode.set": { list: false, payload: SessionModeSetPayload },
+  "session.mode.set": { list: true, payload: SessionModeSetPayload, patch: SummaryPatch },
 } as const satisfies Record<string, EventTypeEntry>;
 
 export const BypassAcknowledgedPayload = z
