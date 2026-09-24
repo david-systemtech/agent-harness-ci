@@ -12,7 +12,8 @@ import type { Freshness, StreamState } from "./stream.js";
  * its cached snapshot when there is one, else from nothing); releasing the
  * last keeps the subscription open five more minutes on the platform
  * clock, so a renderer flicking between sessions does not resubscribe, and
- * a handle taken meanwhile uses the same subscription.
+ * a handle taken meanwhile uses the same subscription. Once the runtime has
+ * closed, a release arms no timer: there is nothing left to keep open.
  */
 
 /** How long a session's subscription stays open after its last handle is released. A chosen default after T3 Code. */
@@ -67,29 +68,41 @@ export interface SessionHandlesOptions {
   readonly expired: (environmentId: string, sessionId: string, held: HeldSession) => void;
 }
 
-export const createSessionHandles = (options: SessionHandlesOptions) => ({
-  open(environmentId: string, sessionId: string): SessionHandle {
-    const id = sessionId.toLowerCase();
-    const held = options.hold(environmentId, id);
-    held.linger?.cancel();
-    held.linger = null;
-    held.holders++;
-    options.opened(environmentId, id, held);
-    let released = false;
-    return {
-      environmentId,
-      sessionId: id,
-      state: held.view,
-      release() {
-        if (released) return;
-        released = true;
-        held.holders--;
-        if (held.holders > 0) return;
-        held.linger = options.clock.setTimeout(() => {
-          held.linger = null;
-          if (held.holders === 0) options.expired(environmentId, id, held);
-        }, SESSION_LINGER_MS);
-      },
-    };
-  },
-});
+export interface SessionHandles {
+  open(environmentId: string, sessionId: string): SessionHandle;
+  /** The runtime closed: a release from now on starts no linger. */
+  close(): void;
+}
+
+export const createSessionHandles = (options: SessionHandlesOptions): SessionHandles => {
+  let closed = false;
+  return {
+    open(environmentId, sessionId) {
+      const id = sessionId.toLowerCase();
+      const held = options.hold(environmentId, id);
+      held.linger?.cancel();
+      held.linger = null;
+      held.holders++;
+      options.opened(environmentId, id, held);
+      let released = false;
+      return {
+        environmentId,
+        sessionId: id,
+        state: held.view,
+        release() {
+          if (released) return;
+          released = true;
+          held.holders--;
+          if (held.holders > 0 || closed) return;
+          held.linger = options.clock.setTimeout(() => {
+            held.linger = null;
+            if (held.holders === 0) options.expired(environmentId, id, held);
+          }, SESSION_LINGER_MS);
+        },
+      };
+    },
+    close() {
+      closed = true;
+    },
+  };
+};

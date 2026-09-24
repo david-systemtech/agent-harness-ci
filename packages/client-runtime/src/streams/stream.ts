@@ -13,7 +13,10 @@ import type { EndReason, EventEnvelope } from "@agent-harness/contracts";
  *   live feed before catch-up, so the overlap is expected);
  * - a `snapshot` replaces the state and the cursor whole;
  * - `synchronized` makes the stream live and moves the cursor to the head it
- *   names, since every event of the stream up to it has been sent;
+ *   names, since every event of the stream up to it has been sent; onto a
+ *   stream that nothing sent has described, of a kind for which nothing is
+ *   not a state (a session, unlike an empty list), it leaves the stream
+ *   holding nothing, `empty`, so it never reads as a session that is gone;
  * - an apply that throws changes nothing, the cursor included, and faults
  *   the stream: a cancelled apply never advances the cursor.
  */
@@ -33,7 +36,17 @@ export interface StreamState<D> {
 
 /** What one kind of stream is: its empty state, its snapshot, how an event changes it, and its stored form. */
 export interface StreamKind<D> {
+  /** The state an event applies to when the stream holds nothing. */
   empty(): D;
+  /**
+   * Whether a stream nothing was sent for is in the empty state at the head
+   * (a list with no sessions), rather than holding nothing (a session no
+   * snapshot or event has described, which as the empty state would read as
+   * gone).
+   */
+  readonly emptyIsState: boolean;
+  /** Whether the state has outgrown what the kind keeps between snapshots: the stream is then resubscribed for one. */
+  outgrown?(data: D): boolean;
   /** The state a `snapshot` payload is; throws on a payload it cannot read. */
   fromSnapshot(payload: Record<string, unknown>): D;
   /** The state after `event`; throws when it cannot apply it. Never mutates `data`. */
@@ -69,7 +82,7 @@ export interface StreamStep<D> {
 export const emptyStream = <D>(): StreamState<D> => ({ cursor: null, data: null, freshness: "empty", fault: null });
 
 /** A stream as the cache holds it: its cursor and state, not subscribed. */
-export const cachedStream = <D>(_kind: StreamKind<D>, cursor: number, data: D): StreamState<D> => ({ cursor, data, freshness: "cached", fault: null });
+export const cachedStream = <D>(cursor: number, data: D): StreamState<D> => ({ cursor, data, freshness: "cached", fault: null });
 
 /** Where a stream rests with no subscription: cached if it holds anything, else empty. */
 const resting = <D>(state: StreamState<D>): StreamState<D>["freshness"] => (state.data === null ? "empty" : "cached");
@@ -99,9 +112,11 @@ export const step = <D>(kind: StreamKind<D>, state: StreamState<D>, input: Strea
         const failed = `Event ${input.sequence} (${input.event.type}) could not be applied: ${messageOf(error)}`;
         return { state: { ...state, fault: failed }, persist: "none", failed };
       }
-      return { state: { ...state, cursor: input.sequence, data }, persist: "soon" };
+      // Live already when a bare `synchronized` left it holding nothing.
+      return { state: { ...state, cursor: input.sequence, data, freshness: state.freshness === "empty" ? "live" : state.freshness }, persist: "soon" };
     }
     case "synchronized":
+      if (state.data === null && !kind.emptyIsState) return { state: { ...state, freshness: "empty", fault: null }, persist: "none" };
       return {
         state: {
           cursor: Math.max(state.cursor ?? 0, input.sequence),

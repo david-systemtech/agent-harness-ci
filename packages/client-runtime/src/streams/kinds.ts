@@ -13,6 +13,7 @@ import {
   SummaryPatch,
   registry,
 } from "@agent-harness/contracts";
+import { utf8Length } from "./cache.js";
 import type { StreamKind } from "./stream.js";
 
 /**
@@ -37,7 +38,20 @@ export interface SessionData {
   readonly transcript: Record<string, unknown>;
   /** The events since the snapshot, in order, unknown types included: `projections.session` folds them. */
   readonly events: readonly EventEnvelope[];
+  /** What `events` take as UTF-8 JSON, counted as they come; not stored. */
+  readonly eventBytes: number;
 }
+
+/**
+ * The most events a held session keeps since its snapshot, and the most
+ * bytes they may take, before it is resubscribed for a snapshot that folds
+ * them: without a bound a session held open appends every event forever,
+ * in memory and in its cache document. Chosen defaults.
+ */
+export const SESSION_EVENTS_BOUND = 1000;
+export const SESSION_EVENT_BYTES_BOUND = 1024 * 1024;
+
+const sizeOf = (events: readonly EventEnvelope[]): number => events.reduce((sum, event) => sum + utf8Length(JSON.stringify(event)), 0);
 
 /** The environment's own stream: its status as the snapshot gave it and the notices since changed it. */
 export interface EnvironmentData {
@@ -68,6 +82,7 @@ const patched = (summary: SessionSummary | undefined, patch: Extract<SummaryPatc
 
 export const listKind = (): StreamKind<ListData> => ({
   empty: () => ({ sessions: new Map(), groups: new Map() }),
+  emptyIsState: true,
   fromSnapshot(payload) {
     const snapshot = SessionListSnapshot.parse(payload);
     return { sessions: byId(snapshot.sessions), groups: byId(snapshot.groups) };
@@ -103,10 +118,13 @@ export const listKind = (): StreamKind<ListData> => ({
 });
 
 export const sessionKind = (): StreamKind<SessionData> => ({
-  empty: () => ({ summary: null, transcript: {}, events: [] }),
+  empty: () => ({ summary: null, transcript: {}, events: [], eventBytes: 0 }),
+  // Nothing sent is no session yet, not one that is gone.
+  emptyIsState: false,
+  outgrown: (data) => data.events.length > SESSION_EVENTS_BOUND || data.eventBytes > SESSION_EVENT_BYTES_BOUND,
   fromSnapshot(payload) {
     const snapshot = SessionSnapshot.parse(payload);
-    return { summary: snapshot.summary, transcript: snapshot.transcript, events: [] };
+    return { summary: snapshot.summary, transcript: snapshot.transcript, events: [], eventBytes: 0 };
   },
   apply(data, event) {
     const patch = summaryPatchOf(event);
@@ -114,15 +132,17 @@ export const sessionKind = (): StreamKind<SessionData> => ({
     if (patch?.op === "add") summary = patch.summary;
     else if (patch?.op === "remove") summary = null;
     else if (patch?.op === "set") summary = patched(summary ?? undefined, patch);
-    return { summary, transcript: data.transcript, events: [...data.events, event] };
+    return { summary, transcript: data.transcript, events: [...data.events, event], eventBytes: data.eventBytes + sizeOf([event]) };
   },
   encode: (data) => ({ summary: data.summary, transcript: data.transcript, events: data.events }),
   decode(value) {
     const stored = fieldsOf(value, "The stored session");
+    const events = EventEnvelope.array().parse(stored["events"]);
     return {
       summary: SessionSummary.nullable().parse(stored["summary"]),
       transcript: JsonObject.parse(stored["transcript"]),
-      events: EventEnvelope.array().parse(stored["events"]),
+      events,
+      eventBytes: sizeOf(events),
     };
   },
 });
@@ -136,15 +156,27 @@ export const sessionKind = (): StreamKind<SessionData> => ({
  * the status is readiness, activity and `updatesManagedOutside`; so the name
  * comes from discovery and `hello`, and icon and colour stay null until the
  * workspace-picker workstream adds the notice this `apply` then reads.
+ *
+ * The status follows the notices: `environment.draining` makes it draining,
+ * and `environment.started` (the restart after a drain, or any start) makes
+ * it ready and idle, since a process that has just started runs nothing.
  */
 export const environmentKind = (): StreamKind<EnvironmentData> => ({
   empty: () => ({ status: null }),
+  emptyIsState: true,
   fromSnapshot: (payload) => ({ status: EnvironmentSnapshot.parse(payload).status }),
   apply(data, event) {
     // A notice this client does not know (a newer environment's) changes nothing it holds.
     const notice = EnvironmentNotice.safeParse(event);
-    if (!notice.success || notice.data.type !== "environment.draining" || data.status === null) return data;
-    return { status: { ...data.status, activity: { state: "draining", drainingSince: notice.data.payload.drainingSince } } };
+    if (!notice.success || data.status === null) return data;
+    switch (notice.data.type) {
+      case "environment.draining":
+        return { status: { ...data.status, readiness: "draining", activity: { state: "draining", drainingSince: notice.data.payload.drainingSince } } };
+      case "environment.started":
+        return { status: { ...data.status, readiness: "ready", activity: { state: "idle" } } };
+      case "environment.updated":
+        return data;
+    }
   },
   encode: (data) => data,
   decode: (value) => ({ status: EnvironmentStatus.nullable().parse(fieldsOf(value, "The stored environment")["status"]) }),

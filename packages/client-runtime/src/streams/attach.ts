@@ -26,7 +26,11 @@ import { emptyStream, step, type StreamInput, type StreamKind, type StreamState,
  *   connection phase; it is tried again on the next `ready`;
  * - an event or snapshot the stream cannot apply faults it without moving
  *   its cursor, and it is resubscribed once asking for a snapshot (a cursor
- *   past any head, which the environment answers with its snapshot);
+ *   past any head, which the environment answers with its snapshot: the
+ *   "snapshot please" convention);
+ * - a stream whose state has outgrown its kind's bound (a session holding
+ *   every event since its snapshot) is resubscribed the same way, once per
+ *   `ready`, so the snapshot folds what it held;
  * - while the session list is catching up the connection is `syncing`.
  */
 
@@ -65,6 +69,10 @@ export interface LiveStream<D> {
   overflows: { readonly run: number; readonly at: number } | null;
   /** Resubscribed for a snapshot after an apply failed; a second failure waits for the next `ready`. */
   recovering: boolean;
+  /** Resubscribed for a snapshot since the last `ready` because its state outgrew its kind's bound; not again until a snapshot comes or the next `ready`. */
+  trimming: boolean;
+  /** The stream held a cursor when this subscription began: what it replays happened since this client last saw the stream. */
+  resumed: boolean;
 }
 
 export const liveStream = <D>(fields: Pick<LiveStream<D>, "environmentId" | "name" | "key" | "kind" | "method" | "params" | "list">, report: (error: unknown) => void): LiveStream<D> => ({
@@ -76,6 +84,8 @@ export const liveStream = <D>(fields: Pick<LiveStream<D>, "environmentId" | "nam
   answer: null,
   overflows: null,
   recovering: false,
+  trimming: false,
+  resumed: false,
 });
 
 export interface AttachOptions {
@@ -88,8 +98,13 @@ export interface AttachOptions {
   readonly ready: (environmentId: string) => boolean;
   /** Whether the stream is still wanted: the list and the environment's always, a session while held or lingering. */
   readonly wanted: (stream: LiveStream<unknown>) => boolean;
-  /** An event applied: `before` is the state it applied to. */
-  readonly applied?: (stream: LiveStream<unknown>, event: EventEnvelope, before: StreamState<unknown>) => void;
+  /**
+   * An event applied. `news` is whether it is: the stream synchronized on
+   * this subscription already, or held a cursor when the subscription began
+   * (a replay of what happened while this client was away). An event
+   * replayed onto a stream that held nothing is history, not news.
+   */
+  readonly applied?: (stream: LiveStream<unknown>, event: EventEnvelope, news: boolean) => void;
   /** The stream committed a new state. */
   readonly changed?: (stream: LiveStream<unknown>) => void;
   /** The subscription ended with a reason no rule here handles: `deleted`. */
@@ -177,14 +192,21 @@ export const createAttacher = (options: AttachOptions): Attacher => {
     switch (message.type) {
       case "snapshot": {
         const next = input(stream, { type: "snapshot", sequence: message.sequence, payload: message.payload });
-        if (next.failed) failed(stream, next.failed);
+        if (next.failed) return failed(stream, next.failed);
+        stream.trimming = false;
         return;
       }
       case "event": {
         const before = stream.value.read();
         const next = input(stream, { type: "event", sequence: message.sequence, event: message.event });
         if (next.failed) return failed(stream, next.failed);
-        if (next.state !== before) options.applied?.(stream, message.event, before);
+        if (next.state === before) return;
+        options.applied?.(stream, message.event, stream.resumed || before.freshness === "live");
+        const { data } = next.state;
+        if (!stream.trimming && data !== null && stream.kind.outgrown?.(data) === true) {
+          stream.trimming = true;
+          attacher.attach(stream, { snapshot: true });
+        }
         return;
       }
       case "synchronized":
@@ -198,6 +220,10 @@ export const createAttacher = (options: AttachOptions): Attacher => {
         if (message.reason === "overflow") return overflowed(stream);
         if (message.reason === "deleted") options.ended?.(stream, message.reason);
         return;
+      default: {
+        const unheard: never = message;
+        throw new Error(`A subscription message this runtime does not know: ${JSON.stringify(unheard)}`);
+      }
     }
   };
 
@@ -209,6 +235,7 @@ export const createAttacher = (options: AttachOptions): Attacher => {
       letGo(s, true);
       const token = {};
       s.attachment = token;
+      s.resumed = s.value.read().cursor !== null;
       input(s, { type: "attaching" });
       syncing(s, true);
       const afterSequence = attachOptions.snapshot ? SNAPSHOT_CURSOR : (s.value.read().cursor ?? 0);

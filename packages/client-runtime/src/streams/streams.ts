@@ -107,9 +107,9 @@ export const createStreams = (options: StreamsOptions): Streams => {
       const state = stream.value.read() as StreamState<ListData>;
       lists.update((current) => new Map(current).set(stream.environmentId, state));
     },
-    applied(stream, event, before) {
-      // A notice is news when the stream held a cursor before it: never one replayed onto an empty cache.
-      if (stream.name !== "environment" || before.cursor === null) return;
+    applied(stream, event, news) {
+      // Every start appends `environment.started`, so a replay onto an empty cache holds older updates after one: only news is told.
+      if (stream.name !== "environment" || !news) return;
       const notice = EnvironmentNotice.safeParse(event);
       if (!notice.success || notice.data.type !== "environment.updated") return;
       const name = records.read().find((record) => record.environmentId === stream.environmentId)?.descriptor.name ?? "The environment";
@@ -134,7 +134,7 @@ export const createStreams = (options: StreamsOptions): Streams => {
     try {
       const pair = await cache.read(stream.key);
       if (!pair || stream.value.read().cursor !== null || stream.attachment !== null) return;
-      stream.value.set(cachedStream(stream.kind, pair.cursor, stream.kind.decode(pair.snapshot)));
+      stream.value.set(cachedStream(pair.cursor, stream.kind.decode(pair.snapshot)));
       if (stream.list) lists.update((current) => new Map(current).set(stream.environmentId, stream.value.read() as StreamState<ListData>));
     } catch (error) {
       // A cache this build cannot read is no cache.
@@ -174,7 +174,8 @@ export const createStreams = (options: StreamsOptions): Streams => {
   const load = (environmentId: string): Promise<void> => {
     const streams = ensure(environmentId);
     return (streams.loaded ??= (async () => {
-      await retention.load(environmentId);
+      // A meta that cannot be read leaves retention unwritten (it tries again), not the streams uncached.
+      await retention.load(environmentId).catch(report);
       await Promise.all([restore(streams.list), restore(streams.environment)]);
     })().catch(report));
   };
@@ -189,21 +190,25 @@ export const createStreams = (options: StreamsOptions): Streams => {
     });
 
   const onReady = (environmentId: string, hello: HelloFrame) => {
-    skew.record(environmentId, hello.serverTime);
     const streams = ensure(environmentId);
+    // Read first: an environment forgotten and paired again keeps the skew it measures now.
+    const loaded = load(environmentId);
+    skew.record(environmentId, hello.serverTime);
     streams.ready = true;
     // Syncing from now, so the connection is never seen ready before its list has caught up.
     seams.setSyncing(environmentId, true);
-    void load(environmentId).then(() => {
+    void loaded.then(() => {
       if (!streams.ready || environments.get(environmentId) !== streams) return;
       for (const stream of [streams.list, streams.environment] as LiveStream<unknown>[]) {
         stream.recovering = false;
+        stream.trimming = false;
         attacher.attach(stream);
       }
       for (const session of streams.sessions.values()) {
         // A new socket: whatever the session was subscribed on is gone, whether or not a phase in between said so.
         if (session.stream.attachment !== null || session.stream.retry !== null) attacher.drop(session.stream);
         session.stream.recovering = false;
+        session.stream.trimming = false;
         if (!session.gone) attachSession(streams, session);
       }
     });
@@ -299,6 +304,7 @@ export const createStreams = (options: StreamsOptions): Streams => {
     now: (environmentId) => skew.now(environmentId),
     async close() {
       closed = true;
+      handles.close();
       stopReady();
       stopRecords();
       stopForget();

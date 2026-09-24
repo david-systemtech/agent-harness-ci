@@ -201,10 +201,11 @@ export interface RetentionOptions {
 }
 
 export interface Retention {
-  /** Reads the environment's meta document, once. */
+  /** Reads the environment's meta document, once it is read successfully; a read that failed is tried again by the next call. */
   load(environmentId: string): Promise<void>;
   /** The environment's clock skew as last measured: the environment's clock minus this client's, in milliseconds; null when never. */
   skew(environmentId: string): number | null;
+  /** Holds the skew at once, and writes it once the meta document is read. */
   setSkew(environmentId: string, skewMs: number): Promise<void>;
   /** The sessions with a snapshot kept, most recently opened first. */
   sessions(environmentId: string): readonly string[];
@@ -214,95 +215,165 @@ export interface Retention {
   wrote(environmentId: string, sessionId: string, bytes: number): Promise<void>;
   /** The session is gone (deleted): its snapshot is dropped. */
   removed(environmentId: string, sessionId: string): Promise<void>;
-  /** Deletes every document of the environment: its streams, its sessions and its meta. */
+  /** Deletes every document of the environment the meta names: its streams, its sessions, and the meta last. */
   forget(environmentId: string): Promise<void>;
 }
 
+/**
+ * Retention's writes keep the meta document from ever naming less than is
+ * stored: a snapshot is deleted before the meta that stops counting it is
+ * written, so a crash or a failed delete between the two leaves a meta that
+ * still counts it (evicted again later, forgotten with the environment),
+ * never a document nothing counts. The meta is written only once it has
+ * been read, so a read that failed never has an empty index saved over the
+ * stored one. Every change runs one after another and reads the meta as the
+ * change before it left it.
+ *
+ * Document storage cannot list its keys, so `forget` deletes what the meta
+ * names. What that misses is a session snapshot written after its meta entry
+ * was dropped and before the write that counts it again (`wrote` re-adds
+ * one it does not know) was saved: the process ending in that window leaves
+ * the document behind. A handle records the session opened before its
+ * stream is ever written, so the window is a late write racing an eviction.
+ */
 export const createRetention = (options: RetentionOptions): Retention => {
   const { documents, clock, report } = options;
   const metas = new Map<string, Meta>();
-  let writes: Promise<void> = Promise.resolve();
+  const loads = new Map<string, Promise<void>>();
+  /** Skews measured this run: they hold at once, before the meta is read or written. */
+  const skews = new Map<string, number>();
+  /** Environments forgotten and not loaded since: a change queued for one writes nothing. */
+  const forgotten = new Set<string>();
+  let changes: Promise<void> = Promise.resolve();
 
-  const metaOf = (environmentId: string): Meta => metas.get(environmentId) ?? NO_META;
+  const load = (environmentId: string): Promise<void> => {
+    let loading = loads.get(environmentId);
+    if (!loading) {
+      loading = documents.get(metaDocument(environmentId)).then(
+        (value) => {
+          if (!metas.has(environmentId)) metas.set(environmentId, readMeta(value));
+        },
+        (error: unknown) => {
+          loads.delete(environmentId);
+          throw error;
+        },
+      );
+      loads.set(environmentId, loading);
+    }
+    return loading;
+  };
 
-  /** Keeps `next` and writes it, one write after another. */
-  const save = (environmentId: string, next: Meta): Promise<void> => {
-    metas.set(environmentId, next);
-    const work = async () => {
+  const write = (environmentId: string, meta: Meta): Promise<void> =>
+    documents.set(metaDocument(environmentId), { format: FORMAT, skewMs: meta.skewMs, opened: meta.opened });
+
+  /**
+   * Runs `work` on the environment's meta once every change before it has
+   * run and the meta has been read, and keeps and writes what it answers.
+   * A meta that cannot be read is never written.
+   */
+  const change = (environmentId: string, work: (meta: Meta) => Promise<Meta>): Promise<void> => {
+    const run = async () => {
+      if (forgotten.has(environmentId)) return;
       try {
-        const now = metaOf(environmentId);
-        await documents.set(metaDocument(environmentId), { format: FORMAT, skewMs: now.skewMs, opened: now.opened });
+        await load(environmentId);
+        const meta = metas.get(environmentId);
+        if (!meta || forgotten.has(environmentId)) return;
+        const next = await work(meta);
+        if (forgotten.has(environmentId)) return;
+        metas.set(environmentId, next);
+        await write(environmentId, next);
       } catch (error) {
         report(error);
       }
     };
-    writes = writes.then(work, work);
-    return writes;
+    changes = changes.then(run, run);
+    return changes;
   };
 
-  /** Drops the least recently opened snapshot while there are more than `RETAINED_SESSIONS` or they pass `RETAINED_BYTES`; a held one always stays. */
-  const bounded = async (environmentId: string, meta: Meta): Promise<void> => {
+  /**
+   * Evicts the least recently opened snapshot while there are more than
+   * `RETAINED_SESSIONS` or they pass `RETAINED_BYTES`, a held one never:
+   * each document is deleted before the meta stops counting it, and one
+   * whose delete failed stays counted (to be evicted again) while the next
+   * least recent goes in its place.
+   */
+  const bounded = async (environmentId: string, meta: Meta): Promise<Meta> => {
     const kept = [...meta.opened];
-    const evicted: Opened[] = [];
+    const gone: string[] = [];
     let bytes = kept.reduce((sum, entry) => sum + entry.bytes, 0);
     for (let i = kept.length - 1; i >= 0 && (kept.length > RETAINED_SESSIONS || bytes > RETAINED_BYTES); i--) {
       const entry = kept[i] as Opened;
       if (options.held(environmentId, entry.sessionId)) continue;
-      kept.splice(i, 1);
-      evicted.push(entry);
-      bytes -= entry.bytes;
-    }
-    await save(environmentId, { ...meta, opened: kept });
-    for (const entry of evicted) {
       try {
         await documents.delete(streamDocument(environmentId, `session.${entry.sessionId}`));
       } catch (error) {
         report(error);
+        continue;
       }
-      options.onEvicted?.(environmentId, entry.sessionId);
+      kept.splice(i, 1);
+      gone.push(entry.sessionId);
+      bytes -= entry.bytes;
     }
+    for (const sessionId of gone) options.onEvicted?.(environmentId, sessionId);
+    return { ...meta, opened: kept };
   };
 
   return {
     async load(environmentId) {
-      if (metas.has(environmentId)) return;
-      const meta = readMeta(await documents.get(metaDocument(environmentId)));
-      if (!metas.has(environmentId)) metas.set(environmentId, meta);
+      forgotten.delete(environmentId);
+      await load(environmentId);
     },
-    skew: (environmentId) => metaOf(environmentId).skewMs,
-    setSkew: (environmentId, skewMs) => save(environmentId, { ...metaOf(environmentId), skewMs }),
-    sessions: (environmentId) => metaOf(environmentId).opened.map((entry) => entry.sessionId),
-    opened(environmentId, sessionId) {
-      const meta = metaOf(environmentId);
-      const before = meta.opened.find((entry) => entry.sessionId === sessionId);
-      const entry: Opened = { sessionId, openedAt: clock.now().toISOString(), bytes: before?.bytes ?? 0 };
-      return bounded(environmentId, { ...meta, opened: [entry, ...meta.opened.filter((e) => e.sessionId !== sessionId)] });
+    skew: (environmentId) => skews.get(environmentId) ?? metas.get(environmentId)?.skewMs ?? null,
+    setSkew(environmentId, skewMs) {
+      skews.set(environmentId, skewMs);
+      return change(environmentId, async (meta) => ({ ...meta, skewMs }));
     },
-    wrote(environmentId, sessionId, bytes) {
-      const meta = metaOf(environmentId);
-      // A snapshot written for a session not opened (a late write after an eviction) counts as the least recent.
-      const known = meta.opened.some((entry) => entry.sessionId === sessionId);
-      const opened = known
-        ? meta.opened.map((entry) => (entry.sessionId === sessionId ? { ...entry, bytes } : entry))
-        : [...meta.opened, { sessionId, openedAt: clock.now().toISOString(), bytes }];
-      return bounded(environmentId, { ...meta, opened });
-    },
-    async removed(environmentId, sessionId) {
-      const meta = metaOf(environmentId);
-      await save(environmentId, { ...meta, opened: meta.opened.filter((entry) => entry.sessionId !== sessionId) });
-      await documents.delete(streamDocument(environmentId, `session.${sessionId}`));
-    },
-    async forget(environmentId) {
-      const meta = metaOf(environmentId);
-      metas.delete(environmentId);
-      await writes;
-      const keys = [
-        streamDocument(environmentId, "list"),
-        streamDocument(environmentId, "environment"),
-        ...meta.opened.map((entry) => streamDocument(environmentId, `session.${entry.sessionId}`)),
-        metaDocument(environmentId),
-      ];
-      for (const key of keys) await documents.delete(key);
+    sessions: (environmentId) => (metas.get(environmentId) ?? NO_META).opened.map((entry) => entry.sessionId),
+    opened: (environmentId, sessionId) =>
+      change(environmentId, (meta) => {
+        const before = meta.opened.find((entry) => entry.sessionId === sessionId);
+        const entry: Opened = { sessionId, openedAt: clock.now().toISOString(), bytes: before?.bytes ?? 0 };
+        return bounded(environmentId, { ...meta, opened: [entry, ...meta.opened.filter((e) => e.sessionId !== sessionId)] });
+      }),
+    wrote: (environmentId, sessionId, bytes) =>
+      change(environmentId, (meta) => {
+        // A snapshot written for a session not opened (a late write after an eviction) counts as the least recent.
+        const known = meta.opened.some((entry) => entry.sessionId === sessionId);
+        const opened = known
+          ? meta.opened.map((entry) => (entry.sessionId === sessionId ? { ...entry, bytes } : entry))
+          : [...meta.opened, { sessionId, openedAt: clock.now().toISOString(), bytes }];
+        return bounded(environmentId, { ...meta, opened });
+      }),
+    removed: (environmentId, sessionId) =>
+      change(environmentId, async (meta) => {
+        await documents.delete(streamDocument(environmentId, `session.${sessionId}`));
+        return { ...meta, opened: meta.opened.filter((entry) => entry.sessionId !== sessionId) };
+      }),
+    forget(environmentId) {
+      const run = async () => {
+        try {
+          await load(environmentId);
+        } catch (error) {
+          // Unread, the meta names nothing to delete but the streams; the meta is deleted all the same.
+          report(error);
+        }
+        const meta = metas.get(environmentId) ?? NO_META;
+        forgotten.add(environmentId);
+        metas.delete(environmentId);
+        loads.delete(environmentId);
+        skews.delete(environmentId);
+        const keys = [
+          streamDocument(environmentId, "list"),
+          streamDocument(environmentId, "environment"),
+          ...meta.opened.map((entry) => streamDocument(environmentId, `session.${entry.sessionId}`)),
+        ];
+        for (const key of keys) await documents.delete(key);
+        // Last, so a forget cut off part way leaves a meta naming what is left.
+        await documents.delete(metaDocument(environmentId));
+      };
+      const forgetting = changes.then(run, run);
+      changes = forgetting.catch(() => undefined);
+      return forgetting;
     },
   };
 };

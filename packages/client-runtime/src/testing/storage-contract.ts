@@ -1,6 +1,7 @@
 import { LIST_PATCH_KEY, SESSION_STREAM_KIND, type SessionSummary } from "@agent-harness/contracts";
 import { uuidv7 } from "../ids.js";
-import type { DocumentStore } from "../platform.js";
+import { PAIRED_CONNECTIONS_DOCUMENT } from "../connections/records.js";
+import type { DocumentStore, HttpFetch, WebSocketFactory } from "../platform.js";
 import { createRuntime } from "../runtime.js";
 import { createStreamCache, streamDocument, type CachedPair } from "../streams/cache.js";
 import { fakeWire, flush } from "./fake-wire.js";
@@ -15,8 +16,9 @@ import { inMemoryPlatform, manualClock, type InMemoryDocumentStore } from "./in-
  * - a stream's cursor and snapshot are written together, in one document;
  * - a write cut off part way leaves the old pair whole, never a new cursor
  *   with an old snapshot or half of either;
- * - no secret (a client session token, the grant's secret) is ever in
- *   document storage, whatever the runtime wrote there.
+ * - no secret (a client session token, local or paired, the grant's
+ *   secret) is ever in document storage, whatever the runtime wrote there:
+ *   the saved connections included.
  *
  * It depends on no test framework: `storageContractSuite(makeStore)` answers
  * named cases, each a function that throws on a failure, for a platform's
@@ -146,12 +148,17 @@ export const storageContractSuite = (
     },
   },
   {
-    name: "never holds a secret: no client session token and no grant secret in any document",
+    name: "never holds a secret: no client session token, local or paired, and no grant secret in any document",
     async run() {
       const store = remembering(await makeStore());
       const clock = manualClock();
       const wire = fakeWire({ clock, name: "storage contract" });
-      const platform = inMemoryPlatform({ clock, documents: store, fetch: wire.fetch, webSocket: wire.webSocket, grant: wire.grant });
+      // A second environment, paired through a link: its token must stay out of the saved connections.
+      const paired = fakeWire({ clock, name: "storage contract paired", address: { host: "paired.test", port: 7433 } });
+      const route = (url: string) => (url.includes("paired.test") ? paired : wire);
+      const fetch: HttpFetch = (url, request) => route(url).fetch(url, request);
+      const webSocket: WebSocketFactory = (url, handlers) => route(url).webSocket(url, handlers);
+      const platform = inMemoryPlatform({ clock, documents: store, fetch, webSocket, grant: wire.grant });
       const runtime = createRuntime(platform);
       const sessionId = "1b4e28ba-2fa1-41d2-883f-0016d3cca427";
       const at = clock.now().toISOString();
@@ -192,12 +199,18 @@ export const storageContractSuite = (
         wire.server.send({ type: "synchronized", subscription: "session", sequence: 1 });
         await flush();
         handle.release();
+
+        // Its streams are left unanswered (refused, as a method the fake has no responder for): the pairing is what is checked.
+        const adding = runtime.connections.add({ link: paired.link });
+        await paired.server.accept();
+        await adding;
       } finally {
         await runtime.close();
       }
-      const secrets = [wire.credential()?.token, (await wire.grant.read())?.secret].filter((s): s is string => typeof s === "string");
-      if (secrets.length !== 2) fail("the runtime never exchanged the grant.");
+      const secrets = [wire.credential()?.token, (await wire.grant.read())?.secret, paired.credential()?.token].filter((s): s is string => typeof s === "string");
+      if (secrets.length !== 3) fail("the runtime never exchanged the grant and a pairing code.");
       if (!store.keys.has(streamDocument(wire.environmentId, "list"))) fail("the runtime wrote no list document, so nothing was checked.");
+      if (!store.keys.has(PAIRED_CONNECTIONS_DOCUMENT)) fail("the runtime saved no paired connection, so nothing was checked.");
       for (const key of store.keys) {
         const text = JSON.stringify((await store.get(key)) ?? null);
         for (const secret of secrets) if (text.includes(secret)) fail(`document ${key} holds a secret.`);

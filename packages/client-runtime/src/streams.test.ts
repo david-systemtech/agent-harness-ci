@@ -1,13 +1,14 @@
 import { randomUUID } from "node:crypto";
 import type { EndReason, EventEnvelope, SessionSummary } from "@agent-harness/contracts";
 import { describe, expect, it, onTestFinished } from "vitest";
-import { added, groupOf, noticeEvent, sessionEvent, summaryOf } from "../test/events.js";
+import { added, groupOf, noticeEvent, sessionEvent, summaryOf, unpatchedEvent } from "../test/events.js";
 import { createRuntimeWithSeams } from "./internal.js";
-import type { DocumentStore, SecretStore } from "./platform.js";
+import type { SecretStore } from "./platform.js";
 import type { Runtime } from "./runtime.js";
 import { SESSION_LINGER_MS } from "./streams/session-handles.js";
-import { STREAM_WRITE_DEBOUNCE_MS, streamDocument } from "./streams/cache.js";
+import { STREAM_WRITE_DEBOUNCE_MS } from "./streams/cache.js";
 import { SUBSCRIBE_TIMEOUT_MS } from "./streams/attach.js";
+import { SESSION_EVENTS_BOUND } from "./streams/kinds.js";
 import { fakeWire, flush, type FakeWire } from "./testing/fake-wire.js";
 import { inMemoryDocuments, inMemoryPlatform, manualClock, type InMemoryDocumentStore, type ManualClock } from "./testing/in-memory-platform.js";
 
@@ -17,24 +18,14 @@ import { inMemoryDocuments, inMemoryPlatform, manualClock, type InMemoryDocument
  * the environment's side of each subscription is scripted frame by frame
  * under the manual clock. What is asserted is what a renderer sees (the
  * session list, its freshness, the connection's phase) and what the
- * environment sees (the subscriptions asked for, from which cursor); the
- * cache documents are read only where durability is the behaviour.
+ * environment sees (the subscriptions asked for, from which cursor). What
+ * the cache holds is asserted the same way, never by reading its documents:
+ * a runtime started on what storage holds at that instant, as a process
+ * that ended then would find it, and what it renders and the cursor it
+ * attaches from.
  */
 
 const MINUTE = 60_000;
-
-/** A document store whose `set`s are recorded. */
-const recording = (store: InMemoryDocumentStore = inMemoryDocuments()) => {
-  const sets: [string, unknown][] = [];
-  const documents: InMemoryDocumentStore = {
-    ...store,
-    async set(key, value) {
-      sets.push([key, value]);
-      await store.set(key, value);
-    },
-  };
-  return { documents, sets };
-};
 
 /** One subscription as the environment scripts it: answered `subscribed`, then whatever the test sends on it. */
 interface Scripted {
@@ -63,7 +54,7 @@ const subscription = async (wire: FakeWire, method: string): Promise<Scripted> =
 
 interface Setup {
   readonly clock?: ManualClock;
-  readonly documents?: DocumentStore & InMemoryDocumentStore;
+  readonly documents?: InMemoryDocumentStore;
   /** Another runtime's secrets, to start again on what it saved. */
   readonly secrets?: SecretStore;
   readonly wire?: FakeWire;
@@ -102,8 +93,35 @@ const phase = (runtime: Runtime) => runtime.connections.list.read()[0]?.phase;
 const freshness = (runtime: Runtime) => runtime.projections.sessionList.read().environments[0];
 const rows = (runtime: Runtime) => runtime.projections.sessionList.read().rows.map((row) => row.summary.id);
 const row = (runtime: Runtime, id: string): SessionSummary | undefined => runtime.projections.sessionList.read().rows.find((r) => r.summary.id === id)?.summary;
-const cursorOf = (documents: InMemoryDocumentStore, environmentId: string) =>
-  (documents.entries()[streamDocument(environmentId, "list")] as { sequence: number } | undefined)?.sequence;
+const titles = (runtime: Runtime) => runtime.projections.sessionList.read().rows.map((r) => r.summary.title);
+
+/** What a runtime needs to start again on another's storage. */
+interface Saved {
+  readonly clock: ManualClock;
+  readonly documents: InMemoryDocumentStore;
+  readonly secrets: SecretStore;
+  readonly environmentId: string;
+}
+
+/**
+ * A runtime started on a copy of what `saved.documents` holds now, as a
+ * process that ended this instant would find it, against a wire of its own
+ * for the same environment (so the runtime under test keeps its socket):
+ * the titles it renders from the cache before any socket, and the cursor it
+ * attaches the list from.
+ */
+const restartedFrom = async (saved: Saved) => {
+  const documents = inMemoryDocuments();
+  for (const [key, value] of Object.entries(saved.documents.entries())) await documents.set(key, value);
+  const wire = fakeWire({ clock: saved.clock, environmentId: saved.environmentId, name: "desk" });
+  const s = runtimeOn({ clock: saved.clock, documents, secrets: saved.secrets, wire });
+  void s.runtime.start();
+  await flush();
+  const cached = titles(s.runtime);
+  await wire.server.accept();
+  const list = await subscription(wire, "sessions.subscribe");
+  return { ...s, cached, afterSequence: list.params["afterSequence"], list };
+};
 
 describe("attaching", () => {
   it("subscribes the session list and the environment's stream once ready, from 0 with nothing cached", async () => {
@@ -131,7 +149,7 @@ describe("attaching", () => {
 
   it("passes the cursor on the next attach, and renders from the cache before the environment answers", async () => {
     const clock = manualClock();
-    const { documents } = recording();
+    const documents = inMemoryDocuments();
     const first = await paired({ clock, documents });
     const a = randomUUID();
     first.list.event(sessionEvent(5, added(summaryOf(a))));
@@ -177,8 +195,8 @@ describe("applying", () => {
 
   it("replaces state and cursor whole on a snapshot", async () => {
     const clock = manualClock();
-    const { documents } = recording();
-    const { runtime, wire, list, adding } = await paired({ clock, documents });
+    const documents = inMemoryDocuments();
+    const { runtime, wire, platform, list, adding } = await paired({ clock, documents });
     const [a, b] = [randomUUID(), randomUUID()];
     list.event(sessionEvent(10, added(summaryOf(a))));
     list.synchronized(10);
@@ -190,12 +208,16 @@ describe("applying", () => {
 
     const again = await subscription(wire, "sessions.subscribe");
     expect(again.params).toEqual({ afterSequence: 10 });
-    again.snapshot(7, { sequence: 7, sessions: [summaryOf(b)], groups: [groupOf(randomUUID(), "Cool Jams")] });
+    again.snapshot(7, { sequence: 7, sessions: [summaryOf(b, { title: "from the snapshot" })], groups: [groupOf(randomUUID(), "Cool Jams")] });
     again.synchronized(7);
     await flush();
     expect(rows(runtime)).toEqual([b]);
     expect(runtime.projections.sessionList.read().groups.map((h) => h.name)).toEqual(["Cool Jams"]);
-    expect(cursorOf(documents, wire.environmentId)).toBe(7);
+    // Kept whole: started again, a runtime renders the snapshot and attaches from its cursor.
+    expect(await restartedFrom({ clock, documents, secrets: platform.secrets, environmentId: wire.environmentId })).toMatchObject({
+      cached: ["from the snapshot"],
+      afterSequence: 7,
+    });
 
     wire.server.drop();
     await flush();
@@ -207,20 +229,20 @@ describe("applying", () => {
 
   it("never advances the cursor on an apply that fails, and asks for a snapshot instead", async () => {
     const clock = manualClock();
-    const { documents } = recording();
-    const { runtime, wire, list, adding } = await paired({ clock, documents });
+    const documents = inMemoryDocuments();
+    const { runtime, wire, platform, list, adding } = await paired({ clock, documents });
+    const saved = { clock, documents, secrets: platform.secrets, environmentId: wire.environmentId };
     const a = randomUUID();
-    list.event(sessionEvent(3, added(summaryOf(a))));
+    list.event(sessionEvent(3, added(summaryOf(a, { title: "Invoices" }))));
     list.synchronized(3);
     await adding;
-    expect(cursorOf(documents, wire.environmentId)).toBe(3);
 
     // A patch for a session this list does not hold: it cannot apply.
     list.event(sessionEvent(4, { op: "set", sessionId: randomUUID(), fields: { title: "x" } }, "session.title-set"));
     await flush();
     clock.advance(STREAM_WRITE_DEBOUNCE_MS * 4);
     await flush();
-    expect(cursorOf(documents, wire.environmentId)).toBe(3);
+    expect(await restartedFrom(saved)).toMatchObject({ cached: ["Invoices"], afterSequence: 3 });
     expect(freshness(runtime)).toMatchObject({ fault: expect.stringMatching(/could not be applied/) });
     expect(wire.server.received()).toContainEqual({ type: "unsubscribe", subscription: expect.any(String) });
 
@@ -231,41 +253,40 @@ describe("applying", () => {
     await flush();
     expect(row(runtime, a)?.title).toBe("x");
     expect(freshness(runtime)).toMatchObject({ freshness: "live", fault: null });
-    expect(cursorOf(documents, wire.environmentId)).toBe(4);
+    expect(await restartedFrom(saved)).toMatchObject({ cached: ["x"], afterSequence: 4 });
   });
 });
 
 describe("writing the cache", () => {
-  it("writes cursor and snapshot in one set, forced on synchronized, debounced 500 ms otherwise, and forced on disconnect", async () => {
+  it("writes the cursor with the state it belongs to, forced on synchronized, debounced 500 ms otherwise, and forced on disconnect", async () => {
     const clock = manualClock();
-    const { documents, sets } = recording();
-    const { wire, list, adding } = await paired({ clock, documents });
-    const key = streamDocument(wire.environmentId, "list");
-    const writes = () => sets.filter(([k]) => k === key).map(([, v]) => v as { sequence: number; snapshot: { sessions: unknown[] } });
+    const documents = inMemoryDocuments();
+    const { wire, platform, list, adding } = await paired({ clock, documents });
+    const saved = { clock, documents, secrets: platform.secrets, environmentId: wire.environmentId };
     const a = randomUUID();
 
-    list.event(sessionEvent(2, added(summaryOf(a))));
+    list.event(sessionEvent(2, added(summaryOf(a, { title: "zero" }))));
     await flush();
-    expect(writes()).toEqual([]);
+    expect(await restartedFrom(saved)).toMatchObject({ cached: [], afterSequence: 0 });
     list.synchronized(2);
     await adding;
-    expect(writes().map((w) => [w.sequence, w.snapshot.sessions.length])).toEqual([[2, 1]]);
+    expect(await restartedFrom(saved)).toMatchObject({ cached: ["zero"], afterSequence: 2 });
 
     list.event(sessionEvent(3, { op: "set", sessionId: a, fields: { title: "one" } }, "session.title-set"));
     list.event(sessionEvent(4, { op: "set", sessionId: a, fields: { title: "two" } }, "session.title-set"));
     await flush();
     clock.advance(STREAM_WRITE_DEBOUNCE_MS - 1);
     await flush();
-    expect(writes()).toHaveLength(1);
+    expect(await restartedFrom(saved)).toMatchObject({ cached: ["zero"], afterSequence: 2 });
     clock.advance(1);
     await flush();
-    expect(writes().map((w) => w.sequence)).toEqual([2, 4]);
+    expect(await restartedFrom(saved)).toMatchObject({ cached: ["two"], afterSequence: 4 });
 
     list.event(sessionEvent(5, { op: "set", sessionId: a, fields: { title: "three" } }, "session.title-set"));
     await flush();
     wire.server.drop();
     await flush();
-    expect(writes().map((w) => w.sequence)).toEqual([2, 4, 5]);
+    expect(await restartedFrom(saved)).toMatchObject({ cached: ["three"], afterSequence: 5 });
   });
 });
 
@@ -427,8 +448,8 @@ describe("session handles", () => {
   });
 
   it("drops a session its subscription ends as deleted, and its cached snapshot", async () => {
-    const { documents } = recording();
-    const { runtime, wire, clock, list, adding } = await paired({ documents });
+    const documents = inMemoryDocuments();
+    const { runtime, wire, clock, platform, list, adding } = await paired({ documents });
     const a = randomUUID();
     list.synchronized(0);
     await adding;
@@ -443,15 +464,76 @@ describe("session handles", () => {
     handle.release();
     clock.advance(SESSION_LINGER_MS);
     await flush();
-    expect(documents.entries()[streamDocument(wire.environmentId, `session.${a}`)]).toBeUndefined();
     expect(wire.server.received().filter((f) => f.type === "request" && f.method === "sessions.subscribeSession")).toHaveLength(1);
+
+    // Started again, a runtime has nothing cached for it: it subscribes from nothing.
+    const again = await restartedFrom({ clock, documents, secrets: platform.secrets, environmentId: wire.environmentId });
+    const reopened = again.runtime.subscriptions.session(wire.environmentId, a);
+    expect((await again.wire.server.request("sessions.subscribeSession")).params).toEqual({ sessionId: a, afterSequence: 0 });
+    expect(reopened.state.read()).toMatchObject({ summary: null, deleted: false });
+    reopened.release();
+  });
+
+  it("never reads a session nothing was sent for as deleted: a bare synchronized leaves it holding nothing", async () => {
+    const { runtime, wire, list, adding } = await paired();
+    const a = randomUUID();
+    list.synchronized(0);
+    await adding;
+    const handle = runtime.subscriptions.session(wire.environmentId, a);
+    const stream = await subscription(wire, "sessions.subscribeSession");
+    stream.synchronized(0);
+    await flush();
+    expect(handle.state.read()).toEqual({ freshness: "empty", fault: null, deleted: false, summary: null });
+
+    // What comes after describes it, live.
+    stream.event(sessionEvent(1, added(summaryOf(a, { title: "Invoices" })), "session.created"));
+    await flush();
+    expect(handle.state.read()).toMatchObject({ freshness: "live", deleted: false, summary: { title: "Invoices" } });
+    handle.release();
+  });
+
+  it("resubscribe a held session for a snapshot once it holds more than the bound's events since its last", async () => {
+    const { runtime, wire, list, adding } = await paired();
+    const a = randomUUID();
+    list.synchronized(0);
+    await adding;
+    const handle = runtime.subscriptions.session(wire.environmentId, a);
+    const first = await subscription(wire, "sessions.subscribeSession");
+    first.snapshot(2, { sequence: 2, summary: summaryOf(a), transcript: {} });
+    first.synchronized(2);
+    for (let sequence = 3; sequence < 3 + SESSION_EVENTS_BOUND; sequence++) first.event(unpatchedEvent(sequence, a, "run.output"));
+    await flush();
+    const asked = () => wire.server.received().filter((f) => f.type === "request" && f.method === "sessions.subscribeSession");
+    expect(asked()).toHaveLength(1);
+
+    first.event(unpatchedEvent(3 + SESSION_EVENTS_BOUND, a, "run.output"));
+    const folded = await subscription(wire, "sessions.subscribeSession");
+    expect(folded.params["afterSequence"]).toBeGreaterThan(1_000_000);
+    expect(wire.server.received()).toContainEqual({ type: "unsubscribe", subscription: expect.any(String) });
+    folded.snapshot(3 + SESSION_EVENTS_BOUND, { sequence: 3 + SESSION_EVENTS_BOUND, summary: summaryOf(a, { title: "Folded" }), transcript: {} });
+    folded.synchronized(3 + SESSION_EVENTS_BOUND);
+    await flush();
+    expect(handle.state.read()).toMatchObject({ freshness: "live", summary: { title: "Folded" } });
+    expect(asked()).toHaveLength(2);
+    handle.release();
+  });
+
+  it("arm no linger once the runtime has closed", async () => {
+    const { runtime, wire, clock, list, adding } = await paired();
+    list.synchronized(0);
+    await adding;
+    const handle = runtime.subscriptions.session(wire.environmentId, randomUUID());
+    await runtime.close();
+    const timers = clock.pending();
+    handle.release();
+    expect(clock.pending()).toBe(timers);
   });
 });
 
 describe("offline", () => {
   it("reads the list and every cached session from their snapshots, cached", async () => {
     const clock = manualClock();
-    const { documents } = recording();
+    const documents = inMemoryDocuments();
     const first = await paired({ clock, documents });
     const a = randomUUID();
     first.list.event(sessionEvent(2, added(summaryOf(a, { title: "Invoices" }))));
@@ -479,9 +561,12 @@ describe("offline", () => {
 
 describe("removing an environment", () => {
   it("forgets its list, its sessions, its cursors and its clock", async () => {
-    const clock = manualClock();
-    const { documents } = recording();
-    const { runtime, wire, list, adding } = await paired({ clock, documents });
+    const s = runtimeOn();
+    const { runtime, wire, clock } = s;
+    await runtime.start();
+    const adding = runtime.connections.add({ link: wire.link });
+    await wire.server.accept({ serverTime: new Date(clock.now().getTime() + 60 * MINUTE).toISOString() });
+    const list = await subscription(wire, "sessions.subscribe");
     const a = randomUUID();
     list.event(sessionEvent(2, added(summaryOf(a))));
     list.synchronized(2);
@@ -492,14 +577,25 @@ describe("removing an environment", () => {
     stream.synchronized(2);
     await flush();
     handle.release();
-    expect(Object.keys(documents.entries()).filter((k) => k.startsWith(`streams.${wire.environmentId}.`)).sort()).toEqual(
-      [`list`, `meta`, `session.${a}`].map((name) => streamDocument(wire.environmentId, name)).sort(),
-    );
 
     await runtime.connections.remove(wire.environmentId);
     await flush();
-    expect(Object.keys(documents.entries()).filter((k) => k.startsWith("streams."))).toEqual([]);
     expect(runtime.projections.sessionList.read()).toMatchObject({ environments: [], rows: [] });
+    expect(runtime.environmentNow(wire.environmentId).toISOString()).toBe(clock.now().toISOString());
+
+    // Paired again, nothing of it is left to attach from: the list, its own stream and the session all start from nothing.
+    const again = runtime.connections.add({ link: wire.link });
+    await wire.server.accept();
+    const relisted = await subscription(wire, "sessions.subscribe");
+    expect(relisted.params).toEqual({ afterSequence: 0 });
+    expect((await wire.server.request("environment.subscribe")).params).toEqual({ afterSequence: 0 });
+    await flush();
+    expect(rows(runtime)).toEqual([]);
+    relisted.synchronized(2);
+    await again;
+    const reopened = runtime.subscriptions.session(wire.environmentId, a);
+    expect((await wire.server.request("sessions.subscribeSession")).params).toEqual({ sessionId: a, afterSequence: 0 });
+    reopened.release();
   });
 });
 
@@ -532,19 +628,37 @@ describe("the environment's stream and its clock", () => {
   });
 
   it("raises a notice for an update that is news, never for one replayed on the first attach", async () => {
-    const { runtime, wire, list, adding } = await paired();
+    const { runtime, wire, clock, list, adding } = await paired();
     list.synchronized(0);
     const environment = await subscription(wire, "environment.subscribe");
-    environment.event(noticeEvent(1, wire.environmentId, "environment.updated", { fromVersion: "0.1.0", toVersion: "0.2.0" }));
-    environment.synchronized(1);
+    // Every start appends environment.started, so a replay onto an empty cache holds older updates after one.
+    environment.event(noticeEvent(1, wire.environmentId, "environment.started", { harnessVersion: "0.1.0", protocolVersion: 1 }));
+    environment.event(noticeEvent(2, wire.environmentId, "environment.updated", { fromVersion: "0.0.9", toVersion: "0.1.0" }));
+    environment.event(noticeEvent(3, wire.environmentId, "environment.started", { harnessVersion: "0.2.0", protocolVersion: 1 }));
+    environment.event(noticeEvent(4, wire.environmentId, "environment.updated", { fromVersion: "0.1.0", toVersion: "0.2.0" }));
+    environment.synchronized(4);
     await adding;
     await flush();
     expect(runtime.projections.notices.read()).toEqual([]);
 
-    environment.event(noticeEvent(2, wire.environmentId, "environment.updated", { fromVersion: "0.2.0", toVersion: "0.3.0" }));
+    environment.event(noticeEvent(5, wire.environmentId, "environment.updated", { fromVersion: "0.2.0", toVersion: "0.3.0" }));
     await flush();
     expect(runtime.projections.notices.read()).toEqual([
       expect.objectContaining({ environmentId: wire.environmentId, kind: "updated", message: "desk was updated from 0.2.0 to 0.3.0.", action: null }),
     ]);
+
+    // An update that happened while this client was away is news too: replayed onto the cursor it held.
+    wire.server.drop();
+    await flush();
+    clock.advance(1250);
+    await wire.server.accept();
+    (await subscription(wire, "sessions.subscribe")).synchronized(7);
+    const resumed = await subscription(wire, "environment.subscribe");
+    expect(resumed.params).toEqual({ afterSequence: 5 });
+    resumed.event(noticeEvent(6, wire.environmentId, "environment.started", { harnessVersion: "0.4.0", protocolVersion: 1 }));
+    resumed.event(noticeEvent(7, wire.environmentId, "environment.updated", { fromVersion: "0.3.0", toVersion: "0.4.0" }));
+    resumed.synchronized(7);
+    await flush();
+    expect(runtime.projections.notices.read().map((n) => n.message)).toEqual(["desk was updated from 0.2.0 to 0.3.0.", "desk was updated from 0.3.0 to 0.4.0."]);
   });
 });

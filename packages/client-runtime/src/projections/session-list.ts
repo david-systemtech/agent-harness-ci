@@ -7,7 +7,6 @@ import {
   sortPinned,
   sortSettled,
   sortSnoozed,
-  type Group,
   type SessionSummary,
   type Shelf,
 } from "@agent-harness/contracts";
@@ -105,7 +104,7 @@ export interface SessionListView extends SessionShelves {
   readonly environments: readonly ListFreshness[];
   /** Every session of every enabled environment, environment by environment. */
   readonly rows: readonly SessionRow[];
-  /** Merged headings: the primary environment's group order, then those found only on other environments in connection order, each by its key. */
+  /** Merged headings: those the primary environment has in its group order, then those found only on other environments by their key (`groupNameKey`). */
   readonly groups: readonly MergedGroupHeading[];
   /** One heading per repository identity, in plain string order. */
   readonly repositories: readonly RepositoryHeading[];
@@ -123,6 +122,9 @@ export interface SessionListInput {
 
 type Visible = Exclude<Shelf, "hidden">;
 
+/** The longest delay a timer takes: a signed 32-bit count of milliseconds, about 24.8 days. */
+export const MAX_TIMER_MS = 2 ** 31 - 1;
+
 const shelvesOf = (rows: readonly SessionRow[], order: readonly string[], shelf: (row: SessionRow) => Shelf): SessionShelves => {
   const on = (name: Visible) => rows.filter((row) => shelf(row) === name);
   return {
@@ -136,35 +138,52 @@ const shelvesOf = (rows: readonly SessionRow[], order: readonly string[], shelf:
 
 export const sessionListView = (input: SessionListInput): SessionListView => {
   const order = input.records.map((record) => record.environmentId);
+  const primary = order[0];
   const enabled = input.records.filter((record) => record.enabled);
   const rows: SessionRow[] = [];
-  const clusters: { readonly environmentId: string; readonly group: Group }[] = [];
+  // The environments are in connection order, the primary first, so the first to have a name gives its heading the casing.
+  const headings = new Map<string, { name: string; members: HeadingMember[]; place: number | null; rows: SessionRow[] }>();
+  const headingOf = new Map<string, string>();
   for (const { environmentId } of enabled) {
     const data = input.lists.get(environmentId)?.data;
     if (!data) continue;
+    const groups = sortGroups([...data.groups.values()].map((group) => ({ environmentId, group })), order);
+    groups.forEach(({ group }, index) => {
+      const key = groupNameKey(group.name);
+      let heading = headings.get(key);
+      if (!heading) headings.set(key, (heading = { name: group.name, members: [], place: null, rows: [] }));
+      heading.members.push({ environmentId, groupId: group.id, name: group.name });
+      if (environmentId === primary) heading.place = index;
+      headingOf.set(`${environmentId} ${group.id}`, key);
+    });
     for (const summary of data.sessions.values()) {
       const groupName = summary.groupId === null ? null : (data.groups.get(summary.groupId)?.name ?? null);
       rows.push({ environmentId, summary, groupName, pending: input.pending(environmentId, summary.id) });
     }
-    for (const group of sortGroups([...data.groups.values()].map((g) => ({ environmentId, group: g })), order)) clusters.push(group);
   }
 
   const nows = new Map(enabled.map(({ environmentId }) => [environmentId, input.now(environmentId)]));
   const shelves = new Map(rows.map((row) => [row, shelfOf(row.summary, nows.get(row.environmentId) as Date)]));
   const shelf = (row: SessionRow) => shelves.get(row) as Shelf;
 
-  // The environments are in connection order, the primary first, and each one's groups in its own order: the first to have a name gives the heading its place and casing.
-  const headings = new Map<string, { name: string; members: HeadingMember[] }>();
-  for (const { environmentId, group } of clusters) {
-    const key = groupNameKey(group.name);
-    const heading = headings.get(key) ?? { name: group.name, members: [] };
-    heading.members.push({ environmentId, groupId: group.id, name: group.name });
-    headings.set(key, heading);
+  // One pass puts each row under its heading and its repository; the shelves then sort each bucket.
+  const repositories = new Map<string, SessionRow[]>();
+  for (const row of rows) {
+    const { groupId, repositoryIdentity } = row.summary;
+    const key = groupId === null ? undefined : headingOf.get(`${row.environmentId} ${groupId}`);
+    if (key !== undefined) headings.get(key)?.rows.push(row);
+    if (repositoryIdentity !== null) {
+      const bucket = repositories.get(repositoryIdentity);
+      if (bucket) bucket.push(row);
+      else repositories.set(repositoryIdentity, [row]);
+    }
   }
-  const memberOf = new Map<string, string>();
-  for (const [key, heading] of headings) for (const member of heading.members) memberOf.set(`${member.environmentId} ${member.groupId}`, key);
 
-  const identities = [...new Set(rows.flatMap((row) => (row.summary.repositoryIdentity === null ? [] : [row.summary.repositoryIdentity])))].sort();
+  // The primary environment's headings in its group order, then the rest by key: one rule, whatever the connection order of the others.
+  const placed = [...headings].sort(([keyA, a], [keyB, b]) => {
+    if (a.place !== null || b.place !== null) return a.place === null ? 1 : b.place === null ? -1 : a.place - b.place;
+    return keyA < keyB ? -1 : keyA > keyB ? 1 : 0;
+  });
 
   return {
     environments: enabled.map(({ environmentId }) => {
@@ -173,24 +192,10 @@ export const sessionListView = (input: SessionListInput): SessionListView => {
     }),
     rows,
     ...shelvesOf(rows, order, shelf),
-    groups: [...headings].map(([key, heading]) => ({
-      key,
-      name: heading.name,
-      groups: heading.members,
-      shelves: shelvesOf(
-        rows.filter((row) => row.summary.groupId !== null && memberOf.get(`${row.environmentId} ${row.summary.groupId}`) === key),
-        order,
-        shelf,
-      ),
-      pending: false,
-    })),
-    repositories: identities.map((repositoryIdentity) => ({
+    groups: placed.map(([key, heading]) => ({ key, name: heading.name, groups: heading.members, shelves: shelvesOf(heading.rows, order, shelf), pending: false })),
+    repositories: [...repositories.keys()].sort().map((repositoryIdentity) => ({
       repositoryIdentity,
-      shelves: shelvesOf(
-        rows.filter((row) => row.summary.repositoryIdentity === repositoryIdentity),
-        order,
-        shelf,
-      ),
+      shelves: shelvesOf(repositories.get(repositoryIdentity) as SessionRow[], order, shelf),
     })),
   };
 };
@@ -225,8 +230,10 @@ export const sessionListProjection = (options: {
     wake?.cancel();
     wake = undefined;
     const due = nextWake(value, options.now);
-    // A snooze is over at its instant (`shelfOf` holds it only while it is after now).
-    if (due !== null) wake = options.clock.setTimeout(() => wakes.update((n) => n + 1), Math.max(0, due));
+    // A snooze is over at its instant (`shelfOf` holds it only while it is after now). A timer cannot wait longer than
+    // `MAX_TIMER_MS` (past it a real `setTimeout` fires at once, over and over), so a snooze further off wakes the list early
+    // to look again.
+    if (due !== null) wake = options.clock.setTimeout(() => wakes.update((n) => n + 1), Math.min(MAX_TIMER_MS, Math.max(0, due)));
     return value;
   });
   return {

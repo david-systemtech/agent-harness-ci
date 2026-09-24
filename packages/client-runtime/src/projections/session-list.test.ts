@@ -3,11 +3,12 @@ import type { Group, SessionSummary } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { groupOf, summaryOf } from "../../test/events.js";
 import type { ConnectionRecord } from "../connections/records.js";
-import { listKind, type ListData } from "../streams/kinds.js";
+import type { ListData } from "../streams/kinds.js";
+import { writable } from "../observable.js";
 import { cachedStream, emptyStream, type StreamState } from "../streams/stream.js";
-import { MANUAL_CLOCK_START } from "../testing/in-memory-platform.js";
+import { MANUAL_CLOCK_START, manualClock } from "../testing/in-memory-platform.js";
 import { searchRows } from "./search.js";
-import { sessionListView, type SessionListInput, type SessionRow } from "./session-list.js";
+import { MAX_TIMER_MS, sessionListProjection, sessionListView, type SessionListInput, type SessionRow } from "./session-list.js";
 
 /**
  * `projections.sessionList` and `projections.search` as pure functions of
@@ -24,7 +25,7 @@ const record = (environmentId: string, enabled = true): ConnectionRecord =>
   ({ environmentId, enabled, phase: enabled ? "ready" : "disabled", descriptor: { name: environmentId } }) as ConnectionRecord;
 
 const list = (sessions: SessionSummary[], groups: Group[] = []): StreamState<ListData> =>
-  cachedStream(listKind(), 1, { sessions: new Map(sessions.map((s) => [s.id, s])), groups: new Map(groups.map((g) => [g.id, g])) });
+  cachedStream(1, { sessions: new Map(sessions.map((s) => [s.id, s])), groups: new Map(groups.map((g) => [g.id, g])) });
 
 const input = (lists: Record<string, StreamState<ListData>>, records = Object.keys(lists).map((id) => record(id))): SessionListInput => ({
   records,
@@ -89,6 +90,30 @@ describe("the session list", () => {
     expect(named(view.archived)).toEqual(["archived"]);
   });
 
+  it("wakes for a snooze further off than a timer can wait by looking again at the longest wait, never at once", () => {
+    const clock = manualClock();
+    const delays: number[] = [];
+    const recorded = { ...clock, setTimeout: (callback: () => void, ms: number) => (delays.push(ms), clock.setTimeout(callback, ms)) };
+    const far = MAX_TIMER_MS + 60 * 60_000;
+    const due = summaryOf(randomUUID(), { title: "in a month", snoozedUntil: new Date(Date.parse(MANUAL_CLOCK_START) + far).toISOString() });
+    const projection = sessionListProjection({
+      records: writable([record(DESK)]),
+      lists: writable(new Map([[DESK, list([due])]])),
+      now: () => clock.now(),
+      clock: recorded,
+      pending: () => false,
+    });
+    const snoozed = () => named(projection.view.read().snoozed);
+    expect(snoozed()).toEqual(["in a month"]);
+    expect(delays).toEqual([MAX_TIMER_MS]);
+    clock.advance(MAX_TIMER_MS);
+    expect(snoozed()).toEqual(["in a month"]);
+    expect(delays).toEqual([MAX_TIMER_MS, far - MAX_TIMER_MS]);
+    clock.advance(far - MAX_TIMER_MS);
+    expect(snoozed()).toEqual([]);
+    projection.stop();
+  });
+
   it("reads a snooze against each environment's own clock", () => {
     const due = summaryOf(randomUUID(), { title: "due at 30", snoozedUntil: at(30) });
     const view = sessionListView({ ...input({ [DESK]: list([due]), [LAPTOP]: list([{ ...due, id: randomUUID() }]) }), now: (id) => new Date(at(id === DESK ? 60 : 0)) });
@@ -131,6 +156,23 @@ describe("merged groups", () => {
       input({ [DESK]: list([]), [LAPTOP]: list([], [groupOf(laptopGroup, "wip")]), [TOWER]: list([], [groupOf(towerGroup, "WIP", { orderKey: "a" })]) }),
     );
     expect(view.groups.map((h) => [h.name, h.groups.length])).toEqual([["wip", 2]]);
+  });
+
+  it("orders the headings the primary environment has by its group order, then the rest by key, whatever the other environments' order", () => {
+    const view = sessionListView(
+      input({
+        [DESK]: list([], [groupOf(randomUUID(), "Receipts", { orderKey: "m" })]),
+        // The laptop comes first of the others and keeps Zulu before mike; neither decides where a heading goes.
+        [LAPTOP]: list([], [groupOf(randomUUID(), "Zulu", { orderKey: "a" }), groupOf(randomUUID(), "mike", { orderKey: "b" })]),
+        [TOWER]: list([], [groupOf(randomUUID(), "  Alpha "), groupOf(randomUUID(), "receipts")]),
+      }),
+    );
+    expect(view.groups.map((h) => [h.key, h.name])).toEqual([
+      ["receipts", "Receipts"],
+      ["alpha", "  Alpha "],
+      ["mike", "mike"],
+      ["zulu", "Zulu"],
+    ]);
   });
 
   it("splits a heading when one environment renames its group", () => {
