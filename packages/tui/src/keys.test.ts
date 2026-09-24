@@ -151,6 +151,14 @@ describe("the keybindings file", () => {
     ]);
   });
 
+  it.each([[["↓"]], [["PgUp", "PgDn", "Home"]]])("keeps a move action's default keys when it is not given exactly an up and a down key: %j", (written) => {
+    const loaded = loadKeybindings(file(JSON.stringify({ "picker.move": written, "picker.moveVi": ["i", "m"] })), { required: true });
+    expect(loaded.keymap.keys["picker.move"]).toEqual(["↑", "↓"]);
+    expect(loaded.keymap.keys["picker.moveVi"]).toEqual(["i", "m"]);
+    expect([...loaded.keymap.remapped]).toEqual(["picker.moveVi"]);
+    expect(loaded.problems).toEqual([expect.stringContaining("picker.move takes two keys, up then down; its default keys stand.")]);
+  });
+
   it("refuses a mapping that gives one key to two actions in one context whole, naming the clash", () => {
     const loaded = loadKeybindings(file(JSON.stringify({ "confirm.yes": ["n"], "picker.choose": ["Space"] })), { required: true });
     expect(loaded.problems).toEqual([expect.stringMatching(/refused.*n.*confirm\.yes.*confirm\.no|refused.*n.*confirm\.no.*confirm\.yes/)]);

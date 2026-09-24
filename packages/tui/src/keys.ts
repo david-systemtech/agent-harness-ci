@@ -35,6 +35,8 @@ export const DEFAULT_KEYS: Readonly<Record<ActionId, readonly string[]>> = {
 };
 
 const ACTION_IDS = Object.keys(DEFAULT_KEYS) as ActionId[];
+/** The actions whose keys are a pair, up then down (`moveOf`). */
+const MOVE_ACTIONS: ReadonlySet<ActionId> = new Set<ActionId>(["picker.move", "picker.moveVi"]);
 const isActionId = (id: string): id is ActionId => Object.hasOwn(DEFAULT_KEYS, id);
 
 /** An action's context: the part of its id before the first dot. */
@@ -186,8 +188,9 @@ export interface LoadedKeymap {
 
 /**
  * The keymap from a parsed keybindings object: unknown ids and key names
- * reported and ignored, an action left with no key keeping its defaults, a
- * clash refusing the whole mapping.
+ * reported and ignored, an action left with no key, or a move action given
+ * other than an up and a down key, keeping its defaults, a clash refusing
+ * the whole mapping.
  */
 export const resolveKeymap = (mapping: unknown, source = "keybindings.json"): LoadedKeymap => {
   if (typeof mapping !== "object" || mapping === null || Array.isArray(mapping)) {
@@ -210,6 +213,11 @@ export const resolveKeymap = (mapping: unknown, source = "keybindings.json"): Lo
       const name = parseKeyName(k);
       if (name === undefined) problems.push(`${source}: ${JSON.stringify(k)} is not a key name; ignored for ${id}.`);
       else names.push(name);
+    }
+    if (MOVE_ACTIONS.has(id) && names.length !== 2) {
+      // `moveOf` reads a move action's first key as up and its second as down.
+      problems.push(`${source}: ${id} takes two keys, up then down; its default keys stand.`);
+      continue;
     }
     if (names.length === 0) {
       // An action with no key could never be pressed: a `y/n` offer would have no answer.
