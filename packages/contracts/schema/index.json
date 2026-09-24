@@ -735,6 +735,10 @@
       "title": "AutoSettleOnMerge"
     },
     {
+      "path": "settings/keys/sessions.transcriptCompactAfterDays.json",
+      "title": "TranscriptCompactAfterDays"
+    },
+    {
       "path": "settings/keys/providers.processIdleMinutes.json",
       "title": "ProcessIdleMinutes"
     },
