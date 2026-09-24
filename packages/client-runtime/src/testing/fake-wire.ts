@@ -58,7 +58,7 @@ export interface FakeServer {
   request(method: string): Promise<RequestFrame>;
   /** `expect("auth")`, then `hello(overrides)`: the environment accepts the socket. Resolves with the `auth` frame. */
   accept(overrides?: Partial<HelloFrame>): Promise<AuthFrame>;
-  /** Says `hello`: the environment's id, name, protocol and flags as discovery gives them, and the client session last issued. */
+  /** Says `hello`: the environment's id, name, protocol and flags as discovery gives them (a staged discovery override included), and the client session last issued. */
   hello(overrides?: Partial<HelloFrame>): void;
   send(frame: Frame): void;
   ping(): void;
@@ -93,13 +93,14 @@ export interface FakeWire {
   discovery(answer: "unreachable" | "hanging" | Partial<DiscoveryDocument>): void;
   /**
    * How requests for `method` are answered on every socket: a response
-   * body, or undefined to leave them unanswered. Preset:
+   * body, a promise of one (answered when it settles, so a test can hold an
+   * answer), or undefined to leave them unanswered. Preset:
    * `environment.status` (the status document), `access.sessions.revoke`
    * (accepted) and `access.sessions.refresh` (a fresh credential for the
    * client session last issued); any other
    * method is answered `not_found`.
    */
-  answer(method: string, responder: (params: Record<string, unknown>) => FakeAnswer | undefined): void;
+  answer(method: string, responder: (params: Record<string, unknown>) => FakeAnswer | Promise<FakeAnswer | undefined> | undefined): void;
   /** How many sockets the client has opened, and how many are open now. */
   opened(): number;
   open(): number;
@@ -161,7 +162,7 @@ export const fakeWire = (options: FakeWireOptions): FakeWire => {
     return issued;
   };
 
-  const responders = new Map<string, (params: Record<string, unknown>) => FakeAnswer | undefined>([
+  const responders = new Map<string, (params: Record<string, unknown>) => FakeAnswer | Promise<FakeAnswer | undefined> | undefined>([
     [
       "environment.status",
       () => ({ result: { readiness: document().readiness, activity: { state: "idle" }, updatesManagedOutside: false } satisfies EnvironmentStatus }),
@@ -186,7 +187,8 @@ export const fakeWire = (options: FakeWireOptions): FakeWire => {
   };
 
   const closeFromServer = (socket: FakeSocket, code: number, reason: string) => {
-    if (socket.closed) return;
+    // A silenced link says nothing more, not even a close: the client only notices through its watchdog or probe.
+    if (socket.closed || socket.silent) return;
     socket.closed = true;
     later(() => socket.handlers.onClose(code, reason));
   };
@@ -204,10 +206,11 @@ export const fakeWire = (options: FakeWireOptions): FakeWire => {
     }
     if (frame.type !== "request") return;
     const responder = responders.get(frame.method);
-    const body: FakeAnswer | undefined = responder
+    const body = responder
       ? responder(frame.params)
       : { error: { code: "not_found", message: `The fake environment has no method ${frame.method}.`, data: {} } };
-    if (body) deliver(socket, { type: "response", id: frame.id, ...body } as Frame);
+    if (body instanceof Promise) void body.then((later) => later && deliver(socket, { type: "response", id: frame.id, ...later } as Frame));
+    else if (body) deliver(socket, { type: "response", id: frame.id, ...body } as Frame);
   };
 
   const webSocket: WebSocketFactory = (url, handlers) => {
@@ -275,8 +278,8 @@ export const fakeWire = (options: FakeWireOptions): FakeWire => {
         type: "hello",
         protocolVersion: discovery.protocolVersion,
         capabilities: discovery.capabilities,
-        environmentId,
-        environmentName: name,
+        environmentId: discovery.environmentId,
+        environmentName: discovery.environmentName,
         clientSessionId: issued?.clientSessionId ?? "fake-client-session",
         scopes: issued?.scopes ?? [...SCOPES],
         ceiling: issued?.ceiling ?? Ceiling.parse("top"),

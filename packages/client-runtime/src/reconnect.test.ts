@@ -440,6 +440,90 @@ describe("a saved block", () => {
   });
 });
 
+describe("giving up a client session", () => {
+  /** Holds the environment's answer to `access.sessions.revoke` until `answer()`. */
+  const heldRevoke = (wire: ReturnType<typeof fakeWire>, clock: { now(): Date }) => {
+    let answer: () => void = () => undefined;
+    wire.answer(
+      "access.sessions.revoke",
+      () =>
+        new Promise((resolve) => {
+          answer = () => resolve({ result: { receipt: { status: "accepted", sequence: 1, changed: true }, result: { revokedAt: clock.now().toISOString() } } });
+        }),
+    );
+    return { answer: () => answer() };
+  };
+
+  it("remove: a connection in backoff neither reconnects nor hears the revoke while it is under way, even when asked to retry", async () => {
+    const { wire, clock, platform, runtime, seams } = await paired();
+    const lost: string[] = [];
+    seams.onClose((id) => void lost.push(id));
+    wire.server.drop();
+    await flush();
+    expect(record(runtime).phase).toBe("backoff");
+    lost.length = 0;
+    const revoke = heldRevoke(wire, clock);
+
+    const removing = runtime.connections.remove(wire.environmentId);
+    await wire.server.accept(); // the one-off socket the revoke goes over
+    await wire.server.expect("request");
+    const opened = wire.opened();
+
+    // The backoff's retry comes due, and a renderer asks for one: nothing reconnects under the revoke.
+    clock.advance(5000);
+    void runtime.connections.retryNow(wire.environmentId);
+    void runtime.connections.setEnabled(wire.environmentId, true);
+    await flush();
+    expect(wire.opened()).toBe(opened);
+
+    revoke.answer();
+    expect(await removing).toEqual({ revoked: true });
+    await flush();
+    expect(runtime.connections.list.read()).toEqual([]);
+    expect(runtime.projections.notices.read()).toEqual([]);
+    expect(lost).toEqual([]);
+    expect(await platform.secrets.get(wire.environmentId)).toBeUndefined();
+    expect(platform.documents.entries()["connections.paired"]).toEqual({});
+  });
+
+  it("re-pair: the old machine stays quiet under the revoke, so the new token survives and the connection is ready", async () => {
+    const { wire, clock, platform, runtime } = await paired();
+    const revoke = heldRevoke(wire, clock);
+
+    const rePairing = runtime.connections.add({ link: wire.link }, { rePair: wire.environmentId });
+    await wire.server.accept(); // the new client session's socket, which the old one is revoked over
+    await wire.server.expect("request");
+    const fresh = wire.credential()?.token;
+    const opened = wire.opened();
+
+    clock.advance(5000);
+    void runtime.connections.retryNow(wire.environmentId);
+    void runtime.connections.setAddress(wire.environmentId, wire.origin);
+    await flush();
+    expect(wire.opened()).toBe(opened);
+
+    revoke.answer();
+    expect(await rePairing).toEqual({ status: "paired", environmentId: wire.environmentId, replaced: { revoked: true } });
+    await flush();
+    expect(await platform.secrets.get(wire.environmentId)).toBe(fresh);
+    expect(record(runtime)).toMatchObject({ phase: "ready", blocked: null });
+    expect(runtime.projections.notices.read()).toEqual([]);
+  });
+});
+
+describe("the fake wire", () => {
+  it("says hello with the id, name, protocol and flags discovery gives, a staged override included", async () => {
+    const { wire, runtime } = await paired();
+    wire.discovery({ environmentName: "renamed", capabilities: ["self-update"] });
+    wire.server.drop();
+    await flush();
+    const retrying = runtime.connections.retryNow(wire.environmentId);
+    await wire.server.accept();
+    await retrying;
+    expect(record(runtime).descriptor).toMatchObject({ name: "renamed", capabilities: ["self-update"] });
+  });
+});
+
 describe("hello", () => {
   it("naming another environment blocks different-environment and keeps the old cache", async () => {
     const { wire, runtime } = await paired();

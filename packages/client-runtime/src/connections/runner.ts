@@ -55,12 +55,16 @@ export interface Runner {
   /** The open socket, while the connection is ready. */
   socket(): LiveSocket | undefined;
   /**
-   * Hands the open socket over, if the connection is ready, and lets go of
-   * everything else: the machine no longer hears that socket, so a `bye:
-   * revoked` the caller brings about on it clears no token and raises no
-   * notice. The caller closes it.
+   * Hands the open socket over, if the connection is ready, lets go of
+   * everything else, and holds the machine: every input is ignored (a
+   * retry, an enable, an address edit, a wakeup) until `adopt` or `resume`,
+   * so nothing reconnects while the caller revokes the client session, and
+   * a `bye: revoked` it brings about clears no token and raises no notice.
+   * The caller closes the socket.
    */
   detach(): LiveSocket | undefined;
+  /** Ends a hold `detach` began without adopting a socket. */
+  resume(): void;
   /** Settles once no attempt is waiting on discovery or a socket and what the machine asked to be written is written. */
   settled(): Promise<void>;
   /** Closes the socket and every timer for good, telling nobody: the connection is being forgotten or the runtime closed. */
@@ -78,6 +82,8 @@ export const createRunner = (host: RunnerHost, initial: MachineState): Runner =>
   let document: DiscoveryDocument | undefined;
   const queue: MachineInput[] = [];
   let running = false;
+  /** Between `detach` and `adopt` or `resume`: inputs are ignored. */
+  let holding = false;
   let writes = 0;
   let waiters: (() => void)[] = [];
 
@@ -241,7 +247,7 @@ export const createRunner = (host: RunnerHost, initial: MachineState): Runner =>
   };
 
   function feed(input: MachineInput): void {
-    if (stopped) return;
+    if (stopped || holding) return;
     queue.push(input);
     if (running) return;
     running = true;
@@ -264,6 +270,7 @@ export const createRunner = (host: RunnerHost, initial: MachineState): Runner =>
     },
     feed,
     adopt(live, discovery) {
+      holding = false;
       adopting = { socket: live, document: discovery };
       feed({ type: "adopt", hello: live.hello, expiresAt: host.expiresAt() });
     },
@@ -274,7 +281,11 @@ export const createRunner = (host: RunnerHost, initial: MachineState): Runner =>
       dialing?.abort();
       dialing = undefined;
       feed({ type: "release" });
+      holding = true;
       return live;
+    },
+    resume() {
+      holding = false;
     },
     settled: () => (isSettled() ? Promise.resolve() : new Promise<void>((resolve) => waiters.push(resolve))),
     stop() {

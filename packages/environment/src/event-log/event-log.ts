@@ -32,7 +32,11 @@ const BUSY_TIMEOUT_MS = 5000;
  * `atomically` runs.
  */
 export interface Tx {
-  /** Runs `callback` once the transaction has committed; never, if it rolls back. For memory that mirrors what was written. */
+  /**
+   * Runs `callback` once the transaction has committed, before subscribers hear its events; never, if it rolls
+   * back. For memory that mirrors what was written, and for work the commit sets off: a callback may append in an
+   * `atomically` of its own, whose events subscribers hear after the ones of the transaction that committed.
+   */
   afterCommit(callback: () => void): void;
 }
 
@@ -139,7 +143,11 @@ export interface EventLog {
    * Returns the unsubscribe.
    */
   subscribe(listener: (event: EventEnvelope) => void): () => void;
-  /** Creates the projector's tables if needed and catches it up from its cursor. */
+  /**
+   * Creates the projector's tables if needed and catches it up from its
+   * cursor; rebuilds it from the log instead when a declared table is missing
+   * or its statements in the database differ from the declared ones.
+   */
   registerProjector(projector: Projector): void;
   /** Drops every registered projector's tables, recreates them and replays the whole log, in one transaction; returns the projectors' names. */
   rebuildProjections(): readonly string[];
@@ -176,6 +184,9 @@ export interface EventLog {
   readonly pairings: PairingTable;
   close(): void;
 }
+
+/** The keys an `EventInput` has; an append refuses any other, so nothing meant for it is silently dropped. */
+const EVENT_INPUT_KEYS: ReadonlySet<string> = new Set(["type", "payload", "metadata", "eventId", "occurredAt"] satisfies (keyof EventInput)[]);
 
 /** Throws unless `value` is a JSON object: the contracts' envelope carries payload and metadata as objects. */
 const requireObject: (value: unknown, what: string) => asserts value is JsonObject = (value, what) => {
@@ -305,6 +316,8 @@ export const openEventLog = (options: EventLogOptions): EventLog => {
       if (options.tx !== undefined) requireTx(options.tx);
       requireActor(options.actor);
       for (const input of inputs) {
+        const unknown = Object.keys(input).filter((key) => !EVENT_INPUT_KEYS.has(key));
+        if (unknown.length > 0) throw new TypeError(`A ${input.type} event to append has keys an event does not: ${unknown.join(", ")}.`);
         requireObject(input.payload, `The payload of a ${input.type} event`);
         if (input.metadata !== undefined) requireObject(input.metadata, `The metadata of a ${input.type} event`);
       }
@@ -401,14 +414,23 @@ export const openEventLog = (options: EventLogOptions): EventLog => {
           held = undefined;
         }
       });
-      for (const callback of committed) {
-        try {
-          callback();
-        } catch (error) {
-          onSubscriberError(error);
+      // Queued before the callbacks run, delivered after them: a callback that appends, in an atomically of its own,
+      // queues its events behind these, so every subscriber still hears sequences in ascending order.
+      undelivered.push(...appended);
+      const delivering = publishing;
+      publishing = true;
+      try {
+        for (const callback of committed) {
+          try {
+            callback();
+          } catch (error) {
+            onSubscriberError(error);
+          }
         }
+      } finally {
+        publishing = delivering;
       }
-      publish(appended);
+      publish([]);
       return result;
     },
 

@@ -25,6 +25,8 @@ import { projectGroupEvent } from "./group-list.js";
 import { readGroup } from "./group-reads.js";
 import { readSummary } from "./session-reads.js";
 import { SESSION_LIST_TABLES, titleOf, type SessionRow } from "./session-tables.js";
+import { shelfProjections } from "./shelf-list.js";
+import { systemProjections } from "./system-list.js";
 
 /**
  * The session-list projector (session-state spec, "The list stream and the
@@ -81,6 +83,9 @@ const organise = (event: EventEnvelope, db: ProjectionDb, columns: Readonly<Reco
   setColumns(event, db, { ...columns, updated_at: event.occurredAt });
 
 const SESSION_PROJECTIONS: Partial<Record<string, Projection>> = {
+  // The shelf (#117), and the fields the run, prompt and pull-request events write, which auto-settle reads.
+  ...shelfProjections(organise),
+  ...systemProjections(setColumns),
   "session.created": (event, db) => {
     const payload = event.payload as SessionCreatedPayload;
     const { title, source } = titleOf(payload.title, null);
@@ -170,7 +175,7 @@ const SESSION_PROJECTIONS: Partial<Record<string, Projection>> = {
  * summary patch attached, every group event and its group patch. A flagged
  * event it has no projection for fails its append, so no flagged event
  * reaches a client without its patch when it changes the list: the session
- * types later tickets append (#117 to #122). A flagged session event that
+ * types later tickets append (#119 to #122). A flagged session event that
  * leaves its session out of the list before and after (a deleted session
  * ungrouped when its group is deleted) carries no patch, and a client skips
  * it. Other events are not the list's.

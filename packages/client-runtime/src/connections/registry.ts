@@ -441,7 +441,14 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
     async attach(socket, document) {
       const e = entry();
       const { hello } = socket;
-      socket.onFrame((frame) => notifyAll(frameListeners, environmentId, frame));
+      // A seam listener that throws is reported, never thrown into the socket's message handler.
+      socket.onFrame((frame) => {
+        try {
+          notifyAll(frameListeners, environmentId, frame);
+        } catch (error) {
+          report(error);
+        }
+      });
       // What hangs off the socket attaches at once; a listener's fault is reported and costs the record nothing.
       try {
         notifyAll(readyListeners, environmentId, hello);
@@ -737,49 +744,66 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
       // Re-pairing in place gives up the client session the connection held: it is revoked before the new token is kept, over the
       // new connection when the new client session holds `admin`, else with the old token, best effort as removal is.
       let replaced: RemoveResult | undefined;
-      if (existing) {
-        // The old socket is the registry's now: revoking over it (or the new one) closes it with a `bye: revoked` its machine must not hear.
-        const held = existing.runner.detach();
-        const previous = existing.saved.clientSessionId;
-        if (previous !== null) {
-          const viaNew =
-            answer.ok &&
-            answer.socket.hello.scopes.includes("admin") &&
-            (await revokeClientSession({ environmentId: id, origin, token: credential.token, clientSessionId: previous, socket: answer.socket }));
-          replaced = viaNew ? { revoked: true } : await revokeHeld(id, existing, held, origin);
+      // The old socket is the registry's now, and the old machine holds until the new socket is adopted: revoking over either socket
+      // closes the old one with a `bye: revoked` that machine must not hear, and nothing may reconnect with the old token meanwhile.
+      const held = existing?.runner.detach();
+      try {
+        if (existing) {
+          const previous = existing.saved.clientSessionId;
+          if (previous !== null) {
+            const viaNew =
+              answer.ok &&
+              answer.socket.hello.scopes.includes("admin") &&
+              (await revokeClientSession({ environmentId: id, origin, token: credential.token, clientSessionId: previous, socket: answer.socket }));
+            replaced = viaNew ? { revoked: true } : await revokeHeld(id, existing, held, origin);
+          }
+          held?.close();
         }
-        held?.close();
-      }
 
-      await platform.secrets.set(id, credential.token);
-      const saved: SavedConnection = {
-        address: origin,
-        kind: "paired",
-        clientSessionId: credential.clientSessionId,
-        scopes: [...credential.scopes],
-        ceiling: credential.ceiling,
-        descriptor: fromDiscovery(existing?.saved.descriptor ?? emptyDescriptor(document.environmentName), document),
-        blocked: null,
-        expiresAt: credential.expiresAt,
-      };
-      const entry = existing ?? newEntry(id, saved);
-      if (existing) {
-        await updateSaved(id, existing, saved);
-      } else {
-        entries.set(id, entry);
-        await savePaired();
-        await enterSequence(id, "last");
+        await platform.secrets.set(id, credential.token);
+        const saved: SavedConnection = {
+          address: origin,
+          kind: "paired",
+          clientSessionId: credential.clientSessionId,
+          scopes: [...credential.scopes],
+          ceiling: credential.ceiling,
+          descriptor: fromDiscovery(existing?.saved.descriptor ?? emptyDescriptor(document.environmentName), document),
+          blocked: null,
+          expiresAt: credential.expiresAt,
+        };
+        const entry = existing ?? newEntry(id, saved);
+        if (existing) {
+          await updateSaved(id, existing, saved);
+        } else {
+          entries.set(id, entry);
+          await savePaired();
+          await enterSequence(id, "last");
+        }
+        if (entries.get(id) !== entry) {
+          // Removed while this pairing was being kept: nothing is attached to a forgotten entry.
+          if (answer.ok) answer.socket.close();
+          return { status: "paired", environmentId: id, ...(replaced && { replaced }) };
+        }
+        // A retry, enable, address edit or start that ran while this pairing was being kept did nothing: a re-paired connection's
+        // machine holds from `detach` to `adopt`, and a new entry's starts only here. `adopt` and `start` halt first regardless.
+        if (answer.ok && isEnabled(id)) {
+          // The socket pairing tried is the connection's first one.
+          entry.runner.adopt(answer.socket, document);
+        } else {
+          // Closed before `hello`, or disabled: the machine starts from where it is, as at a start.
+          if (answer.ok) answer.socket.close();
+          entry.runner.resume();
+          begin(id, entry);
+        }
+        // Settled once its session list is no longer catching up, so the caller sees `ready`, not `syncing`.
+        await settledFor(id, entry);
+        return { status: "paired", environmentId: id, ...(replaced && { replaced }) };
+      } catch (error) {
+        // Failing before the new socket is adopted, the old machine goes on from where it was held.
+        existing?.runner.resume();
+        if (existing && entries.get(id) === existing) begin(id, existing);
+        throw error;
       }
-      if (answer.ok && isEnabled(id)) {
-        // The socket pairing tried is the connection's first one.
-        entry.runner.adopt(answer.socket, document);
-      } else {
-        // Closed before `hello`, or disabled: the machine starts from where it is, as at a start.
-        if (answer.ok) answer.socket.close();
-        begin(id, entry);
-      }
-      await settledFor(id, entry);
-      return { status: "paired", environmentId: id, ...(replaced && { replaced }) };
     },
 
     async setAddress(environmentId, address) {
@@ -828,10 +852,11 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
       if (entry.saved.kind === "local") {
         throw new Error("The local environment's connection comes from its bootstrap grant on every start; disable it instead.");
       }
+      // The machine stops before the revoke, which may take up to REVOKE_TIMEOUT_MS: nothing reconnects under it, even when asked.
       const socket = entry.runner.detach();
+      entry.runner.stop();
       const result = await revokeHeld(environmentId, entry, socket);
       socket?.close();
-      entry.runner.stop();
       entries.delete(environmentId);
       endSyncing(environmentId);
       await platform.secrets.delete(environmentId);

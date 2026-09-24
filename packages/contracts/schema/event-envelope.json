@@ -17,7 +17,7 @@
     "streamKind": {
       "type": "string",
       "minLength": 1,
-      "description": "The kind of stream the event belongs to: environment, access, session."
+      "description": "The kind of stream the event belongs to: environment, access, session, group, settings."
     },
     "streamId": {
       "type": "string",

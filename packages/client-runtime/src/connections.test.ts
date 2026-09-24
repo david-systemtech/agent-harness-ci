@@ -473,6 +473,80 @@ describe("the in-process connections API", () => {
     ]);
   });
 
+  it("a retry while a pairing is being kept opens no second socket, and the pairing's is the one attached", async () => {
+    const t = await harness.environment();
+    const base = inMemoryDocuments();
+    let hold = false;
+    let held = false;
+    let release: () => void = () => undefined;
+    const documents: InMemoryDocumentStore = {
+      ...base,
+      set: async (key, value) => {
+        if (hold && key === PAIRED_CONNECTIONS_DOCUMENT) {
+          hold = false;
+          held = true;
+          await new Promise<void>((resolve) => (release = resolve));
+        }
+        return base.set(key, value);
+      },
+    };
+    const runtime = harness.runtime(inMemoryPlatform({ documents }));
+    await runtime.start();
+
+    // A first pairing: the new entry's machine starts only when the pairing's socket is adopted, so a retry meanwhile opens nothing.
+    hold = true;
+    const adding = runtime.connections.add({ link: (await t.createPairing()).link });
+    await until(() => held, "the new record's save to be held");
+    const ignored = runtime.connections.retryNow(t.env.id);
+    release();
+    expect(await adding).toMatchObject({ status: "paired" });
+    await ignored;
+    expect(only(runtime).phase).toBe("ready");
+    await until(() => t.env.sockets() === 1, "one socket");
+
+    // A re-pair in place of a running connection: its machine holds from giving up the old socket to adopting the new one (#126),
+    // so a retry meanwhile opens nothing.
+    held = false;
+    hold = true;
+    const rePairing = runtime.connections.add({ link: (await t.createPairing()).link }, { rePair: t.env.id });
+    await until(() => held, "the re-paired record's save to be held");
+    await until(() => t.env.sockets() === 1, "the old socket to close");
+    const retrying = runtime.connections.retryNow(t.env.id);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(t.env.sockets()).toBe(1);
+    release();
+    expect(await rePairing).toMatchObject({ status: "paired" });
+    await retrying;
+
+    expect(only(runtime).phase).toBe("ready");
+    await until(() => t.env.sockets() === 1, "the retry's socket to close");
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(t.env.sockets()).toBe(1);
+  });
+
+  it("reports a seam's frame or close listener that throws, leaving nothing unhandled", async () => {
+    const t = await harness.environment();
+    const platform = inMemoryPlatform();
+    const { runtime, seams } = harness.withSeams(platform);
+    await runtime.start();
+    await runtime.connections.add({ link: (await t.createPairing()).link });
+    const onFrame = new Error("the frame listener failed");
+    const onClose = new Error("the close listener failed");
+    seams.onFrame(() => {
+      throw onFrame;
+    });
+    seams.onClose(() => {
+      throw onClose;
+    });
+
+    await seams.request(t.env.id, "access.sessions.list", {});
+    await until(() => platform.reported.includes(onFrame), "the frame listener's fault to be reported");
+    const admin = await t.client();
+    await admin.apply("access.sessions.revoke", { commandId: randomUUID(), clientSessionId: String(only(runtime).clientSessionId) });
+    await until(() => platform.reported.includes(onClose), "the close listener's fault to be reported");
+    expect(only(runtime).phase).toBe("blocked");
+  });
+
   it("retries now: runs the connect again after a failure", async () => {
     const t = await harness.environment();
     let down = false;

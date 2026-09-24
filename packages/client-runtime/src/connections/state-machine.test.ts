@@ -368,6 +368,47 @@ describe("bye", () => {
     paired.discovered({ kind: "unreachable", message: "refused" });
     expect(paired.state.phase).toBe("backoff");
   });
+
+  it("a discovery read that hangs is nothing answering: after draining the local service is down or the paired environment gone, after updating it is still updating, while starting the local service is down", () => {
+    const hung = (d: ReturnType<typeof drive>) => d.at(d.now + ESTABLISH_TIMEOUT_MS).feed({ type: "timer", timer: "establish" });
+
+    const local = drive({ kind: "local" }).ready();
+    local.feed({ type: "bye", attempt: local.state.attempt, bye: bye("draining") });
+    local.at(BYE_WAIT_MS).feed({ type: "timer", timer: "retry" });
+    expect(local.state).toMatchObject({ phase: "draining", step: "discovery" });
+    hung(local);
+    expect(local.state).toMatchObject({ phase: "service-down", step: "idle" });
+    expect(actionOf(local.state)).toBe("service.start");
+
+    const paired = drive().ready();
+    paired.feed({ type: "bye", attempt: paired.state.attempt, bye: bye("draining") });
+    paired.at(BYE_WAIT_MS).feed({ type: "timer", timer: "retry" });
+    hung(paired);
+    expect(paired.state).toMatchObject({ phase: "backoff", step: "idle" });
+
+    const updating = drive().ready();
+    updating.feed({ type: "bye", attempt: updating.state.attempt, bye: bye("updating") });
+    updating.at(BYE_WAIT_MS).feed({ type: "timer", timer: "retry" });
+    hung(updating);
+    expect(updating.state).toMatchObject({ phase: "updating", step: "idle" });
+
+    const starting = drive({ kind: "local" }).start();
+    starting.discovered({ kind: "document", document: document({ readiness: "starting" }) });
+    starting.at(STARTING_POLL_MS).feed({ type: "timer", timer: "retry" });
+    expect(starting.state).toMatchObject({ phase: "starting", step: "discovery" });
+    hung(starting);
+    expect(starting.state).toMatchObject({ phase: "service-down", step: "idle" });
+    expect(actionOf(starting.state)).toBe("service.start");
+
+    // A socket that opened and never said hello is a fault on the ladder, whatever came before.
+    const dialing = drive().ready();
+    dialing.feed({ type: "bye", attempt: dialing.state.attempt, bye: bye("draining") });
+    dialing.at(BYE_WAIT_MS).feed({ type: "timer", timer: "retry" });
+    dialing.discovered({ kind: "document", document: document() });
+    expect(dialing.state.step).toBe("dialing");
+    hung(dialing);
+    expect(dialing.state).toMatchObject({ phase: "backoff", step: "idle" });
+  });
 });
 
 describe("the protocol integer", () => {

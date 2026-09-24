@@ -118,7 +118,8 @@ export const exchangeCode = async (
     const mismatch = typeof theirs === "number" ? compareProtocol(theirs, protocolVersion) : undefined;
     return { ok: false, failure: mismatch ?? { reason: "protocol-mismatch", message: answer.message ?? "The protocol versions differ." } };
   }
-  const known = answer.code === undefined ? undefined : REFUSALS[answer.code];
+  // Own keys only: a code such as `constructor` names nothing here and is `refused`.
+  const known = answer.code !== undefined && Object.hasOwn(REFUSALS, answer.code) ? REFUSALS[answer.code] : undefined;
   return {
     ok: false,
     failure: known ?? {

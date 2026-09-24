@@ -41,12 +41,9 @@ describe("the session-list projector", () => {
     const log = memoryLog();
     log.append({ kind: "session", id }, [created], { actor: "system:test" });
     const head = log.head();
-    for (const [kind, type] of [
-      ["session", "session.settled"],
-      ["session", "run.started"],
-    ] as const) {
-      expect(() => log.append({ kind, id }, [{ type, payload: {} }], { actor: "system:test" }), type).toThrow(/does not project/);
-    }
+    expect(() => log.append({ kind: "session", id }, [{ type: "session.title-generated", payload: {} }], { actor: "system:test" })).toThrow(
+      /does not project/,
+    );
     expect(log.head()).toBe(head);
   });
 
@@ -78,13 +75,18 @@ describe("the session-list projector", () => {
     expect(log.head()).toBe(head);
   });
 
-  it("writes no patch for a flagged session event that leaves its session out of the list before and after", () => {
+  it("writes no patch for a flagged session event that leaves its session out of the list before and after, but the tombstone's removal", () => {
     const log = memoryLog();
     const unlisted = "0e1d2c3b-4a59-4687-9a6b-5c4d3e2f1a0b";
-    const { events } = log.append({ kind: "session", id: unlisted }, [{ type: "session.group-set", payload: { groupId: null } }], {
-      actor: "system:test",
-    });
-    expect(events.map((event) => event.metadata)).toEqual([{}]);
+    const { events } = log.append(
+      { kind: "session", id: unlisted },
+      [
+        { type: "session.group-set", payload: { groupId: null } },
+        { type: "session.purged", payload: { providerTranscript: { outcome: "kept" } } },
+      ],
+      { actor: "system:test" },
+    );
+    expect(events.map((event) => event.metadata)).toEqual([{}, { [LIST_PATCH_KEY]: { op: "remove", sessionId: unlisted } }]);
   });
 
   it("leaves alone the events that are not the list's: other types on a session stream, and other streams", () => {

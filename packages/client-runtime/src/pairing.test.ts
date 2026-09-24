@@ -284,6 +284,17 @@ describe("pairing with an environment", () => {
       });
     });
 
+    it("refused: an error code that is only an inherited property name, such as constructor", async () => {
+      const t = await harness.environment();
+      const runtime = harness.runtime(inMemoryPlatform({ fetch: rewritingFetch(PAIR_PATH, () => ({ code: "constructor", message: "no" })) }));
+      await runtime.start();
+
+      expect(await runtime.connections.add({ link: (await t.createPairing()).link })).toEqual({
+        status: "failed",
+        failure: { reason: "refused", message: expect.stringContaining("no") },
+      });
+    });
+
     it("invalid-code: the environment issued no such code", async () => {
       const t = await harness.environment();
       const runtime = harness.runtime(inMemoryPlatform());

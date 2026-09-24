@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "IdleSpanUnit",
+  "type": "string",
+  "enum": [
+    "days",
+    "weeks",
+    "months"
+  ],
+  "description": "What an idle span is counted in: days, weeks (seven days) or months (calendar months, a month-end clamped to the shorter month's last day)."
+}

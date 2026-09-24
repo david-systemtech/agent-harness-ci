@@ -100,6 +100,23 @@ describe("the summary field table", () => {
     expect(isListEvent("session", "session.draft-set")).toBe(true);
   });
 
+  it("gives the shelf fields to settle, unsettle and snooze, each a command, their events list-flagged", () => {
+    expect(
+      Object.fromEntries((["settledAt", "settledOverride", "settledBy", "unsettledAt", "snoozedUntil", "snoozedAt"] as const).map((key) => [key, SUMMARY_FIELD_OWNERS[key]])),
+    ).toEqual({
+      settledAt: { command: "sessions.settle" },
+      settledOverride: { command: "sessions.settle" },
+      settledBy: { command: "sessions.settle" },
+      unsettledAt: { command: "sessions.unsettle" },
+      snoozedUntil: { command: "sessions.snooze" },
+      snoozedAt: { command: "sessions.snooze" },
+    });
+    for (const name of ["sessions.settle", "sessions.unsettle", "sessions.snooze", "sessions.unsnooze"] as const) {
+      expect(registry[name], name).toMatchObject({ kind: "command", scope: "sessions:write" });
+    }
+    for (const type of ["session.settled", "session.unsettled", "session.snoozed", "session.unsnoozed"]) expect(isListEvent("session", type), type).toBe(true);
+  });
+
   it("fails when a summary field is missing from it", () => {
     const missing = Object.fromEntries(Object.entries(owners).filter(([key]) => key !== "tags"));
     expect(fieldTableProblems(missing, keys, registry, EVENT_TYPES)).toEqual(["tags: no owner"]);
