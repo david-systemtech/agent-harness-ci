@@ -105,6 +105,16 @@ describe("the in-memory platform", () => {
     expect(clock.now().toISOString()).toBe("2026-09-24T00:00:00.250Z");
   });
 
+  it("never moves the clock back when a timer's callback advances it past the outer advance", () => {
+    const clock = manualClock("2026-09-24T00:00:00.000Z");
+    const fired: string[] = [];
+    clock.setTimeout(() => clock.advance(1000), 100);
+    clock.setTimeout(() => fired.push(clock.now().toISOString()), 400);
+    clock.advance(500);
+    expect(fired).toEqual(["2026-09-24T00:00:00.400Z"]);
+    expect(clock.now().toISOString()).toBe("2026-09-24T00:00:01.100Z");
+  });
+
   it("has a network signal the test toggles", () => {
     const { network } = inMemoryPlatform();
     const seen: unknown[] = [];

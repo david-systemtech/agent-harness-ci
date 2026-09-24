@@ -6,6 +6,7 @@ import {
   type ClientSessionCredential,
 } from "@agent-harness/contracts";
 import { parseAddress } from "./connections/address.js";
+import type { RemoveResult } from "./connections/records.js";
 import { compareProtocol, type DiscoveryRefusal } from "./discovery.js";
 import { postExchange } from "./exchange.js";
 import type { ClientIdentity, HttpFetch } from "./platform.js";
@@ -51,8 +52,12 @@ export interface PairingFailure {
 }
 
 export type PairingOutcome =
-  /** The token is kept, the record written and the connection made or attempted. */
-  | { readonly status: "paired"; readonly environmentId: string }
+  /**
+   * The token is kept, the record written and the connection made or
+   * attempted. On a re-pair in place, `replaced` says whether the client
+   * session it gave up was revoked.
+   */
+  | { readonly status: "paired"; readonly environmentId: string; readonly replaced?: RemoveResult }
   /** The environment is saved already: nothing was exchanged; ask again with `rePair` to pair it again in place. */
   | { readonly status: "re-pair-offered"; readonly environmentId: string; readonly name: string }
   | { readonly status: "failed"; readonly failure: PairingFailure };

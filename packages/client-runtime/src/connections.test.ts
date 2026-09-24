@@ -3,6 +3,7 @@ import { Ceiling, PROTOCOL_VERSION, type Scope } from "@agent-harness/contracts"
 import { describe, expect, it } from "vitest";
 import { HARNESS_VERSION } from "../../environment/src/serve/start.js";
 import { failingFetch, originOf, recordingWebSocket, rewritingWebSocket, until, useHarness } from "../test/harness.js";
+import { PAIRED_CONNECTIONS_DOCUMENT } from "./connections/records.js";
 import { REVOKE_TIMEOUT_MS } from "./connections/registry.js";
 import type { HttpFetch, WebSocketFactory } from "./platform.js";
 import type { Runtime } from "./runtime.js";
@@ -283,6 +284,32 @@ describe("the in-process connections API", () => {
     const admin = await t.client();
     const { sessions } = await admin.apply("access.sessions.list", { live: true });
     expect(sessions.map((s) => s.id)).toContain(clientSessionId);
+  });
+
+  it("clears the blocked reason when the connection leaves blocked: a retry that finds nothing, or disabling it", async () => {
+    const t = await harness.environment();
+    let down = false;
+    const platform = inMemoryPlatform({ fetch: failingFetch(() => down) });
+    const runtime = harness.runtime(platform);
+    await runtime.start();
+    await runtime.connections.add({ link: (await t.createPairing()).link });
+    const admin = await t.client();
+    await admin.apply("access.sessions.revoke", { commandId: randomUUID(), clientSessionId: String(only(runtime).clientSessionId) });
+    await until(() => only(runtime).phase === "blocked", "the revoke to block the connection");
+    expect(only(runtime).blocked).toBe("revoked");
+    const savedBlocked = () => (platform.documents.entries()[PAIRED_CONNECTIONS_DOCUMENT] as Record<string, { blocked: unknown }>)[t.env.id]?.blocked;
+
+    down = true;
+    await runtime.connections.retryNow(t.env.id);
+    expect(only(runtime)).toMatchObject({ phase: "backoff", blocked: null });
+
+    // The revoked token blocks it again, then disabling leaves blocked.
+    down = false;
+    await runtime.connections.retryNow(t.env.id);
+    expect(only(runtime)).toMatchObject({ phase: "blocked", blocked: "revoked" });
+    await runtime.connections.setEnabled(t.env.id, false);
+    expect(only(runtime)).toMatchObject({ phase: "disabled", blocked: null });
+    await until(() => savedBlocked() === null, "the cleared reason to be saved");
   });
 
   it("retries now: runs the connect again after a failure", async () => {

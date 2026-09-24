@@ -30,6 +30,7 @@ import {
   type ConnectionPhase,
   type ConnectionRecord,
   type EnvironmentDescriptor,
+  type RemoveResult,
   type SavedConnection,
 } from "./records.js";
 
@@ -41,11 +42,7 @@ import {
  * `retryNow`); the reconnect machine (#126) will own retries.
  */
 
-/** What removing a connection did about its client session on the environment. */
-export type RemoveResult =
-  | { readonly revoked: true }
-  /** Forgotten here, still live there: the connection lacks the `admin` scope, or the environment could not be reached. */
-  | { readonly revoked: false; readonly reason: "scope" | "unreachable"; readonly message: string };
+export type { RemoveResult } from "./records.js";
 
 /** The in-process API, `connections.*`. None of these is a wire method. */
 export interface Connections {
@@ -239,9 +236,14 @@ export const createRegistry = (platform: Platform, protocolVersion: number): Reg
     await setPreferences((p) => ({ ...p, "environments.sequence": at === "first" ? [environmentId, ...sequence] : [...sequence, environmentId] }));
   };
 
+  /** Every phase change goes through here; leaving `blocked` clears the saved reason, so a record never shows one beside another phase. */
   const update = (environmentId: string, entry: Entry, change: Partial<Entry>) => {
     Object.assign(entry, change);
-    if (entries.get(environmentId) === entry) publish();
+    const unblocked = change.phase !== undefined && change.phase !== "blocked" && entry.saved.blocked !== null;
+    if (unblocked) entry.saved = { ...entry.saved, blocked: null };
+    if (entries.get(environmentId) !== entry) return;
+    publish();
+    if (unblocked && entry.saved.kind === "paired") void savePaired();
   };
 
   const updateSaved = async (environmentId: string, entry: Entry, change: Partial<SavedConnection>, phase?: ConnectionPhase) => {
@@ -439,6 +441,33 @@ export const createRegistry = (platform: Platform, protocolVersion: number): Reg
   });
 
   /**
+   * Revokes the client session `entry` holds with its own token, over its
+   * socket when it is ready, else over a one-off connection to `origin`:
+   * what `remove` and a re-pair in place say about the session they give up.
+   */
+  const revokeHeld = async (environmentId: string, entry: Entry, origin: string = entry.saved.address): Promise<RemoveResult> => {
+    const name = entry.saved.descriptor.name;
+    if (!entry.saved.scopes.includes("admin")) {
+      return {
+        revoked: false,
+        reason: "scope",
+        message: `This client was paired with ${name} without the admin scope, so its client session there is still live: revoke it from a client that has admin.`,
+      };
+    }
+    const token = await platform.secrets.get(environmentId);
+    const clientSessionId = entry.saved.clientSessionId;
+    const socket = entry.phase === "ready" ? entry.socket : undefined;
+    if (clientSessionId !== null && token !== undefined && (await revokeClientSession({ environmentId, origin, token, clientSessionId, socket }))) {
+      return { revoked: true };
+    }
+    return {
+      revoked: false,
+      reason: "unreachable",
+      message: `${name} could not be reached, so this client's session there is still live: revoke it from another client.`,
+    };
+  };
+
+  /**
    * Takes the local connection from a grant exchange. A paired connection to
    * the same environment is replaced: its client session is revoked with the
    * new local one (which holds every scope), then its record and token are
@@ -575,6 +604,21 @@ export const createRegistry = (platform: Platform, protocolVersion: number): Reg
         }
       }
 
+      // Re-pairing in place gives up the client session the connection held: it is revoked before the new token is kept, over the
+      // new connection when the new client session holds `admin`, else with the old token, best effort as removal is.
+      let replaced: RemoveResult | undefined;
+      if (existing) {
+        drop(existing);
+        const previous = existing.saved.clientSessionId;
+        if (previous !== null) {
+          const viaNew =
+            answer.ok &&
+            answer.socket.hello.scopes.includes("admin") &&
+            (await revokeClientSession({ environmentId: id, origin, token: credential.token, clientSessionId: previous, socket: answer.socket }));
+          replaced = viaNew ? { revoked: true } : await revokeHeld(id, existing, origin);
+        }
+      }
+
       await platform.secrets.set(id, credential.token);
       const saved: SavedConnection = {
         address: origin,
@@ -587,7 +631,6 @@ export const createRegistry = (platform: Platform, protocolVersion: number): Reg
       };
       const entry = existing ?? newEntry(saved);
       if (existing) {
-        drop(existing);
         await updateSaved(id, existing, saved);
       } else {
         entries.set(id, entry);
@@ -603,7 +646,7 @@ export const createRegistry = (platform: Platform, protocolVersion: number): Reg
         answer.socket.close();
         update(id, entry, { phase: "disabled" });
       }
-      return { status: "paired", environmentId: id };
+      return { status: "paired", environmentId: id, ...(replaced && { replaced }) };
     },
 
     async setAddress(environmentId, address) {
@@ -647,34 +690,7 @@ export const createRegistry = (platform: Platform, protocolVersion: number): Reg
       if (entry.saved.kind === "local") {
         throw new Error("The local environment's connection comes from its bootstrap grant on every start; disable it instead.");
       }
-      const name = entry.saved.descriptor.name;
-      let result: RemoveResult;
-      const token = await platform.secrets.get(environmentId);
-      if (!entry.saved.scopes.includes("admin")) {
-        result = {
-          revoked: false,
-          reason: "scope",
-          message: `This client was paired with ${name} without the admin scope, so its client session there is still live: revoke it from a client that has admin.`,
-        };
-      } else if (
-        entry.saved.clientSessionId !== null &&
-        token !== undefined &&
-        (await revokeClientSession({
-          environmentId,
-          origin: entry.saved.address,
-          token,
-          clientSessionId: entry.saved.clientSessionId,
-          socket: entry.phase === "ready" ? entry.socket : undefined,
-        }))
-      ) {
-        result = { revoked: true };
-      } else {
-        result = {
-          revoked: false,
-          reason: "unreachable",
-          message: `${name} could not be reached, so this client's session there is still live: revoke it from another client.`,
-        };
-      }
+      const result = await revokeHeld(environmentId, entry);
       drop(entry);
       entries.delete(environmentId);
       await platform.secrets.delete(environmentId);
