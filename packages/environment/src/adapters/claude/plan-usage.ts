@@ -126,6 +126,20 @@ const readingOf = (probe: UsageProbe, readAt: string): UsageReading => {
   }
 };
 
+/** A reading with a run's rate-limit verdict folded into its window: the verdict's use and reset where it says them. */
+const foldVerdict = (reading: UsageReading, verdict: PlanLimitVerdict): UsageReading => {
+  const before = reading.windows.find((window) => window.window === verdict.window);
+  const folded: UsageWindow = {
+    window: verdict.window,
+    utilisation: verdict.utilisation ?? before?.utilisation ?? null,
+    resetsAt: verdict.resetsAt ?? before?.resetsAt ?? null,
+    verdict: verdict.status,
+  };
+  const windows = before === undefined ? [...reading.windows, folded] : reading.windows.map((window) => (window === before ? folded : window));
+  // A window a run reported makes the reading available, whatever the read said.
+  return { identity: reading.identity, windows, readAt: reading.readAt };
+};
+
 export interface PlanUsageReader {
   /** The account's reading: the cached one while it is under six minutes old, else a fresh read, shared with any in flight. */
   read(account: AccountRef): Promise<UsageReading>;
@@ -153,6 +167,8 @@ interface Held {
 export const createPlanUsageReader = (options: PlanUsageReaderOptions): PlanUsageReader => {
   const held = new Map<string, Held>();
   const inFlight = new Map<string, Promise<UsageReading>>();
+  /** Verdicts that arrived while a read was in flight: that read began before them, so its reading takes them. */
+  const arrivedDuring = new Map<string, PlanLimitVerdict[]>();
   const keyOf = (account: AccountRef): string => account.directory ?? "";
 
   return {
@@ -168,29 +184,24 @@ export const createPlanUsageReader = (options: PlanUsageReaderOptions): PlanUsag
           const probe = await options.probe(account);
           // Stamped once the provider has answered: that is when the numbers were true.
           const at = options.clock.now();
-          const reading = readingOf(probe, at.toISOString());
+          const reading = (arrivedDuring.get(key) ?? []).reduce(foldVerdict, readingOf(probe, at.toISOString()));
           if (probe.outcome.kind !== "failed") held.set(key, { reading, at: at.getTime() });
           return reading;
         } finally {
           inFlight.delete(key);
+          arrivedDuring.delete(key);
         }
       })();
       inFlight.set(key, read);
       return read;
     },
     fold(account, verdict) {
-      const cached = held.get(keyOf(account));
-      if (cached === undefined) return;
-      const before = cached.reading.windows.find((window) => window.window === verdict.window);
-      const folded: UsageWindow = {
-        window: verdict.window,
-        utilisation: verdict.utilisation ?? before?.utilisation ?? null,
-        resetsAt: verdict.resetsAt ?? before?.resetsAt ?? null,
-        verdict: verdict.status,
-      };
-      const windows = before === undefined ? [...cached.reading.windows, folded] : cached.reading.windows.map((window) => (window === before ? folded : window));
-      // A window a run reported makes the reading available, whatever the read said.
-      cached.reading = { identity: cached.reading.identity, windows, readAt: cached.reading.readAt };
+      const key = keyOf(account);
+      // A read under way began before this verdict, so its reading takes it; one that begins after is newer (a verdict
+      // with no reading to fold into is dropped for that reason).
+      if (inFlight.has(key)) arrivedDuring.set(key, [...(arrivedDuring.get(key) ?? []), verdict]);
+      const cached = held.get(key);
+      if (cached !== undefined) cached.reading = foldVerdict(cached.reading, verdict);
     },
   };
 };

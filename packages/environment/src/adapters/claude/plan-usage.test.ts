@@ -161,6 +161,28 @@ describe("the reader", () => {
     expect((await reader.read(account)).windows).toContainEqual({ window: "seven_day", utilisation: 0.105, resetsAt: "2026-09-30T00:00:00.000Z", verdict: "warning" });
   });
 
+  it("folds a verdict that arrives while a read is in flight into that read's reading, which began before it", async () => {
+    const clock = manualClock();
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    const reader = createPlanUsageReader({ clock, probe: probing([async () => (await held, { identity, outcome: { kind: "read", response: RESPONSE } })]).probe });
+    const reading = reader.read(account);
+    reader.fold(account, { window: "five_hour", status: "rejected", utilisation: 1, resetsAt: null });
+    release();
+    const expected = { window: "five_hour", utilisation: 1, resetsAt: "2026-09-24T05:00:00.000Z", verdict: "rejected" };
+    expect((await reading).windows).toContainEqual(expected);
+    expect((await reader.read(account)).windows).toContainEqual(expected);
+  });
+
+  it("lets a read that begins after a verdict replace it, the reading it was folded into having aged out: the read is newer", async () => {
+    const clock = manualClock();
+    const reader = createPlanUsageReader({ clock, probe: probing().probe });
+    await reader.read(account);
+    clock.advance(PLAN_USAGE_MAX_AGE_MS);
+    reader.fold(account, { window: "five_hour", status: "rejected", utilisation: 1, resetsAt: null });
+    expect((await reader.read(account)).windows[0]).toEqual({ window: "five_hour", utilisation: 0.42, resetsAt: "2026-09-24T05:00:00.000Z" });
+  });
+
   it("drops a verdict with no reading to fold into: the next read is newer", async () => {
     const clock = manualClock();
     const reader = createPlanUsageReader({ clock, probe: probing().probe });
