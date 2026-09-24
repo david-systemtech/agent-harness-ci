@@ -611,6 +611,30 @@ describe("the process across turns", () => {
     expect(fake.queries).toHaveLength(0);
   });
 
+  it("tells the port no process ran when nothing spawned, whether the launch failed or the run was interrupted while its resume point was read", async () => {
+    const adapter = adapterWith();
+    const failed = adapter.createRun(runInput({ target: { kind: "rewind", providerSessionId: PROVIDER_SESSION, toMessageId: "nowhere" } }), contextWith());
+    expect(ends(await drain(failed))).toEqual([expect.objectContaining({ reason: "error" })]);
+    expect(port).toEqual(["exited"]);
+
+    port.length = 0;
+    fake.stored.set(PROVIDER_SESSION, [
+      { type: "user", uuid: "p1", message: { role: "user", content: "First" } },
+      { type: "assistant", uuid: "a1", message: { role: "assistant", content: [] } },
+      { type: "user", uuid: "p2", message: { role: "user", content: "Second" } },
+    ]);
+    let read: () => void = () => undefined;
+    const reading = new Promise<void>((resolve) => (read = resolve));
+    hooks.sdk = { query: fake.query, getSessionMessages: async (id: string, options: unknown) => (await reading, fake.getSessionMessages(id, options)) };
+    const run = adapter.createRun(runInput({ target: { kind: "fork", providerSessionId: PROVIDER_SESSION, atMessageId: "p2" } }), contextWith());
+    const events = drain(run);
+    expect(await run.interrupt()).toEqual({ stillQueued: [] });
+    read();
+    expect(ends(await events)).toEqual([expect.objectContaining({ reason: "interrupted", cause: "user" })]);
+    await vi.waitFor(() => expect(port).toEqual(["exited"]));
+    expect(fake.queries).toHaveLength(0);
+  });
+
   it("stops the session's process for the pool whatever it holds, and resolves once it has stopped", async () => {
     const adapter = adapterWith();
     const turn = await oneTurn(adapter, runInput());
@@ -986,6 +1010,32 @@ describe("a run that joins a kept process", () => {
     const prompts = await fresh.promptsPushed(2);
     expect(query.closed).toBe(true);
     expect(prompts.map((prompt) => prompt.uuid)).toEqual([bypass.prompt[0]?.messageId, queued.messageId]);
+  });
+
+  it("keeps serving the session from the fresh process once the one it replaced has closed twice, disposed and then its pump ended", async () => {
+    const adapter = adapterWith();
+    const context = contextWith();
+    const input = runInput();
+    const run = adapter.createRun(input, context);
+    const query = await started();
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [input.prompt[0]?.messageId as string]), sdk.toolUse("toolu_cron", "CronCreate", { cron: "0 * * * *" }), sdk.toolResult("toolu_cron"), sdk.result(PROVIDER_SESSION));
+    await drain(run);
+    run.release();
+    // A run the kept process cannot serve replaces it: disposed (its first close), its pump ends later (its second).
+    const bypass = runInput({ mode: "bypassPermissions", target: { kind: "resume", providerSessionId: PROVIDER_SESSION } });
+    const second = adapter.createRun(bypass, context);
+    const fresh = await fake.made(2);
+    await fresh.promptsPushed(1);
+    await flush();
+    expect(query.closed).toBe(true);
+    fresh.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_2", [bypass.prompt[0]?.messageId as string]), sdk.result(PROVIDER_SESSION));
+    await drain(second);
+    second.release();
+
+    const third = runInput({ mode: "bypassPermissions", target: { kind: "resume", providerSessionId: PROVIDER_SESSION } });
+    adapter.createRun(third, context);
+    await fresh.promptsPushed(2);
+    expect(fake.queries).toHaveLength(2);
   });
 
   it("lets the schedule hold go once CronDelete removes the job", async () => {

@@ -76,7 +76,12 @@ export interface ProcessDeps {
   readonly diagnostic: (message: string, detail?: unknown) => void;
   /** A run reported a rate-limit verdict for the account: the plan-usage read folds it in. */
   readonly onRateLimit: (verdict: PlanLimitVerdict) => void;
-  /** The transport is gone: the adapter forgets the process. */
+  /**
+   * The transport is gone: the adapter forgets the process, if it is still
+   * the session's. Called on every close, so more than once for one process
+   * (a dispose, then its pump's end; a forced interrupt, then the same):
+   * forgetting only the process named keeps a replacement from being lost.
+   */
   readonly onClosed: (process: ClaudeProcess) => void;
 }
 
@@ -429,7 +434,7 @@ export class ClaudeProcess implements TurnControl {
       if (this.closed) throw new Error("The run was let go before its process started.");
       if (turn.ended) {
         // Interrupted while the process was being prepared: nothing is spawned for it.
-        this.#close();
+        this.#neverRan();
         return;
       }
       for (const message of input.prompt) this.#prompts.push(userMessage(message));
@@ -440,13 +445,21 @@ export class ClaudeProcess implements TurnControl {
       this.#query = sdkQuery({ prompt: this.#prompts, options });
     } catch (error) {
       this.#waitingEnds(turn, { reason: "error", error: { message: describe(error), code: "launch" } });
-      this.#close();
-      // No process ever ran: the pool records it stopped on its own.
-      if (this.#disposing === undefined) this.#context.process.exited();
+      this.#neverRan();
       return;
     }
     this.#armOpenWatch();
     this.#stopped = this.#pump(this.#query);
+  }
+
+  /**
+   * No process ever ran (the launch failed, or its run ended before anything
+   * spawned): it is let go, and the pool, which counts it from the run's
+   * begin, records it stopped on its own, unless the pool is stopping it.
+   */
+  #neverRan(): void {
+    this.#close();
+    if (this.#disposing === undefined) this.#context.process.exited();
   }
 
   async #pump(query: Query): Promise<void> {
