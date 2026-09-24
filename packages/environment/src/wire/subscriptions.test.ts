@@ -18,7 +18,7 @@ import { useCleanups } from "../../test/cleanups.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { WAIT_MS, type WireClient } from "../../test/wire-client.js";
 import { REPLAY_BOUND, type EventInput, type JsonObject, type StreamRef } from "../event-log/event-log.js";
-import { HARNESS_VERSION } from "../serve/start.js";
+import { HARNESS_VERSION, startEnvironment } from "../serve/start.js";
 import type { Outlet, SubscriptionHooks } from "./subscriptions.js";
 
 /**
@@ -605,6 +605,24 @@ describe("environment.subscribe", () => {
     });
     await frame(client, subscription, "synchronized");
     expect(shape(client, subscription)).toEqual(["subscribed", "snapshot", "synchronized"]);
+  });
+
+  it("holds no environment.started from a start that failed at the launcher's handshake, and one from the start after", async () => {
+    const dataDir = join(tempDir(), "data");
+    const failed = startEnvironment({
+      dataDir,
+      port: 0,
+      user: { isPrivileged: () => false },
+      launcher: { prepared: () => Promise.reject(new Error("the launcher has gone")), close: () => undefined },
+    });
+    await expect(failed).rejects.toMatchObject({ step: "prepared" });
+
+    const t = await start({ dataDir });
+    const client = await t.client();
+    const { subscription } = await client.subscribe("environment.subscribe", { afterSequence: 0 });
+    await frame(client, subscription, "synchronized");
+    const types = framesOf(client, subscription).flatMap((f) => (f.type === "event" ? [f.event.type] : []));
+    expect(types).toEqual(["environment.started"]);
   });
 
   it("holds one environment.started per start on the same data directory", async () => {

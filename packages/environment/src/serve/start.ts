@@ -265,16 +265,19 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     return listening;
   });
 
-  await step("prepared", () => {
-    // The last thing startup does before it tells the launcher: a notice on the environment stream that this version started.
+  await step("prepared", () => launcher.prepared());
+  readiness = "ready";
+  // Only a start the launcher accepted is noted, and before the wire opens, so a first subscriber finds it.
+  try {
     log.append(
       environmentStream,
       [{ type: "environment.started", payload: { harnessVersion: HARNESS_VERSION, protocolVersion: PROTOCOL_VERSION } }],
       { actor: formatActor({ kind: "system", id: "lifecycle" }) },
     );
-    return launcher.prepared();
-  });
-  readiness = "ready";
+  } catch (error) {
+    await closers.closeAll().catch((closeError: unknown) => console.error("Closing after a failed start failed:", closeError));
+    throw new StartupError("prepared", error);
+  }
   wire.open();
   const sweep = clock.setInterval(() => clientSessions.sweep(), SWEEP_INTERVAL_MS);
   closers.push(() => sweep.cancel());
