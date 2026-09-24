@@ -788,33 +788,7 @@ describe("snapshots", () => {
     expect(memoryLog().readSnapshot(s1)).toBeNull();
   });
 
-  it("are read back with their stream, sequence and payload, the latest replacing the one before", () => {
-    const { clock } = manualClock("2026-09-24T10:00:00.000Z");
-    const log = memoryLog({ clock });
-    log.writeSnapshot(s1, { sequence: 10, payload: { turns: 1 } });
-    log.writeSnapshot(s1, { sequence: 20, payload: { turns: 2 } });
-    log.writeSnapshot({ kind: "session", id: "s2" }, { sequence: 5, payload: { turns: 9 } });
-
-    expect(log.readSnapshot(s1)).toEqual({
-      stream: s1,
-      sequence: 20,
-      payload: { turns: 2 },
-      createdAt: "2026-09-24T10:00:00.000Z",
-    });
-    expect(log.readSnapshot({ kind: "session", id: "s2" })).toMatchObject({ sequence: 5 });
-    expect(log.readSnapshot({ kind: "group", id: "s1" })).toBeNull();
-  });
-
-  it("survive a restart", () => {
-    const path = tempDatabase();
-    const first = openEventLog({ path });
-    first.writeSnapshot(s1, { sequence: 3, payload: ["kept"] });
-    first.close();
-    expect(track(openEventLog({ path })).readSnapshot(s1)).toMatchObject({
-      sequence: 3,
-      payload: ["kept"],
-    });
-  });
+  // Written only by a compaction, and read back, replaced and kept across a restart there (`compaction.test.ts`).
 });
 
 describe("an append's events", () => {
@@ -836,8 +810,10 @@ describe("purging a stream", () => {
       ...log.append(s2, [note("other")], { actor: "system:test" }).events,
       ...log.append(sameIdOtherKind, [note("other kind")], { actor: "system:test" }).events,
     ];
-    log.writeSnapshot(s1, { sequence: 2, payload: { turns: 2 } });
-    log.writeSnapshot(s2, { sequence: 3, payload: { turns: 1 } });
+    log.atomically((tx) => {
+      log.compactStream(s1, { sequence: 2, payload: { turns: 2 }, remove: [] }, { tx });
+      log.compactStream(s2, { sequence: 3, payload: { turns: 1 }, remove: [] }, { tx });
+    });
 
     expect(log.atomically((tx) => log.purgeStream(s1, { tx }))).toBe(2);
 

@@ -32,5 +32,5 @@
     "sequence",
     "payload"
   ],
-  "description": "From the environment: at most one, first, when replay from the cursor is out of bounds; the state as of sequence."
+  "description": "From the environment: at most one, first: when replay from the cursor is out of bounds, the state as of the head; or, when the stream holds a snapshot standing in for events the cursor has not seen (a compacted session), that snapshot, with the events after it replayed next. The state as of sequence."
 }

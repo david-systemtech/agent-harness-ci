@@ -1,7 +1,7 @@
 import { encodeFrame, type EndReason, type Frame } from "@agent-harness/contracts";
 import type { WebSocket } from "ws";
 import type { z } from "zod";
-import { REPLAY_BOUND, selection, type EventEnvelope, type EventLog, type Selection, type StreamSelector } from "../event-log/event-log.js";
+import { REPLAY_BOUND, selection, type EventEnvelope, type EventLog, type Selection, type Snapshot, type StreamSelector } from "../event-log/event-log.js";
 import { toWireEnvelope } from "./envelope.js";
 
 /**
@@ -11,8 +11,11 @@ import { toWireEnvelope } from "./envelope.js";
  * attached first; then the replay from the client's `afterSequence` cursor is
  * measured against the replay bound, in SQL, before anything is decoded.
  * Within the bound the events after the cursor are sent; beyond it one
- * snapshot of the source's read model is. Then `synchronized`, once, and the
- * live events, each sent once: whatever the live feed heard at or below what
+ * snapshot of the source's read model is. A stream whose snapshot stands in
+ * for events the cursor has not seen (a compacted session, #123) replays
+ * from that snapshot instead: it is sent first, then the events after it,
+ * the bound measured from it. Then `synchronized`, once, and the live
+ * events, each sent once: whatever the live feed heard at or below what
  * catch-up already sent is dropped, by sequence.
  */
 
@@ -37,6 +40,13 @@ export interface StreamSource<Payload = unknown> {
   readonly stream: StreamSelector;
   /** The state as of the log's head, read when the snapshot is sent. A throw refuses the subscription. */
   snapshot(): Payload;
+  /**
+   * The payload of the stream's own snapshot (`EventLog.replayStart`),
+   * which stands in for its events at or below the snapshot's sequence: sent
+   * first to a cursor below it, the events after it replayed next. A throw
+   * refuses the subscription. Absent: such a cursor is sent `snapshot()`.
+   */
+  compacted?(snapshot: Snapshot): Payload;
   /**
    * The reason an event of the stream ends the subscription, or undefined
    * for one that does not: the event is delivered, replayed or live, then
@@ -252,10 +262,20 @@ const catchUp = (subscription: Subscription, opening: Opening): void => {
   const frames: string[] = [];
   let synchronizedAt = head;
   let ended: SourceEndReason | undefined;
+  // Where replay starts: the cursor, or the stream's snapshot standing in for events the cursor has not seen.
+  const start = log.replayStart(subscription.stream, opening.afterSequence);
+  const { compacted } = opening.source;
   // A cursor past the head is not this log's (its data directory was replaced): the snapshot resets the client.
-  const replayable = opening.afterSequence <= head && log.replayBound(subscription.stream, opening.afterSequence).withinBound;
+  const replayable =
+    opening.afterSequence <= head &&
+    (start.snapshot === null || compacted !== undefined) &&
+    log.replayBound(subscription.stream, start.after).withinBound;
   if (replayable) {
-    for (const event of log.readStream(subscription.stream, opening.afterSequence)) {
+    if (start.snapshot !== null && compacted !== undefined) {
+      const payload = opening.payloadSchema.parse(compacted.call(opening.source, start.snapshot)) as Record<string, unknown>;
+      frames.push(encodeFrame({ type: "snapshot", subscription: subscription.id, sequence: start.snapshot.sequence, payload }));
+    }
+    for (const event of log.readStream(subscription.stream, start.after)) {
       frames.push(eventFrame(subscription, event));
       synchronizedAt = Math.max(synchronizedAt, event.sequence);
       ended = subscription.endOn?.(event);
