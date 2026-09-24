@@ -204,9 +204,11 @@ export interface AdapterHost {
    * way every answer a client gives reaches a run (#130). Refused `conflict`
    * with reason `run_ended` when the run is no longer live (a prompt kept
    * open across its end is #130's to deliver another way), and
-   * `prompt_not_open` when the adapter holds no such prompt open.
+   * `prompt_not_open` when the adapter holds no such prompt open: thrown
+   * when the adapter answers at once, and the returned promise rejected
+   * when it answers asynchronously, so the caller awaits what it returns.
    */
-  answerPrompt(runId: string, promptId: string, decision: PromptDecision): void;
+  answerPrompt(runId: string, promptId: string, decision: PromptDecision): void | Promise<void>;
   /** Plan usage for an account, with its identity (`planUsage`). */
   usage(accountId: string): Promise<UsageReading>;
   /** The slash commands for an account and workspace (`commands`). */
@@ -1243,14 +1245,21 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       const answer = capability(entry.descriptor, "interactivePrompts", run.answerPrompt, "answer a prompt", "answerPrompt");
       // Answered either way: a prompt the adapter no longer holds open parks nothing.
       answered(entry, promptId);
-      let answering: unknown;
+      const refusal = (error: unknown): unknown =>
+        error instanceof PromptClosed ? closed(error.reason === "run_ended" ? "run_ended" : "prompt_not_open", error.message) : error;
+      let answering: void | Promise<void>;
       try {
         answering = answer.call(run, promptId, decision);
       } catch (error) {
-        if (error instanceof PromptClosed) throw closed(error.reason === "run_ended" ? "run_ended" : "prompt_not_open", error.message);
-        throw error;
+        throw refusal(error);
       }
-      if (answering instanceof Promise) answering.catch((error: unknown) => console.error(`Answering prompt ${promptId} of run ${runId} failed:`, error));
+      // An adapter that answers asynchronously refuses through the promise, which the caller is handed with the same mapping.
+      if (answering instanceof Promise) {
+        return answering.catch((error: unknown) => {
+          throw refusal(error);
+        });
+      }
+      return undefined;
     },
     stopTask(runId, taskId) {
       const entry = byRunId(runId);

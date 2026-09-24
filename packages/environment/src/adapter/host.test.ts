@@ -10,7 +10,7 @@ import { decideSend, decideStart, type StartCommand } from "../runs/run-decider.
 import { environmentQueue } from "../runs/run-reads.js";
 import { runsProjector } from "../runs/runs-projector.js";
 import { sessionListProjector } from "../sessions/session-list.js";
-import type { AdapterEvent, PermissionBroker, PromptRequest, ProviderTurn, RunContext, TranscriptEvent } from "./contract.js";
+import { PromptClosed, type AdapterEvent, type PermissionBroker, type PromptRequest, type ProviderTurn, type RunContext, type TranscriptEvent } from "./contract.js";
 import { createAdapterHost, type AdapterHost, type AdapterHostOptions, type StagedAttachments } from "./host.js";
 import { capability } from "./capabilities.js";
 import { createScopedAppend } from "./scoped-append.js";
@@ -1020,6 +1020,20 @@ describe("a run's prompts", () => {
     await vi.waitFor(() => expect(requests).toHaveLength(1));
     expect([...t.host.runs.runs()].find((run) => run.id === runId)?.state).toBe("running");
     expect(t.host.processes.list()[0]?.state).toBe("busy");
+  });
+
+  it("refuses an answer conflict when an adapter that answers asynchronously says the prompt is closed", async () => {
+    const held = gate();
+    const adapter = fakeAdapter({ script: async function* () { yield say("Working"); await held.opened; yield end(); } });
+    const create = adapter.createRun;
+    const t = await setup({
+      ...adapter,
+      createRun: (input, context) => ({ ...create(input, context), answerPrompt: () => Promise.reject(new PromptClosed("The run has ended.", "run_ended")) }),
+    } as FakeAdapter);
+    const runId = startRun(t);
+    await vi.waitFor(() => expect(eventsOf(t).map((event) => event.type)).toContain("assistant.text"));
+    await expect(t.host.answerPrompt(runId, "p-1", { decision: "allow" })).rejects.toMatchObject({ code: "conflict", data: { reason: "run_ended", runId, promptId: "p-1" } });
+    held.open();
   });
 
   it("refuses an answer on an adapter that takes none, invalid_params with reason unsupported", async () => {
