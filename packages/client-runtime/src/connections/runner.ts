@@ -63,7 +63,11 @@ export interface Runner {
    * The caller closes the socket.
    */
   detach(): LiveSocket | undefined;
-  /** Ends a hold `detach` began without adopting a socket. */
+  /**
+   * Ends a hold `detach` began without adopting a socket. It feeds nothing:
+   * `release` left the machine halted (`connecting`, no timer), so the
+   * caller restarts it (the registry's `begin`), or lets it go.
+   */
   resume(): void;
   /** Settles once no attempt is waiting on discovery or a socket and what the machine asked to be written is written. */
   settled(): Promise<void>;
@@ -270,6 +274,8 @@ export const createRunner = (host: RunnerHost, initial: MachineState): Runner =>
     },
     feed,
     adopt(live, discovery) {
+      // A stopped machine takes nothing: the socket offered is closed, not left open with no owner.
+      if (stopped) return live.close();
       holding = false;
       adopting = { socket: live, document: discovery };
       feed({ type: "adopt", hello: live.hello, expiresAt: host.expiresAt() });
