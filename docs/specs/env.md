@@ -65,7 +65,7 @@ One **environment** per OS user on every machine: a server installed as a user-l
 - Requests must carry a Host header naming loopback, an address the environment is bound to, or, while the tailnet address is bound, the environment's own tailnet name, against DNS rebinding.
 - `GET /.well-known/agent-harness/environment`, unauthenticated: environment id, name, harness version, protocol version, capability flags, auth policy (`local-only` or `tailnet`), and readiness (`starting`, `ready`, `draining`). `GET /health` for the launcher and the checklist: status and version only. Both answer before commands are accepted, with readiness saying so.
 - Two unauthenticated exchange endpoints, each rate-limited and answering only with a client session or a typed error: `POST /api/pair` takes a pairing code plus the client's kind, label and protocol version and returns a client session token with its scopes and ceiling; `POST /api/bootstrap` takes the bootstrap grant secret plus kind and label, is accepted over loopback only, and returns a `local` client session token. Both write their access-log events.
-- Every other HTTP path is the WebSocket at `/ws`, the completions surface (adapter workstream), and the static client bundle route reserved for milestone 2.
+- Every other HTTP path is the WebSocket at `/ws`, the completions surface (adapter workstream), and the static client bundle route reserved for milestone 2. The pairing link's `/pair#<code>` is a path a client parses (the code never leaves the fragment); the environment serves no page there in milestone 1, so a plain `GET /pair` is a 404, and the web client of milestone 2 is where a page would live.
 
 ### The wire
 

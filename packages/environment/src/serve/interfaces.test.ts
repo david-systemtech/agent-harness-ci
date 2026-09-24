@@ -89,7 +89,7 @@ describe("the bind list", () => {
   });
 
   it("never binds the wildcard address, nor anything that is not an address", () => {
-    for (const address of ["0.0.0.0", "::", "0:0:0:0:0:0:0:0", "::0", "desk.local", ""]) {
+    for (const address of ["0.0.0.0", "::", "0:0:0:0:0:0:0:0", "::0", "::ffff:0.0.0.0", "::ffff:0:0", "0:0:0:0:0:ffff:0:0", "desk.local", ""]) {
       expect(() => bindList({ lanAddress: address, bindLan: true }), address).toThrow();
       expect(() => bindList({ tailscaleAddress: address }), address).toThrow();
     }

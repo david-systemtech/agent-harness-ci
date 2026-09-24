@@ -7,8 +7,8 @@ export * from "./envelope.js";
 export * from "./errors.js";
 export * from "./flags.js";
 export * from "./frames.js";
-export * from "./pairing.js";
 export * from "./notices.js";
+export * from "./pairing.js";
 export {
   METHOD_KINDS,
   commandParams,
