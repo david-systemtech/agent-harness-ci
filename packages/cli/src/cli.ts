@@ -11,11 +11,19 @@ import {
   type EnvironmentHandle,
   type EnvironmentOptions,
 } from "@agent-harness/environment";
+import { parseOptions, parsePort, UsageError } from "./args.js";
+import { service, type ServiceSeams } from "./service/verbs.js";
+import { status } from "./status.js";
 import { PairFailure, mintPairing, renderPairing, type Net, type PairArgs } from "./pair.js";
 
 const USAGE = [
   `usage: ${PRODUCT_NAME} --version`,
   `       ${PRODUCT_NAME} serve [--data-dir <path>] [--port <n>] [--name <name>]`,
+  `       ${PRODUCT_NAME} status [--port <n>] [--json]`,
+  `       ${PRODUCT_NAME} service install [--data-dir <path>] [--port <n>]`,
+  `       ${PRODUCT_NAME} service uninstall [--data-dir <path>]`,
+  `       ${PRODUCT_NAME} service start`,
+  `       ${PRODUCT_NAME} service status [--data-dir <path>] [--port <n>] [--json]`,
   `       ${PRODUCT_NAME} pair [--scopes <a,b>] [--ceiling <mode>] [--data-dir <path>] [--port <n>]`,
   "",
 ].join("\n");
@@ -30,6 +38,10 @@ export interface CliContext {
    * or environment variable reaches them, so nothing a user can type lifts
    * the root refusal.
    */
+  /** The fetch `status` and `service status` ask the discovery URL with; a seam for tests. */
+  readonly fetch?: typeof globalThis.fetch;
+  /** Seams into the service verbs for tests, under the same rule as `environment`. */
+  readonly service?: ServiceSeams;
   readonly environment?: Pick<EnvironmentOptions, "user" | "launcher" | "runs" | "interfaces">;
   /** The network `pair` uses; preset: the platform's `fetch` and `WebSocket`. */
   readonly net?: Net;
@@ -57,27 +69,12 @@ const processContext: CliContext = {
   stopRequested: signalled,
 };
 
-class UsageError extends Error {}
-
 const parseServe = (args: readonly string[]): Pick<EnvironmentOptions, "dataDir" | "port" | "name"> => {
-  let values: { "data-dir"?: string; port?: string; name?: string };
-  try {
-    ({ values } = parseArgs({
-      args: [...args],
-      options: { "data-dir": { type: "string" }, port: { type: "string" }, name: { type: "string" } },
-      strict: true,
-      allowPositionals: false,
-    }));
-  } catch (error) {
-    throw new UsageError(error instanceof Error ? error.message : String(error));
-  }
-  const { port } = values;
-  if (port !== undefined && !(/^\d+$/.test(port) && Number(port) <= 65535)) {
-    throw new UsageError(`--port takes a port number from 0 to 65535; got ${port}.`);
-  }
+  const values = parseOptions(args, { "data-dir": { type: "string" }, port: { type: "string" }, name: { type: "string" } });
+  const port = parsePort(values.port, 0);
   return {
     ...(values["data-dir"] !== undefined && { dataDir: values["data-dir"] }),
-    ...(port !== undefined && { port: Number(port) }),
+    ...(port !== undefined && { port }),
     ...(values.name !== undefined && { name: values.name }),
   };
 };
@@ -177,6 +174,16 @@ export const runCli = async (args: readonly string[], overrides: Partial<CliCont
       return 0;
     }
     if (args[0] === "serve") return await serve(args.slice(1), context);
+    if (args[0] === "status") return await status(args.slice(1), { stdout: context.stdout, fetch: context.fetch ?? fetch });
+    if (args[0] === "service") {
+      return await service(args.slice(1), {
+        stdout: context.stdout,
+        stderr: context.stderr,
+        fetch: context.fetch ?? fetch,
+        user: context.environment?.user ?? processUserCheck(),
+        seams: context.service ?? {},
+      });
+    }
     if (args[0] === "pair") return await pair(args.slice(1), context);
     throw new UsageError(args.length === 0 ? "No command given." : `Unknown command ${args[0]}.`);
   } catch (error) {
