@@ -7,6 +7,7 @@ import { createRuntimeWithSeams } from "./internal.js";
 import type { Observable } from "./observable.js";
 import type { Platform } from "./platform.js";
 import type { EnvironmentView } from "./projections/environments.js";
+import type { Requests } from "./requests.js";
 import type { SessionListView, SessionRow } from "./projections/session-list.js";
 import type { SessionHandle } from "./streams/session-handles.js";
 
@@ -52,6 +53,8 @@ export interface Runtime {
     /** Takes a notice off `projections.notices`, on this client only. */
     dismiss(noticeId: string): void;
   };
+  /** Direct requests, never queued: the queries and the `admin` calls. */
+  readonly requests: Requests;
   /**
    * The environment's time now, as this client reckons it from the server
    * time its last `hello` carried: what a snooze-until or a prompt's TTL is

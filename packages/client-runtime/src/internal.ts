@@ -4,6 +4,7 @@ import { createRegistry, type ConnectionSeams, type RegistryCaches } from "./con
 import { createNotices } from "./notices.js";
 import type { Platform } from "./platform.js";
 import { environmentsProjection } from "./projections/environments.js";
+import { createRequests } from "./requests.js";
 import { searchProjection } from "./projections/search.js";
 import { sessionListProjection } from "./projections/session-list.js";
 import type { Runtime } from "./runtime.js";
@@ -49,6 +50,8 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
   });
   let closing: Promise<void> | undefined;
   let started: Promise<void> | undefined;
+  const capability: Runtime["capability"] = (environmentId, name) => answerCapability(name, registry.record(environmentId), platform.shell);
+  const requests = createRequests({ clock: platform.clock, capability, request: registry.seams.request });
 
   const runtime: Runtime = {
     // A start that failed is not kept: the next call starts again.
@@ -79,7 +82,8 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
     subscriptions: { session: (environmentId, sessionId) => made.session(environmentId, sessionId) },
     notices: { dismiss: (id) => notices.dismiss(id) },
     environmentNow: (environmentId) => made.now(environmentId),
-    capability: (environmentId, name) => answerCapability(name, registry.record(environmentId), platform.shell),
+    requests,
+    capability,
     close() {
       closing ??= (async () => {
         registry.close();
