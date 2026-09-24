@@ -67,7 +67,8 @@ const install = async (args: readonly string[], context: ServiceContext): Promis
     });
   } catch (error) {
     if (installed) await platform.uninstall().catch(() => undefined);
-    removeEmptyDirectories(dataDirectories);
+    // Both the folders the platform made for its definition and the data-directory ones, as the success path records.
+    removeEmptyDirectories([...(installed?.createdDirectories ?? []), ...dataDirectories]);
     throw error;
   }
   context.stdout(
