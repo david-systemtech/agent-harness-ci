@@ -392,6 +392,22 @@ describe("canUseTool on the broker seam", () => {
     expect(context.asked).toEqual([]);
   });
 
+  it("refuses an answer for a prompt whose run has ended, saying so, and denies the tool call rather than letting it run", async () => {
+    const adapter = adapterWith();
+    const context = contextWith();
+    const input = runInput();
+    const run = adapter.createRun(input, context);
+    const query = await started();
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [input.prompt[0]?.messageId as string]));
+    await flush();
+    const asked = query.canUseTool("Bash", { command: "rm -rf build" }, { toolUseID: "toolu_rm" });
+    await vi.waitFor(() => expect(context.asked).toHaveLength(1));
+    (run as unknown as { end(end: { reason: "error"; error: { message: string; code: null } }): void }).end({ reason: "error", error: { message: "Ended elsewhere.", code: null } });
+    expect(() => run.answerPrompt?.("toolu_rm", { decision: "allow" })).toThrow(expect.objectContaining({ reason: "run_ended" }));
+    expect(await asked).toMatchObject({ behavior: "deny" });
+    expect(() => run.answerPrompt?.("toolu_unknown", { decision: "allow" })).toThrow(expect.objectContaining({ reason: "not_open" }));
+  });
+
   it("denies at once when the provider aborts the request", async () => {
     const adapter = adapterWith();
     adapter.createRun(runInput(), contextWith());

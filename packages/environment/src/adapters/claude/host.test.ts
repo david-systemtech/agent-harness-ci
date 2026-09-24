@@ -262,6 +262,18 @@ describe("a Claude run through the adapter host", () => {
     expect(state()).toBe("running");
   });
 
+  it("refuses an answer conflict when the prompt is not open, or its run has ended, so the caller can say so", async () => {
+    const t = await setup({ request: () => new Promise<PromptDecision>(() => undefined) });
+    const { runId, messageId } = startRun(t);
+    const query = await runQuery(t, 1);
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [messageId]));
+    await vi.waitFor(() => expect(eventsOf(t).map((event) => event.type)).toContain("session.provider-linked"));
+    expect(() => t.host.answerPrompt(runId, "toolu_unknown", { decision: "allow" })).toThrow(expect.objectContaining({ code: "conflict", data: expect.objectContaining({ reason: "prompt_not_open" }) }));
+    query.emit(sdk.result(PROVIDER_SESSION));
+    await vi.waitFor(() => expect(eventsOf(t).map((event) => event.type)).toContain("run.ended"));
+    expect(() => t.host.answerPrompt(runId, "toolu_edit", { decision: "allow" })).toThrow(expect.objectContaining({ code: "conflict", data: expect.objectContaining({ reason: "run_ended" }) }));
+  });
+
   it("unparks the run when the provider aborts the request it parked on", async () => {
     const t = await setup({ request: () => new Promise<PromptDecision>(() => undefined) });
     const { runId, messageId } = startRun(t);

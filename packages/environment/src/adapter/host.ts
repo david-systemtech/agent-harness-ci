@@ -50,7 +50,7 @@ import type {
 } from "./contract.js";
 import type { AttachmentStage } from "./attachment-stage.js";
 import { createProcessPool } from "./pool.js";
-import type { PromptDecision } from "./contract.js";
+import { PromptClosed, type PromptDecision } from "./contract.js";
 import { createAdapterRegistry, type AdapterRegistry } from "./registry.js";
 import { createScopedAppend, type ScopedAppend } from "./scoped-append.js";
 import {
@@ -190,7 +190,10 @@ export interface AdapterHost {
   /**
    * Answers a prompt the run raised through the broker: handed to its
    * adapter (`interactivePrompts`), and the run no longer parked on it. The
-   * way every answer a client gives reaches a run (#130).
+   * way every answer a client gives reaches a run (#130). Refused `conflict`
+   * with reason `run_ended` when the run is no longer live (a prompt kept
+   * open across its end is #130's to deliver another way), and
+   * `prompt_not_open` when the adapter holds no such prompt open.
    */
   answerPrompt(runId: string, promptId: string, decision: PromptDecision): void;
   /** Plan usage for an account, with its identity (`planUsage`). */
@@ -1173,10 +1176,20 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     answerPrompt(runId, promptId, decision) {
       const entry = byRunId(runId);
       const run = entry?.run;
-      if (entry === undefined || run === undefined) return;
+      const closed = (reason: "run_ended" | "prompt_not_open", message: string): ContractError =>
+        new ContractError({ code: "conflict", message, data: { reason, runId, promptId } });
+      if (entry === undefined || run === undefined) throw closed("run_ended", `Run ${runId} has ended, so prompt ${promptId} can no longer be answered through it.`);
       const answer = capability(entry.descriptor, "interactivePrompts", run.answerPrompt, "answer a prompt", "answerPrompt");
+      // Answered either way: a prompt the adapter no longer holds open parks nothing.
       answered(entry, promptId);
-      safely(() => answer.call(run, promptId, decision), (error) => console.error(`Answering prompt ${promptId} of run ${runId} failed:`, error));
+      let answering: unknown;
+      try {
+        answering = answer.call(run, promptId, decision);
+      } catch (error) {
+        if (error instanceof PromptClosed) throw closed(error.reason === "run_ended" ? "run_ended" : "prompt_not_open", error.message);
+        throw error;
+      }
+      if (answering instanceof Promise) answering.catch((error: unknown) => console.error(`Answering prompt ${promptId} of run ${runId} failed:`, error));
     },
     stopTask(runId, taskId) {
       const entry = byRunId(runId);

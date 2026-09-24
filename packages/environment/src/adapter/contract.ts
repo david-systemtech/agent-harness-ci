@@ -184,6 +184,23 @@ export interface PromptRequest {
   readonly signal?: AbortSignal;
 }
 
+/**
+ * What an adapter's `answerPrompt` throws when the answer cannot reach a
+ * tool call: `run_ended`, the run the prompt belongs to has ended (the call
+ * is denied, never allowed), or `not_open`, the adapter has no such prompt
+ * open. The host refuses the answer `conflict` with the reason, so whoever
+ * answered can say so (#130).
+ */
+export class PromptClosed extends Error {
+  constructor(
+    message: string,
+    readonly reason: "run_ended" | "not_open",
+  ) {
+    super(message);
+    this.name = "PromptClosed";
+  }
+}
+
 /** The answer to a prompt: allowed or denied, with a message for the model. */
 export interface PromptDecision {
   readonly decision: "allow" | "deny";
@@ -267,7 +284,7 @@ export interface AdapterRun {
    * takes back into the environment's queue (ADR 0022).
    */
   interrupt(): Promise<{ readonly stillQueued: readonly string[] }>;
-  /** Answers a parked prompt (`interactivePrompts`). */
+  /** Answers a parked prompt (`interactivePrompts`); throws `PromptClosed` when the answer can reach no tool call. */
   answerPrompt?(promptId: string, decision: PromptDecision): void | Promise<void>;
   /** Stops one piece of delegated work (`subagents`). */
   stopTask?(taskId: string): void | Promise<void>;

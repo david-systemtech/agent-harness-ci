@@ -14,7 +14,7 @@ import {
   type SpawnedProcess,
 } from "@anthropic-ai/claude-agent-sdk";
 import type { Mode } from "@agent-harness/contracts";
-import type { PromptDecision, PromptKind, PromptMessage, RunContext, RunEnd, RunInput } from "../../adapter/contract.js";
+import { PromptClosed, type PromptDecision, type PromptKind, type PromptMessage, type RunContext, type RunEnd, type RunInput } from "../../adapter/contract.js";
 import type { Clock, Timer } from "../../serve/clock.js";
 import { AsyncQueue } from "./async-queue.js";
 import type { ConfigDirQueue } from "./config-dir-queue.js";
@@ -119,6 +119,7 @@ const PROMPT_KINDS: Readonly<Record<string, PromptKind>> = { AskUserQuestion: "q
 
 export const DISPOSED_DENY_MESSAGE = "The run was stopped before this could be answered.";
 export const ABORTED_DENY_MESSAGE = "The provider aborted this tool call.";
+export const ENDED_DENY_MESSAGE = "The run this tool call belonged to has ended.";
 const DEFAULT_DENY_MESSAGE = "The request was denied.";
 
 type Record_ = Record<string, unknown>;
@@ -1069,7 +1070,12 @@ export class ClaudeProcess implements TurnControl {
 
   answerPrompt(promptId: string, decision: PromptDecision): void {
     const parked = this.#permissions.get(promptId);
-    if (parked === undefined) throw new Error(`No prompt ${promptId} is parked on this run.`);
+    if (parked === undefined) throw new PromptClosed(`No prompt ${promptId} is open on this Claude process.`, "not_open");
+    if (parked.turn.ended || this.closed) {
+      // The run has ended (a transport failure, an end from outside): its tool call must not run, and nothing will ask again.
+      parked.answer({ decision: "deny", message: ENDED_DENY_MESSAGE });
+      throw new PromptClosed(`The run prompt ${promptId} belongs to has ended; the answer reaches no tool call.`, "run_ended");
+    }
     parked.answer(decision);
   }
 

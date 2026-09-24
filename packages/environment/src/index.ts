@@ -43,6 +43,7 @@ export { groupMethods, type GroupMethodsOptions } from "./sessions/group-methods
 export { acceptAnyRunParameters, type RunParameters, type RunParametersCheck } from "./sessions/run-parameters.js";
 export {
   ADAPTER_EVENT_TYPES,
+  PromptClosed,
   type AccountRef,
   type Adapter,
   type AdapterCredentialSpec,
