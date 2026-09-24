@@ -201,8 +201,14 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
     return writes;
   };
 
+  // Only paired entries: `writePairedConnections` filters by kind too, so a local entry never reaches the document either way.
   const savePaired = () =>
-    enqueue(() => platform.documents.set(PAIRED_CONNECTIONS_DOCUMENT, writePairedConnections([...entries].map(([id, entry]) => [id, entry.saved]))));
+    enqueue(() =>
+      platform.documents.set(
+        PAIRED_CONNECTIONS_DOCUMENT,
+        writePairedConnections([...entries].filter(([, entry]) => entry.saved.kind === "paired").map(([id, entry]) => [id, entry.saved])),
+      ),
+    );
 
   /** The local environment's identity, so it stays listed while its service is down. Never its token or client session. */
   const rememberLocal = (environmentId: string, saved: SavedConnection) =>
@@ -481,6 +487,33 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
     await enterSequence(id, "first");
   };
 
+  /**
+   * Reads the saved connections and preferences, once: `start` and every
+   * mutating call await it, so a call before `start` never saves an empty
+   * view over what was saved, and a `start` retried after a failure keeps its
+   * entries (whose sockets its attempts drop) instead of orphaning them.
+   * A read that fails is read again next time.
+   */
+  let loading: Promise<{ readonly remembered: unknown }> | undefined;
+  // Once loaded, a call goes on without awaiting, so what it does at once (a retry's `connecting`) is seen at once.
+  let loaded = false;
+  const ensureLoaded = () =>
+    (loading ??= (async () => {
+      const [paired, remembered, stored] = await Promise.all([
+        platform.documents.get(PAIRED_CONNECTIONS_DOCUMENT),
+        platform.documents.get(LOCAL_ENVIRONMENT_DOCUMENT),
+        Promise.all(PREFERENCE_KEYS.map(async (key) => [key, await platform.documents.get(key)] as const)),
+      ]);
+      prefs.set(readPreferences(Object.fromEntries(stored) as Record<keyof ClientPreferences, unknown>));
+      for (const [id, saved] of readPairedConnections(paired)) if (!entries.has(id)) entries.set(id, newEntry(id, saved));
+      publish();
+      loaded = true;
+      return { remembered };
+    })().catch((error: unknown) => {
+      loading = undefined;
+      throw error;
+    }));
+
   const registry: Registry = {
     list,
     preferences: prefs,
@@ -512,17 +545,7 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
     },
 
     async start() {
-      const [paired, remembered, stored] = await Promise.all([
-        platform.documents.get(PAIRED_CONNECTIONS_DOCUMENT),
-        platform.documents.get(LOCAL_ENVIRONMENT_DOCUMENT),
-        Promise.all(PREFERENCE_KEYS.map(async (key) => [key, await platform.documents.get(key)] as const)),
-      ]);
-      prefs.set(readPreferences(Object.fromEntries(stored) as Record<keyof ClientPreferences, unknown>));
-      // A start after one that failed begins again from what was saved.
-      for (const entry of entries.values()) entry.runner.stop();
-      entries.clear();
-      for (const [id, saved] of readPairedConnections(paired)) entries.set(id, newEntry(id, saved));
-      publish();
+      const { remembered } = await ensureLoaded();
 
       if (readsGrant(platform.grant, platform.client)) {
         const exchange = await exchangeGrant({ fetch: platform.fetch, grant: platform.grant, client: platform.client, protocolVersion });
@@ -557,6 +580,7 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
     },
 
     async add(input, options = {}) {
+      if (!loaded) await ensureLoaded();
       const parsed = parsePairingInput(input);
       if (!parsed.ok) return { status: "failed", failure: parsed.failure };
       const { origin, code } = parsed;
@@ -646,6 +670,7 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
     },
 
     async setAddress(environmentId, address) {
+      if (!loaded) await ensureLoaded();
       const entry = entryOf(environmentId);
       const origin = parseAddress(address);
       if (!origin) throw new RangeError(`"${address}" is not an address.`);
@@ -655,6 +680,7 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
     },
 
     async setEnabled(environmentId, enabled) {
+      if (!loaded) await ensureLoaded();
       const entry = entryOf(environmentId);
       await setPreferences((p) => ({ ...p, "environments.enabled": { ...p["environments.enabled"], [environmentId]: enabled } }));
       if (!enabled) return entry.runner.feed({ type: "disable" });
@@ -663,6 +689,7 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
     },
 
     async setOrder(environmentIds) {
+      if (!loaded) await ensureLoaded();
       const known = new Set(entries.keys());
       const given = new Set(environmentIds);
       if (given.size !== environmentIds.length || given.size !== known.size || [...given].some((id) => !known.has(id))) {
@@ -677,11 +704,13 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
     },
 
     async setLastUsed(environmentId) {
+      if (!loaded) await ensureLoaded();
       entryOf(environmentId);
       await setPreferences((p) => ({ ...p, "environments.lastUsed": environmentId }));
     },
 
     async remove(environmentId) {
+      if (!loaded) await ensureLoaded();
       const entry = entryOf(environmentId);
       if (entry.saved.kind === "local") {
         throw new Error("The local environment's connection comes from its bootstrap grant on every start; disable it instead.");
@@ -712,12 +741,14 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
     },
 
     async retryNow(environmentId) {
+      if (!loaded) await ensureLoaded();
       const entry = entryOf(environmentId);
       entry.runner.feed({ type: "retryNow" });
       await entry.runner.settled();
     },
 
     async startService(environmentId) {
+      if (!loaded) await ensureLoaded();
       const entry = entryOf(environmentId);
       if (entry.saved.kind !== "local") throw new Error(`${entry.saved.descriptor.name} is not this machine's local environment: its service is started on its own machine.`);
       const service = platform.shell?.service;
