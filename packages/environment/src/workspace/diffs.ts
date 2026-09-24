@@ -1,6 +1,6 @@
 import { copyFile, mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { isAbsolute, join, normalize, relative, resolve, sep } from "node:path";
 import { ContractError, DIFF_CAP, type SessionDiffChange, type SessionDiffFile, type TranscriptItem } from "@agent-harness/contracts";
 import { runGit } from "./git.js";
 
@@ -243,7 +243,12 @@ const inside = (root: string, file: string): string | undefined => {
  * workspace), so both are roots.
  */
 const workspaceRelative = (roots: readonly string[], file: string): { path: string; inside: boolean } => {
-  if (!isAbsolute(file)) return { path: file.split(sep).join("/"), inside: true };
+  if (!isAbsolute(file)) {
+    // A relative name is the workspace's unless it climbs out of it: `..` is a way out, `..x` a name inside, as for an absolute path.
+    const normalised = normalize(file);
+    const escapes = normalised === ".." || normalised.startsWith(`..${sep}`);
+    return { path: file.split(sep).join("/"), inside: !escapes };
+  }
   for (const root of roots) {
     const inner = inside(root, file);
     if (inner !== undefined) return { path: inner.split(sep).join("/"), inside: true };

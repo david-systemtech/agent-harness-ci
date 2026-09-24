@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 import { baseEnvironment } from "../terminals/shell.js";
 
 /**
@@ -105,8 +106,9 @@ export const runGit = (cwd: string, args: readonly string[], options: GitOptions
       chunks.push(chunk);
       kept += chunk.length;
     });
+    // A spawn that fails ENOENT is git missing from the PATH, unless the working directory is what is missing.
     child.on("error", (error: NodeJS.ErrnoException) =>
-      finish({ ok: false, stdout: Buffer.alloc(0), truncated: false, missing: error.code === "ENOENT", stderr: error.message }),
+      finish({ ok: false, stdout: Buffer.alloc(0), truncated: false, missing: error.code === "ENOENT" && existsSync(cwd), stderr: error.message }),
     );
     child.on("close", (code) =>
       finish({ ok: code === 0 || (truncated && kept > 0), stdout: Buffer.concat(chunks), truncated, missing: false, stderr: stderr() }),

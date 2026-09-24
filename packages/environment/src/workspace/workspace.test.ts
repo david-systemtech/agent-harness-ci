@@ -8,6 +8,7 @@ import { end, fakeAdapter, say, type Script } from "../../test/fake-adapter.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { deleteSession } from "../../test/sessions.js";
 import { refusedWith, sessionIn } from "../../test/terminals.js";
+import { runGit } from "./git.js";
 import type { WireClient } from "../../test/wire-client.js";
 
 /**
@@ -218,6 +219,15 @@ describe("git on a workspace", () => {
   });
 });
 
+describe("runGit", () => {
+  it("does not read a working directory that is gone as git missing from the PATH", async () => {
+    const gone = join(tempDir("agent-harness-gone-"), "gone");
+    const answer = await runGit(gone, ["--version"], { timeoutMs: 5_000, maxBytes: 1024 });
+    expect(answer.ok).toBe(false);
+    expect(answer.missing).toBe(false);
+  });
+});
+
 describe("diffs.workingTree", () => {
   it("writes nothing into the repository's object store: only untracked files go into the scratch index", async () => {
     const { client, root, sessionId } = await setUp();
@@ -364,11 +374,18 @@ describe("diffs.session", () => {
         { name: "Write", input: { file_path: join(base, "linked", "via-link.txt"), content: "a\n" } },
         { name: "Write", input: { file_path: join(base, "real", "via-real.txt"), content: "b\n" } },
         { name: "Write", input: { file_path: join(base, "linked", "..x", "odd.txt"), content: "c\n" } },
+        { name: "Write", input: { file_path: "../elsewhere/up.txt", content: "d\n" } },
+        { name: "Write", input: { file_path: "..y/in.txt", content: "e\n" } },
       ]),
     );
     await runToEnd(t, client, sessionId);
 
-    expect((await client.request("diffs.session", { sessionId })).files.map((file) => file.path)).toEqual(["via-link.txt", "via-real.txt", "..x/odd.txt"]);
+    const files = (await client.request("diffs.session", { sessionId })).files;
+    expect(files.map((file) => file.path)).toEqual(["via-link.txt", "via-real.txt", "..x/odd.txt", "../elsewhere/up.txt", "..y/in.txt"]);
+    // A relative name that climbs out of the workspace is outside it, as an absolute one is, so its header carries no a/ and b/; `..y` is a name inside.
+    const headerOf = (index: number) => files[index]?.diff.split("\n").find((line) => line.startsWith("--- "));
+    expect(headerOf(3)).toBe("--- ../elsewhere/up.txt");
+    expect(headerOf(4)).toBe("--- a/..y/in.txt");
   });
 
   it("folds the session's file-editing tool calls that ended ok into a diff per file, in the order first changed, with the calls behind each", async () => {
