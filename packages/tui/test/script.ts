@@ -7,6 +7,7 @@ import {
   PAIR_PATH,
   SCOPES,
   WIRE_PATH,
+  registry,
   type ByeReason,
   type CapabilityFlags,
   type DiscoveryDocument,
@@ -150,9 +151,12 @@ const groupOf = (clock: ManualClock, partial: Partial<Group>, index: number): Gr
   });
 };
 
+/** A client session row's schema: contracts exports none by name, so it is read off `access.sessions.list`'s result. */
+const ClientSessionRowSchema = registry["access.sessions.list"].result.shape.sessions.element;
+
 const clientSessionOf = (clock: ManualClock, partial: Partial<ClientSessionRow>, index: number): ClientSessionRow => {
   const at = clock.now().toISOString();
-  return {
+  return checked(ClientSessionRowSchema, {
     id: `0199cc00-0000-7000-8000-${String(index + 1).padStart(12, "0")}`,
     kind: "desktop",
     label: `client ${index + 1}`,
@@ -164,7 +168,7 @@ const clientSessionOf = (clock: ManualClock, partial: Partial<ClientSessionRow>,
     ceiling: Ceiling.parse("bypassPermissions"),
     local: false,
     ...partial,
-  };
+  });
 };
 
 const PAIRING_REFUSALS: Readonly<Record<ScriptedPairingRefusal, { readonly status: number; readonly code: string }>> = {
