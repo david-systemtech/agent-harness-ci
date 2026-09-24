@@ -78,7 +78,31 @@ export interface Subscriptions {
   count(): number;
 }
 
+/** How much a subscription holds back: events, and their bytes as the replay bound measures them. */
+interface Measure {
+  count: number;
+  bytes: number;
+}
+
+/** What every socket's subscriptions share. */
+interface Shared {
+  readonly log: EventLog;
+  readonly hooks: SubscriptionHooks;
+  /** Every open subscription, for the count. */
+  readonly open: Set<Subscription>;
+}
+
+/** One socket's side: where its frames go, and the subscriptions it holds by id. */
+interface Channel {
+  readonly shared: Shared;
+  readonly ws: WebSocket;
+  readonly outlet: Outlet;
+  readonly subscriptions: Map<string, Subscription>;
+  minted: number;
+}
+
 interface Subscription {
+  readonly channel: Channel;
   readonly id: string;
   /** The request `subscribed` answers. */
   readonly requestId: string;
@@ -88,14 +112,33 @@ interface Subscription {
   announced: boolean;
   /** The sequence the client is synchronized to: every event of the stream at or below it is sent. */
   sent: number;
-  /** Events the live feed heard while catching up, released after `synchronized`. */
+  /** Events the live feed heard while catching up, released after `synchronized`, and their measure. */
   heard: EventEnvelope[];
-  heardBytes: number;
-  /** Live frames sent and not yet flushed, and their bytes: how far behind the client is. */
-  pending: number;
-  pendingBytes: number;
+  heardMeasure: Measure;
+  /** Live events sent and not yet flushed: how far behind the client is. */
+  pending: Measure;
   detach(): void;
 }
+
+/**
+ * The bytes an event counts for against the bound: its payload and metadata
+ * as JSON, as the replay bound measures them in SQL.
+ */
+const sizeOf = (event: EventEnvelope): number =>
+  Buffer.byteLength(JSON.stringify(event.payload)) + Buffer.byteLength(JSON.stringify(event.metadata));
+
+/** `measure` with one more event of `bytes`. */
+const plus = (measure: Measure, bytes: number): Measure => ({ count: measure.count + 1, bytes: measure.bytes + bytes });
+
+/**
+ * Whether `measure` is past the replay bound (1,000 events or 8 MiB). A lone
+ * event never is, however large, so every event can be sent on its own.
+ */
+const passesBound = (measure: Measure): boolean =>
+  measure.count > 1 && (measure.count > REPLAY_BOUND.events || measure.bytes > REPLAY_BOUND.bytes);
+
+const sameStream = (event: EventEnvelope, stream: StreamRef): boolean =>
+  event.streamKind === stream.kind && event.streamId === stream.id;
 
 /** The socket's own outlet: `ws` calls back once a frame is written to the network, or has failed to be. */
 const socketOutlet = (ws: WebSocket): Outlet => ({
@@ -105,166 +148,159 @@ const socketOutlet = (ws: WebSocket): Outlet => ({
   },
 });
 
-const sameStream = (event: EventEnvelope, stream: StreamRef): boolean =>
-  event.streamKind === stream.kind && event.streamId === stream.id;
+const sendFrame = (channel: Channel, frame: Frame): void => channel.outlet.send(encodeFrame(frame), () => undefined);
+
+const eventFrame = (subscription: Subscription, event: EventEnvelope): string =>
+  encodeFrame({ type: "event", subscription: subscription.id, sequence: event.sequence, event: toWireEnvelope(event) });
+
+const announce = (subscription: Subscription): void => {
+  sendFrame(subscription.channel, { type: "subscribed", id: subscription.requestId, subscription: subscription.id });
+  subscription.announced = true;
+};
+
+/** Stops feeding a subscription and forgets it, saying nothing. */
+const drop = (subscription: Subscription): void => {
+  subscription.phase = "ended";
+  subscription.detach();
+  subscription.heard = [];
+  subscription.channel.subscriptions.delete(subscription.id);
+  subscription.channel.shared.open.delete(subscription);
+};
 
 /**
- * The environment's subscriptions over `log`. A live subscription falls too
- * far behind when the frames it has sent and the socket has not flushed would
- * pass the replay bound (1,000 events or 8 MiB, the same bound replay keeps):
- * it is ended with `overflow`, and the client resubscribes from its cursor.
- * Catch-up's own frames do not count, since the bound already caps them; the
- * events heard while catching up count against the same bound.
+ * Ends a subscription and tells the client why, if it can still hear. One
+ * that overflowed before it was announced is announced first, so its request
+ * is answered and the client resubscribes; one that was not announced when
+ * its socket closes or is revoked is only dropped.
  */
-export const createSubscriptions = (log: EventLog, hooks: SubscriptionHooks = {}): Subscriptions => {
-  const open = new Set<Subscription>();
+const end = (subscription: Subscription, reason: EndReason): void => {
+  if (subscription.phase === "ended") return;
+  drop(subscription);
+  const { channel } = subscription;
+  if (channel.ws.readyState !== channel.ws.OPEN) return;
+  if (!subscription.announced) {
+    if (reason !== "overflow") return;
+    announce(subscription);
+  }
+  sendFrame(channel, { type: "end", subscription: subscription.id, reason });
+};
 
-  const forSocket = (ws: WebSocket): SocketSubscriptions => {
-    const outlet = hooks.outlet ? hooks.outlet(socketOutlet(ws)) : socketOutlet(ws);
-    const mine = new Map<string, Subscription>();
-    let minted = 0;
+/**
+ * Sends one live event, once and in order. A client whose unflushed live
+ * events would pass the replay bound has fallen too far behind: it is ended
+ * with `overflow`, and resubscribes from its cursor.
+ */
+const deliver = (subscription: Subscription, event: EventEnvelope): void => {
+  if (event.sequence <= subscription.sent) return;
+  const bytes = sizeOf(event);
+  const pending = plus(subscription.pending, bytes);
+  if (passesBound(pending)) return end(subscription, "overflow");
+  subscription.pending = pending;
+  subscription.sent = event.sequence;
+  subscription.channel.outlet.send(eventFrame(subscription, event), () => {
+    subscription.pending.count -= 1;
+    subscription.pending.bytes -= bytes;
+  });
+};
 
-    const send = (frame: Frame, flushed: () => void = () => undefined): void => outlet.send(encodeFrame(frame), flushed);
+/** The live feed: delivered once live, kept (against the same bound) while catching up. */
+const hear = (subscription: Subscription, event: EventEnvelope): void => {
+  if (subscription.phase === "ended" || !sameStream(event, subscription.stream)) return;
+  if (subscription.phase === "live") return deliver(subscription, event);
+  const heard = plus(subscription.heardMeasure, sizeOf(event));
+  if (passesBound(heard)) return end(subscription, "overflow");
+  subscription.heard.push(event);
+  subscription.heardMeasure = heard;
+};
 
-    const announce = (subscription: Subscription): void => {
-      send({ type: "subscribed", id: subscription.requestId, subscription: subscription.id });
-      subscription.announced = true;
-    };
+/**
+ * Reads what the client missed and sends it, with `subscribed` first and
+ * `synchronized` last, then goes live with what the feed heard meanwhile.
+ * Synchronous from the head read to the last frame, so no append falls
+ * between them: everything appended since the feed was attached was heard,
+ * and what the read already sent is dropped from it by sequence.
+ */
+const catchUp = (subscription: Subscription, opening: Opening): void => {
+  const { log } = subscription.channel.shared;
+  const head = log.head();
+  const frames: string[] = [];
+  let synchronizedAt = head;
+  // A cursor past the head is not this log's (its data directory was replaced): the snapshot resets the client.
+  const replayable = opening.afterSequence <= head && log.replayBound(subscription.stream, opening.afterSequence).withinBound;
+  if (replayable) {
+    for (const event of log.readStream(subscription.stream, opening.afterSequence)) {
+      frames.push(eventFrame(subscription, event));
+      synchronizedAt = Math.max(synchronizedAt, event.sequence);
+    }
+  } else {
+    // A read model that fails, or does not match its schema, throws here: before `subscribed`, for dispatch to answer.
+    const payload = opening.payloadSchema.parse(opening.source.snapshot()) as Record<string, unknown>;
+    frames.push(encodeFrame({ type: "snapshot", subscription: subscription.id, sequence: head, payload }));
+  }
 
-    /** Stops feeding a subscription and forgets it, saying nothing. */
-    const drop = (subscription: Subscription): void => {
-      subscription.phase = "ended";
-      subscription.detach();
-      subscription.heard = [];
-      mine.delete(subscription.id);
-      open.delete(subscription);
-    };
+  const { channel } = subscription;
+  announce(subscription);
+  for (const text of frames) channel.outlet.send(text, () => undefined);
+  subscription.sent = synchronizedAt;
+  sendFrame(channel, { type: "synchronized", subscription: subscription.id, sequence: synchronizedAt });
+  subscription.phase = "live";
+  const heard = subscription.heard;
+  subscription.heard = [];
+  subscription.heardMeasure = { count: 0, bytes: 0 };
+  for (const event of heard) deliver(subscription, event);
+};
 
-    /**
-     * Ends a subscription and tells the client why, if it can still hear. One
-     * that overflowed before it was announced is announced first, so its
-     * request is answered and the client resubscribes; one that was not
-     * announced when its socket closes or is revoked is only dropped.
-     */
-    const end = (subscription: Subscription, reason: EndReason): void => {
-      if (subscription.phase === "ended") return;
-      drop(subscription);
-      if (ws.readyState !== ws.OPEN) return;
-      if (!subscription.announced) {
-        if (reason !== "overflow") return;
-        announce(subscription);
-      }
-      send({ type: "end", subscription: subscription.id, reason });
-    };
-
-    const eventFrame = (subscription: Subscription, event: EventEnvelope): string =>
-      encodeFrame({ type: "event", subscription: subscription.id, sequence: event.sequence, event: toWireEnvelope(event) });
-
-    /** Whether one more frame of `bytes` would put a subscription with `count` frames of `total` bytes past the bound. */
-    const passesBound = (count: number, total: number, bytes: number): boolean =>
-      count > 0 && (count + 1 > REPLAY_BOUND.events || total + bytes > REPLAY_BOUND.bytes);
-
-    /** Sends one live event, once, in order; a client too far behind is ended instead. */
-    const deliver = (subscription: Subscription, event: EventEnvelope): void => {
-      if (event.sequence <= subscription.sent) return;
-      const text = eventFrame(subscription, event);
-      const bytes = Buffer.byteLength(text);
-      if (passesBound(subscription.pending, subscription.pendingBytes, bytes)) return end(subscription, "overflow");
-      subscription.pending += 1;
-      subscription.pendingBytes += bytes;
-      subscription.sent = event.sequence;
-      outlet.send(text, () => {
-        subscription.pending -= 1;
-        subscription.pendingBytes -= bytes;
-      });
-    };
-
-    const hear = (subscription: Subscription, event: EventEnvelope): void => {
-      if (subscription.phase === "ended" || !sameStream(event, subscription.stream)) return;
-      if (subscription.phase === "live") return deliver(subscription, event);
-      const bytes = Buffer.byteLength(JSON.stringify(event.payload)) + Buffer.byteLength(JSON.stringify(event.metadata));
-      if (passesBound(subscription.heard.length, subscription.heardBytes, bytes)) return end(subscription, "overflow");
-      subscription.heard.push(event);
-      subscription.heardBytes += bytes;
-    };
-
-    /**
-     * Reads what the client missed and sends it, with `subscribed` first and
-     * `synchronized` last. Synchronous from the head read to the last frame,
-     * so no append falls between them; everything appended since the live feed
-     * was attached was heard, and is released after, less what was read.
-     */
-    const catchUp = (subscription: Subscription, opening: Opening): void => {
-      const head = log.head();
-      const frames: string[] = [];
-      let synchronizedAt = head;
-      // A cursor past the head is not this log's (its data directory was replaced): the snapshot resets the client.
-      const replayable = opening.afterSequence <= head && log.replayBound(subscription.stream, opening.afterSequence).withinBound;
-      if (replayable) {
-        for (const event of log.readStream(subscription.stream, opening.afterSequence)) {
-          frames.push(eventFrame(subscription, event));
-          synchronizedAt = Math.max(synchronizedAt, event.sequence);
-        }
-      } else {
-        // A read model that fails, or does not match its schema, throws here: before `subscribed`, for dispatch to answer.
-        const payload = opening.payloadSchema.parse(opening.source.snapshot()) as Record<string, unknown>;
-        frames.push(encodeFrame({ type: "snapshot", subscription: subscription.id, sequence: head, payload }));
-        synchronizedAt = head;
-      }
-
-      announce(subscription);
-      for (const text of frames) outlet.send(text, () => undefined);
-      subscription.sent = synchronizedAt;
-      send({ type: "synchronized", subscription: subscription.id, sequence: synchronizedAt });
-      subscription.phase = "live";
-      const heard = subscription.heard;
-      subscription.heard = [];
-      subscription.heardBytes = 0;
-      for (const event of heard) deliver(subscription, event);
-    };
-
-    return {
-      async open(opening) {
-        // The socket went while dispatch awaited the handler: its subscriptions were ended, and this one never starts.
-        if (ws.readyState !== ws.OPEN) return;
-        const subscription: Subscription = {
-          id: `sub-${++minted}`,
-          requestId: opening.requestId,
-          stream: opening.source.stream,
-          phase: "catching-up",
-          announced: false,
-          sent: opening.afterSequence,
-          heard: [],
-          heardBytes: 0,
-          pending: 0,
-          pendingBytes: 0,
-          detach: () => undefined,
-        };
-        mine.set(subscription.id, subscription);
-        open.add(subscription);
-        // The live feed first: nothing appended from here on is missed, whenever catch-up reads.
-        subscription.detach = log.subscribe((event) => hear(subscription, event));
-        try {
-          await hooks.beforeCatchUp?.({ id: subscription.id, stream: subscription.stream });
-          // Ended while held (the socket closed, or the feed overflowed): nothing more to send.
-          if (subscription.phase !== "catching-up") return;
-          catchUp(subscription, opening);
-        } catch (error) {
-          drop(subscription);
-          throw error;
-        }
-      },
-
-      unsubscribe(id) {
-        const subscription = mine.get(id);
-        if (subscription?.announced) end(subscription, "unsubscribed");
-      },
-
-      endAll(reason) {
-        for (const subscription of [...mine.values()]) end(subscription, reason);
-      },
-    };
+/** Opens a subscription on `channel`: the live feed first, then the (possibly held) catch-up. */
+const openSubscription = async (channel: Channel, opening: Opening): Promise<void> => {
+  // The socket went while dispatch awaited the handler: its subscriptions were ended, and this one never starts.
+  if (channel.ws.readyState !== channel.ws.OPEN) return;
+  const { shared } = channel;
+  const subscription: Subscription = {
+    channel,
+    id: `sub-${++channel.minted}`,
+    requestId: opening.requestId,
+    stream: opening.source.stream,
+    phase: "catching-up",
+    announced: false,
+    sent: opening.afterSequence,
+    heard: [],
+    heardMeasure: { count: 0, bytes: 0 },
+    pending: { count: 0, bytes: 0 },
+    detach: () => undefined,
   };
+  channel.subscriptions.set(subscription.id, subscription);
+  shared.open.add(subscription);
+  // The live feed first: nothing appended from here on is missed, whenever catch-up reads.
+  subscription.detach = shared.log.subscribe((event) => hear(subscription, event));
+  try {
+    await shared.hooks.beforeCatchUp?.({ id: subscription.id, stream: subscription.stream });
+    // Ended while held (the socket closed, or the feed overflowed): nothing more to send.
+    if (subscription.phase !== "catching-up") return;
+    catchUp(subscription, opening);
+  } catch (error) {
+    drop(subscription);
+    throw error;
+  }
+};
 
-  return { forSocket, count: () => open.size };
+/** The environment's subscriptions over `log`. */
+export const createSubscriptions = (log: EventLog, hooks: SubscriptionHooks = {}): Subscriptions => {
+  const shared: Shared = { log, hooks, open: new Set() };
+  return {
+    forSocket(ws) {
+      const outlet = hooks.outlet ? hooks.outlet(socketOutlet(ws)) : socketOutlet(ws);
+      const channel: Channel = { shared, ws, outlet, subscriptions: new Map(), minted: 0 };
+      return {
+        open: (opening) => openSubscription(channel, opening),
+        unsubscribe(id) {
+          const subscription = channel.subscriptions.get(id);
+          if (subscription?.announced) end(subscription, "unsubscribed");
+        },
+        endAll(reason) {
+          for (const subscription of [...channel.subscriptions.values()]) end(subscription, reason);
+        },
+      };
+    },
+    count: () => shared.open.size,
+  };
 };

@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import type { EventInput, StreamRef } from "./envelope.js";
+import type { EventInput, JsonObject, StreamRef } from "./envelope.js";
 import { openEventLog, REPLAY_BOUND, type EventLog, type Projector } from "./event-log.js";
 import { MIGRATIONS } from "./migrations.js";
 import { loadSqlite } from "./sqlite.js";
@@ -116,13 +116,13 @@ describe("reading rows", () => {
           tables: { titles: "CREATE TABLE titles (stream_id TEXT PRIMARY KEY, title TEXT NOT NULL)" },
           apply: (event, db) => {
             if (event.type === "title.set") {
-              db.run("INSERT OR REPLACE INTO titles VALUES (?, ?)", event.streamId, String(event.payload));
+              db.run("INSERT OR REPLACE INTO titles VALUES (?, ?)", event.streamId, String(event.payload["title"]));
             }
           },
         },
       ],
     });
-    log.append(s1, [{ type: "title.set", payload: "Hello" }], { actor: "test" });
+    log.append(s1, [{ type: "title.set", payload: { title: "Hello" } }], { actor: "test" });
     expect(log.read("SELECT stream_id, title FROM titles WHERE stream_id = ?", "s1")).toEqual([
       { stream_id: "s1", title: "Hello" },
     ]);
@@ -153,7 +153,7 @@ describe("appending", () => {
     const log = memoryLog({ clock });
     const { events } = log.append(
       s1,
-      [note("first"), { type: "title.set", payload: "Hi", metadata: { summary: { title: "Hi" } } }],
+      [note("first"), { type: "title.set", payload: { title: "Hi" }, metadata: { summary: { title: "Hi" } } }],
       { actor: "client:desktop", commandId: "c-1", causationId: "cause-1", correlationId: "corr-1" },
     );
 
@@ -173,7 +173,7 @@ describe("appending", () => {
         payload: { text: "first" },
         metadata: {},
       },
-      expect.objectContaining({ sequence: 2, streamVersion: 2, payload: "Hi", metadata: { summary: { title: "Hi" } } }),
+      expect.objectContaining({ sequence: 2, streamVersion: 2, payload: { title: "Hi" }, metadata: { summary: { title: "Hi" } } }),
     ]);
     expect(events[0]?.eventId).not.toBe(events[1]?.eventId);
     expect(log.readStream(s1)).toEqual(events);
@@ -253,25 +253,36 @@ describe("appending", () => {
     expect(log.readStream(s1).map((e) => e.payload)).toEqual([{ text: "first" }]);
   });
 
-  it("refuses a payload that is not JSON", () => {
+  it("refuses a payload or metadata that is not a JSON object, naming the event, and writes none of the append", () => {
     const log = memoryLog();
-    expect(() => log.append(s1, [{ type: "bad", payload: undefined }], { actor: "test" })).toThrow(
-      /JSON/,
-    );
+    for (const [payload, got] of [
+      [undefined, "a undefined"],
+      ["Hello", "a string"],
+      [[1, 2], "an array"],
+      [null, "null"],
+      [3, "a number"],
+    ] as const) {
+      const bad = { type: "bad", payload: payload as unknown as JsonObject };
+      expect(() => log.append(s1, [note("fine"), bad], { actor: "test" }), String(payload)).toThrow(
+        `The payload of a bad event must be a JSON object; got ${got}.`,
+      );
+    }
+    const badMetadata = { type: "bad", payload: {}, metadata: ["m"] as unknown as JsonObject };
+    expect(() => log.append(s1, [badMetadata], { actor: "test" })).toThrow("The metadata of a bad event must be a JSON object; got an array.");
     expect(log.readStream(s1)).toEqual([]);
   });
 
   it("refuses a payload holding a non-finite number rather than storing null", () => {
     const log = memoryLog();
     expect(() => log.append(s1, [{ type: "bad", payload: { text: NaN } }], { actor: "test" })).toThrow(/NaN/);
-    expect(() => log.append(s1, [{ type: "bad", payload: [Infinity] }], { actor: "test" })).toThrow(/Infinity/);
+    expect(() => log.append(s1, [{ type: "bad", payload: { list: [Infinity] } }], { actor: "test" })).toThrow(/Infinity/);
     expect(log.readStream(s1)).toEqual([]);
   });
 
   it("refuses a payload holding a nested undefined, function or symbol rather than dropping it", () => {
     const log = memoryLog();
     expect(() => log.append(s1, [{ type: "bad", payload: { text: undefined } }], { actor: "test" })).toThrow(/undefined/);
-    expect(() => log.append(s1, [{ type: "bad", payload: [undefined] }], { actor: "test" })).toThrow(/undefined/);
+    expect(() => log.append(s1, [{ type: "bad", payload: { list: [undefined] } }], { actor: "test" })).toThrow(/undefined/);
     expect(() => log.append(s1, [{ type: "bad", payload: { f: () => 1 } }], { actor: "test" })).toThrow(/cannot hold/);
     expect(() => log.append(s1, [{ type: "bad", payload: {}, metadata: { s: Symbol("x") } }], { actor: "test" })).toThrow(
       /cannot hold/,
@@ -504,14 +515,14 @@ describe("the replay bound", () => {
   it("counts the events and bytes of one stream after a cursor", () => {
     const log = memoryLog();
     log.append(s1, [note("first")], { actor: "test" });
-    log.append(s1, [note("second"), { type: "t", payload: [1, 2], metadata: { k: "v" } }], {
+    log.append(s1, [note("second"), { type: "t", payload: { list: [1, 2] }, metadata: { k: "v" } }], {
       actor: "test",
     });
     log.append({ kind: "session", id: "other" }, [note("not counted")], { actor: "test" });
 
     const bytes = [
       JSON.stringify({ text: "second" }) + JSON.stringify({}),
-      JSON.stringify([1, 2]) + JSON.stringify({ k: "v" }),
+      JSON.stringify({ list: [1, 2] }) + JSON.stringify({ k: "v" }),
     ].join("").length;
     expect(log.replayBound(s1, 1)).toEqual({ events: 2, bytes, withinBound: true });
     expect(log.replayBound(s1, 3)).toEqual({ events: 0, bytes: 0, withinBound: true });
@@ -531,7 +542,7 @@ describe("the replay bound", () => {
   it("holds 8 MiB and no more, however few the events", () => {
     expect(REPLAY_BOUND.bytes).toBe(8 * 1024 * 1024);
     const log = memoryLog();
-    const threeMiB = { type: "transcript.chunk", payload: "x".repeat(3 * 1024 * 1024) };
+    const threeMiB = { type: "transcript.chunk", payload: { text: "x".repeat(3 * 1024 * 1024) } };
     log.append(s1, [threeMiB, threeMiB], { actor: "test" });
     expect(log.replayBound(s1, 0)).toMatchObject({ events: 2, withinBound: true });
 
@@ -545,12 +556,12 @@ describe("the replay bound", () => {
 
   it("holds exactly 8 MiB and not one byte more", () => {
     const log = memoryLog();
-    // The stored payload is the JSON string, quotes included; metadata is stored as `{}`, two bytes.
-    const exact = { type: "transcript.chunk", payload: "x".repeat(REPLAY_BOUND.bytes - 4) };
+    // The stored payload is `{"text":"…"}`, eleven bytes around the text; metadata is stored as `{}`, two bytes.
+    const exact = { type: "transcript.chunk", payload: { text: "x".repeat(REPLAY_BOUND.bytes - 13) } };
     log.append(s1, [exact], { actor: "test" });
     expect(log.replayBound(s1, 0)).toMatchObject({ bytes: REPLAY_BOUND.bytes, withinBound: true });
 
-    log.append(s1, [{ type: "transcript.chunk", payload: "" }], { actor: "test" });
+    log.append(s1, [{ type: "transcript.chunk", payload: {} }], { actor: "test" });
     const over = log.replayBound(s1, 0);
     expect(over.bytes).toBe(REPLAY_BOUND.bytes + 4);
     expect(over.withinBound).toBe(false);
@@ -559,7 +570,7 @@ describe("the replay bound", () => {
   it("measures bytes, not characters", () => {
     const log = memoryLog();
     // 2.5 Mi characters of a two-byte character: 5 MiB each, 10 MiB for two, 5 Mi characters.
-    const wide = { type: "transcript.chunk", payload: "é".repeat(2.5 * 1024 * 1024) };
+    const wide = { type: "transcript.chunk", payload: { text: "é".repeat(2.5 * 1024 * 1024) } };
     log.append(s1, [wide, wide], { actor: "test" });
     const bound = log.replayBound(s1, 0);
     expect(bound.bytes).toBe(2 * (Buffer.byteLength(JSON.stringify(wide.payload)) + 2));

@@ -17,8 +17,7 @@ import {
 import { createBootstrapGrant } from "../auth/bootstrap.js";
 import { SWEEP_INTERVAL_MS, createClientSessions, type ClientSessionIssuer, type ClientSessions } from "../auth/client-sessions.js";
 import { createRateLimiter } from "../auth/rate-limit.js";
-import { openEventLog, type EventLog, type Projector } from "../event-log/event-log.js";
-import { formatActor } from "../wire/envelope.js";
+import { formatActor, openEventLog, type EventLog, type Projector } from "../event-log/event-log.js";
 import type { SubscriptionHooks } from "../wire/subscriptions.js";
 import { createWire } from "../wire/wire.js";
 import { systemClock, type Clock } from "./clock.js";
@@ -27,7 +26,7 @@ import { defaultDataDirectory, prepareDataDirectory } from "./data-directory.js"
 import { createHttpSurface, sendJson, type Address, type HttpRoutes } from "./http.js";
 import { ensureSigningKey, loadOrCreateRecord, type EnvironmentRecord } from "./identity.js";
 import { processLauncherChannel, type LauncherChannel } from "./launcher.js";
-import type { ExtraMethod, MethodHandlers } from "./methods.js";
+import { createMethodTable, type MethodHandlers, type MethodTable } from "./methods.js";
 import { processUserCheck, refusePrivilegedUser, type UserCheck } from "./user.js";
 import { fileVault, VAULT_FILE, type Vault } from "./vault.js";
 
@@ -110,8 +109,6 @@ export interface EnvironmentOptions {
    */
   readonly clock?: Clock;
   readonly hooks?: StartupHooks;
-  /** Methods served beside the contracts registry's: a test suite's synthetic streams. Never set outside tests. */
-  readonly extraMethods?: readonly ExtraMethod[];
   /** Test seams for subscriptions: hold a catch-up, slow a socket down. */
   readonly subscriptionHooks?: SubscriptionHooks;
 }
@@ -124,18 +121,25 @@ export interface EnvironmentHandle {
   /** Where the loopback listener is bound. */
   readonly address: Address;
   readiness(): EnvironmentReadiness;
-  /** The handlers the wire dispatches into, by method name, after its scope check. */
-  readonly methods: MethodHandlers;
+  /**
+   * The methods the wire dispatches into after its scope check: every
+   * registry method, with its handler once one is registered. A feature that
+   * starts after the environment registers its handlers here.
+   */
+  readonly methods: MethodTable;
   /** The listener's route table, behind the Host check. */
   readonly http: HttpRoutes;
   /** Issuing and revoking client sessions: the seam pairing and the access methods (#109) build on. */
   readonly clientSessions: ClientSessionIssuer;
   /** How many WebSocket sockets are open on the wire. */
   sockets(): number;
-  /** How many subscriptions are open on the wire, across every socket. */
+  /** How many subscriptions are open on the wire, across every socket: a count for tests and diagnostics. */
   subscriptions(): number;
-  /** Appends to the event log: the one sink, whose committed events reach every subscription to their stream. */
-  readonly append: EventLog["append"];
+  /**
+   * The event log: the one sink, whose committed events reach every
+   * subscription to their stream. The environment opened it and closes it.
+   */
+  readonly log: EventLog;
   /**
    * Stops the sweep, removes the bootstrap grant file, says `bye: draining`
    * to every socket and closes it (1001), stops listening, closes the event log, then closes the
@@ -229,6 +233,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     "environment.status": () => ({ readiness }),
     "environment.subscribe": () => ({ stream: environmentStream, snapshot: () => ({ status: { readiness } }) }),
   };
+  const table = createMethodTable(methods);
 
   // The grant file and the wire are routed before the bind; both refuse work until the gate below.
   const grant = createBootstrapGrant({
@@ -242,10 +247,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     environment: record,
     capabilities,
     clientSessions,
-    methods,
+    methods: table,
     clock,
     log,
-    ...(options.extraMethods !== undefined && { extraMethods: options.extraMethods }),
     ...(options.subscriptionHooks !== undefined && { subscriptionHooks: options.subscriptionHooks }),
   });
   surface.upgrade(WIRE_PATH, wire.upgrade);
@@ -283,12 +287,12 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     dataDir,
     address: bound,
     readiness: () => readiness,
-    methods,
+    methods: table,
     http: { route: (method, path, handler) => surface.route(method, path, handler) },
     clientSessions: { issue: (request) => clientSessions.issue(request), revoke: (id) => clientSessions.revoke(id) },
     sockets: () => wire.sockets(),
     subscriptions: () => wire.subscriptions(),
-    append: (stream, events, appendOptions) => log.append(stream, events, appendOptions),
+    log,
     close: () => (closing ??= closers.closeAll().finally(() => (closing = undefined))),
   };
 };

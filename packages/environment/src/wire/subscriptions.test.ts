@@ -17,17 +17,16 @@ import { z } from "zod";
 import { useCleanups } from "../../test/cleanups.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { WAIT_MS, type WireClient } from "../../test/wire-client.js";
-import { REPLAY_BOUND, type EventInput, type StreamRef } from "../event-log/event-log.js";
+import { REPLAY_BOUND, type EventInput, type JsonObject, type StreamRef } from "../event-log/event-log.js";
 import { HARNESS_VERSION } from "../serve/start.js";
-import { extraMethod } from "../serve/methods.js";
 import type { Outlet, SubscriptionHooks } from "./subscriptions.js";
 
 /**
  * Subscriptions through the primary seam: an environment in-process and a
  * real client. The session and transcript streams arrive with later tickets,
- * so most tests subscribe to a synthetic stream this suite serves beside the
- * registry's methods (`probe.subscribe`), whose events the test appends
- * straight to the environment's log.
+ * so most tests subscribe to a synthetic stream the helper serves on the
+ * environment's method table (`probe.subscribe`), whose events the test
+ * appends straight to the environment's log.
  */
 
 const { onCleanup, tempDir } = useCleanups();
@@ -47,23 +46,22 @@ const probeStream = (probe: string): StreamRef => ({ kind: "probe", id: probe })
 /** How many events the test has appended to each probe stream: the snapshot's read model. */
 let appended = new Map<string, number>();
 
-const probeMethod = extraMethod(probeSubscribe, ({ probe }) => {
-  if (probe === "missing") throw new ContractError({ code: "probe_missing", message: "No such probe.", data: {} });
-  return { stream: probeStream(probe), snapshot: () => ({ count: appended.get(probe) ?? 0 }) };
-});
-
 /** A test environment serving the probe stream, closed after the test. */
 const start = async (options: TestEnvironmentOptions = {}): Promise<TestEnvironment> => {
   appended = new Map();
-  const t = await startTestEnvironment({ extraMethods: [probeMethod], ...options });
+  const t = await startTestEnvironment(options);
   onCleanup(() => t.close());
+  t.serve(probeSubscribe, ({ probe }) => {
+    if (probe === "missing") throw new ContractError({ code: "probe_missing", message: "No such probe.", data: {} });
+    return { stream: probeStream(probe), snapshot: () => ({ count: appended.get(probe) ?? 0 }) };
+  });
   return t;
 };
 
 /** Appends `count` events to a probe stream, `payload` for each; returns their sequences. */
-const append = (t: TestEnvironment, probe: string, count: number, payload: (i: number) => object = (i) => ({ i })): number[] => {
+const append = (t: TestEnvironment, probe: string, count: number, payload: (i: number) => JsonObject = (i) => ({ i })): number[] => {
   const events: EventInput[] = Array.from({ length: count }, (_, i) => ({ type: "probe.poked", payload: payload(i) }));
-  const { events: written } = t.env.append(probeStream(probe), events, { actor: "system:test" });
+  const { events: written } = t.env.log.append(probeStream(probe), events, { actor: "system:test" });
   appended.set(probe, (appended.get(probe) ?? 0) + count);
   return written.map((event) => event.sequence);
 };
@@ -462,12 +460,12 @@ describe("ending a subscription", () => {
     const answered = new Promise<void>((resolve) => (release = resolve));
     let reach!: () => void;
     const called = new Promise<void>((resolve) => (reach = resolve));
-    const slow = extraMethod(defineMethod({ ...probeSubscribe, name: "probe.slow" }), async ({ probe }) => {
+    const t = await start();
+    t.serve(defineMethod({ ...probeSubscribe, name: "probe.slow" }), async ({ probe }) => {
       reach();
       await answered;
       return { stream: probeStream(probe), snapshot: () => ({ count: 0 }) };
     });
-    const t = await start({ extraMethods: [probeMethod, slow] });
     const client = await t.client();
     client.send({ type: "request", id: "slow", method: "probe.slow", params: { probe: "a", afterSequence: 0 } });
     await called;
@@ -537,11 +535,11 @@ describe("refusing a subscription", () => {
   it("answers internal, before any subscribed, when the snapshot is outside the stream's result schema", async () => {
     const quiet = vi.spyOn(console, "error").mockImplementation(() => undefined);
     onCleanup(() => quiet.mockRestore());
-    const broken = extraMethod(
-      defineMethod({ ...probeSubscribe, name: "probe.broken" }),
-      ({ probe }) => ({ stream: probeStream(probe), snapshot: () => ({ count: -1 }) }),
-    );
-    const t = await start({ extraMethods: [probeMethod, broken] });
+    const t = await start();
+    t.serve(defineMethod({ ...probeSubscribe, name: "probe.broken" }), ({ probe }) => ({
+      stream: probeStream(probe),
+      snapshot: () => ({ count: -1 }),
+    }));
     append(t, "a", REPLAY_BOUND.events + 1);
     const client = await t.client();
     const answer = await client.call("probe.broken", { probe: "a", afterSequence: 0 });
@@ -581,7 +579,7 @@ describe("environment.subscribe", () => {
     const client = await t.client();
     const { subscription } = await client.subscribe("environment.subscribe", { afterSequence: 0 });
     const synchronized = await frame(client, subscription, "synchronized");
-    const [draining] = t.env.append({ kind: ENVIRONMENT_STREAM_KIND, id: t.env.id }, [
+    const [draining] = t.env.log.append({ kind: ENVIRONMENT_STREAM_KIND, id: t.env.id }, [
       { type: "environment.draining", payload: { drainingSince: t.clock.now().toISOString() } },
     ], { actor: "system:lifecycle" }).events;
     const live = await client.next((f): f is EventFrame => f.type === "event" && f.subscription === subscription && f.sequence > synchronized.sequence);
@@ -596,7 +594,7 @@ describe("environment.subscribe", () => {
       type: "environment.started",
       payload: { harnessVersion: HARNESS_VERSION, protocolVersion: 1 },
     }));
-    const { events } = t.env.append({ kind: ENVIRONMENT_STREAM_KIND, id: t.env.id }, notices, { actor: "system:test" });
+    const { events } = t.env.log.append({ kind: ENVIRONMENT_STREAM_KIND, id: t.env.id }, notices, { actor: "system:test" });
     const client = await t.client();
     const { subscription } = await client.subscribe("environment.subscribe", { afterSequence: 0 });
     expect(await frame(client, subscription, "snapshot")).toEqual({

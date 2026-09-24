@@ -68,7 +68,7 @@ const cursorOf = (log: EventLog, name: string) =>
 
 const appendSome = (log: EventLog) => {
   log.append({ kind: "session", id: "a" }, [note("1"), note("2")], { actor: "test" });
-  log.append({ kind: "session", id: "b" }, [{ type: "title.set", payload: "B" }], { actor: "test" });
+  log.append({ kind: "session", id: "b" }, [{ type: "title.set", payload: { title: "B" } }], { actor: "test" });
   log.append({ kind: "group", id: "g" }, [note("3")], { actor: "test" });
 };
 

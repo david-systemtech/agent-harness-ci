@@ -7,9 +7,13 @@ import {
   BootstrapGrant,
   ClientSessionCredential,
   type BootstrapKind,
+  type Method,
+  type MethodName,
+  type Registry,
 } from "@agent-harness/contracts";
+import type { z } from "zod";
 import type { Address } from "../src/serve/http.js";
-import type { ExtraMethod } from "../src/serve/methods.js";
+import type { HandlerResult, MethodContext, MethodHandler } from "../src/serve/methods.js";
 import { startEnvironment, type EnvironmentHandle, type StartupHooks } from "../src/serve/start.js";
 import type { SubscriptionHooks } from "../src/wire/subscriptions.js";
 import { manualClock, type ManualClock } from "./clock.js";
@@ -42,8 +46,6 @@ export interface TestEnvironmentOptions {
   readonly name?: string;
   /** Startup hooks, to hold the startup gate. */
   readonly hooks?: StartupHooks;
-  /** Methods served beside the registry's: a suite's synthetic streams. */
-  readonly extraMethods?: readonly ExtraMethod[];
   /** Subscription seams: hold a catch-up, slow a socket down. */
   readonly subscriptionHooks?: SubscriptionHooks;
 }
@@ -58,6 +60,9 @@ export interface ClientOptions extends OpenOptions, Partial<Omit<AuthOptions, "t
    */
   readonly token?: string;
 }
+
+/** What a test method's handler returns: its result, or for a stream the source whose snapshot the result is. */
+export type TestAnswer<M extends Method> = HandlerResult<M["kind"], z.infer<M["result"]>>;
 
 /** A raw answer from the bootstrap exchange. */
 export interface ExchangeAnswer {
@@ -81,6 +86,15 @@ export interface TestEnvironment {
   client(options?: ClientOptions): Promise<WireClient>;
   /** A WebSocket that has sent nothing yet. Closed by `close`. */
   open(options?: OpenOptions): Promise<ClientSocket>;
+  /**
+   * Serves a method the contracts registry does not hold, a suite's
+   * synthetic stream, on the environment's method table as if it were
+   * registered: its handler typed from the method's own schemas.
+   */
+  serve<M extends Method>(
+    method: M,
+    handler: (params: z.infer<M["params"]>, context: MethodContext) => TestAnswer<M> | Promise<TestAnswer<M>>,
+  ): void;
   /** Closes every client, then the environment, then removes the data directory if the helper made it. */
   close(): Promise<void>;
 }
@@ -138,7 +152,6 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
       launcher: { prepared: () => undefined, close: () => undefined },
       ...(options.name !== undefined && { name: options.name }),
       ...(options.hooks !== undefined && { hooks: options.hooks }),
-      ...(options.extraMethods !== undefined && { extraMethods: options.extraMethods }),
       ...(options.subscriptionHooks !== undefined && { subscriptionHooks: options.subscriptionHooks }),
     });
   } catch (error) {
@@ -193,6 +206,10 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
       return track(token === undefined ? await defaultClient(clientOptions) : await connectClient(env.address, { ...clientOptions, token }));
     },
     open: async (openOptions) => track(await openSocket(env.address, openOptions)),
+    serve(method, handler) {
+      // The one cast: a method no registry holds is handed to the table as the registered method it stands in for.
+      env.methods.register(method as unknown as Registry[MethodName], handler as unknown as MethodHandler<MethodName>);
+    },
     async close() {
       await Promise.allSettled([...sockets].map((socket) => socket.close()));
       sockets.clear();

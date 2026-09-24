@@ -1,7 +1,7 @@
 import { ContractError, registry, type RequestFrame, type Scope } from "@agent-harness/contracts";
 import { describe, expect, it, vi } from "vitest";
 import { TOP_CEILING, type VerifiedClientSession } from "../auth/client-sessions.js";
-import type { MethodHandlers } from "../serve/methods.js";
+import { createMethodTable, type MethodHandlers } from "../serve/methods.js";
 import { createDispatch, type Answer } from "./dispatch.js";
 import type { Opening } from "./subscriptions.js";
 
@@ -20,7 +20,7 @@ const request = (method: string, params: Record<string, unknown> = {}): RequestF
 const answer = async (methods: MethodHandlers, frame: RequestFrame, scopes: readonly Scope[]): Promise<Answer> => {
   const answers: Answer[] = [];
   const open = vi.fn();
-  await createDispatch(methods, registry)(frame, caller(scopes), (given) => answers.push(given), open);
+  await createDispatch(createMethodTable(methods))(frame, caller(scopes), (given) => answers.push(given), open);
   expect(answers).toHaveLength(1);
   expect(open).not.toHaveBeenCalled();
   return answers[0] as Answer;
@@ -77,7 +77,7 @@ describe("dispatch", () => {
     const handler = vi.fn(() => source);
     const answers: Answer[] = [];
     const opened: Opening[] = [];
-    await createDispatch({ "environment.subscribe": handler }, registry)(
+    await createDispatch(createMethodTable({ "environment.subscribe": handler }))(
       request("environment.subscribe", { afterSequence: 7 }),
       caller(["read"]),
       (given) => answers.push(given),
@@ -100,7 +100,7 @@ describe("dispatch", () => {
       [new Error("boom"), "internal"],
     ] as const) {
       const answers: Answer[] = [];
-      await createDispatch(methods, registry)(request("environment.subscribe", { afterSequence: 0 }), caller(["read"]), (given) => answers.push(given), () => {
+      await createDispatch(createMethodTable(methods))(request("environment.subscribe", { afterSequence: 0 }), caller(["read"]), (given) => answers.push(given), () => {
         throw thrown;
       });
       expect(answers).toMatchObject([{ error: { code } }]);
@@ -108,11 +108,13 @@ describe("dispatch", () => {
     quiet.mockRestore();
   });
 
-  it("answers internal when a stream's handler returns no stream source", async () => {
-    const quiet = vi.spyOn(console, "error").mockImplementation(() => undefined);
-    const wrong = { "environment.subscribe": () => ({ status: { readiness: "ready" } }) } as unknown as MethodHandlers;
-    expect(await answer(wrong, request("environment.subscribe", { afterSequence: 0 }), ["read"])).toMatchObject({ error: { code: "internal" } });
-    quiet.mockRestore();
+  it("serves a handler registered on its table after dispatch was made, replacing the one before", async () => {
+    const table = createMethodTable({ "environment.status": () => ({ readiness: "starting" as const }) });
+    const dispatch = createDispatch(table);
+    table.register(registry["environment.status"], () => ({ readiness: "ready" }));
+    const answers: Answer[] = [];
+    await dispatch(request("environment.status"), caller(["read"]), (given) => answers.push(given), vi.fn());
+    expect(answers).toEqual([{ result: { readiness: "ready" } }]);
   });
 
   it("answers invalid_params with the issues", async () => {

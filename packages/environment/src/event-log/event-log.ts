@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { createClientSessionTable, type ClientSessionTable } from "./client-sessions.js";
 import { createSql, decodeEvent, toJson, type EventRow, type SqlValue, type Transaction } from "./database.js";
-import type { EventEnvelope, EventInput, StreamRef } from "./envelope.js";
+import type { EventEnvelope, EventInput, JsonObject, StreamRef } from "./envelope.js";
 import { applyMigrations } from "./migrations.js";
 import { createProjections, type Projector } from "./projectors.js";
 import { createReceipts, type CommandReceipt, type ReceiptRequest } from "./receipts.js";
@@ -11,7 +11,7 @@ import { loadSqlite } from "./sqlite.js";
 
 export type { ClientSessionRow, ClientSessionTable } from "./client-sessions.js";
 export type { SqlValue } from "./database.js";
-export type { EventEnvelope, EventInput, JsonObject, StreamRef } from "./envelope.js";
+export { formatActor, parseActor, type EventEnvelope, type EventInput, type JsonObject, type StreamRef } from "./envelope.js";
 export type { ProjectionDb, Projector } from "./projectors.js";
 export { RECEIPT_RETENTION_MS, type CommandReceipt, type ReceiptRequest } from "./receipts.js";
 export type { Snapshot } from "./snapshots.js";
@@ -102,6 +102,13 @@ export interface EventLog {
   readonly clientSessions: ClientSessionTable;
   close(): void;
 }
+
+/** Throws unless `value` is a JSON object: the contracts' envelope carries payload and metadata as objects. */
+const requireObject: (value: unknown, what: string) => asserts value is JsonObject = (value, what) => {
+  if (typeof value === "object" && value !== null && !Array.isArray(value)) return;
+  const got = value === null ? "null" : Array.isArray(value) ? "an array" : `a ${typeof value}`;
+  throw new TypeError(`${what} must be a JSON object; got ${got}.`);
+};
 
 const configure = (db: DatabaseSync, path: string): void => {
   const mode = db.prepare("PRAGMA journal_mode = WAL").get()?.["journal_mode"];
@@ -200,6 +207,10 @@ export const openEventLog = (options: EventLogOptions): EventLog => {
         throw new TypeError(
           `A rejected command appends no events; command ${options.commandId} carried ${inputs.length}.`,
         );
+      }
+      for (const input of inputs) {
+        requireObject(input.payload, `The payload of a ${input.type} event`);
+        if (input.metadata !== undefined) requireObject(input.metadata, `The metadata of a ${input.type} event`);
       }
       const now = clock().toISOString();
       const rows: SqlValue[][] = inputs.map((input) => [

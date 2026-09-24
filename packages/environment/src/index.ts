@@ -4,7 +4,9 @@ import { PROTOCOL_VERSION } from "@agent-harness/contracts";
 export const ENVIRONMENT_PROTOCOL_VERSION: number = PROTOCOL_VERSION;
 
 export {
+  formatActor,
   openEventLog,
+  parseActor,
   RECEIPT_RETENTION_MS,
   REPLAY_BOUND,
   type AppendOptions,
@@ -40,7 +42,7 @@ export { defaultDataDirectory, prepareDataDirectory, type PlatformContext } from
 export { isAllowedHost, type Address, type HttpRoutes, type RouteHandler } from "./serve/http.js";
 export { RECORD_FILE, SIGNING_KEY, type EnvironmentRecord } from "./serve/identity.js";
 export { PREPARED_MESSAGE, processLauncherChannel, type IpcProcess, type LauncherChannel } from "./serve/launcher.js";
-export { extraMethod, type ExtraMethod, type MethodContext, type MethodHandler, type MethodHandlers } from "./serve/methods.js";
+export type { HandlerResult, MethodContext, MethodHandler, MethodHandlers, MethodTable, ServedMethod } from "./serve/methods.js";
 export {
   DATABASE_FILE,
   DEFAULT_PORT,
@@ -67,5 +69,5 @@ export {
 } from "./serve/user.js";
 export { fileVault, VAULT_FILE, type Vault } from "./serve/vault.js";
 export { AUTH_TIMEOUT_MS, PING_INTERVAL_MS } from "./wire/wire.js";
-export { formatActor, parseActor, toWireEnvelope } from "./wire/envelope.js";
+export { toWireEnvelope } from "./wire/envelope.js";
 export type { Outlet, StreamSource, SubscriptionHooks } from "./wire/subscriptions.js";

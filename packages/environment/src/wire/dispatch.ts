@@ -3,13 +3,12 @@ import {
   invalidParams,
   type IssueInput,
   type JsonObject,
-  type Method,
   type RequestFrame,
   type WireError,
 } from "@agent-harness/contracts";
 import type { VerifiedClientSession } from "../auth/client-sessions.js";
-import type { AnyHandler } from "../serve/methods.js";
-import type { Opening, StreamSource } from "./subscriptions.js";
+import type { MethodTable } from "../serve/methods.js";
+import type { Opening } from "./subscriptions.js";
 
 /** A request's answer: its result, or its error. */
 export type Answer = { readonly result: JsonObject } | { readonly error: WireError };
@@ -31,14 +30,8 @@ interface Parser {
 
 const error = (code: string, message: string, data: Record<string, unknown> = {}): WireError => ({ code, message, data });
 
-const isStreamSource = (value: unknown): value is StreamSource => {
-  if (typeof value !== "object" || value === null) return false;
-  const { stream, snapshot } = value as { stream?: { kind?: unknown; id?: unknown }; snapshot?: unknown };
-  return typeof stream?.kind === "string" && typeof stream.id === "string" && typeof snapshot === "function";
-};
-
 /**
- * Answers requests from an authenticated socket against `registry`, with
+ * Answers requests from an authenticated socket with the methods of
  * `methods`. The scope check is here, once, before the params are read or a
  * handler is looked up, for queries, commands and streams alike; then the
  * params are parsed, the handler runs, and what it returns or throws becomes
@@ -46,11 +39,12 @@ const isStreamSource = (value: unknown): value is StreamSource => {
  * to instead of an answer.
  */
 export const createDispatch =
-  (methods: Readonly<Record<string, unknown>>, registry: Readonly<Record<string, Method>>) =>
+  (methods: MethodTable) =>
   async (request: RequestFrame, clientSession: VerifiedClientSession, respond: Respond, open: Open): Promise<void> => {
     const { method, params } = request;
-    if (!Object.hasOwn(registry, method)) return respond({ error: error("not_found", `No method is named ${method}.`) });
-    const entry = registry[method] as Method;
+    const served = methods.get(method);
+    if (!served) return respond({ error: error("not_found", `No method is named ${method}.`) });
+    const entry = served.method;
 
     if (!clientSession.scopes.includes(entry.scope)) {
       return respond({
@@ -63,16 +57,17 @@ export const createDispatch =
     if (!parsed.success) return respond({ error: invalidParams(parsed.error.issues, `The params do not match ${method}'s schema.`) });
 
     // Command receipts (#111) wrap the handlers of command methods, keyed by the client session and commandId.
-    const handler = methods[entry.name] as AnyHandler | undefined;
-    if (!handler) return respond({ error: error("not_found", `${method} is not served by this environment yet.`) });
+    if (!served.handler) return respond({ error: error("not_found", `${method} is not served by this environment yet.`) });
+    const context = { clientSession };
     let result: unknown;
     try {
-      result = await handler(parsed.data, { clientSession });
-      if (entry.kind === "stream") {
-        if (!isStreamSource(result)) throw new Error(`The handler for the stream ${method} named no stream source.`);
+      if (served.kind === "stream") {
+        const source = await served.handler(parsed.data, context);
+        // A stream's params hold its cursor: the registry refuses a stream without one.
         const { afterSequence } = parsed.data as { afterSequence: number };
-        return await open({ requestId: request.id, source: result, afterSequence, payloadSchema: entry.result });
+        return await open({ requestId: request.id, source, afterSequence, payloadSchema: entry.result });
       }
+      result = await served.handler(parsed.data, context);
     } catch (thrown) {
       if (thrown instanceof ContractError) return respond({ error: thrown.toWire() });
       console.error(`The handler for ${method} failed:`, thrown);

@@ -5,7 +5,6 @@ import {
   decodeFrame,
   encodeFrame,
   peekProtocolVersion,
-  registry,
   type ByeFrame,
   type CapabilityFlags,
   type Frame,
@@ -16,7 +15,7 @@ import type { ClientSessions, VerifiedClientSession } from "../auth/client-sessi
 import type { EventLog } from "../event-log/event-log.js";
 import type { Clock, Timer } from "../serve/clock.js";
 import { refuseUpgrade, type UpgradeHandler } from "../serve/http.js";
-import { servedMethods, type ExtraMethod, type MethodHandlers } from "../serve/methods.js";
+import type { MethodTable } from "../serve/methods.js";
 import { createDispatch, type Answer } from "./dispatch.js";
 import { createSubscriptions, type SocketSubscriptions, type SubscriptionHooks } from "./subscriptions.js";
 
@@ -39,12 +38,10 @@ export interface WireOptions {
   readonly environment: { readonly id: string; readonly name: string };
   readonly capabilities: CapabilityFlags;
   readonly clientSessions: ClientSessions;
-  readonly methods: MethodHandlers;
+  readonly methods: MethodTable;
   readonly clock: Clock;
   /** The log subscriptions replay from and listen to. */
   readonly log: EventLog;
-  /** Methods served beside the registry's: a test suite's synthetic streams. */
-  readonly extraMethods?: readonly ExtraMethod[];
   /** Test seams for subscriptions. */
   readonly subscriptionHooks?: SubscriptionHooks;
 }
@@ -115,8 +112,7 @@ const faultOf = (error: ContractError): string => {
 
 export const createWire = (options: WireOptions): Wire => {
   const { clientSessions, clock } = options;
-  const served = servedMethods(registry, options.methods, options.extraMethods);
-  const dispatch = createDispatch(served.handlers, served.entries);
+  const dispatch = createDispatch(options.methods);
   const subscriptions = createSubscriptions(options.log, options.subscriptionHooks);
   const server = new WebSocketServer({ noServer: true, maxPayload: MAX_FRAME_BYTES, clientTracking: false });
   const open = new Set<Socket>();
