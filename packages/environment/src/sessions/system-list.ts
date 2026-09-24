@@ -11,8 +11,13 @@ import type { SessionRow } from "./session-tables.js";
  *
  * - Runs (the adapter's vocabulary, #119): a run started is `running`,
  *   and sets the account and model it runs on from its payload; a run
- *   ended is `idle`; both are activity (`lastActivityAt`). The companions a
- *   run start owes the shelf (unsettle, unarchive, wake) are #122's.
+ *   ended is `idle`; both are activity (`lastActivityAt`). The summary has
+ *   no `starting` in phase A: no list-flagged event marks a run's first
+ *   event, so `running` holds from the start's commit (the run registry
+ *   tells the two apart). These projections write only the system's
+ *   fields: what a run's start and end owe the organisation fields
+ *   (unarchive, unsettle, wake, the override cleared) are events of their
+ *   own, appended with the run event (`activity-companions.ts`).
  * - Prompts, provisional until #130 (payloads theirs): read from the
  *   event's type and time alone, never its payload. A prompt opened parks
  *   the run and counts; a prompt answered is activity and, the last one
@@ -28,7 +33,7 @@ import type { SessionRow } from "./session-tables.js";
  *
  * None of them is an organisation change, so none moves `updatedAt`.
  *
- * Provisional until #130/#122: replacing the prompt projections needs no
+ * Provisional until #130: replacing the prompt projections needs no
  * migration, since the columns they write are summary fields the tables
  * already have and a rebuild replays the log through whatever projections
  * the environment then has.
