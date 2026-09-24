@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "EnvironmentNoticeType",
+  "type": "string",
+  "enum": [
+    "environment.started",
+    "environment.updated",
+    "environment.draining"
+  ],
+  "description": "An environment notice's event type: environment.started (startup finished), environment.updated (a new harness version now runs), environment.draining (new runs are refused before a restart)."
+}

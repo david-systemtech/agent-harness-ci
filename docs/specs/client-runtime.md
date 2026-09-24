@@ -129,7 +129,7 @@ The wire, frames, scopes, receipts, replay bounds, pairing routes and the grant 
 
 - Everything named under "What this workstream does not decide", in particular the environment side of the wire (78), the session vocabulary (79), the renderers (81, 84) and the browser relay's page driver (93).
 - Milestone 2 and later: the browser tab's platform, a relay, a peer list, hand-off, push to a phone, transcript full-text search, SSH-launched environments, auto-balance.
-- Layout, pane state and theme: client-local presentation in the renderers.
+- Layout, pane state and the light, dark or system mode: client-local presentation in the renderers. The theme itself (a name and seven seeds) is the environment setting `appearance.theme`; a client paints its home environment's theme and caches it for first paint (ADR 0023).
 
 ## Further Notes
 

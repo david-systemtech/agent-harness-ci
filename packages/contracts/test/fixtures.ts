@@ -31,6 +31,18 @@ export const validEnvelope = {
   metadata: {},
 };
 
+/** The notice every start appends to the environment stream, as a whole event: a notice parses from its envelope. */
+export const validEnvironmentStartedEvent = {
+  ...validEnvelope,
+  streamKind: "environment",
+  streamId: uuid,
+  type: "environment.started",
+  commandId: null,
+  correlationId: null,
+  actor: { kind: "system", id: "lifecycle" },
+  payload: { harnessVersion: "0.1.0", protocolVersion: 1 },
+};
+
 /** The discovery document of an environment that has not passed its startup gate. */
 export const validDiscovery = {
   environmentId: uuid,
@@ -416,6 +428,26 @@ export const schemaFixtures: Record<string, Fixtures> = {
   "event-envelope.json": {
     valid: [validEnvelope, { ...validEnvelope, commandId: null, causationId: uuid, correlationId: null }],
     invalid: [envelopeWithoutCommandId, { ...validEnvelope, sequence: 0 }, { ...validEnvelope, payload: [] }],
+  },
+  "notices/environment-notice-type.json": {
+    valid: ["environment.started", "environment.updated", "environment.draining"],
+    invalid: ["environment.stopped", "session.created", ""],
+  },
+  "notices/environment-notice.json": {
+    valid: [
+      { type: "environment.started", payload: { harnessVersion: "0.1.0", protocolVersion: 1 } },
+      { type: "environment.updated", payload: { fromVersion: "0.1.0", toVersion: "0.2.0" } },
+      { type: "environment.draining", payload: { drainingSince: at } },
+      validEnvironmentStartedEvent,
+    ],
+    invalid: [
+      { type: "environment.started", payload: { harnessVersion: "", protocolVersion: 1 } },
+      { type: "environment.started", payload: { harnessVersion: "0.1.0" } },
+      { type: "environment.updated", payload: { toVersion: "0.2.0" } },
+      { type: "environment.draining", payload: { drainingSince: "soon" } },
+      { type: "environment.stopped", payload: {} },
+      validEnvelope,
+    ],
   },
   "errors/error-code.json": { valid: ["not_found", "ceiling_exceeded"], invalid: ["NotFound", "not-found", ""] },
   "errors/schema-issue.json": {
