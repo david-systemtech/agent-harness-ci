@@ -18,6 +18,8 @@ import type { EventEnvelope, ProjectionDb, Projector, SqlValue } from "../event-
 import { tagKey } from "./decider.js";
 import { readSummary } from "./session-reads.js";
 import { SESSION_LIST_TABLES, titleOf, type SessionRow } from "./session-tables.js";
+import { shelfProjections } from "./shelf-list.js";
+import { systemProjections } from "./system-list.js";
 
 /**
  * The session-list projector (session-state spec, "The list stream and the
@@ -67,6 +69,9 @@ const organise = (event: EventEnvelope, db: ProjectionDb, columns: Readonly<Reco
   setColumns(event, db, { ...columns, updated_at: event.occurredAt });
 
 const SESSION_PROJECTIONS: Partial<Record<string, Projection>> = {
+  // The shelf (#117), and the fields the run, prompt and pull-request events write, which auto-settle reads.
+  ...shelfProjections(organise),
+  ...systemProjections(setColumns),
   "session.created": (event, db) => {
     const payload = event.payload as SessionCreatedPayload;
     const { title, source } = titleOf(payload.title, null);

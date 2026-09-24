@@ -42,8 +42,7 @@ describe("the session-list projector", () => {
     log.append({ kind: "session", id }, [created], { actor: "system:test" });
     const head = log.head();
     for (const [kind, type] of [
-      ["session", "session.settled"],
-      ["session", "run.started"],
+      ["session", "session.title-generated"],
       ["group", "group.created"],
     ] as const) {
       expect(() => log.append({ kind, id }, [{ type, payload: {} }], { actor: "system:test" }), type).toThrow(/does not project/);

@@ -46,6 +46,10 @@ type SessionCommandParams<N extends MethodName> = Omit<ParamsOf<N>, "commandId">
 
 /** The session commands that answer with the summary, by name. */
 export type SessionCommand =
+  | "sessions.settle"
+  | "sessions.unsettle"
+  | "sessions.snooze"
+  | "sessions.unsnooze"
   | "sessions.archive"
   | "sessions.unarchive"
   | "sessions.pin"

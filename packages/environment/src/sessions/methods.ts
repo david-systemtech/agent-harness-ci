@@ -8,6 +8,8 @@ import {
 } from "@agent-harness/contracts";
 import type { EventLog, StreamRef } from "../event-log/event-log.js";
 import type { CommandAnswer, CommandContext, MethodHandlers } from "../serve/methods.js";
+import { appendDecided } from "./companions.js";
+import { decideSettle, decideSnooze, decideUnsettle, decideUnsnooze, snoozeUntilIssues } from "./shelf-decider.js";
 import {
   PURGED_STATE,
   decideArchive,
@@ -86,7 +88,7 @@ export const sessionMethods = (options: SessionMethodsOptions): MethodHandlers =
     const aggregate = sessionStream(id);
     if (decision.rejected !== undefined) return { aggregate, rejected: decision.rejected };
     if (decision.events.length > 0) {
-      log.append(aggregate, decision.events, { tx: context.tx, actor: context.actor, commandId: context.commandId });
+      appendDecided(log, aggregate, decision.events, { tx: context.tx, actor: context.actor, commandId: context.commandId });
     }
     return { aggregate, result: { summary: summaryAfter(id) } };
   };
@@ -140,6 +142,24 @@ export const sessionMethods = (options: SessionMethodsOptions): MethodHandlers =
 
     "sessions.reorderActive": (params, context) =>
       onSession(params.sessionId, context, (state, sessionId) => decideReorderActive(state, { sessionId, orderKey: params.orderKey })),
+
+    // The shelf (#117): settle and unsettle are never refused for lifecycle reasons; their companions share the command's transaction.
+    "sessions.settle": (params, context) =>
+      onSession(params.sessionId, context, (state, sessionId, at) => decideSettle(state, { sessionId, at, by: "user" })),
+
+    "sessions.unsettle": (params, context) =>
+      onSession(params.sessionId, context, (state, sessionId, at) => decideUnsettle(state, { sessionId, at })),
+
+    // The time is checked against the command's own instant; a time outside the window is invalid_params, which stores no receipt.
+    "sessions.snooze": (params, context) =>
+      onSession(params.sessionId, context, (state, sessionId, at) => {
+        const issues = snoozeUntilIssues(params.until, at);
+        if (issues.length > 0) throw new ContractError(invalidParams(issues, "A snooze ends after now and at most a year ahead."));
+        return decideSnooze(state, { sessionId, at, until: new Date(params.until).toISOString() });
+      }),
+
+    "sessions.unsnooze": (params, context) =>
+      onSession(params.sessionId, context, (state, sessionId) => decideUnsnooze(state, { sessionId, reason: "user" })),
 
     "sessions.tag": (params, context) => onSession(params.sessionId, context, (state, sessionId) => decideTag(state, { sessionId, tag: params.tag })),
 

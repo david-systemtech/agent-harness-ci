@@ -7,12 +7,15 @@ import {
   type SessionDraftSetPayload,
   type SessionPinReorderedPayload,
   type SessionPinnedPayload,
+  type SessionUnsettledPayload,
+  type SessionUnsnoozedPayload,
   type SessionTaggedPayload,
   type SessionTitleSetPayload,
   type SessionUntaggedPayload,
   type Workspace,
 } from "@agent-harness/contracts";
 import type { EventInput, JsonObject } from "../event-log/event-log.js";
+import { companion } from "./companions.js";
 
 /**
  * The session aggregate's decider (session-state spec, "Modules and
@@ -38,6 +41,8 @@ export interface SessionState {
   /** As the summary holds them: trimmed, one per case-folded key, sorted by it. */
   readonly tags: readonly string[];
   readonly draft: string | null;
+  /** What a user's settle or unsettle holds the session to until its next activity, or null. */
+  readonly settledOverride: "settled" | "active" | null;
 }
 
 /** A purged session: its id stays used, so it reads as deleted with nothing left of it. */
@@ -52,6 +57,7 @@ export const PURGED_STATE: SessionState = {
   snoozedUntil: null,
   tags: [],
   draft: null,
+  settledOverride: null,
 };
 
 /** Why a command is refused: its target is not there, or its state does not allow it. */
@@ -147,7 +153,7 @@ export interface SetDraft extends OnSession {
 }
 
 /** A session command's state, or the refusal when the session is not there: never created, deleted or purged. */
-const present = (state: SessionState | null, sessionId: string): SessionState | { readonly rejected: Refusal } =>
+export const present = (state: SessionState | null, sessionId: string): SessionState | { readonly rejected: Refusal } =>
   state === null || state.deleted ? { rejected: sessionNotFound(sessionId) } : state;
 
 /** A `conflict` naming the session and why its state does not allow the command. */
@@ -155,7 +161,8 @@ const conflict = (sessionId: string, reason: string, message: string, data: Json
   rejected: { code: "conflict", message, data: { reason, sessionId, ...data } },
 });
 
-const unchanged: Decision = { events: [] };
+/** What a command that changes nothing decides. */
+export const unchanged: Decision = { events: [] };
 
 /** A pinned session moved in the pinned block: what both `sessions.pin` at a new key and `sessions.reorderPinned` append. */
 const pinReordered = (pinOrderKey: string): Decision => {
@@ -231,21 +238,31 @@ export const decideUnarchive = (state: SessionState | null, command: OnSession):
  * key it moves in the block (`session.pin-reordered`) and keeps its pin's
  * time, so a pin replayed from an outbox still sets the key it carried.
  *
- * A settled or snoozed session is pinned with `session.pinned` alone for
- * now. The spec's companions, unsettling it (reason `user`) and waking the
- * snooze in the same transaction, arrive with settle and snooze in #117;
- * until then such a session stays on its settled or snoozed shelf, which
- * `shelfOf` ranks above pinned.
+ * A pin is a promotion to the top now (session-state spec, "Events"): a
+ * settled session is unsettled (reason `user`) and a snoozed one woken
+ * (reason `user`), as companions of the pin in the same decision, whether
+ * or not it was pinned already.
  */
 export const decidePin = (state: SessionState | null, command: PinSession): Decision => {
   const session = present(state, command.sessionId);
   if ("rejected" in session) return session;
-  if (session.pinnedAt !== null) {
-    if (command.orderKey === null || command.orderKey === session.pinOrderKey) return unchanged;
-    return pinReordered(command.orderKey);
+  const own: EventInput[] = [];
+  if (session.pinnedAt === null) {
+    const payload: SessionPinnedPayload = { pinnedAt: command.at, pinOrderKey: command.orderKey };
+    own.push({ type: "session.pinned", payload });
+  } else if (command.orderKey !== null && command.orderKey !== session.pinOrderKey) {
+    const payload: SessionPinReorderedPayload = { pinOrderKey: command.orderKey };
+    own.push({ type: "session.pin-reordered", payload });
   }
-  const payload: SessionPinnedPayload = { pinnedAt: command.at, pinOrderKey: command.orderKey };
-  return { events: [{ type: "session.pinned", payload }] };
+  const unsettled: SessionUnsettledPayload = { unsettledAt: command.at, reason: "user" };
+  const woken: SessionUnsnoozedPayload = { reason: "user" };
+  return {
+    events: [
+      ...own,
+      ...(session.settledAt !== null ? [companion({ type: "session.unsettled", payload: unsettled })] : []),
+      ...(session.snoozedUntil !== null ? [companion({ type: "session.unsnoozed", payload: woken })] : []),
+    ],
+  };
 };
 
 /** Unpins the session, dropping its key in the pinned block; one not pinned is unchanged. Its active key is kept. */

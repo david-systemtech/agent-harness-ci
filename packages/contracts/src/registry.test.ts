@@ -132,6 +132,7 @@ describe("the method registry", () => {
       "access.sessions.revoke",
       "access.sessions.refresh",
       ...methods.filter((m) => m.kind === "command" && /^(sessions|groups)\./.test(m.name)).map((m) => m.name),
+      "settings.update",
     ]);
   });
 
@@ -244,6 +245,8 @@ describe("the method registry", () => {
       | "groups.list"
       | "sessions.subscribe"
       | "sessions.subscribeSession"
+      | "settings.get"
+      | "settings.update"
     >();
     expectTypeOf<ParamsOf<"access.sessions.revoke">>().toEqualTypeOf<{ commandId: string; clientSessionId: string }>();
   });

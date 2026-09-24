@@ -34,6 +34,9 @@ import { createRateLimiter } from "../auth/rate-limit.js";
 import { formatActor, openEventLog, type EventLog, type Projector } from "../event-log/event-log.js";
 import { sessionMethods } from "../sessions/methods.js";
 import { sessionListProjector } from "../sessions/session-list.js";
+import { createSettleSweep } from "../sessions/settle-sweep.js";
+import { settingsMethods } from "../settings/methods.js";
+import { settingsProjector } from "../settings/settings-store.js";
 import type { SubscriptionHooks } from "../wire/subscriptions.js";
 import { createWire } from "../wire/wire.js";
 import { systemClock, type Clock } from "./clock.js";
@@ -253,7 +256,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   });
 
   await step("projectors", () => {
-    for (const projector of [sessionListProjector, ...(options.projectors ?? [])]) log.registerProjector(projector);
+    for (const projector of [sessionListProjector, settingsProjector, ...(options.projectors ?? [])]) log.registerProjector(projector);
   });
 
   // Where pairing links point: set when the listeners are bound, before any request is served.
@@ -329,6 +332,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       aggregate: environmentStream,
       result: { projectors: [...log.rebuildProjections()], sequence: log.head() },
     }),
+    // The generic settings (#117), on the environment's settings stream.
+    ...settingsMethods({ log, environmentId: record.id }),
     ...accessMethods({ pairings, clientSessions, accessLog }),
     ...sessionMethods({ log, clock: now }),
   });
@@ -395,6 +400,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     await closers.closeAll().catch((closeError: unknown) => console.error("Closing after a failed start failed:", closeError));
     throw new StartupError("prepared", error);
   }
+  // The shelf's sweep (#117): a pass now, before the wire opens, then every five minutes and on an auto-settle setting's change.
+  closers.push(createSettleSweep({ log, clock }).start());
   wire.open();
   launcher.onQuery((query) => lifecycle.answer(query));
   // The minute sweep: expired pairings, idle `tui` local client sessions, and receipts past their 30 days.

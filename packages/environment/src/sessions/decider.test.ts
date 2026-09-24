@@ -186,10 +186,11 @@ describe("deciding sessions.pin and sessions.unpin", () => {
     });
   });
 
-  it("pins a settled, snoozed or archived session with session.pinned alone; the companions (unsettle, wake) are #117's", () => {
-    for (const fields of [{ settledAt: at }, { snoozedUntil: later }, { archivedAt: at }]) {
-      expect(outcome(decidePin(live(null, fields), { sessionId: id, orderKey: null, at: later }))).toEqual(["session.pinned"]);
-    }
+  it("pins a settled session and unsettles it, a snoozed one and wakes it, in one decision; an archived one with session.pinned alone", () => {
+    const pin = (fields: Partial<SessionState>) => outcome(decidePin(live(null, fields), { sessionId: id, orderKey: null, at: later }));
+    expect(pin({ settledAt: at })).toEqual(["session.pinned", "session.unsettled"]);
+    expect(pin({ snoozedUntil: later })).toEqual(["session.pinned", "session.unsnoozed"]);
+    expect(pin({ archivedAt: at })).toEqual(["session.pinned"]);
   });
 
   it("changes nothing on a pinned session given no key or its own; another key moves it in the block, keeping the pin's time", () => {

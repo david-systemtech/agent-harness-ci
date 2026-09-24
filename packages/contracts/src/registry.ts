@@ -43,6 +43,7 @@ import {
   sessionsUnsnooze,
   sessionsUntag,
 } from "./methods/sessions.js";
+import { settingsGet, settingsUpdate } from "./methods/settings.js";
 
 /**
  * Every method the environment answers, in one typed table: the environment's
@@ -87,6 +88,8 @@ export const methods = [
   groupsList,
   sessionsSubscribe,
   sessionsSubscribeSession,
+  settingsGet,
+  settingsUpdate,
 ] as const;
 
 type Registered = (typeof methods)[number];
@@ -109,11 +112,6 @@ export const OWED_HANDLERS = {
   "groups.reorder": "#116",
   "groups.delete": "#116",
   "groups.list": "#116",
-  // The shelf (#117).
-  "sessions.settle": "#117",
-  "sessions.unsettle": "#117",
-  "sessions.snooze": "#117",
-  "sessions.unsnooze": "#117",
   // Deletion (#118).
   "sessions.delete": "#118",
   "sessions.restore": "#118",

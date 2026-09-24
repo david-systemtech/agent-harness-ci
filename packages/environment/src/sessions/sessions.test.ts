@@ -427,6 +427,25 @@ describe("the field table's behavioural half", () => {
       await command(client, "sessions.tag", { sessionId: id, tag: "wip" });
       return { id, list, type: "session.tagged" };
     },
+    "sessions.settle": async (client) => {
+      const { id } = await create(client);
+      const list = await watch(client);
+      await command(client, "sessions.settle", { sessionId: id });
+      return { id, list, type: "session.settled" };
+    },
+    "sessions.unsettle": async (client) => {
+      const { id } = await create(client);
+      await command(client, "sessions.settle", { sessionId: id });
+      const list = await watch(client);
+      await command(client, "sessions.unsettle", { sessionId: id });
+      return { id, list, type: "session.unsettled" };
+    },
+    "sessions.snooze": async (client) => {
+      const { id } = await create(client);
+      const list = await watch(client);
+      await command(client, "sessions.snooze", { sessionId: id, until: "2026-09-29T09:00:00.000Z" });
+      return { id, list, type: "session.snoozed" };
+    },
     "sessions.setDraft": async (client) => {
       const { id } = await create(client);
       const list = await watch(client);
