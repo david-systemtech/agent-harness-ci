@@ -223,7 +223,7 @@ export class FakeSdk {
     return (this.stored.get(sessionId) ?? []).map((entry) => ({ ...entry, session_id: sessionId, parent_tool_use_id: null, parent_agent_id: null }));
   };
 
-  /** The run queries: those with a prompt that yields, as opposed to the unsampled control queries. */
+  /** The last query the adapter made, of any kind: a run's, or an unsampled control query's (models, commands, usage). */
   last(): FakeQuery {
     const found = this.queries.at(-1);
     if (found === undefined) throw new Error("The adapter made no query.");
