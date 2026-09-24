@@ -11,7 +11,9 @@ import {
   type AuthPolicy,
   type CapabilityFlags,
   type DiscoveryDocument,
+  type DrainTrigger,
   type EnvironmentReadiness,
+  type EnvironmentStatus,
   type HealthDocument,
 } from "@agent-harness/contracts";
 import { createBootstrapGrant } from "../auth/bootstrap.js";
@@ -26,7 +28,10 @@ import { defaultDataDirectory, prepareDataDirectory } from "./data-directory.js"
 import { createHttpSurface, sendJson, type Address, type HttpRoutes } from "./http.js";
 import { ensureSigningKey, loadOrCreateRecord, type EnvironmentRecord } from "./identity.js";
 import { processLauncherChannel, type LauncherChannel } from "./launcher.js";
-import { createMethodTable, type MethodHandlers, type MethodTable } from "./methods.js";
+import { processContainerDetector, type ContainerDetector } from "./container.js";
+import { createLifecycle, type DrainOutcome } from "./lifecycle.js";
+import { createMethodTable, type MethodTable } from "./methods.js";
+import { createRunRegistry, type RunRegistry } from "./run-registry.js";
 import { processUserCheck, refusePrivilegedUser, type UserCheck } from "./user.js";
 import { fileVault, VAULT_FILE, type Vault } from "./vault.js";
 
@@ -111,6 +116,10 @@ export interface EnvironmentOptions {
   readonly hooks?: StartupHooks;
   /** Test seams for subscriptions: hold a catch-up, slow a socket down. */
   readonly subscriptionHooks?: SubscriptionHooks;
+  /** The runs the idle rule and the drain read, and the drain's admission gate. Preset: an empty in-memory registry, until the adapter host (#119). */
+  readonly runs?: RunRegistry;
+  /** Whether this is a container; with no launcher present too, updates are managed outside. Preset: `processContainerDetector`. */
+  readonly containerDetector?: ContainerDetector;
 }
 
 /** A running environment. */
@@ -121,6 +130,17 @@ export interface EnvironmentHandle {
   /** Where the loopback listener is bound. */
   readonly address: Address;
   readiness(): EnvironmentReadiness;
+  /** What `environment.status` answers: readiness, idle or busy or draining, and whether updates are managed outside. */
+  status(): EnvironmentStatus;
+  /**
+   * Starts the drain, or joins the one under way, and settles when it has
+   * ended and the environment has closed. `serve` calls it on SIGTERM with
+   * `signal`; `environment.drain` and the launcher's drain query start the
+   * same drain.
+   */
+  drain(trigger: DrainTrigger): Promise<DrainOutcome>;
+  /** Settles when a drain, whatever started it, has ended and the environment has closed: `serve` exits then. */
+  readonly drained: Promise<DrainOutcome>;
   /**
    * The methods the wire dispatches into after its scope check: every
    * registry method, with its handler once one is registered. A feature that
@@ -172,6 +192,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   const closers = createCloserStack();
   // Pushed first, so it closes last: after the listener and the event log, and after a failed start too.
   closers.push(() => launcher.close());
+  // Concurrent closes share one attempt; a close after a failed one retries what did not close.
+  let closing: Promise<void> | undefined;
+  const close = (): Promise<void> => (closing ??= closers.closeAll().finally(() => (closing = undefined)));
 
   const step = async <T>(name: StartupStep, work: () => T | Promise<T>): Promise<T> => {
     try {
@@ -229,11 +252,22 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
 
   // The environment's own notices: environment.subscribe's stream, whose snapshot is the status.
   const environmentStream = { kind: ENVIRONMENT_STREAM_KIND, id: record.id };
-  const methods: MethodHandlers = {
-    "environment.status": () => ({ readiness }),
-    "environment.subscribe": () => ({ stream: environmentStream, snapshot: () => ({ status: { readiness } }) }),
-  };
-  const table = createMethodTable(methods);
+  const detector = options.containerDetector ?? processContainerDetector();
+  const lifecycle = createLifecycle({
+    clock,
+    runs: options.runs ?? createRunRegistry({ clock }),
+    log,
+    stream: environmentStream,
+    updatesManagedOutside: detector.inContainer() && !launcher.present(),
+    readiness: () => readiness,
+    onDraining: () => void (readiness = "draining"),
+    close: () => close(),
+  });
+  const table = createMethodTable({
+    ...lifecycle.handlers,
+    "environment.subscribe": () => lifecycle.source,
+    "environment.rebuildProjections": () => ({ projectors: [...log.rebuildProjections()], sequence: log.head() }),
+  });
 
   // The grant file and the wire are routed before the bind; both refuse work until the gate below.
   const grant = createBootstrapGrant({
@@ -279,23 +313,27 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     throw new StartupError("prepared", error);
   }
   wire.open();
+  launcher.onQuery((query) => lifecycle.answer(query));
   const sweep = clock.setInterval(() => clientSessions.sweep(), SWEEP_INTERVAL_MS);
   closers.push(() => sweep.cancel());
+  // Runs first when the environment closes: a drain still waiting for runs stops waiting and ends `closed`.
+  closers.push(() => lifecycle.stopWaiting());
 
-  // Concurrent closes share one attempt; a close after a failed one retries what did not close.
-  let closing: Promise<void> | undefined;
   return {
     id: record.id,
     name: record.name,
     dataDir,
     address: bound,
     readiness: () => readiness,
+    status: () => lifecycle.status(),
+    drain: (trigger) => lifecycle.drain(trigger).outcome,
+    drained: lifecycle.drained,
     methods: table,
     http: { route: (method, path, handler) => surface.route(method, path, handler) },
     clientSessions: { issue: (request) => clientSessions.issue(request), revoke: (id) => clientSessions.revoke(id) },
     sockets: () => wire.sockets(),
     subscriptions: () => wire.subscriptions(),
     log,
-    close: () => (closing ??= closers.closeAll().finally(() => (closing = undefined))),
+    close,
   };
 };

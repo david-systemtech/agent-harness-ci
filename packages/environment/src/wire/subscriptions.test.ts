@@ -580,7 +580,7 @@ describe("environment.subscribe", () => {
     const { subscription } = await client.subscribe("environment.subscribe", { afterSequence: 0 });
     const synchronized = await frame(client, subscription, "synchronized");
     const [draining] = t.env.log.append({ kind: ENVIRONMENT_STREAM_KIND, id: t.env.id }, [
-      { type: "environment.draining", payload: { drainingSince: t.clock.now().toISOString() } },
+      { type: "environment.draining", payload: { drainingSince: t.clock.now().toISOString(), trigger: "command" } },
     ], { actor: "system:lifecycle" }).events;
     const live = await client.next((f): f is EventFrame => f.type === "event" && f.subscription === subscription && f.sequence > synchronized.sequence);
     expect(live.sequence).toBe(draining?.sequence);
@@ -601,7 +601,7 @@ describe("environment.subscribe", () => {
       type: "snapshot",
       subscription,
       sequence: events.at(-1)?.sequence,
-      payload: { status: { readiness: "ready" } },
+      payload: { status: { readiness: "ready", activity: { state: "idle" }, updatesManagedOutside: false } },
     });
     await frame(client, subscription, "synchronized");
     expect(shape(client, subscription)).toEqual(["subscribed", "snapshot", "synchronized"]);
@@ -613,7 +613,12 @@ describe("environment.subscribe", () => {
       dataDir,
       port: 0,
       user: { isPrivileged: () => false },
-      launcher: { prepared: () => Promise.reject(new Error("the launcher has gone")), close: () => undefined },
+      launcher: {
+        present: () => true,
+        prepared: () => Promise.reject(new Error("the launcher has gone")),
+        onQuery: () => undefined,
+        close: () => undefined,
+      },
     });
     await expect(failed).rejects.toMatchObject({ step: "prepared" });
 

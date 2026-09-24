@@ -176,7 +176,7 @@ describe("auth and hello", () => {
   it("then answers requests", async () => {
     const t = await start();
     const client = await t.client();
-    expect(await client.request("environment.status", {})).toEqual({ readiness: "ready" });
+    expect(await client.request("environment.status", {})).toMatchObject({ readiness: "ready" });
   });
 
   it("lets one client session hold several sockets", async () => {
@@ -184,8 +184,8 @@ describe("auth and hello", () => {
     const { token } = await t.bootstrap();
     const one = await t.client({ token });
     const two = await t.client({ token });
-    expect(await one.request("environment.status", {})).toEqual({ readiness: "ready" });
-    expect(await two.request("environment.status", {})).toEqual({ readiness: "ready" });
+    expect(await one.request("environment.status", {})).toMatchObject({ readiness: "ready" });
+    expect(await two.request("environment.status", {})).toMatchObject({ readiness: "ready" });
   });
 });
 
@@ -294,7 +294,7 @@ describe("bye", () => {
     const client = await t.client({ token: credential.token, clientKind: "desktop" });
     t.clock.advance(PING_INTERVAL_MS);
     await client.next((f) => f.type === "ping");
-    expect(await client.request("environment.status", {})).toEqual({ readiness: "ready" });
+    expect(await client.request("environment.status", {})).toMatchObject({ readiness: "ready" });
     t.clock.advance(PING_INTERVAL_MS);
     expect((await client.closed).bye?.reason).toBe("expired");
   });
@@ -358,7 +358,7 @@ describe("before the startup gate", () => {
     const hello = await early.next((f) => f.type === "hello");
     expect(hello).toMatchObject({ type: "hello" });
     early.send({ type: "request", id: "ready", method: "environment.status", params: {} });
-    expect(await early.next((f) => f.type === "response")).toEqual({ type: "response", id: "ready", result: { readiness: "ready" } });
+    expect(await early.next((f) => f.type === "response")).toMatchObject({ type: "response", id: "ready", result: { readiness: "ready" } });
     await early.close();
   });
 });
@@ -388,7 +388,7 @@ describe("the scope check", () => {
   it("lets a method through when the client session holds its scope", async () => {
     const t = await start();
     const client = await t.client({ token: issue(t, ["read"]).token });
-    expect(await client.request("environment.status", {})).toEqual({ readiness: "ready" });
+    expect(await client.request("environment.status", {})).toMatchObject({ readiness: "ready" });
   });
 });
 
@@ -418,7 +418,7 @@ describe("requests", () => {
       id: "bad",
       error: { code: "invalid_params", data: { issues: [expect.objectContaining({ path: ["params"] })] } },
     });
-    expect(await client.request("environment.status", {})).toEqual({ readiness: "ready" });
+    expect(await client.request("environment.status", {})).toMatchObject({ readiness: "ready" });
   });
 
   it("says bye protocol, naming the fault, and closes 1002, on a malformed frame with no id to answer", async () => {
@@ -493,7 +493,7 @@ describe("ping", () => {
     const t = await start();
     const client = await t.client({ autoPong: false });
     t.clock.advance(10 * MINUTE);
-    expect(await client.request("environment.status", {})).toEqual({ readiness: "ready" });
+    expect(await client.request("environment.status", {})).toMatchObject({ readiness: "ready" });
     expect(client.received.filter((frame: Frame) => frame.type === "ping")).toHaveLength(40);
   });
 
@@ -530,6 +530,6 @@ describe("the test client", () => {
     const client = await connectClient(t.address, { token });
     onCleanup(() => client.close());
     expect(wireUrl(t.address)).toBe(`ws://127.0.0.1:${t.address.port}/ws`);
-    expect(await client.request("environment.status", {})).toEqual({ readiness: "ready" });
+    expect(await client.request("environment.status", {})).toMatchObject({ readiness: "ready" });
   });
 });

@@ -96,4 +96,33 @@ describe.skipIf(runningAsRoot || process.platform === "win32")("agent-harness se
     child.kill("SIGTERM");
     expect(await exited).toBe(0);
   });
+
+  it("answers the launcher's idle query over IPC, and drains and exits 0 on its drain query", async () => {
+    const child = fork(entry, ["serve", "--data-dir", join(tempDir(), "data"), "--port", "0"], {
+      execArgv: ["--conditions=@agent-harness/source", "--import", tsx],
+      stdio: ["ignore", "ignore", "pipe", "ipc"],
+    });
+    cleanups.push(() => void child.kill("SIGKILL"));
+    const exited = new Promise<number | null>((resolve) => child.on("exit", (code) => resolve(code)));
+    const received: unknown[] = [];
+    let heard: (() => void) | undefined;
+    child.on("message", (message) => {
+      received.push(message);
+      heard?.();
+    });
+    const nth = (n: number) =>
+      new Promise<unknown>((resolve) => {
+        const look = () => (received.length > n ? resolve(received[n]) : undefined);
+        heard = look;
+        look();
+      });
+
+    expect(await nth(0)).toEqual(PREPARED_MESSAGE);
+    child.send({ type: "idle?" });
+    // A launcher is present, so updates are not managed outside, container or not.
+    expect(await nth(1)).toEqual({ type: "idle", readiness: "ready", activity: { state: "idle" }, updatesManagedOutside: false });
+    child.send({ type: "drain?" });
+    expect(await nth(2)).toMatchObject({ type: "draining", drainingSince: expect.any(String) as string, trigger: "launcher" });
+    expect(await exited).toBe(0);
+  });
 });

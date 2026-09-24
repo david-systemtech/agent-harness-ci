@@ -23,6 +23,7 @@ import {
   Timestamp,
   JsonObject,
 } from "./primitives.js";
+import { BusyReason, DrainStarted, DrainTrigger, EnvironmentActivity, EnvironmentStatus } from "./lifecycle.js";
 import { EnvironmentNotice, EnvironmentNoticeType } from "./notices.js";
 import { methods } from "./registry.js";
 import { Ceiling, Scope, ScopeSet } from "./scopes.js";
@@ -74,6 +75,11 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "auth-policy.json", title: "AuthPolicy", schema: AuthPolicy },
   { path: "discovery-document.json", title: "DiscoveryDocument", schema: DiscoveryDocument },
   { path: "health-document.json", title: "HealthDocument", schema: HealthDocument },
+  { path: "lifecycle/busy-reason.json", title: "BusyReason", schema: BusyReason },
+  { path: "lifecycle/drain-trigger.json", title: "DrainTrigger", schema: DrainTrigger },
+  { path: "lifecycle/drain-started.json", title: "DrainStarted", schema: DrainStarted },
+  { path: "lifecycle/environment-activity.json", title: "EnvironmentActivity", schema: EnvironmentActivity },
+  { path: "lifecycle/environment-status.json", title: "EnvironmentStatus", schema: EnvironmentStatus },
   { path: "bootstrap/kind.json", title: "BootstrapKind", schema: BootstrapKind },
   { path: "bootstrap/grant.json", title: "BootstrapGrant", schema: BootstrapGrant },
   { path: "bootstrap/request.json", title: "BootstrapRequest", schema: BootstrapRequest },

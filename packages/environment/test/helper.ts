@@ -13,11 +13,14 @@ import {
 } from "@agent-harness/contracts";
 import type { z } from "zod";
 import type { Address } from "../src/serve/http.js";
+import type { ContainerDetector } from "../src/serve/container.js";
+import { createRunRegistry, type MemoryRunRegistry } from "../src/serve/run-registry.js";
 import type { HandlerResult, MethodContext, MethodHandler } from "../src/serve/methods.js";
 import { startEnvironment, type EnvironmentHandle, type StartupHooks } from "../src/serve/start.js";
 import type { SubscriptionHooks } from "../src/wire/subscriptions.js";
 import { manualClock, type ManualClock } from "./clock.js";
 import { fakeProvider, type FakeProvider } from "./fake-provider.js";
+import { testLauncher, type TestLauncher } from "./launcher.js";
 import {
   ByeError,
   WAIT_MS,
@@ -48,6 +51,10 @@ export interface TestEnvironmentOptions {
   readonly hooks?: StartupHooks;
   /** Subscription seams: hold a catch-up, slow a socket down. */
   readonly subscriptionHooks?: SubscriptionHooks;
+  /** Preset: whatever the machine is, reported as no container, so updates are not managed outside. */
+  readonly containerDetector?: ContainerDetector;
+  /** Preset: a test launcher that says no launcher is present. */
+  readonly launcher?: TestLauncher;
 }
 
 export interface ClientOptions extends OpenOptions, Partial<Omit<AuthOptions, "token">> {
@@ -76,6 +83,10 @@ export interface TestEnvironment {
   readonly clock: ManualClock;
   readonly provider: FakeProvider;
   readonly dataDir: string;
+  /** The run registry the environment's idle rule and drain read: the test starts, parks and ends runs on it. */
+  readonly runs: MemoryRunRegistry;
+  /** The launcher's channel: what the environment signalled, and its idle and drain queries. */
+  readonly launcher: TestLauncher;
   /** The bootstrap grant file as it is now. */
   grant(): BootstrapGrant;
   /** Posts `body` to the bootstrap exchange as it is. */
@@ -140,6 +151,8 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
   const provider = options.provider ?? fakeProvider();
   const ownDir = options.dataDir === undefined ? mkdtempSync(join(tmpdir(), "agent-harness-env-")) : undefined;
   const dataDir = options.dataDir ?? join(ownDir as string, "data");
+  const runs = createRunRegistry({ clock });
+  const launcher = options.launcher ?? testLauncher();
 
   let env: EnvironmentHandle;
   try {
@@ -149,7 +162,9 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
       clock,
       // The agent box and CI may run as root; the refusal has its own tests.
       user: { isPrivileged: () => false },
-      launcher: { prepared: () => undefined, close: () => undefined },
+      launcher,
+      runs,
+      containerDetector: options.containerDetector ?? { inContainer: () => false },
       ...(options.name !== undefined && { name: options.name }),
       ...(options.hooks !== undefined && { hooks: options.hooks }),
       ...(options.subscriptionHooks !== undefined && { subscriptionHooks: options.subscriptionHooks }),
@@ -198,6 +213,8 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
     clock,
     provider,
     dataDir,
+    runs,
+    launcher,
     grant: () => readGrant(dataDir),
     exchange: (body) => postExchange(env.address, body),
     bootstrap: (kind, label) => bootstrapExchange(env.address, dataDir, kind, label),

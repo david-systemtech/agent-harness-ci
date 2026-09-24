@@ -239,25 +239,57 @@ const methodErrorFixtures: Fixtures = {
   ],
 };
 
+/** Activity as `environment.status` reports it: idle, busy for each reason, draining. */
+const validActivities = [
+  { state: "idle" },
+  { state: "busy", reason: "run-running" },
+  { state: "busy", reason: "run-starting" },
+  { state: "busy", reason: "parked-prompt", busyUntil: at },
+  { state: "busy", reason: "recent-activity", busyUntil: at },
+  { state: "draining", drainingSince: at },
+];
+const invalidActivities = [
+  {},
+  { state: "asleep" },
+  { state: "busy" },
+  { state: "busy", reason: "compiling" },
+  { state: "busy", reason: "parked-prompt", busyUntil: "in ten minutes" },
+  { state: "draining" },
+];
+
+const validStatuses = [
+  { readiness: "ready", activity: { state: "idle" }, updatesManagedOutside: false },
+  { readiness: "ready", activity: { state: "busy", reason: "parked-prompt", busyUntil: at }, updatesManagedOutside: true },
+  { readiness: "draining", activity: { state: "draining", drainingSince: at }, updatesManagedOutside: false },
+];
+const invalidStatuses = [
+  {},
+  { readiness: "ready" },
+  { readiness: "idle", activity: { state: "idle" }, updatesManagedOutside: false },
+  { readiness: "ready", activity: { state: "idle" } },
+  { readiness: "ready", activity: { state: "idle" }, updatesManagedOutside: "no" },
+  { readiness: "ready", activity: { state: "busy" }, updatesManagedOutside: false },
+];
+
 /** Params and result instances for every registered method. */
 const methodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
   "environment.status": {
     params: { valid: [{}], invalid: [[], "status"] },
-    result: {
-      valid: [{ readiness: "starting" }, { readiness: "ready" }, { readiness: "draining" }],
-      invalid: [{}, { readiness: "idle" }, { readiness: "Ready" }],
-    },
+    result: { valid: validStatuses, invalid: invalidStatuses },
   },
   "environment.subscribe": {
     params: { valid: [{ afterSequence: 0 }, { afterSequence: 1200 }], invalid: [{}, { afterSequence: -1 }] },
     result: {
-      valid: [{ status: { readiness: "draining" } }],
-      invalid: [{}, { status: { readiness: "asleep" } }],
+      valid: validStatuses.map((status) => ({ status })),
+      invalid: [{}, ...invalidStatuses.map((status) => ({ status }))],
     },
   },
   "environment.drain": {
     params: { valid: [{ commandId: uuid }], invalid: [{}, { commandId: "1" }] },
-    result: { valid: [{ drainingSince: at }], invalid: [{}, { drainingSince: 5 }] },
+    result: {
+      valid: [{ drainingSince: at, trigger: "command" }, { drainingSince: at, trigger: "signal" }],
+      invalid: [{}, { drainingSince: at }, { drainingSince: 5, trigger: "command" }, { drainingSince: at, trigger: "cron" }],
+    },
   },
   "environment.rebuildProjections": {
     params: { valid: [{ commandId: uuid }], invalid: [{}, { commandId: "not-a-uuid" }] },
@@ -425,6 +457,17 @@ export const schemaFixtures: Record<string, Fixtures> = {
     valid: [{ status: "starting", version: "0.1.0" }, { status: "ready", version: "0.0.0" }],
     invalid: [{ status: "ok", version: "0.1.0" }, { status: "ready" }, { version: "0.1.0" }],
   },
+  "lifecycle/busy-reason.json": {
+    valid: ["run-starting", "run-running", "parked-prompt", "recent-activity"],
+    invalid: ["idle", "parked", ""],
+  },
+  "lifecycle/drain-trigger.json": { valid: ["command", "launcher", "signal"], invalid: ["SIGTERM", "cron", ""] },
+  "lifecycle/drain-started.json": {
+    valid: [{ drainingSince: at, trigger: "command" }, { drainingSince: at, trigger: "signal" }],
+    invalid: [{}, { drainingSince: at }, { trigger: "launcher" }, { drainingSince: "soon", trigger: "launcher" }],
+  },
+  "lifecycle/environment-activity.json": { valid: validActivities, invalid: invalidActivities },
+  "lifecycle/environment-status.json": { valid: validStatuses, invalid: invalidStatuses },
   "event-envelope.json": {
     valid: [validEnvelope, { ...validEnvelope, commandId: null, causationId: uuid, correlationId: null }],
     invalid: [envelopeWithoutCommandId, { ...validEnvelope, sequence: 0 }, { ...validEnvelope, payload: [] }],
@@ -437,14 +480,15 @@ export const schemaFixtures: Record<string, Fixtures> = {
     valid: [
       { type: "environment.started", payload: { harnessVersion: "0.1.0", protocolVersion: 1 } },
       { type: "environment.updated", payload: { fromVersion: "0.1.0", toVersion: "0.2.0" } },
-      { type: "environment.draining", payload: { drainingSince: at } },
+      { type: "environment.draining", payload: { drainingSince: at, trigger: "launcher" } },
       validEnvironmentStartedEvent,
     ],
     invalid: [
       { type: "environment.started", payload: { harnessVersion: "", protocolVersion: 1 } },
       { type: "environment.started", payload: { harnessVersion: "0.1.0" } },
       { type: "environment.updated", payload: { toVersion: "0.2.0" } },
-      { type: "environment.draining", payload: { drainingSince: "soon" } },
+      { type: "environment.draining", payload: { drainingSince: "soon", trigger: "signal" } },
+      { type: "environment.draining", payload: { drainingSince: at } },
       { type: "environment.stopped", payload: {} },
       validEnvelope,
     ],
