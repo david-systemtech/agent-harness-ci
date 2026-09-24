@@ -76,6 +76,8 @@ export interface TestEnvironmentOptions {
   readonly adapterSeams?: EnvironmentOptions["adapterSeams"];
   /** The idle time of a provider process, in minutes; preset: the setting's preset. */
   readonly processIdleMinutes?: () => number;
+  /** How terminals start; preset the environment's own (`node-pty`, the login shell, the clean base). */
+  readonly terminals?: EnvironmentOptions["terminals"];
 }
 
 /** A machine with no Tailscale address and no tailnet name. */
@@ -219,6 +221,7 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
     ...(options.tailnetName !== undefined && { tailnetName: options.tailnetName }),
     ...(options.adapterSeams !== undefined && { adapterSeams: options.adapterSeams }),
     ...(options.processIdleMinutes !== undefined && { processIdleMinutes: options.processIdleMinutes }),
+    ...(options.terminals !== undefined && { terminals: options.terminals }),
   };
   let env: EnvironmentHandle;
   try {

@@ -1,0 +1,55 @@
+import { z } from "zod";
+import { defineMethod } from "../method.js";
+import { SessionId } from "../sessions.js";
+import { FilesListSource, WorkspacePath } from "../terminals.js";
+
+/**
+ * The file methods (tui spec, "Terminals, files and diffs"; #124), read-only
+ * in phase A, at scope `terminal`. Paths are relative to the session's
+ * workspace; one that would escape it (absolute, a `..` segment, or a
+ * symlink leading outside) is `invalid_params` with data `reason:
+ * escapes_workspace`. A session that is not on this environment, or is
+ * deleted, is `not_found` with data `kind: session`.
+ */
+
+/**
+ * The workspace's files, as paths relative to it with forward slashes, in
+ * code-unit order: in a git repository, git's tracked and untracked files
+ * that are not ignored; elsewhere, or where there is no git, a bounded walk that skips `.git`,
+ * `node_modules`, `dist`, `out`, `.tsbuild` and every other dot-directory,
+ * and never follows a symlink (Artemis's skip list). At most 20,000, with
+ * `truncated` when there were more.
+ */
+export const filesList = defineMethod({
+  name: "files.list",
+  scope: "terminal",
+  kind: "query",
+  params: z.object({ sessionId: SessionId }),
+  result: z.object({
+    files: z.array(z.string().min(1)),
+    truncated: z.boolean().meta({ description: "True when the workspace holds more than the 20,000 files listed." }),
+    source: FilesListSource,
+  }),
+  errors: [],
+});
+
+/**
+ * A file of the workspace: its first 2 MiB as UTF-8 text, or no text when a
+ * NUL byte in its first 8 KiB says it is binary. A path with no file is
+ * `not_found` with data `kind: file`; a directory or anything but a regular
+ * file is `invalid_params` with data `reason: not_a_file`.
+ */
+export const filesRead = defineMethod({
+  name: "files.read",
+  scope: "terminal",
+  kind: "query",
+  params: z.object({ sessionId: SessionId, path: WorkspacePath }),
+  result: z.object({
+    path: z.string().min(1).meta({ description: "The path read, relative to the workspace, with forward slashes." }),
+    size: z.int().nonnegative().meta({ description: "The file's size on disk, in bytes." }),
+    binary: z.boolean().meta({ description: "True when a NUL byte in the first 8 KiB says the file is binary; then text is null." }),
+    truncated: z.boolean().meta({ description: "True when the file is larger than the 2 MiB read." }),
+    text: z.string().nullable().meta({ description: "The first 2 MiB as UTF-8; null for a binary file." }),
+  }),
+  errors: [],
+});

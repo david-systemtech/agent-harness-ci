@@ -50,6 +50,9 @@ import { createDeletion } from "../sessions/deletion.js";
 import { groupMethods } from "../sessions/group-methods.js";
 import { sessionMethods } from "../sessions/methods.js";
 import { sessionListProjector } from "../sessions/session-list.js";
+import { createTerminalService } from "../terminals/service.js";
+import type { TerminalsOptions } from "../terminals/terminals.js";
+import { workspaceMethods } from "../workspace/methods.js";
 import { createSettleSweep } from "../sessions/settle-sweep.js";
 import { settingsMethods } from "../settings/methods.js";
 import { readSettings, settingsProjector } from "../settings/settings-store.js";
@@ -183,6 +186,8 @@ export interface EnvironmentOptions {
     /** Preset: the policy resolver on the environment's permission settings (#129). */
     readonly resolvePolicy?: PolicySeam;
   };
+  /** How terminals start: the pty, the shell, the base environment. Preset: `node-pty`, the user's login shell, the clean base (`terminals/`). */
+  readonly terminals?: Omit<TerminalsOptions, "clock">;
 }
 
 /** A running environment. */
@@ -415,6 +420,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     },
     close: () => close(),
   });
+  // The terminals (#124): their output never enters the log; closed before the log is, and on a session's deletion.
+  const terminalService = createTerminalService({ log, clock, ...options.terminals });
+  closers.push(() => terminalService.close());
   // The shelf's sweep (#117): started once the environment is ready; a settings change runs it from the change's commit.
   const settleSweep = createSettleSweep({ log, clock });
   const table = createMethodTable({
@@ -439,6 +447,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ...runMethods({ log, host, ceilingOf: (id) => clientSessions.ceiling(id) }),
     ...permissionMethods({ log, host, accessLog, clock, environmentId: record.id, ceilingOf: (id) => clientSessions.ceiling(id) }),
     ...processMethods({ log, host }),
+    ...terminalService.handlers,
+    ...workspaceMethods({ log }),
   });
 
   // The two exchanges and the wire are routed before the bind; all three refuse work until the gate below.

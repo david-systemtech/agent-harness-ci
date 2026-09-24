@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "diffs.workingTree result",
+  "type": "object",
+  "properties": {
+    "diff": {
+      "type": "string"
+    },
+    "truncated": {
+      "type": "boolean"
+    },
+    "repository": {
+      "type": "boolean",
+      "description": "False when the workspace is in no git repository, so there is nothing to diff."
+    }
+  },
+  "required": [
+    "diff",
+    "truncated",
+    "repository"
+  ]
+}

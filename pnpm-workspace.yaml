@@ -5,3 +5,10 @@ packages:
 # so its install script is not needed.
 ignoredBuiltDependencies:
   - esbuild
+
+# node-pty (the environment's pseudo-terminals, #124) needs its install
+# script: it takes a prebuild where one exists (macOS, Windows) and compiles
+# with node-gyp where none does (every Linux, CI's node:24-bookworm included,
+# which carries python3, make and g++).
+onlyBuiltDependencies:
+  - node-pty
