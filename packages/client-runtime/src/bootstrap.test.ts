@@ -3,7 +3,7 @@ import { DISCOVERY_PATH, SCOPES } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { TOP_CEILING } from "../../environment/src/auth/client-sessions.js";
 import { grantReader, notJsonAt, originOf, until, useHarness } from "../test/harness.js";
-import { PAIRED_CONNECTIONS_DOCUMENT } from "./connections/records.js";
+import { LOCAL_PLACEHOLDER_ID, PAIRED_CONNECTIONS_DOCUMENT } from "./connections/records.js";
 import { inMemoryPlatform } from "./testing/in-memory-platform.js";
 
 const harness = useHarness();
@@ -202,11 +202,13 @@ describe("the bootstrap grant", () => {
     ]);
   });
 
-  it("has no local connection when there is no grant to read and none was seen before", async () => {
+  it("lists this machine as a placeholder when there is no grant to read and none was seen before", async () => {
     const runtime = harness.runtime(inMemoryPlatform({ kind: "tui", grant: { read: async () => undefined } }));
     await runtime.start();
     expect(runtime.local.read()).toMatchObject({ state: "failed", reason: "service-down" });
-    expect(runtime.connections.list.read()).toEqual([]);
+    expect(runtime.connections.list.read()).toEqual([
+      expect.objectContaining({ environmentId: LOCAL_PLACEHOLDER_ID, kind: "local", phase: "service-down", action: "service.start" }),
+    ]);
   });
 
   it("reports an environment that does not answer at the grant's address", async () => {

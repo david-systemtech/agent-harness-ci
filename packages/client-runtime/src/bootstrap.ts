@@ -32,9 +32,16 @@ export type LocalStatus =
  */
 export type LocalFailureReason = "service-down" | "starting" | "draining" | "unsupported-client" | "protocol-mismatch" | "refused";
 
+/**
+ * How an exchange went: the client session, or the failure with what was
+ * learned on the way: the grant's address (`origin`) once a grant was read,
+ * and the environment's discovery document (`discovery`) once it answered
+ * one, so a local environment never seen before is known by its id even when
+ * the exchange itself fails (it is starting, a version apart, or refuses).
+ */
 export type GrantExchange =
   | { readonly ok: true; readonly origin: string; readonly discovery: DiscoveryDocument; readonly credential: ClientSessionCredential }
-  | { readonly ok: false; readonly status: LocalStatus };
+  | { readonly ok: false; readonly status: LocalStatus; readonly origin?: string; readonly discovery?: DiscoveryDocument };
 
 const isBootstrapKind = (kind: string): kind is BootstrapKind => (BOOTSTRAP_KINDS as readonly string[]).includes(kind);
 
@@ -55,25 +62,31 @@ export const exchangeGrant = async (options: {
 }): Promise<GrantExchange> => {
   const { fetch, client, grant } = options;
   if (!readsGrant(grant, client)) return { ok: false, status: { state: "none" } };
-  const failed = (reason: LocalFailureReason, message: string): GrantExchange => ({ ok: false, status: { state: "failed", reason, message } });
+  const failed = (reason: LocalFailureReason, message: string, seen: { origin?: string; discovery?: DiscoveryDocument } = {}): GrantExchange => ({
+    ok: false,
+    status: { state: "failed", reason, message },
+    ...seen,
+  });
 
   for (let attempt = 0; ; attempt++) {
     const read = await grant.read();
     if (!read) return failed("service-down", "There is no grant file: the local environment's service is not running.");
     const origin = originOf(read.address);
     const discovery = await readDiscovery(fetch, origin);
-    if (!discovery.ok) return failed(discovery.kind === "unreachable" ? "service-down" : "refused", discovery.message);
+    if (!discovery.ok) return failed(discovery.kind === "unreachable" ? "service-down" : "refused", discovery.message, { origin });
+    const seen = { origin, discovery: discovery.document };
     const check = checkDiscovery(discovery.document, { protocolVersion: options.protocolVersion });
-    if (!check.ok) return failed(check.reason === "different-environment" ? "refused" : check.reason, check.message);
+    if (!check.ok) return failed(check.reason === "different-environment" ? "refused" : check.reason, check.message, seen);
 
     const answer = await postExchange(fetch, `${origin}${BOOTSTRAP_PATH}`, { secret: read.secret, kind: client.kind, label: client.label });
     if (answer.ok) return { ok: true, origin, discovery: discovery.document, credential: answer.credential };
-    if (answer.kind === "unreachable") return failed("service-down", answer.message);
+    if (answer.kind === "unreachable") return failed("service-down", answer.message, seen);
     if (answer.status === 401 && attempt === 0) continue;
-    if (answer.code === "unavailable") return failed("starting", "The local environment is not ready yet.");
+    if (answer.code === "unavailable") return failed("starting", "The local environment is not ready yet.", seen);
     return failed(
       "refused",
       `The local environment refused the grant (HTTP ${answer.status})${answer.message === undefined ? "." : `: ${answer.message}`}`,
+      seen,
     );
   }
 };

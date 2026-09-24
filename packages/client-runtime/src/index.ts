@@ -40,6 +40,7 @@ export {
 } from "./shell.js";
 export {
   BLOCKED_REASONS,
+  LOCAL_PLACEHOLDER_ID,
   PREFERENCE_KEYS,
   type BlockedReason,
   type ClientPreferences,

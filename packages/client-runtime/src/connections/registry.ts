@@ -33,6 +33,8 @@ import {
 } from "./connection.js";
 import {
   LOCAL_ENVIRONMENT_DOCUMENT,
+  LOCAL_PLACEHOLDER_ID,
+  LOCAL_PLACEHOLDER_NAME,
   NO_PREFERENCES,
   PAIRED_CONNECTIONS_DOCUMENT,
   PREFERENCE_KEYS,
@@ -178,9 +180,15 @@ interface Entry {
   readonly runner: Runner;
   /** A local connection's token, held in memory only: it lives as long as the record, which is never saved. */
   token: string | undefined;
+  /** What the first discovery read answers without reading: what the placeholder learned, handed to the entry that replaced it. */
+  pending?: DiscoveryAnswer | undefined;
+  /** The placeholder was replaced: the environment's entry, once it has begun; who waited on the placeholder waits on it. */
+  successor?: { readonly environmentId: string; readonly begun: Promise<Entry | undefined> };
 }
 
 const unknownEnvironment = (environmentId: string) => new Error(`There is no saved connection to environment ${environmentId}.`);
+
+const notYetSeen = () => new Error("This machine's local environment has not answered yet: its address comes from its grant, and it is not an environment to use until it answers.");
 
 const fromDiscovery = (descriptor: EnvironmentDescriptor, document: DiscoveryDocument): EnvironmentDescriptor => ({
   ...descriptor,
@@ -243,6 +251,8 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
   const publish = () => {
     const sequence = prefs.read()["environments.sequence"];
     const rank = (id: string) => {
+      // The placeholder is where the local environment will be: first. It never enters the saved sequence.
+      if (id === LOCAL_PLACEHOLDER_ID) return -1;
       const at = sequence.indexOf(id);
       return at === -1 ? sequence.length : at;
     };
@@ -272,7 +282,10 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
 
   /** The local environment's identity, so it stays listed while its service is down. Never its token or client session. */
   const rememberLocal = (environmentId: string, saved: SavedConnection) =>
-    enqueue(() => platform.documents.set(LOCAL_ENVIRONMENT_DOCUMENT, { environmentId, address: saved.address, descriptor: saved.descriptor }));
+    // The placeholder is nothing seen: it is never remembered.
+    environmentId === LOCAL_PLACEHOLDER_ID
+      ? Promise.resolve()
+      : enqueue(() => platform.documents.set(LOCAL_ENVIRONMENT_DOCUMENT, { environmentId, address: saved.address, descriptor: saved.descriptor }));
 
   const setPreferences = (change: (current: ClientPreferences) => ClientPreferences) => {
     prefs.update(change);
@@ -311,6 +324,11 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
   /** Settles once the attempt under way has, and the session list it attached is no longer catching up. */
   const settledFor = async (environmentId: string, entry: Entry): Promise<void> => {
     await entry.runner.settled();
+    if (entry.successor) {
+      const { environmentId: id } = entry.successor;
+      const next = await entry.successor.begun;
+      return next ? settledFor(id, next) : undefined;
+    }
     const waiting = syncing.get(environmentId);
     if (!waiting || entry.runner.state.step !== "open") return;
     await new Promise<void>((resolve) => waiting.push(resolve));
@@ -372,13 +390,13 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
   const exchangeLocal = async (environmentId: string, entry: Entry): Promise<DiscoveryAnswer> => {
     const exchange = await exchangeGrant({ fetch: platform.fetch, grant: platform.grant, client: platform.client, protocolVersion });
     if (!isCurrent(environmentId, entry)) return { kind: "unreachable", message: "The connection was forgotten." };
-    if (!exchange.ok) {
-      local.set(exchange.status);
-      const status = exchange.status;
-      return status.state === "failed"
-        ? { kind: "grant-failed", reason: status.reason, message: status.message }
-        : { kind: "grant-failed", reason: "service-down", message: "This client reads no grant." };
+    const answer = answerOf(exchange);
+    if (!exchange.ok) local.set(exchange.status);
+    if (environmentId === LOCAL_PLACEHOLDER_ID) {
+      promote(entry, exchange, answer);
+      return answer;
     }
+    if (!exchange.ok) return answer;
     // A grant that is now another environment's: discovery's check blocks it `different-environment`, and the next start takes that one as the local environment.
     if (exchange.discovery.environmentId !== environmentId) return { kind: "document", document: exchange.discovery };
     entry.token = exchange.credential.token;
@@ -391,6 +409,86 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
       expiresAt: exchange.credential.expiresAt,
     });
     return { kind: "document", document: exchange.discovery };
+  };
+
+  /** What a grant exchange is to the connection's machine: the discovery document it read, or the failure in the phases' words. */
+  const answerOf = (exchange: GrantExchange): DiscoveryAnswer => {
+    if (exchange.ok) return { kind: "document", document: exchange.discovery };
+    const status = exchange.status;
+    return status.state === "failed"
+      ? { kind: "grant-failed", reason: status.reason, message: status.message }
+      : { kind: "grant-failed", reason: "service-down", message: "This client reads no grant." };
+  };
+
+  /**
+   * The local environment known from its discovery document alone (the
+   * exchange failed after it answered): listed and remembered under its id,
+   * with no client session yet; its machine exchanges the grant on its next attempt.
+   */
+  const seenLocal = async (origin: string, document: DiscoveryDocument, failures = 0): Promise<Entry> => {
+    const id = document.environmentId;
+    const saved: SavedConnection = {
+      address: origin,
+      kind: "local",
+      clientSessionId: null,
+      scopes: [],
+      ceiling: null,
+      descriptor: fromDiscovery(emptyDescriptor(document.environmentName), document),
+      blocked: null,
+      expiresAt: null,
+    };
+    const entry = newEntry(id, saved, undefined, failures);
+    entries.set(id, entry);
+    await rememberLocal(id, saved);
+    await enterSequence(id, "first");
+    return entry;
+  };
+
+  /**
+   * The placeholder's grant exchange named the environment: its own entry
+   * takes the placeholder's place, carrying the machine's failure count, and
+   * begins with what the exchange learned as its first discovery answer (the
+   * document, with the client session kept; or the failure, which the new
+   * machine waits out on the ladder from where the placeholder's was). A
+   * failure that named nothing leaves the placeholder, and so does one that
+   * names an environment already listed (a paired connection to this
+   * machine), until an exchange succeeds and replaces that as a start would.
+   */
+  const promote = (placeholder: Entry, exchange: GrantExchange, answer: DiscoveryAnswer): void => {
+    const document = exchange.discovery;
+    if (!document || (!exchange.ok && entries.has(document.environmentId))) return;
+    const id = document.environmentId;
+    const failures = placeholder.runner.state.failures;
+    let begun!: (entry: Entry | undefined) => void;
+    placeholder.successor = { environmentId: id, begun: new Promise((resolve) => (begun = resolve)) };
+    entries.delete(LOCAL_PLACEHOLDER_ID);
+    placeholder.runner.stop();
+    if (exchange.ok) local.set({ state: "exchanged", environmentId: id });
+    // The environment's entry is set before the first write is awaited, so the list goes from the placeholder to it in one step.
+    const listing = exchange.ok ? adoptLocal(exchange, failures) : seenLocal(exchange.origin as string, document, failures);
+    publish();
+    void (async (): Promise<Entry | undefined> => {
+      try {
+        await listing;
+      } catch (error) {
+        // A write that failed is reported; the entry is listed all the same.
+        report(error);
+      }
+      const entry = entries.get(id);
+      if (!entry || closed) return undefined;
+      entry.pending = answer;
+      if (prefs.read()["environments.enabled"][LOCAL_PLACEHOLDER_ID] !== undefined) {
+        await setPreferences((p) => ({
+          ...p,
+          "environments.enabled": Object.fromEntries(Object.entries(p["environments.enabled"]).filter(([key]) => key !== LOCAL_PLACEHOLDER_ID)),
+        })).catch(report);
+      }
+      begin(id, entry);
+      return entry;
+    })().then(begun, (error: unknown) => {
+      report(error);
+      begun(undefined);
+    });
   };
 
   /** Keeps a refreshed token where this connection's token lives, and its expiry on the record. */
@@ -423,6 +521,9 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
     random: platform.random ?? Math.random,
     async discover() {
       const e = entry();
+      const pending = e.pending;
+      e.pending = undefined;
+      if (pending) return pending;
       if (e.saved.kind === "local" && e.token === undefined) return exchangeLocal(environmentId, e);
       const read = await readDiscovery(platform.fetch, e.saved.address);
       if (read.ok) return { kind: "document", document: read.document };
@@ -491,15 +592,19 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
     report,
   });
 
-  const newEntry = (environmentId: string, saved: SavedConnection, token?: string): Entry => {
-    const machine = initialMachine({
-      environmentId,
-      protocolVersion,
-      kind: saved.kind,
-      name: saved.descriptor.name,
-      blocked: saved.blocked,
-      capabilities: saved.descriptor.capabilities,
-    });
+  /** `failures`: where the machine's ladder stands, carried over from the placeholder it replaces. */
+  const newEntry = (environmentId: string, saved: SavedConnection, token?: string, failures = 0): Entry => {
+    const machine = {
+      ...initialMachine({
+        environmentId,
+        protocolVersion,
+        kind: saved.kind,
+        name: saved.descriptor.name,
+        blocked: saved.blocked,
+        capabilities: saved.descriptor.capabilities,
+      }),
+      failures,
+    };
     const entry: Entry = { saved, token, runner: createRunner(hostFor(environmentId, () => entry), machine) };
     return entry;
   };
@@ -545,14 +650,24 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
     };
   };
 
+  /** Takes the placeholder out: the local environment is listed under its own id now. */
+  const dropPlaceholder = () => {
+    const placeholder = entries.get(LOCAL_PLACEHOLDER_ID);
+    if (!placeholder) return;
+    entries.delete(LOCAL_PLACEHOLDER_ID);
+    placeholder.runner.stop();
+  };
+
   /**
    * Takes the local connection from a grant exchange. A paired connection to
    * the same environment is replaced: its client session is revoked with the
    * new local one (which holds every scope), then its record and token are
    * forgotten.
    */
-  const adoptLocal = async (exchange: Extract<GrantExchange, { ok: true }>) => {
+  const adoptLocal = async (exchange: Extract<GrantExchange, { ok: true }>, failures = 0) => {
     const id = exchange.discovery.environmentId;
+    // A placeholder from an earlier start that failed gives way; `promote` has taken it out already.
+    dropPlaceholder();
     const previous = entries.get(id);
     previous?.runner.stop();
     if (previous?.saved.kind === "paired") {
@@ -572,7 +687,7 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
       blocked: null,
       expiresAt: exchange.credential.expiresAt,
     };
-    entries.set(id, newEntry(id, saved, exchange.credential.token));
+    entries.set(id, newEntry(id, saved, exchange.credential.token, failures));
     if (previous?.saved.kind === "paired") await savePaired();
     await rememberLocal(id, saved);
     await enterSequence(id, "first");
@@ -676,6 +791,26 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
           local.set(exchange.status);
           // The local environment stays listed from what was remembered of it; its machine tries the grant again on the ladder.
           const known = readRememberedLocal(remembered);
+          const listed = [...entries.values()].some((entry) => entry.saved.kind === "local");
+          if (!known && !listed && exchange.status.state === "failed") {
+            // Never seen: under its own id when its discovery document named it, else as the placeholder, until it answers.
+            const document = exchange.discovery;
+            if (document && !entries.has(document.environmentId)) await seenLocal(exchange.origin as string, document);
+            else if (!document) {
+              const placeholder: SavedConnection = {
+                address: exchange.origin ?? "",
+                kind: "local",
+                clientSessionId: null,
+                scopes: [],
+                ceiling: null,
+                descriptor: emptyDescriptor(LOCAL_PLACEHOLDER_NAME),
+                blocked: null,
+                expiresAt: null,
+              };
+              entries.set(LOCAL_PLACEHOLDER_ID, newEntry(LOCAL_PLACEHOLDER_ID, placeholder));
+              publish();
+            }
+          }
           if (known && !entries.has(known.environmentId) && exchange.status.state === "failed") {
             const saved: SavedConnection = {
               address: known.address,
@@ -809,6 +944,7 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
     async setAddress(environmentId, address) {
       if (!loaded) await ensureLoaded();
       const entry = entryOf(environmentId);
+      if (environmentId === LOCAL_PLACEHOLDER_ID) throw notYetSeen();
       const origin = parseAddress(address);
       if (!origin) throw new RangeError(`"${address}" is not an address.`);
       await updateSaved(environmentId, entry, { address: origin });
@@ -827,7 +963,9 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
 
     async setOrder(environmentIds) {
       if (!loaded) await ensureLoaded();
-      const known = new Set(entries.keys());
+      // The placeholder always lists first and is never saved in the sequence: naming it or not is the same.
+      const known = new Set([...entries.keys()].filter((id) => id !== LOCAL_PLACEHOLDER_ID));
+      environmentIds = environmentIds.filter((id) => id !== LOCAL_PLACEHOLDER_ID);
       const given = new Set(environmentIds);
       if (given.size !== environmentIds.length || given.size !== known.size || [...given].some((id) => !known.has(id))) {
         throw new RangeError("The sequence must name every saved environment exactly once.");
@@ -843,6 +981,7 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
     async setLastUsed(environmentId) {
       if (!loaded) await ensureLoaded();
       entryOf(environmentId);
+      if (environmentId === LOCAL_PLACEHOLDER_ID) throw notYetSeen();
       await setPreferences((p) => ({ ...p, "environments.lastUsed": environmentId }));
     },
 
