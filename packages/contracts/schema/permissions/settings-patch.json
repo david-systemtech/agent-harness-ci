@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PermissionSettingsPatch",
+  "type": "object",
+  "properties": {
+    "permissions.defaultCeiling": {
+      "type": "string",
+      "enum": [
+        "plan",
+        "acceptEdits",
+        "auto",
+        "bypassPermissions"
+      ],
+      "description": "The ceiling a pairing gives when none is chosen."
+    },
+    "permissions.unattended.mode": {
+      "type": "string",
+      "enum": [
+        "acceptEdits",
+        "bypassPermissions"
+      ],
+      "description": "The mode of every unattended run that names none (a routine or bot without an override, a completions request without a mode): acceptEdits or bypassPermissions."
+    },
+    "permissions.parkedPrompt.ttl": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "amount": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000
+            },
+            "unit": {
+              "type": "string",
+              "enum": [
+                "minutes",
+                "hours",
+                "days"
+              ],
+              "description": "What a duration is counted in: minutes, hours or days."
+            }
+          },
+          "required": [
+            "amount",
+            "unit"
+          ],
+          "description": "A duration: 1 to 1000 minutes, hours or days."
+        },
+        {
+          "type": "string",
+          "const": "never",
+          "description": "A parked prompt waits until it is answered."
+        }
+      ],
+      "description": "How long a parked prompt waits before it is denied and its run continues: a duration, or never."
+    },
+    "permissions.containment.default": {
+      "type": "string",
+      "enum": [
+        "off",
+        "workspace",
+        "workspace-no-network"
+      ],
+      "description": "The containment level of a run whose session names none."
+    }
+  },
+  "additionalProperties": false,
+  "description": "Some permission settings' values by key, each valid for its key; the acknowledgement time and any other key are refused."
+}

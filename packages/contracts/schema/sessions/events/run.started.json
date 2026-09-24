@@ -78,29 +78,33 @@
           "anyOf": [
             {
               "type": "string",
-              "minLength": 1
+              "enum": [
+                "plan",
+                "acceptEdits",
+                "auto",
+                "bypassPermissions"
+              ],
+              "description": "What an agent may do without asking during a run, in the order ceilings use: plan < acceptEdits < auto < bypassPermissions. Claude's default and dontAsk are never used."
             },
             {
               "type": "null"
             }
           ],
-          "description": "The mode asked for, by the command or the session; null for the adapter's own."
+          "description": "The mode asked for, by the command or the session; null when neither names one, so a default applied."
         },
         "effective": {
-          "anyOf": [
-            {
-              "type": "string",
-              "minLength": 1
-            },
-            {
-              "type": "null"
-            }
+          "type": "string",
+          "enum": [
+            "plan",
+            "acceptEdits",
+            "auto",
+            "bypassPermissions"
           ],
-          "description": "The mode the run got, after the clamp to the connection's ceiling."
+          "description": "The mode the run got, after the clamp to the connection's ceiling and the account's modes."
         },
         "clamped": {
           "type": "boolean",
-          "description": "Whether the clamp lowered the mode asked for."
+          "description": "Whether the clamp lowered the mode asked for; run.policy.resolved says why."
         }
       },
       "required": [
@@ -108,7 +112,7 @@
         "effective",
         "clamped"
       ],
-      "description": "A run's mode: requested, effective after the ceiling's clamp, and whether it was clamped."
+      "description": "A run's mode: requested, effective after the ceiling's clamp, and whether it was clamped; run.policy.resolved has the rest."
     },
     "workspace": {
       "oneOf": [

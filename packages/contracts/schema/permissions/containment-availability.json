@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ContainmentAvailability",
+  "type": "object",
+  "properties": {
+    "level": {
+      "type": "string",
+      "enum": [
+        "off",
+        "workspace",
+        "workspace-no-network"
+      ],
+      "description": "Where a run may reach: off (nothing applied), workspace (writes only inside the workspace), workspace-no-network (and no network for the model's commands and fetches)."
+    },
+    "available": {
+      "type": "boolean"
+    },
+    "reason": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Why the level cannot be enforced here; null when it can."
+    }
+  },
+  "required": [
+    "level",
+    "available",
+    "reason"
+  ],
+  "description": "Whether this environment can enforce a containment level and, when it cannot, why."
+}

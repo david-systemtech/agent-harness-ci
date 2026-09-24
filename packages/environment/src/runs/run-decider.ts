@@ -6,16 +6,20 @@ import {
   type AttachmentRecord,
   type MessageDeliveredPayload,
   type MessageSentPayload,
+  type Mode,
   type QueueHolder,
   type RunOrigin,
+  type RunPolicy,
+  type RunPolicyResolvedPayload,
   type RunStartedPayload,
   type SendResponse,
   type Workspace,
 } from "@agent-harness/contracts";
 import { requireCapability } from "../adapter/capabilities.js";
 import type { AdapterDescriptor, AttachmentData, ModelOption, PromptMessage } from "../adapter/contract.js";
-import type { ModeClamp } from "../adapter/seams.js";
+import type { PolicySeam } from "../adapter/seams.js";
 import type { EventInput, JsonObject } from "../event-log/event-log.js";
+import type { RunActor } from "../permissions/resolver.js";
 import type { QueuedMessage, RunRow, SessionFacts } from "./run-reads.js";
 
 /**
@@ -43,10 +47,11 @@ export interface AccountFacts {
   readonly models: readonly ModelOption[];
 }
 
-/** The session's live run, when there is one: its id and its adapter's descriptor. */
+/** The session's live run, when there is one: its id, its adapter's descriptor, and the policy it started with. */
 export interface LiveRunFacts {
   readonly runId: string;
   readonly descriptor: AdapterDescriptor;
+  readonly policy: RunPolicy;
 }
 
 /** What starting a run on a session depends on. */
@@ -62,9 +67,10 @@ export interface StartFacts {
   readonly queued: readonly QueuedMessage[];
   /** The provider's session the run resumes, when the adapter can resume and a run linked one. */
   readonly resumeFrom: string | null;
-  /** The ceiling of the connection that asked, which the mode is clamped to (ADR 0006). */
-  readonly ceiling: string;
-  readonly clamp: ModeClamp;
+  /** Who asked: its kind, whether a person is present, and the ceiling the mode is clamped to (ADR 0006). */
+  readonly actor: RunActor;
+  /** The policy resolver (#129): the run's mode clamped to the actor's ceiling and the account's modes. */
+  readonly resolvePolicy: PolicySeam;
   /** The id the run gets. */
   readonly runId: string;
 }
@@ -82,7 +88,7 @@ export interface StartCommand {
   readonly message: SentMessage | null;
   readonly model?: string | undefined;
   readonly effort?: string | undefined;
-  readonly mode?: string | undefined;
+  readonly mode?: Mode | undefined;
 }
 
 /** A run the host is to start once its events commit. */
@@ -92,14 +98,17 @@ export interface PlannedRun {
   readonly account: AccountFacts;
   readonly model: string;
   readonly effort: string | null;
-  readonly mode: string | null;
+  /** The run's effective mode: its policy's. */
+  readonly mode: Mode;
   readonly workspace: Workspace;
   readonly repositoryIdentity: string | null;
   readonly resumeFrom: string | null;
   /** The mode asked for, before the clamp: what a run the environment starts from the queue after this one asks for again. */
-  readonly requestedMode: string | null;
-  /** The ceiling of the connection that asked, which a run started from the queue after this one is clamped to too. */
-  readonly ceiling: string;
+  readonly requestedMode: Mode | null;
+  /** Who asked: a run started from the queue after this one is resolved for the same actor, under its ceiling as it is then. */
+  readonly actor: RunActor;
+  /** The run's policy as resolved at its start, recorded as `run.policy.resolved`: fixed for the run, whatever changes after. */
+  readonly policy: RunPolicy;
   /**
    * The messages the run starts with, in order: the queued ones, whose
    * attachments' bytes the host holds, then the one sent, with its bytes.
@@ -161,11 +170,21 @@ const modelOf = (account: AccountFacts, asked: string | null): ModelOption => {
 /** `message.sent` for a message a client sent, as the log records it. */
 const sentEvent = (payload: MessageSentPayload): EventInput => ({ type: "message.sent", payload });
 
+/** A run's policy as its `run.policy.resolved` records it. */
+export const policyResolvedEvent = (runId: string, policy: RunPolicy): EventInput => {
+  const payload: RunPolicyResolvedPayload = { runId, ...policy };
+  return { type: "run.policy.resolved", payload };
+};
+
 /**
- * Starts a run: `run.started`, then a `message.delivered` for each queued
- * message it reads, then `message.sent` for the message it starts with. A
- * session not here is not found; a live run is `run_active` (send is the
- * way in); an account not here, or not signed in, is `account_unavailable`.
+ * Starts a run: `run.started`, then its policy (`run.policy.resolved`, the
+ * run's one, in the same append, so it precedes every event the provider
+ * reports), then a `message.delivered` for each queued message it reads,
+ * then `message.sent` for the message it starts with. A session not here is
+ * not found; a live run is `run_active` (send is the way in); an account not
+ * here, or not signed in, is `account_unavailable`; an account with no mode
+ * at or below the ceiling is `mode_unavailable`. A mode above the ceiling,
+ * or one the account lacks, is lowered, never refused.
  */
 export const decideStart = (facts: StartFacts, command: StartCommand): StartDecision => {
   const { session, sessionId, runId } = facts;
@@ -184,8 +203,8 @@ export const decideStart = (facts: StartFacts, command: StartCommand): StartDeci
   const effort = command.effort ?? null;
   if (effort !== null && !model.efforts.includes(effort)) throw invalid("effort", `The model ${model.id} does not take the effort ${effort}.`);
   const requested = command.mode ?? session.mode;
-  if (requested !== null && !descriptor.modes.includes(requested)) throw invalid("mode", `The ${descriptor.displayName} adapter has no mode ${requested}.`);
-  const clamped = facts.clamp(requested, facts.ceiling);
+  const policy = facts.resolvePolicy({ actor: facts.actor, requested, accountModes: descriptor.modes });
+  if ("refused" in policy) return conflict(sessionId, "mode_unavailable", policy.refused, { accountId: account.id, ceiling: facts.actor.ceiling });
 
   const queuedIds = facts.queued.map((message) => message.messageId);
   if (command.message === null && queuedIds.length === 0) throw new Error(`A run of session ${sessionId} was asked to start with nothing to read.`);
@@ -195,7 +214,7 @@ export const decideStart = (facts: StartFacts, command: StartCommand): StartDeci
     identity: account.identity,
     model: model.id,
     effort,
-    mode: { requested, effective: clamped.mode, clamped: clamped.clamped },
+    mode: { requested, effective: policy.mode.effective, clamped: policy.mode.clamped },
     workspace: session.workspace,
     origin: command.origin,
     promptMessageId: command.message?.messageId ?? null,
@@ -203,7 +222,7 @@ export const decideStart = (facts: StartFacts, command: StartCommand): StartDeci
     resumedFrom: facts.resumeFrom,
     forkedFrom: null,
   };
-  const events: EventInput[] = [{ type: "run.started", payload: started }];
+  const events: EventInput[] = [{ type: "run.started", payload: started }, policyResolvedEvent(runId, policy)];
   for (const messageId of queuedIds) {
     const delivered: MessageDeliveredPayload = { runId, messageId, delivery: "prompt" };
     events.push({ type: "message.delivered", payload: delivered });
@@ -220,12 +239,13 @@ export const decideStart = (facts: StartFacts, command: StartCommand): StartDeci
       account,
       model: model.id,
       effort,
-      mode: clamped.mode,
+      mode: policy.mode.effective,
       workspace: session.workspace,
       repositoryIdentity: session.repositoryIdentity,
       resumeFrom: facts.resumeFrom,
       requestedMode: requested,
-      ceiling: facts.ceiling,
+      actor: facts.actor,
+      policy,
       prompt: [
         ...facts.queued.map((queued) => ({ messageId: queued.messageId, text: queued.text, attachments: [] })),
         ...(command.message === null ? [] : [{ messageId: command.message.messageId, text: command.message.text, attachments: attachments.data }]),

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { AdapterCapabilities, AuthStatus } from "@agent-harness/contracts";
+import { MODES, type AdapterCapabilities, type AuthStatus, type Mode, type ModeAvailability } from "@agent-harness/contracts";
 import type {
   AccountRef,
   Adapter,
@@ -21,7 +21,8 @@ import type {
  * reading with an identity, and a synchronous, idempotent transcript delete
  * when it declares one. It replaces #108's minimal provider. Its
  * descriptor is Claude-shaped unless a test says otherwise: a provider queue
- * that steers, images, delegated work.
+ * that steers, images, delegated work, a live mode change, and the four
+ * modes, each available unless a test lists one unavailable.
  *
  * A run's events come from a channel the script feeds, so the fake can put
  * its own in beside the script's: a steered message's `message.delivered`,
@@ -58,6 +59,8 @@ export interface FakeRunRecord {
   released: boolean;
   /** The tasks `stopTask` was asked to stop. */
   readonly stoppedTasks: string[];
+  /** The modes `setMode` changed the live run to, in order. */
+  readonly modeChanges: Mode[];
 }
 
 export interface FakeAdapterOptions {
@@ -71,6 +74,8 @@ export interface FakeAdapterOptions {
   readonly status?: (account: AccountRef) => AuthStatus;
   /** The static catalogue. Preset: opus, sonnet and haiku with tiers 3, 2 and 1. */
   readonly models?: readonly ModelOption[];
+  /** The modes the descriptor lists, available or not. Preset: the four, every one available. */
+  readonly modes?: readonly ModeAvailability[];
   /**
    * Whether the fake declares transcript delete: `true` deletes (and records
    * it), `{ fails }` records the call and throws `fails`, `async` records it
@@ -198,8 +203,9 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
     commands: false,
     imageInput: true,
     fileInput: false,
+    modeChange: true,
     instructionChannel: { kind: "system-prompt-append", maxCharacters: null },
-    modes: ["acceptEdits", "plan", "auto", "bypassPermissions"],
+    modes: [...(options.modes ?? MODES.map((mode): ModeAvailability => ({ mode, available: true, reason: null })))],
     ...options.capabilities,
   };
   const runs: FakeRunRecord[] = [];
@@ -217,6 +223,7 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
       disposed: false,
       released: false,
       stoppedTasks: [],
+      modeChanges: [],
     };
     runs.push(record);
     const events = channel();
@@ -300,6 +307,9 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
       },
       stopTask(taskId) {
         record.stoppedTasks.push(taskId);
+      },
+      setMode(mode) {
+        record.modeChanges.push(mode);
       },
       dispose() {
         record.disposed = true;

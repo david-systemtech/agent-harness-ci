@@ -12,7 +12,9 @@
     "socket.opened",
     "socket.closed",
     "scope.granted",
-    "ceiling.changed"
+    "ceiling.changed",
+    "bypass.acknowledged",
+    "settings.changed"
   ],
-  "description": "The event types of the access stream: pairing created, exchanged, expired; client session created, refreshed, revoked; socket opened, closed; scope granted; ceiling changed."
+  "description": "The event types of the access stream: pairing created, exchanged, expired; client session created, refreshed, revoked; socket opened, closed; scope granted; ceiling changed; bypass acknowledged; settings changed."
 }

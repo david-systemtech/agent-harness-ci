@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "permissions.settings.set result",
+  "type": "object",
+  "properties": {
+    "values": {
+      "type": "object",
+      "properties": {
+        "permissions.defaultCeiling": {
+          "type": "string",
+          "enum": [
+            "plan",
+            "acceptEdits",
+            "auto",
+            "bypassPermissions"
+          ],
+          "description": "The ceiling a pairing gives when none is chosen."
+        },
+        "permissions.unattended.mode": {
+          "type": "string",
+          "enum": [
+            "acceptEdits",
+            "bypassPermissions"
+          ],
+          "description": "The mode of every unattended run that names none (a routine or bot without an override, a completions request without a mode): acceptEdits or bypassPermissions."
+        },
+        "permissions.unattended.bypassAcknowledgedAt": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+              "description": "An instant as an ISO 8601 UTC timestamp."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "When bypassPermissions was first acknowledged as the unattended mode; null until it has been. Recorded by the environment, never set directly."
+        },
+        "permissions.parkedPrompt.ttl": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "amount": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 1000
+                },
+                "unit": {
+                  "type": "string",
+                  "enum": [
+                    "minutes",
+                    "hours",
+                    "days"
+                  ],
+                  "description": "What a duration is counted in: minutes, hours or days."
+                }
+              },
+              "required": [
+                "amount",
+                "unit"
+              ],
+              "description": "A duration: 1 to 1000 minutes, hours or days."
+            },
+            {
+              "type": "string",
+              "const": "never",
+              "description": "A parked prompt waits until it is answered."
+            }
+          ],
+          "description": "How long a parked prompt waits before it is denied and its run continues: a duration, or never."
+        },
+        "permissions.containment.default": {
+          "type": "string",
+          "enum": [
+            "off",
+            "workspace",
+            "workspace-no-network"
+          ],
+          "description": "The containment level of a run whose session names none."
+        }
+      },
+      "required": [
+        "permissions.defaultCeiling",
+        "permissions.unattended.mode",
+        "permissions.unattended.bypassAcknowledgedAt",
+        "permissions.parkedPrompt.ttl",
+        "permissions.containment.default"
+      ],
+      "additionalProperties": false,
+      "description": "Every permission setting's value, by key; a key never set holds its preset."
+    }
+  },
+  "required": [
+    "values"
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ContainmentUnavailableError",
+  "type": "object",
+  "properties": {
+    "code": {
+      "type": "string",
+      "const": "containment_unavailable"
+    },
+    "message": {
+      "type": "string"
+    },
+    "data": {
+      "type": "object",
+      "properties": {
+        "level": {
+          "type": "string",
+          "enum": [
+            "off",
+            "workspace",
+            "workspace-no-network"
+          ],
+          "description": "Where a run may reach: off (nothing applied), workspace (writes only inside the workspace), workspace-no-network (and no network for the model's commands and fetches)."
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Why the level cannot be enforced here."
+        }
+      },
+      "required": [
+        "level",
+        "reason"
+      ]
+    }
+  },
+  "required": [
+    "code",
+    "message",
+    "data"
+  ],
+  "description": "The containment level cannot be enforced on this environment; data says which and why."
+}

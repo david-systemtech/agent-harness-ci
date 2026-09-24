@@ -107,6 +107,20 @@ import {
 import { OrderKey } from "./ordering.js";
 import { methods } from "./registry.js";
 import { Ceiling, Scope, ScopeSet } from "./scopes.js";
+import { ContainmentUnavailableError } from "./methods/permissions.js";
+import {
+  ClampReason,
+  ContainmentAvailability,
+  ContainmentLevel,
+  ContainmentResolution,
+  ModeResolution,
+  PERMISSION_SESSION_EVENT_TYPES,
+  RunActorKind,
+  RunPolicy,
+  SettingsArea,
+} from "./permissions.js";
+import { Mode, ModeAvailability } from "./permissions-modes.js";
+import { ParkedPromptTtl, PermissionSettingsPatch, PermissionSettingsValues, TtlUnit, UnattendedMode } from "./permissions-settings.js";
 
 /**
  * The JSON Schema export: every schema in the package as a draft 2020-12
@@ -132,11 +146,11 @@ const pascal = (words: string): string =>
 
 /**
  * The session and group event types whose payloads are fixed, each with its
- * payload, the transcript vocabulary among them: the reserved prompt types
- * are left out until the permissions workstream fixes them.
+ * payload, the transcript vocabulary and the permission types among them:
+ * the reserved prompt types are left out until #130 fixes them.
  */
 export const publishedEventPayloads = (): [string, z.ZodType][] =>
-  Object.entries({ ...SESSION_EVENT_TYPES, ...TRANSCRIPT_EVENT_TYPES, ...GROUP_EVENT_TYPES } as Record<string, EventTypeEntry>).flatMap(([type, entry]) =>
+  Object.entries({ ...SESSION_EVENT_TYPES, ...TRANSCRIPT_EVENT_TYPES, ...PERMISSION_SESSION_EVENT_TYPES, ...GROUP_EVENT_TYPES } as Record<string, EventTypeEntry>).flatMap(([type, entry]) =>
     entry.reservedFor === undefined ? [[type, entry.payload] as [string, z.ZodType]] : [],
   );
 
@@ -247,6 +261,21 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "transcript/transcript-item.json", title: "TranscriptItem", schema: TranscriptItem },
   { path: "transcript/parked-prompt.json", title: "ParkedPrompt", schema: ParkedPrompt },
   { path: "transcript/session-snapshot.json", title: "SessionSnapshot", schema: SessionSnapshot },
+  { path: "permissions/mode.json", title: "Mode", schema: Mode },
+  { path: "permissions/mode-availability.json", title: "ModeAvailability", schema: ModeAvailability },
+  { path: "permissions/run-actor-kind.json", title: "RunActorKind", schema: RunActorKind },
+  { path: "permissions/clamp-reason.json", title: "ClampReason", schema: ClampReason },
+  { path: "permissions/mode-resolution.json", title: "ModeResolution", schema: ModeResolution },
+  { path: "permissions/containment-level.json", title: "ContainmentLevel", schema: ContainmentLevel },
+  { path: "permissions/containment-availability.json", title: "ContainmentAvailability", schema: ContainmentAvailability },
+  { path: "permissions/containment-resolution.json", title: "ContainmentResolution", schema: ContainmentResolution },
+  { path: "permissions/run-policy.json", title: "RunPolicy", schema: RunPolicy },
+  { path: "permissions/settings-area.json", title: "SettingsArea", schema: SettingsArea },
+  { path: "permissions/unattended-mode.json", title: "UnattendedMode", schema: UnattendedMode },
+  { path: "permissions/ttl-unit.json", title: "TtlUnit", schema: TtlUnit },
+  { path: "permissions/parked-prompt-ttl.json", title: "ParkedPromptTtl", schema: ParkedPromptTtl },
+  { path: "permissions/settings-values.json", title: "PermissionSettingsValues", schema: PermissionSettingsValues },
+  { path: "permissions/settings-patch.json", title: "PermissionSettingsPatch", schema: PermissionSettingsPatch },
   { path: "actor.json", title: "Actor", schema: Actor },
   { path: "event-envelope.json", title: "EventEnvelope", schema: EventEnvelope },
   { path: "notices/environment-notice-type.json", title: "EnvironmentNoticeType", schema: EnvironmentNoticeType },
@@ -264,6 +293,7 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "errors/pairing_expired.json", title: "PairingExpiredError", schema: PairingExpiredError },
   { path: "errors/pairing_used.json", title: "PairingUsedError", schema: PairingUsedError },
   { path: "errors/protocol_mismatch.json", title: "ProtocolMismatchError", schema: ProtocolMismatchError },
+  { path: "errors/containment_unavailable.json", title: "ContainmentUnavailableError", schema: ContainmentUnavailableError },
   { path: "frames/frame.json", title: "Frame", schema: Frame },
   ...FRAME_TYPES.map((kind) => ({ path: `frames/${kind}.json`, title: `${pascal(kind)}Frame`, schema: FRAME_SCHEMAS[kind] })),
   { path: "frames/end-reason.json", title: "EndReason", schema: EndReason },

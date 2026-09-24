@@ -5,13 +5,23 @@ import {
   type IssueInput,
   type MessageDeliveredPayload,
   type MessageRequeuedPayload,
+  type Mode,
   type RunEndedPayload,
   type RunStartedPayload,
   type Workspace,
 } from "@agent-harness/contracts";
 import { formatActor, type EventLog, type EventInput } from "../event-log/event-log.js";
 import { environmentQueue, latestRun, providerSessionOf, readSessionFacts } from "../runs/run-reads.js";
-import { decideStart, type AccountFacts, type LiveRunFacts, type PlannedRun, type QueuedSend, type StartFacts } from "../runs/run-decider.js";
+import type { RunActor } from "../permissions/resolver.js";
+import {
+  decideStart,
+  policyResolvedEvent,
+  type AccountFacts,
+  type LiveRunFacts,
+  type PlannedRun,
+  type QueuedSend,
+  type StartFacts,
+} from "../runs/run-decider.js";
 import type { Clock } from "../serve/clock.js";
 import { createRunRegistry, type MemoryRunRegistry } from "../serve/run-registry.js";
 import type { ProviderTranscripts } from "../sessions/deletion.js";
@@ -38,10 +48,10 @@ import { createScopedAppend, type ScopedAppend } from "./scoped-append.js";
 import {
   autoDenyBroker,
   composeInstructions,
-  identityClamp,
   noToolServers,
+  presetPolicy,
   type InstructionComposer,
-  type ModeClamp,
+  type PolicySeam,
   type ToolServerFactory,
 } from "./seams.js";
 
@@ -51,7 +61,7 @@ import {
  * rest of the environment. It holds the adapter registry and the accounts'
  * sign-in states and catalogues, fills the run registry the lifecycle reads
  * for idle and drain (#112), and supplies each run with its seams (tool
- * servers, composed instructions, the broker, the mode clamp). It starts a
+ * servers, composed instructions, the broker, the policy resolver). It starts a
  * run through its adapter once the command that asked for it has committed,
  * consumes the run's event stream once, appending each event through the
  * run's scoped append and nothing else, and appends the run's one
@@ -79,7 +89,14 @@ export interface AdapterHostOptions {
   readonly toolServers?: ToolServerFactory;
   readonly instructions?: InstructionComposer;
   readonly broker?: PermissionBroker;
-  readonly clampMode?: ModeClamp;
+  /** The policy resolver runs start through; preset: the resolver on the settings' presets. */
+  readonly resolvePolicy?: PolicySeam;
+  /**
+   * A client session's ceiling as it is now, which a run the environment
+   * starts from its queue is resolved under (a ceiling changed since the run
+   * before it applies); preset: the ceiling that run was resolved under.
+   */
+  readonly ceilingOf?: (clientSessionId: string) => Mode | undefined;
 }
 
 /** A live run as the host reports it. */
@@ -104,8 +121,8 @@ export interface AdapterHost {
   readonly transcripts: ProviderTranscripts;
   /** Throws `unavailable` while the environment drains: the gate every new run passes. */
   admit(): void;
-  /** What starting a run on the session depends on, read now (inside a command, in its transaction). */
-  startFacts(sessionId: string, ceiling: string): StartFacts;
+  /** What starting a run on the session for `actor` depends on, read now (inside a command, in its transaction). */
+  startFacts(sessionId: string, actor: RunActor): StartFacts;
   /** The session's live run and its adapter's descriptor; null when none is live. */
   live(sessionId: string): LiveRunFacts | null;
   /** The live run `runId` names; null once it has ended. */
@@ -118,6 +135,8 @@ export interface AdapterHost {
   interrupt(runId: string): void;
   /** Stops a piece of a live run's delegated work. */
   stopTask(runId: string, taskId: string): void;
+  /** Changes a live run's mode through its adapter (`modeChange`), once the command that asked has committed; its resolved policy stays. */
+  setMode(runId: string, mode: Mode): void;
   /** Plan usage for an account, with its identity (`planUsage`). */
   usage(accountId: string): Promise<UsageReading>;
   /** The slash commands for an account and workspace (`commands`). */
@@ -171,7 +190,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
   const toolServers = options.toolServers ?? noToolServers;
   const instructions = options.instructions ?? composeInstructions();
   const broker = options.broker ?? autoDenyBroker;
-  const clamp = options.clampMode ?? identityClamp;
+  const resolvePolicy = options.resolvePolicy ?? presetPolicy;
   const configs = options.accounts ?? [];
   const defaultAccountId = options.defaultAccountId ?? configs[0]?.id ?? null;
   const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
@@ -236,13 +255,13 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
   const byRunId = (runId: string): LiveRun | undefined => [...live.values()].find((entry) => entry.runId === runId && !entry.ended);
 
   const liveFacts = (entry: LiveRun | undefined): LiveRunFacts | null =>
-    entry === undefined || entry.ended ? null : { runId: entry.runId, descriptor: entry.descriptor };
+    entry === undefined || entry.ended ? null : { runId: entry.runId, descriptor: entry.descriptor, policy: entry.plan.policy };
 
   const append = (sessionId: string, runId: string, actor: string, events: readonly EventInput[]): void => {
     if (events.length > 0) log.append(sessionStream(sessionId), events, { actor, correlationId: runId });
   };
 
-  const startFacts = (sessionId: string, ceiling: string): StartFacts => {
+  const startFacts = (sessionId: string, actor: RunActor): StartFacts => {
     const session = readSessionFacts(log, reader, sessionId);
     const accountId = session?.account ?? defaultAccountId;
     const facts = account(accountId);
@@ -254,8 +273,8 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       account: facts,
       queued: environmentQueue(reader, sessionId),
       resumeFrom: facts?.descriptor.resume === true ? providerSessionOf(reader, sessionId) : null,
-      ceiling,
-      clamp,
+      actor,
+      resolvePolicy,
       runId: randomUUID(),
     };
   };
@@ -400,6 +419,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
           model: plan.model,
           effort: plan.effort,
           mode: plan.mode,
+          ceiling: plan.policy.mode.ceiling,
           instructions: instructions(scope),
           target: plan.resumeFrom === null ? { kind: "fresh" } : { kind: "resume", providerSessionId: plan.resumeFrom },
           toolServers: toolServers({ ...scope, runId: plan.runId }),
@@ -415,7 +435,9 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
    * Registers a turn the provider opened on its own as a run of the same
    * session (the adoption hook): `run.started` with origin `provider`, the
    * queued messages it opened with delivered, then its events like any
-   * run's. The account, model and mode are those of the run it followed.
+   * run's. The account, model and policy are those of the run it followed,
+   * whose provider process opened it: its `run.policy.resolved` records the
+   * same policy under its own id.
    * While the environment drains it is not admitted, and is disposed.
    */
   const adoptNow = (previous: PlannedRun, turn: ProviderTurn): void => {
@@ -433,7 +455,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       identity: accounts.get(plan.account.id)?.facts.identity ?? null,
       model: plan.model,
       effort: plan.effort,
-      mode: { requested: plan.requestedMode, effective: plan.mode, clamped: plan.requestedMode !== plan.mode },
+      mode: { requested: plan.requestedMode, effective: plan.mode, clamped: plan.policy.mode.clamped },
       workspace: plan.workspace,
       origin: "provider",
       promptMessageId: null,
@@ -445,7 +467,11 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       const payload: MessageDeliveredPayload = { runId, messageId, delivery: "prompt" };
       return { type: "message.delivered", payload };
     });
-    append(plan.sessionId, runId, formatActor({ kind: "adapter", id: plan.account.descriptor.provider }), [{ type: "run.started", payload: started }, ...delivered]);
+    append(plan.sessionId, runId, formatActor({ kind: "adapter", id: plan.account.descriptor.provider }), [
+      { type: "run.started", payload: started },
+      policyResolvedEvent(runId, plan.policy),
+      ...delivered,
+    ]);
     begin(plan, () => turn);
   };
 
@@ -465,14 +491,17 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
   /**
    * After a run completed or failed, starts the next with the messages the
    * environment holds for the session, if any (ADR 0022: an adapter without
-   * a provider queue reads its queue when the turn ends). Not while the
+   * a provider queue reads its queue when the turn ends), for the actor of
+   * the run before it under its ceiling as it is now. Not while the
    * environment drains: the messages stay queued for the next start.
    */
   const startFromQueue = (previous: PlannedRun): void => {
     try {
       if (environmentQueue(reader, previous.sessionId).length === 0) return;
       registry.admit();
-      const facts = startFacts(previous.sessionId, previous.ceiling);
+      const { actor } = previous;
+      const ceiling = actor.clientSessionId === null ? undefined : options.ceilingOf?.(actor.clientSessionId);
+      const facts = startFacts(previous.sessionId, ceiling === undefined ? actor : { ...actor, ceiling });
       const decision = decideStart(facts, {
         origin: "client",
         message: null,
@@ -533,7 +562,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     }
     if (parameters.mode !== null) {
       if (facts === null) issues.push({ code: "custom", path: ["mode"], message: `No account on this environment has the mode ${parameters.mode}.` });
-      else if (!facts.descriptor.modes.includes(parameters.mode)) {
+      else if (!facts.descriptor.modes.some((entry) => entry.mode === parameters.mode)) {
         issues.push({ code: "custom", path: ["mode"], message: `The ${facts.descriptor.displayName} adapter has no mode ${parameters.mode}.` });
       }
     }
@@ -601,6 +630,15 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       if (entry === undefined || run === undefined) return;
       const stop = capability(entry.descriptor, "subagents", run.stopTask, "stop delegated work");
       safely(() => stop.call(run, taskId), (error) => console.error(`Stopping task ${taskId} of run ${runId} failed:`, error));
+    },
+    setMode(runId, mode) {
+      const entry = byRunId(runId);
+      const run = entry?.run;
+      if (entry === undefined || run === undefined) return;
+      safely(
+        () => capability(entry.descriptor, "modeChange", run.setMode, "change a live run's mode").call(run, mode),
+        (error) => console.error(`Changing the mode of run ${runId} failed; it keeps the one it had until its session's next run:`, error),
+      );
     },
     async usage(accountId) {
       const held = heldAccount(accountId);

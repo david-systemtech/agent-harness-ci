@@ -4,13 +4,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { manualClock } from "../../test/clock.js";
 import { end, fakeAdapter, gate, say, type FakeAdapter } from "../../test/fake-adapter.js";
 import { openEventLog, type EventEnvelope, type EventLog } from "../event-log/event-log.js";
+import { permissionsProjector } from "../permissions/permissions-store.js";
 import { decideStart, type StartCommand } from "../runs/run-decider.js";
 import { runsProjector } from "../runs/runs-projector.js";
 import { sessionListProjector } from "../sessions/session-list.js";
 import type { AdapterEvent, TranscriptEvent } from "./contract.js";
 import { createAdapterHost, type AdapterHost, type AdapterHostOptions } from "./host.js";
 import { createScopedAppend } from "./scoped-append.js";
-import { composeInstructions } from "./seams.js";
+import { composeInstructions, presetPolicy } from "./seams.js";
 
 /**
  * The adapter host at its own seam (claude-adapter spec, "The adapter
@@ -42,7 +43,7 @@ interface Setup {
 
 const setup = async (adapter: FakeAdapter = fakeAdapter(), options: Partial<AdapterHostOptions> = {}): Promise<Setup> => {
   const clock = manualClock();
-  const log = openEventLog({ path: ":memory:", projectors: [sessionListProjector, runsProjector], clock: () => clock.now() });
+  const log = openEventLog({ path: ":memory:", projectors: [sessionListProjector, runsProjector, permissionsProjector], clock: () => clock.now() });
   const host = createAdapterHost({ log, clock, adapters: [adapter], accounts: [{ id: "acct", provider: adapter.descriptor.provider }], ...options });
   closers.push(() => log.close(), () => host.close("disposed"));
   await host.refresh();
@@ -53,7 +54,7 @@ const setup = async (adapter: FakeAdapter = fakeAdapter(), options: Partial<Adap
 
 /** Starts a run as `runs.start` does, outside the wire: the facts, the decider, the append, then the launch. */
 const startRun = (t: Setup, text = "Go", command: Partial<Omit<StartCommand, "message">> & { attachments?: AttachmentInput[] } = {}): string => {
-  const facts = t.host.startFacts(t.sessionId, "bypassPermissions");
+  const facts = t.host.startFacts(t.sessionId, { kind: "client", attended: true, ceiling: "bypassPermissions", clientSessionId: null });
   t.host.admit();
   const decision = decideStart(facts, { origin: "client", ...command, message: { messageId: randomUUID(), text, attachments: command.attachments ?? [] } });
   if (decision.rejected !== undefined) throw new Error(decision.rejected.message);
@@ -92,6 +93,7 @@ describe("a run's event stream", () => {
     const events = eventsOf(t);
     expect(events.map((event) => event.type)).toEqual([
       "run.started",
+      "run.policy.resolved",
       "message.sent",
       "session.provider-linked",
       "assistant.delta",
@@ -106,7 +108,7 @@ describe("a run's event stream", () => {
       expect(event.payload["runId"], event.type).toBe(runId);
       expect(event.correlationId, event.type).toBe(runId);
     }
-    expect(events.slice(2, -1).map((event) => event.actor)).toEqual(Array(7).fill("adapter:fake"));
+    expect(events.slice(3, -1).map((event) => event.actor)).toEqual(Array(7).fill("adapter:fake"));
     expect(events.at(-1)).toMatchObject({ actor: "adapter:fake", payload: { reason: "completed", resultText: "Hello.", turnCount: 1, error: null } });
     expect(t.adapter.lastRun()).toMatchObject({ iterations: 1, released: true, disposed: false });
   });
@@ -118,12 +120,13 @@ describe("a run's event stream", () => {
     expect(t.adapter.lastRun().iterations).toBe(1);
   });
 
-  it("hands the run its resolved input: account, model, the clamped mode, composed instructions, tool servers and the prompt", async () => {
+  it("hands the run its resolved input: account, model, the mode and ceiling its policy resolved, composed instructions, tool servers and the prompt", async () => {
     const toolServers = vi.fn(() => [{ name: "memory", config: {} }]);
     const t = await setup(fakeAdapter(), {
       toolServers,
       instructions: composeInstructions({ orientationBlock: () => "You are on SYSTEM-SERVER.", sessionInstructions: () => "Be brief." }),
-      clampMode: (requested) => ({ mode: requested === "bypassPermissions" ? "acceptEdits" : requested, clamped: requested === "bypassPermissions" }),
+      // The policy seam, here one that clamps every run to acceptEdits, whatever the actor's ceiling.
+      resolvePolicy: (request) => presetPolicy({ ...request, actor: { ...request.actor, ceiling: "acceptEdits" } }),
     });
     const runId = startRun(t, "Fix it", { model: "sonnet", effort: "high", mode: "bypassPermissions" });
     await untilEnded(t, runId);
@@ -135,6 +138,7 @@ describe("a run's event stream", () => {
       model: "sonnet",
       effort: "high",
       mode: "acceptEdits",
+      ceiling: "acceptEdits",
       instructions: "You are on SYSTEM-SERVER.\n\nBe brief.",
       target: { kind: "fresh" },
       toolServers: [{ name: "memory", config: {} }],
@@ -143,6 +147,7 @@ describe("a run's event stream", () => {
     });
     expect(toolServers).toHaveBeenCalledWith({ sessionId: t.sessionId, runId, accountId: "acct", workspace: { kind: "directory", path: "/work" } });
     expect(eventsOf(t)[0]?.payload).toMatchObject({ mode: { requested: "bypassPermissions", effective: "acceptEdits", clamped: true } });
+    expect(eventsOf(t)[1]).toMatchObject({ type: "run.policy.resolved", payload: { runId, mode: { effective: "acceptEdits", ceiling: "acceptEdits", clampReason: "ceiling" } } });
   });
 
   it("resumes the provider's session a run linked, on the next run, when the adapter can resume", async () => {
@@ -181,7 +186,7 @@ describe("one end per run on every exit path", () => {
     const runId = startRun(t);
     const ended = await onlyEnd(t, runId);
     expect(ended).toMatchObject({ actor: "system:adapter-host", payload: { reason: "error", error: { message: "The provider went away.", code: null } } });
-    expect(eventsOf(t).map((event) => event.type)).toEqual(["run.started", "message.sent", "assistant.text", "run.ended"]);
+    expect(eventsOf(t).map((event) => event.type)).toEqual(["run.started", "run.policy.resolved", "message.sent", "assistant.text", "run.ended"]);
   });
 
   it("ends the run error when its stream stops without an end", async () => {
@@ -208,7 +213,7 @@ describe("one end per run on every exit path", () => {
     const t = await setup(fakeAdapter({ script: () => [say("Fine"), bad, say("Never")] }));
     const runId = startRun(t);
     expect((await onlyEnd(t, runId)).payload).toMatchObject({ reason: "error" });
-    expect(eventsOf(t).map((event) => event.type)).toEqual(["run.started", "message.sent", "assistant.text", "run.ended"]);
+    expect(eventsOf(t).map((event) => event.type)).toEqual(["run.started", "run.policy.resolved", "message.sent", "assistant.text", "run.ended"]);
   });
 
   it("ends the run disposed when the host lets it go mid-run, disposes it, and drops what it yields after", async () => {
@@ -445,16 +450,18 @@ describe("the adoption hook", () => {
     expect(second).not.toBe(first);
     expect(events.map((event) => event.type)).toEqual([
       "run.started",
+      "run.policy.resolved",
       "message.sent",
       "message.sent",
       "assistant.text",
       "run.ended",
       "run.started",
+      "run.policy.resolved",
       "message.delivered",
       "assistant.text",
       "run.ended",
     ]);
-    expect(events[6]?.payload).toEqual({ runId: second, messageId, delivery: "prompt" });
+    expect(events[8]?.payload).toEqual({ runId: second, messageId, delivery: "prompt" });
     expect(t.adapter.runs.map((run) => run.adopted)).toEqual([false, true]);
   });
 });

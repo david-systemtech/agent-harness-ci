@@ -1,6 +1,7 @@
 import {
   MAX_TAGS,
   awakeShelfOf,
+  type Mode,
   type SessionArchivedPayload,
   type SessionActiveReorderedPayload,
   type SessionCreatedPayload,
@@ -83,7 +84,7 @@ export interface CreateSession {
   readonly workspace: Workspace;
   readonly account: string | null;
   readonly model: string | null;
-  readonly mode: string | null;
+  readonly mode: Mode | null;
 }
 
 /** Facts about other aggregates `sessions.create` depends on. */

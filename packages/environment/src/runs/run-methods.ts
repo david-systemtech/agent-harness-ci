@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
+import type { Mode } from "@agent-harness/contracts";
 import type { AdapterHost } from "../adapter/host.js";
 import type { EventInput, EventLog, StreamRef, Tx } from "../event-log/event-log.js";
+import type { RunActor } from "../permissions/resolver.js";
 import type { CommandContext, MethodHandlers } from "../serve/methods.js";
 import type { Reader } from "../sessions/session-reads.js";
 import { sessionStream } from "../sessions/streams.js";
@@ -22,6 +24,12 @@ import { readRun, readSessionFacts, taskStatus } from "./run-reads.js";
 export interface RunMethodsOptions {
   readonly log: EventLog;
   readonly host: AdapterHost;
+  /**
+   * A client session's ceiling as it is now: a change by
+   * `access.sessions.setCeiling` applies to the next run even on a socket
+   * that authenticated before it. Preset: the ceiling the socket authenticated with.
+   */
+  readonly ceilingOf?: (clientSessionId: string) => Mode | undefined;
 }
 
 /** Where a command on a run it cannot find keeps its receipt: no session can be named, so the run's own id. */
@@ -36,6 +44,14 @@ export const runMethods = (options: RunMethodsOptions): MethodHandlers => {
     log.append(sessionStream(sessionId), events, { tx: context.tx, actor: context.actor, commandId: context.commandId, correlationId: runId });
   };
 
+  /** The caller as a run's actor (#129): a client session, attended, under its ceiling as it is now. */
+  const actorOf = (context: CommandContext): RunActor => ({
+    kind: "client",
+    attended: true,
+    ceiling: options.ceilingOf?.(context.clientSession.id) ?? context.clientSession.ceiling,
+    clientSessionId: context.clientSession.id,
+  });
+
   /** Runs `work` once the command's transaction has committed. */
   const afterCommit = (tx: Tx, work: () => void): void => tx.afterCommit(work);
 
@@ -49,7 +65,7 @@ export const runMethods = (options: RunMethodsOptions): MethodHandlers => {
     "runs.start": (params, context) => {
       const sessionId = params.sessionId.toLowerCase();
       const aggregate = sessionStream(sessionId);
-      const facts = host.startFacts(sessionId, context.clientSession.ceiling);
+      const facts = host.startFacts(sessionId, actorOf(context));
       if (facts.session !== null && !facts.session.deleted) host.admit();
       const messageId = randomUUID();
       const decision = decideStart(facts, {
@@ -68,7 +84,7 @@ export const runMethods = (options: RunMethodsOptions): MethodHandlers => {
     "runs.send": (params, context) => {
       const sessionId = params.sessionId.toLowerCase();
       const aggregate = sessionStream(sessionId);
-      const facts = host.startFacts(sessionId, context.clientSession.ceiling);
+      const facts = host.startFacts(sessionId, actorOf(context));
       // Only a send that starts a run is a new run; one queued during a live run passes a drain.
       if (facts.session !== null && !facts.session.deleted && facts.live === null) host.admit();
       const decision = decideSend(facts, { messageId: randomUUID(), text: params.text, attachments: params.attachments ?? [] });

@@ -1,5 +1,6 @@
-import type { SessionCreatedPayload, Workspace } from "@agent-harness/contracts";
+import type { Mode, SessionCreatedPayload, Workspace } from "@agent-harness/contracts";
 import type { EventLog } from "../event-log/event-log.js";
+import { readSessionMode } from "../permissions/permissions-store.js";
 import type { Reader } from "../sessions/session-reads.js";
 import { sessionStream } from "../sessions/streams.js";
 
@@ -9,20 +10,21 @@ import { sessionStream } from "../sessions/streams.js";
  * Inside a command they read that command's own transaction.
  */
 
-/** A session as a run needs it: whether it is there, its place, and the account, model and mode it was created with. */
+/** A session as a run needs it: whether it is there, its place, the account and model it was created with, and its mode. */
 export interface SessionFacts {
   readonly deleted: boolean;
   readonly workspace: Workspace;
   readonly repositoryIdentity: string | null;
   readonly account: string | null;
   readonly model: string | null;
-  readonly mode: string | null;
+  readonly mode: Mode | null;
 }
 
 /**
  * The session's facts; null when it has no row (never created, or purged).
  * The account, model and mode are what `sessions.create` recorded, read
- * from its `session.created`, which no compaction folds.
+ * from its `session.created`, which no compaction folds; the mode is the
+ * one `permissions.mode.set` last gave it (`session_modes`) when it has.
  */
 export const readSessionFacts = (log: Pick<EventLog, "readStream">, reader: Reader, sessionId: string): SessionFacts | null => {
   const [row] = reader.all<{ deleted_at: string | null; workspace: string; repository_identity: string | null }>(
@@ -38,7 +40,7 @@ export const readSessionFacts = (log: Pick<EventLog, "readStream">, reader: Read
     repositoryIdentity: row.repository_identity,
     account: payload?.account ?? null,
     model: payload?.model ?? null,
-    mode: payload?.mode ?? null,
+    mode: readSessionMode(reader, sessionId) ?? payload?.mode ?? null,
   };
 };
 

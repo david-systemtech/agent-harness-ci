@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { commandParams, defineMethod, subscriptionParams } from "../method.js";
+import { Mode } from "../permissions-modes.js";
 import { Sequence, Timestamp } from "../primitives.js";
 import { OrderKey } from "../ordering.js";
 import {
@@ -57,7 +58,7 @@ export const sessionsCreate = defineMethod({
     workspace: Workspace,
     account: z.string().min(1).optional().meta({ description: "The account the session's runs use; the adapter workstream's to validate." }),
     model: z.string().min(1).optional().meta({ description: "The model the session's runs use; the adapter workstream's to validate." }),
-    mode: z.string().min(1).optional().meta({ description: "The mode the session's runs start in; the permissions workstream's to validate." }),
+    mode: Mode.optional().meta({ description: "The mode the session's runs start in, clamped at each run; permissions.mode.set changes it." }),
   }),
   result: summaryResult,
   errors: [],

@@ -5,6 +5,7 @@ import {
   accessSessionsList,
   accessSessionsRefresh,
   accessSessionsRevoke,
+  accessSessionsSetCeiling,
 } from "./methods/access.js";
 import {
   environmentDrain,
@@ -43,6 +44,7 @@ import {
   sessionsUnsnooze,
   sessionsUntag,
 } from "./methods/sessions.js";
+import { permissionsModeSet, permissionsSettingsGet, permissionsSettingsSet } from "./methods/permissions.js";
 import { runsInterrupt, runsSend, runsStart, runsStopTask } from "./methods/runs.js";
 
 /**
@@ -58,6 +60,7 @@ export const methods = [
   accessSessionsList,
   accessSessionsRevoke,
   accessSessionsRefresh,
+  accessSessionsSetCeiling,
   accessLogList,
   sessionsCreate,
   sessionsRename,
@@ -92,6 +95,9 @@ export const methods = [
   runsSend,
   runsInterrupt,
   runsStopTask,
+  permissionsModeSet,
+  permissionsSettingsGet,
+  permissionsSettingsSet,
 ] as const;
 
 type Registered = (typeof methods)[number];

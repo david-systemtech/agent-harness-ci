@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SessionModeSetPayload",
+  "type": "object",
+  "properties": {
+    "requested": {
+      "type": "string",
+      "enum": [
+        "plan",
+        "acceptEdits",
+        "auto",
+        "bypassPermissions"
+      ],
+      "description": "The mode asked for."
+    },
+    "effective": {
+      "type": "string",
+      "enum": [
+        "plan",
+        "acceptEdits",
+        "auto",
+        "bypassPermissions"
+      ],
+      "description": "The mode it got."
+    },
+    "ceiling": {
+      "type": "string",
+      "enum": [
+        "plan",
+        "acceptEdits",
+        "auto",
+        "bypassPermissions"
+      ],
+      "description": "The ceiling it was clamped to."
+    },
+    "clamped": {
+      "type": "boolean",
+      "description": "Whether the mode got is below the one asked for, or below the default when none was."
+    },
+    "clampReason": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "ceiling",
+            "unavailable"
+          ],
+          "description": "Why a mode was lowered: ceiling (above the ceiling, lowered to it), or unavailable (the mode it would have had is one the account lists as unavailable, so the next lower available one)."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Why it was lowered; null when it was not."
+    }
+  },
+  "required": [
+    "requested",
+    "effective",
+    "ceiling",
+    "clamped",
+    "clampReason"
+  ],
+  "description": "session.mode.set: the session's mode was set (permissions.mode.set): asked for, got under the caller's ceiling, and whether and why it was clamped. Its next runs start in the effective mode."
+}

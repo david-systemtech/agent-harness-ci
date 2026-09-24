@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ModeResolution",
+  "type": "object",
+  "properties": {
+    "requested": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "plan",
+            "acceptEdits",
+            "auto",
+            "bypassPermissions"
+          ],
+          "description": "What an agent may do without asking during a run, in the order ceilings use: plan < acceptEdits < auto < bypassPermissions. Claude's default and dontAsk are never used."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The mode asked for; null when none was, so a default applied (acceptEdits, or the unattended default)."
+    },
+    "effective": {
+      "type": "string",
+      "enum": [
+        "plan",
+        "acceptEdits",
+        "auto",
+        "bypassPermissions"
+      ],
+      "description": "The mode it got."
+    },
+    "ceiling": {
+      "type": "string",
+      "enum": [
+        "plan",
+        "acceptEdits",
+        "auto",
+        "bypassPermissions"
+      ],
+      "description": "The ceiling it was clamped to."
+    },
+    "clamped": {
+      "type": "boolean",
+      "description": "Whether the mode got is below the one asked for, or below the default when none was."
+    },
+    "clampReason": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "ceiling",
+            "unavailable"
+          ],
+          "description": "Why a mode was lowered: ceiling (above the ceiling, lowered to it), or unavailable (the mode it would have had is one the account lists as unavailable, so the next lower available one)."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Why it was lowered; null when it was not."
+    }
+  },
+  "required": [
+    "requested",
+    "effective",
+    "ceiling",
+    "clamped",
+    "clampReason"
+  ],
+  "description": "A mode as the resolver decided it: requested, effective, the ceiling, and whether and why it was clamped."
+}
