@@ -154,12 +154,13 @@ describe("agent-harness service install", () => {
 
   it("runs serve with the program that is running, an absolute data directory and the port given", async () => {
     const cli = harness("linux");
-    const cwd = process.cwd();
-    expect(await cli.run("service", "install", "--data-dir", "relative/data", "--port", "7500")).toBe(0);
+    // A relative --data-dir resolves against the working directory; point it into the temp home so nothing lands in the checkout.
+    const dataDir = join(cli.home, "relative", "data");
+    expect(await cli.run("service", "install", "--data-dir", relative(process.cwd(), dataDir), "--port", "7500")).toBe(0);
     const execStart = readFileSync(unitPath(cli.home), "utf8")
       .split("\n")
       .find((line) => line.startsWith("ExecStart="));
-    expect(execStart).toBe(`ExecStart=/usr/bin/node /opt/agent-harness/dist/main.js serve --data-dir ${join(cwd, "relative", "data")} --port 7500`);
+    expect(execStart).toBe(`ExecStart=/usr/bin/node /opt/agent-harness/dist/main.js serve --data-dir ${dataDir} --port 7500`);
   });
 
   it("uses the default data directory and port when none is given", async () => {

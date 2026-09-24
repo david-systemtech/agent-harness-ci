@@ -97,7 +97,8 @@ export const taskSchedulerPlatform = (installContext: InstallContext, commands: 
   const isRunning = async () => {
     const result = await commands.query("schtasks", ["/Query", "/TN", name, "/FO", "CSV", "/NH"]);
     // The status column is localised; "Running" is the English one (see the service install checklist).
-    return result.code === 0 && /"Running"\s*$/m.test(result.stdout);
+    // Matched as a CSV field, wherever the column sits, so a verbose row with trailing columns still counts.
+    return result.code === 0 && /(^|,)\s*"Running"\s*(,|$)/m.test(result.stdout);
   };
 
   return {
