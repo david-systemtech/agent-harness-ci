@@ -23,7 +23,8 @@ import { createRule } from "./create-rule.js";
  * `import("...")` type. Any source counts, not only `@agent-harness/contracts`,
  * because a contracts type re-exported through another module is the same
  * leak. For the same reason a namespace or default import, `export *`, a
- * dynamic import or an unqualified `import("...")` type is refused outright
+ * default re-export (`export { default as X } from`), a dynamic import or an
+ * unqualified `import("...")` type is refused outright
  * from any source, since its names cannot be checked one by one; the shell
  * interface is small enough to name every import.
  */
@@ -97,7 +98,11 @@ export const rule = createRule({
       },
       ExportNamedDeclaration(node) {
         if (!node.source) return;
-        for (const specifier of node.specifiers) check(specifier, nameOf(specifier.local));
+        for (const specifier of node.specifiers) {
+          // `export { default as X } from` re-exports a name the rule cannot see, like `export *`.
+          if (nameOf(specifier.local) === "default") context.report({ node: specifier, messageId: "wholeModule" });
+          else check(specifier, nameOf(specifier.local));
+        }
       },
       ExportAllDeclaration(node) {
         context.report({ node, messageId: "wholeModule" });

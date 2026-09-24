@@ -73,5 +73,10 @@ ruleTester.run("no-session-types-in-shell", rule, {
       code: `export type Projections = import("./projections.js");`,
       errors: [{ messageId: "wholeModule" }],
     },
+    {
+      filename: shell,
+      code: `export { default as Gate } from "./projections.js";`,
+      errors: [{ messageId: "wholeModule" }],
+    },
   ],
 });
