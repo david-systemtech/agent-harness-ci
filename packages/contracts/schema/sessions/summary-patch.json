@@ -112,8 +112,8 @@
               "type": "array",
               "items": {
                 "type": "string",
-                "pattern": "^\\s*[^\\s\\p{Cc}](?:\\P{Cc}{0,38}[^\\s\\p{Cc}])?\\s*$",
-                "description": "A free-form tag: 1 to 40 characters once trimmed, no control characters; stored trimmed, unique per session ignoring case."
+                "pattern": "^\\s*[^\\s\\p{Cc}\\p{Cf}](?:[^\\p{Cc}\\p{Cf}]{0,38}[^\\s\\p{Cc}\\p{Cf}])?\\s*$",
+                "description": "A free-form tag: 1 to 40 characters once trimmed, no control or format (zero-width) characters; stored trimmed, unique per session ignoring case."
               },
               "description": "The session's tags, sorted ignoring case."
             },
@@ -522,8 +522,8 @@
               "type": "array",
               "items": {
                 "type": "string",
-                "pattern": "^\\s*[^\\s\\p{Cc}](?:\\P{Cc}{0,38}[^\\s\\p{Cc}])?\\s*$",
-                "description": "A free-form tag: 1 to 40 characters once trimmed, no control characters; stored trimmed, unique per session ignoring case."
+                "pattern": "^\\s*[^\\s\\p{Cc}\\p{Cf}](?:[^\\p{Cc}\\p{Cf}]{0,38}[^\\s\\p{Cc}\\p{Cf}])?\\s*$",
+                "description": "A free-form tag: 1 to 40 characters once trimmed, no control or format (zero-width) characters; stored trimmed, unique per session ignoring case."
               },
               "description": "The session's tags, sorted ignoring case."
             },
