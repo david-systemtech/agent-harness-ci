@@ -1,4 +1,3 @@
-import { parseArgs } from "node:util";
 import { DISCOVERY_PATH, PRODUCT_NAME } from "@agent-harness/contracts";
 import {
   HARNESS_VERSION,
@@ -10,10 +9,18 @@ import {
   type EnvironmentHandle,
   type EnvironmentOptions,
 } from "@agent-harness/environment";
+import { parseOptions, parsePort, UsageError } from "./args.js";
+import { service, type ServiceSeams } from "./service/verbs.js";
+import { status } from "./status.js";
 
 const USAGE = [
   `usage: ${PRODUCT_NAME} --version`,
   `       ${PRODUCT_NAME} serve [--data-dir <path>] [--port <n>] [--name <name>]`,
+  `       ${PRODUCT_NAME} status [--port <n>] [--json]`,
+  `       ${PRODUCT_NAME} service install [--data-dir <path>] [--port <n>]`,
+  `       ${PRODUCT_NAME} service uninstall`,
+  `       ${PRODUCT_NAME} service start`,
+  `       ${PRODUCT_NAME} service status [--port <n>] [--json]`,
   "",
 ].join("\n");
 
@@ -28,6 +35,10 @@ export interface CliContext {
    * the root refusal.
    */
   readonly environment?: Pick<EnvironmentOptions, "user" | "launcher">;
+  /** The fetch `status` and `service status` probe the discovery URL with; a seam for tests. */
+  readonly fetch?: typeof globalThis.fetch;
+  /** Seams into the service verbs for tests, under the same rule as `environment`. */
+  readonly service?: ServiceSeams;
 }
 
 /** SIGINT or SIGTERM, whichever comes first. The drain SIGTERM starts arrives with #112. */
@@ -48,27 +59,12 @@ const processContext: CliContext = {
   stopRequested: signalled,
 };
 
-class UsageError extends Error {}
-
 const parseServe = (args: readonly string[]): Pick<EnvironmentOptions, "dataDir" | "port" | "name"> => {
-  let values: { "data-dir"?: string; port?: string; name?: string };
-  try {
-    ({ values } = parseArgs({
-      args: [...args],
-      options: { "data-dir": { type: "string" }, port: { type: "string" }, name: { type: "string" } },
-      strict: true,
-      allowPositionals: false,
-    }));
-  } catch (error) {
-    throw new UsageError(error instanceof Error ? error.message : String(error));
-  }
-  const { port } = values;
-  if (port !== undefined && !(/^\d+$/.test(port) && Number(port) <= 65535)) {
-    throw new UsageError(`--port takes a port number from 0 to 65535; got ${port}.`);
-  }
+  const values = parseOptions(args, { "data-dir": { type: "string" }, port: { type: "string" }, name: { type: "string" } });
+  const port = parsePort(values.port, 0);
   return {
     ...(values["data-dir"] !== undefined && { dataDir: values["data-dir"] }),
-    ...(port !== undefined && { port: Number(port) }),
+    ...(port !== undefined && { port }),
     ...(values.name !== undefined && { name: values.name }),
   };
 };
@@ -112,6 +108,16 @@ export const runCli = async (args: readonly string[], overrides: Partial<CliCont
       return 0;
     }
     if (args[0] === "serve") return await serve(args.slice(1), context);
+    if (args[0] === "status") return await status(args.slice(1), { stdout: context.stdout, fetch: context.fetch ?? fetch });
+    if (args[0] === "service") {
+      return await service(args.slice(1), {
+        stdout: context.stdout,
+        stderr: context.stderr,
+        fetch: context.fetch ?? fetch,
+        user: context.environment?.user ?? processUserCheck(),
+        seams: context.service ?? {},
+      });
+    }
     throw new UsageError(args.length === 0 ? "No command given." : `Unknown command ${args[0]}.`);
   } catch (error) {
     if (!(error instanceof UsageError)) throw error;
