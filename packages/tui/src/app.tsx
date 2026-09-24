@@ -115,6 +115,9 @@ export const App = (props: AppProps) => {
   const scheduler = useMemo(() => createFrameScheduler(clock), [clock]);
   useEffect(() => () => scheduler.dispose(), [scheduler]);
   useSyncExternalStore(scheduler.subscribe, scheduler.frame);
+  // Aborted when the terminal UI quits or is unmounted: work it started (the service wait) stops with it.
+  const quit = useMemo(() => new AbortController(), []);
+  useEffect(() => () => quit.abort(), [quit]);
 
   // What the runtime changes reaches the screen through the scheduler, never at once.
   useEffect(() => {
@@ -197,9 +200,9 @@ export const App = (props: AppProps) => {
   const startService = () => {
     const installed = screen.installed ?? true;
     update({ offer: "running", line: undefined });
-    void startLocalEnvironment({ host, services: props.services, clock, installed }).then(
-      (outcome) => update(outcome.ok ? { offer: "handed-over" } : { offer: "open", line: outcome.message }),
-      (error: unknown) => update({ offer: "open", line: messageOf(error) }),
+    void startLocalEnvironment({ host, services: props.services, clock, installed, signal: quit.signal }).then(
+      (outcome) => quit.signal.aborted || update(outcome.ok ? { offer: "handed-over" } : { offer: "open", line: outcome.message }),
+      (error: unknown) => quit.signal.aborted || update({ offer: "open", line: messageOf(error) }),
     );
   };
 
@@ -346,6 +349,7 @@ export const App = (props: AppProps) => {
       if (screen.composer !== "") return update({ composer: "" });
       if (screen.question) return update({ question: undefined });
       if (screen.card.kind !== "none") return update({ card: { kind: "none" } });
+      quit.abort();
       return exit();
     }
     if (question && screen.composer === "") {

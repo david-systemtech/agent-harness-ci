@@ -39,6 +39,8 @@ export const SIZE = { columns: 100, rows: 30 } as const;
 /** The local service the terminal UI drives, scripted: what it was asked to do, in order, and a start that brings discovery up. */
 export interface ScriptedService extends LocalService {
   readonly calls: readonly string[];
+  /** How many times the environment's readiness was asked. */
+  readinessPolls(): number;
 }
 
 export interface ServiceScript {
@@ -50,10 +52,12 @@ export interface ServiceScript {
 
 const scriptedService = (world: ScriptedWorld, script: ServiceScript = {}): ScriptedService => {
   const calls: string[] = [];
+  let polls = 0;
   const localEnvironment = () => world.environments.find((e) => e.wire.grant === world.grant);
   let installed = script.installed ?? world.grant !== undefined;
   return {
     calls,
+    readinessPolls: () => polls,
     installed: async () => installed,
     install: async () => {
       calls.push("install");
@@ -66,7 +70,10 @@ const scriptedService = (world: ScriptedWorld, script: ServiceScript = {}): Scri
       if (outcome.ok) localEnvironment()?.discovery("starting");
       return outcome;
     },
-    readiness: async () => localEnvironment()?.readiness() ?? "nothing",
+    readiness: async () => {
+      polls++;
+      return localEnvironment()?.readiness() ?? "nothing";
+    },
   };
 };
 

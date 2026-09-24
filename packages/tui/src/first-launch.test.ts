@@ -104,6 +104,21 @@ describe("service down", () => {
     expect(app.service.calls).toEqual(["start"]);
   });
 
+  it("stops waiting for the environment when the terminal UI quits, and starts no runtime after", async () => {
+    const app = await launch({ script: { environments: [{ name: "desk", reach: "local", discovery: "nothing" }] } });
+    await app.waitFor(OFFER);
+    await app.press("y");
+    await app.advance(3000);
+    expect(app.service.readinessPolls()).toBeGreaterThan(1);
+    const runtime = app.runtime();
+    await app.press(KEY.ctrlC);
+    const polls = app.service.readinessPolls();
+    app.environment("desk").discovery("ready");
+    await app.advance(5000);
+    expect(app.service.readinessPolls()).toBe(polls);
+    expect(app.runtime()).toBe(runtime);
+  });
+
   it("offers to install and start it when no service is installed", async () => {
     const app = await launch({
       script: { environments: [{ name: "desk", reach: "local", discovery: "nothing" }] },
