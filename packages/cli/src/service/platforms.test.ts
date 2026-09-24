@@ -376,6 +376,7 @@ describe("the Task Scheduler logon task", () => {
     await service.install(spec);
 
     expect(calls).toEqual([
+      "schtasks /Query /TN agent-harness",
       "schtasks /Query /TN agent-harness /FO CSV /NH",
       "schtasks /Query /TN agent-harness /XML",
       `schtasks /Create /TN agent-harness /XML ${xmlFile} /F`,
@@ -401,6 +402,7 @@ describe("the Task Scheduler logon task", () => {
     const { service, calls } = platformFor("win32", home, running);
     await service.install(spec);
     expect(calls).toEqual([
+      "schtasks /Query /TN agent-harness",
       "schtasks /Query /TN agent-harness /FO CSV /NH",
       "schtasks /Query /TN agent-harness /XML",
       `schtasks /Create /TN agent-harness /XML ${join(spec.dataDir, "service-task.xml")} /F`,
@@ -409,22 +411,32 @@ describe("the Task Scheduler logon task", () => {
     ]);
   });
 
-  it("install puts the previous task back, or removes the new one, when rerunning the task fails after /Create", async () => {
-    for (const previous of [undefined, '<?xml version="1.0" encoding="UTF-16"?><Task>previous</Task>']) {
-      const home = tempHome();
-      const spec = preparedSpecIn(home);
-      const { service, calls } = platformFor("win32", home, (_, args) => {
-        if (args.includes("/XML") && args.includes("/Query")) return { code: previous ? 0 : 1, stdout: previous ?? "" };
-        if (args.includes("/End")) return { code: 1, stderr: "ERROR: The task is not running." };
-        return running(_, args);
-      });
+  it("install puts the previous task back and runs it again when rerunning the task fails after /Create", async () => {
+    const home = tempHome();
+    const spec = preparedSpecIn(home);
+    const previous = '<?xml version="1.0" encoding="UTF-16"?><Task>previous</Task>';
+    const { service, calls } = platformFor("win32", home, (_, args) => {
+      if (args.includes("/XML") && args.includes("/Query")) return { code: 0, stdout: previous };
+      if (args.includes("/End")) return { code: 1, stderr: "ERROR: The task is not running." };
+      return running(_, args);
+    });
+    await expect(service.install(spec)).rejects.toThrow(ServiceCommandError);
+    const create = `schtasks /Create /TN agent-harness /XML ${join(spec.dataDir, "service-task.xml")} /F`;
+    expect(calls.filter((call) => !call.startsWith("schtasks /Query"))).toEqual([
+      create,
+      "schtasks /End /TN agent-harness",
+      create,
+      "schtasks /Run /TN agent-harness",
+    ]);
+    expect(existsSync(join(spec.dataDir, "service-task.xml"))).toBe(false);
+  });
       await expect(service.install(spec), previous ? "previous" : "none").rejects.toThrow(ServiceCommandError);
       const create = `schtasks /Create /TN agent-harness /XML ${join(spec.dataDir, "service-task.xml")} /F`;
-      expect(calls.slice(2), previous ? "previous" : "none").toEqual([
-        create,
-        "schtasks /End /TN agent-harness",
-        previous ? create : "schtasks /Delete /TN agent-harness /F",
-      ]);
+      expect(calls.filter((call) => !call.startsWith("schtasks /Query")), previous ? "previous" : "none").toEqual(
+        previous
+          ? [create, "schtasks /End /TN agent-harness", create, "schtasks /Run /TN agent-harness"]
+          : [create, "schtasks /Delete /TN agent-harness /F"],
+      );
       expect(existsSync(join(spec.dataDir, "service-task.xml"))).toBe(false);
     }
   });
@@ -439,6 +451,36 @@ describe("the Task Scheduler logon task", () => {
     });
     await service.install(spec);
     expect(written).toBe(renderTaskXml(spec, "david"));
+  });
+
+  it("install keeps the new task, rather than deleting it, when the previous one existed but could not be read back", async () => {
+    const home = tempHome();
+    const spec = preparedSpecIn(home);
+    const { service, calls } = platformFor("win32", home, (_, args) => {
+      if (args.includes("/XML") && args.includes("/Query")) return { code: 1, stderr: "ERROR: access denied" };
+      if (args.includes("/End")) return { code: 1 };
+      return running(_, args);
+    });
+    await expect(service.install(spec)).rejects.toThrow(ServiceCommandError);
+    expect(calls.filter((call) => call.includes("/Delete") || call.includes("/Create")).length).toBe(1);
+  });
+
+  it("install runs the previous task again after putting it back when /Run refused the new one", async () => {
+    const home = tempHome();
+    const spec = preparedSpecIn(home);
+    const previous = '<?xml version="1.0" encoding="UTF-16"?><Task>previous</Task>';
+    let creates = 0;
+    const { service, calls } = platformFor("win32", home, (_, args) => {
+      if (args.includes("/XML") && args.includes("/Query")) return { code: 0, stdout: previous };
+      if (args.includes("/Create")) creates += 1;
+      if (args.includes("/Run") && creates === 1) return { code: 1 };
+      return running(_, args);
+    });
+    await expect(service.install(spec)).rejects.toThrow(ServiceCommandError);
+    expect(calls.slice(-2)).toEqual([
+      `schtasks /Create /TN agent-harness /XML ${join(spec.dataDir, "service-task.xml")} /F`,
+      "schtasks /Run /TN agent-harness",
+    ]);
   });
 
   it("reads a previous task that schtasks printed as UTF-16 back into text before putting it back", async () => {

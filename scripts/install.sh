@@ -187,6 +187,7 @@ if [ "$dry_run" = 1 ]; then
   [ -z "$data_dir" ] || install_line="$install_line --data-dir $data_dir"
   [ -z "$port" ] || install_line="$install_line --port $port"
   status_line="$bin service status"
+  [ -z "$data_dir" ] || status_line="$status_line --data-dir $data_dir"
   [ -z "$port" ] || status_line="$status_line --port $port"
   printf 'Release: %s\n' "$tag"
   printf 'Download: %s\n' "$asset_url"

@@ -319,6 +319,17 @@ describe("agent-harness service status", () => {
     expect(existsSync(dataDir)).toBe(false);
   });
 
+  it("uninstall still removes the definition when the service record cannot be read, and says the folders stay", async () => {
+    const cli = harness("linux");
+    expect(await cli.run("service", "install")).toBe(0);
+    const record = join(cli.home, ".local", "state", "agent-harness", "service.json");
+    writeFileSync(record, "{ not json");
+    expect(await cli.run("service", "uninstall")).toBe(0);
+    expect(existsSync(unitPath(cli.home))).toBe(false);
+    expect(existsSync(record)).toBe(false);
+    expect(cli.err()).toMatch(/could not be removed/);
+  });
+
   it("says in a sentence, and exits 1, when the service record cannot be read", async () => {
     const cli = harness("linux", { answer: active });
     await cli.run("service", "install");

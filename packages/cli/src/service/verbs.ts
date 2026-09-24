@@ -88,11 +88,19 @@ const install = async (args: readonly string[], context: ServiceContext): Promis
 const uninstall = async (args: readonly string[], context: ServiceContext): Promise<number> => {
   const values = parseOptions(args, { "data-dir": { type: "string" } });
   const { platform, dataDir } = resolveService(context, values["data-dir"]);
-  const record = readServiceRecord(dataDir);
+  // A record that cannot be read does not keep the definition installed; only the folders it named stay unknown.
+  let record: ReturnType<typeof readServiceRecord>;
+  let recordProblem: string | undefined;
+  try {
+    record = readServiceRecord(dataDir);
+  } catch (error) {
+    recordProblem = error instanceof Error ? error.message : String(error);
+  }
   const installed = await platform.isInstalled();
   if (installed) await platform.uninstall();
   removeServiceRecord(dataDir);
   removeEmptyDirectories(record?.createdDirectories ?? []);
+  if (recordProblem) context.stderr(`${recordProblem} The folders that install created could not be removed.\n`);
   context.stdout(
     installed ? `Removed ${platform.definitionPath()}. The data directory keeps what the environment wrote.\n` : "No service is installed.\n",
   );
