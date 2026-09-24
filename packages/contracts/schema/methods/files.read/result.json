@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "files.read result",
+  "type": "object",
+  "properties": {
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The path read, relative to the workspace, with forward slashes."
+    },
+    "size": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991,
+      "description": "The file's size on disk, in bytes."
+    },
+    "binary": {
+      "type": "boolean",
+      "description": "True when a NUL byte in the first 8 KiB says the file is binary; then text is null."
+    },
+    "truncated": {
+      "type": "boolean",
+      "description": "True when the file is larger than the 2 MiB read."
+    },
+    "text": {
+      "description": "The first 2 MiB as UTF-8; null for a binary file.",
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "path",
+    "size",
+    "binary",
+    "truncated",
+    "text"
+  ]
+}

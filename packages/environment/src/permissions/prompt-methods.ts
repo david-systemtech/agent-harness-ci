@@ -13,6 +13,7 @@ import type { AdapterHost } from "../adapter/host.js";
 import type { PromptDecision } from "../adapter/contract.js";
 import type { EventLog } from "../event-log/event-log.js";
 import { readRun, readSessionFacts } from "../runs/run-reads.js";
+import { sessionNotFound } from "../sessions/decider.js";
 import type { MethodHandlers } from "../serve/methods.js";
 import type { Reader } from "../sessions/session-reads.js";
 import { sessionStream } from "../sessions/streams.js";
@@ -51,7 +52,15 @@ export const promptMethods = ({ log, host, environmentId }: PromptMethodsOptions
   const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
 
   return {
-    "permissions.prompts.list": (params) => ({ prompts: parkedPrompts(reader, params.sessionId?.toLowerCase()) }),
+    // One session's: not_found, kind session, when it is not on this environment or deleted, as every query naming a session answers.
+    "permissions.prompts.list": (params) => {
+      const sessionId = params.sessionId?.toLowerCase();
+      if (sessionId !== undefined) {
+        const session = readSessionFacts(log, reader, sessionId);
+        if (session === null || session.deleted) throw new ContractError(sessionNotFound(sessionId));
+      }
+      return { prompts: parkedPrompts(reader, sessionId) };
+    },
 
     /**
      * A person's answer, from any client session with `runs:drive`, whose
@@ -73,7 +82,7 @@ export const promptMethods = ({ log, host, environmentId }: PromptMethodsOptions
       const aggregate = sessionStream(sessionId);
       const session = readSessionFacts(log, reader, sessionId);
       if (session === null || session.deleted) {
-        return { aggregate, rejected: { code: "not_found", message: `No session ${sessionId} is on this environment.`, data: { kind: "session", sessionId } } };
+        return { aggregate, rejected: sessionNotFound(sessionId) };
       }
       if (record.answer !== null) {
         return {

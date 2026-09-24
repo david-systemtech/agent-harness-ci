@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "files.list result",
+  "type": "object",
+  "properties": {
+    "files": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "truncated": {
+      "type": "boolean",
+      "description": "True when the workspace holds more than the 20,000 files listed."
+    },
+    "source": {
+      "type": "string",
+      "enum": [
+        "git",
+        "walk"
+      ],
+      "description": "Where the listing came from: git (tracked and untracked, non-ignored files) or walk (the bounded walk with its skip list)."
+    }
+  },
+  "required": [
+    "files",
+    "truncated",
+    "source"
+  ]
+}

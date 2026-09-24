@@ -7,6 +7,7 @@ import {
   methods,
   registry,
   type CommandMethodName,
+  type MethodName,
   type EventEnvelope,
   type EventFrame,
   type Frame,
@@ -222,6 +223,21 @@ describe("a deleted session", () => {
     "runs.interrupt": { runId },
     "runs.stopTask": { runId, taskId: "t-1" },
     "providers.processes.stop": { sessionId },
+    "terminals.open": { id: randomUUID(), sessionId },
+  });
+
+  /**
+   * The params of every query that names a session. The test below refuses
+   * a served query whose params carry a `sessionId` and that is missing here.
+   */
+  const queriedOnDeleted = (sessionId: string): Partial<Record<MethodName, Record<string, unknown>>> => ({
+    "sessions.get": { sessionId },
+    "terminals.list": { sessionId },
+    "files.list": { sessionId },
+    "files.read": { sessionId, path: "README.md" },
+    "diffs.workingTree": { sessionId },
+    "diffs.session": { sessionId },
+    "permissions.prompts.list": { sessionId },
   });
 
   /** Whether a command's params name a session or a run. */
@@ -252,6 +268,23 @@ describe("a deleted session", () => {
       const method = name as CommandMethodName;
       const answer = registry[method].response.parse(await client.request(method, { commandId: randomUUID(), ...params } as never));
       expectNotFound(t, answer, id, head, name);
+    }
+  });
+
+  it("answers every served query naming the session not_found, kind session", async () => {
+    const t = await start();
+    const client = await t.client();
+    const { id } = await create(client);
+    await deleteSession(client, id);
+    const cases = queriedOnDeleted(id);
+    const served = methods
+      .filter((method) => method.kind === "query" && namesSessionOrRun(method) && t.env.methods.get(method.name)?.handler !== undefined)
+      .map((method) => method.name);
+    expect(served.sort()).toEqual(Object.keys(cases).sort());
+
+    for (const [name, params] of Object.entries(cases)) {
+      const error = await refusal(client.request(name as MethodName, params as never));
+      expect(error, name).toEqual({ code: "not_found", data: { kind: "session", sessionId: id } });
     }
   });
 

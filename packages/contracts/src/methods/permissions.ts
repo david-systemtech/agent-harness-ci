@@ -93,7 +93,9 @@ export const permissionsSettingsSet = defineMethod({
 /**
  * Every parked prompt of the environment, or of one session: opened and not
  * yet answered, oldest first, a deleted session's left out. After a restart
- * the prompts parked before it are listed where they were (ADR 0007).
+ * the prompts parked before it are listed where they were (ADR 0007). A
+ * session named that is not on the environment, or is deleted, is
+ * `not_found` (kind `session`), as every query naming a session is.
  */
 export const permissionsPromptsList = defineMethod({
   name: "permissions.prompts.list",
