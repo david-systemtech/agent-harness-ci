@@ -105,19 +105,7 @@ export type CommandMethodName = Extract<Registered, { readonly kind: "command" }
  * registered method that is neither served nor owed here.
  */
 export const OWED_HANDLERS = {
-  // Groups (#116).
-  "sessions.setGroup": "#116",
-  "groups.create": "#116",
-  "groups.rename": "#116",
-  "groups.reorder": "#116",
-  "groups.delete": "#116",
-  "groups.list": "#116",
-  // Deletion (#118).
-  "sessions.delete": "#118",
-  "sessions.restore": "#118",
-  "sessions.purge": "#118",
-  "sessions.listDeleted": "#118",
-  "sessions.subscribeSession": "#118",
+  // Every registered method is served.
 } as const satisfies { readonly [N in MethodName]?: `#${number}` };
 export type Registry = { readonly [M in Registered as M["name"]]: M };
 

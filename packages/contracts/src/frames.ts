@@ -25,10 +25,10 @@ import { Ceiling, ScopeSet } from "./scopes.js";
 export const WIRE_PATH = "/ws";
 
 /** Why a subscription ended. */
-export const END_REASONS = ["unsubscribed", "overflow", "revoked", "closed"] as const;
+export const END_REASONS = ["unsubscribed", "overflow", "revoked", "closed", "deleted"] as const;
 export const EndReason = z.enum(END_REASONS).meta({
   description:
-    "Why a subscription ended: the client unsubscribed; it fell too far behind (resubscribe from its cursor); its client session was revoked; or the connection closed.",
+    "Why a subscription ended: the client unsubscribed; it fell too far behind (resubscribe from its cursor); its client session was revoked; the connection closed; or what it follows was deleted (a session's subscription, after delivering session.deleted).",
 });
 export type EndReason = z.infer<typeof EndReason>;
 

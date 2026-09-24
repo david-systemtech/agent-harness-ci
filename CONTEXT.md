@@ -80,6 +80,10 @@ _Avoid_: muted, hidden
 Where a session sits when it is not in the active list: the settled, snoozed or archived shelf, each following from the session's own state rather than from where a client put it.
 _Avoid_: bucket, folder, section
 
+**Tombstone**:
+The one event left in an environment's log for a purged session: it says the session is gone and what became of the provider's transcript, so a client that last saw the session learns to drop it.
+_Avoid_: purge marker, deletion record
+
 **Client runtime**:
 The UI-free package every client renders from: connections, pairing, subscriptions with their caches and outbox, projections, command dispatch and capability flags. The only place session semantics live on the client side.
 _Avoid_: SDK, store, bridge

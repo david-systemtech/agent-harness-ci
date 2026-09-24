@@ -267,6 +267,10 @@
       "title": "SessionSummary"
     },
     {
+      "path": "sessions/provider-transcript-outcome.json",
+      "title": "ProviderTranscriptOutcome"
+    },
+    {
       "path": "sessions/deleted-session-summary.json",
       "title": "DeletedSessionSummary"
     },

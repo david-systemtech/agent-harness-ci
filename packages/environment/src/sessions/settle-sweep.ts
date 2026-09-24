@@ -1,11 +1,12 @@
-import { AUTO_SETTLE_KEYS, SESSION_STREAM_KIND, type SettingsKey } from "@agent-harness/contracts";
-import { formatActor, type EventLog, type StreamRef } from "../event-log/event-log.js";
+import { AUTO_SETTLE_KEYS, type SettingsKey } from "@agent-harness/contracts";
+import { formatActor, type EventLog } from "../event-log/event-log.js";
 import type { Clock } from "../serve/clock.js";
 import { readSettings } from "../settings/settings-store.js";
 import { appendDecided } from "./companions.js";
 import { stampedAt, type Decision, type SessionState } from "./decider.js";
 import { readSessionState } from "./session-reads.js";
 import { toSummary, type Reader, type SessionRow } from "./session-tables.js";
+import { sessionStream } from "./streams.js";
 import { autoSettleBy, decideSettle, decideUnsnooze, type AutoSettleRules, type SettleFacts } from "./shelf-decider.js";
 
 /**
@@ -48,8 +49,6 @@ export interface SettleSweepOptions {
   readonly log: EventLog;
   readonly clock: Clock;
 }
-
-const sessionStream = (id: string): StreamRef => ({ kind: SESSION_STREAM_KIND, id });
 
 /** What a pass decides for one session: the decision, and what to report when it appends. */
 type SessionStep<T> = (facts: SettleFacts, state: SessionState) => { readonly decision: Decision; readonly value: T } | null;

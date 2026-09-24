@@ -6,7 +6,7 @@ import {
   listEventTypes,
   type SessionSummary,
 } from "@agent-harness/contracts";
-import type { EventLog, StreamRef } from "../event-log/event-log.js";
+import type { EventEnvelope, EventLog } from "../event-log/event-log.js";
 import type { CommandAnswer, CommandContext, MethodHandlers } from "../serve/methods.js";
 import { appendDecided } from "./companions.js";
 import { decideSettle, decideSnooze, decideUnsettle, decideUnsnooze } from "./shelf-decider.js";
@@ -14,11 +14,15 @@ import {
   PURGED_STATE,
   decideArchive,
   decideCreate,
+  decideDelete,
   decidePin,
+  decidePurge,
   decideRename,
   decideReorderActive,
   decideReorderPinned,
+  decideRestore,
   decideSetDraft,
+  decideSetGroup,
   decideTag,
   decideUnarchive,
   decideUnpin,
@@ -29,18 +33,29 @@ import {
   type Refusal,
   type SessionState,
 } from "./decider.js";
+import { createDeletion, type Deletion } from "./deletion.js";
+import { groupExists, listGroups } from "./group-reads.js";
 import { acceptAnyRunParameters, type RunParametersCheck } from "./run-parameters.js";
-import { groupExists, listGroups, listSummaries, readSessionState, readSummary, type Reader } from "./session-reads.js";
+import { listDeleted, listSummaries, readDeletion, readSessionState, readSummary, type Reader } from "./session-reads.js";
+import { sessionStream } from "./streams.js";
 
 /**
  * The session-organisation handlers on the method table (session-state
- * spec, "Commands" and "Subscriptions"): each session command runs its
- * decider over the projection and appends what it decides through the
- * command's transaction (create and rename; archive, pin and the reorders,
- * tags and the draft); `sessions.list`, `sessions.get` and
- * `sessions.subscribe` read the session-list projection. The other session
- * and group methods are registered in the contracts and served by #116 to
- * #118 (`OWED_HANDLERS`).
+ * spec, "Commands" and "Subscriptions"). Each session command runs its
+ * decider over the projection and appends what it decides, its own events
+ * and their companions, through the command's transaction:
+ * `sessions.create`, `sessions.rename`, `sessions.archive`,
+ * `sessions.unarchive`, `sessions.pin`, `sessions.unpin`,
+ * `sessions.reorderPinned`, `sessions.reorderActive`, `sessions.tag`,
+ * `sessions.untag`, `sessions.setDraft`, `sessions.setGroup`,
+ * `sessions.settle`, `sessions.unsettle`, `sessions.snooze`,
+ * `sessions.unsnooze`, `sessions.delete`, `sessions.restore` and
+ * `sessions.purge` (the purge carried out by `deletion.ts`). The queries
+ * `sessions.list`, `sessions.get` and `sessions.listDeleted` and the stream
+ * `sessions.subscribe` read the session-list projection;
+ * `sessions.subscribeSession` follows one session's stream. The group
+ * commands are `group-methods.ts`'s, the settings methods
+ * `settings/methods.ts`'s, and the shelf's sweep `settle-sweep.ts`'s.
  */
 
 export interface SessionMethodsOptions {
@@ -49,6 +64,8 @@ export interface SessionMethodsOptions {
   readonly validateRunParameters?: RunParametersCheck;
   /** The environment's clock, which stamps the times a command records (`archivedAt`, `pinnedAt`); preset: the system's. */
   readonly clock?: () => Date;
+  /** The purge `sessions.purge` runs; preset: one over `log` whose adapter cannot delete a transcript. The environment shares its own with the sweep. */
+  readonly deletion?: Deletion;
 }
 
 /** The streams and event types the session list carries: the `list`-flagged events of every session and group stream. */
@@ -57,12 +74,11 @@ export const SESSION_LIST_SELECTOR = {
   types: listEventTypes([SESSION_STREAM_KIND, GROUP_STREAM_KIND]),
 } as const;
 
-const sessionStream = (id: string): StreamRef => ({ kind: SESSION_STREAM_KIND, id });
-
 export const sessionMethods = (options: SessionMethodsOptions): MethodHandlers => {
   const { log } = options;
   const validateRunParameters = options.validateRunParameters ?? acceptAnyRunParameters;
   const clock = options.clock ?? (() => new Date());
+  const deletion = options.deletion ?? createDeletion({ log });
   // The log's query-only read: inside a command it reads that command's own transaction.
   const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
 
@@ -80,16 +96,26 @@ export const sessionMethods = (options: SessionMethodsOptions): MethodHandlers =
     return summary;
   };
 
+  /** What a session command answers with unless it says otherwise: the summary it leaves. */
+  type SummaryResult = { summary: SessionSummary };
+
   /**
    * Carries out a decision in the command's transaction: a refusal is the
    * rejected answer; events are appended with the command's id and actor, so
-   * the projector writes the summary and its patch before the answer reads it.
+   * the projector writes the summary and its patch before the answer reads
+   * it. The answer is the summary the command leaves, or what `result` reads
+   * after it.
    */
-  const carryOut = (id: string, decision: Decision, context: CommandContext): CommandAnswer<{ summary: SessionSummary }, Refusal["code"]> => {
+  const carryOut = <R = SummaryResult>(
+    id: string,
+    decision: Decision,
+    context: CommandContext,
+    result?: () => R,
+  ): CommandAnswer<R, Refusal["code"]> => {
     const aggregate = sessionStream(id);
     if (decision.rejected !== undefined) return { aggregate, rejected: decision.rejected };
     appendDecided(log, aggregate, decision, { tx: context.tx, actor: context.actor, commandId: context.commandId });
-    return { aggregate, result: { summary: summaryAfter(id) } };
+    return { aggregate, result: result === undefined ? ({ summary: summaryAfter(id) } as R) : result() };
   };
 
   /**
@@ -98,15 +124,16 @@ export const sessionMethods = (options: SessionMethodsOptions): MethodHandlers =
    * time, so a time in a payload and the event's `occurredAt` (the summary's
    * `updatedAt`) are one instant.
    */
-  const onSession = (
+  const onSession = <R = SummaryResult>(
     sessionId: string,
     context: CommandContext,
     decide: (state: SessionState | null, id: string, at: string) => Decision,
-  ): CommandAnswer<{ summary: SessionSummary }, Refusal["code"]> => {
+    result?: (id: string) => R,
+  ): CommandAnswer<R, Refusal["code"]> => {
     const id = sessionId.toLowerCase();
     const at = clock().toISOString();
     const decision = decide(stateOf(id), id, at);
-    return carryOut(id, stampedAt(decision, at), context);
+    return carryOut(id, stampedAt(decision, at), context, result === undefined ? undefined : () => result(id));
   };
 
   return {
@@ -169,6 +196,37 @@ export const sessionMethods = (options: SessionMethodsOptions): MethodHandlers =
     "sessions.setDraft": (params, context) =>
       onSession(params.sessionId, context, (state, sessionId) => decideSetDraft(state, { sessionId, draft: params.draft })),
 
+    "sessions.setGroup": (params, context) =>
+      onSession(params.sessionId, context, (state, sessionId) => {
+        const groupId = params.groupId?.toLowerCase() ?? null;
+        return decideSetGroup(state, { sessionId, groupId }, { groupExists: groupId !== null && groupExists(reader, groupId) });
+      }),
+
+    // Answered with the deletion the projection holds after it, since a deleted session has no summary in the list.
+    "sessions.delete": (params, context) =>
+      onSession(
+        params.sessionId,
+        context,
+        (state, sessionId, at) => decideDelete(state, { sessionId, at, deleteProviderTranscript: params.deleteProviderTranscript ?? false }),
+        (id) => {
+          const deletion = readDeletion(reader, id);
+          if (deletion === null) throw new Error(`The session ${id} is not deleted after its delete applied.`);
+          return { sessionId: id, ...deletion };
+        },
+      ),
+
+    "sessions.restore": (params, context) =>
+      onSession(params.sessionId, context, (state, sessionId, at) => decideRestore(state, { sessionId, at })),
+
+    "sessions.purge": (params, context) => {
+      const id = params.sessionId.toLowerCase();
+      const aggregate = sessionStream(id);
+      const decision = decidePurge(stateOf(id), { sessionId: id });
+      if (decision.rejected !== undefined) return { aggregate, rejected: decision.rejected };
+      deletion.purgeSession(id, { tx: context.tx, actor: context.actor, commandId: context.commandId });
+      return { aggregate, result: { sessionId: id } };
+    },
+
     "sessions.list": () => ({ sequence: log.head(), sessions: listSummaries(reader) }),
 
     "sessions.get": ({ sessionId }) => {
@@ -178,9 +236,47 @@ export const sessionMethods = (options: SessionMethodsOptions): MethodHandlers =
       return { summary };
     },
 
+    "sessions.listDeleted": () => ({ sessions: listDeleted(reader, clock()) }),
+
     "sessions.subscribe": () => ({
       stream: SESSION_LIST_SELECTOR,
       snapshot: () => ({ sequence: log.head(), sessions: listSummaries(reader), groups: listGroups(reader) }),
     }),
+
+    /**
+     * One session's stream, every event of it. A session that is not in
+     * the list (unknown, deleted, or purged, whose stream holds only its
+     * tombstone) is not found. The deletion that holds now ends the
+     * subscription `deleted`, and so does the tombstone, should a purge land
+     * while the catch-up is held.
+     */
+    "sessions.subscribeSession": ({ sessionId }) => {
+      const id = sessionId.toLowerCase();
+      const summaryOf = (): SessionSummary => {
+        const summary = readSummary(reader, id);
+        if (summary === null) throw new ContractError(sessionNotFound(id));
+        return summary;
+      };
+      summaryOf();
+      /**
+       * Whether a `session.deleted` is the deletion that holds now: the
+       * session is deleted (or gone) and no restore follows it on the
+       * stream. A replay passes a deletion a restore undid. The projection is
+       * committed before an event is published, so a live one reads it as
+       * the event left it.
+       */
+      const holdsNow = (event: EventEnvelope): boolean => {
+        const state = readSessionState(reader, id);
+        if (state !== null && !state.deleted) return false;
+        return !log.readStream(sessionStream(id), event.sequence).some((later) => later.type === "session.restored");
+      };
+      return {
+        stream: sessionStream(id),
+        // The transcript's shape is the adapter workstream's (#119): an empty object until it fills it.
+        snapshot: () => ({ sequence: log.head(), summary: summaryOf(), transcript: {} }),
+        endOn: (event) =>
+          event.type === "session.purged" || (event.type === "session.deleted" && holdsNow(event)) ? "deleted" : undefined,
+      };
+    },
   };
 };

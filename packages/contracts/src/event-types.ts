@@ -10,8 +10,10 @@ import { SETTINGS_EVENT_TYPES, SETTINGS_STREAM_KIND } from "./settings.js";
  * type changes the session list (a summary or a group): the environment
  * writes the patch it made into the event's metadata under `LIST_PATCH_KEY`,
  * `sessions.subscribe` carries it, and a client applies the patch and never
- * re-derives a field from the payload. A flagged type names its patch's
- * schema; the contract test holds every flagged type to having one.
+ * re-derives a field from the payload. An event of a flagged type that
+ * changes nothing a client lists (a deleted session ungrouped when its group
+ * is deleted) carries no patch, and a client skips it. A flagged type names
+ * its patch's schema; the contract test holds every flagged type to having one.
  */
 export type EventTypeEntry =
   | {

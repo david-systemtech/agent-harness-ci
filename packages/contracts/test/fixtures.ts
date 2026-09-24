@@ -675,7 +675,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
     ]),
   ),
   ...frameFixtures,
-  "frames/end-reason.json": { valid: ["unsubscribed", "overflow", "revoked", "closed"], invalid: ["draining", ""] },
+  "frames/end-reason.json": { valid: ["unsubscribed", "overflow", "revoked", "closed", "deleted"], invalid: ["draining", "purged", ""] },
   "frames/bye-reason.json": {
     valid: ["unauthorized", "expired", "revoked", "protocol", "draining", "updating"],
     invalid: ["closed", "overflow"],

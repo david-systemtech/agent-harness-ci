@@ -392,11 +392,33 @@ export const SessionDeletedPayload = z
   })
   .meta({ description: "session.deleted: the session left the list; it can be restored until purgeAt." });
 export const SessionRestoredPayload = z.object({}).meta({ description: "session.restored: a deleted session came back unchanged." });
+/**
+ * What a purge did with the provider's own transcript of the session: kept,
+ * since the delete did not ask for it to go; deleted by the adapter;
+ * unsupported, since the delete asked but the adapter does not offer the
+ * capability, so it is kept; or failed, with the adapter's message, and
+ * the session purged all the same.
+ */
+export const ProviderTranscriptOutcome = z
+  .discriminatedUnion("outcome", [
+    z.object({ outcome: z.literal("kept") }).meta({ description: "The delete did not ask for it to go: the provider's transcript is untouched." }),
+    z.object({ outcome: z.literal("deleted") }).meta({ description: "The adapter deleted the provider's transcript." }),
+    z
+      .object({ outcome: z.literal("unsupported") })
+      .meta({ description: "The delete asked for it, but the adapter cannot delete a transcript: it is untouched." }),
+    z
+      .object({ outcome: z.literal("failed"), message: z.string().meta({ description: "What the adapter said went wrong." }) })
+      .meta({ description: "The adapter's delete failed; the session was purged all the same." }),
+  ])
+  .meta({ description: "What a purge did with the provider's own transcript: kept, deleted, unsupported, or failed with a message." });
+export type ProviderTranscriptOutcome = z.infer<typeof ProviderTranscriptOutcome>;
+
 export const SessionPurgedPayload = z
-  .object({
-    providerTranscriptDeleted: z.boolean().meta({ description: "Whether the provider's transcript was deleted with the session." }),
-  })
-  .meta({ description: "session.purged: the session is gone; the only event left on its stream." });
+  .object({ providerTranscript: ProviderTranscriptOutcome })
+  .meta({
+    description:
+      "session.purged: the session is gone. The tombstone: the only event left on its stream, so a client replaying from an older cursor drops the id.",
+  });
 export const SessionPullRequestLinkedPayload = PullRequest.meta({
   description: "session.pull-request-linked: a pull request was linked to the session (the forge workstream's).",
 });
@@ -514,3 +536,9 @@ export type SessionActiveReorderedPayload = z.infer<typeof SessionActiveReordere
 export type SessionTaggedPayload = z.infer<typeof SessionTaggedPayload>;
 export type SessionUntaggedPayload = z.infer<typeof SessionUntaggedPayload>;
 export type SessionDraftSetPayload = z.infer<typeof SessionDraftSetPayload>;
+export type SessionDeletedPayload = z.infer<typeof SessionDeletedPayload>;
+export type SessionPurgedPayload = z.infer<typeof SessionPurgedPayload>;
+export type SessionGroupSetPayload = z.infer<typeof SessionGroupSetPayload>;
+export type GroupCreatedPayload = z.infer<typeof GroupCreatedPayload>;
+export type GroupRenamedPayload = z.infer<typeof GroupRenamedPayload>;
+export type GroupReorderedPayload = z.infer<typeof GroupReorderedPayload>;

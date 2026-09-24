@@ -33,6 +33,11 @@ export const createSnapshots = (sql: Sql, clock: () => Date) => ({
     );
   },
 
+  /** Removes the stream's snapshot, if it has one. */
+  remove(stream: StreamRef): void {
+    sql.run("DELETE FROM snapshots WHERE stream_kind = ? AND stream_id = ?", stream.kind, stream.id);
+  },
+
   read(stream: StreamRef): Snapshot | null {
     const row = sql.get<SnapshotRow>(
       "SELECT * FROM snapshots WHERE stream_kind = ? AND stream_id = ?",

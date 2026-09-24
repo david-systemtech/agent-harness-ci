@@ -32,6 +32,8 @@ import {
 import { createPairings, pairRoute, type Pairings } from "../auth/pairings.js";
 import { createRateLimiter } from "../auth/rate-limit.js";
 import { formatActor, openEventLog, type EventLog, type Projector } from "../event-log/event-log.js";
+import { createDeletion, type ProviderTranscripts } from "../sessions/deletion.js";
+import { groupMethods } from "../sessions/group-methods.js";
 import { sessionMethods } from "../sessions/methods.js";
 import { sessionListProjector } from "../sessions/session-list.js";
 import { createSettleSweep } from "../sessions/settle-sweep.js";
@@ -143,6 +145,12 @@ export interface EnvironmentOptions {
   readonly runs?: RunRegistry;
   /** Whether this is a container; with no launcher present too, updates are managed outside. Preset: `processContainerDetector`. */
   readonly containerDetector?: ContainerDetector;
+  /**
+   * The adapter's transcript-delete capability, which a purge calls when the
+   * session's delete asked for it. Preset: none, so such a purge records
+   * `unsupported`; the adapter host (#119) supplies it.
+   */
+  readonly transcripts?: ProviderTranscripts;
 }
 
 /** A running environment. */
@@ -314,6 +322,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // The environment's own notices: environment.subscribe's stream, whose snapshot is the status.
   const environmentStream = { kind: ENVIRONMENT_STREAM_KIND, id: record.id };
   const detector = options.containerDetector ?? processContainerDetector();
+  // The purge: `sessions.purge` runs it at once, the minute sweep for every session past its grace period.
+  const deletion = createDeletion({ log, ...(options.transcripts !== undefined && { transcripts: options.transcripts }) });
   const lifecycle = createLifecycle({
     clock,
     runs: options.runs ?? createRunRegistry({ clock }),
@@ -337,7 +347,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     // The generic settings (#117), on the environment's settings stream.
     ...settingsMethods({ log, environmentId: record.id, onChange: (keys) => settleSweep.settingsChanged(keys) }),
     ...accessMethods({ pairings, clientSessions, accessLog }),
-    ...sessionMethods({ log, clock: now }),
+    ...sessionMethods({ log, clock: now, deletion }),
+    ...groupMethods({ log, clock: now }),
   });
 
   // The two exchanges and the wire are routed before the bind; all three refuse work until the gate below.
@@ -402,20 +413,37 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     await closers.closeAll().catch((closeError: unknown) => console.error("Closing after a failed start failed:", closeError));
     throw new StartupError("prepared", error);
   }
+  // Deleted sessions whose grace period ran out while the environment was down go before any client can read them.
+  try {
+    deletion.purgeDue(clock.now());
+  } catch (error) {
+    console.error("The startup purge failed; the minute sweep will try again:", error);
+  }
   // The shelf's sweep (#117): a pass now, before the wire opens, then every five minutes.
   closers.push(settleSweep.start());
   wire.open();
   launcher.onQuery((query) => lifecycle.answer(query));
-  // The minute sweep: expired pairings, idle `tui` local client sessions, and receipts past their 30 days.
+  // The minute sweep: expired pairings, idle `tui` local client sessions, receipts past their 30 days, and
+  // deleted sessions past their grace period, each part tried even when one before it fails, and named when it does.
   const sweep = clock.setInterval(() => {
-    try {
-      accessLog.atomically((tx) => {
-        clientSessions.sweep(tx);
-        pairings.sweep(tx);
-      });
-      log.pruneReceipts(clock.now());
-    } catch (error) {
-      console.error("The sweep failed:", error);
+    const parts: readonly (readonly [string, () => unknown])[] = [
+      [
+        "The client session and pairing sweep",
+        () =>
+          accessLog.atomically((tx) => {
+            clientSessions.sweep(tx);
+            pairings.sweep(tx);
+          }),
+      ],
+      ["The receipt prune", () => log.pruneReceipts(clock.now())],
+      ["The purge sweep", () => deletion.purgeDue(clock.now())],
+    ];
+    for (const [name, part] of parts) {
+      try {
+        part();
+      } catch (error) {
+        console.error(`${name} failed:`, error);
+      }
     }
   }, SWEEP_INTERVAL_MS);
   closers.push(() => sweep.cancel());

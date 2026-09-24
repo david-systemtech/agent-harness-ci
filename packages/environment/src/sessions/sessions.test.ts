@@ -11,6 +11,7 @@ import {
 import { describe, expect, it } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { MANUAL_CLOCK_START } from "../../test/clock.js";
+import { createGroup } from "../../test/groups.js";
 import { startTestEnvironment, type TestEnvironment } from "../../test/helper.js";
 import {
   command,
@@ -451,6 +452,13 @@ describe("the field table's behavioural half", () => {
       const list = await watch(client);
       await command(client, "sessions.setDraft", { sessionId: id, draft: "Now the retention sweep" });
       return { id, list, type: "session.draft-set" };
+    },
+    "sessions.setGroup": async (client) => {
+      const { id: groupId } = await createGroup(client, { name: `Group ${randomUUID()}` });
+      const { id } = await create(client);
+      const list = await watch(client);
+      await command(client, "sessions.setGroup", { sessionId: id, groupId });
+      return { id, list, type: "session.group-set" };
     },
   };
 

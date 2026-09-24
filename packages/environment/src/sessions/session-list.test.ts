@@ -43,11 +43,47 @@ describe("the session-list projector", () => {
     const head = log.head();
     for (const [kind, type] of [
       ["session", "session.title-generated"],
-      ["group", "group.created"],
     ] as const) {
       expect(() => log.append({ kind, id }, [{ type, payload: {} }], { actor: "system:test" }), type).toThrow(/does not project/);
     }
     expect(log.head()).toBe(head);
+  });
+
+  it("projects a group's events with a group patch, and its table refuses a second group whose name differs only in case", () => {
+    const log = memoryLog();
+    const groupId = "1b4e28ba-2fa1-41d2-883f-0016d3cca427";
+    const { events } = log.append(
+      { kind: "group", id: groupId },
+      [
+        { type: "group.created", payload: { name: "Brandsolidate", orderKey: null } },
+        { type: "group.renamed", payload: { name: "BrandSolidate" } },
+        { type: "group.deleted", payload: {} },
+      ],
+      { actor: "system:test" },
+    );
+    const at = "2026-09-24T00:00:00.000Z";
+    expect(events.map((event) => event.metadata[LIST_PATCH_KEY])).toEqual([
+      { op: "add", group: { id: groupId, name: "Brandsolidate", orderKey: null, createdAt: at, updatedAt: at } },
+      { op: "set", groupId, fields: { name: "BrandSolidate" } },
+      { op: "remove", groupId },
+    ]);
+    const other = "9f8e7d6c-5b4a-4c3d-8e2f-1a0b9c8d7e6f";
+    const third = "3c2b1a09-8f7e-4d6c-9b5a-4f3e2d1c0b9a";
+    log.append({ kind: "group", id: other }, [{ type: "group.created", payload: { name: "Cool Jams", orderKey: null } }], { actor: "system:test" });
+    const head = log.head();
+    expect(() =>
+      log.append({ kind: "group", id: third }, [{ type: "group.created", payload: { name: "cool jams", orderKey: null } }], { actor: "system:test" }),
+    ).toThrow(/UNIQUE/);
+    expect(log.head()).toBe(head);
+  });
+
+  it("writes no patch for a flagged session event that leaves its session out of the list before and after", () => {
+    const log = memoryLog();
+    const unlisted = "0e1d2c3b-4a59-4687-9a6b-5c4d3e2f1a0b";
+    const { events } = log.append({ kind: "session", id: unlisted }, [{ type: "session.group-set", payload: { groupId: null } }], {
+      actor: "system:test",
+    });
+    expect(events.map((event) => event.metadata)).toEqual([{}]);
   });
 
   it("leaves alone the events that are not the list's: other types on a session stream, and other streams", () => {

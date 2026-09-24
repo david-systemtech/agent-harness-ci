@@ -222,6 +222,7 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
       runs,
       containerDetector: options.containerDetector ?? { inContainer: () => false },
       interfaces: options.interfaces ?? NO_INTERFACES,
+      transcripts: provider.transcripts,
       ...passed,
       ...(options.subscriptionHooks !== undefined && { subscriptionHooks: options.subscriptionHooks }),
     });
