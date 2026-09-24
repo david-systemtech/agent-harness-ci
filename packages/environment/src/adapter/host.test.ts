@@ -1026,17 +1026,17 @@ describe("a run's prompts", () => {
     expect(t.host.processes.list()[0]?.state).toBe("idle");
   });
 
-  it("count a withdrawn prompt answered once, closed withdrawn: a prompt raised since under the same id or another still parks the run", async () => {
-    const withdraw = new AbortController();
+  it("count a cancelled prompt answered once, closed cancelled: a prompt raised since under the same id or another still parks the run", async () => {
+    const cancel = new AbortController();
     const step = gate();
-    let withdrawn: unknown;
+    let cancelled: unknown;
     const t = await setup(
       fakeAdapter({
         script: async function* ({ context, input }) {
           yield say("Asking");
-          void context.broker.request({ sessionId: input.sessionId, runId: input.runId, promptId: "p-1", kind: "permission", detail: {}, signal: withdraw.signal }).then((d) => (withdrawn = d));
+          void context.broker.request({ sessionId: input.sessionId, runId: input.runId, promptId: "p-1", kind: "permission", detail: {}, signal: cancel.signal }).then((d) => (cancelled = d));
           await step.opened;
-          // The same id again once the first was withdrawn, and another beside it.
+          // The same id again once the first was cancelled, and another beside it.
           void context.broker.request({ sessionId: input.sessionId, runId: input.runId, promptId: "p-1", kind: "permission", detail: {} });
           void context.broker.request({ sessionId: input.sessionId, runId: input.runId, promptId: "p-2", kind: "permission", detail: {} });
           await new Promise(() => undefined);
@@ -1047,10 +1047,10 @@ describe("a run's prompts", () => {
     const state = () => [...t.host.runs.runs()].find((run) => run.id === runId)?.state;
     await vi.waitFor(() => expect(openedOf(t)).toHaveLength(1));
     expect(state()).toBe("parked");
-    withdraw.abort();
+    cancel.abort();
     expect(state()).toBe("running");
-    await vi.waitFor(() => expect(withdrawn).toMatchObject({ decision: "deny" }));
-    expect(answeredOf(t)).toEqual([expect.objectContaining({ promptId: "p-1", decidedBy: { auto: "withdrawn" }, delivery: null })]);
+    await vi.waitFor(() => expect(cancelled).toMatchObject({ decision: "deny" }));
+    expect(answeredOf(t)).toEqual([expect.objectContaining({ promptId: "p-1", decidedBy: { auto: "cancelled" }, delivery: null })]);
 
     step.open();
     await vi.waitFor(() => expect(openedOf(t)).toHaveLength(3));
@@ -1059,11 +1059,11 @@ describe("a run's prompts", () => {
     expect(state()).toBe("parked");
     t.host.deliverAnswer(runId, "p-1", { decision: "allow" });
     expect(state()).toBe("running");
-    // The one withdrawal is the only automatic answer: the later prompts' answers are a person's, recorded by their command.
+    // The one cancelling is the only automatic answer: the later prompts' answers are a person's, recorded by their command.
     expect(answeredOf(t)).toHaveLength(1);
   });
 
-  it("do not park the run on a request the provider withdrew before it was made, nor record it", async () => {
+  it("do not park the run on a request the provider cancelled before it was made, nor record it", async () => {
     let decision: unknown;
     const t = await setup(
       fakeAdapter({

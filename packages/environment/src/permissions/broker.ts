@@ -29,8 +29,8 @@ export const RUN_ENDED_MESSAGE = "The run ended before anyone answered, so the r
  */
 export const STOPPED_MESSAGE = "The run was stopped before anyone answered; the question stays open, and its answer will come with the next message.";
 
-/** What the model reads when the provider withdrew its own request. */
-export const WITHDRAWN_MESSAGE = "The request was withdrawn before anyone answered.";
+/** What the model reads when the provider cancelled its own request. */
+export const CANCELLED_MESSAGE = "The request was cancelled before anyone answered.";
 
 /** What the model reads when its prompt could not be recorded, so nobody could be asked. */
 export const UNRECORDED_MESSAGE = "The request could not be recorded, so nobody could be asked; it was denied. Carry on without it.";
@@ -104,7 +104,7 @@ export const openedPayload = (request: {
   };
 };
 
-/** An automatic denial's `prompt.answered`: the rule that made it, no person, nothing delivered (the run ended, or the provider withdrew). */
+/** An automatic denial's `prompt.answered`: the rule that made it, no person, nothing delivered (the run ended, or the provider cancelled the request). */
 export const autoDenial = (prompt: Pick<PromptOpenedPayload, "runId" | "promptId">, auto: AutoDecider, message: string | null = null): PromptAnsweredPayload => ({
   runId: prompt.runId,
   promptId: prompt.promptId,

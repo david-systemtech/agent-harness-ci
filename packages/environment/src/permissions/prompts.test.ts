@@ -545,13 +545,13 @@ describe("a prompt whose run ends", () => {
     expect(texts.slice(1)).toEqual(["Carry on", "Try again"]);
   });
 
-  it("is withdrawn when the provider withdraws the request, and the run goes on", async () => {
-    const withdraw = new AbortController();
+  it("is cancelled when the provider cancels the request, and the run goes on", async () => {
+    const cancel = new AbortController();
     const t = await start({
       script: async function* ({ context, input }) {
         yield say("Working");
-        const request = context.broker.request({ sessionId: input.sessionId, runId: input.runId, promptId: "p-1", kind: "permission", detail: permission, signal: withdraw.signal });
-        withdraw.abort();
+        const request = context.broker.request({ sessionId: input.sessionId, runId: input.runId, promptId: "p-1", kind: "permission", detail: permission, signal: cancel.signal });
+        cancel.abort();
         yield say(toldText(await request));
         yield end();
       },
@@ -560,7 +560,7 @@ describe("a prompt whose run ends", () => {
     const { id } = await create(client);
     const { runId } = await startRun(client, id);
     await untilEnded(t, id, runId);
-    expect(answeredEvents(t, id)).toEqual([expect.objectContaining({ promptId: "p-1", decision: "deny", decidedBy: { auto: "withdrawn" }, delivery: null })]);
+    expect(answeredEvents(t, id)).toEqual([expect.objectContaining({ promptId: "p-1", decision: "deny", decidedBy: { auto: "cancelled" }, delivery: null })]);
     expect(await get(client, id)).toMatchObject({ parkedPromptCount: 0 });
   });
 });

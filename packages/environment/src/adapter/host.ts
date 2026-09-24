@@ -23,7 +23,7 @@ import {
   RUN_ENDED_MESSAGE,
   STOPPED_MESSAGE,
   UNRECORDED_MESSAGE,
-  WITHDRAWN_MESSAGE,
+  CANCELLED_MESSAGE,
   autoDenial,
   nextRunText,
   openedPayload,
@@ -423,7 +423,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
   /**
    * The broker's open requests, by run and prompt id (`waiterKey`): each
    * run's prompts nobody has answered yet, settled by a person's answer
-   * (`deliverAnswer`), the provider's withdrawal, or the run's end, which
+   * (`deliverAnswer`), the provider's cancelling it, or the run's end, which
    * denies them in memory.
    */
   const waiters = new Map<string, { readonly runId: string; settle(decision: PromptDecision): void }>();
@@ -811,16 +811,16 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
    * one: the run it parks is its own. An automatic rule (`autoAnswer`, #131)
    * answers in the same transaction, and nothing parks. Otherwise the run is
    * parked until the request is answered: by a person (`deliverAnswer`), by
-   * the provider withdrawing it (its signal aborts: closed `withdrawn`), or
+   * the provider cancelling it (its signal aborts: closed `cancelled`), or
    * by the run's end, which denies it in memory. A request made when no run
-   * is live, withdrawn before it was made, or that the log would not take, is
+   * is live, cancelled before it was made, or that the log would not take, is
    * denied at once and parks nothing.
    */
   const brokerFor = (sessionId: string): PermissionBroker => ({
     request: async (request) => {
       const entry = live.get(sessionId);
       if (entry === undefined || entry.ended) return { decision: "deny", message: RUN_ENDED_MESSAGE };
-      if (request.signal?.aborted === true) return { decision: "deny", message: WITHDRAWN_MESSAGE };
+      if (request.signal?.aborted === true) return { decision: "deny", message: CANCELLED_MESSAGE };
       const promptId = request.promptId ?? randomUUID();
       const stream = sessionStream(sessionId);
       const opened: PromptOpenedPayload = openedPayload({
@@ -861,26 +861,26 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
           if (!open) return;
           open = false;
           if (waiters.get(key) === waiter) waiters.delete(key);
-          request.signal?.removeEventListener("abort", withdraw);
+          request.signal?.removeEventListener("abort", cancel);
           answered(entry, promptId);
           resolve(decision);
         };
-        // The provider withdrew it and answered it itself: the log closes it, unless someone answered first.
-        const withdraw = (): void => {
+        // The provider cancelled it and answered it itself: the log closes it, unless someone answered first.
+        const cancel = (): void => {
           if (!open) return;
           try {
             if (parkedPromptsOfRun(reader, entry.runId).some((prompt) => prompt.promptId === promptId)) {
-              log.append(stream, [{ type: "prompt.answered", payload: autoDenial(opened, "withdrawn") }], { actor: entry.actor, correlationId: entry.runId });
+              log.append(stream, [{ type: "prompt.answered", payload: autoDenial(opened, "cancelled") }], { actor: entry.actor, correlationId: entry.runId });
             }
           } catch (error) {
-            console.error(`Recording the withdrawal of prompt ${promptId} of run ${entry.runId} failed:`, error);
+            console.error(`Recording the cancelling of prompt ${promptId} of run ${entry.runId} failed:`, error);
           }
-          settle({ decision: "deny", message: WITHDRAWN_MESSAGE });
+          settle({ decision: "deny", message: CANCELLED_MESSAGE });
         };
         const key = waiterKey(entry.runId, promptId);
         const waiter = { runId: entry.runId, settle };
         waiters.set(key, waiter);
-        request.signal?.addEventListener("abort", withdraw, { once: true });
+        request.signal?.addEventListener("abort", cancel, { once: true });
       });
     },
   });

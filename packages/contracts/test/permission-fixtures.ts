@@ -124,7 +124,7 @@ export const permissionSchemaFixtures: Record<string, Fixtures> = {
   "permissions/prompt-kind.json": { valid: ["permission", "denylist", "question", "plan"], invalid: ["tool", ""] },
   "permissions/prompt-question-option.json": { valid: [{ label: "date-fns", description: "" }], invalid: [{ label: "", description: "" }, { label: "a" }] },
   "permissions/prompt-question.json": { valid: [question, { ...question, header: "", options: [] }], invalid: [{ ...question, question: "" }, { ...question, multiSelect: "yes" }] },
-  "permissions/auto-decider.json": { valid: ["unattended", "bypass", "ttl", "run_ended", "reviewer", "withdrawn"], invalid: ["person", ""] },
+  "permissions/auto-decider.json": { valid: ["unattended", "bypass", "ttl", "run_ended", "reviewer", "cancelled"], invalid: ["person", "withdrawn", ""] },
   "permissions/decided-by.json": { valid: ["cs-1", { auto: "ttl" }], invalid: ["", { auto: "person" }, { clientSessionId: "cs-1" }] },
   "permissions/prompt-delivery.json": { valid: ["live", "next-run"], invalid: ["later", ""] },
   "permissions/prompt-decision.json": { valid: ["allow", "deny"], invalid: ["maybe", ""] },

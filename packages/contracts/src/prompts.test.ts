@@ -87,7 +87,7 @@ describe("the prompt vocabulary", () => {
   });
 
   it("says who answered: a client session's id, or {auto} with one of the rules", () => {
-    expect(AUTO_DECIDERS).toEqual(["unattended", "bypass", "ttl", "run_ended", "reviewer", "withdrawn"]);
+    expect(AUTO_DECIDERS).toEqual(["unattended", "bypass", "ttl", "run_ended", "reviewer", "cancelled"]);
     expect(DecidedBy.safeParse("cs-1").success).toBe(true);
     for (const auto of AUTO_DECIDERS) expect(DecidedBy.safeParse({ auto }).success, auto).toBe(true);
     expect(DecidedBy.safeParse({ auto: "timeout" }).success).toBe(false);

@@ -186,7 +186,7 @@ export interface AskOptions {
   readonly promptId?: string;
   /** Waited on before asking; preset: asks at once. */
   readonly before?: Promise<unknown>;
-  /** Withdraws the request when it aborts, as a provider cancelling the tool call does. */
+  /** Cancels the request when it aborts, as a provider cancelling the tool call does. */
   readonly signal?: AbortSignal;
   /** How the run ends once answered; preset: completed. */
   readonly then?: RunEnd;

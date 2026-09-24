@@ -1674,9 +1674,9 @@
                                   "ttl",
                                   "run_ended",
                                   "reviewer",
-                                  "withdrawn"
+                                  "cancelled"
                                 ],
-                                "description": "What answered a prompt when no person did: unattended (nobody is present for the run), bypass (a residual prompt in bypassPermissions), ttl (it waited past its TTL), run_ended (its run ended on its own first), reviewer (a provider's automatic reviewer), withdrawn (the provider withdrew the request, its tool call cancelled)."
+                                "description": "What answered a prompt when no person did: unattended (nobody is present for the run), bypass (a residual prompt in bypassPermissions), ttl (it waited past its TTL), run_ended (its run ended on its own first), reviewer (a provider's automatic reviewer), cancelled (the provider cancelled the request, its tool call moot, while the run went on)."
                               }
                             },
                             "required": [
@@ -1701,7 +1701,7 @@
                             "type": "null"
                           }
                         ],
-                        "description": "Where a person's answer went; null for one no run was waiting for (an automatic end, or a withdrawal)."
+                        "description": "Where a person's answer went; null for one no run was waiting for (an automatic end, or a cancellation)."
                       }
                     },
                     "required": [

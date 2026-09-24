@@ -207,11 +207,11 @@ export interface PromptRequest {
   /** What the provider asks, on the harness's fields; the broker records it on `prompt.opened`. */
   readonly detail: PromptDetail;
   /**
-   * Aborted when the provider withdraws the request (the tool call became
+   * Aborted when the provider cancels the request (the tool call became
    * moot, the turn was interrupted): the adapter has answered it itself, so
    * the host counts the prompt answered, once, and at once when it had
    * aborted before the request was made, and the broker closes it
-   * (`withdrawn`) unless its run's end closes it first.
+   * (`cancelled`) unless its run's end closes it first.
    */
   readonly signal?: AbortSignal;
 }

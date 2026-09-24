@@ -74,10 +74,10 @@ export const PromptOpenedPayload = z
 export type PromptOpenedPayload = z.infer<typeof PromptOpenedPayload>;
 
 /** Who, or what, answers a prompt when no person does. */
-export const AUTO_DECIDERS = ["unattended", "bypass", "ttl", "run_ended", "reviewer", "withdrawn"] as const;
+export const AUTO_DECIDERS = ["unattended", "bypass", "ttl", "run_ended", "reviewer", "cancelled"] as const;
 export const AutoDecider = z.enum(AUTO_DECIDERS).meta({
   description:
-    "What answered a prompt when no person did: unattended (nobody is present for the run), bypass (a residual prompt in bypassPermissions), ttl (it waited past its TTL), run_ended (its run ended on its own first), reviewer (a provider's automatic reviewer), withdrawn (the provider withdrew the request, its tool call cancelled).",
+    "What answered a prompt when no person did: unattended (nobody is present for the run), bypass (a residual prompt in bypassPermissions), ttl (it waited past its TTL), run_ended (its run ended on its own first), reviewer (a provider's automatic reviewer), cancelled (the provider cancelled the request, its tool call moot, while the run went on).",
 });
 export type AutoDecider = z.infer<typeof AutoDecider>;
 
@@ -122,7 +122,7 @@ export const PromptAnsweredPayload = z
     promptId: z.string().min(1),
     ...answerShape,
     decidedBy: DecidedBy,
-    delivery: PromptDelivery.nullable().meta({ description: "Where a person's answer went; null for one no run was waiting for (an automatic end, or a withdrawal)." }),
+    delivery: PromptDelivery.nullable().meta({ description: "Where a person's answer went; null for one no run was waiting for (an automatic end, or a cancellation)." }),
   })
   .meta({ description: "prompt.answered: the prompt's one answer, and who or what gave it." });
 export type PromptAnsweredPayload = z.infer<typeof PromptAnsweredPayload>;
