@@ -224,7 +224,7 @@ export interface Retention {
   wrote(environmentId: string, sessionId: string, bytes: number): Promise<void>;
   /** The session is gone (deleted): its snapshot is dropped. */
   removed(environmentId: string, sessionId: string): Promise<void>;
-  /** Deletes every document of the environment the meta names: its streams, its sessions, and the meta last. */
+  /** Deletes every document of the environment the meta names: its streams, its sessions, and the meta last; a meta it could not read (failed, or foreign) is left in place. */
   forget(environmentId: string): Promise<void>;
 }
 
@@ -372,12 +372,16 @@ export const createRetention = (options: RetentionOptions): Retention => {
       }),
     forget(environmentId) {
       const run = async () => {
+        let read = true;
         try {
           await load(environmentId);
         } catch (error) {
-          // Unread, the meta names nothing to delete but the streams; the meta is deleted all the same.
           report(error);
+          read = false;
         }
+        // A meta not read (its read failed, or it is in a form this build does not read) names snapshots this build cannot know: it is
+        // left in place, still naming them for a build that reads it, and only the streams are deleted.
+        const kept = !read || foreign.has(environmentId);
         const meta = metas.get(environmentId) ?? NO_META;
         forgotten.add(environmentId);
         metas.delete(environmentId);
@@ -391,7 +395,7 @@ export const createRetention = (options: RetentionOptions): Retention => {
         ];
         for (const key of keys) await documents.delete(key);
         // Last, so a forget cut off part way leaves a meta naming what is left.
-        await documents.delete(metaDocument(environmentId));
+        if (!kept) await documents.delete(metaDocument(environmentId));
       };
       const forgetting = changes.then(run, run);
       changes = forgetting.catch(() => undefined);

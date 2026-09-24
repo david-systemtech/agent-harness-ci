@@ -714,6 +714,34 @@ describe("removing an environment while a write is under way", () => {
   });
 });
 
+describe("removing an environment whose retention index cannot be read", () => {
+  it("still lets go of its streams and deletes its documents", async () => {
+    const base = inMemoryDocuments();
+    const documents: InMemoryDocumentStore = {
+      ...base,
+      async get(key) {
+        if (key.endsWith(".meta")) throw new Error("the meta cannot be read");
+        return base.get(key);
+      },
+    };
+    const { runtime, wire, list, adding } = await paired({ documents });
+    list.event(sessionEvent(2, added(summaryOf(randomUUID()))));
+    list.synchronized(2);
+    await adding;
+
+    await runtime.connections.remove(wire.environmentId);
+    expect(runtime.projections.sessionList.read()).toMatchObject({ environments: [], rows: [] });
+
+    // Paired again, the list starts from nothing: its document went with the environment.
+    const again = runtime.connections.add({ link: wire.link });
+    await wire.server.accept();
+    const relisted = await subscription(wire, "sessions.subscribe");
+    expect(relisted.params).toEqual({ afterSequence: 0 });
+    relisted.synchronized(2);
+    await again;
+  });
+});
+
 describe("the environment's stream and its clock", () => {
   it("takes the environment's time from hello, so a snooze past on its clock is awake", async () => {
     const s = runtimeOn();

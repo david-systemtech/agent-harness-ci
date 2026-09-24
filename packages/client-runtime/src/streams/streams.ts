@@ -238,7 +238,8 @@ export const createStreams = (options: StreamsOptions): Streams => {
   });
 
   const stopForget = seams.onForget(async (environmentId) => {
-    await retention.load(environmentId);
+    // A meta that cannot be read stops nothing: the streams are let go and deleted all the same, and `retention.forget` keeps that meta.
+    await retention.load(environmentId).catch(report);
     const streams = environments.get(environmentId);
     environments.delete(environmentId);
     if (streams) {
