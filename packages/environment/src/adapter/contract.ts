@@ -395,9 +395,21 @@ export interface Adapter {
   commands?(account: AccountRef, workspace: Workspace, scope?: { readonly trusted: boolean }): Promise<readonly ProviderCommand[]>;
   /** The provider's sessions (`sessionListing`). */
   listSessions?(account: AccountRef): Promise<readonly ProviderSessionInfo[]>;
-  /** The title the provider generated for a session (`titleRead`). */
+  /**
+   * The title the provider generated for a session (`titleRead`), or null for
+   * none yet: its own summary, never the title field `writeTitle` mirrors a
+   * user title into, so a mirrored title is never read back. The host reads
+   * it after each run of the session ends and records it as the generated
+   * title (source `provider`) unless the user has set one (`sessions/titles.ts`).
+   */
   readTitle?(sessionId: string): Promise<string | null>;
-  /** Mirrors a user title into the provider's own title field (`titleWrite`); best effort, never read back. */
+  /**
+   * Mirrors a user title into the provider's own title field (`titleWrite`):
+   * the host calls it once a `session.title-set` with a title has committed
+   * on a session that has run through this adapter, best effort (a failure
+   * is logged), and never reads it back. A title cleared to null is not mirrored. No member of the contract writes the
+   * provider's tag field: organisation never depends on what a provider can hold.
+   */
   writeTitle?(sessionId: string, title: string): Promise<void>;
   /** A subagent's own transcript, read on demand (`subagentTranscripts`). */
   subagentTranscript?(sessionId: string, agentId: string): Promise<readonly JsonObject[]>;

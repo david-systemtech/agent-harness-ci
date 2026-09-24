@@ -1,6 +1,6 @@
 import type { CapabilityFlags, Ceiling, Scope } from "@agent-harness/contracts";
 import { derived, type Observable } from "../observable.js";
-import type { BlockedReason, ConnectionKind, ConnectionPhase, ConnectionRecord } from "../connections/records.js";
+import { LOCAL_PLACEHOLDER_ID, type BlockedReason, type ConnectionKind, type ConnectionPhase, type ConnectionRecord } from "../connections/records.js";
 import type { ConnectionAction } from "../connections/state-machine.js";
 
 /**
@@ -14,7 +14,8 @@ export interface EnvironmentView {
   readonly kind: ConnectionKind;
   /** The first environment in the sequence: the one whose group order merged groups follow. */
   readonly primary: boolean;
-  readonly name: string;
+  /** Null for the local environment before it has ever answered (`LOCAL_PLACEHOLDER_ID`): a renderer calls it "this machine". */
+  readonly name: string | null;
   readonly icon: string | null;
   readonly colour: string | null;
   /** The harness version the environment runs. */
@@ -43,7 +44,7 @@ export const environmentsProjection = (records: Observable<readonly ConnectionRe
         environmentId: record.environmentId,
         kind: record.kind,
         primary: index === 0,
-        name: record.descriptor.name,
+        name: record.environmentId === LOCAL_PLACEHOLDER_ID ? null : record.descriptor.name,
         icon: record.descriptor.icon,
         colour: record.descriptor.colour,
         version: record.descriptor.harnessVersion,

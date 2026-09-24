@@ -13,6 +13,7 @@ import {
   type EnvironmentStatus,
   type Frame,
   type HelloFrame,
+  type RequestFrame,
   type WireError,
 } from "@agent-harness/contracts";
 import { originOf, wireUrl } from "../connections/address.js";
@@ -53,6 +54,8 @@ export interface FakeWireOptions {
 export interface FakeServer {
   /** The next frame of `type` the client sends on its latest socket (one already sent and not yet expected counts). */
   expect<T extends Frame["type"]>(type: T): Promise<Extract<Frame, { readonly type: T }>>;
+  /** The next request for `method` the client sends on its latest socket (one already sent and not yet expected counts), whatever other requests go before it. */
+  request(method: string): Promise<RequestFrame>;
   /** `expect("auth")`, then `hello(overrides)`: the environment accepts the socket. Resolves with the `auth` frame. */
   accept(overrides?: Partial<HelloFrame>): Promise<AuthFrame>;
   /** Says `hello`: the environment's id, name, protocol and flags as discovery gives them (a staged discovery override included), and the client session last issued. */
@@ -131,7 +134,7 @@ export const fakeWire = (options: FakeWireOptions): FakeWire => {
   let overrides: "unreachable" | "hanging" | Partial<DiscoveryDocument> = {};
   const sockets: FakeSocket[] = [];
   const consumed = new WeakSet<Frame>();
-  let waiters: { readonly type: Frame["type"]; readonly resolve: (frame: Frame) => void }[] = [];
+  let waiters: { readonly matches: (frame: Frame) => boolean; readonly resolve: (frame: Frame) => void }[] = [];
   let reads = 0;
   let issued: ClientSessionCredential | undefined;
   let sequence = 0;
@@ -194,7 +197,7 @@ export const fakeWire = (options: FakeWireOptions): FakeWire => {
   const arrive = (socket: FakeSocket, frame: Frame) => {
     socket.received.push(frame);
     if (socket === latest()) {
-      const waiter = waiters.find((w) => w.type === frame.type);
+      const waiter = waiters.find((w) => w.matches(frame));
       if (waiter) {
         waiters = waiters.filter((w) => w !== waiter);
         consumed.add(frame);
@@ -251,17 +254,19 @@ export const fakeWire = (options: FakeWireOptions): FakeWire => {
     return socket;
   };
 
+  /** The next frame `matches` takes that the client sent on its latest socket and no expect has taken. */
+  const next = <F extends Frame>(matches: (frame: Frame) => boolean): Promise<F> => {
+    const waiting = latest()?.received.find((frame) => matches(frame) && !consumed.has(frame));
+    if (waiting) {
+      consumed.add(waiting);
+      return Promise.resolve(waiting as F);
+    }
+    return new Promise<F>((resolve) => waiters.push({ matches, resolve: (frame) => resolve(frame as F) }));
+  };
+
   const server: FakeServer = {
-    expect<T extends Frame["type"]>(type: T) {
-      const waiting = latest()?.received.find((frame) => frame.type === type && !consumed.has(frame));
-      if (waiting) {
-        consumed.add(waiting);
-        return Promise.resolve(waiting as Extract<Frame, { readonly type: T }>);
-      }
-      return new Promise<Extract<Frame, { readonly type: T }>>((resolve) =>
-        waiters.push({ type, resolve: (frame) => resolve(frame as Extract<Frame, { readonly type: T }>) }),
-      );
-    },
+    expect: <T extends Frame["type"]>(type: T) => next<Extract<Frame, { readonly type: T }>>((frame) => frame.type === type),
+    request: (method) => next<RequestFrame>((frame) => frame.type === "request" && frame.method === method),
     async accept(helloOverrides) {
       const auth = await server.expect("auth");
       server.hello(helloOverrides);
