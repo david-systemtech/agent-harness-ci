@@ -6,6 +6,7 @@ import type {
   CredentialSpec,
   InterruptCause,
   JsonObject,
+  Mode,
   ModelUsage,
   ProcessHoldKind,
   RunError,
@@ -125,7 +126,7 @@ export interface ToolServer {
 /**
  * Everything a run needs, resolved by the host: the session and run, the
  * account's directory, the workspace and repository, model, effort and the
- * clamped mode, the composed instruction text, what it continues from, the
+ * mode the policy resolver gave it, the composed instruction text, what it continues from, the
  * factory's tool servers, the trust decision, and the prompt, which is the
  * messages it starts with in order (queued ones first).
  */
@@ -137,7 +138,10 @@ export interface RunInput {
   readonly repositoryIdentity: string | null;
   readonly model: string;
   readonly effort: string | null;
-  readonly mode: string | null;
+  /** The run's effective mode (`run.policy.resolved`): the adapter maps it onto its provider. */
+  readonly mode: Mode;
+  /** The ceiling the run was resolved under: Claude sets `allowDangerouslySkipPermissions` only when it is bypassPermissions. */
+  readonly ceiling: Mode;
   readonly instructions: string;
   readonly target: RunTarget;
   readonly toolServers: readonly ToolServer[];
@@ -252,6 +256,12 @@ export interface AdapterRun {
   answerPrompt?(promptId: string, decision: PromptDecision): void | Promise<void>;
   /** Stops one piece of delegated work (`subagents`). */
   stopTask?(taskId: string): void | Promise<void>;
+  /**
+   * Changes the running run's mode (`modeChange`; Claude's mode setter):
+   * what `permissions.mode.set` asked for, already clamped to the run's
+   * ceiling and the account's modes. The run's resolved policy stays as it was recorded.
+   */
+  setMode?(mode: Mode): void | Promise<void>;
   /**
    * Stops the run now: the host has ended it already (`disposed`, `drained`,
    * and every end of its own), and appends nothing more of it. The pool then

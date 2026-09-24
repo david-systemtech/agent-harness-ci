@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { Mode } from "./permissions-modes.js";
 import { setOf } from "./primitives.js";
 
 /**
@@ -27,13 +28,10 @@ export type ScopeSet = z.infer<typeof ScopeSet>;
 
 /**
  * The highest mode a client session, and anything created through it, may
- * use; set at pairing. Its values belong to the permissions workstream, so
- * until they are fixed it is any non-empty name, branded so that a plain
- * string is not mistaken for one.
+ * use: one of the four modes (`permissions-modes.ts`), set at pairing and
+ * changed only by another admin session (permissions spec, "Ceilings").
  */
-export const Ceiling = z
-  .string()
-  .min(1)
-  .brand<"Ceiling">()
-  .meta({ description: "The highest mode a client session may use; its values are the permissions workstream's." });
+export const Ceiling = Mode.meta({
+  description: "The highest mode a client session, and anything created through it, may use: plan, acceptEdits, auto or bypassPermissions.",
+});
 export type Ceiling = z.infer<typeof Ceiling>;

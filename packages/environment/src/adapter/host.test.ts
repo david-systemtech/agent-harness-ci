@@ -1,9 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { ContractError, type AttachmentInput } from "@agent-harness/contracts";
+import { ContractError, type AttachmentInput, type Mode } from "@agent-harness/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { manualClock } from "../../test/clock.js";
 import { end, fakeAdapter, gate, say, type FakeAdapter } from "../../test/fake-adapter.js";
 import { openEventLog, type EventEnvelope, type EventLog } from "../event-log/event-log.js";
+import { permissionsProjector } from "../permissions/permissions-store.js";
+import type { RunActor } from "../permissions/resolver.js";
 import { decideSend, decideStart, type StartCommand } from "../runs/run-decider.js";
 import { environmentQueue } from "../runs/run-reads.js";
 import { runsProjector } from "../runs/runs-projector.js";
@@ -12,7 +14,7 @@ import type { AdapterEvent, PermissionBroker, PromptRequest, ProviderTurn, RunCo
 import { createAdapterHost, type AdapterHost, type AdapterHostOptions, type StagedAttachments } from "./host.js";
 import { capability } from "./capabilities.js";
 import { createScopedAppend } from "./scoped-append.js";
-import { composeInstructions } from "./seams.js";
+import { composeInstructions, presetPolicy } from "./seams.js";
 
 /**
  * The adapter host at its own seam (claude-adapter spec, "The adapter
@@ -44,8 +46,9 @@ interface Setup {
 
 const setup = async (adapter: FakeAdapter = fakeAdapter(), options: Partial<AdapterHostOptions> = {}, wrap: (log: EventLog) => EventLog = (log) => log): Promise<Setup> => {
   const clock = manualClock();
-  const log = openEventLog({ path: ":memory:", projectors: [sessionListProjector, runsProjector], clock: () => clock.now() });
-  const host = createAdapterHost({ log: wrap(log), clock, adapters: [adapter], accounts: [{ id: "acct", provider: adapter.descriptor.provider }], ...options });
+  const log = openEventLog({ path: ":memory:", projectors: [sessionListProjector, runsProjector, permissionsProjector], clock: () => clock.now() });
+  // No client session stands behind these runs (their actor names none), so no ceiling is read again.
+  const host = createAdapterHost({ log: wrap(log), clock, adapters: [adapter], accounts: [{ id: "acct", provider: adapter.descriptor.provider }], ceilingOf: () => undefined, ...options });
   closers.push(() => log.close(), () => host.close("disposed"));
   await host.refresh();
   const sessionId = randomUUID();
@@ -54,12 +57,15 @@ const setup = async (adapter: FakeAdapter = fakeAdapter(), options: Partial<Adap
 };
 
 /** Starts a run as `runs.start` does, outside the wire: the facts, the decider, the append, then the launch. */
+/** A client with no client session behind it (so no ceiling is read again), under `ceiling`. */
+const clientActor = (ceiling: Mode = "bypassPermissions"): RunActor => ({ kind: "client", ceiling, clientSessionId: null });
+
 const startRun = (
   t: Setup,
   text = "Go",
-  command: Partial<Omit<StartCommand, "message">> & { attachments?: AttachmentInput[]; ceiling?: string } = {},
+  command: Partial<Omit<StartCommand, "message">> & { attachments?: AttachmentInput[]; ceiling?: Mode } = {},
 ): string => {
-  const facts = t.host.startFacts(t.sessionId, command.ceiling ?? "bypassPermissions");
+  const facts = t.host.startFacts(t.sessionId, clientActor(command.ceiling));
   t.host.admit();
   const decision = decideStart(facts, { origin: "client", ...command, message: { messageId: randomUUID(), text, attachments: command.attachments ?? [] } });
   if (decision.rejected !== undefined) throw new Error(decision.rejected.message);
@@ -69,8 +75,8 @@ const startRun = (
 };
 
 /** Sends the session a message during its live run, as `runs.send` does; resolves with its id. */
-const sendDuring = (t: Setup, text: string, ceiling = "bypassPermissions"): string => {
-  const decision = decideSend(t.host.startFacts(t.sessionId, ceiling), { messageId: randomUUID(), text, attachments: [] });
+const sendDuring = (t: Setup, text: string, ceiling: Mode = "bypassPermissions"): string => {
+  const decision = decideSend(t.host.startFacts(t.sessionId, clientActor(ceiling)), { messageId: randomUUID(), text, attachments: [] });
   if (decision.rejected !== undefined || decision.queued === undefined) throw new Error("The message was not queued.");
   t.log.append({ kind: "session", id: t.sessionId }, decision.events, { actor: "client_session:test", correlationId: decision.result.runId });
   t.host.queue(decision.queued);
@@ -107,6 +113,7 @@ describe("a run's event stream", () => {
     const events = eventsOf(t);
     expect(events.map((event) => event.type)).toEqual([
       "run.started",
+      "run.policy.resolved",
       "message.sent",
       "session.provider-linked",
       "assistant.delta",
@@ -121,7 +128,7 @@ describe("a run's event stream", () => {
       expect(event.payload["runId"], event.type).toBe(runId);
       expect(event.correlationId, event.type).toBe(runId);
     }
-    expect(events.slice(2, -1).map((event) => event.actor)).toEqual(Array(7).fill("adapter:fake"));
+    expect(events.slice(3, -1).map((event) => event.actor)).toEqual(Array(7).fill("adapter:fake"));
     expect(events.at(-1)).toMatchObject({ actor: "adapter:fake", payload: { reason: "completed", resultText: "Hello.", turnCount: 1, error: null } });
     expect(t.adapter.lastRun()).toMatchObject({ iterations: 1, released: true, disposed: false });
   });
@@ -133,12 +140,13 @@ describe("a run's event stream", () => {
     expect(t.adapter.lastRun().iterations).toBe(1);
   });
 
-  it("hands the run its resolved input: account, model, the clamped mode, composed instructions, tool servers and the prompt", async () => {
+  it("hands the run its resolved input: account, model, the mode and ceiling its policy resolved, composed instructions, tool servers and the prompt", async () => {
     const toolServers = vi.fn(() => [{ name: "memory", config: {} }]);
     const t = await setup(fakeAdapter(), {
       toolServers,
       instructions: composeInstructions({ orientationBlock: () => "You are on SYSTEM-SERVER.", sessionInstructions: () => "Be brief." }),
-      clampMode: (requested) => ({ mode: requested === "bypassPermissions" ? "acceptEdits" : requested, clamped: requested === "bypassPermissions" }),
+      // The policy seam, here one that clamps every run to acceptEdits, whatever the actor's ceiling.
+      resolvePolicy: (request) => presetPolicy({ ...request, actor: { ...request.actor, ceiling: "acceptEdits" } }),
     });
     const runId = startRun(t, "Fix it", { model: "sonnet", effort: "high", mode: "bypassPermissions" });
     await untilEnded(t, runId);
@@ -150,6 +158,7 @@ describe("a run's event stream", () => {
       model: "sonnet",
       effort: "high",
       mode: "acceptEdits",
+      ceiling: "acceptEdits",
       instructions: "You are on SYSTEM-SERVER.\n\nBe brief.",
       target: { kind: "fresh" },
       toolServers: [{ name: "memory", config: {} }],
@@ -158,6 +167,7 @@ describe("a run's event stream", () => {
     });
     expect(toolServers).toHaveBeenCalledWith({ sessionId: t.sessionId, runId, accountId: "acct", workspace: { kind: "directory", path: "/work" } });
     expect(eventsOf(t)[0]?.payload).toMatchObject({ mode: { requested: "bypassPermissions", effective: "acceptEdits", clamped: true } });
+    expect(eventsOf(t)[1]).toMatchObject({ type: "run.policy.resolved", payload: { runId, mode: { effective: "acceptEdits", ceiling: "acceptEdits", clampReason: "ceiling" } } });
   });
 
   it("resumes the provider's session a run linked, on the next run, when the adapter can resume", async () => {
@@ -196,7 +206,7 @@ describe("one end per run on every exit path", () => {
     const runId = startRun(t);
     const ended = await onlyEnd(t, runId);
     expect(ended).toMatchObject({ actor: "system:adapter-host", payload: { reason: "error", error: { message: "The provider went away.", code: null } } });
-    expect(eventsOf(t).map((event) => event.type)).toEqual(["run.started", "message.sent", "assistant.text", "run.ended"]);
+    expect(eventsOf(t).map((event) => event.type)).toEqual(["run.started", "run.policy.resolved", "message.sent", "assistant.text", "run.ended"]);
   });
 
   it("ends the run error when its stream stops without an end", async () => {
@@ -225,7 +235,7 @@ describe("one end per run on every exit path", () => {
     expect((await onlyEnd(t, runId)).payload).toMatchObject({ reason: "error" });
     // Its stream may still be open, so the provider's turn is stopped, never kept for the next.
     expect(t.adapter.lastRun()).toMatchObject({ disposed: true, released: false });
-    expect(eventsOf(t).map((event) => event.type)).toEqual(["run.started", "message.sent", "assistant.text", "run.ended"]);
+    expect(eventsOf(t).map((event) => event.type)).toEqual(["run.started", "run.policy.resolved", "message.sent", "assistant.text", "run.ended"]);
   });
 
   it("ends the run drained when the environment closes while draining mid-run, disposes it, and drops what it yields after", async () => {
@@ -442,7 +452,7 @@ describe("a provider's held messages when the host ends the run (ADR 0022: nothi
 describe("the host's own bookkeeping", () => {
   it("leaves no live run behind when the drain refuses a launch", async () => {
     const t = await setup();
-    const facts = t.host.startFacts(t.sessionId, "bypassPermissions");
+    const facts = t.host.startFacts(t.sessionId, clientActor());
     const decision = decideStart(facts, { origin: "client", message: { messageId: randomUUID(), text: "Go", attachments: [] } });
     if (decision.rejected !== undefined) throw new Error(decision.rejected.message);
     t.host.runs.refuseNewRuns();
@@ -511,7 +521,7 @@ describe("the host's own bookkeeping", () => {
     const runId = startRun(t);
     await vi.waitFor(() => expect(eventsOf(t).some((event) => event.type === "assistant.text")).toBe(true));
     // Decided while the run was live, committed and handed on after it ended.
-    const decision = decideSend(t.host.startFacts(t.sessionId, "bypassPermissions"), { messageId: randomUUID(), text: "Late", attachments: [] });
+    const decision = decideSend(t.host.startFacts(t.sessionId, clientActor()), { messageId: randomUUID(), text: "Late", attachments: [] });
     if (decision.rejected !== undefined || decision.queued === undefined) throw new Error("The message was not queued.");
     held.open();
     await untilEnded(t, runId);
@@ -666,9 +676,11 @@ describe("the host's own bookkeeping", () => {
           yield end();
         },
       }),
-      { clampMode: (requested, ceiling) => (ceiling === "plan" && requested !== "plan" ? { mode: "plan", clamped: true } : { mode: requested, clamped: false }) },
     );
-    const first = startRun(t, "First", { mode: "auto", ceiling: "bypassPermissions" });
+    // The session's mode is auto, so the run of the queue asks for it too (#129: a run's own mode is that run's alone).
+    const mode = { requested: "auto", effective: "auto", ceiling: "bypassPermissions", clamped: false, clampReason: null };
+    t.log.append({ kind: "session", id: t.sessionId }, [{ type: "session.mode.set", payload: { mode, live: null } }], { actor: "system:test" });
+    const first = startRun(t, "First", { ceiling: "bypassPermissions" });
     sendDuring(t, "From a planner", "plan");
     held.open();
     await untilEnded(t, first);
@@ -696,7 +708,7 @@ describe("the host's own bookkeeping", () => {
       { stagedAttachments: staged },
     );
     const runId = startRun(t, "First");
-    const decision = decideSend(t.host.startFacts(t.sessionId, "bypassPermissions"), {
+    const decision = decideSend(t.host.startFacts(t.sessionId, clientActor()), {
       messageId: randomUUID(),
       text: "With a picture",
       attachments: [{ kind: "image", name: "a.png", mediaType: "image/png", data: Buffer.from("pixels").toString("base64") }],
@@ -907,16 +919,18 @@ describe("the adoption hook", () => {
     expect(second).not.toBe(first);
     expect(events.map((event) => event.type)).toEqual([
       "run.started",
+      "run.policy.resolved",
       "message.sent",
       "message.sent",
       "assistant.text",
       "run.ended",
       "run.started",
+      "run.policy.resolved",
       "message.delivered",
       "assistant.text",
       "run.ended",
     ]);
-    expect(events[6]?.payload).toEqual({ runId: second, messageId, delivery: "prompt" });
+    expect(events[8]?.payload).toEqual({ runId: second, messageId, delivery: "prompt" });
     expect(t.adapter.runs.map((run) => run.adopted)).toEqual([false, true]);
   });
 });

@@ -6,7 +6,8 @@
  * fails the schema-export test. The export and the codec are never tested on
  * less than the whole package.
  */
-import { FRAME_TYPES, SHARED_ERROR_CODES, methodPath, methods, type FrameType } from "../src/index.js";
+import { BYPASS_SENTENCE, FRAME_TYPES, SHARED_ERROR_CODES, methodPath, methods, type FrameType } from "../src/index.js";
+import { permissionMethodFixtures, permissionSchemaFixtures } from "./permission-fixtures.js";
 import { providerMethodFixtures, providerSchemaFixtures } from "./provider-fixtures.js";
 import { runMethodFixtures, runSchemaFixtures } from "./run-fixtures.js";
 import { sessionMethodFixtures, sessionSchemaFixtures } from "./session-fixtures.js";
@@ -112,6 +113,8 @@ const accessPayloads = {
   "socket.closed": { clientSessionId: "cs-1", socketId: "s-1" },
   "scope.granted": { clientSessionId: "cs-1", granted: ["admin"], scopes: ["read", "admin"] },
   "ceiling.changed": { clientSessionId: "cs-1", from: "plan", to: "auto" },
+  "bypass.acknowledged": { setting: "permissions.unattended.mode", sentence: BYPASS_SENTENCE },
+  "settings.changed": { area: "permissions", keys: ["permissions.parkedPrompt.ttl"], values: { "permissions.parkedPrompt.ttl": "never" } },
 };
 
 /** An invalid payload for every access event type. */
@@ -128,7 +131,15 @@ const invalidAccessPayloads: Record<keyof typeof accessPayloads, readonly unknow
   "socket.opened": [{ clientSessionId: "cs-1", socketId: "s-1" }, { clientSessionId: "cs-1", socketId: "", remoteAddress: null }],
   "socket.closed": [{ clientSessionId: "cs-1" }, { socketId: "s-1" }],
   "scope.granted": [{ clientSessionId: "cs-1", granted: [], scopes: ["read"] }, { clientSessionId: "cs-1", scopes: ["read"] }],
-  "ceiling.changed": [{ clientSessionId: "cs-1", from: "", to: "auto" }, { clientSessionId: "cs-1", to: "auto" }],
+  "ceiling.changed": [{ clientSessionId: "cs-1", from: "", to: "auto" }, { clientSessionId: "cs-1", to: "auto" }, { clientSessionId: "cs-1", from: "default", to: "auto" }],
+  "bypass.acknowledged": [{ setting: "permissions.unattended.mode" }, { setting: "", sentence: BYPASS_SENTENCE }],
+  "settings.changed": [
+    { area: "sessions", keys: ["permissions.parkedPrompt.ttl"], values: {} },
+    { area: "permissions", keys: [], values: {} },
+    { area: "permissions", keys: ["permissions.parkedPrompt.ttl"], values: { "permissions.parkedPrompt.ttl": "forever" } },
+    { area: "permissions", keys: ["permissions.other"], values: {} },
+    { area: "permissions", keys: ["permissions.defaultCeiling"], values: { "permissions.defaultCeiling": "plan", other: 1 } },
+  ],
 };
 
 
@@ -358,7 +369,13 @@ const methodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
   "access.pairings.create": {
     params: {
       valid: [{ commandId: uuid }, { commandId: uuid, scopes: ["read"], ceiling: "plan" }],
-      invalid: [{ scopes: ["read"] }, { commandId: uuid, scopes: [] }, { commandId: uuid, scopes: ["read", "read"] }],
+      invalid: [
+        { scopes: ["read"] },
+        { commandId: uuid, scopes: [] },
+        { commandId: uuid, scopes: ["read", "read"] },
+        { commandId: uuid, ceiling: "dontAsk" },
+        { commandId: uuid, ceiling: "default" },
+      ],
     },
     result: {
       valid: [
@@ -442,6 +459,7 @@ const methodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
   ...runMethodFixtures,
   ...providerMethodFixtures,
   ...settingsMethodFixtures,
+  ...permissionMethodFixtures,
 };
 
 /** Receipts as a command's response carries them: accepted with a change, a no-op, and a rejection. */
@@ -504,7 +522,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
   "capability-flags.json": { valid: [[], ["terminal", "environment.subscribe"]], invalid: [["a", "a"], [1], "a"] },
   "scope.json": { valid: ["read", "sessions:write", "runs:drive", "terminal", "admin"], invalid: ["write", "READ", ""] },
   "scope-set.json": { valid: [["read"], ["read", "admin"]], invalid: [[], ["read", "read"], ["write"]] },
-  "ceiling.json": { valid: ["auto", "acceptEdits"], invalid: ["", 3] },
+  "ceiling.json": { valid: ["plan", "acceptEdits", "auto", "bypassPermissions"], invalid: ["", 3, "default", "dontAsk", "Plan"] },
   "client-kind.json": { valid: ["desktop", "tui", "web", "program"], invalid: ["phone", "Desktop"] },
   "command-id.json": { valid: [uuid], invalid: ["not-a-uuid", "", 7] },
   "command-receipt.json": { valid: Object.values(validReceipts), invalid: invalidReceipts },
@@ -692,5 +710,6 @@ export const schemaFixtures: Record<string, Fixtures> = {
   ...runSchemaFixtures,
   ...providerSchemaFixtures,
   ...settingsSchemaFixtures,
+  ...permissionSchemaFixtures,
   ...methodSchemaFixtures,
 };

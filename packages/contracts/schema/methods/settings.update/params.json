@@ -56,7 +56,7 @@
         }
       },
       "additionalProperties": false,
-      "description": "Some settings' values by key, each valid for its key; a key that is not a setting is refused."
+      "description": "Some settings' values by key, each valid for its key; a key that is not a setting, or that a method of its own writes (the permissions.* keys: permissions.settings.set), is refused."
     }
   },
   "required": [

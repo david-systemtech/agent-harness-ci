@@ -134,11 +134,11 @@ describe("groups.create", () => {
     expect((await listGroups(client)).map((group) => group.name)).toEqual(["Cool Jams and friends"]);
   });
 
-  it("refuses a name that is empty, all white space or over 80 characters once trimmed invalid_params; 80 is taken, white space around it not counted", async () => {
+  it("refuses a name that is empty, all white space, over 80 characters once trimmed, or holding a control or zero-width character invalid_params; 80 is taken, white space around it not counted", async () => {
     const t = await start();
     const client = await t.client();
     const head = t.env.log.head();
-    for (const name of ["", "   ", "\n\t", "x".repeat(81), ` ${"x".repeat(81)} `]) {
+    for (const name of ["", "   ", "\n\t", "x".repeat(81), ` ${"x".repeat(81)} `, "a\u0000b", "\u200B"]) {
       expect(await refusal(command(client, "groups.create", { id: randomUUID(), name })), JSON.stringify(name)).toMatchObject({
         code: "invalid_params",
         data: { issues: [expect.objectContaining({ path: ["name"] })] },
@@ -251,7 +251,7 @@ describe("groups.rename", () => {
     const t = await start();
     const client = await t.client();
     const { id } = await createGroup(client, { name: "Named" });
-    for (const name of ["", "  ", "x".repeat(81)]) {
+    for (const name of ["", "  ", "x".repeat(81), "a\u0000b", "\u200B"]) {
       expect(await refusal(command(client, "groups.rename", { groupId: id, name })), JSON.stringify(name)).toMatchObject({
         code: "invalid_params",
         data: { issues: [expect.objectContaining({ path: ["name"] })] },

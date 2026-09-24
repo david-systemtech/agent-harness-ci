@@ -32,6 +32,8 @@ export interface ClientSessionTable {
   touch(tx: Tx, id: string, at: string): void;
   /** Moves the client session's expiry to `expiresAt`: a refresh. */
   extend(tx: Tx, id: string, expiresAt: string): void;
+  /** Sets the client session's ceiling (`access.sessions.setCeiling`). */
+  setCeiling(tx: Tx, id: string, ceiling: Ceiling): void;
 }
 
 interface Row {
@@ -95,6 +97,10 @@ export const createClientSessionTable = (sql: Sql, requireTx: (tx: Tx) => void):
     extend: (tx, id, expiresAt) => {
       requireTx(tx);
       sql.run("UPDATE client_sessions SET expires_at = ? WHERE id = ?", expiresAt, id);
+    },
+    setCeiling: (tx, id, ceiling) => {
+      requireTx(tx);
+      sql.run("UPDATE client_sessions SET ceiling = ? WHERE id = ?", ceiling, id);
     },
   };
 };

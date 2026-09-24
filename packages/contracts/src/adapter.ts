@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ModeAvailability } from "./permissions-modes.js";
 import { Timestamp } from "./primitives.js";
 
 /**
@@ -87,11 +88,12 @@ export const CAPABILITY_FLAGS = [
   "commands",
   "imageInput",
   "fileInput",
+  "modeChange",
 ] as const;
 export type AdapterCapabilityFlag = (typeof CAPABILITY_FLAGS)[number];
 export const AdapterCapabilityFlag = z.enum(CAPABILITY_FLAGS).meta({
   description:
-    "One optional power of the adapter contract: interactivePrompts, partialMessages, providerQueue (the provider holds messages sent during a turn), steering (it folds one into the running turn), resume, fork, rewind, sessionListing, subagents (delegated work it can stop), subagentTranscripts, titleRead, titleWrite, transcriptDelete, planUsage, liveModels, commands, imageInput, fileInput.",
+    "One optional power of the adapter contract: interactivePrompts, partialMessages, providerQueue (the provider holds messages sent during a turn), steering (it folds one into the running turn), resume, fork, rewind, sessionListing, subagents (delegated work it can stop), subagentTranscripts, titleRead, titleWrite, transcriptDelete, planUsage, liveModels, commands, imageInput, fileInput, modeChange (a live run's mode can be changed).",
 });
 
 const flag = (description: string) => z.boolean().meta({ description });
@@ -126,8 +128,12 @@ export const AdapterCapabilities = z
     commands: flag("The provider's slash commands can be listed for an account and workspace without spending tokens."),
     imageInput: flag("A message can carry image attachments."),
     fileInput: flag("A message can carry file attachments."),
+    modeChange: flag("A live run's mode can be changed (permissions.mode.set); without it a new mode applies at the session's next run."),
     instructionChannel: InstructionChannel,
-    modes: z.array(z.string().min(1)).meta({ description: "The modes the adapter maps onto its provider (ADR 0006)." }),
+    modes: z.array(ModeAvailability).meta({
+      description:
+        "The modes the adapter maps onto its provider (ADR 0006), each available or not with the reason; a run asking for an unavailable or unlisted mode gets the next lower available one.",
+    }),
   })
   .meta({ description: "An adapter's capabilities descriptor: its provider, a flag per optional power, its instruction channel and its modes." });
 export type AdapterCapabilities = z.infer<typeof AdapterCapabilities>;

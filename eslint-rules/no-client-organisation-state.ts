@@ -33,8 +33,9 @@ import { createRule } from "./create-rule.js";
  *   scope, every key in the value of a variable whose name contains `pref` or
  *   `setting`, and every property of an interface or type alias so named;
  * - storage key: the first argument of one of `STORAGE_METHODS` called on
- *   anything whose name contains `pref`, `setting` or `storage`
- *   (`localStorage`, `platform.storage`, `preferences`);
+ *   anything whose name contains `pref`, `setting`, `storage` or `documents`
+ *   (`localStorage`, `platform.storage`, `preferences`, and the client
+ *   runtime's `platform.documents`);
  * - web-storage key: a property read or written directly on `localStorage` or
  *   `sessionStorage`; an IndexedDB object store name (`OBJECT_STORE_METHODS`;
  *   the GUI's document storage is IndexedDB, docs/specs/client-runtime.md).
@@ -73,7 +74,7 @@ export const PRESENTATION_MODULE = /\/packages\/(?!client-runtime\/)[^/]+\/src\/
 
 const STORE_SUFFIX = /(store|atom|slice)$/i;
 const PREFERENCE_HOLDER = /pref|setting/i;
-const STORAGE_HOLDER = /pref|setting|storage/i;
+const STORAGE_HOLDER = /pref|setting|storage|documents/i;
 const STATE_HOOKS = new Set(["useState", "useReducer", "useRef"]);
 const STORAGE_METHODS = new Set([
   "get",
@@ -175,7 +176,8 @@ const none = (): Named[] => [];
  * Store factories, each with the names it defines beyond the binding it
  * returns: jotai (`atom`, and `atomWithStorage`, whose key is a web-storage
  * key), Redux Toolkit, zustand's `create`, and the observables the client
- * runtime exposes (docs/specs/client-runtime.md).
+ * runtime exposes (docs/specs/client-runtime.md): `observable` and `signal`
+ * in general, and the runtime's own `writable` and `derived`.
  */
 export const FACTORIES: ReadonlyMap<string, (call: TSESTree.CallExpression) => Named[]> = new Map([
   ["atom", none],
@@ -184,6 +186,8 @@ export const FACTORIES: ReadonlyMap<string, (call: TSESTree.CallExpression) => N
   ["createStore", none],
   ["signal", none],
   ["observable", none],
+  ["writable", none],
+  ["derived", none],
   [
     "createSlice",
     (call) => {

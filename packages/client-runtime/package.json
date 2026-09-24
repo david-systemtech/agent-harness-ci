@@ -8,6 +8,16 @@
       "@agent-harness/source": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./testing": {
+      "@agent-harness/source": "./src/testing/in-memory-platform.ts",
+      "types": "./dist/testing/in-memory-platform.d.ts",
+      "default": "./dist/testing/in-memory-platform.js"
+    },
+    "./testing/fake-wire": {
+      "@agent-harness/source": "./src/testing/fake-wire.ts",
+      "types": "./dist/testing/fake-wire.d.ts",
+      "default": "./dist/testing/fake-wire.js"
     }
   },
   "scripts": {
