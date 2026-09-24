@@ -1,4 +1,6 @@
+import { inMemoryPlatform } from "@agent-harness/client-runtime/testing";
 import { afterEach, describe, expect, it } from "vitest";
+import { createRuntimeWithSeams } from "../../client-runtime/src/internal.js";
 import { renderApp, type RenderedApp } from "../test/harness.js";
 
 /**
@@ -53,13 +55,21 @@ describe("the scripted environment", () => {
         ],
       },
     });
-    const runtime = app.runtime();
+    // A command goes through the outbox (#128), never `requests.call`; until it lands, a runtime's own request seam sends it.
+    const { runtime, seams } = createRuntimeWithSeams(
+      inMemoryPlatform({ clock: app.clock, kind: "tui", label: "seth@desk:pts/4", fetch: app.world.fetch, webSocket: app.world.webSocket, ...(app.world.grant && { grant: app.world.grant }) }),
+    );
+    const starting = runtime.start();
+    await app.tick();
+    await starting;
+    await app.waitUntil(() => runtime.connections.list.read()[0]?.phase === "ready", "the second runtime ready");
     const desk = app.environment("desk").environmentId;
     const sessionId = "0199aa00-0000-4000-8000-000000000001";
-    const archive = await runtime.requests.call(desk, "sessions.archive", { commandId: "0199aa00-0000-7000-8000-0000000000a1", sessionId });
-    const pin = await runtime.requests.call(desk, "sessions.pin", { commandId: "0199aa00-0000-7000-8000-0000000000a2", sessionId });
-    expect(archive).toMatchObject({ ok: true, result: { receipt: { status: "rejected", reason: "not_found", error: { message: "No such session." } } } });
-    expect(pin).toMatchObject({ ok: true, result: { receipt: { status: "accepted" } } });
+    const archive = await seams.request(desk, "sessions.archive", { commandId: "0199aa00-0000-7000-8000-0000000000a1", sessionId });
+    const pin = await seams.request(desk, "sessions.pin", { commandId: "0199aa00-0000-7000-8000-0000000000a2", sessionId });
+    await runtime.close();
+    expect(archive.result).toMatchObject({ receipt: { status: "rejected", reason: "not_found", error: { message: "No such session." } } });
+    expect(pin.result).toMatchObject({ receipt: { status: "accepted" } });
   });
 
   it("says bye with any reason", async () => {

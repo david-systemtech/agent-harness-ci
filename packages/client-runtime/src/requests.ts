@@ -1,4 +1,4 @@
-import { isCommand, registry, type MethodName, type ParamsOf, type ResponseOf } from "@agent-harness/contracts";
+import { isCommand, registry, type MethodName, type ParamsOf, type ResponseOf, type Scope } from "@agent-harness/contracts";
 import type { AbsentReason, CapabilityAnswer } from "./capabilities.js";
 import type { ResponseFrame } from "@agent-harness/contracts";
 import type { Clock } from "./platform.js";
@@ -7,7 +7,10 @@ import type { Clock } from "./platform.js";
  * `requests.call` (docs/specs/client-runtime.md, "The offline outbox,
  * receipts and optimistic application"): a direct request to one
  * environment, for the non-mutating methods and for the `admin` calls
- * (`access.*`), which are never queued. It asks `capability` first and
+ * (`access.*`), which are never queued. A `sessions:write` or `runs:drive`
+ * command is refused (`outbox`): every one goes through the outbox's
+ * `commands.dispatch`, so none can skip its command-id and receipt rules
+ * by being sent here. It asks `capability` first and
  * answers absent-with-reason at once when the connection cannot take it,
  * so nothing is ever held for later; it checks the params and the answer
  * against the method's schemas; and it gives up after `REQUEST_TIMEOUT_MS`.
@@ -20,13 +23,17 @@ import type { Clock } from "./platform.js";
 /** How long a request waits for its answer. A chosen default (the specification's 30 seconds). */
 export const REQUEST_TIMEOUT_MS = 30_000;
 
+/** The scopes whose commands only the outbox sends (docs/specs/client-runtime.md: every `sessions:write` and `runs:drive` call). */
+const OUTBOX_SCOPES: ReadonlySet<Scope> = new Set<Scope>(["sessions:write", "runs:drive"]);
+
 /**
  * Why a request has no result: a capability's absent reason (nothing was
- * sent), `invalid_params` (the params are not the method's; nothing was
- * sent), `timeout`, `malformed` (the answer is not the method's), or the
+ * sent), `outbox` (a command only the outbox sends; nothing was sent),
+ * `invalid_params` (the params are not the method's; nothing was sent),
+ * `timeout`, `malformed` (the answer is not the method's), or the
  * environment's own error code, passed on as it is.
  */
-export type RequestFailureCode = AbsentReason | "invalid_params" | "timeout" | "malformed" | (string & {});
+export type RequestFailureCode = AbsentReason | "outbox" | "invalid_params" | "timeout" | "malformed" | (string & {});
 
 export interface RequestFailure {
   readonly code: RequestFailureCode;
@@ -65,6 +72,7 @@ export const createRequests = (host: RequestsHost): Requests => ({
   async call<N extends MethodName>(environmentId: string, method: N, params: ParamsOf<N>): Promise<RequestAnswer<N>> {
     const entry = registry[method];
     if (entry.kind === "stream") return failed("unsupported", `${method} is a subscription; the runtime subscribes to it itself.`);
+    if (OUTBOX_SCOPES.has(entry.scope)) return failed("outbox", `${method} is a ${entry.scope} command; it is sent through the outbox, never as a direct request.`);
     const capability = host.capability(environmentId, method);
     if (capability.status === "absent") return failed(capability.reason, capability.message);
     const checked = entry.params.safeParse(params);

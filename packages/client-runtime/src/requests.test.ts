@@ -97,6 +97,17 @@ describe("requests.call", () => {
     expect(await runtime.requests.call(id, "sessions.subscribe", { afterSequence: 0 })).toMatchObject({ ok: false, error: { code: "unsupported" } });
   });
 
+  it("refuses a sessions:write command, sending nothing: every one goes through the outbox", async () => {
+    const { runtime, wire, id } = await paired();
+    const before = wire.server.received().length;
+    const answer = await runtime.requests.call(id, "sessions.archive", {
+      commandId: "0199aa00-0000-7000-8000-0000000000ab",
+      sessionId: "0199aa00-0000-4000-8000-000000000001",
+    });
+    expect(answer).toEqual({ ok: false, error: { code: "outbox", message: expect.stringContaining("sessions:write") } });
+    expect(wire.server.received().length).toBe(before);
+  });
+
   it("calls an answer that does not match the method's schema malformed", async () => {
     const { runtime, wire, id } = await paired();
     wire.answer("access.sessions.list", () => ({ result: { sessions: "none" } }));
