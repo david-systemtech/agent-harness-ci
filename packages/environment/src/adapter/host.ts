@@ -67,8 +67,8 @@ import {
  * (`sessions/activity-companions.ts`). Titles go through it too: after a
  * run ends it reads the provider's title when the adapter declares
  * `titleRead` (`sessions/titles.ts` records it), and once a user title
- * commits it mirrors it to the provider when the adapter declares
- * `titleWrite`, best effort and never read back.
+ * commits it mirrors it to the provider when the adapter of the session's
+ * latest run declares `titleWrite`, best effort and never read back.
  */
 
 /** An account the host serves runs through: its id, its provider, and its config directory. The account store (#134) will supply these. */
@@ -378,16 +378,6 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
   };
 
   /**
-   * The adapter that holds a session's provider state: its latest run's
-   * account's, else the default account's; undefined when neither names an
-   * account on this environment.
-   */
-  const sessionAdapter = (sessionId: string): Adapter | undefined => {
-    const accountId = latestRun(reader, sessionId)?.accountId ?? defaultAccountId;
-    return accountId === null ? undefined : accounts.get(accountId)?.adapter;
-  };
-
-  /**
    * Once a run's end has committed, reads the title the provider generated
    * for its session when the adapter declares `titleRead`, and records it as
    * the generated title unless the user has set one (`sessions/titles.ts`),
@@ -411,11 +401,14 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
 
   /**
    * Mirrors a user title that has committed into the provider's own title
-   * field, when the session's adapter declares `titleWrite`: best effort (a
-   * failure is logged and changes nothing here) and never read back.
+   * field, when the adapter of the session's latest run declares
+   * `titleWrite`: best effort (a failure is logged and changes nothing here)
+   * and never read back. A session that has never run has no provider
+   * session to title, so nothing is mirrored for it.
    */
   const mirrorTitle = (sessionId: string, title: string): void => {
-    const adapter = closing ? undefined : sessionAdapter(sessionId);
+    const accountId = closing ? undefined : latestRun(reader, sessionId)?.accountId;
+    const adapter = accountId === undefined ? undefined : accounts.get(accountId)?.adapter;
     if (adapter === undefined || !adapter.descriptor.titleWrite) return;
     safely(
       () => capability(adapter.descriptor, "titleWrite", adapter.writeTitle, "mirror a user title", "writeTitle").call(adapter, sessionId, title),
@@ -792,7 +785,8 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
    * `unsupported` (`sessions/deletion.ts` reads the refusal's reason).
    */
   const adapterOfSession = (sessionId: string): Adapter => {
-    const adapter = sessionAdapter(sessionId);
+    const accountId = latestRun(reader, sessionId)?.accountId ?? defaultAccountId;
+    const adapter = accountId === null ? undefined : accounts.get(accountId)?.adapter;
     if (adapter === undefined) {
       throw new ContractError({
         code: "invalid_params",

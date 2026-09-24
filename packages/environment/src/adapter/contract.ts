@@ -288,9 +288,9 @@ export interface Adapter {
   readTitle?(sessionId: string): Promise<string | null>;
   /**
    * Mirrors a user title into the provider's own title field (`titleWrite`):
-   * the host calls it once a `session.title-set` with a title has committed,
-   * best effort (a failure is logged), and never reads it back. A title
-   * cleared to null is not mirrored. No member of the contract writes the
+   * the host calls it once a `session.title-set` with a title has committed
+   * on a session that has run through this adapter, best effort (a failure
+   * is logged), and never reads it back. A title cleared to null is not mirrored. No member of the contract writes the
    * provider's tag field: organisation never depends on what a provider can hold.
    */
   writeTitle?(sessionId: string, title: string): Promise<void>;

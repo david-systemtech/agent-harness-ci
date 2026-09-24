@@ -45,6 +45,9 @@ export const activityCompanions = (state: SessionState | null, type: string, at:
   ];
 };
 
+/** The types that may owe the session companions: a run's start and end, and a user message (its generated title). */
+const OWING_TYPES: ReadonlySet<string> = new Set(["run.started", "run.ended", "message.sent"]);
+
 /** What one appended event owes the session as it stands: a run event its activity companions, a user message its generated title. */
 const companionsOf = (event: EventEnvelope, state: SessionState | null): EventInput[] => {
   if (event.type === "message.sent") return decidePromptTitle(state, (event.payload as MessageSentPayload).text);
@@ -53,10 +56,11 @@ const companionsOf = (event: EventEnvelope, state: SessionState | null): EventIn
 
 /**
  * Appends events to a session's stream in the transaction `attribution`
- * names, then, for each of them in order, the companions it owes, reading
- * the session as the events before it left it: each companion carries the
- * event's instant and the append's command id, actor and correlation, and
- * names the event as its causation. Returns every event appended, in order.
+ * names, then, for each of them in order that may owe any, the companions
+ * it owes, reading the session as the events and the companions appended
+ * so far left it: each companion carries the event's instant and the
+ * append's command id, actor and correlation, and names the event as its
+ * causation. Returns every event appended, in order.
  */
 export const appendRunEvents = (
   log: EventLog,
@@ -68,7 +72,7 @@ export const appendRunEvents = (
   const stream = sessionStream(sessionId);
   const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
   const appended = [...log.append(stream, events, attribution).events];
-  for (const event of [...appended]) {
+  for (const event of appended.filter((candidate) => OWING_TYPES.has(candidate.type))) {
     const companions = companionsOf(event, readSessionState(reader, sessionId));
     if (companions.length === 0) continue;
     appended.push(...log.append(stream, stamp(companions, event.occurredAt), { ...attribution, causationId: event.eventId }).events);

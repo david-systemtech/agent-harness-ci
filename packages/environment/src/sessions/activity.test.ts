@@ -21,7 +21,8 @@ import type { WireClient } from "../../test/wire-client.js";
  * transaction with it as causation, on every path a run starts or ends by;
  * the first user message generates the title, a provider's title replaces
  * it unless the user set one, and a user title is mirrored to the provider
- * after commit and never read back. Nothing writes the provider's tag field.
+ * after commit, once the session has run, and never read back. Nothing
+ * writes the provider's tag field.
  */
 
 const { onCleanup } = useCleanups();
@@ -550,10 +551,14 @@ describe("the mirror", () => {
     const t = await start({ titleWrite: true, title: "Never read" });
     const client = await t.client();
     const { id } = await create(client);
+    const { runId, sequence } = await startRun(client, id);
+    await waitForEvent(t, id, sequence, "run.ended", runId);
+    await vi.waitFor(() => expect(t.adapter.titleReads).toEqual([id]));
     const answer = await rename(client, id, "  Mine ");
     expect(answer.receipt).toMatchObject({ status: "accepted", changed: true });
     await vi.waitFor(() => expect(t.adapter.mirroredTitles).toEqual([{ sessionId: id, title: "Mine" }]));
-    expect(t.adapter.titleReads).toEqual([]);
+    // Only the read after the run's end: the mirror reads nothing back.
+    expect(t.adapter.titleReads).toEqual([id]);
 
     // A rename to null, a rename that changes nothing and a refused rename mirror nothing.
     await rename(client, id, null);
@@ -561,13 +566,27 @@ describe("the mirror", () => {
     await deleteSession(client, id);
     expect((await rename(client, id, "Gone")).receipt).toMatchObject({ status: "rejected" });
     expect(t.adapter.mirroredTitles).toEqual([{ sessionId: id, title: "Mine" }]);
-    expect(t.adapter.titleReads).toEqual([]);
+    expect(t.adapter.titleReads).toEqual([id]);
+  });
+
+  it("writes nothing for a session that has never run: the provider has no session to title yet", async () => {
+    const t = await start({ titleWrite: true });
+    const client = await t.client();
+    const { id } = await create(client);
+    await rename(client, id, "Mine");
+    const { runId, sequence } = await startRun(client, id);
+    await waitForEvent(t, id, sequence, "run.ended", runId);
+    expect(t.adapter.mirroredTitles).toEqual([]);
+    await rename(client, id, "Mine, once it ran");
+    await vi.waitFor(() => expect(t.adapter.mirroredTitles).toEqual([{ sessionId: id, title: "Mine, once it ran" }]));
   });
 
   it("writes nothing when the adapter does not declare titleWrite, though it has the method", async () => {
     const t = await start({ titleWrite: true, capabilities: { titleWrite: false } });
     const client = await t.client();
     const { id } = await create(client);
+    const { runId, sequence } = await startRun(client, id);
+    await waitForEvent(t, id, sequence, "run.ended", runId);
     await rename(client, id, "Mine");
     expect(t.adapter.mirroredTitles).toEqual([]);
   });
@@ -578,6 +597,8 @@ describe("the mirror", () => {
     const t = await start({ titleWrite: { fails: "The provider is offline." } });
     const client = await t.client();
     const { id } = await create(client);
+    const { runId, sequence } = await startRun(client, id);
+    await waitForEvent(t, id, sequence, "run.ended", runId);
     expect((await rename(client, id, "Mine")).result?.summary).toMatchObject({ title: "Mine", titleSource: "user" });
     await vi.waitFor(() => expect(errors).toHaveBeenCalledWith(expect.stringContaining(`Mirroring the title of session ${id}`), expect.any(Error)));
     expect(t.adapter.mirroredTitles).toEqual([{ sessionId: id, title: "Mine" }]);
@@ -593,11 +614,13 @@ describe("the provider's tag field", () => {
     expect(none).toBe(true);
   });
 
-  it("is never written, whatever a client files, tags or titles, and whatever runs", async () => {
+  it("is reached by no organisation command: of all a client files, tags and titles, only a user title goes to the provider", async () => {
     const t = await start({ titleWrite: true, title: "Provider's own" });
     const client = await t.client();
     const { id: groupId } = await createGroup(client, { name: "Brandsolidate" });
     const { id } = await create(client, { title: "Mine", tags: ["wip"] });
+    const { runId, sequence } = await startRun(client, id);
+    await waitForEvent(t, id, sequence, "run.ended", runId);
     await command(client, "sessions.tag", { sessionId: id, tag: "review" });
     await command(client, "sessions.untag", { sessionId: id, tag: "wip" });
     await command(client, "sessions.archive", { sessionId: id });
@@ -608,12 +631,9 @@ describe("the provider's tag field", () => {
     await command(client, "sessions.settle", { sessionId: id });
     await command(client, "sessions.snooze", { sessionId: id, until: at(DAY) });
     await rename(client, id, "Renamed");
-    const { runId, sequence } = await startRun(client, id);
-    await waitForEvent(t, id, sequence, "run.ended", runId);
     await rename(client, id, null);
     await deleteSession(client, id);
     await command(client, "sessions.restore", { sessionId: id });
-    expect(t.adapter.tagWrites).toEqual([]);
-    expect(t.adapter.mirroredTitles).toEqual([{ sessionId: id, title: "Renamed" }]);
+    await vi.waitFor(() => expect(t.adapter.mirroredTitles).toEqual([{ sessionId: id, title: "Renamed" }]));
   });
 });

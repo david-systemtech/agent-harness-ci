@@ -22,10 +22,11 @@ export type SummaryFieldOwner = { readonly command: CommandMethodName } | { read
  * first writer of its field, the one a user (or, for a system field, the
  * system) sets it with; later commands and events also write fields owned
  * elsewhere: every organisation command moves `updatedAt`, a pin moves
- * `settledOverride` through the companion events, and so do a run's start
- * and end (unarchive, unsettle, wake, the `active` override cleared), a
- * sync moves `pullRequests`, a generated title (`session.title-generated`,
- * from the first user message or the provider) moves `title` and `titleSource`.
+ * `settledOverride` through the companion events, a run's start moves the
+ * filing fields through its own (unarchive, unsettle, wake, the `active`
+ * override cleared) and a run's end wakes, a sync moves `pullRequests`, a
+ * generated title (`session.title-generated`, from the first user message
+ * or the provider) moves `title` and `titleSource`.
  */
 export const SUMMARY_FIELD_OWNERS = {
   // Identity: born with the session; updatedAt then moves with every organisation command.

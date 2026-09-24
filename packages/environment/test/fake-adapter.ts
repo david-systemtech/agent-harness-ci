@@ -31,9 +31,7 @@ import type {
  *
  * Titles (session-state spec, "Title fallback"): the fake can declare
  * `titleRead`, answering a title of its own and recording each read, and
- * `titleWrite`, recording each mirrored user title. It also has a provider
- * tag field, which the contract gives no way to write: its setter records
- * every call, so a test can prove nothing ever writes it.
+ * `titleWrite`, recording each mirrored user title.
  */
 
 /** What a script is handed: the run's input, its context, and the messages the run is sent while it plays. */
@@ -103,12 +101,6 @@ export interface MirroredTitle {
   readonly title: string;
 }
 
-/** A write to the provider's tag field, which nothing may make (session-state spec, "Title fallback"). */
-export interface TagWrite {
-  readonly sessionId: string;
-  readonly tags: readonly string[];
-}
-
 export interface FakeAdapter extends Adapter {
   /** Every run created or opened, in order. */
   readonly runs: readonly FakeRunRecord[];
@@ -120,14 +112,6 @@ export interface FakeAdapter extends Adapter {
   readonly titleReads: readonly string[];
   /** The user titles the environment mirrored (`writeTitle`), in order, whether or not the write failed. */
   readonly mirroredTitles: readonly MirroredTitle[];
-  /**
-   * The provider's tag field, as a provider store offers one (Artemis rode
-   * archive on it): no member of the adapter contract writes it, so nothing
-   * in the environment can call this. Every call is recorded in `tagWrites`.
-   */
-  writeTags(sessionId: string, tags: readonly string[]): void;
-  /** Every write to the provider's tag field: none, whatever the environment does. */
-  readonly tagWrites: readonly TagWrite[];
   /** The most recent run. */
   lastRun(): FakeRunRecord;
 }
@@ -250,7 +234,6 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
   const nextScripts: Script[] = [];
   const titleReads: string[] = [];
   const mirroredTitles: MirroredTitle[] = [];
-  const tagWrites: TagWrite[] = [];
 
   /** One run, played from `script`: `input.prompt` is what it opened with. */
   const play = (input: RunInput, context: RunContext, script: Script, adopted: boolean): ProviderTurn => {
@@ -418,10 +401,6 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
     nextScripts,
     titleReads,
     mirroredTitles,
-    writeTags(sessionId, tags) {
-      tagWrites.push({ sessionId, tags: [...tags] });
-    },
-    tagWrites,
     lastRun() {
       const last = runs.at(-1);
       if (last === undefined) throw new Error("The fake adapter has run nothing yet.");
