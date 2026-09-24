@@ -70,6 +70,19 @@ describe("requests.call", () => {
     expect(wire.server.received().length).toBe(before);
   });
 
+  it("refuses at once as unreachable while the connection is on its way back, not yet ready", async () => {
+    const { runtime, wire, clock, id } = await paired();
+    wire.server.drop();
+    await flush();
+    clock.advance(1250);
+    await flush();
+    expect(runtime.connections.list.read()[0]?.phase).toBe("connecting");
+    const before = wire.server.received().length;
+    const answer = await runtime.requests.call(id, "environment.status", {});
+    expect(answer).toEqual({ ok: false, error: { code: "unreachable", message: "Connecting to box." } });
+    expect(wire.server.received().length).toBe(before);
+  });
+
   it("refuses an environment it has no connection to", async () => {
     const { runtime } = await paired();
     expect(await runtime.requests.call("0199aa00-0000-7000-8000-00000000dead", "environment.status", {})).toMatchObject({

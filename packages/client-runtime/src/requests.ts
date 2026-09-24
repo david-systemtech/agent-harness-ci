@@ -12,8 +12,10 @@ import type { Clock } from "./platform.js";
  * `commands.dispatch`, so none can skip its command-id and receipt rules
  * by being sent here. It asks `capability` first and
  * answers absent-with-reason at once when the connection cannot take it,
- * so nothing is ever held for later; it checks the params and the answer
- * against the method's schemas; and it gives up after `REQUEST_TIMEOUT_MS`.
+ * so nothing is ever held for later (a connection not yet `ready` is
+ * `unreachable`, the specification's word, whatever phase it is in); it
+ * checks the params and the answer against the method's schemas; and it
+ * gives up after `REQUEST_TIMEOUT_MS`.
  *
  * Added by the terminal UI (#143) for `/pair create` and `/environment`'s
  * client sessions, ahead of the outbox ticket (#128), which owns the request
@@ -74,7 +76,8 @@ export const createRequests = (host: RequestsHost): Requests => ({
     if (entry.kind === "stream") return failed("unsupported", `${method} is a subscription; the runtime subscribes to it itself.`);
     if (OUTBOX_SCOPES.has(entry.scope)) return failed("outbox", `${method} is a ${entry.scope} command; it is sent through the outbox, never as a direct request.`);
     const capability = host.capability(environmentId, method);
-    if (capability.status === "absent") return failed(capability.reason, capability.message);
+    // A connection on its way to `ready` (connecting, starting, updating) holds nothing for later: it is unreachable now.
+    if (capability.status === "absent") return failed(capability.reason === "not-ready" ? "unreachable" : capability.reason, capability.message);
     const checked = entry.params.safeParse(params);
     if (!checked.success) return failed("invalid_params", `The params are not ${method}'s: ${checked.error.issues.map((i) => i.message).join("; ")}`);
 
