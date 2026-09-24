@@ -77,6 +77,8 @@ export interface EventLog {
   readStream(stream: StreamRef, afterSequence?: number): EventEnvelope[];
   /** Measures one stream's events after a cursor against the replay bound, in SQL, before decoding. */
   replayBound(stream: StreamRef, afterSequence: number): ReplayMeasure;
+  /** The last sequence the log has given out, on any stream; 0 before the first event. */
+  head(): number;
   /**
    * Hears every committed event. Every subscriber hears sequences in
    * ascending order: events committed while subscribers are being called
@@ -263,6 +265,11 @@ export const openEventLog = (options: EventLogOptions): EventLog => {
         bytes: row.bytes,
         withinBound: row.events <= REPLAY_BOUND.events && row.bytes <= REPLAY_BOUND.bytes,
       };
+    },
+
+    head() {
+      // The autoincrement's own counter: what a rolled-back append never took, and what a purge never lowers.
+      return sql.get<{ head: number }>("SELECT seq AS head FROM sqlite_sequence WHERE name = 'events'")?.head ?? 0;
     },
 
     subscribe(listener) {

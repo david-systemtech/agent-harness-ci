@@ -9,7 +9,9 @@ import {
   type BootstrapKind,
 } from "@agent-harness/contracts";
 import type { Address } from "../src/serve/http.js";
+import type { ExtraMethod } from "../src/serve/methods.js";
 import { startEnvironment, type EnvironmentHandle, type StartupHooks } from "../src/serve/start.js";
+import type { SubscriptionHooks } from "../src/wire/subscriptions.js";
 import { manualClock, type ManualClock } from "./clock.js";
 import { fakeProvider, type FakeProvider } from "./fake-provider.js";
 import {
@@ -40,6 +42,10 @@ export interface TestEnvironmentOptions {
   readonly name?: string;
   /** Startup hooks, to hold the startup gate. */
   readonly hooks?: StartupHooks;
+  /** Methods served beside the registry's: a suite's synthetic streams. */
+  readonly extraMethods?: readonly ExtraMethod[];
+  /** Subscription seams: hold a catch-up, slow a socket down. */
+  readonly subscriptionHooks?: SubscriptionHooks;
 }
 
 export interface ClientOptions extends OpenOptions, Partial<Omit<AuthOptions, "token">> {
@@ -132,6 +138,8 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
       launcher: { prepared: () => undefined, close: () => undefined },
       ...(options.name !== undefined && { name: options.name }),
       ...(options.hooks !== undefined && { hooks: options.hooks }),
+      ...(options.extraMethods !== undefined && { extraMethods: options.extraMethods }),
+      ...(options.subscriptionHooks !== undefined && { subscriptionHooks: options.subscriptionHooks }),
     });
   } catch (error) {
     if (ownDir) rmSync(ownDir, { recursive: true, force: true });

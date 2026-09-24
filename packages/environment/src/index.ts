@@ -40,7 +40,7 @@ export { defaultDataDirectory, prepareDataDirectory, type PlatformContext } from
 export { isAllowedHost, type Address, type HttpRoutes, type RouteHandler } from "./serve/http.js";
 export { RECORD_FILE, SIGNING_KEY, type EnvironmentRecord } from "./serve/identity.js";
 export { PREPARED_MESSAGE, processLauncherChannel, type IpcProcess, type LauncherChannel } from "./serve/launcher.js";
-export type { MethodContext, MethodHandler, MethodHandlers } from "./serve/methods.js";
+export { extraMethod, type ExtraMethod, type MethodContext, type MethodHandler, type MethodHandlers } from "./serve/methods.js";
 export {
   DATABASE_FILE,
   DEFAULT_PORT,
@@ -67,3 +67,5 @@ export {
 } from "./serve/user.js";
 export { fileVault, VAULT_FILE, type Vault } from "./serve/vault.js";
 export { AUTH_TIMEOUT_MS, PING_INTERVAL_MS } from "./wire/wire.js";
+export { formatActor, parseActor, toWireEnvelope } from "./wire/envelope.js";
+export type { Outlet, StreamSource, SubscriptionHooks } from "./wire/subscriptions.js";

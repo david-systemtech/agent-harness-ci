@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { TOP_CEILING, type VerifiedClientSession } from "../auth/client-sessions.js";
 import type { MethodHandlers } from "../serve/methods.js";
 import { createDispatch, type Answer } from "./dispatch.js";
+import type { Opening } from "./subscriptions.js";
 
 const caller = (scopes: readonly Scope[]): VerifiedClientSession => ({
   id: "cs-1",
@@ -15,11 +16,13 @@ const caller = (scopes: readonly Scope[]): VerifiedClientSession => ({
 
 const request = (method: string, params: Record<string, unknown> = {}): RequestFrame => ({ type: "request", id: "r1", method, params });
 
-/** Dispatches one request and resolves with the one answer it gave. */
+/** Dispatches one request and resolves with the one answer it gave, and no subscription opened. */
 const answer = async (methods: MethodHandlers, frame: RequestFrame, scopes: readonly Scope[]): Promise<Answer> => {
   const answers: Answer[] = [];
-  await createDispatch(methods, registry)(frame, caller(scopes), (given) => answers.push(given));
+  const open = vi.fn();
+  await createDispatch(methods, registry)(frame, caller(scopes), (given) => answers.push(given), open);
   expect(answers).toHaveLength(1);
+  expect(open).not.toHaveBeenCalled();
   return answers[0] as Answer;
 };
 
@@ -63,10 +66,53 @@ describe("dispatch", () => {
     quiet.mockRestore();
   });
 
-  it("answers not_found for an unknown method, a stream before #110 and a method with no handler", async () => {
+  it("answers not_found for an unknown method, and for a method or a stream with no handler", async () => {
     expect(await answer({}, request("nothing.here"), ["read"])).toMatchObject({ error: { code: "not_found" } });
     expect(await answer({}, request("environment.subscribe", { afterSequence: 0 }), ["read"])).toMatchObject({ error: { code: "not_found" } });
     expect(await answer({}, request("access.sessions.list"), ["admin"])).toMatchObject({ error: { code: "not_found" } });
+  });
+
+  it("opens a stream rather than answering it: the request id, the source, the cursor and the snapshot's schema", async () => {
+    const source = { stream: { kind: "environment", id: "e" }, snapshot: () => ({ status: { readiness: "ready" as const } }) };
+    const handler = vi.fn(() => source);
+    const answers: Answer[] = [];
+    const opened: Opening[] = [];
+    await createDispatch({ "environment.subscribe": handler }, registry)(
+      request("environment.subscribe", { afterSequence: 7 }),
+      caller(["read"]),
+      (given) => answers.push(given),
+      (opening) => void opened.push(opening),
+    );
+    expect(answers).toEqual([]);
+    expect(opened).toEqual([
+      { requestId: "r1", source, afterSequence: 7, payloadSchema: registry["environment.subscribe"].result },
+    ]);
+    expect(handler).toHaveBeenCalledWith({ afterSequence: 7 }, { clientSession: caller(["read"]) });
+  });
+
+  it("answers what opening a stream throws, as a handler's throw is answered", async () => {
+    const quiet = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const methods: MethodHandlers = {
+      "environment.subscribe": () => ({ stream: { kind: "environment", id: "e" }, snapshot: () => ({ status: { readiness: "ready" } }) }),
+    };
+    for (const [thrown, code] of [
+      [new ContractError({ code: "conflict", message: "Not now.", data: {} }), "conflict"],
+      [new Error("boom"), "internal"],
+    ] as const) {
+      const answers: Answer[] = [];
+      await createDispatch(methods, registry)(request("environment.subscribe", { afterSequence: 0 }), caller(["read"]), (given) => answers.push(given), () => {
+        throw thrown;
+      });
+      expect(answers).toMatchObject([{ error: { code } }]);
+    }
+    quiet.mockRestore();
+  });
+
+  it("answers internal when a stream's handler returns no stream source", async () => {
+    const quiet = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const wrong = { "environment.subscribe": () => ({ status: { readiness: "ready" } }) } as unknown as MethodHandlers;
+    expect(await answer(wrong, request("environment.subscribe", { afterSequence: 0 }), ["read"])).toMatchObject({ error: { code: "internal" } });
+    quiet.mockRestore();
   });
 
   it("answers invalid_params with the issues", async () => {

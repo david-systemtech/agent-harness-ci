@@ -186,6 +186,12 @@ export interface WireClient extends ClientSocket {
   request<N extends MethodName>(method: N, params: ParamsOf<N>): Promise<ResultOf<N>>;
   /** Sends a request of any name and params and resolves with the frame that answers it. */
   call(method: string, params: Record<string, unknown>): Promise<ResponseFrame | SubscribedFrame>;
+  /**
+   * Subscribes to a stream method of any name: the `subscribed` frame, whose
+   * `subscription` every later message of it carries; a refusal is thrown as
+   * a `ContractError`.
+   */
+  subscribe(method: string, params: Record<string, unknown>): Promise<SubscribedFrame>;
 }
 
 export interface AuthOptions extends OpenOptions {
@@ -215,9 +221,15 @@ export const asClient = (socket: ClientSocket, hello: HelloFrame): WireClient =>
     call,
     async request(method, params) {
       const answer = await call(method, params);
-      if (answer.type === "subscribed") throw new Error(`${method} is a stream; subscriptions arrive with #110.`);
+      if (answer.type === "subscribed") throw new Error(`${method} is a stream; subscribe to it instead.`);
       if (answer.error) throw new ContractError(answer.error);
       return answer.result as never;
+    },
+    async subscribe(method, params) {
+      const answer = await call(method, params);
+      if (answer.type === "subscribed") return answer;
+      if (answer.error) throw new ContractError(answer.error);
+      throw new Error(`${method} answered a result, not subscribed: it is not a stream.`);
     },
   };
 };

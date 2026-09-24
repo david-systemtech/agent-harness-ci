@@ -13,10 +13,12 @@ import {
 } from "@agent-harness/contracts";
 import { WebSocketServer, type RawData, type WebSocket } from "ws";
 import type { ClientSessions, VerifiedClientSession } from "../auth/client-sessions.js";
+import type { EventLog } from "../event-log/event-log.js";
 import type { Clock, Timer } from "../serve/clock.js";
 import { refuseUpgrade, type UpgradeHandler } from "../serve/http.js";
-import type { MethodHandlers } from "../serve/methods.js";
+import { servedMethods, type ExtraMethod, type MethodHandlers } from "../serve/methods.js";
 import { createDispatch, type Answer } from "./dispatch.js";
+import { createSubscriptions, type SocketSubscriptions, type SubscriptionHooks } from "./subscriptions.js";
 
 /** How often the environment pings each socket (env spec, "The wire"; Artemis's measured value). */
 export const PING_INTERVAL_MS = 15_000;
@@ -39,6 +41,12 @@ export interface WireOptions {
   readonly clientSessions: ClientSessions;
   readonly methods: MethodHandlers;
   readonly clock: Clock;
+  /** The log subscriptions replay from and listen to. */
+  readonly log: EventLog;
+  /** Methods served beside the registry's: a test suite's synthetic streams. */
+  readonly extraMethods?: readonly ExtraMethod[];
+  /** Test seams for subscriptions. */
+  readonly subscriptionHooks?: SubscriptionHooks;
 }
 
 /** The wire: one WebSocket per client socket at `/ws`. */
@@ -49,6 +57,8 @@ export interface Wire {
   open(): void;
   /** How many sockets are open. */
   sockets(): number;
+  /** How many subscriptions are open, across every socket. */
+  subscriptions(): number;
   /** Says `bye: draining` to every socket, closes it (1001), and refuses new ones. */
   close(): Promise<void>;
 }
@@ -65,6 +75,7 @@ interface Socket {
   authTimer: Timer | undefined;
   clientSession: VerifiedClientSession | undefined;
   ping: Timer | undefined;
+  readonly subscriptions: SocketSubscriptions;
 }
 
 /** A frame's text; undefined for a binary frame, which the wire never takes. */
@@ -104,7 +115,9 @@ const faultOf = (error: ContractError): string => {
 
 export const createWire = (options: WireOptions): Wire => {
   const { clientSessions, clock } = options;
-  const dispatch = createDispatch(options.methods, registry);
+  const served = servedMethods(registry, options.methods, options.extraMethods);
+  const dispatch = createDispatch(served.handlers, served.entries);
+  const subscriptions = createSubscriptions(options.log, options.subscriptionHooks);
   const server = new WebSocketServer({ noServer: true, maxPayload: MAX_FRAME_BYTES, clientTracking: false });
   const open = new Set<Socket>();
   let ready = false;
@@ -126,6 +139,8 @@ export const createWire = (options: WireOptions): Wire => {
     if (socket.phase === "closing") return;
     socket.phase = "closing";
     stopTimers(socket);
+    // Every subscription's end comes before the bye: revoked with the client session, closed otherwise.
+    socket.subscriptions.endAll(bye.reason === "revoked" ? "revoked" : "closed");
     send(socket, { type: "bye", ...bye });
     socket.ws.close(code, bye.reason);
   };
@@ -220,15 +235,17 @@ export const createWire = (options: WireOptions): Wire => {
     const { frame } = decoded;
     switch (frame.type) {
       case "request":
-        void dispatch(frame, clientSession, (answer) => respond(socket, frame.id, answer)).catch((thrown: unknown) =>
-          console.error("Dispatch failed:", thrown),
-        );
+        void dispatch(
+          frame,
+          clientSession,
+          (answer) => respond(socket, frame.id, answer),
+          (opening) => socket.subscriptions.open(opening),
+        ).catch((thrown: unknown) => console.error("Dispatch failed:", thrown));
         return;
       case "pong":
         return;
       case "unsubscribe":
-        // Subscriptions are #110; there is none to end yet.
-        return;
+        return socket.subscriptions.unsubscribe(frame.subscription);
       default:
         return protocolFault(socket, `A client does not send ${frame.type} frames once authenticated.`);
     }
@@ -245,6 +262,7 @@ export const createWire = (options: WireOptions): Wire => {
   };
 
   const onClose = (socket: Socket): void => {
+    socket.subscriptions.endAll("closed");
     stopTimers(socket);
     socket.phase = "closing";
     if (socket.clientSession) clientSessions.socketClosed(socket.clientSession.id);
@@ -252,7 +270,7 @@ export const createWire = (options: WireOptions): Wire => {
   };
 
   const accept = (ws: WebSocket): void => {
-    const socket: Socket = { ws, phase: "awaiting-auth", held: undefined, authTimer: undefined, clientSession: undefined, ping: undefined };
+    const socket: Socket = { ws, phase: "awaiting-auth", held: undefined, authTimer: undefined, clientSession: undefined, ping: undefined, subscriptions: subscriptions.forSocket(ws) };
     open.add(socket);
     ws.on("message", (data, isBinary) => onMessage(socket, data, isBinary));
     ws.on("close", () => onClose(socket));
@@ -295,6 +313,7 @@ export const createWire = (options: WireOptions): Wire => {
     },
 
     sockets: () => open.size,
+    subscriptions: () => subscriptions.count(),
 
     // #112 refines this into the drain sequence: runs finish first, then the same bye.
     async close() {

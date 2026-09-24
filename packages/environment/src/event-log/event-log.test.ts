@@ -205,6 +205,24 @@ describe("appending", () => {
     expect(log.readStream(s1, 4)).toEqual([]);
   });
 
+  it("names its head: the last sequence given out, 0 before the first, never lowered by a rollback", () => {
+    const log = memoryLog();
+    expect(log.head()).toBe(0);
+    log.append(s1, [note("1"), note("2")], { actor: "test" });
+    log.append({ kind: "session", id: "other" }, [note("elsewhere")], { actor: "test" });
+    expect(log.head()).toBe(3);
+    const failing: Projector = {
+      name: "failing",
+      tables: {},
+      apply: (event) => {
+        if (event.type === "boom") throw new Error("the projection failed");
+      },
+    };
+    log.registerProjector(failing);
+    expect(() => log.append(s1, [{ type: "boom", payload: {} }], { actor: "test" })).toThrow(/projection failed/);
+    expect(log.head()).toBe(3);
+  });
+
   it("is unique on stream kind, stream id and stream version", () => {
     const path = tempDatabase();
     const log = track(openEventLog({ path }));
