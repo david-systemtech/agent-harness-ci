@@ -211,7 +211,7 @@ describe("appending", () => {
     log.append(s1, [note("one")], { actor: "test" });
 
     const raw = new (loadSqlite().DatabaseSync)(path);
-    cleanups.unshift(() => raw.close());
+    cleanups.push(() => raw.close());
     expect(() =>
       raw
         .prepare(
@@ -456,6 +456,11 @@ describe("command receipts", () => {
     expect(log.receipt("client:1", "old")).toBeNull();
     expect(log.receipt("client:1", "exactly-30-days")).not.toBeNull();
     expect(log.receipt("client:1", "young")).not.toBeNull();
+
+    // "Older than 30 days": one millisecond past the boundary is old.
+    expect(log.pruneReceipts(new Date(new Date("2026-08-02T00:00:00.000Z").getTime() + 30 * DAY + 1))).toBe(1);
+    expect(log.receipt("client:1", "exactly-30-days")).toBeNull();
+    expect(log.receipt("client:1", "young")).not.toBeNull();
   });
 });
 
@@ -500,6 +505,19 @@ describe("the replay bound", () => {
     expect(over.bytes).toBeGreaterThan(REPLAY_BOUND.bytes);
     expect(over.withinBound).toBe(false);
     expect(log.replayBound(s1, 1)).toMatchObject({ events: 2, withinBound: true });
+  });
+
+  it("holds exactly 8 MiB and not one byte more", () => {
+    const log = memoryLog();
+    // The stored payload is the JSON string, quotes included; metadata is stored as `{}`, two bytes.
+    const exact = { type: "transcript.chunk", payload: "x".repeat(REPLAY_BOUND.bytes - 4) };
+    log.append(s1, [exact], { actor: "test" });
+    expect(log.replayBound(s1, 0)).toMatchObject({ bytes: REPLAY_BOUND.bytes, withinBound: true });
+
+    log.append(s1, [{ type: "transcript.chunk", payload: "" }], { actor: "test" });
+    const over = log.replayBound(s1, 0);
+    expect(over.bytes).toBe(REPLAY_BOUND.bytes + 4);
+    expect(over.withinBound).toBe(false);
   });
 
   it("measures bytes, not characters", () => {
