@@ -219,6 +219,11 @@ export const SessionSummary = z
     parkedPromptCount: z.int().nonnegative().meta({ description: "Prompts a run of the session is parked on, unanswered." }),
     accountId: z.string().min(1).nullable().meta({ description: "The account the latest run used; null before any run." }),
     model: z.string().min(1).nullable().meta({ description: "The model the latest run used; null before any run." }),
+    // Mode (permissions spec): what a run of the session asks for, read here for the status line.
+    mode: Mode.nullable().meta({
+      description:
+        "The session's mode: the effective mode permissions.mode.set last gave it, else the one sessions.create recorded (clamped to its caller's ceiling); null when neither did, so a run's default applies. Each run clamps it again.",
+    }),
     // Forge (ADR 0012).
     pullRequests: z.array(PullRequest),
     // Composer: the draft is a session field, so it follows the session between clients.
