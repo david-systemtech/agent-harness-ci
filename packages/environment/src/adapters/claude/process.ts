@@ -659,9 +659,9 @@ export class ClaudeProcess implements TurnControl {
     this.#serve(this.#current, message);
   }
 
-  /** No queued message, settle or live task that a turn could be about instead of the waiting run. */
+  /** No queued message, settle, live task or scheduled job (whose firing is a turn with no message behind it) that a turn could be about instead of the waiting run. */
   #nothingElseOwed(): boolean {
-    return this.#queuedSends.size === 0 && !this.#settling && !this.#settleOwed && this.#liveTasks.size === 0;
+    return this.#queuedSends.size === 0 && !this.#settling && !this.#settleOwed && this.#liveTasks.size === 0 && this.#crons === 0 && this.#wakeups === 0;
   }
 
   /** Maps a message onto the open turn, noting a steer it read and a schedule it registered, and closes the turn at its end. */

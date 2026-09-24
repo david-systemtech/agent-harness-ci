@@ -1205,6 +1205,31 @@ describe("a run that joins a kept process", () => {
     expect(context.adopted).toEqual([]);
   });
 
+  it("does not give a delivery failure naming no one to the waiting run while a scheduled job could be what failed", async () => {
+    const adapter = adapterWith();
+    const context = contextWith();
+    const input = runInput();
+    const first = adapter.createRun(input, context);
+    const query = await started();
+    query.emit(
+      sdk.init(PROVIDER_SESSION),
+      sdk.replyStart("msg_1", [input.prompt[0]?.messageId as string]),
+      sdk.toolUse("toolu_wake", "ScheduleWakeup"),
+      sdk.toolResult("toolu_wake"),
+      sdk.result(PROVIDER_SESSION),
+    );
+    await drain(first);
+    first.release();
+    const next = runInput({ target: { kind: "resume", providerSessionId: PROVIDER_SESSION } });
+    const run = adapter.createRun(next, context);
+    await query.promptsPushed(2);
+    const read = reading(run);
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.result(PROVIDER_SESSION, { subtype: "success", is_error: true, result: "API Error: 529 overloaded", num_turns: 0 }));
+    await vi.waitFor(() => expect(context.adopted).toHaveLength(1));
+    await flush();
+    expect(read.events).toEqual([]);
+  });
+
   it("ends a run whose CLI sends init and then nothing with an error once the open timeout passes, and is not held busy by it after", async () => {
     const adapter = adapterWith();
     const run = adapter.createRun(runInput(), contextWith());
