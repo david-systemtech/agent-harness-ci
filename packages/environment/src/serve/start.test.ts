@@ -50,6 +50,8 @@ afterEach(() => {
 const recordingLauncher = (onPrepared?: () => void | Promise<void>, onClose?: () => void | Promise<void>) => {
   const signals: string[] = [];
   const channel: LauncherChannel = {
+    present: () => false,
+    onQuery: () => undefined,
     prepared: async () => {
       signals.push("prepared");
       await onPrepared?.();
@@ -404,9 +406,11 @@ describe("the startup gate", () => {
       interfaces,
       user: notPrivileged,
       launcher: {
+        present: () => true,
         prepared: () => {
           throw new Error("the launcher has gone");
         },
+        onQuery: () => undefined,
         close: () => undefined,
       },
       hooks: { beforeStep: (_step, progress) => void (address = progress.address) },
@@ -484,14 +488,14 @@ describe("never root", () => {
 });
 
 describe("environment.status", () => {
-  it("is registered with its readiness result", async () => {
-    const env = await start();
+  it("is registered with its status result: readiness, activity, and who manages updates", async () => {
+    const env = await start({ containerDetector: { inContainer: () => false } });
     const served = env.methods.get("environment.status");
     if (served?.kind !== "query" || !served.handler) throw new Error("environment.status has no handler");
     const { handler } = served;
     const clientSession = { id: "cs-1", kind: "tui", scopes: ["read"], ceiling: TOP_CEILING, local: true, expiresAt: 0 } as const;
     const result = await handler({}, { clientSession });
-    expect(result).toEqual({ readiness: "ready" });
+    expect(result).toEqual({ readiness: "ready", activity: { state: "idle" }, updatesManagedOutside: false });
     expect(registry["environment.status"].result.parse(result)).toEqual(result);
     expect(registry["environment.status"].scope).toBe("read");
   });

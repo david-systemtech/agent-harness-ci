@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BusyReason",
+  "type": "string",
+  "enum": [
+    "run-starting",
+    "run-running",
+    "parked-prompt",
+    "recent-activity"
+  ],
+  "description": "Why the environment is busy: run-starting and run-running (a run is starting or running), parked-prompt (a run parked on a prompt in the last ten minutes), recent-activity (a run started or ended in the last ten minutes)."
+}

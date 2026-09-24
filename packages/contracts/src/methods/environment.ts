@@ -1,17 +1,9 @@
 import { z } from "zod";
-import { EnvironmentReadiness } from "../discovery.js";
+import { DrainStarted, EnvironmentStatus } from "../lifecycle.js";
 import { commandParams, defineMethod, subscriptionParams } from "../method.js";
-import { Sequence, Timestamp } from "../primitives.js";
+import { Sequence } from "../primitives.js";
 
-/**
- * The environment's state as `environment.status` answers it and
- * `environment.subscribe` snapshots it: for now its readiness. The lifecycle
- * ticket (#112) extends it with idle, busy or draining, the reason, when a
- * parked prompt stops counting as busy, and whether updates are managed
- * outside (a container with no launcher).
- */
-const EnvironmentStatus = z.object({ readiness: EnvironmentReadiness });
-
+/** Readiness, idle or busy with the reason or draining, and whether updates are managed outside. */
 export const environmentStatus = defineMethod({
   name: "environment.status",
   scope: "read",
@@ -35,17 +27,21 @@ export const environmentSubscribe = defineMethod({
   kind: "stream",
 });
 
-/** Refuse new runs, let running ones finish up to the cap, then say `bye: draining` and exit. */
+/**
+ * Refuse new runs, let running ones finish up to the cap, then say `bye:
+ * draining` and exit. A drain already under way is joined: the answer names
+ * when it began and what started it.
+ */
 export const environmentDrain = defineMethod({
   name: "environment.drain",
   scope: "admin",
   params: commandParams({}),
-  result: z.object({ drainingSince: Timestamp }),
+  result: DrainStarted,
   errors: [],
   kind: "command",
 });
 
-/** Drop the projection tables and replay the log into them. */
+/** Drop the projection tables and replay the log into them: which projectors were rebuilt, up to which sequence. */
 export const environmentRebuildProjections = defineMethod({
   name: "environment.rebuildProjections",
   scope: "admin",

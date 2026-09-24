@@ -136,12 +136,13 @@ export const createProjections = (sql: Sql, transaction: Transaction, clock: () 
       for (const table of Object.keys(projector.tables)) tableOwners.set(table.toLowerCase(), projector.name);
     },
 
-    /** Drops every registered projector's tables, recreates them and replays the whole log, in one transaction. */
-    rebuild(): void {
+    /** Drops every registered projector's tables, recreates them and replays the whole log, in one transaction; returns their names. */
+    rebuild(): string[] {
       transaction(() => {
         for (const projector of projectors) reset(projector);
         for (const projector of projectors) catchUpOne(projector);
       });
+      return projectors.map((projector) => projector.name);
     },
   };
 };

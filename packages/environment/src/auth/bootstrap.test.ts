@@ -253,10 +253,10 @@ describe("tui local client sessions", () => {
     const oneClient = await t.client({ token: one.token });
     const two = await t.bootstrap("tui", "right pane");
     const twoClient = await t.client({ token: two.token });
-    expect(await oneClient.request("environment.status", {})).toEqual({ readiness: "ready" });
-    expect(await twoClient.request("environment.status", {})).toEqual({ readiness: "ready" });
+    expect(await oneClient.request("environment.status", {})).toMatchObject({ readiness: "ready" });
+    expect(await twoClient.request("environment.status", {})).toMatchObject({ readiness: "ready" });
     expect(await t.bootstrap("desktop")).toBeDefined();
-    expect(await oneClient.request("environment.status", {})).toEqual({ readiness: "ready" });
+    expect(await oneClient.request("environment.status", {})).toMatchObject({ readiness: "ready" });
   });
 
   it("are revoked once their last socket has been closed for an hour", async () => {
@@ -281,7 +281,7 @@ describe("tui local client sessions", () => {
     const tui = await t.bootstrap("tui");
     const client = await t.client({ token: tui.token });
     t.clock.advance(3 * HOUR);
-    expect(await client.request("environment.status", {})).toEqual({ readiness: "ready" });
+    expect(await client.request("environment.status", {})).toMatchObject({ readiness: "ready" });
     expect(client.isOpen()).toBe(true);
   });
 

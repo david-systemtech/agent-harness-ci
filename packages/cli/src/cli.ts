@@ -23,19 +23,23 @@ const USAGE = [
 export interface CliContext {
   readonly stdout: (text: string) => void;
   readonly stderr: (text: string) => void;
-  /** Resolves when the process is asked to stop. */
+  /** Resolves when the process is asked to stop: `serve` then drains. */
   readonly stopRequested: () => Promise<unknown>;
   /**
    * Seams into the environment for tests. `main.ts` passes none, and no flag
    * or environment variable reaches them, so nothing a user can type lifts
    * the root refusal.
    */
-  readonly environment?: Pick<EnvironmentOptions, "user" | "launcher" | "interfaces">;
+  readonly environment?: Pick<EnvironmentOptions, "user" | "launcher" | "runs" | "interfaces">;
   /** The network `pair` uses; preset: the platform's `fetch` and `WebSocket`. */
   readonly net?: Net;
 }
 
-/** SIGINT or SIGTERM, whichever comes first. The drain SIGTERM starts arrives with #112. */
+/**
+ * SIGINT or SIGTERM, whichever comes first; either starts the drain. The
+ * listeners go with the first, so a second signal during a drain stops the
+ * process at once, as the signal's default does.
+ */
 const signalled = (): Promise<NodeJS.Signals> =>
   new Promise((resolve) => {
     const on = (signal: NodeJS.Signals) => {
@@ -128,10 +132,11 @@ const pair = async (args: readonly string[], context: CliContext): Promise<numbe
 };
 
 /**
- * `serve`: runs the environment in the foreground until SIGINT or SIGTERM,
- * printing the discovery address once it is ready. Everything it does is the
- * environment package's; this only refuses, parses, prints and waits. The
- * refusal comes before the arguments are read, so no argument gets past it.
+ * `serve`: runs the environment, printing the discovery address once it is
+ * ready, until a drain ends: one SIGINT or SIGTERM starts, or the launcher's
+ * drain query or `environment.drain`. Everything it does is the environment
+ * package's; this only refuses, parses, prints and waits. The refusal comes
+ * before the arguments are read, so no argument gets past it.
  */
 const serve = async (args: readonly string[], context: CliContext): Promise<number> => {
   const user = context.environment?.user ?? processUserCheck();
@@ -152,8 +157,14 @@ const serve = async (args: readonly string[], context: CliContext): Promise<numb
   }
   const { host, port } = environment.address;
   context.stdout(`http://${host}:${port}${DISCOVERY_PATH}\n`);
-  await context.stopRequested();
-  await environment.close();
+  // The drain's own end is awaited below, whatever started it.
+  void context.stopRequested().then(() => environment.drain("signal")).catch(() => undefined);
+  try {
+    await environment.drained;
+  } catch (error) {
+    context.stderr(`${PRODUCT_NAME} did not stop cleanly: ${error instanceof Error ? error.message : String(error)}\n`);
+    return 1;
+  }
   return 0;
 };
 

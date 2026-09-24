@@ -115,7 +115,7 @@ describe("POST /api/pair", () => {
       scopes: ["read", "runs:drive"],
       ceiling: "plan",
     });
-    expect(await client.request("environment.status", {})).toEqual({ readiness: "ready" });
+    expect(await client.request("environment.status", {})).toMatchObject({ readiness: "ready" });
   });
 
   it("takes every client kind: desktop, tui, web and program", async () => {
@@ -143,7 +143,7 @@ describe("POST /api/pair", () => {
     expect(again.status).toBe(410);
     expect(PairError.parse(again.body)).toEqual({ code: "pairing_used", message: expect.any(String), data: {} });
     const client = await t.client({ token: ClientSessionCredential.parse(first.body).token, clientKind: "program" });
-    expect(await client.request("environment.status", {})).toEqual({ readiness: "ready" });
+    expect(await client.request("environment.status", {})).toMatchObject({ readiness: "ready" });
   });
 
   it("lets a code be exchanged once even when exchanges race", async () => {

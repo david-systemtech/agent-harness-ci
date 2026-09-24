@@ -148,7 +148,7 @@ describe("binding", () => {
       const { token } = await t.pair({ kind: "web" });
       const client = await connectClient(tailnet, { token, clientKind: "web" });
       onCleanup(() => client.close());
-      expect(await client.request("environment.status", {})).toEqual({ readiness: "ready" });
+      expect(await client.request("environment.status", {})).toMatchObject({ readiness: "ready" });
     });
 
     it("binds a LAN address when LAN binding is on, and reports the policy tailnet", async () => {

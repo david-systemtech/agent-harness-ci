@@ -157,7 +157,7 @@ describe("access.sessions.revoke", () => {
     expect(result).toEqual({ revokedAt: t.clock.now().toISOString() });
     for (const socket of [one, two]) expect((await socket.closed).bye?.reason).toBe("revoked");
     expect(await outcome(t, bot.token)).toBe("bye: revoked");
-    expect(await client.request("environment.status", {})).toEqual({ readiness: "ready" });
+    expect(await client.request("environment.status", {})).toMatchObject({ readiness: "ready" });
   });
 
   it("answers an unknown client session not_found", async () => {
@@ -251,7 +251,7 @@ describe("access.sessions.refresh", () => {
     const client = await t.client({ token: bot.token, clientKind: "program" });
     await client.request("access.sessions.refresh", { commandId: randomUUID() });
     t.clock.advance(2 * MINUTE + PING_INTERVAL_MS);
-    expect(await client.request("environment.status", {})).toEqual({ readiness: "ready" });
+    expect(await client.request("environment.status", {})).toMatchObject({ readiness: "ready" });
     expect(client.isOpen()).toBe(true);
   });
 
