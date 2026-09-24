@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { schemaFixtures } from "../test/fixtures.js";
 import * as contracts from "./index.js";
-import { JSON_SCHEMA_DRAFT, exportedSchemas, jsonSchemaFiles, methods } from "./index.js";
+import { JSON_SCHEMA_DRAFT, exportedSchemas, jsonSchemaFiles, methodPath, methods } from "./index.js";
 
 /** The committed export, which CI regenerates and diffs. */
 const schemaDir = join(import.meta.dirname, "..", "schema");
@@ -49,7 +49,7 @@ describe("the JSON Schema export", () => {
     const index = readJson("index.json") as {
       protocolVersion: number;
       schemas: { path: string; title: string }[];
-      methods: { name: string; scope: string; stream: boolean; mutating: boolean; params: string; result: string; error: string }[];
+      methods: { name: string; scope: string; kind: string; stream: boolean; params: string; result: string; error: string }[];
     };
     expect(index.protocolVersion).toBe(contracts.PROTOCOL_VERSION);
     expect(index.schemas.map((s) => s.path).sort()).toEqual(filesOnDisk().filter((p) => p !== "index.json"));
@@ -57,13 +57,36 @@ describe("the JSON Schema export", () => {
       methods.map((m) => ({
         name: m.name,
         scope: m.scope,
-        stream: m.stream,
-        mutating: m.mutating,
-        params: `methods/${m.name}/params.json`,
-        result: `methods/${m.name}/result.json`,
-        error: `methods/${m.name}/error.json`,
+        kind: m.kind,
+        stream: m.kind === "stream",
+        params: methodPath(m.name, "params"),
+        result: methodPath(m.name, "result"),
+        error: methodPath(m.name, "error"),
       })),
     );
+  });
+
+  it("describes every enum, so a client developer knows what each set of values is", () => {
+    const undescribed: string[] = [];
+    const walk = (node: unknown, where: string): void => {
+      if (Array.isArray(node)) return node.forEach((child, i) => walk(child, `${where}/${i}`));
+      if (typeof node !== "object" || node === null) return;
+      if ("enum" in node && !("description" in node)) undescribed.push(where);
+      for (const [key, child] of Object.entries(node)) if (key !== "enum") walk(child, `${where}/${key}`);
+    };
+    for (const path of filesOnDisk().filter((p) => p !== "index.json")) walk(readJson(path), path);
+    expect(undescribed).toEqual([]);
+  });
+
+  it("speaks the glossary: the environment and the client, never a server", () => {
+    const offending: string[] = [];
+    for (const path of filesOnDisk()) {
+      const text = readFileSync(join(schemaDir, path), "utf8");
+      for (const match of text.matchAll(/"description": "([^"]*)"/g)) {
+        if (/\bserver\b/i.test(match[1] ?? "")) offending.push(`${path}: ${match[1]}`);
+      }
+    }
+    expect(offending).toEqual([]);
   });
 
   it("has fixtures for every schema it exports", () => {

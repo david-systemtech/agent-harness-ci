@@ -9,17 +9,20 @@ export * from "./errors.js";
 export * from "./flags.js";
 export * from "./frames.js";
 export {
+  METHOD_KINDS,
   commandParams,
   defineMethod,
   subscriptionParams,
   type ErrorMember,
   type Method,
   type MethodErrorUnion,
+  type MethodKind,
   type MethodSpec,
 } from "./method.js";
 export {
   CLIENT_KINDS,
   ClientKind,
+  ClientSessionId,
   CommandId,
   RequestId,
   Sequence,

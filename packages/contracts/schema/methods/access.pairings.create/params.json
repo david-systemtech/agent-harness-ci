@@ -7,9 +7,10 @@
       "type": "string",
       "format": "uuid",
       "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
-      "description": "The client-generated UUID every mutating method takes; a retry with the same id applies once."
+      "description": "The client-generated UUID every command takes; a retry with the same id applies once."
     },
     "scopes": {
+      "description": "The scopes the client session will hold; every scope when absent.",
       "minItems": 1,
       "type": "array",
       "items": {
@@ -21,15 +22,14 @@
           "terminal",
           "admin"
         ],
-        "description": "One of the five scopes a method may require."
+        "description": "One of the five scopes a method may require: read (list and subscribe), sessions:write (organisation commands), runs:drive (start, send, interrupt, answer prompts), terminal (terminals, files and diffs), admin (pairings, client sessions, drain, rebuild, settings)."
       },
-      "uniqueItems": true,
-      "description": "The scopes a client session holds, as a non-empty set."
+      "uniqueItems": true
     },
     "ceiling": {
+      "description": "The client session's ceiling; the environment's default ceiling when absent.",
       "type": "string",
-      "minLength": 1,
-      "description": "The highest mode a client session may use; its values are the permissions workstream's."
+      "minLength": 1
     }
   },
   "required": [

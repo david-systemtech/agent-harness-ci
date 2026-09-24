@@ -20,6 +20,9 @@
             "type": "string"
           },
           "additionalProperties": {}
+        },
+        "error": {
+          "not": {}
         }
       },
       "required": [
@@ -65,6 +68,9 @@
             "data"
           ],
           "description": "An error as a response carries it: a stable code, a message and structured data."
+        },
+        "result": {
+          "not": {}
         }
       },
       "required": [
@@ -74,5 +80,5 @@
       ]
     }
   ],
-  "description": "Server: a request's result, or its error."
+  "description": "From the environment: a request's result, or its error, never both."
 }

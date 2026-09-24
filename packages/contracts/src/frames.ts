@@ -1,8 +1,16 @@
 import { z } from "zod";
 import { EventEnvelope } from "./envelope.js";
-import { ContractError, WireError, invalidParams } from "./errors.js";
+import { ContractError, WireError, invalidParams, type IssueInput } from "./errors.js";
 import { CapabilityFlags, ProtocolVersion } from "./flags.js";
-import { ClientKind, RequestId, Sequence, SubscriptionId, Timestamp } from "./primitives.js";
+import {
+  ClientKind,
+  ClientSessionId,
+  JsonObject,
+  RequestId,
+  Sequence,
+  SubscriptionId,
+  Timestamp,
+} from "./primitives.js";
 import { Ceiling, ScopeSet } from "./scopes.js";
 
 /**
@@ -12,29 +20,36 @@ import { Ceiling, ScopeSet } from "./scopes.js";
  * refused: adding an optional field never bumps the protocol version.
  */
 
-/** A JSON object; params, results and snapshot payloads are objects so they can grow a field. */
-const JsonObject = z.record(z.string(), z.unknown());
-
 /** Why a subscription ended. */
 export const END_REASONS = ["unsubscribed", "overflow", "revoked", "closed"] as const;
-export const EndReason = z.enum(END_REASONS);
+export const EndReason = z.enum(END_REASONS).meta({
+  description:
+    "Why a subscription ended: the client unsubscribed; it fell too far behind (resubscribe from its cursor); its client session was revoked; or the connection closed.",
+});
 export type EndReason = z.infer<typeof EndReason>;
 
 /** Why the environment is about to close the connection. */
 export const BYE_REASONS = ["unauthorized", "expired", "revoked", "protocol", "draining", "updating"] as const;
-export const ByeReason = z.enum(BYE_REASONS);
+export const ByeReason = z.enum(BYE_REASONS).meta({
+  description:
+    "Why the environment is closing the connection: the token is invalid, foreign or unknown; it expired; the client session was revoked; the protocol versions differ; or the environment is draining or updating.",
+});
 export type ByeReason = z.infer<typeof ByeReason>;
 
 export const AuthFrame = z
   .object({
     type: z.literal("auth"),
-    /** The client session token from `/api/pair` or `/api/bootstrap`; never in a URL. */
-    token: z.string().min(1),
+    token: z.string().min(1).meta({
+      description: "The client session token from /api/pair or /api/bootstrap. It never travels in a URL.",
+    }),
     protocolVersion: ProtocolVersion,
     clientKind: ClientKind,
     harnessVersion: z.string().min(1),
   })
-  .meta({ description: "Client, first message: the client session token, the client's protocol version, kind and harness version." });
+  .meta({
+    description:
+      "From the client, first: its client session token, protocol version, kind and harness version.",
+  });
 export type AuthFrame = z.infer<typeof AuthFrame>;
 
 export const HelloFrame = z
@@ -44,67 +59,102 @@ export const HelloFrame = z
     capabilities: CapabilityFlags,
     environmentId: z.uuid(),
     environmentName: z.string(),
-    clientSessionId: z.string().min(1),
+    clientSessionId: ClientSessionId,
     scopes: ScopeSet,
     ceiling: Ceiling,
     serverTime: Timestamp,
   })
-  .meta({ description: "Server, in reply to a valid auth: what the environment is and what this client session may do." });
+  .meta({
+    description:
+      "From the environment, in reply to a valid auth: what the environment is and what this client session may do.",
+  });
 export type HelloFrame = z.infer<typeof HelloFrame>;
 
 export const RequestFrame = z
   .object({
     type: z.literal("request"),
     id: RequestId,
-    /** A registered method name, `area.verb`; a stream method's request is a subscription. */
-    method: z.string().min(1),
-    /** The method's params, checked against its params schema after its scope. */
-    params: JsonObject,
+    method: z.string().min(1).meta({
+      description: "A registered method name, area.verb. A request on a stream method is a subscription.",
+    }),
+    params: JsonObject.meta({
+      description: "The method's params, checked against its params schema after its scope.",
+    }),
   })
-  .meta({ description: "Client: call a method, or subscribe when the method is a stream." });
+  .meta({ description: "From the client: call a method, or subscribe when the method is a stream." });
 export type RequestFrame = z.infer<typeof RequestFrame>;
 
-const ResultResponse = z.object({ type: z.literal("response"), id: RequestId, result: JsonObject });
-const ErrorResponse = z.object({ type: z.literal("response"), id: RequestId, error: WireError });
+/** A result response carries no error, and an error response no result: `never` exports as `not: {}`. */
+const ResultResponse = z.object({
+  type: z.literal("response"),
+  id: RequestId,
+  result: JsonObject,
+  error: z.never().optional(),
+});
+const ErrorResponse = z.object({
+  type: z.literal("response"),
+  id: RequestId,
+  error: WireError,
+  result: z.never().optional(),
+});
 
 export const ResponseFrame = z
   .union([ResultResponse, ErrorResponse])
-  .meta({ description: "Server: a request's result, or its error." });
+  .meta({ description: "From the environment: a request's result, or its error, never both." });
 export type ResponseFrame = z.infer<typeof ResponseFrame>;
 
 export const SubscribedFrame = z
   .object({ type: z.literal("subscribed"), id: RequestId, subscription: SubscriptionId })
-  .meta({ description: "Server: the response to a stream request, naming the subscription its messages carry." });
+  .meta({
+    description: "From the environment: the response to a stream request, naming the subscription its messages carry.",
+  });
 export type SubscribedFrame = z.infer<typeof SubscribedFrame>;
 
 export const SnapshotFrame = z
   .object({ type: z.literal("snapshot"), subscription: SubscriptionId, sequence: Sequence, payload: JsonObject })
-  .meta({ description: "Server: at most one, first, when replay from the cursor is out of bounds; the state as of sequence." });
+  .meta({
+    description:
+      "From the environment: at most one, first, when replay from the cursor is out of bounds; the state as of sequence.",
+  });
 export type SnapshotFrame = z.infer<typeof SnapshotFrame>;
 
 export const EventFrame = z
-  .object({ type: z.literal("event"), subscription: SubscriptionId, sequence: Sequence, event: EventEnvelope })
-  .meta({ description: "Server: one event of the subscription's stream." });
+  .object({
+    type: z.literal("event"),
+    subscription: SubscriptionId,
+    sequence: Sequence.min(1).meta({ description: "The event's global sequence; always equal to event.sequence." }),
+    event: EventEnvelope,
+  })
+  .refine((frame) => frame.sequence === frame.event.sequence, {
+    message: "The frame's sequence must equal its event's.",
+    path: ["sequence"],
+  })
+  .meta({
+    description:
+      "From the environment: one event of the subscription's stream. sequence equals event.sequence, a rule the decoder keeps and this schema cannot state.",
+  });
 export type EventFrame = z.infer<typeof EventFrame>;
 
 export const SynchronizedFrame = z
   .object({ type: z.literal("synchronized"), subscription: SubscriptionId, sequence: Sequence })
-  .meta({ description: "Server: once, when catch-up is complete; live events follow." });
+  .meta({ description: "From the environment: once, when catch-up is complete; live events follow." });
 export type SynchronizedFrame = z.infer<typeof SynchronizedFrame>;
 
 export const EndFrame = z
   .object({ type: z.literal("end"), subscription: SubscriptionId, reason: EndReason })
-  .meta({ description: "Server: the subscription is over, and why." });
+  .meta({ description: "From the environment: the subscription is over, and why." });
 export type EndFrame = z.infer<typeof EndFrame>;
 
 export const UnsubscribeFrame = z
   .object({ type: z.literal("unsubscribe"), subscription: SubscriptionId })
-  .meta({ description: "Client: end a subscription; answered by end with reason unsubscribed." });
+  .meta({ description: "From the client: end a subscription; answered by end with reason unsubscribed." });
 export type UnsubscribeFrame = z.infer<typeof UnsubscribeFrame>;
 
 export const PingFrame = z
   .object({ type: z.literal("ping") })
-  .meta({ description: "Server, every 15 seconds; a client arms its 45-second watchdog after the first." });
+  .meta({
+    description: "From the environment, every 15 seconds; the client arms its 45-second watchdog after the first.",
+  });
 export type PingFrame = z.infer<typeof PingFrame>;
 
 export const PongFrame = z.object({ type: z.literal("pong") }).meta({ description: "The answer to a ping." });
@@ -114,12 +164,15 @@ export const ByeFrame = z
   .object({
     type: z.literal("bye"),
     reason: ByeReason,
-    /** The environment's own protocol version, sent with `protocol` so the client can name both. */
-    protocolVersion: ProtocolVersion.optional(),
-    /** A sentence for people. */
-    message: z.string().optional(),
+    protocolVersion: ProtocolVersion.optional().meta({
+      description: "The environment's own protocol version, sent with reason protocol so the client can name both.",
+    }),
+    message: z.string().optional().meta({ description: "A sentence for people." }),
   })
-  .meta({ description: "Server, before it closes the connection: why, so the client reconnects only when it should." });
+  .meta({
+    description:
+      "From the environment, before it closes the connection: why, so the client reconnects only when it should.",
+  });
 export type ByeFrame = z.infer<typeof ByeFrame>;
 
 /** Every frame kind, in the env spec's order. */
@@ -183,7 +236,7 @@ export type Frame = z.infer<typeof Frame>;
 
 const FrameKind = z.object({ type: z.enum(FRAME_TYPES) });
 
-const malformed = (issues: readonly z.core.$ZodIssue[]): ContractError =>
+const malformed = (issues: readonly IssueInput[]): ContractError =>
   new ContractError(invalidParams(issues, "The frame is malformed."));
 
 /** A frame as JSON text, one message per WebSocket frame. */
@@ -199,9 +252,7 @@ export const decodeFrame = (text: string): Frame => {
   try {
     json = JSON.parse(text);
   } catch (error) {
-    throw malformed([
-      { code: "custom", path: [], message: `The frame is not JSON: ${(error as Error).message}`, input: undefined },
-    ]);
+    throw malformed([{ code: "custom", path: [], message: `The frame is not JSON: ${(error as Error).message}` }]);
   }
   const kind = FrameKind.safeParse(json);
   if (!kind.success) throw malformed(kind.error.issues);

@@ -6,6 +6,15 @@ import { SCOPES, type Scope } from "./scopes.js";
 /** One error member a method adds to the shared union, made with `errorSchema`. */
 export type ErrorMember = z.ZodObject<{ code: z.ZodLiteral<string>; message: z.ZodString; data: z.ZodObject }>;
 
+/**
+ * What a method is: a query reads and answers once; a command changes
+ * something and takes a client-generated `commandId`, so a retry applies once;
+ * a stream is a subscription, answered by `subscribed`, then a snapshot or a
+ * replay from its `afterSequence` cursor, then live events.
+ */
+export const METHOD_KINDS = ["query", "command", "stream"] as const;
+export type MethodKind = (typeof METHOD_KINDS)[number];
+
 interface MethodSpecBase {
   /** `area.verb`: `environment.status`, `access.pairings.create`. */
   readonly name: `${string}.${string}`;
@@ -20,31 +29,26 @@ interface MethodSpecBase {
   readonly errors: readonly ErrorMember[];
 }
 
-/** A method that reads: no command id, one response. */
 interface QuerySpec extends MethodSpecBase {
+  readonly kind: "query";
   readonly params: z.ZodObject;
-  readonly stream: false;
-  readonly mutating: false;
 }
 
-/** A method that changes something: it takes a client-generated `commandId`, so a retry applies once. */
 interface CommandSpec extends MethodSpecBase {
+  readonly kind: "command";
   readonly params: z.ZodObject<{ commandId: typeof CommandId }>;
-  readonly stream: false;
-  readonly mutating: true;
 }
 
-/** A subscription: `subscribed`, then snapshot or replay from its `afterSequence` cursor, then live events. */
 interface StreamSpec extends MethodSpecBase {
+  readonly kind: "stream";
   readonly params: z.ZodObject<{ afterSequence: typeof Sequence }>;
-  readonly stream: true;
-  readonly mutating: false;
 }
 
 /**
- * A registry entry as written: name, scope, params, result, own errors and the
- * stream and mutating flags, every one required. `scope` is a single `Scope`,
- * so a method with none, or with a list, does not compile.
+ * A registry entry as written: name, scope, kind, params, result and own
+ * errors, every one required. `scope` is a single `Scope`, so a method with
+ * none, or with a list, does not compile; a command's params must hold a
+ * `commandId` and a stream's an `afterSequence`.
  */
 export type MethodSpec = QuerySpec | CommandSpec | StreamSpec;
 
@@ -66,17 +70,19 @@ const METHOD_NAME = /^[a-z][A-Za-z]*(\.[a-z][A-Za-z]*)+$/;
  * would shadow a shared one.
  */
 export const defineMethod = <const M extends MethodSpec>(spec: M): Method<M> => {
-  const { name, scope } = spec as { name: unknown; scope: unknown };
+  const { name, scope, kind } = spec as { name: unknown; scope: unknown; kind: unknown };
   if (typeof name !== "string" || !METHOD_NAME.test(name)) {
     throw new Error(`A method's name is area.verb; got ${JSON.stringify(name)}.`);
   }
   if (typeof scope !== "string" || !(SCOPES as readonly string[]).includes(scope)) {
     throw new Error(`Method ${name} needs exactly one scope of ${SCOPES.join(", ")}; got ${JSON.stringify(scope)}.`);
   }
+  if (typeof kind !== "string" || !(METHOD_KINDS as readonly string[]).includes(kind)) {
+    throw new Error(`Method ${name} needs a kind of ${METHOD_KINDS.join(", ")}; got ${JSON.stringify(kind)}.`);
+  }
   const shape: Record<string, unknown> = spec.params.shape;
-  if (spec.mutating && !("commandId" in shape)) throw new Error(`Method ${name} mutates, so its params take a commandId.`);
-  if (spec.stream && !("afterSequence" in shape)) throw new Error(`Stream ${name} takes an afterSequence cursor.`);
-  if (spec.stream && spec.mutating) throw new Error(`Stream ${name} cannot also be a command.`);
+  if (kind === "command" && !("commandId" in shape)) throw new Error(`Command ${name} takes a commandId in its params.`);
+  if (kind === "stream" && !("afterSequence" in shape)) throw new Error(`Stream ${name} takes an afterSequence cursor.`);
   const shared = new Set<string>(SHARED_ERROR_CODES);
   const own = new Set<string>();
   for (const member of spec.errors) {
@@ -89,7 +95,7 @@ export const defineMethod = <const M extends MethodSpec>(spec: M): Method<M> => 
   return Object.freeze({ ...spec, error }) as unknown as Method<M>;
 };
 
-/** A mutating method's params: `shape` plus the `commandId` every command takes. */
+/** A command's params: `shape` plus the `commandId` every command takes. */
 export const commandParams = <const S extends z.core.$ZodLooseShape>(shape: S) =>
   z.object({ commandId: CommandId, ...shape });
 

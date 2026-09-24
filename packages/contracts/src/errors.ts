@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { JsonObject } from "./primitives.js";
 import { Scope } from "./scopes.js";
 
 /** A stable, machine-readable error code in snake case: `not_found`, `ceiling_exceeded`. */
@@ -21,16 +22,13 @@ export const SchemaIssue = z
   .meta({ description: "One schema issue: a code, the path to the offending value and a message." });
 export type SchemaIssue = z.infer<typeof SchemaIssue>;
 
-/** Structured error data: always an object, so a member can grow a field without a protocol bump. */
-const ErrorData = z.record(z.string(), z.unknown());
-
 /**
  * Any error as the `response` frame carries it: a stable `code`, a message
  * for people and structured `data` for programs. What a given method may
  * return is narrower: the shared union plus that method's own members.
  */
 export const WireError = z
-  .object({ code: ErrorCode, message: z.string(), data: ErrorData })
+  .object({ code: ErrorCode, message: z.string(), data: JsonObject })
   .meta({ description: "An error as a response carries it: a stable code, a message and structured data." });
 export type WireError = z.infer<typeof WireError>;
 
@@ -49,7 +47,11 @@ export const ForbiddenError = errorSchema("forbidden", z.object({ scope: Scope }
 /** The environment is not ready yet, or is draining. */
 export const UnavailableError = errorSchema(
   "unavailable",
-  z.object({ readiness: z.enum(["starting", "draining"]) }),
+  z.object({
+    readiness: z.enum(["starting", "draining"]).meta({
+      description: "Why the environment cannot answer: it is not ready yet, or it is draining.",
+    }),
+  }),
 ).meta({ description: "The environment is starting or draining; data.readiness says which." });
 /** The params, or a frame, did not match the schema; `data.issues` says where. */
 export const InvalidParamsError = errorSchema("invalid_params", z.object({ issues: z.array(SchemaIssue) })).meta({
@@ -96,17 +98,27 @@ export type NotFoundError = z.infer<typeof NotFoundError>;
 export type ConflictError = z.infer<typeof ConflictError>;
 export type InternalError = z.infer<typeof InternalError>;
 
+/** An issue as `invalidParams` takes it: one of zod's, or one built by hand in the same shape. */
+export type IssueInput = z.core.$ZodIssue | z.input<typeof SchemaIssue>;
+
+/** JSON for `value`, with the path segments and numbers JSON cannot carry turned into strings. */
+const plain = (value: unknown): unknown =>
+  JSON.parse(JSON.stringify(value, (_key, v: unknown) => (typeof v === "symbol" || typeof v === "bigint" ? String(v) : v)));
+
+const SchemaIssues = z.array(SchemaIssue);
+
 /**
- * The `invalid_params` error for a schema's `issues`. They are copied through
- * JSON so `data` is plain data a frame can carry, whatever zod put in them.
+ * The `invalid_params` error for a schema's `issues`. They go through JSON and
+ * then the `SchemaIssue` schema, so `data` is plain data a frame can carry,
+ * whatever zod put in them.
  */
 export const invalidParams = (
-  issues: readonly z.core.$ZodIssue[],
+  issues: readonly IssueInput[],
   message = "The input does not match the schema.",
 ): InvalidParamsError => ({
   code: "invalid_params",
   message,
-  data: { issues: JSON.parse(JSON.stringify(issues)) as SchemaIssue[] },
+  data: { issues: SchemaIssues.parse(plain(issues)) },
 });
 
 /**

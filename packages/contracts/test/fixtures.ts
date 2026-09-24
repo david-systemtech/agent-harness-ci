@@ -1,10 +1,12 @@
 /**
  * Instances the contract tests share: a valid and a malformed frame of every
- * kind, and a valid and an invalid instance of every exported schema. A new
- * frame kind or a new exported schema without fixtures fails the tests, so the
- * export and the codec are never tested on less than the whole package.
+ * kind, and a valid and an invalid instance of every exported schema. A frame
+ * kind without fixtures does not compile, and a registered method without
+ * them makes this module throw; any other exported schema without fixtures
+ * fails the schema-export test. The export and the codec are never tested on
+ * less than the whole package.
  */
-import { FRAME_TYPES, SHARED_ERROR_CODES, methods, type FrameType } from "../src/index.js";
+import { FRAME_TYPES, SHARED_ERROR_CODES, methodPath, methods, type FrameType } from "../src/index.js";
 
 const uuid = "0f8fad5b-d9cb-469f-a165-70867728950e";
 const otherUuid = "7c9e6679-7425-40de-944b-e07fc1f90ae7";
@@ -93,6 +95,12 @@ export const validFrames: Record<FrameType, readonly object[]> = {
 
 const json = (value: unknown): string => JSON.stringify(value);
 
+/** An event frame whose sequence is not its event's: a rule the codec keeps and JSON Schema cannot say. */
+const eventSequenceMismatch = json({ type: "event", subscription: "sub-1", sequence: 41, event: validEnvelope });
+
+/** Malformed frames only the codec refuses; the exported schemas accept them, so they are no schema fixture. */
+const beyondJsonSchema: ReadonlySet<string> = new Set([eventSequenceMismatch]);
+
 /**
  * Malformed frame text of every kind, as it would arrive on the socket. A kind
  * with no fields (`ping`, `pong`) can only be malformed as text: cut short, or
@@ -123,6 +131,7 @@ export const malformedFrames: Record<FrameType, readonly string[]> = {
     json({ type: "response", id: "1", result: "ok" }),
     json({ type: "response", id: "1", error: { code: "not_found", message: "gone" } }),
     json({ type: "response", result: {} }),
+    json({ type: "response", id: "1", result: {}, error: sharedErrors.not_found }),
   ],
   subscribed: [json({ type: "subscribed", id: "3" }), json({ type: "subscribed", id: "3", subscription: 7 })],
   snapshot: [
@@ -134,6 +143,8 @@ export const malformedFrames: Record<FrameType, readonly string[]> = {
     json({ type: "event", subscription: "sub-1", sequence: 42 }),
     json({ type: "event", subscription: "sub-1", sequence: 42, event: envelopeWithoutCommandId }),
     json({ type: "event", subscription: "sub-1", sequence: 1.5, event: validEnvelope }),
+    json({ type: "event", subscription: "sub-1", sequence: 0, event: { ...validEnvelope, sequence: 0 } }),
+    eventSequenceMismatch,
   ],
   synchronized: [json({ type: "synchronized", subscription: "sub-1" }), json({ type: "synchronized", sequence: 3 })],
   end: [
@@ -149,6 +160,7 @@ export const malformedFrames: Record<FrameType, readonly string[]> = {
 /** The malformed frames that are at least JSON, for the schema fixtures. */
 const malformedJson = (kind: FrameType): unknown[] =>
   malformedFrames[kind].flatMap((text) => {
+    if (beyondJsonSchema.has(text)) return [];
     try {
       return [JSON.parse(text) as unknown];
     } catch {
@@ -266,11 +278,11 @@ const methodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
 const methodSchemaFixtures = Object.fromEntries(
   methods.flatMap((method): [string, Fixtures][] => {
     const own = methodFixtures[method.name];
-    if (!own) return [];
+    if (!own) throw new Error(`No fixtures for the registered method ${method.name}.`);
     return [
-      [`methods/${method.name}/params.json`, own.params],
-      [`methods/${method.name}/result.json`, own.result],
-      [`methods/${method.name}/error.json`, methodErrorFixtures],
+      [methodPath(method.name, "params"), own.params],
+      [methodPath(method.name, "result"), own.result],
+      [methodPath(method.name, "error"), methodErrorFixtures],
     ];
   }),
 );
@@ -285,6 +297,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
   "ceiling.json": { valid: ["auto", "acceptEdits"], invalid: ["", 3] },
   "client-kind.json": { valid: ["desktop", "tui", "web", "program"], invalid: ["phone", "Desktop"] },
   "command-id.json": { valid: [uuid], invalid: ["not-a-uuid", "", 7] },
+  "client-session-id.json": { valid: ["cs-1"], invalid: ["", 1] },
   "request-id.json": { valid: ["1", "a7"], invalid: ["", 1] },
   "subscription-id.json": { valid: ["sub-1"], invalid: ["", null] },
   "sequence.json": { valid: [0, 42], invalid: [-1, 1.5, "3"] },

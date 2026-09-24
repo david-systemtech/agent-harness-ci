@@ -9,9 +9,11 @@
         "idle",
         "busy",
         "draining"
-      ]
+      ],
+      "description": "idle: no run starting or running and none started or ended in the last ten minutes; busy otherwise; draining: refusing new runs before a restart."
     },
     "reason": {
+      "description": "Why the environment is busy or draining; null when idle.",
       "type": [
         "string",
         "null"
@@ -28,10 +30,12 @@
         {
           "type": "null"
         }
-      ]
+      ],
+      "description": "When a run parked on a prompt stops counting as busy (ten minutes after it parked); null when none is."
     },
     "updatesManagedOutside": {
-      "type": "boolean"
+      "type": "boolean",
+      "description": "True in a container with no launcher: the environment does not update itself."
     }
   },
   "required": [

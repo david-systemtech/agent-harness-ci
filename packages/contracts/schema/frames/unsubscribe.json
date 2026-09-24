@@ -17,5 +17,5 @@
     "type",
     "subscription"
   ],
-  "description": "Client: end a subscription; answered by end with reason unsubscribed."
+  "description": "From the client: end a subscription; answered by end with reason unsubscribed."
 }

@@ -39,6 +39,19 @@ describe("invalid_params", () => {
   });
 });
 
+describe("invalid_params built by hand", () => {
+  it("goes through the same issue schema as zod's issues", () => {
+    const error = invalidParams([{ code: "custom", path: [], message: "The frame is not JSON." }]);
+    expect(error.data.issues).toEqual([{ code: "custom", path: [], message: "The frame is not JSON." }]);
+  });
+
+  it("turns a path segment JSON cannot carry into a string rather than failing", () => {
+    // A zod issue may name a symbol key; JSON cannot carry one.
+    const error = invalidParams([{ code: "custom", path: [Symbol("key")], message: "m", input: undefined }]);
+    expect(error.data.issues[0]?.path).toEqual(["Symbol(key)"]);
+  });
+});
+
 describe("ContractError", () => {
   it("is the thrown form of a wire error and gives it back unchanged", () => {
     const wire = { code: "not_found", message: "No such client session.", data: { clientSessionId: "cs-9" } };

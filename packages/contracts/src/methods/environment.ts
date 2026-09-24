@@ -8,10 +8,17 @@ import { Sequence, Timestamp } from "../primitives.js";
  * no launcher, updates are managed outside.
  */
 const EnvironmentStatus = z.object({
-  state: z.enum(["idle", "busy", "draining"]),
-  reason: z.string().nullable(),
-  parkedPromptBusyUntil: Timestamp.nullable(),
-  updatesManagedOutside: z.boolean(),
+  state: z.enum(["idle", "busy", "draining"]).meta({
+    description:
+      "idle: no run starting or running and none started or ended in the last ten minutes; busy otherwise; draining: refusing new runs before a restart.",
+  }),
+  reason: z.string().nullable().meta({ description: "Why the environment is busy or draining; null when idle." }),
+  parkedPromptBusyUntil: Timestamp.nullable().meta({
+    description: "When a run parked on a prompt stops counting as busy (ten minutes after it parked); null when none is.",
+  }),
+  updatesManagedOutside: z.boolean().meta({
+    description: "True in a container with no launcher: the environment does not update itself.",
+  }),
 });
 
 export const environmentStatus = defineMethod({
@@ -20,8 +27,7 @@ export const environmentStatus = defineMethod({
   params: z.object({}),
   result: EnvironmentStatus,
   errors: [],
-  stream: false,
-  mutating: false,
+  kind: "query",
 });
 
 /** Environment-level notices: updated-to, draining, account status. Its snapshot is the status. */
@@ -31,8 +37,7 @@ export const environmentSubscribe = defineMethod({
   params: subscriptionParams({}),
   result: z.object({ status: EnvironmentStatus }),
   errors: [],
-  stream: true,
-  mutating: false,
+  kind: "stream",
 });
 
 /** Refuse new runs, let running ones finish up to the cap, then say `bye: draining` and exit. */
@@ -42,8 +47,7 @@ export const environmentDrain = defineMethod({
   params: commandParams({}),
   result: z.object({ drainingSince: Timestamp }),
   errors: [],
-  stream: false,
-  mutating: true,
+  kind: "command",
 });
 
 /** Drop the projection tables and replay the log into them. */
@@ -53,6 +57,5 @@ export const environmentRebuildProjections = defineMethod({
   params: commandParams({}),
   result: z.object({ projectors: z.array(z.string().min(1)), sequence: Sequence }),
   errors: [],
-  stream: false,
-  mutating: true,
+  kind: "command",
 });

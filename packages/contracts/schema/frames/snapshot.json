@@ -32,5 +32,5 @@
     "sequence",
     "payload"
   ],
-  "description": "Server: at most one, first, when replay from the cursor is out of bounds; the state as of sequence."
+  "description": "From the environment: at most one, first, when replay from the cursor is out of bounds; the state as of sequence."
 }

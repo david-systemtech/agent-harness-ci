@@ -24,11 +24,11 @@ export const Sequence = z.int().nonnegative().meta({
 export type Sequence = z.infer<typeof Sequence>;
 
 /**
- * The client-generated UUID every mutating method takes, keying its receipt
+ * The client-generated UUID every command takes, keying its receipt
  * with the actor so a retried command applies once.
  */
 export const CommandId = z.uuid().meta({
-  description: "The client-generated UUID every mutating method takes; a retry with the same id applies once.",
+  description: "The client-generated UUID every command takes; a retry with the same id applies once.",
 });
 export type CommandId = z.infer<typeof CommandId>;
 
@@ -46,7 +46,25 @@ export const SubscriptionId = z
   .meta({ description: "A subscription's id, chosen by the environment and carried by every subscription message." });
 export type SubscriptionId = z.infer<typeof SubscriptionId>;
 
+/**
+ * A JSON object. Params, results, payloads, metadata and error data are
+ * objects rather than any JSON value, so each can grow a field without a
+ * protocol bump.
+ */
+export const JsonObject = z.record(z.string(), z.unknown());
+export type JsonObject = z.infer<typeof JsonObject>;
+
+/** A client session's id: what `hello` names, what the access methods list and revoke. */
+export const ClientSessionId = z
+  .string()
+  .min(1)
+  .meta({ description: "A client session's id, as hello names it and the access methods list and revoke it." });
+export type ClientSessionId = z.infer<typeof ClientSessionId>;
+
 /** The clients there are: `program` is a script or bot driving the environment through the wire. */
 export const CLIENT_KINDS = ["desktop", "tui", "web", "program"] as const;
-export const ClientKind = z.enum(CLIENT_KINDS).meta({ description: "What kind of client a client session belongs to." });
+export const ClientKind = z.enum(CLIENT_KINDS).meta({
+  description:
+    "What kind of client a client session belongs to: the desktop window, the terminal UI, a browser tab, or a program (a script or bot driving the wire).",
+});
 export type ClientKind = z.infer<typeof ClientKind>;

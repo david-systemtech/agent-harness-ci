@@ -10,11 +10,13 @@
         "routine",
         "adapter",
         "system"
-      ]
+      ],
+      "description": "What caused the event: a client session, a routine, a provider adapter or the environment itself."
     },
     "id": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "The actor's id within its kind; a system component names itself."
     }
   },
   "required": [

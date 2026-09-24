@@ -35,6 +35,10 @@
       "title": "CommandId"
     },
     {
+      "path": "client-session-id.json",
+      "title": "ClientSessionId"
+    },
+    {
       "path": "request-id.json",
       "title": "RequestId"
     },
@@ -267,8 +271,8 @@
     {
       "name": "environment.status",
       "scope": "read",
+      "kind": "query",
       "stream": false,
-      "mutating": false,
       "params": "methods/environment.status/params.json",
       "result": "methods/environment.status/result.json",
       "error": "methods/environment.status/error.json"
@@ -276,8 +280,8 @@
     {
       "name": "environment.subscribe",
       "scope": "read",
+      "kind": "stream",
       "stream": true,
-      "mutating": false,
       "params": "methods/environment.subscribe/params.json",
       "result": "methods/environment.subscribe/result.json",
       "error": "methods/environment.subscribe/error.json"
@@ -285,8 +289,8 @@
     {
       "name": "environment.drain",
       "scope": "admin",
+      "kind": "command",
       "stream": false,
-      "mutating": true,
       "params": "methods/environment.drain/params.json",
       "result": "methods/environment.drain/result.json",
       "error": "methods/environment.drain/error.json"
@@ -294,8 +298,8 @@
     {
       "name": "environment.rebuildProjections",
       "scope": "admin",
+      "kind": "command",
       "stream": false,
-      "mutating": true,
       "params": "methods/environment.rebuildProjections/params.json",
       "result": "methods/environment.rebuildProjections/result.json",
       "error": "methods/environment.rebuildProjections/error.json"
@@ -303,8 +307,8 @@
     {
       "name": "access.pairings.create",
       "scope": "admin",
+      "kind": "command",
       "stream": false,
-      "mutating": true,
       "params": "methods/access.pairings.create/params.json",
       "result": "methods/access.pairings.create/result.json",
       "error": "methods/access.pairings.create/error.json"
@@ -312,8 +316,8 @@
     {
       "name": "access.sessions.list",
       "scope": "admin",
+      "kind": "query",
       "stream": false,
-      "mutating": false,
       "params": "methods/access.sessions.list/params.json",
       "result": "methods/access.sessions.list/result.json",
       "error": "methods/access.sessions.list/error.json"
@@ -321,8 +325,8 @@
     {
       "name": "access.sessions.revoke",
       "scope": "admin",
+      "kind": "command",
       "stream": false,
-      "mutating": true,
       "params": "methods/access.sessions.revoke/params.json",
       "result": "methods/access.sessions.revoke/result.json",
       "error": "methods/access.sessions.revoke/error.json"
@@ -330,8 +334,8 @@
     {
       "name": "access.log.list",
       "scope": "admin",
+      "kind": "query",
       "stream": false,
-      "mutating": false,
       "params": "methods/access.log.list/params.json",
       "result": "methods/access.log.list/result.json",
       "error": "methods/access.log.list/error.json"

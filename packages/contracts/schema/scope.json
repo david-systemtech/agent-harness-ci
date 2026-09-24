@@ -9,5 +9,5 @@
     "terminal",
     "admin"
   ],
-  "description": "One of the five scopes a method may require."
+  "description": "One of the five scopes a method may require: read (list and subscribe), sessions:write (organisation commands), runs:drive (start, send, interrupt, answer prompts), terminal (terminals, files and diffs), admin (pairings, client sessions, drain, rebuild, settings)."
 }

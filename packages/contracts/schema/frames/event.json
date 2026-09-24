@@ -14,17 +14,18 @@
     },
     "sequence": {
       "type": "integer",
-      "minimum": 0,
+      "minimum": 1,
       "maximum": 9007199254740991,
-      "description": "A position in the event log's global sequence; 0 is the cursor before the first event."
+      "description": "The event's global sequence; always equal to event.sequence."
     },
     "event": {
       "type": "object",
       "properties": {
         "sequence": {
           "type": "integer",
-          "exclusiveMinimum": 0,
-          "maximum": 9007199254740991
+          "minimum": 1,
+          "maximum": 9007199254740991,
+          "description": "The event's place in the log's global sequence, from 1."
         },
         "eventId": {
           "type": "string",
@@ -33,7 +34,8 @@
         },
         "streamKind": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "The kind of stream the event belongs to: environment, access, session."
         },
         "streamId": {
           "type": "string",
@@ -42,11 +44,13 @@
         "streamVersion": {
           "type": "integer",
           "exclusiveMinimum": 0,
-          "maximum": 9007199254740991
+          "maximum": 9007199254740991,
+          "description": "The event's place in its own stream, from 1."
         },
         "type": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "What happened, area.verb in the past tense: pairing.created."
         },
         "occurredAt": {
           "type": "string",
@@ -60,12 +64,13 @@
               "type": "string",
               "format": "uuid",
               "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
-              "description": "The client-generated UUID every mutating method takes; a retry with the same id applies once."
+              "description": "The client-generated UUID every command takes; a retry with the same id applies once."
             },
             {
               "type": "null"
             }
-          ]
+          ],
+          "description": "The command that produced the event; null when none did."
         },
         "causationId": {
           "anyOf": [
@@ -77,7 +82,8 @@
             {
               "type": "null"
             }
-          ]
+          ],
+          "description": "The event that caused this one; null when none did."
         },
         "correlationId": {
           "anyOf": [
@@ -89,7 +95,8 @@
             {
               "type": "null"
             }
-          ]
+          ],
+          "description": "The id every event of one piece of work shares; null when there is none."
         },
         "actor": {
           "type": "object",
@@ -101,11 +108,13 @@
                 "routine",
                 "adapter",
                 "system"
-              ]
+              ],
+              "description": "What caused the event: a client session, a routine, a provider adapter or the environment itself."
             },
             "id": {
               "type": "string",
-              "minLength": 1
+              "minLength": 1,
+              "description": "The actor's id within its kind; a system component names itself."
             }
           },
           "required": [
@@ -119,7 +128,8 @@
           "propertyNames": {
             "type": "string"
           },
-          "additionalProperties": {}
+          "additionalProperties": {},
+          "description": "The event's data; its shape belongs to the stream's workstream."
         },
         "metadata": {
           "type": "object",
@@ -153,5 +163,5 @@
     "sequence",
     "event"
   ],
-  "description": "Server: one event of the subscription's stream."
+  "description": "From the environment: one event of the subscription's stream. sequence equals event.sequence, a rule the decoder keeps and this schema cannot state."
 }

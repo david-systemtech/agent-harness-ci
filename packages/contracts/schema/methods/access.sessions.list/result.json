@@ -10,7 +10,8 @@
         "properties": {
           "id": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "description": "A client session's id, as hello names it and the access methods list and revoke it."
           },
           "kind": {
             "type": "string",
@@ -20,7 +21,7 @@
               "web",
               "program"
             ],
-            "description": "What kind of client a client session belongs to."
+            "description": "What kind of client a client session belongs to: the desktop window, the terminal UI, a browser tab, or a program (a script or bot driving the wire)."
           },
           "label": {
             "type": "string"
@@ -56,7 +57,7 @@
                 "terminal",
                 "admin"
               ],
-              "description": "One of the five scopes a method may require."
+              "description": "One of the five scopes a method may require: read (list and subscribe), sessions:write (organisation commands), runs:drive (start, send, interrupt, answer prompts), terminal (terminals, files and diffs), admin (pairings, client sessions, drain, rebuild, settings)."
             },
             "uniqueItems": true,
             "description": "The scopes a client session holds, as a non-empty set."

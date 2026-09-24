@@ -23,5 +23,5 @@
     "id",
     "subscription"
   ],
-  "description": "Server: the response to a stream request, naming the subscription its messages carry."
+  "description": "From the environment: the response to a stream request, naming the subscription its messages carry."
 }

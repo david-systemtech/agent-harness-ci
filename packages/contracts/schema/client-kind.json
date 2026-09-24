@@ -8,5 +8,5 @@
     "web",
     "program"
   ],
-  "description": "What kind of client a client session belongs to."
+  "description": "What kind of client a client session belongs to: the desktop window, the terminal UI, a browser tab, or a program (a script or bot driving the wire)."
 }

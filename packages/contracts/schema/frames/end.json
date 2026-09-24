@@ -19,7 +19,8 @@
         "overflow",
         "revoked",
         "closed"
-      ]
+      ],
+      "description": "Why a subscription ended: the client unsubscribed; it fell too far behind (resubscribe from its cursor); its client session was revoked; or the connection closed."
     }
   },
   "required": [
@@ -27,5 +28,5 @@
     "subscription",
     "reason"
   ],
-  "description": "Server: the subscription is over, and why."
+  "description": "From the environment: the subscription is over, and why."
 }

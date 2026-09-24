@@ -13,7 +13,10 @@ import { setOf } from "./primitives.js";
  * - `admin`: pairings, client sessions, drain, rebuild, settings.
  */
 export const SCOPES = ["read", "sessions:write", "runs:drive", "terminal", "admin"] as const;
-export const Scope = z.enum(SCOPES).meta({ description: "One of the five scopes a method may require." });
+export const Scope = z.enum(SCOPES).meta({
+  description:
+    "One of the five scopes a method may require: read (list and subscribe), sessions:write (organisation commands), runs:drive (start, send, interrupt, answer prompts), terminal (terminals, files and diffs), admin (pairings, client sessions, drain, rebuild, settings).",
+});
 export type Scope = z.infer<typeof Scope>;
 
 /** The scopes a client session holds: chosen at pairing, never empty. */

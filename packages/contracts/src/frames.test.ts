@@ -101,6 +101,19 @@ describe("the frame codec", () => {
     expect(decodeFrame(JSON.stringify({ type: "ping", sentAt: "2026-09-24T00:00:00Z" }))).toEqual({ type: "ping" });
   });
 
+  it("refuses a response with both a result and an error, or with neither", () => {
+    const error = { code: "not_found", message: "gone", data: {} };
+    rejection(() => decodeFrame(JSON.stringify({ type: "response", id: "1", result: {}, error })));
+    rejection(() => decodeFrame(JSON.stringify({ type: "response", id: "1" })));
+  });
+
+  it("refuses an event frame whose sequence is not its event's", () => {
+    const [valid] = validFrames.event as [{ event: { sequence: number } }];
+    const { data } = rejection(() => decodeFrame(JSON.stringify({ ...valid, sequence: valid.event.sequence - 1 })));
+    expect(data.issues.map((i) => i.path)).toEqual([["sequence"]]);
+    rejection(() => decodeFrame(JSON.stringify({ ...valid, sequence: 0, event: { ...valid.event, sequence: 0 } })));
+  });
+
   it("tells a result response from an error response", () => {
     const [result, error] = validFrames.response;
     expect(decodeFrame(JSON.stringify(result))).toHaveProperty("result");

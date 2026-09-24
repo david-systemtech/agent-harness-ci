@@ -11,5 +11,5 @@
   "required": [
     "type"
   ],
-  "description": "Server, every 15 seconds; a client arms its 45-second watchdog after the first."
+  "description": "From the environment, every 15 seconds; the client arms its 45-second watchdog after the first."
 }

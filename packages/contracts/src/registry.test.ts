@@ -2,6 +2,7 @@ import { describe, expect, expectTypeOf, it } from "vitest";
 import { z } from "zod";
 import {
   CommandId,
+  METHOD_KINDS,
   SCOPES,
   Sequence,
   defineMethod,
@@ -20,8 +21,7 @@ const unscoped = {
   params: z.object({}),
   result: z.object({}),
   errors: [],
-  stream: false,
-  mutating: false,
+  kind: "query",
 } as const;
 
 describe("the method registry", () => {
@@ -59,12 +59,16 @@ describe("the method registry", () => {
     for (const method of methods) expect(method.name).toMatch(/^[a-z][A-Za-z]*(\.[a-z][A-Za-z]*)+$/);
   });
 
-  it("takes a commandId UUID in the params of every mutating method, and makes no stream mutating", () => {
-    for (const method of methods.filter((m) => m.mutating)) {
+  it("is a query, a command or a stream", () => {
+    expect(METHOD_KINDS).toEqual(["query", "command", "stream"]);
+    for (const method of methods) expect(METHOD_KINDS, method.name).toContain(method.kind);
+  });
+
+  it("takes a commandId UUID in the params of every command", () => {
+    for (const method of methods.filter((m) => m.kind === "command")) {
       expect(method.params.shape, method.name).toHaveProperty("commandId", CommandId);
-      expect(method.stream, method.name).toBe(false);
     }
-    expect(methods.filter((m) => m.mutating).map((m) => m.name)).toEqual([
+    expect(methods.filter((m) => m.kind === "command").map((m) => m.name)).toEqual([
       "environment.drain",
       "environment.rebuildProjections",
       "access.pairings.create",
@@ -73,7 +77,7 @@ describe("the method registry", () => {
   });
 
   it("takes an afterSequence cursor in the params of every stream", () => {
-    const streams = methods.filter((m) => m.stream);
+    const streams = methods.filter((m) => m.kind === "stream");
     expect(streams.map((m) => m.name)).toEqual(["environment.subscribe"]);
     for (const method of streams) expect(method.params.shape, method.name).toHaveProperty("afterSequence", Sequence);
   });
@@ -92,8 +96,7 @@ describe("the method registry", () => {
       params: z.object({}),
       result: z.object({}),
       errors: [errorSchema("frob_jammed", z.object({ attempts: z.int() }))],
-      stream: false,
-      mutating: false,
+      kind: "query",
     });
     expect(method.error.safeParse({ code: "frob_jammed", message: "m", data: { attempts: 2 } }).success).toBe(true);
     expect(method.error.safeParse({ code: "frob_jammed", message: "m", data: {} }).success).toBe(false);
@@ -134,8 +137,10 @@ describe("the method registry", () => {
 
   it("does not compile a command without a commandId, or a stream without a cursor, and refuses them at run time", () => {
     // @ts-expect-error: a command takes a commandId.
-    expect(() => defineMethod({ ...unscoped, scope: "admin", mutating: true })).toThrow(/commandId/);
+    expect(() => defineMethod({ ...unscoped, scope: "admin", kind: "command" })).toThrow(/commandId/);
     // @ts-expect-error: a stream takes an afterSequence cursor.
-    expect(() => defineMethod({ ...unscoped, scope: "read", stream: true })).toThrow(/afterSequence/);
+    expect(() => defineMethod({ ...unscoped, scope: "read", kind: "stream" })).toThrow(/afterSequence/);
+    // @ts-expect-error: there are three kinds of method.
+    expect(() => defineMethod({ ...unscoped, scope: "read", kind: "notification" })).toThrow(/kind/);
   });
 });

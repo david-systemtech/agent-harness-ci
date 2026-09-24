@@ -7,5 +7,6 @@
     "overflow",
     "revoked",
     "closed"
-  ]
+  ],
+  "description": "Why a subscription ended: the client unsubscribed; it fell too far behind (resubscribe from its cursor); its client session was revoked; or the connection closed."
 }

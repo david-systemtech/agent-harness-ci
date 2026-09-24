@@ -18,7 +18,8 @@
           "enum": [
             "starting",
             "draining"
-          ]
+          ],
+          "description": "Why the environment cannot answer: it is not ready yet, or it is draining."
         }
       },
       "required": [
