@@ -847,6 +847,71 @@ describe("a run's prompts", () => {
     expect(t.host.processes.list()[0]?.state).toBe("idle");
   });
 
+  it("count a withdrawn prompt answered once: its request settling later leaves a prompt raised since, under the same id or another, still parking the run", async () => {
+    const settles = new Map<string, (decision: { decision: "allow" }) => void>();
+    const requests: PromptRequest[] = [];
+    const broker: PermissionBroker = {
+      request: (request) => {
+        requests.push(request);
+        return new Promise((resolve) => settles.set(`${request.promptId}#${requests.length}`, resolve));
+      },
+    };
+    const withdraw = new AbortController();
+    const step = gate();
+    const t = await setup(
+      fakeAdapter({
+        script: async function* ({ context, input }) {
+          yield say("Asking");
+          void context.broker.request({ sessionId: input.sessionId, runId: input.runId, promptId: "p-1", kind: "permission", detail: {}, signal: withdraw.signal });
+          await step.opened;
+          // The same id again once the first was withdrawn, and another beside it.
+          void context.broker.request({ sessionId: input.sessionId, runId: input.runId, promptId: "p-1", kind: "permission", detail: {} });
+          void context.broker.request({ sessionId: input.sessionId, runId: input.runId, promptId: "p-2", kind: "permission", detail: {} });
+          await new Promise(() => undefined);
+        },
+      }),
+      { broker },
+    );
+    const runId = startRun(t);
+    const state = () => [...t.host.runs.runs()].find((run) => run.id === runId)?.state;
+    await vi.waitFor(() => expect(requests).toHaveLength(1));
+    expect(state()).toBe("parked");
+    withdraw.abort();
+    expect(state()).toBe("running");
+
+    step.open();
+    await vi.waitFor(() => expect(requests).toHaveLength(3));
+    expect(state()).toBe("parked");
+    // The withdrawn request settles late: the prompts raised since still park the run.
+    settles.get("p-1#1")?.({ decision: "allow" });
+    await settle();
+    expect(state()).toBe("parked");
+    settles.get("p-2#3")?.({ decision: "allow" });
+    await settle();
+    expect(state()).toBe("parked");
+    settles.get("p-1#2")?.({ decision: "allow" });
+    await vi.waitFor(() => expect(state()).toBe("running"));
+  });
+
+  it("do not park the run on a request the provider withdrew before it was made", async () => {
+    const requests: PromptRequest[] = [];
+    const broker: PermissionBroker = { request: (request) => (requests.push(request), new Promise(() => undefined)) };
+    const t = await setup(
+      fakeAdapter({
+        script: async function* ({ context, input }) {
+          yield say("Asking");
+          void context.broker.request({ sessionId: input.sessionId, runId: input.runId, promptId: "p-1", kind: "permission", detail: {}, signal: AbortSignal.abort() });
+          await new Promise(() => undefined);
+        },
+      }),
+      { broker },
+    );
+    const runId = startRun(t);
+    await vi.waitFor(() => expect(requests).toHaveLength(1));
+    expect([...t.host.runs.runs()].find((run) => run.id === runId)?.state).toBe("running");
+    expect(t.host.processes.list()[0]?.state).toBe("busy");
+  });
+
   it("refuses an answer on an adapter that takes none, invalid_params with reason unsupported", async () => {
     const held = gate();
     const t = await setup(fakeAdapter({ capabilities: { interactivePrompts: false }, script: async function* () {

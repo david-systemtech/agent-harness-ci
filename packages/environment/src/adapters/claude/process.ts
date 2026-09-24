@@ -760,6 +760,8 @@ export class ClaudeProcess implements TurnControl {
     const toolUseID = options.toolUseID;
     if (this.closed) return { behavior: "deny", message: DISPOSED_DENY_MESSAGE, toolUseID };
     await this.#decided();
+    // Withdrawn before it was taken (while a decision settled, say): an aborted signal fires no more, so nobody is asked.
+    if (options.signal.aborted) return { behavior: "deny", message: ABORTED_DENY_MESSAGE, toolUseID };
     let turn = this.#current;
     if (turn === undefined) {
       turn = this.#promptTurn !== undefined && !this.#promptTurn.ended ? this.#promptTurn : this.#providerTurn([], true);

@@ -345,6 +345,18 @@ describe("canUseTool on the broker seam", () => {
     expect(query.closed).toBe(true);
   });
 
+  it("denies at once, asking no one, when the provider withdrew the request before the adapter took it", async () => {
+    const adapter = adapterWith();
+    const context = contextWith();
+    adapter.createRun(runInput(), context);
+    const query = await started();
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [query.prompts[0]?.uuid as string]));
+    await flush();
+    const asked = query.canUseTool("Bash", { command: "ls" }, { toolUseID: "toolu_ls", signal: AbortSignal.abort() });
+    expect(await asked).toMatchObject({ behavior: "deny", message: "The provider aborted this tool call." });
+    expect(context.asked).toEqual([]);
+  });
+
   it("denies at once when the provider aborts the request", async () => {
     const adapter = adapterWith();
     adapter.createRun(runInput(), contextWith());

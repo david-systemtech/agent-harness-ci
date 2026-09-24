@@ -174,7 +174,8 @@ export interface PromptRequest {
   /**
    * Aborted when the provider withdraws the request (the tool call became
    * moot, the turn was interrupted): the adapter has answered it itself, so
-   * the host counts the prompt answered and the broker may close it.
+   * the host counts the prompt answered, once, and at once when it had
+   * aborted before the request was made, and the broker may close it.
    */
   readonly signal?: AbortSignal;
 }

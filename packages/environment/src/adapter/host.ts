@@ -588,7 +588,8 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
    * session's run live at the time it is made (a turn the provider opened on
    * its own asks through the context of the run it followed), under the
    * prompt's id, the adapter's own or one the host mints, until the request
-   * settles or `answerPrompt` answers it, whichever comes first.
+   * settles, the provider withdraws it (its signal aborts, or had aborted
+   * before it was made) or `answerPrompt` answers it, whichever comes first.
    */
   const brokerFor = (sessionId: string): PermissionBroker => ({
     request: async (request) => {
@@ -596,16 +597,23 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       const parks = entry !== undefined && !entry.ended ? entry : undefined;
       const promptId = request.promptId ?? randomUUID();
       if (parks !== undefined) raised(parks, promptId);
-      // A request the provider withdraws is answered by its adapter: the run is not parked on it any longer.
-      const withdrawn = (): void => {
-        if (parks !== undefined) answered(parks, promptId);
+      // The request answers its own raise once, withdrawn or settled, whichever is first: a later request that
+      // reuses its id, raised once this one was withdrawn, is another prompt, which this one's settling leaves parked.
+      let open = parks !== undefined;
+      const answer = (): void => {
+        if (!open || parks === undefined) return;
+        open = false;
+        answered(parks, promptId);
       };
-      request.signal?.addEventListener("abort", withdrawn, { once: true });
+      // A request the provider withdraws is answered by its adapter: the run is not parked on it any longer.
+      request.signal?.addEventListener("abort", answer, { once: true });
+      // Withdrawn before it was made: an aborted signal fires no more.
+      if (request.signal?.aborted === true) answer();
       try {
         return await broker.request({ ...request, promptId });
       } finally {
-        request.signal?.removeEventListener("abort", withdrawn);
-        if (parks !== undefined) answered(parks, promptId);
+        request.signal?.removeEventListener("abort", answer);
+        answer();
       }
     },
   });
