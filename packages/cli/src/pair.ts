@@ -79,6 +79,8 @@ const exchangeGrant = async (origin: string, secret: string, net: Net): Promise<
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ secret, kind: "tui", label: LABEL }),
+      // The same bound as the wire phase, so a wedged environment fails the verb in seconds rather than minutes.
+      signal: AbortSignal.timeout(WIRE_TIMEOUT_MS),
     });
   } catch (error) {
     throw new PairFailure(`The environment at ${origin} did not answer: ${(error as Error).message}`, { cause: error });
