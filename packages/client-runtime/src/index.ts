@@ -62,3 +62,4 @@ export {
 export type { LocalFailureReason, LocalStatus } from "./bootstrap.js";
 export type { AbsentReason, CapabilityAnswer, CapabilityName } from "./capabilities.js";
 export type { EnvironmentView } from "./projections/environments.js";
+export { REQUEST_TIMEOUT_MS, type RequestAnswer, type RequestFailure, type RequestFailureCode, type Requests } from "./requests.js";

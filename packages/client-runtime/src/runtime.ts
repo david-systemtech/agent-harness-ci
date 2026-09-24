@@ -7,6 +7,7 @@ import { createRuntimeWithSeams } from "./internal.js";
 import type { Observable } from "./observable.js";
 import type { Platform } from "./platform.js";
 import type { EnvironmentView } from "./projections/environments.js";
+import type { Requests } from "./requests.js";
 
 /**
  * The client runtime (docs/specs/client-runtime.md): what every client
@@ -34,6 +35,8 @@ export interface Runtime {
     /** Takes a notice off `projections.notices`, on this client only. */
     dismiss(noticeId: string): void;
   };
+  /** Direct requests, never queued: the queries and the `admin` calls. */
+  readonly requests: Requests;
   /** `present`, or `absent` with a reason and one line for people. */
   capability(environmentId: string, name: CapabilityName): CapabilityAnswer;
   /** Closes every socket. Idempotent. */
