@@ -15,8 +15,10 @@ import type { EventEnvelope, ProjectionDb, Projector } from "../event-log/event-
  * decide on, kept from the transcript events of every session's stream in
  * the transaction that appends them. `runs` has a row per run (its session,
  * state, account, model, times, how it ended, the provider's session id);
- * `run_messages` holds every queued message not yet read, who holds it and
- * the ceiling of the connection that sent it;
+ * `run_messages` holds every message sent to the session, who holds it
+ * while it is queued (`read` once a run has it) and the ceiling of the
+ * connection that sent it, so a message a run was started with and never
+ * got can be queued again (`message.requeued`);
  * `run_tasks` a run's delegated-work ledger as its latest `tasks.changed`
  * left it. The tombstone (`session.purged`) removes the session's rows, as
  * the purge removed its events. The snapshot's items are not a table: they
@@ -45,7 +47,7 @@ export const RUNS_TABLES = {
     run_id TEXT NOT NULL,
     sequence INTEGER NOT NULL,
     text TEXT NOT NULL,
-    held_by TEXT NOT NULL CHECK (held_by IN ('provider', 'environment')),
+    held_by TEXT NOT NULL CHECK (held_by IN ('provider', 'environment', 'read')),
     ceiling TEXT NOT NULL
   ) STRICT;
   CREATE INDEX run_messages_by_session ON run_messages (session_id, sequence)`,
@@ -83,7 +85,6 @@ const PROJECTIONS: Partial<Record<string, Projection>> = {
   },
   "message.sent": (event, db) => {
     const payload = event.payload as MessageSentPayload;
-    if (payload.delivery !== "queued" || payload.heldBy === null) return;
     db.run(
       "INSERT INTO run_messages (message_id, session_id, run_id, sequence, text, held_by, ceiling) VALUES (?, ?, ?, ?, ?, ?, ?)",
       payload.messageId,
@@ -91,12 +92,12 @@ const PROJECTIONS: Partial<Record<string, Projection>> = {
       payload.runId,
       event.sequence,
       payload.text,
-      payload.heldBy,
+      payload.heldBy ?? "read",
       payload.ceiling,
     );
   },
   "message.delivered": (event, db) => {
-    db.run("DELETE FROM run_messages WHERE message_id = ? AND session_id = ?", (event.payload as MessageDeliveredPayload).messageId, event.streamId);
+    db.run("UPDATE run_messages SET held_by = 'read' WHERE message_id = ? AND session_id = ?", (event.payload as MessageDeliveredPayload).messageId, event.streamId);
   },
   "message.requeued": (event, db) => {
     db.run(

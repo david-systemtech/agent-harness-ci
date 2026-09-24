@@ -11,7 +11,7 @@ import {
   type Workspace,
 } from "@agent-harness/contracts";
 import { formatActor, type EventLog, type EventInput } from "../event-log/event-log.js";
-import { environmentQueue, latestRun, providerHeld, providerSessionOf, readSessionFacts } from "../runs/run-reads.js";
+import { environmentQueue, latestRun, providerHeld, providerSessionOf, readRun, readSessionFacts } from "../runs/run-reads.js";
 import { decideStart, type AccountFacts, type LiveRunFacts, type PlannedRun, type QueuedSend, type StartFacts } from "../runs/run-decider.js";
 import type { Clock } from "../serve/clock.js";
 import { createRunRegistry, type MemoryRunRegistry } from "../serve/run-registry.js";
@@ -83,6 +83,14 @@ export interface AdapterHostOptions {
   readonly clampMode?: ModeClamp;
   /** How long an account's status or model probe may take before it counts as failed, so a hung probe cannot hang startup. Preset: `PROBE_TIMEOUT_MS`. */
   readonly probeTimeoutMs?: number;
+  /** Where the bytes of sent messages' attachments wait until a run reads them, by message id. Preset: a fresh in-memory map (#120 stages them on disk). */
+  readonly stagedAttachments?: Map<string, StagedAttachments>;
+}
+
+/** The attachments of one message waiting to be read, with the session it was sent to. Never logged. */
+export interface StagedAttachments {
+  readonly sessionId: string;
+  readonly attachments: readonly AttachmentData[];
 }
 
 /** How long an account's status or model probe may take before the host gives up on it. */
@@ -162,6 +170,10 @@ interface LiveRun {
   unrecorded: boolean;
   running: boolean;
   interrupting: boolean;
+  /** Whether its adapter was handed the run's input; until then the messages it was launched with are still the environment's. */
+  received: boolean;
+  /** The messages the run was launched with, bytes included. */
+  readonly launchedWith: readonly PromptMessage[];
 }
 
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
@@ -215,11 +227,12 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
   const adoptions = new Map<string, { readonly previous: PlannedRun; readonly turn: ProviderTurn }[]>();
   /**
    * The bytes of the attachments of messages sent during a run, whoever
-   * holds them, until a run reads them (`message.delivered`, or the start of
-   * a run of the environment's queue): an interrupt may hand a provider-held
-   * message back. They are never logged, and not kept across a restart (#120).
+   * holds them, until a run reads them (the launch of a run of the queue, a
+   * steer's `message.delivered`, an adopted turn), since an interrupt may hand
+   * a provider-held message back; a purged session's are dropped. They are
+   * never logged, and not kept across a restart (#120).
    */
-  const heldAttachments = new Map<string, readonly AttachmentData[]>();
+  const heldAttachments = options.stagedAttachments ?? new Map<string, StagedAttachments>();
   let closing = false;
 
   const refOf = (account: HostAccount): AccountRef => ({ id: account.id, directory: account.directory ?? null });
@@ -288,6 +301,26 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       const payload: MessageRequeuedPayload = { runId, messageId };
       return { type: "message.requeued", payload };
     });
+
+  /**
+   * Takes back into the environment's queue the messages a run was launched
+   * with and its adapter never received (ADR 0022: nothing is lost), with
+   * their bytes, so the next start reads them in their order.
+   */
+  const requeueUnread = (entry: LiveRun): void => {
+    const ids = new Set(entry.launchedWith.map((message) => message.messageId));
+    // Those its start recorded as read, in the order they were sent: every one, unless an earlier end took one back already.
+    const read = reader
+      .all<{ message_id: string }>("SELECT message_id FROM run_messages WHERE session_id = ? AND held_by = 'read' ORDER BY sequence", entry.sessionId)
+      .map((row) => row.message_id)
+      .filter((messageId) => ids.has(messageId));
+    for (const message of entry.launchedWith) {
+      if (read.includes(message.messageId) && message.attachments.length > 0) {
+        heldAttachments.set(message.messageId, { sessionId: entry.sessionId, attachments: message.attachments });
+      }
+    }
+    append(entry.sessionId, entry.runId, HOST_ACTOR, requeued(entry.runId, read));
+  };
 
   /** Takes back into the environment's queue the messages of `runId` that the provider still holds, of `messageIds` or all. */
   const requeue = (sessionId: string, runId: string, messageIds?: readonly string[]): void => {
@@ -361,6 +394,8 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     };
     try {
       log.atomically(() => {
+        // A run whose adapter never had its input read none of it: what it was launched with is the environment's queue again.
+        if (!entry.received) requeueUnread(entry);
         if (by === "host" || reason !== "completed") requeue(entry.sessionId, entry.runId);
         append(entry.sessionId, entry.runId, by === "adapter" ? entry.actor : HOST_ACTOR, [{ type: "run.ended", payload }]);
       });
@@ -384,7 +419,8 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       adoptNow(adopted.previous, adopted.turn);
       return;
     }
-    if (reason !== "interrupted") startFromQueue(entry.plan);
+    // Not after a run that never reached its adapter: the next start, not a loop of failing ones, reads the queue it left.
+    if (reason !== "interrupted" && entry.received) startFromQueue(entry.plan);
   };
 
   /**
@@ -426,7 +462,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
    * `error`, one microtask on, so that when the run was launched after a
    * command's commit its end is heard after the command's own events.
    */
-  const begin = (plan: PlannedRun, create: (entry: LiveRun) => AdapterRun): void => {
+  const begin = (plan: PlannedRun, create: (entry: LiveRun) => AdapterRun, launchedWith: readonly PromptMessage[] = []): void => {
     const { descriptor } = plan.account;
     const actor = formatActor({ kind: "adapter", id: descriptor.provider });
     const entry: LiveRun = {
@@ -442,12 +478,15 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       unrecorded: false,
       running: false,
       interrupting: false,
+      received: false,
+      launchedWith,
     };
     // Admitted first: a drain that refuses it leaves no live entry behind.
     registry.start(plan.runId);
     live.set(plan.sessionId, entry);
     try {
       entry.run = create(entry);
+      entry.received = true;
     } catch (error) {
       queueMicrotask(() => finish(entry, { type: "end", reason: "error", error: { message: messageOf(error), code: null } }, "host"));
       return;
@@ -466,7 +505,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     const prompt: PromptMessage[] = plan.prompt.map((message) => {
       const held = heldAttachments.get(message.messageId);
       heldAttachments.delete(message.messageId);
-      return held === undefined || message.attachments.length > 0 ? message : { ...message, attachments: held };
+      return held === undefined || message.attachments.length > 0 ? message : { ...message, attachments: held.attachments };
     });
     const scope = { sessionId: plan.sessionId, accountId: plan.account.id, workspace: plan.workspace };
     begin(plan, (entry) =>
@@ -488,6 +527,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
         },
         contextFor(entry),
       ),
+      prompt,
     );
   };
 
@@ -528,6 +568,8 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       return { type: "message.delivered", payload };
     });
     append(plan.sessionId, runId, formatActor({ kind: "adapter", id: plan.account.descriptor.provider }), [{ type: "run.started", payload: started }, ...delivered]);
+    // The provider read them, bytes and all.
+    for (const messageId of turn.messageIds) heldAttachments.delete(messageId);
     begin(plan, () => turn);
   };
 
@@ -592,11 +634,21 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     }
   };
 
-  // A delivered message's bytes are read; a deleted session's live run is let go, and its waiting turns with it.
+  /**
+   * A steered message's bytes are read (a run of the queue takes its own at
+   * launch); a purged session's are dropped; a deleted session's live run is
+   * let go, and its waiting turns with it. The bytes wait for the purge, not
+   * the deletion, since a restore brings the session back with its queue.
+   */
   const unsubscribe = log.subscribe((event) => {
     if (event.streamKind !== SESSION_STREAM_KIND) return;
     if (event.type === "message.delivered") {
-      heldAttachments.delete((event.payload as MessageDeliveredPayload).messageId);
+      const delivered = event.payload as MessageDeliveredPayload;
+      if (delivered.delivery === "steered") heldAttachments.delete(delivered.messageId);
+      return;
+    }
+    if (event.type === "session.purged") {
+      for (const [messageId, staged] of heldAttachments) if (staged.sessionId === event.streamId) heldAttachments.delete(messageId);
       return;
     }
     if (event.type !== "session.deleted") return;
@@ -672,7 +724,8 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     launch,
     queue(send) {
       // Kept whoever holds it: an interrupt may hand a provider-held message back to the environment's queue.
-      heldAttachments.set(send.message.messageId, send.message.attachments);
+      const sessionId = readRun(reader, send.runId)?.sessionId ?? null;
+      if (sessionId !== null) heldAttachments.set(send.message.messageId, { sessionId, attachments: send.message.attachments });
       const entry = byRunId(send.runId);
       if (send.heldBy === "environment" || entry === undefined || entry.ended) return;
       const run = entry.run;

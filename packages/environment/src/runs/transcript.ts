@@ -149,8 +149,9 @@ export const foldTranscript = (events: Iterable<EventEnvelope>): TranscriptParts
         break;
       }
       case "message.requeued": {
+        // Queued again, in the environment's queue: after an interrupt, or a run that never reached its adapter.
         const item = messages.get((event.payload as MessageRequeuedPayload).messageId);
-        if (item !== undefined) item.heldBy = "environment";
+        if (item !== undefined) Object.assign(item, { delivery: "queued", heldBy: "environment" });
         break;
       }
       case "assistant.text":

@@ -9,7 +9,7 @@ import { environmentQueue } from "../runs/run-reads.js";
 import { runsProjector } from "../runs/runs-projector.js";
 import { sessionListProjector } from "../sessions/session-list.js";
 import type { AdapterEvent, TranscriptEvent } from "./contract.js";
-import { createAdapterHost, type AdapterHost, type AdapterHostOptions } from "./host.js";
+import { createAdapterHost, type AdapterHost, type AdapterHostOptions, type StagedAttachments } from "./host.js";
 import { createScopedAppend } from "./scoped-append.js";
 import { composeInstructions } from "./seams.js";
 
@@ -227,7 +227,7 @@ describe("one end per run on every exit path", () => {
     expect(eventsOf(t).map((event) => event.type)).toEqual(["run.started", "message.sent", "assistant.text", "run.ended"]);
   });
 
-  it("ends the run disposed when the host lets it go mid-run, disposes it, and drops what it yields after", async () => {
+  it("ends the run drained when the environment closes while draining mid-run, disposes it, and drops what it yields after", async () => {
     const held = gate();
     const t = await setup(
       fakeAdapter({
@@ -514,6 +514,32 @@ describe("the host's own bookkeeping", () => {
     t.log.append({ kind: "session", id: t.sessionId }, [{ type: "message.sent", payload: { runId, messageId, text: "Mine", attachments: [], delivery: "queued", heldBy: "environment", ceiling: "plan" } }], { actor: "system:test" });
     t.log.append({ kind: "session", id: other }, [{ type: "message.delivered", payload: { runId, messageId, delivery: "prompt" } }], { actor: "system:test" });
     expect(environmentQueue({ all: (sql, ...params) => t.log.read(sql, ...params) }, t.sessionId)).toEqual([{ messageId, text: "Mine", ceiling: "plan" }]);
+  });
+
+  it("keeps a queued message's bytes through the session's deletion, for a restore, and drops them when it is purged", async () => {
+    const held = gate();
+    const staged = new Map<string, StagedAttachments>();
+    const t = await setup(
+      fakeAdapter({ capabilities: { providerQueue: false, steering: false }, script: async function* () { await held.opened; yield end(); } }),
+      { stagedAttachments: staged },
+    );
+    const runId = startRun(t, "First");
+    const decision = decideSend(t.host.startFacts(t.sessionId, "bypassPermissions"), {
+      messageId: randomUUID(),
+      text: "With a picture",
+      attachments: [{ kind: "image", name: "a.png", mediaType: "image/png", data: Buffer.from("pixels").toString("base64") }],
+    });
+    if (decision.rejected !== undefined || decision.queued === undefined) throw new Error("The message was not queued.");
+    t.log.append({ kind: "session", id: t.sessionId }, decision.events, { actor: "client_session:test", correlationId: runId });
+    t.host.queue(decision.queued);
+    expect([...staged.values()].map((entry) => entry.sessionId)).toEqual([t.sessionId]);
+
+    const stream = { kind: "session", id: t.sessionId } as const;
+    t.log.append(stream, [{ type: "session.deleted", payload: { deletedAt: "2026-09-24T00:00:00.000Z", purgeAt: "2026-10-24T00:00:00.000Z", deleteProviderTranscript: false } }], { actor: "system:test" });
+    expect(staged.size).toBe(1);
+    t.log.append(stream, [{ type: "session.purged", payload: { providerTranscript: { outcome: "kept" } } }], { actor: "system:test" });
+    expect(staged.size).toBe(0);
+    held.open();
   });
 
   it("gives up on a status probe that never answers, so startup goes on with the account signed out", async () => {
