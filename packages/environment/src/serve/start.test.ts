@@ -18,6 +18,7 @@ import {
   ROOT_REFUSAL,
   SIGNING_KEY,
   StartupError,
+  TOP_CEILING,
   fileVault,
   startEnvironment,
   type Address,
@@ -481,7 +482,8 @@ describe("environment.status", () => {
     const env = await start();
     const handler = env.methods["environment.status"];
     if (!handler) throw new Error("environment.status has no handler");
-    const result = await handler({});
+    const clientSession = { id: "cs-1", kind: "tui", scopes: ["read"], ceiling: TOP_CEILING, local: true, expiresAt: 0 } as const;
+    const result = await handler({}, { clientSession });
     expect(result).toEqual({ readiness: "ready" });
     expect(registry["environment.status"].result.parse(result)).toEqual(result);
     expect(registry["environment.status"].scope).toBe("read");

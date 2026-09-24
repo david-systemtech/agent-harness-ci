@@ -1,5 +1,6 @@
-import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { STATUS_CODES, createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
+import type { Duplex } from "node:stream";
 
 /** Where a listener is bound. */
 export interface Address {
@@ -13,6 +14,43 @@ export type RouteHandler = (request: IncomingMessage, response: ServerResponse) 
 export interface HttpRoutes {
   route(method: "GET" | "POST", path: string, handler: RouteHandler): void;
 }
+
+/**
+ * Takes over a connection asking to upgrade: it owns `socket` from here, and
+ * must complete the upgrade or answer and destroy it.
+ */
+export type UpgradeHandler = (request: IncomingMessage, socket: Duplex, head: Buffer) => void;
+
+/** A request body was larger than the route takes. */
+export class BodyTooLargeError extends Error {
+  constructor(limit: number) {
+    super(`The request body is larger than ${limit} bytes.`);
+    this.name = "BodyTooLargeError";
+  }
+}
+
+/** The request's body as UTF-8 text, refused with `BodyTooLargeError` past `limit` bytes. */
+export const readBody = (request: IncomingMessage, limit: number): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    let refused = false;
+    request.on("data", (chunk: Buffer) => {
+      if (refused) return;
+      size += chunk.length;
+      if (size > limit) {
+        refused = true;
+        reject(new BodyTooLargeError(limit));
+        // Read the rest and drop it, so the answer can still be written on this connection.
+        return;
+      }
+      chunks.push(chunk);
+    });
+    request.on("end", () => {
+      if (!refused) resolve(Buffer.concat(chunks).toString("utf8"));
+    });
+    request.on("error", reject);
+  });
 
 /** Writes `body` as a one-line JSON response. */
 export const sendJson = (
@@ -60,19 +98,35 @@ export const isAllowedHost = (header: string | undefined, tailnetName?: string):
   return LOOPBACK_HOSTS.includes(host) || (tailnetName !== undefined && host === tailnetName.toLowerCase());
 };
 
+/** Answers an upgrade with a JSON error and closes the connection, as the route table answers a request. */
+export const refuseUpgrade = (socket: Duplex, status: number, body: unknown): void => {
+  const text = JSON.stringify(body);
+  socket.end(
+    `HTTP/1.1 ${status} ${STATUS_CODES[status] ?? ""}\r\n` +
+      "content-type: application/json; charset=utf-8\r\n" +
+      `content-length: ${Buffer.byteLength(text)}\r\n` +
+      "connection: close\r\n\r\n" +
+      text,
+  );
+};
+
 export interface HttpSurface extends HttpRoutes {
   readonly server: Server;
+  /** Routes an upgrade request at `path` to `handler`, behind the same Host check as every route. */
+  upgrade(path: string, handler: UpgradeHandler): void;
   listen(host: string, port: number): Promise<Address>;
   close(): Promise<void>;
 }
 
 /**
  * The environment's one HTTP listener: the Host check before every route,
- * then the route table, then 404 or 405. The WebSocket (#108) upgrades on the
- * same server and must apply the same check.
+ * then the route table, then 404 or 405. Upgrades (the WebSocket at `/ws`)
+ * arrive on the same server and pass the same Host check before their own
+ * table; a plain request to an upgrade path is answered 426.
  */
 export const createHttpSurface = (options: { readonly tailnetName?: string | undefined }): HttpSurface => {
   const routes = new Map<string, Map<string, RouteHandler>>();
+  const upgrades = new Map<string, UpgradeHandler>();
 
   const server = createServer((request, response) => {
     if (!isAllowedHost(request.headers.host, options.tailnetName)) {
@@ -91,6 +145,10 @@ export const createHttpSurface = (options: { readonly tailnetName?: string | und
       return;
     }
     const byMethod = routes.get(path);
+    if (!byMethod && upgrades.has(path)) {
+      sendJson(response, 426, { error: "upgrade_required", message: `${path} is a WebSocket.` }, { upgrade: "websocket" });
+      return;
+    }
     if (!byMethod) {
       sendJson(response, 404, { error: "not_found", message: `Nothing is served at ${path}.` });
       return;
@@ -111,10 +169,36 @@ export const createHttpSurface = (options: { readonly tailnetName?: string | und
       });
   });
 
+  server.on("upgrade", (request: IncomingMessage, socket: Duplex, head: Buffer) => {
+    // A socket error after the upgrade is the handler's; before it, one must not crash the environment.
+    const onError = () => socket.destroy();
+    socket.on("error", onError);
+    if (!isAllowedHost(request.headers.host, options.tailnetName)) {
+      return refuseUpgrade(socket, 421, {
+        error: "misdirected",
+        message: "The Host header names neither loopback nor this environment's tailnet name.",
+      });
+    }
+    let path: string;
+    try {
+      path = new URL(request.url ?? "/", "http://localhost").pathname;
+    } catch {
+      return refuseUpgrade(socket, 400, { error: "bad_request", message: "The request target could not be parsed." });
+    }
+    const handler = upgrades.get(path);
+    if (!handler) return refuseUpgrade(socket, 404, { error: "not_found", message: `Nothing upgrades at ${path}.` });
+    socket.off("error", onError);
+    handler(request, socket, head);
+  });
+
   let listening = false;
 
   return {
     server,
+    upgrade(path, handler) {
+      if (upgrades.has(path)) throw new Error(`Upgrades at ${path} are already routed.`);
+      upgrades.set(path, handler);
+    },
     route(method, path, handler) {
       const byMethod = routes.get(path) ?? new Map<string, RouteHandler>();
       if (byMethod.has(method)) throw new Error(`${method} ${path} is already routed.`);

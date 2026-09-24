@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { BootstrapError, BootstrapGrant, BootstrapKind, BootstrapRequest, ClientSessionCredential } from "./bootstrap.js";
 import { AuthPolicy, DiscoveryDocument, EnvironmentReadiness, HealthDocument } from "./discovery.js";
 import { Actor, EventEnvelope } from "./envelope.js";
 import {
@@ -71,6 +72,11 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "auth-policy.json", title: "AuthPolicy", schema: AuthPolicy },
   { path: "discovery-document.json", title: "DiscoveryDocument", schema: DiscoveryDocument },
   { path: "health-document.json", title: "HealthDocument", schema: HealthDocument },
+  { path: "bootstrap/kind.json", title: "BootstrapKind", schema: BootstrapKind },
+  { path: "bootstrap/grant.json", title: "BootstrapGrant", schema: BootstrapGrant },
+  { path: "bootstrap/request.json", title: "BootstrapRequest", schema: BootstrapRequest },
+  { path: "bootstrap/error.json", title: "BootstrapError", schema: BootstrapError },
+  { path: "client-session-credential.json", title: "ClientSessionCredential", schema: ClientSessionCredential },
   { path: "actor.json", title: "Actor", schema: Actor },
   { path: "event-envelope.json", title: "EventEnvelope", schema: EventEnvelope },
   { path: "errors/error-code.json", title: "ErrorCode", schema: ErrorCode },

@@ -71,7 +71,7 @@ describe("opening the event log", () => {
     const tables = log
       .read<{ name: string }>("SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")
       .map((t) => t.name);
-    expect(tables.sort()).toEqual(["command_receipts", "events", "projection_state", "snapshots"]);
+    expect(tables.sort()).toEqual(["client_sessions", "command_receipts", "events", "projection_state", "snapshots"]);
     expect(log.read("PRAGMA user_version")).toEqual([{ user_version: MIGRATIONS.length }]);
   });
 

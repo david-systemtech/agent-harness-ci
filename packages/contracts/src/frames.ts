@@ -21,6 +21,9 @@ import { Ceiling, ScopeSet } from "./scopes.js";
  * refused: adding an optional field never bumps the protocol version.
  */
 
+/** Where a client opens its one WebSocket. The path takes no query: a token never travels in a URL. */
+export const WIRE_PATH = "/ws";
+
 /** Why a subscription ended. */
 export const END_REASONS = ["unsubscribed", "overflow", "revoked", "closed"] as const;
 export const EndReason = z.enum(END_REASONS).meta({

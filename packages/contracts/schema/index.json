@@ -79,6 +79,26 @@
       "title": "HealthDocument"
     },
     {
+      "path": "bootstrap/kind.json",
+      "title": "BootstrapKind"
+    },
+    {
+      "path": "bootstrap/grant.json",
+      "title": "BootstrapGrant"
+    },
+    {
+      "path": "bootstrap/request.json",
+      "title": "BootstrapRequest"
+    },
+    {
+      "path": "bootstrap/error.json",
+      "title": "BootstrapError"
+    },
+    {
+      "path": "client-session-credential.json",
+      "title": "ClientSessionCredential"
+    },
+    {
       "path": "actor.json",
       "title": "Actor"
     },

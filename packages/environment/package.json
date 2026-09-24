@@ -17,9 +17,11 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@agent-harness/contracts": "workspace:*"
+    "@agent-harness/contracts": "workspace:*",
+    "ws": "^8.21.3"
   },
   "devDependencies": {
+    "@types/ws": "^8.18.1",
     "tsx": "^4.23.15"
   }
 }
