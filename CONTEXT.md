@@ -40,6 +40,22 @@ _Avoid_: thread, chat, pane, conversation
 One turn of a session, from the prompt that starts it to the reason it ended.
 _Avoid_: query, task, job
 
+**Queued message**:
+A message sent during a live run and not yet read: held by the provider where it has a queue, else by the environment, visible to every client in order until it is steered, delivered or withdrawn.
+_Avoid_: pending message (an outbox entry), draft, follow-up
+
+**Steer**:
+A queued message the provider folded into the running turn at its next boundary; a delivery kind, not a verb of its own.
+_Avoid_: nudge, mid-turn message, interject
+
+**Read now**:
+The verb that interrupts a live run and starts the next one with the whole queue in order, so a queued message is read at once.
+_Avoid_: interrupt (which alone re-owns the queue and starts nothing), send now, force
+
+**Withdraw**:
+The verb that takes a queued message back before it is read, returning its text to the composer; editing a queued message is a withdraw and a send.
+_Avoid_: cancel (a prompt's decision), delete, unsend
+
 **Pairing**:
 The one-time act by which a client proves to an environment that it may connect, producing a session credential that the environment can list and revoke.
 _Avoid_: login, token exchange
