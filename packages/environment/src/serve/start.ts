@@ -32,13 +32,21 @@ import {
 import { createPairings, pairRoute, type Pairings } from "../auth/pairings.js";
 import { createRateLimiter } from "../auth/rate-limit.js";
 import { formatActor, openEventLog, type EventLog, type Projector } from "../event-log/event-log.js";
-import { createDeletion, type ProviderTranscripts } from "../sessions/deletion.js";
+import type { Adapter } from "../adapter/contract.js";
+import { createAdapterHost, type AdapterHost, type HostAccount } from "../adapter/host.js";
+import { processMethods } from "../adapter/processes-methods.js";
+import { recoverCutRuns } from "../adapter/recovery.js";
+import type { InstructionComposer, ModeClamp, ToolServerFactory } from "../adapter/seams.js";
+import type { PermissionBroker } from "../adapter/contract.js";
+import { runMethods } from "../runs/run-methods.js";
+import { runsProjector } from "../runs/runs-projector.js";
+import { createDeletion } from "../sessions/deletion.js";
 import { groupMethods } from "../sessions/group-methods.js";
 import { sessionMethods } from "../sessions/methods.js";
 import { sessionListProjector } from "../sessions/session-list.js";
 import { createSettleSweep } from "../sessions/settle-sweep.js";
 import { settingsMethods } from "../settings/methods.js";
-import { settingsProjector } from "../settings/settings-store.js";
+import { readSettings, settingsProjector } from "../settings/settings-store.js";
 import type { SubscriptionHooks } from "../wire/subscriptions.js";
 import { createWire } from "../wire/wire.js";
 import { systemClock, type Clock } from "./clock.js";
@@ -51,7 +59,7 @@ import { processLauncherChannel, type LauncherChannel } from "./launcher.js";
 import { processContainerDetector, type ContainerDetector } from "./container.js";
 import { createLifecycle, type DrainOutcome } from "./lifecycle.js";
 import { createMethodTable, type MethodTable } from "./methods.js";
-import { createRunRegistry, type RunRegistry } from "./run-registry.js";
+import type { MemoryRunRegistry } from "./run-registry.js";
 import { processUserCheck, refusePrivilegedUser, type UserCheck } from "./user.js";
 import { fileVault, VAULT_FILE, type Vault } from "./vault.js";
 
@@ -141,16 +149,30 @@ export interface EnvironmentOptions {
   readonly hooks?: StartupHooks;
   /** Test seams for subscriptions: hold a catch-up, slow a socket down. */
   readonly subscriptionHooks?: SubscriptionHooks;
-  /** The runs the idle rule and the drain read, and the drain's admission gate. Preset: an empty in-memory registry, until the adapter host (#119). */
-  readonly runs?: RunRegistry;
+  /** The run registry the adapter host fills and the idle rule and the drain read, with the drain's admission gate. Preset: a fresh one. */
+  readonly runs?: MemoryRunRegistry;
   /** Whether this is a container; with no launcher present too, updates are managed outside. Preset: `processContainerDetector`. */
   readonly containerDetector?: ContainerDetector;
+  /** The adapters the adapter host holds, one per provider. Preset: none, until the Claude adapter (#121). */
+  readonly adapters?: readonly Adapter[];
+  /** The accounts runs go through. Preset: none, until the account store (#134) supplies them. */
+  readonly accounts?: readonly HostAccount[];
+  /** The account a session with none of its own runs on. Preset: the first account. */
+  readonly defaultAccountId?: string;
   /**
-   * The adapter's transcript-delete capability, which a purge calls when the
-   * session's delete asked for it. Preset: none, so such a purge records
-   * `unsupported`; the adapter host (#119) supplies it.
+   * The idle time of a provider process, in minutes, read each time a wait
+   * begins. Preset: the `providers.processIdleMinutes` setting as the
+   * settings store holds it (its preset, 30, until it is set); a test passes
+   * its own.
    */
-  readonly transcripts?: ProviderTranscripts;
+  readonly processIdleMinutes?: () => number;
+  /** The adapter host's seams other workstreams fill; each has a preset (`adapter/seams.ts`). */
+  readonly adapterSeams?: {
+    readonly toolServers?: ToolServerFactory;
+    readonly instructions?: InstructionComposer;
+    readonly broker?: PermissionBroker;
+    readonly clampMode?: ModeClamp;
+  };
 }
 
 /** A running environment. */
@@ -264,7 +286,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   });
 
   await step("projectors", () => {
-    for (const projector of [sessionListProjector, settingsProjector, ...(options.projectors ?? [])]) log.registerProjector(projector);
+    for (const projector of [sessionListProjector, runsProjector, settingsProjector, ...(options.projectors ?? [])]) log.registerProjector(projector);
   });
 
   // Where pairing links point: set when the listeners are bound, before any request is served.
@@ -297,8 +319,29 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     return { record: loaded, clientSessions: loadedClientSessions, pairings: loadedPairings, accessLog: access };
   });
 
-  // The adapter host (#119) starts here; there is none yet.
-  await step("adapter-host", () => undefined);
+  // The adapter host: the adapters, the accounts' sign-in states read through their probes, the run registry.
+  const host: AdapterHost = await step("adapter-host", async () => {
+    // First the recovery sweep: a run the log left without an end was cut by the last stop, and is ended before anything can read it.
+    const recovered = recoverCutRuns({ log, clock });
+    if (recovered.length > 0) console.error(`The recovery sweep ended ${recovered.length} run(s) a restart cut: ${recovered.join(", ")}.`);
+    const created = createAdapterHost({
+      log,
+      clock,
+      ...(options.runs !== undefined && { runs: options.runs }),
+      ...(options.adapters !== undefined && { adapters: options.adapters }),
+      ...(options.accounts !== undefined && { accounts: options.accounts }),
+      ...(options.defaultAccountId !== undefined && { defaultAccountId: options.defaultAccountId }),
+      processIdleMinutes:
+        options.processIdleMinutes ?? (() => readSettings({ all: (sql, ...params) => log.read(sql, ...params) })["providers.processIdleMinutes"]),
+      ...options.adapterSeams,
+    });
+    // Closed before the event log, so a run the close ends has its end appended (drained when a drain's cap cut it), and
+    // before the launcher's channel, so the launcher hears the environment go only once every provider process has
+    // stopped, or has been killed after the stop timeout.
+    closers.push(() => created.close(readiness === "draining" ? "drained" : "disposed"));
+    await created.refresh();
+    return created;
+  });
 
   const surface = createHttpSurface({ tailnetName: () => tailnetName });
   const noStore = { "cache-control": "no-store" };
@@ -323,15 +366,25 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   const environmentStream = { kind: ENVIRONMENT_STREAM_KIND, id: record.id };
   const detector = options.containerDetector ?? processContainerDetector();
   // The purge: `sessions.purge` runs it at once, the minute sweep for every session past its grace period.
-  const deletion = createDeletion({ log, ...(options.transcripts !== undefined && { transcripts: options.transcripts }) });
+  const deletion = createDeletion({ log, transcripts: host.transcripts });
   const lifecycle = createLifecycle({
     clock,
-    runs: options.runs ?? createRunRegistry({ clock }),
+    runs: host.runs,
     log,
     stream: environmentStream,
     updatesManagedOutside: detector.inContainer() && !launcher.present(),
     readiness: () => readiness,
-    onDraining: () => void (readiness = "draining"),
+    onDraining: () => {
+      readiness = "draining";
+      // New runs are refused before any process stops, so none starts on a process the drain is stopping.
+      host.runs.refuseNewRuns();
+      // Idle provider processes stop now, busy ones as their turns end; a failure here never stops the drain.
+      try {
+        host.drain();
+      } catch (error) {
+        console.error("Stopping the idle provider processes for the drain failed; the drain goes on:", error);
+      }
+    },
     close: () => close(),
   });
   // The shelf's sweep (#117): started once the environment is ready; a settings change runs it from the change's commit.
@@ -347,8 +400,10 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     // The generic settings (#117), on the environment's settings stream.
     ...settingsMethods({ log, environmentId: record.id, onChange: (keys) => settleSweep.settingsChanged(keys) }),
     ...accessMethods({ pairings, clientSessions, accessLog }),
-    ...sessionMethods({ log, clock: now, deletion }),
+    ...sessionMethods({ log, clock: now, deletion, validateRunParameters: host.validateSessionInput }),
     ...groupMethods({ log, clock: now }),
+    ...runMethods({ log, host }),
+    ...processMethods({ log, host }),
   });
 
   // The two exchanges and the wire are routed before the bind; all three refuse work until the gate below.

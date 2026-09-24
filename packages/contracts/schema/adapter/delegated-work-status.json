@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DelegatedWorkStatus",
+  "type": "string",
+  "enum": [
+    "pending",
+    "running",
+    "paused",
+    "completed",
+    "failed",
+    "stopped"
+  ],
+  "description": "Where a piece of delegated work has got to: pending, running or paused (live), completed, failed or stopped (settled)."
+}

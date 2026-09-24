@@ -24,7 +24,7 @@ export const DRAIN_CAP_MS = 30 * 60_000;
 /**
  * How a drain ended: every run it waited for finished, the cap cut the rest,
  * or the environment was closed first. Not on the wire: the adapter host
- * (#119) marks cut runs in the log.
+ * marks cut runs in the log, ending each `drained` as the environment closes.
  */
 export interface DrainOutcome extends DrainStarted {
   readonly endedBy: "runs-finished" | "cap" | "closed";

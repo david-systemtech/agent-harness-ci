@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import type { EventEnvelope, SettingsPatch } from "@agent-harness/contracts";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { MANUAL_CLOCK_START, manualClock } from "../../test/clock.js";
+import { end, fakeAdapter, gate, say } from "../../test/fake-adapter.js";
 import { startTestEnvironment, type TestEnvironment } from "../../test/helper.js";
 import { command, create, deleteSession, get, listStream, patchOf, reduce } from "../../test/sessions.js";
 import { DAY, MINUTE, SWEEP_EVERY, SYNTHETIC_ACTOR, eventsAfter, pass, pullRequest, seed, updateSettings } from "../../test/shelf.js";
@@ -13,17 +14,20 @@ import type { WireClient } from "../../test/wire-client.js";
  * The auto-settle and snooze-expiry sweep through the primary seam
  * (session-state spec, "Auto-settle: rules and settings" and "Snooze
  * expiry"), under the helper's manual clock: it runs at startup, every five
- * minutes and when either auto-settle setting changes. The run, prompt and
- * pull-request events other workstreams will append are seeded as
- * synthetic events (`test/shelf.ts`). Days pass with the client's socket
+ * minutes and when either auto-settle setting changes. Runs are started
+ * through the wire where the test is about a run, and otherwise seeded with
+ * the payloads the adapter host appends; the prompt and pull-request events
+ * other workstreams will append are seeded as synthetic events
+ * (`test/shelf.ts`). Days pass with the client's socket
  * closed (`pass`), so no socket is pinged through them.
  */
 
 const { onCleanup, tempDir } = useCleanups();
 
-const start = async (options: { dataDir?: string; clockStart?: string } = {}): Promise<TestEnvironment> => {
+const start = async (options: { dataDir?: string; clockStart?: string; adapter?: ReturnType<typeof fakeAdapter> } = {}): Promise<TestEnvironment> => {
   const t = await startTestEnvironment({
     ...(options.dataDir !== undefined && { dataDir: options.dataDir }),
+    ...(options.adapter !== undefined && { adapter: options.adapter }),
     ...(options.clockStart !== undefined && { clock: manualClock(options.clockStart) }),
   });
   onCleanup(() => t.close());
@@ -125,7 +129,7 @@ describe("the idle rule", () => {
     expect((await get(client, setup.id)).settledAt).toBeNull();
   });
 
-  it("counts from the last activity: a run's end, seeded until the adapter appends it", async () => {
+  it("counts from the last activity: a run's end", async () => {
     const t = await start();
     const setup = await setUp(t, oneDay);
     let client = await pass(t, setup.client, 12 * 60 * MINUTE);
@@ -182,6 +186,33 @@ describe("the candidates", () => {
     client = await pass(t, client, DAY + SWEEP_EVERY);
     expect((await get(client, parked)).settledBy).toBe("auto-idle");
     expect((await get(client, running)).settledAt).toBeNull();
+  });
+
+  it("leave out a session whose run, started through the wire, is still running, and count from the run's end", async () => {
+    const held = gate();
+    const t = await start({
+      adapter: fakeAdapter({
+        script: async function* () {
+          yield say("Working");
+          await held.opened;
+          yield end();
+        },
+      }),
+    });
+    const setup = await setUp(t, oneDay);
+    const started = await setup.client.request("runs.start", { commandId: randomUUID(), sessionId: setup.id, text: "A long job" });
+    expect(started).toMatchObject({ receipt: { status: "accepted" } });
+    expect(await get(setup.client, setup.id)).toMatchObject({ activity: { state: "running" }, accountId: "claude-max", model: "opus" });
+
+    let client = await pass(t, setup.client, 20 * DAY);
+    expect((await get(client, setup.id)).settledAt).toBeNull();
+
+    held.open();
+    await vi.waitFor(async () => expect((await get(client, setup.id)).activity).toMatchObject({ state: "idle", since: at(20 * DAY) }));
+    client = await pass(t, client, DAY);
+    expect((await get(client, setup.id)).settledAt).toBeNull();
+    t.clock.advance(SWEEP_EVERY);
+    expect((await get(client, setup.id)).settledBy).toBe("auto-idle");
   });
 
   it("leave out a deleted session, and wake no deleted session's snooze; restored in its grace period, it is judged again", async () => {

@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "runs.stopTask result",
+  "type": "object",
+  "properties": {
+    "runId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "A run's id: a version 4 UUID the environment mints when the run starts or is adopted."
+    },
+    "taskId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "ended": {
+      "type": "boolean",
+      "description": "True when the run or the task had ended already, so nothing was stopped."
+    }
+  },
+  "required": [
+    "runId",
+    "taskId",
+    "ended"
+  ]
+}

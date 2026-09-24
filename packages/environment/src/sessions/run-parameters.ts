@@ -2,10 +2,10 @@ import type { IssueInput } from "@agent-harness/contracts";
 
 /**
  * The run parameters a session is created with: the account, model and mode
- * its runs use. Each is defined and validated by its own workstream: the
- * account and model by the adapter workstream (#119), the mode by the
- * permissions workstream (against the connection's ceiling). This is the
- * seam they fill.
+ * its runs use. `sessions.create` delegates their check to the adapter
+ * host (`validateSessionInput`), which knows the accounts, their catalogues
+ * and the modes each adapter maps; the permissions workstream (#129) adds the
+ * clamp to the connection's ceiling when a run starts. This is the seam.
  */
 export interface RunParameters {
   readonly account: string | null;
@@ -20,5 +20,5 @@ export interface RunParameters {
  */
 export type RunParametersCheck = (parameters: RunParameters) => readonly IssueInput[];
 
-/** Accepts every account, model and mode: the check until #119 and the permissions workstream replace it. */
+/** Accepts every account, model and mode: the preset for a `sessionMethods` built without the adapter host (lower-seam tests). */
 export const acceptAnyRunParameters: RunParametersCheck = () => [];

@@ -91,7 +91,7 @@ One **environment** per OS user on every machine: a server installed as a user-l
 - **Projectors** are named, each with its own cursor in `projection_state`; startup resumes every projector from its cursor so the log is never replayed whole. An `admin` command `environment.rebuildProjections` drops the projection tables and replays. A projector whose declared tables are missing, or whose statements in the database differ from the ones it declares (a version that added a column), is rebuilt from the log when it registers, so an upgrade never runs on an older table shape.
 - **Compaction**: transcript events of a session with no run, command or event in 90 days are folded into a snapshot that replaces them for replay; organisation events are never compacted; the snapshot lives until the session is deleted. The number is a chosen default for the specification and is a setting.
 - **Deletion**: a `session.deleted` event hides the session at once; a maintenance job purges its events, snapshots and projections after the grace period the session-state workstream sets; a command aimed at it meanwhile is rejected with a receipt.
-- **The log is the only sink**: adapters (ADR 0015) receive an append function scoped to their run's stream and nothing else; there is no second feed and no in-memory ring that a client reads.
+- **The log is the only sink**: adapters (ADR 0015) receive an append function scoped to their run, which appends to the run's session's stream with the run's id on every event of the run (a session's fork and rewind events belong to no run and carry none) (the claude-adapter spec's Further Notes), and nothing else; there is no second feed and no in-memory ring that a client reads.
 
 ### Pairing, client sessions and the access log
 

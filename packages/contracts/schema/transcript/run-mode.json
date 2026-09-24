@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RunMode",
+  "type": "object",
+  "properties": {
+    "requested": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The mode asked for, by the command or the session; null for the adapter's own."
+    },
+    "effective": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The mode the run got, after the clamp to the connection's ceiling."
+    },
+    "clamped": {
+      "type": "boolean",
+      "description": "Whether the clamp lowered the mode asked for."
+    }
+  },
+  "required": [
+    "requested",
+    "effective",
+    "clamped"
+  ],
+  "description": "A run's mode: requested, effective after the ceiling's clamp, and whether it was clamped."
+}

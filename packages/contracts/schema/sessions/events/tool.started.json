@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ToolStartedPayload",
+  "type": "object",
+  "properties": {
+    "runId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "A run's id: a version 4 UUID the environment mints when the run starts or is adopted."
+    },
+    "toolCallId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The provider's id for the tool call."
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "input": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {},
+      "description": "The tool's input as the model gave it."
+    },
+    "title": {
+      "description": "A one-line title for the call, when the adapter makes one.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "agentId": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The subagent making the call; null for the run's own agent."
+    },
+    "parentToolCallId": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The tool call it is nested under; null at the top."
+    }
+  },
+  "required": [
+    "runId",
+    "toolCallId",
+    "name",
+    "input",
+    "title",
+    "agentId",
+    "parentToolCallId"
+  ],
+  "description": "tool.started: the model called a tool."
+}

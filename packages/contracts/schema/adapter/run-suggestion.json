@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RunSuggestion",
+  "type": "object",
+  "properties": {
+    "runId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "A run's id: a version 4 UUID the environment mints when the run starts or is adopted."
+    },
+    "suggestion": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The predicted next message, verbatim; a client offers it as editable text and never sends it itself."
+    }
+  },
+  "required": [
+    "runId",
+    "suggestion"
+  ],
+  "description": "A provider's prediction of the user's next message after a run, for the composer."
+}

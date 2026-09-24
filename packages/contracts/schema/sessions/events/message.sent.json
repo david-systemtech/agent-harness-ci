@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MessageSentPayload",
+  "type": "object",
+  "properties": {
+    "runId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "A run's id: a version 4 UUID the environment mints when the run starts or is adopted."
+    },
+    "messageId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "A user message's id: a version 4 UUID the environment mints when a client sends it, and the id the provider is handed."
+    },
+    "text": {
+      "type": "string"
+    },
+    "attachments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "image",
+              "file"
+            ],
+            "description": "What an attachment is: an image (the adapter needs imageInput) or a file (fileInput)."
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "mediaType": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Its media type: image/png."
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991,
+            "description": "Its size in bytes."
+          }
+        },
+        "required": [
+          "kind",
+          "name",
+          "mediaType",
+          "size"
+        ],
+        "description": "An attachment as the log records it: kind, name, media type and size; the bytes are never logged."
+      }
+    },
+    "delivery": {
+      "type": "string",
+      "enum": [
+        "prompt",
+        "queued"
+      ],
+      "description": "prompt: the message starts the run; queued: a run was live, so it waits to be steered or read (message.delivered)."
+    },
+    "heldBy": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "provider",
+            "environment"
+          ],
+          "description": "Who holds a queued message: the provider's queue (it may steer it into the running turn), or the environment's (the next run starts with it)."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Who holds a queued message; null for a prompt."
+    },
+    "ceiling": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The ceiling of the connection that sent it (ADR 0006): a run the environment later starts with it is clamped to it, as well as to the ceiling of whoever started that run."
+    }
+  },
+  "required": [
+    "runId",
+    "messageId",
+    "text",
+    "attachments",
+    "delivery",
+    "heldBy",
+    "ceiling"
+  ],
+  "description": "message.sent: a client sent the session a message; runId is the run it starts, or the run live when it was queued."
+}

@@ -59,6 +59,13 @@ export const STEP_REGISTRY = [
     ],
     links: [{ pane: "appearance", band: "sessions" }],
   },
+  {
+    // The Account step (ADR 0018): the entry #134 completes with the default account, model family and effort.
+    id: "account",
+    writes: ["providers.processIdleMinutes"],
+    checks: [{ key: "providers.processIdleMinutes", check: anyValidValue("providers.processIdleMinutes") }],
+    links: [{ pane: "accounts", band: "default-model" }],
+  },
 ] as const satisfies readonly Step[];
 
 export type StepId = (typeof STEP_REGISTRY)[number]["id"];
