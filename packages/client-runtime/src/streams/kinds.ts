@@ -5,10 +5,10 @@ import {
   GROUP_STREAM_KIND,
   Group,
   GroupPatch,
-  JsonObject,
   LIST_PATCH_KEY,
   SESSION_STREAM_KIND,
   SessionListSnapshot,
+  SessionSnapshot,
   SessionSummary,
   SummaryPatch,
   registry,
@@ -32,10 +32,22 @@ export interface ListData {
   readonly groups: ReadonlyMap<string, Group>;
 }
 
-/** One session: its summary (null once it is gone), its transcript as the snapshot gave it, and every event after that snapshot. */
+/**
+ * What a session's snapshot holds beside its summary, as the environment
+ * sends it (`SessionSnapshot`, the claude-adapter spec's): its runs, the
+ * settled items of its transcript (an item of a kind this client does not
+ * know kept opaque) and its parked prompts. Held and cached as sent;
+ * `projections.session` (#142) folds them with the events after them.
+ */
+export type SessionSnapshotParts = Pick<SessionSnapshot, "runs" | "items" | "parkedPrompts">;
+
+const NO_SNAPSHOT_PARTS: SessionSnapshotParts = { runs: [], items: [], parkedPrompts: [] };
+const SnapshotParts = SessionSnapshot.pick({ runs: true, items: true, parkedPrompts: true });
+
+/** One session: its summary (null once it is gone), the rest of its snapshot as sent, and every event after that snapshot. */
 export interface SessionData {
   readonly summary: SessionSummary | null;
-  readonly transcript: Record<string, unknown>;
+  readonly snapshot: SessionSnapshotParts;
   /** The events since the snapshot, in order, unknown types included: `projections.session` folds them. */
   readonly events: readonly EventEnvelope[];
   /** What `events` take as UTF-8 JSON, counted as they come; not stored. */
@@ -64,7 +76,6 @@ const fieldsOf = (value: unknown, what: string): Record<string, unknown> => {
   return value as Record<string, unknown>;
 };
 
-const SessionSnapshot = registry["sessions.subscribeSession"].result;
 const EnvironmentSnapshot = registry["environment.subscribe"].result;
 
 const byId = <T extends { readonly id: string }>(items: readonly T[]): ReadonlyMap<string, T> => new Map(items.map((item) => [item.id, item]));
@@ -118,13 +129,13 @@ export const listKind = (): StreamKind<ListData> => ({
 });
 
 export const sessionKind = (): StreamKind<SessionData> => ({
-  empty: () => ({ summary: null, transcript: {}, events: [], eventBytes: 0 }),
+  empty: () => ({ summary: null, snapshot: NO_SNAPSHOT_PARTS, events: [], eventBytes: 0 }),
   // Nothing sent is no session yet, not one that is gone.
   emptyIsState: false,
   outgrown: (data) => data.events.length > SESSION_EVENTS_BOUND || data.eventBytes > SESSION_EVENT_BYTES_BOUND,
   fromSnapshot(payload) {
-    const snapshot = SessionSnapshot.parse(payload);
-    return { summary: snapshot.summary, transcript: snapshot.transcript, events: [], eventBytes: 0 };
+    const { summary, runs, items, parkedPrompts } = SessionSnapshot.parse(payload);
+    return { summary, snapshot: { runs, items, parkedPrompts }, events: [], eventBytes: 0 };
   },
   apply(data, event) {
     const patch = summaryPatchOf(event);
@@ -132,15 +143,16 @@ export const sessionKind = (): StreamKind<SessionData> => ({
     if (patch?.op === "add") summary = patch.summary;
     else if (patch?.op === "remove") summary = null;
     else if (patch?.op === "set") summary = patched(summary ?? undefined, patch);
-    return { summary, transcript: data.transcript, events: [...data.events, event], eventBytes: data.eventBytes + sizeOf([event]) };
+    return { summary, snapshot: data.snapshot, events: [...data.events, event], eventBytes: data.eventBytes + sizeOf([event]) };
   },
-  encode: (data) => ({ summary: data.summary, transcript: data.transcript, events: data.events }),
+  encode: (data) => ({ summary: data.summary, snapshot: data.snapshot, events: data.events }),
   decode(value) {
     const stored = fieldsOf(value, "The stored session");
     const events = EventEnvelope.array().parse(stored["events"]);
     return {
       summary: SessionSummary.nullable().parse(stored["summary"]),
-      transcript: JsonObject.parse(stored["transcript"]),
+      // A document from before #119 (a `transcript` field, no `snapshot`) does not read: no cache, so the session subscribes from nothing.
+      snapshot: SnapshotParts.parse(stored["snapshot"]),
       events,
       eventBytes: sizeOf(events),
     };

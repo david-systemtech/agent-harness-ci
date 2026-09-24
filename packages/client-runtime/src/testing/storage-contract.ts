@@ -195,7 +195,7 @@ export const storageContractSuite = (
         const handle = runtime.subscriptions.session(wire.environmentId, sessionId);
         const session = await wire.server.request("sessions.subscribeSession");
         wire.server.send({ type: "subscribed", id: session.id, subscription: "session" });
-        wire.server.send({ type: "snapshot", subscription: "session", sequence: 1, payload: { sequence: 1, summary: summary(sessionId, "Invoices", at), transcript: {} } });
+        wire.server.send({ type: "snapshot", subscription: "session", sequence: 1, payload: { sequence: 1, summary: summary(sessionId, "Invoices", at), runs: [], items: [], parkedPrompts: [] } });
         wire.server.send({ type: "synchronized", subscription: "session", sequence: 1 });
         await flush();
         handle.release();

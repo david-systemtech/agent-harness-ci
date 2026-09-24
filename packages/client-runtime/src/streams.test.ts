@@ -398,7 +398,7 @@ describe("session handles", () => {
     const handle = runtime.subscriptions.session(wire.environmentId, a.toUpperCase());
     const stream = await subscription(wire, "sessions.subscribeSession");
     expect(stream.params).toEqual({ sessionId: a, afterSequence: 0 });
-    stream.snapshot(2, { sequence: 2, summary: summaryOf(a), transcript: {} });
+    stream.snapshot(2, { sequence: 2, summary: summaryOf(a), runs: [], items: [], parkedPrompts: [] });
     stream.synchronized(2);
     await flush();
     expect(handle.state.read()).toMatchObject({ freshness: "live", summary: { id: a }, deleted: false });
@@ -430,7 +430,7 @@ describe("session handles", () => {
     await adding;
     const handle = runtime.subscriptions.session(wire.environmentId, a);
     const first = await subscription(wire, "sessions.subscribeSession");
-    first.snapshot(4, { sequence: 4, summary: summaryOf(a), transcript: {} });
+    first.snapshot(4, { sequence: 4, summary: summaryOf(a), runs: [], items: [], parkedPrompts: [] });
     first.synchronized(4);
     await flush();
 
@@ -455,7 +455,7 @@ describe("session handles", () => {
     await adding;
     const handle = runtime.subscriptions.session(wire.environmentId, a);
     const stream = await subscription(wire, "sessions.subscribeSession");
-    stream.snapshot(2, { sequence: 2, summary: summaryOf(a), transcript: {} });
+    stream.snapshot(2, { sequence: 2, summary: summaryOf(a), runs: [], items: [], parkedPrompts: [] });
     stream.synchronized(2);
     stream.event(sessionEvent(3, { op: "remove", sessionId: a }, "session.deleted"));
     stream.end("deleted");
@@ -499,7 +499,7 @@ describe("session handles", () => {
     await adding;
     const handle = runtime.subscriptions.session(wire.environmentId, a);
     const first = await subscription(wire, "sessions.subscribeSession");
-    first.snapshot(2, { sequence: 2, summary: summaryOf(a), transcript: {} });
+    first.snapshot(2, { sequence: 2, summary: summaryOf(a), runs: [], items: [], parkedPrompts: [] });
     first.synchronized(2);
     for (let sequence = 3; sequence < 3 + SESSION_EVENTS_BOUND; sequence++) first.event(unpatchedEvent(sequence, a, "run.output"));
     await flush();
@@ -510,7 +510,7 @@ describe("session handles", () => {
     const folded = await subscription(wire, "sessions.subscribeSession");
     expect(folded.params["afterSequence"]).toBeGreaterThan(1_000_000);
     expect(wire.server.received()).toContainEqual({ type: "unsubscribe", subscription: expect.any(String) });
-    folded.snapshot(3 + SESSION_EVENTS_BOUND, { sequence: 3 + SESSION_EVENTS_BOUND, summary: summaryOf(a, { title: "Folded" }), transcript: {} });
+    folded.snapshot(3 + SESSION_EVENTS_BOUND, { sequence: 3 + SESSION_EVENTS_BOUND, summary: summaryOf(a, { title: "Folded" }), runs: [], items: [], parkedPrompts: [] });
     folded.synchronized(3 + SESSION_EVENTS_BOUND);
     await flush();
     expect(handle.state.read()).toMatchObject({ freshness: "live", summary: { title: "Folded" } });
@@ -540,7 +540,7 @@ describe("closing and faults outside the streams", () => {
     await first.adding;
     const opened = first.runtime.subscriptions.session(first.wire.environmentId, a);
     const stream = await subscription(first.wire, "sessions.subscribeSession");
-    stream.snapshot(2, { sequence: 2, summary: summaryOf(a), transcript: {} });
+    stream.snapshot(2, { sequence: 2, summary: summaryOf(a), runs: [], items: [], parkedPrompts: [] });
     stream.synchronized(2);
     await flush();
     opened.release();
@@ -609,7 +609,7 @@ describe("offline", () => {
     await first.adding;
     const handle = first.runtime.subscriptions.session(first.wire.environmentId, a);
     const stream = await subscription(first.wire, "sessions.subscribeSession");
-    stream.snapshot(2, { sequence: 2, summary: summaryOf(a, { title: "Invoices" }), transcript: { items: [] } });
+    stream.snapshot(2, { sequence: 2, summary: summaryOf(a, { title: "Invoices" }), runs: [], items: [], parkedPrompts: [] });
     stream.synchronized(2);
     await flush();
     handle.release();
@@ -641,7 +641,7 @@ describe("removing an environment", () => {
     await adding;
     const handle = runtime.subscriptions.session(wire.environmentId, a);
     const stream = await subscription(wire, "sessions.subscribeSession");
-    stream.snapshot(2, { sequence: 2, summary: summaryOf(a), transcript: {} });
+    stream.snapshot(2, { sequence: 2, summary: summaryOf(a), runs: [], items: [], parkedPrompts: [] });
     stream.synchronized(2);
     await flush();
     handle.release();
@@ -688,7 +688,7 @@ describe("removing an environment while a write is under way", () => {
     await adding;
     const handle = runtime.subscriptions.session(wire.environmentId, a);
     const stream = await subscription(wire, "sessions.subscribeSession");
-    stream.snapshot(2, { sequence: 2, summary: summaryOf(a), transcript: {} });
+    stream.snapshot(2, { sequence: 2, summary: summaryOf(a), runs: [], items: [], parkedPrompts: [] });
     stream.synchronized(2);
     await flush();
     handle.release();
