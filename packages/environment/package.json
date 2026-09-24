@@ -18,9 +18,11 @@
   },
   "dependencies": {
     "@agent-harness/contracts": "workspace:*",
-    "node-pty": "1.1.0",
     "ws": "^8.21.3",
     "zod": "^4.6.5"
+  },
+  "optionalDependencies": {
+    "node-pty": "1.1.0"
   },
   "devDependencies": {
     "@types/ws": "^8.18.1",

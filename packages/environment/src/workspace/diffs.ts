@@ -1,7 +1,7 @@
-import { copyFile, mkdtemp, rm } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
-import { DIFF_CAP, type SessionDiffChange, type SessionDiffFile, type TranscriptItem } from "@agent-harness/contracts";
+import { ContractError, DIFF_CAP, type SessionDiffChange, type SessionDiffFile, type TranscriptItem } from "@agent-harness/contracts";
 import { runGit } from "./git.js";
 
 /**
@@ -12,9 +12,12 @@ import { runGit } from "./git.js";
  * first commit), so staged and unstaged changes come together, with paths
  * relative to the workspace (`--relative`). Untracked files that are not
  * ignored are shown as new files: git is given a copy of the index in which
- * they are added with intent-to-add, so the user's own index is never
- * written. Three git calls however many files, so it is cheap enough to be
- * the rule.
+ * they, and only they, are added with intent-to-add, and whatever git writes
+ * for that (the empty blob) goes to a scratch object store that reads the
+ * repository's as an alternate: the user's index and object store are never
+ * written. A handful of git calls however many files, so it is cheap enough to
+ * be the rule. Where there is no git the answer is `conflict`, reason
+ * `git_unavailable`.
  *
  * The session's diff is folded from its transcript's tool calls: every
  * file-editing call (Claude's `Edit`, `MultiEdit`, `Write`, `NotebookEdit`)
@@ -35,6 +38,9 @@ export const capAtLine = (text: string, cap: number): { text: string; truncated:
   return { text: head.subarray(0, lastNewline + 1).toString("utf8"), truncated: true };
 };
 
+/** The most of git's untracked listing read for the scratch index; past it the diff leaves the untracked files out. */
+const UNTRACKED_BYTES = 32 * 1024 * 1024;
+
 /** Arguments that keep a repository's configuration from running anything or reshaping the output. */
 const DIFF_FLAGS = ["--no-color", "--no-ext-diff", "--no-textconv", "--relative", "--src-prefix=a/", "--dst-prefix=b/"];
 
@@ -48,6 +54,9 @@ export interface WorkingTreeDiff {
 export const workingTreeDiff = async (root: string): Promise<WorkingTreeDiff> => {
   const small = { maxBytes: 64 * 1024 };
   const inside = await runGit(root, ["rev-parse", "--is-inside-work-tree"], small);
+  if (inside.missing) {
+    throw new ContractError({ code: "conflict", message: "There is no git on this environment to diff with.", data: { reason: "git_unavailable" } });
+  }
   if (!inside.ok || inside.stdout.toString("utf8").trim() !== "true") return { diff: "", truncated: false, repository: false };
 
   const head = await runGit(root, ["rev-parse", "--verify", "--quiet", "HEAD^{commit}"], small);
@@ -57,12 +66,25 @@ export const workingTreeDiff = async (root: string): Promise<WorkingTreeDiff> =>
   const scratch = await mkdtemp(join(tmpdir(), "agent-harness-index-"));
   try {
     const indexFile = join(scratch, "index");
-    const indexPath = (await runGit(root, ["rev-parse", "--git-path", "index"], small)).stdout.toString("utf8").trim();
+    const gitPath = async (name: string): Promise<string> =>
+      resolve(root, (await runGit(root, ["rev-parse", "--git-path", name], small)).stdout.toString("utf8").trim());
     // No index yet (a repository with nothing added): git starts an empty one at the scratch path.
-    await copyFile(resolve(root, indexPath), indexFile).catch(() => undefined);
-    const env = { GIT_INDEX_FILE: indexFile };
-    const added = await runGit(root, ["add", "--intent-to-add", "--all", "--", "."], { ...small, env });
-    // Should the copy refuse the untracked files, the diff is still the tracked ones'.
+    await copyFile(await gitPath("index"), indexFile).catch(() => undefined);
+    // Intent-to-add still writes the empty blob: objects go to a scratch store that reads the repository's as an alternate.
+    const objects = join(scratch, "objects");
+    await mkdir(objects);
+    const env = { GIT_INDEX_FILE: indexFile, GIT_OBJECT_DIRECTORY: objects, GIT_ALTERNATE_OBJECT_DIRECTORIES: await gitPath("objects") };
+    // Only the untracked files: adding a modified tracked one, even with intent-to-add, stores its blob.
+    const untracked = await runGit(root, ["ls-files", "--others", "--exclude-standard", "-z"], { maxBytes: UNTRACKED_BYTES });
+    const listed = untracked.ok && !untracked.truncated && untracked.stdout.length > 0;
+    const added = listed
+      ? await runGit(root, ["add", "--intent-to-add", "--pathspec-from-file=-", "--pathspec-file-nul"], {
+          ...small,
+          env: { ...env, GIT_LITERAL_PATHSPECS: "1" },
+          input: untracked.stdout,
+        })
+      : { ok: false };
+    // Without them (none, too many to list, or refused) the diff is still the tracked files'.
     const diff = await runGit(root, ["diff", ...DIFF_FLAGS, base], { maxBytes: DIFF_CAP + 1, ...(added.ok && { env }) });
     const capped = capAtLine(diff.stdout.toString("utf8"), DIFF_CAP);
     return { diff: capped.text, truncated: capped.truncated || diff.truncated, repository: true };
@@ -190,18 +212,36 @@ const fromInput = (name: string, input: Record<string, unknown>): { file: string
 /** The tools whose calls change files: Claude's. Another provider's join here as their adapters land. */
 export const FILE_EDITING_TOOLS: ReadonlySet<string> = new Set(["Edit", "MultiEdit", "Write", "NotebookEdit"]);
 
-/** `file` relative to the workspace when it is inside it, with forward slashes; else as the tool named it. */
-const workspaceRelative = (root: string, file: string): { path: string; inside: boolean } => {
-  if (!isAbsolute(file)) return { path: file.split(sep).join("/"), inside: true };
+/** `file` inside `root`, relative to it; undefined when it is not inside (`..x` is a name inside, `..` a way out). */
+const inside = (root: string, file: string): string | undefined => {
   const inner = relative(root, file);
-  if (inner === "" || inner.startsWith("..") || isAbsolute(inner)) return { path: file, inside: false };
-  return { path: inner.split(sep).join("/"), inside: true };
+  if (inner === "" || inner === ".." || inner.startsWith(`..${sep}`) || isAbsolute(inner)) return undefined;
+  return inner;
+};
+
+/**
+ * `file` relative to the workspace when it is inside it, with forward
+ * slashes; else as the tool named it. A tool may name a file through the
+ * path the session recorded or through its real path (a symlinked
+ * workspace), so both are roots.
+ */
+const workspaceRelative = (roots: readonly string[], file: string): { path: string; inside: boolean } => {
+  if (!isAbsolute(file)) return { path: file.split(sep).join("/"), inside: true };
+  for (const root of roots) {
+    const inner = inside(root, file);
+    if (inner !== undefined) return { path: inner.split(sep).join("/"), inside: true };
+  }
+  return { path: file, inside: false };
 };
 
 type ToolCall = Extract<TranscriptItem, { kind: "tool-call" }>;
 
-/** What the session's runs changed, per file: see the module comment. */
-export const sessionDiff = (root: string, items: readonly TranscriptItem[]): { files: SessionDiffFile[]; truncated: boolean } => {
+/**
+ * What the session's runs changed, per file: see the module comment. `roots`
+ * are the workspace's paths a tool may have named its files by: the path the
+ * session recorded and, while the directory is there, its real path.
+ */
+export const sessionDiff = (roots: readonly string[], items: readonly TranscriptItem[]): { files: SessionDiffFile[]; truncated: boolean } => {
   const byFile = new Map<string, { inside: boolean; hunks: string[]; changes: SessionDiffChange[] }>();
   for (const item of items) {
     if (item.kind !== "tool-call") continue;
@@ -211,8 +251,9 @@ export const sessionDiff = (root: string, items: readonly TranscriptItem[]): { f
     if (change === undefined) continue;
     const patch = outputPatch(call.output);
     const hunks = patch === undefined ? change.hunks : patch.map(hunkText);
-    const { path, inside } = workspaceRelative(root, change.file);
-    const entry = byFile.get(path) ?? { inside, hunks: [], changes: [] };
+    const named = workspaceRelative(roots, change.file);
+    const path = named.path;
+    const entry = byFile.get(path) ?? { inside: named.inside, hunks: [], changes: [] };
     entry.hunks.push(...hunks);
     entry.changes.push({ runId: call.runId, toolCallId: call.toolCallId, tool: call.name, status: call.status });
     byFile.set(path, entry);

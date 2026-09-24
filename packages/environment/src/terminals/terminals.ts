@@ -1,4 +1,5 @@
 import {
+  EXITED_SCROLLBACK_MS,
   TERMINAL_EXITED_TYPE,
   TERMINAL_OUTPUT_TYPE,
   TERMINAL_STREAM_KIND,
@@ -9,6 +10,7 @@ import {
 } from "@agent-harness/contracts";
 import { randomUUID } from "node:crypto";
 import { REPLAY_BOUND, formatActor, type EventEnvelope } from "../event-log/event-log.js";
+import type { Clock, Timer } from "../serve/clock.js";
 import type { FeedSource } from "../wire/subscriptions.js";
 import { nodePty, type Pty, type PtyProcess } from "./pty.js";
 import { createScrollback, type Chunk, type Scrollback } from "./scrollback.js";
@@ -26,6 +28,11 @@ import { baseEnvironment, loginShell, type ShellCommand } from "./shell.js";
  * Output is gathered for a few milliseconds before it becomes a chunk, so a
  * flood of small reads is a chunk a frame rather than thousands (Artemis
  * batches the same way); a chunk is cut at 64 KiB whatever the wait.
+ *
+ * An exited terminal keeps its scrollback ten minutes by the environment's
+ * clock, then only its exit code, listed until it is closed: with at most
+ * sixteen terminals a session (the command's check), that bounds what the
+ * terminals hold.
  */
 
 /** How long output is gathered into one chunk, in real milliseconds. */
@@ -39,8 +46,8 @@ export const KILL_GRACE_MS = 3000;
 const ACTOR = formatActor({ kind: "system", id: "terminals" });
 
 export interface TerminalsOptions {
-  /** The environment's time: when a terminal opened and its output came. */
-  readonly now: () => Date;
+  /** The environment's time: when a terminal opened and its output came, and when an exited one's scrollback goes. */
+  readonly clock: Clock;
   /** Preset: `node-pty`. */
   readonly pty?: Pty;
   /** What a terminal runs. Preset: the user's login shell (`loginShell`). */
@@ -112,6 +119,8 @@ interface Terminal {
   gathering: ReturnType<typeof setTimeout> | undefined;
   closing: TerminalExitCause | undefined;
   killing: ReturnType<typeof setTimeout> | undefined;
+  /** When an exited terminal's scrollback is dropped. */
+  forgetting: Timer | undefined;
   exit: Exit | undefined;
 }
 
@@ -188,13 +197,13 @@ export const createTerminals = (options: TerminalsOptions): Terminals => {
     const data = terminal.pending.join("");
     terminal.pending = [];
     terminal.pendingBytes = 0;
-    publish(terminal, outputEvent(terminal, terminal.scrollback.append(data, options.now().toISOString())));
+    publish(terminal, outputEvent(terminal, terminal.scrollback.append(data, options.clock.now().toISOString())));
   };
 
   const hear = (terminal: Terminal, data: string): void => {
     if (terminal.exit !== undefined) return;
     terminal.pending.push(data);
-    terminal.pendingBytes += data.length;
+    terminal.pendingBytes += Buffer.byteLength(data, "utf8");
     if (gatherMs === 0 || terminal.pendingBytes >= CHUNK_BYTES) return flush(terminal);
     terminal.gathering ??= setTimeout(() => flush(terminal), gatherMs);
   };
@@ -206,10 +215,11 @@ export const createTerminals = (options: TerminalsOptions): Terminals => {
     terminal.killing = undefined;
     terminal.process = undefined;
     const payload: TerminalExitedPayload = { exitCode, signal: signalNumber, cause: terminal.closing ?? "exited" };
-    const event = envelope(terminal, terminal.scrollback.lastSequence + 1, randomUUID(), options.now().toISOString(), TERMINAL_EXITED_TYPE, payload);
+    const event = envelope(terminal, terminal.scrollback.lastSequence + 1, randomUUID(), options.clock.now().toISOString(), TERMINAL_EXITED_TYPE, payload);
     terminal.exit = { exitCode, signal: signalNumber, event };
     publish(terminal, event);
     terminal.listeners.clear();
+    terminal.forgetting = options.clock.setTimeout(() => terminal.scrollback.clear(), EXITED_SCROLLBACK_MS);
   };
 
   const start = (terminal: Terminal, request: OpenTerminal): void => {
@@ -230,6 +240,7 @@ export const createTerminals = (options: TerminalsOptions): Terminals => {
     const terminal = open.get(id);
     if (terminal === undefined) return;
     open.delete(id);
+    terminal.forgetting?.cancel();
     if (terminal.exit !== undefined) return;
     terminal.closing = cause;
     signal(terminal.process, "SIGHUP");
@@ -260,6 +271,7 @@ export const createTerminals = (options: TerminalsOptions): Terminals => {
         gathering: undefined,
         closing: undefined,
         killing: undefined,
+        forgetting: undefined,
         exit: undefined,
       };
       open.set(request.id, terminal);

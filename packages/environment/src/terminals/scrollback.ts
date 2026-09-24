@@ -48,6 +48,8 @@ export interface Scrollback {
    * cut, or the cursor is past the last chunk (not this terminal's).
    */
   after(cursor: number): readonly Chunk[] | undefined;
+  /** Drops every retained chunk; the sequence goes on from where it was, and the ring says it was truncated. */
+  clear(): void;
   /** How many lines are retained, an unfinished last one counted. */
   lines(): number;
   /** How many UTF-8 bytes are retained. */
@@ -205,6 +207,9 @@ export const createScrollback = (caps: ScrollbackCaps = TERMINAL_SCROLLBACK): Sc
       const earliest = headCut ? oldest.sequence : oldest.sequence - 1;
       if (cursor < earliest) return undefined;
       return held.slice(start + (cursor - oldest.sequence + 1)).map(({ sequence, eventId, occurredAt, data }) => ({ sequence, eventId, occurredAt, data }));
+    },
+    clear() {
+      while (count() > 0) dropHead();
     },
     lines: lineCount,
     bytes: () => totalBytes,

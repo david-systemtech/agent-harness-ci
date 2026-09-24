@@ -13,8 +13,19 @@ import { resolveInWorkspace } from "./paths.js";
  * Artemis's skip list, carried from its terminal's `@` completion
  * (`apps/tui/src/fileIndex.ts`): `.git`, `node_modules`, `dist`, `out`,
  * `.tsbuild` and every other dot-directory are never entered, and a symlink
- * is neither listed nor followed. Either way at most 20,000 paths.
+ * is neither listed nor followed. Either way at most 20,000 paths, and the
+ * walk enters at most 20,000 directories, so a tree of empty directories is
+ * bounded too. Where there is no git, or git cannot answer (not a
+ * repository, a broken index), the listing is the walk's.
  */
+
+/** The most directories the walk enters, the workspace itself included. */
+export const WALK_DIRECTORY_CAP = 20_000;
+
+export interface ListOptions {
+  /** Preset `WALK_DIRECTORY_CAP`. */
+  readonly maxDirectories?: number;
+}
 
 /** Directories the walk never enters, beside every dot-directory (Artemis's list). */
 export const SKIPPED_DIRECTORIES: ReadonlySet<string> = new Set([".git", "node_modules", "dist", "out", ".tsbuild"]);
@@ -44,10 +55,16 @@ const gitFiles = async (root: string): Promise<{ paths: string[]; truncated: boo
 const isSkipped = (name: string): boolean => SKIPPED_DIRECTORIES.has(name) || name.startsWith(".");
 
 /** The walk: depth-first in name order, so the same tree always gives the same list, a cut one included. */
-const walkFiles = async (root: string, limit: number): Promise<{ paths: string[]; truncated: boolean }> => {
+const walkFiles = async (root: string, limit: number, maxDirectories: number): Promise<{ paths: string[]; truncated: boolean }> => {
   const found: string[] = [];
   let truncated = false;
+  let entered = 0;
   const visit = async (directory: string, prefix: string): Promise<void> => {
+    if (entered >= maxDirectories) {
+      truncated = true;
+      return;
+    }
+    entered += 1;
     let entries: Dirent[];
     try {
       entries = await readdir(directory, { withFileTypes: true });
@@ -78,14 +95,14 @@ const walkFiles = async (root: string, limit: number): Promise<{ paths: string[]
 };
 
 /** The workspace's files: see the module comment. */
-export const listFiles = async (root: string): Promise<FileListing> => {
+export const listFiles = async (root: string, options: ListOptions = {}): Promise<FileListing> => {
   const tracked = await gitFiles(root);
   if (tracked !== undefined) {
     // The index lists a conflicted path once per stage.
     const unique = [...new Set(tracked.paths)].sort(byPath);
     return { files: unique.slice(0, FILES_LIST_CAP), truncated: tracked.truncated || unique.length > FILES_LIST_CAP, source: "git" };
   }
-  const walked = await walkFiles(root, FILES_LIST_CAP);
+  const walked = await walkFiles(root, FILES_LIST_CAP, options.maxDirectories ?? WALK_DIRECTORY_CAP);
   return { files: walked.paths.sort(byPath), truncated: walked.truncated, source: "walk" };
 };
 
@@ -113,7 +130,13 @@ export const readWorkspaceFile = async (root: string, requested: string): Promis
   const handle = await open(file.absolute, "r");
   try {
     const buffer = Buffer.allocUnsafe(Math.min(FILES_READ_CAP, Math.max(info.size, 1)));
-    const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
+    // One read may answer less than asked; read on until the buffer is full or the file ends.
+    let bytesRead = 0;
+    while (bytesRead < buffer.length) {
+      const { bytesRead: more } = await handle.read(buffer, bytesRead, buffer.length - bytesRead, bytesRead);
+      if (more === 0) break;
+      bytesRead += more;
+    }
     const body = buffer.subarray(0, bytesRead);
     const binary = body.subarray(0, BINARY_SNIFF_BYTES).includes(0);
     return { path: file.relative, size: info.size, binary, truncated: info.size > bytesRead, text: binary ? null : body.toString("utf8") };

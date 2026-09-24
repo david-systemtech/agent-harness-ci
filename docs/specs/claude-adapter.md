@@ -162,6 +162,8 @@ A good test is a behaviour visible through the wire, the completions routes or t
 
 ## Further Notes
 
+- Owed to `diffs.session` (#124): for an edit or a write, `tool.ended`'s `output` should carry the SDK's structured tool result (its `structuredPatch`, and `originalFile` for a write), not only its text, so the session's diff shows the file's own line numbers; until it does, `diffs.session` numbers each hunk from the edited text.
+
 Chosen defaults not decided on a ticket, for review:
 
 - Delta batches every 100 milliseconds or 512 bytes as ordinary events; the snapshot holds settled items only; subagent transcripts read on demand.

@@ -165,7 +165,7 @@ export interface EnvironmentOptions {
     readonly clampMode?: ModeClamp;
   };
   /** How terminals start: the pty, the shell, the base environment. Preset: `node-pty`, the user's login shell, the clean base (`terminals/`). */
-  readonly terminals?: Omit<TerminalsOptions, "now">;
+  readonly terminals?: Omit<TerminalsOptions, "clock">;
 }
 
 /** A running environment. */
@@ -364,7 +364,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     close: () => close(),
   });
   // The terminals (#124): their output never enters the log; closed before the log is, and on a session's deletion.
-  const terminalService = createTerminalService({ log, now, ...options.terminals });
+  const terminalService = createTerminalService({ log, clock, ...options.terminals });
   closers.push(() => terminalService.close());
   const table = createMethodTable({
     ...lifecycle.handlers,

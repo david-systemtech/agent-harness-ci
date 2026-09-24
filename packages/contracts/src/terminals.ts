@@ -32,6 +32,12 @@ export const TERMINAL_EXITED_TYPE = "terminal.exited";
 /** What a terminal keeps of its output: 5,000 lines or 8 MiB, whichever comes first; the oldest goes. */
 export const TERMINAL_SCROLLBACK = { lines: 5000, bytes: 8 * 1024 * 1024 } as const;
 
+/** The most terminals one session holds open, running or exited, before `terminals.open` is refused `too_many_terminals`. */
+export const MAX_TERMINALS_PER_SESSION = 16;
+
+/** How long an exited terminal keeps its scrollback; it stays listed with its exit code until it is closed. */
+export const EXITED_SCROLLBACK_MS = 10 * 60 * 1000;
+
 /** The most entries `files.list` answers. */
 export const FILES_LIST_CAP = 20_000;
 

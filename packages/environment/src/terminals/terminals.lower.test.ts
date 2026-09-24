@@ -29,7 +29,7 @@ const request = (overrides: Partial<OpenTerminal> = {}): OpenTerminal => ({
 const setUp = (gatherMs = 0): { pty: FakePty; terminals: Terminals } => {
   const pty = fakePty();
   const terminals = createTerminals({
-    now: () => NOW,
+    clock: { now: () => NOW, setTimeout: () => ({ cancel: () => undefined }), setInterval: () => ({ cancel: () => undefined }) },
     pty,
     shell: () => ({ file: "/bin/zsh", args: ["-l"] }),
     baseEnvironment: () => ({ TERM: "xterm-256color", PATH: "/usr/bin", HOME: "/home/david", LANG: "C.UTF-8" }),
@@ -93,6 +93,20 @@ describe("a terminal's output", () => {
       ["terminal.output", 2],
       ["terminal.exited", 3],
     ]);
+  });
+});
+
+describe("a terminal's gathered output", () => {
+  it("is cut into a chunk at 64 KiB counted in UTF-8 bytes, not UTF-16 units", () => {
+    vi.useFakeTimers();
+    const { pty, terminals } = setUp(1000);
+    terminals.open(request());
+    const heard: EventEnvelope[] = [];
+    feedOf(terminals).feed.subscribe((event) => heard.push(event));
+    const [child] = pty.spawned as [FakeProcess];
+    // 32 Ki two-byte characters: 64 KiB of UTF-8, half that in UTF-16 units.
+    child.print("é".repeat(32 * 1024));
+    expect(heard).toHaveLength(1);
   });
 });
 

@@ -28,7 +28,10 @@ const terminalTarget = { id: TerminalId };
  * Opens a terminal for the session: the user's login shell (from the passwd
  * entry, else `/bin/sh`) in the workspace directory, at the size given or
  * 80 by 24, with the variables given on top of a clean base. An id already
- * used on this environment is `conflict`, reason `exists`; a workspace
+ * used on this environment (since it started, or named by an accepted
+ * command's receipt in the last 30 days) is `conflict`, reason `exists`; a
+ * session already holding 16 terminals, running or exited, is `conflict`,
+ * reason `too_many_terminals`; a workspace
  * directory that is gone is `conflict`, reason `workspace_missing`; an
  * environment that cannot start a pseudo-terminal is `conflict`, reason
  * `pty_unavailable`.

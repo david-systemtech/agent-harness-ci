@@ -33,13 +33,15 @@ the event log uses; pnpm comes from the `packageManager` pin through
 
 - `pnpm install`, then `pnpm typecheck` (`tsc -b`), `pnpm lint` and `pnpm test`
   (Vitest, every package's suite); CI runs the same three.
-- One native dependency: `node-pty` (the environment's terminals), pinned
-  exactly and allowed its install script in `pnpm-workspace.yaml`
-  (`onlyBuiltDependencies`). On Linux it compiles with node-gyp, so
-  `pnpm install` needs python3, make and g++ (CI's `node:24-bookworm` has
-  them); macOS and Windows take its prebuilds. The environment loads it on the
-  first terminal only, so a machine where it did not build still runs
-  everything else.
+- One native dependency: `node-pty` (the environment's terminals), an
+  optional dependency of the environment pinned exactly and allowed its
+  install script in `pnpm-workspace.yaml` (`onlyBuiltDependencies`). On Linux
+  it compiles with node-gyp, which needs python3, make and g++ (CI's
+  `node:24-bookworm` has them); macOS and Windows take its prebuilds. Where it
+  cannot build, `pnpm install` still succeeds and leaves it unbuilt; the
+  environment loads it on the first terminal only, so such a machine runs
+  everything else and `terminals.open` answers `pty_unavailable` (and the
+  real-pty terminal tests fail there).
 - `packages/contracts/schema/` is the JSON Schema export of every contracts
   schema, committed as the release artefact for clients in other languages.
   After changing a schema run `pnpm --filter @agent-harness/contracts

@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
@@ -165,7 +165,78 @@ describe("files.read", () => {
   });
 });
 
+describe("git on a workspace", () => {
+  it("never runs the fsmonitor a repository's own config names, for files.list or diffs.workingTree", async () => {
+    const { client, root, sessionId } = await setUp();
+    git(root, "init", "-q");
+    write(root, { "a.txt": "a\n" });
+    git(root, "add", ".");
+    git(root, "commit", "-qm", "first");
+    const marker = join(tempDir("agent-harness-marker-"), "ran");
+    const monitor = join(tempDir("agent-harness-monitor-"), "monitor.sh");
+    writeFileSync(monitor, `#!/bin/sh\necho ran >> ${marker}\nexit 1\n`);
+    chmodSync(monitor, 0o755);
+    git(root, "config", "core.fsmonitor", monitor);
+    write(root, { "a.txt": "b\n" });
+
+    await client.request("files.list", { sessionId });
+    await client.request("diffs.workingTree", { sessionId });
+
+    expect(existsSync(marker)).toBe(false);
+  });
+
+  it("gives git none of the environment's own variables: a clean filter the repository names runs, but sees no secret", async () => {
+    const secret = "AGENT_HARNESS_TEST_GIT_SECRET";
+    process.env[secret] = "the environment's own";
+    onCleanup(() => void delete process.env[secret]);
+    const { client, root, sessionId } = await setUp();
+    git(root, "init", "-q");
+    write(root, { "a.txt": "a\n" });
+    git(root, "add", ".");
+    git(root, "commit", "-qm", "first");
+    const marker = join(tempDir("agent-harness-marker-"), "seen");
+    git(root, "config", "filter.spy.clean", `sh -c 'echo "[$${secret}]" >> ${marker}; cat'`);
+    write(root, { ".gitattributes": "* filter=spy\n", "a.txt": "b\n" });
+
+    await client.request("diffs.workingTree", { sessionId });
+
+    // The clean filter still runs (owed to containment, #133); it is handed nothing of the environment's.
+    expect(readFileSync(marker, "utf8").trim().split("\n")).toContain("[]");
+    expect(readFileSync(marker, "utf8")).not.toContain("the environment's own");
+  });
+
+  it("answers the diff methods conflict, reason git_unavailable, where there is no git, and files.list walks instead", async () => {
+    const { client, root, sessionId } = await setUp();
+    write(root, { "a.txt": "a\n" });
+    const path = process.env["PATH"];
+    process.env["PATH"] = tempDir("agent-harness-no-git-");
+    onCleanup(() => void (process.env["PATH"] = path));
+
+    const error = await refusedWith(client.request("diffs.workingTree", { sessionId }));
+    expect([error.code, error.data["reason"]]).toEqual(["conflict", "git_unavailable"]);
+    expect(await client.request("files.list", { sessionId })).toEqual({ files: ["a.txt"], truncated: false, source: "walk" });
+  });
+});
+
 describe("diffs.workingTree", () => {
+  it("writes nothing into the repository's object store: only untracked files go into the scratch index", async () => {
+    const { client, root, sessionId } = await setUp();
+    git(root, "init", "-q");
+    write(root, { "a.txt": "one\n" });
+    git(root, "add", ".");
+    git(root, "commit", "-qm", "first");
+    write(root, { "a.txt": "one\ntwo\n", "new.txt": "new\n" });
+    // The object count: its size in kilobytes is the filesystem's block accounting, which moves on its own.
+    const objects = () => git(root, "count-objects", "-v").split("\n").filter((line) => /^(count|in-pack):/.test(line));
+    const before = objects();
+
+    const answer = await client.request("diffs.workingTree", { sessionId });
+
+    expect(answer.diff).toContain("+two\n");
+    expect(answer.diff).toContain("+new\n");
+    expect(objects()).toEqual(before);
+  });
+
   it("is the unified diff against HEAD: changes staged and not, and untracked files as new, never ignored ones, leaving the index as it was", async () => {
     const { client, root, sessionId } = await setUp();
     git(root, "init", "-q");
@@ -250,6 +321,40 @@ const runToEnd = async (t: TestEnvironment, client: WireClient, sessionId: strin
 };
 
 describe("diffs.session", () => {
+  it("still answers when the workspace directory is gone, from the path the session recorded", async () => {
+    const adapter = fakeAdapter();
+    const t = await start({ adapter });
+    const client = await t.client();
+    const root = join(tempDir("agent-harness-workspace-"), "project");
+    mkdirSync(root);
+    const sessionId = await sessionIn(client, root);
+    adapter.nextScripts.push(editingScript([{ name: "Write", input: { file_path: join(root, "a.txt"), content: "a\n" } }]));
+    await runToEnd(t, client, sessionId);
+    rmSync(root, { recursive: true });
+
+    expect((await client.request("diffs.session", { sessionId })).files.map((file) => file.path)).toEqual(["a.txt"]);
+  });
+
+  it("names a file relative to the workspace whether the tool used the recorded path or the real one, and keeps a sibling named ..x outside", async () => {
+    const adapter = fakeAdapter();
+    const t = await start({ adapter });
+    const client = await t.client();
+    const base = tempDir("agent-harness-workspace-");
+    mkdirSync(join(base, "real"));
+    symlinkSync(join(base, "real"), join(base, "linked"));
+    const sessionId = await sessionIn(client, join(base, "linked"));
+    adapter.nextScripts.push(
+      editingScript([
+        { name: "Write", input: { file_path: join(base, "linked", "via-link.txt"), content: "a\n" } },
+        { name: "Write", input: { file_path: join(base, "real", "via-real.txt"), content: "b\n" } },
+        { name: "Write", input: { file_path: join(base, "linked", "..x", "odd.txt"), content: "c\n" } },
+      ]),
+    );
+    await runToEnd(t, client, sessionId);
+
+    expect((await client.request("diffs.session", { sessionId })).files.map((file) => file.path)).toEqual(["via-link.txt", "via-real.txt", "..x/odd.txt"]);
+  });
+
   it("folds the session's file-editing tool calls that ended ok into a diff per file, in the order first changed, with the calls behind each", async () => {
     const adapter = fakeAdapter();
     const t = await start({ adapter });

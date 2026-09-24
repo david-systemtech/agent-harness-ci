@@ -75,9 +75,6 @@ importers:
       '@agent-harness/contracts':
         specifier: workspace:*
         version: link:../contracts
-      node-pty:
-        specifier: 1.1.0
-        version: 1.1.0
       ws:
         specifier: ^8.21.3
         version: 8.21.3
@@ -91,6 +88,10 @@ importers:
       tsx:
         specifier: ^4.23.15
         version: 4.23.15
+    optionalDependencies:
+      node-pty:
+        specifier: 1.1.0
+        version: 1.1.0
 
   packages/tui:
     dependencies:
@@ -1812,11 +1813,13 @@ snapshots:
 
   natural-compare@1.4.0: {}
 
-  node-addon-api@7.1.1: {}
+  node-addon-api@7.1.1:
+    optional: true
 
   node-pty@1.1.0:
     dependencies:
       node-addon-api: 7.1.1
+    optional: true
 
   obug@2.2.1: {}
 

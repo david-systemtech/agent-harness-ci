@@ -29,10 +29,12 @@ export const workspaceMethods = ({ log }: WorkspaceMethodsOptions): MethodHandle
     "diffs.workingTree": async (params) => workingTreeDiff(await rootOf(params.sessionId)),
     "diffs.session": async (params) => {
       const sessionId = params.sessionId.toLowerCase();
-      const root = await rootOf(sessionId);
+      const recorded = requireSessionWorkspace(log, sessionId);
+      // Its data is the log's, so a workspace directory that is gone does not stop it: the recorded path is a root.
+      const real = await workspaceRoot(recorded).catch(() => undefined);
       // The runs' tool calls, as the session's snapshot folds them from its stream (`runs/transcript.ts`).
       const { items } = foldTranscript(log.readStream(sessionStream(sessionId)));
-      return sessionDiff(root, items);
+      return sessionDiff(real === undefined || real === recorded ? [recorded] : [recorded, real], items);
     },
   };
 };

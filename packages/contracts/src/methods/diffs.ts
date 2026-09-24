@@ -15,7 +15,8 @@ import { SessionDiffFile } from "../terminals.js";
  * the empty tree before the first commit), staged and unstaged changes
  * together, untracked files that are not ignored shown as new files, paths
  * relative to the workspace; `repository` false, and no diff, when the
- * workspace is in no git repository.
+ * workspace is in no git repository; `conflict`, reason `git_unavailable`,
+ * when the environment has no git.
  */
 export const diffsWorkingTree = defineMethod({
   name: "diffs.workingTree",

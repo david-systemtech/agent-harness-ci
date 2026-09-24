@@ -81,10 +81,10 @@ export interface FeedCatchUp<Payload = unknown> {
 }
 
 /**
- * A feed outside the log. Both calls are synchronous and are made in one
- * turn, the listener first, so nothing the feed publishes between them is
- * lost; what the listener hears at or below what catch-up sent is dropped by
- * sequence. Its events are envelopes as the log's are, over the feed's own
+ * A feed outside the log. Both calls are synchronous: the listener is
+ * attached first and catch-up is read after it, so nothing the feed
+ * publishes in between is lost; what the listener hears at or below what
+ * catch-up sent is dropped by sequence. Its events are envelopes as the log's are, over the feed's own
  * sequence and stream.
  */
 export interface Feed<Payload = unknown> {

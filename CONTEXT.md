@@ -104,6 +104,14 @@ _Avoid_: variable (the mechanism), hex, swatch (the picker's preview)
 One view inside a client's window (a conversation, a terminal, files, a diff, the browser dock); which panes are open and how they are laid out is client-local presentation, not organisation state.
 _Avoid_: tab, panel, dock (the region that holds panes; the proper name "browser dock" for the embedded-browser pane is the one exception)
 
+**Terminal**:
+A pseudo-terminal an environment owns, running the user's login shell in a session's workspace, which outlives every client connected to it and closes with its session; its output is kept only in its scrollback, never in the event log.
+_Avoid_: shell (the program inside it), console, the terminal UI (a client) or the user's terminal emulator (where a client runs)
+
+**Scrollback**:
+The bounded tail of a terminal's output the environment keeps, 5,000 lines or 8 MiB, from which a client reconnecting is sent what it missed.
+_Avoid_: history, buffer, log (the event log holds none of it)
+
 **Workspace**:
 Where a session's code lives on its environment: a directory the environment has, a worktree the environment created from a repository it has, or a scratch directory that lives with the session. Every session has exactly one.
 _Avoid_: folder, cwd, project (for the place), none (there is no session without a workspace)

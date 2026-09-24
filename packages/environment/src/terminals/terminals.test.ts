@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { realpathSync } from "node:fs";
+import { join } from "node:path";
 import { homedir } from "node:os";
 import { Ceiling, registry, type EventFrame, type Scope } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
@@ -104,6 +105,37 @@ describe("terminals.open", () => {
     await terminalCommand(client, "terminals.close", { id });
     const reopened = await terminalCommand(client, "terminals.open", { id, sessionId });
     expect(reopened.receipt).toMatchObject({ status: "rejected", reason: "conflict", error: { data: { reason: "exists" } } });
+  });
+
+  it("refuses an id used before a restart of the environment conflict, reason exists, while its receipts are kept", async () => {
+    const dataDir = join(tempDir("agent-harness-terminal-data-"), "data");
+    const first = await startTestEnvironment({ dataDir, terminals: { shell: () => SH } });
+    let client = await first.client();
+    const sessionId = await sessionIn(client, tempDir("agent-harness-terminal-"));
+    const { id } = await openTerminal(client, sessionId);
+    await first.close();
+
+    const second = await start({ dataDir });
+    client = await second.client();
+    const answer = await terminalCommand(client, "terminals.open", { id, sessionId });
+    expect(answer.receipt).toMatchObject({ status: "rejected", reason: "conflict", error: { data: { reason: "exists", id } } });
+    // An id whose only receipt is a rejection was never opened, and may be.
+    const unknownSession = randomUUID();
+    const refused = randomUUID();
+    await terminalCommand(client, "terminals.open", { id: refused, sessionId: unknownSession });
+    expect((await terminalCommand(client, "terminals.open", { id: refused, sessionId })).receipt).toMatchObject({ status: "accepted" });
+  });
+
+  it("refuses a seventeenth terminal on one session conflict, reason too_many_terminals, exited ones counted until closed", async () => {
+    const { client, sessionId } = await setUp({ terminals: { shell: () => SH, pty: fakePty() } });
+    const opened = [];
+    for (let i = 0; i < 16; i += 1) opened.push(await openTerminal(client, sessionId));
+    const refused = await terminalCommand(client, "terminals.open", { id: randomUUID(), sessionId });
+    expect(refused.receipt).toMatchObject({ status: "rejected", reason: "conflict", error: { data: { reason: "too_many_terminals", limit: 16 } } });
+    // Another session has its own sixteen; closing one frees a place.
+    await openTerminal(client, await sessionIn(client, tempDir("agent-harness-terminal-")));
+    await terminalCommand(client, "terminals.close", { id: (opened[0] as { id: string }).id });
+    await openTerminal(client, sessionId);
   });
 
   it("refuses a session that is not on this environment not_found, kind session", async () => {
@@ -296,6 +328,27 @@ describe("a terminal's end", () => {
     expect(late.frames.map((frame) => (frame.type === "event" ? frame.event.type : frame.type))).toEqual(["snapshot", "terminal.exited", "end"]);
     expect(late.snapshot?.terminal.exitCode).toBe(7);
     expect(late.ended).toBe("closed");
+  });
+
+  it("drops an exited terminal's scrollback ten minutes after the exit, keeping it listed with its exit code until it is closed", async () => {
+    const { t, client, sessionId } = await setUp();
+    const { id } = await openTerminal(client, sessionId);
+    await typeInto(client, id, "echo kept-$((1+1)); exit 4\r");
+    const view = await follow(client, id, 0);
+    await view.until((v) => v.ended !== undefined);
+    expect(view.text).toContain("kept-2");
+
+    t.clock.advance(10 * 60 * 1000 - 1);
+    const before = await follow(client, id, 0);
+    await before.until((v) => v.ended !== undefined);
+    expect(before.snapshot?.scrollback).toContain("kept-2");
+    t.clock.advance(1);
+
+    const after = await follow(client, id, 0);
+    await after.until((v) => v.ended !== undefined);
+    expect(after.snapshot).toMatchObject({ scrollback: "", firstSequence: 0, truncated: true, terminal: { exitCode: 4 } });
+    expect(after.exited).toMatchObject({ exitCode: 4, cause: "exited" });
+    expect((await client.request("terminals.list", { sessionId })).terminals).toMatchObject([{ id, exitCode: 4 }]);
   });
 
   it("is terminals.close: the shell is hung up, a subscriber hears terminal.exited with cause closed and end closed, and the terminal leaves the list", async () => {

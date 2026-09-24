@@ -15,7 +15,7 @@ import { FilesListSource, WorkspacePath } from "../terminals.js";
 /**
  * The workspace's files, as paths relative to it with forward slashes, in
  * code-unit order: in a git repository, git's tracked and untracked files
- * that are not ignored; elsewhere a bounded walk that skips `.git`,
+ * that are not ignored; elsewhere, or where there is no git, a bounded walk that skips `.git`,
  * `node_modules`, `dist`, `out`, `.tsbuild` and every other dot-directory,
  * and never follows a symlink (Artemis's skip list). At most 20,000, with
  * `truncated` when there were more.

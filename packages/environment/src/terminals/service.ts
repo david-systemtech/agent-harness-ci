@@ -2,11 +2,13 @@ import { statSync } from "node:fs";
 import {
   ContractError,
   DEFAULT_TERMINAL_SIZE,
+  MAX_TERMINALS_PER_SESSION,
   SESSION_STREAM_KIND,
   TERMINAL_STREAM_KIND,
   type TerminalInfo,
 } from "@agent-harness/contracts";
-import type { EventLog, StreamRef } from "../event-log/event-log.js";
+import { RECEIPT_RETENTION_MS, type EventLog, type StreamRef } from "../event-log/event-log.js";
+import type { Clock } from "../serve/clock.js";
 import type { CommandContext, CommandRejection, MethodHandlers } from "../serve/methods.js";
 import { sessionNotFound } from "../sessions/decider.js";
 import { requireSessionWorkspace, sessionWorkspace } from "../workspace/session.js";
@@ -26,9 +28,9 @@ import { createTerminals, type Terminals, type TerminalsOptions } from "./termin
  * triggered by `session.deleted`); a restore brings none back.
  */
 
-export interface TerminalServiceOptions extends Omit<TerminalsOptions, "now"> {
+export interface TerminalServiceOptions extends Omit<TerminalsOptions, "clock"> {
   readonly log: EventLog;
-  readonly now: () => Date;
+  readonly clock: Clock;
 }
 
 export interface TerminalService {
@@ -77,8 +79,23 @@ const target = (terminals: Terminals, id: string, exitedToo = false): { info: Te
 const afterCommit = (context: CommandContext, work: () => void): void => context.tx.afterCommit(work);
 
 export const createTerminalService = (options: TerminalServiceOptions): TerminalService => {
-  const { log, now } = options;
+  const { log, clock } = options;
   const terminals = createTerminals(options);
+
+  /**
+   * Whether `id` was ever a terminal here: open since the environment started,
+   * or named by an accepted command's receipt within the receipts' 30 days,
+   * so an id is not reused across a restart. A rejected open never opened
+   * anything, so its receipt does not count.
+   */
+  const used = (id: string): boolean =>
+    terminals.used(id) ||
+    log.read(
+      "SELECT 1 FROM command_receipts WHERE stream_kind = ? AND stream_id = ? AND status = 'accepted' AND created_at > ? LIMIT 1",
+      TERMINAL_STREAM_KIND,
+      id,
+      new Date(clock.now().getTime() - RECEIPT_RETENTION_MS).toISOString(),
+    ).length > 0;
 
   const stopHearing = log.subscribe((event) => {
     if (event.streamKind === SESSION_STREAM_KIND && event.type === "session.deleted") terminals.closeSession(event.streamId);
@@ -91,9 +108,18 @@ export const createTerminalService = (options: TerminalServiceOptions): Terminal
       const aggregate = terminalAggregate(id);
       const cwd = sessionWorkspace(log, sessionId);
       if (cwd === null) return { aggregate, rejected: sessionNotFound(sessionId) };
-      if (terminals.used(id)) return { aggregate, rejected: conflict("exists", `A terminal ${id} was opened on this environment already.`, { id }) };
+      if (used(id)) return { aggregate, rejected: conflict("exists", `A terminal ${id} was opened on this environment already.`, { id }) };
+      if (terminals.list(sessionId).length >= MAX_TERMINALS_PER_SESSION) {
+        return {
+          aggregate,
+          rejected: conflict("too_many_terminals", `Session ${sessionId} has ${MAX_TERMINALS_PER_SESSION} terminals open; close one first.`, {
+            sessionId,
+            limit: MAX_TERMINALS_PER_SESSION,
+          }),
+        };
+      }
       if (!isDirectory(cwd)) {
-        return { aggregate, rejected: conflict("workspace_missing", `The session's workspace ${cwd} is not a directory there is.`, { path: cwd }) };
+        return { aggregate, rejected: conflict("workspace_missing", `The session's workspace ${cwd} is not a directory on this machine.`, { path: cwd }) };
       }
       try {
         terminals.check();
@@ -108,7 +134,7 @@ export const createTerminalService = (options: TerminalServiceOptions): Terminal
         cols: params.cols ?? DEFAULT_TERMINAL_SIZE.cols,
         rows: params.rows ?? DEFAULT_TERMINAL_SIZE.rows,
         env: params.env ?? {},
-        openedAt: now().toISOString(),
+        openedAt: clock.now().toISOString(),
       };
       afterCommit(context, () => void terminals.open(request));
       const terminal: TerminalInfo = { id, sessionId, openedAt: request.openedAt, cols: request.cols, rows: request.rows, exitCode: null, signal: null };
