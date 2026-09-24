@@ -430,16 +430,6 @@ describe("the Task Scheduler logon task", () => {
     ]);
     expect(existsSync(join(spec.dataDir, "service-task.xml"))).toBe(false);
   });
-      await expect(service.install(spec), previous ? "previous" : "none").rejects.toThrow(ServiceCommandError);
-      const create = `schtasks /Create /TN agent-harness /XML ${join(spec.dataDir, "service-task.xml")} /F`;
-      expect(calls.filter((call) => !call.startsWith("schtasks /Query")), previous ? "previous" : "none").toEqual(
-        previous
-          ? [create, "schtasks /End /TN agent-harness", create, "schtasks /Run /TN agent-harness"]
-          : [create, "schtasks /Delete /TN agent-harness /F"],
-      );
-      expect(existsSync(join(spec.dataDir, "service-task.xml"))).toBe(false);
-    }
-  });
 
   it("names the task's user without a domain when Windows gives none", async () => {
     const home = tempHome();
