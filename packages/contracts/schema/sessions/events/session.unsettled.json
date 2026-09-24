@@ -22,5 +22,5 @@
     "unsettledAt",
     "reason"
   ],
-  "description": "session.unsettled: the session left the settled shelf."
+  "description": "session.unsettled: the session left the settled shelf; by the user, a session not settled is held active against auto-settle."
 }

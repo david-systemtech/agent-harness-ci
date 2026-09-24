@@ -1,0 +1,152 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "settings.update response",
+  "type": "object",
+  "properties": {
+    "receipt": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string",
+              "const": "accepted"
+            },
+            "sequence": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991,
+              "description": "The log's head once the command committed: its last event, or the head it saw when it appended none."
+            },
+            "changed": {
+              "type": "boolean",
+              "description": "False for a command that was accepted and changed nothing, so appended no event."
+            }
+          },
+          "required": [
+            "status",
+            "sequence",
+            "changed"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string",
+              "const": "rejected"
+            },
+            "sequence": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991,
+              "description": "The log's head when the command was rejected."
+            },
+            "changed": {
+              "type": "boolean",
+              "const": false
+            },
+            "reason": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "description": "Why the command was rejected, the code of its error: not_found when its target does not exist."
+            },
+            "error": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9_]*$",
+                  "description": "A stable error code in snake case."
+                },
+                "message": {
+                  "type": "string"
+                },
+                "data": {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "additionalProperties": {}
+                }
+              },
+              "required": [
+                "code",
+                "message",
+                "data"
+              ],
+              "description": "The rejection as an error: its code (the reason), a message for people and structured data."
+            }
+          },
+          "required": [
+            "status",
+            "sequence",
+            "changed",
+            "reason",
+            "error"
+          ]
+        }
+      ],
+      "description": "A command's receipt: accepted (with the head sequence after it and whether it changed anything) or rejected (with the reason and the error). A retry with the same commandId answers the same receipt."
+    },
+    "result": {
+      "description": "The method's result, present when this request applied the command; absent on a retry and on a rejection.",
+      "type": "object",
+      "properties": {
+        "values": {
+          "type": "object",
+          "properties": {
+            "sessions.autoSettleAfterIdle": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "amount": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 1000
+                    },
+                    "unit": {
+                      "type": "string",
+                      "enum": [
+                        "days",
+                        "weeks",
+                        "months"
+                      ],
+                      "description": "What an idle span is counted in: days, weeks (seven days) or months (calendar months, a month-end clamped to the shorter month's last day)."
+                    }
+                  },
+                  "required": [
+                    "amount",
+                    "unit"
+                  ],
+                  "description": "A span of quiet: 1 to 1000 days, weeks or calendar months."
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "How long a session is quiet before auto-settle settles it (settledBy auto-idle); null never settles a session for being idle."
+            },
+            "sessions.autoSettleOnMerge": {
+              "type": "boolean",
+              "description": "Whether auto-settle settles a session one of whose pull requests merged at or after its anchor, the latest of its last activity, its unsettling and the end of its last snooze (settledBy auto-merge)."
+            }
+          },
+          "required": [
+            "sessions.autoSettleAfterIdle",
+            "sessions.autoSettleOnMerge"
+          ],
+          "additionalProperties": false,
+          "description": "Every setting's value, by key; a key never set holds its preset."
+        }
+      },
+      "required": [
+        "values"
+      ]
+    }
+  },
+  "required": [
+    "receipt"
+  ]
+}

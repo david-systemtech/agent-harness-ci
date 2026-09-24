@@ -2,6 +2,7 @@ import type { z } from "zod";
 import { ACCESS_EVENT_PAYLOADS, ACCESS_EVENT_TYPES, ACCESS_STREAM_KIND } from "./access-log.js";
 import { ENVIRONMENT_NOTICE_TYPES, ENVIRONMENT_STREAM_KIND, EnvironmentNotice } from "./notices.js";
 import { GROUP_EVENT_TYPES, GROUP_STREAM_KIND, SESSION_EVENT_TYPES, SESSION_STREAM_KIND } from "./sessions.js";
+import { SETTINGS_EVENT_TYPES, SETTINGS_STREAM_KIND } from "./settings.js";
 
 /**
  * The event-type table: every event type the environment's log carries, by
@@ -50,6 +51,7 @@ export const EVENT_TYPES = {
   [ACCESS_STREAM_KIND]: accessEventTypes,
   [SESSION_STREAM_KIND]: SESSION_EVENT_TYPES,
   [GROUP_STREAM_KIND]: GROUP_EVENT_TYPES,
+  [SETTINGS_STREAM_KIND]: SETTINGS_EVENT_TYPES,
 } as const satisfies Readonly<Record<string, EventTypeTable>>;
 
 /** The stream kinds the table knows. */
