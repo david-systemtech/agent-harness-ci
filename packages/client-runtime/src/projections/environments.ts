@@ -1,4 +1,4 @@
-import type { Ceiling, Scope } from "@agent-harness/contracts";
+import type { CapabilityFlags, Ceiling, Scope } from "@agent-harness/contracts";
 import { derived, type Observable } from "../observable.js";
 import type { BlockedReason, ConnectionKind, ConnectionPhase, ConnectionRecord } from "../connections/records.js";
 
@@ -19,7 +19,7 @@ export interface EnvironmentView {
   readonly colour: string | null;
   /** The harness version the environment runs. */
   readonly version: string | null;
-  readonly flags: readonly string[];
+  readonly flags: CapabilityFlags;
   readonly scopes: readonly Scope[];
   /** The mode picker clamps to it (ADR 0006). */
   readonly ceiling: Ceiling | null;

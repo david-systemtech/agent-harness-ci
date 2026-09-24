@@ -37,6 +37,43 @@ describe("observables", () => {
     a.set(2);
     expect(both.read()).toEqual({ n: 2, s: "x" });
   });
+
+  it("derive lazily: follow their sources only while they have subscribers", () => {
+    let following = 0;
+    const base = writable(1);
+    const counted = {
+      read: base.read,
+      subscribe(listener: (value: number) => void) {
+        following++;
+        const stop = base.subscribe(listener);
+        return () => {
+          following--;
+          stop();
+        };
+      },
+    };
+    const doubled = derived([counted], (n) => n * 2);
+    expect(doubled.read()).toBe(2);
+    expect(following).toBe(0);
+    const seen: number[] = [];
+    const stop = doubled.subscribe((v) => seen.push(v));
+    base.set(2);
+    expect(following).toBe(1);
+    stop();
+    expect(following).toBe(0);
+    expect(seen).toEqual([4]);
+  });
+
+  it("tell every listener even when one throws, then throw what was thrown", () => {
+    const value = writable(1);
+    const seen: number[] = [];
+    value.subscribe(() => {
+      throw new Error("a renderer's bug");
+    });
+    value.subscribe((v) => seen.push(v));
+    expect(() => value.set(2)).toThrow("a renderer's bug");
+    expect(seen).toEqual([2]);
+  });
 });
 
 describe("the in-memory platform", () => {

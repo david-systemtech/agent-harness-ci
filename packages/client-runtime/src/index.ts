@@ -1,7 +1,5 @@
-import { PROTOCOL_VERSION } from "@agent-harness/contracts";
-
-/** The protocol version this client runtime speaks. */
-export const CLIENT_PROTOCOL_VERSION: number = PROTOCOL_VERSION;
+/** The protocol version this client runtime speaks: the contracts' one integer. */
+export { PROTOCOL_VERSION } from "@agent-harness/contracts";
 
 export { createRuntime, type Runtime } from "./runtime.js";
 export { derived, writable, type Observable, type Writable } from "./observable.js";
@@ -34,7 +32,6 @@ export {
   type ShellInstaller,
   type ShellMember,
   type ShellNotification,
-  type ShellSecrets,
   type ShellService,
   type ShellTray,
   type ShellUpdate,
@@ -51,10 +48,8 @@ export {
   type ConnectionRecord,
   type EnvironmentDescriptor,
 } from "./connections/records.js";
-export type { ConnectionSeams, Connections } from "./connections/registry.js";
-export type { SocketClosed } from "./connections/connection.js";
+export type { Connections, RemoveResult } from "./connections/registry.js";
 export {
-  DEFAULT_ENVIRONMENT_PORT,
   parsePairingInput,
   type PairingFailure,
   type PairingFailureReason,
@@ -63,10 +58,5 @@ export {
   type PairingOutcome,
 } from "./pairing.js";
 export type { LocalFailureReason, LocalStatus } from "./bootstrap.js";
-export {
-  CAPABILITY_NAMES,
-  type AbsentReason,
-  type CapabilityAnswer,
-  type CapabilityName,
-} from "./capabilities.js";
+export type { AbsentReason, CapabilityAnswer, CapabilityName } from "./capabilities.js";
 export type { EnvironmentView } from "./projections/environments.js";

@@ -121,7 +121,6 @@ export const fakeShell = (): FakeShell => {
       calls.push([member, args[0]]);
       return answer;
     };
-  const secrets = new Map<string, string>();
   return {
     calls,
     dialogs: {
@@ -139,7 +138,7 @@ export const fakeShell = (): FakeShell => {
       navigate: record("webView.navigate", Promise.resolve()),
       destroy: record("webView.destroy", undefined),
     },
-    installer: { installEnvironment: record("installer.installEnvironment", Promise.resolve()) },
+    installer: {},
     update: { check: record("update.check", Promise.resolve({ available: false })), install: record("update.install", Promise.resolve()) },
     service: {
       install: record("service.install", Promise.resolve()),
@@ -149,11 +148,7 @@ export const fakeShell = (): FakeShell => {
     clipboard: { readText: record("clipboard.readText", Promise.resolve("")), writeText: record("clipboard.writeText", Promise.resolve()) },
     openExternal: record("openExternal", Promise.resolve()),
     localGrant: { read: record("localGrant.read", Promise.resolve(undefined)) },
-    secrets: {
-      get: async (name) => secrets.get(name),
-      set: async (name, secret) => void secrets.set(name, secret),
-      delete: async (name) => void secrets.delete(name),
-    },
+    secrets: inMemorySecrets(),
   };
 };
 

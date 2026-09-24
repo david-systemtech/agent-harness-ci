@@ -1,11 +1,4 @@
-import { WIRE_PATH, formatHostPort } from "@agent-harness/contracts";
-
-/**
- * The port an environment listens on when none is given: the environment's
- * `DEFAULT_PORT`, which a test holds this to. An address typed without a port
- * means this one.
- */
-export const DEFAULT_ENVIRONMENT_PORT = 7433;
+import { DEFAULT_ENVIRONMENT_PORT, WIRE_PATH, formatHostPort } from "@agent-harness/contracts";
 
 const ADDRESS = /^(?:(https?):\/\/)?(\[[0-9a-f:.]+\]|[^\s/:?#[\]@]+)(?::(\d{1,5}))?\/?$/i;
 
@@ -13,8 +6,8 @@ const ADDRESS = /^(?:(https?):\/\/)?(\[[0-9a-f:.]+\]|[^\s/:?#[\]@]+)(?::(\d{1,5}
  * An address as David types or a link carries it (`desk`, `desk:7433`,
  * `100.64.0.7:7433`, `[fd7a::1]:7433`, with or without `http://` and a
  * trailing slash) as the one origin a connection keeps:
- * `http://host:port`, lower-cased. Undefined for anything else, a path or
- * query included.
+ * `http://host:port`, lower-cased, at `DEFAULT_ENVIRONMENT_PORT` when no port
+ * is given. Undefined for anything else, a path or query included.
  */
 export const parseAddress = (typed: string): string | undefined => {
   const match = ADDRESS.exec(typed.trim());
@@ -25,7 +18,7 @@ export const parseAddress = (typed: string): string | undefined => {
   return `${scheme.toLowerCase()}://${host.toLowerCase()}:${port}`;
 };
 
-/** The origin of an address the grant file names. */
+/** The origin of a host and port, as the grant file names them: an IPv6 address in brackets. */
 export const originOf = (address: { readonly host: string; readonly port: number }): string =>
   `http://${formatHostPort(address.host, address.port)}`;
 

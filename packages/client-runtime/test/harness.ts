@@ -1,10 +1,12 @@
-import type { Address } from "../../environment/src/serve/http.js";
 import { useCleanups } from "../../environment/test/cleanups.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../environment/test/helper.js";
-import { createRuntime, type Runtime } from "../src/index.js";
-import type { GrantReader, HttpFetch, WebSocketFactory } from "../src/platform.js";
+import { originOf } from "../src/connections/address.js";
+import { createRuntimeWithSeams, type InternalOptions, type RuntimeWithSeams } from "../src/internal.js";
+import type { Runtime } from "../src/runtime.js";
+import type { GrantReader, HttpFetch, Platform, WebSocketFactory } from "../src/platform.js";
 import { globalFetch, globalWebSocket } from "../src/testing/in-memory-platform.js";
-import type { Platform } from "../src/platform.js";
+
+export { originOf };
 
 /**
  * The primary seam (docs/specs/client-runtime.md, "Testing Decisions"): the
@@ -25,9 +27,6 @@ export const until = async (condition: () => boolean, what: string): Promise<voi
   }
 };
 
-/** The origin a record keeps for an environment on loopback. */
-export const originOf = (address: Address): string => `http://${address.host}:${address.port}`;
-
 /** A grant reader over the environment's grant file, as a desktop's shell or the terminal UI reads it. */
 export const grantReader = (t: TestEnvironment): GrantReader => ({ read: async () => t.grant() });
 
@@ -40,10 +39,14 @@ export const useHarness = () => {
       onCleanup(() => t.close());
       return t;
     },
-    runtime(platform: Platform): Runtime {
-      const runtime = createRuntime(platform);
-      onCleanup(() => runtime.close());
-      return runtime;
+    runtime(platform: Platform, options?: InternalOptions): Runtime {
+      return this.withSeams(platform, options).runtime;
+    },
+    /** The runtime and the internal seams #126 to #128 attach to. */
+    withSeams(platform: Platform, options?: InternalOptions): RuntimeWithSeams {
+      const made = createRuntimeWithSeams(platform, options);
+      onCleanup(() => made.runtime.close());
+      return made;
     },
   };
 };

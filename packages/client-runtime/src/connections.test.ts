@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { Ceiling, type Scope } from "@agent-harness/contracts";
+import { Ceiling, PROTOCOL_VERSION, type Scope } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { HARNESS_VERSION } from "../../environment/src/serve/start.js";
 import { failingFetch, originOf, recordingWebSocket, rewritingWebSocket, until, useHarness } from "../test/harness.js";
@@ -73,6 +73,20 @@ describe("hello", () => {
     await runtime.connections.retryNow(t.env.id);
     expect(only(runtime)).toMatchObject({ phase: "ready", blocked: null, descriptor: { lastSeen: platform.clock.now().toISOString() } });
   });
+
+  it("compares the protocol on hello as well as on discovery, and says which side is behind", async () => {
+    const t = await harness.environment();
+    let newer = false;
+    const hello = (frame: Record<string, unknown>) => (frame["type"] === "hello" ? { ...frame, protocolVersion: PROTOCOL_VERSION + 1 } : frame);
+    const runtime = harness.runtime(inMemoryPlatform({ webSocket: rewritingWebSocket(hello, () => newer) }));
+    await runtime.start();
+    await runtime.connections.add({ link: (await t.createPairing()).link });
+
+    newer = true;
+    await runtime.connections.retryNow(t.env.id);
+
+    expect(only(runtime)).toMatchObject({ phase: "blocked", blocked: "unsupported-client" });
+  });
 });
 
 describe("the in-process connections API", () => {
@@ -134,14 +148,14 @@ describe("the in-process connections API", () => {
   it("removes: revokes the client session while reachable, then forgets the token, the record and what hangs off it", async () => {
     const t = await harness.environment();
     const platform = inMemoryPlatform();
-    const runtime = harness.runtime(platform);
+    const { runtime, seams } = harness.withSeams(platform);
     await runtime.start();
     await runtime.connections.add({ link: (await t.createPairing()).link });
     const { clientSessionId } = only(runtime);
     const forgotten: string[] = [];
-    runtime.seams.onForget((environmentId) => void forgotten.push(environmentId));
+    seams.onForget((environmentId) => void forgotten.push(environmentId));
 
-    await runtime.connections.remove(t.env.id);
+    expect(await runtime.connections.remove(t.env.id)).toEqual({ revoked: true });
 
     expect(runtime.connections.list.read()).toEqual([]);
     expect(runtime.preferences.read()["environments.sequence"]).toEqual([]);
@@ -166,10 +180,42 @@ describe("the in-process connections API", () => {
     await t.close();
     await until(() => only(runtime).phase !== "ready", "the connection to drop");
 
-    await runtime.connections.remove(t.env.id);
+    expect(await runtime.connections.remove(t.env.id)).toMatchObject({ revoked: false, reason: "unreachable", message: expect.any(String) });
 
     expect(runtime.connections.list.read()).toEqual([]);
     expect(await platform.secrets.get(t.env.id)).toBeUndefined();
+  });
+
+  it("removes a disabled connection: revokes over a one-off connection while the environment is reachable", async () => {
+    const t = await harness.environment();
+    const runtime = harness.runtime(inMemoryPlatform());
+    await runtime.start();
+    await runtime.connections.add({ link: (await t.createPairing()).link });
+    const { clientSessionId } = only(runtime);
+    await runtime.connections.setEnabled(t.env.id, false);
+    await until(() => t.env.sockets() === 0, "the socket to close");
+
+    expect(await runtime.connections.remove(t.env.id)).toEqual({ revoked: true });
+
+    await until(() => t.env.sockets() === 0, "the one-off socket to close");
+    const admin = await t.client();
+    const { sessions } = await admin.apply("access.sessions.list", {});
+    expect(sessions.find((s) => s.id === clientSessionId)?.revokedAt).toEqual(expect.any(String));
+  });
+
+  it("removes a connection without the admin scope, and says its client session is still live", async () => {
+    const t = await harness.environment();
+    const runtime = harness.runtime(inMemoryPlatform());
+    await runtime.start();
+    await runtime.connections.add({ link: (await t.createPairing({ scopes: ["read"] })).link });
+    const { clientSessionId } = only(runtime);
+
+    expect(await runtime.connections.remove(t.env.id)).toMatchObject({ revoked: false, reason: "scope", message: expect.stringContaining("admin") });
+
+    expect(runtime.connections.list.read()).toEqual([]);
+    const admin = await t.client();
+    const { sessions } = await admin.apply("access.sessions.list", { live: true });
+    expect(sessions.map((s) => s.id)).toContain(clientSessionId);
   });
 
   it("retries now: runs the connect again after a failure", async () => {
@@ -181,7 +227,7 @@ describe("the in-process connections API", () => {
     down = true;
 
     await runtime.connections.retryNow(t.env.id);
-    expect(only(runtime).phase).toBe("unreachable");
+    expect(only(runtime).phase).toBe("backoff");
 
     down = false;
     await runtime.connections.retryNow(t.env.id);

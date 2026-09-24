@@ -1,30 +1,48 @@
-import { Ceiling, EnvironmentId, ScopeSet, type ByeReason, type Scope } from "@agent-harness/contracts";
+import { Ceiling, EnvironmentId, ScopeSet, type ByeReason, type CapabilityFlags, type Scope } from "@agent-harness/contracts";
 
 /**
  * The connection record and the client-local documents the registry keeps
  * (docs/specs/client-runtime.md, "The connection registry"). A connection is
- * keyed by environment id. A `local` one is derived from the bootstrap grant
- * on every start and never written down; a `paired` one is saved in the
- * `connections.paired` document. The token is in secret storage, named by
- * the environment id, and never in a record.
+ * keyed by environment id. A `paired` one is saved in the `connections.paired`
+ * document, its token in secret storage named by the environment id. A
+ * `local` one is derived from the bootstrap grant on every start and its
+ * record and token are never written down; only the local environment's
+ * identity (`local.environment`: its id, address and descriptor) is kept, so
+ * it stays listed, as `service-down`, on a start where the grant cannot be
+ * exchanged.
  */
 
 export type ConnectionKind = "local" | "paired";
 
-/** Why a connection will not connect until something changes (the reconnect machine, #126, adds `revoked` and `expired` from `bye`). */
+/**
+ * Why a connection will not connect until something changes: a protocol
+ * mismatch (either side behind), a client session revoked or expired, or an
+ * address that reaches another environment.
+ */
 export const BLOCKED_REASONS = ["protocol-mismatch", "unsupported-client", "revoked", "expired", "different-environment"] as const;
 export type BlockedReason = (typeof BLOCKED_REASONS)[number];
 
 /**
- * Where a connection is, as far as this runtime makes one attempt: `disabled`;
- * `connecting` (discovery read, `auth` sent, awaiting `hello`); `ready`;
- * `not-ready` (discovery said starting or draining); `unreachable` (nothing
- * answered); `disconnected` (a socket that was ready, or never got `hello`,
- * closed; `bye` says why when the environment said); `blocked`. The
- * reconnect machine (#126) turns these into the specification's phases
- * with backoff, the watchdog and `bye` handling.
+ * The specification's connection phases ("The connection state machine and
+ * reconnect"). This runtime makes one attempt when asked and reaches:
+ * `disabled`; `service-down` (the local environment: no grant, or nothing
+ * answers); `starting` and `draining` (from discovery or `bye`); `updating`
+ * (from `bye`); `connecting` (discovery read, `auth` sent, awaiting
+ * `hello`); `ready`; `blocked`; and `backoff` for a failure that a retry may
+ * cure, where no retry is scheduled until the reconnect machine (#126), so
+ * it waits for `retryNow`. `syncing` is the subscriptions' (#127).
  */
-export type ConnectionPhase = "disabled" | "connecting" | "ready" | "not-ready" | "unreachable" | "disconnected" | "blocked";
+export type ConnectionPhase =
+  | "disabled"
+  | "service-down"
+  | "starting"
+  | "connecting"
+  | "syncing"
+  | "ready"
+  | "backoff"
+  | "blocked"
+  | "draining"
+  | "updating";
 
 /** What the client last learned about the environment: from discovery and `hello`. Kept through a block. */
 export interface EnvironmentDescriptor {
@@ -35,7 +53,7 @@ export interface EnvironmentDescriptor {
   /** From the discovery document; `hello` does not carry it. */
   readonly harnessVersion: string | null;
   readonly protocolVersion: number | null;
-  readonly capabilities: readonly string[];
+  readonly capabilities: CapabilityFlags;
   /** When `hello` last arrived. */
   readonly lastSeen: string | null;
 }
@@ -75,13 +93,14 @@ export interface ClientPreferences {
   readonly "environments.lastUsed": string | null;
 }
 
-export const PREFERENCE_KEYS = ["environments.sequence", "environments.enabled", "environments.lastUsed"] as const satisfies readonly (keyof ClientPreferences)[];
-
+/** Each preference as it is before David sets it. Its keys are the documents the preferences are stored under. */
 export const NO_PREFERENCES: ClientPreferences = {
   "environments.sequence": [],
   "environments.enabled": {},
   "environments.lastUsed": null,
 };
+
+export const PREFERENCE_KEYS = Object.keys(NO_PREFERENCES) as readonly (keyof ClientPreferences)[];
 
 /** The document the saved `paired` connections are kept in, by environment id. */
 export const PAIRED_CONNECTIONS_DOCUMENT = "connections.paired";
@@ -102,7 +121,7 @@ const objectOf = (value: unknown): Record<string, unknown> | undefined =>
   typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
 
 /** The preferences as stored, each key read on its own; a value that is not what the key holds reads as unset. */
-export const readPreferences = (stored: { readonly [K in keyof ClientPreferences]: unknown }): ClientPreferences => {
+export const readPreferences = (stored: Readonly<Record<keyof ClientPreferences, unknown>>): ClientPreferences => {
   const sequence = stored["environments.sequence"];
   const enabled = objectOf(stored["environments.enabled"]) ?? {};
   return {
@@ -160,3 +179,21 @@ export const writePairedConnections = (saved: Iterable<[string, SavedConnection]
         { address: c.address, clientSessionId: c.clientSessionId, scopes: c.scopes, ceiling: c.ceiling, descriptor: c.descriptor, blocked: c.blocked },
       ]),
   );
+
+/** The document the local environment's identity is kept in; never its token or client session. */
+export const LOCAL_ENVIRONMENT_DOCUMENT = "local.environment";
+
+/** The local environment as last seen: enough to list it while its service is down. */
+export interface RememberedLocal {
+  readonly environmentId: string;
+  readonly address: string;
+  readonly descriptor: EnvironmentDescriptor;
+}
+
+export const readRememberedLocal = (stored: unknown): RememberedLocal | undefined => {
+  const entry = objectOf(stored);
+  const descriptor = readDescriptor(entry?.["descriptor"]);
+  const id = entry?.["environmentId"];
+  if (!entry || !descriptor || !isString(id) || !EnvironmentId.safeParse(id).success || !isString(entry["address"])) return undefined;
+  return { environmentId: id, address: entry["address"], descriptor };
+};

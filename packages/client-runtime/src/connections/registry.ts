@@ -1,18 +1,29 @@
-import type { ClientSessionCredential, DiscoveryDocument, Frame, ResponseFrame } from "@agent-harness/contracts";
-import { compareProtocol, readDiscovery } from "../discovery.js";
+import type { DiscoveryDocument, Frame, HelloFrame, ResponseFrame } from "@agent-harness/contracts";
+import { exchangeGrant, readsGrant, type GrantExchange, type LocalFailureReason, type LocalStatus } from "../bootstrap.js";
+import { checkDiscovery, compareProtocol, readDiscovery, type ProtocolRefusal } from "../discovery.js";
 import { uuidv7 } from "../ids.js";
-import { writable, type Observable } from "../observable.js";
-import { exchangeCode, failed, parsePairingInput, type PairingInput, type PairingOptions, type PairingOutcome } from "../pairing.js";
+import { notifyAll, writable, type Observable } from "../observable.js";
+import {
+  discoveryFailure,
+  exchangeCode,
+  pairingFailed,
+  parsePairingInput,
+  type PairingInput,
+  type PairingOptions,
+  type PairingOutcome,
+} from "../pairing.js";
 import type { Platform, Timer } from "../platform.js";
 import { parseAddress } from "./address.js";
-import { authenticate, type LiveSocket, type SocketClosed } from "./connection.js";
+import { SocketClosedError, authenticate, type LiveSocket, type SocketClosed } from "./connection.js";
 import {
+  LOCAL_ENVIRONMENT_DOCUMENT,
   NO_PREFERENCES,
   PAIRED_CONNECTIONS_DOCUMENT,
   PREFERENCE_KEYS,
   emptyDescriptor,
   readPairedConnections,
   readPreferences,
+  readRememberedLocal,
   writePairedConnections,
   type BlockedReason,
   type ClientPreferences,
@@ -30,6 +41,12 @@ import {
  * `retryNow`); the reconnect machine (#126) will own retries.
  */
 
+/** What removing a connection did about its client session on the environment. */
+export type RemoveResult =
+  | { readonly revoked: true }
+  /** Forgotten here, still live there: the connection lacks the `admin` scope, or the environment could not be reached. */
+  | { readonly revoked: false; readonly reason: "scope" | "unreachable"; readonly message: string };
+
 /** The in-process API, `connections.*`. None of these is a wire method. */
 export interface Connections {
   /** Every known connection, in the saved sequence: the first is the primary environment. */
@@ -44,13 +61,17 @@ export interface Connections {
   setOrder(environmentIds: readonly string[]): Promise<void>;
   /** Notes the environment last used, for the default-environment rule (ADR 0005). */
   setLastUsed(environmentId: string): Promise<void>;
-  /** Revokes the client session when reachable, then forgets the token, the record and what hangs off it. */
-  remove(environmentId: string): Promise<void>;
-  /** Makes the connection's attempt again now: discovery, `auth`, `hello`. */
+  /**
+   * Revokes the connection's client session (over its socket, or a one-off
+   * connection when it is disabled or not connected), then forgets the
+   * token, the record and what hangs off it. Says whether the revoke happened.
+   */
+  remove(environmentId: string): Promise<RemoveResult>;
+  /** Makes the connection's attempt again now: the local grant exchange if it is due, discovery, `auth`, `hello`. */
   retryNow(environmentId: string): Promise<void>;
 }
 
-/** Where the rest of the runtime attaches to connections: #126's machine, #127's subscriptions, #128's outbox. */
+/** Where the rest of the runtime attaches to connections: #126's machine, #127's subscriptions, #128's outbox. Internal: never on `Runtime`. */
 export interface ConnectionSeams {
   /** Every frame after `hello` on any connection, with its environment. */
   onFrame(listener: (environmentId: string, frame: Frame) => void): () => void;
@@ -64,19 +85,16 @@ export interface ConnectionSeams {
 
 export interface Registry extends Connections {
   readonly preferences: Observable<ClientPreferences>;
+  readonly local: Observable<LocalStatus>;
   readonly seams: ConnectionSeams;
   /** One connection's record. */
   record(environmentId: string): ConnectionRecord | undefined;
-  /** Reads the saved connections and preferences. */
-  load(): Promise<void>;
-  /** Takes the local connection from a grant exchange: kept in memory only, put first when it is new to the sequence. */
-  adoptLocal(origin: string, discovery: DiscoveryDocument, credential: ClientSessionCredential): Promise<void>;
-  /** Makes one attempt on every enabled connection. */
-  connectAll(): Promise<void>;
+  /** Reads the saved connections and preferences, exchanges the local grant, and makes one attempt on every enabled connection. */
+  start(): Promise<void>;
   close(): void;
 }
 
-/** How long removal waits for the revoke's answer before forgetting anyway. A chosen default. */
+/** How long a revoke waits for its answer before the connection is forgotten anyway. A chosen default. */
 export const REVOKE_TIMEOUT_MS = 10_000;
 
 interface Entry {
@@ -86,6 +104,8 @@ interface Entry {
   socket: LiveSocket | undefined;
   /** Bumped by every attempt and every close this runtime makes, so a stale attempt's outcome is dropped. */
   attempt: number;
+  /** A local connection's token, held in memory only: it lives as long as the record, which is never saved. */
+  token: string | undefined;
 }
 
 const unknownEnvironment = (environmentId: string) => new Error(`There is no saved connection to environment ${environmentId}.`);
@@ -98,10 +118,65 @@ const fromDiscovery = (descriptor: EnvironmentDescriptor, document: DiscoveryDoc
   capabilities: [...document.capabilities],
 });
 
+/** Whether a `hello` may be used for `environmentId`: it names that environment, and speaks the client's protocol. */
+const admitHello = (
+  hello: HelloFrame,
+  environmentId: string,
+  protocolVersion: number,
+): { readonly reason: "different-environment" | ProtocolRefusal; readonly message: string } | undefined => {
+  if (hello.environmentId !== environmentId) {
+    return { reason: "different-environment", message: `The environment that answered is ${hello.environmentName}, not the one its address named.` };
+  }
+  return compareProtocol(hello.protocolVersion, protocolVersion);
+};
+
+/** Where a close leaves a connection, by the `bye` before it (the spec's "`bye` reasons"); clearing the token and the notice are #126's. */
+const afterClose = (closed: SocketClosed, protocolVersion: number): { phase: ConnectionPhase; blocked?: BlockedReason } => {
+  switch (closed.bye?.reason) {
+    case "revoked":
+    case "unauthorized":
+      return { phase: "blocked", blocked: "revoked" };
+    case "expired":
+      return { phase: "blocked", blocked: "expired" };
+    case "protocol": {
+      const theirs = closed.bye.protocolVersion;
+      return { phase: "blocked", blocked: (theirs === undefined ? undefined : compareProtocol(theirs, protocolVersion)?.reason) ?? "protocol-mismatch" };
+    }
+    case "draining":
+      return { phase: "draining" };
+    case "updating":
+      return { phase: "updating" };
+    case undefined:
+      return { phase: "backoff" };
+  }
+};
+
+/** Where a failed local grant exchange leaves the local connection. */
+const afterLocalFailure = (reason: LocalFailureReason): { phase: ConnectionPhase; blocked?: BlockedReason } => {
+  switch (reason) {
+    case "service-down":
+    case "starting":
+    case "draining":
+      return { phase: reason };
+    case "unsupported-client":
+    case "protocol-mismatch":
+      return { phase: "blocked", blocked: reason };
+    case "refused":
+      return { phase: "backoff" };
+  }
+};
+
+/** Whether a revoke's response says the client session is revoked: accepted, or rejected as unknown. */
+const revokedBy = (response: ResponseFrame): boolean => {
+  const receipt = (response.result as { receipt?: { status?: unknown; reason?: unknown } } | undefined)?.receipt;
+  return receipt?.status === "accepted" || (receipt?.status === "rejected" && receipt.reason === "not_found");
+};
+
 export const createRegistry = (platform: Platform, protocolVersion: number): Registry => {
   const entries = new Map<string, Entry>();
   const prefs = writable<ClientPreferences>(NO_PREFERENCES);
   const list = writable<readonly ConnectionRecord[]>([]);
+  const local = writable<LocalStatus>({ state: "none" });
   const frameListeners = new Set<(environmentId: string, frame: Frame) => void>();
   const closeListeners = new Set<(environmentId: string, closed: SocketClosed) => void>();
   const forgetListeners = new Set<(environmentId: string) => void | Promise<void>>();
@@ -141,7 +216,12 @@ export const createRegistry = (platform: Platform, protocolVersion: number): Reg
     return writes;
   };
 
-  const savePaired = () => enqueue(() => platform.documents.set(PAIRED_CONNECTIONS_DOCUMENT, writePairedConnections([...entries].map(([id, entry]) => [id, entry.saved]))));
+  const savePaired = () =>
+    enqueue(() => platform.documents.set(PAIRED_CONNECTIONS_DOCUMENT, writePairedConnections([...entries].map(([id, entry]) => [id, entry.saved]))));
+
+  /** The local environment's identity, so it stays listed while its service is down. Never its token or client session. */
+  const rememberLocal = (environmentId: string, saved: SavedConnection) =>
+    enqueue(() => platform.documents.set(LOCAL_ENVIRONMENT_DOCUMENT, { environmentId, address: saved.address, descriptor: saved.descriptor }));
 
   const setPreferences = (change: (current: ClientPreferences) => ClientPreferences) => {
     prefs.update(change);
@@ -152,6 +232,13 @@ export const createRegistry = (platform: Platform, protocolVersion: number): Reg
     });
   };
 
+  /** Puts a newly known environment into the sequence: first (the local one) or last (a paired one). */
+  const enterSequence = async (environmentId: string, at: "first" | "last") => {
+    const sequence = prefs.read()["environments.sequence"];
+    if (sequence.includes(environmentId)) return publish();
+    await setPreferences((p) => ({ ...p, "environments.sequence": at === "first" ? [environmentId, ...sequence] : [...sequence, environmentId] }));
+  };
+
   const update = (environmentId: string, entry: Entry, change: Partial<Entry>) => {
     Object.assign(entry, change);
     if (entries.get(environmentId) === entry) publish();
@@ -159,7 +246,8 @@ export const createRegistry = (platform: Platform, protocolVersion: number): Reg
 
   const updateSaved = async (environmentId: string, entry: Entry, change: Partial<SavedConnection>, phase?: ConnectionPhase) => {
     update(environmentId, entry, { saved: { ...entry.saved, ...change }, ...(phase !== undefined && { phase }) });
-    if (entry.saved.kind === "paired" && entries.get(environmentId) === entry) await savePaired();
+    if (entries.get(environmentId) !== entry) return;
+    await (entry.saved.kind === "paired" ? savePaired() : rememberLocal(environmentId, entry.saved));
   };
 
   /** Closes the socket this runtime holds, as this runtime's own close: no `onClose` is heard for it. */
@@ -170,66 +258,25 @@ export const createRegistry = (platform: Platform, protocolVersion: number): Reg
     socket?.close();
   };
 
-  const block = (environmentId: string, entry: Entry, reason: BlockedReason) =>
-    updateSaved(environmentId, entry, { blocked: reason }, "blocked");
+  const settle = (environmentId: string, entry: Entry, outcome: { phase: ConnectionPhase; blocked?: BlockedReason }) =>
+    outcome.blocked === undefined
+      ? update(environmentId, entry, { phase: outcome.phase })
+      : updateSaved(environmentId, entry, { blocked: outcome.blocked }, "blocked");
 
-  /**
-   * One attempt: discovery at the record's address, checked for the
-   * environment's id, protocol version and readiness; then `auth` with the
-   * token; then `hello`, checked for the id again, which fills the record. A
-   * discovery naming another environment blocks before any token is sent.
-   */
-  const connect = async (environmentId: string): Promise<void> => {
-    const entry = entryOf(environmentId);
-    drop(entry);
-    if (closed) return;
-    if (!isEnabled(environmentId)) return update(environmentId, entry, { phase: "disabled" });
-    const attempt = entry.attempt;
-    const current = () => entry.attempt === attempt && entries.get(environmentId) === entry && !closed;
-    update(environmentId, entry, { phase: "connecting" });
+  const tokenOf = async (environmentId: string, entry: Entry) =>
+    entry.saved.kind === "local" ? entry.token : platform.secrets.get(environmentId);
 
-    const discovery = await readDiscovery(platform.fetch, entry.saved.address);
-    if (!current()) return;
-    if (!discovery.ok) return update(environmentId, entry, { phase: "unreachable" });
-    const document = discovery.document;
-    if (document.environmentId !== environmentId) return block(environmentId, entry, "different-environment");
-    const mismatch = compareProtocol(document.protocolVersion, protocolVersion);
-    if (mismatch) return block(environmentId, entry, mismatch.reason);
-    if (document.readiness !== "ready") {
-      return updateSaved(environmentId, entry, { blocked: null, descriptor: fromDiscovery(entry.saved.descriptor, document) }, "not-ready");
-    }
-    const token = await platform.secrets.get(environmentId);
-    if (!current()) return;
-    // A record with no token has no client session to use: it is paired again, as a revoked one is.
-    if (token === undefined) return block(environmentId, entry, "revoked");
-
-    const answer = await authenticate({
-      webSocket: platform.webSocket,
-      origin: entry.saved.address,
-      token,
-      environmentId,
-      client: platform.client,
-      protocolVersion,
-    });
-    if (!current()) {
-      if (answer.ok) answer.socket.close();
-      return;
-    }
-    if (!answer.ok) {
-      if (answer.failure === "different-environment") return block(environmentId, entry, "different-environment");
-      return update(environmentId, entry, { phase: "disconnected", bye: answer.closed.bye?.reason ?? null });
-    }
-    const { socket } = answer;
+  /** Takes a socket `hello` was said and admitted on: the record is filled from it and the seams hear it. */
+  const attach = async (environmentId: string, entry: Entry, socket: LiveSocket, document: DiscoveryDocument) => {
     const { hello } = socket;
     entry.socket = socket;
-    socket.onFrame((frame) => {
-      for (const listener of [...frameListeners]) listener(environmentId, frame);
-    });
+    socket.onFrame((frame) => notifyAll(frameListeners, environmentId, frame));
     void socket.closed.then((how) => {
       if (entry.socket !== socket) return;
       entry.socket = undefined;
-      update(environmentId, entry, { phase: "disconnected", bye: how.bye?.reason ?? null });
-      for (const listener of [...closeListeners]) listener(environmentId, how);
+      entry.bye = how.bye?.reason ?? null;
+      void settle(environmentId, entry, afterClose(how, protocolVersion));
+      notifyAll(closeListeners, environmentId, how);
     });
     entry.bye = null;
     await updateSaved(
@@ -252,27 +299,167 @@ export const createRegistry = (platform: Platform, protocolVersion: number): Reg
     );
   };
 
-  const newEntry = (saved: SavedConnection): Entry => ({ saved, phase: "disabled", bye: null, socket: undefined, attempt: 0 });
-
-  /** Revokes the connection's client session over its socket, best effort: an answer, a close or the timeout ends the wait. */
-  const revoke = async (entry: Entry): Promise<void> => {
-    const socket = entry.socket;
-    if (entry.phase !== "ready" || !socket || entry.saved.clientSessionId === null) return;
+  /**
+   * Revokes `clientSessionId` with `token`, over `socket` when one is given,
+   * else over a one-off connection that is closed after. Best effort: the
+   * answer, a close, or `REVOKE_TIMEOUT_MS` ends the wait. Resolves whether
+   * the environment revoked it.
+   */
+  const revokeClientSession = async (target: {
+    readonly environmentId: string;
+    readonly origin: string;
+    readonly token: string;
+    readonly clientSessionId: string;
+    readonly socket?: LiveSocket | undefined;
+  }): Promise<boolean> => {
+    let oneOff: LiveSocket | undefined;
     let timer: Timer | undefined;
-    const timeout = new Promise<void>((resolve) => (timer = platform.clock.setTimeout(resolve, REVOKE_TIMEOUT_MS)));
-    const answered = socket
-      .request("access.sessions.revoke", { commandId: uuidv7(platform.clock.now()), clientSessionId: entry.saved.clientSessionId })
-      .then(
-        () => undefined,
-        () => undefined,
-      );
-    await Promise.race([answered, timeout]);
-    timer?.cancel();
+    const attempt = async (): Promise<boolean> => {
+      let socket = target.socket;
+      if (!socket) {
+        const discovery = await readDiscovery(platform.fetch, target.origin);
+        if (!discovery.ok || !checkDiscovery(discovery.document, { protocolVersion, environmentId: target.environmentId }).ok) return false;
+        const answer = await authenticate({ webSocket: platform.webSocket, origin: target.origin, token: target.token, client: platform.client, protocolVersion });
+        if (!answer.ok) return false;
+        oneOff = socket = answer.socket;
+        if (admitHello(socket.hello, target.environmentId, protocolVersion)) return false;
+      }
+      try {
+        return revokedBy(await socket.request("access.sessions.revoke", { commandId: uuidv7(platform.clock.now()), clientSessionId: target.clientSessionId }));
+      } catch (error) {
+        // Revoking the caller's own client session closes its socket with `bye: revoked`, which may come before the answer.
+        return error instanceof SocketClosedError && error.closed.bye?.reason === "revoked";
+      }
+    };
+    const timeout = new Promise<boolean>((resolve) => (timer = platform.clock.setTimeout(() => resolve(false), REVOKE_TIMEOUT_MS)));
+    try {
+      return await Promise.race([attempt(), timeout]);
+    } finally {
+      timer?.cancel();
+      oneOff?.close();
+    }
+  };
+
+  /** Exchanges the local grant for this entry: its token and client session, or where the failure leaves it. */
+  const exchangeLocal = async (environmentId: string, entry: Entry, current: () => boolean): Promise<boolean> => {
+    const exchange = await exchangeGrant({ fetch: platform.fetch, grant: platform.grant, client: platform.client, protocolVersion });
+    if (!current()) return false;
+    if (!exchange.ok) {
+      local.set(exchange.status);
+      if (exchange.status.state === "failed") await settle(environmentId, entry, afterLocalFailure(exchange.status.reason));
+      return false;
+    }
+    if (exchange.discovery.environmentId !== environmentId) {
+      // The grant is now another environment's: the next start takes that one as the local environment.
+      await settle(environmentId, entry, { phase: "blocked", blocked: "different-environment" });
+      return false;
+    }
+    entry.token = exchange.credential.token;
+    local.set({ state: "exchanged", environmentId });
+    await updateSaved(environmentId, entry, {
+      address: exchange.origin,
+      clientSessionId: exchange.credential.clientSessionId,
+      scopes: [...exchange.credential.scopes],
+      ceiling: exchange.credential.ceiling,
+    });
+    return true;
+  };
+
+  /**
+   * One attempt: for a local connection without a token, the grant exchange
+   * first; then discovery at the record's address, checked for readiness,
+   * protocol and the environment's id before any token is sent; then `auth`;
+   * then `hello`, checked for the id and protocol again, which fills the record.
+   */
+  const connect = async (environmentId: string): Promise<void> => {
+    const entry = entryOf(environmentId);
+    drop(entry);
+    if (closed) return;
+    if (!isEnabled(environmentId)) return update(environmentId, entry, { phase: "disabled" });
+    const attempt = entry.attempt;
+    const current = () => entry.attempt === attempt && entries.get(environmentId) === entry && !closed;
+    update(environmentId, entry, { phase: "connecting" });
+
+    if (entry.saved.kind === "local" && entry.token === undefined && !(await exchangeLocal(environmentId, entry, current))) return;
+    if (!current()) return;
+    const discovery = await readDiscovery(platform.fetch, entry.saved.address);
+    if (!current()) return;
+    if (!discovery.ok) return update(environmentId, entry, { phase: entry.saved.kind === "local" ? "service-down" : "backoff" });
+    const document = discovery.document;
+    const check = checkDiscovery(document, { protocolVersion, environmentId });
+    if (!check.ok) {
+      if (check.reason === "starting" || check.reason === "draining") {
+        return updateSaved(environmentId, entry, { blocked: null, descriptor: fromDiscovery(entry.saved.descriptor, document) }, check.reason);
+      }
+      return settle(environmentId, entry, { phase: "blocked", blocked: check.reason });
+    }
+    const token = await tokenOf(environmentId, entry);
+    if (!current()) return;
+    // A connection with no token has no client session to use: it is paired again, as a revoked one is.
+    if (token === undefined) return settle(environmentId, entry, { phase: "blocked", blocked: "revoked" });
+
+    const answer = await authenticate({ webSocket: platform.webSocket, origin: entry.saved.address, token, client: platform.client, protocolVersion });
+    if (!current()) {
+      if (answer.ok) answer.socket.close();
+      return;
+    }
+    if (!answer.ok) {
+      entry.bye = answer.closed.bye?.reason ?? null;
+      return settle(environmentId, entry, afterClose(answer.closed, protocolVersion));
+    }
+    const refusal = admitHello(answer.socket.hello, environmentId, protocolVersion);
+    if (refusal) {
+      answer.socket.close();
+      return settle(environmentId, entry, { phase: "blocked", blocked: refusal.reason });
+    }
+    await attach(environmentId, entry, answer.socket, document);
+  };
+
+  const newEntry = (saved: SavedConnection, token?: string): Entry => ({
+    saved,
+    phase: "disabled",
+    bye: null,
+    socket: undefined,
+    attempt: 0,
+    token,
+  });
+
+  /**
+   * Takes the local connection from a grant exchange. A paired connection to
+   * the same environment is replaced: its client session is revoked with the
+   * new local one (which holds every scope), then its record and token are
+   * forgotten.
+   */
+  const adoptLocal = async (exchange: Extract<GrantExchange, { ok: true }>) => {
+    const id = exchange.discovery.environmentId;
+    const previous = entries.get(id);
+    if (previous) drop(previous);
+    if (previous?.saved.kind === "paired") {
+      const token = await platform.secrets.get(id);
+      if (previous.saved.clientSessionId !== null && token !== undefined) {
+        await revokeClientSession({ environmentId: id, origin: exchange.origin, token: exchange.credential.token, clientSessionId: previous.saved.clientSessionId });
+      }
+      await platform.secrets.delete(id);
+    }
+    const saved: SavedConnection = {
+      address: exchange.origin,
+      kind: "local",
+      clientSessionId: exchange.credential.clientSessionId,
+      scopes: [...exchange.credential.scopes],
+      ceiling: exchange.credential.ceiling,
+      descriptor: fromDiscovery(previous?.saved.descriptor ?? emptyDescriptor(exchange.discovery.environmentName), exchange.discovery),
+      blocked: null,
+    };
+    entries.set(id, newEntry(saved, exchange.credential.token));
+    if (previous?.saved.kind === "paired") await savePaired();
+    await rememberLocal(id, saved);
+    await enterSequence(id, "first");
   };
 
   const registry: Registry = {
     list,
     preferences: prefs,
+    local,
     seams: {
       onFrame(listener) {
         frameListeners.add(listener);
@@ -298,45 +485,39 @@ export const createRegistry = (platform: Platform, protocolVersion: number): Reg
       return entry && toRecord(environmentId, entry);
     },
 
-    async load() {
-      const [paired, ...stored] = await Promise.all([
+    async start() {
+      const [paired, remembered, stored] = await Promise.all([
         platform.documents.get(PAIRED_CONNECTIONS_DOCUMENT),
-        ...PREFERENCE_KEYS.map((key) => platform.documents.get(key)),
+        platform.documents.get(LOCAL_ENVIRONMENT_DOCUMENT),
+        Promise.all(PREFERENCE_KEYS.map(async (key) => [key, await platform.documents.get(key)] as const)),
       ]);
-      const [sequence, enabled, lastUsed] = stored;
-      prefs.set(
-        readPreferences({ "environments.sequence": sequence, "environments.enabled": enabled, "environments.lastUsed": lastUsed }),
-      );
+      prefs.set(readPreferences(Object.fromEntries(stored) as Record<keyof ClientPreferences, unknown>));
       for (const [id, saved] of readPairedConnections(paired)) entries.set(id, newEntry(saved));
       publish();
-    },
 
-    async adoptLocal(origin, discovery, credential) {
-      const id = discovery.environmentId;
-      const previous = entries.get(id);
-      if (previous) drop(previous);
-      await platform.secrets.set(id, credential.token);
-      // The local connection replaces a paired one to the same environment: it is the better credential on this machine.
-      entries.set(
-        id,
-        newEntry({
-          address: origin,
-          kind: "local",
-          clientSessionId: credential.clientSessionId,
-          scopes: [...credential.scopes],
-          ceiling: credential.ceiling,
-          descriptor: fromDiscovery(previous?.saved.descriptor ?? emptyDescriptor(discovery.environmentName), discovery),
-          blocked: null,
-        }),
+      if (readsGrant(platform.grant, platform.client)) {
+        const exchange = await exchangeGrant({ fetch: platform.fetch, grant: platform.grant, client: platform.client, protocolVersion });
+        if (exchange.ok) {
+          await adoptLocal(exchange);
+          local.set({ state: "exchanged", environmentId: exchange.discovery.environmentId });
+        } else {
+          local.set(exchange.status);
+          // The local environment stays listed from what was remembered of it, with where the failure leaves it.
+          const known = readRememberedLocal(remembered);
+          if (known && !entries.has(known.environmentId) && exchange.status.state === "failed") {
+            const entry = newEntry({ address: known.address, kind: "local", clientSessionId: null, scopes: [], ceiling: null, descriptor: known.descriptor, blocked: null });
+            entries.set(known.environmentId, entry);
+            await enterSequence(known.environmentId, "first");
+            if (isEnabled(known.environmentId)) await settle(known.environmentId, entry, afterLocalFailure(exchange.status.reason));
+          }
+        }
+      }
+      // A local connection whose exchange failed at start waits for `retryNow`.
+      await Promise.all(
+        [...entries]
+          .filter(([, entry]) => !(entry.saved.kind === "local" && entry.token === undefined))
+          .map(([id]) => connect(id)),
       );
-      if (previous?.saved.kind === "paired") await savePaired();
-      const sequence = prefs.read()["environments.sequence"];
-      if (sequence.includes(id)) publish();
-      else await setPreferences((p) => ({ ...p, "environments.sequence": [id, ...sequence] }));
-    },
-
-    async connectAll() {
-      await Promise.all([...entries.keys()].map((id) => connect(id)));
     },
 
     async add(input, options = {}) {
@@ -346,17 +527,19 @@ export const createRegistry = (platform: Platform, protocolVersion: number): Reg
       if (options.rePair !== undefined) entryOf(options.rePair);
 
       const discovery = await readDiscovery(platform.fetch, origin);
-      if (!discovery.ok) return failed("unreachable", discovery.message);
+      if (!discovery.ok) return pairingFailed("unreachable", discovery.message);
       const document = discovery.document;
-      if (document.readiness !== "ready") return failed("not-ready", `${document.environmentName} is ${document.readiness}; try again once it is ready.`);
-      const mismatch = compareProtocol(document.protocolVersion, protocolVersion);
-      if (mismatch) return failed("protocol-mismatch", mismatch.message);
+      const check = checkDiscovery(document, { protocolVersion });
+      if (!check.ok) return pairingFailed(discoveryFailure(check.reason), check.message);
       const id = document.environmentId;
       if (options.rePair !== undefined && options.rePair !== id) {
         const saved = entries.get(options.rePair)?.saved.descriptor.name ?? options.rePair;
-        return failed("different-environment", `That code is for ${document.environmentName}, not ${saved}.`);
+        return pairingFailed("different-environment", `That code is for ${document.environmentName}, not ${saved}.`);
       }
       const existing = entries.get(id);
+      if (existing?.saved.kind === "local") {
+        return pairingFailed("refused", `${document.environmentName} is this machine's local environment: it connects through its grant, with no code.`);
+      }
       if (existing && options.rePair === undefined) {
         return { status: "re-pair-offered", environmentId: id, name: existing.saved.descriptor.name };
       }
@@ -364,29 +547,47 @@ export const createRegistry = (platform: Platform, protocolVersion: number): Reg
       const exchanged = await exchangeCode(platform.fetch, origin, code, platform.client, protocolVersion);
       if (!exchanged.ok) return { status: "failed", failure: exchanged.failure };
       const { credential } = exchanged;
+
+      // The new client session is tried before anything is kept: a `hello` from another environment, or another protocol, keeps nothing.
+      const answer = await authenticate({ webSocket: platform.webSocket, origin, token: credential.token, client: platform.client, protocolVersion });
+      if (answer.ok) {
+        const refusal = admitHello(answer.socket.hello, id, protocolVersion);
+        if (refusal) {
+          if (answer.socket.hello.scopes.includes("admin")) {
+            await revokeClientSession({ environmentId: id, origin, token: credential.token, clientSessionId: credential.clientSessionId, socket: answer.socket });
+          }
+          answer.socket.close();
+          return pairingFailed(refusal.reason, refusal.message);
+        }
+      }
+
       await platform.secrets.set(id, credential.token);
       const saved: SavedConnection = {
         address: origin,
-        kind: existing?.saved.kind ?? "paired",
+        kind: "paired",
         clientSessionId: credential.clientSessionId,
         scopes: [...credential.scopes],
         ceiling: credential.ceiling,
         descriptor: fromDiscovery(existing?.saved.descriptor ?? emptyDescriptor(document.environmentName), document),
         blocked: null,
       };
+      const entry = existing ?? newEntry(saved);
       if (existing) {
         drop(existing);
         await updateSaved(id, existing, saved);
       } else {
-        entries.set(id, newEntry(saved));
+        entries.set(id, entry);
         await savePaired();
-        const sequence = prefs.read()["environments.sequence"];
-        await setPreferences((p) => ({ ...p, "environments.sequence": [...sequence.filter((known) => known !== id), id] }));
+        await enterSequence(id, "last");
       }
-      await connect(id);
-      const after = entries.get(id);
-      if (after?.saved.blocked === "different-environment") {
-        return failed("different-environment", `The environment at ${origin} is not the one its discovery document named.`);
+      if (!answer.ok) {
+        entry.bye = answer.closed.bye?.reason ?? null;
+        await settle(id, entry, afterClose(answer.closed, protocolVersion));
+      } else if (isEnabled(id)) {
+        await attach(id, entry, answer.socket, document);
+      } else {
+        answer.socket.close();
+        update(id, entry, { phase: "disabled" });
       }
       return { status: "paired", environmentId: id };
     },
@@ -414,11 +615,12 @@ export const createRegistry = (platform: Platform, protocolVersion: number): Reg
       if (given.size !== environmentIds.length || given.size !== known.size || [...given].some((id) => !known.has(id))) {
         throw new RangeError("The sequence must name every saved environment exactly once.");
       }
-      // Environments not known this start (a local one whose service is down) keep their place after the known ones.
-      await setPreferences((p) => ({
-        ...p,
-        "environments.sequence": [...environmentIds, ...p["environments.sequence"].filter((id) => !given.has(id))],
-      }));
+      // The known environments take the places known ones held, in the new sequence; one not known this start keeps its place.
+      await setPreferences((p) => {
+        const next = [...environmentIds];
+        const sequence = p["environments.sequence"].map((id) => (known.has(id) ? (next.shift() as string) : id));
+        return { ...p, "environments.sequence": [...sequence, ...next] };
+      });
     },
 
     async setLastUsed(environmentId) {
@@ -431,7 +633,34 @@ export const createRegistry = (platform: Platform, protocolVersion: number): Reg
       if (entry.saved.kind === "local") {
         throw new Error("The local environment's connection comes from its bootstrap grant on every start; disable it instead.");
       }
-      await revoke(entry);
+      const name = entry.saved.descriptor.name;
+      let result: RemoveResult;
+      const token = await platform.secrets.get(environmentId);
+      if (!entry.saved.scopes.includes("admin")) {
+        result = {
+          revoked: false,
+          reason: "scope",
+          message: `This client was paired with ${name} without the admin scope, so its client session there is still live: revoke it from a client that has admin.`,
+        };
+      } else if (
+        entry.saved.clientSessionId !== null &&
+        token !== undefined &&
+        (await revokeClientSession({
+          environmentId,
+          origin: entry.saved.address,
+          token,
+          clientSessionId: entry.saved.clientSessionId,
+          socket: entry.phase === "ready" ? entry.socket : undefined,
+        }))
+      ) {
+        result = { revoked: true };
+      } else {
+        result = {
+          revoked: false,
+          reason: "unreachable",
+          message: `${name} could not be reached, so this client's session there is still live: revoke it from another client.`,
+        };
+      }
       drop(entry);
       entries.delete(environmentId);
       await platform.secrets.delete(environmentId);
@@ -441,7 +670,17 @@ export const createRegistry = (platform: Platform, protocolVersion: number): Reg
         "environments.enabled": Object.fromEntries(Object.entries(p["environments.enabled"]).filter(([id]) => id !== environmentId)),
         "environments.lastUsed": p["environments.lastUsed"] === environmentId ? null : p["environments.lastUsed"],
       }));
-      for (const listener of [...forgetListeners]) await listener(environmentId);
+      // Every listener runs even when one fails; what failed is thrown after.
+      const failures: unknown[] = [];
+      for (const listener of [...forgetListeners]) {
+        try {
+          await listener(environmentId);
+        } catch (error) {
+          failures.push(error);
+        }
+      }
+      if (failures.length > 0) throw new AggregateError(failures, `Forgetting environment ${environmentId} failed.`);
+      return result;
     },
 
     async retryNow(environmentId) {

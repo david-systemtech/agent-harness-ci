@@ -1,4 +1,4 @@
-import type { BootstrapGrant } from "@agent-harness/contracts";
+import type { GrantReader, SecretStore } from "./platform.js";
 
 /**
  * The desktop shell interface: what only a desktop app can do for a client,
@@ -24,8 +24,9 @@ export interface Shell {
   readonly service?: ShellService;
   readonly clipboard?: ShellClipboard;
   readonly openExternal?: (url: string) => Promise<void>;
-  readonly localGrant?: { readonly read?: () => Promise<BootstrapGrant | undefined> };
-  readonly secrets?: ShellSecrets;
+  readonly localGrant?: GrantReader;
+  /** The OS keychain: where the runtime keeps client session tokens on a desktop. */
+  readonly secrets?: SecretStore;
 }
 
 /**
@@ -97,11 +98,13 @@ export interface ShellWebView {
   destroy(viewId: string): void;
 }
 
-/** The desktop installer (the launcher workstream). */
-export interface ShellInstaller {
-  /** Installs or repairs the environment the desktop bundles, as its service. */
-  installEnvironment(): Promise<void>;
-}
+/**
+ * The desktop installer (ADR 0004's "installer launches"). Its members are
+ * the launcher workstream's (#86) to define; installing the local
+ * environment's service is `service.install`, not this.
+ */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- #86 defines the members
+export interface ShellInstaller {}
 
 /** The desktop's own updater (the launcher workstream). */
 export interface ShellUpdate {
@@ -119,11 +122,4 @@ export interface ShellService {
 export interface ShellClipboard {
   readText(): Promise<string>;
   writeText(text: string): Promise<void>;
-}
-
-/** The OS keychain, by name. The runtime keeps client session tokens here on a desktop. */
-export interface ShellSecrets {
-  get(name: string): Promise<string | undefined>;
-  set(name: string, secret: string): Promise<void>;
-  delete(name: string): Promise<void>;
 }

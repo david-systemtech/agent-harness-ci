@@ -1,14 +1,14 @@
 import {
-  ClientSessionCredential,
+  DEFAULT_ENVIRONMENT_PORT,
   PAIR_PATH,
   normalisePairingCode,
   parsePairingLink,
-  type ClientSessionCredential as Credential,
+  type ClientSessionCredential,
 } from "@agent-harness/contracts";
 import { parseAddress } from "./connections/address.js";
+import { compareProtocol, type DiscoveryRefusal } from "./discovery.js";
+import { postExchange } from "./exchange.js";
 import type { ClientIdentity, HttpFetch } from "./platform.js";
-
-export { DEFAULT_ENVIRONMENT_PORT } from "./connections/address.js";
 
 /**
  * Pairing, client side (docs/specs/client-runtime.md, "Pairing and the
@@ -26,15 +26,16 @@ export interface PairingOptions {
 }
 
 /**
- * Why a pairing failed. The six the specification names, and four more a
- * person can cause: a link or address that is not one, a code the
- * environment never issued, too many tries.
+ * Why a pairing failed: the six the specification names, `unsupported-client`
+ * beside `protocol-mismatch` to say which side is behind, and five more a
+ * person can cause.
  */
 export type PairingFailureReason =
   | "expired-code"
   | "used-code"
   | "unreachable"
   | "protocol-mismatch"
+  | "unsupported-client"
   | "not-ready"
   | "different-environment"
   | "invalid-link"
@@ -50,13 +51,20 @@ export interface PairingFailure {
 }
 
 export type PairingOutcome =
-  /** The token is kept, the record written and a connection attempted. */
+  /** The token is kept, the record written and the connection made or attempted. */
   | { readonly status: "paired"; readonly environmentId: string }
   /** The environment is saved already: nothing was exchanged; ask again with `rePair` to pair it again in place. */
   | { readonly status: "re-pair-offered"; readonly environmentId: string; readonly name: string }
   | { readonly status: "failed"; readonly failure: PairingFailure };
 
-export const failed = (reason: PairingFailureReason, message: string): PairingOutcome => ({ status: "failed", failure: { reason, message } });
+export const pairingFailed = (reason: PairingFailureReason, message: string): PairingOutcome => ({
+  status: "failed",
+  failure: { reason, message },
+});
+
+/** A discovery refusal as a pairing failure: starting or draining is `not-ready`. */
+export const discoveryFailure = (reason: DiscoveryRefusal): PairingFailureReason =>
+  reason === "starting" || reason === "draining" ? "not-ready" : reason;
 
 /** The origin and canonical code in what was pasted or typed, or why there are none. */
 export const parsePairingInput = (
@@ -70,17 +78,21 @@ export const parsePairingInput = (
     return { ok: true, origin, code: link.code };
   }
   const origin = parseAddress(input.address);
-  if (!origin) return refuse("invalid-address", `"${input.address}" is not an address: give a host name or IP address and, if not 7433, its port.`);
+  if (!origin) {
+    return refuse(
+      "invalid-address",
+      `"${input.address}" is not an address: give a host name or IP address and, if not ${DEFAULT_ENVIRONMENT_PORT}, its port.`,
+    );
+  }
   const code = normalisePairingCode(input.code);
   if (!code) return refuse("invalid-code", "That is not a pairing code: it is ten letters and digits, like K7Q2M-XH4RT.");
   return { ok: true, origin, code };
 };
 
-const EXCHANGE_FAILURES: Record<string, PairingFailure> = {
+const REFUSALS: Readonly<Record<string, PairingFailure>> = {
   pairing_expired: { reason: "expired-code", message: "The pairing code has expired; ask the environment for a new one." },
   pairing_used: { reason: "used-code", message: "The pairing code has been used already; each code pairs one client." },
   pairing_invalid: { reason: "invalid-code", message: "The environment issued no such pairing code; check it and try again." },
-  protocol_mismatch: { reason: "protocol-mismatch", message: "The environment speaks another protocol version than this client." },
   rate_limited: { reason: "rate-limited", message: "Too many pairing attempts from this address; wait a minute and try again." },
   unavailable: { reason: "not-ready", message: "The environment is not ready yet; try again in a moment." },
 };
@@ -92,29 +104,21 @@ export const exchangeCode = async (
   code: string,
   client: ClientIdentity,
   protocolVersion: number,
-): Promise<{ readonly ok: true; readonly credential: Credential } | { readonly ok: false; readonly failure: PairingFailure }> => {
-  let status: number;
-  let body: unknown;
-  try {
-    const response = await fetch(`${origin}${PAIR_PATH}`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ code, kind: client.kind, label: client.label, protocolVersion }),
-    });
-    status = response.status;
-    body = await response.json();
-  } catch (error) {
-    return { ok: false, failure: { reason: "unreachable", message: `Nothing answered at ${origin}: ${error instanceof Error ? error.message : String(error)}.` } };
+): Promise<{ readonly ok: true; readonly credential: ClientSessionCredential } | { readonly ok: false; readonly failure: PairingFailure }> => {
+  const answer = await postExchange(fetch, `${origin}${PAIR_PATH}`, { code, kind: client.kind, label: client.label, protocolVersion });
+  if (answer.ok) return answer;
+  if (answer.kind === "unreachable") return { ok: false, failure: { reason: "unreachable", message: answer.message } };
+  if (answer.code === "protocol_mismatch") {
+    const theirs = answer.data["protocolVersion"];
+    const mismatch = typeof theirs === "number" ? compareProtocol(theirs, protocolVersion) : undefined;
+    return { ok: false, failure: mismatch ?? { reason: "protocol-mismatch", message: answer.message ?? "The protocol versions differ." } };
   }
-  if (status === 200) {
-    const credential = ClientSessionCredential.safeParse(body);
-    if (credential.success) return { ok: true, credential: credential.data };
-  }
-  const errorCode = typeof body === "object" && body !== null ? (body as Record<string, unknown>)["code"] : undefined;
-  const known = typeof errorCode === "string" ? EXCHANGE_FAILURES[errorCode] : undefined;
-  const message = typeof body === "object" && body !== null ? (body as Record<string, unknown>)["message"] : undefined;
+  const known = answer.code === undefined ? undefined : REFUSALS[answer.code];
   return {
     ok: false,
-    failure: known ?? { reason: "refused", message: `The environment refused the pairing (HTTP ${status})${typeof message === "string" ? `: ${message}` : "."}` },
+    failure: known ?? {
+      reason: "refused",
+      message: `The environment refused the pairing (HTTP ${answer.status})${answer.message === undefined ? "." : `: ${answer.message}`}`,
+    },
   };
 };

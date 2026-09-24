@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { DISCOVERY_PATH, PAIRING_TTL_MS, PROTOCOL_VERSION } from "@agent-harness/contracts";
+import { DEFAULT_ENVIRONMENT_PORT, DISCOVERY_PATH, PAIRING_TTL_MS, PROTOCOL_VERSION } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import type { Address } from "../../environment/src/serve/http.js";
 import { startTestEnvironment } from "../../environment/test/helper.js";
-import { originOf, rewritingFetch, until, useHarness } from "../test/harness.js";
-import { DEFAULT_ENVIRONMENT_PORT, parsePairingInput } from "./pairing.js";
+import { originOf, rewritingFetch, rewritingWebSocket, until, useHarness } from "../test/harness.js";
+import { parsePairingInput } from "./pairing.js";
 import { inMemoryPlatform } from "./testing/in-memory-platform.js";
 
 const harness = useHarness();
@@ -155,16 +155,30 @@ describe("pairing with an environment", () => {
       expect(await runtime.connections.add({ link })).toMatchObject({ status: "failed", failure: { reason: "unreachable" } });
     });
 
-    it("protocol-mismatch: discovery names another protocol version, and the code is not spent", async () => {
+    it("protocol-mismatch: the environment speaks an older protocol than this client, and the code is not spent", async () => {
+      const t = await harness.environment();
+      const runtime = harness.runtime(inMemoryPlatform(), { protocolVersion: PROTOCOL_VERSION + 1 });
+      await runtime.start();
+      const { code, link } = await t.createPairing();
+
+      expect(await runtime.connections.add({ link })).toMatchObject({
+        status: "failed",
+        failure: { reason: "protocol-mismatch", message: expect.stringContaining("update the environment") },
+      });
+      expect((await t.pairExchange({ code, kind: "program", label: "later", protocolVersion: PROTOCOL_VERSION })).status).toBe(200);
+    });
+
+    it("unsupported-client: the environment speaks a newer protocol than this client", async () => {
       const t = await harness.environment();
       const runtime = harness.runtime(
         inMemoryPlatform({ fetch: rewritingFetch(DISCOVERY_PATH, (body) => ({ ...body, protocolVersion: PROTOCOL_VERSION + 1 })) }),
       );
       await runtime.start();
-      const { code, link } = await t.createPairing();
 
-      expect(await runtime.connections.add({ link })).toMatchObject({ status: "failed", failure: { reason: "protocol-mismatch" } });
-      expect((await t.pairExchange({ code, kind: "program", label: "later", protocolVersion: PROTOCOL_VERSION })).status).toBe(200);
+      expect(await runtime.connections.add({ link: (await t.createPairing()).link })).toMatchObject({
+        status: "failed",
+        failure: { reason: "unsupported-client", message: expect.stringContaining("update this client") },
+      });
     });
 
     it("not-ready: discovery says the environment is still starting", async () => {
@@ -219,21 +233,39 @@ describe("pairing with an environment", () => {
       });
     });
 
-    it("different-environment: the environment that answers hello is not the one discovery named", async () => {
+    it("different-environment: hello names another environment than discovery did; the client session is revoked and nothing is kept", async () => {
       const t = await harness.environment();
       const elsewhere = randomUUID();
-      const runtime = harness.runtime(
-        inMemoryPlatform({ fetch: rewritingFetch(DISCOVERY_PATH, (body) => ({ ...body, environmentId: elsewhere })) }),
-      );
+      const platform = inMemoryPlatform({ fetch: rewritingFetch(DISCOVERY_PATH, (body) => ({ ...body, environmentId: elsewhere })) });
+      const runtime = harness.runtime(platform);
       await runtime.start();
 
       expect(await runtime.connections.add({ link: (await t.createPairing()).link })).toMatchObject({
         status: "failed",
         failure: { reason: "different-environment" },
       });
-      expect(runtime.connections.list.read()).toEqual([
-        expect.objectContaining({ environmentId: elsewhere, phase: "blocked", blocked: "different-environment" }),
-      ]);
+
+      expect(runtime.connections.list.read()).toEqual([]);
+      expect(await platform.secrets.get(elsewhere)).toBeUndefined();
+      expect(await platform.secrets.get(t.env.id)).toBeUndefined();
+      const admin = await t.client();
+      const { sessions } = await admin.apply("access.sessions.list", {});
+      expect(sessions.filter((s) => s.kind === "tui" && !s.local).map((s) => s.revokedAt)).toEqual([expect.any(String)]);
+    });
+
+    it("unsupported-client: hello speaks a newer protocol than discovery said, and nothing is kept", async () => {
+      const t = await harness.environment();
+      const newer = (frame: Record<string, unknown>) => (frame["type"] === "hello" ? { ...frame, protocolVersion: PROTOCOL_VERSION + 1 } : frame);
+      const platform = inMemoryPlatform({ webSocket: rewritingWebSocket(newer, () => true) });
+      const runtime = harness.runtime(platform);
+      await runtime.start();
+
+      expect(await runtime.connections.add({ link: (await t.createPairing()).link })).toMatchObject({
+        status: "failed",
+        failure: { reason: "unsupported-client" },
+      });
+      expect(runtime.connections.list.read()).toEqual([]);
+      expect(await platform.secrets.get(t.env.id)).toBeUndefined();
     });
   });
 });

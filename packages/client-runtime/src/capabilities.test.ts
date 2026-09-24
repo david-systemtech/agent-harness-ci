@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { CAPABILITY_FLAG_LIST, isMethodName } from "@agent-harness/contracts";
-import { describe, expect, it } from "vitest";
+import { CAPABILITY_FLAG_LIST, type MethodName } from "@agent-harness/contracts";
+import { describe, expect, expectTypeOf, it } from "vitest";
 import { useHarness } from "../test/harness.js";
-import { CAPABILITY_NAMES, FLAG_CAPABILITIES, METHOD_FLAGS } from "./capabilities.js";
-import { SHELL_MEMBERS, type Shell } from "./shell.js";
+import { METHOD_FLAGS, type CapabilityName } from "./capabilities.js";
+import type { Shell } from "./shell.js";
 import { fakeShell, inMemoryPlatform } from "./testing/in-memory-platform.js";
 
 const harness = useHarness();
@@ -86,19 +86,12 @@ describe("capability answers", () => {
 });
 
 describe("the capability names a client may ask for (contract)", () => {
-  it("are every flag on the flag list, every registered method and every shell member, and nothing else", () => {
-    for (const name of CAPABILITY_NAMES) {
-      expect(
-        (CAPABILITY_FLAG_LIST as readonly string[]).includes(name) || isMethodName(name) || (SHELL_MEMBERS as readonly string[]).includes(name),
-        name,
-      ).toBe(true);
-    }
-  });
-
-  it("name only flags on the flag list, whether asked for directly or gating a method", () => {
-    for (const flag of [...FLAG_CAPABILITIES, ...Object.values(METHOD_FLAGS)]) {
-      expect(CAPABILITY_FLAG_LIST).toContain(flag);
-    }
-    for (const method of Object.keys(METHOD_FLAGS)) expect(isMethodName(method), method).toBe(true);
+  it("is a type: every name is a flag on the contracts' flag list, a registered method, or a shell.* member", () => {
+    expectTypeOf<CapabilityName>().toExtend<(typeof CAPABILITY_FLAG_LIST)[number] | MethodName | `shell.${string}`>();
+    // A flag gating a method is a flag on the list, and the method a registered one.
+    expectTypeOf(METHOD_FLAGS).toExtend<Partial<Record<MethodName, (typeof CAPABILITY_FLAG_LIST)[number]>>>();
+    // @ts-expect-error: a flag missing from the list is not a capability name.
+    const unlisted: CapabilityName = "no-such-flag";
+    expect(unlisted).toBe("no-such-flag");
   });
 });

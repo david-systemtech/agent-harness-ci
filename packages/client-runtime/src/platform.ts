@@ -50,7 +50,11 @@ export interface DocumentStore {
   delete(key: string): Promise<void>;
 }
 
-/** Secrets by name. The runtime names a client session token by its environment id. */
+/**
+ * Secrets by name. The runtime names a paired connection's client session
+ * token by its environment id. The desktop's shell provides one as its
+ * `secrets` member (the OS keychain).
+ */
 export interface SecretStore {
   get(name: string): Promise<string | undefined>;
   set(name: string, secret: string): Promise<void>;
@@ -106,7 +110,7 @@ export interface NetworkState {
 /** The network as the platform sees it: online or offline, and whether the client is in the foreground. */
 export type NetworkSignal = Observable<NetworkState>;
 
-/** Reads the grant file the local environment writes (the desktop's shell reads it through `localGrant.read`). */
+/** Reads the grant file the local environment writes. The desktop's shell provides one as its `localGrant` member. */
 export interface GrantReader {
   /** The grant as it is now; undefined when there is none, as when the service is not running. */
   read(): Promise<BootstrapGrant | undefined>;

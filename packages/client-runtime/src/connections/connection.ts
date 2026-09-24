@@ -1,4 +1,5 @@
 import { decodeFrame, encodeFrame, type ByeFrame, type Frame, type HelloFrame, type ResponseFrame } from "@agent-harness/contracts";
+import { notifyAll } from "../observable.js";
 import type { ClientIdentity, WebSocketFactory } from "../platform.js";
 import { wireUrl } from "./address.js";
 
@@ -39,19 +40,13 @@ export interface LiveSocket {
   close(): void;
 }
 
-export type Authentication =
-  | { readonly ok: true; readonly socket: LiveSocket }
-  /** The socket closed before `hello`: nothing answered, or the environment said `bye`. */
-  | { readonly ok: false; readonly failure: "closed"; readonly closed: SocketClosed }
-  /** `hello` named another environment than the one expected; the socket is closed. */
-  | { readonly ok: false; readonly failure: "different-environment"; readonly hello: HelloFrame };
+/** A socket the environment said `hello` on, which the caller checks; or how it closed before that: nothing answered, or a `bye`. */
+export type Authentication = { readonly ok: true; readonly socket: LiveSocket } | { readonly ok: false; readonly closed: SocketClosed };
 
 export interface AuthenticateOptions {
   readonly webSocket: WebSocketFactory;
   readonly origin: string;
   readonly token: string;
-  /** The environment the connection is keyed by; a `hello` naming another is refused. */
-  readonly environmentId: string;
   readonly client: ClientIdentity;
   readonly protocolVersion: number;
 }
@@ -99,10 +94,6 @@ export const authenticate = (options: AuthenticateOptions): Promise<Authenticati
       if (frame.type === "bye") bye = frame;
       if (!hello) {
         if (frame.type !== "hello") return;
-        if (frame.environmentId !== options.environmentId) {
-          socket.close(CLOSE_NORMAL, "different environment");
-          return settle({ ok: false, failure: "different-environment", hello: frame });
-        }
         hello = frame;
         return settle({ ok: true, socket: live() });
       }
@@ -112,7 +103,7 @@ export const authenticate = (options: AuthenticateOptions): Promise<Authenticati
         pending.delete(frame.id);
         waiting?.resolve(frame);
       }
-      for (const listener of [...listeners]) listener(frame);
+      notifyAll(listeners, frame);
     };
 
     const socket = options.webSocket(wireUrl(options.origin), {
@@ -142,7 +133,7 @@ export const authenticate = (options: AuthenticateOptions): Promise<Authenticati
         for (const waiting of pending.values()) waiting.reject(new SocketClosedError(how));
         pending.clear();
         resolveClosed(how);
-        settle({ ok: false, failure: "closed", closed: how });
+        settle({ ok: false, closed: how });
       },
     });
   });

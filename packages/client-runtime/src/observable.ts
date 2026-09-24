@@ -16,6 +16,24 @@ export interface Writable<T> extends Observable<T> {
   update(change: (value: T) => T): void;
 }
 
+/**
+ * Calls every listener, even when one throws: one renderer's fault never
+ * starves the others. What was thrown is thrown again once all have run,
+ * one error as it is, several as an `AggregateError`.
+ */
+export const notifyAll = <A extends unknown[]>(listeners: Iterable<(...args: A) => void>, ...args: A): void => {
+  const errors: unknown[] = [];
+  for (const listener of [...listeners]) {
+    try {
+      listener(...args);
+    } catch (error) {
+      errors.push(error);
+    }
+  }
+  if (errors.length === 1) throw errors[0];
+  if (errors.length > 1) throw new AggregateError(errors, `${errors.length} listeners failed.`);
+};
+
 /** A writable observable holding `initial`. Setting a value `Object.is` the current one notifies nobody. */
 export const writable = <T>(initial: T): Writable<T> => {
   let value = initial;
@@ -23,7 +41,7 @@ export const writable = <T>(initial: T): Writable<T> => {
   const set = (next: T): void => {
     if (Object.is(next, value)) return;
     value = next;
-    for (const listener of [...listeners]) listener(value);
+    notifyAll(listeners, value);
   };
   return {
     read: () => value,
@@ -36,18 +54,46 @@ export const writable = <T>(initial: T): Writable<T> => {
   };
 };
 
+type ValuesOf<S extends readonly Observable<unknown>[]> = { [K in keyof S]: S[K] extends Observable<infer V> ? V : never };
+
 /**
- * An observable computed from `sources` by `compute`, recomputed when any
- * source changes. It follows its sources for the runtime's life, so its
- * value is always current and `read()` is stable between changes.
+ * An observable computed from `sources` by `compute`. It recomputes only when
+ * a source's value has changed, so `read()` is stable between changes, and
+ * it follows its sources only while it has subscribers of its own.
  */
-export const derived = <S extends readonly Observable<unknown>[], T>(
-  sources: S,
-  compute: (...values: { [K in keyof S]: S[K] extends Observable<infer V> ? V : never }) => T,
-): Observable<T> => {
-  type Values = { [K in keyof S]: S[K] extends Observable<infer V> ? V : never };
-  const current = () => compute(...(sources.map((source) => source.read()) as unknown as Values));
-  const out = writable(current());
-  for (const source of sources) source.subscribe(() => out.set(current()));
-  return { read: out.read, subscribe: out.subscribe };
+export const derived = <S extends readonly Observable<unknown>[], T>(sources: S, compute: (...values: ValuesOf<S>) => T): Observable<T> => {
+  let inputs: unknown[] | undefined;
+  let value: T;
+  const listeners = new Set<(value: T) => void>();
+  let stops: (() => void)[] = [];
+
+  const read = (): T => {
+    const now = sources.map((source) => source.read());
+    if (!inputs || now.some((input, i) => !Object.is(input, (inputs as unknown[])[i]))) {
+      inputs = now;
+      value = compute(...(now as unknown as ValuesOf<S>));
+    }
+    return value;
+  };
+  const onSource = () => {
+    const before = value;
+    const after = read();
+    if (!Object.is(before, after)) notifyAll(listeners, after);
+  };
+
+  return {
+    read,
+    subscribe(listener) {
+      if (listeners.size === 0) {
+        read();
+        stops = sources.map((source) => source.subscribe(onSource));
+      }
+      listeners.add(listener);
+      return () => {
+        if (!listeners.delete(listener) || listeners.size > 0) return;
+        for (const stop of stops) stop();
+        stops = [];
+      };
+    },
+  };
 };
