@@ -7,7 +7,7 @@
  * shell seam". Members arrive with the client runtime's ticket.
  *
  * Nothing about sessions, runs or organisation passes through it (ADR 0004).
- * The lint rule `harness/no-session-types-in-shell` holds this module to that.
+ * The lint rule `agent-harness/no-session-types-in-shell` holds this module to that.
  */
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type -- a stub until the shell's members land
 export interface Shell {}

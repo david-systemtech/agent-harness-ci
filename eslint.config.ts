@@ -2,7 +2,7 @@ import eslint from "@eslint/js";
 import type { Linter } from "eslint";
 import { defineConfig, globalIgnores } from "eslint/config";
 import tseslint from "typescript-eslint";
-import { harness } from "./eslint-rules/index.js";
+import { plugin } from "./eslint-rules/index.js";
 
 /** Every client package: the client runtime and the terminal UI now, the GUI and web when they exist. */
 const clientPackages = ["client-runtime", "tui", "gui", "web"].map((p) => `packages/${p}/**/*.{ts,tsx}`);
@@ -17,18 +17,20 @@ export default defineConfig([
   globalIgnores(["**/dist/", "**/coverage/", ".tsbuild/", ".ci/"]),
   eslint.configs.recommended,
   tseslint.configs.recommended,
-  { plugins: { harness } },
+  { plugins: { "agent-harness": plugin } },
 
   // ADR 0003, lint (a): no client store or preference named after session organisation state.
+  // Test files are left out: their module-scope fixtures model the environment's data, not client state.
   {
     files: clientPackages,
-    rules: { "harness/no-client-organisation-state": "error" },
+    ignores: ["**/*.test.{ts,tsx}"],
+    rules: { "agent-harness/no-client-organisation-state": "error" },
   },
 
   // ADR 0004, lint (b): the desktop shell interface carries no session, run or group type.
   {
     files: ["packages/client-runtime/src/shell.ts", "packages/client-runtime/src/shell/**/*.ts"],
-    rules: { "harness/no-session-types-in-shell": "error" },
+    rules: { "agent-harness/no-session-types-in-shell": "error" },
   },
 
   // Dependency direction, as source imports; test/workspace.test.ts holds the manifests to the same rules.

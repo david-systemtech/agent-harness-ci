@@ -1,5 +1,9 @@
 {
+  // Shared by every package: each package's tsconfig adds only its types and
+  // references. `${configDir}` is the directory of the tsconfig that extends this.
   "compilerOptions": {
+    "rootDir": "${configDir}/src",
+    "outDir": "${configDir}/dist",
     "target": "ES2023",
     "lib": ["ES2023"],
     "module": "NodeNext",
@@ -18,5 +22,7 @@
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true
-  }
+  },
+  "include": ["${configDir}/src"],
+  "exclude": ["${configDir}/src/**/*.test.ts"]
 }

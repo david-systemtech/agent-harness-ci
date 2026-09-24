@@ -21,19 +21,25 @@ describe("the lint configuration", () => {
     "packages/gui/src/sidebar.tsx",
     "packages/web/src/sidebar.ts",
   ])("runs the organisation-state rule in the client package file %s", async (file) => {
-    expect(await ruleIds(file, store)).toContain("harness/no-client-organisation-state");
+    expect(await ruleIds(file, store)).toContain("agent-harness/no-client-organisation-state");
   });
 
   it.each(["packages/environment/src/sessions.ts", "packages/contracts/src/sessions.ts"])(
     "leaves the non-client package file %s alone",
     async (file) => {
-      expect(await ruleIds(file, store)).not.toContain("harness/no-client-organisation-state");
+      expect(await ruleIds(file, store)).not.toContain("agent-harness/no-client-organisation-state");
     },
   );
 
+  it("leaves a client package's test files alone, whose fixtures model the environment's data", async () => {
+    expect(
+      await ruleIds("packages/tui/src/sidebar.test.ts", `export const summary = { title: "t", pinnedAt: 1 };\n`),
+    ).not.toContain("agent-harness/no-client-organisation-state");
+  });
+
   it("runs the shell rule on the desktop shell interface module", async () => {
     expect(await ruleIds("packages/client-runtime/src/shell.ts", shellImport)).toContain(
-      "harness/no-session-types-in-shell",
+      "agent-harness/no-session-types-in-shell",
     );
   });
 

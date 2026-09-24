@@ -32,9 +32,9 @@ from the `packageManager` pin through `corepack enable`.
 - `pnpm install`, then `pnpm typecheck` (`tsc -b`), `pnpm lint` and `pnpm test`
   (Vitest, every package's suite); CI runs the same three.
 - Two local lint rules in `eslint-rules/` enforce ADR 0003 and 0004:
-  `harness/no-client-organisation-state` (its allowlisted modules and the
+  `agent-harness/no-client-organisation-state` (its allowlisted modules and the
   enumerated presentation keys are constants at the top of the rule) and
-  `harness/no-session-types-in-shell`. `eslint.config.ts` scopes both.
+  `agent-harness/no-session-types-in-shell`. `eslint.config.ts` scopes both.
 
 ## Merging
 
