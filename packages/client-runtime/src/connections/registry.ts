@@ -747,6 +747,9 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
       // The old socket is the registry's now, and the old machine holds until the new socket is adopted: revoking over either socket
       // closes the old one with a `bye: revoked` that machine must not hear, and nothing may reconnect with the old token meanwhile.
       const held = existing?.runner.detach();
+      // Set once the pairing socket belongs to a machine; until then a failure closes it.
+      let adopted = false;
+      let created: Entry | undefined;
       try {
         if (existing) {
           const previous = existing.saved.clientSessionId;
@@ -771,7 +774,7 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
           blocked: null,
           expiresAt: credential.expiresAt,
         };
-        const entry = existing ?? newEntry(id, saved);
+        const entry = existing ?? (created = newEntry(id, saved));
         if (existing) {
           await updateSaved(id, existing, saved);
         } else {
@@ -779,8 +782,8 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
           await savePaired();
           await enterSequence(id, "last");
         }
-        if (entries.get(id) !== entry) {
-          // Removed while this pairing was being kept: nothing is attached to a forgotten entry.
+        if (entries.get(id) !== entry || closed) {
+          // Removed while this pairing was being kept, or the runtime closed: nothing is attached to a forgotten entry.
           if (answer.ok) answer.socket.close();
           return { status: "paired", environmentId: id, ...(replaced && { replaced }) };
         }
@@ -788,6 +791,7 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
         // machine holds from `detach` to `adopt`, and a new entry's starts only here. `adopt` and `start` halt first regardless.
         if (answer.ok && isEnabled(id)) {
           // The socket pairing tried is the connection's first one.
+          adopted = true;
           entry.runner.adopt(answer.socket, document);
         } else {
           // Closed before `hello`, or disabled: the machine starts from where it is, as at a start.
@@ -799,9 +803,15 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
         await settledFor(id, entry);
         return { status: "paired", environmentId: id, ...(replaced && { replaced }) };
       } catch (error) {
-        // Failing before the new socket is adopted, the old machine goes on from where it was held.
-        existing?.runner.resume();
-        if (existing && entries.get(id) === existing) begin(id, existing);
+        // The pairing socket nobody took is closed, so the environment is not left holding a second socket.
+        if (answer.ok && !adopted) answer.socket.close();
+        // What is still listed goes on: the old machine from where it was held, a new one (listed before a write failed) from its
+        // start, with the token kept. One forgotten meanwhile (removed, replaced by the local connection) is left stopped.
+        const listed = entries.get(id);
+        if (listed !== undefined && (listed === existing || listed === created) && !closed) {
+          listed.runner.resume();
+          begin(id, listed);
+        }
         throw error;
       }
     },

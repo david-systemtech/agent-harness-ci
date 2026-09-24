@@ -556,6 +556,51 @@ describe("the network signal", () => {
     expect(has(draining.effects, "poll-discovery")).toBe(false);
   });
 
+  it("a wakeup never cuts short a parked wait after a bye or a starting poll: it waits them out again, and begins at once only from backoff", () => {
+    for (const reason of ["draining", "updating"] as const) {
+      // The bye comes while offline: the wait parks.
+      const d = drive().ready();
+      d.feed({ type: "network", network: { online: false, foreground: true } });
+      d.feed({ type: "bye", attempt: d.state.attempt, bye: bye(reason) });
+      expect(d.state).toMatchObject({ phase: reason, parked: true, retryAt: null });
+      d.at(60_000).feed({ type: "network", network: { online: true, foreground: true } });
+      expect(has(d.effects, "poll-discovery")).toBe(false);
+      expect(d.state).toMatchObject({ phase: reason, parked: false, retryAt: 60_000 + BYE_WAIT_MS });
+      expect(armed(d.effects, "retry")).toEqual([BYE_WAIT_MS]);
+
+      // Offline during the armed five seconds: parked, and waited out again on the wakeup.
+      const e = drive().ready();
+      e.feed({ type: "bye", attempt: e.state.attempt, bye: bye(reason) });
+      e.feed({ type: "network", network: { online: false, foreground: true } });
+      expect(e.state).toMatchObject({ phase: reason, parked: true, retryAt: null });
+      e.feed({ type: "network", network: { online: true, foreground: true } });
+      expect(has(e.effects, "poll-discovery")).toBe(false);
+      expect(armed(e.effects, "retry")).toEqual([BYE_WAIT_MS]);
+    }
+
+    const starting = drive().start();
+    starting.discovered({ kind: "document", document: document({ readiness: "starting" }) });
+    starting.feed({ type: "network", network: { online: false, foreground: true } });
+    expect(starting.state).toMatchObject({ phase: "starting", parked: true });
+    starting.feed({ type: "network", network: { online: true, foreground: true } });
+    expect(has(starting.effects, "poll-discovery")).toBe(false);
+    expect(armed(starting.effects, "retry")).toEqual([STARTING_POLL_MS]);
+  });
+
+  it("a network input that changes nothing answers the same state, so nothing is published", () => {
+    const d = drive().ready();
+    const before = d.state;
+    d.feed({ type: "network", network: { ...before.network } });
+    expect(d.state).toBe(before);
+    expect(d.effects).toEqual([]);
+
+    const disabled = drive();
+    disabled.feed({ type: "disable" });
+    const off = disabled.state;
+    disabled.feed({ type: "network", network: { ...off.network } });
+    expect(disabled.state).toBe(off);
+  });
+
   it("starts parked when offline", () => {
     const d = drive().start({ online: false, foreground: true });
     expect(d.state).toMatchObject({ phase: "backoff", parked: true });

@@ -4,7 +4,16 @@ import type { InternalOptions } from "./internal.js";
 import { createRuntimeWithSeams } from "./internal.js";
 import type { Runtime } from "./runtime.js";
 import { fakeWire, flush, type FakeWireOptions } from "./testing/fake-wire.js";
-import { fakeShell, inMemoryPlatform, manualClock, type InMemoryPlatformOptions } from "./testing/in-memory-platform.js";
+import type { SecretStore } from "./platform.js";
+import {
+  fakeShell,
+  inMemoryDocuments,
+  inMemoryPlatform,
+  inMemorySecrets,
+  manualClock,
+  type InMemoryDocumentStore,
+  type InMemoryPlatformOptions,
+} from "./testing/in-memory-platform.js";
 
 /**
  * The fake-wire suite (docs/specs/client-runtime.md, "Testing Decisions",
@@ -508,6 +517,91 @@ describe("giving up a client session", () => {
     expect(await platform.secrets.get(wire.environmentId)).toBe(fresh);
     expect(record(runtime)).toMatchObject({ phase: "ready", blocked: null });
     expect(runtime.projections.notices.read()).toEqual([]);
+  });
+});
+
+describe("a pairing that fails part way", () => {
+  /** Secret storage whose writes fail while `failing`, or wait while `held` until released. */
+  const faultySecrets = () => {
+    const base = inMemorySecrets();
+    const state = { failing: false, held: undefined as Promise<void> | undefined };
+    const secrets: SecretStore = {
+      ...base,
+      async set(name, secret) {
+        if (state.failing) throw new Error("the keychain is locked");
+        await state.held;
+        return base.set(name, secret);
+      },
+    };
+    return { secrets, state };
+  };
+
+  it("re-pair: a write that fails closes the pairing socket, and the old machine goes on from where it was held", async () => {
+    const { secrets, state } = faultySecrets();
+    const { wire, runtime } = await paired({ platform: { secrets } });
+    state.failing = true;
+    const rePairing = runtime.connections.add({ link: wire.link }, { rePair: wire.environmentId });
+    await wire.server.accept();
+    await expect(rePairing).rejects.toThrow(/keychain is locked/);
+    await flush();
+    // Only the old machine's own new attempt is open: the pairing socket was closed, not left to the environment.
+    expect(wire.open()).toBe(1);
+    expect(record(runtime).phase).toBe("connecting");
+    await wire.server.accept();
+    await flush();
+    expect(record(runtime).phase).toBe("ready");
+  });
+
+  it("first pairing: a write that fails after the connection is listed closes the pairing socket and starts its machine", async () => {
+    const base = inMemoryDocuments();
+    const documents: InMemoryDocumentStore = {
+      ...base,
+      set: async (key, value) => {
+        if (key === "connections.paired") throw new Error("the disk is full");
+        return base.set(key, value);
+      },
+    };
+    const { wire, runtime, starting } = await started({ platform: { documents } });
+    await starting;
+    const adding = runtime.connections.add({ link: wire.link });
+    await wire.server.accept();
+    await expect(adding).rejects.toThrow(/disk is full/);
+    await flush();
+    expect(record(runtime).phase).toBe("connecting");
+    expect(wire.open()).toBe(1);
+    await wire.server.accept();
+    await flush();
+    expect(record(runtime).phase).toBe("ready");
+  });
+
+  it("a pairing kept after the runtime closed closes its socket rather than leaving it open, first pairing or re-pair", async () => {
+    const first = faultySecrets();
+    let release: () => void = () => undefined;
+    first.state.held = new Promise((resolve) => (release = resolve));
+    const { wire, runtime, starting } = await started({ platform: { secrets: first.secrets } });
+    await starting;
+    const adding = runtime.connections.add({ link: wire.link });
+    await wire.server.accept();
+    await flush();
+    expect(wire.open()).toBe(1);
+    await runtime.close();
+    release();
+    await adding;
+    await flush();
+    expect(wire.open()).toBe(0);
+
+    // A re-pair: the held machine was stopped by the close, and is offered the socket all the same.
+    const again = faultySecrets();
+    const s = await paired({ platform: { secrets: again.secrets } });
+    again.state.held = new Promise((resolve) => (release = resolve));
+    const rePairing = s.runtime.connections.add({ link: s.wire.link }, { rePair: s.wire.environmentId });
+    await s.wire.server.accept();
+    await flush();
+    await s.runtime.close();
+    release();
+    await rePairing;
+    await flush();
+    expect(s.wire.open()).toBe(0);
   });
 });
 
