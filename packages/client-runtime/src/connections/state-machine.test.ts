@@ -52,7 +52,7 @@ const hello = (overrides: Partial<HelloFrame> = {}): HelloFrame => ({
   environmentName: "desk",
   clientSessionId: "client-session-1",
   scopes: ["read"],
-  ceiling: Ceiling.parse("top"),
+  ceiling: Ceiling.parse("bypassPermissions"),
   serverTime: new Date(0).toISOString(),
   ...overrides,
 });
