@@ -887,10 +887,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
   const adoptNow = (followed: LiveRun, turn: ProviderTurn): void => {
     const previous = followed.plan;
     /** The turn is not run, and no run starts for it: it is disposed, and what it was to read comes back to the environment's queue for the next start. */
-    const letGo = (why: string): void => {
-      safely(() => turn.dispose(), (e) => console.error(`Disposing a turn ${why} failed:`, e));
-      requeueTurn(previous, turn);
-    };
+    const letGo = (why: string, stop: ProcessStopReason = "failed"): void => letTurnGo(previous, turn, why, stop);
     let session: ReturnType<typeof readSessionFacts>;
     try {
       session = readSessionFacts(log, reader, previous.sessionId);
@@ -901,13 +898,13 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     }
     if (session === null || session.deleted) {
       // Deleted (or purged) since the run it followed: no run of it may start.
-      letGo("of a deleted session");
+      letGo("of a deleted session", "deleted");
       return;
     }
     try {
       registry.admit();
     } catch {
-      letGo("the drain refused");
+      letGo("the drain refused", "drain");
       return;
     }
     /** The turn cannot run under the policy as it resolves now: it is let go, and a run of the queue reads its messages under that policy. */
@@ -1004,8 +1001,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       log.atomically((tx) => appendRunEvents(log, plan.sessionId, events, { ...attribution, tx }));
     } catch (error) {
       console.error(`Recording a turn the provider opened for session ${previous.sessionId} failed; it is let go:`, error);
-      safely(() => turn.dispose(), (e) => console.error("Disposing a turn failed:", e));
-      requeueTurn(previous, turn);
+      letTurnGo(previous, turn, "whose start could not be recorded", "failed");
       return;
     }
     // The provider read them, bytes and all.
@@ -1025,6 +1021,20 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     } catch (error) {
       console.error(`Taking back the messages of a turn of session ${previous.sessionId} failed:`, error);
     }
+  };
+
+  /**
+   * Lets go of a turn the provider opened that no run will carry: it is
+   * disposed, what it was to read comes back to the environment's queue, and,
+   * since a dispose leaves the provider's state unknown, the session's
+   * process is stopped through the pool for `stop`'s reason, as for a run
+   * the host ends itself; not while another run is live on it.
+   */
+  const letTurnGo = (previous: PlannedRun, turn: ProviderTurn, why: string, stop: ProcessStopReason): void => {
+    safely(() => turn.dispose(), (e) => console.error(`Disposing a turn ${why} failed:`, e));
+    requeueTurn(previous, turn);
+    const current = live.get(previous.sessionId);
+    if (current === undefined || current.ended) void pool.stop(previous.sessionId, stop);
   };
 
   /** Lets go of every turn waiting to be adopted into the session, its messages taken back. */

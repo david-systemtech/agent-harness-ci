@@ -709,6 +709,10 @@ describe("the host's own bookkeeping", () => {
     errors.mockRestore();
     expect(disposed).toBe(true);
     expect(told).toBe(false);
+    // Nothing is left parked, and the process the let-go turn left in no known state is stopped through the pool.
+    expect([...t.host.runs.runs()].some((run) => run.state === "parked")).toBe(false);
+    await vi.waitFor(() => expect(t.host.processes.list()[0]).toMatchObject({ state: "stopped", stopReason: "failed" }));
+    expect(t.adapter.processesOf(t.sessionId)[0]?.stopped).toBe(true);
   });
 
   it("never leaves a rejection unhandled when handling a provider's refusal fails too", async () => {
