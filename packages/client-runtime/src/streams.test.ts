@@ -714,6 +714,48 @@ describe("removing an environment while a write is under way", () => {
   });
 });
 
+describe("removing an environment when a delete fails", () => {
+  it("reports it and forgets the rest: the list, the sessions and the meta", async () => {
+    const base = inMemoryDocuments();
+    const documents: InMemoryDocumentStore = {
+      ...base,
+      async delete(key) {
+        if (key.endsWith(".environment")) throw new Error("that document cannot be deleted");
+        return base.delete(key);
+      },
+    };
+    const { runtime, wire, platform, list, adding } = await paired({ documents });
+    const environment = await subscription(wire, "environment.subscribe");
+    environment.snapshot(1, { sequence: 1, status: { readiness: "ready", activity: { state: "idle" }, updatesManagedOutside: false } });
+    environment.synchronized(1);
+    const a = randomUUID();
+    list.event(sessionEvent(2, added(summaryOf(a))));
+    list.synchronized(2);
+    await adding;
+    const handle = runtime.subscriptions.session(wire.environmentId, a);
+    const stream = await subscription(wire, "sessions.subscribeSession");
+    stream.snapshot(2, { sequence: 2, summary: summaryOf(a), runs: [], items: [], parkedPrompts: [] });
+    stream.synchronized(2);
+    await flush();
+    handle.release();
+
+    await runtime.connections.remove(wire.environmentId);
+    await flush();
+    expect(platform.reported).toContainEqual(expect.objectContaining({ message: "that document cannot be deleted" }));
+    expect(runtime.projections.sessionList.read()).toMatchObject({ environments: [], rows: [] });
+
+    const again = runtime.connections.add({ link: wire.link });
+    await wire.server.accept();
+    const relisted = await subscription(wire, "sessions.subscribe");
+    expect(relisted.params).toEqual({ afterSequence: 0 });
+    relisted.synchronized(2);
+    await again;
+    const reopened = runtime.subscriptions.session(wire.environmentId, a);
+    expect((await wire.server.request("sessions.subscribeSession")).params).toEqual({ sessionId: a, afterSequence: 0 });
+    reopened.release();
+  });
+});
+
 describe("removing an environment whose retention index cannot be read", () => {
   it("still lets go of its streams and deletes its documents", async () => {
     const base = inMemoryDocuments();

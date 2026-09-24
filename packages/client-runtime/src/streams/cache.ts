@@ -97,9 +97,12 @@ export const createStreamCache = (options: CacheOptions): StreamCache => {
   const serial = (key: string, work: () => Promise<void>): Promise<void> => {
     const next = (chains.get(key) ?? Promise.resolve()).then(work, work);
     chains.set(key, next);
-    void next.finally(() => {
-      if (chains.get(key) === next) chains.delete(key);
-    });
+    // The cleanup swallows the failure it sees: whoever awaits `next` hears it, and nothing is left unhandled.
+    void next
+      .catch(() => undefined)
+      .finally(() => {
+        if (chains.get(key) === next) chains.delete(key);
+      });
     return next;
   };
 
@@ -162,7 +165,8 @@ export const createStreamCache = (options: CacheOptions): StreamCache => {
     async settle(environmentId) {
       const prefix = streamDocument(environmentId, "");
       for (const key of [...pending.keys()]) if (key.startsWith(prefix)) take(key);
-      await Promise.all([...chains].filter(([key]) => key.startsWith(prefix)).map(([, chain]) => chain));
+      // A write or delete that failed was reported to, or rejected for, whoever made it; settling only waits.
+      await Promise.all([...chains].filter(([key]) => key.startsWith(prefix)).map(([, chain]) => chain.catch(() => undefined)));
     },
     async idle() {
       await Promise.all([...chains.values()]);
@@ -388,14 +392,24 @@ export const createRetention = (options: RetentionOptions): Retention => {
         loads.delete(environmentId);
         skews.delete(environmentId);
         foreign.delete(environmentId);
-        const keys = [
-          streamDocument(environmentId, "list"),
-          streamDocument(environmentId, "environment"),
-          ...meta.opened.map((entry) => streamDocument(environmentId, `session.${entry.sessionId}`)),
-        ];
-        for (const key of keys) await documents.delete(key);
-        // Last, so a forget cut off part way leaves a meta naming what is left.
-        if (!kept) await documents.delete(metaDocument(environmentId));
+        // Each delete on its own: one that fails is reported and the rest go ahead.
+        const deleted = async (key: string): Promise<boolean> => {
+          try {
+            await documents.delete(key);
+            return true;
+          } catch (error) {
+            report(error);
+            return false;
+          }
+        };
+        await deleted(streamDocument(environmentId, "list"));
+        await deleted(streamDocument(environmentId, "environment"));
+        const left: Opened[] = [];
+        for (const entry of meta.opened) if (!(await deleted(streamDocument(environmentId, `session.${entry.sessionId}`)))) left.push(entry);
+        if (kept) return;
+        // Last, so a forget cut off part way leaves a meta naming what is left; a snapshot whose delete failed stays named by it.
+        if (left.length === 0) await deleted(metaDocument(environmentId));
+        else await write(environmentId, { skewMs: null, opened: left }).catch(report);
       };
       const forgetting = changes.then(run, run);
       changes = forgetting.catch(() => undefined);

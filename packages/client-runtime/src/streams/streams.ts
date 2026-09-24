@@ -249,7 +249,8 @@ export const createStreams = (options: StreamsOptions): Streams => {
         session.gone = true;
       }
       for (const stream of all) attacher.drop(stream);
-      await Promise.all(all.map((stream) => cache.remove(stream.key)));
+      // A delete that fails is reported and the forget goes on: the in-memory entry is gone already, so nothing would retry it.
+      await Promise.all(all.map((stream) => cache.remove(stream.key).catch(report)));
       // A write of a stream no longer held (a session let go, evicted or ended) may still be under way: it lands before the forget, not after.
       await cache.settle(environmentId);
       lists.update((current) => {
