@@ -219,6 +219,12 @@ describe("projectors", () => {
     expect(log.readStream({ kind: "session", id: "any" })).toEqual([]);
   });
 
+  it("accept a declared table whose statement creates it under another case, as SQLite does", () => {
+    const log = track(openEventLog({ path: ":memory:" }));
+    log.registerProjector({ name: "cased", tables: { Counts: "CREATE TABLE counts (x INTEGER)" }, apply: () => {} });
+    expect(log.read("SELECT name FROM sqlite_schema WHERE lower(name) = 'counts'")).toEqual([{ name: "counts" }]);
+  });
+
   it("are refused a declared table their statements do not create", () => {
     const log = track(openEventLog({ path: ":memory:" }));
     expect(() =>

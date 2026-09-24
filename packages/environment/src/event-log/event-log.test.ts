@@ -249,6 +249,17 @@ describe("appending", () => {
     expect(() => log.append(s1, [{ type: "bad", payload: [Infinity] }], { actor: "test" })).toThrow(/Infinity/);
     expect(log.readStream(s1)).toEqual([]);
   });
+
+  it("refuses a payload holding a nested undefined, function or symbol rather than dropping it", () => {
+    const log = memoryLog();
+    expect(() => log.append(s1, [{ type: "bad", payload: { text: undefined } }], { actor: "test" })).toThrow(/undefined/);
+    expect(() => log.append(s1, [{ type: "bad", payload: [undefined] }], { actor: "test" })).toThrow(/undefined/);
+    expect(() => log.append(s1, [{ type: "bad", payload: { f: () => 1 } }], { actor: "test" })).toThrow(/cannot hold/);
+    expect(() => log.append(s1, [{ type: "bad", payload: {}, metadata: { s: Symbol("x") } }], { actor: "test" })).toThrow(
+      /cannot hold/,
+    );
+    expect(log.readStream(s1)).toEqual([]);
+  });
 });
 
 describe("one transaction for events, projections and the receipt", () => {

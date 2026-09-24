@@ -60,7 +60,7 @@ export const createProjections = (sql: Sql, transaction: Transaction, clock: () 
   };
 
   const tableExists = (name: string): boolean =>
-    sql.get("SELECT 1 AS found FROM sqlite_schema WHERE type = 'table' AND name = ?", name) !== undefined;
+    sql.get("SELECT 1 AS found FROM sqlite_schema WHERE type = 'table' AND lower(name) = lower(?)", name) !== undefined;
 
   /** Drops the projector's tables, creates them again and puts its cursor back to zero. */
   const reset = (projector: Projector): void => {
