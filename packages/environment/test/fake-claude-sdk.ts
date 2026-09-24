@@ -133,6 +133,12 @@ export class FakeQuery {
     else waiting.resolve({ value: undefined, done: true });
   }
 
+  /**
+   * The query's messages, read one at a time: the adapter's one reader, the
+   * process's pump, awaits each `next()` before asking again and never leaves
+   * one waiting. A second read while one waits would take the next message
+   * from it, so it is refused rather than let a test pass on a lost message.
+   */
   [Symbol.asyncIterator](): AsyncIterator<Message> {
     return {
       next: () =>
@@ -140,6 +146,7 @@ export class FakeQuery {
           if (this.#messages.length > 0) return resolve({ value: this.#messages.shift(), done: false });
           if (this.#failure !== undefined) return reject(this.#failure.error);
           if (this.#done || this.closed) return resolve({ value: undefined, done: true });
+          if (this.#waiting !== undefined) return reject(new Error("The fake query is read one read at a time; a read is already waiting."));
           this.#waiting = { resolve, reject };
         }),
       return: async () => ({ value: undefined, done: true }),
