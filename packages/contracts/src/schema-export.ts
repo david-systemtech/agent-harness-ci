@@ -35,6 +35,17 @@ import {
   ProtocolMismatchError,
 } from "./pairing.js";
 import { EnvironmentNotice, EnvironmentNoticeType } from "./notices.js";
+import {
+  AutoSettleAfterIdle,
+  AutoSettleOnMerge,
+  IdleSpan,
+  IdleSpanUnit,
+  SETTINGS_EVENT_TYPES,
+  SettingsEventType,
+  SettingsKeyName,
+  SettingsPatch,
+  SettingsValues,
+} from "./settings.js";
 import { isCommand } from "./method.js";
 import { CommandReceipt } from "./receipt.js";
 import {
@@ -87,6 +98,7 @@ import {
   SendResponse,
 } from "./adapter.js";
 import { AttachmentInput } from "./methods/runs.js";
+import { ProcessHold, ProcessHoldKind, ProcessIdleMinutes, ProcessState, ProcessStopReason, ProviderProcess } from "./methods/providers.js";
 import {
   AttachmentKind,
   AttachmentRecord,
@@ -232,6 +244,11 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "adapter/delegated-work-status.json", title: "DelegatedWorkStatus", schema: DelegatedWorkStatus },
   { path: "adapter/delegated-work-row.json", title: "DelegatedWorkRow", schema: DelegatedWorkRow },
   { path: "adapter/run-suggestion.json", title: "RunSuggestion", schema: RunSuggestion },
+  { path: "adapter/process-state.json", title: "ProcessState", schema: ProcessState },
+  { path: "adapter/process-stop-reason.json", title: "ProcessStopReason", schema: ProcessStopReason },
+  { path: "adapter/process-hold-kind.json", title: "ProcessHoldKind", schema: ProcessHoldKind },
+  { path: "adapter/process-hold.json", title: "ProcessHold", schema: ProcessHold },
+  { path: "adapter/provider-process.json", title: "ProviderProcess", schema: ProviderProcess },
   { path: "transcript/run-origin.json", title: "RunOrigin", schema: RunOrigin },
   { path: "transcript/run-end-reason.json", title: "RunEndReason", schema: RunEndReason },
   { path: "transcript/interrupt-cause.json", title: "InterruptCause", schema: InterruptCause },
@@ -251,6 +268,20 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "event-envelope.json", title: "EventEnvelope", schema: EventEnvelope },
   { path: "notices/environment-notice-type.json", title: "EnvironmentNoticeType", schema: EnvironmentNoticeType },
   { path: "notices/environment-notice.json", title: "EnvironmentNotice", schema: EnvironmentNotice },
+  { path: "settings/settings-key.json", title: "SettingsKey", schema: SettingsKeyName },
+  { path: "settings/idle-span-unit.json", title: "IdleSpanUnit", schema: IdleSpanUnit },
+  { path: "settings/idle-span.json", title: "IdleSpan", schema: IdleSpan },
+  { path: "settings/keys/sessions.autoSettleAfterIdle.json", title: "AutoSettleAfterIdle", schema: AutoSettleAfterIdle },
+  { path: "settings/keys/sessions.autoSettleOnMerge.json", title: "AutoSettleOnMerge", schema: AutoSettleOnMerge },
+  { path: "settings/keys/providers.processIdleMinutes.json", title: "ProcessIdleMinutes", schema: ProcessIdleMinutes },
+  { path: "settings/settings-values.json", title: "SettingsValues", schema: SettingsValues },
+  { path: "settings/settings-patch.json", title: "SettingsPatch", schema: SettingsPatch },
+  { path: "settings/settings-event-type.json", title: "SettingsEventType", schema: SettingsEventType },
+  ...Object.entries(SETTINGS_EVENT_TYPES).map(([type, entry]) => ({
+    path: `settings/events/${type}.json`,
+    title: `${pascal(type)}Payload`,
+    schema: entry.payload,
+  })),
   { path: "errors/error-code.json", title: "ErrorCode", schema: ErrorCode },
   { path: "errors/schema-issue.json", title: "SchemaIssue", schema: SchemaIssue },
   { path: "errors/wire-error.json", title: "WireError", schema: WireError },

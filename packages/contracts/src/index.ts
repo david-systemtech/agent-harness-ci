@@ -41,10 +41,26 @@ export {
 } from "./primitives.js";
 export type { MintedPairing } from "./methods/access.js";
 export { AttachmentInput, MAX_ATTACHMENT_BYTES } from "./methods/runs.js";
+export {
+  MAX_PROCESS_IDLE_MINUTES,
+  PROCESS_HOLD_KINDS,
+  PROCESS_IDLE_MINUTES_KEY,
+  PROCESS_IDLE_MINUTES_PRESET,
+  PROCESS_STATES,
+  PROCESS_STOP_REASONS,
+  ProcessHold,
+  ProcessHoldKind,
+  ProcessIdleMinutes,
+  ProcessState,
+  ProcessStopReason,
+  ProviderProcess,
+} from "./methods/providers.js";
 export { CommandReceipt, commandResponse, type CommandResponseSchema } from "./receipt.js";
 export * from "./registry.js";
 export * from "./schema-export.js";
 export * from "./scopes.js";
 export * from "./sessions.js";
+export * from "./settings.js";
+export * from "./steps.js";
 export * from "./summary-fields.js";
 export * from "./transcript.js";

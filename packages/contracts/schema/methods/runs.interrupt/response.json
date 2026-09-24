@@ -102,6 +102,11 @@
         "ended": {
           "type": "boolean",
           "description": "True when the run had ended already, so nothing was interrupted."
+        },
+        "unrecorded": {
+          "description": "Present when the run ended here but its run.ended could not be appended; the recovery sweep at the next start records it.",
+          "type": "boolean",
+          "const": true
         }
       },
       "required": [

@@ -35,6 +35,8 @@ import { formatActor, openEventLog, type EventLog, type Projector } from "../eve
 import type { Adapter } from "../adapter/contract.js";
 import { createClaudeAdapter } from "../adapters/claude/index.js";
 import { createAdapterHost, type AdapterHost, type HostAccount } from "../adapter/host.js";
+import { processMethods } from "../adapter/processes-methods.js";
+import { recoverCutRuns } from "../adapter/recovery.js";
 import type { InstructionComposer, ModeClamp, ToolServerFactory } from "../adapter/seams.js";
 import type { PermissionBroker } from "../adapter/contract.js";
 import { runMethods } from "../runs/run-methods.js";
@@ -43,6 +45,9 @@ import { createDeletion } from "../sessions/deletion.js";
 import { groupMethods } from "../sessions/group-methods.js";
 import { sessionMethods } from "../sessions/methods.js";
 import { sessionListProjector } from "../sessions/session-list.js";
+import { createSettleSweep } from "../sessions/settle-sweep.js";
+import { settingsMethods } from "../settings/methods.js";
+import { readSettings, settingsProjector } from "../settings/settings-store.js";
 import type { SubscriptionHooks } from "../wire/subscriptions.js";
 import { createWire } from "../wire/wire.js";
 import { systemClock, type Clock } from "./clock.js";
@@ -158,6 +163,13 @@ export interface EnvironmentOptions {
   readonly accounts?: readonly HostAccount[];
   /** The account a session with none of its own runs on. Preset: the first account. */
   readonly defaultAccountId?: string;
+  /**
+   * The idle time of a provider process, in minutes, read each time a wait
+   * begins. Preset: the `providers.processIdleMinutes` setting as the
+   * settings store holds it (its preset, 30, until it is set); a test passes
+   * its own.
+   */
+  readonly processIdleMinutes?: () => number;
   /** The adapter host's seams other workstreams fill; each has a preset (`adapter/seams.ts`). */
   readonly adapterSeams?: {
     readonly toolServers?: ToolServerFactory;
@@ -278,7 +290,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   });
 
   await step("projectors", () => {
-    for (const projector of [sessionListProjector, runsProjector, ...(options.projectors ?? [])]) log.registerProjector(projector);
+    for (const projector of [sessionListProjector, runsProjector, settingsProjector, ...(options.projectors ?? [])]) log.registerProjector(projector);
   });
 
   // Where pairing links point: set when the listeners are bound, before any request is served.
@@ -313,6 +325,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
 
   // The adapter host: the adapters, the accounts' sign-in states read through their probes, the run registry.
   const host: AdapterHost = await step("adapter-host", async () => {
+    // First the recovery sweep: a run the log left without an end was cut by the last stop, and is ended before anything can read it.
+    const recovered = recoverCutRuns({ log, clock });
+    if (recovered.length > 0) console.error(`The recovery sweep ended ${recovered.length} run(s) a restart cut: ${recovered.join(", ")}.`);
     const created = createAdapterHost({
       log,
       clock,
@@ -320,9 +335,13 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       adapters: options.adapters ?? [createClaudeAdapter({ clock, autoMemoryRoot: join(dataDir, AUTO_MEMORY_DIRECTORY) })],
       ...(options.accounts !== undefined && { accounts: options.accounts }),
       ...(options.defaultAccountId !== undefined && { defaultAccountId: options.defaultAccountId }),
+      processIdleMinutes:
+        options.processIdleMinutes ?? (() => readSettings({ all: (sql, ...params) => log.read(sql, ...params) })["providers.processIdleMinutes"]),
       ...options.adapterSeams,
     });
-    // Closed before the event log, so a run the close ends has its end appended: drained when a drain's cap cut it.
+    // Closed before the event log, so a run the close ends has its end appended (drained when a drain's cap cut it), and
+    // before the launcher's channel, so the launcher hears the environment go only once every provider process has
+    // stopped, or has been killed after the stop timeout.
     closers.push(() => created.close(readiness === "draining" ? "drained" : "disposed"));
     await created.refresh();
     return created;
@@ -359,9 +378,21 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     stream: environmentStream,
     updatesManagedOutside: detector.inContainer() && !launcher.present(),
     readiness: () => readiness,
-    onDraining: () => void (readiness = "draining"),
+    onDraining: () => {
+      readiness = "draining";
+      // New runs are refused before any process stops, so none starts on a process the drain is stopping.
+      host.runs.refuseNewRuns();
+      // Idle provider processes stop now, busy ones as their turns end; a failure here never stops the drain.
+      try {
+        host.drain();
+      } catch (error) {
+        console.error("Stopping the idle provider processes for the drain failed; the drain goes on:", error);
+      }
+    },
     close: () => close(),
   });
+  // The shelf's sweep (#117): started once the environment is ready; a settings change runs it from the change's commit.
+  const settleSweep = createSettleSweep({ log, clock });
   const table = createMethodTable({
     ...lifecycle.handlers,
     "environment.subscribe": () => lifecycle.source,
@@ -370,10 +401,13 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       aggregate: environmentStream,
       result: { projectors: [...log.rebuildProjections()], sequence: log.head() },
     }),
+    // The generic settings (#117), on the environment's settings stream.
+    ...settingsMethods({ log, environmentId: record.id, onChange: (keys) => settleSweep.settingsChanged(keys) }),
     ...accessMethods({ pairings, clientSessions, accessLog }),
     ...sessionMethods({ log, clock: now, deletion, validateRunParameters: host.validateSessionInput }),
     ...groupMethods({ log, clock: now }),
     ...runMethods({ log, host }),
+    ...processMethods({ log, host }),
   });
 
   // The two exchanges and the wire are routed before the bind; all three refuse work until the gate below.
@@ -444,6 +478,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   } catch (error) {
     console.error("The startup purge failed; the minute sweep will try again:", error);
   }
+  // The shelf's sweep (#117): a pass now, before the wire opens, then every five minutes.
+  closers.push(settleSweep.start());
   wire.open();
   launcher.onQuery((query) => lifecycle.answer(query));
   // The minute sweep: expired pairings, idle `tui` local client sessions, receipts past their 30 days, and

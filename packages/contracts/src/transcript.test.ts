@@ -2,11 +2,14 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import {
   AdapterCapabilities,
+  AttachmentInput,
   AuthStatus,
   CAPABILITY_FLAGS,
   CredentialSpec,
   DelegatedWorkRow,
   EVENT_TYPES,
+  KNOWN_ITEM_KINDS,
+  MAX_ATTACHMENT_BYTES,
   RunSuggestion,
   SendResponse,
   SessionEventType,
@@ -121,7 +124,7 @@ describe("the transcript vocabulary", () => {
 
   it("sends a message as a prompt or queued, and delivers a queued one steered or as a prompt", () => {
     const sent = TRANSCRIPT_EVENT_TYPES["message.sent"].payload;
-    const message = { runId, messageId, text: "Now the tests", attachments: [], delivery: "queued", heldBy: "provider" };
+    const message = { runId, messageId, text: "Now the tests", attachments: [], delivery: "queued", heldBy: "provider", ceiling: "acceptEdits" };
     expect(sent.safeParse(message).success).toBe(true);
     expect(sent.safeParse({ ...message, delivery: "steered" }).success).toBe(false);
     const delivered = TRANSCRIPT_EVENT_TYPES["message.delivered"].payload;
@@ -175,6 +178,11 @@ describe("the per-session snapshot", () => {
     // An item still needs a kind and its place.
     expect(TranscriptItem.safeParse({ sequence: 7 }).success).toBe(false);
     expect(TranscriptItem.safeParse({ kind: "plan-card" }).success).toBe(false);
+    // A known kind is never opaque: a malformed one fails, in zod and in the exported JSON Schema's pattern.
+    expect(TranscriptItem.safeParse({ kind: "assistant-text", sequence: 7 }).success).toBe(false);
+    expect(KNOWN_ITEM_KINDS).toEqual(TranscriptItem.options.slice(0, -1).map((option) => (option.shape.kind as z.ZodLiteral<string>).value));
+    const exported = exportedSchemas().find((entry) => entry.path === "transcript/transcript-item.json");
+    expect(JSON.stringify(exported && z.toJSONSchema(exported.schema))).toContain("(?!(?:user-message|");
   });
 });
 
@@ -203,6 +211,15 @@ describe("the adapter's transport-neutral schemas", () => {
         error: null,
       }).success,
     ).toBe(true);
+  });
+
+  it("cap an attachment on its decoded bytes, padding included: the largest padded one is taken, one byte more is not", () => {
+    const groups = Math.ceil(MAX_ATTACHMENT_BYTES / 3);
+    const attachment = (data: string) => ({ kind: "file", name: "big.bin", mediaType: "application/octet-stream", data });
+    // MAX_ATTACHMENT_BYTES leaves two bytes in its last group, so the largest attachment ends in one =.
+    expect(MAX_ATTACHMENT_BYTES % 3).toBe(2);
+    expect(AttachmentInput.safeParse(attachment(`${"A".repeat(groups * 4 - 1)}=`)).success).toBe(true);
+    expect(AttachmentInput.safeParse(attachment("A".repeat(groups * 4))).success).toBe(false);
   });
 
   it("are all in the JSON Schema export, with the vocabulary's payloads and the snapshot", () => {

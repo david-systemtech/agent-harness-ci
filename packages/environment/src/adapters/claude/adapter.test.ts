@@ -97,7 +97,7 @@ const contextWith = (decide?: (request: PromptRequest) => Promise<PromptDecision
       return decide?.(request) ?? new Promise<PromptDecision>(() => undefined);
     },
   };
-  return { broker, adopt: (turn) => adopted.push(turn), adopted, asked };
+  return { broker, adopt: (turn) => adopted.push(turn), adopted, asked, process: { hold: () => undefined, unhold: () => undefined, exited: () => undefined } };
 };
 
 /** Reads a run's events to its end. */

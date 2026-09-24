@@ -5,7 +5,6 @@ import {
   isListEvent,
   type Group,
   type GroupPatch,
-  type RunStartedPayload,
   type SessionActiveReorderedPayload,
   type SessionArchivedPayload,
   type SessionCreatedPayload,
@@ -26,6 +25,8 @@ import { projectGroupEvent } from "./group-list.js";
 import { readGroup } from "./group-reads.js";
 import { readSummary } from "./session-reads.js";
 import { SESSION_LIST_TABLES, titleOf, type SessionRow } from "./session-tables.js";
+import { shelfProjections } from "./shelf-list.js";
+import { systemProjections } from "./system-list.js";
 
 /**
  * The session-list projector (session-state spec, "The list stream and the
@@ -82,6 +83,9 @@ const organise = (event: EventEnvelope, db: ProjectionDb, columns: Readonly<Reco
   setColumns(event, db, { ...columns, updated_at: event.occurredAt });
 
 const SESSION_PROJECTIONS: Partial<Record<string, Projection>> = {
+  // The shelf (#117), and the fields the run, prompt and pull-request events write, which auto-settle reads.
+  ...shelfProjections(organise),
+  ...systemProjections(setColumns),
   "session.created": (event, db) => {
     const payload = event.payload as SessionCreatedPayload;
     const { title, source } = titleOf(payload.title, null);
@@ -164,19 +168,6 @@ const SESSION_PROJECTIONS: Partial<Record<string, Projection>> = {
   },
   // Membership lives on the session; a group's deletion ungroups each member with one of these.
   "session.group-set": (event, db) => organise(event, db, { group_id: (event.payload as SessionGroupSetPayload).groupId }),
-  // A run's start and end (the adapter's vocabulary, #119): what the session's runs are doing and since when, when it was
-  // last active, and the account and model its latest run used. Not organisation changes, so updatedAt stays where it was.
-  "run.started": (event, db) => {
-    const payload = event.payload as RunStartedPayload;
-    setColumns(event, db, {
-      activity: JSON.stringify({ state: "running", since: event.occurredAt }),
-      last_activity_at: event.occurredAt,
-      account_id: payload.accountId,
-      model: payload.model,
-    });
-  },
-  "run.ended": (event, db) =>
-    setColumns(event, db, { activity: JSON.stringify({ state: "idle", since: event.occurredAt }), last_activity_at: event.occurredAt }),
 };
 
 /**
@@ -184,10 +175,11 @@ const SESSION_PROJECTIONS: Partial<Record<string, Projection>> = {
  * summary patch attached, every group event and its group patch. A flagged
  * event it has no projection for fails its append, so no flagged event
  * reaches a client without its patch when it changes the list: the session
- * types later tickets append (#117 to #122). A flagged session event that
- * leaves its session out of the list before and after (a deleted session
- * ungrouped when its group is deleted) carries no patch, and a client skips
- * it. Other events are not the list's.
+ * types later tickets append (#120 to #122). A flagged session event that
+ * leaves its session out of the list before and after carries no patch, and
+ * a client skips it: a deleted session ungrouped when its group is deleted,
+ * and the `run.ended` (`disposed`) of a run the session's deletion let go.
+ * Other events are not the list's.
  */
 export const sessionListProjector: Projector = {
   name: SESSION_LIST_PROJECTOR,

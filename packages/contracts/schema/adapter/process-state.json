@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ProcessState",
+  "type": "string",
+  "enum": [
+    "starting",
+    "idle",
+    "busy",
+    "parked",
+    "stopping",
+    "stopped"
+  ],
+  "description": "A provider process's state: starting (its first turn has begun, the provider has not answered yet), idle (no turn), busy (a turn running), parked (a turn waiting on a raised prompt), stopping, stopped."
+}

@@ -44,6 +44,8 @@ import {
   sessionsUntag,
 } from "./methods/sessions.js";
 import { runsInterrupt, runsSend, runsStart, runsStopTask } from "./methods/runs.js";
+import { providersList, providersProcessesList, providersProcessesStop } from "./methods/providers.js";
+import { settingsGet, settingsUpdate } from "./methods/settings.js";
 
 /**
  * Every method the environment answers, in one typed table: the environment's
@@ -92,6 +94,11 @@ export const methods = [
   runsSend,
   runsInterrupt,
   runsStopTask,
+  providersList,
+  providersProcessesList,
+  providersProcessesStop,
+  settingsGet,
+  settingsUpdate,
 ] as const;
 
 type Registered = (typeof methods)[number];
@@ -107,11 +114,7 @@ export type CommandMethodName = Extract<Registered, { readonly kind: "command" }
  * registered method that is neither served nor owed here.
  */
 export const OWED_HANDLERS = {
-  // The shelf (#117).
-  "sessions.settle": "#117",
-  "sessions.unsettle": "#117",
-  "sessions.snooze": "#117",
-  "sessions.unsnooze": "#117",
+  // Every registered method is served.
 } as const satisfies { readonly [N in MethodName]?: `#${number}` };
 export type Registry = { readonly [M in Registered as M["name"]]: M };
 

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { errorSchema } from "../errors.js";
 import { commandParams, defineMethod, subscriptionParams } from "../method.js";
 import { Sequence, Timestamp } from "../primitives.js";
 import { OrderKey } from "../ordering.js";
@@ -162,14 +163,33 @@ export const sessionsSetGroup = defineMethod({
 export const sessionsSettle = sessionCommand("sessions.settle");
 export const sessionsUnsettle = sessionCommand("sessions.unsettle");
 
-/** Keep the session out of the active list until `until`: after now, at most a year ahead. */
+/**
+ * A snooze's `until` that is not after the environment's now, or is more
+ * than a calendar year after it: a rejected receipt rather than
+ * `invalid_params`, since it depends on when the command arrives, so an
+ * outbox's snooze replayed late retires through its receipt.
+ */
+export const OutOfWindowError = errorSchema(
+  "out_of_window",
+  z.object({
+    until: Timestamp.meta({ description: "The time asked for." }),
+    now: Timestamp.meta({ description: "The environment's time when the command ran: until must be after it." }),
+    limit: Timestamp.meta({ description: "The latest until taken: a calendar year after now." }),
+  }),
+).meta({ description: "The snooze's until is not after now, or is more than a year ahead: its window, for the notice." });
+
+/**
+ * Keep the session out of the active list until `until`, a UTC timestamp
+ * after now and at most a year ahead; one outside that window is rejected
+ * `out_of_window` in the receipt.
+ */
 export const sessionsSnooze = defineMethod({
   name: "sessions.snooze",
   scope: "sessions:write",
   kind: "command",
   params: commandParams({ ...sessionTarget, until: Timestamp }),
   result: summaryResult,
-  errors: [],
+  errors: [OutOfWindowError],
 });
 
 export const sessionsUnsnooze = sessionCommand("sessions.unsnooze");

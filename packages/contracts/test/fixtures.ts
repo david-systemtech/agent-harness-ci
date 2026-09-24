@@ -7,8 +7,10 @@
  * less than the whole package.
  */
 import { FRAME_TYPES, SHARED_ERROR_CODES, methodPath, methods, type FrameType } from "../src/index.js";
+import { providerMethodFixtures, providerSchemaFixtures } from "./provider-fixtures.js";
 import { runMethodFixtures, runSchemaFixtures } from "./run-fixtures.js";
 import { sessionMethodFixtures, sessionSchemaFixtures } from "./session-fixtures.js";
+import { settingsMethodFixtures, settingsSchemaFixtures } from "./settings-fixtures.js";
 
 const uuid = "0f8fad5b-d9cb-469f-a165-70867728950e";
 const otherUuid = "7c9e6679-7425-40de-944b-e07fc1f90ae7";
@@ -438,6 +440,8 @@ const methodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
   },
   ...sessionMethodFixtures,
   ...runMethodFixtures,
+  ...providerMethodFixtures,
+  ...settingsMethodFixtures,
 };
 
 /** Receipts as a command's response carries them: accepted with a change, a no-op, and a rejection. */
@@ -686,5 +690,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
   },
   ...sessionSchemaFixtures,
   ...runSchemaFixtures,
+  ...providerSchemaFixtures,
+  ...settingsSchemaFixtures,
   ...methodSchemaFixtures,
 };

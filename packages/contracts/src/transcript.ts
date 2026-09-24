@@ -9,6 +9,7 @@ import {
 } from "./adapter.js";
 import type { EventTypeEntry } from "./event-types.js";
 import { JsonObject, Sequence, Timestamp } from "./primitives.js";
+import { Ceiling } from "./scopes.js";
 import { SessionId, SessionSummary, SummaryPatch, Workspace } from "./sessions.js";
 
 /**
@@ -152,6 +153,10 @@ export const MessageSentPayload = z
       description: "prompt: the message starts the run; queued: a run was live, so it waits to be steered or read (message.delivered).",
     }),
     heldBy: QueueHolder.nullable().meta({ description: "Who holds a queued message; null for a prompt." }),
+    ceiling: Ceiling.meta({
+      description:
+        "The ceiling of the connection that sent it (ADR 0006): a run the environment later starts with it is clamped to it, as well as to the ceiling of whoever started that run.",
+    }),
   })
   .meta({ description: "message.sent: a client sent the session a message; runId is the run it starts, or the run live when it was queued." });
 export type MessageSentPayload = z.infer<typeof MessageSentPayload>;
@@ -171,7 +176,7 @@ export const MessageRequeuedPayload = z
   .object({ ...runPart, messageId: MessageId })
   .meta({
     description:
-      "message.requeued: an interrupt of the run took back a message the provider still held; the environment holds it now, in its original order (ADR 0022).",
+      "message.requeued: a message of the run came back to the environment's queue, which holds it now, in its original order (ADR 0022: nothing is lost): the provider still held it when an interrupt or any end but the adapter's own completion cut the run, the provider refused to take it, the host did not adopt the turn the provider opened with it, or the run's adapter never received it (its creation failed).",
   });
 export type MessageRequeuedPayload = z.infer<typeof MessageRequeuedPayload>;
 
@@ -410,6 +415,9 @@ const TasksItem = z
   .object({ kind: z.literal("tasks"), ...itemPart, runId: RunId, tasks: z.array(DelegatedWorkRow) })
   .meta({ description: "A run's delegated-work ledger as it stands, at the place its first tasks.changed came." });
 
+/** The item kinds this version of the contracts knows; an item of one of them is held to its schema, never kept opaque. */
+export const KNOWN_ITEM_KINDS = ["user-message", "assistant-text", "assistant-thinking", "tool-call", "command", "tasks"] as const;
+
 /**
  * An item of a kind this version of the contracts does not know (ADR 0001):
  * a client keeps it as it is and shows it opaque, never failing on it. The
@@ -417,7 +425,13 @@ const TasksItem = z
  * `opaque`, naming the type.
  */
 const OpaqueItem = z
-  .looseObject({ kind: z.string().min(1), sequence: Sequence.min(1) })
+  .looseObject({
+    kind: z
+      .string()
+      .regex(new RegExp(`^(?!(?:${KNOWN_ITEM_KINDS.join("|")})$).+$`))
+      .meta({ description: `Any kind but the known ones (${KNOWN_ITEM_KINDS.join(", ")}), which must match their own schema.` }),
+    sequence: Sequence.min(1),
+  })
   .meta({ description: "An item of a kind the reader does not know: kept as it is and shown opaque (ADR 0001); kind opaque names an unknown event type." });
 
 /** One settled item of a session's transcript, in the order it came; unknown kinds are opaque. */
