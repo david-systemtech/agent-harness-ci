@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AuthPolicy, DiscoveryDocument, EnvironmentReadiness, HealthDocument } from "./discovery.js";
 import { Actor, EventEnvelope } from "./envelope.js";
 import {
   ErrorCode,
@@ -13,6 +14,7 @@ import {
   ClientKind,
   ClientSessionId,
   CommandId,
+  EnvironmentId,
   RequestId,
   Sequence,
   SubscriptionId,
@@ -58,12 +60,17 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "ceiling.json", title: "Ceiling", schema: Ceiling },
   { path: "client-kind.json", title: "ClientKind", schema: ClientKind },
   { path: "command-id.json", title: "CommandId", schema: CommandId },
+  { path: "environment-id.json", title: "EnvironmentId", schema: EnvironmentId },
   { path: "client-session-id.json", title: "ClientSessionId", schema: ClientSessionId },
   { path: "request-id.json", title: "RequestId", schema: RequestId },
   { path: "subscription-id.json", title: "SubscriptionId", schema: SubscriptionId },
   { path: "sequence.json", title: "Sequence", schema: Sequence },
   { path: "timestamp.json", title: "Timestamp", schema: Timestamp },
   { path: "json-object.json", title: "JsonObject", schema: JsonObject },
+  { path: "environment-readiness.json", title: "EnvironmentReadiness", schema: EnvironmentReadiness },
+  { path: "auth-policy.json", title: "AuthPolicy", schema: AuthPolicy },
+  { path: "discovery-document.json", title: "DiscoveryDocument", schema: DiscoveryDocument },
+  { path: "health-document.json", title: "HealthDocument", schema: HealthDocument },
   { path: "actor.json", title: "Actor", schema: Actor },
   { path: "event-envelope.json", title: "EventEnvelope", schema: EventEnvelope },
   { path: "errors/error-code.json", title: "ErrorCode", schema: ErrorCode },

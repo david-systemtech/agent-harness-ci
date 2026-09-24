@@ -54,6 +54,12 @@ export type SubscriptionId = z.infer<typeof SubscriptionId>;
 export const JsonObject = z.record(z.string(), z.unknown());
 export type JsonObject = z.infer<typeof JsonObject>;
 
+/** An environment's persistent id: a UUID made on its first start and kept across address changes and re-installs. */
+export const EnvironmentId = z.uuid().meta({
+  description: "An environment's persistent id: a UUID made on its first start, kept across address changes.",
+});
+export type EnvironmentId = z.infer<typeof EnvironmentId>;
+
 /** A client session's id: what `hello` names, what the access methods list and revoke. */
 export const ClientSessionId = z
   .string()

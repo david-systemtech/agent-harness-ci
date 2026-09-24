@@ -6,46 +6,18 @@
     "status": {
       "type": "object",
       "properties": {
-        "state": {
+        "readiness": {
           "type": "string",
           "enum": [
-            "idle",
-            "busy",
+            "starting",
+            "ready",
             "draining"
           ],
-          "description": "idle: no run starting or running and none started or ended in the last ten minutes; busy otherwise; draining: refusing new runs before a restart."
-        },
-        "reason": {
-          "description": "Why the environment is busy or draining; null when idle.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "parkedPromptBusyUntil": {
-          "anyOf": [
-            {
-              "type": "string",
-              "format": "date-time",
-              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
-              "description": "An instant as an ISO 8601 UTC timestamp."
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "description": "When a run parked on a prompt stops counting as busy (ten minutes after it parked); null when none is."
-        },
-        "updatesManagedOutside": {
-          "type": "boolean",
-          "description": "True in a container with no launcher: the environment does not update itself."
+          "description": "Whether the environment accepts work: starting (before its startup gate), ready, or draining (refusing new runs before a restart)."
         }
       },
       "required": [
-        "state",
-        "reason",
-        "parkedPromptBusyUntil",
-        "updatesManagedOutside"
+        "readiness"
       ]
     }
   },

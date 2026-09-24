@@ -5,6 +5,7 @@ import { CapabilityFlags, ProtocolVersion } from "./flags.js";
 import {
   ClientKind,
   ClientSessionId,
+  EnvironmentId,
   JsonObject,
   RequestId,
   Sequence,
@@ -57,7 +58,7 @@ export const HelloFrame = z
     type: z.literal("hello"),
     protocolVersion: ProtocolVersion,
     capabilities: CapabilityFlags,
-    environmentId: z.uuid(),
+    environmentId: EnvironmentId,
     environmentName: z.string(),
     clientSessionId: ClientSessionId,
     scopes: ScopeSet,

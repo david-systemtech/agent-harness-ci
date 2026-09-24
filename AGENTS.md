@@ -37,6 +37,10 @@ the event log uses; pnpm comes from the `packageManager` pin through
   schema, committed as the release artefact for clients in other languages.
   After changing a schema run `pnpm --filter @agent-harness/contracts
   export-schemas` and commit the result; CI regenerates it and fails on drift.
+- `agent-harness serve` refuses root (ADR 0006), and the agent box and possibly
+  CI run as root: the environment's tests inject a non-privileged user check,
+  and the CLI's end-to-end `serve` tests split on the runner's uid (the
+  refusal as root, the launcher handshake otherwise), so one is always skipped.
 - Two local lint rules in `eslint-rules/` enforce ADR 0003 and 0004:
   `agent-harness/no-client-organisation-state` (its allowlisted modules and the
   enumerated presentation keys are constants at the top of the rule) and

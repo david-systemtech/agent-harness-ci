@@ -10,6 +10,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@agent-harness/contracts": "workspace:*"
+    "@agent-harness/contracts": "workspace:*",
+    "@agent-harness/environment": "workspace:*"
   }
 }

@@ -1,9 +1,6 @@
-/**
- * The product's name wherever code prints it. `agent-harness` is a placeholder
- * (ADR 0017): the rename is one find-and-replace, and this is the constant.
- */
-export const PRODUCT_NAME = "agent-harness";
+export { PRODUCT_NAME } from "./product.js";
 
+export * from "./discovery.js";
 export * from "./envelope.js";
 export * from "./errors.js";
 export * from "./flags.js";
@@ -24,6 +21,7 @@ export {
   ClientKind,
   ClientSessionId,
   CommandId,
+  EnvironmentId,
   JsonObject,
   RequestId,
   Sequence,

@@ -35,6 +35,10 @@
       "title": "CommandId"
     },
     {
+      "path": "environment-id.json",
+      "title": "EnvironmentId"
+    },
+    {
       "path": "client-session-id.json",
       "title": "ClientSessionId"
     },
@@ -57,6 +61,22 @@
     {
       "path": "json-object.json",
       "title": "JsonObject"
+    },
+    {
+      "path": "environment-readiness.json",
+      "title": "EnvironmentReadiness"
+    },
+    {
+      "path": "auth-policy.json",
+      "title": "AuthPolicy"
+    },
+    {
+      "path": "discovery-document.json",
+      "title": "DiscoveryDocument"
+    },
+    {
+      "path": "health-document.json",
+      "title": "HealthDocument"
     },
     {
       "path": "actor.json",
