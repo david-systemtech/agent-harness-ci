@@ -367,6 +367,58 @@ describe("the in-process connections API", () => {
     expect(platform.reported).toContain(fault);
   });
 
+  it("a start retried after a failed save leaves one socket, never an orphan still feeding frames", async () => {
+    const t = await harness.environment();
+    const saved = inMemoryPlatform();
+    const pairing = harness.runtime(saved);
+    await pairing.start();
+    await pairing.connections.add({ link: (await t.createPairing()).link });
+    await pairing.close();
+    await until(() => t.env.sockets() === 0, "the pairing runtime's socket to close");
+    let failNext = true;
+    const documents: InMemoryDocumentStore = {
+      ...saved.documents,
+      set: async (key, value) => {
+        if (failNext && key === PAIRED_CONNECTIONS_DOCUMENT) {
+          failNext = false;
+          throw new Error("the disk is full");
+        }
+        return saved.documents.set(key, value);
+      },
+    };
+    const runtime = harness.runtime(inMemoryPlatform({ documents, secrets: saved.secrets }));
+
+    await expect(runtime.start()).rejects.toThrow("the disk is full");
+    await runtime.start();
+
+    expect(only(runtime).phase).toBe("ready");
+    await until(() => t.env.sockets() === 1, "the failed start's socket to close");
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(t.env.sockets()).toBe(1);
+  });
+
+  it("an add before start keeps the connections and sequence already saved", async () => {
+    const a = await harness.environment();
+    const b = await harness.environment();
+    const saved = inMemoryPlatform();
+    const first = harness.runtime(saved);
+    await first.start();
+    await first.connections.add({ link: (await a.createPairing()).link });
+    await first.close();
+
+    const runtime = harness.runtime(inMemoryPlatform({ documents: saved.documents, secrets: saved.secrets }));
+    expect(await runtime.connections.add({ link: (await b.createPairing()).link })).toMatchObject({ status: "paired" });
+
+    const documents = saved.documents.entries();
+    expect(Object.keys(documents[PAIRED_CONNECTIONS_DOCUMENT] as object).sort()).toEqual([a.env.id, b.env.id].sort());
+    expect(documents["environments.sequence"]).toEqual([a.env.id, b.env.id]);
+    await runtime.start();
+    expect(runtime.connections.list.read().map((r) => [r.environmentId, r.phase])).toEqual([
+      [a.env.id, "ready"],
+      [b.env.id, "ready"],
+    ]);
+  });
+
   it("retries now: runs the connect again after a failure", async () => {
     const t = await harness.environment();
     let down = false;

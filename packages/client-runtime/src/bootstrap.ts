@@ -23,8 +23,12 @@ export type LocalStatus =
 /**
  * Why the exchange failed, in the connection phases' words: `service-down`
  * (no grant file, or nothing answers at its address), `starting`,
- * `draining`, a protocol refusal saying which side is behind, or `refused`
- * (the environment turned the secret down twice).
+ * `draining`, a protocol refusal saying which side is behind, or `refused`:
+ * something answered, but not as this exchange needs. That is a discovery
+ * answer that is not a discovery document (a proxy's error page, an empty
+ * answer, another service), a discovery document naming another
+ * environment, or an exchange answer other than a client session, a first
+ * 401 (read the grant again) or `unavailable` (starting), such as a second 401.
  */
 export type LocalFailureReason = "service-down" | "starting" | "draining" | "unsupported-client" | "protocol-mismatch" | "refused";
 
