@@ -102,13 +102,6 @@ export type CommandMethodName = Extract<Registered, { readonly kind: "command" }
  * registered method that is neither served nor owed here.
  */
 export const OWED_HANDLERS = {
-  // Groups (#116).
-  "sessions.setGroup": "#116",
-  "groups.create": "#116",
-  "groups.rename": "#116",
-  "groups.reorder": "#116",
-  "groups.delete": "#116",
-  "groups.list": "#116",
   // The shelf (#117).
   "sessions.settle": "#117",
   "sessions.unsettle": "#117",

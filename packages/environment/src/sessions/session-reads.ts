@@ -1,6 +1,6 @@
-import type { DeletedSessionSummary, Group, SessionSummary } from "@agent-harness/contracts";
+import type { DeletedSessionSummary, SessionSummary } from "@agent-harness/contracts";
 import type { SessionState } from "./decider.js";
-import { tagsOf, toGroup, toSummary, type GroupRow, type Reader, type SessionRow } from "./session-tables.js";
+import { tagsOf, toSummary, type Reader, type SessionRow } from "./session-tables.js";
 
 export type { Reader } from "./session-tables.js";
 
@@ -29,6 +29,7 @@ export const readSessionState = (reader: Reader, id: string): SessionState | nul
     pinnedAt: row.pinned_at,
     pinOrderKey: row.pin_order_key,
     activeOrderKey: row.active_order_key,
+    groupId: row.group_id,
     settledAt: row.settled_at,
     snoozedUntil: row.snoozed_until,
     tags: tagsOf(reader, id),
@@ -59,9 +60,3 @@ export const readDeletion = (reader: Reader, id: string): { deletedAt: string; p
   return row === undefined ? null : { deletedAt: row.deleted_at as string, purgeAt: row.purge_at as string };
 };
 
-/** Every group, oldest first. */
-export const listGroups = (reader: Reader): Group[] =>
-  reader.all<GroupRow>("SELECT id, name, order_key, created_at, updated_at FROM groups ORDER BY created_at, id").map(toGroup);
-
-/** Whether a group with this id is on this environment. */
-export const groupExists = (reader: Reader, id: string): boolean => reader.all("SELECT 1 FROM groups WHERE id = ?", id).length > 0;

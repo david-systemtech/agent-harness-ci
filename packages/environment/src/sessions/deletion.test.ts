@@ -193,7 +193,7 @@ describe("a deleted session", () => {
   /**
    * The params of every session command but create, restore and purge, on
    * `sessionId`. The test below refuses a served session command missing
-   * here, so each ticket that serves one (#116, #117) adds it.
+   * here, so each ticket that serves one (#117) adds it.
    */
   const onDeleted = (sessionId: string): Partial<{ [N in CommandMethodName]: Omit<ParamsOf<N>, "commandId"> }> => ({
     "sessions.rename": { sessionId, title: "Back from the dead" },
@@ -206,6 +206,7 @@ describe("a deleted session", () => {
     "sessions.tag": { sessionId, tag: "wip" },
     "sessions.untag": { sessionId, tag: "wip" },
     "sessions.setDraft": { sessionId, draft: "A draft" },
+    "sessions.setGroup": { sessionId, groupId: null },
     "sessions.delete": { sessionId },
   });
 

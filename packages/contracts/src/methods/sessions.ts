@@ -221,7 +221,12 @@ export const sessionsPurge = defineMethod({
   errors: [],
 });
 
-/** Create a group: its client-minted id, a name unique on this environment ignoring case (`conflict`, reason `name_taken`), and an optional key. */
+/**
+ * Create a group: its client-minted id, a name unique on this environment
+ * ignoring case (`conflict`, reason `name_taken`), and an optional key; an
+ * id already used, even by a group since deleted, is rejected `conflict`
+ * (reason `exists`).
+ */
 export const groupsCreate = defineMethod({
   name: "groups.create",
   scope: "sessions:write",

@@ -1,6 +1,7 @@
-import { SESSION_STREAM_KIND, type ProviderTranscriptOutcome, type SessionPurgedPayload } from "@agent-harness/contracts";
+import type { ProviderTranscriptOutcome, SessionPurgedPayload } from "@agent-harness/contracts";
 import { SYSTEM } from "../auth/access-log.js";
-import { formatActor, type EventEnvelope, type EventLog, type StreamRef, type Tx } from "../event-log/event-log.js";
+import { formatActor, type EventEnvelope, type EventLog, type Tx } from "../event-log/event-log.js";
+import { sessionStream } from "./streams.js";
 
 /**
  * The purge (session-state spec, "Deletion, grace and purge"; env spec,
@@ -70,8 +71,6 @@ export interface DeletionOptions {
 
 /** The actor the sweep's purges are appended as. */
 const SWEEP_ACTOR = formatActor(SYSTEM.sweep.actor);
-
-const sessionStream = (id: string): StreamRef => ({ kind: SESSION_STREAM_KIND, id });
 
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 

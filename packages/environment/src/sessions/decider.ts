@@ -6,6 +6,7 @@ import {
   type SessionCreatedPayload,
   type SessionDeletedPayload,
   type SessionDraftSetPayload,
+  type SessionGroupSetPayload,
   type SessionPinReorderedPayload,
   type SessionPinnedPayload,
   type SessionTaggedPayload,
@@ -39,6 +40,8 @@ export interface SessionState {
   readonly pinnedAt: string | null;
   readonly pinOrderKey: string | null;
   readonly activeOrderKey: string | null;
+  /** The group the session is in, or null. */
+  readonly groupId: string | null;
   readonly settledAt: string | null;
   readonly snoozedUntil: string | null;
   /** As the summary holds them: trimmed, one per case-folded key, sorted by it. */
@@ -56,6 +59,7 @@ export const PURGED_STATE: SessionState = {
   pinnedAt: null,
   pinOrderKey: null,
   activeOrderKey: null,
+  groupId: null,
   settledAt: null,
   snoozedUntil: null,
   tags: [],
@@ -99,6 +103,13 @@ export const sessionNotFound = (sessionId: string): Refusal & { readonly code: "
   code: "not_found",
   message: `No session ${sessionId} is on this environment.`,
   data: { kind: "session", sessionId },
+});
+
+/** The one refusal of a group that is not on this environment: never created, or deleted. */
+export const groupNotFound = (groupId: string): Refusal & { readonly code: "not_found" } => ({
+  code: "not_found",
+  message: `No group ${groupId} is on this environment.`,
+  data: { kind: "group", groupId },
 });
 
 /** A tag's case-folded key: what a session's tags are unique on and sorted by, here and in the session-tags table. */
@@ -179,15 +190,7 @@ const pinReordered = (pinOrderKey: string): Decision => {
  */
 export const decideCreate = (state: SessionState | null, command: CreateSession, context: CreateContext): Decision => {
   if (state !== null) return conflict(command.id, "exists", `A session ${command.id} exists already.`);
-  if (command.groupId !== null && !context.groupExists) {
-    return {
-      rejected: {
-        code: "not_found",
-        message: `No group ${command.groupId} is on this environment.`,
-        data: { kind: "group", groupId: command.groupId },
-      },
-    };
-  }
+  if (command.groupId !== null && !context.groupExists) return { rejected: groupNotFound(command.groupId) };
   const payload: SessionCreatedPayload = {
     title: userTitle(command.title),
     tags: normaliseTags(command.tags),
@@ -393,4 +396,29 @@ export const decidePurge = (
   if (state === null || state.purged) return { rejected: sessionNotFound(command.sessionId) };
   if (!state.deleted) return conflict(command.sessionId, "not_deleted", `The session ${command.sessionId} is not deleted, so it cannot be purged.`);
   return { purge: true };
+};
+
+/** `sessions.setGroup`: the group, in lowercase, or null for none. */
+export interface SetGroup extends OnSession {
+  readonly groupId: string | null;
+}
+
+/** Facts about the group `sessions.setGroup` names. */
+export interface SetGroupContext {
+  /** Whether the group the command names is on this environment (created, and not deleted). */
+  readonly groupExists: boolean;
+}
+
+/**
+ * Puts the session in the group, or takes it out of any with null. A
+ * session not there is not found (kind `session`), then a group not there
+ * (kind `group`); the group the session is in already is unchanged.
+ */
+export const decideSetGroup = (state: SessionState | null, command: SetGroup, context: SetGroupContext): Decision => {
+  const session = present(state, command.sessionId);
+  if ("rejected" in session) return session;
+  if (command.groupId !== null && !context.groupExists) return { rejected: groupNotFound(command.groupId) };
+  if (session.groupId === command.groupId) return unchanged;
+  const payload: SessionGroupSetPayload = { groupId: command.groupId };
+  return { events: [{ type: "session.group-set", payload }] };
 };

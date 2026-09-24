@@ -534,3 +534,7 @@ export type SessionUntaggedPayload = z.infer<typeof SessionUntaggedPayload>;
 export type SessionDraftSetPayload = z.infer<typeof SessionDraftSetPayload>;
 export type SessionDeletedPayload = z.infer<typeof SessionDeletedPayload>;
 export type SessionPurgedPayload = z.infer<typeof SessionPurgedPayload>;
+export type SessionGroupSetPayload = z.infer<typeof SessionGroupSetPayload>;
+export type GroupCreatedPayload = z.infer<typeof GroupCreatedPayload>;
+export type GroupRenamedPayload = z.infer<typeof GroupRenamedPayload>;
+export type GroupReorderedPayload = z.infer<typeof GroupReorderedPayload>;
