@@ -6,7 +6,7 @@ import { PRODUCT_NAME } from "@agent-harness/contracts";
 import { App, mountApp, type InkRender } from "./app.js";
 import { loadKeybindings } from "./keys.js";
 import { ensurePrivateDirectory } from "./platform/files.js";
-import { nodePlatform, stateDirectory } from "./platform/node-platform.js";
+import { nodePlatform, stateDirectory, systemClock } from "./platform/node-platform.js";
 import type { LocalService } from "./platform/services.js";
 import { createRuntimeHost } from "./runtime-host.js";
 import { messageOf, type Fault } from "./view.js";
@@ -63,8 +63,9 @@ export const runTui = async (options: TuiOptions): Promise<number> => {
   ensurePrivateDirectory(stateDir);
   const keys = loadKeybindings(options.keybindings ?? join(stateDir, KEYBINDINGS_FILE), { required: options.keybindings !== undefined });
   const faults = writable<readonly Fault[]>([]);
-  // On the platform's clock, the one notices carry, so the activity line can tell which is newer.
-  const report = (message: string) => faults.update((list) => [...list, { message, at: platform.clock.now().toISOString() }].slice(-20));
+  // On the system clock the platform is built with, the one notices carry, so the activity line can tell which is newer;
+  // read from the clock itself, so a report never depends on the platform binding being initialised.
+  const report = (message: string) => faults.update((list) => [...list, { message, at: systemClock.now().toISOString() }].slice(-20));
   const platform = nodePlatform({
     stateDir,
     dataDir: options.dataDir,
