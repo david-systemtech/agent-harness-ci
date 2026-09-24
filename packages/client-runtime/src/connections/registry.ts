@@ -283,13 +283,24 @@ export const createRegistry = (platform: Platform, protocolVersion: number): Reg
   const attach = async (environmentId: string, entry: Entry, socket: LiveSocket, document: DiscoveryDocument) => {
     const { hello } = socket;
     entry.socket = socket;
-    socket.onFrame((frame) => notifyAll(frameListeners, environmentId, frame));
+    // A seam listener that throws is reported, never thrown into the socket's message handler or left to reject unobserved.
+    socket.onFrame((frame) => {
+      try {
+        notifyAll(frameListeners, environmentId, frame);
+      } catch (error) {
+        report(error);
+      }
+    });
     void socket.closed.then((how) => {
       if (entry.socket !== socket) return;
       entry.socket = undefined;
       entry.bye = how.bye?.reason ?? null;
       Promise.resolve(settle(environmentId, entry, afterClose(how, protocolVersion))).catch(report);
-      notifyAll(closeListeners, environmentId, how);
+      try {
+        notifyAll(closeListeners, environmentId, how);
+      } catch (error) {
+        report(error);
+      }
     });
     entry.bye = null;
     await updateSaved(
@@ -669,6 +680,14 @@ export const createRegistry = (platform: Platform, protocolVersion: number): Reg
         await savePaired();
         await enterSequence(id, "last");
       }
+      if (entries.get(id) !== entry) {
+        // Removed while this pairing was being kept: nothing is attached to a forgotten entry.
+        if (answer.ok) answer.socket.close();
+        return { status: "paired", environmentId: id, ...(replaced && { replaced }) };
+      }
+      // A retry, enable, address edit or start that ran while this pairing was being kept holds the old token or a stale attempt:
+      // its socket is closed and its attempt dropped, so the new client session's socket is the only one attached.
+      drop(entry);
       if (!answer.ok) {
         entry.bye = answer.closed.bye?.reason ?? null;
         await settle(id, entry, afterClose(answer.closed, protocolVersion));
