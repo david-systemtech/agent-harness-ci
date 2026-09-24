@@ -29,13 +29,14 @@ export type ProcessState = z.infer<typeof ProcessState>;
  * Why a provider process stopped: idle for the idle time with no held work;
  * parked on a prompt for the idle time (its run ended interrupted, cause
  * parked); its session deleted; an admin's `providers.processes.stop`; a
- * drain; the environment closing; or its run failed and the environment
- * ended it, so the next run starts cold.
+ * drain; the environment closing; its run failed and the environment ended
+ * it, so the next run starts cold; or it exited on its own and its adapter
+ * said so.
  */
-export const PROCESS_STOP_REASONS = ["idle", "parked", "deleted", "admin", "drain", "closed", "failed"] as const;
+export const PROCESS_STOP_REASONS = ["idle", "parked", "deleted", "admin", "drain", "closed", "failed", "exited"] as const;
 export const ProcessStopReason = z.enum(PROCESS_STOP_REASONS).meta({
   description:
-    "Why a provider process stopped: idle (idle for providers.processIdleMinutes with no held work), parked (parked on a prompt as long; its run ended interrupted, cause parked), deleted (its session was deleted), admin (providers.processes.stop), drain (the environment drained), closed (the environment closed), failed (its run failed and the environment ended it).",
+    "Why a provider process stopped: idle (idle for providers.processIdleMinutes with no held work), parked (parked on a prompt as long; its run ended interrupted, cause parked), deleted (its session was deleted), admin (providers.processes.stop), drain (the environment drained), closed (the environment closed), failed (its run failed and the environment ended it), exited (it exited on its own).",
 });
 export type ProcessStopReason = z.infer<typeof ProcessStopReason>;
 
@@ -75,7 +76,12 @@ export const ProviderProcess = z
   .meta({ description: "A provider process the environment runs for one session: its state, its live run, its held work and when it stops." });
 export type ProviderProcess = z.infer<typeof ProviderProcess>;
 
-/** The settings key a provider process's idle time is read from (ADR 0015), registered under the Account step's entry by #134. */
+/**
+ * The settings key a provider process's idle time is read from (ADR 0015).
+ * Its row in the settings table (`settings.ts`, #117) is owed with the
+ * Account step's registry entry, by #134: `ProcessIdleMinutes` and
+ * `PROCESS_IDLE_MINUTES_PRESET` are that row's schema and preset.
+ */
 export const PROCESS_IDLE_MINUTES_KEY = "providers.processIdleMinutes";
 /** How long a provider process may be idle, or parked on a prompt, before it stops, until the setting says otherwise. */
 export const PROCESS_IDLE_MINUTES_PRESET = 30;

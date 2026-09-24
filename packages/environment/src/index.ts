@@ -73,14 +73,13 @@ export {
 } from "./adapter/contract.js";
 export {
   HOST_ACTOR,
-  PROCESS_STOP_TIMEOUT_MS,
   createAdapterHost,
   type ActiveRun,
   type AdapterHost,
   type AdapterHostOptions,
   type HostAccount,
 } from "./adapter/host.js";
-export { STOPPED_LISTED_MS, createProcessPool, type ProcessPool, type ProcessPoolOptions } from "./adapter/pool.js";
+export { PROCESS_STOP_TIMEOUT_MS, STOPPED_LISTED_MS, createProcessPool, type ProcessPool, type ProcessPoolOptions } from "./adapter/pool.js";
 export { processMethods, type ProcessMethodsOptions } from "./adapter/processes-methods.js";
 export { recoverCutRuns } from "./adapter/recovery.js";
 export { createAdapterRegistry, type AdapterRegistry } from "./adapter/registry.js";

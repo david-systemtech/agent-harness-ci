@@ -11,7 +11,7 @@ import type { AdapterHost } from "./host.js";
  * `providers.processes.list` (admin), the pool's processes; and
  * `providers.processes.stop` (admin), a command on the session's stream that
  * appends nothing of its own: the stop happens once it has committed, and
- * the end of a run live on the process is the host's to append.
+ * the host appends the end of a run live on the process, as the admin's.
  */
 
 export interface ProcessMethodsOptions {
@@ -39,7 +39,8 @@ export const processMethods = (options: ProcessMethodsOptions): MethodHandlers =
         };
       }
       const ended = !host.processes.running(sessionId);
-      if (!ended) context.tx.afterCommit(() => host.processes.stop(sessionId));
+      // The end of a run live on the process is recorded as the admin's, under this command.
+      if (!ended) context.tx.afterCommit(() => host.processes.stop(sessionId, { actor: context.actor, commandId: context.commandId }));
       return { aggregate, result: { sessionId, ended } };
     },
   };

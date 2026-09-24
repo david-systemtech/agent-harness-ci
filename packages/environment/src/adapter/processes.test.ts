@@ -19,6 +19,7 @@ import { create, deleteSession, refusal } from "../../test/sessions.js";
 import type { WireClient } from "../../test/wire-client.js";
 import type { EventEnvelope } from "../event-log/event-log.js";
 import { DRAIN_CAP_MS } from "../serve/lifecycle.js";
+import { PROCESS_STOP_TIMEOUT_MS } from "./pool.js";
 import type { PermissionBroker, PromptDecision } from "./contract.js";
 
 /**
@@ -46,7 +47,7 @@ const start = async (adapter: FakeAdapterOptions | FakeAdapter = {}, options: Om
 };
 
 /** Sends a command with a fresh command id; resolves with its response, checked against its schema. */
-const command = async <N extends "runs.start" | "runs.send" | "providers.processes.stop">(
+const command = async <N extends "runs.start" | "runs.send">(
   client: WireClient,
   method: N,
   params: Omit<ParamsOf<N>, "commandId">,
@@ -58,7 +59,8 @@ const startRun = async (client: WireClient, sessionId: string, text = "Fix the r
   return answer.result;
 };
 
-const stopProcess = (client: WireClient, sessionId: string) => command(client, "providers.processes.stop", { sessionId });
+const stopProcess = async (client: WireClient, sessionId: string, commandId = randomUUID()) =>
+  registry["providers.processes.stop"].response.parse(await client.request("providers.processes.stop", { commandId, sessionId }));
 
 const processes = async (client: WireClient): Promise<ProviderProcess[]> => (await client.request("providers.processes.list", {})).processes;
 
@@ -81,6 +83,17 @@ const untilEnded = async (t: TestEnvironment, sessionId: string, runId: string):
 /** Resolves once the session's stream has an event of `type`. */
 const untilEvent = (t: TestEnvironment, sessionId: string, type: string) =>
   vi.waitFor(() => expect(eventsOf(t, sessionId).map((event) => event.type)).toContain(type));
+
+/** Whether a promise has settled, after the microtasks queued so far have run. */
+const settled = async (promise: Promise<unknown>): Promise<boolean> => {
+  let done = false;
+  void promise.then(
+    () => (done = true),
+    () => (done = true),
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  return done;
+};
 
 /** A client session issued straight from the environment, holding only `scopes`. */
 const narrowClient = (t: TestEnvironment, scopes: Scope[]) =>
@@ -166,7 +179,7 @@ describe("a session's provider process", () => {
     const second = await startRun(other, id, "And the tests");
     await untilEnded(t, id, second.runId);
 
-    expect(t.adapter.processesOf(id)).toEqual([{ sessionId: id, runs: 2, stopping: false, stopped: false }]);
+    expect(t.adapter.processesOf(id)).toEqual([{ sessionId: id, runs: 2, stopping: false, stopped: false, killed: false }]);
     expect(t.adapter.runs.map((run) => run.process)).toEqual([t.adapter.processesOf(id)[0], t.adapter.processesOf(id)[0]]);
     expect(await processes(other)).toEqual([idleProcess(id, 0)]);
   });
@@ -221,7 +234,7 @@ describe("the idle stop", () => {
     await vi.waitFor(async () =>
       expect(await processOf(client, id)).toEqual({ ...idleProcess(id, 0), state: "stopped", stopsAt: null, stoppedAt: at(IDLE), stopReason: "idle" }),
     );
-    expect(t.adapter.processesOf(id)).toEqual([{ sessionId: id, runs: 1, stopping: true, stopped: true }]);
+    expect(t.adapter.processesOf(id)).toEqual([{ sessionId: id, runs: 1, stopping: true, stopped: true, killed: false }]);
 
     // No process is pre-warmed: an hour on, the provider has started nothing new, and a stopped one is listed for ten minutes only.
     t.clock.advance(60 * MINUTE);
@@ -231,8 +244,8 @@ describe("the idle stop", () => {
     const cold = await startRun(client, id, "Back again");
     await untilEnded(t, id, cold.runId);
     expect(t.adapter.processesOf(id)).toEqual([
-      { sessionId: id, runs: 1, stopping: true, stopped: true },
-      { sessionId: id, runs: 1, stopping: false, stopped: false },
+      { sessionId: id, runs: 1, stopping: true, stopped: true, killed: false },
+      { sessionId: id, runs: 1, stopping: false, stopped: false, killed: false },
     ]);
     expect(await processes(client)).toEqual([idleProcess(id, IDLE + 60 * MINUTE)]);
   });
@@ -245,6 +258,17 @@ describe("the idle stop", () => {
     expect(await processOf(client, id)).toMatchObject({ state: "idle", stopsAt: at(5 * MINUTE) });
     t.clock.advance(5 * MINUTE);
     await vi.waitFor(async () => expect(await processOf(client, id)).toMatchObject({ state: "stopped", stopReason: "idle", stoppedAt: at(5 * MINUTE) }));
+  });
+
+  it("falls back to the preset, saying so, when the setting reads a value it does not take", async () => {
+    const t = await start({}, { processIdleMinutes: () => 0 });
+    const client = await t.client();
+    const { id } = await create(client);
+    const loud = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    await untilEnded(t, id, (await startRun(client, id)).runId);
+    expect(loud).toHaveBeenCalledWith(expect.stringContaining("providers.processIdleMinutes read 0"));
+    loud.mockRestore();
+    expect(await processOf(client, id)).toMatchObject({ state: "idle", stopsAt: at(IDLE) });
   });
 
   it("is held off by a live background task and a registered schedule, and counts the idle time from when the last is let go", async () => {
@@ -320,12 +344,18 @@ describe("a stop by another cause", () => {
 
     expect(await stopProcess(client, none.id)).toMatchObject({ receipt: { status: "accepted", changed: false }, result: { sessionId: none.id, ended: true } });
     expect(await stopProcess(client, idle.id)).toMatchObject({ receipt: { status: "accepted" }, result: { sessionId: idle.id, ended: false } });
-    expect(await stopProcess(client, busy.id)).toMatchObject({ result: { sessionId: busy.id, ended: false } });
+    const stopCommand = randomUUID();
+    expect(await stopProcess(client, busy.id, stopCommand)).toMatchObject({ result: { sessionId: busy.id, ended: false } });
     await vi.waitFor(async () => {
       expect(await processOf(client, idle.id)).toMatchObject({ state: "stopped", stopReason: "admin" });
       expect(await processOf(client, busy.id)).toMatchObject({ state: "stopped", stopReason: "admin" });
     });
-    expect(await untilEnded(t, busy.id, runId)).toMatchObject({ actor: "system:adapter-host", payload: { reason: "interrupted", cause: "user" } });
+    // The end is recorded as the admin's, under the command that stopped the process.
+    expect(await untilEnded(t, busy.id, runId)).toMatchObject({
+      actor: expect.stringMatching(/^client_session:/),
+      commandId: stopCommand,
+      payload: { reason: "interrupted", cause: "user" },
+    });
     expect(t.adapter.lastRun()).toMatchObject({ disposed: true });
     expect(await stopProcess(client, idle.id)).toMatchObject({ result: { sessionId: idle.id, ended: true } });
 
@@ -350,6 +380,63 @@ describe("a stop by another cause", () => {
     await untilEnded(t, id, (await startRun(client, id, "Try again")).runId);
     expect(t.adapter.processesOf(id).map((process) => process.stopped)).toEqual([true, false]);
     expect(await processOf(client, id)).toMatchObject({ state: "idle" });
+  });
+
+  it("follows a process that exits on its own: recorded stopped, never stopped again, and the next run starts cold", async () => {
+    const t = await start();
+    const client = await t.client();
+    const { id } = await create(client);
+    await untilEnded(t, id, (await startRun(client, id)).runId);
+    t.adapter.exit(id);
+    expect(await processOf(client, id)).toMatchObject({ state: "stopped", stopReason: "exited", stoppedAt: at(0), stopsAt: null });
+    expect(t.adapter.processesOf(id)[0]).toMatchObject({ stopping: false, stopped: true });
+    await untilEnded(t, id, (await startRun(client, id, "Again")).runId);
+    expect(t.adapter.processesOf(id).map((process) => process.runs)).toEqual([1, 1]);
+    expect(await processOf(client, id)).toMatchObject({ state: "idle" });
+  });
+
+  it("does not adopt a turn the process opened once the host has ended the run and stopped the process: the turn is let go and its message read by a cold run", async () => {
+    const adapter = fakeAdapter({ capabilities: { steering: false } });
+    const sent = gate();
+    adapter.nextScripts.push(async function* (controls) {
+      yield say("Working");
+      await sent.opened;
+      // The provider opens a turn with what it holds, then fails the run it was in.
+      controls.openTurn();
+      throw new Error("The provider went away.");
+    });
+    const t = await start(adapter);
+    const client = await t.client();
+    const { id } = await create(client);
+    const failed = await startRun(client, id);
+    await untilEvent(t, id, "assistant.text");
+    const queued = await command(client, "runs.send", { sessionId: id, text: "And the docs" });
+    sent.open();
+
+    expect(await untilEnded(t, id, failed.runId)).toMatchObject({ payload: { reason: "error" } });
+    const opened = adapter.runs.find((run) => run.adopted);
+    expect(opened).toMatchObject({ disposed: true, iterations: 0 });
+    // The message it opened with is the environment's again, and the next run of the queue reads it on a new process.
+    await vi.waitFor(() => expect(adapter.runs.filter((run) => !run.adopted)).toHaveLength(2));
+    const next = adapter.lastRun();
+    expect(next.input.prompt.map((message) => message.messageId)).toEqual([queued.result?.messageId]);
+    expect(adapter.processesOf(id).map((process) => process.stopped)).toEqual([true, false]);
+    expect(eventsOf(t, id).filter((event) => event.type === "run.started" && event.payload["origin"] === "provider")).toEqual([]);
+    await untilEnded(t, id, next.input.runId);
+    expect(await processes(client)).toEqual([expect.objectContaining({ sessionId: id, state: "idle", startedAt: at(0) })]);
+  });
+
+  it("ignores and logs a hold with an empty id", async () => {
+    const adapter = fakeAdapter();
+    adapter.nextScripts.push(backgroundTask("", new Promise(() => undefined)));
+    const t = await start(adapter);
+    const client = await t.client();
+    const { id } = await create(client);
+    const loud = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    await untilEnded(t, id, (await startRun(client, id)).runId);
+    expect(loud).toHaveBeenCalledWith(expect.stringContaining("held a task with no id"));
+    loud.mockRestore();
+    expect(await processOf(client, id)).toMatchObject({ state: "idle", holds: [], stopsAt: at(IDLE) });
   });
 
   it("reports a process stopping until its provider has stopped it", async () => {
@@ -430,6 +517,36 @@ describe("a parked process", () => {
     expect(snapshot.runs).toEqual([expect.objectContaining({ runId, state: "ended", reason: "interrupted", cause: "parked" })]);
   });
 
+  it("parks a turn the provider opened on its own, which asks through the context of the run it followed, and stops it once parked for the idle time", async () => {
+    const prompts = parkingBroker();
+    const first = gate();
+    const adapter = fakeAdapter({ capabilities: { steering: false } });
+    adapter.nextScripts.push(heldScript(first.opened), askingScript(Promise.resolve()));
+    const t = await start(adapter, { adapterSeams: { broker: prompts.broker } });
+    const client = await t.client();
+    const { id } = await create(client);
+    const { runId } = await startRun(client, id);
+    await untilEvent(t, id, "assistant.text");
+    await command(client, "runs.send", { sessionId: id, text: "Then deploy it" });
+    t.clock.advance(5 * MINUTE);
+    first.open();
+
+    await vi.waitFor(() => expect(prompts.asked()).toBe(1));
+    const started = eventsOf(t, id).filter((event) => event.type === "run.started").map((event) => event.payload["runId"] as string);
+    expect(started).toHaveLength(2);
+    const opened = started[1] as string;
+    expect(opened).not.toBe(runId);
+    const parkedAt = 5 * MINUTE;
+    await vi.waitFor(async () => expect(await processOf(client, id)).toMatchObject({ state: "parked", runId: opened, parkedSince: at(parkedAt) }));
+    expect(await status(client)).toEqual({ state: "busy", reason: "parked-prompt", busyUntil: at(parkedAt + 10 * MINUTE) });
+    t.clock.advance(10 * MINUTE);
+    expect(await status(client)).toEqual({ state: "idle" });
+
+    t.clock.advance(IDLE - 10 * MINUTE);
+    expect(await untilEnded(t, id, opened)).toMatchObject({ actor: "system:adapter-host", payload: { reason: "interrupted", cause: "parked" } });
+    await vi.waitFor(async () => expect(await processOf(client, id)).toMatchObject({ state: "stopped", stopReason: "parked" }));
+  });
+
   it("is busy again once its prompt is answered, and its idle time starts over when the turn ends", async () => {
     const prompts = parkingBroker();
     const ask = gate();
@@ -506,6 +623,100 @@ describe("a drain", () => {
   });
 });
 
+describe("a drain and its close", () => {
+  it("ends a parked run drained when the environment closes, having not waited for it, and stops its process", async () => {
+    const dataDir = join(tempDir(), "data");
+    const prompts = parkingBroker();
+    const t = await start({ script: askingScript(Promise.resolve()) }, { dataDir, adapterSeams: { broker: prompts.broker } });
+    const client = await t.client();
+    const { id } = await create(client);
+    const { runId } = await startRun(client, id);
+    await vi.waitFor(async () => expect(await processOf(client, id)).toMatchObject({ state: "parked" }));
+
+    const drained = t.env.drain("command");
+    t.clock.advance(0);
+    expect(await drained).toMatchObject({ endedBy: "runs-finished", cutRuns: [] });
+    expect(t.adapter.processesOf(id)[0]).toMatchObject({ stopped: true });
+    expect(prompts.open()).toBe(1);
+
+    const again = await start({}, { dataDir });
+    expect(endOf(again, id, runId)).toMatchObject({ actor: "system:adapter-host", payload: { reason: "drained", cause: null } });
+  });
+
+  it("keeps a held idle process through the drain's wait, and stops it once its last hold is let go", async () => {
+    const task = gate();
+    const running = gate();
+    const adapter = fakeAdapter();
+    adapter.nextScripts.push(backgroundTask("bash_1", task.opened));
+    const t = await start(adapter);
+    const client = await t.client();
+    const held = await create(client);
+    await untilEnded(t, held.id, (await startRun(client, held.id)).runId);
+    const busy = await create(client);
+    adapter.nextScripts.push(heldScript(running.opened));
+    const busyRun = (await startRun(client, busy.id)).runId;
+    await untilEvent(t, busy.id, "assistant.text");
+
+    const drained = t.env.drain("command");
+    expect(await processOf(client, held.id)).toMatchObject({ state: "idle", holds: [{ kind: "task", id: "bash_1" }], stopsAt: null });
+    // Twenty minutes into the drain's wait, inside its cap, the background task still runs.
+    t.clock.advance(20 * MINUTE);
+    expect(await processOf(client, held.id)).toMatchObject({ state: "idle", holds: [{ kind: "task", id: "bash_1" }] });
+    task.open();
+    await vi.waitFor(async () => expect(await processOf(client, held.id)).toMatchObject({ state: "stopped", stopReason: "drain" }));
+
+    running.open();
+    await untilEnded(t, busy.id, busyRun);
+    t.clock.advance(0);
+    expect(await drained).toMatchObject({ endedBy: "runs-finished" });
+    expect(adapter.processes.map((process) => process.stopped)).toEqual([true, true]);
+  });
+
+  it("waits for the stop of a process a cold start replaced before it closes", async () => {
+    const stops = gate();
+    const t = await start({ holdStops: stops });
+    const client = await t.client();
+    const { id } = await create(client);
+    await untilEnded(t, id, (await startRun(client, id)).runId);
+    await stopProcess(client, id);
+    expect(await processOf(client, id)).toMatchObject({ state: "stopping" });
+    // A cold start replaces the stopping process in the list; the new one then exits on its own.
+    await untilEnded(t, id, (await startRun(client, id, "Again")).runId);
+    t.adapter.exit(id);
+    await client.close();
+
+    const closing = t.env.close();
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(await settled(closing)).toBe(false);
+    stops.open();
+    await closing;
+    expect(t.adapter.processesOf(id)).toEqual([
+      { sessionId: id, runs: 1, stopping: true, stopped: true, killed: false },
+      { sessionId: id, runs: 1, stopping: false, stopped: true, killed: false },
+    ]);
+  });
+
+  it("kills the processes still stopping once the stop timeout has passed on the environment's clock, then closes", async () => {
+    const stops = gate();
+    const t = await start({ holdStops: stops });
+    const client = await t.client();
+    const { id } = await create(client);
+    await untilEnded(t, id, (await startRun(client, id)).runId);
+    await client.close();
+
+    const loud = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const closing = t.env.close();
+    await vi.waitFor(() => expect(t.adapter.processesOf(id)[0]).toMatchObject({ stopping: true, stopped: false }));
+    t.clock.advance(PROCESS_STOP_TIMEOUT_MS - 1);
+    expect(await settled(closing)).toBe(false);
+    t.clock.advance(1);
+    await closing;
+    expect(loud).toHaveBeenCalledWith(expect.stringContaining("did not stop in time"));
+    loud.mockRestore();
+    expect(t.adapter.processesOf(id)[0]).toMatchObject({ stopped: true, killed: true });
+  });
+});
+
 describe("the recovery sweep", () => {
   it("ends every run the log left without an end interrupted with cause restart, after taking back what its provider held, and answers none of its prompts", async () => {
     const dataDir = join(tempDir(), "data");
@@ -558,7 +769,7 @@ describe("the recovery sweep", () => {
     // The next run starts cold, resumes the provider's session, and reads the message the provider held first.
     const next = await startRun(later, id, "Carry on");
     await untilEnded(again, id, next.runId);
-    expect(again.adapter.processesOf(id)).toEqual([{ sessionId: id, runs: 1, stopping: false, stopped: false }]);
+    expect(again.adapter.processesOf(id)).toEqual([{ sessionId: id, runs: 1, stopping: false, stopped: false, killed: false }]);
     expect(again.adapter.lastRun().input).toMatchObject({
       target: { kind: "resume", providerSessionId: "provider-1" },
       prompt: [expect.objectContaining({ messageId: queued.result?.messageId, text: "And the docs" }), expect.objectContaining({ text: "Carry on" })],

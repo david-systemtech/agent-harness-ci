@@ -331,7 +331,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       ...options.adapterSeams,
     });
     // Closed before the event log, so a run the close ends has its end appended (drained when a drain's cap cut it), and
-    // before the launcher's channel, so the launcher hears the environment go only once every provider process has stopped.
+    // before the launcher's channel, so the launcher hears the environment go only once every provider process has
+    // stopped, or has been killed after the stop timeout.
     closers.push(() => created.close(readiness === "draining" ? "drained" : "disposed"));
     await created.refresh();
     return created;
@@ -370,8 +371,14 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     readiness: () => readiness,
     onDraining: () => {
       readiness = "draining";
-      // Idle provider processes stop now, busy ones as their turns end.
-      host.drain();
+      // New runs are refused before any process stops, so none starts on a process the drain is stopping.
+      host.runs.refuseNewRuns();
+      // Idle provider processes stop now, busy ones as their turns end; a failure here never stops the drain.
+      try {
+        host.drain();
+      } catch (error) {
+        console.error("Stopping the idle provider processes for the drain failed; the drain goes on:", error);
+      }
     },
     close: () => close(),
   });

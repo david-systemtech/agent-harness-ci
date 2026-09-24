@@ -8,7 +8,7 @@ import { decideSend, decideStart, type StartCommand } from "../runs/run-decider.
 import { environmentQueue } from "../runs/run-reads.js";
 import { runsProjector } from "../runs/runs-projector.js";
 import { sessionListProjector } from "../sessions/session-list.js";
-import type { AdapterEvent, TranscriptEvent } from "./contract.js";
+import type { AdapterEvent, PermissionBroker, PromptRequest, TranscriptEvent } from "./contract.js";
 import { createAdapterHost, type AdapterHost, type AdapterHostOptions } from "./host.js";
 import { createScopedAppend } from "./scoped-append.js";
 import { composeInstructions } from "./seams.js";
@@ -608,6 +608,58 @@ describe("the seams", () => {
     expect(t.host.transcripts.deleteTranscript?.(t.sessionId)).toBeUndefined();
     expect(t.host.transcripts.deleteTranscript?.(t.sessionId)).toBeUndefined();
     expect(t.adapter.deletedTranscripts).toEqual([t.sessionId, t.sessionId]);
+  });
+});
+
+describe("a run's prompts", () => {
+  it("park the run from the request until its answer, whether the broker settles it or the host answers it through the run", async () => {
+    const requests: PromptRequest[] = [];
+    // A broker that never settles: the answer comes through the adapter's own table, as an SDK deferral might.
+    const broker: PermissionBroker = { request: (request) => (requests.push(request), new Promise(() => undefined)) };
+    const t = await setup(
+      fakeAdapter({
+        script: async function* ({ context, input, nextAnswer }) {
+          yield say("Asking");
+          void context.broker.request({ sessionId: input.sessionId, runId: input.runId, promptId: "p-1", kind: "permission", detail: {} });
+          void context.broker.request({ sessionId: input.sessionId, runId: input.runId, kind: "question", detail: {} });
+          const first = await nextAnswer();
+          const second = await nextAnswer();
+          yield say(`Answered ${first.promptId} ${first.decision.decision}, then ${second.decision.decision}`);
+          yield end();
+        },
+      }),
+      { broker },
+    );
+    const runId = startRun(t);
+    const state = () => [...t.host.runs.runs()].find((run) => run.id === runId)?.state;
+    await vi.waitFor(() => expect(requests).toHaveLength(2));
+    // The broker is handed every prompt's id: the adapter's own, or one the host minted.
+    expect(requests.map((request) => request.promptId)).toEqual(["p-1", expect.stringMatching(/^[0-9a-f-]{36}$/)]);
+    expect(state()).toBe("parked");
+    expect(t.host.processes.list()[0]?.state).toBe("parked");
+
+    t.host.answerPrompt(runId, "p-1", { decision: "allow" });
+    expect(state()).toBe("parked");
+    t.host.answerPrompt(runId, requests[1]?.promptId as string, { decision: "deny" });
+    expect(state()).toBe("running");
+    expect(t.host.processes.list()[0]?.state).toBe("busy");
+
+    await untilEnded(t, runId);
+    expect(eventsOf(t).filter((event) => event.type === "assistant.text").at(-1)?.payload["text"]).toBe("Answered p-1 allow, then deny");
+    expect(t.host.processes.list()[0]?.state).toBe("idle");
+  });
+
+  it("refuses an answer on an adapter that takes none, invalid_params with reason unsupported", async () => {
+    const held = gate();
+    const t = await setup(fakeAdapter({ capabilities: { interactivePrompts: false }, script: async function* () {
+      yield say("Working");
+      await held.opened;
+      yield end();
+    } }));
+    const runId = startRun(t);
+    await vi.waitFor(() => expect(eventsOf(t).map((event) => event.type)).toContain("assistant.text"));
+    expect(() => t.host.answerPrompt(runId, "p-1", { decision: "allow" })).toThrow(expect.objectContaining({ code: "invalid_params" }));
+    held.open();
   });
 });
 

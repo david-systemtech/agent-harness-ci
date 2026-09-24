@@ -5,6 +5,8 @@ import type {
   Adapter,
   AdapterEvent,
   ModelOption,
+  ProcessPort,
+  PromptDecision,
   PromptMessage,
   ProviderTurn,
   RunContext,
@@ -42,6 +44,10 @@ export interface ScriptControls {
   readonly context: RunContext;
   /** Resolves with the next message the run is sent (a steer), or at once with one sent and not taken yet. */
   nextSent(): Promise<PromptMessage>;
+  /** Opens a turn now with the messages the provider holds, as a provider that reads its queue mid-turn would; the host is told through the adoption hook. */
+  openTurn(): void;
+  /** Resolves with the next answer the host hands the run through `answerPrompt`. */
+  nextAnswer(): Promise<{ readonly promptId: string; readonly decision: PromptDecision }>;
   /** Aborted when the run is interrupted or disposed. */
   readonly signal: AbortSignal;
   /** Whether this run is a turn the fake opened on its own. */
@@ -60,6 +66,8 @@ export interface FakeProcessRecord {
   stopping: boolean;
   /** Set when its stop has finished. */
   stopped: boolean;
+  /** Set when the environment gave up waiting and killed it. */
+  killed: boolean;
 }
 
 /** One run as the fake saw it. */
@@ -114,6 +122,8 @@ export interface FakeAdapter extends Adapter {
   readonly processes: readonly FakeProcessRecord[];
   /** The session's processes, in the order they were started. */
   processesOf(sessionId: string): readonly FakeProcessRecord[];
+  /** The session's live process exits on its own, and says so through the port its last run was handed. */
+  exit(sessionId: string): void;
 }
 
 /** A gate a script waits on until a test opens it. */
@@ -245,18 +255,20 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
   const deletedTranscripts: string[] = [];
   const nextScripts: Script[] = [];
   const processes: FakeProcessRecord[] = [];
+  /** The port each process's latest run was handed. */
+  const ports = new Map<FakeProcessRecord, ProcessPort>();
 
-  /** The session's process as it is now: its latest, unless that one has been told to stop. */
+  /** The session's process as it is now: its latest, unless that one has been told to stop or has exited. */
   const liveProcess = (sessionId: string): FakeProcessRecord | undefined => {
     const latest = processes.findLast((process) => process.sessionId === sessionId);
-    return latest === undefined || latest.stopping ? undefined : latest;
+    return latest === undefined || latest.stopping || latest.stopped ? undefined : latest;
   };
 
   /** The session's process for a new run: the live one, or one started cold. */
   const processFor = (sessionId: string): FakeProcessRecord => {
     let process = liveProcess(sessionId);
     if (process === undefined) {
-      process = { sessionId, runs: 0, stopping: false, stopped: false };
+      process = { sessionId, runs: 0, stopping: false, stopped: false, killed: false };
       processes.push(process);
     }
     process.runs += 1;
@@ -282,6 +294,8 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
     /** Sent messages a steering provider has not folded yet, or a non-steering queue holds. */
     const untaken: PromptMessage[] = [];
     const takers: ((message: PromptMessage) => void)[] = [];
+    const answers: { promptId: string; decision: PromptDecision }[] = [];
+    const answerTakers: ((answer: { promptId: string; decision: PromptDecision }) => void)[] = [];
     let ended = false;
 
     const push = (event: AdapterEvent): void => {
@@ -290,15 +304,18 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
       if (event.type === "end") {
         ended = true;
         events.close();
-        if (event.reason === "completed" && untaken.length > 0 && descriptor.providerQueue && !descriptor.steering) {
-          // A provider queue that does not steer reads what it holds when the turn ends, in a turn of its own.
-          const queued = untaken.splice(0);
-          const next = nextScripts.shift() ?? options.script ?? replyScript;
-          const turn = play({ ...input, runId: "", prompt: queued }, context, next, true, process);
-          context.adopt({ ...turn, messageIds: queued.map((message) => message.messageId) });
-        }
+        // A provider queue that does not steer reads what it holds when the turn ends, in a turn of its own.
+        if (event.reason === "completed" && untaken.length > 0 && descriptor.providerQueue && !descriptor.steering) openTurn();
       }
     };
+
+    /** Opens a turn on its own with the messages the provider holds, reported through the adoption hook. */
+    function openTurn(): void {
+      const queued = untaken.splice(0);
+      const next = nextScripts.shift() ?? options.script ?? replyScript;
+      const turn = play({ ...input, runId: "", prompt: queued }, context, next, true, process);
+      context.adopt({ ...turn, messageIds: queued.map((message) => message.messageId) });
+    }
 
     const controls: ScriptControls = {
       input,
@@ -310,6 +327,13 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
           const ready = untaken.shift();
           if (ready !== undefined) resolve(ready);
           else takers.push(resolve);
+        }),
+      openTurn,
+      nextAnswer: () =>
+        new Promise((resolve) => {
+          const ready = answers.shift();
+          if (ready !== undefined) resolve(ready);
+          else answerTakers.push(resolve);
         }),
     };
 
@@ -356,6 +380,12 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
         push({ type: "end", reason: "interrupted", cause: "user" });
         return { stillQueued };
       },
+      answerPrompt(promptId, decision) {
+        const answer = { promptId, decision };
+        const taker = answerTakers.shift();
+        if (taker !== undefined) taker(answer);
+        else answers.push(answer);
+      },
       stopTask(taskId) {
         record.stoppedTasks.push(taskId);
       },
@@ -392,8 +422,21 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
         error: null,
       },
     models: async () => ({ live: false, models: options.models ?? PRESET_MODELS }),
-    createRun: (input, context) => play(input, context, nextScripts.shift() ?? options.script ?? replyScript, false, processFor(input.sessionId)),
-    async stopProcess(sessionId) {
+    createRun: (input, context) => {
+      const process = processFor(input.sessionId);
+      ports.set(process, context.process);
+      return play(input, context, nextScripts.shift() ?? options.script ?? replyScript, false, process);
+    },
+    async stopProcess(sessionId, stopOptions) {
+      if (stopOptions?.kill === true) {
+        for (const process of processes) {
+          if (process.sessionId !== sessionId || process.stopped) continue;
+          process.stopping = true;
+          process.killed = true;
+          process.stopped = true;
+        }
+        return;
+      }
       const process = liveProcess(sessionId);
       if (process === undefined) return;
       process.stopping = true;
@@ -419,6 +462,12 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
     nextScripts,
     processes,
     processesOf: (sessionId) => processes.filter((process) => process.sessionId === sessionId),
+    exit(sessionId) {
+      const process = liveProcess(sessionId);
+      if (process === undefined) throw new Error(`The fake has no live process for session ${sessionId}.`);
+      process.stopped = true;
+      ports.get(process)?.exited();
+    },
     lastRun() {
       const last = runs.at(-1);
       if (last === undefined) throw new Error("The fake adapter has run nothing yet.");

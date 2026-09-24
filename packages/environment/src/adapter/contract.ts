@@ -153,6 +153,13 @@ export type PromptKind = "permission" | "denylist" | "question" | "plan";
 export interface PromptRequest {
   readonly sessionId: string;
   readonly runId: string;
+  /**
+   * The prompt's id. An adapter that also takes answers through
+   * `AdapterRun.answerPrompt` (its own permission table) names it here, so an
+   * answer given there names the same prompt; otherwise the host mints one.
+   * The broker always receives it, and records it as the prompt's id.
+   */
+  readonly promptId?: string;
   readonly kind: PromptKind;
   /** What the provider asks, in its terms; the broker (#130) fixes the shape it records. */
   readonly detail: JsonObject;
@@ -168,6 +175,13 @@ export interface PromptDecision {
  * Where a run's prompts go (claude-adapter spec, "The permission broker"):
  * the one place a provider's prompt or question lands. #130 replaces the
  * auto-deny placeholder (`seams.ts`) with the broker that parks prompts.
+ *
+ * The host counts a run parked from a request until that prompt is
+ * answered: when the request settles, or when the host answers it through
+ * `AdapterHost.answerPrompt`, whichever comes first. An answer given any
+ * other way must settle the request, or the run stays parked and is ended
+ * `interrupted`, cause `parked`, once its process has been parked for the
+ * idle time.
  */
 export interface PermissionBroker {
   request(request: PromptRequest): Promise<PromptDecision>;
@@ -268,8 +282,16 @@ export interface ProviderTurn extends AdapterRun {
  * go what is not, changes nothing.
  */
 export interface ProcessPort {
+  /** Held work under a non-empty id; an empty id is logged and ignored. */
   hold(kind: ProcessHoldKind, id: string): void;
   unhold(kind: ProcessHoldKind, id: string): void;
+  /**
+   * The process exited on its own (its transport failed, the provider quit):
+   * the pool records it stopped, reason `exited`, calls no `stopProcess`, and
+   * the session's next run starts cold. A run live on it is its adapter's to
+   * end, as its stream fails.
+   */
+  exited(): void;
 }
 
 /** What the host hands a run beside its input. */
@@ -311,9 +333,11 @@ export interface Adapter {
   /**
    * Stops the session's provider process, whichever it holds at the call; a
    * `createRun` after the call starts a new one. Idempotent: a session with
-   * no process is a no-op. Resolves once the process has stopped.
+   * no process is a no-op. Resolves once the process has stopped. With
+   * `kill`, the environment is closing and a stop has taken too long: the
+   * process is killed at once, and the answer is not waited for.
    */
-  stopProcess(sessionId: string): void | Promise<void>;
+  stopProcess(sessionId: string, options?: { readonly kill?: boolean }): void | Promise<void>;
   /** Plan usage per window, with the account's identity (`planUsage`). */
   usage?(account: AccountRef): Promise<UsageReading>;
   /** The slash commands for an account and workspace, spending no tokens (`commands`). */
