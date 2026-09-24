@@ -32,7 +32,11 @@ const BUSY_TIMEOUT_MS = 5000;
  * `atomically` runs.
  */
 export interface Tx {
-  /** Runs `callback` once the transaction has committed; never, if it rolls back. For memory that mirrors what was written. */
+  /**
+   * Runs `callback` once the transaction has committed, before subscribers hear its events; never, if it rolls
+   * back. For memory that mirrors what was written, and for work the commit sets off: a callback may append in an
+   * `atomically` of its own, whose events subscribers hear after the ones of the transaction that committed.
+   */
   afterCommit(callback: () => void): void;
 }
 
@@ -401,14 +405,23 @@ export const openEventLog = (options: EventLogOptions): EventLog => {
           held = undefined;
         }
       });
-      for (const callback of committed) {
-        try {
-          callback();
-        } catch (error) {
-          onSubscriberError(error);
+      // Queued before the callbacks run, delivered after them: a callback that appends, in an atomically of its own,
+      // queues its events behind these, so every subscriber still hears sequences in ascending order.
+      undelivered.push(...appended);
+      const delivering = publishing;
+      publishing = true;
+      try {
+        for (const callback of committed) {
+          try {
+            callback();
+          } catch (error) {
+            onSubscriberError(error);
+          }
         }
+      } finally {
+        publishing = delivering;
       }
-      publish(appended);
+      publish([]);
       return result;
     },
 

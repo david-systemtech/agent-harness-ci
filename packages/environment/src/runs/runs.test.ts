@@ -117,7 +117,7 @@ describe("runs.start", () => {
         queuedMessageIds: [],
       },
     });
-    expect(sent.payload).toEqual({ runId, messageId, text: "Fix the receipts", attachments: [], delivery: "prompt", heldBy: null });
+    expect(sent.payload).toEqual({ runId, messageId, text: "Fix the receipts", attachments: [], delivery: "prompt", heldBy: null, ceiling: "bypassPermissions" });
     expect(text).toMatchObject({ actor: { kind: "adapter", id: "fake" }, payload: { runId, text: "Working" } });
     expect(ended.payload).toMatchObject({ runId, reason: "completed", cause: null, error: null, durationMs: 1000 });
 
@@ -401,6 +401,31 @@ describe("runs.send", () => {
     expect(t.adapter.lastRun().sent.map((message) => message.messageId)).toEqual([messageId]);
   });
 
+  it("delivers a live subscriber the message and then its requeue when the provider throws taking it", async () => {
+    const held = gate();
+    const adapter = fakeAdapter({ capabilities: { steering: false }, script: heldScript(held) });
+    const create_ = adapter.createRun;
+    const t = await start({
+      ...adapter,
+      createRun: (input, context) => ({
+        ...create_(input, context),
+        send: () => {
+          throw new Error("The provider's queue is closed.");
+        },
+      }),
+    });
+    const client = await t.client();
+    const { id } = await create(client);
+    const session = await watch(client, id, t.env.log.head());
+    const { runId } = await startRun(client, id);
+    await session.until("assistant.text", runId);
+    const sent = await run(client, "runs.send", { sessionId: id, text: "Also this" });
+    const events = await session.until("message.requeued");
+    expect(events.map((event) => event.type)).toEqual(["message.sent", "message.requeued"]);
+    expect(events[1]).toMatchObject({ actor: { kind: "system", id: "adapter-host" }, payload: { runId, messageId: sent.result?.messageId } });
+    held.open();
+  });
+
   it("queues a message in the environment when the adapter has no queue of its own, and starts the next run with it when the turn ends", async () => {
     const held = gate();
     const t = await start({ capabilities: { providerQueue: false, steering: false }, script: async function* ({ input }) {
@@ -463,8 +488,13 @@ describe("runs.interrupt", () => {
     expect(sent.result).toMatchObject({ heldBy: "provider" });
 
     await run(client, "runs.interrupt", { runId });
-    const events = await session.until("message.requeued");
-    expect(events.at(-1)?.payload).toEqual({ runId, messageId: sent.result?.messageId });
+    const events = await session.until("run.ended", runId);
+    // Taken back before the run's end is heard, so a client that starts a run on seeing the end finds it queued.
+    expect(events.slice(-2).map((event) => [event.type, event.actor])).toEqual([
+      ["message.requeued", { kind: "system", id: "adapter-host" }],
+      ["run.ended", { kind: "adapter", id: "fake" }],
+    ]);
+    expect(events.at(-2)?.payload).toEqual({ runId, messageId: sent.result?.messageId });
     held.open();
     expect(t.adapter.runs).toHaveLength(1);
 
@@ -473,6 +503,29 @@ describe("runs.interrupt", () => {
     const [started] = await session.until("run.started", next.runId);
     expect(started?.payload).toMatchObject({ queuedMessageIds: [sent.result?.messageId], promptMessageId: next.messageId });
     expect(t.adapter.lastRun().input.prompt.map((message) => message.text)).toEqual(["Held by the provider", "Now"]);
+  });
+
+  it("keeps the bytes of a provider-held message it takes back, for the run that reads it", async () => {
+    const held = gate();
+    const t = await start({ capabilities: { steering: false }, script: heldScript(held) });
+    const client = await t.client();
+    const { id } = await create(client);
+    const session = await watch(client, id, t.env.log.head());
+    const { runId } = await startRun(client, id);
+    await session.until("assistant.text", runId);
+    const bytes = Buffer.from("a screenshot");
+    const image = { kind: "image" as const, name: "screen.png", mediaType: "image/png", data: bytes.toString("base64") };
+    const sent = await run(client, "runs.send", { sessionId: id, text: "Look at this", attachments: [image] });
+    expect(sent.result).toMatchObject({ heldBy: "provider" });
+    await run(client, "runs.interrupt", { runId });
+    await session.until("run.ended", runId);
+    held.open();
+
+    const next = await startRun(client, id, "Now");
+    await session.until("run.ended", next.runId);
+    const [requeued] = t.adapter.lastRun().input.prompt;
+    expect(requeued?.messageId).toBe(sent.result?.messageId);
+    expect(Buffer.from(requeued?.attachments[0]?.data ?? []).toString()).toBe("a screenshot");
   });
 
   it("refuses a run that is not on this environment not_found, kind run", async () => {
@@ -544,6 +597,19 @@ describe("runs.stopTask", () => {
     });
     held.open();
   });
+
+  it("is refused on such an adapter after the run has ended too, rather than answered ended", async () => {
+    const t = await start({ capabilities: { subagents: false } });
+    const client = await t.client();
+    const { id } = await create(client);
+    const session = await watch(client, id, t.env.log.head());
+    const { runId } = await startRun(client, id);
+    await session.until("run.ended", runId);
+    expect(await refusal(client.request("runs.stopTask", { commandId: randomUUID(), runId, taskId: "t-1" }))).toMatchObject({
+      code: "invalid_params",
+      data: { reason: "unsupported", capability: "subagents" },
+    });
+  });
 });
 
 describe("a provider-opened turn", () => {
@@ -612,6 +678,8 @@ describe("a session deleted or purged", () => {
     await deleteSession(client, id);
     const events = t.env.log.readStream({ kind: "session", id });
     expect(events.at(-1)).toMatchObject({ type: "run.ended", actor: "system:adapter-host", payload: { runId, reason: "disposed" } });
+    // The session is out of the list already, so the end, flagged as it is, carries no patch.
+    expect(events.at(-1)?.metadata).toEqual({});
     expect(t.adapter.lastRun().disposed).toBe(true);
     held.open();
   });

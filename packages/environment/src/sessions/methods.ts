@@ -34,7 +34,7 @@ import { createDeletion, type Deletion } from "./deletion.js";
 import { groupExists, listGroups } from "./group-reads.js";
 import { acceptAnyRunParameters, type RunParametersCheck } from "./run-parameters.js";
 import { listDeleted, listSummaries, readDeletion, readSessionState, readSummary, type Reader } from "./session-reads.js";
-import { foldTranscript } from "../runs/transcript.js";
+import { foldTranscript, readTranscriptEvents } from "../runs/transcript.js";
 import { sessionStream, stamp } from "./streams.js";
 
 /**
@@ -249,7 +249,7 @@ export const sessionMethods = (options: SessionMethodsOptions): MethodHandlers =
       return {
         stream: sessionStream(id),
         // The runs, items and parked prompts are folded from the stream as it stands (`runs/transcript.ts`).
-        snapshot: () => ({ sequence: log.head(), summary: summaryOf(), ...foldTranscript(log.readStream(sessionStream(id))) }),
+        snapshot: () => ({ sequence: log.head(), summary: summaryOf(), ...foldTranscript(readTranscriptEvents(log, id)) }),
         endOn: (event) =>
           event.type === "session.purged" || (event.type === "session.deleted" && holdsNow(event)) ? "deleted" : undefined,
       };

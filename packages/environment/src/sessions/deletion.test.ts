@@ -12,7 +12,7 @@ import {
   type Frame,
   type ParamsOf,
 } from "@agent-harness/contracts";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { MANUAL_CLOCK_START, manualClock } from "../../test/clock.js";
 import { fakeAdapter, type FakeAdapterOptions } from "../../test/fake-adapter.js";
@@ -191,11 +191,13 @@ describe("sessions.delete", () => {
 
 describe("a deleted session", () => {
   /**
-   * The params of every session command but create, restore and purge, on
-   * `sessionId`. The test below refuses a served session command missing
-   * here, so each ticket that serves one (#117) adds it.
+   * The params of every command that names a session or a run, but create,
+   * restore and purge, on `sessionId` and its run `runId`. The test below
+   * refuses a served command whose params carry a `sessionId` or a `runId`
+   * and that is missing here, so each ticket that serves one (#117, the
+   * run verbs) adds it.
    */
-  const onDeleted = (sessionId: string): Partial<{ [N in CommandMethodName]: Omit<ParamsOf<N>, "commandId"> }> => ({
+  const onDeleted = (sessionId: string, runId: string): Partial<{ [N in CommandMethodName]: Omit<ParamsOf<N>, "commandId"> }> => ({
     "sessions.rename": { sessionId, title: "Back from the dead" },
     "sessions.archive": { sessionId },
     "sessions.unarchive": { sessionId },
@@ -208,18 +210,31 @@ describe("a deleted session", () => {
     "sessions.setDraft": { sessionId, draft: "A draft" },
     "sessions.setGroup": { sessionId, groupId: null },
     "sessions.delete": { sessionId },
+    "runs.start": { sessionId, text: "Back to work" },
+    "runs.send": { sessionId, text: "Anyone there?" },
+    "runs.interrupt": { runId },
+    "runs.stopTask": { runId, taskId: "t-1" },
   });
 
-  it("rejects every served session command but restore and purge not_found, kind session, in a receipt, and appends nothing", async () => {
+  /** Whether a command's params name a session or a run. */
+  const namesSessionOrRun = (method: (typeof methods)[number]): boolean => {
+    const shape = (method.params as unknown as { readonly shape?: Record<string, unknown> }).shape ?? {};
+    return "sessionId" in shape || "runId" in shape;
+  };
+
+  it("rejects every served command naming the session or its run but restore and purge not_found, kind session, in a receipt, and appends nothing", async () => {
     const t = await start();
     const client = await t.client();
     const { id } = await create(client);
     await command(client, "sessions.pin", { sessionId: id });
     await command(client, "sessions.tag", { sessionId: id, tag: "wip" });
+    const started = registry["runs.start"].response.parse(await client.request("runs.start", { commandId: randomUUID(), sessionId: id, text: "One run" }));
+    const runId = started.result?.runId as string;
+    await vi.waitFor(() => expect(t.env.log.readStream({ kind: "session", id }).map((event) => event.type)).toContain("run.ended"));
     await deleteSession(client, id);
-    const cases = onDeleted(id);
+    const cases = onDeleted(id, runId);
     const served = methods
-      .filter((method) => isCommand(method) && method.name.startsWith("sessions.") && t.env.methods.get(method.name)?.handler !== undefined)
+      .filter((method) => isCommand(method) && namesSessionOrRun(method) && t.env.methods.get(method.name)?.handler !== undefined)
       .map((method) => method.name)
       .filter((name) => !["sessions.create", "sessions.restore", "sessions.purge"].includes(name));
     expect(served.sort()).toEqual(Object.keys(cases).sort());
@@ -376,6 +391,17 @@ describe("sessions.purge", () => {
 
   it("records unsupported when the delete asked and the adapter does not declare transcript delete", async () => {
     const t = await start();
+    const client = await t.client();
+    const { id } = await create(client);
+    await deleteSession(client, id, true);
+    const list = await listStream(client, t.env.log.head());
+    await purgeSession(client, id);
+    expect((await list.next()).payload).toEqual({ providerTranscript: { outcome: "unsupported" } });
+    expect(t.adapter.deletedTranscripts).toEqual([]);
+  });
+
+  it("records unsupported when the session's provider is not known here, rather than asking another adapter", async () => {
+    const t = await start({ deleteTranscript: true }, { accounts: [] });
     const client = await t.client();
     const { id } = await create(client);
     await deleteSession(client, id, true);

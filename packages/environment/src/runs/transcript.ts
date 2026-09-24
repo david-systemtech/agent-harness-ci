@@ -19,17 +19,20 @@ import {
   type TranscriptItem,
   type UsageReportedPayload,
 } from "@agent-harness/contracts";
-import type { EventEnvelope } from "../event-log/event-log.js";
+import { decodeEvent, type EventRow } from "../event-log/database.js";
+import type { EventEnvelope, EventLog } from "../event-log/event-log.js";
 
 /**
  * The transcript part of a session's snapshot (claude-adapter spec, the
  * snapshot `{summary, runs, items, parkedPrompts}`), folded from the
  * session's stream: a pure function of its events. The simplest thing that
  * gives `sessions.subscribeSession` its snapshot: the snapshot is only read
- * when replay from a client's cursor is out of bounds, and compaction (#123)
- * is what bounds the fold; a projection of items would be one more read
- * model to rebuild. Deltas are left out, as the spec says: the snapshot holds
- * settled items, and a client applies deltas to the open item.
+ * when replay from a client's cursor is out of bounds, and a projection of
+ * items would be one more read model to rebuild. Deltas are left out, as the
+ * spec says (and left out of the read, `readTranscriptEvents`): the snapshot
+ * holds settled items, and a client applies deltas to the open item. The
+ * fold is not bounded for a live session: compaction (#123) folds only
+ * sessions long left untouched (ADR 0002).
  */
 
 export interface TranscriptParts {
@@ -46,6 +49,21 @@ type Item = { kind: string; sequence: number };
 
 /** Whether `type` is one the session stream's table knows: organisation, prompt or transcript. */
 const knownType = (type: string): boolean => eventTypeEntry(SESSION_STREAM_KIND, type) !== undefined;
+
+/**
+ * The session's events the fold reads, oldest first: every event of its
+ * stream but `assistant.delta`, left out in the query, since the settled
+ * `assistant.text` and `assistant.thinking` carry the whole text. Still the
+ * whole stream otherwise: compaction (#123) folds only sessions long left
+ * untouched (ADR 0002), so for a live session the read grows with it.
+ */
+export const readTranscriptEvents = (log: Pick<EventLog, "read">, sessionId: string): EventEnvelope[] =>
+  log
+    .read<EventRow>(
+      `SELECT * FROM events WHERE stream_kind = '${SESSION_STREAM_KIND}' AND stream_id = ? AND type <> 'assistant.delta' ORDER BY sequence`,
+      sessionId,
+    )
+    .map(decodeEvent);
 
 /** Folds one session's events, oldest first, into its runs, its settled items and its parked prompts. */
 export const foldTranscript = (events: Iterable<EventEnvelope>): TranscriptParts => {
