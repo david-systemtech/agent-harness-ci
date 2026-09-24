@@ -50,6 +50,16 @@ describe("the workspace", () => {
     expect(runtimeDependencies(manifest("@agent-harness/client-runtime"))).toEqual(["@agent-harness/contracts"]);
   });
 
+  it("gives the environment no runtime dependency on a client package or the CLI", () => {
+    const deps = runtimeDependencies(manifest("@agent-harness/environment"));
+    expect(deps.filter((d) => /^(@agent-harness\/(client-runtime|tui|gui|web)|agent-harness)$/.test(d))).toEqual([]);
+  });
+
+  it("gives the terminal UI no runtime dependency on the environment or the CLI", () => {
+    const deps = runtimeDependencies(manifest("@agent-harness/tui"));
+    expect(deps.filter((d) => d === "@agent-harness/environment" || d === "agent-harness")).toEqual([]);
+  });
+
   it("runs the environment's test files one at a time, since each starts a listener", async () => {
     const { default: config } = await import("../packages/environment/vitest.config.js");
     expect(config.test?.fileParallelism).toBe(false);

@@ -5,7 +5,12 @@ import tseslint from "typescript-eslint";
 import { plugin } from "./eslint-rules/index.js";
 
 /** Every client package: the client runtime and the terminal UI now, the GUI and web when they exist. */
-const clientPackages = ["client-runtime", "tui", "gui", "web"].map((p) => `packages/${p}/**/*.{ts,tsx}`);
+const clientPackageNames = ["client-runtime", "tui", "gui", "web"];
+const clientPackages = clientPackageNames.map((p) => `packages/${p}/**/*.{ts,tsx}`);
+/** The renderers: every client package but the runtime they render from. */
+const rendererPackages = clientPackageNames.filter((p) => p !== "client-runtime").map((p) => `packages/${p}/**/*.{ts,tsx}`);
+/** One alternation over every client package name, for the import bans below. */
+const anyClient = clientPackageNames.join("|");
 
 /** `no-restricted-imports` refusing every import whose specifier matches `regex`. */
 const forbidImports = (regex: string, message: string): Linter.RulesRecord => ({
@@ -52,15 +57,15 @@ export default defineConfig([
   {
     files: ["packages/environment/**/*.ts"],
     rules: forbidImports(
-      "^(@agent-harness/(client-runtime|tui)|agent-harness)(/|$)",
+      `^(@agent-harness/(${anyClient})|agent-harness)(/|$)`,
       "The environment depends on contracts, never on a client or the CLI.",
     ),
   },
   {
-    files: ["packages/tui/**/*.{ts,tsx}"],
+    files: rendererPackages,
     rules: forbidImports(
       "^(@agent-harness/environment|agent-harness)(/|$)",
-      "The terminal UI is a pure client: it renders from the client runtime and runs no environment.",
+      "A renderer is a pure client: it renders from the client runtime and runs no environment.",
     ),
   },
 ]);
