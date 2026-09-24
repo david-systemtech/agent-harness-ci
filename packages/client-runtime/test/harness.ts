@@ -86,6 +86,10 @@ export const rewritingFetch = (
   return { status: response.status, json: async () => body };
 };
 
+/** A fetch that answers `status` with a body that is not JSON at a path ending in `suffix` while `active()`, as a proxy's error page or an empty 204 does. */
+export const notJsonAt = (suffix: string, status: number, active: () => boolean = () => true, base: HttpFetch = globalFetch()): HttpFetch => async (url, request) =>
+  active() && url.endsWith(suffix) ? { status, json: () => Promise.reject(new SyntaxError("Unexpected token '<'")) } : base(url, request);
+
 /** A fetch that fails as an unreachable host does while `down()`. */
 export const failingFetch = (down: () => boolean, base: HttpFetch = globalFetch()): HttpFetch => async (url, request) => {
   if (down()) throw new TypeError("fetch failed");

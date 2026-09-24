@@ -3,8 +3,11 @@ import { Ceiling, PROTOCOL_VERSION, type Scope } from "@agent-harness/contracts"
 import { describe, expect, it } from "vitest";
 import { HARNESS_VERSION } from "../../environment/src/serve/start.js";
 import { failingFetch, originOf, recordingWebSocket, rewritingWebSocket, until, useHarness } from "../test/harness.js";
+import { PAIRED_CONNECTIONS_DOCUMENT } from "./connections/records.js";
+import { REVOKE_TIMEOUT_MS } from "./connections/registry.js";
+import type { HttpFetch, WebSocketFactory } from "./platform.js";
 import type { Runtime } from "./runtime.js";
-import { inMemoryPlatform, manualClock } from "./testing/in-memory-platform.js";
+import { globalFetch, globalWebSocket, inMemoryDocuments, inMemoryPlatform, manualClock, type InMemoryDocumentStore } from "./testing/in-memory-platform.js";
 
 const harness = useHarness();
 
@@ -250,6 +253,71 @@ describe("the in-process connections API", () => {
     expect(sessions.find((s) => s.id === clientSessionId)?.revokedAt).toEqual(expect.any(String));
   });
 
+  it("opens no one-off revoke socket when discovery answers after the revoke timed out", async () => {
+    const t = await harness.environment();
+    let hold = false;
+    let release: () => void = () => undefined;
+    let held = false;
+    let settled = false;
+    const fetch: HttpFetch = async (url, request) => {
+      if (hold) {
+        held = true;
+        await new Promise<void>((resolve) => (release = resolve));
+      }
+      const response = await globalFetch()(url, request);
+      if (hold) settled = true;
+      return response;
+    };
+    const sockets = recordingWebSocket();
+    const platform = inMemoryPlatform({ fetch, webSocket: sockets.factory });
+    const runtime = harness.runtime(platform);
+    await runtime.start();
+    await runtime.connections.add({ link: (await t.createPairing()).link });
+    await runtime.connections.setEnabled(t.env.id, false);
+    await until(() => t.env.sockets() === 0, "the socket to close");
+    const opened = sockets.urls.length;
+
+    hold = true;
+    const removing = runtime.connections.remove(t.env.id);
+    await until(() => held, "the one-off revoke to read discovery");
+    platform.clock.advance(REVOKE_TIMEOUT_MS);
+    expect(await removing).toMatchObject({ revoked: false, reason: "unreachable" });
+
+    release();
+    await until(() => settled, "the held discovery to answer");
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(sockets.urls.length).toBe(opened);
+    expect(t.env.sockets()).toBe(0);
+  });
+
+  it("closes a one-off revoke socket whose hello arrives after the revoke timed out, and sends no revoke on it", async () => {
+    const t = await harness.environment();
+    let hold = false;
+    const held: (() => void)[] = [];
+    const webSocket: WebSocketFactory = (url, handlers) =>
+      globalWebSocket()(url, { ...handlers, onMessage: (text) => (hold ? held.push(() => handlers.onMessage(text)) : handlers.onMessage(text)) });
+    const platform = inMemoryPlatform({ webSocket });
+    const runtime = harness.runtime(platform);
+    await runtime.start();
+    await runtime.connections.add({ link: (await t.createPairing()).link });
+    const { clientSessionId } = only(runtime);
+    await runtime.connections.setEnabled(t.env.id, false);
+    await until(() => t.env.sockets() === 0, "the socket to close");
+
+    hold = true;
+    const removing = runtime.connections.remove(t.env.id);
+    await until(() => held.length > 0, "the one-off socket's hello to be held");
+    platform.clock.advance(REVOKE_TIMEOUT_MS);
+    expect(await removing).toMatchObject({ revoked: false, reason: "unreachable" });
+
+    hold = false;
+    for (const deliver of held.splice(0)) deliver();
+    await until(() => t.env.sockets() === 0, "the late one-off socket to close");
+    const admin = await t.client();
+    const { sessions } = await admin.apply("access.sessions.list", {});
+    expect(sessions.find((s) => s.id === clientSessionId)?.revokedAt).toBeNull();
+  });
+
   it("removes a connection without the admin scope, and says its client session is still live", async () => {
     const t = await harness.environment();
     const runtime = harness.runtime(inMemoryPlatform());
@@ -263,6 +331,92 @@ describe("the in-process connections API", () => {
     const admin = await t.client();
     const { sessions } = await admin.apply("access.sessions.list", { live: true });
     expect(sessions.map((s) => s.id)).toContain(clientSessionId);
+  });
+
+  it("shows the blocked reason only with blocked: a retry that finds nothing stays blocked, disabling hides the reason and keeps it to re-check", async () => {
+    const t = await harness.environment();
+    let down = false;
+    const platform = inMemoryPlatform({ fetch: failingFetch(() => down) });
+    const runtime = harness.runtime(platform);
+    await runtime.start();
+    await runtime.connections.add({ link: (await t.createPairing()).link });
+    const admin = await t.client();
+    await admin.apply("access.sessions.revoke", { commandId: randomUUID(), clientSessionId: String(only(runtime).clientSessionId) });
+    await until(() => only(runtime).phase === "blocked", "the revoke to block the connection");
+    expect(only(runtime).blocked).toBe("revoked");
+    const savedBlocked = () => (platform.documents.entries()[PAIRED_CONNECTIONS_DOCUMENT] as Record<string, { blocked: unknown }>)[t.env.id]?.blocked;
+
+    // A re-check that cannot read discovery leaves the block as it was (#126), with no retry.
+    down = true;
+    await runtime.connections.retryNow(t.env.id);
+    expect(only(runtime)).toMatchObject({ phase: "blocked", blocked: "revoked", retryAt: null });
+
+    down = false;
+    await runtime.connections.retryNow(t.env.id);
+    expect(only(runtime)).toMatchObject({ phase: "blocked", blocked: "revoked" });
+    await runtime.connections.setEnabled(t.env.id, false);
+    expect(only(runtime)).toMatchObject({ phase: "disabled", blocked: null });
+    expect(savedBlocked()).toBe("revoked");
+
+    // Enabled again, the block is re-checked quietly: one notice in all.
+    await runtime.connections.setEnabled(t.env.id, true);
+    expect(only(runtime)).toMatchObject({ phase: "blocked", blocked: "revoked" });
+    expect(runtime.projections.notices.read().map((n) => n.kind)).toEqual(["revoked"]);
+  });
+
+  /** A paired connection blocked as `revoked` on a platform whose network `down()` controls. */
+  const blockedByRevoke = async (options: { documents?: InMemoryDocumentStore; down: () => boolean }) => {
+    const t = await harness.environment();
+    const platform = inMemoryPlatform({ fetch: failingFetch(options.down), ...(options.documents && { documents: options.documents }) });
+    const runtime = harness.runtime(platform);
+    await runtime.start();
+    await runtime.connections.add({ link: (await t.createPairing()).link });
+    const admin = await t.client();
+    await admin.apply("access.sessions.revoke", { commandId: randomUUID(), clientSessionId: String(only(runtime).clientSessionId) });
+    await until(() => only(runtime).phase === "blocked", "the revoke to block the connection");
+    const savedBlocked = () => (platform.documents.entries()[PAIRED_CONNECTIONS_DOCUMENT] as Record<string, { blocked: unknown }>)[t.env.id]?.blocked;
+    return { t, platform, runtime, savedBlocked };
+  };
+
+  it("reports a background write that fails, never leaving it to reject unobserved", async () => {
+    const base = inMemoryDocuments();
+    let failNext = false;
+    const documents: InMemoryDocumentStore = {
+      ...base,
+      set: async (key, value) => {
+        if (failNext && key === PAIRED_CONNECTIONS_DOCUMENT) {
+          failNext = false;
+          throw new Error("the disk is full");
+        }
+        return base.set(key, value);
+      },
+    };
+    const { t, platform, runtime } = await blockedByRevoke({ documents, down: () => false });
+
+    // The re-check's discovery document is written to the record in the background.
+    failNext = true;
+    await runtime.connections.retryNow(t.env.id);
+
+    expect(only(runtime)).toMatchObject({ phase: "blocked", blocked: "revoked" });
+    await until(() => platform.reported.length > 0, "the failed write to be reported");
+    expect(platform.reported).toEqual([expect.objectContaining({ message: "the disk is full" })]);
+  });
+
+  it("a renderer whose connections.list listener throws stops neither the attempt nor its persistence, and is reported", async () => {
+    const { t, platform, runtime, savedBlocked } = await blockedByRevoke({ down: () => false });
+    const fault = new Error("the renderer failed");
+    runtime.connections.list.subscribe(() => {
+      throw fault;
+    });
+
+    const reads = platform.documents.entries()[PAIRED_CONNECTIONS_DOCUMENT];
+    await runtime.connections.retryNow(t.env.id);
+
+    // The attempt ran to its end (discovery, then no token to send) and its write landed.
+    expect(only(runtime)).toMatchObject({ phase: "blocked", blocked: "revoked" });
+    expect(savedBlocked()).toBe("revoked");
+    expect(platform.documents.entries()[PAIRED_CONNECTIONS_DOCUMENT]).toEqual(reads);
+    expect(platform.reported).toContain(fault);
   });
 
   it("retries now: runs the connect again after a failure", async () => {

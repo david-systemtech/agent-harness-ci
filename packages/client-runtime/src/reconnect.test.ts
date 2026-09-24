@@ -311,7 +311,8 @@ describe("bye", () => {
 
     const again = runtime.connections.add({ link: wire.link }, { rePair: wire.environmentId });
     await wire.server.accept();
-    expect(await again).toEqual({ status: "paired", environmentId: wire.environmentId });
+    // The expired client session is revoked over the new connection, whose client session holds admin.
+    expect(await again).toEqual({ status: "paired", environmentId: wire.environmentId, replaced: { revoked: true } });
     expect(view(runtime)).toMatchObject({ phase: "ready", blocked: null, action: null });
 
     runtime.notices.dismiss(notice?.id ?? "");

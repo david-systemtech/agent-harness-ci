@@ -142,6 +142,8 @@ export type MachineInput =
   /** The runtime started, or David enabled the connection. `hasCache`: there is cached data it serves while unreachable. */
   | { readonly type: "start"; readonly enabled: boolean; readonly network: NetworkState; readonly hasCache: boolean }
   | { readonly type: "disable" }
+  /** The runner handed the socket to the registry (to revoke the client session over it, on removal or a re-pair): let go of everything, quietly. */
+  | { readonly type: "release" }
   /** Try at once. `fresh`: the ladder starts over, as after David started the local service. */
   | { readonly type: "retryNow"; readonly fresh?: boolean }
   | { readonly type: "discovery-result"; readonly attempt: number; readonly answer: DiscoveryAnswer }
@@ -461,6 +463,8 @@ export const reduce = (state: MachineState, input: MachineInput, context: Machin
       }
       case "disable":
         return { ...halt(state), phase: "disabled", failures: 0, unreachableSince: null };
+      case "release":
+        return { ...halt(state), phase: state.blocked === null ? "connecting" : "blocked" };
       case "retryNow":
         if (state.phase === "disabled") return state;
         return begin(halt(input.fresh ? { ...state, failures: 0 } : state));

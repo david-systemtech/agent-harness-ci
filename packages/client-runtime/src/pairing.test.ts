@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { DEFAULT_ENVIRONMENT_PORT, DISCOVERY_PATH, PAIRING_TTL_MS, PROTOCOL_VERSION } from "@agent-harness/contracts";
+import { DEFAULT_ENVIRONMENT_PORT, DISCOVERY_PATH, PAIR_PATH, PAIRING_TTL_MS, PROTOCOL_VERSION } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import type { Address } from "../../environment/src/serve/http.js";
 import { startTestEnvironment } from "../../environment/test/helper.js";
-import { originOf, rewritingFetch, rewritingWebSocket, until, useHarness } from "../test/harness.js";
+import { notJsonAt, originOf, rewritingFetch, rewritingWebSocket, until, useHarness } from "../test/harness.js";
 import { parsePairingInput } from "./pairing.js";
 import { inMemoryPlatform } from "./testing/in-memory-platform.js";
 
@@ -113,11 +113,51 @@ describe("pairing with an environment", () => {
 
     expect(await runtime.connections.add({ link })).toEqual({ status: "re-pair-offered", environmentId: t.env.id, name: "desk" });
 
-    expect(await runtime.connections.add({ link }, { rePair: t.env.id })).toEqual({ status: "paired", environmentId: t.env.id });
+    expect(await runtime.connections.add({ link }, { rePair: t.env.id })).toEqual({ status: "paired", environmentId: t.env.id, replaced: { revoked: true } });
     const after = runtime.connections.list.read();
     expect(after).toHaveLength(1);
     expect(after[0]).toMatchObject({ environmentId: t.env.id, phase: "ready" });
     expect(after[0]?.clientSessionId).not.toBe(before?.clientSessionId);
+    const admin = await t.client();
+    const { sessions } = await admin.apply("access.sessions.list", {});
+    expect(sessions.find((s) => s.id === before?.clientSessionId)?.revokedAt).toEqual(expect.any(String));
+    expect(sessions.find((s) => s.id === after[0]?.clientSessionId)?.revokedAt).toBeNull();
+  });
+
+  it("re-pairs with a code without admin: the replaced client session is revoked with the old token", async () => {
+    const t = await harness.environment();
+    const runtime = harness.runtime(inMemoryPlatform());
+    await runtime.start();
+    await runtime.connections.add({ link: (await t.createPairing()).link });
+    const before = runtime.connections.list.read()[0]?.clientSessionId;
+
+    expect(await runtime.connections.add({ link: (await t.createPairing({ scopes: ["read"] })).link }, { rePair: t.env.id })).toEqual({
+      status: "paired",
+      environmentId: t.env.id,
+      replaced: { revoked: true },
+    });
+    const after = runtime.connections.list.read()[0];
+    expect(after).toMatchObject({ phase: "ready", scopes: ["read"] });
+    const admin = await t.client();
+    const { sessions } = await admin.apply("access.sessions.list", {});
+    expect(sessions.find((s) => s.id === before)?.revokedAt).toEqual(expect.any(String));
+    expect(sessions.find((s) => s.id === after?.clientSessionId)?.revokedAt).toBeNull();
+  });
+
+  it("re-pairs when neither client session holds admin: the replaced one is still live, and says so", async () => {
+    const t = await harness.environment();
+    const runtime = harness.runtime(inMemoryPlatform());
+    await runtime.start();
+    await runtime.connections.add({ link: (await t.createPairing({ scopes: ["read"] })).link });
+    const before = runtime.connections.list.read()[0]?.clientSessionId;
+
+    expect(await runtime.connections.add({ link: (await t.createPairing({ scopes: ["read"] })).link }, { rePair: t.env.id })).toMatchObject({
+      status: "paired",
+      replaced: { revoked: false, reason: "scope", message: expect.stringContaining("admin") },
+    });
+    const admin = await t.client();
+    const { sessions } = await admin.apply("access.sessions.list", { live: true });
+    expect(sessions.map((s) => s.id)).toContain(before);
   });
 
   describe("fails with a typed reason", () => {
@@ -220,6 +260,28 @@ describe("pairing with an environment", () => {
         failure: { reason: "different-environment" },
       });
       expect(runtime.connections.list.read().map((r) => r.environmentId)).toEqual([a.env.id]);
+    });
+
+    it("refused, not unreachable: discovery answers something that is not JSON", async () => {
+      const t = await harness.environment();
+      const runtime = harness.runtime(inMemoryPlatform({ fetch: notJsonAt(DISCOVERY_PATH, 502) }));
+      await runtime.start();
+
+      expect(await runtime.connections.add({ link: (await t.createPairing()).link })).toMatchObject({
+        status: "failed",
+        failure: { reason: "refused", message: expect.stringContaining("502") },
+      });
+    });
+
+    it("refused, not unreachable: the pairing exchange answers something that is not JSON", async () => {
+      const t = await harness.environment();
+      const runtime = harness.runtime(inMemoryPlatform({ fetch: notJsonAt(PAIR_PATH, 204) }));
+      await runtime.start();
+
+      expect(await runtime.connections.add({ link: (await t.createPairing()).link })).toMatchObject({
+        status: "failed",
+        failure: { reason: "refused", message: expect.stringContaining("204") },
+      });
     });
 
     it("invalid-code: the environment issued no such code", async () => {

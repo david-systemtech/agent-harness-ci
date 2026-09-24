@@ -58,7 +58,7 @@ export const exchangeGrant = async (options: {
     if (!read) return failed("service-down", "There is no grant file: the local environment's service is not running.");
     const origin = originOf(read.address);
     const discovery = await readDiscovery(fetch, origin);
-    if (!discovery.ok) return failed("service-down", discovery.message);
+    if (!discovery.ok) return failed(discovery.kind === "unreachable" ? "service-down" : "refused", discovery.message);
     const check = checkDiscovery(discovery.document, { protocolVersion: options.protocolVersion });
     if (!check.ok) return failed(check.reason === "different-environment" ? "refused" : check.reason, check.message);
 

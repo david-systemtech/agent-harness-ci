@@ -34,14 +34,26 @@ export const notifyAll = <A extends unknown[]>(listeners: Iterable<(...args: A) 
   if (errors.length > 1) throw new AggregateError(errors, `${errors.length} listeners failed.`);
 };
 
-/** A writable observable holding `initial`. Setting a value `Object.is` the current one notifies nobody. */
-export const writable = <T>(initial: T): Writable<T> => {
+/**
+ * A writable observable holding `initial`. Setting a value `Object.is` the
+ * current one notifies nobody. Given `report`, what its listeners throw is
+ * handed to `report` instead of thrown at the writer: the connection
+ * registry's observables take the platform's, so one renderer's fault
+ * starves neither the other renderers nor the registry's own work after
+ * the set (its persistence, the rest of an attempt).
+ */
+export const writable = <T>(initial: T, report?: (error: unknown) => void): Writable<T> => {
   let value = initial;
   const listeners = new Set<(value: T) => void>();
   const set = (next: T): void => {
     if (Object.is(next, value)) return;
     value = next;
-    notifyAll(listeners, value);
+    if (!report) return notifyAll(listeners, value);
+    try {
+      notifyAll(listeners, value);
+    } catch (error) {
+      report(error);
+    }
   };
   return {
     read: () => value,
@@ -70,8 +82,9 @@ export const derived = <S extends readonly Observable<unknown>[], T>(sources: S,
   const read = (): T => {
     const now = sources.map((source) => source.read());
     if (!inputs || now.some((input, i) => !Object.is(input, (inputs as unknown[])[i]))) {
-      inputs = now;
+      // The inputs are kept only once the compute has succeeded, so one that throws is run again on the next read.
       value = compute(...(now as unknown as ValuesOf<S>));
+      inputs = now;
     }
     return value;
   };

@@ -55,11 +55,13 @@ export const manualClock = (start: Date | string = MANUAL_CLOCK_START): ManualCl
     },
     advance(ms) {
       if (!(ms >= 0)) throw new RangeError(`Time moves forward; got ${ms} ms.`);
-      const until = now + ms;
+      let until = now + ms;
       for (let timer = nextDue(until); timer; timer = nextDue(until)) {
-        now = timer.due;
+        now = Math.max(now, timer.due);
         timers.delete(timer.id);
         timer.callback();
+        // A callback may advance the clock itself, past `until`: time never moves back, and every timer due by then runs.
+        until = Math.max(until, now);
       }
       now = until;
     },

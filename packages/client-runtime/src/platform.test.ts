@@ -64,6 +64,23 @@ describe("observables", () => {
     expect(seen).toEqual([4]);
   });
 
+  it("derive again after a compute that threw, never keeping the stale value", () => {
+    const source = writable(1);
+    let fail = false;
+    const doubled = derived([source], (n) => {
+      if (fail) {
+        fail = false;
+        throw new Error("compute failed once");
+      }
+      return n * 2;
+    });
+    expect(doubled.read()).toBe(2);
+    fail = true;
+    source.set(2);
+    expect(() => doubled.read()).toThrow("compute failed once");
+    expect(doubled.read()).toBe(4);
+  });
+
   it("tell every listener even when one throws, then throw what was thrown", () => {
     const value = writable(1);
     const seen: number[] = [];
@@ -86,6 +103,21 @@ describe("the in-memory platform", () => {
     clock.advance(250);
     expect(fired).toEqual(["a", "b"]);
     expect(clock.now().toISOString()).toBe("2026-09-24T00:00:00.250Z");
+  });
+
+  it("never moves the clock back when a timer's callback advances it past the outer advance", () => {
+    const clock = manualClock("2026-09-24T00:00:00.000Z");
+    const fired: string[] = [];
+    clock.setTimeout(() => {
+      clock.advance(1000);
+      // Due at 1.1 s, past the outer advance's horizon of 0.5 s but not past where the clock now stands.
+      clock.setTimeout(() => fired.push(clock.now().toISOString()), 0);
+    }, 100);
+    clock.setTimeout(() => fired.push(clock.now().toISOString()), 400);
+    clock.advance(500);
+    expect(fired).toEqual(["2026-09-24T00:00:00.400Z", "2026-09-24T00:00:01.100Z"]);
+    expect(clock.now().toISOString()).toBe("2026-09-24T00:00:01.100Z");
+    expect(clock.pending()).toBe(0);
   });
 
   it("has a network signal the test toggles", () => {

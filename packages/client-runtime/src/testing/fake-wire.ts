@@ -91,8 +91,9 @@ export interface FakeWire {
   /**
    * How requests for `method` are answered on every socket: a response
    * body, or undefined to leave them unanswered. Preset:
-   * `environment.status` (the status document) and `access.sessions.refresh`
-   * (a fresh credential for the client session last issued); any other
+   * `environment.status` (the status document), `access.sessions.revoke`
+   * (accepted) and `access.sessions.refresh` (a fresh credential for the
+   * client session last issued); any other
    * method is answered `not_found`.
    */
   answer(method: string, responder: (params: Record<string, unknown>) => FakeAnswer | undefined): void;
@@ -161,6 +162,10 @@ export const fakeWire = (options: FakeWireOptions): FakeWire => {
     [
       "environment.status",
       () => ({ result: { readiness: document().readiness, activity: { state: "idle" }, updatesManagedOutside: false } satisfies EnvironmentStatus }),
+    ],
+    [
+      "access.sessions.revoke",
+      () => ({ result: { receipt: { status: "accepted", sequence: ++sequence, changed: true }, result: { revokedAt: clock.now().toISOString() } } }),
     ],
     [
       "access.sessions.refresh",

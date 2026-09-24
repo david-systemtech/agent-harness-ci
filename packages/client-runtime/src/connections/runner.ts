@@ -54,6 +54,13 @@ export interface Runner {
   adopt(socket: LiveSocket, document: DiscoveryDocument): void;
   /** The open socket, while the connection is ready. */
   socket(): LiveSocket | undefined;
+  /**
+   * Hands the open socket over, if the connection is ready, and lets go of
+   * everything else: the machine no longer hears that socket, so a `bye:
+   * revoked` the caller brings about on it clears no token and raises no
+   * notice. The caller closes it.
+   */
+  detach(): LiveSocket | undefined;
   /** Settles once no attempt is waiting on discovery or a socket and what the machine asked to be written is written. */
   settled(): Promise<void>;
   /** Closes the socket and every timer for good, telling nobody: the connection is being forgotten or the runtime closed. */
@@ -261,6 +268,14 @@ export const createRunner = (host: RunnerHost, initial: MachineState): Runner =>
       feed({ type: "adopt", hello: live.hello, expiresAt: host.expiresAt() });
     },
     socket: () => (state.step === "open" ? socket : undefined),
+    detach() {
+      const live = state.step === "open" ? socket : undefined;
+      socket = undefined;
+      dialing?.abort();
+      dialing = undefined;
+      feed({ type: "release" });
+      return live;
+    },
     settled: () => (isSettled() ? Promise.resolve() : new Promise<void>((resolve) => waiters.push(resolve))),
     stop() {
       stopped = true;

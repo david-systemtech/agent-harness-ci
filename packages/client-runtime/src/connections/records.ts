@@ -75,6 +75,15 @@ export interface SavedConnection {
   readonly expiresAt: string | null;
 }
 
+/**
+ * What became of a client session this client gave up, on removal or a
+ * re-pair in place: revoked, or forgotten here and still live there because
+ * the connection lacks the `admin` scope or the environment could not be reached.
+ */
+export type RemoveResult =
+  | { readonly revoked: true }
+  | { readonly revoked: false; readonly reason: "scope" | "unreachable"; readonly message: string };
+
 /** A connection as `connections.list` shows it. */
 export interface ConnectionRecord extends SavedConnection {
   readonly environmentId: string;
