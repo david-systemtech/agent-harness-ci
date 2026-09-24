@@ -1117,6 +1117,12 @@ describe("a turn opened for a subagent's prompt", () => {
     expect(ends(await read.done)).toEqual([expect.objectContaining({ reason: "completed" })]);
   });
 
+  it("refuses a message sent to it, so the environment holds it and no interrupt could leave it for the CLI to run", async () => {
+    const { turn, query } = await promptTurn();
+    await expect(turn.send(message("While you wait"))).rejects.toThrow(/prompt/);
+    expect(query.prompts).toHaveLength(1);
+  });
+
   it("denies its prompt and ends interrupted when interrupted", async () => {
     const { asked, turn, query } = await promptTurn();
     const read = reading(turn);

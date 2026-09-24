@@ -972,6 +972,9 @@ export class ClaudeProcess implements TurnControl {
   async send(turn: ClaudeTurn, message: PromptMessage): Promise<void> {
     if (this.closed || this.#prompts.closed) throw new Error("The Claude process is closing and takes no more messages.");
     if (turn.ended) throw new Error("The run has ended; its messages go to the next run.");
+    // A turn carrying a subagent's prompt has no turn of the CLI's to fold a message into, and its interrupt cannot take
+    // one back from the CLI's queue: refused, the environment holds it and its next run reads it (ADR 0022).
+    if (this.#forPrompt.has(turn)) throw new Error("This run only carries a subagent's prompt; the message waits for the session's next run.");
     checkImages([message]);
     // Stamped with the harness's id: the CLI names it when a turn reads it, and an interrupt's receipt lists it.
     this.#queuedSends.set(message.messageId, message);
