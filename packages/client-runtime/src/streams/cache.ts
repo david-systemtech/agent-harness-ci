@@ -82,6 +82,8 @@ export interface StreamCache {
   flush(environmentId?: string): Promise<void>;
   /** Drops a pending write and deletes the document. */
   remove(key: string): Promise<void>;
+  /** Drops every pending write under `streams.<environmentId>.` and settles once the writes under way there have: the environment is being forgotten. */
+  settle(environmentId: string): Promise<void>;
   /** Settles once every write under way has. */
   idle(): Promise<void>;
 }
@@ -157,6 +159,11 @@ export const createStreamCache = (options: CacheOptions): StreamCache => {
       take(key);
       return serial(key, () => documents.delete(key));
     },
+    async settle(environmentId) {
+      const prefix = streamDocument(environmentId, "");
+      for (const key of [...pending.keys()]) if (key.startsWith(prefix)) take(key);
+      await Promise.all([...chains].filter(([key]) => key.startsWith(prefix)).map(([, chain]) => chain));
+    },
     async idle() {
       await Promise.all([...chains.values()]);
     },
@@ -178,8 +185,10 @@ interface Meta {
 
 const NO_META: Meta = { skewMs: null, opened: [] };
 
-const readMeta = (value: unknown): Meta => {
-  if (!isRecord(value) || value["format"] !== FORMAT) return NO_META;
+/** The meta as stored: none when there is no document; undefined when there is one this build does not read (another format, or damaged). */
+const readMeta = (value: unknown): Meta | undefined => {
+  if (value === undefined) return NO_META;
+  if (!isRecord(value) || value["format"] !== FORMAT) return undefined;
   const skewMs = typeof value["skewMs"] === "number" && Number.isFinite(value["skewMs"]) ? value["skewMs"] : null;
   const opened = Array.isArray(value["opened"])
     ? value["opened"].filter(
@@ -244,6 +253,12 @@ export const createRetention = (options: RetentionOptions): Retention => {
   const skews = new Map<string, number>();
   /** Environments forgotten and not loaded since: a change queued for one writes nothing. */
   const forgotten = new Set<string>();
+  /**
+   * Environments whose meta is a document this build does not read: held as
+   * empty, and never written, so the stored index (a newer build's) is kept
+   * as it is. Their snapshots are not counted or evicted this run.
+   */
+  const foreign = new Set<string>();
   let changes: Promise<void> = Promise.resolve();
 
   const load = (environmentId: string): Promise<void> => {
@@ -251,7 +266,13 @@ export const createRetention = (options: RetentionOptions): Retention => {
     if (!loading) {
       loading = documents.get(metaDocument(environmentId)).then(
         (value) => {
-          if (!metas.has(environmentId)) metas.set(environmentId, readMeta(value));
+          if (metas.has(environmentId)) return;
+          const meta = readMeta(value);
+          if (meta === undefined) {
+            foreign.add(environmentId);
+            report(new Error(`The cache's retention index for environment ${environmentId} is in a form this build does not read; it is left as it is.`));
+          }
+          metas.set(environmentId, meta ?? NO_META);
         },
         (error: unknown) => {
           loads.delete(environmentId);
@@ -277,7 +298,7 @@ export const createRetention = (options: RetentionOptions): Retention => {
       try {
         await load(environmentId);
         const meta = metas.get(environmentId);
-        if (!meta || forgotten.has(environmentId)) return;
+        if (!meta || forgotten.has(environmentId) || foreign.has(environmentId)) return;
         const next = await work(meta);
         if (forgotten.has(environmentId)) return;
         metas.set(environmentId, next);
@@ -362,6 +383,7 @@ export const createRetention = (options: RetentionOptions): Retention => {
         metas.delete(environmentId);
         loads.delete(environmentId);
         skews.delete(environmentId);
+        foreign.delete(environmentId);
         const keys = [
           streamDocument(environmentId, "list"),
           streamDocument(environmentId, "environment"),

@@ -282,6 +282,19 @@ describe("retention", () => {
     expect(setup.store.entries()[metaDocument("env")]).toMatchObject({ skewMs: 3500, opened: [expect.objectContaining({ sessionId: "a" })] });
   });
 
+  it("never writes over a meta in a format it does not read: the stored index is kept, and the fault reported once", async () => {
+    const setup = await setUp();
+    const foreign = { format: 99, sessions: { a: { size: 10 } } };
+    await setup.store.set(metaDocument("far"), foreign);
+    await setup.retention.load("far");
+    await setup.retention.opened("far", "a");
+    await setup.retention.wrote("far", "a", 10);
+    await setup.retention.setSkew("far", 500);
+    expect(setup.store.entries()[metaDocument("far")]).toEqual(foreign);
+    expect(setup.retention.skew("far")).toBe(500);
+    expect(setup.reported).toHaveLength(1);
+  });
+
   it("forgets a session, and everything of an environment", async () => {
     const setup = await setUp();
     await open(setup, "a");
