@@ -109,12 +109,17 @@ const startTool = (state: MapperState, block: Record_, parent: string | null): T
   return [event("tool.started", { toolCallId: id, name, input: toJsonObject(block["input"]), title: null, agentId: parent, parentToolCallId: parent })];
 };
 
+/**
+ * Ends a tool call once. Only one this turn saw start: an end for another
+ * (a result or denial for a call of an earlier turn, which that turn's end
+ * cancelled) would be a `tool.ended` with no `tool.started` to pair with.
+ */
 const endTool = (state: MapperState, id: string, status: "ok" | "error" | "cancelled", output: unknown): TranscriptEvent[] => {
-  if (state.closedTools.has(id)) return [];
   const open = state.openTools.get(id);
+  if (open === undefined) return [];
   state.openTools.delete(id);
   state.closedTools.add(id);
-  return [event("tool.ended", { toolCallId: id, status, output: toJson(output) as never, durationMs: open === undefined ? null : Math.max(0, state.now() - open.startedAt) })];
+  return [event("tool.ended", { toolCallId: id, status, output: toJson(output) as never, durationMs: Math.max(0, state.now() - open.startedAt) })];
 };
 
 const mapInit = (message: Record_, state: MapperState): TranscriptEvent[] => {

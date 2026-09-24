@@ -121,11 +121,22 @@ describe("tool use and results", () => {
           parentToolCallId: "toolu_agent",
         },
       },
-      { type: "tool.ended", payload: { toolCallId: "toolu_read", status: "error", output: [{ type: "text", text: "export const parse = () => 1;" }], durationMs: 1000 } },
-      { type: "tool.ended", payload: { toolCallId: "toolu_rm", status: "error", output: "Denied: rm is not allowed.", durationMs: null } },
-      { type: "tool.ended", payload: { toolCallId: "toolu_agent", status: "cancelled", output: null, durationMs: 4000 } },
+      { type: "tool.ended", payload: { toolCallId: "toolu_read", status: "ok", output: [{ type: "text", text: "export const parse = () => 1;" }], durationMs: 1000 } },
+      {
+        type: "tool.started",
+        payload: { toolCallId: "toolu_rm", name: "Bash", input: { command: "rm -rf build", description: "Remove the build" }, title: null, agentId: null, parentToolCallId: null },
+      },
+      // Denied: ended at the denial, with its reason; the result the model is then handed ends nothing more.
+      { type: "tool.ended", payload: { toolCallId: "toolu_rm", status: "error", output: "Denied: rm is not allowed.", durationMs: 1000 } },
+      { type: "tool.ended", payload: { toolCallId: "toolu_agent", status: "cancelled", output: null, durationMs: 6000 } },
       { type: "end", reason: "completed", cause: null, error: null, usage: null, turnCount: 3, resultText: "Listed." },
     ]);
+  });
+
+  it("ends no tool call it never saw start, so every end pairs with a start", () => {
+    const { state } = setup();
+    expect(mapSdkMessage({ type: "system", subtype: "permission_denied", tool_name: "Bash", tool_use_id: "toolu_unseen", message: "Denied.", session_id: "s", uuid: "u" }, state)).toEqual([]);
+    expect(mapSdkMessage({ type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_unseen", content: "late", is_error: false }] }, parent_tool_use_id: null, session_id: "s", uuid: "u" }, state)).toEqual([]);
   });
 
   it("keeps a subagent's own words out of the transcript: its transcript is read on demand", () => {
