@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { EventTypeEntry } from "./event-types.js";
 import { PERMISSION_SETTINGS } from "./permissions-settings.js";
+import { PROCESS_IDLE_MINUTES_PRESET, ProcessIdleMinutes } from "./methods/providers.js";
 
 /**
  * The environment's settings (session-state spec, "Commands" and "Auto-settle:
@@ -73,8 +74,12 @@ const setting = <const S extends z.ZodType>(definition: SettingDefinition<S>): S
 /**
  * Every settings key. The two auto-settle keys sit under the Appearance
  * step's entry, in a Sessions band of its pane (session-state spec); the Set
- * up workstream (#88) may re-home them. The permission keys (#129) are the
- * Permissions step's, written through `permissions.settings.set` only.
+ * up workstream (#88) may re-home them. `providers.processIdleMinutes`
+ * (#120) sits under the Account step's entry, in the Default model band of
+ * the Accounts pane (ADR 0027's `accounts.default-model` row, which absorbs
+ * Artemis's Runs pane); the Account step's own keys (#134) join it there.
+ * The permission keys (#129) are the Permissions step's, written through
+ * `permissions.settings.set` only.
  */
 export const SETTINGS = {
   "sessions.autoSettleAfterIdle": setting({
@@ -86,6 +91,11 @@ export const SETTINGS = {
     schema: AutoSettleOnMerge,
     preset: false,
     step: { id: "appearance", band: "sessions" },
+  }),
+  "providers.processIdleMinutes": setting({
+    schema: ProcessIdleMinutes,
+    preset: PROCESS_IDLE_MINUTES_PRESET,
+    step: { id: "account", band: "default-model" },
   }),
   ...PERMISSION_SETTINGS,
 } as const;

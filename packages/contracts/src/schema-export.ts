@@ -98,6 +98,7 @@ import {
   SendResponse,
 } from "./adapter.js";
 import { AttachmentInput } from "./methods/runs.js";
+import { ProcessHold, ProcessHoldKind, ProcessIdleMinutes, ProcessState, ProcessStopReason, ProviderProcess } from "./methods/providers.js";
 import {
   AttachmentKind,
   AttachmentRecord,
@@ -256,6 +257,11 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "adapter/delegated-work-status.json", title: "DelegatedWorkStatus", schema: DelegatedWorkStatus },
   { path: "adapter/delegated-work-row.json", title: "DelegatedWorkRow", schema: DelegatedWorkRow },
   { path: "adapter/run-suggestion.json", title: "RunSuggestion", schema: RunSuggestion },
+  { path: "adapter/process-state.json", title: "ProcessState", schema: ProcessState },
+  { path: "adapter/process-stop-reason.json", title: "ProcessStopReason", schema: ProcessStopReason },
+  { path: "adapter/process-hold-kind.json", title: "ProcessHoldKind", schema: ProcessHoldKind },
+  { path: "adapter/process-hold.json", title: "ProcessHold", schema: ProcessHold },
+  { path: "adapter/provider-process.json", title: "ProviderProcess", schema: ProviderProcess },
   { path: "transcript/run-origin.json", title: "RunOrigin", schema: RunOrigin },
   { path: "transcript/run-end-reason.json", title: "RunEndReason", schema: RunEndReason },
   { path: "transcript/interrupt-cause.json", title: "InterruptCause", schema: InterruptCause },
@@ -295,6 +301,7 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "settings/idle-span.json", title: "IdleSpan", schema: IdleSpan },
   { path: "settings/keys/sessions.autoSettleAfterIdle.json", title: "AutoSettleAfterIdle", schema: AutoSettleAfterIdle },
   { path: "settings/keys/sessions.autoSettleOnMerge.json", title: "AutoSettleOnMerge", schema: AutoSettleOnMerge },
+  { path: "settings/keys/providers.processIdleMinutes.json", title: "ProcessIdleMinutes", schema: ProcessIdleMinutes },
   { path: "settings/settings-values.json", title: "SettingsValues", schema: SettingsValues },
   { path: "settings/settings-patch.json", title: "SettingsPatch", schema: SettingsPatch },
   { path: "settings/settings-event-type.json", title: "SettingsEventType", schema: SettingsEventType },

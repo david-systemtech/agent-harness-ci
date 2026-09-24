@@ -46,6 +46,7 @@ import {
 } from "./methods/sessions.js";
 import { permissionsModeSet, permissionsSettingsGet, permissionsSettingsSet } from "./methods/permissions.js";
 import { runsInterrupt, runsSend, runsStart, runsStopTask } from "./methods/runs.js";
+import { providersList, providersProcessesList, providersProcessesStop } from "./methods/providers.js";
 import { settingsGet, settingsUpdate } from "./methods/settings.js";
 
 /**
@@ -96,6 +97,9 @@ export const methods = [
   runsSend,
   runsInterrupt,
   runsStopTask,
+  providersList,
+  providersProcessesList,
+  providersProcessesStop,
   settingsGet,
   settingsUpdate,
   permissionsModeSet,
