@@ -1080,6 +1080,35 @@ describe("a run's prompts", () => {
     expect(() => t.host.answerPrompt(runId, "p-1", { decision: "allow" })).toThrow(expect.objectContaining({ code: "conflict", data: expect.objectContaining({ reason: "run_ended" }) }));
   });
 
+  it("refuses an answer internal, logged, when the adapter fails at it for any other reason, at once or asynchronously", async () => {
+    const held = gate();
+    let fail: () => void | Promise<void> = () => Promise.reject(new Error("The control channel is gone."));
+    const adapter = fakeAdapter({
+      script: async function* ({ context, input }) {
+        yield say("Working");
+        void context.broker.request({ sessionId: input.sessionId, runId: input.runId, promptId: "p-1", kind: "permission", detail: {} });
+        void context.broker.request({ sessionId: input.sessionId, runId: input.runId, promptId: "p-2", kind: "permission", detail: {} });
+        await held.opened;
+        yield end();
+      },
+    });
+    const create = adapter.createRun;
+    const t = await setup({ ...adapter, createRun: (input, context) => ({ ...create(input, context), answerPrompt: () => fail() }) } as FakeAdapter, {
+      broker: { request: () => new Promise(() => undefined) },
+    });
+    const runId = startRun(t);
+    await vi.waitFor(() => expect([...t.host.runs.runs()].find((run) => run.id === runId)?.state).toBe("parked"));
+    const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    await expect(t.host.answerPrompt(runId, "p-1", { decision: "allow" })).rejects.toMatchObject({ code: "internal", message: expect.stringMatching(/control channel is gone/) });
+    fail = () => {
+      throw new Error("The adapter broke.");
+    };
+    expect(() => t.host.answerPrompt(runId, "p-2", { decision: "allow" })).toThrow(expect.objectContaining({ code: "internal", message: expect.stringMatching(/adapter broke/) }));
+    expect(logged).toHaveBeenCalledTimes(2);
+    logged.mockRestore();
+    held.open();
+  });
+
   it("refuses an answer conflict when an adapter that answers asynchronously says the prompt is closed", async () => {
     const held = gate();
     const adapter = fakeAdapter({

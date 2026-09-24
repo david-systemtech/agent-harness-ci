@@ -208,6 +208,8 @@ export interface AdapterHost {
    * already (the host's own record), or the adapter holds it no longer: thrown
    * when the adapter answers at once, and the returned promise rejected
    * when it answers asynchronously, so the caller awaits what it returns.
+   * Any other failure of the adapter's is logged and refused `internal`, the
+   * same way at once or asynchronously.
    */
   answerPrompt(runId: string, promptId: string, decision: PromptDecision): void | Promise<void>;
   /** Plan usage for an account, with its identity (`planUsage`). */
@@ -1251,8 +1253,13 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       if (!entry.prompts.has(promptId)) throw closed("prompt_not_open", `Run ${runId} has no prompt ${promptId} open.`);
       // Answered either way: a prompt the adapter no longer holds open parks nothing.
       answered(entry, promptId);
-      const refusal = (error: unknown): unknown =>
-        error instanceof PromptClosed ? closed(error.reason === "run_ended" ? "run_ended" : "prompt_not_open", error.message) : error;
+      // One contract, at once or asynchronously: a closed prompt is the caller's `conflict`; any other failure is logged
+      // and refused `internal`, so the caller knows the answer did not land.
+      const refusal = (error: unknown): ContractError => {
+        if (error instanceof PromptClosed) return closed(error.reason === "run_ended" ? "run_ended" : "prompt_not_open", error.message);
+        console.error(`Answering prompt ${promptId} of run ${runId} failed:`, error);
+        return new ContractError({ code: "internal", message: `Answering prompt ${promptId} failed: ${messageOf(error)}`, data: {} });
+      };
       let answering: void | Promise<void>;
       try {
         answering = answer.call(run, promptId, decision);
