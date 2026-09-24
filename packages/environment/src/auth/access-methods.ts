@@ -6,11 +6,17 @@ import type { Pairings } from "./pairings.js";
 
 export interface AccessMethodsOptions {
   readonly pairings: Pick<Pairings, "create">;
-  readonly clientSessions: Pick<ClientSessions, "list" | "refresh" | "revoke">;
+  readonly clientSessions: Pick<ClientSessions, "list" | "refresh" | "revoke" | "setCeiling">;
   readonly accessLog: Pick<AccessLog, "list" | "stream">;
 }
 
-type AccessMethodName = "access.pairings.create" | "access.sessions.list" | "access.sessions.revoke" | "access.sessions.refresh" | "access.log.list";
+type AccessMethodName =
+  | "access.pairings.create"
+  | "access.sessions.list"
+  | "access.sessions.revoke"
+  | "access.sessions.refresh"
+  | "access.sessions.setCeiling"
+  | "access.log.list";
 
 /**
  * The `access` family's handlers. The wire has checked the scope and the
@@ -43,6 +49,23 @@ export const accessMethods = (options: AccessMethodsOptions): Required<Pick<Meth
       // The socket authenticated moments ago; only a revocation or the expiry landing in between gets here.
       if (!renewed) throw new ContractError({ code: "unauthorized", message: "This client session is no longer valid.", data: {} });
       return { aggregate, result: renewed };
+    },
+
+    // Permissions spec, "Ceilings": no client session changes its own ceiling, whatever its scopes (#129).
+    "access.sessions.setCeiling": (params, { clientSession, commandId, tx }) => {
+      const target = params.clientSessionId;
+      if (target === clientSession.id) {
+        return {
+          aggregate,
+          rejected: { code: "conflict", message: "A client session cannot change its own ceiling; another admin session can.", data: { reason: "own_session" } },
+        };
+      }
+      const changed = clientSessions.setCeiling(tx, target, params.ceiling, byClientSession(clientSession.id, commandId));
+      if (changed === undefined) return { aggregate, rejected: { code: "not_found", message: `No client session is named ${target}.` } };
+      if (changed === "revoked") {
+        return { aggregate, rejected: { code: "conflict", message: `The client session ${target} has been revoked.`, data: { reason: "revoked" } } };
+      }
+      return { aggregate, result: { clientSessionId: target, from: changed.from, to: changed.to } };
     },
 
     "access.log.list": (params) => ({ events: accessLog.list(params.afterSequence ?? 0, params.limit ?? DEFAULT_LOG_PAGE) }),

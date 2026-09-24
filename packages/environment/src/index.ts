@@ -88,19 +88,29 @@ export { createScopedAppend, type ScopedAppend } from "./adapter/scoped-append.j
 export {
   autoDenyBroker,
   composeInstructions,
-  identityClamp,
   noToolServers,
   orientationPlaceholder,
-  type ClampedMode,
+  presetPolicy,
   type InstructionComposer,
   type InstructionLayers,
   type InstructionScope,
-  type ModeClamp,
+  type PolicyRequest,
+  type PolicySeam,
   type ToolServerFactory,
   type ToolServerScope,
 } from "./adapter/seams.js";
 export { capability, requireCapability, unsupported } from "./adapter/capabilities.js";
 export { RUNS_PROJECTOR, runsProjector } from "./runs/runs-projector.js";
+export {
+  ATTENDED_DEFAULT_MODE,
+  clampMode,
+  resolvePolicy,
+  type PolicyInput,
+  type PolicyOutcome,
+  type PolicySettings,
+  type RunActor,
+} from "./permissions/resolver.js";
+export { PERMISSIONS_PROJECTOR, permissionsProjector } from "./permissions/permissions-store.js";
 export { runMethods, type RunMethodsOptions } from "./runs/run-methods.js";
 export { foldTranscript, type TranscriptParts } from "./runs/transcript.js";
 export { SETTLE_SWEEP_ACTOR, SETTLE_SWEEP_INTERVAL_MS, createSettleSweep, type SettleSweep, type SweepOutcome } from "./sessions/settle-sweep.js";

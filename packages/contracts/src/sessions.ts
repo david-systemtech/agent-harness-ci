@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { EventTypeEntry } from "./event-types.js";
+import { Mode } from "./permissions-modes.js";
 import { OrderKey } from "./ordering.js";
 import { JsonObject, Sequence, Timestamp } from "./primitives.js";
 
@@ -313,7 +314,7 @@ export const SessionCreatedPayload = z
     repositoryIdentity: z.string().min(1).nullable(),
     account: z.string().min(1).nullable().meta({ description: "The account asked for, if any; the adapter workstream (#119) validates it." }),
     model: z.string().min(1).nullable().meta({ description: "The model asked for, if any; the adapter workstream (#119) validates it." }),
-    mode: z.string().min(1).nullable().meta({ description: "The mode asked for, if any; the permissions workstream validates it." }),
+    mode: Mode.nullable().meta({ description: "The mode asked for, if any; clamped at each run, and changed by session.mode.set." }),
   })
   .meta({ description: "session.created: a session was created; its createdAt is the event's occurredAt." });
 

@@ -1,7 +1,16 @@
 import { z } from "zod";
 import { commandParams, defineMethod } from "../method.js";
 import { setOf } from "../primitives.js";
-import { SettingsKeyName, SettingsPatch, SettingsValues } from "../settings.js";
+import { GENERIC_SETTINGS_KEYS, SETTINGS, SettingsKeyName, SettingsPatch, SettingsValues } from "../settings.js";
+
+/** What `settings.update` takes: some values of the keys it writes, each valid for its key; a key a single method owns (`writtenBy`) is refused like an unknown one. */
+const GenericSettingsPatch = z
+  .strictObject(Object.fromEntries(GENERIC_SETTINGS_KEYS.map((key) => [key, SETTINGS[key].schema])))
+  .partial()
+  .meta({
+    description:
+      "Some settings' values by key, each valid for its key; a key that is not a setting, or that a method of its own writes (the permissions.* keys: permissions.settings.set), is refused.",
+  });
 
 /**
  * The harness's generic key-value settings methods (session-state spec,
@@ -27,14 +36,16 @@ export const settingsGet = defineMethod({
  * Set some settings: each value is checked against its key's schema, and a
  * value that is not valid, or a key that is not a setting, is
  * `invalid_params` with the offending key in the issue's path (or, for an
- * unknown key, its `keys`). A value a key already holds changes nothing.
+ * unknown key, its `keys`). A key a method of its own writes (`writtenBy`:
+ * the permission keys, through `permissions.settings.set`) is refused the
+ * same way. A value a key already holds changes nothing.
  * Answered with every setting's value after it.
  */
 export const settingsUpdate = defineMethod({
   name: "settings.update",
   scope: "admin",
   kind: "command",
-  params: commandParams({ values: SettingsPatch }),
+  params: commandParams({ values: GenericSettingsPatch }),
   result: z.object({ values: SettingsValues }),
   errors: [],
 });

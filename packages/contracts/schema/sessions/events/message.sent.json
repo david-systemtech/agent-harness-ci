@@ -82,8 +82,13 @@
     },
     "ceiling": {
       "type": "string",
-      "minLength": 1,
-      "description": "The ceiling of the connection that sent it (ADR 0006): a run the environment later starts with it is clamped to it, as well as to the ceiling of whoever started that run."
+      "enum": [
+        "plan",
+        "acceptEdits",
+        "auto",
+        "bypassPermissions"
+      ],
+      "description": "The ceiling of the client session that sent it (ADR 0006): a run the environment later starts with it is clamped to it, as well as to the ceiling of whoever started that run."
     }
   },
   "required": [
