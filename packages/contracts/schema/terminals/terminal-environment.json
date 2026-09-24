@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TerminalEnvironment",
+  "type": "object",
+  "propertyNames": {
+    "type": "string",
+    "maxLength": 256,
+    "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+  },
+  "additionalProperties": {
+    "type": "string",
+    "maxLength": 32768
+  },
+  "description": "Variables added to the shell's environment on top of the environment's clean base (TERM, PATH, HOME, LANG, the user's names); at most 100, names [A-Za-z_][A-Za-z0-9_]*, values without NUL."
+}

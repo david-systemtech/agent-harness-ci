@@ -59,6 +59,16 @@ import {
   commandsList,
   modelsList,
 } from "./methods/accounts.js";
+import { diffsSession, diffsWorkingTree } from "./methods/diffs.js";
+import { filesList, filesRead } from "./methods/files.js";
+import {
+  terminalsClose,
+  terminalsList,
+  terminalsOpen,
+  terminalsResize,
+  terminalsSubscribe,
+  terminalsWrite,
+} from "./methods/terminals.js";
 
 /**
  * Every method the environment answers, in one typed table: the environment's
@@ -125,6 +135,16 @@ export const methods = [
   permissionsModeSet,
   permissionsSettingsGet,
   permissionsSettingsSet,
+  terminalsOpen,
+  terminalsWrite,
+  terminalsResize,
+  terminalsClose,
+  terminalsList,
+  terminalsSubscribe,
+  filesList,
+  filesRead,
+  diffsWorkingTree,
+  diffsSession,
 ] as const;
 
 type Registered = (typeof methods)[number];

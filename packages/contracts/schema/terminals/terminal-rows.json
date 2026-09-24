@@ -1,0 +1,8 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TerminalRows",
+  "type": "integer",
+  "minimum": 1,
+  "maximum": 1000,
+  "description": "A terminal's height in rows, 1 to 1,000."
+}

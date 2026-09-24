@@ -1,0 +1,8 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "WorkspacePath",
+  "type": "string",
+  "minLength": 1,
+  "maxLength": 4096,
+  "description": "A path relative to the session's workspace, with forward slashes. An absolute path, a .. segment, or a symlink that leads outside the workspace is refused invalid_params."
+}

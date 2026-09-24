@@ -142,6 +142,23 @@ import {
 import { OrderKey } from "./ordering.js";
 import { methods } from "./registry.js";
 import { Ceiling, Scope, ScopeSet } from "./scopes.js";
+import {
+  FilesListSource,
+  SessionDiffChange,
+  SessionDiffFile,
+  TERMINAL_EXITED_TYPE,
+  TERMINAL_OUTPUT_TYPE,
+  TerminalColumns,
+  TerminalEnvironment,
+  TerminalExitCause,
+  TerminalExitedPayload,
+  TerminalId,
+  TerminalInfo,
+  TerminalOutputPayload,
+  TerminalRows,
+  TerminalSnapshot,
+  WorkspacePath,
+} from "./terminals.js";
 import { ContainmentUnavailableError } from "./methods/permissions.js";
 import {
   ClampReason,
@@ -336,6 +353,19 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "permissions/parked-prompt-ttl.json", title: "ParkedPromptTtl", schema: ParkedPromptTtl },
   { path: "permissions/settings-values.json", title: "PermissionSettingsValues", schema: PermissionSettingsValues },
   { path: "permissions/settings-patch.json", title: "PermissionSettingsPatch", schema: PermissionSettingsPatch },
+  { path: "terminals/terminal-id.json", title: "TerminalId", schema: TerminalId },
+  { path: "terminals/terminal-columns.json", title: "TerminalColumns", schema: TerminalColumns },
+  { path: "terminals/terminal-rows.json", title: "TerminalRows", schema: TerminalRows },
+  { path: "terminals/terminal-environment.json", title: "TerminalEnvironment", schema: TerminalEnvironment },
+  { path: "terminals/terminal-exit-cause.json", title: "TerminalExitCause", schema: TerminalExitCause },
+  { path: "terminals/terminal-info.json", title: "TerminalInfo", schema: TerminalInfo },
+  { path: "terminals/terminal-snapshot.json", title: "TerminalSnapshot", schema: TerminalSnapshot },
+  { path: `terminals/events/${TERMINAL_OUTPUT_TYPE}.json`, title: "TerminalOutputPayload", schema: TerminalOutputPayload },
+  { path: `terminals/events/${TERMINAL_EXITED_TYPE}.json`, title: "TerminalExitedPayload", schema: TerminalExitedPayload },
+  { path: "files/workspace-path.json", title: "WorkspacePath", schema: WorkspacePath },
+  { path: "files/files-list-source.json", title: "FilesListSource", schema: FilesListSource },
+  { path: "diffs/session-diff-change.json", title: "SessionDiffChange", schema: SessionDiffChange },
+  { path: "diffs/session-diff-file.json", title: "SessionDiffFile", schema: SessionDiffFile },
   { path: "actor.json", title: "Actor", schema: Actor },
   { path: "event-envelope.json", title: "EventEnvelope", schema: EventEnvelope },
   { path: "notices/environment-notice-type.json", title: "EnvironmentNoticeType", schema: EnvironmentNoticeType },

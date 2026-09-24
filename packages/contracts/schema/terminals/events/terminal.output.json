@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TerminalOutputPayload",
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "string",
+      "description": "The output, as the terminal wrote it, escape sequences and all."
+    }
+  },
+  "required": [
+    "data"
+  ],
+  "description": "terminal.output: one chunk of a terminal's output, never in the log."
+}
