@@ -690,6 +690,9 @@ export class ClaudeProcess implements TurnControl {
     if (!turn.ended && this.#ledger.dirty) turn.emit({ type: "tasks.changed", payload: { tasks: this.#ledger.snapshot() } });
     if (turn.ended && this.#current === turn) {
       this.#current = undefined;
+      // A tool call still parked on the ended turn is denied, never allowed later: the adapter denies its run's prompts as
+      // the run ends, since the host, which then refuses an answer run_ended, has no run left to ask.
+      this.#denyAll(ENDED_DENY_MESSAGE, turn);
       this.#afterTurn();
     }
   }

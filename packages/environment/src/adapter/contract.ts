@@ -284,7 +284,12 @@ export interface AdapterRun {
    * takes back into the environment's queue (ADR 0022).
    */
   interrupt(): Promise<{ readonly stillQueued: readonly string[] }>;
-  /** Answers a parked prompt (`interactivePrompts`); throws `PromptClosed` when the answer can reach no tool call. */
+  /**
+   * Answers a parked prompt (`interactivePrompts`); throws `PromptClosed`
+   * when the answer can reach no tool call. An adapter denies its run's
+   * parked prompts itself as the run ends, however it ends: once a run is no
+   * longer live the host refuses answers `run_ended` without asking it.
+   */
   answerPrompt?(promptId: string, decision: PromptDecision): void | Promise<void>;
   /** Stops one piece of delegated work (`subagents`). */
   stopTask?(taskId: string): void | Promise<void>;

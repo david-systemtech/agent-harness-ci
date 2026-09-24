@@ -406,6 +406,21 @@ describe("canUseTool on the broker seam", () => {
     expect(context.asked).toEqual([]);
   });
 
+  it("denies a tool call still parked when its run's turn ends, so a refused answer never leaves it waiting", async () => {
+    const adapter = adapterWith();
+    const context = contextWith();
+    const input = runInput();
+    const run = adapter.createRun(input, context);
+    const query = await started();
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [input.prompt[0]?.messageId as string]));
+    await flush();
+    const asked = query.canUseTool("Bash", { command: "rm -rf build" }, { toolUseID: "toolu_rm" });
+    await vi.waitFor(() => expect(context.asked).toHaveLength(1));
+    query.emit(sdk.result(PROVIDER_SESSION));
+    await drain(run);
+    expect(await asked).toMatchObject({ behavior: "deny", message: "The run this tool call belonged to has ended." });
+  });
+
   it("refuses an answer for a prompt whose run has ended, saying so, and denies the tool call rather than letting it run", async () => {
     const adapter = adapterWith();
     const context = contextWith();
