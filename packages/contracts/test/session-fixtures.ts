@@ -183,7 +183,7 @@ export const sessionSchemaFixtures: Record<string, Fixtures> = {
   "sessions/stored-draft.json": { valid: [null, "Now the retention sweep", "x".repeat(65_536)], invalid: ["", "x".repeat(65_537), 7] },
   "sessions/group-name.json": {
     valid: ["Brandsolidate", "x".repeat(80), ` ${"x".repeat(80)} `, "Cool \t Jams\n and friends", "naïve", "日本語"],
-    invalid: ["", "  ", "x".repeat(81), "a\u0000b", "a\u001Bb", "a\u0085b", "\u200B", "a\u200Bb", "\u200B\u200B", "\uFEFF", "a\uFEFFb", "a\u2060b", "a\u0085b"],
+    invalid: ["", "  ", "x".repeat(81), "a\u0000b", "a\u001Bb", "a\u0085b", "\u200B", "a\u200Bb", "\u200B\u200B", "\uFEFF", "a\uFEFFb", "a\u2060b"],
   },
   "sessions/title-source.json": { valid: ["user", "generated", "default"], invalid: ["prompt", "provider", ""] },
   "sessions/generated-title-source.json": { valid: ["prompt", "provider"], invalid: ["user", ""] },

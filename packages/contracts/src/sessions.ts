@@ -95,7 +95,7 @@ export type StoredDraft = z.infer<typeof StoredDraft>;
  */
 export const GroupName = z
   .string()
-  // Inside the name, white space is any character that is not control or format, plus the control characters that are white space (tab, line feeds, form feed, return); `\s` would re-admit the byte-order mark, which is `Cf`.
+  // Inside the name: any character that is neither control nor format, plus the control characters that are white space (tab, line feeds, form feed, return); `\s` would re-admit the byte-order mark, which is `Cf`. With the `u` flag the cap counts code points, as `Tag` does.
   .regex(/^\s*[^\s\p{Cc}\p{Cf}](?:(?:[^\p{Cc}\p{Cf}]|[\t\n\v\f\r]){0,78}[^\s\p{Cc}\p{Cf}])?\s*$/u)
   .meta({
     description:
