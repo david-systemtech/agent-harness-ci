@@ -4,11 +4,11 @@ import {
   PERMISSION_SETTINGS,
   PERMISSION_SETTINGS_KEYS,
   SESSION_STREAM_KIND,
+  SettingsChangedPayload,
   presetPermissionSettings,
   type PermissionSettingsKey,
   type PermissionSettingsValues,
   type SessionModeSetPayload,
-  type SettingsChangedPayload,
 } from "@agent-harness/contracts";
 import type { Projector } from "../event-log/event-log.js";
 import type { Reader } from "../sessions/session-reads.js";
@@ -16,7 +16,9 @@ import type { Reader } from "../sessions/session-reads.js";
 /**
  * The permissions read models, kept in the transaction of the events they
  * follow and rebuilt from the log: the permission settings, from the access
- * log's `settings.changed` (area `permissions`), and each session's mode,
+ * log's `settings.changed` (area `permissions`), checked against its schema
+ * so a malformed one fails its append rather than falling back to a preset
+ * unseen, and each session's mode,
  * from its latest `session.mode.set`. A purged session's row goes with its
  * tombstone.
  *
@@ -45,7 +47,7 @@ export const permissionsProjector: Projector = {
   tables: PERMISSIONS_TABLES,
   apply(event, db) {
     if (event.streamKind === ACCESS_STREAM_KIND && event.type === "settings.changed") {
-      const payload = event.payload as SettingsChangedPayload;
+      const payload = SettingsChangedPayload.parse(event.payload);
       if (payload.area !== "permissions") return;
       for (const [key, value] of Object.entries(payload.values)) {
         db.run("INSERT INTO permission_settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value", key, JSON.stringify(value));
@@ -54,8 +56,8 @@ export const permissionsProjector: Projector = {
     }
     if (event.streamKind !== SESSION_STREAM_KIND) return;
     if (event.type === "session.mode.set") {
-      const { effective } = event.payload as SessionModeSetPayload;
-      db.run("INSERT INTO session_modes (session_id, mode) VALUES (?, ?) ON CONFLICT (session_id) DO UPDATE SET mode = excluded.mode", event.streamId, effective);
+      const { mode } = event.payload as SessionModeSetPayload;
+      db.run("INSERT INTO session_modes (session_id, mode) VALUES (?, ?) ON CONFLICT (session_id) DO UPDATE SET mode = excluded.mode", event.streamId, mode.effective);
     } else if (event.type === "session.purged") {
       db.run("DELETE FROM session_modes WHERE session_id = ?", event.streamId);
     }
@@ -64,8 +66,10 @@ export const permissionsProjector: Projector = {
 
 /**
  * Every permission setting's value: each key's stored value, or its preset
- * when it has none or the value stored no longer passes the key's schema. A
- * stored key the table no longer has is ignored.
+ * when it has none. A value stored that no longer passes the key's schema (a
+ * later version narrowed it; the projector checked it when it was written)
+ * falls back to the preset, said on the console; a stored key the table no
+ * longer has is ignored.
  */
 export const readPermissionSettings = (reader: Reader): PermissionSettingsValues => {
   const values: Record<string, unknown> = { ...presetPermissionSettings() };
@@ -73,6 +77,7 @@ export const readPermissionSettings = (reader: Reader): PermissionSettingsValues
     if (!(PERMISSION_SETTINGS_KEYS as readonly string[]).includes(row.key)) continue;
     const parsed = PERMISSION_SETTINGS[row.key as PermissionSettingsKey].schema.safeParse(JSON.parse(row.value));
     if (parsed.success) values[row.key] = parsed.data;
+    else console.error(`The stored ${row.key} is not valid for it any more; it holds its preset.`, parsed.error.issues);
   }
   return values as PermissionSettingsValues;
 };

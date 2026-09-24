@@ -92,7 +92,8 @@ describe("the permission settings", () => {
     for (const key of PERMISSION_SETTINGS_KEYS) {
       const definition = PERMISSION_SETTINGS[key];
       expect(definition.schema.safeParse(definition.preset).success, key).toBe(true);
-      expect(definition.step, key).toEqual({ id: "permissions", band: "permissions" });
+      // The Permissions step (#141), in the Access band whose row is access.permissions (ADR 0027).
+      expect(definition.step, key).toEqual({ id: "permissions", band: "access" });
     }
   });
 

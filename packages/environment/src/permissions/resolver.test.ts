@@ -14,8 +14,7 @@ const without = (...missing: Mode[]): ModeAvailability[] =>
   everyMode.map((entry) => (missing.includes(entry.mode) ? { mode: entry.mode, available: false, reason: `No ${entry.mode} on this account.` } : entry));
 
 const input = (overrides: Partial<PolicyInput> = {}): PolicyInput => ({
-  actorKind: "client",
-  attended: true,
+  actor: { kind: "client" },
   requested: null,
   ceiling: "bypassPermissions",
   accountModes: everyMode,
@@ -75,13 +74,14 @@ describe("the policy resolver", () => {
     });
   });
 
-  it("starts an attended run that names no mode in acceptEdits, clamped like any request", () => {
+  it("starts an attended run that names no mode in acceptEdits, lowered to the ceiling but not reported clamped: a default applied", () => {
     expect(modeOf({})).toEqual({ requested: null, effective: "acceptEdits", ceiling: "bypassPermissions", clamped: false, clampReason: null });
-    expect(modeOf({ ceiling: "plan" })).toEqual({ requested: null, effective: "plan", ceiling: "plan", clamped: true, clampReason: "ceiling" });
+    expect(modeOf({ ceiling: "plan" })).toEqual({ requested: null, effective: "plan", ceiling: "plan", clamped: false, clampReason: null });
+    expect(modeOf({ accountModes: without("acceptEdits") })).toEqual({ requested: null, effective: "plan", ceiling: "bypassPermissions", clamped: false, clampReason: null });
   });
 
   it("gives an unattended run that names no mode the unattended default, within its ceiling, and says so", () => {
-    const unattended = { actorKind: "routine", attended: false } as const;
+    const unattended = { actor: { kind: "routine" } } as const;
     const bypass = { unattendedMode: "bypassPermissions", containmentDefault: "off" } as const;
     expect(resolvePolicy(input({ ...unattended, settings: bypass }))).toEqual({
       actorKind: "routine",
@@ -91,7 +91,7 @@ describe("the policy resolver", () => {
       unattendedDefaultApplied: true,
     });
     expect(resolvePolicy(input({ ...unattended, settings: bypass, ceiling: "acceptEdits" }))).toMatchObject({
-      mode: { requested: null, effective: "acceptEdits", clamped: true, clampReason: "ceiling" },
+      mode: { requested: null, effective: "acceptEdits", clamped: false, clampReason: null },
       unattendedDefaultApplied: true,
     });
     // A routine that names its mode overrides the default.
@@ -102,7 +102,14 @@ describe("the policy resolver", () => {
   });
 
   it("never applies the unattended default to an attended run", () => {
-    const resolved = resolvePolicy(input({ actorKind: "completions", attended: true, settings: { unattendedMode: "bypassPermissions", containmentDefault: "off" } }));
+    const resolved = resolvePolicy(input({ actor: { kind: "completions", attended: true }, settings: { unattendedMode: "bypassPermissions", containmentDefault: "off" } }));
     expect(resolved).toMatchObject({ actorKind: "completions", attended: true, mode: { effective: "acceptEdits" }, unattendedDefaultApplied: false });
+  });
+
+  it("derives attendance from who started the run: a client is attended, a routine or a bot never, the completions surface when it says so", () => {
+    expect(resolvePolicy(input({ actor: { kind: "client" } }))).toMatchObject({ attended: true });
+    expect(resolvePolicy(input({ actor: { kind: "routine" } }))).toMatchObject({ attended: false });
+    expect(resolvePolicy(input({ actor: { kind: "bot" } }))).toMatchObject({ attended: false });
+    expect(resolvePolicy(input({ actor: { kind: "completions", attended: false } }))).toMatchObject({ attended: false, unattendedDefaultApplied: true });
   });
 });

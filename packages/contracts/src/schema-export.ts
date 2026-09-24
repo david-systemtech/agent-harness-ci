@@ -117,10 +117,9 @@ import {
   PERMISSION_SESSION_EVENT_TYPES,
   RunActorKind,
   RunPolicy,
-  SettingsArea,
 } from "./permissions.js";
 import { Mode, ModeAvailability } from "./permissions-modes.js";
-import { ParkedPromptTtl, PermissionSettingsPatch, PermissionSettingsValues, TtlUnit, UnattendedMode } from "./permissions-settings.js";
+import { ParkedPromptTtl, PermissionSettingsPatch, PermissionSettingsValues, SettingsArea, TtlUnit, UnattendedMode } from "./permissions-settings.js";
 
 /**
  * The JSON Schema export: every schema in the package as a draft 2020-12

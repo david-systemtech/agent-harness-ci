@@ -63,8 +63,11 @@ interface SettingDefinition<S extends z.ZodType = z.ZodType> {
 
 const setting = <const S extends z.ZodType>(definition: SettingDefinition<S>): SettingDefinition<S> => definition;
 
-/** Every permission key sits under the Permissions step (#141), in its pane's Permissions band. */
-const PERMISSIONS_STEP = { id: "permissions", band: "permissions" } as const;
+/**
+ * Every permission key sits under the Permissions step (#141), in the Access
+ * band, whose Permissions row is `access.permissions` (ADR 0027).
+ */
+const PERMISSIONS_STEP = { id: "permissions", band: "access" } as const;
 
 /**
  * Every permission settings key. The containment default's preset is `off`
@@ -129,3 +132,24 @@ export type PermissionSettingsPatch = z.infer<typeof PermissionSettingsPatch>;
 /** Every key at its preset: the permission settings of an environment nobody has changed. */
 export const presetPermissionSettings = (): PermissionSettingsValues =>
   PermissionSettingsValues.parse(Object.fromEntries(PERMISSION_SETTINGS_KEYS.map((key) => [key, PERMISSION_SETTINGS[key].preset])));
+
+/** The areas whose setting changes the access log records: the permission settings, so far. */
+export const SETTINGS_AREAS = ["permissions"] as const;
+export const SettingsArea = z.enum(SETTINGS_AREAS).meta({ description: "Which settings a settings.changed names: permissions." });
+
+/**
+ * `settings.changed` on the access stream: the permission settings that
+ * changed, with their new values, each valid for its key (the shape of the
+ * generic settings' `settings.updated`, #117).
+ */
+export const SettingsChangedPayload = z
+  .object({
+    area: SettingsArea,
+    keys: z
+      .array(z.enum(PERMISSION_SETTINGS_KEYS).meta({ description: "A permission settings key." }))
+      .min(1)
+      .meta({ description: "The keys whose values changed, in the settings table's order." }),
+    values: PermissionSettingsValues.partial().meta({ description: "Their new values, by key, each valid for its key." }),
+  })
+  .meta({ description: "settings.changed: permission settings changed; the keys, and their new values." });
+export type SettingsChangedPayload = z.infer<typeof SettingsChangedPayload>;

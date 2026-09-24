@@ -75,7 +75,7 @@
             "auto",
             "bypassPermissions"
           ],
-          "description": "The mode the run got, after the clamp to the connection's ceiling and the account's modes."
+          "description": "The mode the run got, after the clamp to the client session's ceiling and the account's modes."
         },
         "clamped": {
           "type": "boolean",

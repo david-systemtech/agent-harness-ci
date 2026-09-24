@@ -1,37 +1,62 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "ContainmentAvailability",
-  "type": "object",
-  "properties": {
-    "level": {
-      "type": "string",
-      "enum": [
-        "off",
-        "workspace",
-        "workspace-no-network"
-      ],
-      "description": "Where a run may reach: off (nothing applied), workspace (writes only inside the workspace), workspace-no-network (and no network for the model's commands and fetches)."
-    },
-    "available": {
-      "type": "boolean"
-    },
-    "reason": {
-      "anyOf": [
-        {
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "level": {
           "type": "string",
-          "minLength": 1
+          "enum": [
+            "off",
+            "workspace",
+            "workspace-no-network"
+          ],
+          "description": "Where a run may reach: off (nothing applied), workspace (writes only inside the workspace), workspace-no-network (and no network for the model's commands and fetches)."
         },
-        {
-          "type": "null"
+        "available": {
+          "type": "boolean",
+          "const": true
+        },
+        "reason": {
+          "type": "null",
+          "description": "Null: the level can be enforced here."
         }
-      ],
-      "description": "Why the level cannot be enforced here; null when it can."
+      },
+      "required": [
+        "level",
+        "available",
+        "reason"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "level": {
+          "type": "string",
+          "enum": [
+            "off",
+            "workspace",
+            "workspace-no-network"
+          ],
+          "description": "Where a run may reach: off (nothing applied), workspace (writes only inside the workspace), workspace-no-network (and no network for the model's commands and fetches)."
+        },
+        "available": {
+          "type": "boolean",
+          "const": false
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Why the level cannot be enforced here, for people."
+        }
+      },
+      "required": [
+        "level",
+        "available",
+        "reason"
+      ]
     }
-  },
-  "required": [
-    "level",
-    "available",
-    "reason"
   ],
   "description": "Whether this environment can enforce a containment level and, when it cannot, why."
 }

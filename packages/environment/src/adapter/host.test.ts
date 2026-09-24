@@ -44,7 +44,8 @@ interface Setup {
 const setup = async (adapter: FakeAdapter = fakeAdapter(), options: Partial<AdapterHostOptions> = {}): Promise<Setup> => {
   const clock = manualClock();
   const log = openEventLog({ path: ":memory:", projectors: [sessionListProjector, runsProjector, permissionsProjector], clock: () => clock.now() });
-  const host = createAdapterHost({ log, clock, adapters: [adapter], accounts: [{ id: "acct", provider: adapter.descriptor.provider }], ...options });
+  // No client session stands behind these runs (their actor names none), so no ceiling is read again.
+  const host = createAdapterHost({ log, clock, adapters: [adapter], accounts: [{ id: "acct", provider: adapter.descriptor.provider }], ceilingOf: () => undefined, ...options });
   closers.push(() => log.close(), () => host.close("disposed"));
   await host.refresh();
   const sessionId = randomUUID();
@@ -54,7 +55,7 @@ const setup = async (adapter: FakeAdapter = fakeAdapter(), options: Partial<Adap
 
 /** Starts a run as `runs.start` does, outside the wire: the facts, the decider, the append, then the launch. */
 const startRun = (t: Setup, text = "Go", command: Partial<Omit<StartCommand, "message">> & { attachments?: AttachmentInput[] } = {}): string => {
-  const facts = t.host.startFacts(t.sessionId, { kind: "client", attended: true, ceiling: "bypassPermissions", clientSessionId: null });
+  const facts = t.host.startFacts(t.sessionId, { kind: "client", ceiling: "bypassPermissions", clientSessionId: null });
   t.host.admit();
   const decision = decideStart(facts, { origin: "client", ...command, message: { messageId: randomUUID(), text, attachments: command.attachments ?? [] } });
   if (decision.rejected !== undefined) throw new Error(decision.rejected.message);

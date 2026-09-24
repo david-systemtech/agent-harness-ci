@@ -2,7 +2,6 @@ import {
   MODES,
   compareModes,
   lowerMode,
-  type ContainmentAvailability,
   type ContainmentLevel,
   type Mode,
   type ModeAvailability,
@@ -29,16 +28,27 @@ import {
  */
 export const ATTENDED_DEFAULT_MODE: Mode = "acceptEdits";
 
-/** Who started a run, as the resolver and the host read it. */
-export interface RunActor {
-  readonly kind: RunActorKind;
-  /** Whether a person is present: a client session is; a routine, a bot or the completions surface is not, unless it says so. */
-  readonly attended: boolean;
+/**
+ * Who started a run, as the resolver reads it. Attendance follows from the
+ * kind: a client session is present, a routine or a bot never is, and only
+ * a completions request says for itself (`attended`, false unless it asks;
+ * claude-adapter spec, "The completions surface"), so nothing can mark a
+ * routine attended.
+ */
+export type PolicyActor =
+  | { readonly kind: Exclude<RunActorKind, "completions"> }
+  | { readonly kind: "completions"; readonly attended: boolean };
+
+/** Whether a person is present for a run `actor` started. */
+export const isAttended = (actor: PolicyActor): boolean => (actor.kind === "completions" ? actor.attended : actor.kind === "client");
+
+/** Who started a run, as the host reads it: the resolver's actor, its ceiling, and the client session behind it. */
+export type RunActor = PolicyActor & {
   /** The ceiling of the client session that started it (or, for a routine, the one it was saved under). */
   readonly ceiling: Mode;
-  /** The client session that started it, whose ceiling a run the environment starts after it from the queue reads again; null when none did. */
+  /** The client session that started it, whose ceiling a later run the environment starts for it reads again; null when none did. */
   readonly clientSessionId: string | null;
-}
+};
 
 /** The settings the resolver reads. */
 export interface PolicySettings {
@@ -53,8 +63,7 @@ export const policySettings = (values: PermissionSettingsValues): PolicySettings
 });
 
 export interface PolicyInput {
-  readonly actorKind: RunActorKind;
-  readonly attended: boolean;
+  readonly actor: PolicyActor;
   /** The mode the run or its session asks for; null when neither names one. */
   readonly requested: Mode | null;
   readonly ceiling: Mode;
@@ -73,7 +82,9 @@ const isAvailable = (modes: readonly ModeAvailability[], mode: Mode): boolean =>
  * Clamps `start` (the mode asked for, or the default that stands in for it)
  * to the ceiling, then down past every mode the account cannot use. The
  * reason is `unavailable` when the second step lowered it, else `ceiling`
- * when the first did. Null when nothing at or below the ceiling is available.
+ * when the first did. A default that is lowered is not a clamp: with nothing
+ * requested, `clamped` is false and the reason null. Null when nothing at or
+ * below the ceiling is available.
  */
 export const clampMode = (
   requested: Mode | null,
@@ -84,7 +95,7 @@ export const clampMode = (
   const underCeiling = lowerMode(start, ceiling);
   const effective = [...MODES].reverse().find((mode) => compareModes(mode, underCeiling) <= 0 && isAvailable(modes, mode));
   if (effective === undefined) return null;
-  const clampReason = effective !== underCeiling ? "unavailable" : underCeiling !== start ? "ceiling" : null;
+  const clampReason = requested === null ? null : effective !== underCeiling ? "unavailable" : underCeiling !== start ? "ceiling" : null;
   return { requested, effective, ceiling, clamped: clampReason !== null, clampReason };
 };
 
@@ -93,29 +104,19 @@ export const noModeAvailable = (ceiling: Mode): string =>
   `No mode at or below the ceiling ${ceiling} is available to the account, so no run can start in one.`;
 
 /**
- * Where containment stands until #133's prober: only `off` can be
- * enforced, so a run's containment is the default, which the settings
- * refuse to be anything else.
- */
-export const containmentAvailability = (): ContainmentAvailability[] => [
-  { level: "off", available: true, reason: null },
-  { level: "workspace", available: false, reason: "The containment prober is not built yet (#133), so no workspace level can be enforced." },
-  { level: "workspace-no-network", available: false, reason: "The containment prober is not built yet (#133), so no workspace level can be enforced." },
-];
-
-/**
  * A run's policy. An unattended run that names no mode gets the unattended
  * default; an attended one, `ATTENDED_DEFAULT_MODE`. Either is then clamped
  * to the ceiling and the account's modes, like any request.
  */
 export const resolvePolicy = (input: PolicyInput): PolicyOutcome => {
-  const unattendedDefaultApplied = !input.attended && input.requested === null;
-  const start = input.requested ?? (input.attended ? ATTENDED_DEFAULT_MODE : input.settings.unattendedMode);
+  const attended = isAttended(input.actor);
+  const unattendedDefaultApplied = !attended && input.requested === null;
+  const start = input.requested ?? (attended ? ATTENDED_DEFAULT_MODE : input.settings.unattendedMode);
   const mode = clampMode(input.requested, start, input.ceiling, input.accountModes);
   if (mode === null) return { refused: noModeAvailable(input.ceiling) };
   return {
-    actorKind: input.actorKind,
-    attended: input.attended,
+    actorKind: input.actor.kind,
+    attended,
     mode,
     // A session's own level and the mechanism are #133's; the default is all there is.
     containment: { requested: null, effective: input.settings.containmentDefault, mechanism: null, reason: null },

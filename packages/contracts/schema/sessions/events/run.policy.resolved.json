@@ -66,7 +66,7 @@
         },
         "clamped": {
           "type": "boolean",
-          "description": "Whether the mode got is below the one asked for, or below the default when none was."
+          "description": "Whether the mode got is below the one asked for; false when none was asked for, since a default applied then and nothing was clamped."
         },
         "clampReason": {
           "anyOf": [
@@ -82,7 +82,7 @@
               "type": "null"
             }
           ],
-          "description": "Why it was lowered; null when it was not."
+          "description": "Why the mode asked for was lowered; null when it was not, or when none was asked for."
         }
       },
       "required": [

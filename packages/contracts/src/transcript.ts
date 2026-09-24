@@ -73,7 +73,7 @@ export type AttachmentRecord = z.infer<typeof AttachmentRecord>;
 export const RunMode = z
   .object({
     requested: Mode.nullable().meta({ description: "The mode asked for, by the command or the session; null when neither names one, so a default applied." }),
-    effective: Mode.meta({ description: "The mode the run got, after the clamp to the connection's ceiling and the account's modes." }),
+    effective: Mode.meta({ description: "The mode the run got, after the clamp to the client session's ceiling and the account's modes." }),
     clamped: z.boolean().meta({ description: "Whether the clamp lowered the mode asked for; run.policy.resolved says why." }),
   })
   .meta({ description: "A run's mode: requested, effective after the ceiling's clamp, and whether it was clamped; run.policy.resolved has the rest." });

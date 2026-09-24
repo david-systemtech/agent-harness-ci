@@ -49,7 +49,10 @@ export const permissionSchemaFixtures: Record<string, Fixtures> = {
     invalid: [{ ...clamped, effective: null }, { ...clamped, clampReason: "because" }, { requested: "plan", effective: "plan" }],
   },
   "permissions/containment-level.json": { valid: ["off", "workspace", "workspace-no-network"], invalid: ["sandbox", ""] },
-  "permissions/containment-availability.json": { valid: levels, invalid: [{ level: "jail", available: true, reason: null }, { level: "off" }] },
+  "permissions/containment-availability.json": {
+    valid: levels,
+    invalid: [{ level: "jail", available: true, reason: null }, { level: "off" }, { level: "workspace", available: false, reason: "" }, { level: "workspace", available: false, reason: null }],
+  },
   "permissions/containment-resolution.json": {
     valid: [containment, { requested: "workspace", effective: "workspace", mechanism: "bubblewrap", reason: null }],
     invalid: [{ ...containment, effective: null }, { requested: null, effective: "off" }],
@@ -75,8 +78,11 @@ export const permissionSchemaFixtures: Record<string, Fixtures> = {
     invalid: [policy, { runId, ...policy, actorKind: "provider" }, { runId: "r-1", ...policy }],
   },
   "sessions/events/session.mode.set.json": {
-    valid: [clamped, { ...clamped, requested: "plan", effective: "plan", clamped: false, clampReason: null }],
-    invalid: [unclamped, { ...clamped, requested: "dontAsk" }],
+    valid: [
+      { mode: clamped, live: null },
+      { mode: { ...clamped, requested: "plan", effective: "plan", clamped: false, clampReason: null }, live: { runId, mode: "plan" } },
+    ],
+    invalid: [{ mode: unclamped, live: null }, { mode: { ...clamped, requested: "dontAsk" }, live: null }, clamped, { mode: clamped }],
   },
   "errors/containment_unavailable.json": {
     valid: [{ code: "containment_unavailable", message: "m", data: { level: "workspace", reason: "No containment prober yet (#133)." } }],

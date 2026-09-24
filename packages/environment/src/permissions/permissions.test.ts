@@ -154,13 +154,24 @@ describe("the clamp on every run", () => {
     expect(t.adapter.lastRun().input.mode).toBe("acceptEdits");
   });
 
-  it("starts a run that names no mode, and whose session names none, in acceptEdits within the ceiling", async () => {
+  it("starts a run that names no mode, and whose session names none, in acceptEdits within the ceiling, not reported clamped", async () => {
     const t = await start();
     const client = await pairedClient(t, "plan");
     const { id } = await create(client);
     const { runId } = await startRun(client, id);
     await untilEnded(t, id, runId);
-    expect(policyOf(t, id, runId)).toMatchObject({ mode: { requested: null, effective: "plan", ceiling: "plan", clamped: true, clampReason: "ceiling" } });
+    expect(policyOf(t, id, runId)).toMatchObject({ mode: { requested: null, effective: "plan", ceiling: "plan", clamped: false, clampReason: null } });
+  });
+
+  it("stores a session's mode as sessions.create's caller's ceiling allows, so a later run from a higher ceiling does not raise it", async () => {
+    const t = await start();
+    const low = await pairedClient(t, "plan");
+    const { id } = await create(low, { mode: "bypassPermissions" });
+    expect(sessionEvents(t, id).find((event) => event.type === "session.created")?.payload["mode"]).toBe("plan");
+    const desktop = await t.client();
+    const { runId } = await startRun(desktop, id);
+    await untilEnded(t, id, runId);
+    expect(policyOf(t, id, runId)).toMatchObject({ mode: { requested: "plan", effective: "plan", ceiling: "bypassPermissions", clamped: false } });
   });
 
   it("refuses default and dontAsk as a run's or a session's mode, invalid_params", async () => {
@@ -200,9 +211,9 @@ describe("run.policy.resolved", () => {
     const held = gate();
     const t = await start({ capabilities: { providerQueue: false, steering: false } });
     t.adapter.nextScripts.push(heldScript(held));
+    const { id } = await create(await t.client(), { mode: "bypassPermissions" });
     const client = await pairedClient(t, "acceptEdits");
-    const { id } = await create(client);
-    const { runId: first } = await startRun(client, id, { mode: "bypassPermissions" });
+    const { runId: first } = await startRun(client, id);
     const queued = await send(client, "runs.send", { sessionId: id, text: "And then" });
     expect(queued.result).toMatchObject({ delivery: "queued", heldBy: "environment" });
     held.open();
@@ -212,13 +223,54 @@ describe("run.policy.resolved", () => {
     expect(policyOf(t, id, second)).toMatchObject({ mode: { requested: "bypassPermissions", effective: "acceptEdits", ceiling: "acceptEdits", clamped: true } });
   });
 
+  it.each([
+    ["cannot change a live run's mode", false],
+    ["changes the live run's mode", true],
+  ])("starts a run from the queue in the session's mode as it is then, when the adapter %s", async (_what, modeChange) => {
+    const held = gate();
+    const t = await start({ capabilities: { providerQueue: false, steering: false, modeChange } });
+    t.adapter.nextScripts.push(heldScript(held));
+    const client = await t.client();
+    const { id } = await create(client);
+    const { runId: first } = await startRun(client, id, { mode: "bypassPermissions" });
+    await vi.waitFor(() => expect(runEvents(t, id, first).map((event) => event.type)).toContain("assistant.text"));
+    await send(client, "runs.send", { sessionId: id, text: "And then" });
+    const set = await send(client, "permissions.mode.set", { sessionId: id, mode: "plan" });
+    expect(set.result?.live).toEqual(modeChange ? { runId: first, mode: "plan" } : null);
+    held.open();
+    await vi.waitFor(() => expect(sessionEvents(t, id).filter((event) => event.type === "run.ended")).toHaveLength(2));
+    const second = sessionEvents(t, id).filter((event) => event.type === "run.started").map((event) => event.payload["runId"] as string)[1] as string;
+    expect(policyOf(t, id, second)).toMatchObject({ mode: { requested: "plan", effective: "plan", clamped: false } });
+    expect(t.adapter.lastRun().input.mode).toBe("plan");
+  });
+
+  it("does not start a run from the queue for a client session revoked since; the message stays queued for the next run", async () => {
+    const held = gate();
+    const t = await start({ capabilities: { providerQueue: false, steering: false } });
+    t.adapter.nextScripts.push(heldScript(held));
+    const credential = await t.pair({ ceiling: "bypassPermissions" });
+    const client = await t.client({ token: credential.token });
+    const { id } = await create(client);
+    const { runId: first } = await startRun(client, id);
+    const queued = await send(client, "runs.send", { sessionId: id, text: "And then" });
+    const admin = await t.client();
+    await admin.apply("access.sessions.revoke", { commandId: randomUUID(), clientSessionId: credential.clientSessionId });
+    held.open();
+    await untilEnded(t, id, first);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(sessionEvents(t, id).filter((event) => event.type === "run.started")).toHaveLength(1);
+    const { runId: next } = await startRun(admin, id);
+    await untilEnded(t, id, next);
+    expect(runEvents(t, id, next).find((event) => event.type === "run.started")?.payload["queuedMessageIds"]).toEqual([queued.result?.messageId]);
+  });
+
   it("appears once for a turn the provider opened on its own, with the policy of the run it followed", async () => {
     const held = gate();
     const t = await start({ capabilities: { providerQueue: true, steering: false } });
     t.adapter.nextScripts.push(heldScript(held));
     const client = await t.client();
-    const { id } = await create(client);
-    const { runId: first } = await startRun(client, id, { mode: "plan" });
+    const { id } = await create(client, { mode: "plan" });
+    const { runId: first } = await startRun(client, id);
     await send(client, "runs.send", { sessionId: id, text: "Also this" });
     held.open();
     await vi.waitFor(() => expect(sessionEvents(t, id).filter((event) => event.type === "run.ended")).toHaveLength(2));
@@ -228,6 +280,47 @@ describe("run.policy.resolved", () => {
     const types = runEvents(t, id, adopted).map((event) => event.type);
     expect(types.slice(0, 2)).toEqual(["run.started", "run.policy.resolved"]);
     expect(policyOf(t, id, adopted)).toEqual({ ...policyOf(t, id, first), runId: adopted });
+  });
+
+  it("re-resolves a turn the provider opened under the client's ceiling as it is then, and changes the turn's mode to it", async () => {
+    const held = gate();
+    const t = await start({ capabilities: { providerQueue: true, steering: false } });
+    t.adapter.nextScripts.push(heldScript(held));
+    const target = await t.pair({ ceiling: "bypassPermissions" });
+    const client = await t.client({ token: target.token });
+    const { id } = await create(client);
+    const { runId: first } = await startRun(client, id, { mode: "bypassPermissions" });
+    await vi.waitFor(() => expect(runEvents(t, id, first).map((event) => event.type)).toContain("assistant.text"));
+    await send(client, "runs.send", { sessionId: id, text: "Also this" });
+    await send(await t.client(), "access.sessions.setCeiling", { clientSessionId: target.clientSessionId, ceiling: "plan" });
+    held.open();
+    await vi.waitFor(() => expect(sessionEvents(t, id).filter((event) => event.type === "run.ended")).toHaveLength(2));
+    const adopted = sessionEvents(t, id).filter((event) => event.type === "run.started")[1];
+    expect(adopted?.payload["origin"]).toBe("provider");
+    const runId = adopted?.payload["runId"] as string;
+    expect(adopted?.payload["mode"]).toEqual({ requested: null, effective: "plan", clamped: false });
+    expect(policyOf(t, id, runId)).toMatchObject({ mode: { requested: null, effective: "plan", ceiling: "plan", clamped: false } });
+    expect(t.adapter.runs[1]).toMatchObject({ adopted: true, modeChanges: ["plan"] });
+  });
+
+  it("lets a provider-opened turn go and reads its messages from the queue when the adapter cannot bring it to the mode resolved", async () => {
+    const held = gate();
+    const t = await start({ capabilities: { providerQueue: true, steering: false, modeChange: false } });
+    t.adapter.nextScripts.push(heldScript(held));
+    const client = await t.client();
+    const { id } = await create(client);
+    const { runId: first } = await startRun(client, id, { mode: "bypassPermissions" });
+    await vi.waitFor(() => expect(runEvents(t, id, first).map((event) => event.type)).toContain("assistant.text"));
+    const sent = await send(client, "runs.send", { sessionId: id, text: "Also this" });
+    await send(client, "permissions.mode.set", { sessionId: id, mode: "plan" });
+    held.open();
+    await vi.waitFor(() => expect(sessionEvents(t, id).filter((event) => event.type === "run.ended")).toHaveLength(2));
+    expect(t.adapter.runs[1]).toMatchObject({ adopted: true, disposed: true });
+    const started = sessionEvents(t, id).filter((event) => event.type === "run.started");
+    expect(started).toHaveLength(2);
+    expect(started[1]?.payload).toMatchObject({ origin: "client", queuedMessageIds: [sent.result?.messageId] });
+    expect(policyOf(t, id, started[1]?.payload["runId"] as string)).toMatchObject({ mode: { requested: "plan", effective: "plan" } });
+    expect(t.adapter.lastRun().input.mode).toBe("plan");
   });
 });
 
@@ -247,7 +340,7 @@ describe("permissions.mode.set", () => {
     expect(set).toHaveLength(1);
     expect(set[0]).toMatchObject({
       actor: { kind: "client_session", id: client.hello.clientSessionId },
-      payload: { requested: "bypassPermissions", effective: "auto", ceiling: "auto", clamped: true, clampReason: "ceiling" },
+      payload: { mode: { requested: "bypassPermissions", effective: "auto", ceiling: "auto", clamped: true, clampReason: "ceiling" }, live: null },
     });
 
     const { runId } = await startRun(client, id);
@@ -282,9 +375,27 @@ describe("permissions.mode.set", () => {
       live: { runId, mode: "acceptEdits" },
     });
     await vi.waitFor(() => expect(t.adapter.lastRun().modeChanges).toEqual(["acceptEdits"]));
+    expect(sessionEvents(t, id).find((event) => event.type === "session.mode.set")?.payload["live"]).toEqual({ runId, mode: "acceptEdits" });
     held.open();
     await untilEnded(t, id, runId);
     policyOf(t, id, runId);
+  });
+
+  it("appends nothing for the mode the session has already, but still applies it to a live run", async () => {
+    const held = gate();
+    const t = await start({ script: heldScript(held) });
+    const client = await t.client();
+    const { id } = await create(client, { mode: "plan" });
+    const { runId } = await startRun(client, id, { mode: "bypassPermissions" });
+    await vi.waitFor(() => expect(runEvents(t, id, runId).map((event) => event.type)).toContain("assistant.text"));
+    const head = t.env.log.head();
+    const answer = await send(client, "permissions.mode.set", { sessionId: id, mode: "plan" });
+    expect(answer.receipt).toMatchObject({ status: "accepted", changed: false });
+    expect(answer.result).toMatchObject({ mode: { requested: "plan", effective: "plan" }, live: { runId, mode: "plan" } });
+    expect(t.env.log.head()).toBe(head);
+    await vi.waitFor(() => expect(t.adapter.lastRun().modeChanges).toEqual(["plan"]));
+    held.open();
+    await untilEnded(t, id, runId);
   });
 
   it("applies at the next run when the live run's adapter cannot change its mode", async () => {
@@ -347,11 +458,14 @@ describe("access.sessions.setCeiling", () => {
     const listed = (await admin.request("access.sessions.list", {})).sessions.find((s) => s.id === target.clientSessionId);
     expect(listed?.ceiling).toBe("bypassPermissions");
     expect((await t.client({ token: target.token })).hello.ceiling).toBe("bypassPermissions");
-    // The same ceiling again changes nothing.
+    // The same ceiling again changes nothing, and appends nothing.
+    const head = t.env.log.head();
     expect((await send(admin, "access.sessions.setCeiling", { clientSessionId: target.clientSessionId, ceiling: "bypassPermissions" })).receipt).toMatchObject({
       status: "accepted",
       changed: false,
     });
+    expect(t.env.log.head()).toBe(head);
+    expect(await accessEvents(admin, "ceiling.changed")).toHaveLength(1);
   });
 
   it("keeps the change across a restart", async () => {
@@ -364,6 +478,20 @@ describe("access.sessions.setCeiling", () => {
     const second = await startTestEnvironment({ dataDir: `${dataDir}/data` });
     onCleanup(() => second.close());
     expect((await second.client({ token: target.token })).hello.ceiling).toBe("auto");
+  });
+
+  it("refuses a revoked client session, conflict revoked", async () => {
+    const t = await start();
+    const target = await t.pair({ ceiling: "plan" });
+    const admin = await t.client();
+    await admin.apply("access.sessions.revoke", { commandId: randomUUID(), clientSessionId: target.clientSessionId });
+    const head = t.env.log.head();
+    expect((await send(admin, "access.sessions.setCeiling", { clientSessionId: target.clientSessionId, ceiling: "auto" })).receipt).toMatchObject({
+      status: "rejected",
+      reason: "conflict",
+      error: { data: { reason: "revoked" } },
+    });
+    expect(t.env.log.head()).toBe(head);
   });
 
   it("refuses an unknown client session not_found, and a caller without admin forbidden", async () => {
@@ -507,7 +635,7 @@ describe("permissions.settings.set", () => {
     const t = await start();
     const admin = await t.client();
     const answer = await send(admin, "permissions.settings.set", { values: { "permissions.containment.default": "workspace" } });
-    expect(answer.receipt).toMatchObject({ status: "rejected", reason: "containment_unavailable", error: { data: { level: "workspace" } } });
+    expect(answer.receipt).toMatchObject({ status: "rejected", reason: "containment_unavailable", error: { data: { level: "workspace", reason: expect.stringContaining("#133") } } });
     expect((await send(admin, "permissions.settings.set", { values: { "permissions.containment.default": "off" } })).receipt).toMatchObject({ status: "accepted" });
   });
 
@@ -515,6 +643,18 @@ describe("permissions.settings.set", () => {
     const t = await start();
     const driver = await pairedClient(t, "bypassPermissions", ["read", "runs:drive", "sessions:write"]);
     expect(await refusal(driver.request("permissions.settings.set", { commandId: randomUUID(), values: {} }))).toMatchObject({ code: "forbidden", data: { scope: "admin" } });
+  });
+
+  it("fails loudly on a settings.changed whose values are not valid for their keys: the append is refused, nothing changes", async () => {
+    const t = await start();
+    const append = () =>
+      t.env.log.append(
+        { kind: "access", id: t.env.id },
+        [{ type: "settings.changed", payload: { area: "permissions", keys: ["permissions.parkedPrompt.ttl"], values: { "permissions.parkedPrompt.ttl": "forever" } } }],
+        { actor: "system:test" },
+      );
+    expect(append).toThrow();
+    expect((await (await t.client()).request("permissions.settings.get", {})).values["permissions.parkedPrompt.ttl"]).toEqual({ amount: 24, unit: "hours" });
   });
 
   it("keeps the settings across a restart", async () => {

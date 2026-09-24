@@ -118,7 +118,11 @@ export interface ClientSessions {
     ceiling: Ceiling,
     attribution: Attribution,
   ): { readonly from: Ceiling; readonly to: Ceiling; readonly changed: boolean } | "revoked" | undefined;
-  /** The client session's ceiling now; undefined when it is unknown. */
+  /**
+   * The client session's ceiling now; undefined when it is unknown, revoked
+   * or expired, so nothing is started under the ceiling of a client session
+   * that can no longer act (a run from the queue waits instead).
+   */
   ceiling(id: string): Ceiling | undefined;
   /** Every client session, oldest first; with `live`, only those neither revoked nor expired. */
   list(options: { readonly live: boolean }): ClientSessionSummary[];
@@ -366,7 +370,10 @@ export const createClientSessions = (options: ClientSessionsOptions): ClientSess
       return { from, to: ceiling, changed: true };
     },
 
-    ceiling: (id) => known.get(id)?.ceiling,
+    ceiling(id) {
+      const entry = known.get(id);
+      return entry === undefined || !live(entry, clock.now().getTime()) ? undefined : entry.ceiling;
+    },
 
     list({ live: liveOnly }) {
       const now = clock.now().getTime();

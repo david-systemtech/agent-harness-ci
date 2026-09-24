@@ -93,10 +93,11 @@ export interface AdapterHostOptions {
   readonly resolvePolicy?: PolicySeam;
   /**
    * A client session's ceiling as it is now, which a run the environment
-   * starts from its queue is resolved under (a ceiling changed since the run
-   * before it applies); preset: the ceiling that run was resolved under.
+   * starts after another (from its queue, or a turn the provider opened) is
+   * resolved under, so a ceiling changed since applies; undefined once the
+   * client session is revoked or expired, and such a run is not started.
    */
-  readonly ceilingOf?: (clientSessionId: string) => Mode | undefined;
+  readonly ceilingOf: (clientSessionId: string) => Mode | undefined;
 }
 
 /** A live run as the host reports it. */
@@ -164,6 +165,8 @@ interface LiveRun {
   readonly actor: string;
   readonly append: ScopedAppend;
   readonly startedAt: number;
+  /** The mode the provider runs it in now: its policy's, until a live change (`setMode`) takes. */
+  mode: Mode;
   run: AdapterRun | undefined;
   /** Set once its `run.ended` is appended; nothing of it is appended after. */
   ended: boolean;
@@ -322,7 +325,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     if (adopted !== undefined) {
       if (rest.length > 0) adoptions.set(entry.sessionId, rest);
       else adoptions.delete(entry.sessionId);
-      adoptNow(entry.plan, adopted);
+      adoptNow(entry, adopted);
       return;
     }
     if (reason !== "interrupted") startFromQueue(entry.plan);
@@ -357,7 +360,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
 
   const contextFor = (entry: LiveRun): RunContext => ({
     broker,
-    adopt: (turn) => adopt(entry.plan, turn),
+    adopt: (turn) => adopt(entry, turn),
   });
 
   /**
@@ -378,6 +381,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       actor,
       append: createScopedAppend({ log, sessionId: plan.sessionId, runId: plan.runId, actor }),
       startedAt: clock.now().getTime(),
+      mode: plan.mode,
       run: undefined,
       ended: false,
       running: false,
@@ -431,16 +435,51 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     );
   };
 
+  /** `actor` with its client session's ceiling as it is now; undefined once that client session is revoked or expired. */
+  const currentActor = (actor: RunActor): RunActor | undefined => {
+    if (actor.clientSessionId === null) return actor;
+    const ceiling = options.ceilingOf(actor.clientSessionId);
+    return ceiling === undefined ? undefined : { ...actor, ceiling };
+  };
+
+  /**
+   * Lets a turn the provider opened go without a run of its own: the
+   * provider stops it, and the messages it opened with come back to the
+   * environment's queue (`message.requeued`, under the run they were sent
+   * during), for the next run to read, which is started from the queue now
+   * if it can be.
+   */
+  const refuseTurn = (previous: PlannedRun, turn: ProviderTurn, why: string): void => {
+    console.error(`A turn the provider opened for session ${previous.sessionId} was let go: ${why}`);
+    safely(() => turn.dispose(), (e) => console.error("Disposing a turn failed:", e));
+    const requeued = turn.messageIds.map((messageId): EventInput => {
+      const payload: MessageRequeuedPayload = { runId: previous.runId, messageId };
+      return { type: "message.requeued", payload };
+    });
+    try {
+      append(previous.sessionId, previous.runId, HOST_ACTOR, requeued);
+    } catch (error) {
+      console.error(`Returning the messages of a turn of session ${previous.sessionId} to the queue failed:`, error);
+      return;
+    }
+    startFromQueue(previous);
+  };
+
   /**
    * Registers a turn the provider opened on its own as a run of the same
-   * session (the adoption hook): `run.started` with origin `provider`, the
-   * queued messages it opened with delivered, then its events like any
-   * run's. The account, model and policy are those of the run it followed,
-   * whose provider process opened it: its `run.policy.resolved` records the
-   * same policy under its own id.
-   * While the environment drains it is not admitted, and is disposed.
+   * session (the adoption hook): `run.started` with origin `provider`, its
+   * policy, the queued messages it opened with delivered, then its events
+   * like any run's. The account and model are those of the run it followed;
+   * the policy is resolved again, for the same actor under its ceiling as it
+   * is now and the session's mode as it is now, as a run from the queue
+   * would be. When that is not the mode the provider runs the turn in, the
+   * turn is changed to it (`modeChange`); when it cannot be, or the actor's
+   * client session is gone, or no mode is available, the turn is let go and
+   * its messages wait in the environment's queue. While the environment
+   * drains it is not admitted, and is disposed.
    */
-  const adoptNow = (previous: PlannedRun, turn: ProviderTurn): void => {
+  const adoptNow = (followed: LiveRun, turn: ProviderTurn): void => {
+    const previous = followed.plan;
     const runId = randomUUID();
     try {
       registry.admit();
@@ -448,14 +487,32 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       safely(() => turn.dispose(), (e) => console.error("Disposing a turn the drain refused failed:", e));
       return;
     }
-    const plan: PlannedRun = { ...previous, runId, prompt: [], resumeFrom: null };
+    const session = readSessionFacts(log, reader, previous.sessionId);
+    if (session === null || session.deleted) {
+      safely(() => turn.dispose(), (e) => console.error("Disposing a turn of a deleted session failed:", e));
+      return;
+    }
+    const actor = currentActor(previous.actor);
+    if (actor === undefined) return refuseTurn(previous, turn, "the client session its run was started for has been revoked or has expired.");
+    const { descriptor } = previous.account;
+    const policy = resolvePolicy({ actor, requested: session.mode, accountModes: descriptor.modes });
+    if ("refused" in policy) return refuseTurn(previous, turn, policy.refused);
+    const mode = policy.mode.effective;
+    if (mode !== followed.mode) {
+      if (!descriptor.modeChange || turn.setMode === undefined) {
+        return refuseTurn(previous, turn, `it runs in ${followed.mode}, the policy now resolves ${mode}, and the adapter cannot change a running turn's mode.`);
+      }
+      const setMode = turn.setMode;
+      safely(() => setMode.call(turn, mode), (e) => console.error(`Changing the mode of a turn of session ${previous.sessionId} failed:`, e));
+    }
+    const plan: PlannedRun = { ...previous, runId, prompt: [], resumeFrom: null, mode, actor, policy };
     const started: RunStartedPayload = {
       runId,
       accountId: plan.account.id,
       identity: accounts.get(plan.account.id)?.facts.identity ?? null,
       model: plan.model,
       effort: plan.effort,
-      mode: { requested: plan.requestedMode, effective: plan.mode, clamped: plan.policy.mode.clamped },
+      mode: { requested: policy.mode.requested, effective: mode, clamped: policy.mode.clamped },
       workspace: plan.workspace,
       origin: "provider",
       promptMessageId: null,
@@ -467,15 +524,16 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       const payload: MessageDeliveredPayload = { runId, messageId, delivery: "prompt" };
       return { type: "message.delivered", payload };
     });
-    append(plan.sessionId, runId, formatActor({ kind: "adapter", id: plan.account.descriptor.provider }), [
+    append(plan.sessionId, runId, formatActor({ kind: "adapter", id: descriptor.provider }), [
       { type: "run.started", payload: started },
-      policyResolvedEvent(runId, plan.policy),
+      policyResolvedEvent(runId, policy),
       ...delivered,
     ]);
     begin(plan, () => turn);
   };
 
-  const adopt = (previous: PlannedRun, turn: ProviderTurn): void => {
+  const adopt = (followed: LiveRun, turn: ProviderTurn): void => {
+    const previous = followed.plan;
     if (closing) {
       safely(() => turn.dispose(), (e) => console.error("Disposing a turn adopted while closing failed:", e));
       return;
@@ -485,29 +543,34 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       adoptions.set(previous.sessionId, [...(adoptions.get(previous.sessionId) ?? []), turn]);
       return;
     }
-    adoptNow(previous, turn);
+    adoptNow(followed, turn);
   };
 
   /**
    * After a run completed or failed, starts the next with the messages the
    * environment holds for the session, if any (ADR 0022: an adapter without
    * a provider queue reads its queue when the turn ends), for the actor of
-   * the run before it under its ceiling as it is now. Not while the
-   * environment drains: the messages stay queued for the next start.
+   * the run before it under its ceiling as it is now and in the session's
+   * mode as it is now: the run before it may have named a mode of its own,
+   * which was that run's alone. Not while the environment drains, nor once
+   * that actor's client session is revoked or expired: the messages stay
+   * queued for the next start.
    */
   const startFromQueue = (previous: PlannedRun): void => {
     try {
       if (environmentQueue(reader, previous.sessionId).length === 0) return;
       registry.admit();
-      const { actor } = previous;
-      const ceiling = actor.clientSessionId === null ? undefined : options.ceilingOf?.(actor.clientSessionId);
-      const facts = startFacts(previous.sessionId, ceiling === undefined ? actor : { ...actor, ceiling });
+      const actor = currentActor(previous.actor);
+      if (actor === undefined) {
+        console.error(`The queued messages of session ${previous.sessionId} wait: the client session they would run for has been revoked or has expired.`);
+        return;
+      }
+      const facts = startFacts(previous.sessionId, actor);
       const decision = decideStart(facts, {
         origin: "client",
         message: null,
         model: previous.model,
         ...(previous.effort !== null && { effort: previous.effort }),
-        ...(previous.requestedMode !== null && { mode: previous.requestedMode }),
       });
       if (decision.rejected !== undefined) {
         console.error(`The queued messages of session ${previous.sessionId} could not start a run: ${decision.rejected.message}`);
@@ -635,10 +698,13 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       const entry = byRunId(runId);
       const run = entry?.run;
       if (entry === undefined || run === undefined) return;
-      safely(
-        () => capability(entry.descriptor, "modeChange", run.setMode, "change a live run's mode").call(run, mode),
-        (error) => console.error(`Changing the mode of run ${runId} failed; it keeps the one it had until its session's next run:`, error),
-      );
+      const failed = (error: unknown) => console.error(`Changing the mode of run ${runId} failed; it keeps ${entry.mode} until its session's next run:`, error);
+      safely(() => {
+        const answer = capability(entry.descriptor, "modeChange", run.setMode, "change a live run's mode").call(run, mode);
+        if (answer instanceof Promise) return answer.then(() => void (entry.mode = mode));
+        entry.mode = mode;
+        return undefined;
+      }, failed);
     },
     async usage(accountId) {
       const held = heldAccount(accountId);

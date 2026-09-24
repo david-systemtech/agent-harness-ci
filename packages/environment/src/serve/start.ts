@@ -36,7 +36,7 @@ import type { Adapter } from "../adapter/contract.js";
 import { createAdapterHost, type AdapterHost, type HostAccount } from "../adapter/host.js";
 import type { InstructionComposer, PolicySeam, ToolServerFactory } from "../adapter/seams.js";
 import type { PermissionBroker } from "../adapter/contract.js";
-import { permissionMethods } from "../permissions/methods.js";
+import { permissionMethods, sessionModeClamp } from "../permissions/methods.js";
 import { permissionsProjector, readPermissionSettings } from "../permissions/permissions-store.js";
 import { policySettings, resolvePolicy } from "../permissions/resolver.js";
 import { runMethods } from "../runs/run-methods.js";
@@ -326,8 +326,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       // The policy resolver on the permission settings, and each client session's ceiling as it is now (#129).
       resolvePolicy: ({ actor, requested, accountModes }) =>
         resolvePolicy({
-          actorKind: actor.kind,
-          attended: actor.attended,
+          actor,
           requested,
           ceiling: actor.ceiling,
           accountModes,
@@ -385,7 +384,13 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       result: { projectors: [...log.rebuildProjections()], sequence: log.head() },
     }),
     ...accessMethods({ pairings, clientSessions, accessLog }),
-    ...sessionMethods({ log, clock: now, deletion, validateRunParameters: host.validateSessionInput }),
+    ...sessionMethods({
+      log,
+      clock: now,
+      deletion,
+      validateRunParameters: host.validateSessionInput,
+      clampSessionMode: sessionModeClamp({ host, ceilingOf: (id) => clientSessions.ceiling(id) }),
+    }),
     ...groupMethods({ log, clock: now }),
     ...runMethods({ log, host, ceilingOf: (id) => clientSessions.ceiling(id) }),
     ...permissionMethods({ log, host, accessLog, clock, ceilingOf: (id) => clientSessions.ceiling(id) }),

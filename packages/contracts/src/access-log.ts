@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { BypassAcknowledgedPayload, SettingsChangedPayload } from "./permissions.js";
+import { BypassAcknowledgedPayload } from "./permissions.js";
+import { SettingsChangedPayload } from "./permissions-settings.js";
 import { ClientKind, ClientSessionId, PairingId, Timestamp } from "./primitives.js";
 import { Ceiling, ScopeSet } from "./scopes.js";
 

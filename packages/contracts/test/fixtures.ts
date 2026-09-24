@@ -131,7 +131,13 @@ const invalidAccessPayloads: Record<keyof typeof accessPayloads, readonly unknow
   "scope.granted": [{ clientSessionId: "cs-1", granted: [], scopes: ["read"] }, { clientSessionId: "cs-1", scopes: ["read"] }],
   "ceiling.changed": [{ clientSessionId: "cs-1", from: "", to: "auto" }, { clientSessionId: "cs-1", to: "auto" }, { clientSessionId: "cs-1", from: "default", to: "auto" }],
   "bypass.acknowledged": [{ setting: "permissions.unattended.mode" }, { setting: "", sentence: BYPASS_SENTENCE }],
-  "settings.changed": [{ area: "sessions", keys: ["x"], values: {} }, { area: "permissions", keys: [], values: {} }],
+  "settings.changed": [
+    { area: "sessions", keys: ["permissions.parkedPrompt.ttl"], values: {} },
+    { area: "permissions", keys: [], values: {} },
+    { area: "permissions", keys: ["permissions.parkedPrompt.ttl"], values: { "permissions.parkedPrompt.ttl": "forever" } },
+    { area: "permissions", keys: ["permissions.other"], values: {} },
+    { area: "permissions", keys: ["permissions.defaultCeiling"], values: { "permissions.defaultCeiling": "plan", other: 1 } },
+  ],
 };
 
 

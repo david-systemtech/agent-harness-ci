@@ -89,8 +89,7 @@ export type PolicySeam = (request: PolicyRequest) => PolicyOutcome;
 
 export const presetPolicy: PolicySeam = ({ actor, requested, accountModes }) =>
   resolvePolicy({
-    actorKind: actor.kind,
-    attended: actor.attended,
+    actor,
     requested,
     ceiling: actor.ceiling,
     accountModes,

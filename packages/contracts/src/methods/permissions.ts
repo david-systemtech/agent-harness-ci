@@ -1,8 +1,7 @@
 import { z } from "zod";
-import { RunId } from "../adapter.js";
 import { errorSchema } from "../errors.js";
 import { commandParams, defineMethod } from "../method.js";
-import { ContainmentAvailability, ContainmentLevel, ModeResolution } from "../permissions.js";
+import { ContainmentAvailability, ContainmentLevel, SessionModeSetPayload } from "../permissions.js";
 import { Mode } from "../permissions-modes.js";
 import { PermissionSettingsPatch, PermissionSettingsValues } from "../permissions-settings.js";
 import { SessionId } from "../sessions.js";
@@ -17,27 +16,21 @@ import { SessionId } from "../sessions.js";
 
 /**
  * Set a session's mode: clamped to the caller's ceiling and to the modes the
- * session's account has, never refused for being above them. The session's
- * next runs start in the effective mode; a live run gets it at once when its
- * adapter can change a running run's mode (`modeChange`), clamped to that
- * run's own ceiling too.
+ * session's account has; a mode above them is lowered, not refused. Only
+ * when no mode at or below the ceiling is available is it rejected
+ * `conflict` with reason `mode_unavailable`. The session's next runs ask for
+ * the effective mode, recorded as `session.mode.set`; the mode the session
+ * has already appends nothing (the receipt says `changed: false`). A live
+ * run gets it at once when its adapter can change a running run's mode
+ * (`modeChange`), clamped to that run's own ceiling too, whether or not the
+ * session's mode changed. The result is the event's payload with the session.
  */
 export const permissionsModeSet = defineMethod({
   name: "permissions.mode.set",
   scope: "runs:drive",
   kind: "command",
   params: commandParams({ sessionId: SessionId, mode: Mode }),
-  result: z.object({
-    sessionId: SessionId,
-    mode: ModeResolution.extend({ requested: Mode }).meta({ description: "The mode asked for, the one the session got, the caller's ceiling, and the clamp." }),
-    live: z
-      .object({
-        runId: RunId,
-        mode: Mode.meta({ description: "The mode the live run was changed to: the effective mode, clamped to the run's own ceiling." }),
-      })
-      .nullable()
-      .meta({ description: "The live run the mode was applied to at once; null when none was live or its adapter cannot, so it applies at the next run." }),
-  }),
+  result: z.object({ sessionId: SessionId, ...SessionModeSetPayload.shape }),
   errors: [],
 });
 

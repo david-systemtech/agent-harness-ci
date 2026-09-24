@@ -20,7 +20,7 @@
             "auto",
             "bypassPermissions"
           ],
-          "description": "What an agent may do without asking during a run, in the order ceilings use: plan < acceptEdits < auto < bypassPermissions. Claude's default and dontAsk are never used."
+          "description": "The mode asked for."
         },
         "effective": {
           "type": "string",
@@ -44,7 +44,7 @@
         },
         "clamped": {
           "type": "boolean",
-          "description": "Whether the mode got is below the one asked for, or below the default when none was."
+          "description": "Whether the mode got is below the one asked for; false when none was asked for, since a default applied then and nothing was clamped."
         },
         "clampReason": {
           "anyOf": [
@@ -60,7 +60,7 @@
               "type": "null"
             }
           ],
-          "description": "Why it was lowered; null when it was not."
+          "description": "Why the mode asked for was lowered; null when it was not, or when none was asked for."
         }
       },
       "required": [
@@ -70,7 +70,7 @@
         "clamped",
         "clampReason"
       ],
-      "description": "The mode asked for, the one the session got, the caller's ceiling, and the clamp."
+      "description": "The mode asked for, the one the session got under the caller's ceiling and its account's modes, and the clamp."
     },
     "live": {
       "anyOf": [
@@ -91,7 +91,7 @@
                 "auto",
                 "bypassPermissions"
               ],
-              "description": "The mode the live run was changed to: the effective mode, clamped to the run's own ceiling."
+              "description": "The mode the live run was changed to: the session's, clamped to the run's own ceiling too."
             }
           },
           "required": [
@@ -103,7 +103,7 @@
           "type": "null"
         }
       ],
-      "description": "The live run the mode was applied to at once; null when none was live or its adapter cannot, so it applies at the next run."
+      "description": "The live run the mode was applied to at once; null when none was live or its adapter cannot change a running run's mode, so it applies at the next run."
     }
   },
   "required": [

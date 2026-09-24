@@ -72,7 +72,7 @@
       "minLength": 1
     },
     "mode": {
-      "description": "The mode for this run, clamped to the connection's ceiling and the account's modes; the session's when absent.",
+      "description": "The mode for this run, clamped to the client session's ceiling and the account's modes; the session's when absent.",
       "type": "string",
       "enum": [
         "plan",

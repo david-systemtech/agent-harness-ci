@@ -27,9 +27,11 @@ export interface RunMethodsOptions {
   /**
    * A client session's ceiling as it is now: a change by
    * `access.sessions.setCeiling` applies to the next run even on a socket
-   * that authenticated before it. Preset: the ceiling the socket authenticated with.
+   * that authenticated before it. Undefined once it is revoked or expired,
+   * which a socket still open finds only in the moment before it is closed:
+   * the ceiling it authenticated with stands in then.
    */
-  readonly ceilingOf?: (clientSessionId: string) => Mode | undefined;
+  readonly ceilingOf: (clientSessionId: string) => Mode | undefined;
 }
 
 /** Where a command on a run it cannot find keeps its receipt: no session can be named, so the run's own id. */
@@ -47,8 +49,7 @@ export const runMethods = (options: RunMethodsOptions): MethodHandlers => {
   /** The caller as a run's actor (#129): a client session, attended, under its ceiling as it is now. */
   const actorOf = (context: CommandContext): RunActor => ({
     kind: "client",
-    attended: true,
-    ceiling: options.ceilingOf?.(context.clientSession.id) ?? context.clientSession.ceiling,
+    ceiling: options.ceilingOf(context.clientSession.id) ?? context.clientSession.ceiling,
     clientSessionId: context.clientSession.id,
   });
 

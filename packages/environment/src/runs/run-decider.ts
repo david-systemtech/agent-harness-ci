@@ -103,8 +103,6 @@ export interface PlannedRun {
   readonly workspace: Workspace;
   readonly repositoryIdentity: string | null;
   readonly resumeFrom: string | null;
-  /** The mode asked for, before the clamp: what a run the environment starts from the queue after this one asks for again. */
-  readonly requestedMode: Mode | null;
   /** Who asked: a run started from the queue after this one is resolved for the same actor, under its ceiling as it is then. */
   readonly actor: RunActor;
   /** The run's policy as resolved at its start, recorded as `run.policy.resolved`: fixed for the run, whatever changes after. */
@@ -243,7 +241,6 @@ export const decideStart = (facts: StartFacts, command: StartCommand): StartDeci
       workspace: session.workspace,
       repositoryIdentity: session.repositoryIdentity,
       resumeFrom: facts.resumeFrom,
-      requestedMode: requested,
       actor: facts.actor,
       policy,
       prompt: [

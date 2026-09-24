@@ -43,8 +43,10 @@ export const ModeResolution = z
     requested: Mode.nullable().meta({ description: "The mode asked for; null when none was, so a default applied (acceptEdits, or the unattended default)." }),
     effective: Mode.meta({ description: "The mode it got." }),
     ceiling: Mode.meta({ description: "The ceiling it was clamped to." }),
-    clamped: z.boolean().meta({ description: "Whether the mode got is below the one asked for, or below the default when none was." }),
-    clampReason: ClampReason.nullable().meta({ description: "Why it was lowered; null when it was not." }),
+    clamped: z.boolean().meta({
+      description: "Whether the mode got is below the one asked for; false when none was asked for, since a default applied then and nothing was clamped.",
+    }),
+    clampReason: ClampReason.nullable().meta({ description: "Why the mode asked for was lowered; null when it was not, or when none was asked for." }),
   })
   .meta({ description: "A mode as the resolver decided it: requested, effective, the ceiling, and whether and why it was clamped." });
 export type ModeResolution = z.infer<typeof ModeResolution>;
@@ -60,13 +62,20 @@ export const ContainmentLevel = z.enum(CONTAINMENT_LEVELS).meta({
 });
 export type ContainmentLevel = z.infer<typeof ContainmentLevel>;
 
-/** Whether this environment can enforce a containment level, and why not. */
+/** Whether this environment can enforce a containment level, and, when it cannot, why. */
 export const ContainmentAvailability = z
-  .object({
-    level: ContainmentLevel,
-    available: z.boolean(),
-    reason: z.string().min(1).nullable().meta({ description: "Why the level cannot be enforced here; null when it can." }),
-  })
+  .discriminatedUnion("available", [
+    z.object({
+      level: ContainmentLevel,
+      available: z.literal(true),
+      reason: z.null().meta({ description: "Null: the level can be enforced here." }),
+    }),
+    z.object({
+      level: ContainmentLevel,
+      available: z.literal(false),
+      reason: z.string().min(1).meta({ description: "Why the level cannot be enforced here, for people." }),
+    }),
+  ])
   .meta({ description: "Whether this environment can enforce a containment level and, when it cannot, why." });
 export type ContainmentAvailability = z.infer<typeof ContainmentAvailability>;
 
@@ -102,10 +111,21 @@ export const RunPolicyResolvedPayload = z
 export type RunPolicyResolvedPayload = z.infer<typeof RunPolicyResolvedPayload>;
 
 export const SessionModeSetPayload = z
-  .object({ ...ModeResolution.shape, requested: Mode.meta({ description: "The mode asked for." }) })
+  .object({
+    mode: ModeResolution.extend({ requested: Mode.meta({ description: "The mode asked for." }) }).meta({
+      description: "The mode asked for, the one the session got under the caller's ceiling and its account's modes, and the clamp.",
+    }),
+    live: z
+      .object({
+        runId: RunId,
+        mode: Mode.meta({ description: "The mode the live run was changed to: the session's, clamped to the run's own ceiling too." }),
+      })
+      .nullable()
+      .meta({ description: "The live run the mode was applied to at once; null when none was live or its adapter cannot change a running run's mode, so it applies at the next run." }),
+  })
   .meta({
     description:
-      "session.mode.set: the session's mode was set (permissions.mode.set): asked for, got under the caller's ceiling, and whether and why it was clamped. Its next runs start in the effective mode.",
+      "session.mode.set: the session's mode was set (permissions.mode.set): asked for, got, the clamp, and the live run it reached at once, if any. Its next runs ask for the effective mode.",
   });
 export type SessionModeSetPayload = z.infer<typeof SessionModeSetPayload>;
 
@@ -114,19 +134,6 @@ export const PERMISSION_SESSION_EVENT_TYPES = {
   "run.policy.resolved": { list: false, payload: RunPolicyResolvedPayload },
   "session.mode.set": { list: false, payload: SessionModeSetPayload },
 } as const satisfies Record<string, EventTypeEntry>;
-
-/** The areas whose setting changes the access log records: the permission settings, so far. */
-export const SETTINGS_AREAS = ["permissions"] as const;
-export const SettingsArea = z.enum(SETTINGS_AREAS).meta({ description: "Which settings a settings.changed names: permissions." });
-
-export const SettingsChangedPayload = z
-  .object({
-    area: SettingsArea,
-    keys: z.array(z.string().min(1)).min(1).meta({ description: "The keys whose values changed, in the settings table's order." }),
-    values: z.record(z.string(), z.unknown()).meta({ description: "Their new values, by key." }),
-  })
-  .meta({ description: "settings.changed: settings of an area that the access log records changed; the keys, and their new values." });
-export type SettingsChangedPayload = z.infer<typeof SettingsChangedPayload>;
 
 export const BypassAcknowledgedPayload = z
   .object({
