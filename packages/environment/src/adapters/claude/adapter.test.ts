@@ -1097,6 +1097,32 @@ describe("a run that joins a kept process", () => {
     expect(context.adopted).toEqual([]);
   });
 
+  it("clears a settle debt however the turn it waited on ended, so a later delivery failure is still the waiting run's", async () => {
+    const adapter = adapterWith();
+    const context = contextWith();
+    const input = runInput();
+    const first = adapter.createRun(input, context);
+    const query = await started();
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [input.prompt[0]?.messageId as string]), sdk.tasks({ task_id: "task_1" }));
+    await flush();
+    // The level empties while the turn is open: the settle grace waits for the turn's end.
+    query.emit(sdk.taskNotification("task_1"), sdk.tasks());
+    await flush();
+    // The turn is ended from outside rather than at a result, and the CLI's next message finds it ended.
+    (first as unknown as { end(end: { reason: "error"; error: { message: string; code: null } }): void }).end({ reason: "error", error: { message: "Ended elsewhere.", code: null } });
+    query.emit(sdk.text("msg_1", "Late words."));
+    await flush();
+    clock.advance(DEFAULT_TIMINGS.settleGraceMs);
+    first.release();
+    const next = runInput({ target: { kind: "resume", providerSessionId: PROVIDER_SESSION } });
+    const run = adapter.createRun(next, context);
+    await query.promptsPushed(2);
+    const read = reading(run);
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.result(PROVIDER_SESSION, { subtype: "success", is_error: true, result: "API Error: 529 overloaded", num_turns: 0 }));
+    await vi.waitFor(() => expect(ends(read.events)).toEqual([expect.objectContaining({ reason: "error" })]));
+    expect(context.adopted).toEqual([]);
+  });
+
   it("ends a run whose CLI sends init and then nothing with an error once the open timeout passes, and is not held busy by it after", async () => {
     const adapter = adapterWith();
     const run = adapter.createRun(runInput(), contextWith());

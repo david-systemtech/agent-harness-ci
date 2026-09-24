@@ -640,7 +640,7 @@ export class ClaudeProcess implements TurnControl {
     if (!turn.ended && this.#ledger.dirty) turn.emit({ type: "tasks.changed", payload: { tasks: this.#ledger.snapshot() } });
     if (turn.ended && this.#current === turn) {
       this.#current = undefined;
-      this.#afterTurn(isRecord(message) && message["type"] === "result");
+      this.#afterTurn();
     }
   }
 
@@ -700,9 +700,14 @@ export class ClaudeProcess implements TurnControl {
     return turn;
   }
 
-  /** A turn ended: the settle debt re-arms its grace, and the watchdog watches any run still waiting. The ids of queued messages are kept, so a turn opening later still reports reading them. */
-  #afterTurn(atResult: boolean): void {
-    if (this.#settleOwed && atResult) this.#awaitSettleTurn();
+  /**
+   * A turn ended, at a result or not: the settle debt re-arms its grace, so
+   * it clears however the turn ended, and the watchdog watches any run still
+   * waiting. The ids of queued messages are kept, so a turn opening later
+   * still reports reading them.
+   */
+  #afterTurn(): void {
+    if (this.#settleOwed) this.#awaitSettleTurn();
     this.#armOpenWatch();
   }
 
