@@ -119,9 +119,10 @@ describe.skipIf(runningAsRoot || process.platform === "win32")("agent-harness se
 
     expect(await nth(0)).toEqual(PREPARED_MESSAGE);
     child.send({ type: "idle?" });
-    expect(await nth(1)).toEqual({ type: "idle", idle: true, state: "idle" });
-    child.send({ type: "drain" });
-    expect(await nth(2)).toMatchObject({ type: "draining", drainingSince: expect.any(String) as string });
+    // A launcher is present, so updates are not managed outside, container or not.
+    expect(await nth(1)).toEqual({ type: "idle", readiness: "ready", activity: { state: "idle" }, updatesManagedOutside: false });
+    child.send({ type: "drain?" });
+    expect(await nth(2)).toMatchObject({ type: "draining", drainingSince: expect.any(String) as string, trigger: "launcher" });
     expect(await exited).toBe(0);
   });
 });

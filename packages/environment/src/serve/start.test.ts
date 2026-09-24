@@ -47,6 +47,8 @@ afterEach(() => {
 const recordingLauncher = (onPrepared?: () => void | Promise<void>, onClose?: () => void | Promise<void>) => {
   const signals: string[] = [];
   const channel: LauncherChannel = {
+    present: () => false,
+    onQuery: () => undefined,
     prepared: async () => {
       signals.push("prepared");
       await onPrepared?.();
@@ -398,9 +400,11 @@ describe("the startup gate", () => {
       port: 0,
       user: notPrivileged,
       launcher: {
+        present: () => true,
         prepared: () => {
           throw new Error("the launcher has gone");
         },
+        onQuery: () => undefined,
         close: () => undefined,
       },
       hooks: { beforeStep: (_step, progress) => void (address = progress.address) },
@@ -479,7 +483,7 @@ describe("never root", () => {
 
 describe("environment.status", () => {
   it("is registered with its status result: readiness, activity, and who manages updates", async () => {
-    const env = await start({ containerDetector: { inContainer: () => false, launcherPresent: () => false } });
+    const env = await start({ containerDetector: { inContainer: () => false } });
     const served = env.methods.get("environment.status");
     if (served?.kind !== "query" || !served.handler) throw new Error("environment.status has no handler");
     const { handler } = served;

@@ -39,7 +39,7 @@ const harness = () => {
     stopRequested: () => stopped,
     environment: {
       user: { isPrivileged: () => false },
-      launcher: { prepared, close, onQuery: (respond) => void (answer = respond) },
+      launcher: { present: () => true, prepared, close, onQuery: (respond) => void (answer = respond) },
       runs,
     },
   };
@@ -89,8 +89,13 @@ describe("agent-harness serve", () => {
     const cli = harness();
     const exit = runCli(["serve", "--data-dir", join(tempDir(), "data"), "--port", "0"], cli.context);
     await vi.waitFor(() => expect(cli.out()).toMatch(/\n$/));
-    expect(cli.ask({ type: "idle?" })).toEqual({ type: "idle", idle: true, state: "idle" });
-    expect(cli.ask({ type: "drain" })).toMatchObject({ type: "draining" });
+    expect(cli.ask({ type: "idle?" })).toEqual({
+      type: "idle",
+      readiness: "ready",
+      activity: { state: "idle" },
+      updatesManagedOutside: false,
+    });
+    expect(cli.ask({ type: "drain?" })).toMatchObject({ type: "draining", trigger: "launcher" });
     expect(await exit).toBe(0);
     expect(cli.close).toHaveBeenCalledOnce();
     expect(cli.err()).toBe("");

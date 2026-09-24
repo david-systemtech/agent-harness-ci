@@ -92,13 +92,14 @@
                 "launcher",
                 "signal"
               ],
-              "description": "What started a drain: command (environment.drain from a client session), launcher (the launcher's drain query), signal (SIGTERM)."
+              "description": "What started a drain: command (environment.drain from a client session), launcher (the launcher's drain query), signal (SIGTERM or SIGINT)."
             }
           },
           "required": [
             "drainingSince",
             "trigger"
-          ]
+          ],
+          "description": "A drain as it began: since when, and what started it."
         }
       },
       "required": [

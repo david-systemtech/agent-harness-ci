@@ -7,5 +7,5 @@
     "launcher",
     "signal"
   ],
-  "description": "What started a drain: command (environment.drain from a client session), launcher (the launcher's drain query), signal (SIGTERM)."
+  "description": "What started a drain: command (environment.drain from a client session), launcher (the launcher's drain query), signal (SIGTERM or SIGINT)."
 }

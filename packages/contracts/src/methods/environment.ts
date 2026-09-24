@@ -1,7 +1,7 @@
 import { z } from "zod";
-import { DrainTrigger, EnvironmentStatus } from "../lifecycle.js";
+import { DrainStarted, EnvironmentStatus } from "../lifecycle.js";
 import { commandParams, defineMethod, subscriptionParams } from "../method.js";
-import { Sequence, Timestamp } from "../primitives.js";
+import { Sequence } from "../primitives.js";
 
 /** Readiness, idle or busy with the reason or draining, and whether updates are managed outside. */
 export const environmentStatus = defineMethod({
@@ -36,7 +36,7 @@ export const environmentDrain = defineMethod({
   name: "environment.drain",
   scope: "admin",
   params: commandParams({}),
-  result: z.object({ drainingSince: Timestamp, trigger: DrainTrigger }),
+  result: DrainStarted,
   errors: [],
   kind: "command",
 });

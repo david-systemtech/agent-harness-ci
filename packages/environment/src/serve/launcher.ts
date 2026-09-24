@@ -1,38 +1,34 @@
-import type { EnvironmentActivity } from "@agent-harness/contracts";
+import type { DrainStarted, EnvironmentStatus } from "@agent-harness/contracts";
 
 /**
- * What the launcher asks the environment once it is ready: whether it is
- * idle (ADR 0007's rule, the same answer `environment.status` gives), and to
- * drain.
+ * The child's side of the launcher's channel (ADR 0007), and the one place
+ * its messages are defined. The environment sends `{type: "prepared"}` once
+ * its startup gate is passed, so a trial version that cannot serve is rolled
+ * back. After that the launcher may ask two things, each answered with one
+ * reply:
+ *
+ * - `{type: "idle?"}` → `{type: "idle", ...status}`: the status document
+ *   `environment.status` answers (readiness, activity, updatesManagedOutside);
+ *   the environment is idle when `activity.state` is `idle`.
+ * - `{type: "drain?"}` → `{type: "draining", ...DrainStarted}`: the drain
+ *   begins, or the one under way is joined, and the reply says since when and
+ *   what started it.
+ *
+ * Any other message is ignored. The channel is let go by `close`, which the
+ * environment calls last when it closes (or when a start fails), so an open
+ * channel never keeps a finished process alive.
  */
-export type LauncherQuery = { readonly type: "idle?" } | { readonly type: "drain" };
+export type LauncherQuery = { readonly type: "idle?" } | { readonly type: "drain?" };
 
-/**
- * The environment's reply to a query: `idle` with the activity
- * `environment.status` reports, flattened beside `idle`; `draining` once a
- * drain has started (or was already under way), since when.
- */
-export type LauncherReply =
-  | ({ readonly type: "idle"; readonly idle: boolean } & EnvironmentActivity)
-  | { readonly type: "draining"; readonly drainingSince: string };
+/** The environment's reply to a `LauncherQuery`, as the pairs above. */
+export type LauncherReply = ({ readonly type: "idle" } & EnvironmentStatus) | ({ readonly type: "draining" } & DrainStarted);
 
-/**
- * The child's side of the launcher's channel (ADR 0007). The environment says
- * `prepared` once its startup gate is passed, so a trial version that cannot
- * serve is rolled back. The channel stays open after that for the launcher's
- * idle and drain queries, which `onQuery` answers from the environment's
- * lifecycle, and is let go by `close`, which the environment calls last when
- * it closes (or when a start fails), so an open channel never keeps a
- * finished process alive.
- */
 export interface LauncherChannel {
+  /** Whether a launcher is behind the channel; with none, and in a container, updates are managed outside. */
+  present(): boolean;
   prepared(): void | Promise<void>;
-  /**
-   * Answers the launcher's queries with `answer` from now until `close`. The
-   * environment calls it once, when it is ready. A channel with no launcher
-   * behind it may leave it out.
-   */
-  onQuery?(answer: (query: LauncherQuery) => LauncherReply): void;
+  /** Answers the launcher's queries with `answer` from now until `close`; the environment calls it once, when it is ready. */
+  onQuery(answer: (query: LauncherQuery) => LauncherReply): void;
   close(): void | Promise<void>;
 }
 
@@ -52,7 +48,7 @@ export interface IpcProcess {
 const queryOf = (message: unknown): LauncherQuery | undefined => {
   if (typeof message !== "object" || message === null) return undefined;
   const type = (message as { type?: unknown }).type;
-  return type === "idle?" || type === "drain" ? { type } : undefined;
+  return type === "idle?" || type === "drain?" ? { type } : undefined;
 };
 
 const ipcOf = (proc: NodeJS.Process): IpcProcess => {
@@ -75,12 +71,14 @@ const ipcOf = (proc: NodeJS.Process): IpcProcess => {
  * environment with one, and a no-op when `serve` runs in the foreground.
  * A signal the channel cannot deliver, or a launcher that disconnected before
  * the gate, fails the start. Each query is answered with one reply message;
- * a reply the launcher is no longer there to take is dropped. `close` stops
+ * a reply the launcher is no longer there to take is dropped; the foreground
+ * channel ignores queries, since no launcher asks them. `close` stops
  * listening and disconnects the channel if it is still connected.
  */
 export const processLauncherChannel = (proc: IpcProcess = ipcOf(process)): LauncherChannel => {
   let stopListening: (() => void) | undefined;
   return {
+    present: () => proc.send !== undefined,
     prepared: () => {
       const send = proc.send;
       if (!send) return Promise.resolve();

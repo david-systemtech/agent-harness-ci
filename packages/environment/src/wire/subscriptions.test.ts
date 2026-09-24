@@ -613,7 +613,12 @@ describe("environment.subscribe", () => {
       dataDir,
       port: 0,
       user: { isPrivileged: () => false },
-      launcher: { prepared: () => Promise.reject(new Error("the launcher has gone")), close: () => undefined },
+      launcher: {
+        present: () => true,
+        prepared: () => Promise.reject(new Error("the launcher has gone")),
+        onQuery: () => undefined,
+        close: () => undefined,
+      },
     });
     await expect(failed).rejects.toMatchObject({ step: "prepared" });
 

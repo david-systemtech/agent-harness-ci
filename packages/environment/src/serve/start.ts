@@ -28,15 +28,10 @@ import { defaultDataDirectory, prepareDataDirectory } from "./data-directory.js"
 import { createHttpSurface, sendJson, type Address, type HttpRoutes } from "./http.js";
 import { ensureSigningKey, loadOrCreateRecord, type EnvironmentRecord } from "./identity.js";
 import { processLauncherChannel, type LauncherChannel } from "./launcher.js";
-import {
-  createLifecycle,
-  createRunRegistry,
-  processContainerDetector,
-  type ContainerDetector,
-  type DrainOutcome,
-  type RunRegistry,
-} from "./lifecycle.js";
+import { processContainerDetector, type ContainerDetector } from "./container.js";
+import { createLifecycle, type DrainOutcome } from "./lifecycle.js";
 import { createMethodTable, type MethodTable } from "./methods.js";
+import { createRunRegistry, type RunRegistry } from "./run-registry.js";
 import { processUserCheck, refusePrivilegedUser, type UserCheck } from "./user.js";
 import { fileVault, VAULT_FILE, type Vault } from "./vault.js";
 
@@ -123,7 +118,7 @@ export interface EnvironmentOptions {
   readonly subscriptionHooks?: SubscriptionHooks;
   /** The runs the idle rule and the drain read, and the drain's admission gate. Preset: an empty in-memory registry, until the adapter host (#119). */
   readonly runs?: RunRegistry;
-  /** Whether this is a container with no launcher, so updates are managed outside. Preset: `processContainerDetector`. */
+  /** Whether this is a container; with no launcher present too, updates are managed outside. Preset: `processContainerDetector`. */
   readonly containerDetector?: ContainerDetector;
 }
 
@@ -263,12 +258,16 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     runs: options.runs ?? createRunRegistry({ clock }),
     log,
     stream: environmentStream,
-    updatesManagedOutside: detector.inContainer() && !detector.launcherPresent(),
+    updatesManagedOutside: detector.inContainer() && !launcher.present(),
     readiness: () => readiness,
     onDraining: () => void (readiness = "draining"),
     close: () => close(),
   });
-  const table = createMethodTable(lifecycle.methods);
+  const table = createMethodTable({
+    ...lifecycle.handlers,
+    "environment.subscribe": () => lifecycle.source,
+    "environment.rebuildProjections": () => ({ projectors: [...log.rebuildProjections()], sequence: log.head() }),
+  });
 
   // The grant file and the wire are routed before the bind; both refuse work until the gate below.
   const grant = createBootstrapGrant({
@@ -314,11 +313,11 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     throw new StartupError("prepared", error);
   }
   wire.open();
-  launcher.onQuery?.((query) => lifecycle.answer(query));
+  launcher.onQuery((query) => lifecycle.answer(query));
   const sweep = clock.setInterval(() => clientSessions.sweep(), SWEEP_INTERVAL_MS);
   closers.push(() => sweep.cancel());
   // Runs first when the environment closes: a drain still waiting for runs stops waiting and ends `closed`.
-  closers.push(() => lifecycle.close());
+  closers.push(() => lifecycle.stopWaiting());
 
   return {
     id: record.id,

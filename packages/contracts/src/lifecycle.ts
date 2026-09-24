@@ -20,13 +20,23 @@ export const BusyReason = z.enum(BUSY_REASONS).meta({
 });
 export type BusyReason = z.infer<typeof BusyReason>;
 
-/** What starts a drain: `environment.drain`, the launcher's drain query, or SIGTERM. */
+/** What starts a drain: `environment.drain`, the launcher's drain query, or SIGTERM or SIGINT. */
 export const DRAIN_TRIGGERS = ["command", "launcher", "signal"] as const;
 export const DrainTrigger = z.enum(DRAIN_TRIGGERS).meta({
   description:
-    "What started a drain: command (environment.drain from a client session), launcher (the launcher's drain query), signal (SIGTERM).",
+    "What started a drain: command (environment.drain from a client session), launcher (the launcher's drain query), signal (SIGTERM or SIGINT).",
 });
 export type DrainTrigger = z.infer<typeof DrainTrigger>;
+
+/**
+ * A drain as it began: since when, and what started it. The answer to
+ * `environment.drain` (for a drain already under way too), the payload of
+ * the `environment.draining` notice, and the launcher's `draining` reply.
+ */
+export const DrainStarted = z
+  .object({ drainingSince: Timestamp, trigger: DrainTrigger })
+  .meta({ description: "A drain as it began: since when, and what started it." });
+export type DrainStarted = z.infer<typeof DrainStarted>;
 
 const Idle = z.object({ state: z.literal("idle") }).meta({
   description:

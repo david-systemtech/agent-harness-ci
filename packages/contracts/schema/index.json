@@ -87,6 +87,10 @@
       "title": "DrainTrigger"
     },
     {
+      "path": "lifecycle/drain-started.json",
+      "title": "DrainStarted"
+    },
+    {
       "path": "lifecycle/environment-activity.json",
       "title": "EnvironmentActivity"
     },

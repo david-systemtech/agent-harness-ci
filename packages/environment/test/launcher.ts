@@ -12,11 +12,13 @@ export interface TestLauncher extends LauncherChannel {
   ask(query: LauncherQuery): LauncherReply;
 }
 
-export const testLauncher = (): TestLauncher => {
+/** A test launcher; `present` is what the channel says of itself (preset: no launcher, as in the foreground). */
+export const testLauncher = (options: { readonly present?: boolean } = {}): TestLauncher => {
   const signals: string[] = [];
   let answer: ((query: LauncherQuery) => LauncherReply) | undefined;
   return {
     signals,
+    present: () => options.present ?? false,
     prepared: () => void signals.push("prepared"),
     onQuery: (respond) => void (answer = respond),
     close: () => {

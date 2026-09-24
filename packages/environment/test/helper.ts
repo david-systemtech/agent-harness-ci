@@ -13,7 +13,8 @@ import {
 } from "@agent-harness/contracts";
 import type { z } from "zod";
 import type { Address } from "../src/serve/http.js";
-import { createRunRegistry, type ContainerDetector, type MemoryRunRegistry } from "../src/serve/lifecycle.js";
+import type { ContainerDetector } from "../src/serve/container.js";
+import { createRunRegistry, type MemoryRunRegistry } from "../src/serve/run-registry.js";
 import type { HandlerResult, MethodContext, MethodHandler } from "../src/serve/methods.js";
 import { startEnvironment, type EnvironmentHandle, type StartupHooks } from "../src/serve/start.js";
 import type { SubscriptionHooks } from "../src/wire/subscriptions.js";
@@ -50,8 +51,10 @@ export interface TestEnvironmentOptions {
   readonly hooks?: StartupHooks;
   /** Subscription seams: hold a catch-up, slow a socket down. */
   readonly subscriptionHooks?: SubscriptionHooks;
-  /** Preset: whatever the machine is, reported as no container and no launcher, so updates are not managed outside. */
+  /** Preset: whatever the machine is, reported as no container, so updates are not managed outside. */
   readonly containerDetector?: ContainerDetector;
+  /** Preset: a test launcher that says no launcher is present. */
+  readonly launcher?: TestLauncher;
 }
 
 export interface ClientOptions extends OpenOptions, Partial<Omit<AuthOptions, "token">> {
@@ -149,7 +152,7 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
   const ownDir = options.dataDir === undefined ? mkdtempSync(join(tmpdir(), "agent-harness-env-")) : undefined;
   const dataDir = options.dataDir ?? join(ownDir as string, "data");
   const runs = createRunRegistry({ clock });
-  const launcher = testLauncher();
+  const launcher = options.launcher ?? testLauncher();
 
   let env: EnvironmentHandle;
   try {
@@ -161,7 +164,7 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
       user: { isPrivileged: () => false },
       launcher,
       runs,
-      containerDetector: options.containerDetector ?? { inContainer: () => false, launcherPresent: () => false },
+      containerDetector: options.containerDetector ?? { inContainer: () => false },
       ...(options.name !== undefined && { name: options.name }),
       ...(options.hooks !== undefined && { hooks: options.hooks }),
       ...(options.subscriptionHooks !== undefined && { subscriptionHooks: options.subscriptionHooks }),

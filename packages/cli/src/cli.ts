@@ -103,9 +103,8 @@ const serve = async (args: readonly string[], context: CliContext): Promise<numb
   }
   const { host, port } = environment.address;
   context.stdout(`http://${host}:${port}${DISCOVERY_PATH}\n`);
-  const running = environment;
   // The drain's own end is awaited below, whatever started it.
-  void context.stopRequested().then(() => running.drain("signal")).catch(() => undefined);
+  void context.stopRequested().then(() => environment.drain("signal")).catch(() => undefined);
   try {
     await environment.drained;
   } catch (error) {

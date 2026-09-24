@@ -462,6 +462,10 @@ export const schemaFixtures: Record<string, Fixtures> = {
     invalid: ["idle", "parked", ""],
   },
   "lifecycle/drain-trigger.json": { valid: ["command", "launcher", "signal"], invalid: ["SIGTERM", "cron", ""] },
+  "lifecycle/drain-started.json": {
+    valid: [{ drainingSince: at, trigger: "command" }, { drainingSince: at, trigger: "signal" }],
+    invalid: [{}, { drainingSince: at }, { trigger: "launcher" }, { drainingSince: "soon", trigger: "launcher" }],
+  },
   "lifecycle/environment-activity.json": { valid: validActivities, invalid: invalidActivities },
   "lifecycle/environment-status.json": { valid: validStatuses, invalid: invalidStatuses },
   "event-envelope.json": {

@@ -12,28 +12,23 @@ import {
 } from "@agent-harness/contracts";
 import { randomUUID } from "node:crypto";
 import { connect } from "node:net";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { useCleanups } from "../../test/cleanups.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
+import { testLauncher } from "../../test/launcher.js";
 import type { WireClient } from "../../test/wire-client.js";
 import type { Projector } from "../event-log/event-log.js";
 import type { Address } from "./http.js";
-import {
-  DRAIN_CAP_MS,
-  IDLE_WINDOW_MS,
-  PARKED_PROMPT_WINDOW_MS,
-  activityOf,
-  createRunRegistry,
-  processContainerDetector,
-  type RunRecord,
-} from "./lifecycle.js";
+import { DRAIN_CAP_MS } from "./lifecycle.js";
+import { IDLE_WINDOW_MS, PARKED_PROMPT_WINDOW_MS } from "./run-registry.js";
 
 /**
  * The lifecycle through the primary seam: idle and busy on `environment.status`
  * and the launcher's query, the drain from each trigger, the projection
  * rebuild, and who manages updates. Runs come from the helper's run registry,
- * which stands where the adapter host (#119) will; time is the manual clock.
+ * which stands where the adapter host (#119) will; time is the manual clock,
+ * which also owns the one turn a drain takes before it closes (`advance(0)`).
  */
 
 const { onCleanup } = useCleanups();
@@ -101,50 +96,6 @@ const settled = async (promise: Promise<unknown>): Promise<boolean> => {
   return done;
 };
 
-describe("the idle rule", () => {
-  const at = (iso: string) => new Date(iso);
-  const now = at("2026-09-24T12:00:00.000Z");
-  const ago = (ms: number) => new Date(now.getTime() - ms);
-
-  it("is idle with no runs at all", () => {
-    expect(activityOf([], now)).toEqual({ state: "idle" });
-  });
-
-  it("is busy while a run is starting or running, whenever it started", () => {
-    expect(activityOf([{ id: "a", state: "starting", startedAt: ago(60 * MINUTE) }], now)).toEqual({ state: "busy", reason: "run-starting" });
-    expect(activityOf([{ id: "a", state: "running", startedAt: ago(60 * MINUTE) }], now)).toEqual({ state: "busy", reason: "run-running" });
-  });
-
-  it("is busy for ten minutes after a run started or ended, and says until when", () => {
-    const ended = (ms: number): RunRecord => ({ id: "a", state: "ended", startedAt: ago(ms + MINUTE), endedAt: ago(ms) });
-    expect(activityOf([ended(9 * MINUTE)], now)).toEqual({
-      state: "busy",
-      reason: "recent-activity",
-      busyUntil: at("2026-09-24T12:01:00.000Z").toISOString(),
-    });
-    expect(activityOf([ended(IDLE_WINDOW_MS)], now)).toEqual({ state: "idle" });
-    expect(activityOf([ended(11 * MINUTE)], now)).toEqual({ state: "idle" });
-  });
-
-  it("counts a parked prompt for ten minutes after it parked, however long ago its run started", () => {
-    const parked = (ms: number): RunRecord => ({ id: "p", state: "parked", startedAt: ago(3 * 60 * MINUTE), parkedSince: ago(ms) });
-    expect(activityOf([parked(9 * MINUTE)], now)).toEqual({
-      state: "busy",
-      reason: "parked-prompt",
-      busyUntil: at("2026-09-24T12:01:00.000Z").toISOString(),
-    });
-    expect(activityOf([parked(PARKED_PROMPT_WINDOW_MS)], now)).toEqual({ state: "idle" });
-  });
-
-  it("reports the reason that holds longest, and a run starting or running over any window", () => {
-    const parked: RunRecord = { id: "p", state: "parked", startedAt: ago(60 * MINUTE), parkedSince: ago(8 * MINUTE) };
-    const ended: RunRecord = { id: "e", state: "ended", startedAt: ago(5 * MINUTE), endedAt: ago(MINUTE) };
-    expect(activityOf([parked, ended], now)).toEqual({ state: "busy", reason: "recent-activity", busyUntil: at("2026-09-24T12:09:00.000Z").toISOString() });
-    const running: RunRecord = { id: "r", state: "running", startedAt: ago(90 * MINUTE) };
-    expect(activityOf([parked, ended, running], now)).toEqual({ state: "busy", reason: "run-running" });
-  });
-});
-
 describe("environment.status", () => {
   it("answers a read-only client session with readiness, idle, and updates not managed outside", async () => {
     const t = await start();
@@ -207,22 +158,26 @@ describe("environment.status", () => {
 });
 
 describe("the launcher's idle query", () => {
-  it("gets the same answer as environment.status, idle or busy", async () => {
+  it("is answered with the status document environment.status answers, idle, busy or draining", async () => {
     const t = await start();
     const client = await t.client();
-    const same = async (idle: boolean) => {
-      const { activity } = await status(client);
-      expect(t.launcher.ask({ type: "idle?" })).toEqual({ type: "idle", idle, ...activity });
+    const same = async (state: string) => {
+      const answer = await status(client);
+      expect(answer.activity.state).toBe(state);
+      expect(t.launcher.ask({ type: "idle?" })).toEqual({ type: "idle", ...answer });
     };
-    await same(true);
+    await same("idle");
     t.runs.start("r1");
-    await same(false);
+    await same("busy");
     t.runs.running("r1");
     t.runs.park("r1");
     t.clock.advance(4 * MINUTE);
-    await same(false);
+    await same("busy");
     t.clock.advance(6 * MINUTE);
-    await same(true);
+    await same("idle");
+    t.runs.resume("r1");
+    void t.env.drain("signal");
+    await same("draining");
   });
 });
 
@@ -278,6 +233,9 @@ describe("the drain", () => {
     expect(one.isOpen() && two.isOpen()).toBe(true);
 
     t.runs.end("r1");
+    // The drain's one turn before it closes is the clock's.
+    expect(await settled(drain)).toBe(false);
+    t.clock.advance(0);
     const outcome = { trigger: "signal", drainingSince, endedBy: "runs-finished", cutRuns: [] };
     expect(await drain).toEqual(outcome);
     expect(await t.env.drained).toEqual(outcome);
@@ -317,6 +275,7 @@ describe("the drain", () => {
     t.runs.running("starting");
     expect(await settled(t.env.drained)).toBe(false);
     t.runs.end("starting");
+    t.clock.advance(0);
     expect(await t.env.drained).toMatchObject({ endedBy: "runs-finished", cutRuns: [] });
   });
 
@@ -326,6 +285,9 @@ describe("the drain", () => {
     const other = await t.client();
     const drainingSince = iso(t);
     expect(await client.request("environment.drain", { commandId: randomUUID() })).toEqual({ drainingSince, trigger: "command" });
+    expect(await settled(t.env.drained)).toBe(false);
+    expect(client.isOpen() && other.isOpen()).toBe(true);
+    t.clock.advance(0);
     expect(await t.env.drained).toMatchObject({ endedBy: "runs-finished", cutRuns: [] });
     for (const socket of [client, other]) expect((await socket.closed).bye?.reason).toBe("draining");
     expect(client.received.slice(-2)).toEqual([
@@ -343,19 +305,19 @@ describe("the drain", () => {
     t.runs.running("r1");
     const drainingSince = iso(t);
 
-    expect(t.launcher.ask({ type: "drain" })).toEqual({ type: "draining", drainingSince });
+    expect(t.launcher.ask({ type: "drain?" })).toEqual({ type: "draining", drainingSince, trigger: "launcher" });
     t.clock.advance(MINUTE);
     expect(await client.request("environment.drain", { commandId: randomUUID() })).toEqual({ drainingSince, trigger: "launcher" });
     const joined = t.env.drain("signal");
     expect(t.env.drain("command")).toBe(joined);
-    expect(t.launcher.ask({ type: "drain" })).toEqual({ type: "draining", drainingSince });
-    expect(t.launcher.ask({ type: "idle?" })).toEqual({ type: "idle", idle: false, state: "draining", drainingSince });
+    expect(t.launcher.ask({ type: "drain?" })).toEqual({ type: "draining", drainingSince, trigger: "launcher" });
 
     await status(client);
     expect(notices(client, subscription, "environment.draining")).toEqual([
       { type: "environment.draining", payload: { drainingSince, trigger: "launcher" } },
     ]);
     t.runs.end("r1");
+    t.clock.advance(0);
     expect(await joined).toMatchObject({ trigger: "launcher", drainingSince, endedBy: "runs-finished" });
   });
 
@@ -434,57 +396,10 @@ describe("updates managed outside", () => {
       [false, false, false],
       [false, true, false],
     ] as const) {
-      const t = await start({ containerDetector: { inContainer: () => inContainer, launcherPresent: () => launcherPresent } });
+      const t = await start({ containerDetector: { inContainer: () => inContainer }, launcher: testLauncher({ present: launcherPresent }) });
       const client = await t.client();
       expect((await status(client)).updatesManagedOutside, `container ${inContainer}, launcher ${launcherPresent}`).toBe(expected);
       await t.close();
     }
-  });
-
-  it("are detected from the container's marker files or PID 1's cgroup, and the launcher from an IPC channel", () => {
-    const probe = (files: Record<string, string>, hasIpc = false) =>
-      processContainerDetector({ exists: (path) => path in files, read: (path) => files[path], hasIpc });
-    expect(probe({ "/.dockerenv": "" }).inContainer()).toBe(true);
-    expect(probe({ "/run/.containerenv": "" }).inContainer()).toBe(true);
-    expect(probe({ "/proc/1/cgroup": "0::/kubepods/besteffort/pod1\n" }).inContainer()).toBe(true);
-    expect(probe({ "/proc/1/cgroup": "12:pids:/docker/abc\n" }).inContainer()).toBe(true);
-    expect(probe({ "/proc/1/cgroup": "0::/init.scope\n" }).inContainer()).toBe(false);
-    expect(probe({}).inContainer()).toBe(false);
-    expect(probe({}, true).launcherPresent()).toBe(true);
-    expect(probe({}, false).launcherPresent()).toBe(false);
-  });
-});
-
-describe("the in-memory run registry", () => {
-  it("tells its listeners of every change, forgets ended runs once they no longer count, and refuses unknown runs", () => {
-    let now = new Date("2026-09-24T00:00:00.000Z");
-    const clock = { now: () => now, setTimeout: vi.fn(), setInterval: vi.fn() };
-    const registry = createRunRegistry({ clock });
-    const heard = vi.fn();
-    const stop = registry.onChange(heard);
-    registry.start("a");
-    registry.running("a");
-    registry.park("a");
-    registry.resume("a");
-    registry.end("a");
-    expect(heard).toHaveBeenCalledTimes(5);
-    expect([...registry.runs()]).toEqual([{ id: "a", state: "ended", startedAt: now, endedAt: now }]);
-    expect(() => registry.start("a")).toThrow(/already/);
-    expect(() => registry.end("missing")).toThrow(/No run/);
-    now = new Date(now.getTime() + IDLE_WINDOW_MS);
-    expect([...registry.runs()]).toEqual([]);
-    stop();
-    registry.start("b");
-    expect(heard).toHaveBeenCalledTimes(5);
-    registry.refuseNewRuns();
-    const refusal = (() => {
-      try {
-        registry.start("c");
-      } catch (error) {
-        return error;
-      }
-    })();
-    expect(refusal).toBeInstanceOf(ContractError);
-    expect(refusal).toMatchObject({ code: "unavailable", data: { readiness: "draining" } });
   });
 });

@@ -49,22 +49,17 @@ export {
   type LauncherQuery,
   type LauncherReply,
 } from "./serve/launcher.js";
+export { processContainerDetector, type ContainerDetector, type ContainerProbe } from "./serve/container.js";
+export { DRAIN_CAP_MS, type DrainOutcome } from "./serve/lifecycle.js";
 export {
-  DRAIN_CAP_MS,
   IDLE_WINDOW_MS,
   PARKED_PROMPT_WINDOW_MS,
   activityOf,
   createRunRegistry,
-  processContainerDetector,
-  type ContainerDetector,
-  type ContainerProbe,
-  type DrainOutcome,
-  type IdleOrBusy,
   type MemoryRunRegistry,
   type RunRecord,
   type RunRegistry,
-  type RunState,
-} from "./serve/lifecycle.js";
+} from "./serve/run-registry.js";
 export type { HandlerResult, MethodContext, MethodHandler, MethodHandlers, MethodTable, ServedMethod } from "./serve/methods.js";
 export {
   DATABASE_FILE,
