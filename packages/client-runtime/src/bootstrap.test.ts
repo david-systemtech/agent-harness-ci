@@ -3,7 +3,7 @@ import { DISCOVERY_PATH, SCOPES } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { TOP_CEILING } from "../../environment/src/auth/client-sessions.js";
 import { grantReader, notJsonAt, originOf, until, useHarness } from "../test/harness.js";
-import { PAIRED_CONNECTIONS_DOCUMENT } from "./connections/records.js";
+import { LOCAL_PLACEHOLDER_ID, PAIRED_CONNECTIONS_DOCUMENT } from "./connections/records.js";
 import { inMemoryPlatform } from "./testing/in-memory-platform.js";
 
 const harness = useHarness();
@@ -155,6 +155,22 @@ describe("the bootstrap grant", () => {
     expect(noReader.preferences.read()["environments.sequence"]).toEqual([b.env.id, t.env.id, a.env.id]);
   });
 
+  it("keeps the place David gave the local environment when the next start derives it again", async () => {
+    const t = await harness.environment({ name: "local" });
+    const a = await harness.environment({ name: "a" });
+    const platform = inMemoryPlatform({ kind: "tui", grant: grantReader(t) });
+    const first = harness.runtime(platform);
+    await first.start();
+    await first.connections.add({ link: (await a.createPairing()).link });
+    await first.connections.setOrder([a.env.id, t.env.id]);
+    await first.close();
+
+    const again = harness.runtime(inMemoryPlatform({ kind: "tui", grant: grantReader(t), documents: platform.documents, secrets: platform.secrets }));
+    await again.start();
+    expect(again.preferences.read()["environments.sequence"]).toEqual([a.env.id, t.env.id]);
+    expect(again.connections.list.read().map((r) => r.environmentId)).toEqual([a.env.id, t.env.id]);
+  });
+
   it("replaces the previous desktop client session on a second desktop start", async () => {
     const t = await harness.environment();
     const first = harness.runtime(inMemoryPlatform({ kind: "desktop", grant: grantReader(t) }));
@@ -202,11 +218,13 @@ describe("the bootstrap grant", () => {
     ]);
   });
 
-  it("has no local connection when there is no grant to read and none was seen before", async () => {
+  it("lists this machine as a placeholder when there is no grant to read and none was seen before", async () => {
     const runtime = harness.runtime(inMemoryPlatform({ kind: "tui", grant: { read: async () => undefined } }));
     await runtime.start();
     expect(runtime.local.read()).toMatchObject({ state: "failed", reason: "service-down" });
-    expect(runtime.connections.list.read()).toEqual([]);
+    expect(runtime.connections.list.read()).toEqual([
+      expect.objectContaining({ environmentId: LOCAL_PLACEHOLDER_ID, kind: "local", phase: "service-down", action: "service.start" }),
+    ]);
   });
 
   it("reports an environment that does not answer at the grant's address", async () => {
