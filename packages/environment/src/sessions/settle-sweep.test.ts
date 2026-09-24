@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { MANUAL_CLOCK_START, manualClock } from "../../test/clock.js";
 import { startTestEnvironment, type TestEnvironment } from "../../test/helper.js";
-import { command, create, get, listStream, patchOf, reduce } from "../../test/sessions.js";
+import { command, create, deleteSession, get, listStream, patchOf, reduce } from "../../test/sessions.js";
 import { DAY, MINUTE, SWEEP_EVERY, SYNTHETIC_ACTOR, eventsAfter, pass, pullRequest, seed, updateSettings } from "../../test/shelf.js";
 import type { WireClient } from "../../test/wire-client.js";
 
@@ -182,6 +182,30 @@ describe("the candidates", () => {
     client = await pass(t, client, DAY + SWEEP_EVERY);
     expect((await get(client, parked)).settledBy).toBe("auto-idle");
     expect((await get(client, running)).settledAt).toBeNull();
+  });
+
+  it("leave out a deleted session, and wake no deleted session's snooze; restored in its grace period, it is judged again", async () => {
+    const t = await start();
+    const setup = await setUp(t, oneDay);
+    const snoozed = (await create(setup.client)).id;
+    await command(setup.client, "sessions.snooze", { sessionId: snoozed, until: at(DAY) });
+    await deleteSession(setup.client, setup.id);
+    await deleteSession(setup.client, snoozed);
+    const head = t.env.log.head();
+
+    let client = await pass(t, setup.client, 3 * DAY);
+
+    expect(eventsAfter(t, head)).toEqual([]);
+    await command(client, "sessions.restore", { sessionId: setup.id });
+    await command(client, "sessions.restore", { sessionId: snoozed });
+    client = await pass(t, client, SWEEP_EVERY);
+    expect((await get(client, setup.id)).settledBy).toBe("auto-idle");
+    expect(await get(client, snoozed)).toMatchObject({ snoozedUntil: null, settledBy: "auto-idle" });
+    expect(eventsAfter(t, head).filter((event) => event.streamId === snoozed).map((event) => [event.type, event.payload])).toEqual([
+      ["session.restored", {}],
+      ["session.unsnoozed", { reason: "expired" }],
+      ["session.settled", { settledAt: at(3 * DAY + SWEEP_EVERY), by: "auto-idle" }],
+    ]);
   });
 
   it("leave out a session a user unsettled: the override holds it active until activity clears it", async () => {
