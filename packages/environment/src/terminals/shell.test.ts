@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { baseEnvironment, loginShell, type ShellUser } from "./shell.js";
+import { baseEnvironment, loginShell, processUser, type ShellUser } from "./shell.js";
 
 const user = (shell: string | null): ShellUser => ({ username: "david", homedir: "/home/david", shell });
 const everyFile = () => true;
@@ -59,5 +59,17 @@ describe("a terminal's base environment", () => {
     const env = baseEnvironment("win32", own, user(null));
     expect(env).toMatchObject({ PATH: "C:\\Windows", SystemRoot: "C:\\Windows", USERPROFILE: "C:\\Users\\david", APPDATA: "C:\\a" });
     expect(env).not.toHaveProperty("SECRET");
+  });
+});
+
+describe("the passwd entry", () => {
+  it("falls back to the environment's names and the uid when the uid has none, so the shell is /bin/sh -l and nothing throws", () => {
+    const missing = () => {
+      throw Object.assign(new Error("ENOENT: no such file or directory, uv_os_get_passwd"), { code: "ENOENT" });
+    };
+    expect(processUser(missing, { USER: "david", HOME: "/home/david" }, 1234)).toEqual({ username: "david", homedir: "/home/david", shell: null });
+    expect(processUser(missing, { LOGNAME: "seth" }, 1234)).toEqual({ username: "seth", homedir: "/", shell: null });
+    expect(processUser(missing, {}, 1234)).toEqual({ username: "1234", homedir: "/", shell: null });
+    expect(loginShell("linux", processUser(missing, {}, 1234))).toEqual({ file: "/bin/sh", args: ["-l"] });
   });
 });

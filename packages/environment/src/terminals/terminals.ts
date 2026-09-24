@@ -80,15 +80,15 @@ export interface Terminals {
   info(id: string): TerminalInfo | undefined;
   /**
    * Opens a terminal and starts its shell. A shell that cannot be started
-   * leaves a terminal that has exited at once, code -1, its scrollback
-   * saying why.
+   * leaves a terminal that has exited at once, code -1 and cause `failed`,
+   * its scrollback saying why; the failure is logged, never thrown.
    */
   open(request: OpenTerminal): TerminalInfo;
   /** Writes to the terminal's shell; nothing for a terminal that is not running. */
   write(id: string, data: string): void;
   resize(id: string, cols: number, rows: number): void;
   /** Hangs up the terminal's shell (killing it if it lingers) and forgets the terminal; its subscribers hear it exit with `cause`. */
-  close(id: string, cause: Exclude<TerminalExitCause, "exited">): void;
+  close(id: string, cause: Extract<TerminalExitCause, "closed" | "deleted">): void;
   /** Closes every terminal of the session, with cause `deleted`. */
   closeSession(sessionId: string): void;
   /** The session's open terminals, oldest first. */
@@ -231,12 +231,15 @@ export const createTerminals = (options: TerminalsOptions): Terminals => {
       child.onData((data) => hear(terminal, data));
       child.onExit(({ exitCode, signal: signalNumber }) => exited(terminal, exitCode, signalNumber ? signalNumber : null));
     } catch (error) {
+      // The open was accepted already: the failure is the terminal's end, with cause failed, not a lost throw.
+      console.error(`Terminal ${terminal.id} could not start its shell:`, error);
       hear(terminal, `The terminal could not start: ${error instanceof Error ? error.message : String(error)}\r\n`);
+      terminal.closing = "failed";
       exited(terminal, -1, null);
     }
   };
 
-  const close = (id: string, cause: Exclude<TerminalExitCause, "exited">): void => {
+  const close = (id: string, cause: Extract<TerminalExitCause, "closed" | "deleted">): void => {
     const terminal = open.get(id);
     if (terminal === undefined) return;
     open.delete(id);

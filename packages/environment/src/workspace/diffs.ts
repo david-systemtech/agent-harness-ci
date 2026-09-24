@@ -17,7 +17,9 @@ import { runGit } from "./git.js";
  * repository's as an alternate: the user's index and object store are never
  * written. A handful of git calls however many files, so it is cheap enough to
  * be the rule. Where there is no git the answer is `conflict`, reason
- * `git_unavailable`.
+ * `git_unavailable`; where git runs and fails (a clean filter that fails, a
+ * corrupt object store) it is `conflict`, reason `git_failed`, with the first
+ * line git wrote to its standard error, never an empty diff.
  *
  * The session's diff is folded from its transcript's tool calls: every
  * file-editing call (Claude's `Edit`, `MultiEdit`, `Write`, `NotebookEdit`)
@@ -44,6 +46,18 @@ const UNTRACKED_BYTES = 32 * 1024 * 1024;
 /** Arguments that keep a repository's configuration from running anything or reshaping the output. */
 const DIFF_FLAGS = ["--no-color", "--no-ext-diff", "--no-textconv", "--relative", "--src-prefix=a/", "--dst-prefix=b/"];
 
+/**
+ * Git ran and failed (a filter that fails, a corrupt object store):
+ * `conflict`, reason `git_failed`, with the line that says why: git's
+ * `fatal:` line when it wrote one (its `error:` lines come first and say less),
+ * else its first.
+ */
+const gitFailed = (stderr: string): ContractError => {
+  const lines = stderr.split("\n").map((text) => text.trim()).filter((text) => text !== "");
+  const line = lines.find((text) => text.startsWith("fatal:")) ?? lines[0] ?? "git exited without saying why";
+  return new ContractError({ code: "conflict", message: `git could not diff the workspace: ${line}`, data: { reason: "git_failed" } });
+};
+
 export interface WorkingTreeDiff {
   readonly diff: string;
   readonly truncated: boolean;
@@ -57,6 +71,8 @@ export const workingTreeDiff = async (root: string): Promise<WorkingTreeDiff> =>
   if (inside.missing) {
     throw new ContractError({ code: "conflict", message: "There is no git on this environment to diff with.", data: { reason: "git_unavailable" } });
   }
+  // Not a repository is an answer; git failing for another reason (a broken repository) is not.
+  if (!inside.ok && !/not a git repository/i.test(inside.stderr)) throw gitFailed(inside.stderr);
   if (!inside.ok || inside.stdout.toString("utf8").trim() !== "true") return { diff: "", truncated: false, repository: false };
 
   const head = await runGit(root, ["rev-parse", "--verify", "--quiet", "HEAD^{commit}"], small);
@@ -86,6 +102,7 @@ export const workingTreeDiff = async (root: string): Promise<WorkingTreeDiff> =>
       : { ok: false };
     // Without them (none, too many to list, or refused) the diff is still the tracked files'.
     const diff = await runGit(root, ["diff", ...DIFF_FLAGS, base], { maxBytes: DIFF_CAP + 1, ...(added.ok && { env }) });
+    if (!diff.ok) throw gitFailed(diff.stderr);
     const capped = capAtLine(diff.stdout.toString("utf8"), DIFF_CAP);
     return { diff: capped.text, truncated: capped.truncated || diff.truncated, repository: true };
   } finally {

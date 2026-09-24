@@ -89,10 +89,15 @@ export const TerminalEnvironment = z
   });
 export type TerminalEnvironment = z.infer<typeof TerminalEnvironment>;
 
-/** Why a terminal ended: its process exited on its own, `terminals.close` closed it, or its session was deleted. */
-export const TERMINAL_EXIT_CAUSES = ["exited", "closed", "deleted"] as const;
+/**
+ * Why a terminal ended: its process exited on its own, `terminals.close`
+ * closed it, its session was deleted, or its shell failed to start after the
+ * open was accepted (exit code -1, the error in its scrollback).
+ */
+export const TERMINAL_EXIT_CAUSES = ["exited", "closed", "deleted", "failed"] as const;
 export const TerminalExitCause = z.enum(TERMINAL_EXIT_CAUSES).meta({
-  description: "Why a terminal ended: its process exited on its own, terminals.close closed it, or its session was deleted.",
+  description:
+    "Why a terminal ended: its process exited on its own, terminals.close closed it, its session was deleted, or its shell failed to start after the open was accepted (exit code -1, the error in its scrollback).",
 });
 export type TerminalExitCause = z.infer<typeof TerminalExitCause>;
 

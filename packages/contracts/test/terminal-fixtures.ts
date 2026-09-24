@@ -32,7 +32,7 @@ export const terminalSchemaFixtures: Record<string, Fixtures> = {
     valid: [{}, { FOO: "bar", _Y2: "" }],
     invalid: [{ "1X": "a" }, { "A-B": "a" }, { A: 1 }],
   },
-  "terminals/terminal-exit-cause.json": { valid: ["exited", "closed", "deleted"], invalid: ["killed", ""] },
+  "terminals/terminal-exit-cause.json": { valid: ["exited", "closed", "deleted", "failed"], invalid: ["killed", ""] },
   "terminals/terminal-info.json": {
     valid: [terminal, exitedTerminal],
     invalid: [{ ...terminal, cols: 0 }, { ...terminal, rows: 1001 }, { ...terminal, exitCode: undefined }, { ...terminal, id: "t-1" }],

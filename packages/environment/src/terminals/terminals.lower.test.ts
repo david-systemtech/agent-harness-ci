@@ -110,6 +110,38 @@ describe("a terminal's gathered output", () => {
   });
 });
 
+describe("a burst of output", () => {
+  it("reaches a live subscriber whole, byte for byte, in consecutive sequences, whether one read or many in a window", () => {
+    vi.useFakeTimers();
+    const { pty, terminals } = setUp(5);
+    terminals.open(request());
+    const heard: EventEnvelope[] = [];
+    feedOf(terminals).feed.subscribe((event) => heard.push(event));
+    const [child] = pty.spawned as [FakeProcess];
+    const burst = Array.from({ length: 200 * 1024 }, (_, i) => String.fromCharCode(97 + (i % 26))).join("");
+    child.print(burst);
+    for (let at = 0; at < burst.length; at += 4096) child.print(burst.slice(at, at + 4096));
+    vi.advanceTimersByTime(5);
+    expect(heard.map((event) => event.payload["data"]).join("")).toBe(burst + burst);
+    expect(heard.map((event) => event.sequence)).toEqual(heard.map((_, i) => i + 1));
+  });
+});
+
+describe("a shell that fails to start after the command committed", () => {
+  it("leaves a terminal exited with cause failed, the error in its scrollback, and says so in the log", () => {
+    const { pty, terminals } = setUp();
+    const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    pty.failNext = "posix_spawnp failed";
+    const info = terminals.open(request());
+    expect(info).toMatchObject({ exitCode: -1 });
+    const answer = feedOf(terminals).feed.catchUp(0);
+    expect(answer.snapshot?.payload.scrollback).toContain("posix_spawnp failed");
+    expect(answer.events.map((event) => event.payload)).toEqual([{ exitCode: -1, signal: null, cause: "failed" }]);
+    expect(errors).toHaveBeenCalledWith(expect.stringContaining(ID), expect.any(Error));
+    errors.mockRestore();
+  });
+});
+
 describe("a terminal's feed", () => {
   it("answers cursor 0 with the snapshot, a cursor it reaches with the chunks after it, and a cursor past its end with the snapshot", () => {
     const { pty, terminals } = setUp();

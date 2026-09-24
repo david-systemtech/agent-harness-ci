@@ -1,5 +1,5 @@
 import { accessSync, constants } from "node:fs";
-import { homedir, userInfo } from "node:os";
+import { userInfo } from "node:os";
 import { basename, isAbsolute } from "node:path";
 
 /**
@@ -45,10 +45,24 @@ const executable = (file: string): boolean => {
   }
 };
 
-/** The running process's passwd entry. */
-export const processUser = (): ShellUser => {
-  const info = userInfo();
-  return { username: info.username, homedir: info.homedir, shell: info.shell };
+/**
+ * The running process's passwd entry. A uid with none (a container's
+ * arbitrary uid) makes `userInfo` throw on POSIX; then the names come from
+ * `USER` or `LOGNAME`, else the uid, the home from `HOME`, else `/`, and no
+ * shell, so a terminal starts `/bin/sh -l` and nothing that reads the entry
+ * throws.
+ */
+export const processUser = (
+  read: () => { readonly username: string; readonly homedir: string; readonly shell: string | null } = userInfo,
+  env: Readonly<Record<string, string | undefined>> = process.env,
+  uid: number = process.getuid?.() ?? 0,
+): ShellUser => {
+  try {
+    const info = read();
+    return { username: info.username, homedir: info.homedir, shell: info.shell };
+  } catch {
+    return { username: env["USER"] || env["LOGNAME"] || String(uid), homedir: env["HOME"] || "/", shell: null };
+  }
 };
 
 /** The shell a terminal starts: see the module comment. */
@@ -101,7 +115,7 @@ export const baseEnvironment = (
     TERM: "xterm-256color",
     COLORTERM: "truecolor",
     PATH: lookup(own, "PATH", platform) ?? "/usr/local/bin:/usr/bin:/bin",
-    HOME: lookup(own, "HOME", platform) ?? (user.homedir || homedir()),
+    HOME: lookup(own, "HOME", platform) ?? user.homedir,
     LANG: lookup(own, "LANG", platform) ?? "C.UTF-8",
     USER: user.username,
     LOGNAME: user.username,

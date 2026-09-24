@@ -162,6 +162,28 @@ describe("terminals.open", () => {
     expect((await client.request("terminals.list", { sessionId })).terminals).toEqual([]);
   });
 
+  it("accepts the open and then shows a spawn that fails after the commit as an exit with cause failed, with no unhandled rejection", async () => {
+    const pty = fakePty();
+    const rejections: unknown[] = [];
+    const onRejection = (reason: unknown) => void rejections.push(reason);
+    process.on("unhandledRejection", onRejection);
+    onCleanup(() => void process.off("unhandledRejection", onRejection));
+    const { client, sessionId } = await setUp({ terminals: { shell: () => SH, pty } });
+    pty.failNext = "posix_spawnp failed";
+
+    const answer = await terminalCommand(client, "terminals.open", { id: randomUUID(), sessionId });
+
+    expect(answer.receipt.status).toBe("accepted");
+    const id = answer.result?.terminal.id as string;
+    const view = await follow(client, id, 0);
+    await view.until((v) => v.ended !== undefined);
+    expect(view.snapshot?.scrollback).toContain("posix_spawnp failed");
+    expect(view.exited).toEqual({ exitCode: -1, signal: null, cause: "failed" });
+    expect((await client.request("terminals.list", { sessionId })).terminals).toMatchObject([{ id, exitCode: -1 }]);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(rejections).toEqual([]);
+  });
+
   it("refuses a workspace directory that is gone conflict, reason workspace_missing", async () => {
     const { client } = await setUp();
     const sessionId = await sessionIn(client, "/nonexistent/agent-harness-workspace");

@@ -39,7 +39,12 @@ export interface GitAnswer {
   readonly truncated: boolean;
   /** Whether there is no git to run at all: none on the PATH. */
   readonly missing: boolean;
+  /** What git said on its standard error, its first 64 KiB. */
+  readonly stderr: string;
 }
+
+/** The most of git's standard error kept. */
+const STDERR_BYTES = 64 * 1024;
 
 /** The config every call sets over the repository's: no fsmonitor, no hooks. */
 const HARDENING = ["-c", "core.fsmonitor=false", "-c", `core.hooksPath=${process.platform === "win32" ? "NUL" : "/dev/null"}`, "-c", "core.quotepath=off"];
@@ -61,7 +66,7 @@ export const runGit = (cwd: string, args: readonly string[], options: GitOptions
     const child = spawn("git", ["--no-optional-locks", ...HARDENING, ...args], {
       cwd,
       env: gitEnvironment(options.env),
-      stdio: [options.input === undefined ? "ignore" : "pipe", "pipe", "ignore"],
+      stdio: [options.input === undefined ? "ignore" : "pipe", "pipe", "pipe"],
       windowsHide: true,
     });
     if (options.input !== undefined) {
@@ -79,6 +84,14 @@ export const runGit = (cwd: string, args: readonly string[], options: GitOptions
       truncated = true;
       child.kill("SIGKILL");
     }, options.timeoutMs ?? GIT_TIMEOUT_MS);
+    const errors: Buffer[] = [];
+    let errorBytes = 0;
+    child.stderr?.on("data", (chunk: Buffer) => {
+      if (errorBytes >= STDERR_BYTES) return;
+      errors.push(chunk.subarray(0, STDERR_BYTES - errorBytes));
+      errorBytes += Math.min(chunk.length, STDERR_BYTES - errorBytes);
+    });
+    const stderr = (): string => Buffer.concat(errors).toString("utf8");
     child.stdout?.on("data", (chunk: Buffer) => {
       if (truncated) return;
       const room = options.maxBytes - kept;
@@ -92,6 +105,10 @@ export const runGit = (cwd: string, args: readonly string[], options: GitOptions
       chunks.push(chunk);
       kept += chunk.length;
     });
-    child.on("error", (error: NodeJS.ErrnoException) => finish({ ok: false, stdout: Buffer.alloc(0), truncated: false, missing: error.code === "ENOENT" }));
-    child.on("close", (code) => finish({ ok: code === 0 || (truncated && kept > 0), stdout: Buffer.concat(chunks), truncated, missing: false }));
+    child.on("error", (error: NodeJS.ErrnoException) =>
+      finish({ ok: false, stdout: Buffer.alloc(0), truncated: false, missing: error.code === "ENOENT", stderr: error.message }),
+    );
+    child.on("close", (code) =>
+      finish({ ok: code === 0 || (truncated && kept > 0), stdout: Buffer.concat(chunks), truncated, missing: false, stderr: stderr() }),
+    );
   });

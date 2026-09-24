@@ -275,6 +275,22 @@ describe("diffs.workingTree", () => {
     expect(below.diff).not.toContain("top.txt");
   });
 
+  it("answers conflict, reason git_failed, with git's own complaint, when git runs and fails, rather than an empty diff", async () => {
+    const { client, root, sessionId } = await setUp();
+    git(root, "init", "-q");
+    write(root, { "a.txt": "a\n" });
+    git(root, "add", ".");
+    git(root, "commit", "-qm", "first");
+    git(root, "config", "filter.broken.clean", "false");
+    git(root, "config", "filter.broken.required", "true");
+    write(root, { ".gitattributes": "a.txt filter=broken\n", "a.txt": "b\n" });
+
+    const error = await refusedWith(client.request("diffs.workingTree", { sessionId }));
+
+    expect([error.code, error.data["reason"]]).toEqual(["conflict", "git_failed"]);
+    expect(error.message).toMatch(/a\.txt/);
+  });
+
   it("says a workspace in no repository has nothing to diff", async () => {
     const { client, root, sessionId } = await setUp();
     write(root, { "a.txt": "a\n" });

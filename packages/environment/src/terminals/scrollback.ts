@@ -7,7 +7,7 @@ import { TERMINAL_SCROLLBACK } from "@agent-harness/contracts";
  * kept of it; output never enters the event log. Output arrives as chunks,
  * each numbered from 1 in the terminal's own sequence, which is the cursor a
  * subscription replays from. The ring keeps at most 5,000 lines or 8 MiB,
- * whichever comes first, dropping the oldest output: whole chunks while they
+ * whichever comes first, in at most 4,096 chunk records (older ones merged), dropping the oldest output: whole chunks while they
  * fit in what has to go, then the head of the oldest one left, so the text is
  * always the newest tail. A line is a newline, and an unfinished last line
  * counts as one, so a prompt after the cap pushes the oldest line out.
@@ -21,11 +21,26 @@ export interface Chunk {
   readonly data: string;
 }
 
-/** The caps: lines and UTF-8 bytes. */
+/** The caps: lines and UTF-8 bytes, and the chunks kept. */
 export interface ScrollbackCaps {
   readonly lines: number;
   readonly bytes: number;
+  /** Preset `MAX_CHUNKS`. */
+  readonly chunks?: number;
 }
+
+/**
+ * The most chunks the ring keeps records of. Newline-free output (a
+ * spinner, a percentage) never meets the line cap, and a record per tiny
+ * read would otherwise be bounded only by the 8 MiB: a million of them. Past
+ * the cap the oldest chunk is merged into the next, so no text is lost and
+ * the line and byte caps still govern what is kept (a chunk a line would
+ * otherwise keep only 4,096 of the 5,000 lines); the merged chunk is the
+ * oldest, and like a cut one it is snapshotted, never replayed. A
+ * subscription more than 1,000 chunks behind is sent the snapshot anyway, so
+ * the merge can only turn a replay into a snapshot.
+ */
+export const MAX_CHUNKS = 4096;
 
 export interface Scrollback {
   /**
@@ -52,6 +67,8 @@ export interface Scrollback {
   clear(): void;
   /** How many lines are retained, an unfinished last one counted. */
   lines(): number;
+  /** How many chunks are retained. */
+  chunks(): number;
   /** How many UTF-8 bytes are retained. */
   bytes(): number;
 }
@@ -138,6 +155,21 @@ export const createScrollback = (caps: ScrollbackCaps = TERMINAL_SCROLLBACK): Sc
     truncated = true;
   };
 
+  /** Merges the oldest chunk into the next: its text kept, its record gone, the merged chunk not replayable whole. */
+  const mergeHead = (): void => {
+    const oldest = head() as Held;
+    const next = held[start + 1] as Held;
+    next.data = oldest.data + next.data;
+    next.bytes += oldest.bytes;
+    next.newlines += oldest.newlines;
+    start += 1;
+    headCut = true;
+    if (start > 1024 && start * 2 > held.length) {
+      held = held.slice(start);
+      start = 0;
+    }
+  };
+
   /** Drops the output up to and including the `k`th newline from the head: the oldest `k` lines. */
   const dropLines = (k: number): void => {
     let remaining = k;
@@ -183,6 +215,7 @@ export const createScrollback = (caps: ScrollbackCaps = TERMINAL_SCROLLBACK): Sc
       const excessLines = lineCount() - caps.lines;
       if (excessLines > 0) dropLines(excessLines);
       if (totalBytes > caps.bytes) dropExcessBytes();
+      while (count() > (caps.chunks ?? MAX_CHUNKS)) mergeHead();
       return answer;
     },
     get firstSequence() {
@@ -212,6 +245,7 @@ export const createScrollback = (caps: ScrollbackCaps = TERMINAL_SCROLLBACK): Sc
       while (count() > 0) dropHead();
     },
     lines: lineCount,
+    chunks: count,
     bytes: () => totalBytes,
   };
 };

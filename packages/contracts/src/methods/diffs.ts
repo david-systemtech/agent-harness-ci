@@ -16,7 +16,8 @@ import { SessionDiffFile } from "../terminals.js";
  * together, untracked files that are not ignored shown as new files, paths
  * relative to the workspace; `repository` false, and no diff, when the
  * workspace is in no git repository; `conflict`, reason `git_unavailable`,
- * when the environment has no git.
+ * when the environment has no git, and reason `git_failed`, with git's own
+ * complaint (its `fatal:` line), when git runs and fails.
  */
 export const diffsWorkingTree = defineMethod({
   name: "diffs.workingTree",

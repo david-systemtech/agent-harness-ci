@@ -106,6 +106,27 @@ describe("a terminal's scrollback", () => {
     expect(ring.after(1)?.map((chunk) => chunk.data)).toEqual(["d\n"]);
   });
 
+  it("holds at most 4,096 chunk records, merging the oldest, so newline-free output (a spinner) cannot make a record of every tiny read", () => {
+    const ring = createScrollback();
+    for (let i = 0; i < 100_000; i += 1) ring.append(String(i % 10).repeat(8), AT);
+    expect(ring.chunks()).toBe(4096);
+    // Every byte is kept: 800,000 of them is under both caps.
+    expect(ring.bytes()).toBe(800_000);
+    expect(ring.text()).toHaveLength(800_000);
+    expect([ring.firstSequence, ring.lastSequence, ring.truncated]).toEqual([100_000 - 4095, 100_000, false]);
+    expect(ring.text().startsWith("00000000111111112")).toBe(true);
+    expect(ring.text().endsWith("99999999")).toBe(true);
+    // A cursor inside the retained chunks still replays; one at or before the merged oldest cannot.
+    expect(ring.after(100_000 - 2)?.map((chunk) => chunk.sequence)).toEqual([99_999, 100_000]);
+    expect(ring.after(100_000 - 4096)).toBeUndefined();
+    expect(ring.after(100_000 - 4095)).toHaveLength(4095);
+    // With lines, the line cap still governs: 6,000 chunks of a line each keep 5,000 lines in 4,096 records.
+    const lined = createScrollback();
+    fill(lined, lines(6000));
+    expect([lined.lines(), lined.chunks()]).toEqual([5000, 4096]);
+    expect(lined.text().startsWith("line-1000\n")).toBe(true);
+  });
+
   it("holds the real caps, 5,000 lines and 8 MiB, by default", () => {
     const ring = createScrollback();
     fill(ring, lines(6000));
