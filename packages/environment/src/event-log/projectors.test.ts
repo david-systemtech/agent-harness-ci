@@ -254,6 +254,17 @@ describe("projectors", () => {
     expect(withoutIndex.applied).toEqual([1, 2, 3, 4]);
   });
 
+  it("keep a declared statement whole across a semicolon inside a quoted literal, so it is not rebuilt on every start", () => {
+    const path = tempDatabase();
+    const tables = { checks: "CREATE TABLE checks (kind TEXT NOT NULL CHECK (kind IN ('a;b', 'c')), n INTEGER DEFAULT 0);\n  CREATE INDEX checks_by_n ON checks (n)" };
+    const first = openEventLog({ path, projectors: [{ name: "checks", tables, apply: () => {} }] });
+    appendSome(first);
+    first.close();
+    const again = countingProjector();
+    track(openEventLog({ path, projectors: [{ ...again.projector, name: "checks", tables, apply: again.projector.apply }] })).close();
+    expect(again.applied).toEqual([]);
+  });
+
   it("accept a declared table whose statement creates it under another case, as SQLite does", () => {
     const log = track(openEventLog({ path: ":memory:" }));
     log.registerProjector({ name: "cased", tables: { Counts: "CREATE TABLE counts (x INTEGER)" }, apply: () => {} });

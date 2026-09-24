@@ -6,6 +6,33 @@ import { logTables } from "./migrations.js";
 const CATCH_UP_PAGE = 500;
 
 /** A statement as compared with the one SQLite keeps: trimmed, white space collapsed, case folded, `IF NOT EXISTS` dropped. */
+/**
+ * The statements of a declaration, split on the semicolons outside its quoted
+ * strings and identifiers, so a literal holding one (a CHECK, a DEFAULT) stays
+ * whole, as SQLite reads it.
+ */
+const splitStatements = (statements: string): string[] => {
+  const parts: string[] = [];
+  let current = "";
+  let quote: string | null = null;
+  for (const char of statements) {
+    if (quote !== null) {
+      current += char;
+      if (char === quote) quote = null;
+    } else if (char === "'" || char === '"' || char === "`") {
+      quote = char;
+      current += char;
+    } else if (char === ";") {
+      parts.push(current);
+      current = "";
+    } else {
+      current += char;
+    }
+  }
+  parts.push(current);
+  return parts;
+};
+
 const normalisedStatement = (statement: string): string =>
   statement
     .trim()
@@ -100,7 +127,7 @@ export const createProjections = (
     const held = sql
       .all<{ sql: string }>("SELECT sql FROM sqlite_schema WHERE lower(tbl_name) = lower(?) AND sql IS NOT NULL ORDER BY rowid", table)
       .map((row) => normalisedStatement(row.sql));
-    const declared = statements.split(";").map(normalisedStatement).filter((statement) => statement !== "");
+    const declared = splitStatements(statements).map(normalisedStatement).filter((statement) => statement !== "");
     return held.length === declared.length && held.every((statement, i) => statement === declared[i]);
   };
 
