@@ -421,11 +421,13 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
    */
   const heldAttachments = options.stagedAttachments ?? new Map<string, StagedAttachments>();
   /**
-   * The broker's open requests, by prompt id: each run's prompts nobody has
-   * answered yet, settled by a person's answer (`deliverAnswer`), the
-   * provider's withdrawal, or the run's end, which denies them in memory.
+   * The broker's open requests, by run and prompt id (`waiterKey`): each
+   * run's prompts nobody has answered yet, settled by a person's answer
+   * (`deliverAnswer`), the provider's withdrawal, or the run's end, which
+   * denies them in memory.
    */
   const waiters = new Map<string, { readonly runId: string; settle(decision: PromptDecision): void }>();
+  const waiterKey = (runId: string, promptId: string): string => `${runId}\u0000${promptId}`;
   const stage = options.attachmentStage;
   let closing = false;
 
@@ -858,7 +860,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
         const settle = (decision: PromptDecision): void => {
           if (!open) return;
           open = false;
-          if (waiters.get(promptId) === waiter) waiters.delete(promptId);
+          if (waiters.get(key) === waiter) waiters.delete(key);
           request.signal?.removeEventListener("abort", withdraw);
           answered(entry, promptId);
           resolve(decision);
@@ -875,8 +877,9 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
           }
           settle({ decision: "deny", message: WITHDRAWN_MESSAGE });
         };
+        const key = waiterKey(entry.runId, promptId);
         const waiter = { runId: entry.runId, settle };
-        waiters.set(promptId, waiter);
+        waiters.set(key, waiter);
         request.signal?.addEventListener("abort", withdraw, { once: true });
       });
     },
@@ -1430,7 +1433,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
         return undefined;
       } finally {
         // The answer is in the log: the request is settled whatever the adapter said, so nothing waits on it.
-        waiters.get(promptId)?.settle(decision);
+        waiters.get(waiterKey(runId, promptId))?.settle(decision);
         if (entry !== undefined && !entry.ended && decision.decision === "allow" && decision.mode !== undefined) entry.mode = decision.mode;
       }
     },
