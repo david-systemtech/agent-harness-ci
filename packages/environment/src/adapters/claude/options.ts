@@ -104,11 +104,10 @@ const continuation = (run: RunInput, point: ResumePoint | null): Partial<Options
     case "resume":
       return { resume: target.providerSessionId };
     case "fork":
-      return {
-        resume: target.providerSessionId,
-        forkSession: true,
-        ...(target.atMessageId !== null && point !== null && { resumeSessionAt: point.resumeSessionAt }),
-      };
+      if (target.atMessageId === null) return { resume: target.providerSessionId, forkSession: true };
+      // A fork from a message that could not be placed must not become a fork of the whole session.
+      if (point === null) throw new Error(`The fork from ${target.atMessageId} was not placed in the stored session.`);
+      return { resume: target.providerSessionId, forkSession: true, resumeSessionAt: point.resumeSessionAt };
     case "rewind":
       // A rewind that could not be placed must not become a resume of the whole session.
       if (point === null) throw new Error(`The rewind to ${target.toMessageId} was not placed in the stored session.`);
