@@ -1,22 +1,12 @@
-import { mkdirSync, mkdtempSync, rmSync, statSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
+import { useCleanups } from "../../test/cleanups.js";
 import { defaultDataDirectory, prepareDataDirectory } from "./data-directory.js";
 
 const posix = process.platform !== "win32";
 
-let cleanups: (() => void)[] = [];
-afterEach(() => {
-  for (const cleanup of cleanups.reverse()) cleanup();
-  cleanups = [];
-});
-
-const tempDir = (): string => {
-  const dir = mkdtempSync(join(tmpdir(), "agent-harness-data-dir-"));
-  cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
-  return dir;
-};
+const { tempDir } = useCleanups();
 
 describe("the default data directory", () => {
   it("is under XDG state on Linux", () => {

@@ -43,10 +43,13 @@ export {
   type StartupStep,
 } from "./serve/start.js";
 export {
-  isElevatedToken,
+  mandatoryLevel,
+  PrivilegeCheckError,
   processUserCheck,
+  refusePrivilegedUser,
   RootRefusedError,
   ROOT_REFUSAL,
+  rootRefusal,
   type ProcessIdentity,
   type UserCheck,
 } from "./serve/user.js";

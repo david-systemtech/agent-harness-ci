@@ -1,7 +1,7 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { writeFileAtomic } from "./files.js";
+import { EnvironmentId } from "@agent-harness/contracts";
+import { readJsonFile, writeFileAtomic } from "./files.js";
 import type { Vault } from "./vault.js";
 
 /**
@@ -21,14 +21,12 @@ export const RECORD_FILE = "environment.json";
 export const SIGNING_KEY = "client-session-signing-key";
 
 const SIGNING_KEY_BYTES = 32;
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 const isRecord = (value: unknown): value is EnvironmentRecord => {
-  if (typeof value !== "object" || value === null) return false;
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
   const { id, createdAt, name } = value as Record<string, unknown>;
   return (
-    typeof id === "string" &&
-    UUID.test(id) &&
+    EnvironmentId.safeParse(id).success &&
     typeof createdAt === "string" &&
     !Number.isNaN(Date.parse(createdAt)) &&
     typeof name === "string" &&
@@ -40,29 +38,13 @@ const isRecord = (value: unknown): value is EnvironmentRecord => {
  * The environment record in `dataDir`, created on first start with a fresh
  * UUID and `name`. An existing record is kept as it is, its name included:
  * renaming is a command, not a start option. A record that cannot be read is
- * refused, never replaced, since replacing it would give the machine a new
+ * refused, never replaced, since replacing it would give the environment a new
  * identity and orphan every saved connection.
  */
 export const loadOrCreateRecord = (dataDir: string, name: string, clock: () => Date): EnvironmentRecord => {
   const path = join(dataDir, RECORD_FILE);
-  let text: string | undefined;
-  try {
-    text = readFileSync(path, "utf8");
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-  }
-  if (text !== undefined) {
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(text);
-    } catch {
-      parsed = undefined;
-    }
-    if (!isRecord(parsed)) {
-      throw new Error(`${path} is not a valid environment record; refusing to replace it.`);
-    }
-    return { id: parsed.id, createdAt: parsed.createdAt, name: parsed.name };
-  }
+  const existing = readJsonFile(path, isRecord, "an environment record");
+  if (existing) return { id: existing.id, createdAt: existing.createdAt, name: existing.name };
   const record: EnvironmentRecord = { id: randomUUID(), createdAt: clock().toISOString(), name };
   writeFileAtomic(path, `${JSON.stringify(record, null, 2)}\n`, 0o600);
   return record;

@@ -128,8 +128,11 @@ export const createHttpSurface = (options: { readonly tailnetName?: string | und
     close: () =>
       new Promise<void>((resolve, reject) => {
         if (!listening) return resolve();
-        listening = false;
-        server.close((error) => (error ? reject(error) : resolve()));
+        server.close((error) => {
+          if (error) return reject(error);
+          listening = false;
+          resolve();
+        });
         server.closeAllConnections();
       }),
   };

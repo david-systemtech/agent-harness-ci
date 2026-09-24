@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { CapabilityFlags, ProtocolVersion } from "./flags.js";
+import { EnvironmentId } from "./primitives.js";
 import { PRODUCT_NAME } from "./product.js";
 
 /**
@@ -42,7 +43,7 @@ export const HEALTH_PATH = "/health";
  */
 export const DiscoveryDocument = z
   .object({
-    environmentId: z.uuid().meta({ description: "The environment's persistent id, kept across address changes." }),
+    environmentId: EnvironmentId,
     environmentName: z.string().min(1),
     harnessVersion: z.string().min(1).meta({ description: "The version of the harness the environment runs." }),
     protocolVersion: ProtocolVersion,

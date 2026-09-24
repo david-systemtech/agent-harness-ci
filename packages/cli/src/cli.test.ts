@@ -52,6 +52,22 @@ describe("agent-harness serve", () => {
     expect(cli.err()).toBe("");
   });
 
+  it("prints its usage and exits 2 on arguments it cannot parse, as an ordinary user", async () => {
+    for (const args of [
+      ["serve", "--port", "http"],
+      ["serve", "--port", "70000"],
+      ["serve", "--port", ""],
+      ["serve", "extra"],
+      ["serve", "--data-dir"],
+      ["serve", "--allow-root"],
+    ]) {
+      const cli = harness();
+      expect(await runCli(args, cli.context), args.join(" ")).toBe(2);
+      expect(cli.err()).toContain("agent-harness serve [--data-dir <path>] [--port <n>] [--name <name>]");
+      expect(cli.prepared).not.toHaveBeenCalled();
+    }
+  });
+
   it("prints the failed step and exits 1 when startup fails", async () => {
     const first = harness();
     const running = runCli(["serve", "--data-dir", join(tempDir(), "one"), "--port", "0"], first.context);

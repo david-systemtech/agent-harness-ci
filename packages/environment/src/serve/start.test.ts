@@ -1,7 +1,7 @@
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { request } from "node:http";
+import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { connect } from "node:net";
-import { hostname, tmpdir } from "node:os";
+import { Server, request } from "node:http";
+import { hostname } from "node:os";
 import { join, relative, sep } from "node:path";
 import {
   DISCOVERY_PATH,
@@ -12,6 +12,7 @@ import {
   registry,
 } from "@agent-harness/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { useCleanups } from "../../test/cleanups.js";
 import {
   RootRefusedError,
   ROOT_REFUSAL,
@@ -35,18 +36,11 @@ const { version: packageVersion } = JSON.parse(
 const notPrivileged: UserCheck = { isPrivileged: () => false };
 const privileged: UserCheck = { isPrivileged: () => true };
 
-let cleanups: (() => void | Promise<void>)[] = [];
-afterEach(async () => {
-  for (const cleanup of cleanups.reverse()) await cleanup();
-  cleanups = [];
+const { onCleanup, tempDir } = useCleanups();
+afterEach(() => {
   vi.unstubAllEnvs();
+  vi.restoreAllMocks();
 });
-
-const tempDir = (): string => {
-  const dir = mkdtempSync(join(tmpdir(), "agent-harness-serve-"));
-  cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
-  return dir;
-};
 
 /** A launcher channel that records what reaches it. */
 const recordingLauncher = (onPrepared?: () => void | Promise<void>) => {
@@ -69,7 +63,7 @@ const start = async (options: EnvironmentOptions = {}): Promise<EnvironmentHandl
     launcher: recordingLauncher().channel,
     ...options,
   });
-  cleanups.push(() => handle.close());
+  onCleanup(() => handle.close());
   return handle;
 };
 
@@ -312,7 +306,7 @@ describe("the environment record and the signing key", () => {
     const before = tree(home);
 
     const env = await startEnvironment({ port: 0, user: notPrivileged, launcher: recordingLauncher().channel });
-    cleanups.push(() => env.close());
+    onCleanup(() => env.close());
     await getJson(env.address, DISCOVERY_PATH);
     await env.close();
 
@@ -402,12 +396,19 @@ describe("the startup gate", () => {
     const dataDir = join(tempDir(), "data");
     const first = await start({ dataDir });
     await first.close();
-    const corrupt = '{"id": "not a record"';
-    writeFileSync(join(dataDir, "environment.json"), corrupt);
-    const launcher = recordingLauncher();
-    await expect(start({ dataDir, launcher: launcher.channel })).rejects.toMatchObject({ step: "identity" });
-    expect(readFileSync(join(dataDir, "environment.json"), "utf8")).toBe(corrupt);
-    expect(launcher.signals).toEqual([]);
+    const good = JSON.parse(readFileSync(join(dataDir, "environment.json"), "utf8")) as Record<string, unknown>;
+    for (const corrupt of [
+      '{"id": "not a record"',
+      JSON.stringify({ ...good, id: "not-a-uuid" }),
+      JSON.stringify({ ...good, name: "" }),
+      JSON.stringify([good]),
+    ]) {
+      writeFileSync(join(dataDir, "environment.json"), corrupt);
+      const launcher = recordingLauncher();
+      await expect(start({ dataDir, launcher: launcher.channel }), corrupt).rejects.toMatchObject({ step: "identity" });
+      expect(readFileSync(join(dataDir, "environment.json"), "utf8")).toBe(corrupt);
+      expect(launcher.signals).toEqual([]);
+    }
   });
 });
 
@@ -433,6 +434,24 @@ describe("never root", () => {
     expect(launcher.signals).toEqual([]);
   });
 
+  it("refuses, saying so, when the check cannot tell", async () => {
+    const dataDir = join(tempDir(), "data");
+    const refusal = startEnvironment({
+      dataDir,
+      port: 0,
+      user: {
+        isPrivileged: () => {
+          throw new Error("whoami.exe could not run: spawn ENOENT");
+        },
+      },
+      launcher: recordingLauncher().channel,
+    });
+    await expect(refusal).rejects.toBeInstanceOf(RootRefusedError);
+    await expect(refusal).rejects.toThrow(ROOT_REFUSAL.slice(0, -1));
+    await expect(refusal).rejects.toThrow(/could not run: spawn ENOENT/);
+    expect(existsSync(dataDir)).toBe(false);
+  });
+
   it("asks the check it is given, not one of its own", async () => {
     const isPrivileged = vi.fn(() => false);
     await start({ user: { isPrivileged } });
@@ -453,6 +472,28 @@ describe("environment.status", () => {
 });
 
 describe("closing", () => {
+  it("closes the event log even when the listener fails to close, and a second close retries the listener", async () => {
+    const env = await start();
+    const wal = join(env.dataDir, "environment.db-wal");
+    expect(existsSync(wal)).toBe(true);
+    const failing = vi.spyOn(Server.prototype, "close").mockImplementationOnce(function (
+      this: Server,
+      callback?: (error?: Error) => void,
+    ) {
+      callback?.(new Error("the listener would not close"));
+      return this;
+    });
+
+    await expect(env.close()).rejects.toThrow("the listener would not close");
+    expect(failing).toHaveBeenCalledOnce();
+    // SQLite removes the write-ahead log when its last connection closes.
+    expect(existsSync(wal)).toBe(false);
+    expect(await refusesConnections(env.address)).toBe(false);
+
+    await env.close();
+    expect(await refusesConnections(env.address)).toBe(true);
+  });
+
   it("stops listening, and may be called twice", async () => {
     const env = await start();
     await env.close();

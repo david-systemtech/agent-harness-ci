@@ -134,6 +134,9 @@ One **environment** per OS user on every machine: a server installed as a user-l
 ## Further Notes
 
 - Chosen defaults that were not decided on a ticket and may be revisited in review: replay bound 1,000 events or 8 MiB per stream (T3 Code's measured values); pairing code expiry ten minutes; client session lifetime 30 days with refresh; receipt retention 30 days; transcript compaction after 90 days untouched; the 15-second ping and 45-second watchdog (Artemis's measured values).
+- Chosen default not decided on a ticket: the environment listens on port 7433 unless told otherwise (`serve --port`, `DEFAULT_PORT` in the environment package); saved connections need a stable port, and a second environment on one machine passes its own.
+- Chosen default not decided on a ticket: `serve` refuses a real uid of 0 as well as an effective uid of 0, since a process whose real uid is root can take root back.
+- The wire's `readiness` field (`starting`, `ready`, `draining`) reuses a word the glossary gives to skills (**Readiness**: ready, setup needed, unsupported); the contracts type is named `EnvironmentReadiness` to keep them apart, and the overlap is flagged for domain-modeling.
 - The bootstrap grant is the answer to "how does a local client avoid pairing": the OS user's file permissions are the credential. A second OS user on the same machine is a different environment by design.
 - T3 Code's DPoP sessions and WebSocket tickets were read and not carried: the harness never puts a token in a URL, so a ticket is unnecessary, and DPoP's sender-binding is more than a tailnet-only surface needs in milestone 1. If a public relay arrives, revisit both.
 - The completions surface and the WebSocket share the port; the completions surface authenticates with the same client-session tokens under the same ceiling (ADR 0015), which the adapter workstream specifies.

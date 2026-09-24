@@ -1,18 +1,15 @@
-import { readFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { DISCOVERY_PATH, PRODUCT_NAME } from "@agent-harness/contracts";
 import {
+  HARNESS_VERSION,
+  processUserCheck,
+  refusePrivilegedUser,
   RootRefusedError,
   StartupError,
   startEnvironment,
   type EnvironmentHandle,
   type EnvironmentOptions,
 } from "@agent-harness/environment";
-
-// `../package.json` is the CLI's manifest from `src/` and from `dist/` alike.
-const { version } = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as {
-  version: string;
-};
 
 const USAGE = [
   `usage: ${PRODUCT_NAME} --version`,
@@ -65,13 +62,13 @@ const parseServe = (args: readonly string[]): Pick<EnvironmentOptions, "dataDir"
   } catch (error) {
     throw new UsageError(error instanceof Error ? error.message : String(error));
   }
-  const port = values.port === undefined ? undefined : Number(values.port);
-  if (port !== undefined && !(/^\d+$/.test(values.port ?? "") && port <= 65535)) {
-    throw new UsageError(`--port takes a port number from 0 to 65535; got ${values.port}.`);
+  const { port } = values;
+  if (port !== undefined && !(/^\d+$/.test(port) && Number(port) <= 65535)) {
+    throw new UsageError(`--port takes a port number from 0 to 65535; got ${port}.`);
   }
   return {
     ...(values["data-dir"] !== undefined && { dataDir: values["data-dir"] }),
-    ...(port !== undefined && { port }),
+    ...(port !== undefined && { port: Number(port) }),
     ...(values.name !== undefined && { name: values.name }),
   };
 };
@@ -79,13 +76,15 @@ const parseServe = (args: readonly string[]): Pick<EnvironmentOptions, "dataDir"
 /**
  * `serve`: runs the environment in the foreground until SIGINT or SIGTERM,
  * printing the discovery address once it is ready. Everything it does is the
- * environment package's; this only parses, prints and waits.
+ * environment package's; this only refuses, parses, prints and waits. The
+ * refusal comes before the arguments are read, so no argument gets past it.
  */
 const serve = async (args: readonly string[], context: CliContext): Promise<number> => {
-  const options = parseServe(args);
+  const user = context.environment?.user ?? processUserCheck();
   let environment: EnvironmentHandle;
   try {
-    environment = await startEnvironment({ ...options, ...context.environment });
+    refusePrivilegedUser(user);
+    environment = await startEnvironment({ ...parseServe(args), ...context.environment, user });
   } catch (error) {
     if (error instanceof RootRefusedError) {
       context.stderr(`${error.message}\n`);
@@ -104,19 +103,19 @@ const serve = async (args: readonly string[], context: CliContext): Promise<numb
   return 0;
 };
 
-/** Runs the CLI on `args` and resolves to its exit code. */
-export const runCli = async (args: readonly string[], context: Partial<CliContext> = {}): Promise<number> => {
-  const full: CliContext = { ...processContext, ...context };
+/** Runs the CLI on `args` and resolves to its exit code; `overrides` replace the process's streams and signals. */
+export const runCli = async (args: readonly string[], overrides: Partial<CliContext> = {}): Promise<number> => {
+  const context: CliContext = { ...processContext, ...overrides };
   try {
     if (args.length === 1 && args[0] === "--version") {
-      full.stdout(`${PRODUCT_NAME} ${version}\n`);
+      context.stdout(`${PRODUCT_NAME} ${HARNESS_VERSION}\n`);
       return 0;
     }
-    if (args[0] === "serve") return await serve(args.slice(1), full);
+    if (args[0] === "serve") return await serve(args.slice(1), context);
     throw new UsageError(args.length === 0 ? "No command given." : `Unknown command ${args[0]}.`);
   } catch (error) {
     if (!(error instanceof UsageError)) throw error;
-    full.stderr(`${error.message}\n${USAGE}`);
+    context.stderr(`${error.message}\n${USAGE}`);
     return 2;
   }
 };

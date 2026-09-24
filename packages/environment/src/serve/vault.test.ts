@@ -1,22 +1,12 @@
-import { chmodSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { chmodSync, existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
+import { useCleanups } from "../../test/cleanups.js";
 import { fileVault } from "./vault.js";
 
 const posix = process.platform !== "win32";
 
-let cleanups: (() => void)[] = [];
-afterEach(() => {
-  for (const cleanup of cleanups.reverse()) cleanup();
-  cleanups = [];
-});
-
-const tempDir = (): string => {
-  const dir = mkdtempSync(join(tmpdir(), "agent-harness-vault-"));
-  cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
-  return dir;
-};
+const { tempDir } = useCleanups();
 
 describe("the file vault", () => {
   it("keeps a value across instances on the same file", async () => {
@@ -47,12 +37,13 @@ describe("the file vault", () => {
     expect(statSync(path).mode & 0o777).toBe(0o600);
   });
 
-  it.runIf(posix)("tightens a vault file someone loosened", async () => {
+  it.runIf(posix)("tightens a vault file someone loosened when it is opened", async () => {
     const path = join(tempDir(), "vault.json");
     await fileVault(path).set("k", "v");
     chmodSync(path, 0o644);
-    expect(await fileVault(path).get("k")).toBe("v");
+    const reopened = fileVault(path);
     expect(statSync(path).mode & 0o777).toBe(0o600);
+    expect(await reopened.get("k")).toBe("v");
   });
 
   it("refuses a vault file that is not a JSON object of strings, and leaves it as it was", async () => {

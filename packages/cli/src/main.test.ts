@@ -1,16 +1,15 @@
 import { execFile, fork } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { PREPARED_MESSAGE, ROOT_REFUSAL } from "@agent-harness/environment";
+import { HARNESS_VERSION, PREPARED_MESSAGE, ROOT_REFUSAL } from "@agent-harness/environment";
 import { afterEach, describe, expect, it } from "vitest";
 
 const spawnCli = promisify(execFile);
 const entry = new URL("./main.ts", import.meta.url).pathname;
 const privilegedEntry = new URL("../test/serve-privileged.ts", import.meta.url).pathname;
-const { version } = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version: string };
 const tsx = createRequire(import.meta.url).resolve("tsx");
 const runningAsRoot = process.geteuid?.() === 0;
 
@@ -32,23 +31,15 @@ const tempDir = (): string => {
 };
 
 describe("agent-harness", () => {
-  it("prints the placeholder name and its version for --version", async () => {
+  it("prints the placeholder name and the harness version the environment reports, for --version", async () => {
     const { stdout } = await cli("--version");
-    expect(stdout).toBe(`agent-harness ${version}\n`);
+    expect(stdout).toBe(`agent-harness ${HARNESS_VERSION}\n`);
   });
 
   it("prints its usage and fails on anything else", async () => {
     await expect(cli("--no-such-flag")).rejects.toMatchObject({ code: 2, stderr: expect.stringContaining("usage: agent-harness") });
   });
 
-  it("prints its usage and fails on a serve it cannot parse", async () => {
-    for (const args of [["serve", "--port", "http"], ["serve", "--port", "70000"], ["serve", "extra"], ["serve", "--data-dir"]]) {
-      await expect(cli(...args), args.join(" ")).rejects.toMatchObject({
-        code: 2,
-        stderr: expect.stringContaining("agent-harness serve [--data-dir <path>] [--port <n>] [--name <name>]"),
-      });
-    }
-  });
 });
 
 describe("agent-harness serve, as a privileged user", () => {
@@ -60,9 +51,13 @@ describe("agent-harness serve, as a privileged user", () => {
     expect(existsSync(dataDir)).toBe(false);
   });
 
-  it("has no flag that lifts the refusal", async () => {
-    for (const flag of ["--allow-root", "--no-root-check", "--unsafe", "--container"]) {
-      await expect(run(privilegedEntry, ["serve", flag, "--port", "0"]), flag).rejects.toMatchObject({ code: 2 });
+  it("refuses before reading its arguments, so no flag lifts the refusal or gets past it", async () => {
+    for (const flag of ["--allow-root", "--no-root-check", "--unsafe", "--container", "--port=http"]) {
+      await expect(run(privilegedEntry, ["serve", flag]), flag).rejects.toMatchObject({
+        code: 1,
+        stdout: "",
+        stderr: `${ROOT_REFUSAL}\n`,
+      });
     }
   });
 
@@ -72,6 +67,7 @@ describe("agent-harness serve, as a privileged user", () => {
       code: 1,
       stderr: `${ROOT_REFUSAL}\n`,
     });
+    await expect(cli("serve", "--allow-root")).rejects.toMatchObject({ code: 1, stderr: `${ROOT_REFUSAL}\n` });
     expect(existsSync(dataDir)).toBe(false);
   });
 });

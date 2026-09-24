@@ -21,6 +21,7 @@ export {
   ClientKind,
   ClientSessionId,
   CommandId,
+  EnvironmentId,
   JsonObject,
   RequestId,
   Sequence,

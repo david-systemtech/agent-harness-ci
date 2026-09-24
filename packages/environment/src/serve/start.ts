@@ -12,12 +12,13 @@ import {
   type HealthDocument,
 } from "@agent-harness/contracts";
 import { openEventLog, type EventLog, type Projector } from "../event-log/event-log.js";
+import { createCloserStack } from "./closers.js";
 import { defaultDataDirectory, prepareDataDirectory } from "./data-directory.js";
 import { createHttpSurface, sendJson, type Address, type HttpRoutes } from "./http.js";
 import { ensureSigningKey, loadOrCreateRecord, type EnvironmentRecord } from "./identity.js";
 import { processLauncherChannel, type LauncherChannel } from "./launcher.js";
 import type { MethodHandlers } from "./methods.js";
-import { processUserCheck, RootRefusedError, type UserCheck } from "./user.js";
+import { processUserCheck, refusePrivilegedUser, type UserCheck } from "./user.js";
 import { fileVault, VAULT_FILE, type Vault } from "./vault.js";
 
 /** The harness version the environment reports: its own package's, read from `src/` and `dist/` alike. */
@@ -108,7 +109,10 @@ export interface EnvironmentHandle {
   readonly methods: MethodHandlers;
   /** The listener's route table, behind the Host check. */
   readonly http: HttpRoutes;
-  /** Stops listening and closes the event log. Idempotent. */
+  /**
+   * Stops listening and closes the event log, each even when the other fails.
+   * Idempotent; after a failure, calling it again retries what did not close.
+   */
   close(): Promise<void>;
 }
 
@@ -120,7 +124,7 @@ export interface EnvironmentHandle {
  * signals nothing, and rejects with a `StartupError` naming the step.
  */
 export const startEnvironment = async (options: EnvironmentOptions = {}): Promise<EnvironmentHandle> => {
-  if ((options.user ?? processUserCheck()).isPrivileged()) throw new RootRefusedError();
+  refusePrivilegedUser(options.user ?? processUserCheck());
 
   const dataDir = options.dataDir ?? defaultDataDirectory();
   const clock = options.clock ?? (() => new Date());
@@ -131,17 +135,14 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
 
   let readiness: EnvironmentReadiness = "starting";
   let address: Address | undefined;
-  const closers: (() => void | Promise<void>)[] = [];
-  const closeAll = async (): Promise<void> => {
-    for (let close = closers.pop(); close; close = closers.pop()) await close();
-  };
+  const closers = createCloserStack();
 
   const step = async <T>(name: StartupStep, work: () => T | Promise<T>): Promise<T> => {
     try {
       await options.hooks?.beforeStep?.(name, { address });
       return await work();
     } catch (error) {
-      await closeAll().catch((closeError: unknown) => console.error("Closing after a failed start failed:", closeError));
+      await closers.closeAll().catch((closeError: unknown) => console.error("Closing after a failed start failed:", closeError));
       throw new StartupError(name, error);
     }
   };
@@ -202,6 +203,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     "environment.status": () => ({ readiness }),
   };
 
+  // Concurrent closes share one attempt; a close after a failed one retries what did not close.
   let closing: Promise<void> | undefined;
   return {
     id: record.id,
@@ -211,6 +213,6 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     readiness: () => readiness,
     methods,
     http: { route: (method, path, handler) => surface.route(method, path, handler) },
-    close: () => (closing ??= closeAll()),
+    close: () => (closing ??= closers.closeAll().finally(() => (closing = undefined))),
   };
 };

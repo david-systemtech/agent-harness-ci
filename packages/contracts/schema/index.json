@@ -35,6 +35,10 @@
       "title": "CommandId"
     },
     {
+      "path": "environment-id.json",
+      "title": "EnvironmentId"
+    },
+    {
       "path": "client-session-id.json",
       "title": "ClientSessionId"
     },

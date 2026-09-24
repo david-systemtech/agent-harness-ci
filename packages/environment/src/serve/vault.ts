@@ -1,5 +1,5 @@
-import { chmodSync, readFileSync, statSync } from "node:fs";
-import { writeFileAtomic } from "./files.js";
+import { chmodSync, statSync } from "node:fs";
+import { readJsonFile, writeFileAtomic } from "./files.js";
 
 /**
  * Where an environment keeps its secrets: the client-session signing key now,
@@ -18,39 +18,26 @@ export interface Vault {
 export const VAULT_FILE = "vault.json";
 
 const OWNER_ONLY = 0o600;
-const posixModes = process.platform !== "win32";
+
+const isStringRecord = (value: unknown): value is Record<string, string> =>
+  typeof value === "object" &&
+  value !== null &&
+  !Array.isArray(value) &&
+  Object.values(value).every((entry) => typeof entry === "string");
 
 /**
  * A vault in one JSON file of string values, mode 0600, replaced by rename on
- * every write. A file that is not a JSON object of strings is refused, never
- * overwritten: it may hold the only copy of a key.
+ * every write. Opening it tightens a file someone loosened. A file that is not
+ * a JSON object of strings is refused, never overwritten: it may hold the only
+ * copy of a key.
  */
 export const fileVault = (path: string): Vault => {
-  const read = (): Record<string, string> => {
-    let text: string;
-    try {
-      text = readFileSync(path, "utf8");
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return {};
-      throw error;
-    }
-    if (posixModes && (statSync(path).mode & 0o077) !== 0) chmodSync(path, OWNER_ONLY);
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(text);
-    } catch {
-      parsed = undefined;
-    }
-    if (
-      typeof parsed !== "object" ||
-      parsed === null ||
-      Array.isArray(parsed) ||
-      !Object.values(parsed).every((value) => typeof value === "string")
-    ) {
-      throw new Error(`The vault ${path} is not a JSON object of strings; refusing to read or replace it.`);
-    }
-    return parsed as Record<string, string>;
-  };
+  try {
+    if (process.platform !== "win32" && (statSync(path).mode & 0o077) !== 0) chmodSync(path, OWNER_ONLY);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+  const read = (): Record<string, string> => readJsonFile(path, isStringRecord, "a vault of strings") ?? {};
 
   return {
     get: async (key) => {
@@ -58,8 +45,7 @@ export const fileVault = (path: string): Vault => {
       return Object.hasOwn(entries, key) ? entries[key] : undefined;
     },
     set: async (key, value) => {
-      const entries = { ...read(), [key]: value };
-      writeFileAtomic(path, `${JSON.stringify(entries, null, 2)}\n`, OWNER_ONLY);
+      writeFileAtomic(path, `${JSON.stringify({ ...read(), [key]: value }, null, 2)}\n`, OWNER_ONLY);
     },
   };
 };
