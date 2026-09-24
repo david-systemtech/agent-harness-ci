@@ -1,0 +1,238 @@
+import { afterEach, describe, expect, it } from "vitest";
+import { KEY, renderApp, type RenderedApp } from "../test/harness.js";
+import { resolveKeymap } from "./keys.js";
+
+/**
+ * First launch (docs/specs/tui.md, "First launch: local detection, service
+ * down, pairing"): the local environment through the bootstrap grant with no
+ * prompt; a stopped service offered a start on one key, then `starting`
+ * until `ready`; "install and start it" when no service is installed; the
+ * pairing prompt when there is no grant and nothing paired.
+ */
+
+let apps: RenderedApp[] = [];
+afterEach(async () => {
+  for (const app of apps) await app.unmount();
+  apps = [];
+});
+const launch = async (...args: Parameters<typeof renderApp>) => {
+  const app = await renderApp(...args);
+  apps.push(app);
+  return app;
+};
+
+const OFFER = "The environment on this machine is not running. Start it? y/n";
+const DESK = "0199aa00-0000-7000-8000-00000000d35c";
+
+/** The rows of the frame holding `text`. */
+const rowsWith = (frame: string, text: string) => frame.split("\n").filter((row) => row.includes(text));
+
+describe("first launch through the grant", () => {
+  it("exchanges the grant for a tui local client session and shows the header and the rail, asking nothing", async () => {
+    const app = await launch({ script: { environments: [{ name: "desk", reach: "local" }] } });
+    await app.waitFor("● desk ready");
+    const frame = app.frame();
+    expect(rowsWith(frame, "agent-harness")[0]).toContain("● desk ready");
+    expect(rowsWith(frame, "desk").length).toBeGreaterThanOrEqual(2);
+    expect(frame).toContain("no sessions");
+    expect(frame).not.toContain("Pair this terminal");
+    expect(frame).not.toContain("y/n");
+    expect(app.runtime().connections.list.read()).toMatchObject([{ kind: "local", phase: "ready" }]);
+    expect(app.environment("desk").server.received()).toContainEqual(expect.objectContaining({ type: "auth", clientKind: "tui" }));
+  });
+
+  it("shows the workspace in the header", async () => {
+    const app = await launch({ script: { environments: [{ name: "desk", reach: "local" }] }, flags: { workspace: "~/code/brandsolidate" } });
+    expect(app.frame().split("\n")[0]).toContain("~/code/brandsolidate");
+  });
+});
+
+describe("service down", () => {
+  it("offers to start it on one line above the composer when the grant file is there and discovery is silent", async () => {
+    const app = await launch({ script: { environments: [{ name: "desk", reach: "local", discovery: "nothing" }] } });
+    await app.waitFor(OFFER);
+    const rows = app.frame().split("\n");
+    const offer = rows.findIndex((row) => row.includes(OFFER));
+    expect(rows[offer + 1]).toContain("›");
+    expect(rowsWith(app.frame(), "y/n")).toHaveLength(1);
+  });
+
+  it("runs the service start verb on y, then shows starting until ready", async () => {
+    const app = await launch({ script: { environments: [{ name: "desk", reach: "local", discovery: "nothing" }] } });
+    await app.waitFor(OFFER);
+    await app.press("y");
+    expect(app.service.calls).toEqual(["start"]);
+    expect(app.frame()).toContain("starting");
+    expect(app.frame()).not.toContain(OFFER);
+    await app.advance(3000);
+    expect(app.frame()).toContain("starting");
+    app.environment("desk").discovery("ready");
+    await app.waitFor("● desk ready");
+    expect(app.frame()).not.toContain("starting");
+    expect(app.runtime().connections.list.read()).toMatchObject([{ kind: "local", phase: "ready" }]);
+  });
+
+  it("does the same for a local environment it knew, which the runtime lists while its service is down", async () => {
+    const first = await launch({ script: { environments: [{ name: "desk", reach: "local", environmentId: DESK }] } });
+    await first.waitFor("● desk ready");
+    await first.unmount();
+    apps = [];
+
+    const app = await launch({
+      script: { environments: [{ name: "desk", reach: "local", environmentId: DESK, discovery: "nothing" }] },
+      platform: first.platform,
+    });
+    await app.waitFor(OFFER);
+    expect(app.frame()).toContain("service down");
+    await app.press("y");
+    expect(app.service.calls).toEqual(["start"]);
+    await app.waitFor("● desk starting");
+    app.environment("desk").discovery("ready");
+    await app.waitFor("● desk ready");
+  });
+
+  it("answers the offer on a key the keybindings file gives it, Shift on a letter included", async () => {
+    const { keymap, problems } = resolveKeymap({ "confirm.yes": ["Shift+s"] });
+    expect(problems).toEqual([]);
+    const app = await launch({ script: { environments: [{ name: "desk", reach: "local", discovery: "nothing" }] }, keymap });
+    await app.waitFor(OFFER);
+    // `y` is no longer the answer: it is typed, and taken back.
+    await app.press("y");
+    expect(app.service.calls).toEqual([]);
+    expect(app.frame()).toContain("› y");
+    await app.press(KEY.backspace, "S");
+    expect(app.service.calls).toEqual(["start"]);
+  });
+
+  it("stops waiting for the environment when the terminal UI quits, and starts no runtime after", async () => {
+    const app = await launch({ script: { environments: [{ name: "desk", reach: "local", discovery: "nothing" }] }, service: { comesUp: false } });
+    await app.waitFor(OFFER);
+    await app.press("y");
+    await app.advance(3000);
+    expect(app.service.readinessPolls()).toBeGreaterThan(1);
+    const runtime = app.runtime();
+    await app.press(KEY.ctrlC);
+    const polls = app.service.readinessPolls();
+    app.environment("desk").discovery("ready");
+    await app.advance(5000);
+    expect(app.service.readinessPolls()).toBe(polls);
+    expect(app.runtime()).toBe(runtime);
+  });
+
+  it("says the install went through when the start after it fails, and offers only the start next", async () => {
+    const app = await launch({
+      script: { environments: [{ name: "desk", reach: "local", discovery: "nothing" }] },
+      service: { installed: false, start: { ok: false, message: "Could not run systemctl: no user manager." } },
+    });
+    await app.waitFor("Install and start it? y/n");
+    await app.press("y");
+    await app.waitFor("Installed, but starting it failed: Could not run systemctl: no user manager.");
+    await app.waitFor(OFFER);
+    await app.press("y");
+    expect(app.service.calls).toEqual(["install", "start", "start"]);
+  });
+
+  it("asks again, afresh, when the environment goes down a second time", async () => {
+    const first = await launch({ script: { environments: [{ name: "desk", reach: "local", environmentId: DESK }] } });
+    await first.waitFor("● desk ready");
+    await first.unmount();
+    apps = [];
+    const app = await launch({
+      script: { environments: [{ name: "desk", reach: "local", environmentId: DESK, discovery: "nothing" }] },
+      platform: first.platform,
+    });
+    await app.waitFor(OFFER);
+    await app.press("n");
+    expect(app.frame()).not.toContain(OFFER);
+    app.environment("desk").discovery("ready");
+    await app.waitFor("● desk ready", 4000);
+    app.service.setInstalled(false);
+    app.environment("desk").discovery("nothing");
+    app.environment("desk").server.drop();
+    await app.waitFor("The environment on this machine is not running. Install and start it? y/n", 4000);
+  });
+
+  it("offers to install and start it when no service is installed", async () => {
+    const app = await launch({
+      script: { environments: [{ name: "desk", reach: "local", discovery: "nothing" }] },
+      service: { installed: false },
+    });
+    await app.waitFor("The environment on this machine is not running. Install and start it? y/n");
+    await app.press("y");
+    expect(app.service.calls).toEqual(["install", "start"]);
+    app.environment("desk").discovery("ready");
+    await app.waitFor("● desk ready");
+  });
+
+  it("says why when the start fails, and offers again", async () => {
+    const app = await launch({
+      script: { environments: [{ name: "desk", reach: "local", discovery: "nothing" }] },
+      service: { start: { ok: false, message: "Could not run systemctl: no user manager." } },
+    });
+    await app.waitFor(OFFER);
+    await app.press("y");
+    await app.waitFor("Could not run systemctl: no user manager.");
+    expect(app.frame()).toContain(OFFER);
+  });
+
+  it("leaves it stopped on n", async () => {
+    const app = await launch({ script: { environments: [{ name: "desk", reach: "local", discovery: "nothing" }] } });
+    await app.waitFor(OFFER);
+    await app.press("n");
+    expect(app.service.calls).toEqual([]);
+    expect(app.frame()).not.toContain(OFFER);
+    expect(app.frame()).toContain("agent-harness service start");
+  });
+
+  it("takes y and n as text once something is typed", async () => {
+    const app = await launch({ script: { environments: [{ name: "desk", reach: "local", discovery: "nothing" }] } });
+    await app.waitFor(OFFER);
+    await app.type("/pa");
+    await app.press("y");
+    expect(app.service.calls).toEqual([]);
+    expect(app.frame()).toContain("› /pay");
+  });
+});
+
+describe("nothing local and nothing paired", () => {
+  it("is the pairing prompt, with no offer when no service is installed", async () => {
+    const app = await launch({ script: { environments: [] }, service: { installed: false } });
+    await app.waitFor("Pair this terminal with an environment.");
+    expect(app.frame()).toContain("/pair <link>");
+    expect(app.frame()).toContain("/pair <address> <code>");
+    expect(app.frame()).not.toContain("y/n");
+    // The runtime's placeholder for an environment never seen here (#181), nameless, is "this machine".
+    expect(app.frame().split("\n")[0]).toContain("● this machine service down");
+  });
+
+  it("is the pairing prompt with the start offer when a service is installed but stopped", async () => {
+    const app = await launch({ script: { environments: [] }, service: { installed: true } });
+    await app.waitFor("Pair this terminal with an environment.");
+    await app.waitFor(OFFER);
+  });
+
+  it("quits on Ctrl+C: the screen stops answering keys and draws nothing more", async () => {
+    const app = await launch({ script: { environments: [] }, service: { installed: false } });
+    await app.type("/pa");
+    await app.press(KEY.ctrlC);
+    expect(app.frame()).not.toContain("› /pa");
+    await app.press(KEY.ctrlC);
+    const frames = app.frames();
+    const last = app.frame();
+    await app.type("/pair");
+    await app.tick(3);
+    expect(app.frames()).toBe(frames);
+    expect(app.frame()).toBe(last);
+    expect(app.frame()).not.toContain("› /pair");
+  });
+
+  it("offers the start when reading the grant file fails, the failure taken as no grant", async () => {
+    const app = await launch({
+      script: { environments: [] },
+      service: { installed: true },
+      screenGrant: { read: () => Promise.reject(new Error("EACCES: permission denied, open 'bootstrap-grant.json'")) },
+    });
+    await app.waitFor("Pair this terminal with an environment.");
+    await app.waitFor(OFFER);
+  });
+});

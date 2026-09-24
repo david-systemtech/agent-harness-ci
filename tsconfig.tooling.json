@@ -7,7 +7,9 @@
     "rootDir": ".",
     "outDir": ".tsbuild/tooling",
     "emitDeclarationOnly": true,
-    "types": ["node"]
+    "types": ["node"],
+    // The terminal UI's tests import its Ink components.
+    "jsx": "react-jsx"
   },
   "include": [
     "*.ts",

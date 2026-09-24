@@ -15,6 +15,7 @@ import { parseOptions, parsePort, UsageError } from "./args.js";
 import { service, type ServiceSeams } from "./service/verbs.js";
 import { status } from "./status.js";
 import { PairFailure, mintPairing, renderPairing, type Net, type PairArgs } from "./pair.js";
+import { TUI_USAGE, tui, type RunTui } from "./tui.js";
 
 const USAGE = [
   `usage: ${PRODUCT_NAME} --version`,
@@ -25,6 +26,7 @@ const USAGE = [
   `       ${PRODUCT_NAME} service start`,
   `       ${PRODUCT_NAME} service status [--data-dir <path>] [--port <n>] [--json]`,
   `       ${PRODUCT_NAME} pair [--scopes <a,b>] [--ceiling <mode>] [--data-dir <path>] [--port <n>]`,
+  `       ${TUI_USAGE}`,
   "",
 ].join("\n");
 
@@ -45,6 +47,8 @@ export interface CliContext {
   readonly environment?: Pick<EnvironmentOptions, "user" | "launcher" | "runs" | "interfaces">;
   /** The network `pair` uses; preset: the platform's `fetch` and `WebSocket`. */
   readonly net?: Net;
+  /** The terminal UI `tui` runs; a seam for tests. Preset: the terminal UI package's `runTui`. */
+  readonly tui?: RunTui;
 }
 
 /**
@@ -185,6 +189,14 @@ export const runCli = async (args: readonly string[], overrides: Partial<CliCont
       });
     }
     if (args[0] === "pair") return await pair(args.slice(1), context);
+    if (args[0] === "tui") {
+      return await tui(args.slice(1), {
+        fetch: context.fetch ?? fetch,
+        user: context.environment?.user ?? processUserCheck(),
+        seams: context.service ?? {},
+        runTui: context.tui,
+      });
+    }
     throw new UsageError(args.length === 0 ? "No command given." : `Unknown command ${args[0]}.`);
   } catch (error) {
     if (!(error instanceof UsageError)) throw error;

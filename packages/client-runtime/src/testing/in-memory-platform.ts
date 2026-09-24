@@ -1,3 +1,4 @@
+import { createRuntimeWithSeams } from "../internal.js";
 import { writable, type Observable } from "../observable.js";
 import type {
   Clock,
@@ -11,6 +12,7 @@ import type {
   Timer,
   WebSocketFactory,
 } from "../platform.js";
+import type { Runtime } from "../runtime.js";
 import type { Shell } from "../shell.js";
 import { standardWebSocketFactory } from "../web-socket.js";
 
@@ -227,3 +229,10 @@ export const inMemoryPlatform = (options: InMemoryPlatformOptions = {}): InMemor
     reported,
   };
 };
+
+/**
+ * A runtime on `platform` that speaks `protocolVersion` rather than this
+ * build's, so a client's test can be the newer side of a protocol mismatch.
+ * Only the runtime is answered: its seams stay inside the package (ADR 0004).
+ */
+export const runtimeSpeaking = (platform: Platform, protocolVersion: number): Runtime => createRuntimeWithSeams(platform, { protocolVersion }).runtime;
