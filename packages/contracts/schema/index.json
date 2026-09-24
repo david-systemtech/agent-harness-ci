@@ -59,6 +59,22 @@
       "title": "JsonObject"
     },
     {
+      "path": "environment-readiness.json",
+      "title": "EnvironmentReadiness"
+    },
+    {
+      "path": "auth-policy.json",
+      "title": "AuthPolicy"
+    },
+    {
+      "path": "discovery-document.json",
+      "title": "DiscoveryDocument"
+    },
+    {
+      "path": "health-document.json",
+      "title": "HealthDocument"
+    },
+    {
       "path": "actor.json",
       "title": "Actor"
     },

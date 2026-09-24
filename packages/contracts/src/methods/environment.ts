@@ -1,25 +1,16 @@
 import { z } from "zod";
+import { EnvironmentReadiness } from "../discovery.js";
 import { commandParams, defineMethod, subscriptionParams } from "../method.js";
 import { Sequence, Timestamp } from "../primitives.js";
 
 /**
- * Whether the environment is idle, busy or draining, and why. A run parked on
- * a prompt counts as busy until `parkedPromptBusyUntil`. In a container with
- * no launcher, updates are managed outside.
+ * The environment's state as `environment.status` answers it and
+ * `environment.subscribe` snapshots it: for now its readiness. The lifecycle
+ * ticket (#112) extends it with idle, busy or draining, the reason, when a
+ * parked prompt stops counting as busy, and whether updates are managed
+ * outside (a container with no launcher).
  */
-const EnvironmentStatus = z.object({
-  state: z.enum(["idle", "busy", "draining"]).meta({
-    description:
-      "idle: no run starting or running and none started or ended in the last ten minutes; busy otherwise; draining: refusing new runs before a restart.",
-  }),
-  reason: z.string().nullable().meta({ description: "Why the environment is busy or draining; null when idle." }),
-  parkedPromptBusyUntil: Timestamp.nullable().meta({
-    description: "When a run parked on a prompt stops counting as busy (ten minutes after it parked); null when none is.",
-  }),
-  updatesManagedOutside: z.boolean().meta({
-    description: "True in a container with no launcher: the environment does not update itself.",
-  }),
-});
+const EnvironmentStatus = z.object({ readiness: EnvironmentReadiness });
 
 export const environmentStatus = defineMethod({
   name: "environment.status",

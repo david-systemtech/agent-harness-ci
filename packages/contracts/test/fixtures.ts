@@ -31,6 +31,17 @@ export const validEnvelope = {
   metadata: {},
 };
 
+/** The discovery document of an environment that has not passed its startup gate. */
+export const validDiscovery = {
+  environmentId: uuid,
+  environmentName: "SYSTEM-SERVER",
+  harnessVersion: "0.1.0",
+  protocolVersion: 1,
+  capabilities: [],
+  authPolicy: "local-only",
+  readiness: "starting",
+};
+
 /** A copy of `value` without its `key`. */
 const without = (value: Record<string, unknown>, key: string): Record<string, unknown> =>
   Object.fromEntries(Object.entries(value).filter(([k]) => k !== key));
@@ -73,7 +84,7 @@ export const validFrames: Record<FrameType, readonly object[]> = {
     { type: "request", id: "2", method: "access.sessions.revoke", params: { commandId: uuid, clientSessionId: "cs-2" } },
   ],
   response: [
-    { type: "response", id: "1", result: { state: "idle" } },
+    { type: "response", id: "1", result: { readiness: "ready" } },
     { type: "response", id: "2", error: sharedErrors.not_found },
   ],
   subscribed: [{ type: "subscribed", id: "3", subscription: "sub-1" }],
@@ -206,21 +217,15 @@ const methodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
   "environment.status": {
     params: { valid: [{}], invalid: [[], "status"] },
     result: {
-      valid: [
-        { state: "idle", reason: null, parkedPromptBusyUntil: null, updatesManagedOutside: false },
-        { state: "busy", reason: "a run is parked on a prompt", parkedPromptBusyUntil: at, updatesManagedOutside: true },
-      ],
-      invalid: [
-        { state: "asleep", reason: null, parkedPromptBusyUntil: null, updatesManagedOutside: false },
-        { state: "idle", parkedPromptBusyUntil: null, updatesManagedOutside: false },
-      ],
+      valid: [{ readiness: "starting" }, { readiness: "ready" }, { readiness: "draining" }],
+      invalid: [{}, { readiness: "idle" }, { readiness: "Ready" }],
     },
   },
   "environment.subscribe": {
     params: { valid: [{ afterSequence: 0 }, { afterSequence: 1200 }], invalid: [{}, { afterSequence: -1 }] },
     result: {
-      valid: [{ status: { state: "draining", reason: "update to 0.2.0", parkedPromptBusyUntil: null, updatesManagedOutside: false } }],
-      invalid: [{}, { status: { state: "idle" } }],
+      valid: [{ status: { readiness: "draining" } }],
+      invalid: [{}, { status: { readiness: "asleep" } }],
     },
   },
   "environment.drain": {
@@ -321,6 +326,26 @@ export const schemaFixtures: Record<string, Fixtures> = {
   "actor.json": {
     valid: [validActor, { kind: "system", id: "maintenance" }, { kind: "routine", id: "r-1" }, { kind: "adapter", id: "claude" }],
     invalid: [{ kind: "user", id: "david" }, { kind: "routine" }, { kind: "system", id: "" }],
+  },
+  "environment-readiness.json": { valid: ["starting", "ready", "draining"], invalid: ["idle", "Ready", ""] },
+  "auth-policy.json": { valid: ["local-only", "tailnet"], invalid: ["unsafe-no-auth", "lan", ""] },
+  "discovery-document.json": {
+    valid: [
+      validDiscovery,
+      { ...validDiscovery, capabilities: ["terminal"], authPolicy: "tailnet", readiness: "ready" },
+    ],
+    invalid: [
+      without(validDiscovery, "environmentId"),
+      { ...validDiscovery, environmentId: "not-a-uuid" },
+      { ...validDiscovery, readiness: "idle" },
+      { ...validDiscovery, authPolicy: "unsafe-no-auth" },
+      { ...validDiscovery, harnessVersion: "" },
+      { ...validDiscovery, protocolVersion: 0 },
+    ],
+  },
+  "health-document.json": {
+    valid: [{ status: "starting", version: "0.1.0" }, { status: "ready", version: "0.0.0" }],
+    invalid: [{ status: "ok", version: "0.1.0" }, { status: "ready" }, { version: "0.1.0" }],
   },
   "event-envelope.json": {
     valid: [validEnvelope, { ...validEnvelope, commandId: null, causationId: uuid, correlationId: null }],

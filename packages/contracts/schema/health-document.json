@@ -1,9 +1,9 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "environment.status result",
+  "title": "HealthDocument",
   "type": "object",
   "properties": {
-    "readiness": {
+    "status": {
       "type": "string",
       "enum": [
         "starting",
@@ -11,9 +11,16 @@
         "draining"
       ],
       "description": "Whether the environment accepts work: starting (before its startup gate), ready, or draining (refusing new runs before a restart)."
+    },
+    "version": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The version of the harness the environment runs."
     }
   },
   "required": [
-    "readiness"
-  ]
+    "status",
+    "version"
+  ],
+  "description": "The health answer: the environment's readiness as status, and the harness version."
 }

@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AuthPolicy",
+  "type": "string",
+  "enum": [
+    "local-only",
+    "tailnet"
+  ],
+  "description": "How the environment is reached: local-only when it binds loopback alone, tailnet when it binds its tailnet address too. Both require a client session."
+}

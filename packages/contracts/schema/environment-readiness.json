@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "EnvironmentReadiness",
+  "type": "string",
+  "enum": [
+    "starting",
+    "ready",
+    "draining"
+  ],
+  "description": "Whether the environment accepts work: starting (before its startup gate), ready, or draining (refusing new runs before a restart)."
+}

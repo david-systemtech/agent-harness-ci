@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AuthPolicy, DiscoveryDocument, EnvironmentReadiness, HealthDocument } from "./discovery.js";
 import { Actor, EventEnvelope } from "./envelope.js";
 import {
   ErrorCode,
@@ -64,6 +65,10 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "sequence.json", title: "Sequence", schema: Sequence },
   { path: "timestamp.json", title: "Timestamp", schema: Timestamp },
   { path: "json-object.json", title: "JsonObject", schema: JsonObject },
+  { path: "environment-readiness.json", title: "EnvironmentReadiness", schema: EnvironmentReadiness },
+  { path: "auth-policy.json", title: "AuthPolicy", schema: AuthPolicy },
+  { path: "discovery-document.json", title: "DiscoveryDocument", schema: DiscoveryDocument },
+  { path: "health-document.json", title: "HealthDocument", schema: HealthDocument },
   { path: "actor.json", title: "Actor", schema: Actor },
   { path: "event-envelope.json", title: "EventEnvelope", schema: EventEnvelope },
   { path: "errors/error-code.json", title: "ErrorCode", schema: ErrorCode },
