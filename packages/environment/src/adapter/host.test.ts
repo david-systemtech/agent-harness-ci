@@ -12,6 +12,7 @@ import { runsProjector } from "../runs/runs-projector.js";
 import { sessionListProjector } from "../sessions/session-list.js";
 import type { AdapterEvent, ProviderTurn, RunContext, TranscriptEvent } from "./contract.js";
 import { createAdapterHost, type AdapterHost, type AdapterHostOptions, type StagedAttachments } from "./host.js";
+import { capability } from "./capabilities.js";
 import { createScopedAppend } from "./scoped-append.js";
 import { composeInstructions, presetPolicy } from "./seams.js";
 
@@ -559,6 +560,90 @@ describe("the host's own bookkeeping", () => {
     expect(disposed).toBe(true);
     expect(t.log.head()).toBe(before);
     expect(eventsOf(t).filter((event) => event.type === "run.started")).toHaveLength(1);
+  });
+
+  it("never leaves a rejection unhandled when handling a provider's refusal fails too", async () => {
+    const held = gate();
+    const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const unhandled: unknown[] = [];
+    const guard = (reason: unknown) => void unhandled.push(reason);
+    process.on("unhandledRejection", guard);
+    try {
+      const adapter = fakeAdapter({ capabilities: { steering: false }, script: async function* () { yield say("Working"); await held.opened; yield end(); } });
+      const create = adapter.createRun;
+      let failRequeue = true;
+      const t = await setup(
+        { ...adapter, createRun: (input, context) => ({ ...create(input, context), send: () => Promise.reject(new Error("The provider's queue is closed.")) }) } as FakeAdapter,
+        {},
+        (log) => ({
+          ...log,
+          append: (stream, events, options) => {
+            if (failRequeue && events.some((event) => event.type === "message.requeued")) {
+              failRequeue = false;
+              throw new Error("The database is busy.");
+            }
+            return log.append(stream, events, options);
+          },
+        }),
+      );
+      const runId = startRun(t);
+      await vi.waitFor(() => expect(eventsOf(t).some((event) => event.type === "assistant.text")).toBe(true));
+      sendDuring(t, "Also this");
+      await settle();
+      expect(unhandled).toEqual([]);
+      expect(errors.mock.calls.some(([message]) => String(message).startsWith("Handling a failure failed as well"))).toBe(true);
+      held.open();
+      await untilEnded(t, runId);
+    } finally {
+      process.off("unhandledRejection", guard);
+      errors.mockRestore();
+    }
+  });
+
+  it("lets go of a turn whose adoption cannot be appended, and takes back what it was to read", async () => {
+    const held = gate();
+    const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    let failAdoption = true;
+    const t = await setup(
+      fakeAdapter({
+        capabilities: { steering: false },
+        script: async function* ({ adopted }) {
+          if (!adopted) {
+            yield say("Working");
+            await held.opened;
+          }
+          yield end();
+        },
+      }),
+      {},
+      (log) => ({
+        ...log,
+        append: (stream, events, options) => {
+          if (failAdoption && events.some((event) => event.type === "run.started" && event.payload["origin"] === "provider")) {
+            failAdoption = false;
+            throw new Error("The database is busy.");
+          }
+          return log.append(stream, events, options);
+        },
+      }),
+    );
+    const runId = startRun(t);
+    await vi.waitFor(() => expect(eventsOf(t).some((event) => event.type === "assistant.text")).toBe(true));
+    const messageId = sendDuring(t, "Also this");
+    held.open();
+    await untilEnded(t, runId);
+    await vi.waitFor(() => expect(t.adapter.runs.map((run) => [run.adopted, run.disposed])).toEqual([[false, false], [true, true]]));
+    expect(eventsOf(t).filter((event) => event.type === "run.started")).toHaveLength(1);
+    expect(eventsOf(t).at(-1)).toMatchObject({ type: "message.requeued", payload: { runId, messageId } });
+    expect(environmentQueue({ all: (sql, ...params) => t.log.read(sql, ...params) }, t.sessionId).map((queued) => queued.messageId)).toEqual([messageId]);
+    errors.mockRestore();
+  });
+
+  it("requires the method's name to refuse an adapter that declares a flag without it", () => {
+    const { descriptor } = fakeAdapter();
+    // @ts-expect-error The method's name is required: a default would render a sentence with no method in it.
+    expect(() => capability(descriptor, "planUsage", undefined, "read plan usage")).toThrow(ContractError);
+    expect(() => capability(descriptor, "planUsage", undefined, "read plan usage", "usage")).toThrow("it declares planUsage but has no usage.");
   });
 
   it("names the missing method when an adapter declares a flag without it", async () => {

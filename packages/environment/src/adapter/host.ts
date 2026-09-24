@@ -103,7 +103,7 @@ export interface AdapterHostOptions {
   readonly ceilingOf: (clientSessionId: string) => Mode | undefined;
   /** How long an account's status or model probe may take before it counts as failed, so a hung probe cannot hang startup. Preset: `PROBE_TIMEOUT_MS`. */
   readonly probeTimeoutMs?: number;
-  /** Where the bytes of sent messages' attachments wait until a run reads them, by message id. Preset: a fresh in-memory map (#120 stages them on disk). */
+  /** Where the bytes of sent messages' attachments wait until a run reads them, by message id. Preset: a fresh in-memory map, lost on a restart; staging them durably is #185's. */
   readonly stagedAttachments?: Map<string, StagedAttachments>;
 }
 
@@ -232,11 +232,19 @@ const withTimeout = <T>(work: () => Promise<T>, ms: number, what: string): Promi
 
 /** Runs `work` and hands a promise it answers, or a throw, to `onError`; never an unhandled rejection. */
 const safely = (work: () => unknown, onError: (error: unknown) => void): void => {
+  // `onError` may throw too (a requeue whose append fails, an end whose adoption fails): that is logged, never left unhandled.
+  const handle = (error: unknown): void => {
+    try {
+      onError(error);
+    } catch (handlerError) {
+      console.error("Handling a failure failed as well:", handlerError, "the failure was:", error);
+    }
+  };
   try {
     const answer = work();
-    if (answer instanceof Promise) answer.catch(onError);
+    if (answer instanceof Promise) answer.catch(handle);
   } catch (error) {
-    onError(error);
+    handle(error);
   }
 };
 
@@ -272,7 +280,8 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
    * holds them, until a run reads them (the launch of a run of the queue, a
    * steer's `message.delivered`, an adopted turn), since an interrupt may hand
    * a provider-held message back; a purged session's are dropped. They are
-   * never logged, and not kept across a restart (#120).
+   * never logged, and not kept across a restart: the `run_messages` rows
+   * keep a queued message's text, and its bytes are #185's to keep.
    */
   const heldAttachments = options.stagedAttachments ?? new Map<string, StagedAttachments>();
   let closing = false;
@@ -616,25 +625,34 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
    */
   const adoptNow = (followed: LiveRun, turn: ProviderTurn): void => {
     const previous = followed.plan;
-    const session = readSessionFacts(log, reader, previous.sessionId);
-    if (session === null || session.deleted) {
-      // Deleted (or purged) since the run it followed: no run of it may start; what the turn was to read goes back.
-      safely(() => turn.dispose(), (e) => console.error("Disposing a turn of a deleted session failed:", e));
+    /** The turn is not run, and no run starts for it: it is disposed, and what it was to read comes back to the environment's queue for the next start. */
+    const letGo = (why: string): void => {
+      safely(() => turn.dispose(), (e) => console.error(`Disposing a turn ${why} failed:`, e));
       requeueTurn(previous, turn);
+    };
+    let session: ReturnType<typeof readSessionFacts>;
+    try {
+      session = readSessionFacts(log, reader, previous.sessionId);
+    } catch (error) {
+      console.error(`Reading session ${previous.sessionId} to adopt a turn failed:`, error);
+      letGo("whose session could not be read");
+      return;
+    }
+    if (session === null || session.deleted) {
+      // Deleted (or purged) since the run it followed: no run of it may start.
+      letGo("of a deleted session");
       return;
     }
     try {
       registry.admit();
     } catch {
-      // The drain refuses the turn: what it opened with comes back to the environment's queue for the next start.
-      safely(() => turn.dispose(), (e) => console.error("Disposing a turn the drain refused failed:", e));
-      requeueTurn(previous, turn);
+      letGo("the drain refused");
       return;
     }
+    /** The turn cannot run under the policy as it resolves now: it is let go, and a run of the queue reads its messages under that policy. */
     const refuse = (why: string): void => {
       console.error(`A turn the provider opened for session ${previous.sessionId} was let go: ${why}`);
-      safely(() => turn.dispose(), (e) => console.error("Disposing a turn failed:", e));
-      requeueTurn(previous, turn);
+      letGo("the policy refused");
       startFromQueue(previous);
     };
     const actor = currentActor(previous.actor);
@@ -669,8 +687,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
           }
           if (!admitted) {
             // Closing, deleted or draining since: the turn is let go, and what it was to read goes back.
-            safely(() => turn.dispose(), (e) => console.error("Disposing a turn failed:", e));
-            requeueTurn(previous, turn);
+            letGo("whose mode changed too late");
             return;
           }
           work();
