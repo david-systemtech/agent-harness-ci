@@ -3,8 +3,10 @@ import { Ceiling, PROTOCOL_VERSION, type Scope } from "@agent-harness/contracts"
 import { describe, expect, it } from "vitest";
 import { HARNESS_VERSION } from "../../environment/src/serve/start.js";
 import { failingFetch, originOf, recordingWebSocket, rewritingWebSocket, until, useHarness } from "../test/harness.js";
+import { REVOKE_TIMEOUT_MS } from "./connections/registry.js";
+import type { HttpFetch, WebSocketFactory } from "./platform.js";
 import type { Runtime } from "./runtime.js";
-import { inMemoryPlatform } from "./testing/in-memory-platform.js";
+import { globalFetch, globalWebSocket, inMemoryPlatform } from "./testing/in-memory-platform.js";
 
 const harness = useHarness();
 
@@ -201,6 +203,71 @@ describe("the in-process connections API", () => {
     const admin = await t.client();
     const { sessions } = await admin.apply("access.sessions.list", {});
     expect(sessions.find((s) => s.id === clientSessionId)?.revokedAt).toEqual(expect.any(String));
+  });
+
+  it("opens no one-off revoke socket when discovery answers after the revoke timed out", async () => {
+    const t = await harness.environment();
+    let hold = false;
+    let release: () => void = () => undefined;
+    let held = false;
+    let settled = false;
+    const fetch: HttpFetch = async (url, request) => {
+      if (hold) {
+        held = true;
+        await new Promise<void>((resolve) => (release = resolve));
+      }
+      const response = await globalFetch()(url, request);
+      if (hold) settled = true;
+      return response;
+    };
+    const sockets = recordingWebSocket();
+    const platform = inMemoryPlatform({ fetch, webSocket: sockets.factory });
+    const runtime = harness.runtime(platform);
+    await runtime.start();
+    await runtime.connections.add({ link: (await t.createPairing()).link });
+    await runtime.connections.setEnabled(t.env.id, false);
+    await until(() => t.env.sockets() === 0, "the socket to close");
+    const opened = sockets.urls.length;
+
+    hold = true;
+    const removing = runtime.connections.remove(t.env.id);
+    await until(() => held, "the one-off revoke to read discovery");
+    platform.clock.advance(REVOKE_TIMEOUT_MS);
+    expect(await removing).toMatchObject({ revoked: false, reason: "unreachable" });
+
+    release();
+    await until(() => settled, "the held discovery to answer");
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(sockets.urls.length).toBe(opened);
+    expect(t.env.sockets()).toBe(0);
+  });
+
+  it("closes a one-off revoke socket whose hello arrives after the revoke timed out, and sends no revoke on it", async () => {
+    const t = await harness.environment();
+    let hold = false;
+    const held: (() => void)[] = [];
+    const webSocket: WebSocketFactory = (url, handlers) =>
+      globalWebSocket()(url, { ...handlers, onMessage: (text) => (hold ? held.push(() => handlers.onMessage(text)) : handlers.onMessage(text)) });
+    const platform = inMemoryPlatform({ webSocket });
+    const runtime = harness.runtime(platform);
+    await runtime.start();
+    await runtime.connections.add({ link: (await t.createPairing()).link });
+    const { clientSessionId } = only(runtime);
+    await runtime.connections.setEnabled(t.env.id, false);
+    await until(() => t.env.sockets() === 0, "the socket to close");
+
+    hold = true;
+    const removing = runtime.connections.remove(t.env.id);
+    await until(() => held.length > 0, "the one-off socket's hello to be held");
+    platform.clock.advance(REVOKE_TIMEOUT_MS);
+    expect(await removing).toMatchObject({ revoked: false, reason: "unreachable" });
+
+    hold = false;
+    for (const deliver of held.splice(0)) deliver();
+    await until(() => t.env.sockets() === 0, "the late one-off socket to close");
+    const admin = await t.client();
+    const { sessions } = await admin.apply("access.sessions.list", {});
+    expect(sessions.find((s) => s.id === clientSessionId)?.revokedAt).toBeNull();
   });
 
   it("removes a connection without the admin scope, and says its client session is still live", async () => {

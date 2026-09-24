@@ -70,8 +70,9 @@ export const derived = <S extends readonly Observable<unknown>[], T>(sources: S,
   const read = (): T => {
     const now = sources.map((source) => source.read());
     if (!inputs || now.some((input, i) => !Object.is(input, (inputs as unknown[])[i]))) {
-      inputs = now;
+      // The inputs are kept only once the compute has succeeded, so one that throws is run again on the next read.
       value = compute(...(now as unknown as ValuesOf<S>));
+      inputs = now;
     }
     return value;
   };

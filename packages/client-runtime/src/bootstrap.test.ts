@@ -1,7 +1,8 @@
-import { SCOPES } from "@agent-harness/contracts";
+import { DISCOVERY_PATH, SCOPES } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { TOP_CEILING } from "../../environment/src/auth/client-sessions.js";
-import { grantReader, originOf, until, useHarness } from "../test/harness.js";
+import { grantReader, notJsonAt, originOf, until, useHarness } from "../test/harness.js";
+import { PAIRED_CONNECTIONS_DOCUMENT } from "./connections/records.js";
 import { inMemoryPlatform } from "./testing/in-memory-platform.js";
 
 const harness = useHarness();
@@ -61,6 +62,8 @@ describe("the bootstrap grant", () => {
     await withGrant.start();
     expect(withGrant.connections.list.read()).toEqual([expect.objectContaining({ environmentId: t.env.id, kind: "local", phase: "ready" })]);
     expect(await platform.secrets.get(t.env.id)).toBeUndefined();
+    // The paired entry is gone from the paired document, and the local one never enters it.
+    expect(await platform.documents.get(PAIRED_CONNECTIONS_DOCUMENT)).toEqual({});
     const admin = await t.client();
     const { sessions } = await admin.apply("access.sessions.list", {});
     expect(sessions.find((s) => s.id === paired)?.revokedAt).toEqual(expect.any(String));
@@ -96,6 +99,23 @@ describe("the bootstrap grant", () => {
 
     expect(runtime.connections.list.read()[0]?.phase).toBe("ready");
     expect(runtime.local.read()).toEqual({ state: "exchanged", environmentId: t.env.id });
+  });
+
+  it("a local environment whose discovery answers something that is not JSON is refused and waits for a retry, not service-down", async () => {
+    const t = await harness.environment();
+    let proxied = true;
+    const fetch = notJsonAt(DISCOVERY_PATH, 502, () => proxied);
+    const refused = harness.runtime(inMemoryPlatform({ kind: "tui", grant: grantReader(t), fetch }));
+    await refused.start();
+    expect(refused.local.read()).toMatchObject({ state: "failed", reason: "refused", message: expect.stringContaining("502") });
+
+    proxied = false;
+    const runtime = harness.runtime(inMemoryPlatform({ kind: "tui", grant: grantReader(t), fetch }));
+    await runtime.start();
+    expect(runtime.connections.list.read()[0]?.phase).toBe("ready");
+    proxied = true;
+    await runtime.connections.retryNow(t.env.id);
+    expect(runtime.connections.list.read()[0]?.phase).toBe("backoff");
   });
 
   it("keeps an absent local environment's place in the sequence when the others are reordered", async () => {

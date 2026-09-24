@@ -1,5 +1,6 @@
 import { ClientSessionCredential } from "@agent-harness/contracts";
-import type { HttpFetch } from "./platform.js";
+import { readJson } from "./discovery.js";
+import type { HttpFetch, HttpResponse } from "./platform.js";
 
 /**
  * What an unauthenticated exchange (`POST /api/pair`, `POST /api/bootstrap`)
@@ -21,17 +22,16 @@ export type ExchangeAnswer =
 const objectOf = (value: unknown): Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 
-/** Posts `body` as JSON to `url` and reads the answer. */
+/** Posts `body` as JSON to `url` and reads the answer. An answer that is not JSON is `refused` with its status, never `unreachable`. */
 export const postExchange = async (fetch: HttpFetch, url: string, body: object): Promise<ExchangeAnswer> => {
-  let status: number;
-  let json: unknown;
+  let response: HttpResponse;
   try {
-    const response = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-    status = response.status;
-    json = await response.json();
+    response = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
   } catch (error) {
     return { ok: false, kind: "unreachable", message: `Nothing answered at ${url}: ${error instanceof Error ? error.message : String(error)}.` };
   }
+  const status = response.status;
+  const json = await readJson(response);
   if (status === 200) {
     const credential = ClientSessionCredential.safeParse(json);
     if (credential.success) return { ok: true, credential: credential.data };

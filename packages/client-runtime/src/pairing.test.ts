@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { DEFAULT_ENVIRONMENT_PORT, DISCOVERY_PATH, PAIRING_TTL_MS, PROTOCOL_VERSION } from "@agent-harness/contracts";
+import { DEFAULT_ENVIRONMENT_PORT, DISCOVERY_PATH, PAIR_PATH, PAIRING_TTL_MS, PROTOCOL_VERSION } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import type { Address } from "../../environment/src/serve/http.js";
 import { startTestEnvironment } from "../../environment/test/helper.js";
-import { originOf, rewritingFetch, rewritingWebSocket, until, useHarness } from "../test/harness.js";
+import { notJsonAt, originOf, rewritingFetch, rewritingWebSocket, until, useHarness } from "../test/harness.js";
 import { parsePairingInput } from "./pairing.js";
 import { inMemoryPlatform } from "./testing/in-memory-platform.js";
 
@@ -220,6 +220,28 @@ describe("pairing with an environment", () => {
         failure: { reason: "different-environment" },
       });
       expect(runtime.connections.list.read().map((r) => r.environmentId)).toEqual([a.env.id]);
+    });
+
+    it("refused, not unreachable: discovery answers something that is not JSON", async () => {
+      const t = await harness.environment();
+      const runtime = harness.runtime(inMemoryPlatform({ fetch: notJsonAt(DISCOVERY_PATH, 502) }));
+      await runtime.start();
+
+      expect(await runtime.connections.add({ link: (await t.createPairing()).link })).toMatchObject({
+        status: "failed",
+        failure: { reason: "refused", message: expect.stringContaining("502") },
+      });
+    });
+
+    it("refused, not unreachable: the pairing exchange answers something that is not JSON", async () => {
+      const t = await harness.environment();
+      const runtime = harness.runtime(inMemoryPlatform({ fetch: notJsonAt(PAIR_PATH, 204) }));
+      await runtime.start();
+
+      expect(await runtime.connections.add({ link: (await t.createPairing()).link })).toMatchObject({
+        status: "failed",
+        failure: { reason: "refused", message: expect.stringContaining("204") },
+      });
     });
 
     it("invalid-code: the environment issued no such code", async () => {

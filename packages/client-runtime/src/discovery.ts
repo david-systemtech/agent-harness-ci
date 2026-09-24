@@ -1,25 +1,36 @@
 import { DISCOVERY_PATH, DiscoveryDocument, PRODUCT_NAME } from "@agent-harness/contracts";
-import type { HttpFetch } from "./platform.js";
+import type { HttpFetch, HttpResponse } from "./platform.js";
 
-/** What reading an environment's discovery document came to. */
+/** An answer's body as JSON; undefined when it is not JSON (an error page, an empty answer). */
+export const readJson = async (response: HttpResponse): Promise<unknown> => {
+  try {
+    return await response.json();
+  } catch {
+    return undefined;
+  }
+};
+
+/**
+ * What reading an environment's discovery document came to: the document;
+ * `unreachable` when nothing answered; `refused` when something answered,
+ * but not with a discovery document (a proxy's error page, an empty answer,
+ * another service), its HTTP status in the message.
+ */
 export type DiscoveryRead =
   | { readonly ok: true; readonly document: DiscoveryDocument }
-  | { readonly ok: false; readonly message: string };
+  | { readonly ok: false; readonly kind: "unreachable" | "refused"; readonly message: string };
 
 /** `GET` the discovery document at `origin`: unauthenticated, answered before the environment is ready. */
 export const readDiscovery = async (fetch: HttpFetch, origin: string): Promise<DiscoveryRead> => {
-  let status: number;
-  let body: unknown;
+  let response: HttpResponse;
   try {
-    const response = await fetch(`${origin}${DISCOVERY_PATH}`, { method: "GET" });
-    status = response.status;
-    body = await response.json();
+    response = await fetch(`${origin}${DISCOVERY_PATH}`, { method: "GET" });
   } catch (error) {
-    return { ok: false, message: `Nothing answered at ${origin}: ${error instanceof Error ? error.message : String(error)}.` };
+    return { ok: false, kind: "unreachable", message: `Nothing answered at ${origin}: ${error instanceof Error ? error.message : String(error)}.` };
   }
-  const document = DiscoveryDocument.safeParse(body);
-  if (status !== 200 || !document.success) {
-    return { ok: false, message: `${origin} answered, but not as an ${PRODUCT_NAME} environment (HTTP ${status}).` };
+  const document = DiscoveryDocument.safeParse(await readJson(response));
+  if (response.status !== 200 || !document.success) {
+    return { ok: false, kind: "refused", message: `${origin} answered, but not as an ${PRODUCT_NAME} environment (HTTP ${response.status}).` };
   }
   return { ok: true, document: document.data };
 };

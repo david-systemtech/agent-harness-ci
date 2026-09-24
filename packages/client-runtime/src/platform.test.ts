@@ -64,6 +64,23 @@ describe("observables", () => {
     expect(seen).toEqual([4]);
   });
 
+  it("derive again after a compute that threw, never keeping the stale value", () => {
+    const source = writable(1);
+    let fail = false;
+    const doubled = derived([source], (n) => {
+      if (fail) {
+        fail = false;
+        throw new Error("compute failed once");
+      }
+      return n * 2;
+    });
+    expect(doubled.read()).toBe(2);
+    fail = true;
+    source.set(2);
+    expect(() => doubled.read()).toThrow("compute failed once");
+    expect(doubled.read()).toBe(4);
+  });
+
   it("tell every listener even when one throws, then throw what was thrown", () => {
     const value = writable(1);
     const seen: number[] = [];

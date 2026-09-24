@@ -303,7 +303,9 @@ export const createRegistry = (platform: Platform, protocolVersion: number): Reg
    * Revokes `clientSessionId` with `token`, over `socket` when one is given,
    * else over a one-off connection that is closed after. Best effort: the
    * answer, a close, or `REVOKE_TIMEOUT_MS` ends the wait. Resolves whether
-   * the environment revoked it.
+   * the environment revoked it. Once the wait has ended the attempt is
+   * aborted: it checks after each await, sends nothing more, and closes a
+   * one-off socket that opens late.
    */
   const revokeClientSession = async (target: {
     readonly environmentId: string;
@@ -314,16 +316,24 @@ export const createRegistry = (platform: Platform, protocolVersion: number): Reg
   }): Promise<boolean> => {
     let oneOff: LiveSocket | undefined;
     let timer: Timer | undefined;
+    let aborted = false;
     const attempt = async (): Promise<boolean> => {
       let socket = target.socket;
       if (!socket) {
         const discovery = await readDiscovery(platform.fetch, target.origin);
-        if (!discovery.ok || !checkDiscovery(discovery.document, { protocolVersion, environmentId: target.environmentId }).ok) return false;
+        if (aborted || !discovery.ok || !checkDiscovery(discovery.document, { protocolVersion, environmentId: target.environmentId }).ok) {
+          return false;
+        }
         const answer = await authenticate({ webSocket: platform.webSocket, origin: target.origin, token: target.token, client: platform.client, protocolVersion });
         if (!answer.ok) return false;
+        if (aborted) {
+          answer.socket.close();
+          return false;
+        }
         oneOff = socket = answer.socket;
         if (admitHello(socket.hello, target.environmentId, protocolVersion)) return false;
       }
+      if (aborted) return false;
       try {
         return revokedBy(await socket.request("access.sessions.revoke", { commandId: uuidv7(platform.clock.now()), clientSessionId: target.clientSessionId }));
       } catch (error) {
@@ -335,6 +345,7 @@ export const createRegistry = (platform: Platform, protocolVersion: number): Reg
     try {
       return await Promise.race([attempt(), timeout]);
     } finally {
+      aborted = true;
       timer?.cancel();
       oneOff?.close();
     }
@@ -384,7 +395,10 @@ export const createRegistry = (platform: Platform, protocolVersion: number): Reg
     if (!current()) return;
     const discovery = await readDiscovery(platform.fetch, entry.saved.address);
     if (!current()) return;
-    if (!discovery.ok) return update(environmentId, entry, { phase: entry.saved.kind === "local" ? "service-down" : "backoff" });
+    // Nothing answering the local environment's address is its service being down; anything else waits for a retry.
+    if (!discovery.ok) {
+      return update(environmentId, entry, { phase: entry.saved.kind === "local" && discovery.kind === "unreachable" ? "service-down" : "backoff" });
+    }
     const document = discovery.document;
     const check = checkDiscovery(document, { protocolVersion, environmentId });
     if (!check.ok) {
@@ -527,7 +541,7 @@ export const createRegistry = (platform: Platform, protocolVersion: number): Reg
       if (options.rePair !== undefined) entryOf(options.rePair);
 
       const discovery = await readDiscovery(platform.fetch, origin);
-      if (!discovery.ok) return pairingFailed("unreachable", discovery.message);
+      if (!discovery.ok) return pairingFailed(discovery.kind, discovery.message);
       const document = discovery.document;
       const check = checkDiscovery(document, { protocolVersion });
       if (!check.ok) return pairingFailed(discoveryFailure(check.reason), check.message);
