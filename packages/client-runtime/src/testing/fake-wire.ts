@@ -183,7 +183,8 @@ export const fakeWire = (options: FakeWireOptions): FakeWire => {
   };
 
   const closeFromServer = (socket: FakeSocket, code: number, reason: string) => {
-    if (socket.closed) return;
+    // A silenced link says nothing more, not even a close: the client only notices through its watchdog or probe.
+    if (socket.closed || socket.silent) return;
     socket.closed = true;
     later(() => socket.handlers.onClose(code, reason));
   };
