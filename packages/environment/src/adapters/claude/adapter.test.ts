@@ -357,6 +357,27 @@ describe("canUseTool on the broker seam", () => {
     expect(context.asked).toEqual([]);
   });
 
+  it("denies a request that was waiting for a turn's owner when the process is stopped, and opens no turn for it", async () => {
+    const adapter = adapterWith();
+    const context = contextWith();
+    const input = runInput();
+    const run = adapter.createRun(input, context);
+    const query = await started();
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [input.prompt[0]?.messageId as string]), sdk.result(PROVIDER_SESSION));
+    await drain(run);
+    run.release();
+    // The CLI starts a turn nobody is named in yet: a request now waits for its owner (the clock is held, so it waits).
+    query.emit(sdk.init(PROVIDER_SESSION));
+    await flush();
+    const asked = query.canUseTool("Bash", { command: "ls" }, { toolUseID: "toolu_late" });
+    await flush();
+    await adapter.stopProcess(SESSION);
+    const late = new Promise((resolve) => setTimeout(() => resolve("still waiting"), 1_000));
+    expect(await Promise.race([asked, late])).toMatchObject({ behavior: "deny", toolUseID: "toolu_late" });
+    expect(context.adopted).toEqual([]);
+    expect(context.asked).toEqual([]);
+  });
+
   it("denies at once when the provider aborts the request", async () => {
     const adapter = adapterWith();
     adapter.createRun(runInput(), contextWith());
