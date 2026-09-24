@@ -360,8 +360,11 @@ export const sessionMethodFixtures: Record<string, { params: Fixtures; result: F
   "sessions.subscribeSession": {
     params: { valid: [{ afterSequence: 0, sessionId }], invalid: [{ afterSequence: 0 }, { afterSequence: 0, sessionId: "s-1" }] },
     result: {
-      valid: [{ sequence: 42, summary: freshSummary, transcript: {} }],
-      invalid: [{ sequence: 42, summary: freshSummary }, { sequence: 42, summary: {}, transcript: {} }],
+      valid: [{ sequence: 42, summary: freshSummary, runs: [], items: [], parkedPrompts: [] }],
+      invalid: [
+        { sequence: 42, summary: freshSummary, transcript: {} },
+        { sequence: 42, summary: {}, runs: [], items: [], parkedPrompts: [] },
+      ],
     },
   },
 };

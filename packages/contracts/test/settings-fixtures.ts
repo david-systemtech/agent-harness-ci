@@ -12,8 +12,8 @@ interface Fixtures {
 
 const commandId = "0f8fad5b-d9cb-469f-a165-70867728950e";
 
-const presets = { "sessions.autoSettleAfterIdle": { amount: 14, unit: "days" }, "sessions.autoSettleOnMerge": false };
-const changed = { "sessions.autoSettleAfterIdle": null, "sessions.autoSettleOnMerge": true };
+const presets = { "sessions.autoSettleAfterIdle": { amount: 14, unit: "days" }, "sessions.autoSettleOnMerge": false, "providers.processIdleMinutes": 30 };
+const changed = { "sessions.autoSettleAfterIdle": null, "sessions.autoSettleOnMerge": true, "providers.processIdleMinutes": 5 };
 
 const idleSpans: Fixtures = {
   valid: [
@@ -26,15 +26,16 @@ const idleSpans: Fixtures = {
 
 const patches: Fixtures = {
   valid: [{}, presets, changed, { "sessions.autoSettleOnMerge": true }],
-  invalid: [{ "sessions.autoSettleOnMerge": null }, { "sessions.autoSettleAfterIdle": 14 }, { theme: "artemis" }, []],
+  invalid: [{ "sessions.autoSettleOnMerge": null }, { "sessions.autoSettleAfterIdle": 14 }, { "providers.processIdleMinutes": 0 }, { theme: "artemis" }, []],
 };
 
 export const settingsSchemaFixtures: Record<string, Fixtures> = {
-  "settings/settings-key.json": { valid: ["sessions.autoSettleAfterIdle", "sessions.autoSettleOnMerge"], invalid: ["theme", ""] },
+  "settings/settings-key.json": { valid: ["sessions.autoSettleAfterIdle", "sessions.autoSettleOnMerge", "providers.processIdleMinutes"], invalid: ["theme", ""] },
   "settings/idle-span-unit.json": { valid: ["days", "weeks", "months"], invalid: ["years", "Days"] },
   "settings/idle-span.json": idleSpans,
   "settings/keys/sessions.autoSettleAfterIdle.json": { valid: [null, ...idleSpans.valid], invalid: [false, ...idleSpans.invalid] },
   "settings/keys/sessions.autoSettleOnMerge.json": { valid: [true, false], invalid: [null, "true"] },
+  "settings/keys/providers.processIdleMinutes.json": { valid: [1, 30, 1440], invalid: [0, 1441, 1.5, "30"] },
   "settings/settings-values.json": {
     valid: [presets, changed],
     invalid: [{}, { "sessions.autoSettleOnMerge": false }, { ...presets, theme: "artemis" }],

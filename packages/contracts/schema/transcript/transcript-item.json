@@ -1,0 +1,533 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TranscriptItem",
+  "anyOf": [
+    {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "const": "user-message"
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991,
+          "description": "The sequence of the event that opened the item."
+        },
+        "runId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+          "description": "A run's id: a version 4 UUID the environment mints when the run starts or is adopted."
+        },
+        "messageId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+          "description": "A user message's id: a version 4 UUID the environment mints when a client sends it, and the id the provider is handed."
+        },
+        "text": {
+          "type": "string"
+        },
+        "attachments": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "image",
+                  "file"
+                ],
+                "description": "What an attachment is: an image (the adapter needs imageInput) or a file (fileInput)."
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "mediaType": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Its media type: image/png."
+              },
+              "size": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991,
+                "description": "Its size in bytes."
+              }
+            },
+            "required": [
+              "kind",
+              "name",
+              "mediaType",
+              "size"
+            ],
+            "description": "An attachment as the log records it: kind, name, media type and size; the bytes are never logged."
+          }
+        },
+        "delivery": {
+          "type": "string",
+          "enum": [
+            "prompt",
+            "steered",
+            "queued"
+          ],
+          "description": "Where a message went: prompt (a run starts with it, or a queued turn opened with it), steered (the provider folded it into the running turn), or queued (held until a turn reads it)."
+        },
+        "heldBy": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "provider",
+                "environment"
+              ],
+              "description": "Who holds a queued message: the provider's queue (it may steer it into the running turn), or the environment's (the next run starts with it)."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Who holds it while it is queued; null once it is read."
+        },
+        "sentAt": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+          "description": "An instant as an ISO 8601 UTC timestamp."
+        }
+      },
+      "required": [
+        "kind",
+        "sequence",
+        "runId",
+        "messageId",
+        "text",
+        "attachments",
+        "delivery",
+        "heldBy",
+        "sentAt"
+      ],
+      "description": "A message a client sent: its text, attachments and where it went."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "const": "assistant-text"
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991,
+          "description": "The sequence of the event that opened the item."
+        },
+        "runId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+          "description": "A run's id: a version 4 UUID the environment mints when the run starts or is adopted."
+        },
+        "itemId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "text": {
+          "type": "string"
+        },
+        "aborted": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "kind",
+        "sequence",
+        "runId",
+        "itemId",
+        "text",
+        "aborted"
+      ],
+      "description": "The assistant's text, settled."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "const": "assistant-thinking"
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991,
+          "description": "The sequence of the event that opened the item."
+        },
+        "runId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+          "description": "A run's id: a version 4 UUID the environment mints when the run starts or is adopted."
+        },
+        "itemId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "text": {
+          "type": "string"
+        },
+        "aborted": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "kind",
+        "sequence",
+        "runId",
+        "itemId",
+        "text",
+        "aborted"
+      ],
+      "description": "The assistant's thinking, settled."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "const": "tool-call"
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991,
+          "description": "The sequence of the event that opened the item."
+        },
+        "runId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+          "description": "A run's id: a version 4 UUID the environment mints when the run starts or is adopted."
+        },
+        "toolCallId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "input": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {}
+        },
+        "title": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "agentId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "parentToolCallId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "running",
+            "ok",
+            "error",
+            "cancelled"
+          ],
+          "description": "running until tool.ended, then how it ended: ok, error or cancelled."
+        },
+        "update": {
+          "anyOf": [
+            {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {}
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The latest tool.updated, folded in; null before any."
+        },
+        "output": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            },
+            {
+              "type": "array",
+              "items": {}
+            },
+            {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {}
+            }
+          ],
+          "description": "The tool's result once it ended; null before."
+        },
+        "durationMs": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "sequence",
+        "runId",
+        "toolCallId",
+        "name",
+        "input",
+        "title",
+        "agentId",
+        "parentToolCallId",
+        "status",
+        "update",
+        "output",
+        "durationMs"
+      ],
+      "description": "A tool call with its updates folded in and, once it ended, its status and output."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "const": "command"
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991,
+          "description": "The sequence of the event that opened the item."
+        },
+        "runId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+          "description": "A run's id: a version 4 UUID the environment mints when the run starts or is adopted."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "args": {
+          "type": "string"
+        },
+        "output": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "sequence",
+        "runId",
+        "name",
+        "args",
+        "output"
+      ],
+      "description": "A slash command that ran."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "const": "tasks"
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991,
+          "description": "The sequence of the event that opened the item."
+        },
+        "runId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+          "description": "A run's id: a version 4 UUID the environment mints when the run starts or is adopted."
+        },
+        "tasks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "taskId": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The provider's task id, stable for the task's life; runs.stopTask names it."
+              },
+              "kind": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The provider's own word for the kind of work (local_bash, local_agent); an open set."
+              },
+              "description": {
+                "type": "string",
+                "description": "The provider's one-line description of the task."
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "pending",
+                  "running",
+                  "paused",
+                  "completed",
+                  "failed",
+                  "stopped"
+                ],
+                "description": "Where a piece of delegated work has got to: pending, running or paused (live), completed, failed or stopped (settled)."
+              },
+              "startedAt": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                "description": "When the environment first heard of the task."
+              },
+              "endedAt": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                    "description": "An instant as an ISO 8601 UTC timestamp."
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "When it settled; null while it is live."
+              },
+              "subagentType": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The agent type of a subagent (Explore, Plan), else null."
+              },
+              "toolCallId": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The tool call that started it, when the provider says."
+              },
+              "error": {
+                "description": "Why it failed, when it did.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "taskId",
+              "kind",
+              "description",
+              "status",
+              "startedAt",
+              "endedAt",
+              "subagentType",
+              "toolCallId",
+              "error"
+            ],
+            "description": "One piece of delegated work a run holds: a subagent or a background task, with its status."
+          }
+        }
+      },
+      "required": [
+        "kind",
+        "sequence",
+        "runId",
+        "tasks"
+      ],
+      "description": "A run's delegated-work ledger as it stands, at the place its first tasks.changed came."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "pattern": "^(?!(?:user-message|assistant-text|assistant-thinking|tool-call|command|tasks)$).+$",
+          "description": "Any kind but the known ones (user-message, assistant-text, assistant-thinking, tool-call, command, tasks), which must match their own schema."
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991,
+          "description": "A position in the event log's global sequence; 0 is the cursor before the first event."
+        }
+      },
+      "required": [
+        "kind",
+        "sequence"
+      ],
+      "additionalProperties": {},
+      "description": "An item of a kind the reader does not know: kept as it is and shown opaque (ADR 0001); kind opaque names an unknown event type."
+    }
+  ],
+  "description": "One settled item of a transcript: a user message, assistant text or thinking, a tool call, a command, a run's delegated work, or an item of a kind the reader does not know, kept opaque."
+}

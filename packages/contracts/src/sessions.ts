@@ -440,28 +440,26 @@ export const GroupDeletedPayload = z
 
 /**
  * An event type reserved by name for another workstream, which fixes its
- * payload: the run and message events are the adapter's (#119), the prompt
- * events the permissions workstream's (#130). Its payload is any object until
- * then, and the export leaves it out. The run and prompt types are
- * `list`-flagged here, so the summary's activity fields have an owner from
- * phase A; `message.sent` changes no summary field and is not.
+ * payload: the prompt events are the permissions workstream's (#130). Its
+ * payload is any object until then, and the export leaves it out. The prompt
+ * types are `list`-flagged here, so `parkedPromptCount` has an owner from
+ * phase A. The run and message types are the transcript vocabulary's
+ * (`transcript.ts`), joined to these in the event-type table.
  */
 const reservedPayload = (type: string, reservedFor: string) =>
   JsonObject.meta({ description: `${type}: reserved; its payload is ${reservedFor}'s.` });
 const reserved = (type: string, reservedFor: string) =>
   ({ list: true, payload: reservedPayload(type, reservedFor), patch: SummaryPatch, reservedFor }) as const;
-const reservedUnlisted = (type: string, reservedFor: string) =>
-  ({ list: false, payload: reservedPayload(type, reservedFor), reservedFor }) as const;
 
 const listed = <const P extends z.ZodType, const Patch extends z.ZodType>(payload: P, patch: Patch) =>
   ({ list: true, payload, patch }) as const;
 
 /**
- * The event types of the `session` stream. Every one but `message.sent`
- * changes a summary, so is `list`-flagged with a `SummaryPatch`. The run,
- * message and prompt types are reserved by name for the adapter (#119) and
- * permissions (#130) workstreams; the run and prompt types change
- * `activity`, `parkedPromptCount`, `lastActivityAt`, `accountId` and `model`.
+ * The organisation and prompt types of the `session` stream, every one
+ * `list`-flagged with a `SummaryPatch`. The prompt types are reserved by name
+ * for the permissions workstream (#130) and change `parkedPromptCount`. The
+ * stream's transcript types (`TRANSCRIPT_EVENT_TYPES`) join these in the
+ * event-type table, and `SessionEventType` names them all.
  */
 export const SESSION_EVENT_TYPES = {
   "session.created": listed(SessionCreatedPayload, SummaryPatch),
@@ -487,9 +485,6 @@ export const SESSION_EVENT_TYPES = {
   "session.pull-request-linked": listed(SessionPullRequestLinkedPayload, SummaryPatch),
   "session.pull-request-unlinked": listed(SessionPullRequestUnlinkedPayload, SummaryPatch),
   "session.pull-request-synced": listed(SessionPullRequestSyncedPayload, SummaryPatch),
-  "run.started": reserved("run.started", "the adapter workstream (#119)"),
-  "run.ended": reserved("run.ended", "the adapter workstream (#119)"),
-  "message.sent": reservedUnlisted("message.sent", "the adapter workstream (#119)"),
   "prompt.opened": reserved("prompt.opened", "the permissions workstream (#130)"),
   "prompt.answered": reserved("prompt.answered", "the permissions workstream (#130)"),
 } as const satisfies Record<string, EventTypeEntry>;
@@ -502,14 +497,7 @@ export const GROUP_EVENT_TYPES = {
   "group.deleted": listed(GroupDeletedPayload, GroupPatch),
 } as const satisfies Record<string, EventTypeEntry>;
 
-export type SessionEventType = keyof typeof SESSION_EVENT_TYPES;
 export type GroupEventType = keyof typeof GROUP_EVENT_TYPES;
-
-/** The event types of the `session` stream. */
-export const SessionEventType = z.enum(Object.keys(SESSION_EVENT_TYPES) as [SessionEventType, ...SessionEventType[]]).meta({
-  description:
-    "The event types of a session stream: the session.* organisation events, the forge workstream's pull-request events, and the reserved run.started, run.ended, message.sent, prompt.opened and prompt.answered.",
-});
 
 /** The event types of the `group` stream. */
 export const GroupEventType = z.enum(Object.keys(GROUP_EVENT_TYPES) as [GroupEventType, ...GroupEventType[]]).meta({

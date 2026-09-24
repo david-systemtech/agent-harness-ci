@@ -1,5 +1,6 @@
+import type { SessionEventType } from "./event-types.js";
 import type { CommandMethodName } from "./registry.js";
-import type { SessionEventType, SessionSummary } from "./sessions.js";
+import type { SessionSummary } from "./sessions.js";
 
 /**
  * Who owns a summary field: the command a user sets it with (a command-kind

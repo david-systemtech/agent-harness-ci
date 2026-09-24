@@ -65,7 +65,6 @@ import {
   PullRequestState,
   SESSION_EVENT_TYPES,
   SessionActivity,
-  SessionEventType,
   SessionId,
   SessionListSnapshot,
   SessionSummary,
@@ -79,7 +78,44 @@ import {
   UserTitle,
   Workspace,
 } from "./sessions.js";
-import type { EventTypeEntry } from "./event-types.js";
+import { SessionEventType, type EventTypeEntry } from "./event-types.js";
+import {
+  AccountIdentity,
+  AdapterCapabilities,
+  AdapterCapabilityFlag,
+  AuthStatus,
+  CredentialSpec,
+  DelegatedWorkRow,
+  DelegatedWorkStatus,
+  InstructionChannel,
+  InstructionChannelKind,
+  MessageDelivery,
+  MessageId,
+  ProviderId,
+  QueueHolder,
+  RunId,
+  RunSuggestion,
+  SendResponse,
+} from "./adapter.js";
+import { AttachmentInput } from "./methods/runs.js";
+import { ProcessHold, ProcessHoldKind, ProcessIdleMinutes, ProcessState, ProcessStopReason, ProviderProcess } from "./methods/providers.js";
+import {
+  AttachmentKind,
+  AttachmentRecord,
+  InterruptCause,
+  ModelUsage,
+  ParkedPrompt,
+  RunEndReason,
+  RunError,
+  RunMode,
+  RunOrigin,
+  RunState,
+  RunSummary,
+  SessionSnapshot,
+  TRANSCRIPT_EVENT_TYPES,
+  ToolStatus,
+  TranscriptItem,
+} from "./transcript.js";
 import { OrderKey } from "./ordering.js";
 import { methods } from "./registry.js";
 import { Ceiling, Scope, ScopeSet } from "./scopes.js";
@@ -108,11 +144,11 @@ const pascal = (words: string): string =>
 
 /**
  * The session and group event types whose payloads are fixed, each with its
- * payload: the reserved run, message and prompt types are left out until
- * their workstreams fix them.
+ * payload, the transcript vocabulary among them: the reserved prompt types
+ * are left out until the permissions workstream fixes them.
  */
 export const publishedEventPayloads = (): [string, z.ZodType][] =>
-  Object.entries({ ...SESSION_EVENT_TYPES, ...GROUP_EVENT_TYPES } as Record<string, EventTypeEntry>).flatMap(([type, entry]) =>
+  Object.entries({ ...SESSION_EVENT_TYPES, ...TRANSCRIPT_EVENT_TYPES, ...GROUP_EVENT_TYPES } as Record<string, EventTypeEntry>).flatMap(([type, entry]) =>
     entry.reservedFor === undefined ? [[type, entry.payload] as [string, z.ZodType]] : [],
   );
 
@@ -192,6 +228,42 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "sessions/session-event-type.json", title: "SessionEventType", schema: SessionEventType },
   { path: "sessions/group-event-type.json", title: "GroupEventType", schema: GroupEventType },
   ...publishedEventPayloads().map(([type, schema]) => ({ path: `sessions/events/${type}.json`, title: `${pascal(type)}Payload`, schema })),
+  { path: "adapter/run-id.json", title: "RunId", schema: RunId },
+  { path: "adapter/message-id.json", title: "MessageId", schema: MessageId },
+  { path: "adapter/provider-id.json", title: "ProviderId", schema: ProviderId },
+  { path: "adapter/account-identity.json", title: "AccountIdentity", schema: AccountIdentity },
+  { path: "adapter/instruction-channel-kind.json", title: "InstructionChannelKind", schema: InstructionChannelKind },
+  { path: "adapter/instruction-channel.json", title: "InstructionChannel", schema: InstructionChannel },
+  { path: "adapter/capability-flag.json", title: "AdapterCapabilityFlag", schema: AdapterCapabilityFlag },
+  { path: "adapter/capabilities.json", title: "AdapterCapabilities", schema: AdapterCapabilities },
+  { path: "adapter/credential-spec.json", title: "CredentialSpec", schema: CredentialSpec },
+  { path: "adapter/auth-status.json", title: "AuthStatus", schema: AuthStatus },
+  { path: "adapter/message-delivery.json", title: "MessageDelivery", schema: MessageDelivery },
+  { path: "adapter/queue-holder.json", title: "QueueHolder", schema: QueueHolder },
+  { path: "adapter/send-response.json", title: "SendResponse", schema: SendResponse },
+  { path: "adapter/delegated-work-status.json", title: "DelegatedWorkStatus", schema: DelegatedWorkStatus },
+  { path: "adapter/delegated-work-row.json", title: "DelegatedWorkRow", schema: DelegatedWorkRow },
+  { path: "adapter/run-suggestion.json", title: "RunSuggestion", schema: RunSuggestion },
+  { path: "adapter/process-state.json", title: "ProcessState", schema: ProcessState },
+  { path: "adapter/process-stop-reason.json", title: "ProcessStopReason", schema: ProcessStopReason },
+  { path: "adapter/process-hold-kind.json", title: "ProcessHoldKind", schema: ProcessHoldKind },
+  { path: "adapter/process-hold.json", title: "ProcessHold", schema: ProcessHold },
+  { path: "adapter/provider-process.json", title: "ProviderProcess", schema: ProviderProcess },
+  { path: "transcript/run-origin.json", title: "RunOrigin", schema: RunOrigin },
+  { path: "transcript/run-end-reason.json", title: "RunEndReason", schema: RunEndReason },
+  { path: "transcript/interrupt-cause.json", title: "InterruptCause", schema: InterruptCause },
+  { path: "transcript/attachment-kind.json", title: "AttachmentKind", schema: AttachmentKind },
+  { path: "transcript/attachment-record.json", title: "AttachmentRecord", schema: AttachmentRecord },
+  { path: "transcript/attachment-input.json", title: "AttachmentInput", schema: AttachmentInput },
+  { path: "transcript/run-mode.json", title: "RunMode", schema: RunMode },
+  { path: "transcript/model-usage.json", title: "ModelUsage", schema: ModelUsage },
+  { path: "transcript/run-error.json", title: "RunError", schema: RunError },
+  { path: "transcript/run-state.json", title: "RunState", schema: RunState },
+  { path: "transcript/tool-status.json", title: "ToolStatus", schema: ToolStatus },
+  { path: "transcript/run-summary.json", title: "RunSummary", schema: RunSummary },
+  { path: "transcript/transcript-item.json", title: "TranscriptItem", schema: TranscriptItem },
+  { path: "transcript/parked-prompt.json", title: "ParkedPrompt", schema: ParkedPrompt },
+  { path: "transcript/session-snapshot.json", title: "SessionSnapshot", schema: SessionSnapshot },
   { path: "actor.json", title: "Actor", schema: Actor },
   { path: "event-envelope.json", title: "EventEnvelope", schema: EventEnvelope },
   { path: "notices/environment-notice-type.json", title: "EnvironmentNoticeType", schema: EnvironmentNoticeType },
@@ -201,6 +273,7 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "settings/idle-span.json", title: "IdleSpan", schema: IdleSpan },
   { path: "settings/keys/sessions.autoSettleAfterIdle.json", title: "AutoSettleAfterIdle", schema: AutoSettleAfterIdle },
   { path: "settings/keys/sessions.autoSettleOnMerge.json", title: "AutoSettleOnMerge", schema: AutoSettleOnMerge },
+  { path: "settings/keys/providers.processIdleMinutes.json", title: "ProcessIdleMinutes", schema: ProcessIdleMinutes },
   { path: "settings/settings-values.json", title: "SettingsValues", schema: SettingsValues },
   { path: "settings/settings-patch.json", title: "SettingsPatch", schema: SettingsPatch },
   { path: "settings/settings-event-type.json", title: "SettingsEventType", schema: SettingsEventType },

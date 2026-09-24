@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SendResponse",
+  "type": "object",
+  "properties": {
+    "runId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "The run the message started, or the run live when it was queued."
+    },
+    "messageId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "A user message's id: a version 4 UUID the environment mints when a client sends it, and the id the provider is handed."
+    },
+    "delivery": {
+      "type": "string",
+      "enum": [
+        "prompt",
+        "queued"
+      ],
+      "description": "prompt: no run was live, so the message started one; queued: a run was live, so the message waits to be steered or read."
+    },
+    "heldBy": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "provider",
+            "environment"
+          ],
+          "description": "Who holds a queued message: the provider's queue (it may steer it into the running turn), or the environment's (the next run starts with it)."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Who holds a queued message: the provider or the environment; null for a prompt."
+    }
+  },
+  "required": [
+    "runId",
+    "messageId",
+    "delivery",
+    "heldBy"
+  ],
+  "description": "What runs.send answers: the message started a run, or it was queued during the live run, and who holds it."
+}

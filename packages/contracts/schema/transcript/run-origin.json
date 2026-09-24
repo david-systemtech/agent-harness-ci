@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RunOrigin",
+  "type": "string",
+  "enum": [
+    "client",
+    "routine",
+    "completions",
+    "provider"
+  ],
+  "description": "Where a run came from: client (runs.start or runs.send, or the environment's queue after a client's run), routine, completions, or provider (a turn the provider opened itself, adopted as a run)."
+}

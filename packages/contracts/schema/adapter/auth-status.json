@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AuthStatus",
+  "type": "object",
+  "properties": {
+    "signedIn": {
+      "type": "boolean"
+    },
+    "authMethod": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "How the account signed in, in the provider's words; null when signed out."
+    },
+    "email": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "orgName": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "subscriptionType": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The plan the login is on, in the provider's words."
+    },
+    "error": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Why the status could not be read, when it could not."
+    }
+  },
+  "required": [
+    "signedIn",
+    "authMethod",
+    "email",
+    "orgName",
+    "subscriptionType",
+    "error"
+  ],
+  "description": "An account's sign-in state: signed in or not, how, as whom, on which plan, or why it could not be read."
+}

@@ -1,0 +1,304 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RunSummary",
+  "type": "object",
+  "properties": {
+    "runId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "A run's id: a version 4 UUID the environment mints when the run starts or is adopted."
+    },
+    "state": {
+      "type": "string",
+      "enum": [
+        "running",
+        "ended"
+      ],
+      "description": "Where a run is: running (started, not ended) or ended."
+    },
+    "origin": {
+      "type": "string",
+      "enum": [
+        "client",
+        "routine",
+        "completions",
+        "provider"
+      ],
+      "description": "Where a run came from: client (runs.start or runs.send, or the environment's queue after a client's run), routine, completions, or provider (a turn the provider opened itself, adopted as a run)."
+    },
+    "accountId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "model": {
+      "type": "string",
+      "minLength": 1
+    },
+    "effort": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "mode": {
+      "type": "object",
+      "properties": {
+        "requested": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The mode asked for, by the command or the session; null for the adapter's own."
+        },
+        "effective": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The mode the run got, after the clamp to the connection's ceiling."
+        },
+        "clamped": {
+          "type": "boolean",
+          "description": "Whether the clamp lowered the mode asked for."
+        }
+      },
+      "required": [
+        "requested",
+        "effective",
+        "clamped"
+      ],
+      "description": "A run's mode: requested, effective after the ceiling's clamp, and whether it was clamped."
+    },
+    "promptMessageId": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+          "description": "A user message's id: a version 4 UUID the environment mints when a client sends it, and the id the provider is handed."
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "queuedMessageIds": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+        "description": "A user message's id: a version 4 UUID the environment mints when a client sends it, and the id the provider is handed."
+      }
+    },
+    "startedAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+      "description": "An instant as an ISO 8601 UTC timestamp."
+    },
+    "endedAt": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+          "description": "An instant as an ISO 8601 UTC timestamp."
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "reason": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "completed",
+            "error",
+            "interrupted",
+            "disposed",
+            "drained"
+          ],
+          "description": "Why a run ended: completed, error, interrupted (with its cause), disposed (the environment let the run go: its session was deleted, or the environment closed), drained (cut by a drain's cap)."
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "cause": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "user",
+            "read-now",
+            "restart",
+            "parked"
+          ],
+          "description": "What interrupted a run: user (runs.interrupt), read-now, restart (the recovery sweep after a restart), parked (its process was stopped while parked on a prompt)."
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "error": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "message": {
+              "type": "string",
+              "minLength": 1
+            },
+            "code": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The provider's or the environment's code for it, when there is one."
+            }
+          },
+          "required": [
+            "message",
+            "code"
+          ],
+          "description": "What went wrong in a run: a message and, when there is one, a code."
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "usage": {
+      "anyOf": [
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "model": {
+                "type": "string",
+                "minLength": 1
+              },
+              "inputTokens": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "outputTokens": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "cacheReadTokens": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "cacheWriteTokens": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "costUsd": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "What the tokens cost in US dollars, when the provider says."
+              },
+              "contextWindow": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The model's context window in tokens, when the provider says."
+              }
+            },
+            "required": [
+              "model",
+              "inputTokens",
+              "outputTokens",
+              "cacheReadTokens",
+              "cacheWriteTokens",
+              "costUsd",
+              "contextWindow"
+            ],
+            "description": "One model's token spend in a run: input, output, cache reads and writes, cost and context window."
+          }
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The latest token spend per model: run.ended's, else the last usage.reported."
+    },
+    "durationMs": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "runId",
+    "state",
+    "origin",
+    "accountId",
+    "model",
+    "effort",
+    "mode",
+    "promptMessageId",
+    "queuedMessageIds",
+    "startedAt",
+    "endedAt",
+    "reason",
+    "cause",
+    "error",
+    "usage",
+    "durationMs"
+  ],
+  "description": "One run of a session: its state, where it came from, its account, model, effort and mode, and how it ended."
+}
