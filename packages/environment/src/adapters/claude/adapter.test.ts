@@ -1097,6 +1097,26 @@ describe("a run that joins a kept process", () => {
     expect(context.adopted).toEqual([]);
   });
 
+  it("ends a run whose CLI sends init and then nothing with an error once the open timeout passes, and is not held busy by it after", async () => {
+    const adapter = adapterWith();
+    const run = adapter.createRun(runInput(), contextWith());
+    const query = await started();
+    const read = reading(run);
+    // A narrating CLI decides whose turn this is from what follows init: here nothing does.
+    query.emit(sdk.init(PROVIDER_SESSION));
+    await flush();
+    clock.advance(59_999);
+    await flush();
+    expect(read.events).toEqual([]);
+    clock.advance(1);
+    expect(ends(await read.done)).toEqual([expect.objectContaining({ reason: "error", error: expect.objectContaining({ code: "not_opened" }) })]);
+    run.release();
+    // The undecided init no longer counts as work: a run the process cannot serve replaces it rather than being refused.
+    adapter.createRun(runInput({ mode: "bypassPermissions", ceiling: "bypassPermissions", target: { kind: "resume", providerSessionId: PROVIDER_SESSION } }), contextWith());
+    await started(2);
+    expect(query.closed).toBe(true);
+  });
+
   it("ends a run the CLI never opens with an error once the open timeout passes with no turn served", async () => {
     const adapter = adapterWith();
     const context = contextWith();

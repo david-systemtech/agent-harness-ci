@@ -591,7 +591,7 @@ export class ClaudeProcess implements TurnControl {
     if (this.#current === undefined) {
       if (isInit(message)) {
         this.#undecided = [message];
-        this.#openTimer?.cancel();
+        this.#armUndecidedWatch();
         const capabilities = isRecord(message) ? message["capabilities"] : undefined;
         if (Array.isArray(capabilities) && this.#capabilities === null) {
           // The first `init` says what this CLI can do; detection runs again once, with it.
@@ -711,6 +711,24 @@ export class ClaudeProcess implements TurnControl {
    * and the CLI serves no turn, the open timeout runs; when it passes, every
    * waiting run ends error, so none pins the process for ever.
    */
+  /**
+   * An init nobody is named in yet waits for what follows it to say whose
+   * turn it is (a narrating CLI). One that says nothing more within the open
+   * timeout is a CLI gone quiet: the init is dropped, so it holds nothing
+   * busy, and the runs waiting on it end `error` as unopened runs do.
+   */
+  #armUndecidedWatch(): void {
+    this.#openTimer?.cancel();
+    this.#openTimer = this.#deps.clock.setTimeout(() => {
+      if (this.#current !== undefined || this.#undecided === undefined) return;
+      this.#undecided = undefined;
+      this.#settleWaiters();
+      for (const turn of this.#waiting.splice(0)) {
+        turn.end({ reason: "error", error: { message: `The Claude process began a turn and said nothing more within ${this.#deps.timings.openTimeoutMs} ms; send again.`, code: "not_opened" } });
+      }
+    }, this.#deps.timings.openTimeoutMs);
+  }
+
   #armOpenWatch(): void {
     this.#openTimer?.cancel();
     if (this.closed || this.#waiting.length === 0 || this.#current !== undefined || this.#undecided !== undefined) return;
