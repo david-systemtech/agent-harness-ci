@@ -59,3 +59,17 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm test
+
+      - name: The JSON Schema export is current
+        # packages/contracts/schema is the JSON Schema export a client in
+        # another language is written from (ADR 0001), published with every
+        # release by being committed. Regenerate it; if that changes anything,
+        # a schema changed and nobody exported it.
+        run: |
+          set -euo pipefail
+          pnpm --filter @agent-harness/contracts export-schemas
+          if [ -n "$(git status --porcelain -- packages/contracts/schema)" ]; then
+            git status --short -- packages/contracts/schema
+            echo "::error::packages/contracts/schema is stale - run: pnpm --filter @agent-harness/contracts export-schemas, and commit the result"
+            exit 1
+          fi

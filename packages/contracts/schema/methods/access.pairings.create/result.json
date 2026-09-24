@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "access.pairings.create result",
+  "type": "object",
+  "properties": {
+    "code": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The one-time pairing code, for typing."
+    },
+    "link": {
+      "type": "string",
+      "format": "uri",
+      "description": "A link with the code in its fragment, also rendered as a QR."
+    },
+    "expiresAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+      "description": "When the code expires: it is valid for ten minutes, and for one use."
+    },
+    "scopes": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "read",
+          "sessions:write",
+          "runs:drive",
+          "terminal",
+          "admin"
+        ],
+        "description": "One of the five scopes a method may require: read (list and subscribe), sessions:write (organisation commands), runs:drive (start, send, interrupt, answer prompts), terminal (terminals, files and diffs), admin (pairings, client sessions, drain, rebuild, settings)."
+      },
+      "uniqueItems": true,
+      "description": "The scopes a client session holds, as a non-empty set."
+    },
+    "ceiling": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The highest mode a client session may use; its values are the permissions workstream's."
+    }
+  },
+  "required": [
+    "code",
+    "link",
+    "expiresAt",
+    "scopes",
+    "ceiling"
+  ]
+}

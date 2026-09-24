@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "InternalError",
+  "type": "object",
+  "properties": {
+    "code": {
+      "type": "string",
+      "const": "internal"
+    },
+    "message": {
+      "type": "string"
+    },
+    "data": {
+      "type": "object",
+      "properties": {}
+    }
+  },
+  "required": [
+    "code",
+    "message",
+    "data"
+  ],
+  "description": "The environment failed; nothing the client sent is at fault."
+}

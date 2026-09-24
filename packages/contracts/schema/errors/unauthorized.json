@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "UnauthorizedError",
+  "type": "object",
+  "properties": {
+    "code": {
+      "type": "string",
+      "const": "unauthorized"
+    },
+    "message": {
+      "type": "string"
+    },
+    "data": {
+      "type": "object",
+      "properties": {}
+    }
+  },
+  "required": [
+    "code",
+    "message",
+    "data"
+  ],
+  "description": "The client session's token is missing, invalid, foreign or expired."
+}

@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PingFrame",
+  "type": "object",
+  "properties": {
+    "type": {
+      "type": "string",
+      "const": "ping"
+    }
+  },
+  "required": [
+    "type"
+  ],
+  "description": "From the environment, every 15 seconds; the client arms its 45-second watchdog after the first."
+}
