@@ -184,7 +184,11 @@ export interface LoadedKeymap {
   readonly problems: readonly string[];
 }
 
-/** The keymap from a parsed keybindings object: unknown ids and key names reported and ignored, a clash refusing the whole mapping. */
+/**
+ * The keymap from a parsed keybindings object: unknown ids and key names
+ * reported and ignored, an action left with no key keeping its defaults, a
+ * clash refusing the whole mapping.
+ */
 export const resolveKeymap = (mapping: unknown, source = "keybindings.json"): LoadedKeymap => {
   if (typeof mapping !== "object" || mapping === null || Array.isArray(mapping)) {
     return { keymap: DEFAULT_KEYMAP, problems: [`${source} is not a JSON object of action ids to key lists; the default keys stand.`] };
@@ -206,6 +210,11 @@ export const resolveKeymap = (mapping: unknown, source = "keybindings.json"): Lo
       const name = parseKeyName(k);
       if (name === undefined) problems.push(`${source}: ${JSON.stringify(k)} is not a key name; ignored for ${id}.`);
       else names.push(name);
+    }
+    if (names.length === 0) {
+      // An action with no key could never be pressed: a `y/n` offer would have no answer.
+      problems.push(`${source}: ${id} has no key left; its default keys stand.`);
+      continue;
     }
     keys[id] = names;
     remapped.add(id);

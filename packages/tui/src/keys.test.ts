@@ -141,6 +141,16 @@ describe("the keybindings file", () => {
     expect(loaded.keymap.keys["confirm.yes"]).toEqual(["Y"]);
   });
 
+  it("keeps an action's default keys when none of the names given it is a key, so it is never left unbound", () => {
+    const loaded = loadKeybindings(file(JSON.stringify({ "confirm.yes": ["Hyper+Q"] })), { required: true });
+    expect(loaded.keymap.keys["confirm.yes"]).toEqual(["y"]);
+    expect(loaded.keymap.remapped.has("confirm.yes")).toBe(false);
+    expect(loaded.problems).toEqual([
+      expect.stringContaining('"Hyper+Q" is not a key name'),
+      expect.stringContaining("confirm.yes has no key left; its default keys stand."),
+    ]);
+  });
+
   it("refuses a mapping that gives one key to two actions in one context whole, naming the clash", () => {
     const loaded = loadKeybindings(file(JSON.stringify({ "confirm.yes": ["n"], "picker.choose": ["Space"] })), { required: true });
     expect(loaded.problems).toEqual([expect.stringMatching(/refused.*n.*confirm\.yes.*confirm\.no|refused.*n.*confirm\.no.*confirm\.yes/)]);
