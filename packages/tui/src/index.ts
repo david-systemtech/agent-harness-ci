@@ -2,25 +2,22 @@ import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { createElement } from "react";
 import { PROTOCOL_VERSION, createRuntime, writable } from "@agent-harness/client-runtime";
+import { PRODUCT_NAME } from "@agent-harness/contracts";
 import { App, mountApp, type InkRender } from "./app.js";
 import { loadKeybindings } from "./keys.js";
 import { ensurePrivateDirectory } from "./platform/files.js";
 import { nodePlatform, stateDirectory } from "./platform/node-platform.js";
 import type { LocalService } from "./platform/services.js";
 import { createRuntimeHost } from "./runtime-host.js";
+import { messageOf, type Fault } from "./view.js";
 
-export { App, INK_MAX_FPS, inkOptions, mountApp, type AppProps, type InkRender, type ScreenFlags } from "./app.js";
-export { FRAME_MS, createFrameScheduler, type FrameScheduler } from "./frames.js";
-export { DEFAULT_KEYS, loadKeybindings, type Keymap } from "./keys.js";
-export { STATE_DIR_VARIABLE, nodePlatform, stateDirectory, type NodePlatformOptions } from "./platform/node-platform.js";
-export type { LocalReadiness, LocalService, ServiceOutcome } from "./platform/services.js";
-export { createRuntimeHost, type RuntimeHost } from "./runtime-host.js";
+export type { LocalService, ServiceOutcome } from "./platform/services.js";
 
 /** The protocol version the terminal UI speaks: the client runtime's. */
 export const TUI_PROTOCOL_VERSION: number = PROTOCOL_VERSION;
 
 /** The keybindings file's name in the state directory. */
-export const KEYBINDINGS_FILE = "keybindings.json";
+const KEYBINDINGS_FILE = "keybindings.json";
 
 /** `agent-harness tui`'s flags and what the CLI hands in beside them. */
 export interface TuiOptions {
@@ -59,18 +56,20 @@ export const runTui = async (options: TuiOptions): Promise<number> => {
   const stdout = options.stdout ?? process.stdout;
   const stderr = options.stderr ?? process.stderr;
   if (!stdin.isTTY || !stdout.isTTY) {
-    stderr.write("agent-harness tui needs a terminal: its standard input and output must be one.\n");
+    stderr.write(`${PRODUCT_NAME} tui needs a terminal: its standard input and output must be one.\n`);
     return 1;
   }
   const stateDir = options.stateDir ?? stateDirectory();
   ensurePrivateDirectory(stateDir);
   const keys = loadKeybindings(options.keybindings ?? join(stateDir, KEYBINDINGS_FILE), { required: options.keybindings !== undefined });
-  const faults = writable<readonly string[]>([]);
+  const faults = writable<readonly Fault[]>([]);
+  // On the platform's clock, the one notices carry, so the activity line can tell which is newer.
+  const report = (message: string) => faults.update((list) => [...list, { message, at: platform.clock.now().toISOString() }].slice(-20));
   const platform = nodePlatform({
     stateDir,
     dataDir: options.dataDir,
     version: options.version,
-    reportError: (error) => faults.update((list) => [...list, `Fault: ${error instanceof Error ? error.message : String(error)}`].slice(-20)),
+    reportError: (error) => report(`Fault: ${messageOf(error)}`),
   });
   const host = createRuntimeHost(() => createRuntime(platform));
   const app = createElement(App, {
@@ -90,7 +89,7 @@ export const runTui = async (options: TuiOptions): Promise<number> => {
     newCommandId: randomUUID,
   });
   const instance = mountApp(app, { stdin, stdout, stderr }, options.render);
-  void host.start().catch((error: unknown) => faults.update((list) => [...list, `The runtime did not start: ${error instanceof Error ? error.message : String(error)}`]));
+  void host.start().catch((error: unknown) => report(`The runtime did not start: ${messageOf(error)}`));
   try {
     await instance.waitUntilExit();
   } finally {

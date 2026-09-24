@@ -1,3 +1,5 @@
+import type { EnvironmentReadiness } from "@agent-harness/contracts";
+
 /**
  * The local environment's service, as the terminal UI drives it: the CLI's
  * own `service` verbs (`packages/cli/src/service/`), handed in by the `tui`
@@ -12,8 +14,6 @@ export interface ServiceOutcome {
   readonly message: string;
 }
 
-/** What the local environment's discovery answers: nothing at all, or its readiness. */
-export type LocalReadiness = "nothing" | "starting" | "ready" | "draining";
 
 export interface LocalService {
   /** Whether a service is installed for this OS user (`service status`'s first line). */
@@ -22,6 +22,6 @@ export interface LocalService {
   install(): Promise<ServiceOutcome>;
   /** `service start`. */
   start(): Promise<ServiceOutcome>;
-  /** What discovery answers on the service's port. */
-  readiness(): Promise<LocalReadiness>;
+  /** What discovery answers on the service's port: its readiness, or nothing at all. */
+  readiness(): Promise<EnvironmentReadiness | "nothing">;
 }

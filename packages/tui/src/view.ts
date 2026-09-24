@@ -53,7 +53,7 @@ export const currentEnvironment = (
 ): EnvironmentView | undefined =>
   (wanted === undefined ? undefined : findEnvironment(views, wanted)) ??
   views.find((v) => v.environmentId === preferences["environments.lastUsed"]) ??
-  views.find((v) => v.kind === "local") ??
+  localEnvironment(views) ??
   views[0];
 
 /** The local environment, when the runtime lists it. */
@@ -90,3 +90,25 @@ const actionHint = (notice: Notice): string | undefined => {
 
 /** A notice as the activity line shows it: its message, then its action. */
 export const noticeLine = (notice: Notice): string => [notice.message, actionHint(notice)].filter(Boolean).join(" ");
+
+/** A fault the runtime could hand no caller (`platform.reportError`), and when it was reported. */
+export interface Fault {
+  readonly message: string;
+  /** ISO time, as a notice's `at`. */
+  readonly at: string;
+}
+
+/**
+ * The activity line: the newer of the latest fault and the latest notice
+ * (a notice on a tie), so neither hides what follows it; undefined when
+ * there is neither.
+ */
+export const activityLine = (faults: readonly Fault[], notices: readonly Notice[]): string | undefined => {
+  const fault = faults.at(-1);
+  const notice = notices.at(-1);
+  if (fault && (!notice || Date.parse(fault.at) > Date.parse(notice.at))) return fault.message;
+  return notice ? noticeLine(notice) : undefined;
+};
+
+/** What went wrong, in the words of the error. */
+export const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));

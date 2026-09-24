@@ -11,6 +11,7 @@ import { App } from "../src/app.js";
 import { DEFAULT_KEYMAP } from "../src/keys.js";
 import { nodePlatform } from "../src/platform/node-platform.js";
 import type { LocalService } from "../src/platform/services.js";
+import type { Fault } from "../src/view.js";
 import { createRuntimeHost } from "../src/runtime-host.js";
 import { SIZE } from "./harness.js";
 
@@ -53,7 +54,7 @@ const terminal = (dataDir: string, stateDir: string, tty: string) => {
       grant: platform.grant,
       keymap: DEFAULT_KEYMAP,
       flags: { workspace: "~/code" },
-      faults: writable<readonly string[]>([]),
+      faults: writable<readonly Fault[]>([]),
       size: SIZE,
       newCommandId: () => `0199ee00-0000-7000-8000-${String(++ids).padStart(12, "0")}`,
     }),

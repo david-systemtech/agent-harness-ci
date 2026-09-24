@@ -1,4 +1,5 @@
 import type { Clock, Runtime } from "@agent-harness/client-runtime";
+import { PRODUCT_NAME } from "@agent-harness/contracts";
 import type { LocalService, ServiceOutcome } from "../platform/services.js";
 import type { RuntimeHost } from "../runtime-host.js";
 import { localEnvironment } from "../view.js";
@@ -45,5 +46,5 @@ export const startLocalEnvironment = async (options: {
     }
     await sleep(clock, READINESS_POLL_MS);
   }
-  return { ok: false, message: "The environment on this machine did not answer within a minute: `agent-harness service status` says why." };
+  return { ok: false, message: `The environment on this machine did not answer within a minute: \`${PRODUCT_NAME} service status\` says why.` };
 };

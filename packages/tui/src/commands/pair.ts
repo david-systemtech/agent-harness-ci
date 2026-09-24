@@ -42,12 +42,10 @@ export const mintedLines = (environment: string, pairing: MintedPairing): Minted
 
 export type MintOutcome = { readonly ok: true; readonly lines: MintedLines } | { readonly ok: false; readonly line: string };
 
-/** `/pair create` on `environment`: absent with the capability's reason without `admin`, else the minted code. */
+/** `/pair create` on `environment`: absent with the reason `requests.call` gives without `admin`, else the minted code. */
 export const mintPairing = async (runtime: Runtime, environment: EnvironmentView, commandId: string): Promise<MintOutcome> => {
-  const capability = runtime.capability(environment.environmentId, "access.pairings.create");
-  if (capability.status === "absent") return { ok: false, line: `Cannot create a pairing code on ${environment.name}: ${capability.message}` };
   const answer = await runtime.requests.call(environment.environmentId, "access.pairings.create", { commandId });
-  if (!answer.ok) return { ok: false, line: `Creating a pairing code on ${environment.name} failed: ${answer.error.message}` };
+  if (!answer.ok) return { ok: false, line: `Cannot create a pairing code on ${environment.name}: ${answer.error.message}` };
   const { receipt, result } = answer.result;
   if (receipt.status === "rejected") return { ok: false, line: `Creating a pairing code on ${environment.name} was rejected: ${receipt.error.message}` };
   if (!result) return { ok: false, line: `${environment.name} accepted the pairing but sent no code; try again.` };

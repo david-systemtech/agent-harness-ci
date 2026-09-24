@@ -1,14 +1,14 @@
 import { createElement, type ReactElement } from "react";
 import { render } from "ink-testing-library";
-import { createRuntime, writable, type GrantReader, type Runtime } from "@agent-harness/client-runtime";
-import { inMemoryPlatform, manualClock, type InMemoryPlatform, type ManualClock } from "@agent-harness/client-runtime/testing";
+import { createRuntime, writable, type GrantReader, type Runtime, type Writable } from "@agent-harness/client-runtime";
+import { inMemoryPlatform, manualClock, runtimeSpeaking, type InMemoryPlatform, type ManualClock } from "@agent-harness/client-runtime/testing";
 import { flush } from "@agent-harness/client-runtime/testing/fake-wire";
-import { createRuntimeWithSeams } from "../../client-runtime/src/internal.js";
 import { App, type ScreenFlags } from "../src/app.js";
 import { FRAME_MS } from "../src/frames.js";
 import { DEFAULT_KEYMAP, type Keymap } from "../src/keys.js";
-import type { LocalReadiness, LocalService, ServiceOutcome } from "../src/platform/services.js";
+import type { LocalService, ServiceOutcome } from "../src/platform/services.js";
 import { createRuntimeHost, type RuntimeHost } from "../src/runtime-host.js";
+import type { Fault } from "../src/view.js";
 import { scriptedWorld, type EnvironmentHandle, type Script, type ScriptedWorld } from "./script.js";
 
 export { scriptedWorld, type Script, type ScriptedEnvironment, type EnvironmentHandle } from "./script.js";
@@ -66,7 +66,7 @@ const scriptedService = (world: ScriptedWorld, script: ServiceScript = {}): Scri
       if (outcome.ok) localEnvironment()?.discovery("starting");
       return outcome;
     },
-    readiness: async (): Promise<LocalReadiness> => localEnvironment()?.readiness() ?? "nothing",
+    readiness: async () => localEnvironment()?.readiness() ?? "nothing",
   };
 };
 
@@ -93,6 +93,8 @@ export interface RenderedApp {
   /** The runtime the screen renders from now. */
   runtime(): Runtime;
   environment(name: string): EnvironmentHandle;
+  /** Reports a fault as the platform's `reportError` does, at the clock's now. */
+  fault(message: string): void;
   /** The frame as a person sees it. */
   frame(): string;
   /** How many frames Ink has written. */
@@ -134,6 +136,7 @@ export interface AppUnderTest {
   readonly world: ScriptedWorld;
   readonly host: RuntimeHost;
   readonly service: ScriptedService;
+  readonly faults: Writable<readonly Fault[]>;
 }
 
 /** Builds the terminal UI against the scripted world: started, with its `paired` environments paired, ready to render. */
@@ -146,7 +149,7 @@ export const appUnderTest = async (options: RenderOptions): Promise<AppUnderTest
     options.platform ?? inMemoryPlatform({ clock, kind: "tui", label: "seth@desk:pts/3", fetch: world.fetch, webSocket: world.webSocket, grant });
   const onPlatform: InMemoryPlatform = options.platform ? { ...platform, fetch: world.fetch, webSocket: world.webSocket, grant } : platform;
   const make = (): Runtime =>
-    options.protocolVersion === undefined ? createRuntime(onPlatform) : createRuntimeWithSeams(onPlatform, { protocolVersion: options.protocolVersion }).runtime;
+    options.protocolVersion === undefined ? createRuntime(onPlatform) : runtimeSpeaking(onPlatform, options.protocolVersion);
   const host = createRuntimeHost(make);
   const service = scriptedService(world, options.service);
 
@@ -161,6 +164,7 @@ export const appUnderTest = async (options: RenderOptions): Promise<AppUnderTest
   }
 
   let commandIds = 0;
+  const faults = writable<readonly Fault[]>([]);
   const element = createElement(App, {
     host,
     clock,
@@ -169,16 +173,16 @@ export const appUnderTest = async (options: RenderOptions): Promise<AppUnderTest
     keymap: options.keymap ?? DEFAULT_KEYMAP,
     flags: { workspace: "~/code/harness", ...options.flags },
     notes: options.notes ?? [],
-    faults: writable<readonly string[]>([]),
+    faults,
     size: options.size ?? SIZE,
     newCommandId: () => `0199ee00-0000-7000-8000-${String(++commandIds).padStart(12, "0")}`,
   });
-  return { element, clock, platform, world, host, service };
+  return { element, clock, platform, world, host, service, faults };
 };
 
 /** Renders the terminal UI against the scripted world through `ink-testing-library`, after `appUnderTest`. */
 export const renderApp = async (options: RenderOptions): Promise<RenderedApp> => {
-  const { element, clock, platform, world, host, service } = await appUnderTest(options);
+  const { element, clock, platform, world, host, service, faults } = await appUnderTest(options);
   const app = render(element);
   await settle();
 
@@ -196,6 +200,7 @@ export const renderApp = async (options: RenderOptions): Promise<RenderedApp> =>
     service,
     runtime: () => host.current.read(),
     environment: (name) => world.environment(name),
+    fault: (message) => faults.update((list) => [...list, { message, at: clock.now().toISOString() }]),
     frame: () => app.lastFrame() ?? "",
     frames: () => app.frames.length,
     async press(...keys) {

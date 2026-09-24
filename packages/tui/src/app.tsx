@@ -1,6 +1,7 @@
 import { Box, Text, render as inkRender, useApp, useInput, useStdout, type Instance, type RenderOptions } from "ink";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactElement } from "react";
 import type { Clock, EnvironmentView, GrantReader, Observable, PairingInput } from "@agent-harness/client-runtime";
+import { PRODUCT_NAME } from "@agent-harness/contracts";
 import { applyAction, actionsFor, listClientSessions, removeEnvironment, revokeClientSession, type ClientSessionRow } from "./commands/environment.js";
 import { parseCommand } from "./commands/parse.js";
 import { mintPairing, pairingLine, type MintedLines } from "./commands/pair.js";
@@ -11,7 +12,7 @@ import type { LocalService } from "./platform/services.js";
 import type { RuntimeHost } from "./runtime-host.js";
 import { ClientSessionsCard, EnvironmentMenu, EnvironmentsCard, MintedCard } from "./screens/cards.js";
 import { Composer, Header, Line, PairingPrompt, RAIL_MIN_COLUMNS, Rail } from "./screens/layout.js";
-import { currentEnvironment, findEnvironment, localEnvironment, localIsDown, noticeLine, offerLine } from "./view.js";
+import { activityLine, currentEnvironment, findEnvironment, localEnvironment, localIsDown, messageOf, offerLine, type Fault } from "./view.js";
 
 /**
  * The Ink root (docs/specs/tui.md, "Rendering"): Ink 7 on the alternate
@@ -69,7 +70,7 @@ export interface AppProps {
   /** Lines to show at launch: a keybindings file's problems. */
   readonly notes?: readonly string[];
   /** Faults the runtime could hand no caller, newest last. */
-  readonly faults?: Observable<readonly string[]>;
+  readonly faults?: Observable<readonly Fault[]>;
   /** A fixed frame size (tests); preset: the terminal's, following resizes. */
   readonly size?: { readonly columns: number; readonly rows: number };
   /** Mints a command id for a direct `admin` command. */
@@ -104,7 +105,7 @@ interface Screen {
 
 const useObservable = <T,>(observable: Observable<T>): T => useSyncExternalStore(observable.subscribe, observable.read);
 
-const NO_FAULTS: Observable<readonly string[]> = { read: () => [], subscribe: () => () => undefined };
+const NO_FAULTS: Observable<readonly Fault[]> = { read: () => [], subscribe: () => () => undefined };
 
 export const App = (props: AppProps) => {
   const { host, clock, keymap } = props;
@@ -198,7 +199,7 @@ export const App = (props: AppProps) => {
     update({ offer: "running", line: undefined });
     void startLocalEnvironment({ host, services: props.services, clock, installed }).then(
       (outcome) => update(outcome.ok ? { offer: "handed-over" } : { offer: "open", line: outcome.message }),
-      (error: unknown) => update({ offer: "open", line: error instanceof Error ? error.message : String(error) }),
+      (error: unknown) => update({ offer: "open", line: messageOf(error) }),
     );
   };
 
@@ -208,7 +209,7 @@ export const App = (props: AppProps) => {
       ? {
           text: offerLine(screen.installed ?? true),
           yes: startService,
-          no: () => update({ offer: "declined", line: "Not started: `agent-harness service start` starts it later." }),
+          no: () => update({ offer: "declined", line: `Not started: \`${PRODUCT_NAME} service start\` starts it later.` }),
         }
       : undefined);
 
@@ -225,7 +226,7 @@ export const App = (props: AppProps) => {
         }
         say(pairingLine(outcome, runtime.projections.environments.read()));
       },
-      (error: unknown) => say(`Not paired: ${error instanceof Error ? error.message : String(error)}`),
+      (error: unknown) => say(`Not paired: ${messageOf(error)}`),
     );
   };
 
@@ -381,8 +382,7 @@ export const App = (props: AppProps) => {
   const showRail = size.columns >= RAIL_MIN_COLUMNS && views.length > 0;
   const card = screen.card;
   const menuView = card.kind === "menu" || card.kind === "client-sessions" ? viewOf(card.environmentId) : undefined;
-  const newestNotice = notices.at(-1);
-  const activity = faults.at(-1) ?? (newestNotice ? noticeLine(newestNotice) : undefined);
+  const activity = activityLine(faults, notices);
   const promptLine = question?.text ?? (startingService ? "Starting the environment on this machine: starting…" : undefined);
   const own = menuView ? (runtime.connections.list.read().find((r) => r.environmentId === menuView.environmentId)?.clientSessionId ?? null) : null;
 

@@ -85,4 +85,17 @@ describe("the runtime's notices", () => {
     await app.waitFor("cannot update itself from here");
     expect(app.runtime().projections.notices.read().at(-1)).toMatchObject({ kind: "protocol-mismatch", action: null });
   });
+
+  it("gives the activity line to a notice that comes after a fault, so a fault never hides what follows", async () => {
+    const app = await launch({ script: { environments: [{ name: "laptop", reach: "paired" }] } });
+    await app.waitFor("● laptop ready");
+    app.fault("Fault: the documents directory is full.");
+    await app.waitFor("Fault: the documents directory is full.");
+    expect(activity(app)).toContain("Fault: the documents directory is full.");
+    await app.tick();
+    app.environment("laptop").bye("revoked");
+    await app.waitFor("was revoked");
+    expect(activity(app)).toContain("was revoked");
+    expect(app.frame()).not.toContain("Fault: the documents directory is full.");
+  });
 });

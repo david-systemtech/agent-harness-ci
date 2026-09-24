@@ -1,6 +1,5 @@
-import { inMemoryPlatform } from "@agent-harness/client-runtime/testing";
+import { WIRE_PATH, type ResponseFrame } from "@agent-harness/contracts";
 import { afterEach, describe, expect, it } from "vitest";
-import { createRuntimeWithSeams } from "../../client-runtime/src/internal.js";
 import { renderApp, type RenderedApp } from "../test/harness.js";
 
 /**
@@ -55,19 +54,22 @@ describe("the scripted environment", () => {
         ],
       },
     });
-    // A command goes through the outbox (#128), never `requests.call`; until it lands, a runtime's own request seam sends it.
-    const { runtime, seams } = createRuntimeWithSeams(
-      inMemoryPlatform({ clock: app.clock, kind: "tui", label: "seth@desk:pts/4", fetch: app.world.fetch, webSocket: app.world.webSocket, ...(app.world.grant && { grant: app.world.grant }) }),
-    );
-    const starting = runtime.start();
-    await app.tick();
-    await starting;
-    await app.waitUntil(() => runtime.connections.list.read()[0]?.phase === "ready", "the second runtime ready");
-    const desk = app.environment("desk").environmentId;
+    // A command is the outbox's (#128) to send; the script is checked here as a client sees it, on a socket of the test's own.
+    const answers: ResponseFrame[] = [];
+    const socket = app.world.webSocket(`${app.environment("desk").wire.origin.replace(/^http/, "ws")}${WIRE_PATH}`, {
+      onOpen: () => undefined,
+      onMessage: (text) => answers.push(JSON.parse(text) as ResponseFrame),
+      onClose: () => undefined,
+    });
+    const send = async (id: string, method: string, params: Record<string, unknown>) => {
+      socket.send(JSON.stringify({ type: "request", id, method, params }));
+      await app.waitUntil(() => answers.some((a) => a.id === id), `an answer to ${method}`);
+      return answers.find((a) => a.id === id) as ResponseFrame;
+    };
     const sessionId = "0199aa00-0000-4000-8000-000000000001";
-    const archive = await seams.request(desk, "sessions.archive", { commandId: "0199aa00-0000-7000-8000-0000000000a1", sessionId });
-    const pin = await seams.request(desk, "sessions.pin", { commandId: "0199aa00-0000-7000-8000-0000000000a2", sessionId });
-    await runtime.close();
+    const archive = await send("r1", "sessions.archive", { commandId: "0199aa00-0000-7000-8000-0000000000a1", sessionId });
+    const pin = await send("r2", "sessions.pin", { commandId: "0199aa00-0000-7000-8000-0000000000a2", sessionId });
+    socket.close();
     expect(archive.result).toMatchObject({ receipt: { status: "rejected", reason: "not_found", error: { message: "No such session." } } });
     expect(pin.result).toMatchObject({ receipt: { status: "accepted" } });
   });
