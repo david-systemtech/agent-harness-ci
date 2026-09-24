@@ -32,6 +32,7 @@ export {
   SubscriptionId,
   Timestamp,
 } from "./primitives.js";
+export type { MintedPairing } from "./methods/access.js";
 export * from "./registry.js";
 export * from "./schema-export.js";
 export * from "./scopes.js";

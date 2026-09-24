@@ -309,51 +309,55 @@ describe("atomically", () => {
     revokedAt: null,
   });
 
-  it("commits appends and auth-table writes together, and publishes the events after the commit", () => {
+  it("commits appends and auth-table writes together, then runs the after-commit callbacks, then publishes", () => {
     const log = memoryLog();
-    const heard: number[] = [];
-    const committedWhenHeard: boolean[] = [];
-    log.subscribe((event) => {
-      heard.push(event.sequence);
-      committedWhenHeard.push(log.clientSessions.all().some((r) => r.id === "cs-1"));
+    const order: string[] = [];
+    log.subscribe((event) => order.push(`heard ${event.sequence}, row stored: ${log.clientSessions.all().length === 1}`));
+    log.atomically((tx) => {
+      log.clientSessions.insert(tx, row("cs-1"), []);
+      log.append(s1, [note("one")], { actor: "test", tx });
+      log.append(s1, [note("two")], { actor: "test", tx });
+      tx.afterCommit(() => order.push("committed"));
+      expect(order).toEqual([]);
     });
-    log.atomically(() => {
-      log.clientSessions.insert(row("cs-1"), []);
-      log.append(s1, [note("one")], { actor: "test" });
-      log.append(s1, [note("two")], { actor: "test" });
-      expect(heard).toEqual([]);
-    });
-    expect(heard).toEqual([1, 2]);
-    expect(committedWhenHeard).toEqual([true, true]);
+    expect(order).toEqual(["committed", "heard 1, row stored: true", "heard 2, row stored: true"]);
   });
 
-  it("writes none of it when the work throws, and publishes nothing", () => {
+  it("writes none of it when the work throws, and runs no after-commit callback and publishes nothing", () => {
     const log = memoryLog();
     const heard: number[] = [];
+    let committed = false;
     log.subscribe((event) => heard.push(event.sequence));
     expect(() =>
-      log.atomically(() => {
-        log.clientSessions.insert(row("cs-1"), []);
-        log.append(s1, [note("one")], { actor: "test" });
+      log.atomically((tx) => {
+        log.clientSessions.insert(tx, row("cs-1"), []);
+        log.append(s1, [note("one")], { actor: "test", tx });
+        tx.afterCommit(() => (committed = true));
         throw new Error("changed my mind");
       }),
     ).toThrow("changed my mind");
     expect(log.readStream(s1)).toEqual([]);
     expect(log.clientSessions.all()).toEqual([]);
     expect(heard).toEqual([]);
+    expect(committed).toBe(false);
     log.append(s1, [note("after")], { actor: "test" });
     expect(heard).toHaveLength(1);
   });
 
-  it("joins an outer atomically rather than nesting", () => {
+  it("refuses to open inside another: one caller owns the transaction", () => {
     const log = memoryLog();
-    expect(() =>
-      log.atomically(() => {
-        log.atomically(() => log.append(s1, [note("inner")], { actor: "test" }));
-        throw new Error("the outer fails");
-      }),
-    ).toThrow("the outer fails");
-    expect(log.readStream(s1)).toEqual([]);
+    expect(() => log.atomically(() => log.atomically(() => undefined))).toThrow(/open already/);
+  });
+
+  it("refuses an auth-table write or an append made with a transaction that is not the open one", () => {
+    const log = memoryLog();
+    let stale: Parameters<Parameters<EventLog["atomically"]>[0]>[0] | undefined;
+    log.atomically((tx) => (stale = tx));
+    if (!stale) throw new Error("no transaction");
+    const old = stale;
+    expect(() => log.clientSessions.insert(old, row("cs-1"), [])).toThrow(/transaction/);
+    expect(() => log.append(s1, [note("late")], { actor: "test", tx: old })).toThrow(/transaction/);
+    expect(() => log.pairings.expire(old, "p-1", "2026-09-24T00:00:00.000Z")).toThrow(/transaction/);
   });
 
   it("is refused to a projector", () => {
@@ -364,7 +368,6 @@ describe("atomically", () => {
       apply: () => log.atomically(() => undefined),
     });
     expect(() => log.append(s1, [note("one")], { actor: "test" })).toThrow(/projector/);
-    expect(() => log.atomically(() => log.append(s1, [note("two")], { actor: "test" }))).toThrow(/projector/);
     expect(log.readStream(s1)).toEqual([]);
   });
 });

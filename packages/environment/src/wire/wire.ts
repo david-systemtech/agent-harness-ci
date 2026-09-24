@@ -14,7 +14,7 @@ import {
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage } from "node:http";
 import { WebSocketServer, type RawData, type WebSocket } from "ws";
-import type { ClientSessions, VerifiedClientSession } from "../auth/client-sessions.js";
+import type { SocketSessions, VerifiedClientSession } from "../auth/client-sessions.js";
 import type { Clock, Timer } from "../serve/clock.js";
 import { refuseUpgrade, type UpgradeHandler } from "../serve/http.js";
 import type { MethodHandlers } from "../serve/methods.js";
@@ -38,7 +38,7 @@ const CLOSE = { bye: 1000, goingAway: 1001, protocolError: 1002, unsupportedData
 export interface WireOptions {
   readonly environment: { readonly id: string; readonly name: string };
   readonly capabilities: CapabilityFlags;
-  readonly clientSessions: ClientSessions;
+  readonly clientSessions: SocketSessions;
   readonly methods: MethodHandlers;
   readonly clock: Clock;
 }

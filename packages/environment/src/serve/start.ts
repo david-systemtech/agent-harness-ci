@@ -8,6 +8,7 @@ import {
   PAIR_PATH,
   PROTOCOL_VERSION,
   WIRE_PATH,
+  formatHostPort,
   pairingLink,
   type AuthPolicy,
   type CapabilityFlags,
@@ -18,7 +19,13 @@ import {
 import { SYSTEM, createAccessLog } from "../auth/access-log.js";
 import { accessMethods } from "../auth/access-methods.js";
 import { createBootstrapGrant } from "../auth/bootstrap.js";
-import { SWEEP_INTERVAL_MS, createClientSessions, type ClientSessionIssuer, type ClientSessions } from "../auth/client-sessions.js";
+import {
+  SWEEP_INTERVAL_MS,
+  createClientSessions,
+  socketSessions,
+  type ClientSessionIssuer,
+  type ClientSessions,
+} from "../auth/client-sessions.js";
 import { createPairings, pairRoute, type Pairings } from "../auth/pairings.js";
 import { createRateLimiter } from "../auth/rate-limit.js";
 import { openEventLog, type EventLog, type Projector } from "../event-log/event-log.js";
@@ -93,13 +100,13 @@ export interface EnvironmentOptions {
   readonly port?: number;
   /** The name a new environment is created with; preset: the machine's hostname. An existing environment keeps its own. */
   readonly name?: string;
-  /** The environment's own tailnet name, which the Host check accepts beside loopback. Preset: the detector's. */
+  /** The environment's own tailnet name, which the Host check accepts while the tailnet address is bound. Preset: the detector's. */
   readonly tailnetName?: string;
   /** What is found to bind beside loopback. Preset: the `tailscale` CLI (`tailscaleDetector`); tests pass their own. */
   readonly interfaces?: InterfaceDetector;
   /** The tailnet setting: bind the Tailscale address. Preset: on when an address is found. The settings store (#117) will hold it. */
   readonly bindTailnet?: boolean;
-  /** The LAN setting: bind `lanAddress`. Preset: off. The settings store (#117) will hold it. */
+  /** The LAN setting: bind `lanAddress`, which must then be given. Preset: off. The settings store (#117) will hold it. */
   readonly bindLan?: boolean;
   /** The LAN address bound when `bindLan` is on. Never the wildcard address. */
   readonly lanAddress?: string;
@@ -158,7 +165,7 @@ const linkHost = (listening: readonly { readonly address: Address; readonly inte
   const tailnet = listening.find((entry) => entry.interface === "tailnet");
   if (tailnet && tailnetName !== undefined) return tailnetName;
   const host = (listening.find((entry) => entry.interface !== "loopback") ?? listening[0])?.address.host ?? LOOPBACK;
-  return host.includes(":") ? `[${host}]` : host;
+  return formatHostPort(host);
 };
 
 /**
@@ -178,7 +185,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   const capabilities: CapabilityFlags = [];
   // Set when the listeners are bound: local-only until then, which is what binding loopback alone means.
   let authPolicy: AuthPolicy = "local-only";
-  let tailnetName = options.tailnetName;
+  // The name the Host check admits: set only once the tailnet address is bound.
+  let tailnetName: string | undefined;
 
   let readiness: EnvironmentReadiness = "starting";
   let address: Address | undefined;
@@ -262,25 +270,35 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
 
   const methods: MethodHandlers = {
     "environment.status": () => ({ readiness }),
-    ...accessMethods({ pairings, clientSessions, accessLog }),
+    ...accessMethods({ pairings, clientSessions, accessLog, atomically: accessLog.atomically }),
   };
 
   // The two exchanges and the wire are routed before the bind; all three refuse work until the gate below.
   const grant = createBootstrapGrant({
     dataDir,
     clientSessions,
+    atomically: accessLog.atomically,
     rateLimiter: createRateLimiter({ clock }),
     readiness: () => readiness,
   });
   surface.route("POST", BOOTSTRAP_PATH, grant.exchange);
-  surface.route("POST", PAIR_PATH, pairRoute({ pairings, rateLimiter: createRateLimiter({ clock }), readiness: () => readiness }));
-  const wire = createWire({ environment: record, capabilities, clientSessions, methods, clock });
+  surface.route(
+    "POST",
+    PAIR_PATH,
+    pairRoute({ pairings, atomically: accessLog.atomically, rateLimiter: createRateLimiter({ clock }), readiness: () => readiness }),
+  );
+  const wire = createWire({
+    environment: record,
+    capabilities,
+    clientSessions: socketSessions(clientSessions, accessLog.atomically),
+    methods,
+    clock,
+  });
   surface.upgrade(WIRE_PATH, wire.upgrade);
 
   const bound = await step("listen", async () => {
     const interfaces = options.interfaces ?? tailscaleDetector();
-    const tailscaleAddress = interfaces.tailscaleAddress();
-    tailnetName ??= interfaces.tailnetName();
+    const tailscaleAddress = await interfaces.tailscaleAddress();
     const binds = bindList({ tailscaleAddress, bindTailnet: options.bindTailnet, bindLan: options.bindLan, lanAddress: options.lanAddress });
     closers.push(() => surface.close());
     // Loopback first: its port, chosen when 0 is asked for, is every other listener's.
@@ -293,6 +311,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     if (!loopback) throw new Error("No listener was bound.");
     address = loopback.address;
     authPolicy = listening.length > 1 ? "tailnet" : "local-only";
+    if (listening.some((entry) => entry.interface === "tailnet")) tailnetName = options.tailnetName ?? (await interfaces.tailnetName());
     linkOrigin = `http://${linkHost(listening, tailnetName)}:${loopback.address.port}`;
     // Closed before the listeners, so no socket holds their close open.
     closers.push(() => wire.close());
@@ -306,8 +325,10 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   wire.open();
   const sweep = clock.setInterval(() => {
     try {
-      clientSessions.sweep();
-      pairings.sweep();
+      accessLog.atomically((tx) => {
+        clientSessions.sweep(tx);
+        pairings.sweep(tx);
+      });
     } catch (error) {
       console.error("The sweep failed:", error);
     }
@@ -328,12 +349,12 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     http: { route: (method, path, handler) => surface.route(method, path, handler) },
     clientSessions: {
       issue(request) {
-        const { code } = pairings.create({ scopes: request.scopes, ceiling: request.ceiling }, SYSTEM.owner);
-        const exchanged = pairings.exchange(code, { kind: request.kind, label: request.label });
+        const { code } = accessLog.atomically((tx) => pairings.create(tx, { scopes: request.scopes, ceiling: request.ceiling }, SYSTEM.owner));
+        const exchanged = accessLog.atomically((tx) => pairings.exchange(tx, code, { kind: request.kind, label: request.label }));
         if (!exchanged.ok) throw new Error(`The in-process pairing was refused: ${exchanged.refusal}.`);
         return exchanged.credential;
       },
-      revoke: (id) => clientSessions.revoke(id, "requested", SYSTEM.owner)?.changed === true,
+      revoke: (id) => accessLog.atomically((tx) => clientSessions.revoke(tx, id, "requested", SYSTEM.owner))?.changed === true,
     },
     sockets: () => wire.sockets(),
     close: () => (closing ??= closers.closeAll().finally(() => (closing = undefined))),

@@ -35,6 +35,9 @@ export const accessPairingsCreate = defineMethod({
   kind: "command",
 });
 
+/** A pairing code as `access.pairings.create` mints it. */
+export type MintedPairing = z.infer<typeof accessPairingsCreate.result>;
+
 const ClientSessionSummary = z.object({
   id: ClientSessionId,
   kind: ClientKind,
@@ -48,13 +51,13 @@ const ClientSessionSummary = z.object({
   local: z.boolean().meta({ description: "Made through the bootstrap grant by a client on the environment's machine." }),
 });
 
-/** The environment's client sessions, oldest first: the live ones, or every one with `includeEnded`. */
+/** Every client session of the environment, oldest first; with `live`, only those neither revoked nor expired. */
 export const accessSessionsList = defineMethod({
   name: "access.sessions.list",
   scope: "admin",
   params: z.object({
-    includeEnded: z.boolean().optional().meta({
-      description: "Include client sessions that were revoked or have expired; false when absent.",
+    live: z.boolean().optional().meta({
+      description: "Leave out client sessions that were revoked or have expired; false when absent, so every one is listed.",
     }),
   }),
   result: z.object({ sessions: z.array(ClientSessionSummary) }),

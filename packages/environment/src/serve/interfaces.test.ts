@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { bindList, tailscaleDetector, type CommandRunner } from "./interfaces.js";
+import { bindList, processRunner, tailscaleDetector, type CommandRunner } from "./interfaces.js";
 
 /** A runner that answers from a table of command lines, and records what it was asked. */
 const scripted = (answers: Record<string, string | undefined>) => {
   const asked: string[] = [];
-  const run: CommandRunner = (command, args) => {
+  const run: CommandRunner = async (command, args) => {
     const line = [command, ...args].join(" ");
     asked.push(line);
     return answers[line];
@@ -15,38 +15,50 @@ const scripted = (answers: Record<string, string | undefined>) => {
 const status = (self: Record<string, unknown>) => JSON.stringify({ BackendState: "Running", Self: self });
 
 describe("the Tailscale detector", () => {
-  it("reads the address from tailscale ip -4 and the name from tailscale status --json", () => {
+  it("reads the address from tailscale ip -4 and the name from tailscale status --json", async () => {
     const { run, asked } = scripted({
       "tailscale ip -4": "100.101.102.103\n",
       "tailscale status --json": status({ DNSName: "Desk.tail1234.ts.net.", TailscaleIPs: ["100.101.102.103"] }),
     });
     const detector = tailscaleDetector(run);
-    expect(detector.tailscaleAddress()).toBe("100.101.102.103");
-    expect(detector.tailnetName()).toBe("desk.tail1234.ts.net");
+    expect(await detector.tailscaleAddress()).toBe("100.101.102.103");
+    expect(await detector.tailnetName()).toBe("desk.tail1234.ts.net");
     expect(asked).toEqual(["tailscale ip -4", "tailscale status --json"]);
   });
 
-  it("finds nothing when the binary is missing or fails", () => {
+  it("finds nothing when the binary is missing or fails", async () => {
     const detector = tailscaleDetector(scripted({}).run);
-    expect(detector.tailscaleAddress()).toBeUndefined();
-    expect(detector.tailnetName()).toBeUndefined();
+    expect(await detector.tailscaleAddress()).toBeUndefined();
+    expect(await detector.tailnetName()).toBeUndefined();
   });
 
-  it("takes only an IPv4 address, and the first when there are several", () => {
-    expect(tailscaleDetector(scripted({ "tailscale ip -4": "not an address\n" }).run).tailscaleAddress()).toBeUndefined();
-    expect(tailscaleDetector(scripted({ "tailscale ip -4": "fd7a:115c:a1e0::1\n" }).run).tailscaleAddress()).toBeUndefined();
-    expect(tailscaleDetector(scripted({ "tailscale ip -4": "100.64.0.1\n100.64.0.2\n" }).run).tailscaleAddress()).toBe("100.64.0.1");
+  it("takes only an IPv4 address, and the first when there are several", async () => {
+    expect(await tailscaleDetector(scripted({ "tailscale ip -4": "not an address\n" }).run).tailscaleAddress()).toBeUndefined();
+    expect(await tailscaleDetector(scripted({ "tailscale ip -4": "fd7a:115c:a1e0::1\n" }).run).tailscaleAddress()).toBeUndefined();
+    expect(await tailscaleDetector(scripted({ "tailscale ip -4": "100.64.0.1\n100.64.0.2\n" }).run).tailscaleAddress()).toBe("100.64.0.1");
   });
 
-  it("finds no name when Tailscale is not running, or reports none", () => {
+  it("finds no name when Tailscale is not running, or reports none", async () => {
     for (const text of [
       JSON.stringify({ BackendState: "Stopped", Self: { DNSName: "desk.tail1234.ts.net." } }),
       status({ DNSName: "" }),
       status({}),
       "{ not json",
     ]) {
-      expect(tailscaleDetector(scripted({ "tailscale status --json": text }).run).tailnetName(), text).toBeUndefined();
+      expect(await tailscaleDetector(scripted({ "tailscale status --json": text }).run).tailnetName(), text).toBeUndefined();
     }
+  });
+});
+
+describe("the default runner", () => {
+  it("does not block the event loop while the command runs, and answers undefined for a missing binary", async () => {
+    let ticked = false;
+    const tick = new Promise<void>((resolve) => setImmediate(() => resolve(void (ticked = true))));
+    const answer = processRunner(process.execPath, ["-e", "setTimeout(() => process.stdout.write('done'), 200)"]);
+    await tick;
+    expect(ticked).toBe(true);
+    expect(await answer).toBe("done");
+    expect(await processRunner("agent-harness-no-such-binary", [])).toBeUndefined();
   });
 });
 
@@ -67,9 +79,9 @@ describe("the bind list", () => {
     expect(bindList({ tailscaleAddress: "100.101.102.103", bindTailnet: false })).toEqual([{ host: "127.0.0.1", interface: "loopback" }]);
   });
 
-  it("binds a LAN address only when LAN binding is on and an address is given", () => {
+  it("binds a LAN address only when LAN binding is on, and refuses LAN binding with no address, naming it", () => {
     expect(bindList({ lanAddress: "192.168.1.20" })).toHaveLength(1);
-    expect(bindList({ bindLan: true })).toHaveLength(1);
+    expect(() => bindList({ bindLan: true })).toThrow(/no LAN address/);
     expect(bindList({ lanAddress: "192.168.1.20", bindLan: true })).toEqual([
       { host: "127.0.0.1", interface: "loopback" },
       { host: "192.168.1.20", interface: "lan" },

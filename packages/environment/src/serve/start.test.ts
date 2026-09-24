@@ -37,7 +37,7 @@ const { version: packageVersion } = JSON.parse(
 
 const notPrivileged: UserCheck = { isPrivileged: () => false };
 /** No Tailscale on the machine as far as these tests know, so none binds a real tailnet address. */
-const interfaces: InterfaceDetector = { tailscaleAddress: () => undefined, tailnetName: () => undefined };
+const interfaces: InterfaceDetector = { tailscaleAddress: async () => undefined, tailnetName: async () => undefined };
 const privileged: UserCheck = { isPrivileged: () => true };
 
 const { onCleanup, tempDir } = useCleanups();
@@ -223,10 +223,10 @@ describe("binding and the Host check", () => {
     }
   });
 
-  it("accepts the environment's own tailnet name", async () => {
+  it("refuses the environment's own tailnet name while the tailnet is not bound (binding.test.ts has it bound)", async () => {
     const env = await start({ tailnetName: "desk.tail1234.ts.net" });
     for (const host of ["desk.tail1234.ts.net", `desk.tail1234.ts.net:${env.address.port}`]) {
-      expect((await getWithHost(env.address, DISCOVERY_PATH, host)).status, host).toBe(200);
+      expect((await getWithHost(env.address, DISCOVERY_PATH, host)).status, host).toBe(421);
     }
   });
 

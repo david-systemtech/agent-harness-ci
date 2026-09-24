@@ -331,7 +331,7 @@ const methodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
     },
   },
   "access.sessions.list": {
-    params: { valid: [{}, { includeEnded: true }], invalid: [null, { includeEnded: "yes" }] },
+    params: { valid: [{}, { live: true }], invalid: [null, { live: "yes" }] },
     result: {
       valid: [
         { sessions: [] },

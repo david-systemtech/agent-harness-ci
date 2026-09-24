@@ -1,5 +1,6 @@
 import { Ceiling, ScopeSet, type Scope } from "@agent-harness/contracts";
 import type { Sql } from "./database.js";
+import type { Tx } from "./event-log.js";
 
 /** One pairing as the `pairings` table keeps it. Times are ISO 8601, UTC. */
 export interface PairingRow {
@@ -20,11 +21,11 @@ export interface PairingRow {
 /** The `pairings` table: read once on start, then only written, like the client sessions table. */
 export interface PairingTable {
   all(): PairingRow[];
-  insert(row: PairingRow): void;
+  insert(tx: Tx, row: PairingRow): void;
   /** Marks the pairing exchanged for `clientSessionId` at `at`. */
-  exchange(id: string, at: string, clientSessionId: string): void;
+  exchange(tx: Tx, id: string, at: string, clientSessionId: string): void;
   /** Marks the pairing's expiry recorded at `at`. */
-  expire(id: string, at: string): void;
+  expire(tx: Tx, id: string, at: string): void;
 }
 
 interface Row {
@@ -51,9 +52,11 @@ const decode = (row: Row): PairingRow => ({
   expiredAt: row.expired_at,
 });
 
-export const createPairingTable = (sql: Sql): PairingTable => ({
+/** The `pairings` table; every write takes the open `atomically`'s `Tx`, which `requireTx` checks. */
+export const createPairingTable = (sql: Sql, requireTx: (tx: Tx) => void): PairingTable => ({
   all: () => sql.all<Row>("SELECT * FROM pairings ORDER BY created_at, id").map(decode),
-  insert: (row) => {
+  insert: (tx, row) => {
+    requireTx(tx);
     sql.run(
       `INSERT INTO pairings (id, code_hash, scopes, ceiling, created_at, expires_at, exchanged_at, client_session_id, expired_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -68,10 +71,12 @@ export const createPairingTable = (sql: Sql): PairingTable => ({
       row.expiredAt,
     );
   },
-  exchange: (id, at, clientSessionId) => {
+  exchange: (tx, id, at, clientSessionId) => {
+    requireTx(tx);
     sql.run("UPDATE pairings SET exchanged_at = ?, client_session_id = ? WHERE id = ?", at, clientSessionId, id);
   },
-  expire: (id, at) => {
+  expire: (tx, id, at) => {
+    requireTx(tx);
     sql.run("UPDATE pairings SET expired_at = ? WHERE id = ?", at, id);
   },
 });

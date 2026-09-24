@@ -57,7 +57,7 @@ export interface TestEnvironmentOptions {
 }
 
 /** A machine with no Tailscale address and no tailnet name. */
-export const NO_INTERFACES: InterfaceDetector = { tailscaleAddress: () => undefined, tailnetName: () => undefined };
+export const NO_INTERFACES: InterfaceDetector = { tailscaleAddress: async () => undefined, tailnetName: async () => undefined };
 
 /** What a pairing is minted with, and the client session its exchange asks for. */
 export interface PairOptions {

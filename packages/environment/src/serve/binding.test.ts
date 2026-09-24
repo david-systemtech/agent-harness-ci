@@ -43,8 +43,8 @@ const get = (address: Address, path: string, host = `${address.host}:${address.p
 const discovery = async (address: Address) => DiscoveryDocument.parse(JSON.parse((await get(address, DISCOVERY_PATH)).body));
 
 const detector = (tailscaleAddress: string | undefined, tailnetName?: string) => ({
-  tailscaleAddress: () => tailscaleAddress,
-  tailnetName: () => tailnetName,
+  tailscaleAddress: async () => tailscaleAddress,
+  tailnetName: async () => tailnetName,
 });
 
 describe("binding", () => {
@@ -65,6 +65,21 @@ describe("binding", () => {
     const t = await start({ lanAddress: OTHER_ALIAS });
     expect(t.env.addresses).toHaveLength(1);
     expect(t.env.authPolicy).toBe("local-only");
+  });
+
+  it("refuses the tailnet name in the Host header while the tailnet is not bound", async () => {
+    for (const options of [{ interfaces: detector(undefined, "desk.tail1234.ts.net") }, { interfaces: detector(ALIAS, "desk.tail1234.ts.net"), bindTailnet: false }]) {
+      const t = await start(options);
+      expect((await get(t.address, HEALTH_PATH, "desk.tail1234.ts.net")).status).toBe(421);
+      expect((await get(t.address, HEALTH_PATH, "localhost")).status).toBe(200);
+    }
+  });
+
+  it("fails the start at the listen step when LAN binding is on and no LAN address is given, naming it", async () => {
+    await expect(startTestEnvironment({ bindLan: true })).rejects.toMatchObject({
+      step: "listen",
+      message: expect.stringContaining("no LAN address"),
+    });
   });
 
   it("never binds the wildcard address: a start asked to fails at the listen step", async () => {

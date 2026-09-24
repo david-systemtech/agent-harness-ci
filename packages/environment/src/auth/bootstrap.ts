@@ -4,16 +4,16 @@ import { join } from "node:path";
 import {
   BOOTSTRAP_GRANT_FILE,
   BootstrapRequest,
+  type BootstrapError,
   type BootstrapGrant,
   type EnvironmentReadiness,
 } from "@agent-harness/contracts";
+import type { Tx } from "../event-log/event-log.js";
 import { writeFileAtomic } from "../serve/files.js";
 import type { Address, RouteHandler } from "../serve/http.js";
 import type { ClientSessions } from "./client-sessions.js";
 import { exchangeRoute } from "./exchange.js";
 import type { RateLimiter } from "./rate-limit.js";
-
-export { MAX_EXCHANGE_BYTES } from "./exchange.js";
 
 const SECRET_BYTES = 32;
 
@@ -35,7 +35,9 @@ const sameSecret = (given: string, expected: string): boolean => timingSafeEqual
 
 export interface BootstrapGrantOptions {
   readonly dataDir: string;
-  readonly clientSessions: ClientSessions;
+  readonly clientSessions: Pick<ClientSessions, "issueLocal">;
+  /** Opens the transaction the exchange's client session and access-log events are written in. */
+  readonly atomically: <T>(work: (tx: Tx) => T) => T;
   /** Every exchange past the loopback gate, refused or not, spends from its remote address's bucket. */
   readonly rateLimiter: RateLimiter;
   /** The environment's readiness; the exchange answers `unavailable` unless it is `ready`. */
@@ -66,7 +68,7 @@ export const createBootstrapGrant = (options: BootstrapGrantOptions): BootstrapG
     current = grant;
   };
 
-  const exchange: RouteHandler = exchangeRoute({
+  const exchange: RouteHandler = exchangeRoute<BootstrapRequest, BootstrapError>({
     body: BootstrapRequest,
     what: "a bootstrap exchange",
     rateLimiter: options.rateLimiter,
@@ -87,7 +89,7 @@ export const createBootstrapGrant = (options: BootstrapGrantOptions): BootstrapG
         };
       }
       issue(current.address);
-      return { ok: true, credential: options.clientSessions.issueLocal(body.kind, body.label) };
+      return { ok: true, credential: options.atomically((tx) => options.clientSessions.issueLocal(tx, body.kind, body.label)) };
     },
   });
 

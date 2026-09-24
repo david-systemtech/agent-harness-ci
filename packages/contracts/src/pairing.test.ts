@@ -95,3 +95,14 @@ describe("the access log", () => {
     expect(Object.keys(ACCESS_EVENT_PAYLOADS)).toEqual([...ACCESS_EVENT_TYPES]);
   });
 });
+
+describe("formatHostPort", () => {
+  it("brackets an IPv6 address, and adds the port when there is one", async () => {
+    const { formatHostPort } = await import("./index.js");
+    expect(formatHostPort("127.0.0.1", 7433)).toBe("127.0.0.1:7433");
+    expect(formatHostPort("desk.tail1234.ts.net", 7433)).toBe("desk.tail1234.ts.net:7433");
+    expect(formatHostPort("fd7a:115c:a1e0::1", 7433)).toBe("[fd7a:115c:a1e0::1]:7433");
+    expect(formatHostPort("::1")).toBe("[::1]");
+    expect(formatHostPort("100.64.0.1")).toBe("100.64.0.1");
+  });
+});

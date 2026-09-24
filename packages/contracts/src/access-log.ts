@@ -59,12 +59,12 @@ export const ClientSessionRefreshedPayload = z
 /**
  * Why a client session was revoked: `requested` through `access.sessions.revoke`
  * or by the environment's owner, `replaced` by a newer desktop bootstrap,
- * `idle` for a terminal UI session whose connection had been closed an hour.
+ * `idle` for a `tui` local client session whose last socket closed an hour before.
  */
 export const REVOCATION_REASONS = ["requested", "replaced", "idle"] as const;
 export const RevocationReason = z.enum(REVOCATION_REASONS).meta({
   description:
-    "Why a client session was revoked: requested (access.sessions.revoke), replaced (a newer desktop bootstrap), or idle (a terminal UI session left closed for an hour).",
+    "Why a client session was revoked: requested (access.sessions.revoke), replaced (a newer desktop bootstrap), or idle (a tui local client session whose last socket closed an hour before).",
 });
 export type RevocationReason = z.infer<typeof RevocationReason>;
 

@@ -11,10 +11,11 @@ import {
   WIRE_PATH,
   decodeFrame,
   encodeFrame,
+  formatHostPort,
   formatPairingCode,
   registry,
   type Ceiling,
-  type ResultOf,
+  type MintedPairing,
   type Scope,
 } from "@agent-harness/contracts";
 import { HARNESS_VERSION } from "@agent-harness/environment";
@@ -33,8 +34,6 @@ export interface PairArgs {
   readonly scopes?: readonly Scope[] | undefined;
   readonly ceiling?: Ceiling | undefined;
 }
-
-export type MintedPairing = ResultOf<"access.pairings.create">;
 
 /** The pairing could not be minted; the message says why, for people. */
 export class PairFailure extends Error {
@@ -66,7 +65,7 @@ const readGrant = (dataDir: string): BootstrapGrant => {
   return grant.data;
 };
 
-/** Exchanges the grant's secret for a local `tui` client session; the sweep revokes it an hour after its socket closes. */
+/** Exchanges the grant's secret for a local `tui` client session, which the verb revokes itself once the code is minted. */
 const exchangeGrant = async (origin: string, secret: string, net: Net): Promise<ClientSessionCredential> => {
   let response: Response;
   try {
@@ -86,10 +85,20 @@ const exchangeGrant = async (origin: string, secret: string, net: Net): Promise<
   return ClientSessionCredential.parse(body);
 };
 
-/** Authenticates on the wire, calls `access.pairings.create` once, and closes. */
-const createOverWire = (url: string, token: string, params: Record<string, unknown>, net: Net): Promise<MintedPairing> =>
+/**
+ * Authenticates on the wire, calls `access.pairings.create` once, then
+ * revokes its own client session, which the environment answers with
+ * `bye: revoked` and the close.
+ */
+const createOverWire = (
+  url: string,
+  credential: ClientSessionCredential,
+  params: Record<string, unknown>,
+  net: Net,
+): Promise<MintedPairing> =>
   new Promise<MintedPairing>((resolve, reject) => {
     const ws = new net.WebSocket(url);
+    let minted: MintedPairing | undefined;
     let settled = false;
     const settle = (outcome: () => void) => {
       if (settled) return;
@@ -100,9 +109,13 @@ const createOverWire = (url: string, token: string, params: Record<string, unkno
     };
     const fail = (message: string) => settle(() => reject(new PairFailure(message)));
     const timer = setTimeout(() => fail(`The environment at ${url} did not answer within ${WIRE_TIMEOUT_MS / 1000} seconds.`), WIRE_TIMEOUT_MS);
+    const request = (id: string, method: string, requestParams: Record<string, unknown>) =>
+      ws.send(encodeFrame({ type: "request", id, method, params: requestParams }));
 
     ws.addEventListener("open", () =>
-      ws.send(encodeFrame({ type: "auth", token, protocolVersion: PROTOCOL_VERSION, clientKind: "tui", harnessVersion: HARNESS_VERSION })),
+      ws.send(
+        encodeFrame({ type: "auth", token: credential.token, protocolVersion: PROTOCOL_VERSION, clientKind: "tui", harnessVersion: HARNESS_VERSION }),
+      ),
     );
     ws.addEventListener("message", (event) => {
       let frame;
@@ -113,43 +126,47 @@ const createOverWire = (url: string, token: string, params: Record<string, unkno
       }
       switch (frame.type) {
         case "hello":
-          return ws.send(encodeFrame({ type: "request", id: "pair", method: "access.pairings.create", params }));
+          return request("pair", "access.pairings.create", params);
         case "ping":
           return ws.send(encodeFrame({ type: "pong" }));
-        case "bye":
-          return fail(`The environment closed the connection (${frame.reason})${frame.message ? `: ${frame.message}` : "."}`);
+        case "bye": {
+          const pairing = minted;
+          if (pairing && frame.reason === "revoked") return settle(() => resolve(pairing));
+          return fail(`The environment closed the socket (${frame.reason})${frame.message ? `: ${frame.message}` : "."}`);
+        }
         case "response": {
+          if (frame.id === "revoke" && frame.error) return fail(`The environment would not revoke this CLI's client session: ${frame.error.message}`);
           if (frame.id !== "pair") return;
           if (frame.error) return fail(`The environment refused to mint a pairing code: ${frame.error.message}`);
-          const minted = registry["access.pairings.create"].result.safeParse(frame.result);
-          if (!minted.success) return fail("The environment answered with something that is not a pairing code.");
-          return settle(() => resolve(minted.data));
+          const result = registry["access.pairings.create"].result.safeParse(frame.result);
+          if (!result.success) return fail("The environment answered with something that is not a pairing code.");
+          minted = result.data;
+          return request("revoke", "access.sessions.revoke", { commandId: randomUUID(), clientSessionId: credential.clientSessionId });
         }
         default:
           return;
       }
     });
     ws.addEventListener("error", () => fail(`The environment at ${url} did not answer.`));
-    ws.addEventListener("close", () => fail("The environment closed the connection before answering."));
+    ws.addEventListener("close", () => fail("The environment closed the socket before answering."));
   });
 
 /**
  * Mints a pairing code on the environment whose data directory is
  * `args.dataDir`, as its own OS user: exchanges the bootstrap grant for a
  * local client session, opens the wire, calls `access.pairings.create`, and
- * closes.
+ * revokes that client session, so each run leaves none behind.
  */
 export const mintPairing = async (args: PairArgs, net: Net): Promise<MintedPairing> => {
   const grant = readGrant(args.dataDir);
-  const host = grant.address.host.includes(":") ? `[${grant.address.host}]` : grant.address.host;
-  const port = args.port ?? grant.address.port;
-  const credential = await exchangeGrant(`http://${host}:${port}`, grant.secret, net);
+  const hostPort = formatHostPort(grant.address.host, args.port ?? grant.address.port);
+  const credential = await exchangeGrant(`http://${hostPort}`, grant.secret, net);
   const params = {
     commandId: randomUUID(),
     ...(args.scopes !== undefined && { scopes: [...args.scopes] }),
     ...(args.ceiling !== undefined && { ceiling: args.ceiling }),
   };
-  return createOverWire(`ws://${host}:${port}${WIRE_PATH}`, credential.token, params, net);
+  return createOverWire(`ws://${hostPort}${WIRE_PATH}`, credential, params, net);
 };
 
 /** What `pair` prints: the link, a QR of the link for a phone's camera, and the short code for typing. */

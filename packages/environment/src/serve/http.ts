@@ -1,6 +1,7 @@
 import { STATUS_CODES, createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import type { Duplex } from "node:stream";
+import { formatHostPort } from "@agent-harness/contracts";
 
 /** Where a listener is bound. */
 export interface Address {
@@ -86,9 +87,6 @@ const hostOf = (header: string): string | undefined => {
   return /^\d{1,5}$/.test(value.slice(colon + 1)) ? value.slice(0, colon) : undefined;
 };
 
-/** A bound address as a Host header names it: an IPv6 address in brackets, lower case. */
-const hostForm = (address: string): string => (address.includes(":") ? `[${address.toLowerCase()}]` : address.toLowerCase());
-
 /**
  * Whether a Host header names loopback, the environment's own tailnet name,
  * or one of the addresses it is bound to, with or without a port. Anything
@@ -103,7 +101,7 @@ export const isAllowedHost = (header: string | undefined, tailnetName?: string, 
   return (
     LOOPBACK_HOSTS.includes(host) ||
     (tailnetName !== undefined && host === tailnetName.toLowerCase()) ||
-    boundAddresses.some((address) => hostForm(address) === host)
+    boundAddresses.some((address) => formatHostPort(address.toLowerCase()) === host)
   );
 };
 
@@ -129,7 +127,7 @@ export interface HttpSurface extends HttpRoutes {
 }
 
 export interface HttpSurfaceOptions {
-  /** The environment's own tailnet name, which the Host check admits; read on every request, since it is found at the bind. */
+  /** The environment's own tailnet name, which the Host check admits while the tailnet is bound; read on every request, since both are found at the bind. */
   readonly tailnetName?: () => string | undefined;
 }
 

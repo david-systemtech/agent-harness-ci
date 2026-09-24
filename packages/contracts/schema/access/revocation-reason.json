@@ -7,5 +7,5 @@
     "replaced",
     "idle"
   ],
-  "description": "Why a client session was revoked: requested (access.sessions.revoke), replaced (a newer desktop bootstrap), or idle (a terminal UI session left closed for an hour)."
+  "description": "Why a client session was revoked: requested (access.sessions.revoke), replaced (a newer desktop bootstrap), or idle (a tui local client session whose last socket closed an hour before)."
 }

@@ -88,6 +88,23 @@ describe("agent-harness pair", () => {
     expect(answer.body).toMatchObject({ scopes: ["read", "runs:drive"], ceiling: "plan" });
   });
 
+  it("revokes its own local client session before it exits, so none is left behind", async () => {
+    const t = await start();
+    const cli = harness();
+    expect(await runCli(["pair", "--data-dir", t.dataDir], cli.context)).toBe(0);
+    expect(cli.err()).toBe("");
+    const admin = await t.client();
+    const own = (await admin.request("access.sessions.list", {})).sessions.filter((s) => s.label === "agent-harness pair");
+    expect(own).toHaveLength(1);
+    expect(own[0]?.revokedAt).not.toBeNull();
+    const live = (await admin.request("access.sessions.list", { live: true })).sessions.map((s) => s.label);
+    expect(live).not.toContain("agent-harness pair");
+    const revoked = (await admin.request("access.log.list", { limit: 1000 })).events.filter(
+      (e) => e.type === "client-session.revoked" && e.payload["clientSessionId"] === own[0]?.id,
+    );
+    expect(revoked).toMatchObject([{ payload: { reason: "requested" }, actor: { kind: "client_session", id: own[0]?.id } }]);
+  });
+
   it("exchanges the grant, then opens the bare wire path: the token is never in a URL", async () => {
     const t = await start();
     const cli = harness();

@@ -1,5 +1,6 @@
-import { execFileSync } from "node:child_process";
+import { execFile } from "node:child_process";
 import { BlockList, isIP, isIPv4 } from "node:net";
+import { promisify } from "node:util";
 
 /**
  * What the environment finds on its machine to bind beside loopback: the
@@ -8,25 +9,23 @@ import { BlockList, isIP, isIPv4 } from "node:net";
  */
 export interface InterfaceDetector {
   /** The machine's Tailscale IPv4 address; undefined when Tailscale is absent, stopped or logged out. */
-  tailscaleAddress(): string | undefined;
+  tailscaleAddress(): Promise<string | undefined>;
   /** The machine's own name on the tailnet (`desk.tail1234.ts.net`), lower case; undefined when there is none. */
-  tailnetName(): string | undefined;
+  tailnetName(): Promise<string | undefined>;
 }
 
 /** Runs a command and answers its standard output; undefined when it is missing, fails or times out. */
-export type CommandRunner = (command: string, args: readonly string[]) => string | undefined;
+export type CommandRunner = (command: string, args: readonly string[]) => Promise<string | undefined>;
 
 /** How long the detector waits for the `tailscale` CLI. */
 const TAILSCALE_TIMEOUT_MS = 3000;
 
-export const processRunner: CommandRunner = (command, args) => {
+const run = promisify(execFile);
+
+/** Runs `command` without blocking the event loop, killed after three seconds. */
+export const processRunner: CommandRunner = async (command, args) => {
   try {
-    return execFileSync(command, [...args], {
-      encoding: "utf8",
-      timeout: TAILSCALE_TIMEOUT_MS,
-      stdio: ["ignore", "pipe", "ignore"],
-      windowsHide: true,
-    });
+    return (await run(command, [...args], { encoding: "utf8", timeout: TAILSCALE_TIMEOUT_MS, windowsHide: true })).stdout;
   } catch {
     return undefined;
   }
@@ -37,13 +36,13 @@ export const processRunner: CommandRunner = (command, args) => {
  * `tailscale status --json` for the name, through `run`. A machine without
  * the `tailscale` binary on its PATH, or with Tailscale stopped, has neither.
  */
-export const tailscaleDetector = (run: CommandRunner = processRunner): InterfaceDetector => ({
-  tailscaleAddress() {
-    const first = run("tailscale", ["ip", "-4"])?.split(/\r?\n/)[0]?.trim();
+export const tailscaleDetector = (runner: CommandRunner = processRunner): InterfaceDetector => ({
+  async tailscaleAddress() {
+    const first = (await runner("tailscale", ["ip", "-4"]))?.split(/\r?\n/)[0]?.trim();
     return first !== undefined && isIPv4(first) ? first : undefined;
   },
-  tailnetName() {
-    const text = run("tailscale", ["status", "--json"]);
+  async tailnetName() {
+    const text = await runner("tailscale", ["status", "--json"]);
     if (text === undefined) return undefined;
     let status: unknown;
     try {
@@ -93,8 +92,8 @@ const bindable = (address: string, what: string): string => {
 /**
  * What the environment binds (env spec, "Binding and discovery"): loopback
  * always; the Tailscale address when one is found and the tailnet setting is
- * on; a LAN address only when LAN binding is on and one is given. Never the
- * wildcard address: asking for it throws.
+ * on; the LAN address when LAN binding is on, which without an address
+ * throws. Never the wildcard address: asking for it throws.
  */
 export const bindList = (choice: BindChoice): { readonly host: string; readonly interface: BoundInterface }[] => {
   const binds: { host: string; interface: BoundInterface }[] = [{ host: LOOPBACK, interface: "loopback" }];
@@ -102,6 +101,9 @@ export const bindList = (choice: BindChoice): { readonly host: string; readonly 
     if (!binds.some((bind) => bind.host === host)) binds.push({ host, interface: what });
   };
   if (choice.tailscaleAddress !== undefined && (choice.bindTailnet ?? true)) add(bindable(choice.tailscaleAddress, "Tailscale"), "tailnet");
-  if (choice.bindLan === true && choice.lanAddress !== undefined) add(bindable(choice.lanAddress, "LAN"), "lan");
+  if (choice.bindLan === true) {
+    if (choice.lanAddress === undefined) throw new Error("LAN binding is on, but no LAN address is given to bind: set lanAddress, or turn LAN binding off.");
+    add(bindable(choice.lanAddress, "LAN"), "lan");
+  }
   return binds;
 };

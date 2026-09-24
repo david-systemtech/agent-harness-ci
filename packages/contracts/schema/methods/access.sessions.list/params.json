@@ -3,8 +3,8 @@
   "title": "access.sessions.list params",
   "type": "object",
   "properties": {
-    "includeEnded": {
-      "description": "Include client sessions that were revoked or have expired; false when absent.",
+    "live": {
+      "description": "Leave out client sessions that were revoked or have expired; false when absent, so every one is listed.",
       "type": "boolean"
     }
   }

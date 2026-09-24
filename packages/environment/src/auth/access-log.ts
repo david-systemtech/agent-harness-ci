@@ -5,7 +5,7 @@ import {
   type Actor,
   type EventEnvelope as WireEnvelope,
 } from "@agent-harness/contracts";
-import type { EventLog, StreamRef } from "../event-log/event-log.js";
+import type { EventLog, StreamRef, Tx } from "../event-log/event-log.js";
 import { actorKey, toWireEnvelope } from "../event-log/wire-envelope.js";
 
 /** Who caused an access event, and the command that did when one did. */
@@ -19,8 +19,8 @@ export const SYSTEM = {
   /** The bootstrap exchange at `/api/bootstrap`. */
   bootstrap: { actor: { kind: "system", id: "bootstrap" } },
   /** The pairing exchange at `/api/pair`. */
-  pairing: { actor: { kind: "system", id: "pairing" } },
-  /** The minute sweep: expired pairings, idle terminal UI sessions. */
+  exchange: { actor: { kind: "system", id: "exchange" } },
+  /** The minute sweep: expired pairings, idle `tui` local client sessions. */
   sweep: { actor: { kind: "system", id: "sweep" } },
   /** The process embedding the environment, through its handle. */
   owner: { actor: { kind: "system", id: "owner" } },
@@ -37,12 +37,13 @@ export const DEFAULT_LOG_PAGE = 100;
 
 /**
  * The access log (ADR 0006): the `access` stream, one per environment, whose
- * id is the environment's id. `record` appends one event; `atomically` lets
- * an auth-table write and its events commit together.
+ * id is the environment's id. The caller that owns a change opens
+ * `atomically` once and passes its `Tx` to every auth-table write and every
+ * `record`, so the rows and their events commit together.
  */
 export interface AccessLog {
-  record<T extends AccessEventType>(type: T, payload: AccessEventPayload<T>, attribution: Attribution): void;
-  atomically<R>(work: () => R): R;
+  record<T extends AccessEventType>(tx: Tx, type: T, payload: AccessEventPayload<T>, attribution: Attribution): void;
+  atomically<R>(work: (tx: Tx) => R): R;
   /** The stream's events after `afterSequence`, oldest first, at most `limit`. */
   list(afterSequence: number, limit: number): WireEnvelope[];
 }
@@ -50,8 +51,9 @@ export interface AccessLog {
 export const createAccessLog = (log: EventLog, environmentId: string): AccessLog => {
   const stream: StreamRef = { kind: ACCESS_STREAM_KIND, id: environmentId };
   return {
-    record(type, payload, attribution) {
+    record(tx, type, payload, attribution) {
       log.append(stream, [{ type, payload }], {
+        tx,
         actor: actorKey(attribution.actor),
         ...(attribution.commandId !== undefined && { commandId: attribution.commandId }),
       });

@@ -33,7 +33,7 @@ const harness = () => {
     environment: {
       user: { isPrivileged: () => false },
       launcher: { prepared, close },
-      interfaces: { tailscaleAddress: () => undefined, tailnetName: () => undefined },
+      interfaces: { tailscaleAddress: async () => undefined, tailnetName: async () => undefined },
     },
   };
   return { context, stop, prepared, close, out: () => out, err: () => err };

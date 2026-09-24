@@ -119,15 +119,24 @@ describe("access.sessions.list", () => {
     expect(await seen()).toBe(t.clock.now().toISOString());
   });
 
-  it("leaves out revoked and expired client sessions unless asked for them", async () => {
+  it("lists every client session, revoked and expired ones too; live leaves those out", async () => {
     const t = await start();
+    const expired = await t.pair({ label: "expired" });
+    t.clock.advance(30 * DAY);
     const { client } = await admin(t);
-    const gone = await t.pair({ label: "gone" });
-    await client.request("access.sessions.revoke", { commandId: randomUUID(), clientSessionId: gone.clientSessionId });
-    const live = (await client.request("access.sessions.list", {})).sessions.map((s) => s.id);
-    expect(live).not.toContain(gone.clientSessionId);
-    const all = await client.request("access.sessions.list", { includeEnded: true });
-    expect(all.sessions.find((s) => s.id === gone.clientSessionId)).toMatchObject({ label: "gone", revokedAt: t.clock.now().toISOString() });
+    const revoked = await t.pair({ label: "revoked" });
+    await client.request("access.sessions.revoke", { commandId: randomUUID(), clientSessionId: revoked.clientSessionId });
+    const kept = await t.pair({ label: "kept" });
+
+    const all = (await client.request("access.sessions.list", {})).sessions;
+    expect(all.find((s) => s.id === revoked.clientSessionId)).toMatchObject({ label: "revoked", revokedAt: t.clock.now().toISOString() });
+    expect(all.find((s) => s.id === expired.clientSessionId)).toMatchObject({ label: "expired", revokedAt: null, expiresAt: expired.expiresAt });
+    expect(all.map((s) => s.id)).toContain(kept.clientSessionId);
+
+    const live = (await client.request("access.sessions.list", { live: true })).sessions.map((s) => s.id);
+    expect(live).toContain(kept.clientSessionId);
+    expect(live).not.toContain(revoked.clientSessionId);
+    expect(live).not.toContain(expired.clientSessionId);
   });
 
   it("needs the admin scope", async () => {
@@ -317,6 +326,9 @@ describe("the access log", () => {
       pairingId: pairing.pairingId,
       clientSessionId,
     });
+    const exchangedAt = ofType(events, "pairing.exchanged").find((e) => e.payload["pairingId"] === pairing.pairingId)?.sequence;
+    const createdAt = ofType(events, "client-session.created").find((e) => e.payload["clientSessionId"] === clientSessionId)?.sequence;
+    expect(exchangedAt).toBeLessThan(createdAt ?? 0);
     expect(JSON.stringify(events)).not.toContain(pairing.code);
   });
 
@@ -329,21 +341,25 @@ describe("the access log", () => {
     t.clock.advance(SWEEP_INTERVAL_MS);
     const expired = ofType(await accessLog(client), "pairing.expired");
     expect(expired.map((e) => e.payload)).toEqual([{ pairingId: pairing.pairingId }]);
-    expect(expired[0]?.actor.kind).toBe("system");
+    expect(expired[0]?.actor).toEqual({ kind: "system", id: "sweep" });
     t.clock.advance(10 * SWEEP_INTERVAL_MS);
     expect(ofType(await accessLog(client), "pairing.expired")).toHaveLength(1);
   });
 
-  it("records an expired code offered for exchange before the sweep, once", async () => {
+  it("records an expired code offered for exchange before the sweep, once, attributed to the exchange", async () => {
     const t = await start();
     const { client } = await admin(t);
+    // Minted half a minute after a sweep, so it expires between two of them.
+    t.clock.advance(30 * SECOND);
     const pairing = await client.request("access.pairings.create", { commandId: randomUUID() });
     t.clock.advance(10 * MINUTE);
     const body = { code: pairing.code, kind: "program", label: "late", protocolVersion: PROTOCOL_VERSION };
     expect((await t.pairExchange(body)).status).toBe(410);
     expect((await t.pairExchange(body)).status).toBe(410);
     t.clock.advance(SWEEP_INTERVAL_MS);
-    expect(ofType(await accessLog(client), "pairing.expired").map((e) => e.payload)).toEqual([{ pairingId: pairing.pairingId }]);
+    const expired = ofType(await accessLog(client), "pairing.expired");
+    expect(expired.map((e) => e.payload)).toEqual([{ pairingId: pairing.pairingId }]);
+    expect(expired[0]?.actor).toEqual({ kind: "system", id: "exchange" });
   });
 
   it("records each socket opened and closed with its client session", async () => {
@@ -361,7 +377,7 @@ describe("the access log", () => {
     expect(opened[0]?.actor).toEqual({ kind: "client_session", id: bot.clientSessionId });
   });
 
-  it("records a revocation by an admin with the admin as the actor, and an idle terminal UI's by the sweep", async () => {
+  it("records a revocation by an admin with the admin as the actor, and an idle tui local client session's by the sweep", async () => {
     const t = await start();
     const { client, credential } = await admin(t);
     const bot = await t.pair();
