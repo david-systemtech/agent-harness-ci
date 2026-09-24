@@ -30,6 +30,8 @@ ruleTester.run("no-client-organisation-state", rule, {
     { filename: clientRuntime("projection-cache/list.ts"), code: `localStorage.setItem("archived", "1");` },
     { filename: clientRuntime("outbox.ts"), code: `const preferences = { sessionGroups: [] };` },
     { filename: clientRuntime("outbox/queue.ts"), code: `const pendingTagsStore = createStore([]);` },
+    // The draft's one-second debounce is the outbox's.
+    { filename: clientRuntime("outbox/drafts.ts"), code: `const pendingDrafts = new Map();` },
     // The presentation module passes its enumerated keys.
     {
       filename: tui("presentation.ts"),
@@ -125,6 +127,17 @@ ruleTester.run("no-client-organisation-state", rule, {
       filename: tui("app.ts"),
       code: `function Row() { const [renameTarget, setRenameTarget] = useState(null); }`,
       errors: [error("renameTarget", "rename"), error("setRenameTarget", "rename")],
+    },
+    // The composer draft is a session field: no client keeps its own.
+    {
+      filename: tui("app.ts"),
+      code: `function Composer() { const [draft, setDraft] = useState(""); }`,
+      errors: [error("draft", "draft"), error("setDraft", "draft")],
+    },
+    {
+      filename: tui("app.ts"),
+      code: `localStorage.setItem("sessionDrafts", "{}");`,
+      errors: [error("sessionDrafts", "draft")],
     },
     // Atoms: the name, and a persisted atom's storage key.
     {

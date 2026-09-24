@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   OrderKey,
+  awakeShelfOf,
   compareKeys,
   isOrderKey,
   keyBetween,
@@ -174,6 +175,14 @@ describe("shelf membership", () => {
     expect(shelfOf(summary("s", { pinnedAt: t(3) }), now)).toBe("pinned");
     expect(shelfOf(summary("s"), now)).toBe("active");
     expect(shelfOf({ ...summary("s"), deletedAt: null }, now)).toBe("active");
+  });
+
+  it("gives the shelf a snoozed session wakes to, which keeps its pinned or active slot", () => {
+    expect(awakeShelfOf(summary("s", { snoozedUntil: t(60) }))).toBe("active");
+    expect(awakeShelfOf(summary("s", { snoozedUntil: t(60), pinnedAt: t(1) }))).toBe("pinned");
+    expect(awakeShelfOf(summary("s", { snoozedUntil: t(60), settledAt: t(1) }))).toBe("settled");
+    expect(awakeShelfOf(summary("s", { snoozedUntil: t(60), archivedAt: t(1), settledAt: t(1) }))).toBe("archived");
+    expect(awakeShelfOf({ ...summary("s"), deletedAt: t(1) })).toBe("hidden");
   });
 
   it("counts a session snoozed only while snoozedUntil is in the future by the environment's time", () => {

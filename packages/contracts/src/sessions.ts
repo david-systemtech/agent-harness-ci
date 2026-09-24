@@ -64,22 +64,29 @@ export type Tag = z.infer<typeof Tag>;
 /** The most tags a session holds. */
 export const MAX_TAGS = 64;
 
-/** The longest draft a session holds, in characters. */
+/** The longest draft a session holds, in characters counted as UTF-16 code units (what a string's length counts). */
 export const MAX_DRAFT_LENGTH = 65_536;
 
 /**
- * A session's composer draft: the text a user has typed and not sent, any
- * characters, up to 65,536 of them. The environment keeps what it is sent;
- * an empty draft is no draft (null).
+ * A session's composer draft as a client sends it: the text a user has
+ * typed and not sent, any characters, up to `MAX_DRAFT_LENGTH` UTF-16 code
+ * units. The environment keeps what it is sent; an empty draft is no draft.
  */
 export const Draft = z
   .string()
   .max(MAX_DRAFT_LENGTH)
   .meta({
-    description:
-      "A session's composer draft: the text typed and not sent, up to 65,536 characters; an empty draft is stored as none (null).",
+    description: `A session's composer draft as sent: the text typed and not sent, up to ${MAX_DRAFT_LENGTH} characters counted as UTF-16 code units; an empty draft is stored as none (null).`,
   });
 export type Draft = z.infer<typeof Draft>;
+
+/** A draft as a session stores it: never empty, or null for none. What the summary holds and `session.draft-set` records. */
+export const StoredDraft = Draft.min(1)
+  .nullable()
+  .meta({
+    description: `A session's composer draft as stored: the text typed and not sent, 1 to ${MAX_DRAFT_LENGTH} characters counted as UTF-16 code units, or null when there is none.`,
+  });
+export type StoredDraft = z.infer<typeof StoredDraft>;
 
 /**
  * A group's name: 1 to 80 characters once trimmed; stored trimmed with white
@@ -176,7 +183,7 @@ export const SessionSummary = z
     // Identity.
     id: SessionId,
     createdAt: Timestamp,
-    updatedAt: Timestamp.meta({ description: "The last organisation change." }),
+    updatedAt: Timestamp.meta({ description: "The last organisation change; setting the draft is not one." }),
     lastActivityAt: Timestamp.nullable().meta({
       description: "The last run start, run end, user message or prompt answer; null before any.",
     }),
@@ -212,9 +219,7 @@ export const SessionSummary = z
     // Forge (ADR 0012).
     pullRequests: z.array(PullRequest),
     // Composer: the draft is a session field, so it follows the session between clients.
-    draft: Draft.min(1).nullable().meta({
-      description: "The composer draft: the text typed and not sent, never empty; null when there is none. Setting it does not move updatedAt.",
-    }),
+    draft: StoredDraft,
   })
   .meta({
     description: "A session as every client renders its list row: identity, title, filing, shelf, place, activity, forge and the composer draft.",
@@ -346,7 +351,7 @@ export const SessionActiveReorderedPayload = z
 export const SessionTaggedPayload = z.object({ tag: Tag }).meta({ description: "session.tagged: a tag was added, or its casing changed." });
 export const SessionUntaggedPayload = z.object({ tag: Tag }).meta({ description: "session.untagged: a tag was removed." });
 export const SessionDraftSetPayload = z
-  .object({ draft: Draft.min(1).nullable().meta({ description: "The draft that replaces the stored one; null clears it." }) })
+  .object({ draft: StoredDraft })
   .meta({ description: "session.draft-set: the session's composer draft was replaced, or cleared (null)." });
 export const SessionGroupSetPayload = z
   .object({ groupId: GroupId.nullable() })
