@@ -176,15 +176,20 @@ export const App = (props: AppProps) => {
   const localView = localEnvironment(views);
   const down = started && localIsDown(views, local);
 
-  // `--environment` names the environment the header is about: it becomes the last used once it is known.
-  const namedEnvironment = useRef<string | undefined>(undefined);
+  // `--environment` names the environment the header is about: it becomes the last used once it is known,
+  // at launch or when it is paired later; a miss at launch is said once, and the watch goes on.
+  const named = useRef<{ readonly found: boolean; readonly missSaid: boolean }>({ found: false, missSaid: false });
   useEffect(() => {
     const wanted = props.flags.environment;
-    if (wanted === undefined || namedEnvironment.current !== undefined || !started) return;
+    if (wanted === undefined || named.current.found || !started) return;
     const found = findEnvironment(views, wanted);
-    namedEnvironment.current = found?.environmentId ?? "";
-    if (found) void runtime.connections.setLastUsed(found.environmentId).catch(() => undefined);
-    else say(`No environment named ${wanted} is known here; showing ${current?.name ?? "none"}.`);
+    if (found) {
+      named.current = { ...named.current, found: true };
+      void runtime.connections.setLastUsed(found.environmentId).catch(() => undefined);
+    } else if (!named.current.missSaid) {
+      named.current = { ...named.current, missSaid: true };
+      say(`No environment named ${wanted} is known here; showing ${current?.name ?? "none"}.`);
+    }
   });
 
   // The offer needs to know whether a service is installed and whether the grant file is there.

@@ -53,6 +53,17 @@ describe("/pair", () => {
     await app.waitFor("Paired with laptop.");
   });
 
+  it("makes the environment --environment names the last used once it is paired, though it was not known at launch", async () => {
+    const app = await launch({ script: { environments: [{ name: "laptop", reach: "unpaired" }] }, flags: { environment: "laptop" } });
+    await app.waitFor("No environment named laptop is known here");
+    await run(app, `/pair ${app.environment("laptop").wire.link}`);
+    await app.waitFor("● laptop ready");
+    await app.waitUntil(
+      () => app.runtime().preferences.read()["environments.lastUsed"] === app.environment("laptop").environmentId,
+      "laptop the last used",
+    );
+  });
+
   it("answers a malformed /pair with its usage", async () => {
     const app = await launch({ script: { environments: [] } });
     await run(app, "/pair");
