@@ -31,6 +31,8 @@ export interface MintedLines {
   readonly link: string;
   readonly code: string;
   readonly qr: readonly string[];
+  /** The link and the code on one line, for when the card cannot be shown. */
+  readonly line: string;
 }
 
 export const mintedLines = (environment: string, pairing: MintedPairing): MintedLines => ({
@@ -38,6 +40,7 @@ export const mintedLines = (environment: string, pairing: MintedPairing): Minted
   link: pairing.link,
   code: `Code: ${formatPairingCode(pairing.code)}`,
   qr: renderUnicodeCompact(pairing.link, { border: 1 }).split("\n"),
+  line: `Pairing code for ${environment}: ${pairing.link} (${formatPairingCode(pairing.code)})`,
 });
 
 export type MintOutcome = { readonly ok: true; readonly lines: MintedLines } | { readonly ok: false; readonly line: string };

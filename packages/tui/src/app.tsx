@@ -274,8 +274,12 @@ export const App = (props: AppProps) => {
       case "pair-create": {
         if (!current) return say("There is no environment to create a pairing code on: /pair one first.");
         say(`Creating a pairing code on ${current.name}…`);
+        // A card opened while the code was minted stays: the code then comes on the line, never lost.
+        const cardAsked = screen.card;
         void mintPairing(runtime, current, props.newCommandId()).then((outcome) =>
-          outcome.ok ? update({ line: undefined, card: { kind: "minted", lines: outcome.lines } }) : say(outcome.line),
+          outcome.ok
+            ? setScreen((s) => (s.card === cardAsked ? { ...s, line: undefined, card: { kind: "minted", lines: outcome.lines } } : { ...s, line: outcome.lines.line }))
+            : say(outcome.line),
         );
         return;
       }

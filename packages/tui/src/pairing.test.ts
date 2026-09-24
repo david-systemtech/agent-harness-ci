@@ -1,3 +1,4 @@
+import type { FakeAnswer } from "@agent-harness/client-runtime/testing/fake-wire";
 import { PROTOCOL_VERSION, SCOPES } from "@agent-harness/contracts";
 import { afterEach, describe, expect, it } from "vitest";
 import { KEY, renderApp, type RenderedApp } from "../test/harness.js";
@@ -113,6 +114,34 @@ describe("/pair create", () => {
     expect(app.environment("desk").requests("access.pairings.create")).toHaveLength(1);
     await app.press(KEY.esc);
     expect(app.frame()).not.toContain("Code: K7Q2M");
+  });
+
+  it("leaves a card opened while the code was being minted, and gives the link and the code on the line", async () => {
+    const app = await launch({ script: { environments: [{ name: "desk", reach: "local" }] } });
+    await app.waitFor("● desk ready");
+    const desk = app.environment("desk");
+    let answer!: (value: FakeAnswer) => void;
+    desk.wire.answer("access.pairings.create", () => new Promise<FakeAnswer>((resolve) => (answer = resolve)));
+    await run(app, "/pair create");
+    await app.waitFor("Creating a pairing code on desk…");
+    await run(app, "/environment");
+    await app.waitFor("Environments");
+    answer({
+      result: {
+        receipt: { status: "accepted", sequence: 7, changed: true },
+        result: {
+          pairingId: "0199dd00-0000-7000-8000-000000000009",
+          code: "K7Q2MXH4RZ",
+          link: `${desk.wire.origin}/pair#K7Q2MXH4RZ`,
+          expiresAt: "2026-09-24T00:10:00.000Z",
+          scopes: [...SCOPES],
+          ceiling: "bypassPermissions",
+        },
+      },
+    });
+    await app.waitFor(`Pairing code for desk: ${desk.wire.origin}/pair#K7Q2MXH4RZ (K7Q2M-XH4RZ)`);
+    expect(app.frame()).toContain("Environments");
+    expect(app.frame()).not.toContain("Pair a client with desk before");
   });
 
   it("answers absent with the reason without admin, sending nothing", async () => {
