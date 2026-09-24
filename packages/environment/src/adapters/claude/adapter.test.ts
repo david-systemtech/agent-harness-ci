@@ -483,6 +483,36 @@ describe("a mode change on a live run", () => {
     expect(query.modes).toEqual([]);
   });
 
+  it("waits for the move onto a run that is under way, so the CLI and the record both end in the change", async () => {
+    let release: () => void = () => undefined;
+    fake.controls = { flagSettings: () => new Promise<void>((resolve) => (release = resolve)) };
+    const adapter = adapterWith();
+    const context = contextWith();
+    const input = runInput();
+    const first = adapter.createRun(input, context);
+    const query = await started();
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [input.prompt[0]?.messageId as string]), sdk.result(PROVIDER_SESSION));
+    await drain(first);
+    first.release();
+    // The next run moves the process to plan and high effort; the effort call is held.
+    const second = adapter.createRun(runInput({ mode: "plan", effort: "high", target: { kind: "resume", providerSessionId: PROVIDER_SESSION } }), context);
+    await vi.waitFor(() => expect(query.flags).toHaveLength(1));
+    expect(query.modes).toEqual(["plan"]);
+    const changed = second.setMode?.("acceptEdits");
+    await flush();
+    release();
+    await changed;
+    expect(query.modes).toEqual(["plan", "acceptEdits"]);
+    await query.promptsPushed(2);
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_2", [query.prompts[1]?.uuid as string]), sdk.result(PROVIDER_SESSION));
+    await drain(second);
+    second.release();
+    // The record says acceptEdits, as the CLI is: a run asking for plan moves it again.
+    adapter.createRun(runInput({ mode: "plan", effort: "high", target: { kind: "resume", providerSessionId: PROVIDER_SESSION } }), context);
+    await query.promptsPushed(3);
+    expect(query.modes).toEqual(["plan", "acceptEdits", "plan"]);
+  });
+
   it("takes bypass on a process spawned under a bypass ceiling", async () => {
     const adapter = adapterWith();
     const input = runInput({ ceiling: "bypassPermissions" });

@@ -230,6 +230,8 @@ export class ClaudeProcess implements TurnControl {
   readonly #ledger: TaskLedger;
   readonly #spawn: SpawnKey;
   #applied: Applied;
+  /** Settles once every settings call begun so far has; never rejects (`#serially`). */
+  #settingsCalls: Promise<void> = Promise.resolve();
   #context: RunContext;
   #query: Query | undefined;
   #features: Features | undefined;
@@ -391,16 +393,42 @@ export class ClaudeProcess implements TurnControl {
     this.#armOpenWatch();
   }
 
-  async #apply(input: RunInput): Promise<void> {
-    const query = this.#query;
-    if (query === undefined) return;
-    const mode = claudeMode(input.mode);
-    const effort = claudeEffort(input.effort);
-    const limit = this.#deps.timings.controlTimeoutMs;
-    if (input.model !== this.#applied.model) await this.#within(query.setModel(input.model), limit);
-    if (mode !== this.#applied.mode) await this.#within(query.setPermissionMode(mode), limit);
-    if (input.effort !== this.#applied.effort) await this.#within(query.applyFlagSettings({ effortLevel: effort }), limit);
-    this.#applied = { model: input.model, mode, effort: input.effort };
+  #apply(input: RunInput): Promise<void> {
+    return this.#serially(async () => {
+      const query = this.#query;
+      if (query === undefined) return;
+      const mode = claudeMode(input.mode);
+      const effort = claudeEffort(input.effort);
+      const limit = this.#deps.timings.controlTimeoutMs;
+      // Each setting is recorded as it lands, so a call that fails part way leaves the record true to the CLI.
+      if (input.model !== this.#applied.model) {
+        await this.#within(query.setModel(input.model), limit);
+        this.#applied = { ...this.#applied, model: input.model };
+      }
+      if (mode !== this.#applied.mode) {
+        await this.#within(query.setPermissionMode(mode), limit);
+        this.#applied = { ...this.#applied, mode };
+      }
+      if (input.effort !== this.#applied.effort) {
+        await this.#within(query.applyFlagSettings({ effortLevel: effort }), limit);
+        this.#applied = { ...this.#applied, effort: input.effort };
+      }
+    });
+  }
+
+  /**
+   * Runs the calls that move the CLI's settings (a run's move onto the
+   * process, a live mode change) one at a time, in order, so each reads what
+   * the one before it left in `#applied` rather than a record an unfinished
+   * call is about to overwrite.
+   */
+  #serially<T>(work: () => Promise<T>): Promise<T> {
+    const next = this.#settingsCalls.then(work, work);
+    this.#settingsCalls = next.then(
+      () => undefined,
+      () => undefined,
+    );
+    return next;
   }
 
   /** Where a fork from a message or a rewind re-enters the stored chain; null for any other run. */
@@ -1011,17 +1039,20 @@ export class ClaudeProcess implements TurnControl {
    * before the spawn, the mode the spawn takes. Bypass needs the SDK's opt-in
    * at spawn, which a process started under a lower ceiling lacks.
    */
-  async setMode(turn: ClaudeTurn, mode: Mode): Promise<void> {
-    if (this.closed) throw new Error("The Claude process is closing; the run's mode cannot change.");
-    if (turn.ended) throw new Error("The run has ended; its session's next run takes the mode.");
-    const next = claudeMode(mode);
-    if (next === "bypassPermissions" && !this.#spawn.bypassAllowed) {
-      throw new Error("This Claude process was started without the bypass opt-in (its run's ceiling was below bypassPermissions), so it cannot change to bypassPermissions.");
-    }
-    if (next === this.#applied.mode) return;
-    const query = this.#query;
-    if (query !== undefined) await this.#within(query.setPermissionMode(next), this.#deps.timings.controlTimeoutMs);
-    this.#applied = { ...this.#applied, mode: next };
+  setMode(turn: ClaudeTurn, mode: Mode): Promise<void> {
+    // After any move onto a run under way, so it reads the mode that move left.
+    return this.#serially(async () => {
+      if (this.closed) throw new Error("The Claude process is closing; the run's mode cannot change.");
+      if (turn.ended) throw new Error("The run has ended; its session's next run takes the mode.");
+      const next = claudeMode(mode);
+      if (next === "bypassPermissions" && !this.#spawn.bypassAllowed) {
+        throw new Error("This Claude process was started without the bypass opt-in (its run's ceiling was below bypassPermissions), so it cannot change to bypassPermissions.");
+      }
+      if (next === this.#applied.mode) return;
+      const query = this.#query;
+      if (query !== undefined) await this.#within(query.setPermissionMode(next), this.#deps.timings.controlTimeoutMs);
+      this.#applied = { ...this.#applied, mode: next };
+    });
   }
 
   answerPrompt(promptId: string, decision: PromptDecision): void {
