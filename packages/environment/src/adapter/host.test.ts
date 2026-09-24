@@ -428,6 +428,23 @@ describe("a provider's held messages when the host ends the run (ADR 0022: nothi
     held.open();
   });
 
+  it("takes a message back once, under its one run, however often a receipt names it, and ignores ids the provider queued itself", async () => {
+    const held = gate();
+    const adapter = fakeAdapter({ capabilities: { steering: false }, script: async function* () { yield say("Working"); await held.opened; yield end(); } });
+    const create = adapter.createRun;
+    let reported: string[] = [];
+    const t = await setup({ ...adapter, createRun: (input, context) => ({ ...create(input, context), interrupt: async () => ({ stillQueued: reported }) }) } as FakeAdapter);
+    const runId = startRun(t);
+    await vi.waitFor(() => expect(eventsOf(t).map((event) => event.type)).toContain("assistant.text"));
+    const own = sendDuring(t, "And this");
+    reported = [own, randomUUID(), own];
+    t.host.interrupt(runId);
+    await vi.waitFor(() => expect(eventsOf(t).filter((event) => event.type === "message.requeued")).toHaveLength(1));
+    await settle();
+    expect(eventsOf(t).filter((event) => event.type === "message.requeued").map((event) => event.payload)).toEqual([{ runId, messageId: own }]);
+    held.open();
+  });
+
   it("takes back once what an interrupt reports after the run's end already took back its own, and the rest still", async () => {
     const ended = gate();
     const receipt = gate();
