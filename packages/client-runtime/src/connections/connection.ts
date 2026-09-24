@@ -1,4 +1,16 @@
-import { decodeFrame, encodeFrame, type ByeFrame, type Frame, type HelloFrame, type ResponseFrame } from "@agent-harness/contracts";
+import {
+  decodeFrame,
+  encodeFrame,
+  type ByeFrame,
+  type EndFrame,
+  type EventFrame,
+  type Frame,
+  type HelloFrame,
+  type ResponseFrame,
+  type SnapshotFrame,
+  type SynchronizedFrame,
+  type WireError,
+} from "@agent-harness/contracts";
 import { notifyAll } from "../observable.js";
 import type { ClientIdentity, WebSocketFactory } from "../platform.js";
 import { wireUrl } from "./address.js";
@@ -29,14 +41,31 @@ export class SocketClosedError extends Error {
   }
 }
 
+/** What the environment sends on a subscription once it is `subscribed`: a snapshot, events, the `synchronized` marker, its end. */
+export type SubscriptionMessage = SnapshotFrame | EventFrame | SynchronizedFrame | EndFrame;
+
+/** How a stream request was answered: `subscribed`, or refused with an error. */
+export type Subscribing = { readonly ok: true; readonly subscription: string } | { readonly ok: false; readonly error: WireError };
+
 /** A socket the environment has said `hello` on. */
 export interface LiveSocket {
   readonly hello: HelloFrame;
   /** Sends a `request` and settles with its `response`; rejects with `SocketClosedError` if the socket closes first. */
   request(method: string, params: Record<string, unknown>): Promise<ResponseFrame>;
+  /**
+   * Sends a stream request (a subscription) and settles with how it was
+   * answered. Every message of the subscription goes to `listener`, in
+   * order and as it arrives, from the `subscribed` answer on: the socket
+   * routes them by subscription id itself, so none can arrive before the
+   * caller knows the id. The `end` is the last. Rejects with
+   * `SocketClosedError` if the socket closes first.
+   */
+  subscribe(method: string, params: Record<string, unknown>, listener: (message: SubscriptionMessage) => void): Promise<Subscribing>;
+  /** Ends a subscription: sends `unsubscribe`, and its messages, the `end` included, are no longer heard. */
+  unsubscribe(subscription: string): void;
   /** Sends a frame as it is: the machine's `pong`. */
   send(frame: Frame): void;
-  /** Hears every frame after `hello`, pings and responses included: the seam subscriptions (#127) and the watchdog attach to. */
+  /** Hears every frame after `hello`, pings, responses and subscription messages included: the watchdog and the `onFrame` seam attach to it. */
   onFrame(listener: (frame: Frame) => void): () => void;
   /** Settles once, when the socket has closed, whichever side closed it. */
   readonly closed: Promise<SocketClosed>;
@@ -76,6 +105,11 @@ export const dial = (options: AuthenticateOptions): Dialing => {
     let nextRequest = 1;
     const listeners = new Set<(frame: Frame) => void>();
     const pending = new Map<string, { resolve: (frame: ResponseFrame) => void; reject: (error: Error) => void }>();
+    const opening = new Map<
+      string,
+      { listener: (message: SubscriptionMessage) => void; resolve: (answer: Subscribing) => void; reject: (error: Error) => void }
+    >();
+    const routes = new Map<string, (message: SubscriptionMessage) => void>();
     let resolveClosed: (closed: SocketClosed) => void = () => undefined;
     const closed = new Promise<SocketClosed>((done) => (resolveClosed = done));
 
@@ -95,6 +129,18 @@ export const dial = (options: AuthenticateOptions): Dialing => {
           socket.send(encodeFrame({ type: "request", id, method, params }));
         });
       },
+      subscribe(method, params, listener) {
+        if (isClosed) return Promise.reject(new SocketClosedError({ code: 1006, reason: "closed", bye }));
+        const id = `request-${nextRequest++}`;
+        return new Promise<Subscribing>((resolveSubscribing, reject) => {
+          opening.set(id, { listener, resolve: resolveSubscribing, reject });
+          socket.send(encodeFrame({ type: "request", id, method, params }));
+        });
+      },
+      unsubscribe(subscription) {
+        if (!routes.delete(subscription) || isClosed) return;
+        socket.send(encodeFrame({ type: "unsubscribe", subscription }));
+      },
       send: (frame) => socket.send(encodeFrame(frame)),
       onFrame(listener) {
         listeners.add(listener);
@@ -104,6 +150,42 @@ export const dial = (options: AuthenticateOptions): Dialing => {
       close: () => socket.close(CLOSE_NORMAL),
     });
 
+    /** A response to its request, a subscription's answer and messages to their subscriber. */
+    const route = (frame: Frame) => {
+      switch (frame.type) {
+        case "response": {
+          const subscribing = opening.get(frame.id);
+          if (subscribing) {
+            opening.delete(frame.id);
+            return subscribing.resolve({
+              ok: false,
+              error: frame.error ?? { code: "internal", message: "The environment answered a stream request with a result, not a subscription.", data: {} },
+            });
+          }
+          const waiting = pending.get(frame.id);
+          pending.delete(frame.id);
+          return waiting?.resolve(frame);
+        }
+        case "subscribed": {
+          const subscribing = opening.get(frame.id);
+          if (!subscribing) return;
+          opening.delete(frame.id);
+          routes.set(frame.subscription, subscribing.listener);
+          return subscribing.resolve({ ok: true, subscription: frame.subscription });
+        }
+        case "snapshot":
+        case "event":
+        case "synchronized":
+        case "end": {
+          const listener = routes.get(frame.subscription);
+          if (frame.type === "end") routes.delete(frame.subscription);
+          return listener?.(frame);
+        }
+        default:
+          return;
+      }
+    };
+
     const onFrame = (frame: Frame) => {
       if (frame.type === "bye") bye = frame;
       if (!hello) {
@@ -111,12 +193,11 @@ export const dial = (options: AuthenticateOptions): Dialing => {
         hello = frame;
         return settle({ ok: true, socket: live() });
       }
-      if (frame.type === "response") {
-        const waiting = pending.get(frame.id);
-        pending.delete(frame.id);
-        waiting?.resolve(frame);
+      try {
+        route(frame);
+      } finally {
+        notifyAll(listeners, frame);
       }
-      notifyAll(listeners, frame);
     };
 
     const socket = options.webSocket(wireUrl(options.origin), {
@@ -145,6 +226,9 @@ export const dial = (options: AuthenticateOptions): Dialing => {
         const how: SocketClosed = { code, reason, bye };
         for (const waiting of pending.values()) waiting.reject(new SocketClosedError(how));
         pending.clear();
+        for (const subscribing of opening.values()) subscribing.reject(new SocketClosedError(how));
+        opening.clear();
+        routes.clear();
         resolveClosed(how);
         settle({ ok: false, closed: how });
       },

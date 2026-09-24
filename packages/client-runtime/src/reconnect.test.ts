@@ -261,7 +261,7 @@ describe("the network signal", () => {
     const { wire, clock, platform, runtime } = await paired();
     platform.network.setForeground(false);
     platform.network.setForeground(true);
-    expect(await wire.server.expect("request")).toMatchObject({ method: "environment.status" });
+    expect(await wire.server.request("environment.status")).toMatchObject({ method: "environment.status" });
     await flush();
     clock.advance(10_000);
     await flush();
@@ -456,10 +456,12 @@ describe("hello", () => {
     expect(runtime.projections.notices.read()).toEqual([]);
   });
 
-  it("is ready on hello alone, before any stream is attached", async () => {
+  it("is ready on hello once the session list has answered, even with a refusal: a stream fault is never a phase", async () => {
+    // The fake answers every method it has no responder for `not_found`, the two subscriptions included.
     const { wire, runtime } = await paired();
-    expect(wire.server.received().filter((frame) => frame.type === "request")).toEqual([]);
+    expect(wire.server.received().flatMap((frame) => (frame.type === "request" ? [frame.method] : []))).toEqual(["sessions.subscribe", "environment.subscribe"]);
     expect(record(runtime).phase).toBe("ready");
+    expect(runtime.projections.sessionList.read().environments).toEqual([{ environmentId: wire.environmentId, freshness: "empty", fault: expect.any(String) }]);
   });
 });
 
@@ -635,14 +637,15 @@ describe("token refresh", () => {
   it("runs daily while connected once fewer than seven days remain, keeping the new token and its expiry", async () => {
     const { wire, clock, platform, runtime } = await paired();
     const first = await platform.secrets.get(wire.environmentId);
-    expect(wire.server.received().filter((f) => f.type === "request")).toEqual([]);
+    const refreshes = () => wire.server.received().filter((f) => f.type === "request" && f.method === "access.sessions.refresh");
+    expect(refreshes()).toEqual([]);
 
     for (let day = 1; day <= 23; day++) clock.advance(DAY);
     await flush();
-    expect(wire.server.received().filter((f) => f.type === "request")).toEqual([]);
+    expect(refreshes()).toEqual([]);
 
     clock.advance(DAY);
-    expect(await wire.server.expect("request")).toMatchObject({ method: "access.sessions.refresh", params: { commandId: expect.any(String) } });
+    expect(await wire.server.request("access.sessions.refresh")).toMatchObject({ params: { commandId: expect.any(String) } });
     await flush();
     const token = await platform.secrets.get(wire.environmentId);
     expect(token).not.toBe(first);
@@ -659,7 +662,7 @@ describe("token refresh", () => {
     clock.advance(25 * DAY);
     platform.network.setOnline(true);
     await wire.server.accept();
-    expect(await wire.server.expect("request")).toMatchObject({ method: "access.sessions.refresh" });
+    expect(await wire.server.request("access.sessions.refresh")).toMatchObject({ method: "access.sessions.refresh" });
   });
 
   it("left unanswered, holds up neither retryNow nor the socket", async () => {
@@ -673,7 +676,7 @@ describe("token refresh", () => {
     const retrying = runtime.connections.retryNow(wire.environmentId);
     await wire.server.accept();
     await retrying;
-    expect(await wire.server.expect("request")).toMatchObject({ method: "access.sessions.refresh" });
+    expect(await wire.server.request("access.sessions.refresh")).toMatchObject({ method: "access.sessions.refresh" });
     expect(record(runtime)).toMatchObject({ phase: "ready", refreshFailed: null });
   });
 

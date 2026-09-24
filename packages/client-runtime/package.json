@@ -18,6 +18,11 @@
       "@agent-harness/source": "./src/testing/fake-wire.ts",
       "types": "./dist/testing/fake-wire.d.ts",
       "default": "./dist/testing/fake-wire.js"
+    },
+    "./testing/storage-contract": {
+      "@agent-harness/source": "./src/testing/storage-contract.ts",
+      "types": "./dist/testing/storage-contract.d.ts",
+      "default": "./dist/testing/storage-contract.js"
     }
   },
   "scripts": {
