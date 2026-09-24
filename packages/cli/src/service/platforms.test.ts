@@ -126,6 +126,7 @@ describe("the systemd user unit", () => {
         writeFileSync(unitPath(home), "the previous unit\n");
         const { service, calls } = platformFor("linux", home, (_, args) => {
           if (args.includes("is-enabled")) return { code: previously === "enabled" ? 0 : 1, stdout: `${previously}\n` };
+          if (args.includes("is-active")) return { code: 1, stdout: "inactive\n" };
           return args.includes(failing) ? { code: 1 } : undefined;
         });
 
@@ -140,6 +141,20 @@ describe("the systemd user unit", () => {
         expect(calls.at(-1)).toBe("systemctl --user daemon-reload");
       }
     }
+  });
+
+  it("install starts the replaced unit again when it was running and the restart onto the new one failed", async () => {
+    const home = tempHome();
+    mkdirSync(dirname(unitPath(home)), { recursive: true });
+    writeFileSync(unitPath(home), "the previous unit\n");
+    const { service, calls } = platformFor("linux", home, (_, args) => {
+      if (args.includes("is-active")) return { code: 0, stdout: "active\n" };
+      if (args.includes("is-enabled")) return { code: 0, stdout: "enabled\n" };
+      return args.includes("try-restart") ? { code: 1 } : undefined;
+    });
+    await expect(service.install(specIn(home))).rejects.toThrow(ServiceCommandError);
+    expect(readFileSync(unitPath(home), "utf8")).toBe("the previous unit\n");
+    expect(calls.slice(-2)).toEqual(["systemctl --user daemon-reload", "systemctl --user start agent-harness.service"]);
   });
 
   it("install treats an enablement probe that cannot run as not enabled, and still puts the replaced unit back on a refusal", async () => {

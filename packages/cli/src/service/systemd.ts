@@ -80,6 +80,8 @@ export const systemdPlatform = (installContext: InstallContext, commands: Servic
     install: async (spec) => {
       const written = writeDefinition(path, renderSystemdUnit(spec));
       const wantsExisted = existsSync(wantsDir);
+      // A unit that was running before is started again on a refusal, since a failed try-restart leaves it stopped.
+      const wasRunning = written.previous !== undefined && (await commands.probe("systemctl", ["--user", "is-active", unit])).code === 0;
       let enabled = false;
       let wasEnabled = false;
       try {
@@ -97,6 +99,7 @@ export const systemdPlatform = (installContext: InstallContext, commands: Servic
         }
         written.restore();
         await commands.attempt("systemctl", ["--user", "daemon-reload"]);
+        if (wasRunning) await commands.attempt("systemctl", ["--user", "start", unit]);
         throw error;
       }
       return { createdDirectories: written.createdDirectories };

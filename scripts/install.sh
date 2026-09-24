@@ -182,12 +182,20 @@ service_status() {
   "$bin" "$@"
 }
 
+# A value for the printed plan: quoted when a shell would otherwise split it.
+plan_word() {
+  case $1 in
+    *[!A-Za-z0-9_/.:=@%+,-]*) printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")" ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
+
 if [ "$dry_run" = 1 ]; then
   install_line="$bin service install"
-  [ -z "$data_dir" ] || install_line="$install_line --data-dir $data_dir"
+  [ -z "$data_dir" ] || install_line="$install_line --data-dir $(plan_word "$data_dir")"
   [ -z "$port" ] || install_line="$install_line --port $port"
   status_line="$bin service status"
-  [ -z "$data_dir" ] || status_line="$status_line --data-dir $data_dir"
+  [ -z "$data_dir" ] || status_line="$status_line --data-dir $(plan_word "$data_dir")"
   [ -z "$port" ] || status_line="$status_line --port $port"
   printf 'Release: %s\n' "$tag"
   printf 'Download: %s\n' "$asset_url"
