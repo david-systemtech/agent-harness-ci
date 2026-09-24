@@ -342,7 +342,7 @@ export const App = (props: AppProps) => {
           },
         });
       }
-      if (action) void applyAction(runtime, view, action, views).then(say);
+      if (action) void applyAction(runtime, view, action).then(say);
       return;
     }
     if (card.kind === "client-sessions") {

@@ -2,6 +2,7 @@ import type { FakeAnswer } from "@agent-harness/client-runtime/testing/fake-wire
 import { Ceiling, SCOPES } from "@agent-harness/contracts";
 import { afterEach, describe, expect, it } from "vitest";
 import { KEY, renderApp, type RenderedApp } from "../test/harness.js";
+import { applyAction } from "./commands/environment.js";
 
 /**
  * `/environment` (docs/specs/tui.md, "First launch"): the saved connections
@@ -107,6 +108,19 @@ describe("/environment", () => {
     await app.press(KEY.down, KEY.down, KEY.enter);
     await app.waitFor("laptop is the primary environment.");
     expect(app.runtime().projections.environments.read().map((v) => [v.name, v.primary])).toEqual([
+      ["laptop", true],
+      ["desk", false],
+    ]);
+  });
+
+  it("sets the primary from the connections the runtime lists when it is chosen, not from a list an earlier frame drew", async () => {
+    const app = await twoEnvironments();
+    await app.waitFor("● desk ready");
+    const runtime = app.runtime();
+    const laptop = runtime.projections.environments.read().find((v) => v.name === "laptop");
+    if (!laptop) throw new Error("no laptop");
+    expect(await applyAction(runtime, laptop, "primary")).toBe("laptop is the primary environment.");
+    expect(runtime.projections.environments.read().map((v) => [v.name, v.primary])).toEqual([
       ["laptop", true],
       ["desk", false],
     ]);

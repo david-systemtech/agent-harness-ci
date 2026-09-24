@@ -33,11 +33,12 @@ export const applyAction = async (
   runtime: Runtime,
   view: EnvironmentView,
   action: "enable" | "disable" | "primary",
-  views: readonly EnvironmentView[],
 ): Promise<string> => {
   try {
     if (action === "primary") {
-      await runtime.connections.setOrder([view.environmentId, ...views.filter((v) => v.environmentId !== view.environmentId).map((v) => v.environmentId)]);
+      // Every saved connection, disabled ones included, as the runtime lists them now: `setOrder` takes the whole sequence.
+      const others = runtime.projections.environments.read().filter((v) => v.environmentId !== view.environmentId);
+      await runtime.connections.setOrder([view.environmentId, ...others.map((v) => v.environmentId)]);
       return `${view.name} is the primary environment.`;
     }
     await runtime.connections.setEnabled(view.environmentId, action === "enable");
