@@ -145,7 +145,15 @@ const eventPayloads: Record<string, Fixtures> = {
     invalid: [{ deletedAt: at, purgeAt: later }, { deletedAt: at, purgeAt: "soon", deleteProviderTranscript: true }],
   },
   "session.restored": { valid: [{}], invalid: [[], 1] },
-  "session.purged": { valid: [{ providerTranscriptDeleted: true }], invalid: [{}, { providerTranscriptDeleted: "yes" }] },
+  "session.purged": {
+    valid: [
+      { providerTranscript: { outcome: "kept" } },
+      { providerTranscript: { outcome: "deleted" } },
+      { providerTranscript: { outcome: "unsupported" } },
+      { providerTranscript: { outcome: "failed", message: "The transcript file is locked." } },
+    ],
+    invalid: [{}, { providerTranscriptDeleted: true }, { providerTranscript: { outcome: "failed" } }, { providerTranscript: "deleted" }],
+  },
   "session.pull-request-linked": { valid: [pullRequest, mergedPullRequest], invalid: [{ ...pullRequest, url: "not a url" }, { url: pullRequest.url }] },
   "session.pull-request-unlinked": { valid: [{ url: pullRequest.url }], invalid: [{}, { url: "pulls/167" }] },
   "session.pull-request-synced": { valid: [mergedPullRequest], invalid: [{ ...pullRequest, state: "draft" }, { ...pullRequest, mergedAt: "never" }] },
@@ -188,6 +196,10 @@ export const sessionSchemaFixtures: Record<string, Fixtures> = {
   "sessions/pull-request-state.json": { valid: ["open", "closed", "merged"], invalid: ["draft", ""] },
   "sessions/pull-request.json": { valid: [pullRequest, mergedPullRequest], invalid: [{ ...pullRequest, state: "draft" }, { url: pullRequest.url }] },
   "sessions/session-summary.json": { valid: [freshSummary, fullSummary], invalid: invalidSummaries },
+  "sessions/provider-transcript-outcome.json": {
+    valid: [{ outcome: "kept" }, { outcome: "deleted" }, { outcome: "unsupported" }, { outcome: "failed", message: "m" }],
+    invalid: [{}, { outcome: "lost" }, { outcome: "failed" }, true],
+  },
   "sessions/deleted-session-summary.json": { valid: [deleted], invalid: [freshSummary, { ...deleted, purgeAt: "never" }] },
   "sessions/group.json": { valid: [group, { ...group, orderKey: "m" }], invalid: invalidGroups },
   "sessions/summary-patch.json": {

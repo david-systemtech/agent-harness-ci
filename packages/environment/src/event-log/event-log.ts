@@ -149,6 +149,16 @@ export interface EventLog {
   receipt(actor: string, commandId: string): StoredReceipt | null;
   /** Removes receipts older than the retention period at `now`; returns how many. The environment's minute sweep calls it. */
   pruneReceipts(now: Date): number;
+  /**
+   * Deletes every event of one stream and its snapshot, inside the
+   * `atomically` open now: the one removal from the log, which a purge makes
+   * (env spec, "Deletion") before it appends the stream's tombstone in the
+   * same transaction. The head is never lowered, so no sequence is given out
+   * twice; the stream's next event is its version 1 again. Neither a
+   * projector nor a caller without the open transaction may call it.
+   * Returns how many events it deleted.
+   */
+  purgeStream(stream: StreamRef, options: { readonly tx: Tx }): number;
   /** Writes a stream's snapshot, replacing any earlier one. */
   writeSnapshot(stream: StreamRef, snapshot: { readonly sequence: number; readonly payload: unknown }): void;
   readSnapshot(stream: StreamRef): Snapshot | null;
@@ -449,6 +459,12 @@ export const openEventLog = (options: EventLogOptions): EventLog => {
 
     receipt: (actor, commandId) => receipts.read(actor, commandId, clock()),
     pruneReceipts: (now) => receipts.prune(now),
+    purgeStream(stream, options) {
+      requireTx(options.tx);
+      const { changes } = sql.run("DELETE FROM events WHERE stream_kind = ? AND stream_id = ?", stream.kind, stream.id);
+      snapshots.remove(stream);
+      return changes;
+    },
     writeSnapshot: (stream, snapshot) => snapshots.write(stream, snapshot),
     readSnapshot: (stream) => snapshots.read(stream),
     clientSessions,

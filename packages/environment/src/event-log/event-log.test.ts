@@ -799,3 +799,67 @@ describe("snapshots", () => {
     });
   });
 });
+
+describe("purging a stream", () => {
+  const s2: StreamRef = { kind: "session", id: "s2" };
+  const sameIdOtherKind: StreamRef = { kind: "group", id: "s1" };
+
+  it("deletes one stream's events and its snapshot, and nothing of another stream", () => {
+    const log = memoryLog();
+    log.append(s1, [note("one"), note("two")], { actor: "system:test" });
+    const others = [
+      ...log.append(s2, [note("other")], { actor: "system:test" }).events,
+      ...log.append(sameIdOtherKind, [note("other kind")], { actor: "system:test" }).events,
+    ];
+    log.writeSnapshot(s1, { sequence: 2, payload: { turns: 2 } });
+    log.writeSnapshot(s2, { sequence: 3, payload: { turns: 1 } });
+
+    expect(log.atomically((tx) => log.purgeStream(s1, { tx }))).toBe(2);
+
+    expect(log.readStream(s1)).toEqual([]);
+    expect(log.readSnapshot(s1)).toBeNull();
+    expect([...log.readStream(s2), ...log.readStream(sameIdOtherKind)]).toEqual(others);
+    expect(log.readSnapshot(s2)).toMatchObject({ sequence: 3 });
+  });
+
+  it("never lowers the head, so no sequence is given out twice; the stream's next event is its version 1 again", () => {
+    const log = memoryLog();
+    log.append(s1, [note("one"), note("two")], { actor: "system:test" });
+    const tombstone = log.atomically((tx) => {
+      log.purgeStream(s1, { tx });
+      return log.append(s1, [{ type: "stream.purged", payload: {} }], { actor: "system:test", tx }).events[0];
+    });
+    expect(tombstone).toMatchObject({ sequence: 3, streamVersion: 1 });
+    expect(log.head()).toBe(3);
+    expect(log.readStream(s1)).toEqual([tombstone]);
+  });
+
+  it("commits with the atomically it is part of, and not at all when it rolls back", () => {
+    const log = memoryLog();
+    const events = log.append(s1, [note("one")], { actor: "system:test" }).events;
+    expect(() =>
+      log.atomically((tx) => {
+        log.purgeStream(s1, { tx });
+        throw new Error("changed my mind");
+      }),
+    ).toThrow("changed my mind");
+    expect(log.readStream(s1)).toEqual(events);
+  });
+
+  it("is refused outside the atomically open now, and to a projector", () => {
+    const log = memoryLog();
+    log.append(s1, [note("one")], { actor: "system:test" });
+    let stale: Parameters<Parameters<EventLog["atomically"]>[0]>[0] | undefined;
+    log.atomically((tx) => (stale = tx));
+    if (!stale) throw new Error("no transaction");
+    const old = stale;
+    expect(() => log.purgeStream(s1, { tx: old })).toThrow(/transaction/);
+    log.registerProjector({
+      name: "sneaky",
+      tables: {},
+      apply: (event) => void (event.type === "note.purge" && log.purgeStream(s1, { tx: old })),
+    });
+    expect(() => log.append(s2, [{ type: "note.purge", payload: {} }], { actor: "system:test" })).toThrow(/projector/);
+    expect(log.readStream(s1)).toHaveLength(1);
+  });
+});

@@ -54,11 +54,26 @@ export type SessionCommand =
   | "sessions.reorderActive"
   | "sessions.tag"
   | "sessions.untag"
-  | "sessions.setDraft";
+  | "sessions.setDraft"
+  | "sessions.restore";
 
 /** Sends a session command with a fresh command id (unless one is given); resolves with what its response carries, checked against its schema. */
 export const command = async <N extends SessionCommand>(client: WireClient, method: N, params: SessionCommandParams<N>): Promise<ResponseOf<N>> =>
   registry[method].response.parse(await client.request(method, { commandId: randomUUID(), ...params } as ParamsOf<N>)) as ResponseOf<N>;
+
+/** Sends `sessions.delete` with a fresh command id; resolves with what its response carries. */
+export const deleteSession = async (client: WireClient, sessionId: string, deleteProviderTranscript?: boolean) =>
+  registry["sessions.delete"].response.parse(
+    await client.request("sessions.delete", {
+      commandId: randomUUID(),
+      sessionId,
+      ...(deleteProviderTranscript !== undefined && { deleteProviderTranscript }),
+    }),
+  );
+
+/** Sends `sessions.purge` with a fresh command id; resolves with what its response carries. */
+export const purgeSession = async (client: WireClient, sessionId: string) =>
+  registry["sessions.purge"].response.parse(await client.request("sessions.purge", { commandId: randomUUID(), sessionId }));
 
 /** The summary `sessions.get` answers. */
 export const get = async (client: WireClient, sessionId: string): Promise<SessionSummary> =>

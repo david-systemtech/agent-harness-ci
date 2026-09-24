@@ -16,11 +16,15 @@ import { toWireEnvelope } from "./envelope.js";
  * catch-up already sent is dropped, by sequence.
  */
 
+/** Why a source ends its own subscription: what it follows is gone. */
+export type SourceEndReason = Extract<EndReason, "deleted">;
+
 /**
  * What a stream method's handler answers: which events the subscription
- * carries, and the read model sent as its snapshot when replay from the
- * cursor would pass the bound. The payload's shape is the method's `result`
- * schema, and is checked against it.
+ * carries, the read model sent as its snapshot when replay from the cursor
+ * would pass the bound, and, when the stream can end, the event that ends
+ * it. The payload's shape is the method's `result` schema, and is checked
+ * against it.
  */
 export interface StreamSource<Payload = unknown> {
   /**
@@ -33,6 +37,13 @@ export interface StreamSource<Payload = unknown> {
   readonly stream: StreamSelector;
   /** The state as of the log's head, read when the snapshot is sent. A throw refuses the subscription. */
   snapshot(): Payload;
+  /**
+   * The reason an event of the stream ends the subscription, or undefined
+   * for one that does not: the event is delivered, replayed or live, then
+   * `end` with the reason, and nothing after it (a session's subscription
+   * ends `deleted` on `session.deleted`). Absent: no event ends it.
+   */
+  endOn?(event: EventEnvelope): SourceEndReason | undefined;
 }
 
 /**
@@ -115,6 +126,8 @@ interface Subscription {
   readonly stream: StreamSelector;
   /** The stream's test of a live event, from the same description the catch-up reads with. */
   readonly selection: Selection;
+  /** The source's test of an event that ends the subscription, if it has one. */
+  readonly endOn: ((event: EventEnvelope) => SourceEndReason | undefined) | undefined;
   phase: "catching-up" | "live" | "ended";
   /** Whether `subscribed` has been sent: only then does the client know the id, and hear an `end`. */
   announced: boolean;
@@ -193,10 +206,11 @@ const end = (subscription: Subscription, reason: EndReason): void => {
 /**
  * Sends one live event, once and in order. A client whose unflushed live
  * events would pass the replay bound has fallen too far behind: it is ended
- * with `overflow`, and resubscribes from its cursor.
+ * with `overflow`, and resubscribes from its cursor. An event the source
+ * ends on is sent, then the subscription ends with the source's reason.
  */
 const deliver = (subscription: Subscription, event: EventEnvelope): void => {
-  if (event.sequence <= subscription.sent) return;
+  if (subscription.phase === "ended" || event.sequence <= subscription.sent) return;
   const bytes = sizeOf(event);
   const pending = plus(subscription.pending, bytes);
   if (passesBound(pending)) return end(subscription, "overflow");
@@ -206,6 +220,8 @@ const deliver = (subscription: Subscription, event: EventEnvelope): void => {
     subscription.pending.count -= 1;
     subscription.pending.bytes -= bytes;
   });
+  const reason = subscription.endOn?.(event);
+  if (reason !== undefined) end(subscription, reason);
 };
 
 /** The live feed: delivered once live, kept (against the same bound) while catching up. */
@@ -223,19 +239,24 @@ const hear = (subscription: Subscription, event: EventEnvelope): void => {
  * `synchronized` last, then goes live with what the feed heard meanwhile.
  * Synchronous from the head read to the last frame, so no append falls
  * between them: everything appended since the feed was attached was heard,
- * and what the read already sent is dropped from it by sequence.
+ * and what the read already sent is dropped from it by sequence. A replay
+ * that reaches an event the source ends on stops there and ends the
+ * subscription instead of synchronizing it.
  */
 const catchUp = (subscription: Subscription, opening: Opening): void => {
   const { log } = subscription.channel.shared;
   const head = log.head();
   const frames: string[] = [];
   let synchronizedAt = head;
+  let ended: SourceEndReason | undefined;
   // A cursor past the head is not this log's (its data directory was replaced): the snapshot resets the client.
   const replayable = opening.afterSequence <= head && log.replayBound(subscription.stream, opening.afterSequence).withinBound;
   if (replayable) {
     for (const event of log.readStream(subscription.stream, opening.afterSequence)) {
       frames.push(eventFrame(subscription, event));
       synchronizedAt = Math.max(synchronizedAt, event.sequence);
+      ended = subscription.endOn?.(event);
+      if (ended !== undefined) break;
     }
   } else {
     // A read model that fails, or does not match its schema, throws here: before `subscribed`, for dispatch to answer.
@@ -246,6 +267,7 @@ const catchUp = (subscription: Subscription, opening: Opening): void => {
   const { channel } = subscription;
   announce(subscription);
   for (const text of frames) channel.outlet.send(text, () => undefined);
+  if (ended !== undefined) return end(subscription, ended);
   subscription.sent = synchronizedAt;
   sendFrame(channel, { type: "synchronized", subscription: subscription.id, sequence: synchronizedAt });
   subscription.phase = "live";
@@ -266,6 +288,7 @@ const openSubscription = async (channel: Channel, opening: Opening): Promise<voi
     requestId: opening.requestId,
     stream: opening.source.stream,
     selection: selection(opening.source.stream),
+    endOn: opening.source.endOn?.bind(opening.source),
     phase: "catching-up",
     announced: false,
     sent: opening.afterSequence,

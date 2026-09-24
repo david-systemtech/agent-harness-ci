@@ -53,7 +53,12 @@ const start = async (options: TestEnvironmentOptions = {}): Promise<TestEnvironm
   onCleanup(() => t.close());
   t.serve(probeSubscribe, ({ probe }) => {
     if (probe === "missing") throw new ContractError({ code: "probe_missing", message: "No such probe.", data: {} });
-    return { stream: probeStream(probe), snapshot: () => ({ count: appended.get(probe) ?? 0 }) };
+    return {
+      stream: probeStream(probe),
+      snapshot: () => ({ count: appended.get(probe) ?? 0 }),
+      // A probe.ended event ends the subscription, as a session's deletion ends its own.
+      endOn: (event) => (event.type === "probe.ended" ? "deleted" : undefined),
+    };
   });
   return t;
 };
@@ -65,6 +70,10 @@ const append = (t: TestEnvironment, probe: string, count: number, payload: (i: n
   appended.set(probe, (appended.get(probe) ?? 0) + count);
   return written.map((event) => event.sequence);
 };
+
+/** Appends one event of each type to a probe stream, in order; returns their sequences. */
+const appendTypes = (t: TestEnvironment, probe: string, types: readonly string[]): number[] =>
+  t.env.log.append(probeStream(probe), types.map((type) => ({ type, payload: {} })), { actor: "system:test" }).events.map((event) => event.sequence);
 
 /** A client session issued straight from the environment, holding only `scopes`. */
 const narrowToken = (t: TestEnvironment, scopes: readonly Scope[]): string =>
@@ -489,6 +498,50 @@ describe("ending a subscription", () => {
     hold.release();
     await until(() => t.env.subscriptions() === 0);
     expect(client.received.filter((f) => f.type === "subscribed")).toEqual([]);
+  });
+});
+
+describe("a subscription its source ends", () => {
+  it("delivers the event its source ends on, then ends with the reason the source names, and sends nothing for it after", async () => {
+    const t = await start();
+    const client = await t.client();
+    const { subscription } = await client.subscribe("probe.subscribe", { probe: "a", afterSequence: t.env.log.head() });
+    await frame(client, subscription, "synchronized");
+
+    const [poked, ended] = appendTypes(t, "a", ["probe.poked", "probe.ended", "probe.poked"]);
+    expect(await frame(client, subscription, "end")).toEqual({ type: "end", subscription, reason: "deleted" });
+    appendTypes(t, "a", ["probe.poked"]);
+    await roundTrip(client);
+    expect(shape(client, subscription)).toEqual(["subscribed", "synchronized", poked, ended, "end"]);
+    await until(() => t.env.subscriptions() === 0);
+  });
+
+  it("ends a replay at the event its source ends on, with no synchronized", async () => {
+    const t = await start();
+    const client = await t.client();
+    const [poked, ended] = appendTypes(t, "a", ["probe.poked", "probe.ended", "probe.poked"]);
+    const { subscription } = await client.subscribe("probe.subscribe", { probe: "a", afterSequence: 0 });
+    expect(await frame(client, subscription, "end")).toEqual({ type: "end", subscription, reason: "deleted" });
+    appendTypes(t, "a", ["probe.poked"]);
+    await roundTrip(client);
+    expect(shape(client, subscription)).toEqual(["subscribed", poked, ended, "end"]);
+    expect(t.env.subscriptions()).toBe(0);
+  });
+
+  it("ends at the event its source ends on when it was appended while the catch-up was held, and delivers nothing the feed heard after it", async () => {
+    const hold = holdCatchUp();
+    const t = await start({ subscriptionHooks: hold.hooks });
+    const client = await t.client();
+    const subscribing = client.subscribe("probe.subscribe", { probe: "a", afterSequence: t.env.log.head() });
+    await hold.reached;
+    // The live feed hears these, and the catch-up reads them too.
+    const [poked, ended] = appendTypes(t, "a", ["probe.poked", "probe.ended", "probe.poked"]);
+    hold.release();
+    const { subscription } = await subscribing;
+    await frame(client, subscription, "end");
+    await roundTrip(client);
+    expect(shape(client, subscription)).toEqual(["subscribed", poked, ended, "end"]);
+    expect(t.env.subscriptions()).toBe(0);
   });
 });
 

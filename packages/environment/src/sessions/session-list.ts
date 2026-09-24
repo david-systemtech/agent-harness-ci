@@ -5,6 +5,7 @@ import {
   type SessionActiveReorderedPayload,
   type SessionArchivedPayload,
   type SessionCreatedPayload,
+  type SessionDeletedPayload,
   type SessionDraftSetPayload,
   type SessionPinReorderedPayload,
   type SessionPinnedPayload,
@@ -129,6 +130,24 @@ const SESSION_PROJECTIONS: Partial<Record<string, Projection>> = {
   },
   // The draft is not an organisation change, so it leaves updatedAt where it was.
   "session.draft-set": (event, db) => setColumns(event, db, { draft: (event.payload as SessionDraftSetPayload).draft }),
+  // Delete and restore leave updatedAt where it was too, so a restored session comes back unchanged.
+  // Its summary leaves the list (`remove`) and comes back whole (`add`), since the list reads only sessions not deleted.
+  "session.deleted": (event, db) => {
+    const payload = event.payload as SessionDeletedPayload;
+    setColumns(event, db, {
+      deleted_at: payload.deletedAt,
+      purge_at: payload.purgeAt,
+      delete_provider_transcript: payload.deleteProviderTranscript ? 1 : 0,
+    });
+  },
+  "session.restored": (event, db) => setColumns(event, db, { deleted_at: null, purge_at: null, delete_provider_transcript: 0 }),
+  // The tombstone: the session's rows and tags go. Its patch is a removal, whatever the list held, so a client
+  // replaying from before the deletion drops the id; one that saw the deletion removes it again, which changes nothing.
+  // Replayed on a rebuild, with the session's other events gone, it finds nothing to delete.
+  "session.purged": (event, db) => {
+    db.run("DELETE FROM session_tags WHERE session_id = ?", event.streamId);
+    db.run("DELETE FROM sessions WHERE id = ?", event.streamId);
+  },
 };
 
 /**
