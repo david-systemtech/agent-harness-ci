@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ActionContext",
+  "type": "string",
+  "enum": [
+    "anywhere",
+    "composer",
+    "transcript",
+    "sidebar",
+    "delegated",
+    "picker",
+    "permission",
+    "pager",
+    "terminal",
+    "asks",
+    "confirm"
+  ],
+  "description": "Where a key means what it means: anywhere (keys no component may take), composer, transcript, sidebar (the rail), delegated (the delegated-work strip), picker (a list to choose from), permission (a permission or question card), pager, terminal (the terminal pane), asks (the parked-asks card), confirm (a one-line yes or no offer). A key is claimed at most once per context."
+}

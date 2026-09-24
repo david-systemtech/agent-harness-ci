@@ -708,6 +708,27 @@ export const schemaFixtures: Record<string, Fixtures> = {
     valid: FRAME_TYPES.flatMap((kind) => validFrames[kind]),
     invalid: [...FRAME_TYPES.flatMap(malformedJson), { type: "nonsense" }, {}],
   },
+  "actions/action-context.json": {
+    valid: ["anywhere", "sidebar", "terminal", "asks", "confirm"],
+    invalid: ["rail", "Anywhere", "", 1],
+  },
+  "actions/action.json": {
+    valid: [
+      { id: "rail.pin", context: "sidebar", keys: ["p"], description: "Pin it to the top of its folder", status: "wired" },
+      { id: "permission.rule.edit", context: "permission", keys: ["e"], description: "Edit the rule", status: "absent", reason: "Rules are per session." },
+      { id: "command.profile", context: "composer", keys: [], description: "Switch the account", usage: "/profile", aliasOf: "command.account", status: "wired" },
+    ],
+    invalid: [
+      { id: "rail.pin", context: "sidebar", keys: ["p"], description: "Pin it", status: "absent" },
+      { id: "sidebar.pin", context: "sidebar", keys: ["p"], description: "Pin it", status: "wired" },
+      { id: "rail", context: "sidebar", keys: ["p"], description: "Pin it", status: "wired" },
+      { id: "rail.pin", context: "rail", keys: ["p"], description: "Pin it", status: "wired" },
+      { id: "rail.pin", context: "sidebar", keys: [""], description: "Pin it", status: "wired" },
+      { id: "rail.pin", context: "sidebar", keys: ["p"], description: "", status: "wired" },
+      { id: "command.help", context: "composer", keys: [], description: "Help", usage: "help", status: "wired" },
+      { id: "rail.pin", context: "sidebar", keys: ["p"], description: "Pin it", status: "planned" },
+    ],
+  },
   ...sessionSchemaFixtures,
   ...runSchemaFixtures,
   ...providerSchemaFixtures,

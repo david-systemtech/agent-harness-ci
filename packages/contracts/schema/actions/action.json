@@ -1,0 +1,137 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Action",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^(app|composer|command|transcript|row|rail|delegated|picker|permission|pager|terminal|asks|confirm)(\\.[a-z][A-Za-z]*)+$",
+          "description": "`<context>.<verb>`, where the prefix app is the context anywhere, row is transcript and rail is sidebar; `command.<name>` for a slash command."
+        },
+        "context": {
+          "type": "string",
+          "enum": [
+            "anywhere",
+            "composer",
+            "transcript",
+            "sidebar",
+            "delegated",
+            "picker",
+            "permission",
+            "pager",
+            "terminal",
+            "asks",
+            "confirm"
+          ],
+          "description": "Where a key means what it means: anywhere (keys no component may take), composer, transcript, sidebar (the rail), delegated (the delegated-work strip), picker (a list to choose from), permission (a permission or question card), pager, terminal (the terminal pane), asks (the parked-asks card), confirm (a one-line yes or no offer). A key is claimed at most once per context."
+        },
+        "keys": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "The default keys, each an alternative, written as the tui spec's table writes them (`Ctrl+C`, `Esc Esc`, `↑`); empty for a slash command, which is typed rather than pressed."
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "description": "What the action does, in one line; Artemis's words for the rows it carries."
+        },
+        "usage": {
+          "description": "A slash command's usage line, as the help overlay and the command menu print it; absent for a key.",
+          "type": "string",
+          "pattern": "^\\/[a-z]+( .*)?$"
+        },
+        "aliasOf": {
+          "description": "For a slash command kept as a hidden alias: the command it now names. The help overlay leaves it out.",
+          "type": "string",
+          "pattern": "^(app|composer|command|transcript|row|rail|delegated|picker|permission|pager|terminal|asks|confirm)(\\.[a-z][A-Za-z]*)+$"
+        },
+        "status": {
+          "type": "string",
+          "const": "wired"
+        }
+      },
+      "required": [
+        "id",
+        "context",
+        "keys",
+        "description",
+        "status"
+      ],
+      "description": "An action the harness answers."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^(app|composer|command|transcript|row|rail|delegated|picker|permission|pager|terminal|asks|confirm)(\\.[a-z][A-Za-z]*)+$",
+          "description": "`<context>.<verb>`, where the prefix app is the context anywhere, row is transcript and rail is sidebar; `command.<name>` for a slash command."
+        },
+        "context": {
+          "type": "string",
+          "enum": [
+            "anywhere",
+            "composer",
+            "transcript",
+            "sidebar",
+            "delegated",
+            "picker",
+            "permission",
+            "pager",
+            "terminal",
+            "asks",
+            "confirm"
+          ],
+          "description": "Where a key means what it means: anywhere (keys no component may take), composer, transcript, sidebar (the rail), delegated (the delegated-work strip), picker (a list to choose from), permission (a permission or question card), pager, terminal (the terminal pane), asks (the parked-asks card), confirm (a one-line yes or no offer). A key is claimed at most once per context."
+        },
+        "keys": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "The default keys, each an alternative, written as the tui spec's table writes them (`Ctrl+C`, `Esc Esc`, `↑`); empty for a slash command, which is typed rather than pressed."
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "description": "What the action does, in one line; Artemis's words for the rows it carries."
+        },
+        "usage": {
+          "description": "A slash command's usage line, as the help overlay and the command menu print it; absent for a key.",
+          "type": "string",
+          "pattern": "^\\/[a-z]+( .*)?$"
+        },
+        "aliasOf": {
+          "description": "For a slash command kept as a hidden alias: the command it now names. The help overlay leaves it out.",
+          "type": "string",
+          "pattern": "^(app|composer|command|transcript|row|rail|delegated|picker|permission|pager|terminal|asks|confirm)(\\.[a-z][A-Za-z]*)+$"
+        },
+        "status": {
+          "type": "string",
+          "const": "absent"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Why the harness answers it absent: the help overlay draws the row dim with this."
+        }
+      },
+      "required": [
+        "id",
+        "context",
+        "keys",
+        "description",
+        "status",
+        "reason"
+      ],
+      "description": "An action the harness keeps the keys of but does not answer: drawn dim with its reason, as Artemis drew its planned rows."
+    }
+  ],
+  "description": "One named action of the shared list: its id, context, default keys and description, and wired or absent with a reason."
+}

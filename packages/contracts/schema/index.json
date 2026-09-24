@@ -751,6 +751,14 @@
       "title": "SessionDiffFile"
     },
     {
+      "path": "actions/action-context.json",
+      "title": "ActionContext"
+    },
+    {
+      "path": "actions/action.json",
+      "title": "Action"
+    },
+    {
       "path": "actor.json",
       "title": "Actor"
     },
