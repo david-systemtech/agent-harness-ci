@@ -4,7 +4,8 @@
   "type": "string",
   "enum": [
     "sessions.autoSettleAfterIdle",
-    "sessions.autoSettleOnMerge"
+    "sessions.autoSettleOnMerge",
+    "providers.processIdleMinutes"
   ],
-  "description": "A settings key: sessions.autoSettleAfterIdle, sessions.autoSettleOnMerge."
+  "description": "A settings key: sessions.autoSettleAfterIdle, sessions.autoSettleOnMerge, providers.processIdleMinutes."
 }

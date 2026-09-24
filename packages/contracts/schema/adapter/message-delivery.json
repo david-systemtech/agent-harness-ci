@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MessageDelivery",
+  "type": "string",
+  "enum": [
+    "prompt",
+    "steered",
+    "queued"
+  ],
+  "description": "Where a message went: prompt (a run starts with it, or a queued turn opened with it), steered (the provider folded it into the running turn), or queued (held until a turn reads it)."
+}

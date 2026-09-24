@@ -757,7 +757,14 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
       subscribe(environmentId, method, params, listener) {
         const socket = entries.get(environmentId)?.runner.socket();
         if (!socket) return Promise.reject(new NotConnectedError(environmentId));
-        return socket.subscribe(method, params, listener);
+        // A subscriber that throws is reported, never thrown into the socket's message handler, as the other seams' listeners are.
+        return socket.subscribe(method, params, (message) => {
+          try {
+            listener(message);
+          } catch (error) {
+            report(error);
+          }
+        });
       },
       unsubscribe(environmentId, subscription) {
         entries.get(environmentId)?.runner.socket()?.unsubscribe(subscription);

@@ -99,6 +99,27 @@ describe("the method registry", () => {
     });
   });
 
+  it("gives the run methods the claude-adapter spec's scope, runs:drive, each a command", () => {
+    const runMethods = methods.filter((m) => m.name.startsWith("runs."));
+    expect(Object.fromEntries(runMethods.map((m) => [m.name, [m.kind, m.scope]]))).toEqual({
+      "runs.start": ["command", "runs:drive"],
+      "runs.send": ["command", "runs:drive"],
+      "runs.interrupt": ["command", "runs:drive"],
+      "runs.stopTask": ["command", "runs:drive"],
+    });
+    // Conflict X1: the prompt's answer is the permissions workstream's `permissions.prompts.answer` (#130), never `runs.answerPrompt`.
+    expect(isMethodName("runs.answerPrompt")).toBe(false);
+  });
+
+  it("gives the providers methods the claude-adapter spec's scopes: the list at read, the processes at admin", () => {
+    const providerMethods = methods.filter((m) => m.name.startsWith("providers."));
+    expect(Object.fromEntries(providerMethods.map((m) => [m.name, [m.kind, m.scope]]))).toEqual({
+      "providers.list": ["query", "read"],
+      "providers.processes.list": ["query", "admin"],
+      "providers.processes.stop": ["command", "admin"],
+    });
+  });
+
   it("owes a handler only for a registered method, each to a named ticket", () => {
     for (const [name, ticket] of Object.entries(OWED_HANDLERS)) {
       expect(isMethodName(name), name).toBe(true);
@@ -132,6 +153,11 @@ describe("the method registry", () => {
       "access.sessions.revoke",
       "access.sessions.refresh",
       ...methods.filter((m) => m.kind === "command" && /^(sessions|groups)\./.test(m.name)).map((m) => m.name),
+      "runs.start",
+      "runs.send",
+      "runs.interrupt",
+      "runs.stopTask",
+      "providers.processes.stop",
       "settings.update",
     ]);
   });
@@ -245,6 +271,13 @@ describe("the method registry", () => {
       | "groups.list"
       | "sessions.subscribe"
       | "sessions.subscribeSession"
+      | "runs.start"
+      | "runs.send"
+      | "runs.interrupt"
+      | "runs.stopTask"
+      | "providers.list"
+      | "providers.processes.list"
+      | "providers.processes.stop"
       | "settings.get"
       | "settings.update"
     >();

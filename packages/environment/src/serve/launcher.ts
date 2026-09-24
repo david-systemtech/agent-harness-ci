@@ -16,7 +16,9 @@ import type { DrainStarted, EnvironmentStatus } from "@agent-harness/contracts";
  *
  * Any other message is ignored. The channel is let go by `close`, which the
  * environment calls last when it closes (or when a start fails), so an open
- * channel never keeps a finished process alive.
+ * channel never keeps a finished process alive. After a drain, the channel
+ * closing is the report that the environment is done: every provider
+ * process has stopped, or was killed once the stop timeout passed.
  */
 export type LauncherQuery = { readonly type: "idle?" } | { readonly type: "drain?" };
 

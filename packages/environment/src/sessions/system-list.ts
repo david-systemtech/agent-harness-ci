@@ -1,4 +1,4 @@
-import type { PullRequest, SessionActivity } from "@agent-harness/contracts";
+import type { PullRequest, RunStartedPayload, SessionActivity } from "@agent-harness/contracts";
 import type { ProjectionDb } from "../event-log/event-log.js";
 import type { ColumnWriter, Projection } from "./shelf-list.js";
 import type { SessionRow } from "./session-tables.js";
@@ -9,19 +9,26 @@ import type { SessionRow } from "./session-tables.js";
  * read. The session list owns the fields and these projections; the
  * workstreams own the events and their payloads.
  *
- * - Runs and prompts, provisional until #119, #130 and #122 (payloads theirs): read
- *   from the event's type and time alone, never its payload, so they hold
- *   whatever payload those tickets fix. A run started is `running`; a
- *   prompt opened parks it; a prompt answered, or a run's start or end, is
- *   activity (`lastActivityAt`). The account and model a run used are
- *   #119's to add from its payload, and the companions a run start owes the
- *   shelf (unsettle, unarchive, wake) are #122's.
+ * - Runs (the adapter's vocabulary, #119): a run started is `running`,
+ *   and sets the account and model it runs on from its payload; a run
+ *   ended is `idle`; both are activity (`lastActivityAt`). The companions a
+ *   run start owes the shelf (unsettle, unarchive, wake) are #122's.
+ * - Prompts, provisional until #130 (payloads theirs): read from the
+ *   event's type and time alone, never its payload. A prompt opened parks
+ *   the run and counts; a prompt answered is activity and, the last one
+ *   answered, runs a parked run again. A run's end zeroes the count, which
+ *   #130's `prompt.answered` (auto `run_ended`) replaces.
+ *
+ * One module writes the fields the system owns: `activity` from the run and
+ * prompt events together, `parkedPromptCount` from the prompt events (and
+ * the run's end, until #130), `accountId` and `model` from `run.started`
+ * alone, `lastActivityAt` from a run's start and end and a prompt's answer.
  * - Pull requests (the forge's to append; payload fixed here): each kept by
  *   its url, linked, synced (added when not yet linked) or unlinked.
  *
  * None of them is an organisation change, so none moves `updatedAt`.
  *
- * Provisional until #119/#130/#122: replacing these projections needs no
+ * Provisional until #130/#122: replacing the prompt projections needs no
  * migration, since the columns they write are summary fields the tables
  * already have and a rebuild replays the log through whatever projections
  * the environment then has.
@@ -44,7 +51,15 @@ const upsert = (list: PullRequest[], pullRequest: PullRequest): PullRequest[] =>
 
 /** The projections of the run, prompt and pull-request events, writing through the projector's `setColumns`. */
 export const systemProjections = (setColumns: ColumnWriter): Readonly<Record<string, Projection>> => ({
-  "run.started": (event, db) => setColumns(event, db, { activity: activity("running", event.occurredAt), last_activity_at: event.occurredAt }),
+  "run.started": (event, db) => {
+    const payload = event.payload as RunStartedPayload;
+    setColumns(event, db, {
+      activity: activity("running", event.occurredAt),
+      last_activity_at: event.occurredAt,
+      account_id: payload.accountId,
+      model: payload.model,
+    });
+  },
   // A run that ended waits on nothing. Zeroing the count may drop a question still open after the run; #130 owns the real rule.
   "run.ended": (event, db) =>
     setColumns(event, db, { activity: activity("idle", event.occurredAt), parked_prompt_count: 0, last_activity_at: event.occurredAt }),

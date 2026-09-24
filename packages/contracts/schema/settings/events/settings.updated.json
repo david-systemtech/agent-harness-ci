@@ -41,6 +41,12 @@
         "sessions.autoSettleOnMerge": {
           "type": "boolean",
           "description": "Whether auto-settle settles a session one of whose pull requests merged at or after its anchor, the latest of its last activity, its unsettling and the end of its last snooze (settledBy auto-merge)."
+        },
+        "providers.processIdleMinutes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1440,
+          "description": "How many minutes a provider process may be idle with no held work, or parked on a prompt, before it stops: 1 to 1440; preset 30."
         }
       },
       "additionalProperties": false,

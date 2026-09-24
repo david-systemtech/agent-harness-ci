@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SessionRewoundPayload",
+  "type": "object",
+  "properties": {
+    "toMessageId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "The user message the session was rewound to; it and every item after it are hidden."
+    }
+  },
+  "required": [
+    "toMessageId"
+  ],
+  "description": "session.rewound: the session was rewound; later items stay in the log and the snapshot hides them."
+}

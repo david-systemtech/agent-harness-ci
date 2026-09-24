@@ -276,6 +276,10 @@ _Avoid_: driver (T3's word), integration, connector
 A long-lived process an adapter needs (Claude's per-conversation process, Codex's daemon), started, reused and stopped by the environment; never owned by a run or a client.
 _Avoid_: subprocess, worker, session process
 
+**Hold**:
+Work that keeps an idle provider process from stopping after the idle time: a live background task or a schedule registered in its session, reported by the adapter and let go when the work ends.
+_Avoid_: lease, lock, keep-alive
+
 **Instruction channel**:
 The way an adapter delivers standing instructions and always-on skills to its provider: a system-prompt append for Claude, developerInstructions for Codex, the prompt for a local model.
 _Avoid_: system prompt append (Claude's mechanism only), prompt injection

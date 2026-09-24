@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "runs.interrupt result",
+  "type": "object",
+  "properties": {
+    "runId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "A run's id: a version 4 UUID the environment mints when the run starts or is adopted."
+    },
+    "ended": {
+      "type": "boolean",
+      "description": "True when the run had ended already, so nothing was interrupted."
+    },
+    "unrecorded": {
+      "description": "Present when the run ended here but its run.ended could not be appended; the recovery sweep at the next start records it.",
+      "type": "boolean",
+      "const": true
+    }
+  },
+  "required": [
+    "runId",
+    "ended"
+  ]
+}

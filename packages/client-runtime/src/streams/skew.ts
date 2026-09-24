@@ -20,12 +20,12 @@ export interface Skew {
   now(environmentId: string): Date;
 }
 
-export const createSkew = (clock: Clock, retention: Pick<Retention, "skew" | "setSkew">): Skew => {
+export const createSkew = (clock: Clock, retention: Pick<Retention, "skew" | "setSkew">, report: (error: unknown) => void): Skew => {
   const offset = (environmentId: string) => retention.skew(environmentId) ?? 0;
   return {
     record(environmentId, serverTime) {
       const skewMs = Date.parse(serverTime) - clock.now().getTime();
-      if (Number.isFinite(skewMs)) void retention.setSkew(environmentId, skewMs);
+      if (Number.isFinite(skewMs)) void retention.setSkew(environmentId, skewMs).catch(report);
     },
     offset,
     now: (environmentId) => new Date(clock.now().getTime() + offset(environmentId)),

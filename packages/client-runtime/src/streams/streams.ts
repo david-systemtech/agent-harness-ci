@@ -92,7 +92,7 @@ export const createStreams = (options: StreamsOptions): Streams => {
       if (session) return retention.wrote(session[1] as string, session[2] as string, bytes);
     },
   });
-  const skew = createSkew(clock, retention);
+  const skew = createSkew(clock, retention, report);
 
   const attacher = createAttacher({
     clock,
@@ -184,22 +184,26 @@ export const createStreams = (options: StreamsOptions): Streams => {
   const attachSession = (streams: EnvironmentStreams, session: HeldSession) =>
     void session.loaded.then(() => {
       const stream = session.stream as LiveStream<unknown>;
-      if (streams.ready && environments.get(stream.environmentId) === streams && wanted(stream) && stream.attachment === null && stream.retry === null) {
-        attacher.attach(stream);
-      }
+      // A runtime closed while the cache was read attaches nothing.
+      const current = !closed && streams.ready && environments.get(stream.environmentId) === streams;
+      if (current && wanted(stream) && stream.attachment === null && stream.retry === null) attacher.attach(stream);
     });
 
   const onReady = (environmentId: string, hello: HelloFrame) => {
     const streams = ensure(environmentId);
-    // Read first: an environment forgotten and paired again keeps the skew it measures now.
+    // The meta's read starts first, which also marks an environment forgotten and paired again as known, so the skew measured now
+    // is kept. `skew.record` need not wait for the read: retention holds the skew in memory at once and writes it only once the
+    // meta has been read (`change` in cache.ts), so it is neither lost nor written over an unread index.
     const loaded = load(environmentId);
     skew.record(environmentId, hello.serverTime);
     streams.ready = true;
     // Syncing from now, so the connection is never seen ready before its list has caught up.
     seams.setSyncing(environmentId, true);
     void loaded.then(() => {
-      if (!streams.ready || environments.get(environmentId) !== streams) return;
+      if (closed || !streams.ready || environments.get(environmentId) !== streams) return;
       for (const stream of [streams.list, streams.environment] as LiveStream<unknown>[]) {
+        // A new socket: whatever the stream was subscribed on is gone, so it is let go without an `unsubscribe` sent on this one.
+        if (stream.attachment !== null || stream.retry !== null) attacher.drop(stream);
         stream.recovering = false;
         stream.trimming = false;
         attacher.attach(stream);
@@ -245,6 +249,8 @@ export const createStreams = (options: StreamsOptions): Streams => {
       }
       for (const stream of all) attacher.drop(stream);
       await Promise.all(all.map((stream) => cache.remove(stream.key)));
+      // A write of a stream no longer held (a session let go, evicted or ended) may still be under way: it lands before the forget, not after.
+      await cache.settle(environmentId);
       lists.update((current) => {
         const next = new Map(current);
         next.delete(environmentId);
@@ -305,6 +311,8 @@ export const createStreams = (options: StreamsOptions): Streams => {
     async close() {
       closed = true;
       handles.close();
+      // Nothing is ready any more: an attach scheduled before the close (a cache read in flight) finds nothing to attach to.
+      for (const streams of environments.values()) streams.ready = false;
       stopReady();
       stopRecords();
       stopForget();

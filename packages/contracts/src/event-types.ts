@@ -1,7 +1,8 @@
-import type { z } from "zod";
+import { z } from "zod";
 import { ACCESS_EVENT_PAYLOADS, ACCESS_EVENT_TYPES, ACCESS_STREAM_KIND } from "./access-log.js";
 import { ENVIRONMENT_NOTICE_TYPES, ENVIRONMENT_STREAM_KIND, EnvironmentNotice } from "./notices.js";
 import { GROUP_EVENT_TYPES, GROUP_STREAM_KIND, SESSION_EVENT_TYPES, SESSION_STREAM_KIND } from "./sessions.js";
+import { TRANSCRIPT_EVENT_TYPES } from "./transcript.js";
 import { SETTINGS_EVENT_TYPES, SETTINGS_STREAM_KIND } from "./settings.js";
 
 /**
@@ -45,14 +46,29 @@ const environmentEventTypes = unlisted(ENVIRONMENT_NOTICE_TYPES, (type) => {
 /** The access log: who was let in and how, never in the session list. */
 const accessEventTypes = unlisted(ACCESS_EVENT_TYPES, (type) => ACCESS_EVENT_PAYLOADS[type]);
 
+/**
+ * A session's stream: its organisation and prompt types (session-state), and
+ * the transcript its runs leave (the adapter's vocabulary), on the one stream
+ * so a purge takes both.
+ */
+const sessionEventTypes = { ...SESSION_EVENT_TYPES, ...TRANSCRIPT_EVENT_TYPES } as const;
+
 /** Every event type, by the kind of stream it goes on. */
 export const EVENT_TYPES = {
   [ENVIRONMENT_STREAM_KIND]: environmentEventTypes,
   [ACCESS_STREAM_KIND]: accessEventTypes,
-  [SESSION_STREAM_KIND]: SESSION_EVENT_TYPES,
+  [SESSION_STREAM_KIND]: sessionEventTypes,
   [GROUP_STREAM_KIND]: GROUP_EVENT_TYPES,
   [SETTINGS_STREAM_KIND]: SETTINGS_EVENT_TYPES,
 } as const satisfies Readonly<Record<string, EventTypeTable>>;
+
+export type SessionEventType = keyof typeof sessionEventTypes;
+
+/** The event types of the `session` stream. */
+export const SessionEventType = z.enum(Object.keys(sessionEventTypes) as [SessionEventType, ...SessionEventType[]]).meta({
+  description:
+    "The event types of a session stream: the session.* organisation events, the forge workstream's pull-request events, the reserved prompt.opened and prompt.answered, and the transcript vocabulary a run leaves (run.started to run.ended).",
+});
 
 /** The stream kinds the table knows. */
 export type StreamKind = keyof typeof EVENT_TYPES;
