@@ -21,7 +21,7 @@ any of those folders left empty.
 1. `agent-harness service install`. Expect `Installed ~/Library/LaunchAgents/agent-harness.plist`; `plutil -lint` on it says OK.
 2. `agent-harness service start`, then `agent-harness service status`: `Installed: yes`, `Running: yes`, `Ready: yes`, exit 0.
 3. Log out and back in. `service status` shows ready again without a start; `~/Library/Application Support/agent-harness/logs/service.log` holds the discovery address.
-4. Kill the `node` process: launchd restarts it within about ten seconds.
+4. Kill the `node` process: launchd restarts it within about ten seconds. Use `kill -9`: launchd leaves a clean exit alone (`SuccessfulExit` false), so a TERM-kill or a drain stops the agent until the next login.
 5. `agent-harness service uninstall`. `launchctl print gui/$(id -u)/agent-harness` finds nothing, the plist and `service.json` are gone, nothing answers on port 7433, and the data directory still holds the environment's files.
 
 ## Linux (`systemd --user`)
@@ -29,7 +29,7 @@ any of those folders left empty.
 1. `agent-harness service install`. Expect `Installed ~/.config/systemd/user/agent-harness.service`; `systemd-analyze --user verify` on it prints nothing.
 2. `agent-harness service start`, then `agent-harness service status`: ready, exit 0. If lingering is off, the status says so.
 3. Log out of every session and back in (or reboot). `service status` shows ready without a start; `~/.local/state/agent-harness/logs/service.log` holds the discovery address.
-4. `kill` the `node` process: systemd restarts it after five seconds (`systemctl --user status agent-harness`).
+4. `kill -9` the `node` process: systemd restarts it after five seconds (`systemctl --user status agent-harness`). A plain `kill` sends SIGTERM, which `Restart=on-failure` counts as a clean stop and does not restart; the same holds for the drain #112 adds, which exits 0.
 5. `agent-harness service uninstall`. `systemctl --user status agent-harness` says the unit could not be found, the unit file and `service.json` are gone, nothing answers on port 7433, and the data directory still holds the environment's files.
 
 ## Windows (Task Scheduler)

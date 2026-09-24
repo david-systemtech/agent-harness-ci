@@ -1,4 +1,4 @@
-import { existsSync, rmSync } from "node:fs";
+import { existsSync, rmSync, readdirSync } from "node:fs";
 import { posix } from "node:path";
 import { writeDefinition } from "./definition.js";
 import type { ServicePlatform } from "./platform.js";
@@ -53,18 +53,35 @@ export const renderSystemdUnit = (spec: ServiceSpec): string =>
  * the user manager's: with lingering off it starts at the first login and
  * stops at the last logout, which `notes` says.
  */
+/** Removes a directory only when it exists and holds nothing. */
+const removeIfEmpty = (dir: string): void => {
+  try {
+    if (existsSync(dir) && readdirSync(dir).length === 0) rmSync(dir, { recursive: false, force: true });
+  } catch {
+    // A directory that cannot be read or removed is left alone.
+  }
+};
+
 export const systemdPlatform = (installContext: InstallContext, commands: ServiceCommands): ServicePlatform => {
   const unit = `${SERVICE_LABEL}.service`;
   const xdg = installContext.env["XDG_CONFIG_HOME"];
   const configHome = xdg && posix.isAbsolute(xdg) ? xdg : posix.join(installContext.homedir, ".config");
   const path = posix.join(configHome, "systemd", "user", unit);
+  const wantsDir = posix.join(configHome, "systemd", "user", "default.target.wants");
   const systemctl = (...args: string[]) => commands.run("systemctl", ["--user", ...args]);
+  const isEnabled = async () => {
+    const result = await commands.query("systemctl", ["--user", "is-enabled", unit]);
+    return result.code === 0 && result.stdout.trim() === "enabled";
+  };
 
   return {
     kind: "systemd",
     definitionPath: () => path,
     install: async (spec) => {
       const written = writeDefinition(path, renderSystemdUnit(spec));
+      // What the manager held before: a replaced unit that was enabled keeps its enablement on a refusal; anything else is disabled again.
+      const wasEnabled = written.previous !== undefined && (await isEnabled());
+      const wantsExisted = existsSync(wantsDir);
       let enabled = false;
       try {
         await systemctl("daemon-reload");
@@ -73,8 +90,10 @@ export const systemdPlatform = (installContext: InstallContext, commands: Servic
         // try-restart restarts a running unit onto the new definition and leaves a stopped one stopped.
         await systemctl("try-restart", unit);
       } catch (error) {
-        // A unit that did not exist before is disabled again; a replaced one keeps the enablement it had.
-        if (enabled && written.previous === undefined) await commands.attempt("systemctl", ["--user", "disable", unit]);
+        if (enabled && !wasEnabled) {
+          await commands.attempt("systemctl", ["--user", "disable", unit]);
+          if (!wantsExisted) removeIfEmpty(wantsDir);
+        }
         written.restore();
         await commands.attempt("systemctl", ["--user", "daemon-reload"]);
         throw error;
@@ -84,6 +103,8 @@ export const systemdPlatform = (installContext: InstallContext, commands: Servic
     uninstall: async () => {
       await systemctl("disable", "--now", unit);
       rmSync(path, { force: true });
+      // `enable` created the wants directory when it was absent; an empty one goes with the unit.
+      removeIfEmpty(wantsDir);
       await systemctl("daemon-reload");
     },
     start: async () => {

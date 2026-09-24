@@ -118,17 +118,27 @@ describe("the systemd user unit", () => {
     ]);
   });
 
-  it("install puts back the unit it replaced, leaves its enablement alone and reloads, when systemd refuses the new one", async () => {
+  it("install puts back the unit it replaced and the enablement it had, then reloads, when systemd refuses the new one", async () => {
     for (const failing of ["enable", "try-restart"]) {
-      const home = tempHome();
-      mkdirSync(dirname(unitPath(home)), { recursive: true });
-      writeFileSync(unitPath(home), "the previous unit\n");
-      const { service, calls } = platformFor("linux", home, (_, args) => (args.includes(failing) ? { code: 1 } : undefined));
+      for (const previously of ["enabled", "disabled"]) {
+        const home = tempHome();
+        mkdirSync(dirname(unitPath(home)), { recursive: true });
+        writeFileSync(unitPath(home), "the previous unit\n");
+        const { service, calls } = platformFor("linux", home, (_, args) => {
+          if (args.includes("is-enabled")) return { code: previously === "enabled" ? 0 : 1, stdout: `${previously}\n` };
+          return args.includes(failing) ? { code: 1 } : undefined;
+        });
 
-      await expect(service.install(specIn(home)), failing).rejects.toThrow(ServiceCommandError);
-      expect(readFileSync(unitPath(home), "utf8")).toBe("the previous unit\n");
-      expect(calls.filter((call) => call.includes("disable")), failing).toEqual([]);
-      expect(calls.at(-1)).toBe("systemctl --user daemon-reload");
+        await expect(service.install(specIn(home)), `${failing} ${previously}`).rejects.toThrow(ServiceCommandError);
+        expect(readFileSync(unitPath(home), "utf8")).toBe("the previous unit\n");
+        // A unit that was disabled before is disabled again once enable succeeded; an enabled one keeps its enablement.
+        const disables = calls.filter((call) => call.includes(" disable "));
+        const enableSucceeded = failing !== "enable";
+        expect(disables, `${failing} ${previously}`).toEqual(
+          enableSucceeded && previously === "disabled" ? ["systemctl --user disable agent-harness.service"] : [],
+        );
+        expect(calls.at(-1)).toBe("systemctl --user daemon-reload");
+      }
     }
   });
 
@@ -152,6 +162,22 @@ describe("the systemd user unit", () => {
 
     expect(existsSync(unitPath(home))).toBe(false);
     expect(calls).toEqual(["systemctl --user disable --now agent-harness.service", "systemctl --user daemon-reload"]);
+  });
+
+  it("uninstall removes the wants directory enable left behind when it is empty, and keeps one that is not", async () => {
+    for (const other of [undefined, "other.service"]) {
+      const home = tempHome();
+      const wants = join(dirname(unitPath(home)), "default.target.wants");
+      mkdirSync(wants, { recursive: true });
+      writeFileSync(unitPath(home), "a unit\n");
+      if (other) writeFileSync(join(wants, other), "");
+      const { service } = platformFor("linux", home);
+
+      await service.uninstall();
+
+      expect(existsSync(unitPath(home))).toBe(false);
+      expect(existsSync(wants), other ?? "empty").toBe(other !== undefined);
+    }
   });
 
   it("start starts the unit", async () => {
