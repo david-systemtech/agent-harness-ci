@@ -3,6 +3,8 @@ import type { CapabilityAnswer, CapabilityName } from "./capabilities.js";
 import type { ClientPreferences } from "./connections/records.js";
 import type { Connections } from "./connections/registry.js";
 import type { Notice } from "./notices.js";
+import type { Commands } from "./outbox/outbox.js";
+import type { Drafts } from "./outbox/drafts.js";
 import { createRuntimeWithSeams } from "./internal.js";
 import type { Observable } from "./observable.js";
 import type { Platform } from "./platform.js";
@@ -20,8 +22,11 @@ import type { SessionHandle } from "./streams/session-handles.js";
  * capability questions. While a connection is enabled it subscribes the
  * environment's session list and its own stream, caches each with its
  * cursor, and projects the list across environments; a session is
- * subscribed while a handle holds it. It carries no frames and no raw
- * requests (ADR 0004: renderers never reach the streams).
+ * subscribed while a handle holds it. Every mutation goes through the
+ * outbox with a command id minted once (`commands`, `drafts`): its effect
+ * shows at once, it waits while the environment is unreachable, and a retry
+ * never applies twice. It carries no frames and no raw requests (ADR 0004:
+ * renderers never reach the streams).
  */
 export interface Runtime {
   /** Reads what was saved, exchanges the local grant when the platform reads one, and starts every connection; settles once each first attempt has. A failed start may be called again. */
@@ -53,6 +58,10 @@ export interface Runtime {
     /** Takes a notice off `projections.notices`, on this client only. */
     dismiss(noticeId: string): void;
   };
+  /** The `sessions:write` and `runs:drive` commands, through the outbox. */
+  readonly commands: Commands;
+  /** The composer's draft, a session field: debounced a second, then `sessions.setDraft` through the outbox. */
+  readonly drafts: Drafts;
   /** Direct requests, never queued: the queries and the `admin` calls. */
   readonly requests: Requests;
   /**
@@ -63,7 +72,7 @@ export interface Runtime {
   environmentNow(environmentId: string): Date;
   /** `present`, or `absent` with a reason and one line for people. */
   capability(environmentId: string, name: CapabilityName): CapabilityAnswer;
-  /** Closes every socket and writes what the cache has pending. Idempotent. */
+  /** Closes every socket, dispatches the drafts still waiting, and writes what the cache and the outbox have pending. Idempotent. */
   close(): Promise<void>;
 }
 

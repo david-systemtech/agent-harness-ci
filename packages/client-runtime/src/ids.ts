@@ -23,3 +23,17 @@ export const uuidv7 = (now: Date): string => {
   const hex = [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 };
+
+/**
+ * A version 4 UUID (RFC 9562): what a client mints for a session or a group
+ * it creates, which the contracts require to be version 4 (`SessionId`,
+ * `GroupId`), so an outbox can queue a command naming it before the
+ * environment has seen it.
+ */
+export const uuidv4 = (): string => {
+  const bytes = random().getRandomValues(new Uint8Array(16));
+  bytes[6] = ((bytes[6] ?? 0) & 0x0f) | 0x40;
+  bytes[8] = ((bytes[8] ?? 0) & 0x3f) | 0x80;
+  const hex = [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+};

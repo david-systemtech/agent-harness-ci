@@ -36,6 +36,7 @@ describe("projections.environments", () => {
         unreachableSince: null,
         refreshFailed: null,
         action: null,
+        pendingCommands: 0,
       },
       expect.objectContaining({ environmentId: paired.env.id, kind: "paired", primary: false, name: "tower", scopes: ["read"], ceiling: "plan" }),
     ]);

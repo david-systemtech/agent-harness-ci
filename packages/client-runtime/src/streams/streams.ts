@@ -1,4 +1,4 @@
-import { EnvironmentNotice, type HelloFrame } from "@agent-harness/contracts";
+import { EnvironmentNotice, type EventEnvelope, type HelloFrame } from "@agent-harness/contracts";
 import type { ConnectionRecord } from "../connections/records.js";
 import type { ConnectionSeams, RegistryCaches } from "../connections/registry.js";
 import type { Notices } from "../notices.js";
@@ -42,6 +42,13 @@ export interface StreamsOptions {
   readonly records: Observable<readonly ConnectionRecord[]>;
   readonly notices: Notices;
   readonly report: (error: unknown) => void;
+  /**
+   * An event applied to one of an environment's streams (`list`,
+   * `environment`, or `session.<id>`), and whether it is news (see
+   * `AttachOptions.applied`): the outbox retires the overlay of the command
+   * a list event names, and the request cache refreshes on a notice.
+   */
+  readonly applied?: (environmentId: string, stream: string, event: EventEnvelope, news: boolean) => void;
 }
 
 /** One environment's streams. */
@@ -108,6 +115,7 @@ export const createStreams = (options: StreamsOptions): Streams => {
       lists.update((current) => new Map(current).set(stream.environmentId, state));
     },
     applied(stream, event, news) {
+      options.applied?.(stream.environmentId, stream.name, event, news);
       // Every start appends `environment.started`, so a replay onto an empty cache holds older updates after one: only news is told.
       if (stream.name !== "environment" || !news) return;
       const notice = EnvironmentNotice.safeParse(event);
