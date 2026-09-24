@@ -512,6 +512,34 @@ describe("a prompt whose run ends", () => {
     expect(t.adapter.lastRun().input.prompt.map((m) => m.text)).toEqual(["And again"]);
   });
 
+  it("keeps an answer given while a newer run is live for the run after it", async () => {
+    const held = gate();
+    const adapter = fakeAdapter();
+    adapter.nextScripts.push(ask("permission", permission, { promptId: "p-1" }), async function* () {
+      await held.opened;
+      yield end();
+    });
+    const t = await start(adapter);
+    const client = await t.client();
+    const { id } = await create(client);
+    const first = await startRun(client, id);
+    await untilOpened(t, id);
+    await send(client, "providers.processes.stop", { sessionId: id });
+    await untilEnded(t, id, first.runId);
+
+    const newer = await startRun(client, id, "Something else");
+    expect((await answer(client, "p-1", { decision: "deny", message: "Leave the build" })).result).toMatchObject({ delivery: "next-run" });
+    held.open();
+    await untilEnded(t, id, newer.runId);
+    expect(t.adapter.lastRun().input.prompt.map((message) => message.text)).toEqual(["Something else"]);
+
+    const after = await startRun(client, id, "Carry on");
+    await untilEnded(t, id, after.runId);
+    const [delivered, message] = t.adapter.lastRun().input.prompt;
+    expect(delivered?.text).toContain("Leave the build");
+    expect(message).toMatchObject({ text: "Carry on" });
+  });
+
   it("keeps an answer for the run after a next run whose adapter never received it, as its messages are queued again", async () => {
     const adapter = fakeAdapter();
     adapter.nextScripts.push(ask("permission", permission, { promptId: "p-1" }));
