@@ -567,6 +567,65 @@ describe("a parked process", () => {
     await vi.waitFor(async () => expect(await processOf(client, id)).toMatchObject({ state: "stopped", stopReason: "parked" }));
   });
 
+  it("parks while still starting when the provider asks before its first event, stays parked through that event, and stops once parked for the idle time", async () => {
+    const prompts = parkingBroker();
+    const t = await start(
+      {
+        script: async function* ({ context, input }) {
+          // Asked before anything is yielded: the process is still starting.
+          const answer = context.broker.request({ sessionId: input.sessionId, runId: input.runId, kind: "permission", detail: { toolName: "Bash" } });
+          yield say("Working");
+          yield say(`Told ${(await answer).decision}`);
+          yield end();
+        },
+      },
+      { adapterSeams: { broker: prompts.broker } },
+    );
+    const client = await t.client();
+    const { id } = await create(client);
+    const { runId } = await startRun(client, id);
+    await vi.waitFor(() => expect(prompts.asked()).toBe(1));
+    await untilEvent(t, id, "assistant.text");
+
+    // The first event came while it was parked: it stays parked, its parked wait armed from the prompt.
+    expect(await processOf(client, id)).toMatchObject({ state: "parked", runId, parkedSince: at(0), stopsAt: at(IDLE) });
+    expect(await status(client)).toEqual({ state: "busy", reason: "parked-prompt", busyUntil: at(10 * MINUTE) });
+    t.clock.advance(10 * MINUTE);
+    expect(await status(client)).toEqual({ state: "idle" });
+    expect(await processOf(client, id)).toMatchObject({ state: "parked" });
+
+    t.clock.advance(IDLE - 10 * MINUTE - 1);
+    expect(endOf(t, id, runId)).toBeUndefined();
+    t.clock.advance(1);
+    expect(await untilEnded(t, id, runId)).toMatchObject({ actor: "system:adapter-host", payload: { reason: "interrupted", cause: "parked" } });
+    await vi.waitFor(async () => expect(await processOf(client, id)).toMatchObject({ state: "stopped", stopReason: "parked", stoppedAt: at(IDLE) }));
+    expect(prompts.open()).toBe(1);
+  });
+
+  it("is busy once a prompt asked before its first event is answered, and idle when the turn ends", async () => {
+    const prompts = parkingBroker();
+    const t = await start(
+      {
+        script: async function* ({ context, input }) {
+          const answer = await context.broker.request({ sessionId: input.sessionId, runId: input.runId, kind: "permission", detail: { toolName: "Bash" } });
+          yield say(`Told ${answer.decision}`);
+          yield end();
+        },
+      },
+      { adapterSeams: { broker: prompts.broker } },
+    );
+    const client = await t.client();
+    const { id } = await create(client);
+    const { runId } = await startRun(client, id);
+    await vi.waitFor(() => expect(prompts.asked()).toBe(1));
+    expect(await processOf(client, id)).toMatchObject({ state: "parked", runId, parkedSince: at(0), stopsAt: at(IDLE) });
+
+    t.clock.advance(5 * MINUTE);
+    prompts.answer();
+    await untilEnded(t, id, runId);
+    expect(await processOf(client, id)).toEqual(idleProcess(id, 0, 5 * MINUTE));
+  });
+
   it("is busy again once its prompt is answered, and its idle time starts over when the turn ends", async () => {
     const prompts = parkingBroker();
     const ask = gate();

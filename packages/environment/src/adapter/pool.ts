@@ -21,7 +21,10 @@ import type { ProcessPort } from "./contract.js";
  *
  * States: `starting` from a cold run's begin until the provider answers,
  * `busy` while a turn runs, `parked` while the turn waits on a raised
- * prompt, `idle` between turns, then `stopping` and `stopped`. A process
+ * prompt, `idle` between turns, then `stopping` and `stopped`. A provider
+ * may ask before its first event: a starting process parks then, its parked
+ * wait armed, and the first event leaves it parked; answering its last
+ * prompt makes it busy, whether or not an event came first. A process
  * idle for the idle time with no held work (a live background task, a
  * registered schedule) stops, the time counted from the end of its last
  * turn or the release of its last hold, whichever is later; a process parked
@@ -68,9 +71,9 @@ export interface ProcessPoolOptions {
 export interface ProcessPool {
   /** A run begins on the session: its idle process turns busy, or a new one starts, cold. */
   begin(sessionId: string, provider: string, runId: string): void;
-  /** The run's provider has answered (its first event): a starting process is busy. */
+  /** The run's provider has answered (its first event): a starting process is busy; a parked one stays parked. */
   answered(sessionId: string, runId: string): void;
-  /** The run waits on a raised prompt. */
+  /** The run waits on a raised prompt: a starting or busy process parks, and its parked wait begins. */
   park(sessionId: string, runId: string): void;
   /** The run's prompts are answered: it is busy again. */
   unpark(sessionId: string, runId: string): void;
