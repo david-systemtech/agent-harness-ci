@@ -435,8 +435,10 @@ export const reduce = (state: MachineState, input: MachineInput, context: Machin
       case "retry":
         return s.step === "idle" && s.phase !== "disabled" ? begin(halt(s)) : s;
       case "establish":
-        if (s.step !== "discovery" && s.step !== "dialing") return s;
-        return fail(s, s.phase === "updating" || s.phase === "draining" || s.phase === "service-down" ? s.phase : "backoff");
+        // A discovery read that never answers is nothing answering, phased like an unreachable one; a socket that never says `hello` is a fault on the ladder.
+        if (s.step === "discovery") return fail(s, unanswered(s));
+        if (s.step === "dialing") return fail(s, s.phase === "updating" ? "updating" : "backoff");
+        return s;
       case "watchdog":
         return s.step === "open" ? lose(s) : s;
       case "probe":

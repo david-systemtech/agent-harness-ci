@@ -473,7 +473,7 @@ describe("the in-process connections API", () => {
     ]);
   });
 
-  it("a retry that attaches while a pairing is being kept is replaced by the pairing's socket, never orphaned", async () => {
+  it("a retry while a pairing is being kept opens no second socket, and the pairing's is the one attached", async () => {
     const t = await harness.environment();
     const base = inMemoryDocuments();
     let hold = false;
@@ -504,13 +504,16 @@ describe("the in-process connections API", () => {
     expect(only(runtime).phase).toBe("ready");
     await until(() => t.env.sockets() === 1, "one socket");
 
-    // A re-pair in place of a running connection: a retry meanwhile attaches with the new token, and adopting the pairing's socket closes it (#126).
+    // A re-pair in place of a running connection: its machine holds from giving up the old socket to adopting the new one (#126),
+    // so a retry meanwhile opens nothing.
     held = false;
     hold = true;
     const rePairing = runtime.connections.add({ link: (await t.createPairing()).link }, { rePair: t.env.id });
     await until(() => held, "the re-paired record's save to be held");
+    await until(() => t.env.sockets() === 1, "the old socket to close");
     const retrying = runtime.connections.retryNow(t.env.id);
-    await until(() => t.env.sockets() === 2, "the retry's socket beside the pairing's");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(t.env.sockets()).toBe(1);
     release();
     expect(await rePairing).toMatchObject({ status: "paired" });
     await retrying;
