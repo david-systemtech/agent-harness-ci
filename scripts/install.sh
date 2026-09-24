@@ -77,7 +77,7 @@ dry_run=${INSTALL_DRY_RUN:-0}
 while [ $# -gt 0 ]; do
   case $1 in
     --version | --prefix | --data-dir | --port)
-      [ $# -ge 2 ] || usage_error "$1 needs a value."
+      [ $# -ge 2 ] && [ -n "$2" ] || usage_error "$1 needs a value."
       case $1 in
         --version) version=$2 ;;
         --prefix) prefix=$2 ;;

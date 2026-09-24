@@ -46,14 +46,14 @@ export interface WrittenDefinition {
   restore(): void;
 }
 
+/** How the bytes reach the disk; tests swap in a failing writer. */
+export type WriteFile = (path: string, content: string) => void;
+
 /**
  * Writes a definition file, creating its folder. Only a missing file counts
  * as "no previous definition": any other failure to read the existing one
  * fails before anything is written.
  */
-/** How the bytes reach the disk; tests swap in a failing writer. */
-export type WriteFile = (path: string, content: string) => void;
-
 export const writeDefinition = (path: string, content: string, write: WriteFile = writeFileSync): WrittenDefinition => {
   let previous: string | undefined;
   try {

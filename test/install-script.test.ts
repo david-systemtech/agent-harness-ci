@@ -338,6 +338,13 @@ describe.skipIf(process.platform === "win32")("scripts/install.sh", () => {
     expect(readdirSync(join(f.home, ".local", "state", "agent-harness", "versions"))).toEqual([]);
   });
 
+  it("refuses an option given an empty value as a usage error", async () => {
+    const f = await fixture();
+    const result = await install(f, ["--port", ""]);
+    expect(result.code).toBe(2);
+    expect(result.stderr).toMatch(/--port needs a value/);
+  });
+
   it("exits 143 when terminated, removing its temporary files", async () => {
     const f = await fixture();
     const tmp = mkdtempSync(join(tmpdir(), "agent-harness-install-tmp-"));
