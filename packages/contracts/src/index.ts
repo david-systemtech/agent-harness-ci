@@ -1,5 +1,6 @@
 export { PRODUCT_NAME } from "./product.js";
 
+export * from "./bootstrap.js";
 export * from "./discovery.js";
 export * from "./envelope.js";
 export * from "./errors.js";

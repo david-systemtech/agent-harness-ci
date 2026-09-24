@@ -1,0 +1,90 @@
+import { Ceiling, ClientKind, ScopeSet, type Scope } from "@agent-harness/contracts";
+import type { Sql, Transaction } from "./database.js";
+
+/** One client session as the `client_sessions` table keeps it. Times are ISO 8601, UTC. */
+export interface ClientSessionRow {
+  readonly id: string;
+  readonly kind: ClientKind;
+  readonly label: string;
+  readonly scopes: readonly Scope[];
+  readonly ceiling: Ceiling;
+  /** Issued through the bootstrap grant rather than by pairing. */
+  readonly local: boolean;
+  readonly createdAt: string;
+  /** When a connection of the session last opened or closed; null until one has. */
+  readonly lastSeenAt: string | null;
+  readonly expiresAt: string;
+  readonly revokedAt: string | null;
+}
+
+/**
+ * The `client_sessions` table. The environment reads it once, on start, into
+ * memory; after that it only writes to it, so a token is verified without a
+ * read.
+ */
+export interface ClientSessionTable {
+  all(): ClientSessionRow[];
+  /** Adds `row` and, in the same transaction, revokes the sessions in `revoke` as of its creation. */
+  insert(row: ClientSessionRow, revoke: readonly string[]): void;
+  revoke(id: string, at: string): void;
+  /** Records that a connection of the session opened or closed at `at`. */
+  touch(id: string, at: string): void;
+}
+
+interface Row {
+  id: string;
+  kind: string;
+  label: string;
+  scopes: string;
+  ceiling: string;
+  local: number;
+  created_at: string;
+  last_seen_at: string | null;
+  expires_at: string;
+  revoked_at: string | null;
+}
+
+/** A row as the environment uses it, its kind, scopes and ceiling read through the contracts' schemas: a row that fails them fails the start. */
+const decode = (row: Row): ClientSessionRow => ({
+  id: row.id,
+  kind: ClientKind.parse(row.kind),
+  label: row.label,
+  scopes: ScopeSet.parse(JSON.parse(row.scopes)),
+  ceiling: Ceiling.parse(row.ceiling),
+  local: row.local === 1,
+  createdAt: row.created_at,
+  lastSeenAt: row.last_seen_at,
+  expiresAt: row.expires_at,
+  revokedAt: row.revoked_at,
+});
+
+export const createClientSessionTable = (sql: Sql, transaction: Transaction): ClientSessionTable => {
+  const revoke = (id: string, at: string): void => {
+    sql.run("UPDATE client_sessions SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL", at, id);
+  };
+  return {
+    all: () => sql.all<Row>("SELECT * FROM client_sessions ORDER BY created_at, id").map(decode),
+    insert: (row, revoked) =>
+      transaction(() => {
+        for (const id of revoked) revoke(id, row.createdAt);
+        sql.run(
+          `INSERT INTO client_sessions (id, kind, label, scopes, ceiling, local, created_at, last_seen_at, expires_at, revoked_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          row.id,
+          row.kind,
+          row.label,
+          JSON.stringify(row.scopes),
+          row.ceiling,
+          row.local ? 1 : 0,
+          row.createdAt,
+          row.lastSeenAt,
+          row.expiresAt,
+          row.revokedAt,
+        );
+      }),
+    revoke,
+    touch: (id, at) => {
+      sql.run("UPDATE client_sessions SET last_seen_at = ? WHERE id = ?", at, id);
+    },
+  };
+};

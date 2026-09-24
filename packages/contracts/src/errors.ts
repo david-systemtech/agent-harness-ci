@@ -70,6 +70,19 @@ export const InternalError = errorSchema("internal", z.object({})).meta({
   description: "The environment failed; nothing the client sent is at fault.",
 });
 
+/**
+ * An unauthenticated exchange (`/api/bootstrap`, and `/api/pair` with #109)
+ * came too often from one address; `data.retryAfterMs` says when the next is
+ * taken. Not a method error: methods sit behind a client session.
+ */
+export const RateLimitedError = errorSchema(
+  "rate_limited",
+  z.object({
+    retryAfterMs: z.int().nonnegative().meta({ description: "Milliseconds until the next exchange is taken." }),
+  }),
+).meta({ description: "Too many exchanges from this address; data.retryAfterMs says when to try again." });
+export type RateLimitedError = z.infer<typeof RateLimitedError>;
+
 /** The errors every method may return, whatever its own members. */
 export const SHARED_ERRORS = [
   UnauthorizedError,

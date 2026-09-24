@@ -28,6 +28,10 @@ _Avoid_: email (the display field), profile id
 An account whose config directory is the machine's own provider directory, registered in place; never moved, linked or deleted by the harness.
 _Avoid_: carried-over profile, imported account
 
+**Imported session**:
+A session record the Carry over step creates from a transcript found in an adopted directory, with its title, workspace, repository identity and provider session id set at once and its history appended to the log the first time a client opens it.
+_Avoid_: migrated session, legacy session, provider session (the transcript, not the record)
+
 **Session**:
 One conversation with an agent, owned by exactly one environment.
 _Avoid_: thread, chat, pane, conversation

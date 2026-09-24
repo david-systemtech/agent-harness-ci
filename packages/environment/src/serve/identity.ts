@@ -51,12 +51,17 @@ export const loadOrCreateRecord = (dataDir: string, name: string, clock: () => D
 };
 
 /**
- * Makes sure the vault holds the client-session signing key: 32 random bytes,
- * base64, generated once and kept. A vault that lost it, or holds one of the
- * wrong length, gets a new one, which only means every client pairs again.
+ * The client-session signing key, from the vault: 32 random bytes, base64,
+ * generated once and kept. A vault that lost it, or holds one of the wrong
+ * length, gets a new one, which only means every client pairs again.
  */
-export const ensureSigningKey = async (vault: Vault): Promise<void> => {
+export const ensureSigningKey = async (vault: Vault): Promise<Buffer> => {
   const existing = await vault.get(SIGNING_KEY);
-  if (existing !== undefined && Buffer.from(existing, "base64").length === SIGNING_KEY_BYTES) return;
-  await vault.set(SIGNING_KEY, randomBytes(SIGNING_KEY_BYTES).toString("base64"));
+  if (existing !== undefined) {
+    const key = Buffer.from(existing, "base64");
+    if (key.length === SIGNING_KEY_BYTES) return key;
+  }
+  const key = randomBytes(SIGNING_KEY_BYTES);
+  await vault.set(SIGNING_KEY, key.toString("base64"));
+  return key;
 };

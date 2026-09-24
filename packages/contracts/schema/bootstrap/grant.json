@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BootstrapGrant",
+  "type": "object",
+  "properties": {
+    "secret": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The one-time secret; a fresh one replaces it after each exchange."
+    },
+    "address": {
+      "type": "object",
+      "properties": {
+        "host": {
+          "type": "string",
+          "minLength": 1
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        }
+      },
+      "required": [
+        "host",
+        "port"
+      ],
+      "description": "The environment's loopback address, to reach the exchange and the wire at."
+    }
+  },
+  "required": [
+    "secret",
+    "address"
+  ],
+  "description": "The bootstrap grant file the environment writes in its data directory, readable by its OS user alone."
+}

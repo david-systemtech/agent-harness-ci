@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BootstrapKind",
+  "type": "string",
+  "enum": [
+    "desktop",
+    "tui"
+  ],
+  "description": "The kind of local client exchanging the bootstrap grant: desktop (a new exchange replaces the previous desktop's client session) or tui (several run at once; each is revoked an hour after its connection closed)."
+}

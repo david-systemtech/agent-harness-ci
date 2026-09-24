@@ -2,16 +2,23 @@ import { readFileSync } from "node:fs";
 import { hostname } from "node:os";
 import { join } from "node:path";
 import {
+  BOOTSTRAP_PATH,
   DISCOVERY_PATH,
   HEALTH_PATH,
   PROTOCOL_VERSION,
+  WIRE_PATH,
   type AuthPolicy,
   type CapabilityFlags,
   type DiscoveryDocument,
   type EnvironmentReadiness,
   type HealthDocument,
 } from "@agent-harness/contracts";
+import { createBootstrapGrant } from "../auth/bootstrap.js";
+import { SWEEP_INTERVAL_MS, createClientSessions, type ClientSessionIssuer, type ClientSessions } from "../auth/client-sessions.js";
+import { createRateLimiter } from "../auth/rate-limit.js";
 import { openEventLog, type EventLog, type Projector } from "../event-log/event-log.js";
+import { createWire } from "../wire/wire.js";
+import { systemClock, type Clock } from "./clock.js";
 import { createCloserStack } from "./closers.js";
 import { defaultDataDirectory, prepareDataDirectory } from "./data-directory.js";
 import { createHttpSurface, sendJson, type Address, type HttpRoutes } from "./http.js";
@@ -93,7 +100,12 @@ export interface EnvironmentOptions {
   readonly vault?: Vault;
   /** Registered and caught up from their cursors in the `projectors` step. None exist yet. */
   readonly projectors?: readonly Projector[];
-  readonly clock?: () => Date;
+  /**
+   * The environment's time: timestamps, the ping interval, the auth timeout,
+   * token expiry and the terminal UI sweep. Preset: `systemClock`; tests pass
+   * a manual one.
+   */
+  readonly clock?: Clock;
   readonly hooks?: StartupHooks;
 }
 
@@ -105,13 +117,18 @@ export interface EnvironmentHandle {
   /** Where the loopback listener is bound. */
   readonly address: Address;
   readiness(): EnvironmentReadiness;
-  /** The handlers the wire (#108) dispatches into, by method name. */
+  /** The handlers the wire dispatches into, by method name, after its scope check. */
   readonly methods: MethodHandlers;
   /** The listener's route table, behind the Host check. */
   readonly http: HttpRoutes;
+  /** Issuing and revoking client sessions: the seam pairing and the access methods (#109) build on. */
+  readonly clientSessions: ClientSessionIssuer;
+  /** How many WebSocket sockets are open on the wire. */
+  sockets(): number;
   /**
-   * Stops listening, closes the event log, then closes the launcher channel,
-   * each even when another fails. Idempotent; after a failure, calling it
+   * Stops the sweep, removes the bootstrap grant file, says `bye: draining`
+   * to every socket and closes it (1001), stops listening, closes the event log, then closes the
+   * launcher channel, each even when another fails. Idempotent; after a failure, calling it
    * again retries what did not close.
    */
   close(): Promise<void>;
@@ -128,7 +145,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   refusePrivilegedUser(options.user ?? processUserCheck());
 
   const dataDir = options.dataDir ?? defaultDataDirectory();
-  const clock = options.clock ?? (() => new Date());
+  const clock: Clock = options.clock ?? systemClock;
+  const now = () => clock.now();
   const launcher = options.launcher ?? processLauncherChannel();
   const capabilities: CapabilityFlags = [];
   // Only loopback is bound until the tailnet binding (#109).
@@ -153,7 +171,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   await step("data-directory", () => prepareDataDirectory(dataDir));
 
   const log: EventLog = await step("database", () => {
-    const opened = openEventLog({ path: join(dataDir, DATABASE_FILE), clock });
+    const opened = openEventLog({ path: join(dataDir, DATABASE_FILE), clock: now });
     closers.push(() => opened.close());
     return opened;
   });
@@ -162,13 +180,14 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     for (const projector of options.projectors ?? []) log.registerProjector(projector);
   });
 
-  // The auth tables are loaded here too once they exist (#108).
-  const record: EnvironmentRecord = await step("identity", async () => {
+  // The record, the signing key and the auth tables: client sessions are read once, here, into memory.
+  const { record, clientSessions } = await step("identity", async () => {
     const name = (options.name ?? hostname()).trim();
     if (!name) throw new Error("An environment's name cannot be empty.");
-    const loaded = loadOrCreateRecord(dataDir, name, clock);
-    await ensureSigningKey(options.vault ?? fileVault(join(dataDir, VAULT_FILE)));
-    return loaded;
+    const loaded: EnvironmentRecord = loadOrCreateRecord(dataDir, name, now);
+    const key = await ensureSigningKey(options.vault ?? fileVault(join(dataDir, VAULT_FILE)));
+    const loadedClientSessions: ClientSessions = createClientSessions({ table: log.clientSessions, key, environmentId: loaded.id, clock });
+    return { record: loaded, clientSessions: loadedClientSessions };
   });
 
   // The adapter host (#119) starts here; there is none yet.
@@ -193,18 +212,37 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     sendJson(response, 200, health, noStore);
   });
 
+  const methods: MethodHandlers = {
+    "environment.status": () => ({ readiness }),
+  };
+
+  // The grant file and the wire are routed before the bind; both refuse work until the gate below.
+  const grant = createBootstrapGrant({
+    dataDir,
+    clientSessions,
+    rateLimiter: createRateLimiter({ clock }),
+    readiness: () => readiness,
+  });
+  surface.route("POST", BOOTSTRAP_PATH, grant.exchange);
+  const wire = createWire({ environment: record, capabilities, clientSessions, methods, clock });
+  surface.upgrade(WIRE_PATH, wire.upgrade);
+
   const bound = await step("listen", async () => {
     closers.push(() => surface.close());
-    address = await surface.listen(LOOPBACK, options.port ?? DEFAULT_PORT);
-    return address;
+    const listening = await surface.listen(LOOPBACK, options.port ?? DEFAULT_PORT);
+    address = listening;
+    // Closed before the listener, so no socket holds its close open.
+    closers.push(() => wire.close());
+    closers.push(() => grant.remove());
+    grant.issue(listening);
+    return listening;
   });
 
   await step("prepared", () => launcher.prepared());
   readiness = "ready";
-
-  const methods: MethodHandlers = {
-    "environment.status": () => ({ readiness }),
-  };
+  wire.open();
+  const sweep = clock.setInterval(() => clientSessions.sweep(), SWEEP_INTERVAL_MS);
+  closers.push(() => sweep.cancel());
 
   // Concurrent closes share one attempt; a close after a failed one retries what did not close.
   let closing: Promise<void> | undefined;
@@ -216,6 +254,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     readiness: () => readiness,
     methods,
     http: { route: (method, path, handler) => surface.route(method, path, handler) },
+    clientSessions: { issue: (request) => clientSessions.issue(request), revoke: (id) => clientSessions.revoke(id) },
+    sockets: () => wire.sockets(),
     close: () => (closing ??= closers.closeAll().finally(() => (closing = undefined))),
   };
 };

@@ -68,6 +68,25 @@ export const MIGRATIONS: readonly Migration[] = [
       ) STRICT;
     `,
   },
+  {
+    version: 2,
+    name: "auth: client sessions",
+    // Pairings and the access stream join these with #109.
+    sql: `
+      CREATE TABLE client_sessions (
+        id TEXT PRIMARY KEY,
+        kind TEXT NOT NULL,
+        label TEXT NOT NULL,
+        scopes TEXT NOT NULL,
+        ceiling TEXT NOT NULL,
+        local INTEGER NOT NULL CHECK (local IN (0, 1)),
+        created_at TEXT NOT NULL,
+        last_seen_at TEXT,
+        expires_at TEXT NOT NULL,
+        revoked_at TEXT
+      ) STRICT;
+    `,
+  },
 ];
 
 const userVersion = (db: DatabaseSync): number => {
