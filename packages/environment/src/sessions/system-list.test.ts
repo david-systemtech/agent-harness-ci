@@ -1,3 +1,4 @@
+import type { JsonObject } from "@agent-harness/contracts";
 import { afterEach, describe, expect, it } from "vitest";
 import { runPayload } from "../../test/shelf.js";
 import { openEventLog, type EventLog } from "../event-log/event-log.js";
@@ -30,10 +31,12 @@ const withSession = () => {
   logs.push(log);
   log.append({ kind: "session", id }, [created], { actor: "system:test" });
   const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
-  const seed = (...types: string[]) => {
-    for (const type of types) {
+  /** Seeds each event a minute apart: a type with the seeded payload, or a type with fields over it. */
+  const seed = (...events: (string | readonly [string, JsonObject])[]) => {
+    for (const event of events) {
+      const [type, fields] = typeof event === "string" ? [event, {}] : event;
       minute++;
-      log.append({ kind: "session", id }, [{ type, payload: runPayload(id, type) }], { actor: "adapter:test" });
+      log.append({ kind: "session", id }, [{ type, payload: runPayload(id, type, fields) }], { actor: "adapter:test" });
     }
     return readSummary(reader, id);
   };
@@ -68,6 +71,20 @@ describe("the activity projections", () => {
     expect(seed("run.started")).toMatchObject({ activity: { state: "running", since: "2026-09-24T00:04:00.000Z" }, parkedPromptCount: 1 });
     expect(seed("prompt.answered")).toMatchObject({ activity: { state: "running", since: "2026-09-24T00:04:00.000Z" }, parkedPromptCount: 0 });
     expect(seed("run.ended")).toMatchObject({ activity: { state: "idle", since: "2026-09-24T00:06:00.000Z" } });
+  });
+
+  it("run a live run again once its own prompts are answered, an older prompt a stop kept open still counted, and leave the session parked on that one when the run ends", () => {
+    const { seed } = withSession();
+    const later = "3f2a1c4e-8b7d-4e6f-9a0b-1c2d3e4f5a6b";
+    seed("run.started", "prompt.opened", "run.ended");
+    expect(seed(["run.started", { runId: later }])).toMatchObject({ activity: { state: "running", since: "2026-09-24T00:04:00.000Z" }, parkedPromptCount: 1 });
+    expect(seed(["prompt.opened", { runId: later, promptId: "p-later" }])).toMatchObject({ activity: { state: "parked", since: "2026-09-24T00:05:00.000Z" }, parkedPromptCount: 2 });
+    // The live run's own prompt answered: it runs again, as it did when it started with the older prompt open.
+    expect(seed(["prompt.answered", { runId: later, promptId: "p-later" }])).toMatchObject({
+      activity: { state: "running", since: "2026-09-24T00:06:00.000Z" },
+      parkedPromptCount: 1,
+    });
+    expect(seed(["run.ended", { runId: later }])).toMatchObject({ activity: { state: "parked", since: "2026-09-24T00:07:00.000Z" }, parkedPromptCount: 1 });
   });
 
   it("close a run's prompts before its end when it ends on its own, so the end leaves the session idle", () => {
