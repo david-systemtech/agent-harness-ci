@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { EventTypeEntry } from "./event-types.js";
+import { Mode } from "./permissions-modes.js";
 import { OrderKey } from "./ordering.js";
 import { JsonObject, Sequence, Timestamp } from "./primitives.js";
 
@@ -54,10 +55,10 @@ export type UserTitle = z.infer<typeof UserTitle>;
  */
 export const Tag = z
   .string()
-  .regex(/^\s*[^\s\p{Cc}](?:\P{Cc}{0,38}[^\s\p{Cc}])?\s*$/u)
+  .regex(/^\s*[^\s\p{Cc}\p{Cf}](?:[^\p{Cc}\p{Cf}]{0,38}[^\s\p{Cc}\p{Cf}])?\s*$/u)
   .meta({
     description:
-      "A free-form tag: 1 to 40 characters once trimmed, no control characters; stored trimmed, unique per session ignoring case.",
+      "A free-form tag: 1 to 40 characters once trimmed, no control or format (zero-width) characters; stored trimmed, unique per session ignoring case.",
   });
 export type Tag = z.infer<typeof Tag>;
 
@@ -89,15 +90,17 @@ export const StoredDraft = Draft.min(1)
 export type StoredDraft = z.infer<typeof StoredDraft>;
 
 /**
- * A group's name: 1 to 80 characters once trimmed; stored trimmed with white
+ * A group's name: 1 to 80 characters once trimmed, no control or format
+ * (zero-width) characters other than white space; stored trimmed with white
  * space collapsed, unique per environment ignoring case.
  */
 export const GroupName = z
   .string()
-  .regex(/^\s*\S(?:[\s\S]{0,78}\S)?\s*$/)
+  // Inside the name: any character that is neither control nor format, plus the control characters that are white space (tab, line feeds, form feed, return); `\s` would re-admit the byte-order mark, which is `Cf`. With the `u` flag the cap counts code points, as `Tag` does.
+  .regex(/^\s*[^\s\p{Cc}\p{Cf}](?:(?:[^\p{Cc}\p{Cf}]|[\t\n\v\f\r]){0,78}[^\s\p{Cc}\p{Cf}])?\s*$/u)
   .meta({
     description:
-      "A group's name: 1 to 80 characters once trimmed; stored trimmed with white space collapsed, unique per environment ignoring case.",
+      "A group's name: 1 to 80 characters once trimmed, no control or format (zero-width) characters other than white space; stored trimmed with white space collapsed, unique per environment ignoring case.",
   });
 export type GroupName = z.infer<typeof GroupName>;
 
@@ -230,6 +233,11 @@ export const SessionSummary = z
     parkedPromptCount: z.int().nonnegative().meta({ description: "Prompts a run of the session is parked on, unanswered." }),
     accountId: z.string().min(1).nullable().meta({ description: "The account the latest run used; null before any run." }),
     model: z.string().min(1).nullable().meta({ description: "The model the latest run used; null before any run." }),
+    // Mode (permissions spec): what a run of the session asks for, read here for the status line.
+    mode: Mode.nullable().meta({
+      description:
+        "The session's mode: the effective mode permissions.mode.set last gave it, else the one sessions.create recorded (clamped to its caller's ceiling); null when neither did, so a run's default applies. Each run clamps it again.",
+    }),
     // Forge (ADR 0012).
     pullRequests: z.array(PullRequest),
     // Composer: the draft is a session field, so it follows the session between clients.
@@ -327,7 +335,7 @@ export const SessionCreatedPayload = z
     repositoryIdentity: z.string().min(1).nullable(),
     account: z.string().min(1).nullable().meta({ description: "The account asked for, if any; the adapter workstream (#119) validates it." }),
     model: z.string().min(1).nullable().meta({ description: "The model asked for, if any; the adapter workstream (#119) validates it." }),
-    mode: z.string().min(1).nullable().meta({ description: "The mode asked for, if any; the permissions workstream validates it." }),
+    mode: Mode.nullable().meta({ description: "The mode asked for, if any; clamped at each run, and changed by session.mode.set." }),
   })
   .meta({ description: "session.created: a session was created; its createdAt is the event's occurredAt." });
 

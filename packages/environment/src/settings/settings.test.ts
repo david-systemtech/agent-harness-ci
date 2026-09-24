@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
-import { Ceiling, presetSettings, type Scope } from "@agent-harness/contracts";
+import { Ceiling, presetPermissionSettings, presetSettings, type Scope } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { MANUAL_CLOCK_START } from "../../test/clock.js";
@@ -35,7 +35,7 @@ describe("settings.get", () => {
     const t = await start();
     const client = await t.client();
     expect(await client.request("settings.get", {})).toEqual({
-      values: { "sessions.autoSettleAfterIdle": { amount: 14, unit: "days" }, "sessions.autoSettleOnMerge": false, "providers.processIdleMinutes": 30 },
+      values: { "sessions.autoSettleAfterIdle": { amount: 14, unit: "days" }, "sessions.autoSettleOnMerge": false, "providers.processIdleMinutes": 30, ...presetPermissionSettings() },
     });
   });
 
@@ -85,7 +85,9 @@ describe("settings.update", () => {
     const t = await start();
     const client = await t.client();
     const head = t.env.log.head();
-    for (const values of [{}, presets, { "sessions.autoSettleOnMerge": false }]) {
+    // The generic keys at their presets; the permission keys are permissions.settings.set's to write (#129).
+    const generic = { "sessions.autoSettleAfterIdle": presets["sessions.autoSettleAfterIdle"], "sessions.autoSettleOnMerge": presets["sessions.autoSettleOnMerge"] };
+    for (const values of [{}, generic, { "sessions.autoSettleOnMerge": false }]) {
       expect(await updateSettings(client, values)).toEqual({ receipt: { status: "accepted", sequence: head, changed: false }, result: { values: presets } });
     }
     await updateSettings(client, { "sessions.autoSettleAfterIdle": null });
@@ -165,9 +167,9 @@ describe("settings.update", () => {
 
     const second = await start(dataDir);
     const again = await second.client();
-    expect(await again.request("settings.get", {})).toEqual({ values });
+    expect(await again.request("settings.get", {})).toEqual({ values: { ...values, ...presetPermissionSettings() } });
     const rebuilt = await again.request("environment.rebuildProjections", { commandId: randomUUID() });
     expect(rebuilt.result?.projectors).toEqual(expect.arrayContaining(["session-list", "settings"]));
-    expect(await again.request("settings.get", {})).toEqual({ values });
+    expect(await again.request("settings.get", {})).toEqual({ values: { ...values, ...presetPermissionSettings() } });
   });
 });

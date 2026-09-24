@@ -145,7 +145,7 @@ export interface ConnectionSeams {
 export interface RegistryCaches {
   /** Reads what is cached for these environments; the registry awaits it before any connection starts. */
   load(environmentIds: readonly string[]): Promise<void>;
-  /** Whether anything is cached for the environment, so it is unreachable from the start until it is reached. */
+  /** Whether the environment's session list is cached (a cursor on record), so it is unreachable from the start until it is reached. */
   has(environmentId: string): boolean;
 }
 

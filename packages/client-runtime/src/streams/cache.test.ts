@@ -139,6 +139,23 @@ describe("the stream cache", () => {
     expect(await cache.read(key)).toEqual({ cursor: 3, snapshot: { a: 3 } });
   });
 
+  it("leaves no unhandled rejection behind a write or delete that fails, whoever awaits it", async () => {
+    const unhandled: unknown[] = [];
+    const hear = (reason: unknown) => void unhandled.push(reason);
+    process.on("unhandledRejection", hear);
+    try {
+      const store = inMemoryDocuments();
+      const documents: DocumentStore = { ...store, delete: async () => Promise.reject(new Error("the disk is gone")) };
+      const cache = createStreamCache({ documents, clock: manualClock(), report: () => undefined });
+      await expect(cache.remove(streamDocument("env", "list"))).rejects.toThrow(/disk is gone/);
+      await settle();
+      await settle();
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", hear);
+    }
+  });
+
   it("reads a document it cannot understand as nothing cached", async () => {
     const { documents, store } = recording();
     const cache = createStreamCache({ documents, clock: manualClock(), report: () => undefined });
@@ -312,6 +329,20 @@ describe("retention", () => {
     setup.unreadable.add(metaDocument("dark"));
     await setup.retention.forget("dark");
     expect(setup.store.entries()[metaDocument("dark")]).toBeDefined();
+  });
+
+  it("forgets the rest of an environment when one delete fails, and keeps a meta naming only the snapshot left behind", async () => {
+    const setup = await setUp();
+    await open(setup, "a");
+    await open(setup, "b");
+    setup.undeletable.add(streamDocument("env", "session.a"));
+    await setup.retention.forget("env");
+    expect(setup.reported).toHaveLength(1);
+    expect(setup.store.entries()[streamDocument("env", "list")]).toBeUndefined();
+    expect(setup.store.entries()[streamDocument("env", "session.b")]).toBeUndefined();
+    expect(setup.store.entries()[streamDocument("env", "session.a")]).toBeDefined();
+    expect(setup.store.entries()[metaDocument("env")]).toMatchObject({ opened: [expect.objectContaining({ sessionId: "a" })] });
+    expect((setup.store.entries()[metaDocument("env")] as { opened: unknown[] }).opened).toHaveLength(1);
   });
 
   it("forgets a session, and everything of an environment", async () => {

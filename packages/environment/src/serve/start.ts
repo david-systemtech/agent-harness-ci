@@ -36,8 +36,11 @@ import type { Adapter } from "../adapter/contract.js";
 import { createAdapterHost, type AdapterHost, type HostAccount } from "../adapter/host.js";
 import { processMethods } from "../adapter/processes-methods.js";
 import { recoverCutRuns } from "../adapter/recovery.js";
-import type { InstructionComposer, ModeClamp, ToolServerFactory } from "../adapter/seams.js";
+import type { InstructionComposer, PolicySeam, ToolServerFactory } from "../adapter/seams.js";
 import type { PermissionBroker } from "../adapter/contract.js";
+import { permissionMethods, sessionModeClamp } from "../permissions/methods.js";
+import { permissionsProjector, readPermissionSettings } from "../permissions/permissions-store.js";
+import { policySettings, resolvePolicy } from "../permissions/resolver.js";
 import { runMethods } from "../runs/run-methods.js";
 import { runsProjector } from "../runs/runs-projector.js";
 import { createDeletion } from "../sessions/deletion.js";
@@ -171,7 +174,8 @@ export interface EnvironmentOptions {
     readonly toolServers?: ToolServerFactory;
     readonly instructions?: InstructionComposer;
     readonly broker?: PermissionBroker;
-    readonly clampMode?: ModeClamp;
+    /** Preset: the policy resolver on the environment's permission settings (#129). */
+    readonly resolvePolicy?: PolicySeam;
   };
 }
 
@@ -286,11 +290,13 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   });
 
   await step("projectors", () => {
-    for (const projector of [sessionListProjector, runsProjector, settingsProjector, ...(options.projectors ?? [])]) log.registerProjector(projector);
+    for (const projector of [sessionListProjector, runsProjector, settingsProjector, permissionsProjector, ...(options.projectors ?? [])]) log.registerProjector(projector);
   });
 
   // Where pairing links point: set when the listeners are bound, before any request is served.
   let linkOrigin: string | undefined;
+  // The permission settings (#129), read where they are used: inside a command, in its transaction.
+  const permissionSettings = () => readPermissionSettings({ all: (sql, ...params) => log.read(sql, ...params) });
 
   // The record, the signing key and the auth tables: client sessions and pairings are read once, here, into memory.
   const { record, clientSessions, pairings, accessLog } = await step("identity", async () => {
@@ -315,6 +321,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
         if (linkOrigin === undefined) throw new Error("A pairing link was asked for before the environment was bound.");
         return pairingLink(linkOrigin, code);
       },
+      defaultCeiling: () => permissionSettings()["permissions.defaultCeiling"],
     });
     return { record: loaded, clientSessions: loadedClientSessions, pairings: loadedPairings, accessLog: access };
   });
@@ -331,6 +338,16 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       ...(options.adapters !== undefined && { adapters: options.adapters }),
       ...(options.accounts !== undefined && { accounts: options.accounts }),
       ...(options.defaultAccountId !== undefined && { defaultAccountId: options.defaultAccountId }),
+      // The policy resolver on the permission settings, and each client session's ceiling as it is now (#129).
+      resolvePolicy: ({ actor, requested, accountModes }) =>
+        resolvePolicy({
+          actor,
+          requested,
+          ceiling: actor.ceiling,
+          accountModes,
+          settings: policySettings(permissionSettings()),
+        }),
+      ceilingOf: (id) => clientSessions.ceiling(id),
       processIdleMinutes:
         options.processIdleMinutes ?? (() => readSettings({ all: (sql, ...params) => log.read(sql, ...params) })["providers.processIdleMinutes"]),
       ...options.adapterSeams,
@@ -400,9 +417,16 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     // The generic settings (#117), on the environment's settings stream.
     ...settingsMethods({ log, environmentId: record.id, onChange: (keys) => settleSweep.settingsChanged(keys) }),
     ...accessMethods({ pairings, clientSessions, accessLog }),
-    ...sessionMethods({ log, clock: now, deletion, validateRunParameters: host.validateSessionInput }),
+    ...sessionMethods({
+      log,
+      clock: now,
+      deletion,
+      validateRunParameters: host.validateSessionInput,
+      clampSessionMode: sessionModeClamp({ host, ceilingOf: (id) => clientSessions.ceiling(id) }),
+    }),
     ...groupMethods({ log, clock: now }),
-    ...runMethods({ log, host }),
+    ...runMethods({ log, host, ceilingOf: (id) => clientSessions.ceiling(id) }),
+    ...permissionMethods({ log, host, accessLog, clock, environmentId: record.id, ceilingOf: (id) => clientSessions.ceiling(id) }),
     ...processMethods({ log, host }),
   });
 

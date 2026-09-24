@@ -49,6 +49,8 @@ export interface PairingsOptions {
   readonly clock: Clock;
   /** The link a code is shown as: `http://<address>/pair#<code>`, on the address a client should use. */
   readonly link: (code: string) => string;
+  /** The ceiling a pairing gives when none is chosen, read in the minting transaction: the setting `permissions.defaultCeiling`. Preset: its preset. */
+  readonly defaultCeiling?: () => Ceiling;
 }
 
 /** A pairing as memory mirrors the table, by code hash. */
@@ -103,7 +105,7 @@ export const createPairings = (options: PairingsOptions): Pairings => {
         id: randomUUID(),
         codeHash: hash(code),
         scopes: [...(choice.scopes ?? SCOPES)],
-        ceiling: choice.ceiling ?? DEFAULT_CEILING,
+        ceiling: choice.ceiling ?? options.defaultCeiling?.() ?? DEFAULT_CEILING,
         createdAt: new Date(now).toISOString(),
         expiresAt: new Date(now + PAIRING_TTL_MS).toISOString(),
         exchangedAt: null,

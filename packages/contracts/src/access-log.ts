@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { BypassAcknowledgedPayload } from "./permissions.js";
+import { SettingsChangedPayload } from "./permissions-settings.js";
 import { ClientKind, ClientSessionId, PairingId, Timestamp } from "./primitives.js";
 import { Ceiling, ScopeSet } from "./scopes.js";
 
@@ -94,9 +96,17 @@ export const ScopeGrantedPayload = z
 
 export const CeilingChangedPayload = z
   .object({ clientSessionId: ClientSessionId, from: Ceiling, to: Ceiling })
-  .meta({ description: "ceiling.changed: a client session's ceiling was changed, which only an admin may do." });
+  .meta({
+    description:
+      "ceiling.changed: a client session's ceiling was changed, by another client session with admin scope (access.sessions.setCeiling); it applies to the session's next run.",
+  });
 
-/** Every event type the access stream carries, in the order the env spec lists them. */
+/**
+ * Every event type the access stream carries, in the order the env spec
+ * lists them, then the permissions spec's: the first acknowledgement of
+ * bypass, and changes to the permission settings. The specs name these on
+ * the access stream `access.*`; the prefix is the stream, not the type.
+ */
 export const ACCESS_EVENT_TYPES = [
   "pairing.created",
   "pairing.exchanged",
@@ -108,10 +118,12 @@ export const ACCESS_EVENT_TYPES = [
   "socket.closed",
   "scope.granted",
   "ceiling.changed",
+  "bypass.acknowledged",
+  "settings.changed",
 ] as const;
 export const AccessEventType = z.enum(ACCESS_EVENT_TYPES).meta({
   description:
-    "The event types of the access stream: pairing created, exchanged, expired; client session created, refreshed, revoked; socket opened, closed; scope granted; ceiling changed.",
+    "The event types of the access stream: pairing created, exchanged, expired; client session created, refreshed, revoked; socket opened, closed; scope granted; ceiling changed; bypass acknowledged; settings changed.",
 });
 export type AccessEventType = z.infer<typeof AccessEventType>;
 
@@ -127,6 +139,8 @@ export const ACCESS_EVENT_PAYLOADS = {
   "socket.closed": SocketClosedPayload,
   "scope.granted": ScopeGrantedPayload,
   "ceiling.changed": CeilingChangedPayload,
+  "bypass.acknowledged": BypassAcknowledgedPayload,
+  "settings.changed": SettingsChangedPayload,
 } as const satisfies Record<AccessEventType, z.ZodObject>;
 
 export type AccessEventPayload<T extends AccessEventType> = z.infer<(typeof ACCESS_EVENT_PAYLOADS)[T]>;

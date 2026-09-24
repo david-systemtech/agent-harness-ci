@@ -34,7 +34,7 @@ import { emptyStream, step, type StreamInput, type StreamKind, type StreamState,
  * - while the session list is catching up the connection is `syncing`.
  */
 
-/** How long a subscription waits for `subscribed` before it is a fault. The request timeout's chosen default. */
+/** How long a subscription waits for `subscribed` before it is a fault: the stream's own timer, since a request on the socket has none; the 30 seconds the specification chose for `requests.call`. */
 export const SUBSCRIBE_TIMEOUT_MS = 30_000;
 /** An overflow within this long of the one before counts as another in a row. */
 export const OVERFLOW_WINDOW_MS = 60_000;
@@ -210,6 +210,7 @@ export const createAttacher = (options: AttachOptions): Attacher => {
         return;
       }
       case "synchronized":
+        // Never a failed step: it only moves the cursor forward (a head at or below it leaves it) and reads no payload.
         input(stream, { type: "synchronized", sequence: message.sequence });
         stream.recovering = false;
         return syncing(stream, false);

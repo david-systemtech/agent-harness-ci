@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ClampReason",
+  "type": "string",
+  "enum": [
+    "ceiling",
+    "unavailable"
+  ],
+  "description": "Why a mode was lowered: ceiling (above the ceiling, lowered to it), or unavailable (the mode it would have had is one the account lists as unavailable, so the next lower available one)."
+}

@@ -79,6 +79,7 @@ const summary = (id: string, title: string, at: string): SessionSummary => ({
   parkedPromptCount: 0,
   accountId: null,
   model: null,
+  mode: null,
   pullRequests: [],
   draft: null,
 });
