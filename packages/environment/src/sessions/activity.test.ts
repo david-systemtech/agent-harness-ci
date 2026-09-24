@@ -129,8 +129,11 @@ describe("a run's start", () => {
       sessionId: id,
       fields: { settledAt: null, settledOverride: null, settledBy: null, unsettledAt: at(MINUTE) },
     });
+    // Every companion moves updatedAt to the run's instant: the unarchive's patch carries it, and the patches after it,
+    // in the same transaction at the same instant, have nothing left to change there (a patch is the fields that changed).
     expect(patchOf(listed[3])).toEqual({ op: "set", sessionId: id, fields: { snoozedUntil: null, snoozedAt: null } });
     expect(await get(client, id)).toMatchObject({
+      updatedAt: at(MINUTE),
       archivedAt: null,
       settledAt: null,
       settledOverride: null,
@@ -158,6 +161,27 @@ describe("a run's start", () => {
       const types = eventsOf(t, id, head, sequence).map((event) => event.type);
       expect(types, name).toEqual(["run.started", "run.policy.resolved", "message.sent", ...companions, "session.title-generated"]);
     }
+  });
+
+  it("moves updatedAt to the run's start with the companion alone, as a shelf event does, and leaves the active order and the auto-settle anchor to the run's instant", async () => {
+    const t = await start();
+    const client = await t.client();
+    const { id } = await create(client);
+    await command(client, "sessions.settle", { sessionId: id });
+    const list = await listStream(client, t.env.log.head());
+    t.clock.advance(MINUTE);
+
+    await startRun(client, id);
+
+    expect((await list.next()).type).toBe("run.started");
+    const unsettled = await list.next();
+    expect(unsettled.type).toBe("session.unsettled");
+    expect(patchOf(unsettled)).toEqual({
+      op: "set",
+      sessionId: id,
+      fields: { settledAt: null, settledOverride: null, settledBy: null, unsettledAt: at(MINUTE), updatedAt: at(MINUTE) },
+    });
+    expect(await get(client, id)).toMatchObject({ updatedAt: at(MINUTE), unsettledAt: at(MINUTE), lastActivityAt: at(MINUTE) });
   });
 
   it("clears a user's active override on a session that is not settled, with session.unsettled reason activity, so auto-settle applies again", async () => {
@@ -468,7 +492,8 @@ describe("the generated title", () => {
 
     const events = eventsOf(t, id, head, first.sequence);
     const titled = events.at(-1) as EventEnvelope;
-    // The line as the rule leaves it, written out: its white space collapsed by hand, then cut to 80 and trimmed.
+    // The line as the rule leaves it, written out: its white space collapsed and its ends trimmed by hand, then cut to
+    // 80 code points and the white space left at the cut trimmed (the order `generatedTitle` applies).
     const expected = `Fix the receipts ${"and the sweep ".repeat(8)}`.slice(0, 80).trimEnd();
     expect(titled).toMatchObject({ type: "session.title-generated", payload: { title: expected, source: "prompt" } });
     expect(titled.causationId).toBe(events.find((event) => event.type === "message.sent")?.eventId);
