@@ -161,6 +161,31 @@ describe("commands.dispatch", () => {
     expect(pendingCount(runtime)).toBe(0);
   });
 
+  it("counts a retry refused for what its own earlier attempt did as accepted: a create that exists, a delete of what is gone", async () => {
+    const { runtime, wire, clock, id } = await paired();
+    wire.answer("groups.create", () => undefined);
+    wire.answer("sessions.delete", () => undefined);
+    const groupId = randomUUID();
+    const sessionId = randomUUID();
+    const created = runtime.commands.dispatch(id, "groups.create", { id: groupId, name: "Brandsolidate" });
+    const deleted = runtime.commands.dispatch(id, "sessions.delete", { sessionId });
+    await wire.server.request("groups.create");
+    wire.server.drop();
+    await flush();
+
+    // Under another client session the environment runs the retries again rather than answering from its receipts.
+    wire.answer("groups.create", () => answering(rejected(8, "conflict", { reason: "exists", groupId })));
+    wire.answer("sessions.delete", () => answering(rejected(8, "not_found", { kind: "session", sessionId })));
+    clock.advance(1250);
+    await wire.server.accept();
+    expect(await created).toMatchObject({ ok: true, receipt: { status: "accepted", sequence: 8, changed: false } });
+    // The delete was never sent before the drop, so its refusal is its own.
+    expect(await deleted).toMatchObject({ ok: false, error: { code: "not_found" } });
+    expect(runtime.projections.notices.read().filter((n) => n.kind === "command-rejected").map((n) => n.message)).toEqual([
+      "Delete on a session was rejected: it no longer exists.",
+    ]);
+  });
+
   it("re-sends a runs:drive command in flight when the socket drops, but fails one still waiting its turn with unreachable", async () => {
     const { runtime, wire, clock, id } = await paired();
     wire.answer("runs.interrupt", () => undefined);

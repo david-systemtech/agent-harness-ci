@@ -378,9 +378,19 @@ export const createOutbox = (host: OutboxHost): Outbox => {
     if (!(error instanceof SocketClosedError) && !(error instanceof NotConnectedError)) report(error);
   };
 
-  /** A create answered `exists` after an earlier attempt of its own: that attempt applied it, under a client session since replaced. */
-  const ownEarlierCreate = (entry: OutboxEntry, receipt: RejectedReceipt) =>
-    entry.attempts > 1 && (entry.method === "groups.create" || entry.method === "sessions.create") && receipt.reason === "conflict" && receipt.error.data["reason"] === "exists";
+  /**
+   * A retry refused for what its own earlier attempt did: a create answered
+   * `exists`, a delete or purge answered `not_found`. The environment keys
+   * receipts by client session, so a retry under another one (the local
+   * connection's is new on every start; a re-pair makes a new one) is run
+   * again rather than answered from the receipt. The command's intent holds,
+   * so it counts as accepted, changing nothing.
+   */
+  const ownEarlierAttempt = (entry: OutboxEntry, receipt: RejectedReceipt) => {
+    if (entry.attempts < 2) return false;
+    if (entry.method === "groups.create" || entry.method === "sessions.create") return receipt.reason === "conflict" && receipt.error.data["reason"] === "exists";
+    return (entry.method === "sessions.delete" || entry.method === "sessions.purge" || entry.method === "groups.delete") && receipt.reason === "not_found";
+  };
 
   const answered = (environmentId: string, commandId: string, response: ResponseFrame) => {
     const sender = senders.get(environmentId);
@@ -403,7 +413,7 @@ export const createOutbox = (host: OutboxHost): Outbox => {
       } else {
         const { receipt, result } = parsed.data as { receipt: CommandReceipt; result?: unknown };
         if (receipt.status === "accepted") acknowledge(entry, receipt, result);
-        else if (ownEarlierCreate(entry, receipt)) acknowledge(entry, { status: "accepted", sequence: receipt.sequence, changed: false }, undefined);
+        else if (ownEarlierAttempt(entry, receipt)) acknowledge(entry, { status: "accepted", sequence: receipt.sequence, changed: false }, undefined);
         else fail(entry, { code: receipt.reason, message: receipt.error.message, data: receipt.error.data, receipt });
       }
     }
