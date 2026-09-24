@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
   Ceiling,
+  PERMISSION_SETTINGS,
   SCOPES,
   type BootstrapKind,
   type ClientKind,
@@ -27,21 +28,14 @@ export const TUI_REVOKE_AFTER_MS = 60 * MINUTE;
 /** How often the environment sweeps: idle `tui` local client sessions, and expired pairing codes. */
 export const SWEEP_INTERVAL_MS = MINUTE;
 
-/**
- * The ceiling the bootstrap grant's local client sessions get: the top one. Ceiling
- * values are the permissions workstream's (#129); this is the one place the
- * environment names the top one until then.
- */
-export const TOP_CEILING: Ceiling = Ceiling.parse("bypassPermissions");
+/** The ceiling the bootstrap grant's local client sessions get: the top one (permissions spec, "Ceilings"). */
+export const TOP_CEILING: Ceiling = "bypassPermissions";
 
 /**
- * The ceiling a pairing gives when none is chosen: the environment's default
- * ceiling. A chosen default, the top one, since every paired client is the
- * same person (ADR 0001) and the preset scopes include `admin`, which may
- * raise it anyway; the settings store (#117) and the permissions workstream
- * (#129) make it a setting.
+ * The ceiling a pairing gives when none is chosen and the setting
+ * `permissions.defaultCeiling` has not been changed: its preset, acceptEdits.
  */
-export const DEFAULT_CEILING: Ceiling = TOP_CEILING;
+export const DEFAULT_CEILING: Ceiling = PERMISSION_SETTINGS["permissions.defaultCeiling"].preset;
 
 /** A client session a token has been verified for: what `hello` and the scope check need. */
 export interface VerifiedClientSession {
@@ -112,6 +106,24 @@ export interface ClientSessions {
    * when it was, and `changed` false.
    */
   revoke(tx: Tx, id: string, reason: RevocationReason, attribution: Attribution): { readonly revokedAt: string; readonly changed: boolean } | undefined;
+  /**
+   * Sets another client session's ceiling, recorded as `ceiling.changed`;
+   * once committed, its next run and its next `hello` have it. Undefined
+   * when it is unknown; `revoked` when it has been revoked; `changed` false
+   * when it has the ceiling already.
+   */
+  setCeiling(
+    tx: Tx,
+    id: string,
+    ceiling: Ceiling,
+    attribution: Attribution,
+  ): { readonly from: Ceiling; readonly to: Ceiling; readonly changed: boolean } | "revoked" | undefined;
+  /**
+   * The client session's ceiling now; undefined when it is unknown, revoked
+   * or expired, so nothing is started under the ceiling of a client session
+   * that can no longer act (a run from the queue waits instead).
+   */
+  ceiling(id: string): Ceiling | undefined;
   /** Every client session, oldest first; with `live`, only those neither revoked nor expired. */
   list(options: { readonly live: boolean }): ClientSessionSummary[];
   /** Hears every revocation, once, after it is committed. Returns the unsubscribe. */
@@ -170,7 +182,7 @@ interface Mirrored {
   readonly kind: ClientKind;
   readonly label: string;
   readonly scopes: readonly Scope[];
-  readonly ceiling: Ceiling;
+  ceiling: Ceiling;
   readonly local: boolean;
   readonly createdAt: number;
   expiresAt: number;
@@ -345,6 +357,23 @@ export const createClientSessions = (options: ClientSessionsOptions): ClientSess
     },
 
     revoke,
+
+    setCeiling(tx, id, ceiling, attribution) {
+      const entry = known.get(id);
+      if (!entry) return undefined;
+      if (entry.revokedAt !== null) return "revoked";
+      const from = entry.ceiling;
+      if (from === ceiling) return { from, to: ceiling, changed: false };
+      table.setCeiling(tx, id, ceiling);
+      accessLog.record(tx, "ceiling.changed", { clientSessionId: id, from, to: ceiling }, attribution);
+      tx.afterCommit(() => (entry.ceiling = ceiling));
+      return { from, to: ceiling, changed: true };
+    },
+
+    ceiling(id) {
+      const entry = known.get(id);
+      return entry === undefined || !live(entry, clock.now().getTime()) ? undefined : entry.ceiling;
+    },
 
     list({ live: liveOnly }) {
       const now = clock.now().getTime();

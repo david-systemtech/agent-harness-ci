@@ -39,6 +39,10 @@ const memoryTable = () => {
       const existing = stored.get(id);
       if (existing) existing.expiresAt = expiresAt;
     },
+    setCeiling: (_tx, id, ceiling) => {
+      const existing = stored.get(id);
+      if (existing) existing.ceiling = ceiling;
+    },
   };
   return { table, stored, reads: () => reads };
 };

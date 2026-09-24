@@ -8,6 +8,7 @@ import {
   RunId,
 } from "./adapter.js";
 import type { EventTypeEntry } from "./event-types.js";
+import { Mode } from "./permissions-modes.js";
 import { JsonObject, Sequence, Timestamp } from "./primitives.js";
 import { Ceiling } from "./scopes.js";
 import { SessionId, SessionSummary, SummaryPatch, Workspace } from "./sessions.js";
@@ -72,11 +73,11 @@ export type AttachmentRecord = z.infer<typeof AttachmentRecord>;
 /** A run's mode: what was asked for, what the run got after the ceiling's clamp, and whether it was clamped (ADR 0006). */
 export const RunMode = z
   .object({
-    requested: z.string().min(1).nullable().meta({ description: "The mode asked for, by the command or the session; null for the adapter's own." }),
-    effective: z.string().min(1).nullable().meta({ description: "The mode the run got, after the clamp to the connection's ceiling." }),
-    clamped: z.boolean().meta({ description: "Whether the clamp lowered the mode asked for." }),
+    requested: Mode.nullable().meta({ description: "The mode asked for, by the command or the session; null when neither names one, so a default applied." }),
+    effective: Mode.meta({ description: "The mode the run got, after the clamp to the client session's ceiling and the account's modes." }),
+    clamped: z.boolean().meta({ description: "Whether the clamp lowered the mode asked for; run.policy.resolved says why." }),
   })
-  .meta({ description: "A run's mode: requested, effective after the ceiling's clamp, and whether it was clamped." });
+  .meta({ description: "A run's mode: requested, effective after the ceiling's clamp, and whether it was clamped; run.policy.resolved has the rest." });
 export type RunMode = z.infer<typeof RunMode>;
 
 /** One model's token spend in a run, as the provider reports it. */
@@ -155,7 +156,7 @@ export const MessageSentPayload = z
     heldBy: QueueHolder.nullable().meta({ description: "Who holds a queued message; null for a prompt." }),
     ceiling: Ceiling.meta({
       description:
-        "The ceiling of the connection that sent it (ADR 0006): a run the environment later starts with it is clamped to it, as well as to the ceiling of whoever started that run.",
+        "The ceiling of the client session that sent it (ADR 0006): a run the environment later starts with it is clamped to it, as well as to the ceiling of whoever started that run.",
     }),
   })
   .meta({ description: "message.sent: a client sent the session a message; runId is the run it starts, or the run live when it was queued." });

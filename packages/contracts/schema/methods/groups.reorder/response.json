@@ -104,8 +104,8 @@
             },
             "name": {
               "type": "string",
-              "pattern": "^\\s*\\S(?:[\\s\\S]{0,78}\\S)?\\s*$",
-              "description": "A group's name: 1 to 80 characters once trimmed; stored trimmed with white space collapsed, unique per environment ignoring case."
+              "pattern": "^\\s*[^\\s\\p{Cc}\\p{Cf}](?:(?:[^\\p{Cc}\\p{Cf}]|[\\t\\n\\v\\f\\r]){0,78}[^\\s\\p{Cc}\\p{Cf}])?\\s*$",
+              "description": "A group's name: 1 to 80 characters once trimmed, no control or format (zero-width) characters other than white space; stored trimmed with white space collapsed, unique per environment ignoring case."
             },
             "orderKey": {
               "anyOf": [

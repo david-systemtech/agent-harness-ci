@@ -90,6 +90,10 @@
             "type": "boolean",
             "description": "A message can carry file attachments."
           },
+          "modeChange": {
+            "type": "boolean",
+            "description": "A live run's mode can be changed (permissions.mode.set); without it a new mode applies at the session's next run."
+          },
           "instructionChannel": {
             "type": "object",
             "properties": {
@@ -126,10 +130,68 @@
           "modes": {
             "type": "array",
             "items": {
-              "type": "string",
-              "minLength": 1
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "mode": {
+                      "type": "string",
+                      "enum": [
+                        "plan",
+                        "acceptEdits",
+                        "auto",
+                        "bypassPermissions"
+                      ],
+                      "description": "What an agent may do without asking during a run, in the order ceilings use: plan < acceptEdits < auto < bypassPermissions. Claude's default and dontAsk are never used."
+                    },
+                    "available": {
+                      "type": "boolean",
+                      "const": true
+                    },
+                    "reason": {
+                      "type": "null",
+                      "description": "Null: the mode is available."
+                    }
+                  },
+                  "required": [
+                    "mode",
+                    "available",
+                    "reason"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "mode": {
+                      "type": "string",
+                      "enum": [
+                        "plan",
+                        "acceptEdits",
+                        "auto",
+                        "bypassPermissions"
+                      ],
+                      "description": "What an agent may do without asking during a run, in the order ceilings use: plan < acceptEdits < auto < bypassPermissions. Claude's default and dontAsk are never used."
+                    },
+                    "available": {
+                      "type": "boolean",
+                      "const": false
+                    },
+                    "reason": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "Why the account cannot use the mode, for people."
+                    }
+                  },
+                  "required": [
+                    "mode",
+                    "available",
+                    "reason"
+                  ]
+                }
+              ],
+              "description": "Whether an account can use a mode and, when it cannot, why."
             },
-            "description": "The modes the adapter maps onto its provider (ADR 0006)."
+            "description": "The modes the adapter maps onto its provider (ADR 0006), each available or not with the reason; a run asking for an unavailable or unlisted mode gets the next lower available one."
           }
         },
         "required": [
@@ -153,6 +215,7 @@
           "commands",
           "imageInput",
           "fileInput",
+          "modeChange",
           "instructionChannel",
           "modes"
         ],

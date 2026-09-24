@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ModeAvailability",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "plan",
+            "acceptEdits",
+            "auto",
+            "bypassPermissions"
+          ],
+          "description": "What an agent may do without asking during a run, in the order ceilings use: plan < acceptEdits < auto < bypassPermissions. Claude's default and dontAsk are never used."
+        },
+        "available": {
+          "type": "boolean",
+          "const": true
+        },
+        "reason": {
+          "type": "null",
+          "description": "Null: the mode is available."
+        }
+      },
+      "required": [
+        "mode",
+        "available",
+        "reason"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "plan",
+            "acceptEdits",
+            "auto",
+            "bypassPermissions"
+          ],
+          "description": "What an agent may do without asking during a run, in the order ceilings use: plan < acceptEdits < auto < bypassPermissions. Claude's default and dontAsk are never used."
+        },
+        "available": {
+          "type": "boolean",
+          "const": false
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Why the account cannot use the mode, for people."
+        }
+      },
+      "required": [
+        "mode",
+        "available",
+        "reason"
+      ]
+    }
+  ],
+  "description": "Whether an account can use a mode and, when it cannot, why."
+}

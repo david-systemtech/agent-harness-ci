@@ -11,9 +11,14 @@
         "enum": [
           "sessions.autoSettleAfterIdle",
           "sessions.autoSettleOnMerge",
-          "providers.processIdleMinutes"
+          "providers.processIdleMinutes",
+          "permissions.defaultCeiling",
+          "permissions.unattended.mode",
+          "permissions.unattended.bypassAcknowledgedAt",
+          "permissions.parkedPrompt.ttl",
+          "permissions.containment.default"
         ],
-        "description": "A settings key: sessions.autoSettleAfterIdle, sessions.autoSettleOnMerge, providers.processIdleMinutes."
+        "description": "A settings key: sessions.autoSettleAfterIdle, sessions.autoSettleOnMerge, providers.processIdleMinutes, permissions.defaultCeiling, permissions.unattended.mode, permissions.unattended.bypassAcknowledgedAt, permissions.parkedPrompt.ttl, permissions.containment.default."
       },
       "uniqueItems": true
     }

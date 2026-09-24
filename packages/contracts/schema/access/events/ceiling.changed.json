@@ -10,13 +10,23 @@
     },
     "from": {
       "type": "string",
-      "minLength": 1,
-      "description": "The highest mode a client session may use; its values are the permissions workstream's."
+      "enum": [
+        "plan",
+        "acceptEdits",
+        "auto",
+        "bypassPermissions"
+      ],
+      "description": "The highest mode a client session, and anything created through it, may use: plan, acceptEdits, auto or bypassPermissions."
     },
     "to": {
       "type": "string",
-      "minLength": 1,
-      "description": "The highest mode a client session may use; its values are the permissions workstream's."
+      "enum": [
+        "plan",
+        "acceptEdits",
+        "auto",
+        "bypassPermissions"
+      ],
+      "description": "The highest mode a client session, and anything created through it, may use: plan, acceptEdits, auto or bypassPermissions."
     }
   },
   "required": [
@@ -24,5 +34,5 @@
     "from",
     "to"
   ],
-  "description": "ceiling.changed: a client session's ceiling was changed, which only an admin may do."
+  "description": "ceiling.changed: a client session's ceiling was changed, by another client session with admin scope (access.sessions.setCeiling); it applies to the session's next run."
 }
