@@ -61,7 +61,7 @@ describe("compacting a stream", () => {
       stream: s1,
       sequence: four,
       streamVersion: 4,
-      folded: 2,
+      removed: 2,
       payload: { notes: ["one", "three"] },
       createdAt: AT,
     });
@@ -88,7 +88,7 @@ describe("compacting a stream", () => {
 
     expect(compact(log, s1, four, [three], { again: true })).toBe(1);
 
-    expect(log.readSnapshot(s1)).toMatchObject({ sequence: four, streamVersion: 4, folded: 3, payload: { again: true } });
+    expect(log.readSnapshot(s1)).toMatchObject({ sequence: four, streamVersion: 4, removed: 3, payload: { again: true } });
     expect(log.readStream(s1).map((event) => [event.sequence, event.streamVersion])).toEqual([[four, 4]]);
   });
 
@@ -112,7 +112,7 @@ describe("compacting a stream", () => {
 
     expect(() => compact(log, s1, one, [])).toThrow(/below/);
     expect(() => compact(log, s1, three + 1, [])).toThrow(/last event/);
-    expect(log.readSnapshot(s1)).toMatchObject({ sequence: two, folded: 1 });
+    expect(log.readSnapshot(s1)).toMatchObject({ sequence: two, removed: 1 });
   });
 
   it("commits with the atomically it is part of, and not at all when that rolls back", () => {
@@ -154,7 +154,7 @@ describe("compacting a stream", () => {
     first.close();
 
     const second = track(openEventLog({ path }));
-    expect(second.readSnapshot(s1)).toMatchObject({ sequence: two, streamVersion: 2, folded: 1 });
+    expect(second.readSnapshot(s1)).toMatchObject({ sequence: two, streamVersion: 2, removed: 1 });
     expect(second.append(s1, [note("three")], { actor }).events[0]).toMatchObject({ streamVersion: 3 });
     expect(second.readStream(s1).map((event) => event.sequence)).toEqual([one, two + 1]);
   });
@@ -168,10 +168,10 @@ describe("compacting a stream", () => {
     old.close();
     // Back to the schema before the columns, the row still in it.
     const raw = new (loadSqlite().DatabaseSync)(path);
-    raw.exec("ALTER TABLE snapshots DROP COLUMN stream_version; ALTER TABLE snapshots DROP COLUMN folded; PRAGMA user_version = 4;");
+    raw.exec("ALTER TABLE snapshots DROP COLUMN stream_version; ALTER TABLE snapshots DROP COLUMN removed; PRAGMA user_version = 4;");
     raw.close();
 
-    expect(track(openEventLog({ path })).readSnapshot(s1)).toMatchObject({ sequence: 3, streamVersion: 0, folded: 0, payload: { older: true } });
+    expect(track(openEventLog({ path })).readSnapshot(s1)).toMatchObject({ sequence: 3, streamVersion: 0, removed: 0, payload: { older: true } });
   });
 });
 

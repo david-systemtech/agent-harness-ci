@@ -14,7 +14,7 @@ export interface Snapshot {
   /** The stream version of that event: the stream's next event is numbered above it, whatever a compaction removed. 0 when none was recorded. */
   readonly streamVersion: number;
   /** How many events the stream's compactions have removed, all told. */
-  readonly folded: number;
+  readonly removed: number;
   readonly payload: unknown;
   /** ISO 8601, UTC. */
   readonly createdAt: string;
@@ -34,7 +34,7 @@ interface SnapshotRow {
   stream_id: string;
   sequence: number;
   stream_version: number;
-  folded: number;
+  removed: number;
   payload: string;
   created_at: string;
 }
@@ -54,7 +54,7 @@ export const createSnapshots = (sql: Sql, clock: () => Date) => {
           stream: { kind: row.stream_kind, id: row.stream_id },
           sequence: row.sequence,
           streamVersion: row.stream_version,
-          folded: row.folded,
+          removed: row.removed,
           payload: JSON.parse(row.payload) as unknown,
           createdAt: row.created_at,
         }
@@ -121,10 +121,10 @@ export const createSnapshots = (sql: Sql, clock: () => Date) => {
         named,
       );
       sql.run(
-        `INSERT INTO snapshots (stream_kind, stream_id, sequence, stream_version, folded, payload, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO snapshots (stream_kind, stream_id, sequence, stream_version, removed, payload, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT (stream_kind, stream_id) DO UPDATE
          SET sequence = excluded.sequence, stream_version = MAX(stream_version, excluded.stream_version),
-             folded = folded + excluded.folded, payload = excluded.payload, created_at = excluded.created_at`,
+             removed = removed + excluded.removed, payload = excluded.payload, created_at = excluded.created_at`,
         stream.kind,
         stream.id,
         compaction.sequence,

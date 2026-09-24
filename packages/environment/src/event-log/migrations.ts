@@ -120,7 +120,7 @@ export const MIGRATIONS: readonly Migration[] = [
     // A compaction (#123) may remove a stream's last events; the version it folded to keeps the stream's next one above them.
     sql: `
       ALTER TABLE snapshots ADD COLUMN stream_version INTEGER NOT NULL DEFAULT 0;
-      ALTER TABLE snapshots ADD COLUMN folded INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE snapshots ADD COLUMN removed INTEGER NOT NULL DEFAULT 0;
     `,
   },
 ];

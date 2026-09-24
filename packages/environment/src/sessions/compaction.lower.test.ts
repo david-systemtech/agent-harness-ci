@@ -8,6 +8,7 @@ import { settingsProjector } from "../settings/settings-store.js";
 import { createCompactionSweep } from "./compaction.js";
 import { createDeletion } from "./deletion.js";
 import { sessionListProjector } from "./session-list.js";
+import { SETTLE_SWEEP_ACTOR } from "./settle-sweep.js";
 
 /**
  * Transcript compaction at the lower seam (env spec, "Testing Decisions":
@@ -163,7 +164,7 @@ describe("compacting an old session", () => {
       stream: stream(old),
       sequence: last?.sequence,
       streamVersion: last?.streamVersion,
-      folded: before.length - keptEvents.length,
+      removed: before.length - keptEvents.length,
       payload: fold,
       createdAt: clock.now().toISOString(),
     });
@@ -207,7 +208,7 @@ describe("compacting an old session", () => {
 
     const second = log.readSnapshot(stream(old));
     expect(second?.sequence).toBe(log.readStream(stream(old)).at(-1)?.sequence);
-    expect(second?.folded).toBe(2 * (first?.folded ?? 0));
+    expect(second?.removed).toBe(2 * (first?.removed ?? 0));
     expect(second?.payload).toEqual(whole);
     expect(sessionTranscript(log, old)).toEqual(whole);
     expect(typesOf(log, old).filter((type) => REMOVED.has(type))).toEqual([]);
@@ -261,6 +262,36 @@ describe("which sessions are compacted", () => {
     clock.advance(THRESHOLD + 1);
     expect(sweep.sweep().compacted).toEqual([]);
     expect(log.readSnapshot(stream("9b2f3e40-3c1a-4d8e-9a57-2e6f0a1b2c3d"))).toEqual(snapshot);
+  });
+
+  it("does not count the shelf sweep's own events as a touch, and counts the same event appended by anyone else", () => {
+    const clock = manualClock();
+    const log = open(clock);
+    seedOld(log, old);
+    seedOld(log, touched, runIds[1], [messageIds[2], "6e8a0c2e-4a6c-4e8a-8c2e-4a6c8e0a2c4e"]);
+    clock.advance(80 * DAY);
+    const settled = { type: "session.settled", payload: { settledAt: clock.now().toISOString(), by: "auto-idle" } };
+    log.append(stream(old), [settled], { actor: SETTLE_SWEEP_ACTOR });
+    log.append(stream(touched), [settled], { actor });
+
+    clock.advance(10 * DAY + 1);
+
+    expect(createCompactionSweep({ log, clock }).sweep().compacted).toEqual([old]);
+  });
+
+  it("leaves a session with a prompt parked on it, however old", () => {
+    const clock = manualClock();
+    const log = open(clock);
+    seedOld(log, old);
+    log.append(stream(old), [{ type: "prompt.opened", payload: { runId: runIds[0], promptId: "prompt-1" } }], { actor: "adapter:fake" });
+    const sweep = createCompactionSweep({ log, clock });
+    clock.advance(2 * THRESHOLD);
+
+    expect(sweep.sweep().compacted).toEqual([]);
+
+    log.append(stream(old), [{ type: "prompt.answered", payload: { runId: runIds[0], promptId: "prompt-1" } }], { actor: "adapter:fake" });
+    clock.advance(THRESHOLD + 1);
+    expect(sweep.sweep().compacted).toEqual([old]);
   });
 
   it("reads its window from the setting sessions.transcriptCompactAfterDays, preset 90", () => {

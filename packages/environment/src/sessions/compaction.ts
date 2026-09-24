@@ -45,8 +45,10 @@ import { sessionStream } from "./streams.js";
  * of it, and a client that holds the session loses nothing.
  */
 
-/** How often the sweep runs. */
-export const COMPACTION_SWEEP_INTERVAL_MS = 24 * 60 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** How often the sweep runs: once a day. */
+export const COMPACTION_SWEEP_INTERVAL_MS = DAY_MS;
 
 /** The transcript types a compaction removes: the fold's items and run facts, none of which a projector reads. */
 export const COMPACTION_REMOVES = [
@@ -84,8 +86,6 @@ export interface CompactionSweepOptions {
   readonly log: EventLog;
   readonly clock: Clock;
 }
-
-const DAY_MS = 24 * 60 * 60 * 1000;
 
 const removable = new Set<string>([...COMPACTION_REMOVES, LEDGER_TYPE]);
 const sqlList = (values: readonly string[]): string => values.map((value) => `'${value}'`).join(", ");
