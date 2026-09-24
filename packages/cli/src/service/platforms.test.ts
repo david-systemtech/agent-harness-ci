@@ -142,17 +142,27 @@ describe("the systemd user unit", () => {
     }
   });
 
-  it("install puts the replaced unit back when the enablement probe itself cannot run", async () => {
+  it("install treats an enablement probe that cannot run as not enabled, and still puts the replaced unit back on a refusal", async () => {
     const home = tempHome();
     mkdirSync(dirname(unitPath(home)), { recursive: true });
     writeFileSync(unitPath(home), "the previous unit\n");
-    const { service } = platformFor("linux", home, (_, args) => {
-      if (args.includes("is-enabled")) throw new Error("Could not run systemctl: spawn ENOENT");
-      return undefined;
+    const { service, calls } = platformFor("linux", home, (_, args) => {
+      if (args.includes("is-enabled")) throw new Error("spawn systemctl ENOENT");
+      return args.includes("try-restart") ? { code: 1 } : undefined;
     });
 
-    await expect(service.install(specIn(home))).rejects.toThrow(/Could not run systemctl/);
+    await expect(service.install(specIn(home))).rejects.toThrow(ServiceCommandError);
     expect(readFileSync(unitPath(home), "utf8")).toBe("the previous unit\n");
+    expect(calls.filter((call) => call.includes(" disable "))).toEqual(["systemctl --user disable agent-harness.service"]);
+  });
+
+  it("reports not running and no notes when systemctl and loginctl cannot be spawned at all", async () => {
+    const home = tempHome();
+    const { service } = platformFor("linux", home, () => {
+      throw new Error("spawn systemctl ENOENT");
+    });
+    expect(await service.isRunning()).toBe(false);
+    expect(await service.notes()).toEqual([]);
   });
 
   it("install changes nothing and runs nothing when the existing unit cannot be read", async () => {

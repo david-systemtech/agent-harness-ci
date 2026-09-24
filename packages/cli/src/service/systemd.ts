@@ -70,7 +70,7 @@ export const systemdPlatform = (installContext: InstallContext, commands: Servic
   const wantsDir = posix.join(configHome, "systemd", "user", "default.target.wants");
   const systemctl = (...args: string[]) => commands.run("systemctl", ["--user", ...args]);
   const isEnabled = async () => {
-    const result = await commands.query("systemctl", ["--user", "is-enabled", unit]);
+    const result = await commands.probe("systemctl", ["--user", "is-enabled", unit]);
     return result.code === 0 && result.stdout.trim() === "enabled";
   };
 
@@ -112,9 +112,9 @@ export const systemdPlatform = (installContext: InstallContext, commands: Servic
       await systemctl("start", unit);
     },
     isInstalled: async () => existsSync(path),
-    isRunning: async () => (await commands.query("systemctl", ["--user", "is-active", unit])).code === 0,
+    isRunning: async () => (await commands.probe("systemctl", ["--user", "is-active", unit])).code === 0,
     notes: async () => {
-      const linger = await commands.query("loginctl", ["show-user", installContext.username, "--property=Linger", "--value"]);
+      const linger = await commands.probe("loginctl", ["show-user", installContext.username, "--property=Linger", "--value"]);
       if (linger.code !== 0 || linger.stdout.trim() !== "no") return [];
       return [
         `Lingering is off for ${installContext.username}, so the service starts at your first login and stops at your last logout. ` +

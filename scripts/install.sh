@@ -29,7 +29,7 @@ set -eu
 # Temporary files, removed on any exit; INT and TERM exit as a shell killed by them would report.
 work=""
 partial=""
-trap 'rm -rf ${work:+"$work"} ${partial:+"$partial"}' EXIT
+trap '[ -n "$work" ] && rm -rf "$work"; [ -n "$partial" ] && rm -rf "$partial"; :' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 

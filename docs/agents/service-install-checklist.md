@@ -3,8 +3,10 @@
 The per-platform half of `agent-harness service` (ticket #113). The automated
 tests render each definition from a fixture and stub the service manager; these
 steps prove the definitions against the real one. Run each as an ordinary user,
-never root, and record the result in the pull request that changes the service
-verbs or the install script.
+never root, on a machine of that platform, and record the result in the pull
+request that changes the service verbs or the install script. When no machine
+of a platform is at hand, the pull request says so and lists that section as
+not run; the section stays owed until someone runs it on that platform.
 
 Until a release artefact exists, run the CLI from a checkout after `pnpm install`
 and `pnpm build`, as `node packages/cli/dist/main.js` (written `agent-harness`

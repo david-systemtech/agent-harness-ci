@@ -45,7 +45,7 @@ the event log uses; pnpm comes from the `packageManager` pin through
   is tested with the service manager stubbed; `scripts/install.sh` is the
   headless installer, tested by `test/install-script.test.ts` against a fake
   `curl`. What only a real launchd, `systemd --user` or Task Scheduler can prove
-  is the manual checklist in `docs/agents/service-install-checklist.md`, run
+  is the manual checklist in `docs/agents/service-install-checklist.md`, run (or listed as not run, per platform)
   when either changes.
 - Two local lint rules in `eslint-rules/` enforce ADR 0003 and 0004:
   `agent-harness/no-client-organisation-state` (its allowlisted modules and the

@@ -95,7 +95,7 @@ export const taskSchedulerPlatform = (installContext: InstallContext, commands: 
   const name = SERVICE_LABEL;
   const schtasks = (...args: string[]) => commands.run("schtasks", args);
   const isRunning = async () => {
-    const result = await commands.query("schtasks", ["/Query", "/TN", name, "/FO", "CSV", "/NH"]);
+    const result = await commands.probe("schtasks", ["/Query", "/TN", name, "/FO", "CSV", "/NH"]);
     // The status column is localised; "Running" is the English one (see the service install checklist).
     // Matched as a CSV field, wherever the column sits, so a verbose row with trailing columns still counts.
     return result.code === 0 && /(^|,)\s*"Running"\s*(,|$)/m.test(result.stdout);
@@ -140,7 +140,7 @@ export const taskSchedulerPlatform = (installContext: InstallContext, commands: 
     start: async () => {
       await schtasks("/Run", "/TN", name);
     },
-    isInstalled: async () => (await commands.query("schtasks", ["/Query", "/TN", name])).code === 0,
+    isInstalled: async () => (await commands.probe("schtasks", ["/Query", "/TN", name])).code === 0,
     isRunning,
     notes: async () => [],
   };

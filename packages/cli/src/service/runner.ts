@@ -37,6 +37,8 @@ export const processRunner: CommandRunner = (command, args) =>
 export interface ServiceCommands {
   /** Runs a command and returns what it left, whatever its exit code. */
   query(command: string, args: readonly string[]): Promise<CommandResult>;
+  /** Like `query`, but a binary that cannot be spawned reads as a refusal (code 1) rather than an error: for probes. */
+  probe(command: string, args: readonly string[]): Promise<CommandResult>;
   /** Runs a command that must succeed; a non-zero exit is a `ServiceCommandError`. */
   run(command: string, args: readonly string[]): Promise<CommandResult>;
   /** Runs a command while putting things back after a failure: its own failure is ignored, so the first error is the one reported. */
@@ -54,6 +56,7 @@ export const serviceCommands = (runner: CommandRunner): ServiceCommands => {
   };
   return {
     query,
+    probe: async (command, args) => query(command, args).catch(() => ({ code: 1, stdout: "", stderr: "" })),
     attempt: async (command, args) => {
       await query(command, args).catch(() => undefined);
     },

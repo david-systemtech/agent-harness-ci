@@ -61,7 +61,7 @@ export const launchdPlatform = (installContext: InstallContext, commands: Servic
 
   /** What `launchctl print` says of the job: nothing when it is not loaded. */
   const printed = async (): Promise<string | undefined> => {
-    const result = await commands.query("launchctl", ["print", target]);
+    const result = await commands.probe("launchctl", ["print", target]);
     return result.code === 0 ? result.stdout : undefined;
   };
   const running = (print: string | undefined) => print !== undefined && /^\s*state = running$/m.test(print);
