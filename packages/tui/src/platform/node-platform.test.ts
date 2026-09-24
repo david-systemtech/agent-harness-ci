@@ -168,6 +168,21 @@ describe("the terminal UI's platform", () => {
     },
   );
 
+  it("moves an earlier secrets.json's tokens but keeps the file aside, and says so, when an entry is not a token", async () => {
+    const reported: unknown[] = [];
+    const { stateDir, dataDir } = platformIn();
+    mkdirSync(stateDir, { recursive: true });
+    const text = JSON.stringify({ "env-1": "token-1", "env-2": { token: "token-2" } });
+    writeFileSync(join(stateDir, "secrets.json"), text, { mode: 0o600 });
+    const platform = nodePlatform({ stateDir, dataDir, version: "1.2.3", identity, reportError: (error) => reported.push(error) });
+    expect(await platform.secrets.get("env-1")).toBe("token-1");
+    expect(await platform.secrets.get("env-2")).toBeUndefined();
+    expect(readdirSync(stateDir).sort()).toEqual(["secrets", "secrets.json.unreadable"]);
+    expect(readFileSync(join(stateDir, "secrets.json.unreadable"), "utf8")).toBe(text);
+    expect(reported).toHaveLength(1);
+    expect(String(reported[0])).toContain("env-2");
+  });
+
   it("reads the local environment's grant file from its data directory, and none when there is none", async () => {
     const { platform, dataDir } = platformIn();
     expect(await platform.grant?.read()).toBeUndefined();

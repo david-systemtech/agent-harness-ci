@@ -14,7 +14,8 @@ import { ensurePrivateDirectory, readTextIfPresent, writePrivateFile } from "./f
  * `legacyFile` is the one `secrets.json` (a JSON object from name to token)
  * earlier builds kept: on first use its tokens are moved into files of
  * their own, none overwriting a file already there, and only then is it
- * removed. One that cannot be read as that object is never deleted: it is
+ * removed. One that cannot be read as that object, or that holds an entry
+ * that is not a token, is never deleted: its tokens are moved and it is
  * renamed aside to `<legacyFile>.unreadable`, which `report` hears once.
  */
 export const secretsDirectory = (dir: string, legacyFile?: string, report?: (error: unknown) => void): SecretStore => {
@@ -28,7 +29,8 @@ export const secretsDirectory = (dir: string, legacyFile?: string, report?: (err
     } catch {
       parsed = undefined;
     }
-    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    // Kept aside rather than deleted, whatever could not be moved out of it: nothing a user had is lost silently.
+    const setAside = (why: string): void => {
       const aside = `${legacy}.unreadable`;
       try {
         renameSync(legacy, aside);
@@ -37,12 +39,15 @@ export const secretsDirectory = (dir: string, legacyFile?: string, report?: (err
         if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
         throw error;
       }
-      report?.(new Error(`${legacy} is not a JSON object of tokens; it is kept as ${aside}, and its connections need pairing again.`));
-      return;
-    }
+      report?.(new Error(`${legacy} ${why}; it is kept as ${aside}, and those connections need pairing again.`));
+    };
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return setAside("is not a JSON object of tokens");
+    const skipped: string[] = [];
     for (const [name, secret] of Object.entries(parsed)) {
-      if (typeof secret === "string" && !existsSync(pathOf(name))) writePrivateFile(pathOf(name), secret);
+      if (typeof secret !== "string") skipped.push(name);
+      else if (!existsSync(pathOf(name))) writePrivateFile(pathOf(name), secret);
     }
+    if (skipped.length > 0) return setAside(`holds entries that are not tokens (${skipped.join(", ")})`);
     rmSync(legacy, { force: true });
   };
   let migrated: Promise<void> | undefined;
