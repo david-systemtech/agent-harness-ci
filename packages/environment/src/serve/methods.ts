@@ -1,5 +1,6 @@
 import {
   methods as registered,
+  type ErrorOf,
   type Method,
   type MethodKind,
   type MethodName,
@@ -8,7 +9,7 @@ import {
   type ResultOf,
 } from "@agent-harness/contracts";
 import type { VerifiedClientSession } from "../auth/client-sessions.js";
-import type { CommandOutcome, Tx } from "../event-log/event-log.js";
+import type { EventInput, JsonObject, StreamRef, Tx } from "../event-log/event-log.js";
 import type { StreamSource } from "../wire/subscriptions.js";
 
 /** Who is calling: the client session the connection authenticated as. */
@@ -28,19 +29,44 @@ export interface CommandContext extends MethodContext {
   readonly tx: Tx;
 }
 
+/**
+ * A command's rejection as its handler gives it: one of the method's error
+ * codes, which becomes the receipt's reason, and a message and data when it
+ * has more to say. Dispatch fills in a plain message and no data.
+ */
+export interface CommandRejection<Code extends string = string> {
+  readonly code: Code;
+  readonly message?: string;
+  readonly data?: JsonObject;
+}
+
+/**
+ * What a command's handler answers: the aggregate it was aimed at, then its
+ * result with the events to append for it (it may also append through the
+ * context's `tx`), or its rejection, which appends nothing.
+ */
+export type CommandAnswer<Result, Code extends string = string> =
+  | {
+      readonly aggregate: StreamRef;
+      readonly result: Result;
+      readonly events?: readonly EventInput[];
+      readonly rejected?: undefined;
+    }
+  | { readonly aggregate: StreamRef; readonly rejected: CommandRejection<Code> };
+
 /** The context a handler of a method of `Kind` is given. */
 export type ContextOf<Kind extends MethodKind> = Kind extends "command" ? CommandContext : MethodContext;
 
 /**
  * What the handler of a method of `Kind` returns: its `Result`; for a
- * command, the outcome that names its aggregate and carries its `Result` and
- * events, or its rejection; for a stream, the source its subscription reads,
- * whose snapshot is the `Result`.
+ * command, the answer that names its aggregate and carries its `Result` and
+ * events, or its rejection with one of the method's error `Code`s; for a
+ * stream, the source its subscription reads, whose snapshot is the `Result`.
  */
-export type HandlerResult<Kind extends MethodKind, Result> = Kind extends "stream"
+export type HandlerResult<Kind extends MethodKind, Result, Code extends string = string> = Kind extends "stream"
   ? StreamSource<Result>
   : Kind extends "command"
-    ? CommandOutcome<Result>
+    ? CommandAnswer<Result, Code>
     : Result;
 
 /**
@@ -48,9 +74,9 @@ export type HandlerResult<Kind extends MethodKind, Result> = Kind extends "strea
  * inside the command's transaction, so it answers at once; a query's and a
  * stream's may answer later.
  */
-export type HandlerReturn<Kind extends MethodKind, Result> = Kind extends "command"
-  ? HandlerResult<Kind, Result>
-  : HandlerResult<Kind, Result> | Promise<HandlerResult<Kind, Result>>;
+export type HandlerReturn<Kind extends MethodKind, Result, Code extends string = string> = Kind extends "command"
+  ? HandlerResult<Kind, Result, Code>
+  : HandlerResult<Kind, Result, Code> | Promise<HandlerResult<Kind, Result, Code>>;
 
 /**
  * How the environment answers one method, after the wire has checked the
@@ -64,7 +90,7 @@ export type HandlerReturn<Kind extends MethodKind, Result> = Kind extends "comma
 export type MethodHandler<N extends MethodName> = (
   params: ParamsOf<N>,
   context: ContextOf<Registry[N]["kind"]>,
-) => HandlerReturn<Registry[N]["kind"], ResultOf<N>>;
+) => HandlerReturn<Registry[N]["kind"], ResultOf<N>, ErrorOf<N>["code"]>;
 
 /** Handlers by contracts method name, as the environment starts with them. */
 export type MethodHandlers = { readonly [N in MethodName]?: MethodHandler<N> };
@@ -74,7 +100,7 @@ type StreamHandler = (params: unknown, context: MethodContext) => StreamSource |
 /** A query's handler as dispatch calls it. */
 type QueryHandler = (params: unknown, context: MethodContext) => unknown;
 /** A command's handler as dispatch calls it, inside the command's transaction. */
-type CommandHandler = (params: unknown, context: CommandContext) => CommandOutcome<unknown>;
+type CommandHandler = (params: unknown, context: CommandContext) => CommandAnswer<unknown>;
 
 /**
  * One method as dispatch serves it: its registry entry and its handler, if

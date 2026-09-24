@@ -108,10 +108,9 @@ export const MIGRATIONS: readonly Migration[] = [
   },
   {
     version: 4,
-    name: "command receipts: the rejection's error code and data",
-    // A rejected receipt answers the error it amounts to; its reason and message were already kept.
+    name: "command receipts: the rejection's error data",
+    // A rejection is stored as its error: the code is the reason and the message was already kept.
     sql: `
-      ALTER TABLE command_receipts ADD COLUMN error_code TEXT;
       ALTER TABLE command_receipts ADD COLUMN error_data TEXT;
     `,
   },

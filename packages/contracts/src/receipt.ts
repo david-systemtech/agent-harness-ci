@@ -22,8 +22,10 @@ export const CommandReceipt = z
       status: z.literal("rejected"),
       sequence: Sequence.meta({ description: "The log's head when the command was rejected." }),
       changed: z.literal(false),
-      reason: ErrorCode.meta({ description: "Why the command was rejected: not_found when its target does not exist." }),
-      error: WireError.meta({ description: "The rejection as an error: a code, a message for people and structured data." }),
+      reason: ErrorCode.meta({
+        description: "Why the command was rejected, the code of its error: not_found when its target does not exist.",
+      }),
+      error: WireError.meta({ description: "The rejection as an error: its code (the reason), a message for people and structured data." }),
     }),
   ])
   .meta({

@@ -230,6 +230,10 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
     throw error;
   }
 
+  /** The entries `serve` was given, which every client's `apply` consults before the registry. */
+  const served = new Map<string, Method>();
+  const servedMethod = (name: string): Method | undefined => served.get(name);
+
   const sockets = new Set<ClientSocket>();
   /**
    * Tracks a socket for `close`, and makes its own `close` wait until the
@@ -254,12 +258,12 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
   const defaultClient = async (options: ClientOptions): Promise<WireClient> => {
     defaultToken ??= (await bootstrapExchange(env.address, dataDir, "tui", "the helper's default client")).token;
     try {
-      return await connectClient(env.address, { ...options, token: defaultToken });
+      return await connectClient(env.address, { methods: servedMethod, ...options, token: defaultToken });
     } catch (error) {
       const reason = error instanceof ByeError ? error.bye?.reason : undefined;
       if (reason !== "revoked" && reason !== "expired") throw error;
       defaultToken = (await bootstrapExchange(env.address, dataDir, "tui", "the helper's default client")).token;
-      return connectClient(env.address, { ...options, token: defaultToken });
+      return connectClient(env.address, { methods: servedMethod, ...options, token: defaultToken });
     }
   };
 
@@ -304,10 +308,11 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
     },
     async client(clientOptions = {}) {
       const { token } = clientOptions;
-      return track(token === undefined ? await defaultClient(clientOptions) : await connectClient(env.address, { ...clientOptions, token }));
+      return track(token === undefined ? await defaultClient(clientOptions) : await connectClient(env.address, { methods: servedMethod, ...clientOptions, token }));
     },
     open: async (openOptions) => track(await openSocket(env.address, openOptions)),
     serve(method, handler) {
+      served.set(method.name, method);
       // The one cast: a method no registry holds is handed to the table as the registered method it stands in for.
       env.methods.register(method as unknown as Registry[MethodName], handler as unknown as MethodHandler<MethodName>);
     },

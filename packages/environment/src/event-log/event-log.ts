@@ -6,7 +6,7 @@ import { requireActor, type EventEnvelope, type EventInput, type JsonObject, typ
 import { applyMigrations } from "./migrations.js";
 import { createProjections, type Projector } from "./projectors.js";
 import { createPairingTable, type PairingTable } from "./pairings.js";
-import { createReceipts, rejectionError, type CommandReceipt, type Rejection } from "./receipts.js";
+import { createReceipts, type StoredError, type StoredReceipt } from "./receipts.js";
 import { createSnapshots, type Snapshot } from "./snapshots.js";
 import { loadSqlite } from "./sqlite.js";
 
@@ -15,7 +15,7 @@ export type { PairingRow, PairingTable } from "./pairings.js";
 export type { SqlValue } from "./database.js";
 export { formatActor, parseActor, type EventEnvelope, type EventInput, type JsonObject, type StreamRef } from "./envelope.js";
 export type { ProjectionDb, Projector } from "./projectors.js";
-export { RECEIPT_RETENTION_MS, type CommandReceipt, type Rejection } from "./receipts.js";
+export { RECEIPT_RETENTION_MS, type StoredError, type StoredReceipt } from "./receipts.js";
 export type { Snapshot } from "./snapshots.js";
 
 /** The most a subscription replays for one stream before it sends a snapshot instead (spec: "Subscriptions"). */
@@ -60,7 +60,8 @@ export interface CommandKey {
 /**
  * What a command's work decides: the aggregate it was aimed at, then either
  * its result, with the events the log appends for it (the work may also
- * append through its `Tx`), or its rejection, which appends nothing.
+ * append through its `Tx`), or its rejection, stored as the error it gives,
+ * which appends nothing.
  */
 export type CommandOutcome<T> =
   | {
@@ -69,14 +70,14 @@ export type CommandOutcome<T> =
       readonly events?: readonly EventInput[];
       readonly rejected?: undefined;
     }
-  | { readonly aggregate: StreamRef; readonly rejected: Rejection };
+  | { readonly aggregate: StreamRef; readonly rejected: StoredError };
 
 /** How a command went: answered from the receipt of an earlier one with its key, or run now. */
 export type CommandRun<T> =
-  | { readonly replayed: true; readonly receipt: CommandReceipt }
+  | { readonly replayed: true; readonly receipt: StoredReceipt }
   | {
       readonly replayed: false;
-      readonly receipt: CommandReceipt;
+      readonly receipt: StoredReceipt;
       /** Every event the command appended, in order. */
       readonly events: readonly EventEnvelope[];
       /** The work's result; undefined for a rejection. */
@@ -138,7 +139,7 @@ export interface EventLog {
   /** Reads rows (the projection read models, pragmas) with the connection query-only, so no write gets past the log. */
   read<Row = Record<string, unknown>>(sql: string, ...params: readonly SqlValue[]): Row[];
   /** The receipt stored for an actor's command id, while the retention period keeps it. */
-  receipt(actor: string, commandId: string): CommandReceipt | null;
+  receipt(actor: string, commandId: string): StoredReceipt | null;
   /** Removes receipts older than the retention period at `now`; returns how many. The environment's minute sweep calls it. */
   pruneReceipts(now: Date): number;
   /** Writes a stream's snapshot, replacing any earlier one. */
@@ -337,10 +338,10 @@ export const openEventLog = (options: EventLogOptions): EventLog => {
           sequence: log.head(),
           createdAt: now.toISOString(),
         };
-        const receipt: CommandReceipt =
+        const receipt: StoredReceipt =
           outcome.rejected === undefined
             ? { ...base, status: "accepted", changed: events.length > 0 }
-            : { ...base, status: "rejected", changed: false, reason: outcome.rejected.reason, error: rejectionError(outcome.rejected) };
+            : { ...base, status: "rejected", changed: false, error: outcome.rejected };
         receipts.write(receipt);
         return { replayed: false, receipt, events, result: outcome.rejected === undefined ? outcome.result : undefined };
       });

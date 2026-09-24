@@ -75,6 +75,18 @@ export type CommandResponsePart<M extends MethodSpec> = M extends { readonly kin
  */
 export type Method<M extends MethodSpec = MethodSpec> = M & { readonly error: MethodErrorUnion<M> } & CommandResponsePart<M>;
 
+/** A command among `T`: the members of a union whose kind is `command`, or `T` known to be one. */
+type CommandOf<T> = [Extract<T, { readonly kind: "command" }>] extends [never]
+  ? T & { readonly kind: "command" }
+  : Extract<T, { readonly kind: "command" }>;
+
+/**
+ * Whether `entry` (a spec, a registry entry, or anything carrying a method's
+ * kind) is a command: its params hold a `commandId` and its response carries
+ * a receipt. The one test of it, for the registry, the export, dispatch and clients.
+ */
+export const isCommand = <T extends { readonly kind: MethodKind }>(entry: T): entry is CommandOf<T> => entry.kind === "command";
+
 const METHOD_NAME = /^[a-z][A-Za-z]*(\.[a-z][A-Za-z]*)+$/;
 
 /**
@@ -95,7 +107,7 @@ export const defineMethod = <const M extends MethodSpec>(spec: M): Method<M> => 
     throw new Error(`Method ${name} needs a kind of ${METHOD_KINDS.join(", ")}; got ${JSON.stringify(kind)}.`);
   }
   const shape: Record<string, unknown> = spec.params.shape;
-  if (kind === "command" && !("commandId" in shape)) throw new Error(`Command ${name} takes a commandId in its params.`);
+  if (isCommand(spec) && !("commandId" in shape)) throw new Error(`Command ${name} takes a commandId in its params.`);
   if (kind === "stream" && !("afterSequence" in shape)) throw new Error(`Stream ${name} takes an afterSequence cursor.`);
   const shared = new Set<string>(SHARED_ERROR_CODES);
   const own = new Set<string>();
@@ -106,7 +118,7 @@ export const defineMethod = <const M extends MethodSpec>(spec: M): Method<M> => 
     own.add(code);
   }
   const error = z.discriminatedUnion("code", [...SHARED_ERRORS, ...spec.errors]);
-  const response = kind === "command" ? { response: commandResponse(spec.result) } : {};
+  const response = isCommand(spec) ? { response: commandResponse(spec.result) } : {};
   return Object.freeze({ ...spec, error, ...response }) as unknown as Method<M>;
 };
 

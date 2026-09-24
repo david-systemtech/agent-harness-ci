@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { commandParams, defineMethod, type ClientSessionCredential, type CommandReceipt, type ResponseFrame } from "@agent-harness/contracts";
+import { ContractError, commandParams, defineMethod, type ClientSessionCredential } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { useCleanups } from "../../test/cleanups.js";
@@ -71,10 +71,7 @@ const start = async (): Promise<Suite> => {
     suite.runs.push(target);
     const aggregate = targetStream(target);
     if (!suite.targets.has(target)) {
-      return {
-        aggregate,
-        rejected: { reason: "not_found", error: { code: "not_found", message: `No target is named ${target}.`, data: { kind: "target" } } },
-      };
+      return { aggregate, rejected: { code: "not_found", message: `No target is named ${target}.`, data: { kind: "target" } } };
     }
     if (suite.values(target).at(-1) === value) return { aggregate, result: { value } };
     return { aggregate, result: { value }, events: [{ type: "target.set", payload: { value } }] };
@@ -95,12 +92,9 @@ const paired = async (t: TestEnvironment): Promise<{ client: WireClient; credent
   return { client: await t.client({ token: credential.token, clientKind: "program" }), credential };
 };
 
-/** Sends `test.targets.set` and resolves with its response's result: the receipt, and the result when it applied. */
-const setTarget = async (client: WireClient, commandId: string, target: string, value: string) => {
-  const answer = (await client.call("test.targets.set", { commandId, target, value })) as ResponseFrame;
-  if (answer.error) throw new Error(`test.targets.set answered an error: ${JSON.stringify(answer.error)}`);
-  return answer.result as { receipt: CommandReceipt; result?: { value: string } };
-};
+/** Sends `test.targets.set` and resolves with what its response carries: the receipt, and the result when it applied. */
+const setTarget = async (client: WireClient, commandId: string, target: string, value: string) =>
+  targetsSet.response.parse(await client.request("test.targets.set", { commandId, target, value }));
 
 describe("a command's commandId", () => {
   it("is a UUID: a malformed one is invalid_params, and nothing runs or is appended", async () => {
@@ -150,6 +144,28 @@ describe("an accepted command", () => {
 });
 
 describe("a repeated command id", () => {
+  it("is one key whatever the case its UUID is written in", async () => {
+    const { t, runs, values } = await start();
+    const client = await t.client();
+    const commandId = randomUUID();
+    const first = await setTarget(client, commandId.toUpperCase(), "t1", "a");
+    expect(await setTarget(client, commandId, "t1", "a")).toEqual({ receipt: first.receipt });
+    expect(await setTarget(client, commandId.toUpperCase(), "t1", "a")).toEqual({ receipt: first.receipt });
+    expect(runs).toEqual(["t1"]);
+    expect(values("t1")).toEqual(["a"]);
+    // The events carry the id as it is kept: lowercase.
+    expect(t.env.log.readStream(targetStream("t1")).map((event) => event.commandId)).toEqual([commandId]);
+  });
+
+  it("answered from its receipt without a result is refused by apply, which returns only what a command applied", async () => {
+    const { t } = await start();
+    const client = await t.client();
+    const commandId = randomUUID();
+    expect(await client.apply("test.targets.set", { commandId, target: "t1", value: "a" })).toEqual({ value: "a" });
+    await expect(client.apply("test.targets.set", { commandId, target: "t1", value: "a" })).rejects.toThrow(/did not apply/);
+    await expect(client.apply("test.targets.set", { commandId: randomUUID(), target: "gone", value: "a" })).rejects.toThrow(/did not apply/);
+  });
+
   it("is answered with the stored receipt and no result, and appends nothing, on the same socket or another of the same client session", async () => {
     const { t, runs, values } = await start();
     const { client, credential } = await paired(t);
@@ -257,8 +273,9 @@ describe("a command's receipt and events", () => {
     const quiet = { error: console.error };
     console.error = () => undefined;
     try {
-      const failed = await client.call("test.targets.setThenFail", { commandId, target: "t1", value: "a" });
-      expect(failed).toMatchObject({ type: "response", error: { code: "internal" } });
+      const failed = await client.apply("test.targets.setThenFail", { commandId, target: "t1", value: "a" }).catch((e: unknown) => e);
+      expect(failed).toBeInstanceOf(ContractError);
+      expect((failed as ContractError).code).toBe("internal");
     } finally {
       console.error = quiet.error;
     }
@@ -267,11 +284,8 @@ describe("a command's receipt and events", () => {
     expect(t.env.log.receipt(formatActor({ kind: "client_session", id: client.hello.clientSessionId }), commandId)).toBeNull();
 
     suite.failing = false;
-    const applied = await client.call("test.targets.setThenFail", { commandId, target: "t1", value: "a" });
-    expect(applied).toMatchObject({
-      type: "response",
-      result: { receipt: { status: "accepted", sequence: head + 1, changed: true }, result: { value: "a" } },
-    });
+    expect(await client.apply("test.targets.setThenFail", { commandId, target: "t1", value: "a" })).toEqual({ value: "a" });
+    expect(t.env.log.head()).toBe(head + 1);
     expect(values("t1")).toEqual(["a"]);
     expect(published).toEqual(["target.set"]);
   });

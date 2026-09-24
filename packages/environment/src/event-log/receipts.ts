@@ -1,21 +1,17 @@
-import type { WireError } from "@agent-harness/contracts";
 import type { Sql } from "./database.js";
-import type { StreamRef } from "./envelope.js";
+import type { JsonObject, StreamRef } from "./envelope.js";
 
 /** How long a command receipt is kept: a retry after it is a new command. */
 export const RECEIPT_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 
-/**
- * Why a command was rejected: a reason (`not_found` when its target does not
- * exist) and, when the handler has more to say, the error it amounts to.
- * Without one the error is the reason's code with a plain message.
- */
-export interface Rejection {
-  readonly reason: string;
-  readonly error?: WireError;
+/** The error a rejected command is stored with, as its caller shaped it: a code (the rejection's reason), a message and data. */
+export interface StoredError {
+  readonly code: string;
+  readonly message: string;
+  readonly data: JsonObject;
 }
 
-/** What every receipt carries: its key (actor and command id), the aggregate aimed at, the head after it, and when. */
+/** What every stored receipt carries: its key (actor and command id), the aggregate aimed at, the head after it, and when. */
 export interface ReceiptBase {
   readonly actor: string;
   readonly commandId: string;
@@ -27,14 +23,18 @@ export interface ReceiptBase {
   readonly createdAt: string;
 }
 
-export type CommandReceipt = ReceiptBase &
+/**
+ * A command's receipt as the `command_receipts` table keeps it. The wire
+ * answers it as the contracts' `CommandReceipt` (`toWireReceipt` in `wire/dispatch.ts`).
+ */
+export type StoredReceipt = ReceiptBase &
   (
     | {
         readonly status: "accepted";
         /** False for a command that was accepted and appended no event. */
         readonly changed: boolean;
       }
-    | { readonly status: "rejected"; readonly changed: false; readonly reason: string; readonly error: WireError }
+    | { readonly status: "rejected"; readonly changed: false; readonly error: StoredError }
   );
 
 interface ReceiptRow {
@@ -47,12 +47,11 @@ interface ReceiptRow {
   resulting_sequence: number | null;
   error_reason: string | null;
   error_message: string | null;
-  error_code: string | null;
   error_data: string | null;
   created_at: string;
 }
 
-const decodeReceipt = (row: ReceiptRow): CommandReceipt => {
+const decodeReceipt = (row: ReceiptRow): StoredReceipt => {
   const base: ReceiptBase = {
     actor: row.actor,
     commandId: row.command_id,
@@ -61,21 +60,16 @@ const decodeReceipt = (row: ReceiptRow): CommandReceipt => {
     createdAt: row.created_at,
   };
   if (row.status === "accepted") return { ...base, status: "accepted", changed: row.changed === 1 };
-  const reason = row.error_reason ?? "";
-  const error: WireError = {
-    code: row.error_code ?? reason,
+  const error: StoredError = {
+    code: row.error_reason ?? "",
     message: row.error_message ?? "",
-    data: row.error_data === null ? {} : (JSON.parse(row.error_data) as WireError["data"]),
+    data: row.error_data === null ? {} : (JSON.parse(row.error_data) as JsonObject),
   };
-  return { ...base, status: "rejected", changed: false, reason, error };
+  return { ...base, status: "rejected", changed: false, error };
 };
 
 /** The oldest `created_at` a receipt may have at `now` and still be answered. */
 const cutoff = (now: Date): string => new Date(now.getTime() - RECEIPT_RETENTION_MS).toISOString();
-
-/** The error a rejection amounts to: the handler's, or the reason's code with a plain message. */
-export const rejectionError = (rejection: Rejection): WireError =>
-  rejection.error ?? { code: rejection.reason, message: `The command was rejected: ${rejection.reason}.`, data: {} };
 
 /**
  * The `command_receipts` table: read by key within the retention period,
@@ -83,7 +77,7 @@ export const rejectionError = (rejection: Rejection): WireError =>
  * the period is never answered, whether or not the prune has run yet.
  */
 export const createReceipts = (sql: Sql) => ({
-  read(actor: string, commandId: string, now: Date): CommandReceipt | null {
+  read(actor: string, commandId: string, now: Date): StoredReceipt | null {
     const row = sql.get<ReceiptRow>(
       "SELECT * FROM command_receipts WHERE actor = ? AND command_id = ? AND created_at >= ?",
       actor,
@@ -94,18 +88,18 @@ export const createReceipts = (sql: Sql) => ({
   },
 
   /** Writes a command's receipt, replacing one for the same key that is past the retention period and so was not answered. */
-  write(receipt: CommandReceipt): void {
+  write(receipt: StoredReceipt): void {
     sql.run(
       "DELETE FROM command_receipts WHERE actor = ? AND command_id = ? AND created_at < ?",
       receipt.actor,
       receipt.commandId,
       cutoff(new Date(receipt.createdAt)),
     );
-    const rejected = receipt.status === "rejected" ? receipt : undefined;
+    const error = receipt.status === "rejected" ? receipt.error : undefined;
     sql.run(
       `INSERT INTO command_receipts (actor, command_id, stream_kind, stream_id, status, changed, resulting_sequence,
-                                     error_reason, error_message, error_code, error_data, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                                     error_reason, error_message, error_data, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       receipt.actor,
       receipt.commandId,
       receipt.stream.kind,
@@ -113,10 +107,9 @@ export const createReceipts = (sql: Sql) => ({
       receipt.status,
       receipt.changed ? 1 : 0,
       receipt.sequence,
-      rejected?.reason ?? null,
-      rejected?.error.message ?? null,
-      rejected?.error.code ?? null,
-      rejected ? JSON.stringify(rejected.error.data) : null,
+      error?.code ?? null,
+      error?.message ?? null,
+      error ? JSON.stringify(error.data) : null,
       receipt.createdAt,
     );
   },

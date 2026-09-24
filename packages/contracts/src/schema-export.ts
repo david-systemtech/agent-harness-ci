@@ -35,6 +35,7 @@ import {
   ProtocolMismatchError,
 } from "./pairing.js";
 import { EnvironmentNotice, EnvironmentNoticeType } from "./notices.js";
+import { isCommand } from "./method.js";
 import { CommandReceipt } from "./receipt.js";
 import { methods } from "./registry.js";
 import { Ceiling, Scope, ScopeSet } from "./scopes.js";
@@ -132,9 +133,7 @@ export const exportedSchemas = (): ExportedSchema[] => [
   ...methods.flatMap((method) => [
     { path: methodPath(method.name, "params"), title: `${method.name} params`, schema: method.params },
     { path: methodPath(method.name, "result"), title: `${method.name} result`, schema: method.result },
-    ...("response" in method
-      ? [{ path: methodPath(method.name, "response"), title: `${method.name} response`, schema: method.response }]
-      : []),
+    ...(isCommand(method) ? [{ path: methodPath(method.name, "response"), title: `${method.name} response`, schema: method.response }] : []),
     { path: methodPath(method.name, "error"), title: `${method.name} error`, schema: method.error },
   ]),
 ];
@@ -164,7 +163,7 @@ const index = (entries: readonly ExportedSchema[]) => ({
     params: methodPath(m.name, "params"),
     result: methodPath(m.name, "result"),
     /** A command's response: its receipt, and its result when the request applied it. */
-    ...("response" in m && { response: methodPath(m.name, "response") }),
+    ...(isCommand(m) && { response: methodPath(m.name, "response") }),
     error: methodPath(m.name, "error"),
   })),
 });

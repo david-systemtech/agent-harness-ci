@@ -46,7 +46,7 @@
         "reason": {
           "type": "string",
           "pattern": "^[a-z][a-z0-9_]*$",
-          "description": "Why the command was rejected: not_found when its target does not exist."
+          "description": "Why the command was rejected, the code of its error: not_found when its target does not exist."
         },
         "error": {
           "type": "object",
@@ -72,7 +72,7 @@
             "message",
             "data"
           ],
-          "description": "The rejection as an error: a code, a message for people and structured data."
+          "description": "The rejection as an error: its code (the reason), a message for people and structured data."
         }
       },
       "required": [

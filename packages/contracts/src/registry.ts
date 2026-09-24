@@ -41,9 +41,6 @@ export const registry: Registry = Object.freeze(
 /** Whether `name` is a registered method. */
 export const isMethodName = (name: string): name is MethodName => Object.hasOwn(registry, name);
 
-/** The registered commands: the methods whose response carries a receipt. */
-export type CommandName = Extract<Registered, { readonly kind: "command" }>["name"];
-
 export type ParamsOf<N extends MethodName> = z.infer<Registry[N]["params"]>;
 /** The method's own result: what a query answers, what a command answers beside its receipt, a stream's snapshot. */
 export type ResultOf<N extends MethodName> = z.infer<Registry[N]["result"]>;

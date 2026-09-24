@@ -8,10 +8,10 @@ import {
   Sequence,
   defineMethod,
   errorSchema,
+  isCommand,
   isMethodName,
   methods,
   registry,
-  type CommandName,
   type ErrorOf,
   type MethodName,
   type MintedPairing,
@@ -100,16 +100,20 @@ describe("the method registry", () => {
   });
 
   it("types a command's response as its receipt and an optional result, and a query's as its result", () => {
-    expectTypeOf<CommandName>().toEqualTypeOf<
-      | "environment.drain"
-      | "environment.rebuildProjections"
-      | "access.pairings.create"
-      | "access.sessions.revoke"
-      | "access.sessions.refresh"
-    >();
     expectTypeOf<ResponseOf<"access.pairings.create">>().toEqualTypeOf<{ receipt: CommandReceipt; result?: MintedPairing | undefined }>();
     expectTypeOf<ResultOf<"access.pairings.create">>().toEqualTypeOf<MintedPairing>();
     expectTypeOf<ResponseOf<"environment.status">>().toEqualTypeOf<ResultOf<"environment.status">>();
+  });
+
+  it("tells a command from its entry, narrowing it to one with a response", () => {
+    expect(methods.filter(isCommand).map((m) => m.name)).toEqual(
+      methods.filter((m) => m.kind === "command").map((m) => m.name),
+    );
+    const entry = registry["access.sessions.revoke"] as (typeof methods)[number];
+    if (!isCommand(entry)) throw new Error("access.sessions.revoke is a command");
+    expectTypeOf(entry.response.shape.receipt).toEqualTypeOf<typeof CommandReceipt>();
+    expect(isCommand(registry["environment.status"])).toBe(false);
+    expect(isCommand(registry["environment.subscribe"])).toBe(false);
   });
 
   it("takes an afterSequence cursor in the params of every stream", () => {

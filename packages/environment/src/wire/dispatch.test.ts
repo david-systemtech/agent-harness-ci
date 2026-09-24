@@ -154,13 +154,30 @@ describe("dispatch", () => {
     expect(log.receipt("client_session:cs-1", commandId)).toMatchObject({ stream, status: "accepted" });
   });
 
-  it("answers internal and stores no receipt for a command whose handler answers later, outside its schema, or with a rejection the wire cannot carry", async () => {
+  it("answers a rejection in its receipt, its reason the code, with a plain message and no data when the handler gives none", async () => {
+    const log = memoryLog();
+    const stream = { kind: "environment", id: "e" };
+    const commandId = "0f8fad5b-d9cb-469f-a165-70867728950e";
+    const answers: Answer[] = [];
+    const methods: MethodHandlers = { "environment.drain": () => ({ aggregate: stream, rejected: { code: "conflict" } }) };
+    await createDispatch(createMethodTable(methods), log)(request("environment.drain", { commandId }), caller(["admin"]), (given) => answers.push(given), vi.fn());
+    const receipt = {
+      status: "rejected",
+      sequence: 0,
+      changed: false,
+      reason: "conflict",
+      error: { code: "conflict", message: "The command was rejected: conflict.", data: {} },
+    };
+    expect(answers).toEqual([{ result: { receipt } }]);
+    expect(log.receipt("client_session:cs-1", commandId)).toMatchObject({ status: "rejected", error: receipt.error });
+  });
+
+  it("answers internal and stores no receipt for a command whose handler answers later or outside its schema", async () => {
     const quiet = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const stream = { kind: "environment", id: "e" };
     const handlers = [
       () => Promise.resolve({ aggregate: stream, result: { drainingSince: "2026-09-24T00:00:00.000Z", trigger: "command" } }),
       () => ({ aggregate: stream, result: { trigger: "sometime" } }),
-      () => ({ aggregate: stream, rejected: { reason: "Not Found" } }),
     ];
     for (const handler of handlers) {
       const log = memoryLog();

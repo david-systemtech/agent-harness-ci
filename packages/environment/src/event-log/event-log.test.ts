@@ -556,23 +556,17 @@ describe("command receipts", () => {
     expect(log.head()).toBe(2);
   });
 
-  it("record a rejection with its reason and error and no events, and answer its retry with the rejection", () => {
+  it("record a rejection as the error it gives, with no events, and answer its retry with the rejection", () => {
     const log = memoryLog();
     const s9 = { kind: "session", id: "s9" };
     const error = { code: "not_found", message: "no session s9", data: { kind: "session" } };
-    const run = log.command(key, () => ({ aggregate: s9, rejected: { reason: "not_found", error } }));
+    const run = log.command(key, () => ({ aggregate: s9, rejected: error }));
     expect(run).toMatchObject({ replayed: false, events: [], result: undefined });
-    expect(run.receipt).toMatchObject({ stream: s9, status: "rejected", changed: false, sequence: 0, reason: "not_found", error });
+    expect(run.receipt).toMatchObject({ stream: s9, status: "rejected", changed: false, sequence: 0, error });
+    expect(log.receipt(key.actor, key.commandId)).toEqual(run.receipt);
 
     expect(log.command(key, () => ({ aggregate: s9, result: null, events: [note("late")] }))).toEqual({ replayed: true, receipt: run.receipt });
     expect(log.readStream(s9)).toEqual([]);
-  });
-
-  it("give a rejection without an error the reason's code and a plain message", () => {
-    const log = memoryLog();
-    const run = log.command(key, () => ({ aggregate: s1, rejected: { reason: "not_found" } }));
-    expect(run.receipt).toMatchObject({ error: { code: "not_found", message: expect.stringContaining("not_found"), data: {} } });
-    expect(log.receipt(key.actor, key.commandId)).toEqual(run.receipt);
   });
 
   it("refuse a rejection whose work appended events, writing nothing", () => {
@@ -580,7 +574,7 @@ describe("command receipts", () => {
     expect(() =>
       log.command(key, (tx) => {
         log.append(s1, [note("x")], { tx, actor: key.actor });
-        return { aggregate: s1, rejected: { reason: "conflict" } };
+        return { aggregate: s1, rejected: { code: "conflict", message: "no", data: {} } };
       }),
     ).toThrow(/rejected/);
     expect(log.readStream(s1)).toEqual([]);

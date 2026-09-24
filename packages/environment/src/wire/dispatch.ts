@@ -1,17 +1,16 @@
 import {
   ContractError,
-  ErrorCode,
-  WireError as WireErrorSchema,
   invalidParams,
-  type CommandReceipt as WireReceipt,
+  isCommand,
+  type CommandReceipt,
   type IssueInput,
   type JsonObject,
   type RequestFrame,
   type WireError,
 } from "@agent-harness/contracts";
 import type { VerifiedClientSession } from "../auth/client-sessions.js";
-import { formatActor, type CommandOutcome, type CommandReceipt, type EventLog } from "../event-log/event-log.js";
-import type { MethodTable } from "../serve/methods.js";
+import { formatActor, type CommandOutcome, type EventLog, type StoredError, type StoredReceipt } from "../event-log/event-log.js";
+import type { CommandAnswer, CommandRejection, MethodTable } from "../serve/methods.js";
 import type { Opening } from "./subscriptions.js";
 
 /** A request's answer: its result, or its error. */
@@ -34,24 +33,32 @@ interface Parser {
 
 const error = (code: string, message: string, data: Record<string, unknown> = {}): WireError => ({ code, message, data });
 
-/** A receipt as a command's response carries it: what the client's outbox retires the command on. */
-export const toWireReceipt = (receipt: CommandReceipt): WireReceipt =>
+/**
+ * The one conversion from the log's stored receipt to the contracts'
+ * `CommandReceipt`, what a command's response carries and the client's
+ * outbox retires the command on: a rejection's reason is its error's code.
+ */
+export const toWireReceipt = (receipt: StoredReceipt): CommandReceipt =>
   receipt.status === "accepted"
     ? { status: "accepted", sequence: receipt.sequence, changed: receipt.changed }
-    : { status: "rejected", sequence: receipt.sequence, changed: false, reason: receipt.reason, error: receipt.error };
+    : { status: "rejected", sequence: receipt.sequence, changed: false, reason: receipt.error.code, error: { ...receipt.error } };
 
-/** Throws unless `outcome` can go on the wire: its result in the method's schema, its rejection a snake-case reason and a wire error. */
-const checkOutcome = (method: string, result: Parser, outcome: CommandOutcome<unknown>): CommandOutcome<unknown> => {
-  if (outcome.rejected !== undefined) {
-    const { reason, error: rejection } = outcome.rejected;
-    if (!ErrorCode.safeParse(reason).success || (rejection !== undefined && !WireErrorSchema.safeParse(rejection).success)) {
-      throw new Error(`${method} rejected with a reason or error the wire cannot carry: ${JSON.stringify(outcome.rejected)}`);
-    }
-    return outcome;
-  }
-  const checked = result.safeParse(outcome.result);
+/** The error a rejection is stored and answered with: its code, its message or a plain one, its data or none. */
+const rejectionError = ({ code, message, data }: CommandRejection): StoredError => ({
+  code,
+  message: message ?? `The command was rejected: ${code}.`,
+  data: data ?? {},
+});
+
+/**
+ * What the log runs for a handler's answer: its result checked against the
+ * method's schema (a throw, so nothing commits), or its rejection as the error it stores.
+ */
+const toOutcome = (method: string, result: Parser, answer: CommandAnswer<unknown>): CommandOutcome<unknown> => {
+  if (answer.rejected !== undefined) return { aggregate: answer.aggregate, rejected: rejectionError(answer.rejected) };
+  const checked = result.safeParse(answer.result);
   if (!checked.success) throw new Error(`${method} answered outside its result schema: ${JSON.stringify(checked.error.issues)}`);
-  return { ...outcome, result: checked.data };
+  return { ...answer, result: checked.data };
 };
 
 /**
@@ -63,8 +70,9 @@ const checkOutcome = (method: string, result: Parser, outcome: CommandOutcome<un
  * to instead of an answer.
  *
  * A command runs through the log's `command` (env spec, "Commands"): keyed
- * by the client session, as the actor, and the params' `commandId`, a
- * repeat is answered from the stored receipt and its handler never runs;
+ * by the client session, as the actor, and the params' `commandId` in
+ * lowercase, so a UUID in either case is one key, a repeat is answered from
+ * the stored receipt and its handler never runs;
  * otherwise the handler runs inside the command's transaction and the
  * receipt is written with its events. The answer is `{receipt, result}`, the
  * result only when this request applied the command; a rejection is a
@@ -99,18 +107,19 @@ export const createDispatch =
         const { afterSequence } = parsed.data as { afterSequence: number };
         return await open({ requestId: request.id, source, afterSequence, payloadSchema: entry.result });
       }
-      if (served.kind === "command") {
+      if (isCommand(served)) {
         const handler = served.handler;
-        // A command's params hold its id: the registry refuses a command without one.
-        const { commandId } = parsed.data as { commandId: string };
+        // A command's params hold its id, a UUID: the registry refuses a command without one.
+        const commandId = (parsed.data as { commandId: string }).commandId.toLowerCase();
+        const commandParams = { ...(parsed.data as object), commandId };
         const actor = formatActor({ kind: "client_session", id: clientSession.id });
         const run = log.command({ actor, commandId }, (tx) => {
-          const outcome: unknown = handler(parsed.data, { ...context, commandId, actor, tx });
-          if (outcome instanceof Promise) {
-            outcome.catch(() => undefined);
+          const answer: unknown = handler(commandParams, { ...context, commandId, actor, tx });
+          if (answer instanceof Promise) {
+            answer.catch(() => undefined);
             throw new Error(`The handler for ${method} answered later; a command's handler answers inside its transaction.`);
           }
-          return checkOutcome(method, entry.result as Parser, outcome as CommandOutcome<unknown>);
+          return toOutcome(method, entry.result as Parser, answer as CommandAnswer<unknown>);
         });
         const receipt = toWireReceipt(run.receipt);
         return respond({ result: run.replayed || run.result === undefined ? { receipt } : { receipt, result: run.result } });

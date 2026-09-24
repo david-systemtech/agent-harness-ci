@@ -14,6 +14,7 @@ export {
   METHOD_KINDS,
   commandParams,
   defineMethod,
+  isCommand,
   subscriptionParams,
   type ErrorMember,
   type CommandResponsePart,

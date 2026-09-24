@@ -33,13 +33,7 @@ export const accessMethods = (options: AccessMethodsOptions): Required<Pick<Meth
     "access.sessions.revoke": (params, { clientSession, commandId, tx }) => {
       const revoked = clientSessions.revoke(tx, params.clientSessionId, "requested", byClientSession(clientSession.id, commandId));
       if (!revoked) {
-        return {
-          aggregate,
-          rejected: {
-            reason: "not_found",
-            error: { code: "not_found", message: `No client session is named ${params.clientSessionId}.`, data: {} },
-          },
-        };
+        return { aggregate, rejected: { code: "not_found", message: `No client session is named ${params.clientSessionId}.` } };
       }
       return { aggregate, result: { revokedAt: revoked.revokedAt } };
     },
