@@ -507,7 +507,8 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
    * queue is the session's, so cancelling it can return a message an earlier
    * run left with the provider (one a replaced process handed on). Each is
    * requeued under its own run, in the order sent; an id the provider does
-   * not hold for the session is ignored.
+   * not hold for the session is ignored, so one a run's end took back
+   * already is not taken back again.
    */
   const requeueReported = (sessionId: string, messageIds: readonly string[]): void => {
     if (messageIds.length === 0) return;
@@ -1227,8 +1228,9 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
         async () => {
           const { stillQueued } = await run.interrupt();
           // What the provider no longer holds comes back to the environment's queue, in its order (ADR 0022), this run's
-          // and any an earlier run left with the provider. If the run's end came first, it took back this run's already.
-          if (!closing && !entry.ended) requeueReported(entry.sessionId, stillQueued);
+          // and any an earlier run left with the provider, even when the run's end came first: the end took back this
+          // run's only, and a message it took back is the environment's already, so nothing is taken back twice.
+          if (!closing) requeueReported(entry.sessionId, stillQueued);
         },
         (error) => {
           // The adapter could not interrupt: the host ends the run itself, interrupted as asked, and disposes it.

@@ -428,6 +428,40 @@ describe("a provider's held messages when the host ends the run (ADR 0022: nothi
     held.open();
   });
 
+  it("takes back once what an interrupt reports after the run's end already took back its own, and the rest still", async () => {
+    const ended = gate();
+    const receipt = gate();
+    const adapter = fakeAdapter({
+      capabilities: { steering: false },
+      script: async function* () {
+        yield say("Working");
+        await ended.opened;
+        yield end("interrupted", { cause: "user" });
+      },
+    });
+    const create = adapter.createRun;
+    let reported: string[] = [];
+    const t = await setup({ ...adapter, createRun: (input, context) => ({ ...create(input, context), interrupt: async () => (await receipt.opened, { stillQueued: reported }) }) } as FakeAdapter);
+    const runId = startRun(t);
+    await vi.waitFor(() => expect(eventsOf(t).map((event) => event.type)).toContain("assistant.text"));
+    const earlier = randomUUID();
+    const carried = randomUUID();
+    t.log.append({ kind: "session", id: t.sessionId }, [{ type: "message.sent", payload: { runId: earlier, messageId: carried, text: "Also this", attachments: [], delivery: "queued", heldBy: "provider", ceiling: "bypassPermissions" } }], { actor: "client_session:test" });
+    const own = sendDuring(t, "And this");
+    reported = [own, carried];
+    t.host.interrupt(runId);
+    // The interrupted end arrives before the receipt: the end takes back the run's own message.
+    ended.open();
+    await untilEnded(t, runId);
+    receipt.open();
+    await vi.waitFor(() => expect(eventsOf(t).filter((event) => event.type === "message.requeued")).toHaveLength(2));
+    await settle();
+    expect(eventsOf(t).filter((event) => event.type === "message.requeued").map((event) => event.payload)).toEqual([
+      { runId, messageId: own },
+      { runId: earlier, messageId: carried },
+    ]);
+  });
+
   it("takes them back when the adapter's interrupt fails and the host ends the run", async () => {
     const held = gate();
     const adapter = holding(held, "wait");
