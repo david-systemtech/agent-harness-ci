@@ -18,5 +18,8 @@
   },
   "dependencies": {
     "@agent-harness/contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "tsx": "^4.23.15"
   }
 }

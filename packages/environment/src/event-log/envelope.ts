@@ -40,3 +40,9 @@ export interface EventInput {
   /** Defaults to the log's clock. */
   readonly occurredAt?: string;
 }
+
+/** Names one stream: its kind (`session`, `group`, `environment`, `access`) and its id within that kind. */
+export interface StreamRef {
+  readonly kind: string;
+  readonly id: string;
+}

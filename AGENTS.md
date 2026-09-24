@@ -26,8 +26,10 @@ See `docs/agents/domain.md`.
 ## Building
 
 A pnpm workspace (`packages/`: `contracts`, `environment`, `client-runtime`,
-`tui`, and `cli`, the `agent-harness` binary). Node 22.12 or later; pnpm comes
-from the `packageManager` pin through `corepack enable`.
+`tui`, and `cli`, the `agent-harness` binary). Node 22.16 or later, the first
+release whose `node:sqlite` has the busy `timeout` option and `isTransaction`
+the event log uses; pnpm comes from the `packageManager` pin through
+`corepack enable`.
 
 - `pnpm install`, then `pnpm typecheck` (`tsc -b`), `pnpm lint` and `pnpm test`
   (Vitest, every package's suite); CI runs the same three.

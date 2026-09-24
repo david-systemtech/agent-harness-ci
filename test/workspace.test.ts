@@ -60,6 +60,14 @@ describe("the workspace", () => {
     expect(deps.filter((d) => d === "@agent-harness/environment" || d === "agent-harness")).toEqual([]);
   });
 
+  it("requires Node 22.16 or later, the first with node:sqlite's busy timeout and isTransaction", () => {
+    const engines = (dir: string) =>
+      (JSON.parse(readFileSync(join(root, dir, "package.json"), "utf8")) as { engines?: { node?: string } }).engines
+        ?.node;
+    expect(engines(".")).toBe(">=22.16.0");
+    expect(engines("packages/environment")).toBe(">=22.16.0");
+  });
+
   it("runs the environment's test files one at a time, since each starts a listener", async () => {
     const { default: config } = await import("../packages/environment/vitest.config.js");
     expect(config.test?.fileParallelism).toBe(false);

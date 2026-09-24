@@ -59,17 +59,17 @@ const countingProjector = (options: { weight?: () => number } = {}) => {
 };
 
 const readModel = (log: EventLog) => ({
-  streams: log.query("SELECT stream_kind, stream_id, count FROM stream_counts ORDER BY stream_kind, stream_id"),
-  types: log.query("SELECT type, count FROM type_counts ORDER BY type"),
+  streams: log.read("SELECT stream_kind, stream_id, count FROM stream_counts ORDER BY stream_kind, stream_id"),
+  types: log.read("SELECT type, count FROM type_counts ORDER BY type"),
 });
 
 const cursorOf = (log: EventLog, name: string) =>
-  log.query<{ cursor: number }>("SELECT cursor FROM projection_state WHERE name = ?", name)[0]?.cursor;
+  log.read<{ cursor: number }>("SELECT cursor FROM projection_state WHERE name = ?", name)[0]?.cursor;
 
 const appendSome = (log: EventLog) => {
-  log.append("session", "a", [note("1"), note("2")], { actor: "test" });
-  log.append("session", "b", [{ type: "title.set", payload: "B" }], { actor: "test" });
-  log.append("group", "g", [note("3")], { actor: "test" });
+  log.append({ kind: "session", id: "a" }, [note("1"), note("2")], { actor: "test" });
+  log.append({ kind: "session", id: "b" }, [{ type: "title.set", payload: "B" }], { actor: "test" });
+  log.append({ kind: "group", id: "g" }, [note("3")], { actor: "test" });
 };
 
 describe("projectors", () => {
@@ -104,7 +104,7 @@ describe("projectors", () => {
     first.close();
 
     const bare = openEventLog({ path });
-    bare.append("session", "a", [note("while the projector was away")], { actor: "test" });
+    bare.append({ kind: "session", id: "a" }, [note("while the projector was away")], { actor: "test" });
     bare.close();
 
     const { projector, applied } = countingProjector();
@@ -125,7 +125,7 @@ describe("projectors", () => {
     expect(applied).toEqual([]);
     expect(readModel(reopened)).toEqual(before);
 
-    reopened.append("session", "b", [note("new")], { actor: "test" });
+    reopened.append({ kind: "session", id: "b" }, [note("new")], { actor: "test" });
     expect(applied).toEqual([5]);
     expect(cursorOf(reopened, "counts")).toBe(5);
   });
@@ -134,7 +134,7 @@ describe("projectors", () => {
     const { projector, applied } = countingProjector();
     const log = track(openEventLog({ path: ":memory:", projectors: [projector] }));
     appendSome(log);
-    log.append("session", "a", [note("4")], { actor: "test" });
+    log.append({ kind: "session", id: "a" }, [note("4")], { actor: "test" });
     const before = readModel(log);
     applied.length = 0;
 
@@ -163,7 +163,7 @@ describe("projectors", () => {
     log.rebuildProjections();
     applied.length = 0;
 
-    log.append("session", "a", [note("after rebuild")], { actor: "test" });
+    log.append({ kind: "session", id: "a" }, [note("after rebuild")], { actor: "test" });
     expect(applied).toEqual([5]);
     expect(readModel(log).streams).toContainEqual({ stream_kind: "session", stream_id: "a", count: 3 });
   });
@@ -185,13 +185,17 @@ describe("projectors", () => {
 
   it("leave the events, receipts and snapshots alone when rebuilt", () => {
     const log = track(openEventLog({ path: ":memory:", projectors: [countingProjector().projector] }));
-    log.append("session", "a", [note("1")], { actor: "client:1", commandId: "c-1", receipt: { status: "accepted" } });
-    log.writeSnapshot("session", "a", { sequence: 1, payload: { n: 1 } });
+    log.append({ kind: "session", id: "a" }, [note("1")], {
+      actor: "client:1",
+      commandId: "c-1",
+      receipt: { status: "accepted" },
+    });
+    log.writeSnapshot({ kind: "session", id: "a" }, { sequence: 1, payload: { n: 1 } });
 
     log.rebuildProjections();
-    expect(log.readStream("session", "a")).toHaveLength(1);
+    expect(log.readStream({ kind: "session", id: "a" })).toHaveLength(1);
     expect(log.receipt("client:1", "c-1")).not.toBeNull();
-    expect(log.readSnapshot("session", "a")).not.toBeNull();
+    expect(log.readSnapshot({ kind: "session", id: "a" })).not.toBeNull();
   });
 
   it("are refused a name already registered", () => {
@@ -219,6 +223,6 @@ describe("projectors", () => {
         apply: () => {},
       }),
     ).toThrow(/declared/);
-    expect(log.query("SELECT name FROM sqlite_schema WHERE name = 'something_else'")).toEqual([]);
+    expect(log.read("SELECT name FROM sqlite_schema WHERE name = 'something_else'")).toEqual([]);
   });
 });
