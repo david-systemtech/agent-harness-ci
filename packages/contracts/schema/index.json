@@ -79,6 +79,22 @@
       "title": "HealthDocument"
     },
     {
+      "path": "lifecycle/busy-reason.json",
+      "title": "BusyReason"
+    },
+    {
+      "path": "lifecycle/drain-trigger.json",
+      "title": "DrainTrigger"
+    },
+    {
+      "path": "lifecycle/environment-activity.json",
+      "title": "EnvironmentActivity"
+    },
+    {
+      "path": "lifecycle/environment-status.json",
+      "title": "EnvironmentStatus"
+    },
+    {
       "path": "bootstrap/kind.json",
       "title": "BootstrapKind"
     },

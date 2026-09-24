@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { ProtocolVersion } from "./flags.js";
+import { DrainTrigger } from "./lifecycle.js";
 import { Timestamp } from "./primitives.js";
 
 /**
@@ -47,9 +48,9 @@ const EnvironmentUpdated = z
 const EnvironmentDraining = z
   .object({
     type: z.literal("environment.draining"),
-    payload: z.object({ drainingSince: Timestamp }),
+    payload: z.object({ drainingSince: Timestamp, trigger: DrainTrigger }),
   })
-  .meta({ description: "The environment refuses new runs and lets running ones finish before a restart: since when." });
+  .meta({ description: "The environment refuses new runs and lets running ones finish before a restart: since when, and what started it." });
 
 /**
  * One environment notice, as an event's `type` and `payload`. Parsing an

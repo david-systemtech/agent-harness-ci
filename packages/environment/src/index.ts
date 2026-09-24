@@ -41,7 +41,30 @@ export { systemClock, type Clock, type Timer } from "./serve/clock.js";
 export { defaultDataDirectory, prepareDataDirectory, type PlatformContext } from "./serve/data-directory.js";
 export { isAllowedHost, type Address, type HttpRoutes, type RouteHandler } from "./serve/http.js";
 export { RECORD_FILE, SIGNING_KEY, type EnvironmentRecord } from "./serve/identity.js";
-export { PREPARED_MESSAGE, processLauncherChannel, type IpcProcess, type LauncherChannel } from "./serve/launcher.js";
+export {
+  PREPARED_MESSAGE,
+  processLauncherChannel,
+  type IpcProcess,
+  type LauncherChannel,
+  type LauncherQuery,
+  type LauncherReply,
+} from "./serve/launcher.js";
+export {
+  DRAIN_CAP_MS,
+  IDLE_WINDOW_MS,
+  PARKED_PROMPT_WINDOW_MS,
+  activityOf,
+  createRunRegistry,
+  processContainerDetector,
+  type ContainerDetector,
+  type ContainerProbe,
+  type DrainOutcome,
+  type IdleOrBusy,
+  type MemoryRunRegistry,
+  type RunRecord,
+  type RunRegistry,
+  type RunState,
+} from "./serve/lifecycle.js";
 export type { HandlerResult, MethodContext, MethodHandler, MethodHandlers, MethodTable, ServedMethod } from "./serve/methods.js";
 export {
   DATABASE_FILE,

@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DISCOVERY_PATH } from "@agent-harness/contracts";
+import { createRunRegistry, systemClock, type LauncherQuery, type LauncherReply } from "@agent-harness/environment";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runCli, type CliContext } from "./cli.js";
 
@@ -26,13 +27,23 @@ const harness = () => {
   cleanups.push(() => stop());
   const prepared = vi.fn();
   const close = vi.fn();
+  let answer: ((query: LauncherQuery) => LauncherReply) | undefined;
+  const ask = (query: LauncherQuery): LauncherReply => {
+    if (!answer) throw new Error("serve answers no launcher queries yet");
+    return answer(query);
+  };
+  const runs = createRunRegistry({ clock: systemClock });
   const context: CliContext = {
     stdout: (text) => void (out += text),
     stderr: (text) => void (err += text),
     stopRequested: () => stopped,
-    environment: { user: { isPrivileged: () => false }, launcher: { prepared, close } },
+    environment: {
+      user: { isPrivileged: () => false },
+      launcher: { prepared, close, onQuery: (respond) => void (answer = respond) },
+      runs,
+    },
   };
-  return { context, stop, prepared, close, out: () => out, err: () => err };
+  return { context, stop, prepared, close, ask, runs, out: () => out, err: () => err };
 };
 
 describe("agent-harness serve", () => {
@@ -52,6 +63,36 @@ describe("agent-harness serve", () => {
     expect(await exit).toBe(0);
     expect(cli.close).toHaveBeenCalledOnce();
     await expect(fetch(address)).rejects.toThrow();
+    expect(cli.err()).toBe("");
+  });
+
+  it("drains on a stop request (SIGTERM): draining while a run holds it, then exits 0 once the run has ended", async () => {
+    const cli = harness();
+    cli.runs.start("r1");
+    cli.runs.running("r1");
+    let exited = false;
+    const exit = runCli(["serve", "--data-dir", join(tempDir(), "data"), "--port", "0"], cli.context).finally(() => (exited = true));
+    await vi.waitFor(() => expect(cli.out()).toMatch(/\n$/));
+    const address = cli.out().trim();
+
+    cli.stop();
+    await vi.waitFor(async () => expect(await (await fetch(address)).json()).toMatchObject({ readiness: "draining" }));
+    expect(exited).toBe(false);
+    expect(cli.close).not.toHaveBeenCalled();
+    cli.runs.end("r1");
+    expect(await exit).toBe(0);
+    expect(cli.close).toHaveBeenCalledOnce();
+    await expect(fetch(address)).rejects.toThrow();
+  });
+
+  it("drains and exits 0 when the launcher's channel asks it to, having answered that it is idle", async () => {
+    const cli = harness();
+    const exit = runCli(["serve", "--data-dir", join(tempDir(), "data"), "--port", "0"], cli.context);
+    await vi.waitFor(() => expect(cli.out()).toMatch(/\n$/));
+    expect(cli.ask({ type: "idle?" })).toEqual({ type: "idle", idle: true, state: "idle" });
+    expect(cli.ask({ type: "drain" })).toMatchObject({ type: "draining" });
+    expect(await exit).toBe(0);
+    expect(cli.close).toHaveBeenCalledOnce();
     expect(cli.err()).toBe("");
   });
 

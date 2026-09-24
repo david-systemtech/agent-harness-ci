@@ -96,4 +96,32 @@ describe.skipIf(runningAsRoot || process.platform === "win32")("agent-harness se
     child.kill("SIGTERM");
     expect(await exited).toBe(0);
   });
+
+  it("answers the launcher's idle query over IPC, and drains and exits 0 on its drain query", async () => {
+    const child = fork(entry, ["serve", "--data-dir", join(tempDir(), "data"), "--port", "0"], {
+      execArgv: ["--conditions=@agent-harness/source", "--import", tsx],
+      stdio: ["ignore", "ignore", "pipe", "ipc"],
+    });
+    cleanups.push(() => void child.kill("SIGKILL"));
+    const exited = new Promise<number | null>((resolve) => child.on("exit", (code) => resolve(code)));
+    const received: unknown[] = [];
+    let heard: (() => void) | undefined;
+    child.on("message", (message) => {
+      received.push(message);
+      heard?.();
+    });
+    const nth = (n: number) =>
+      new Promise<unknown>((resolve) => {
+        const look = () => (received.length > n ? resolve(received[n]) : undefined);
+        heard = look;
+        look();
+      });
+
+    expect(await nth(0)).toEqual(PREPARED_MESSAGE);
+    child.send({ type: "idle?" });
+    expect(await nth(1)).toEqual({ type: "idle", idle: true, state: "idle" });
+    child.send({ type: "drain" });
+    expect(await nth(2)).toMatchObject({ type: "draining", drainingSince: expect.any(String) as string });
+    expect(await exited).toBe(0);
+  });
 });

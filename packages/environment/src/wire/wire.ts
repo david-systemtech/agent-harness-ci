@@ -311,7 +311,7 @@ export const createWire = (options: WireOptions): Wire => {
     sockets: () => open.size,
     subscriptions: () => subscriptions.count(),
 
-    // #112 refines this into the drain sequence: runs finish first, then the same bye.
+    // A drain's last step (serve/lifecycle.ts): its runs have finished or been cut, and every socket hears the same bye.
     async close() {
       closed = true;
       stopRevoked();

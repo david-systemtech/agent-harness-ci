@@ -1,4 +1,4 @@
-import { ContractError, registry, type RequestFrame, type Scope } from "@agent-harness/contracts";
+import { ContractError, registry, type EnvironmentStatus, type RequestFrame, type Scope } from "@agent-harness/contracts";
 import { describe, expect, it, vi } from "vitest";
 import { TOP_CEILING, type VerifiedClientSession } from "../auth/client-sessions.js";
 import { createMethodTable, type MethodHandlers } from "../serve/methods.js";
@@ -14,6 +14,10 @@ const caller = (scopes: readonly Scope[]): VerifiedClientSession => ({
   expiresAt: Number.MAX_SAFE_INTEGER,
 });
 
+/** A status as `environment.status` answers it, and a second one to tell a replaced handler from its successor. */
+const ready: EnvironmentStatus = { readiness: "ready", activity: { state: "idle" }, updatesManagedOutside: false };
+const starting: EnvironmentStatus = { ...ready, readiness: "starting" };
+
 const request = (method: string, params: Record<string, unknown> = {}): RequestFrame => ({ type: "request", id: "r1", method, params });
 
 /** Dispatches one request and resolves with the one answer it gave, and no subscription opened. */
@@ -28,7 +32,7 @@ const answer = async (methods: MethodHandlers, frame: RequestFrame, scopes: read
 
 describe("dispatch", () => {
   it("refuses forbidden without running the handler", async () => {
-    const handler = vi.fn(() => ({ readiness: "ready" as const }));
+    const handler = vi.fn(() => ready);
     expect(await answer({ "environment.status": handler }, request("environment.status"), ["admin"])).toEqual({
       error: { code: "forbidden", message: expect.stringContaining("read"), data: { scope: "read" } },
     });
@@ -36,9 +40,9 @@ describe("dispatch", () => {
   });
 
   it("runs the handler with the parsed params and the caller, and answers its result", async () => {
-    const handler = vi.fn(() => ({ readiness: "ready" as const }));
+    const handler = vi.fn(() => ready);
     expect(await answer({ "environment.status": handler }, request("environment.status", { ignored: 1 }), ["read"])).toEqual({
-      result: { readiness: "ready" },
+      result: ready,
     });
     expect(handler).toHaveBeenCalledWith({}, { clientSession: caller(["read"]) });
   });
@@ -73,7 +77,7 @@ describe("dispatch", () => {
   });
 
   it("opens a stream rather than answering it: the request id, the source, the cursor and the snapshot's schema", async () => {
-    const source = { stream: { kind: "environment", id: "e" }, snapshot: () => ({ status: { readiness: "ready" as const } }) };
+    const source = { stream: { kind: "environment", id: "e" }, snapshot: () => ({ status: ready }) };
     const handler = vi.fn(() => source);
     const answers: Answer[] = [];
     const opened: Opening[] = [];
@@ -93,7 +97,7 @@ describe("dispatch", () => {
   it("answers what opening a stream throws, as a handler's throw is answered", async () => {
     const quiet = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const methods: MethodHandlers = {
-      "environment.subscribe": () => ({ stream: { kind: "environment", id: "e" }, snapshot: () => ({ status: { readiness: "ready" } }) }),
+      "environment.subscribe": () => ({ stream: { kind: "environment", id: "e" }, snapshot: () => ({ status: ready }) }),
     };
     for (const [thrown, code] of [
       [new ContractError({ code: "conflict", message: "Not now.", data: {} }), "conflict"],
@@ -109,12 +113,12 @@ describe("dispatch", () => {
   });
 
   it("serves a handler registered on its table after dispatch was made, replacing the one before", async () => {
-    const table = createMethodTable({ "environment.status": () => ({ readiness: "starting" as const }) });
+    const table = createMethodTable({ "environment.status": () => starting });
     const dispatch = createDispatch(table);
-    table.register(registry["environment.status"], () => ({ readiness: "ready" }));
+    table.register(registry["environment.status"], () => ready);
     const answers: Answer[] = [];
     await dispatch(request("environment.status"), caller(["read"]), (given) => answers.push(given), vi.fn());
-    expect(answers).toEqual([{ result: { readiness: "ready" } }]);
+    expect(answers).toEqual([{ result: ready }]);
   });
 
   it("answers invalid_params with the issues", async () => {
