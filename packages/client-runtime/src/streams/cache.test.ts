@@ -156,6 +156,26 @@ describe("the stream cache", () => {
     }
   });
 
+  it("settles idle and still reads a document after a delete of it that failed, the failure its caller's alone", async () => {
+    const store = inMemoryDocuments();
+    let fail: () => void = () => undefined;
+    const documents: DocumentStore = {
+      ...store,
+      delete: () => new Promise<void>((_resolve, reject) => (fail = () => reject(new Error("the disk is gone")))),
+    };
+    const cache = createStreamCache({ documents, clock: manualClock(), report: () => undefined });
+    const key = streamDocument("env", "list");
+    await cache.now(key, () => ({ cursor: 3, snapshot: { kept: true } }));
+    const removing = cache.remove(key);
+    const idle = cache.idle();
+    const reading = cache.read(key);
+    await settle();
+    fail();
+    await expect(removing).rejects.toThrow(/disk is gone/);
+    await expect(idle).resolves.toBeUndefined();
+    await expect(reading).resolves.toEqual({ cursor: 3, snapshot: { kept: true } });
+  });
+
   it("reads a document it cannot understand as nothing cached", async () => {
     const { documents, store } = recording();
     const cache = createStreamCache({ documents, clock: manualClock(), report: () => undefined });

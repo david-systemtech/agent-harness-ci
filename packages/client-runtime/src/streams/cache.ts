@@ -129,8 +129,9 @@ export const createStreamCache = (options: CacheOptions): StreamCache => {
 
   return {
     async read(key) {
-      // A write under way lands first: a stream read back just after it was let go reads what it wrote.
-      await chains.get(key);
+      // A write under way lands first: a stream read back just after it was let go reads what it wrote. One that failed was its
+      // caller's to report, so the read goes on to what is stored.
+      await chains.get(key)?.catch(() => undefined);
       const value = await documents.get(key);
       if (!isRecord(value) || value["format"] !== FORMAT) return undefined;
       const sequence = value["sequence"];
@@ -169,7 +170,8 @@ export const createStreamCache = (options: CacheOptions): StreamCache => {
       await Promise.all([...chains].filter(([key]) => key.startsWith(prefix)).map(([, chain]) => chain.catch(() => undefined)));
     },
     async idle() {
-      await Promise.all([...chains.values()]);
+      // Waits only: a write or delete that failed was reported to, or rejected for, whoever made it.
+      await Promise.all([...chains.values()].map((chain) => chain.catch(() => undefined)));
     },
   };
 };

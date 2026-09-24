@@ -598,6 +598,38 @@ describe("closing and faults outside the streams", () => {
   });
 });
 
+describe("closing with a delete under way", () => {
+  it("settles close even when a deleted session's document cannot be deleted", async () => {
+    const base = inMemoryDocuments();
+    let fail: () => void = () => undefined;
+    const documents: InMemoryDocumentStore = {
+      ...base,
+      delete(key) {
+        if (!key.includes(".session.")) return base.delete(key);
+        return new Promise<void>((_resolve, reject) => (fail = () => reject(new Error("that document cannot be deleted"))));
+      },
+    };
+    const { runtime, wire, platform, list, adding } = await paired({ documents });
+    const a = randomUUID();
+    list.synchronized(0);
+    await adding;
+    const handle = runtime.subscriptions.session(wire.environmentId, a);
+    const stream = await subscription(wire, "sessions.subscribeSession");
+    stream.snapshot(2, { sequence: 2, summary: summaryOf(a), runs: [], items: [], parkedPrompts: [] });
+    stream.synchronized(2);
+    stream.end("deleted");
+    await flush();
+    handle.release();
+
+    const closing = runtime.close();
+    fail();
+    await expect(closing).resolves.toBeUndefined();
+    await flush();
+    // Reported once, by the deletion that failed.
+    expect(platform.reported.filter((e) => e instanceof Error && e.message === "that document cannot be deleted")).toHaveLength(1);
+  });
+});
+
 describe("offline", () => {
   it("reads the list and every cached session from their snapshots, cached", async () => {
     const clock = manualClock();
