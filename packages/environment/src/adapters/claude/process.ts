@@ -498,7 +498,13 @@ export class ClaudeProcess implements TurnControl {
         this.#context.process.exited();
       }
       const child = this.#child;
-      if (child !== undefined && child.exitCode === null && child.signalCode === null) await new Promise<void>((resolve) => child.once("exit", () => resolve()));
+      // `exit`, or `close` for a child that failed to spawn: Node reports that as `error` then `close`, with no `exit`.
+      if (child !== undefined && child.exitCode === null && child.signalCode === null) {
+        await new Promise<void>((resolve) => {
+          child.once("exit", () => resolve());
+          child.once("close", () => resolve());
+        });
+      }
     }
   }
 

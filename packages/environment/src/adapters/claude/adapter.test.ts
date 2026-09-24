@@ -557,6 +557,20 @@ describe("the process across turns", () => {
     expect(turn.query.closed).toBe(true);
   });
 
+  it("resolves a stop whose child failed to spawn, which never emits exit", async () => {
+    const adapter = adapterWith();
+    const turn = await oneTurn(adapter, runInput());
+    const spawnProcess = turn.query.options.spawnClaudeCodeProcess;
+    const child = spawnProcess?.({ command: "/nonexistent/claude-agent-sdk/claude", args: [], env: { PATH: process.env["PATH"] }, signal: new AbortController().signal }) as unknown as import("node:child_process").ChildProcess;
+    const events: string[] = [];
+    for (const name of ["error", "exit", "close"]) child.on(name, () => events.push(name));
+    // Stopped at once, before Node has reported the failure: the child has neither an exit code nor a signal yet.
+    const stopped = adapter.stopProcess(SESSION).then(() => "stopped");
+    const late = new Promise((resolve) => setTimeout(() => resolve("still waiting"), 2_000));
+    expect(await Promise.race([stopped, late])).toBe("stopped");
+    expect(events).toEqual(["error", "close"]);
+  });
+
   it("spawns fresh for a run that asks for bypass of a process started without it, and refuses while it holds work", async () => {
     const adapter = adapterWith();
     const first = await oneTurn(adapter, runInput());
