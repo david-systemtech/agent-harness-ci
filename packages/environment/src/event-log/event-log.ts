@@ -2,7 +2,15 @@ import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { createClientSessionTable, type ClientSessionTable } from "./client-sessions.js";
 import { createSql, decodeEvent, toJson, type EventRow, type SqlValue, type Transaction } from "./database.js";
-import { requireActor, type EventEnvelope, type EventInput, type JsonObject, type StreamRef } from "./envelope.js";
+import {
+  isStreamKinds,
+  requireActor,
+  type EventEnvelope,
+  type EventInput,
+  type JsonObject,
+  type StreamRef,
+  type StreamSelector,
+} from "./envelope.js";
 import { applyMigrations } from "./migrations.js";
 import { createProjections, type Projector } from "./projectors.js";
 import { createPairingTable, type PairingTable } from "./pairings.js";
@@ -13,8 +21,19 @@ import { loadSqlite } from "./sqlite.js";
 export type { ClientSessionRow, ClientSessionTable } from "./client-sessions.js";
 export type { PairingRow, PairingTable } from "./pairings.js";
 export type { SqlValue } from "./database.js";
-export { formatActor, parseActor, type EventEnvelope, type EventInput, type JsonObject, type StreamRef } from "./envelope.js";
-export type { ProjectionDb, Projector } from "./projectors.js";
+export {
+  formatActor,
+  isStreamKinds,
+  parseActor,
+  selects,
+  type EventEnvelope,
+  type EventInput,
+  type JsonObject,
+  type StreamKinds,
+  type StreamRef,
+  type StreamSelector,
+} from "./envelope.js";
+export type { ProjectionContext, ProjectionDb, Projector } from "./projectors.js";
 export { RECEIPT_RETENTION_MS, type StoredError, type StoredReceipt } from "./receipts.js";
 export type { Snapshot } from "./snapshots.js";
 
@@ -107,10 +126,15 @@ export interface EventLog {
   /**
    * Appends events to one stream in one transaction with every projector's
    * writes and the receipt; subscribers hear of them only after it commits.
+   * The events returned, stored and published carry whatever metadata the
+   * projectors attached while applying them (`ProjectionContext`).
    */
   append(stream: StreamRef, events: readonly EventInput[], options: AppendOptions): AppendResult;
-  /** One stream's events with a sequence above `afterSequence`, in order: every one, or the first `limit`. */
-  readStream(stream: StreamRef, afterSequence?: number, limit?: number): EventEnvelope[];
+  /**
+   * The events `selector` names (one stream, or every stream of some kinds)
+   * with a sequence above `afterSequence`, in order: every one, or the first `limit`.
+   */
+  readStream(selector: StreamSelector, afterSequence?: number, limit?: number): EventEnvelope[];
   /**
    * Runs a command once per actor and command id (env spec, "Commands"). A
    * key with a receipt in the retention period is answered from it and `work`
@@ -121,8 +145,8 @@ export interface EventLog {
    * rolls all of it back and stores no receipt, so a retry runs again.
    */
   command<T>(key: CommandKey, work: (tx: Tx) => CommandOutcome<T>): CommandRun<T>;
-  /** Measures one stream's events after a cursor against the replay bound, in SQL, before decoding. */
-  replayBound(stream: StreamRef, afterSequence: number): ReplayMeasure;
+  /** Measures the events `selector` names after a cursor against the replay bound, in SQL, before decoding. */
+  replayBound(selector: StreamSelector, afterSequence: number): ReplayMeasure;
   /** The last sequence the log has given out, on any stream; 0 before the first event. */
   head(): number;
   /**
@@ -159,6 +183,21 @@ export interface EventLog {
   readonly pairings: PairingTable;
   close(): void;
 }
+
+/**
+ * The SQL condition on `events` for `selector`, and its parameters: one
+ * stream by kind and id, or a set of kinds (and of types, when given) passed
+ * as JSON arrays, so each form is one prepared statement whatever the sets hold.
+ */
+const selection = (selector: StreamSelector): { where: string; params: SqlValue[] } =>
+  isStreamKinds(selector)
+    ? selector.types === undefined
+      ? { where: "stream_kind IN (SELECT value FROM json_each(?))", params: [JSON.stringify(selector.kinds)] }
+      : {
+          where: "stream_kind IN (SELECT value FROM json_each(?)) AND type IN (SELECT value FROM json_each(?))",
+          params: [JSON.stringify(selector.kinds), JSON.stringify(selector.types)],
+        }
+    : { where: "stream_kind = ? AND stream_id = ?", params: [selector.kind, selector.id] };
 
 /** Throws unless `value` is a JSON object: the contracts' envelope carries payload and metadata as objects. */
 const requireObject: (value: unknown, what: string) => asserts value is JsonObject = (value, what) => {
@@ -302,11 +341,11 @@ export const openEventLog = (options: EventLogOptions): EventLog => {
         const written = rows.map((row) => decodeEvent(sql.get<EventRow>(insertEvent, ...row) as EventRow));
         projecting = true;
         try {
-          projections.catchUp(written);
+          // The events as the projectors left them: with the metadata they attached, which is what readers get.
+          return projections.catchUp(written);
         } finally {
           projecting = false;
         }
-        return written;
       });
       if (held) held.push(...events);
       else publish(events);
@@ -347,13 +386,13 @@ export const openEventLog = (options: EventLogOptions): EventLog => {
       });
     },
 
-    readStream(stream, afterSequence = 0, limit) {
+    readStream(selector, afterSequence = 0, limit) {
+      const { where, params } = selection(selector);
       return sql
         .all<EventRow>(
           // SQLite reads a negative LIMIT as none.
-          "SELECT * FROM events WHERE stream_kind = ? AND stream_id = ? AND sequence > ? ORDER BY sequence LIMIT ?",
-          stream.kind,
-          stream.id,
+          `SELECT * FROM events WHERE ${where} AND sequence > ? ORDER BY sequence LIMIT ?`,
+          ...params,
           afterSequence,
           limit ?? -1,
         )
@@ -387,16 +426,16 @@ export const openEventLog = (options: EventLogOptions): EventLog => {
       return result;
     },
 
-    replayBound(stream, afterSequence) {
+    replayBound(selector, afterSequence) {
+      const { where, params } = selection(selector);
       // The scan stops one event past the count bound, so an old, long stream costs no more than the bound.
       const row = sql.get<{ events: number; bytes: number }>(
         `SELECT COUNT(*) AS events,
                 COALESCE(SUM(length(CAST(payload AS BLOB)) + length(CAST(metadata AS BLOB))), 0) AS bytes
          FROM (SELECT payload, metadata FROM events
-               WHERE stream_kind = ? AND stream_id = ? AND sequence > ?
+               WHERE ${where} AND sequence > ?
                ORDER BY sequence LIMIT ?)`,
-        stream.kind,
-        stream.id,
+        ...params,
         afterSequence,
         REPLAY_BOUND.events + 1,
       ) ?? { events: 0, bytes: 0 };

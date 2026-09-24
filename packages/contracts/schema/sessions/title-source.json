@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TitleSource",
+  "type": "string",
+  "enum": [
+    "user",
+    "generated",
+    "default"
+  ],
+  "description": "Where a session's title came from: user (sessions.rename), generated (from the first prompt or the provider), default (\"New session\")."
+}

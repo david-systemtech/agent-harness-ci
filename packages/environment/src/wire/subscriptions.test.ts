@@ -492,6 +492,51 @@ describe("ending a subscription", () => {
   });
 });
 
+describe("a subscription over stream kinds", () => {
+  /** A synthetic stream over every `probe` and `prod` stream, keeping only `probe.poked` events. */
+  const probesSubscribe = defineMethod({
+    name: "probes.subscribe",
+    scope: "read",
+    kind: "stream",
+    params: subscriptionParams({}),
+    result: z.object({ count: z.int().nonnegative() }),
+    errors: [],
+  });
+
+  it("carries every stream of the kinds its source names, only the types it names, replayed then live, in sequence order", async () => {
+    const t = await start();
+    t.serve(probesSubscribe, () => ({ stream: { kinds: ["probe", "prod"], types: ["probe.poked"] }, snapshot: () => ({ count: 0 }) }));
+    const [a] = append(t, "a", 1);
+    t.env.log.append({ kind: "prod", id: "x" }, [{ type: "probe.poked", payload: {} }, { type: "prod.ignored", payload: {} }], {
+      actor: "system:test",
+    });
+    t.env.log.append({ kind: "elsewhere", id: "a" }, [{ type: "probe.poked", payload: {} }], { actor: "system:test" });
+    const client = await t.client();
+    const { subscription } = await client.subscribe("probes.subscribe", { afterSequence: 0 });
+    await frame(client, subscription, "synchronized");
+    const [b] = append(t, "b", 1);
+    t.env.log.append({ kind: "prod", id: "y" }, [{ type: "prod.ignored", payload: {} }, { type: "probe.poked", payload: {} }], {
+      actor: "system:test",
+    });
+    await roundTrip(client);
+    const replayed = (a as number) + 1;
+    expect(shape(client, subscription)).toEqual(["subscribed", a, replayed, "synchronized", b, (b as number) + 2]);
+  });
+
+  it("sends a snapshot when the events of those kinds after the cursor pass the bound", async () => {
+    const t = await start();
+    t.serve(probesSubscribe, () => ({ stream: { kinds: ["probe", "prod"] }, snapshot: () => ({ count: 7 }) }));
+    append(t, "a", REPLAY_BOUND.events / 2);
+    t.env.log.append({ kind: "prod", id: "x" }, Array.from({ length: REPLAY_BOUND.events / 2 + 1 }, () => ({ type: "prod.made", payload: {} })), {
+      actor: "system:test",
+    });
+    const client = await t.client();
+    const { subscription } = await client.subscribe("probes.subscribe", { afterSequence: 0 });
+    const snapshot = await frame(client, subscription, "snapshot");
+    expect(snapshot.payload).toEqual({ count: 7 });
+  });
+});
+
 describe("refusing a subscription", () => {
   it("refuses a stream whose scope the client session lacks forbidden, before any subscribed", async () => {
     const t = await start();

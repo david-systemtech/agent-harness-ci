@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SessionTitleSetPayload",
+  "type": "object",
+  "properties": {
+    "title": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "pattern": "\\S",
+          "description": "A title a user gives a session: 1 to 200 characters, not all white space; stored trimmed."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The user's title, trimmed; null reverts to the generated title or the default."
+    },
+    "source": {
+      "type": "string",
+      "const": "user"
+    }
+  },
+  "required": [
+    "title",
+    "source"
+  ],
+  "description": "session.title-set: the user set the session's title, or cleared it (null)."
+}

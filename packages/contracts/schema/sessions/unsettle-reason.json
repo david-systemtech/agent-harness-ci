@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "UnsettleReason",
+  "type": "string",
+  "enum": [
+    "user",
+    "activity"
+  ],
+  "description": "Why a session was unsettled: user (sessions.unsettle or a pin) or activity (a run started)."
+}

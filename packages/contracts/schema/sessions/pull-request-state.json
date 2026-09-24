@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PullRequestState",
+  "type": "string",
+  "enum": [
+    "open",
+    "closed",
+    "merged"
+  ],
+  "description": "A pull request's state: open, closed (without merging) or merged."
+}

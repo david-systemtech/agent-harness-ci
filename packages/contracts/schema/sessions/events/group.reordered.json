@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "GroupReorderedPayload",
+  "type": "object",
+  "properties": {
+    "orderKey": {
+      "type": "string",
+      "pattern": "^[a-z]*[b-z]$",
+      "description": "A fractional order key: letters a to z compared as plain strings, never empty and never ending in a, so a key can always be made before any other."
+    }
+  },
+  "required": [
+    "orderKey"
+  ],
+  "description": "group.reordered: the group was given a new key."
+}

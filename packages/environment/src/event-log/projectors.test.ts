@@ -233,3 +233,62 @@ describe("projectors", () => {
     expect(log.read("SELECT name FROM sqlite_schema WHERE name = 'something_else'")).toEqual([]);
   });
 });
+
+/**
+ * A projector that attaches `{ [key]: <what it saw> }` to every event it
+ * applies, the way the session list attaches its patch: a note's text, uppercased.
+ */
+const attaching = (name: string, key: string): Projector => ({
+  name,
+  tables: {},
+  apply: (event, _db, context) => {
+    context.attachMetadata({ [key]: String(event.payload["text"]).toUpperCase() });
+  },
+});
+
+describe("a projector's metadata", () => {
+  it("is attached to the event being appended in the append's transaction: returned, stored, read back and published", () => {
+    const log = track(openEventLog({ path: ":memory:", projectors: [attaching("shout", "shouted")] }));
+    const heard: unknown[] = [];
+    log.subscribe((event) => heard.push(event.metadata));
+    const { events } = log.append({ kind: "session", id: "a" }, [{ ...note("hi"), metadata: { from: "test" } }, note("there")], {
+      actor: "system:test",
+    });
+    expect(events.map((event) => event.metadata)).toEqual([{ from: "test", shouted: "HI" }, { shouted: "THERE" }]);
+    expect(log.readStream({ kind: "session", id: "a" }).map((event) => event.metadata)).toEqual([
+      { from: "test", shouted: "HI" },
+      { shouted: "THERE" },
+    ]);
+    expect(heard).toEqual([{ from: "test", shouted: "HI" }, { shouted: "THERE" }]);
+  });
+
+  it("is attached to a command's events too, and the receipt's events carry it", () => {
+    const log = track(openEventLog({ path: ":memory:", projectors: [attaching("shout", "shouted")] }));
+    const run = log.command({ actor: "client_session:1", commandId: "c-1" }, () => ({
+      aggregate: { kind: "session", id: "a" },
+      result: null,
+      events: [note("cmd")],
+    }));
+    expect(run.replayed === false && run.events.map((event) => event.metadata)).toEqual([{ shouted: "CMD" }]);
+  });
+
+  it("is not written again when the log is replayed into the projector: a rebuild or a late registration leaves history as it was", () => {
+    const log = track(openEventLog({ path: ":memory:" }));
+    log.append({ kind: "session", id: "a" }, [note("before")], { actor: "system:test" });
+    log.registerProjector(attaching("shout", "shouted"));
+    log.append({ kind: "session", id: "a" }, [note("after")], { actor: "system:test" });
+    log.rebuildProjections();
+    expect(log.readStream({ kind: "session", id: "a" }).map((event) => event.metadata)).toEqual([{}, { shouted: "AFTER" }]);
+  });
+
+  it("may not overwrite what the appender or another projector attached: the append fails and nothing commits", () => {
+    const log = track(openEventLog({ path: ":memory:", projectors: [attaching("shout", "shouted")] }));
+    expect(() =>
+      log.append({ kind: "session", id: "a" }, [{ ...note("x"), metadata: { shouted: "mine" } }], { actor: "system:test" }),
+    ).toThrow(/shouted/);
+    log.registerProjector(attaching("shout-again", "shouted"));
+    expect(() => log.append({ kind: "session", id: "a" }, [note("y")], { actor: "system:test" })).toThrow(/shouted/);
+    expect(log.readStream({ kind: "session", id: "a" })).toEqual([]);
+    expect(log.head()).toBe(0);
+  });
+});

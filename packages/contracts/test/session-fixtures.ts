@@ -1,0 +1,330 @@
+/**
+ * Fixtures for the session-state schemas and methods: a valid and an invalid
+ * instance of every session and group schema the export writes, and params
+ * and results for every session and group method. `fixtures.ts` folds them
+ * into the package's fixture table.
+ */
+
+interface Fixtures {
+  readonly valid: readonly unknown[];
+  readonly invalid: readonly unknown[];
+}
+
+const commandId = "0f8fad5b-d9cb-469f-a165-70867728950e";
+const sessionId = "7c9e6679-7425-40de-944b-e07fc1f90ae7";
+const groupId = "1b4e28ba-2fa1-41d2-883f-0016d3cca427";
+const at = "2026-09-24T01:02:03.456Z";
+const later = "2026-09-29T09:00:00.000Z";
+
+const workspace = { kind: "directory", path: "/work/agent-harness" };
+const pullRequest = { url: "https://git.systemtech.dev:5526/david/agent-harness/pulls/167", state: "open", mergedAt: null, closedAt: null };
+const mergedPullRequest = { ...pullRequest, state: "merged", mergedAt: later };
+
+/** A summary as a fresh session has it, and one with every field set. */
+export const freshSummary = {
+  id: sessionId,
+  createdAt: at,
+  updatedAt: at,
+  lastActivityAt: null,
+  title: "New session",
+  titleSource: "default",
+  archivedAt: null,
+  pinnedAt: null,
+  pinOrderKey: null,
+  activeOrderKey: null,
+  tags: [],
+  groupId: null,
+  settledAt: null,
+  settledOverride: null,
+  settledBy: null,
+  unsettledAt: null,
+  snoozedUntil: null,
+  snoozedAt: null,
+  workspace,
+  repositoryIdentity: null,
+  activity: { state: "idle", since: at },
+  parkedPromptCount: 0,
+  accountId: null,
+  model: null,
+  pullRequests: [],
+};
+
+const fullSummary = {
+  ...freshSummary,
+  lastActivityAt: later,
+  title: "Fix the receipts",
+  titleSource: "user",
+  archivedAt: later,
+  pinnedAt: at,
+  pinOrderKey: "m",
+  activeOrderKey: "c",
+  tags: ["review", "Seth", "wip"],
+  groupId,
+  settledAt: later,
+  settledOverride: "settled",
+  settledBy: "auto-merge",
+  unsettledAt: at,
+  snoozedUntil: later,
+  snoozedAt: at,
+  repositoryIdentity: "https://git.systemtech.dev:5526/david/agent-harness",
+  activity: { state: "parked", since: later },
+  parkedPromptCount: 2,
+  accountId: "claude-max",
+  model: "claude-opus-5-5",
+  pullRequests: [mergedPullRequest],
+};
+
+const invalidSummaries = [
+  {},
+  { ...freshSummary, id: "not-a-uuid" },
+  { ...freshSummary, title: "" },
+  { ...freshSummary, titleSource: "provider" },
+  { ...freshSummary, pinOrderKey: "ba" },
+  { ...freshSummary, settledBy: "robot" },
+  { ...freshSummary, activity: { state: "idle" } },
+  { ...freshSummary, parkedPromptCount: -1 },
+  { ...freshSummary, workspace: { kind: "none" } },
+  { ...freshSummary, pullRequests: [{ ...pullRequest, state: "draft" }] },
+];
+
+const group = { id: groupId, name: "Brandsolidate", orderKey: null, createdAt: at, updatedAt: at };
+const invalidGroups = [{ ...group, name: "" }, { ...group, name: "x".repeat(81) }, { ...group, orderKey: "a" }, { ...group, id: "g-1" }];
+
+const deleted = { ...freshSummary, deletedAt: later, purgeAt: "2026-10-29T09:00:00.000Z" };
+
+/** Payloads for every published session and group event type: valid, then invalid. */
+const eventPayloads: Record<string, Fixtures> = {
+  "session.created": {
+    valid: [
+      { title: null, tags: [], groupId: null, workspace, repositoryIdentity: null, account: null, model: null, mode: null },
+      { title: "Fix it", tags: ["wip"], groupId, workspace, repositoryIdentity: null, account: "claude-max", model: "opus", mode: "plan" },
+    ],
+    invalid: [{ title: null, tags: [], groupId: null, repositoryIdentity: null, account: null, model: null, mode: null }, { title: "" }],
+  },
+  "session.title-set": {
+    valid: [{ title: "Fix it", source: "user" }, { title: null, source: "user" }],
+    invalid: [{ title: "Fix it", source: "provider" }, { title: "", source: "user" }],
+  },
+  "session.title-generated": {
+    valid: [{ title: "Fix the receipts", source: "prompt" }, { title: "Receipts", source: "provider" }],
+    invalid: [{ title: "x", source: "user" }, { title: "", source: "prompt" }],
+  },
+  "session.archived": { valid: [{ archivedAt: at }], invalid: [{}, { archivedAt: "now" }] },
+  "session.unarchived": { valid: [{}], invalid: [[], "x"] },
+  "session.pinned": {
+    valid: [{ pinnedAt: at, pinOrderKey: null }, { pinnedAt: at, pinOrderKey: "m" }],
+    invalid: [{ pinnedAt: at }, { pinnedAt: at, pinOrderKey: "a" }],
+  },
+  "session.unpinned": { valid: [{}], invalid: [[], null] },
+  "session.pin-reordered": { valid: [{ pinOrderKey: "mb" }], invalid: [{}, { pinOrderKey: null }] },
+  "session.active-reordered": { valid: [{ activeOrderKey: "c" }, { activeOrderKey: null }], invalid: [{}, { activeOrderKey: "" }] },
+  "session.tagged": { valid: [{ tag: "wip" }], invalid: [{}, { tag: "" }] },
+  "session.untagged": { valid: [{ tag: "Seth" }], invalid: [{ tag: 1 }, { tag: "x".repeat(41) }] },
+  "session.group-set": { valid: [{ groupId }, { groupId: null }], invalid: [{}, { groupId: "g-1" }] },
+  "session.settled": {
+    valid: [{ settledAt: at, by: "user" }, { settledAt: at, by: "auto-idle" }],
+    invalid: [{ settledAt: at }, { settledAt: at, by: "robot" }],
+  },
+  "session.unsettled": {
+    valid: [{ unsettledAt: at, reason: "user" }, { unsettledAt: at, reason: "activity" }],
+    invalid: [{ unsettledAt: at, reason: "expired" }, { reason: "user" }],
+  },
+  "session.snoozed": { valid: [{ snoozedUntil: later, snoozedAt: at }], invalid: [{ snoozedUntil: later }, { snoozedUntil: "tuesday", snoozedAt: at }] },
+  "session.unsnoozed": {
+    valid: [{ reason: "user" }, { reason: "expired" }, { reason: "activity" }, { reason: "settled" }],
+    invalid: [{}, { reason: "bored" }],
+  },
+  "session.deleted": {
+    valid: [{ deletedAt: at, purgeAt: later, deleteProviderTranscript: false }],
+    invalid: [{ deletedAt: at, purgeAt: later }, { deletedAt: at, purgeAt: "soon", deleteProviderTranscript: true }],
+  },
+  "session.restored": { valid: [{}], invalid: [[], 1] },
+  "session.purged": { valid: [{ providerTranscriptDeleted: true }], invalid: [{}, { providerTranscriptDeleted: "yes" }] },
+  "session.pull-request-linked": { valid: [pullRequest, mergedPullRequest], invalid: [{ ...pullRequest, url: "not a url" }, { url: pullRequest.url }] },
+  "session.pull-request-unlinked": { valid: [{ url: pullRequest.url }], invalid: [{}, { url: "pulls/167" }] },
+  "session.pull-request-synced": { valid: [mergedPullRequest], invalid: [{ ...pullRequest, state: "draft" }, { ...pullRequest, mergedAt: "never" }] },
+  "group.created": {
+    valid: [{ name: "Brandsolidate", orderKey: null }, { name: "Cool-Jams", orderKey: "m" }],
+    invalid: [{ name: "Brandsolidate" }, { name: "", orderKey: null }],
+  },
+  "group.renamed": { valid: [{ name: "Brands" }], invalid: [{}, { name: " " }] },
+  "group.reordered": { valid: [{ orderKey: "d" }], invalid: [{}, { orderKey: "da" }] },
+  "group.deleted": { valid: [{}], invalid: [[], "x"] },
+};
+
+/** Every session and group schema the export writes, by path. */
+export const sessionSchemaFixtures: Record<string, Fixtures> = {
+  "sessions/session-id.json": { valid: [sessionId], invalid: ["s-1", "", 7] },
+  "sessions/group-id.json": { valid: [groupId], invalid: ["g-1", ""] },
+  "sessions/order-key.json": { valid: ["b", "an", "zzz"], invalid: ["", "a", "ba", "B", "b1"] },
+  "sessions/user-title.json": { valid: ["Fix it", "x".repeat(200)], invalid: ["", "   ", "x".repeat(201)] },
+  "sessions/tag.json": { valid: ["wip", "Seth", "x".repeat(40)], invalid: ["", " ", "x".repeat(41), "a\tb"] },
+  "sessions/group-name.json": { valid: ["Brandsolidate", "x".repeat(80)], invalid: ["", "  ", "x".repeat(81)] },
+  "sessions/title-source.json": { valid: ["user", "generated", "default"], invalid: ["prompt", "provider", ""] },
+  "sessions/generated-title-source.json": { valid: ["prompt", "provider"], invalid: ["user", ""] },
+  "sessions/settled-override.json": { valid: ["settled", "active"], invalid: ["archived", ""] },
+  "sessions/settled-by.json": { valid: ["user", "auto-idle", "auto-merge"], invalid: ["auto", ""] },
+  "sessions/unsettle-reason.json": { valid: ["user", "activity"], invalid: ["expired", ""] },
+  "sessions/unsnooze-reason.json": { valid: ["user", "expired", "activity", "settled"], invalid: ["bored", ""] },
+  "sessions/workspace.json": { valid: [workspace], invalid: [{ kind: "directory" }, { kind: "none" }, { kind: "directory", path: "" }] },
+  "sessions/activity-state.json": { valid: ["idle", "starting", "running", "parked"], invalid: ["busy", ""] },
+  "sessions/session-activity.json": { valid: [{ state: "idle", since: at }], invalid: [{ state: "idle" }, { state: "busy", since: at }] },
+  "sessions/pull-request-state.json": { valid: ["open", "closed", "merged"], invalid: ["draft", ""] },
+  "sessions/pull-request.json": { valid: [pullRequest, mergedPullRequest], invalid: [{ ...pullRequest, state: "draft" }, { url: pullRequest.url }] },
+  "sessions/session-summary.json": { valid: [freshSummary, fullSummary], invalid: invalidSummaries },
+  "sessions/deleted-session-summary.json": { valid: [deleted], invalid: [freshSummary, { ...deleted, purgeAt: "never" }] },
+  "sessions/group.json": { valid: [group, { ...group, orderKey: "m" }], invalid: invalidGroups },
+  "sessions/summary-patch.json": {
+    valid: [
+      { op: "add", summary: freshSummary },
+      { op: "set", sessionId, fields: { title: "Fix it", titleSource: "user", updatedAt: later } },
+      { op: "set", sessionId, fields: {} },
+      { op: "remove", sessionId },
+    ],
+    invalid: [
+      { op: "add", summary: {} },
+      { op: "set", sessionId, fields: { titleSource: "nobody" } },
+      { op: "set", fields: { title: "x" } },
+      { op: "remove" },
+      { op: "replace", sessionId },
+    ],
+  },
+  "sessions/group-patch.json": {
+    valid: [{ op: "add", group }, { op: "set", groupId, fields: { name: "Brands", updatedAt: later } }, { op: "remove", groupId }],
+    invalid: [{ op: "add", group: {} }, { op: "set", groupId, fields: { name: "" } }, { op: "remove" }],
+  },
+  "sessions/session-list-snapshot.json": {
+    valid: [{ sequence: 0, sessions: [], groups: [] }, { sequence: 42, sessions: [freshSummary, fullSummary], groups: [group] }],
+    invalid: [{ sessions: [], groups: [] }, { sequence: 1, sessions: [{}], groups: [] }, { sequence: 1, sessions: [] }],
+  },
+  "sessions/session-event-type.json": {
+    valid: ["session.created", "session.title-set", "run.started", "prompt.answered"],
+    invalid: ["group.created", "session.renamed", ""],
+  },
+  "sessions/group-event-type.json": { valid: ["group.created", "group.deleted"], invalid: ["session.created", "group.moved"] },
+  ...Object.fromEntries(Object.entries(eventPayloads).map(([type, fixtures]) => [`sessions/events/${type}.json`, fixtures])),
+};
+
+const target = { commandId, sessionId };
+const noTarget: Fixtures["invalid"] = [{ commandId }, { ...target, sessionId: "s-1" }, { sessionId }];
+const summaryResult: Fixtures = { valid: [{ summary: freshSummary }, { summary: fullSummary }], invalid: [{}, { summary: {} }] };
+const groupResult: Fixtures = { valid: [{ group }], invalid: [{}, { group: { ...group, name: "" } }] };
+
+/** A session command on a target alone, answered with the summary. */
+const sessionCommand = { params: { valid: [target], invalid: noTarget }, result: summaryResult };
+
+/** Params and results for every session and group method. */
+export const sessionMethodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
+  "sessions.create": {
+    params: {
+      valid: [
+        { commandId, id: sessionId, workspace },
+        { commandId, id: sessionId, title: "Fix it", tags: ["wip", "Seth"], groupId, workspace, account: "claude-max", model: "opus", mode: "plan" },
+        { commandId, id: sessionId, groupId: null, workspace },
+      ],
+      invalid: [
+        { commandId, workspace },
+        { commandId, id: "s-1", workspace },
+        { commandId, id: sessionId },
+        { commandId, id: sessionId, workspace, title: "" },
+        { commandId, id: sessionId, workspace, title: "x".repeat(201) },
+        { commandId, id: sessionId, workspace, tags: [""] },
+        { commandId, id: sessionId, workspace: { kind: "scratch" } },
+      ],
+    },
+    result: summaryResult,
+  },
+  "sessions.rename": {
+    params: {
+      valid: [{ ...target, title: "Fix it" }, { ...target, title: null }],
+      invalid: [target, { ...target, title: "" }, { ...target, title: "x".repeat(201) }, { commandId, title: "Fix it" }],
+    },
+    result: summaryResult,
+  },
+  "sessions.archive": sessionCommand,
+  "sessions.unarchive": sessionCommand,
+  "sessions.pin": {
+    params: { valid: [target, { ...target, orderKey: "m" }], invalid: [...noTarget, { ...target, orderKey: "a" }] },
+    result: summaryResult,
+  },
+  "sessions.unpin": sessionCommand,
+  "sessions.reorderPinned": {
+    params: { valid: [{ ...target, orderKey: "m" }], invalid: [target, { ...target, orderKey: "" }] },
+    result: summaryResult,
+  },
+  "sessions.reorderActive": {
+    params: { valid: [{ ...target, orderKey: "c" }], invalid: [target, { ...target, orderKey: "ca" }] },
+    result: summaryResult,
+  },
+  "sessions.tag": { params: { valid: [{ ...target, tag: "wip" }], invalid: [target, { ...target, tag: "" }] }, result: summaryResult },
+  "sessions.untag": { params: { valid: [{ ...target, tag: "wip" }], invalid: [target, { ...target, tag: "x".repeat(41) }] }, result: summaryResult },
+  "sessions.setGroup": {
+    params: { valid: [{ ...target, groupId }, { ...target, groupId: null }], invalid: [target, { ...target, groupId: "g-1" }] },
+    result: summaryResult,
+  },
+  "sessions.settle": sessionCommand,
+  "sessions.unsettle": sessionCommand,
+  "sessions.snooze": {
+    params: { valid: [{ ...target, until: later }], invalid: [target, { ...target, until: "tuesday" }] },
+    result: summaryResult,
+  },
+  "sessions.unsnooze": sessionCommand,
+  "sessions.delete": {
+    params: { valid: [target, { ...target, deleteProviderTranscript: true }], invalid: [...noTarget, { ...target, deleteProviderTranscript: "yes" }] },
+    result: {
+      valid: [{ sessionId, deletedAt: at, purgeAt: later }],
+      invalid: [{ sessionId, deletedAt: at }, { sessionId: "s-1", deletedAt: at, purgeAt: later }],
+    },
+  },
+  "sessions.restore": sessionCommand,
+  "sessions.purge": { params: { valid: [target], invalid: noTarget }, result: { valid: [{ sessionId }], invalid: [{}, { sessionId: "s-1" }] } },
+  "groups.create": {
+    params: {
+      valid: [{ commandId, id: groupId, name: "Brandsolidate" }, { commandId, id: groupId, name: "Brandsolidate", orderKey: "m" }],
+      invalid: [{ commandId, name: "Brandsolidate" }, { commandId, id: groupId, name: "" }, { commandId, id: groupId, name: "x".repeat(81) }],
+    },
+    result: groupResult,
+  },
+  "groups.rename": {
+    params: { valid: [{ commandId, groupId, name: "Brands" }], invalid: [{ commandId, groupId }, { commandId, groupId, name: " " }] },
+    result: groupResult,
+  },
+  "groups.reorder": {
+    params: { valid: [{ commandId, groupId, orderKey: "d" }], invalid: [{ commandId, groupId }, { commandId, groupId, orderKey: "a" }] },
+    result: groupResult,
+  },
+  "groups.delete": {
+    params: { valid: [{ commandId, groupId }], invalid: [{ commandId }, { groupId }] },
+    result: { valid: [{ groupId }], invalid: [{}, { groupId: "g-1" }] },
+  },
+  "sessions.list": {
+    params: { valid: [{}], invalid: [[], "all"] },
+    result: {
+      valid: [{ sequence: 0, sessions: [] }, { sequence: 42, sessions: [freshSummary, fullSummary] }],
+      invalid: [{ sessions: [] }, { sequence: 42, sessions: [{}] }],
+    },
+  },
+  "sessions.get": {
+    params: { valid: [{ sessionId }], invalid: [{}, { sessionId: "s-1" }] },
+    result: summaryResult,
+  },
+  "sessions.listDeleted": {
+    params: { valid: [{}], invalid: [[], null] },
+    result: { valid: [{ sessions: [] }, { sessions: [deleted] }], invalid: [{}, { sessions: [freshSummary] }] },
+  },
+  "groups.list": {
+    params: { valid: [{}], invalid: [[], null] },
+    result: { valid: [{ groups: [] }, { groups: [group] }], invalid: [{}, { groups: [{ ...group, name: "" }] }] },
+  },
+  "sessions.subscribe": {
+    params: { valid: [{ afterSequence: 0 }, { afterSequence: 42 }], invalid: [{}, { afterSequence: -1 }] },
+    result: sessionSchemaFixtures["sessions/session-list-snapshot.json"] as Fixtures,
+  },
+  "sessions.subscribeSession": {
+    params: { valid: [{ afterSequence: 0, sessionId }], invalid: [{ afterSequence: 0 }, { afterSequence: 0, sessionId: "s-1" }] },
+    result: {
+      valid: [{ sequence: 42, summary: freshSummary, transcript: {} }],
+      invalid: [{ sequence: 42, summary: freshSummary }, { sequence: 42, summary: {}, transcript: {} }],
+    },
+  },
+};

@@ -1,0 +1,129 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SessionCreatedPayload",
+  "type": "object",
+  "properties": {
+    "title": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "pattern": "\\S",
+          "description": "A title a user gives a session: 1 to 200 characters, not all white space; stored trimmed."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The user's title, trimmed; null for the fallback."
+    },
+    "tags": {
+      "maxItems": 64,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 40,
+        "pattern": "^(?=.*\\S)\\P{Cc}+$",
+        "description": "A free-form tag: 1 to 40 characters, no control characters, not all white space; stored trimmed, unique per session ignoring case."
+      },
+      "description": "The tags, trimmed, unique ignoring case and sorted."
+    },
+    "groupId": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+          "description": "A group's id: a UUID the creating client mints, kept in lowercase."
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "workspace": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "directory"
+            },
+            "path": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The directory on the environment's machine."
+            }
+          },
+          "required": [
+            "kind",
+            "path"
+          ],
+          "description": "A directory the environment has."
+        }
+      ],
+      "description": "Where a session's code lives on its environment: its kind and path."
+    },
+    "repositoryIdentity": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "account": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The account asked for, if any; the adapter workstream (#119) validates it."
+    },
+    "model": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The model asked for, if any; the adapter workstream (#119) validates it."
+    },
+    "mode": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The mode asked for, if any; the permissions workstream validates it."
+    }
+  },
+  "required": [
+    "title",
+    "tags",
+    "groupId",
+    "workspace",
+    "repositoryIdentity",
+    "account",
+    "model",
+    "mode"
+  ],
+  "description": "session.created: a session was created; its createdAt is the event's occurredAt."
+}

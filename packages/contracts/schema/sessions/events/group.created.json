@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "GroupCreatedPayload",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "pattern": "\\S",
+      "description": "A group's name: 1 to 80 characters, not all white space; stored trimmed with white space collapsed, unique per environment ignoring case."
+    },
+    "orderKey": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^[a-z]*[b-z]$",
+          "description": "A fractional order key: letters a to z compared as plain strings, never empty and never ending in a, so a key can always be made before any other."
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "name",
+    "orderKey"
+  ],
+  "description": "group.created: a group was created; its createdAt is the event's occurredAt."
+}

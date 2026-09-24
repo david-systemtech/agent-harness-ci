@@ -461,9 +461,35 @@ describe("requests", () => {
     expect(answer).toEqual({ type: "subscribed", id: expect.any(String), subscription: expect.any(String) });
   });
 
-  it("serves every registered method, so none is answered not_found for want of a handler (dispatch.test.ts covers one without)", async () => {
+  it("serves every registered method but the session-state ones later tickets serve, so none is answered not_found for want of a handler (dispatch.test.ts covers one without)", async () => {
     const t = await start();
-    expect(methods.filter((method) => t.env.methods.get(method.name)?.handler === undefined).map((method) => method.name)).toEqual([]);
+    // Registered with the session summary (#114) so the field table's owners exist; #115 to #118 serve them.
+    const servedLater = [
+      "sessions.archive",
+      "sessions.unarchive",
+      "sessions.pin",
+      "sessions.unpin",
+      "sessions.reorderPinned",
+      "sessions.reorderActive",
+      "sessions.tag",
+      "sessions.untag",
+      "sessions.setGroup",
+      "sessions.settle",
+      "sessions.unsettle",
+      "sessions.snooze",
+      "sessions.unsnooze",
+      "sessions.delete",
+      "sessions.restore",
+      "sessions.purge",
+      "groups.create",
+      "groups.rename",
+      "groups.reorder",
+      "groups.delete",
+      "sessions.listDeleted",
+      "groups.list",
+      "sessions.subscribeSession",
+    ];
+    expect(methods.filter((method) => t.env.methods.get(method.name)?.handler === undefined).map((method) => method.name)).toEqual(servedLater);
   });
 });
 

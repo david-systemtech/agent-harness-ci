@@ -713,6 +713,59 @@ describe("the replay bound", () => {
   });
 });
 
+describe("reading by stream kind", () => {
+  /** Two session streams, a group stream and an access stream, interleaved; returns the log. */
+  const mixed = (): EventLog => {
+    const log = memoryLog();
+    log.append({ kind: "session", id: "a" }, [{ type: "session.created", payload: {} }], { actor: "system:test" });
+    log.append({ kind: "access", id: "env" }, [{ type: "pairing.created", payload: {} }], { actor: "system:test" });
+    log.append({ kind: "group", id: "g" }, [{ type: "group.created", payload: {} }], { actor: "system:test" });
+    log.append({ kind: "session", id: "b" }, [{ type: "session.created", payload: {} }, { type: "transcript.chunk", payload: {} }], {
+      actor: "system:test",
+    });
+    return log;
+  };
+  const where = (events: readonly { streamKind: string; streamId: string; type: string; sequence: number }[]) =>
+    events.map((e) => `${e.sequence} ${e.streamKind}/${e.streamId} ${e.type}`);
+
+  it("reads every stream of the kinds named, in sequence order, after a cursor and up to a limit", () => {
+    const log = mixed();
+    const kinds = { kinds: ["session", "group"] };
+    expect(where(log.readStream(kinds))).toEqual([
+      "1 session/a session.created",
+      "3 group/g group.created",
+      "4 session/b session.created",
+      "5 session/b transcript.chunk",
+    ]);
+    expect(where(log.readStream(kinds, 1, 2))).toEqual(["3 group/g group.created", "4 session/b session.created"]);
+    expect(log.readStream({ kinds: [] })).toEqual([]);
+  });
+
+  it("reads only the types named, when it names them", () => {
+    const log = mixed();
+    expect(where(log.readStream({ kinds: ["session", "group"], types: ["session.created", "group.created"] }))).toEqual([
+      "1 session/a session.created",
+      "3 group/g group.created",
+      "4 session/b session.created",
+    ]);
+  });
+
+  it("measures the replay bound across the kinds and types named", () => {
+    const log = mixed();
+    expect(log.replayBound({ kinds: ["session", "group"] }, 0)).toMatchObject({ events: 4, withinBound: true });
+    expect(log.replayBound({ kinds: ["session", "group"], types: ["session.created"] }, 1)).toEqual({
+      events: 1,
+      bytes: 4,
+      withinBound: true,
+    });
+    log.append({ kind: "session", id: "c" }, Array.from({ length: 1000 }, () => ({ type: "session.created", payload: {} })), {
+      actor: "system:test",
+    });
+    expect(log.replayBound({ kinds: ["session"], types: ["session.created"] }, 0)).toMatchObject({ events: 1001, withinBound: false });
+    expect(log.replayBound({ kinds: ["group"] }, 0)).toMatchObject({ events: 1, withinBound: true });
+  });
+});
+
 describe("snapshots", () => {
   it("are absent for a stream that has none", () => {
     expect(memoryLog().readSnapshot(s1)).toBeNull();

@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ActivityState",
+  "type": "string",
+  "enum": [
+    "idle",
+    "starting",
+    "running",
+    "parked"
+  ],
+  "description": "What a session's runs are doing: idle (no run), starting, running, or parked (a run is waiting on a prompt nobody has answered)."
+}

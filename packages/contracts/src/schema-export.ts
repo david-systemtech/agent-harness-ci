@@ -37,6 +37,36 @@ import {
 import { EnvironmentNotice, EnvironmentNoticeType } from "./notices.js";
 import { isCommand } from "./method.js";
 import { CommandReceipt } from "./receipt.js";
+import {
+  ActivityState,
+  DeletedSessionSummary,
+  GROUP_EVENT_TYPES,
+  GeneratedTitleSource,
+  Group,
+  GroupEventType,
+  GroupId,
+  GroupName,
+  GroupPatch,
+  OrderKey,
+  PullRequest,
+  PullRequestState,
+  SESSION_EVENT_TYPES,
+  SessionActivity,
+  SessionEventType,
+  SessionId,
+  SessionListSnapshot,
+  SessionSummary,
+  SettledBy,
+  SettledOverride,
+  SummaryPatch,
+  Tag,
+  TitleSource,
+  UnsettleReason,
+  UnsnoozeReason,
+  UserTitle,
+  Workspace,
+} from "./sessions.js";
+import type { EventTypeEntry } from "./event-types.js";
 import { methods } from "./registry.js";
 import { Ceiling, Scope, ScopeSet } from "./scopes.js";
 
@@ -61,6 +91,16 @@ const pascal = (words: string): string =>
     .split(/[^A-Za-z0-9]+/)
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join("");
+
+/**
+ * The session and group event types whose payloads are fixed, each with its
+ * payload: the reserved run, message and prompt types are left out until
+ * their workstreams fix them.
+ */
+export const publishedEventPayloads = (): [string, z.ZodType][] =>
+  Object.entries({ ...SESSION_EVENT_TYPES, ...GROUP_EVENT_TYPES } as Record<string, EventTypeEntry>).flatMap(([type, entry]) =>
+    entry.reservedFor === undefined ? [[type, entry.payload] as [string, z.ZodType]] : [],
+  );
 
 /** Where the export writes one of a method's documents, under `schema/`. */
 export const methodPath = (name: string, part: "params" | "result" | "response" | "error"): string =>
@@ -109,6 +149,32 @@ export const exportedSchemas = (): ExportedSchema[] => [
     title: `${pascal(type)}Payload`,
     schema: ACCESS_EVENT_PAYLOADS[type],
   })),
+  { path: "sessions/session-id.json", title: "SessionId", schema: SessionId },
+  { path: "sessions/group-id.json", title: "GroupId", schema: GroupId },
+  { path: "sessions/order-key.json", title: "OrderKey", schema: OrderKey },
+  { path: "sessions/user-title.json", title: "UserTitle", schema: UserTitle },
+  { path: "sessions/tag.json", title: "Tag", schema: Tag },
+  { path: "sessions/group-name.json", title: "GroupName", schema: GroupName },
+  { path: "sessions/title-source.json", title: "TitleSource", schema: TitleSource },
+  { path: "sessions/generated-title-source.json", title: "GeneratedTitleSource", schema: GeneratedTitleSource },
+  { path: "sessions/settled-override.json", title: "SettledOverride", schema: SettledOverride },
+  { path: "sessions/settled-by.json", title: "SettledBy", schema: SettledBy },
+  { path: "sessions/unsettle-reason.json", title: "UnsettleReason", schema: UnsettleReason },
+  { path: "sessions/unsnooze-reason.json", title: "UnsnoozeReason", schema: UnsnoozeReason },
+  { path: "sessions/workspace.json", title: "Workspace", schema: Workspace },
+  { path: "sessions/activity-state.json", title: "ActivityState", schema: ActivityState },
+  { path: "sessions/session-activity.json", title: "SessionActivity", schema: SessionActivity },
+  { path: "sessions/pull-request-state.json", title: "PullRequestState", schema: PullRequestState },
+  { path: "sessions/pull-request.json", title: "PullRequest", schema: PullRequest },
+  { path: "sessions/session-summary.json", title: "SessionSummary", schema: SessionSummary },
+  { path: "sessions/deleted-session-summary.json", title: "DeletedSessionSummary", schema: DeletedSessionSummary },
+  { path: "sessions/group.json", title: "Group", schema: Group },
+  { path: "sessions/summary-patch.json", title: "SummaryPatch", schema: SummaryPatch },
+  { path: "sessions/group-patch.json", title: "GroupPatch", schema: GroupPatch },
+  { path: "sessions/session-list-snapshot.json", title: "SessionListSnapshot", schema: SessionListSnapshot },
+  { path: "sessions/session-event-type.json", title: "SessionEventType", schema: SessionEventType },
+  { path: "sessions/group-event-type.json", title: "GroupEventType", schema: GroupEventType },
+  ...publishedEventPayloads().map(([type, schema]) => ({ path: `sessions/events/${type}.json`, title: `${pascal(type)}Payload`, schema })),
   { path: "actor.json", title: "Actor", schema: Actor },
   { path: "event-envelope.json", title: "EventEnvelope", schema: EventEnvelope },
   { path: "notices/environment-notice-type.json", title: "EnvironmentNoticeType", schema: EnvironmentNoticeType },

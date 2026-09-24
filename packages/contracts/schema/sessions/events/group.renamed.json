@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "GroupRenamedPayload",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "pattern": "\\S",
+      "description": "A group's name: 1 to 80 characters, not all white space; stored trimmed with white space collapsed, unique per environment ignoring case."
+    }
+  },
+  "required": [
+    "name"
+  ],
+  "description": "group.renamed: the group was renamed."
+}

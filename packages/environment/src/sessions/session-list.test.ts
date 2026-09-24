@@ -1,0 +1,63 @@
+import { LIST_PATCH_KEY } from "@agent-harness/contracts";
+import { afterEach, describe, expect, it } from "vitest";
+import { openEventLog, type EventLog } from "../event-log/event-log.js";
+import { listSummaries, sessionListProjector, type Reader } from "./session-list.js";
+
+/**
+ * The session-list projector at the lower seam: against an in-memory log,
+ * for what no client can make happen through the wire yet.
+ */
+
+let logs: EventLog[] = [];
+afterEach(() => {
+  for (const log of logs) log.close();
+  logs = [];
+});
+
+const memoryLog = (): EventLog => {
+  const log = openEventLog({ path: ":memory:", projectors: [sessionListProjector], clock: () => new Date("2026-09-24T00:00:00.000Z") });
+  logs.push(log);
+  return log;
+};
+
+const id = "7c9e6679-7425-40de-944b-e07fc1f90ae7";
+const created = {
+  type: "session.created",
+  payload: {
+    title: null,
+    tags: [],
+    groupId: null,
+    workspace: { kind: "directory", path: "/work" },
+    repositoryIdentity: null,
+    account: null,
+    model: null,
+    mode: null,
+  },
+};
+
+describe("the session-list projector", () => {
+  it("fails the append of a list-flagged event it cannot project yet, so no flagged event goes out without its patch", () => {
+    const log = memoryLog();
+    log.append({ kind: "session", id }, [created], { actor: "system:test" });
+    const head = log.head();
+    for (const [kind, type] of [
+      ["session", "session.archived"],
+      ["session", "run.started"],
+      ["group", "group.created"],
+    ] as const) {
+      expect(() => log.append({ kind, id }, [{ type, payload: {} }], { actor: "system:test" }), type).toThrow(/does not project/);
+    }
+    expect(log.head()).toBe(head);
+  });
+
+  it("leaves alone the events that are not the list's: other types on a session stream, and other streams", () => {
+    const log = memoryLog();
+    const { events } = log.append({ kind: "session", id }, [created, { type: "transcript.chunk", payload: { text: "hi" } }], {
+      actor: "system:test",
+    });
+    log.append({ kind: "probe", id }, [{ type: "session.created", payload: {} }], { actor: "system:test" });
+    expect(events.map((event) => Object.keys(event.metadata))).toEqual([[LIST_PATCH_KEY], []]);
+    const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
+    expect(listSummaries(reader).map((summary) => summary.id)).toEqual([id]);
+  });
+});

@@ -187,6 +187,210 @@
       "title": "CeilingChangedPayload"
     },
     {
+      "path": "sessions/session-id.json",
+      "title": "SessionId"
+    },
+    {
+      "path": "sessions/group-id.json",
+      "title": "GroupId"
+    },
+    {
+      "path": "sessions/order-key.json",
+      "title": "OrderKey"
+    },
+    {
+      "path": "sessions/user-title.json",
+      "title": "UserTitle"
+    },
+    {
+      "path": "sessions/tag.json",
+      "title": "Tag"
+    },
+    {
+      "path": "sessions/group-name.json",
+      "title": "GroupName"
+    },
+    {
+      "path": "sessions/title-source.json",
+      "title": "TitleSource"
+    },
+    {
+      "path": "sessions/generated-title-source.json",
+      "title": "GeneratedTitleSource"
+    },
+    {
+      "path": "sessions/settled-override.json",
+      "title": "SettledOverride"
+    },
+    {
+      "path": "sessions/settled-by.json",
+      "title": "SettledBy"
+    },
+    {
+      "path": "sessions/unsettle-reason.json",
+      "title": "UnsettleReason"
+    },
+    {
+      "path": "sessions/unsnooze-reason.json",
+      "title": "UnsnoozeReason"
+    },
+    {
+      "path": "sessions/workspace.json",
+      "title": "Workspace"
+    },
+    {
+      "path": "sessions/activity-state.json",
+      "title": "ActivityState"
+    },
+    {
+      "path": "sessions/session-activity.json",
+      "title": "SessionActivity"
+    },
+    {
+      "path": "sessions/pull-request-state.json",
+      "title": "PullRequestState"
+    },
+    {
+      "path": "sessions/pull-request.json",
+      "title": "PullRequest"
+    },
+    {
+      "path": "sessions/session-summary.json",
+      "title": "SessionSummary"
+    },
+    {
+      "path": "sessions/deleted-session-summary.json",
+      "title": "DeletedSessionSummary"
+    },
+    {
+      "path": "sessions/group.json",
+      "title": "Group"
+    },
+    {
+      "path": "sessions/summary-patch.json",
+      "title": "SummaryPatch"
+    },
+    {
+      "path": "sessions/group-patch.json",
+      "title": "GroupPatch"
+    },
+    {
+      "path": "sessions/session-list-snapshot.json",
+      "title": "SessionListSnapshot"
+    },
+    {
+      "path": "sessions/session-event-type.json",
+      "title": "SessionEventType"
+    },
+    {
+      "path": "sessions/group-event-type.json",
+      "title": "GroupEventType"
+    },
+    {
+      "path": "sessions/events/session.created.json",
+      "title": "SessionCreatedPayload"
+    },
+    {
+      "path": "sessions/events/session.title-set.json",
+      "title": "SessionTitleSetPayload"
+    },
+    {
+      "path": "sessions/events/session.title-generated.json",
+      "title": "SessionTitleGeneratedPayload"
+    },
+    {
+      "path": "sessions/events/session.archived.json",
+      "title": "SessionArchivedPayload"
+    },
+    {
+      "path": "sessions/events/session.unarchived.json",
+      "title": "SessionUnarchivedPayload"
+    },
+    {
+      "path": "sessions/events/session.pinned.json",
+      "title": "SessionPinnedPayload"
+    },
+    {
+      "path": "sessions/events/session.unpinned.json",
+      "title": "SessionUnpinnedPayload"
+    },
+    {
+      "path": "sessions/events/session.pin-reordered.json",
+      "title": "SessionPinReorderedPayload"
+    },
+    {
+      "path": "sessions/events/session.active-reordered.json",
+      "title": "SessionActiveReorderedPayload"
+    },
+    {
+      "path": "sessions/events/session.tagged.json",
+      "title": "SessionTaggedPayload"
+    },
+    {
+      "path": "sessions/events/session.untagged.json",
+      "title": "SessionUntaggedPayload"
+    },
+    {
+      "path": "sessions/events/session.group-set.json",
+      "title": "SessionGroupSetPayload"
+    },
+    {
+      "path": "sessions/events/session.settled.json",
+      "title": "SessionSettledPayload"
+    },
+    {
+      "path": "sessions/events/session.unsettled.json",
+      "title": "SessionUnsettledPayload"
+    },
+    {
+      "path": "sessions/events/session.snoozed.json",
+      "title": "SessionSnoozedPayload"
+    },
+    {
+      "path": "sessions/events/session.unsnoozed.json",
+      "title": "SessionUnsnoozedPayload"
+    },
+    {
+      "path": "sessions/events/session.deleted.json",
+      "title": "SessionDeletedPayload"
+    },
+    {
+      "path": "sessions/events/session.restored.json",
+      "title": "SessionRestoredPayload"
+    },
+    {
+      "path": "sessions/events/session.purged.json",
+      "title": "SessionPurgedPayload"
+    },
+    {
+      "path": "sessions/events/session.pull-request-linked.json",
+      "title": "SessionPullRequestLinkedPayload"
+    },
+    {
+      "path": "sessions/events/session.pull-request-unlinked.json",
+      "title": "SessionPullRequestUnlinkedPayload"
+    },
+    {
+      "path": "sessions/events/session.pull-request-synced.json",
+      "title": "SessionPullRequestSyncedPayload"
+    },
+    {
+      "path": "sessions/events/group.created.json",
+      "title": "GroupCreatedPayload"
+    },
+    {
+      "path": "sessions/events/group.renamed.json",
+      "title": "GroupRenamedPayload"
+    },
+    {
+      "path": "sessions/events/group.reordered.json",
+      "title": "GroupReorderedPayload"
+    },
+    {
+      "path": "sessions/events/group.deleted.json",
+      "title": "GroupDeletedPayload"
+    },
+    {
       "path": "actor.json",
       "title": "Actor"
     },
@@ -457,6 +661,430 @@
     {
       "path": "methods/access.log.list/error.json",
       "title": "access.log.list error"
+    },
+    {
+      "path": "methods/sessions.create/params.json",
+      "title": "sessions.create params"
+    },
+    {
+      "path": "methods/sessions.create/result.json",
+      "title": "sessions.create result"
+    },
+    {
+      "path": "methods/sessions.create/response.json",
+      "title": "sessions.create response"
+    },
+    {
+      "path": "methods/sessions.create/error.json",
+      "title": "sessions.create error"
+    },
+    {
+      "path": "methods/sessions.rename/params.json",
+      "title": "sessions.rename params"
+    },
+    {
+      "path": "methods/sessions.rename/result.json",
+      "title": "sessions.rename result"
+    },
+    {
+      "path": "methods/sessions.rename/response.json",
+      "title": "sessions.rename response"
+    },
+    {
+      "path": "methods/sessions.rename/error.json",
+      "title": "sessions.rename error"
+    },
+    {
+      "path": "methods/sessions.archive/params.json",
+      "title": "sessions.archive params"
+    },
+    {
+      "path": "methods/sessions.archive/result.json",
+      "title": "sessions.archive result"
+    },
+    {
+      "path": "methods/sessions.archive/response.json",
+      "title": "sessions.archive response"
+    },
+    {
+      "path": "methods/sessions.archive/error.json",
+      "title": "sessions.archive error"
+    },
+    {
+      "path": "methods/sessions.unarchive/params.json",
+      "title": "sessions.unarchive params"
+    },
+    {
+      "path": "methods/sessions.unarchive/result.json",
+      "title": "sessions.unarchive result"
+    },
+    {
+      "path": "methods/sessions.unarchive/response.json",
+      "title": "sessions.unarchive response"
+    },
+    {
+      "path": "methods/sessions.unarchive/error.json",
+      "title": "sessions.unarchive error"
+    },
+    {
+      "path": "methods/sessions.pin/params.json",
+      "title": "sessions.pin params"
+    },
+    {
+      "path": "methods/sessions.pin/result.json",
+      "title": "sessions.pin result"
+    },
+    {
+      "path": "methods/sessions.pin/response.json",
+      "title": "sessions.pin response"
+    },
+    {
+      "path": "methods/sessions.pin/error.json",
+      "title": "sessions.pin error"
+    },
+    {
+      "path": "methods/sessions.unpin/params.json",
+      "title": "sessions.unpin params"
+    },
+    {
+      "path": "methods/sessions.unpin/result.json",
+      "title": "sessions.unpin result"
+    },
+    {
+      "path": "methods/sessions.unpin/response.json",
+      "title": "sessions.unpin response"
+    },
+    {
+      "path": "methods/sessions.unpin/error.json",
+      "title": "sessions.unpin error"
+    },
+    {
+      "path": "methods/sessions.reorderPinned/params.json",
+      "title": "sessions.reorderPinned params"
+    },
+    {
+      "path": "methods/sessions.reorderPinned/result.json",
+      "title": "sessions.reorderPinned result"
+    },
+    {
+      "path": "methods/sessions.reorderPinned/response.json",
+      "title": "sessions.reorderPinned response"
+    },
+    {
+      "path": "methods/sessions.reorderPinned/error.json",
+      "title": "sessions.reorderPinned error"
+    },
+    {
+      "path": "methods/sessions.reorderActive/params.json",
+      "title": "sessions.reorderActive params"
+    },
+    {
+      "path": "methods/sessions.reorderActive/result.json",
+      "title": "sessions.reorderActive result"
+    },
+    {
+      "path": "methods/sessions.reorderActive/response.json",
+      "title": "sessions.reorderActive response"
+    },
+    {
+      "path": "methods/sessions.reorderActive/error.json",
+      "title": "sessions.reorderActive error"
+    },
+    {
+      "path": "methods/sessions.tag/params.json",
+      "title": "sessions.tag params"
+    },
+    {
+      "path": "methods/sessions.tag/result.json",
+      "title": "sessions.tag result"
+    },
+    {
+      "path": "methods/sessions.tag/response.json",
+      "title": "sessions.tag response"
+    },
+    {
+      "path": "methods/sessions.tag/error.json",
+      "title": "sessions.tag error"
+    },
+    {
+      "path": "methods/sessions.untag/params.json",
+      "title": "sessions.untag params"
+    },
+    {
+      "path": "methods/sessions.untag/result.json",
+      "title": "sessions.untag result"
+    },
+    {
+      "path": "methods/sessions.untag/response.json",
+      "title": "sessions.untag response"
+    },
+    {
+      "path": "methods/sessions.untag/error.json",
+      "title": "sessions.untag error"
+    },
+    {
+      "path": "methods/sessions.setGroup/params.json",
+      "title": "sessions.setGroup params"
+    },
+    {
+      "path": "methods/sessions.setGroup/result.json",
+      "title": "sessions.setGroup result"
+    },
+    {
+      "path": "methods/sessions.setGroup/response.json",
+      "title": "sessions.setGroup response"
+    },
+    {
+      "path": "methods/sessions.setGroup/error.json",
+      "title": "sessions.setGroup error"
+    },
+    {
+      "path": "methods/sessions.settle/params.json",
+      "title": "sessions.settle params"
+    },
+    {
+      "path": "methods/sessions.settle/result.json",
+      "title": "sessions.settle result"
+    },
+    {
+      "path": "methods/sessions.settle/response.json",
+      "title": "sessions.settle response"
+    },
+    {
+      "path": "methods/sessions.settle/error.json",
+      "title": "sessions.settle error"
+    },
+    {
+      "path": "methods/sessions.unsettle/params.json",
+      "title": "sessions.unsettle params"
+    },
+    {
+      "path": "methods/sessions.unsettle/result.json",
+      "title": "sessions.unsettle result"
+    },
+    {
+      "path": "methods/sessions.unsettle/response.json",
+      "title": "sessions.unsettle response"
+    },
+    {
+      "path": "methods/sessions.unsettle/error.json",
+      "title": "sessions.unsettle error"
+    },
+    {
+      "path": "methods/sessions.snooze/params.json",
+      "title": "sessions.snooze params"
+    },
+    {
+      "path": "methods/sessions.snooze/result.json",
+      "title": "sessions.snooze result"
+    },
+    {
+      "path": "methods/sessions.snooze/response.json",
+      "title": "sessions.snooze response"
+    },
+    {
+      "path": "methods/sessions.snooze/error.json",
+      "title": "sessions.snooze error"
+    },
+    {
+      "path": "methods/sessions.unsnooze/params.json",
+      "title": "sessions.unsnooze params"
+    },
+    {
+      "path": "methods/sessions.unsnooze/result.json",
+      "title": "sessions.unsnooze result"
+    },
+    {
+      "path": "methods/sessions.unsnooze/response.json",
+      "title": "sessions.unsnooze response"
+    },
+    {
+      "path": "methods/sessions.unsnooze/error.json",
+      "title": "sessions.unsnooze error"
+    },
+    {
+      "path": "methods/sessions.delete/params.json",
+      "title": "sessions.delete params"
+    },
+    {
+      "path": "methods/sessions.delete/result.json",
+      "title": "sessions.delete result"
+    },
+    {
+      "path": "methods/sessions.delete/response.json",
+      "title": "sessions.delete response"
+    },
+    {
+      "path": "methods/sessions.delete/error.json",
+      "title": "sessions.delete error"
+    },
+    {
+      "path": "methods/sessions.restore/params.json",
+      "title": "sessions.restore params"
+    },
+    {
+      "path": "methods/sessions.restore/result.json",
+      "title": "sessions.restore result"
+    },
+    {
+      "path": "methods/sessions.restore/response.json",
+      "title": "sessions.restore response"
+    },
+    {
+      "path": "methods/sessions.restore/error.json",
+      "title": "sessions.restore error"
+    },
+    {
+      "path": "methods/sessions.purge/params.json",
+      "title": "sessions.purge params"
+    },
+    {
+      "path": "methods/sessions.purge/result.json",
+      "title": "sessions.purge result"
+    },
+    {
+      "path": "methods/sessions.purge/response.json",
+      "title": "sessions.purge response"
+    },
+    {
+      "path": "methods/sessions.purge/error.json",
+      "title": "sessions.purge error"
+    },
+    {
+      "path": "methods/groups.create/params.json",
+      "title": "groups.create params"
+    },
+    {
+      "path": "methods/groups.create/result.json",
+      "title": "groups.create result"
+    },
+    {
+      "path": "methods/groups.create/response.json",
+      "title": "groups.create response"
+    },
+    {
+      "path": "methods/groups.create/error.json",
+      "title": "groups.create error"
+    },
+    {
+      "path": "methods/groups.rename/params.json",
+      "title": "groups.rename params"
+    },
+    {
+      "path": "methods/groups.rename/result.json",
+      "title": "groups.rename result"
+    },
+    {
+      "path": "methods/groups.rename/response.json",
+      "title": "groups.rename response"
+    },
+    {
+      "path": "methods/groups.rename/error.json",
+      "title": "groups.rename error"
+    },
+    {
+      "path": "methods/groups.reorder/params.json",
+      "title": "groups.reorder params"
+    },
+    {
+      "path": "methods/groups.reorder/result.json",
+      "title": "groups.reorder result"
+    },
+    {
+      "path": "methods/groups.reorder/response.json",
+      "title": "groups.reorder response"
+    },
+    {
+      "path": "methods/groups.reorder/error.json",
+      "title": "groups.reorder error"
+    },
+    {
+      "path": "methods/groups.delete/params.json",
+      "title": "groups.delete params"
+    },
+    {
+      "path": "methods/groups.delete/result.json",
+      "title": "groups.delete result"
+    },
+    {
+      "path": "methods/groups.delete/response.json",
+      "title": "groups.delete response"
+    },
+    {
+      "path": "methods/groups.delete/error.json",
+      "title": "groups.delete error"
+    },
+    {
+      "path": "methods/sessions.list/params.json",
+      "title": "sessions.list params"
+    },
+    {
+      "path": "methods/sessions.list/result.json",
+      "title": "sessions.list result"
+    },
+    {
+      "path": "methods/sessions.list/error.json",
+      "title": "sessions.list error"
+    },
+    {
+      "path": "methods/sessions.get/params.json",
+      "title": "sessions.get params"
+    },
+    {
+      "path": "methods/sessions.get/result.json",
+      "title": "sessions.get result"
+    },
+    {
+      "path": "methods/sessions.get/error.json",
+      "title": "sessions.get error"
+    },
+    {
+      "path": "methods/sessions.listDeleted/params.json",
+      "title": "sessions.listDeleted params"
+    },
+    {
+      "path": "methods/sessions.listDeleted/result.json",
+      "title": "sessions.listDeleted result"
+    },
+    {
+      "path": "methods/sessions.listDeleted/error.json",
+      "title": "sessions.listDeleted error"
+    },
+    {
+      "path": "methods/groups.list/params.json",
+      "title": "groups.list params"
+    },
+    {
+      "path": "methods/groups.list/result.json",
+      "title": "groups.list result"
+    },
+    {
+      "path": "methods/groups.list/error.json",
+      "title": "groups.list error"
+    },
+    {
+      "path": "methods/sessions.subscribe/params.json",
+      "title": "sessions.subscribe params"
+    },
+    {
+      "path": "methods/sessions.subscribe/result.json",
+      "title": "sessions.subscribe result"
+    },
+    {
+      "path": "methods/sessions.subscribe/error.json",
+      "title": "sessions.subscribe error"
+    },
+    {
+      "path": "methods/sessions.subscribeSession/params.json",
+      "title": "sessions.subscribeSession params"
+    },
+    {
+      "path": "methods/sessions.subscribeSession/result.json",
+      "title": "sessions.subscribeSession result"
+    },
+    {
+      "path": "methods/sessions.subscribeSession/error.json",
+      "title": "sessions.subscribeSession error"
     }
   ],
   "methods": [
@@ -545,6 +1173,280 @@
       "params": "methods/access.log.list/params.json",
       "result": "methods/access.log.list/result.json",
       "error": "methods/access.log.list/error.json"
+    },
+    {
+      "name": "sessions.create",
+      "scope": "sessions:write",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/sessions.create/params.json",
+      "result": "methods/sessions.create/result.json",
+      "response": "methods/sessions.create/response.json",
+      "error": "methods/sessions.create/error.json"
+    },
+    {
+      "name": "sessions.rename",
+      "scope": "sessions:write",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/sessions.rename/params.json",
+      "result": "methods/sessions.rename/result.json",
+      "response": "methods/sessions.rename/response.json",
+      "error": "methods/sessions.rename/error.json"
+    },
+    {
+      "name": "sessions.archive",
+      "scope": "sessions:write",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/sessions.archive/params.json",
+      "result": "methods/sessions.archive/result.json",
+      "response": "methods/sessions.archive/response.json",
+      "error": "methods/sessions.archive/error.json"
+    },
+    {
+      "name": "sessions.unarchive",
+      "scope": "sessions:write",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/sessions.unarchive/params.json",
+      "result": "methods/sessions.unarchive/result.json",
+      "response": "methods/sessions.unarchive/response.json",
+      "error": "methods/sessions.unarchive/error.json"
+    },
+    {
+      "name": "sessions.pin",
+      "scope": "sessions:write",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/sessions.pin/params.json",
+      "result": "methods/sessions.pin/result.json",
+      "response": "methods/sessions.pin/response.json",
+      "error": "methods/sessions.pin/error.json"
+    },
+    {
+      "name": "sessions.unpin",
+      "scope": "sessions:write",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/sessions.unpin/params.json",
+      "result": "methods/sessions.unpin/result.json",
+      "response": "methods/sessions.unpin/response.json",
+      "error": "methods/sessions.unpin/error.json"
+    },
+    {
+      "name": "sessions.reorderPinned",
+      "scope": "sessions:write",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/sessions.reorderPinned/params.json",
+      "result": "methods/sessions.reorderPinned/result.json",
+      "response": "methods/sessions.reorderPinned/response.json",
+      "error": "methods/sessions.reorderPinned/error.json"
+    },
+    {
+      "name": "sessions.reorderActive",
+      "scope": "sessions:write",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/sessions.reorderActive/params.json",
+      "result": "methods/sessions.reorderActive/result.json",
+      "response": "methods/sessions.reorderActive/response.json",
+      "error": "methods/sessions.reorderActive/error.json"
+    },
+    {
+      "name": "sessions.tag",
+      "scope": "sessions:write",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/sessions.tag/params.json",
+      "result": "methods/sessions.tag/result.json",
+      "response": "methods/sessions.tag/response.json",
+      "error": "methods/sessions.tag/error.json"
+    },
+    {
+      "name": "sessions.untag",
+      "scope": "sessions:write",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/sessions.untag/params.json",
+      "result": "methods/sessions.untag/result.json",
+      "response": "methods/sessions.untag/response.json",
+      "error": "methods/sessions.untag/error.json"
+    },
+    {
+      "name": "sessions.setGroup",
+      "scope": "sessions:write",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/sessions.setGroup/params.json",
+      "result": "methods/sessions.setGroup/result.json",
+      "response": "methods/sessions.setGroup/response.json",
+      "error": "methods/sessions.setGroup/error.json"
+    },
+    {
+      "name": "sessions.settle",
+      "scope": "sessions:write",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/sessions.settle/params.json",
+      "result": "methods/sessions.settle/result.json",
+      "response": "methods/sessions.settle/response.json",
+      "error": "methods/sessions.settle/error.json"
+    },
+    {
+      "name": "sessions.unsettle",
+      "scope": "sessions:write",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/sessions.unsettle/params.json",
+      "result": "methods/sessions.unsettle/result.json",
+      "response": "methods/sessions.unsettle/response.json",
+      "error": "methods/sessions.unsettle/error.json"
+    },
+    {
+      "name": "sessions.snooze",
+      "scope": "sessions:write",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/sessions.snooze/params.json",
+      "result": "methods/sessions.snooze/result.json",
+      "response": "methods/sessions.snooze/response.json",
+      "error": "methods/sessions.snooze/error.json"
+    },
+    {
+      "name": "sessions.unsnooze",
+      "scope": "sessions:write",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/sessions.unsnooze/params.json",
+      "result": "methods/sessions.unsnooze/result.json",
+      "response": "methods/sessions.unsnooze/response.json",
+      "error": "methods/sessions.unsnooze/error.json"
+    },
+    {
+      "name": "sessions.delete",
+      "scope": "sessions:write",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/sessions.delete/params.json",
+      "result": "methods/sessions.delete/result.json",
+      "response": "methods/sessions.delete/response.json",
+      "error": "methods/sessions.delete/error.json"
+    },
+    {
+      "name": "sessions.restore",
+      "scope": "sessions:write",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/sessions.restore/params.json",
+      "result": "methods/sessions.restore/result.json",
+      "response": "methods/sessions.restore/response.json",
+      "error": "methods/sessions.restore/error.json"
+    },
+    {
+      "name": "sessions.purge",
+      "scope": "sessions:write",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/sessions.purge/params.json",
+      "result": "methods/sessions.purge/result.json",
+      "response": "methods/sessions.purge/response.json",
+      "error": "methods/sessions.purge/error.json"
+    },
+    {
+      "name": "groups.create",
+      "scope": "sessions:write",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/groups.create/params.json",
+      "result": "methods/groups.create/result.json",
+      "response": "methods/groups.create/response.json",
+      "error": "methods/groups.create/error.json"
+    },
+    {
+      "name": "groups.rename",
+      "scope": "sessions:write",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/groups.rename/params.json",
+      "result": "methods/groups.rename/result.json",
+      "response": "methods/groups.rename/response.json",
+      "error": "methods/groups.rename/error.json"
+    },
+    {
+      "name": "groups.reorder",
+      "scope": "sessions:write",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/groups.reorder/params.json",
+      "result": "methods/groups.reorder/result.json",
+      "response": "methods/groups.reorder/response.json",
+      "error": "methods/groups.reorder/error.json"
+    },
+    {
+      "name": "groups.delete",
+      "scope": "sessions:write",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/groups.delete/params.json",
+      "result": "methods/groups.delete/result.json",
+      "response": "methods/groups.delete/response.json",
+      "error": "methods/groups.delete/error.json"
+    },
+    {
+      "name": "sessions.list",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/sessions.list/params.json",
+      "result": "methods/sessions.list/result.json",
+      "error": "methods/sessions.list/error.json"
+    },
+    {
+      "name": "sessions.get",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/sessions.get/params.json",
+      "result": "methods/sessions.get/result.json",
+      "error": "methods/sessions.get/error.json"
+    },
+    {
+      "name": "sessions.listDeleted",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/sessions.listDeleted/params.json",
+      "result": "methods/sessions.listDeleted/result.json",
+      "error": "methods/sessions.listDeleted/error.json"
+    },
+    {
+      "name": "groups.list",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/groups.list/params.json",
+      "result": "methods/groups.list/result.json",
+      "error": "methods/groups.list/error.json"
+    },
+    {
+      "name": "sessions.subscribe",
+      "scope": "read",
+      "kind": "stream",
+      "stream": true,
+      "params": "methods/sessions.subscribe/params.json",
+      "result": "methods/sessions.subscribe/result.json",
+      "error": "methods/sessions.subscribe/error.json"
+    },
+    {
+      "name": "sessions.subscribeSession",
+      "scope": "read",
+      "kind": "stream",
+      "stream": true,
+      "params": "methods/sessions.subscribeSession/params.json",
+      "result": "methods/sessions.subscribeSession/result.json",
+      "error": "methods/sessions.subscribeSession/error.json"
     }
   ]
 }
