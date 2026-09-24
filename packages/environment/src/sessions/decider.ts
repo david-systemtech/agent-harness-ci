@@ -4,6 +4,7 @@ import {
   type SessionActiveReorderedPayload,
   type SessionCreatedPayload,
   type SessionDraftSetPayload,
+  type SessionGroupSetPayload,
   type SessionPinReorderedPayload,
   type SessionPinnedPayload,
   type SessionTaggedPayload,
@@ -326,4 +327,29 @@ export const decideSetDraft = (state: SessionState | null, command: SetDraft): D
   if (draft === session.draft) return unchanged;
   const payload: SessionDraftSetPayload = { draft };
   return { events: [{ type: "session.draft-set", payload }] };
+};
+
+/** `sessions.setGroup`: the group, in lowercase, or null for none. */
+export interface SetGroup extends OnSession {
+  readonly groupId: string | null;
+}
+
+/** Facts about the group `sessions.setGroup` names. */
+export interface SetGroupContext {
+  /** Whether the group the command names is on this environment (created, and not deleted). */
+  readonly groupExists: boolean;
+}
+
+/**
+ * Puts the session in the group, or takes it out of any with null. A
+ * session not there is not found (kind `session`), then a group not there
+ * (kind `group`); the group the session is in already is unchanged.
+ */
+export const decideSetGroup = (state: SessionState | null, command: SetGroup, context: SetGroupContext): Decision => {
+  const session = present(state, command.sessionId);
+  if ("rejected" in session) return session;
+  if (command.groupId !== null && !context.groupExists) return { rejected: groupNotFound(command.groupId) };
+  if (session.groupId === command.groupId) return unchanged;
+  const payload: SessionGroupSetPayload = { groupId: command.groupId };
+  return { events: [{ type: "session.group-set", payload }] };
 };

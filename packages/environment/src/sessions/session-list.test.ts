@@ -78,6 +78,15 @@ describe("the session-list projector", () => {
     expect(log.head()).toBe(head);
   });
 
+  it("writes no patch for a flagged session event that leaves its session out of the list before and after", () => {
+    const log = memoryLog();
+    const unlisted = "0e1d2c3b-4a59-4687-9a6b-5c4d3e2f1a0b";
+    const { events } = log.append({ kind: "session", id: unlisted }, [{ type: "session.group-set", payload: { groupId: null } }], {
+      actor: "system:test",
+    });
+    expect(events.map((event) => event.metadata)).toEqual([{}]);
+  });
+
   it("leaves alone the events that are not the list's: other types on a session stream, and other streams", () => {
     const log = memoryLog();
     const { events } = log.append({ kind: "session", id }, [created, { type: "transcript.chunk", payload: { text: "hi" } }], {

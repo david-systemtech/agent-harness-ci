@@ -6,7 +6,7 @@ import {
   listEventTypes,
   type SessionSummary,
 } from "@agent-harness/contracts";
-import type { EventLog, StreamRef } from "../event-log/event-log.js";
+import type { EventLog } from "../event-log/event-log.js";
 import type { CommandAnswer, CommandContext, MethodHandlers } from "../serve/methods.js";
 import {
   PURGED_STATE,
@@ -17,6 +17,7 @@ import {
   decideReorderActive,
   decideReorderPinned,
   decideSetDraft,
+  decideSetGroup,
   decideTag,
   decideUnarchive,
   decideUnpin,
@@ -26,9 +27,10 @@ import {
   type Refusal,
   type SessionState,
 } from "./decider.js";
-import { decideSetGroup } from "./group-decider.js";
+import { groupExists, listGroups } from "./group-reads.js";
 import { acceptAnyRunParameters, type RunParametersCheck } from "./run-parameters.js";
-import { groupExists, listGroups, listSummaries, readSessionState, readSummary, type Reader } from "./session-reads.js";
+import { listSummaries, readSessionState, readSummary, type Reader } from "./session-reads.js";
+import { sessionStream, stamp } from "./streams.js";
 
 /**
  * The session-organisation handlers on the method table (session-state
@@ -54,8 +56,6 @@ export const SESSION_LIST_SELECTOR = {
   kinds: [SESSION_STREAM_KIND, GROUP_STREAM_KIND],
   types: listEventTypes([SESSION_STREAM_KIND, GROUP_STREAM_KIND]),
 } as const;
-
-const sessionStream = (id: string): StreamRef => ({ kind: SESSION_STREAM_KIND, id });
 
 export const sessionMethods = (options: SessionMethodsOptions): MethodHandlers => {
   const { log } = options;
@@ -106,7 +106,7 @@ export const sessionMethods = (options: SessionMethodsOptions): MethodHandlers =
     const id = sessionId.toLowerCase();
     const at = clock().toISOString();
     const decision = decide(stateOf(id), id, at);
-    const stamped: Decision = decision.rejected === undefined ? { events: decision.events.map((event) => ({ ...event, occurredAt: at })) } : decision;
+    const stamped: Decision = decision.rejected === undefined ? { events: stamp(decision.events, at) } : decision;
     return carryOut(id, stamped, context);
   };
 

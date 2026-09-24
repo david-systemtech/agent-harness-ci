@@ -1,12 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { PURGED_STATE, type SessionState } from "./decider.js";
 import {
   DELETED_GROUP,
   decideCreateGroup,
   decideDeleteGroup,
   decideRenameGroup,
   decideReorderGroup,
-  decideSetGroup,
   groupNameKey,
   normaliseGroupName,
   type GroupState,
@@ -19,11 +17,10 @@ import {
 
 const groupId = "1b4e28ba-2fa1-41d2-883f-0016d3cca427";
 const otherId = "9f8e7d6c-5b4a-4c3d-8e2f-1a0b9c8d7e6f";
-const sessionId = "7c9e6679-7425-40de-944b-e07fc1f90ae7";
 
 const group = (fields: Partial<GroupState> = {}): GroupState => ({ deleted: false, name: "Brandsolidate", orderKey: null, ...fields });
-const session = (fields: Partial<SessionState> = {}): SessionState => ({ ...PURGED_STATE, deleted: false, ...fields });
 const free = { nameHeldBy: null };
+const heldBy = (id: string, name: string) => ({ nameHeldBy: { id, name } });
 
 describe("group names", () => {
   it("keeps a name trimmed with every run of white space one space, and keys it lowercased", () => {
@@ -42,18 +39,22 @@ describe("deciding group commands", () => {
         rejected: { code: "conflict", data: { reason: "exists", groupId } },
       });
     }
-    expect(decideCreateGroup(null, { id: groupId, name: "a", orderKey: null }, { nameHeldBy: otherId })).toMatchObject({
-      rejected: { code: "conflict", data: { reason: "name_taken", name: "a", groupId: otherId } },
+    expect(decideCreateGroup(null, { id: groupId, name: " a ", orderKey: null }, heldBy(otherId, "A"))).toEqual({
+      rejected: {
+        code: "conflict",
+        message: `The group ${otherId} is named "A", which is "a" ignoring case.`,
+        data: { reason: "name_taken", name: "a", heldName: "A", groupId: otherId },
+      },
     });
   });
 
   it("renames: its own name normalised is unchanged, its own name in another case is a rename, another group's is name_taken", () => {
-    expect(decideRenameGroup(group(), { groupId, name: " Brandsolidate " }, { nameHeldBy: groupId })).toEqual({ events: [] });
-    expect(decideRenameGroup(group(), { groupId, name: "BRANDSOLIDATE" }, { nameHeldBy: groupId })).toEqual({
+    expect(decideRenameGroup(group(), { groupId, name: " Brandsolidate " }, heldBy(groupId, "Brandsolidate"))).toEqual({ events: [] });
+    expect(decideRenameGroup(group(), { groupId, name: "BRANDSOLIDATE" }, heldBy(groupId, "Brandsolidate"))).toEqual({
       events: [{ type: "group.renamed", payload: { name: "BRANDSOLIDATE" } }],
     });
-    expect(decideRenameGroup(group(), { groupId, name: "Other" }, { nameHeldBy: otherId })).toMatchObject({
-      rejected: { code: "conflict", data: { reason: "name_taken", groupId: otherId } },
+    expect(decideRenameGroup(group(), { groupId, name: "other" }, heldBy(otherId, "Other"))).toMatchObject({
+      rejected: { code: "conflict", data: { reason: "name_taken", name: "other", heldName: "Other", groupId: otherId } },
     });
   });
 
@@ -79,29 +80,5 @@ describe("deciding group commands", () => {
       expect(decideReorderGroup(state, { groupId, orderKey: "m" })).toEqual(notFound);
       expect(decideDeleteGroup(state, { groupId }, [])).toEqual(notFound);
     }
-  });
-});
-
-describe("deciding sessions.setGroup", () => {
-  it("sets the group or null; the group it is in is unchanged", () => {
-    expect(decideSetGroup(session(), { sessionId, groupId }, { groupExists: true })).toEqual({
-      events: [{ type: "session.group-set", payload: { groupId } }],
-    });
-    expect(decideSetGroup(session({ groupId }), { sessionId, groupId: null }, { groupExists: false })).toEqual({
-      events: [{ type: "session.group-set", payload: { groupId: null } }],
-    });
-    expect(decideSetGroup(session({ groupId }), { sessionId, groupId }, { groupExists: true })).toEqual({ events: [] });
-    expect(decideSetGroup(session(), { sessionId, groupId: null }, { groupExists: false })).toEqual({ events: [] });
-  });
-
-  it("refuses a session not there before a group not there, each not_found with its kind", () => {
-    for (const state of [null, PURGED_STATE]) {
-      expect(decideSetGroup(state, { sessionId, groupId }, { groupExists: false })).toMatchObject({
-        rejected: { code: "not_found", data: { kind: "session", sessionId } },
-      });
-    }
-    expect(decideSetGroup(session(), { sessionId, groupId }, { groupExists: false })).toMatchObject({
-      rejected: { code: "not_found", data: { kind: "group", groupId } },
-    });
   });
 });

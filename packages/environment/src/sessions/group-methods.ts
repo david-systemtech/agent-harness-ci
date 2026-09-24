@@ -1,5 +1,5 @@
-import { GROUP_STREAM_KIND, SESSION_STREAM_KIND, type Group } from "@agent-harness/contracts";
-import type { EventInput, EventLog, StreamRef } from "../event-log/event-log.js";
+import type { Group } from "@agent-harness/contracts";
+import type { EventLog } from "../event-log/event-log.js";
 import type { CommandAnswer, CommandContext, MethodHandlers } from "../serve/methods.js";
 import type { Decision, Refusal } from "./decider.js";
 import {
@@ -11,8 +11,9 @@ import {
   groupNameKey,
   type GroupState,
 } from "./group-decider.js";
-import { groupWithNameKey, membersOf, readGroup, readGroupState } from "./group-reads.js";
-import { listGroups, type Reader } from "./session-reads.js";
+import { groupWithNameKey, listGroups, membersOf, readGroup, readGroupState } from "./group-reads.js";
+import type { Reader } from "./session-tables.js";
+import { groupStream, sessionStream, stamp } from "./streams.js";
 
 /**
  * The group handlers on the method table (session-state spec, "Group" and
@@ -27,12 +28,6 @@ export interface GroupMethodsOptions {
   /** The environment's clock, which stamps the group's events; preset: the system's. */
   readonly clock?: () => Date;
 }
-
-const groupStream = (id: string): StreamRef => ({ kind: GROUP_STREAM_KIND, id });
-const sessionStream = (id: string): StreamRef => ({ kind: SESSION_STREAM_KIND, id });
-
-/** Stamps every event with the command's one instant, so its `occurredAt` and the group's `updatedAt` agree. */
-const stamped = (events: readonly EventInput[], at: string): EventInput[] => events.map((event) => ({ ...event, occurredAt: at }));
 
 export const groupMethods = (options: GroupMethodsOptions): MethodHandlers => {
   const { log } = options;
@@ -67,12 +62,12 @@ export const groupMethods = (options: GroupMethodsOptions): MethodHandlers => {
     const decision = decide(stateOf(id), id);
     if (decision.rejected !== undefined) return { aggregate, rejected: decision.rejected };
     if (decision.events.length > 0) {
-      log.append(aggregate, stamped(decision.events, clock().toISOString()), { tx: context.tx, actor: context.actor, commandId: context.commandId });
+      log.append(aggregate, stamp(decision.events, clock().toISOString()), { tx: context.tx, actor: context.actor, commandId: context.commandId });
     }
     return { aggregate, result: { group: groupAfter(id) } };
   };
 
-  /** Who holds `name` ignoring case, for the name rule. */
+  /** Which group holds `name` ignoring case, for the name rule. */
   const nameContext = (name: string) => ({ nameHeldBy: groupWithNameKey(reader, groupNameKey(name)) });
 
   return {
@@ -100,11 +95,11 @@ export const groupMethods = (options: GroupMethodsOptions): MethodHandlers => {
       if (decision.rejected !== undefined) return { aggregate, rejected: decision.rejected };
       const at = clock().toISOString();
       const attribution = { tx: context.tx, actor: context.actor, commandId: context.commandId };
-      const [deleted] = log.append(aggregate, stamped(decision.events, at), attribution).events;
+      const [deleted] = log.append(aggregate, stamp(decision.events, at), attribution).events;
       if (deleted === undefined) throw new Error(`The deletion of the group ${id} appended no event.`);
       const cause = deleted.eventId;
       for (const { sessionId, event } of decision.ungroupings) {
-        log.append(sessionStream(sessionId), stamped([event], at), { ...attribution, causationId: cause });
+        log.append(sessionStream(sessionId), stamp([event], at), { ...attribution, causationId: cause });
       }
       return { aggregate, result: { groupId: id } };
     },

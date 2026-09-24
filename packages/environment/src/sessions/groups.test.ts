@@ -3,9 +3,9 @@ import { SessionListSnapshot, sortGroups, type EventEnvelope, type EventFrame, t
 import { describe, expect, it } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { MANUAL_CLOCK_START } from "../../test/clock.js";
-import { createGroup, groupCommand, groupPatchOf, listGroups, type GroupCommand } from "../../test/groups.js";
+import { createGroup, groupPatchOf, listGroups } from "../../test/groups.js";
 import { startTestEnvironment, type TestEnvironment } from "../../test/helper.js";
-import { command, create, freshSummary, get, listStream, patchOf, reduce, refusal, workspace } from "../../test/sessions.js";
+import { command, create, freshSummary, get, listStream, patchOf, reduce, refusal, workspace, type GroupCommand } from "../../test/sessions.js";
 import type { WireClient } from "../../test/wire-client.js";
 
 /**
@@ -84,7 +84,7 @@ describe("groups.create", () => {
     const { client, list } = await withList(t);
     const id = randomUUID();
 
-    const answer = await groupCommand(client, "groups.create", { id, name: "Brandsolidate" });
+    const answer = await command(client, "groups.create", { id, name: "Brandsolidate" });
 
     const expected = groupAt(id, "Brandsolidate", at(60_000));
     expect(answer).toEqual({ receipt: { status: "accepted", sequence: t.env.log.head(), changed: true }, result: { group: expected } });
@@ -127,7 +127,7 @@ describe("groups.create", () => {
     const client = await t.client();
     const head = t.env.log.head();
     for (const name of ["", "   ", "\n\t", "x".repeat(81), ` ${"x".repeat(81)} `]) {
-      expect(await refusal(groupCommand(client, "groups.create", { id: randomUUID(), name })), JSON.stringify(name)).toMatchObject({
+      expect(await refusal(command(client, "groups.create", { id: randomUUID(), name })), JSON.stringify(name)).toMatchObject({
         code: "invalid_params",
         data: { issues: [expect.objectContaining({ path: ["name"] })] },
       });
@@ -142,8 +142,8 @@ describe("groups.create", () => {
     const client = await t.client();
     const { id } = await createGroup(client, { name: "Brand solidate" });
     for (const name of ["Brand solidate", "BRAND SOLIDATE", "  brand   Solidate "]) {
-      await expectRejected(t, "conflict", { reason: "name_taken", name: name.trim().replace(/\s+/g, " "), groupId: id }, () =>
-        groupCommand(client, "groups.create", { id: randomUUID(), name }),
+      await expectRejected(t, "conflict", { reason: "name_taken", name: name.trim().replace(/\s+/g, " "), heldName: "Brand solidate", groupId: id }, () =>
+        command(client, "groups.create", { id: randomUUID(), name }),
       );
     }
     expect(await listGroups(client)).toHaveLength(1);
@@ -153,9 +153,9 @@ describe("groups.create", () => {
     const t = await start();
     const client = await t.client();
     const { id } = await createGroup(client, { name: "First" });
-    await expectRejected(t, "conflict", { reason: "exists", groupId: id }, () => groupCommand(client, "groups.create", { id, name: "Other" }));
-    await groupCommand(client, "groups.delete", { groupId: id });
-    await expectRejected(t, "conflict", { reason: "exists", groupId: id }, () => groupCommand(client, "groups.create", { id, name: "First" }));
+    await expectRejected(t, "conflict", { reason: "exists", groupId: id }, () => command(client, "groups.create", { id, name: "Other" }));
+    await command(client, "groups.delete", { groupId: id });
+    await expectRejected(t, "conflict", { reason: "exists", groupId: id }, () => command(client, "groups.create", { id, name: "First" }));
     expect((await createGroup(client, { name: "first" })).receipt).toMatchObject({ status: "accepted", changed: true });
   });
 
@@ -163,7 +163,7 @@ describe("groups.create", () => {
     const t = await start();
     const client = await t.client();
     const id = randomUUID();
-    const answer = await groupCommand(client, "groups.create", { id: id.toUpperCase(), name: "Upper" });
+    const answer = await command(client, "groups.create", { id: id.toUpperCase(), name: "Upper" });
     expect(answer.result?.group.id).toBe(id);
     expect((await listGroups(client)).map((group) => group.id)).toEqual([id]);
   });
@@ -172,7 +172,7 @@ describe("groups.create", () => {
     const t = await start();
     const client = await t.client();
     const v7 = "01927c54-1f3a-7b8e-9c4d-2e5f6a7b8c9d";
-    expect(await refusal(groupCommand(client, "groups.create", { id: v7, name: "Seven" }))).toMatchObject({
+    expect(await refusal(command(client, "groups.create", { id: v7, name: "Seven" }))).toMatchObject({
       code: "invalid_params",
       data: { issues: [expect.objectContaining({ path: ["id"] })] },
     });
@@ -187,7 +187,7 @@ describe("groups.rename", () => {
     const list = await listStream(client, t.env.log.head());
     t.clock.advance(60_000);
 
-    const answer = await groupCommand(client, "groups.rename", { groupId: id, name: "  After   all " });
+    const answer = await command(client, "groups.rename", { groupId: id, name: "  After   all " });
 
     const expected = groupAt(id, "After all", MANUAL_CLOCK_START, { updatedAt: at(60_000) });
     expect(answer).toEqual({ receipt: { status: "accepted", sequence: t.env.log.head(), changed: true }, result: { group: expected } });
@@ -202,9 +202,9 @@ describe("groups.rename", () => {
     const client = await t.client();
     const { id } = await createGroup(client, { name: "Brandsolidate" });
     const list = await listStream(client, t.env.log.head());
-    await expectNoOp(t, () => groupCommand(client, "groups.rename", { groupId: id, name: " Brandsolidate  " }));
+    await expectNoOp(t, () => command(client, "groups.rename", { groupId: id, name: " Brandsolidate  " }));
 
-    await groupCommand(client, "groups.rename", { groupId: id, name: "BrandSolidate" });
+    await command(client, "groups.rename", { groupId: id, name: "BrandSolidate" });
 
     const event = await list.next();
     expect(event).toMatchObject({ type: "group.renamed", payload: { name: "BrandSolidate" } });
@@ -217,9 +217,22 @@ describe("groups.rename", () => {
     const client = await t.client();
     const { id: taken } = await createGroup(client, { name: "Taken" });
     const { id } = await createGroup(client, { name: "Mine" });
-    await expectRejected(t, "conflict", { reason: "name_taken", name: "taken", groupId: taken }, () =>
-      groupCommand(client, "groups.rename", { groupId: id, name: "taken" }),
-    );
+    const head = t.env.log.head();
+    const answer = await command(client, "groups.rename", { groupId: id, name: "taken" });
+    expect(answer).toEqual({
+      receipt: {
+        status: "rejected",
+        sequence: head,
+        changed: false,
+        reason: "conflict",
+        error: {
+          code: "conflict",
+          message: `The group ${taken} is named "Taken", which is "taken" ignoring case.`,
+          data: { reason: "name_taken", name: "taken", heldName: "Taken", groupId: taken },
+        },
+      },
+    });
+    expect(t.env.log.head()).toBe(head);
   });
 
   it("refuses a name that breaks the rules invalid_params", async () => {
@@ -227,7 +240,7 @@ describe("groups.rename", () => {
     const client = await t.client();
     const { id } = await createGroup(client, { name: "Named" });
     for (const name of ["", "  ", "x".repeat(81)]) {
-      expect(await refusal(groupCommand(client, "groups.rename", { groupId: id, name })), JSON.stringify(name)).toMatchObject({
+      expect(await refusal(command(client, "groups.rename", { groupId: id, name })), JSON.stringify(name)).toMatchObject({
         code: "invalid_params",
         data: { issues: [expect.objectContaining({ path: ["name"] })] },
       });
@@ -243,7 +256,7 @@ describe("groups.reorder", () => {
     const list = await listStream(client, t.env.log.head());
     t.clock.advance(60_000);
 
-    const answer = await groupCommand(client, "groups.reorder", { groupId: id, orderKey: "g" });
+    const answer = await command(client, "groups.reorder", { groupId: id, orderKey: "g" });
 
     const expected = groupAt(id, "Ordered", MANUAL_CLOCK_START, { orderKey: "g", updatedAt: at(60_000) });
     expect(answer).toEqual({ receipt: { status: "accepted", sequence: t.env.log.head(), changed: true }, result: { group: expected } });
@@ -251,7 +264,7 @@ describe("groups.reorder", () => {
     expect(event).toMatchObject({ type: "group.reordered", streamId: id, payload: { orderKey: "g" } });
     expect(groupPatchOf(event)).toEqual({ op: "set", groupId: id, fields: { orderKey: "g", updatedAt: at(60_000) } });
     expect(await listGroups(client)).toEqual([expected]);
-    await expectNoOp(t, () => groupCommand(client, "groups.reorder", { groupId: id, orderKey: "g" }));
+    await expectNoOp(t, () => command(client, "groups.reorder", { groupId: id, orderKey: "g" }));
   });
 
   it("refuses a key that is empty, ends in a or leaves a to z invalid_params, on create and reorder, and appends nothing", async () => {
@@ -260,11 +273,11 @@ describe("groups.reorder", () => {
     const { id } = await createGroup(client, { name: "Ordered" });
     const head = t.env.log.head();
     for (const orderKey of ["", "a", "ba", "B", "b1", "ñ"]) {
-      expect(await refusal(groupCommand(client, "groups.reorder", { groupId: id, orderKey })), JSON.stringify(orderKey)).toMatchObject({
+      expect(await refusal(command(client, "groups.reorder", { groupId: id, orderKey })), JSON.stringify(orderKey)).toMatchObject({
         code: "invalid_params",
         data: { issues: [expect.objectContaining({ path: ["orderKey"] })] },
       });
-      expect(await refusal(groupCommand(client, "groups.create", { id: randomUUID(), name: "New", orderKey }))).toMatchObject({
+      expect(await refusal(command(client, "groups.create", { id: randomUUID(), name: "New", orderKey }))).toMatchObject({
         code: "invalid_params",
         data: { issues: [expect.objectContaining({ path: ["orderKey"] })] },
       });
@@ -274,6 +287,10 @@ describe("groups.reorder", () => {
 });
 
 describe("groups.delete", () => {
+  it.todo(
+    "ungroups a deleted member when its group is deleted: its session.group-set carries no patch, and a restore brings it back with groupId null (needs sessions.delete and sessions.restore, #118)",
+  );
+
   it("deletes the group and, in the same transaction, ungroups each member with one session.group-set whose causation is the group event", async () => {
     const t = await start();
     const client = await t.client();
@@ -289,7 +306,7 @@ describe("groups.delete", () => {
     t.clock.advance(60_000);
     const commandId = randomUUID();
 
-    const answer = await groupCommand(client, "groups.delete", { commandId, groupId });
+    const answer = await command(client, "groups.delete", { commandId, groupId });
 
     expect(answer).toEqual({ receipt: { status: "accepted", sequence: head + 3, changed: true }, result: { groupId } });
     const deleted = await list.next();
@@ -333,7 +350,7 @@ describe("groups.delete", () => {
     const client = await t.client();
     const { id } = await createGroup(client, { name: "Empty" });
     const list = await listStream(client, t.env.log.head());
-    const answer = await groupCommand(client, "groups.delete", { groupId: id });
+    const answer = await command(client, "groups.delete", { groupId: id });
     expect(answer.receipt).toMatchObject({ status: "accepted", changed: true, sequence: t.env.log.head() });
     const event = await list.next();
     expect(event).toMatchObject({ type: "group.deleted", sequence: answer.receipt.sequence });
@@ -353,10 +370,10 @@ describe("every group command", () => {
     const t = await start();
     const client = await t.client();
     const { id: gone } = await createGroup(client, { name: "Gone" });
-    await groupCommand(client, "groups.delete", { groupId: gone });
+    await command(client, "groups.delete", { groupId: gone });
     for (const groupId of [randomUUID(), gone]) {
       for (const [method, params] of everyCommand(groupId)) {
-        await expectRejected(t, "not_found", { kind: "group", groupId }, () => groupCommand(client, method, params as never));
+        await expectRejected(t, "not_found", { kind: "group", groupId }, () => command(client, method, params as never));
       }
     }
   });
@@ -365,11 +382,11 @@ describe("every group command", () => {
     const t = await start();
     const client = await t.client();
     const { id } = await createGroup(client, { name: "Cased" });
-    const renamed = await groupCommand(client, "groups.rename", { groupId: id.toUpperCase(), name: "Renamed" });
+    const renamed = await command(client, "groups.rename", { groupId: id.toUpperCase(), name: "Renamed" });
     expect(renamed.result?.group.id).toBe(id);
-    const reordered = await groupCommand(client, "groups.reorder", { groupId: id.toUpperCase(), orderKey: "m" });
+    const reordered = await command(client, "groups.reorder", { groupId: id.toUpperCase(), orderKey: "m" });
     expect(reordered.result?.group.id).toBe(id);
-    const deleted = await groupCommand(client, "groups.delete", { groupId: id.toUpperCase() });
+    const deleted = await command(client, "groups.delete", { groupId: id.toUpperCase() });
     expect(deleted.result).toEqual({ groupId: id });
   });
 
@@ -378,8 +395,8 @@ describe("every group command", () => {
     const client = await t.client();
     const commandId = randomUUID();
     const id = randomUUID();
-    const first = await groupCommand(client, "groups.create", { commandId, id, name: "Once" });
-    const retry = await groupCommand(client, "groups.create", { commandId, id, name: "Once" });
+    const first = await command(client, "groups.create", { commandId, id, name: "Once" });
+    const retry = await command(client, "groups.create", { commandId, id, name: "Once" });
     expect(retry).toEqual({ receipt: first.receipt });
     expect(await listGroups(client)).toHaveLength(1);
     expect(t.env.log.head()).toBe(first.receipt.sequence);
@@ -391,7 +408,7 @@ describe("every group command", () => {
     const { id } = await createGroup(client, { name: "Scoped" });
     const reader = await t.client({ token: (await t.pair({ scopes: ["read"] })).token });
     for (const [method, params] of [["groups.create", { id: randomUUID(), name: "New" }] as const, ...everyCommand(id)]) {
-      expect(await refusal(groupCommand(reader, method, params as never)), method).toEqual({ code: "forbidden", data: { scope: "sessions:write" } });
+      expect(await refusal(command(reader, method, params as never)), method).toEqual({ code: "forbidden", data: { scope: "sessions:write" } });
     }
     expect(await refusal(command(reader, "sessions.setGroup", { sessionId: randomUUID(), groupId: id }))).toEqual({
       code: "forbidden",
@@ -426,6 +443,7 @@ describe("groups.list and the snapshot's groups", () => {
 });
 
 describe("sessions.setGroup", () => {
+
   it("puts the session in a group: session.group-set, a patch of groupId and updatedAt, and the summary in the group", async () => {
     const t = await start();
     const client = await t.client();
@@ -486,7 +504,7 @@ describe("sessions.setGroup", () => {
     const client = await t.client();
     const { id } = await create(client);
     const { id: gone } = await createGroup(client, { name: "Gone" });
-    await groupCommand(client, "groups.delete", { groupId: gone });
+    await command(client, "groups.delete", { groupId: gone });
     for (const groupId of [randomUUID(), gone]) {
       await expectRejected(t, "not_found", { kind: "group", groupId }, () => command(client, "sessions.setGroup", { sessionId: id, groupId }));
     }
@@ -531,13 +549,13 @@ describe("two clients", () => {
     const groupId = randomUUID();
 
     t.clock.advance(1000);
-    await groupCommand(first, "groups.create", { id: groupId, name: "Shared" });
+    await command(first, "groups.create", { id: groupId, name: "Shared" });
     expect(groupPatchOf(await next())).toEqual({ op: "add", group: groupAt(groupId, "Shared", at(1000)) });
     t.clock.advance(1000);
-    await groupCommand(first, "groups.rename", { groupId, name: "Shared work" });
+    await command(first, "groups.rename", { groupId, name: "Shared work" });
     expect(groupPatchOf(await next())).toEqual({ op: "set", groupId, fields: { name: "Shared work", updatedAt: at(2000) } });
     t.clock.advance(1000);
-    await groupCommand(first, "groups.reorder", { groupId, orderKey: "m" });
+    await command(first, "groups.reorder", { groupId, orderKey: "m" });
     expect(groupPatchOf(await next())).toEqual({ op: "set", groupId, fields: { orderKey: "m", updatedAt: at(3000) } });
     t.clock.advance(1000);
     await command(first, "sessions.setGroup", { sessionId, groupId });
@@ -545,7 +563,7 @@ describe("two clients", () => {
     expect(reduce(snapshot, events)).toEqual(reduce(await snapshotOf(t, second), []));
 
     t.clock.advance(1000);
-    await groupCommand(first, "groups.delete", { groupId });
+    await command(first, "groups.delete", { groupId });
     expect(groupPatchOf(await next())).toEqual({ op: "remove", groupId });
     expect(patchOf(await next())).toEqual({ op: "set", sessionId, fields: { groupId: null, updatedAt: at(5000) } });
 
@@ -580,10 +598,10 @@ describe("the list after grouping", () => {
     const { id: s2 } = await create(client);
     const { id: s3 } = await create(client, { groupId: doomed });
     t.clock.advance(1000);
-    await groupCommand(client, "groups.rename", { groupId: renamed, name: "After" });
-    await groupCommand(client, "groups.reorder", { groupId: kept, orderKey: "c" });
+    await command(client, "groups.rename", { groupId: renamed, name: "After" });
+    await command(client, "groups.reorder", { groupId: kept, orderKey: "c" });
     await command(client, "sessions.setGroup", { sessionId: s2, groupId: renamed });
-    await groupCommand(client, "groups.delete", { groupId: doomed });
+    await command(client, "groups.delete", { groupId: doomed });
     // The deleted group's name is free, and a new group takes it.
     const { id: reborn } = await createGroup(client, { name: "doomed" });
     await command(client, "sessions.setGroup", { sessionId: s3, groupId: reborn });

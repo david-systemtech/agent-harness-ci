@@ -150,8 +150,11 @@ const SESSION_PROJECTIONS: Partial<Record<string, Projection>> = {
  * The projector. Every `list`-flagged session event is projected and its
  * summary patch attached, every group event and its group patch. A flagged
  * event it has no projection for fails its append, so no flagged event
- * reaches a client without its patch: the session types later tickets
- * append (#117 to #122). Other events are not the list's.
+ * reaches a client without its patch when it changes the list: the session
+ * types later tickets append (#117 to #122). A flagged session event that
+ * leaves its session out of the list before and after (a deleted session
+ * ungrouped when its group is deleted) carries no patch, and a client skips
+ * it. Other events are not the list's.
  */
 export const sessionListProjector: Projector = {
   name: SESSION_LIST_PROJECTOR,
@@ -168,6 +171,9 @@ export const sessionListProjector: Projector = {
     if (projection === undefined) throw new Error(`The session list does not project ${event.type} events yet.`);
     const before = readSummary(db, event.streamId);
     projection(event, db);
-    context.attachMetadata({ [LIST_PATCH_KEY]: summaryPatch(event.streamId, before, readSummary(db, event.streamId)) });
+    const after = readSummary(db, event.streamId);
+    // A session in the list neither before nor after (a deleted one ungrouped with its group) changes nothing a client lists.
+    if (before === null && after === null) return;
+    context.attachMetadata({ [LIST_PATCH_KEY]: summaryPatch(event.streamId, before, after) });
   },
 };

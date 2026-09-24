@@ -1,11 +1,11 @@
 import type { GroupCreatedPayload, GroupRenamedPayload, GroupReorderedPayload, SessionGroupSetPayload } from "@agent-harness/contracts";
 import type { EventInput } from "../event-log/event-log.js";
-import { groupNotFound, sessionNotFound, type Decision, type Refusal, type SessionState } from "./decider.js";
+import { groupNotFound, type Decision, type Refusal } from "./decider.js";
 
 /**
  * The group aggregate's decider (session-state spec, "Group" and
- * "Commands"), and the one session command that names a group,
- * `sessions.setGroup`: pure, as the session decider is. A group's name is
+ * "Commands"): pure, as the session decider is, which decides
+ * `sessions.setGroup`. A group's name is
  * kept trimmed with its white space collapsed and is unique per environment
  * ignoring case; membership is the session's `groupId`, so deleting a group
  * decides one ungrouping per member for the handler to append beside it.
@@ -30,8 +30,8 @@ export const groupNameKey = (name: string): string => normaliseGroupName(name).t
 
 /** Facts about the other groups a name depends on: which group holds a name ignoring case. */
 export interface NameContext {
-  /** The id of the group whose name has the command's name key, or null when none has. */
-  readonly nameHeldBy: string | null;
+  /** The group whose name has the command's name key, its id and its name as stored; null when none has. */
+  readonly nameHeldBy: { readonly id: string; readonly name: string } | null;
 }
 
 /** `groups.create` as the decider takes it: the absent key as null. */
@@ -77,12 +77,12 @@ const unchanged: Decision = { events: [] };
 const present = (state: GroupState | null, groupId: string): GroupState | { readonly rejected: Refusal } =>
   state === null || state.deleted ? { rejected: groupNotFound(groupId) } : state;
 
-/** The refusal of a name another group holds ignoring case. */
-const nameTaken = (name: string, heldBy: string): Decision => ({
+/** The refusal of a name another group holds ignoring case: the name asked for, and the holder's as it is stored. */
+const nameTaken = (name: string, holder: { readonly id: string; readonly name: string }): Decision => ({
   rejected: {
     code: "conflict",
-    message: `The group ${heldBy} is named ${JSON.stringify(name)} already, ignoring case.`,
-    data: { reason: "name_taken", name, groupId: heldBy },
+    message: `The group ${holder.id} is named ${JSON.stringify(holder.name)}, which is ${JSON.stringify(name)} ignoring case.`,
+    data: { reason: "name_taken", name, heldName: holder.name, groupId: holder.id },
   },
 });
 
@@ -111,7 +111,7 @@ export const decideRenameGroup = (state: GroupState | null, command: RenameGroup
   if ("rejected" in group) return group;
   const name = normaliseGroupName(command.name);
   if (name === group.name) return unchanged;
-  if (context.nameHeldBy !== null && context.nameHeldBy !== command.groupId) return nameTaken(name, context.nameHeldBy);
+  if (context.nameHeldBy !== null && context.nameHeldBy.id !== command.groupId) return nameTaken(name, context.nameHeldBy);
   const payload: GroupRenamedPayload = { name };
   return { events: [{ type: "group.renamed", payload }] };
 };
@@ -138,29 +138,4 @@ export const decideDeleteGroup = (state: GroupState | null, command: OnGroup, me
     events: [{ type: "group.deleted", payload: {} }],
     ungroupings: members.map((sessionId) => ({ sessionId, event: { type: "session.group-set", payload: ungrouped } })),
   };
-};
-
-/** `sessions.setGroup`: the group, in lowercase, or null for none. */
-export interface SetGroup {
-  readonly sessionId: string;
-  readonly groupId: string | null;
-}
-
-/** Facts about the group `sessions.setGroup` names. */
-export interface SetGroupContext {
-  /** Whether the group the command names is on this environment (and not deleted). */
-  readonly groupExists: boolean;
-}
-
-/**
- * Puts the session in the group, or takes it out of any with null. A
- * session not there is not found (kind `session`), then a group not there
- * is not found (kind `group`); the group the session is in already is unchanged.
- */
-export const decideSetGroup = (state: SessionState | null, command: SetGroup, context: SetGroupContext): Decision => {
-  if (state === null || state.deleted) return { rejected: sessionNotFound(command.sessionId) };
-  if (command.groupId !== null && !context.groupExists) return { rejected: groupNotFound(command.groupId) };
-  if (state.groupId === command.groupId) return unchanged;
-  const payload: SessionGroupSetPayload = { groupId: command.groupId };
-  return { events: [{ type: "session.group-set", payload }] };
 };

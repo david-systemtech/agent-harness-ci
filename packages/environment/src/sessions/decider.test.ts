@@ -9,6 +9,7 @@ import {
   decideReorderActive,
   decideReorderPinned,
   decideSetDraft,
+  decideSetGroup,
   decideTag,
   decideUnarchive,
   decideUnpin,
@@ -307,5 +308,29 @@ describe("deciding sessions.setDraft", () => {
     expect(decideSetDraft(live(null, { draft: "same" }), { sessionId: id, draft: "same" })).toEqual({ events: [] });
     expect(decideSetDraft(live(), { sessionId: id, draft: null })).toEqual({ events: [] });
     expect(decideSetDraft(live(), { sessionId: id, draft: "" })).toEqual({ events: [] });
+  });
+});
+
+describe("deciding sessions.setGroup", () => {
+  it("sets the group or null; the group it is in is unchanged", () => {
+    expect(decideSetGroup(live(), { sessionId: id, groupId }, { groupExists: true })).toEqual({
+      events: [{ type: "session.group-set", payload: { groupId } }],
+    });
+    expect(decideSetGroup(live(null, { groupId }), { sessionId: id, groupId: null }, { groupExists: false })).toEqual({
+      events: [{ type: "session.group-set", payload: { groupId: null } }],
+    });
+    expect(decideSetGroup(live(null, { groupId }), { sessionId: id, groupId }, { groupExists: true })).toEqual({ events: [] });
+    expect(decideSetGroup(live(), { sessionId: id, groupId: null }, { groupExists: false })).toEqual({ events: [] });
+  });
+
+  it("refuses a session not there before a group not there, each not_found with its kind", () => {
+    for (const state of [null, PURGED_STATE]) {
+      expect(decideSetGroup(state, { sessionId: id, groupId }, { groupExists: false })).toMatchObject({
+        rejected: { code: "not_found", data: { kind: "session", sessionId: id } },
+      });
+    }
+    expect(decideSetGroup(live(), { sessionId: id, groupId }, { groupExists: false })).toMatchObject({
+      rejected: { code: "not_found", data: { kind: "group", groupId } },
+    });
   });
 });
