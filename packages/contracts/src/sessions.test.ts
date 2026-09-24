@@ -17,6 +17,7 @@ import {
   SessionId,
   SessionSummary,
   SummaryPatch,
+  TRANSCRIPT_EVENT_TYPES,
   Tag,
   UserTitle,
   isListEvent,
@@ -90,6 +91,14 @@ describe("the summary field table", () => {
     expect(SUMMARY_FIELD_OWNERS.parkedPromptCount).toEqual({ event: "prompt.opened" });
     expect(SUMMARY_FIELD_OWNERS.pullRequests).toEqual({ event: "session.pull-request-linked" });
     expect(SUMMARY_FIELD_OWNERS.title).toEqual({ command: "sessions.rename" });
+  });
+
+  it("gives the run's fields to run.started, which carries the account and model, and flags the run's end and the generated title too", () => {
+    for (const key of ["activity", "lastActivityAt", "accountId", "model"] as const) expect(SUMMARY_FIELD_OWNERS[key], key).toEqual({ event: "run.started" });
+    expect(Object.keys(TRANSCRIPT_EVENT_TYPES["run.started"].payload.shape)).toEqual(expect.arrayContaining(["accountId", "model"]));
+    expect(Object.keys(TRANSCRIPT_EVENT_TYPES["run.ended"].payload.shape)).not.toEqual(expect.arrayContaining(["accountId"]));
+    for (const type of ["run.started", "run.ended", "session.title-generated"]) expect(isListEvent("session", type), type).toBe(true);
+    expect(isListEvent("session", "message.sent")).toBe(false);
   });
 
   it("gives the draft to sessions.setDraft, an absolute setter, through one list-flagged session.draft-set", () => {

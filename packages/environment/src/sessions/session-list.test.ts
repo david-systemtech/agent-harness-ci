@@ -1,7 +1,7 @@
-import { LIST_PATCH_KEY } from "@agent-harness/contracts";
+import { LIST_PATCH_KEY, listEventTypes } from "@agent-harness/contracts";
 import { afterEach, describe, expect, it } from "vitest";
 import { openEventLog, type EventLog } from "../event-log/event-log.js";
-import { sessionListProjector } from "./session-list.js";
+import { PROJECTED_SESSION_EVENT_TYPES, sessionListProjector } from "./session-list.js";
 import { listSummaries, type Reader } from "./session-reads.js";
 
 /**
@@ -37,14 +37,10 @@ const created = {
 };
 
 describe("the session-list projector", () => {
-  it("fails the append of a list-flagged event it cannot project yet, so no flagged event goes out without its patch", () => {
-    const log = memoryLog();
-    log.append({ kind: "session", id }, [created], { actor: "system:test" });
-    const head = log.head();
-    expect(() => log.append({ kind: "session", id }, [{ type: "session.title-generated", payload: {} }], { actor: "system:test" })).toThrow(
-      /does not project/,
-    );
-    expect(log.head()).toBe(head);
+  it("projects every list-flagged session type, so none fails its append for want of a projection and none goes out without its patch", () => {
+    // session.title-generated, the last one owed (#122), included.
+    expect([...PROJECTED_SESSION_EVENT_TYPES].sort()).toEqual(listEventTypes(["session"]).sort());
+    expect(PROJECTED_SESSION_EVENT_TYPES).toContain("session.title-generated");
   });
 
   it("projects a group's events with a group patch, and its table refuses a second group whose name differs only in case", () => {
