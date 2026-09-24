@@ -176,7 +176,10 @@ interface Sender {
   isLoaded: boolean;
   /** The document is in a form this build does not read: it is left as it is, and nothing is written over it this run. */
   unreadable: boolean;
+  /** The environment was removed: nothing more is kept, sent or written for this sender. */
   forgotten: boolean;
+  /** The command ids of dispatches waiting on the read to be kept: a removal first answers them `forgotten`. */
+  keeping: Set<string>;
   /** The document's writes, one after another. */
   writes: Promise<void>;
 }
@@ -223,7 +226,17 @@ export const createOutbox = (host: OutboxHost): Outbox => {
   const senderOf = (environmentId: string): Sender => {
     let sender = senders.get(environmentId);
     if (!sender) {
-      sender = { ready: false, sending: null, stalled: false, loaded: undefined, isLoaded: false, unreadable: false, forgotten: false, writes: Promise.resolve() };
+      sender = {
+        ready: false,
+        sending: null,
+        stalled: false,
+        loaded: undefined,
+        isLoaded: false,
+        unreadable: false,
+        forgotten: false,
+        keeping: new Set(),
+        writes: Promise.resolve(),
+      };
       senders.set(environmentId, sender);
     }
     return sender;
@@ -254,9 +267,15 @@ export const createOutbox = (host: OutboxHost): Outbox => {
     error: { code, message, ...extra },
   });
 
-  /** Writes the entries still waiting, after the writes before it; nothing when the document is not this build's or the environment was forgotten. */
+  /**
+   * Writes the entries still waiting, after the writes before it; nothing
+   * when the document is not this build's or the environment was forgotten,
+   * whose document is deleted: a late caller finds no sender, and none is
+   * made for it, so nothing is written back.
+   */
   const persist = (environmentId: string): Promise<void> => {
-    const sender = senderOf(environmentId);
+    const sender = senders.get(environmentId);
+    if (!sender) return Promise.resolve();
     sender.writes = sender.writes
       .then(async () => {
         if (sender.forgotten || sender.unreadable) return;
@@ -269,6 +288,9 @@ export const createOutbox = (host: OutboxHost): Outbox => {
   };
 
   const nameOf = (environmentId: string) => host.record(environmentId)?.descriptor.name ?? "the environment";
+
+  const forgottenAnswer = (commandId: string, environmentId: string): Answer =>
+    failure(commandId, "forgotten", `${nameOf(environmentId)} was removed from this client, and its outbox with it.`);
 
   /** What a notice calls the entry's target: its title or name as the list confirms it now, else as it was when dispatched. */
   const labelOf = (entry: OutboxEntry): string => {
@@ -477,6 +499,8 @@ export const createOutbox = (host: OutboxHost): Outbox => {
         report(error);
         sender.unreadable = true;
       }
+      // Removed while it was read: what it held went with the environment, and nothing comes back.
+      if (sender.forgotten) return;
       const decoded = sender.unreadable ? undefined : decodeOutbox(stored, environmentId);
       if (decoded && !decoded.readable) {
         report(new Error(decoded.why));
@@ -538,7 +562,10 @@ export const createOutbox = (host: OutboxHost): Outbox => {
     const stored: Record<string, unknown> = { ...(checked.data as Record<string, unknown>) };
     delete stored["commandId"];
 
-    const keep = () => {
+    const keep = (sender: Sender) => {
+      sender.keeping.delete(commandId);
+      // Removed while the command waited on the outbox's read: nothing is kept for an environment the client no longer has.
+      if (sender.forgotten || !host.record(environmentId)) return answer(commandId, forgottenAnswer(commandId, environmentId));
       if (closed) return answer(commandId, failure(commandId, "closed", "The client runtime closed before the command was kept."));
       const shown = host.shown(environmentId);
       const target = targetOf(method, stored);
@@ -584,8 +611,11 @@ export const createOutbox = (host: OutboxHost): Outbox => {
         const result = new Promise<Answer>((resolve) => waiters.set(commandId, [...(waiters.get(commandId) ?? []), resolve]));
         const sender = senderOf(environmentId);
         // Kept at once when the outbox is read, so its effect shows in the same step; else once it is.
-        if (sender.isLoaded) keep();
-        else void load(environmentId).then(keep);
+        if (sender.isLoaded) keep(sender);
+        else {
+          sender.keeping.add(commandId);
+          void load(environmentId).then(() => keep(sender));
+        }
         return result;
       },
     };
@@ -621,9 +651,14 @@ export const createOutbox = (host: OutboxHost): Outbox => {
     const sender = senders.get(environmentId);
     senders.delete(environmentId);
     const { entries } = outboxOf(environmentId);
-    if (sender) sender.forgotten = true;
+    const keeping = [...(sender?.keeping ?? [])];
+    if (sender) {
+      sender.forgotten = true;
+      sender.keeping.clear();
+    }
     change(environmentId, () => EMPTY);
-    for (const entry of entries) answer(entry.commandId, failure(entry.commandId, "forgotten", `${nameOf(environmentId)} was removed from this client, and its outbox with it.`));
+    // What was kept, and what still waited on the read to be kept.
+    for (const commandId of [...entries.map((entry) => entry.commandId), ...keeping]) answer(commandId, forgottenAnswer(commandId, environmentId));
     await sender?.writes;
     await documents.delete(outboxDocument(environmentId)).catch(report);
   });

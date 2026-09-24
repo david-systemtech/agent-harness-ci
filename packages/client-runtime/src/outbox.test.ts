@@ -4,10 +4,11 @@ import { describe, expect, it, onTestFinished } from "vitest";
 import { accepted, byCommand, groupEvent, groupOf, rejected, sessionEvent, summaryOf } from "../test/events.js";
 import { subscription, type Scripted } from "../test/scripted.js";
 import { createRuntimeWithSeams } from "./internal.js";
+import { outboxDocument } from "./outbox/entries.js";
 import { COMMAND_EXPIRY_MS, DRAFT_DEBOUNCE_MS } from "./outbox/outbox.js";
 import type { Runtime } from "./runtime.js";
 import { fakeWire, flush, type FakeAnswer, type FakeWire } from "./testing/fake-wire.js";
-import { inMemoryPlatform, manualClock, type InMemoryDocumentStore, type ManualClock } from "./testing/in-memory-platform.js";
+import { inMemoryDocuments, inMemoryPlatform, manualClock, type InMemoryDocumentStore, type ManualClock } from "./testing/in-memory-platform.js";
 
 /**
  * The outbox through the fake wire (docs/specs/client-runtime.md, "The
@@ -338,6 +339,76 @@ describe("commands.dispatch", () => {
     expect(sent.params["commandId"]).toMatch(UUIDV7);
     await flush();
     expect(pendingCount(runtime)).toBe(0);
+  });
+
+  it("forgets an environment removed while its outbox is still being read: a dispatch waiting on the read answers forgotten, and nothing comes back", async () => {
+    // An outbox left by an earlier runtime: one archive waiting.
+    const first = await paired();
+    await cut(first.wire);
+    const sessionId = randomUUID();
+    void first.runtime.commands.dispatch(first.id, "sessions.archive", { sessionId });
+    await flush();
+    await first.runtime.close();
+
+    // Storage holding only that outbox, whose read answers what the document held but only once the test lets it go on.
+    const documents = inMemoryDocuments();
+    const key = outboxDocument(first.id);
+    await documents.set(key, first.platform.documents.entries()[key]);
+    let release = () => undefined as void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    let holding = true;
+    const held: InMemoryDocumentStore = {
+      ...documents,
+      async get(name) {
+        const value = await documents.get(name);
+        if (holding && name === key) {
+          holding = false;
+          await gate;
+        }
+        return value;
+      },
+    };
+    const start = async () => {
+      const wire = fakeWire({ clock: first.clock, environmentId: first.id, name: "desk" });
+      wire.answer("sessions.archive", () => answering(accepted(5)));
+      const platform = inMemoryPlatform({ clock: first.clock, fetch: wire.fetch, webSocket: wire.webSocket, documents: held });
+      const { runtime } = createRuntimeWithSeams(platform);
+      onTestFinished(() => runtime.close());
+      await runtime.start();
+      const adding = runtime.connections.add({ link: wire.link });
+      await wire.server.accept();
+      expect(await adding).toMatchObject({ status: "paired" });
+      return { runtime, wire };
+    };
+
+    // Paired again: its first ready reads the outbox, which is held; a dispatch meanwhile waits on that read.
+    const second = await start();
+    const waiting = second.runtime.commands.dispatch(first.id, "sessions.archive", { sessionId: randomUUID() });
+    await flush();
+    expect(documents.entries()[key]).toBeDefined();
+
+    // Removed while the read is held: the dispatch is answered at once, not when the read ends (nor in seven days).
+    await second.runtime.connections.remove(first.id);
+    expect(await waiting).toMatchObject({ ok: false, error: { code: "forgotten" } });
+    expect(documents.entries()[key]).toBeUndefined();
+
+    // The read ends: what it found is not laid back, sent or written to the deleted document.
+    release();
+    await flush();
+    expect(requests(second.wire, "sessions.archive")).toEqual([]);
+    expect(second.runtime.projections.environments.read()).toEqual([]);
+    // Nor held to be dropped with a notice seven days on.
+    first.clock.advance(COMMAND_EXPIRY_MS + DAY);
+    await flush();
+    expect(second.runtime.projections.notices.read().filter((n) => n.kind === "command-dropped")).toEqual([]);
+    await second.runtime.close();
+    expect(documents.entries()[key]).toBeUndefined();
+
+    // A runtime on the same storage, paired again, finds no outbox: neither the earlier archive nor the one that waited is sent.
+    const third = await start();
+    await flush();
+    expect(requests(third.wire, "sessions.archive")).toEqual([]);
+    expect(pendingCount(third.runtime)).toBe(0);
   });
 
   it("drops an entry older than seven days with a notice", async () => {
