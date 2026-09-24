@@ -378,6 +378,40 @@ describe("run.policy.resolved", () => {
       expect(policyOf(t, id, adopted?.payload["runId"] as string)).toMatchObject({ mode: { effective: "plan", ceiling: "plan" } });
       expect(changed).toEqual(["plan"]);
     });
+
+    it("lets the turn go, with nothing left unhandled, when its session cannot be read once a change that answered later has taken", async () => {
+      let resolve!: () => void;
+      const adapter = withTurnSetMode(() => new Promise<void>((done) => (resolve = done)));
+      const { t, id, messageId } = await lowered(adapter);
+      await vi.waitFor(() => expect(resolve).toBeTypeOf("function"));
+      const unhandled: unknown[] = [];
+      const guard = (reason: unknown) => void unhandled.push(reason);
+      process.on("unhandledRejection", guard);
+      const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+      const read = t.env.log.read.bind(t.env.log);
+      let armed = true;
+      // The session read the settlement makes fails once; every other read is answered.
+      vi.spyOn(t.env.log, "read").mockImplementation(((sql: string, ...params: unknown[]) => {
+        if (armed && sql.includes("FROM sessions WHERE id = ?")) {
+          armed = false;
+          throw new Error("The database is busy.");
+        }
+        return read(sql, ...(params as never[]));
+      }) as never);
+      try {
+        resolve();
+        await vi.waitFor(() => expect(adapter.runs[1]).toMatchObject({ adopted: true, disposed: true }));
+        await new Promise((settle) => setTimeout(settle, 20));
+        expect(unhandled).toEqual([]);
+        expect(armed).toBe(false);
+        expect(sessionEvents(t, id).filter((event) => event.type === "run.started")).toHaveLength(1);
+        expect(sessionEvents(t, id).at(-1)).toMatchObject({ type: "message.requeued", payload: { messageId } });
+        expect(errors.mock.calls.some(([message]) => String(message).startsWith("Reading session"))).toBe(true);
+      } finally {
+        process.off("unhandledRejection", guard);
+        vi.restoreAllMocks();
+      }
+    });
   });
 
   it("lets a provider-opened turn go and reads its messages from the queue when the adapter cannot bring it to the mode resolved", async () => {
