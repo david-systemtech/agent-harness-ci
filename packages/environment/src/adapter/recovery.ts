@@ -1,11 +1,12 @@
-import type { RunEndedPayload } from "@agent-harness/contracts";
+import type { MessageSentPayload, RunEndedPayload } from "@agent-harness/contracts";
 import type { EventLog } from "../event-log/event-log.js";
 import type { Clock } from "../serve/clock.js";
 import type { Reader } from "../sessions/session-reads.js";
 import { appendRunEvents } from "../sessions/activity-companions.js";
 import { sessionStream } from "../sessions/streams.js";
 import { providerHeld } from "../runs/run-reads.js";
-import { HOST_ACTOR, requeuedEvents } from "./host.js";
+import type { AttachmentStage } from "./attachment-stage.js";
+import { HOST_ACTOR, requeuedEvents, type StagedAttachments } from "./host.js";
 
 /**
  * The startup recovery sweep (claude-adapter spec, "Environment-owned
@@ -17,11 +18,10 @@ import { HOST_ACTOR, requeuedEvents } from "./host.js";
  * environment's queue as `message.requeued`, in the end's transaction and
  * just before it (ADR 0022: nothing is lost), the end is appended through
  * `appendRunEvents` with the companions it owes (a snoozed session wakes,
- * session-state spec, #122), and its prompts stay raised,
- * so they are there again for a client to answer (ADR 0007). The bytes of a
- * queued message's attachments were held in memory and are gone: the run
- * that reads the message reads its text alone, and the log keeps the record
- * of what was attached.
+ * session-state spec, #122), and its prompts stay raised, so they are there
+ * again for a client to answer (ADR 0007). Then the attachment bytes of the
+ * queued messages are read back from the stage on disk
+ * (`recoverStagedAttachments`), so a message handed back keeps them.
  */
 
 /** A run the runs table holds as running. */
@@ -65,4 +65,66 @@ export const recoverCutRuns = (options: { readonly log: EventLog; readonly clock
     }
   }
   return ended;
+};
+
+/** A staged message as the log knows it: its session, who holds it, and its `message.sent`. */
+interface StagedRow {
+  readonly session_id: string;
+  readonly held_by: string;
+  readonly payload: string;
+}
+
+/**
+ * Reads back the attachment bytes the stage kept (#185): runs after
+ * `recoverCutRuns`, so a message its provider held is the environment's
+ * again. Each message staged is looked up in the log: one still queued, the
+ * provider's or the environment's, gets its bytes back, rebuilt with the
+ * record its `message.sent` kept, and a deleted session's are kept for a
+ * restore; a message a run has read, one the log never recorded (its command
+ * did not commit) or one purged since has its bytes removed, as do bytes
+ * that are not whole, loudly, leaving the message its text. What a write a
+ * crash cut short left is removed first. Returns the host's map.
+ */
+export const recoverStagedAttachments = (options: { readonly log: EventLog; readonly stage: AttachmentStage }): Map<string, StagedAttachments> => {
+  const { log, stage } = options;
+  const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
+  const staged = new Map<string, StagedAttachments>();
+  const drop = (messageId: string): void => {
+    try {
+      stage.remove(messageId);
+    } catch (error) {
+      console.error(`Removing the staged attachments of message ${messageId} failed:`, error);
+    }
+  };
+  try {
+    stage.dropPartial();
+  } catch (error) {
+    console.error("Removing the attachment writes a crash cut short failed:", error);
+  }
+  let messageIds: string[];
+  try {
+    messageIds = stage.list();
+  } catch (error) {
+    console.error("THE STAGED ATTACHMENTS COULD NOT BE LISTED; queued messages are read by their text alone:", error);
+    return staged;
+  }
+  for (const messageId of messageIds) {
+    const [row] = reader.all<StagedRow>(
+      "SELECT m.session_id, m.held_by, e.payload FROM run_messages m JOIN events e ON e.sequence = m.sequence WHERE m.message_id = ?",
+      messageId,
+    );
+    if (row === undefined || row.held_by === "read") {
+      drop(messageId);
+      continue;
+    }
+    const records = (JSON.parse(row.payload) as MessageSentPayload).attachments;
+    const attachments = stage.read(messageId, records);
+    if (attachments === undefined) {
+      console.error(`THE STAGED ATTACHMENTS OF MESSAGE ${messageId} ARE NOT WHOLE; the message is read by its text alone.`);
+      drop(messageId);
+      continue;
+    }
+    staged.set(messageId, { sessionId: row.session_id, attachments });
+  }
+  return staged;
 };

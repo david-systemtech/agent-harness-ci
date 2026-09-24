@@ -51,6 +51,7 @@ import type {
   RunEnd,
   UsageReading,
 } from "./contract.js";
+import type { AttachmentStage } from "./attachment-stage.js";
 import { createProcessPool } from "./pool.js";
 import type { PromptDecision } from "./contract.js";
 import { createAdapterRegistry, type AdapterRegistry } from "./registry.js";
@@ -126,8 +127,19 @@ export interface AdapterHostOptions {
   readonly processIdleMinutes?: () => number;
   /** How long closing waits, on the clock, for the provider processes to stop before it kills the rest. Preset: `PROCESS_STOP_TIMEOUT_MS`. */
   readonly processStopTimeoutMs?: number;
-  /** Where the bytes of sent messages' attachments wait until a run reads them, by message id. Preset: a fresh in-memory map, lost on a restart; staging them durably is #185's. */
+  /**
+   * The bytes of queued messages' attachments the host starts with, by
+   * message id: what the recovery sweep read back from the stage
+   * (`recoverStagedAttachments`). Preset: a fresh map.
+   */
   readonly stagedAttachments?: Map<string, StagedAttachments>;
+  /**
+   * Where those bytes are kept on disk until a run reads them, so a restart
+   * keeps them (`attachment-stage.ts`); the map is the fast path, the stage
+   * what a restart reads. Preset: none, the bytes in memory alone, for a host
+   * with no data directory.
+   */
+  readonly attachmentStage?: AttachmentStage;
 }
 
 /** The attachments of one message waiting to be read, with the session it was sent to. Never logged. */
@@ -171,6 +183,13 @@ export interface AdapterHost {
   unrecorded(runId: string): boolean;
   /** Starts a run its command committed: through its adapter, its events consumed from here on. */
   launch(run: PlannedRun): void;
+  /**
+   * Stages on disk the attachments of a message about to be queued, inside
+   * the command that queues it and before it answers, so its receipt means
+   * the bytes are safe. Throws `internal` when they cannot be staged: the
+   * send is refused, nothing of it recorded and no receipt kept.
+   */
+  stageAttachments(message: PromptMessage): void;
   /** Hands a message sent during a live run to its provider, or holds it for the next run, once its event committed. */
   queue(send: QueuedSend): void;
   /** Interrupts a live run with cancel; the messages its provider still held come back to the environment's queue. */
@@ -345,12 +364,25 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
    * holds them, until a run reads them (the launch of a run of the queue, a
    * steer's `message.delivered`, an adopted turn), since an interrupt may hand
    * a provider-held message back; a purged session's are dropped. They are
-   * never logged, and not kept across a restart: the `run_messages` rows
-   * keep a queued message's text, which is all a message the recovery sweep
-   * hands back is read by, and its bytes are #185's to keep.
+   * never logged. The map is the fast path; the stage keeps them on disk
+   * (`attachment-stage.ts`), written before the send that queued them answers
+   * and removed as they leave the map, so after a restart the recovery sweep
+   * reads them back and a message it hands back keeps its bytes.
    */
   const heldAttachments = options.stagedAttachments ?? new Map<string, StagedAttachments>();
+  const stage = options.attachmentStage;
   let closing = false;
+
+  /** A run has read the message, or its session is purged: its bytes go, from memory and from disk. */
+  const unstage = (messageId: string): void => {
+    heldAttachments.delete(messageId);
+    try {
+      stage?.remove(messageId);
+    } catch (error) {
+      // The message is read or gone from the log by now, so the next start's reload removes them.
+      console.error(`Removing the staged attachments of message ${messageId} failed; the next start removes them:`, error);
+    }
+  };
 
   /**
    * The provider processes (`pool.ts`): a run begins, answers, parks and ends
@@ -447,6 +479,11 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     for (const message of entry.launchedWith) {
       if (read.includes(message.messageId) && message.attachments.length > 0) {
         heldAttachments.set(message.messageId, { sessionId: entry.sessionId, attachments: message.attachments });
+        try {
+          stage?.write(message.messageId, message.attachments);
+        } catch (error) {
+          console.error(`STAGING THE ATTACHMENTS OF MESSAGE ${message.messageId} FAILED; they are kept in memory and a restart loses them:`, error);
+        }
       }
     }
     append(entry.sessionId, entry.runId, HOST_ACTOR, requeuedEvents(entry.runId, read));
@@ -749,12 +786,11 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
   const launch = (plan: PlannedRun): void => {
     const prompt: PromptMessage[] = plan.prompt.map((message) => {
       const held = heldAttachments.get(message.messageId);
-      heldAttachments.delete(message.messageId);
       return held === undefined || message.attachments.length > 0 ? message : { ...message, attachments: held.attachments };
     });
     const scope = { sessionId: plan.sessionId, accountId: plan.account.id, workspace: plan.workspace };
-    begin(plan, (entry) =>
-      adapterOf(plan.account).createRun(
+    begin(plan, (entry) => {
+      const run = adapterOf(plan.account).createRun(
         {
           sessionId: plan.sessionId,
           runId: plan.runId,
@@ -772,9 +808,11 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
           prompt,
         },
         contextFor(entry),
-      ),
-      prompt,
-    );
+      );
+      // The adapter has them: nothing need keep their bytes now. Had it thrown, the host would hold them again (`requeueUnread`).
+      for (const message of prompt) unstage(message.messageId);
+      return run;
+    }, prompt);
   };
 
   /** `actor` with its client session's ceiling as it is now; undefined once that client session is revoked or expired. */
@@ -927,7 +965,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       return;
     }
     // The provider read them, bytes and all.
-    for (const messageId of turn.messageIds) heldAttachments.delete(messageId);
+    for (const messageId of turn.messageIds) unstage(messageId);
     begin(plan, () => turn);
   };
 
@@ -1019,11 +1057,11 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     }
     if (event.type === "message.delivered") {
       const delivered = event.payload as MessageDeliveredPayload;
-      if (delivered.delivery === "steered") heldAttachments.delete(delivered.messageId);
+      if (delivered.delivery === "steered") unstage(delivered.messageId);
       return;
     }
     if (event.type === "session.purged") {
-      for (const [messageId, staged] of heldAttachments) if (staged.sessionId === event.streamId) heldAttachments.delete(messageId);
+      for (const [messageId, staged] of [...heldAttachments]) if (staged.sessionId === event.streamId) unstage(messageId);
       return;
     }
     if (event.type !== "session.deleted") return;
@@ -1099,6 +1137,19 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     liveRun: (runId) => liveFacts(byRunId(runId)),
     unrecorded: (runId) => unrecordedRuns.has(runId),
     launch,
+    stageAttachments(message) {
+      if (stage === undefined || message.attachments.length === 0) return;
+      try {
+        stage.write(message.messageId, message.attachments);
+      } catch (error) {
+        console.error(`Staging the attachments of message ${message.messageId} failed; the send is refused:`, error);
+        throw new ContractError({
+          code: "internal",
+          message: "The message's attachments could not be kept on disk, so it was not sent; send it again.",
+          data: {},
+        });
+      }
+    },
     queue(send) {
       // Kept whoever holds it: an interrupt may hand a provider-held message back to the environment's queue.
       const sessionId = readRun(reader, send.runId)?.sessionId ?? null;
