@@ -200,8 +200,11 @@ export interface EventLog {
    * events it removed.
    */
   compactStream(stream: StreamRef, compaction: Compaction, options: { readonly tx: Tx }): number;
-  /** Writes a stream's snapshot, replacing any earlier one's sequence and payload. */
-  writeSnapshot(stream: StreamRef, snapshot: { readonly sequence: number; readonly payload: unknown }): void;
+  /**
+   * The stream's snapshot, one at most: its compaction's, which stands in
+   * for its events at or below its sequence (`compactStream` is the one
+   * writer, so no other row can be read as one).
+   */
   readSnapshot(stream: StreamRef): Snapshot | null;
   /**
    * Runs `work` in one write transaction, handing it the `Tx` that every
@@ -533,7 +536,6 @@ export const openEventLog = (options: EventLogOptions): EventLog => {
       requireTx(options.tx);
       return snapshots.compact(stream, compaction);
     },
-    writeSnapshot: (stream, snapshot) => snapshots.write(stream, snapshot),
     readSnapshot: (stream) => snapshots.read(stream),
     clientSessions,
     pairings,

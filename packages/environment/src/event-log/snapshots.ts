@@ -41,7 +41,11 @@ interface SnapshotRow {
 
 const streamName = (stream: StreamRef): string => `${stream.kind}/${stream.id}`;
 
-/** The `snapshots` table: one snapshot per stream, the latest replacing the one before. */
+/**
+ * The `snapshots` table: one snapshot per stream (its primary key), the
+ * latest compaction's replacing the one before; a compaction is its one
+ * writer, so every row stands in for its stream's events for replay.
+ */
 export const createSnapshots = (sql: Sql, clock: () => Date) => {
   const read = (stream: StreamRef): Snapshot | null => {
     const row = sql.get<SnapshotRow>(
@@ -63,19 +67,6 @@ export const createSnapshots = (sql: Sql, clock: () => Date) => {
 
   return {
     read,
-
-    write(stream: StreamRef, snapshot: { readonly sequence: number; readonly payload: unknown }): void {
-      sql.run(
-        `INSERT INTO snapshots (stream_kind, stream_id, sequence, payload, created_at) VALUES (?, ?, ?, ?, ?)
-         ON CONFLICT (stream_kind, stream_id) DO UPDATE
-         SET sequence = excluded.sequence, payload = excluded.payload, created_at = excluded.created_at`,
-        stream.kind,
-        stream.id,
-        snapshot.sequence,
-        toJson(snapshot.payload, "A snapshot payload"),
-        clock().toISOString(),
-      );
-    },
 
     /**
      * Writes the compaction's snapshot and removes the events it names, for

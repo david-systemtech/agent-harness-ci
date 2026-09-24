@@ -164,7 +164,8 @@ describe("compacting a stream", () => {
     cleanups.unshift(() => rmSync(dir, { recursive: true, force: true }));
     const path = join(dir, "environment.db");
     const old = openEventLog({ path, clock: () => new Date(AT) });
-    old.writeSnapshot(s1, { sequence: 3, payload: { older: true } });
+    append(old, s1, [kept("one"), kept("two"), kept("three")]);
+    compact(old, s1, 3, [], { older: true });
     old.close();
     // Back to the schema before the columns, the row still in it.
     const raw = new (loadSqlite().DatabaseSync)(path);
@@ -172,6 +173,24 @@ describe("compacting a stream", () => {
     raw.close();
 
     expect(track(openEventLog({ path })).readSnapshot(s1)).toMatchObject({ sequence: 3, streamVersion: 0, removed: 0, payload: { older: true } });
+  });
+});
+
+describe("the snapshots table", () => {
+  it("holds one row per stream, which each compaction of it replaces, and a compaction is the one way to write it", () => {
+    const log = memoryLog();
+    const [one, two, three] = append(log, s1, [note("one"), kept("two"), note("three")]) as [number, number, number];
+    append(log, s2, [note("other")]);
+    compact(log, s1, two, [one]);
+    compact(log, s1, three, [three]);
+    const rows = (stream: StreamRef) =>
+      log.read<{ count: number }>("SELECT COUNT(*) AS count FROM snapshots WHERE stream_kind = ? AND stream_id = ?", stream.kind, stream.id)[0]?.count;
+
+    expect(rows(s1)).toBe(1);
+    expect(rows(s2)).toBe(0);
+    expect(log.readSnapshot(s1)).toMatchObject({ sequence: three, removed: 2 });
+    // Nothing else writes a row replay would serve in place of a stream's events.
+    expect(log).not.toHaveProperty("writeSnapshot");
   });
 });
 

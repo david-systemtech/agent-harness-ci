@@ -138,6 +138,8 @@ describe("compacting an old session", () => {
     const log = open(clock);
     seedOld(log, old);
     const before = log.readStream(stream(old));
+    // The fold a snapshot sent before the compaction held, read as the head snapshot reads it: every event but the deltas, which the stream carries.
+    expect(before.map((event) => event.type)).toContain("assistant.delta");
     const fold = foldTranscript(readTranscriptEvents(log, old));
     const last = before.at(-1);
     clock.advance(THRESHOLD + 1);

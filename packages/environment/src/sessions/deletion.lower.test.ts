@@ -61,7 +61,7 @@ const seed = (log: EventLog) => {
   );
   for (const id of [purged, kept]) {
     log.append(stream(id), [{ type: "session.archived", payload: { archivedAt: START } }, { type: "transcript.chunk", payload: { text: "hi" } }], { actor });
-    log.writeSnapshot(stream(id), { sequence: log.head(), payload: { transcript: "folded" } });
+    log.atomically((tx) => log.compactStream(stream(id), { sequence: log.head(), payload: { transcript: "folded" }, remove: [] }, { tx }));
   }
   log.append(stream(purged), [deleted(START, true)], { actor });
   return receipts.map((run) => run.receipt);
