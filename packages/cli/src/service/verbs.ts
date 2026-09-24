@@ -57,17 +57,19 @@ const install = async (args: readonly string[], context: ServiceContext): Promis
   let installed;
   try {
     installed = await platform.install(spec);
+    const created = [...(previous?.createdDirectories ?? []), ...installed.createdDirectories, ...dataDirectories];
+    // The record is part of the install: without it status probes the wrong port, so a failed write takes the definition back out.
+    writeServiceRecord(dataDir, {
+      platform: platform.kind,
+      definitionPath: platform.definitionPath(),
+      port,
+      createdDirectories: [...new Set(created)],
+    });
   } catch (error) {
+    if (installed) await platform.uninstall().catch(() => undefined);
     removeEmptyDirectories(dataDirectories);
     throw error;
   }
-  const created = [...(previous?.createdDirectories ?? []), ...installed.createdDirectories, ...dataDirectories];
-  writeServiceRecord(dataDir, {
-    platform: platform.kind,
-    definitionPath: platform.definitionPath(),
-    port,
-    createdDirectories: [...new Set(created)],
-  });
   context.stdout(
     [
       `Installed ${platform.definitionPath()}: \`${PRODUCT_NAME} serve\` on port ${port}, data directory ${dataDir}.`,

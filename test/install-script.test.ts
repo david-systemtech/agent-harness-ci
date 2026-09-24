@@ -5,7 +5,7 @@
  */
 import { execFile, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync  } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -340,12 +340,16 @@ describe.skipIf(process.platform === "win32")("scripts/install.sh", () => {
 
   it("exits 143 when terminated, removing its temporary files", async () => {
     const f = await fixture();
-    const child = spawn("sh", [script], { env: { ...f.env, FAKE_STATUS_CODE: "3", INSTALL_READY_TIMEOUT: "30" } });
+    const tmp = mkdtempSync(join(tmpdir(), "agent-harness-install-tmp-"));
+    cleanups.push(() => rmSync(tmp, { recursive: true, force: true }));
+    const child = spawn("sh", [script], { env: { ...f.env, TMPDIR: tmp, FAKE_STATUS_CODE: "3", INSTALL_READY_TIMEOUT: "30" } });
     const exited = new Promise<number | null>((resolve) => child.on("exit", (code) => resolve(code)));
     cleanups.push(() => void child.kill("SIGKILL"));
     await vi.waitFor(() => expect(f.calls()).toContain("agent-harness service start"), { timeout: 5000 });
     child.kill("SIGTERM");
     expect(await exited).toBe(143);
+    // The EXIT trap removed the working directory the download used.
+    expect(readdirSync(tmp)).toEqual([]);
   });
 
   it("exits 143 when terminated while reusing an unpacked version", async () => {

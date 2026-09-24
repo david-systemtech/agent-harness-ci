@@ -87,11 +87,6 @@ const taskUser = (installContext: InstallContext): string => {
 };
 
 /**
- * The task in Task Scheduler's root folder under the label, managed with
- * `schtasks`. The definition is not a file the user owns: `/Create` takes the
- * XML from a file in the data directory, which is removed at once.
- */
-/**
  * What `schtasks /Query /XML` printed, as text. The runner decodes output as
  * UTF-8; when schtasks writes UTF-16 instead (as its exported task XML is),
  * the decoded text carries a NUL after every ASCII character and a mangled
@@ -101,6 +96,11 @@ const taskUser = (installContext: InstallContext): string => {
  */
 export const decodeTaskXml = (output: string): string => output.split("\u0000").join("").replace(/^[^<]+/, "");
 
+/**
+ * The task in Task Scheduler's root folder under the label, managed with
+ * `schtasks`. The definition is not a file the user owns: `/Create` takes the
+ * XML from a file in the data directory, which is removed at once.
+ */
 export const taskSchedulerPlatform = (installContext: InstallContext, commands: ServiceCommands): ServicePlatform => {
   const name = SERVICE_LABEL;
   const schtasks = (...args: string[]) => commands.run("schtasks", args);
