@@ -9,6 +9,7 @@ import {
   type MessageRequeuedPayload,
   type Mode,
   type RunEndedPayload,
+  type RunPolicy,
   type RunStartedPayload,
   type Workspace,
 } from "@agent-harness/contracts";
@@ -257,6 +258,13 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
   const live = new Map<string, LiveRun>();
   /** Runs that ended here with their end not in the log. */
   const unrecordedRuns = new Set<string>();
+  /**
+   * Sessions whose provider-opened turn waits for a mode change to answer
+   * before it is adopted, each with the run it followed: until it answers,
+   * the session counts that run as live, so a start is `run_active` and a
+   * send is queued (and taken back, since the run has ended).
+   */
+  const changingMode = new Map<string, LiveRunFacts>();
   /** Turns a provider opened while the run before them was still live, waiting for it to end, each with the run it followed. */
   const adoptions = new Map<string, { readonly followed: LiveRun; readonly turn: ProviderTurn }[]>();
   /**
@@ -369,7 +377,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     return {
       sessionId,
       session,
-      live: liveFacts(live.get(sessionId)),
+      live: liveFacts(live.get(sessionId)) ?? changingMode.get(sessionId) ?? null,
       accountId,
       account: facts,
       queued: environmentQueue(reader, sessionId),
@@ -597,15 +605,17 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
    * session's mode as it is now, under the lowest of the actor's ceiling as
    * it is now and the ceiling of each message's sender. When that is not the
    * mode the provider runs the turn in, the turn is changed to it
-   * (`modeChange`). A turn that cannot be run so (the adapter cannot change
-   * its mode, the actor's client session is revoked or expired, no mode is
-   * available), or whose session was deleted, or that a drain refuses, is
-   * let go and what it was to read goes back to the environment's queue
-   * (`requeueTurn`); for the first kind, a run of the queue is tried then.
+   * (`modeChange`), and adopted only once the change has taken: a change
+   * that answers later holds the adoption until it does. A turn that cannot
+   * be run so (the adapter cannot change its mode, or the change fails, the
+   * actor's client session is revoked or expired, no mode is available), or
+   * whose session was deleted, or that a drain refuses, is let go and what it
+   * was to read goes back to the environment's queue (`requeueTurn`); for
+   * the first kind, a run of the queue is tried then. Nothing records a mode
+   * the turn does not run in.
    */
   const adoptNow = (followed: LiveRun, turn: ProviderTurn): void => {
     const previous = followed.plan;
-    const runId = randomUUID();
     const session = readSessionFacts(log, reader, previous.sessionId);
     if (session === null || session.deleted) {
       // Deleted (or purged) since the run it followed: no run of it may start; what the turn was to read goes back.
@@ -634,13 +644,55 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     const policy = resolvePolicy({ actor: { ...actor, ceiling }, requested: session.mode, accountModes: descriptor.modes });
     if ("refused" in policy) return refuse(policy.refused);
     const mode = policy.mode.effective;
+    const adoptIn = (running: Mode): void => adoptTurn(previous, turn, actor, policy, running);
     if (mode !== followed.mode) {
       const setMode = turn.setMode;
       if (!descriptor.modeChange || setMode === undefined) {
         return refuse(`it runs in ${followed.mode}, the policy now resolves ${mode}, and the adapter cannot change a running turn's mode.`);
       }
-      safely(() => setMode.call(turn, mode), (e) => console.error(`Changing the mode of a turn of session ${previous.sessionId} failed:`, e));
+      let answer: unknown;
+      try {
+        answer = setMode.call(turn, mode);
+      } catch (error) {
+        return refuse(`changing its mode from ${followed.mode} to ${mode} failed: ${messageOf(error)}`);
+      }
+      if (answer instanceof Promise) {
+        changingMode.set(previous.sessionId, { runId: followed.runId, descriptor, policy: previous.policy });
+        const settled = (work: () => void): void => {
+          changingMode.delete(previous.sessionId);
+          const now = readSessionFacts(log, reader, previous.sessionId);
+          let admitted = !closing && now !== null && !now.deleted;
+          try {
+            if (admitted) registry.admit();
+          } catch {
+            admitted = false;
+          }
+          if (!admitted) {
+            // Closing, deleted or draining since: the turn is let go, and what it was to read goes back.
+            safely(() => turn.dispose(), (e) => console.error("Disposing a turn failed:", e));
+            requeueTurn(previous, turn);
+            return;
+          }
+          work();
+        };
+        answer.then(
+          () => settled(() => adoptIn(mode)),
+          (error: unknown) => settled(() => refuse(`changing its mode from ${followed.mode} to ${mode} failed: ${messageOf(error)}`)),
+        );
+        return;
+      }
     }
+    adoptIn(mode);
+  };
+
+  /**
+   * Records and starts the adopted turn in `mode`, the mode it runs in now.
+   * A throw on the way (a drain that refuses it, an append that fails) lets
+   * the turn go, its messages the environment's again.
+   */
+  const adoptTurn = (previous: PlannedRun, turn: ProviderTurn, actor: RunActor, policy: RunPolicy, mode: Mode): void => {
+    const runId = randomUUID();
+    const { descriptor } = previous.account;
     const plan: PlannedRun = { ...previous, runId, prompt: [], resumeFrom: null, mode, actor, policy };
     const started: RunStartedPayload = {
       runId,
@@ -660,11 +712,18 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       const payload: MessageDeliveredPayload = { runId, messageId, delivery: "prompt" };
       return { type: "message.delivered", payload };
     });
-    append(plan.sessionId, runId, formatActor({ kind: "adapter", id: descriptor.provider }), [
-      { type: "run.started", payload: started },
-      policyResolvedEvent(runId, policy),
-      ...delivered,
-    ]);
+    try {
+      append(plan.sessionId, runId, formatActor({ kind: "adapter", id: descriptor.provider }), [
+        { type: "run.started", payload: started },
+        policyResolvedEvent(runId, policy),
+        ...delivered,
+      ]);
+    } catch (error) {
+      console.error(`Recording a turn the provider opened for session ${previous.sessionId} failed; it is let go:`, error);
+      safely(() => turn.dispose(), (e) => console.error("Disposing a turn failed:", e));
+      requeueTurn(previous, turn);
+      return;
+    }
     // The provider read them, bytes and all.
     for (const messageId of turn.messageIds) heldAttachments.delete(messageId);
     begin(plan, () => turn);

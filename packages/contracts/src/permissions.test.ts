@@ -1,8 +1,12 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import {
   BYPASS_SENTENCE,
   CLAUDE_PERMISSION_MODE,
   Ceiling,
+  ContainmentLevel,
   EVENT_TYPES,
   HelloFrame,
   MODES,
@@ -71,6 +75,25 @@ describe("the modes", () => {
     };
     expect(HelloFrame.safeParse(hello).success).toBe(true);
     expect(HelloFrame.safeParse({ ...hello, ceiling: "dontAsk" }).success).toBe(false);
+  });
+});
+
+describe("the modes' descriptions", () => {
+  // zod 4's .meta() gives a new schema, so a site that describes a mode for its own use (the ceiling, a
+  // setting, the event) never changes Mode's own description, nor another site's.
+  it("keep Mode's own through every site that describes a mode for itself, the ceiling's apart", () => {
+    const describe = (schema: z.ZodType): unknown => z.toJSONSchema(schema)["description"];
+    const own = describe(Mode);
+    expect(own).toMatch(/^What an agent may do without asking/);
+    expect(describe(Ceiling)).toMatch(/^The highest mode a client session/);
+    expect(describe(PERMISSION_SETTINGS["permissions.defaultCeiling"].schema)).toBe("The ceiling a pairing gives when none is chosen.");
+    expect(describe(ContainmentLevel)).toMatch(/^Where a run may reach/);
+    expect(describe(PERMISSION_SETTINGS["permissions.containment.default"].schema)).toBe("The containment level of a run whose session names none.");
+    expect(describe(Mode)).toBe(own);
+    const schemaDir = join(import.meta.dirname, "..", "schema");
+    const read = (path: string) => (JSON.parse(readFileSync(join(schemaDir, path), "utf8")) as { description: string }).description;
+    expect(read("permissions/mode.json")).toBe(own);
+    expect(read("ceiling.json")).not.toBe(read("permissions/mode.json"));
   });
 });
 

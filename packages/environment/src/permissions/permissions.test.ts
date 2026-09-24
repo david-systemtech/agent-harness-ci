@@ -323,6 +323,62 @@ describe("run.policy.resolved", () => {
     expect(t.adapter.runs[1]).toMatchObject({ adopted: true, modeChanges: ["plan"] });
   });
 
+  describe("when changing the turn's mode", () => {
+    /** The fake adapter, its provider-opened turns' `setMode` replaced by `setMode`. */
+    const withTurnSetMode = (setMode: (mode: Mode) => void | Promise<void>): FakeAdapter => {
+      const adapter = fakeAdapter({ capabilities: { providerQueue: true, steering: false } });
+      const createRun = adapter.createRun;
+      return { ...adapter, createRun: (input, context) => createRun(input, { ...context, adopt: (turn) => context.adopt({ ...turn, setMode }) }) };
+    };
+
+    /** A run the provider follows with a turn of its own, after its client's ceiling was lowered to plan while it ran. */
+    const lowered = async (adapter: FakeAdapter) => {
+      const held = gate();
+      const t = await start(adapter);
+      adapter.nextScripts.push(heldScript(held));
+      const target = await t.pair({ ceiling: "bypassPermissions" });
+      const client = await t.client({ token: target.token });
+      const { id } = await create(client);
+      const { runId: first } = await startRun(client, id, { mode: "bypassPermissions" });
+      await vi.waitFor(() => expect(runEvents(t, id, first).map((event) => event.type)).toContain("assistant.text"));
+      const sent = await send(client, "runs.send", { sessionId: id, text: "Also this" });
+      await send(await t.client(), "access.sessions.setCeiling", { clientSessionId: target.clientSessionId, ceiling: "plan" });
+      held.open();
+      return { t, id, messageId: sent.result?.messageId };
+    };
+
+    it.each([
+      ["throws", () => { throw new Error("The provider refused the mode."); }],
+      ["rejects", () => Promise.reject(new Error("The provider refused the mode."))],
+    ])("lets the turn go through the refusal path when the change %s: nothing records a mode it does not run in", async (_how, setMode) => {
+      const adapter = withTurnSetMode(setMode);
+      const { t, id, messageId } = await lowered(adapter);
+      await vi.waitFor(() => expect(sessionEvents(t, id).filter((event) => event.type === "run.ended")).toHaveLength(2));
+      expect(adapter.runs[1]).toMatchObject({ adopted: true, disposed: true });
+      const started = sessionEvents(t, id).filter((event) => event.type === "run.started");
+      expect(started.map((event) => event.payload["origin"])).toEqual(["client", "client"]);
+      expect(started[1]?.payload["queuedMessageIds"]).toEqual([messageId]);
+      expect(policyOf(t, id, started[1]?.payload["runId"] as string)).toMatchObject({ mode: { effective: "plan", ceiling: "plan" } });
+      expect(adapter.lastRun().input.mode).toBe("plan");
+    });
+
+    it("adopts the turn once a change that answers later has taken", async () => {
+      let resolve!: () => void;
+      const changed: Mode[] = [];
+      const adapter = withTurnSetMode((mode) => new Promise<void>((done) => (resolve = () => (changed.push(mode), done()))));
+      const { t, id } = await lowered(adapter);
+      await vi.waitFor(() => expect(resolve).toBeTypeOf("function"));
+      await new Promise((settle) => setTimeout(settle, 20));
+      expect(sessionEvents(t, id).filter((event) => event.type === "run.started")).toHaveLength(1);
+      resolve();
+      await vi.waitFor(() => expect(sessionEvents(t, id).filter((event) => event.type === "run.ended")).toHaveLength(2));
+      const adopted = sessionEvents(t, id).filter((event) => event.type === "run.started")[1];
+      expect(adopted?.payload["origin"]).toBe("provider");
+      expect(policyOf(t, id, adopted?.payload["runId"] as string)).toMatchObject({ mode: { effective: "plan", ceiling: "plan" } });
+      expect(changed).toEqual(["plan"]);
+    });
+  });
+
   it("lets a provider-opened turn go and reads its messages from the queue when the adapter cannot bring it to the mode resolved", async () => {
     const held = gate();
     const t = await start({ capabilities: { providerQueue: true, steering: false, modeChange: false } });
