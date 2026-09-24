@@ -57,7 +57,7 @@ export const CLAUDE_DESCRIPTOR: AdapterDescriptor = {
   commands: true,
   imageInput: true,
   fileInput: false,
-  modeChange: false,
+  modeChange: true,
   instructionChannel: { kind: "system-prompt-append", maxCharacters: null },
   // Every mode is the SDK permission mode of its name (permissions spec, the Claude mapping), available to every account.
   modes: CLAUDE_MODES.map((mode) => ({ mode, available: true, reason: null })),

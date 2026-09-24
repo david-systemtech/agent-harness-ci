@@ -1,3 +1,4 @@
+import type { Mode } from "@agent-harness/contracts";
 import type { AdapterEvent, PromptDecision, PromptMessage, ProviderTurn, RunEnd } from "../../adapter/contract.js";
 import type { Clock } from "../../serve/clock.js";
 import { AsyncQueue } from "./async-queue.js";
@@ -27,6 +28,7 @@ export interface TurnControl {
   interrupt(turn: ClaudeTurn): Promise<{ readonly stillQueued: readonly string[] }>;
   answerPrompt(promptId: string, decision: PromptDecision): void;
   stopTask(taskId: string): Promise<void>;
+  setMode(turn: ClaudeTurn, mode: Mode): Promise<void>;
   dispose(): Promise<void>;
   release(turn: ClaudeTurn): void;
 }
@@ -156,6 +158,11 @@ export class ClaudeTurn implements ProviderTurn {
 
   stopTask(taskId: string): Promise<void> {
     return this.#control.stopTask(taskId);
+  }
+
+  /** Changes the run's mode (`modeChange`): the process's, since the CLI has one mode for all its turns. */
+  setMode(mode: Mode): Promise<void> {
+    return this.#control.setMode(this, mode);
   }
 
   dispose(): Promise<void> {

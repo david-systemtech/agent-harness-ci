@@ -393,6 +393,73 @@ describe("canUseTool on the broker seam", () => {
   });
 });
 
+describe("a mode change on a live run", () => {
+  it("is declared: the descriptor has modeChange", () => {
+    expect(CLAUDE_DESCRIPTOR.modeChange).toBe(true);
+  });
+
+  it("reaches the SDK's mode setter once per change, and the next run on the process is not moved again", async () => {
+    const adapter = adapterWith();
+    const input = runInput();
+    const run = adapter.createRun(input, contextWith());
+    const query = await started();
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [input.prompt[0]?.messageId as string]));
+    await flush();
+    await run.setMode?.("plan");
+    await run.setMode?.("plan");
+    expect(query.modes).toEqual(["plan"]);
+    query.emit(sdk.result(PROVIDER_SESSION));
+    await drain(run);
+    run.release();
+    const next = runInput({ mode: "plan", target: { kind: "resume", providerSessionId: PROVIDER_SESSION } });
+    adapter.createRun(next, contextWith());
+    await query.promptsPushed(2);
+    expect(query.modes).toEqual(["plan"]);
+  });
+
+  it("applies a change made before the process spawned to the spawn itself", async () => {
+    fake.stored.set(PROVIDER_SESSION, [
+      { type: "user", uuid: "p1", message: { role: "user", content: "First" } },
+      { type: "assistant", uuid: "a1", message: { role: "assistant", content: [] } },
+      { type: "user", uuid: "p2", message: { role: "user", content: "Second" } },
+    ]);
+    let read: () => void = () => undefined;
+    const reading = new Promise<void>((resolve) => (read = resolve));
+    hooks.sdk = { query: fake.query, getSessionMessages: async (id: string, options: unknown) => (await reading, fake.getSessionMessages(id, options)) };
+    const run = adapterWith().createRun(runInput({ target: { kind: "fork", providerSessionId: PROVIDER_SESSION, atMessageId: "p2" } }), contextWith());
+    await run.setMode?.("plan");
+    read();
+    const query = await started();
+    expect(query.options.permissionMode).toBe("plan");
+    expect(query.modes).toEqual([]);
+  });
+
+  it("refuses bypass on a process spawned without the opt-in, and a change on an ended run", async () => {
+    const adapter = adapterWith();
+    const input = runInput();
+    const run = adapter.createRun(input, contextWith());
+    const query = await started();
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [input.prompt[0]?.messageId as string]));
+    await flush();
+    await expect(run.setMode?.("bypassPermissions")).rejects.toThrow(/bypass/);
+    query.emit(sdk.result(PROVIDER_SESSION));
+    await drain(run);
+    await expect(run.setMode?.("plan")).rejects.toThrow(/ended/);
+    expect(query.modes).toEqual([]);
+  });
+
+  it("takes bypass on a process spawned under a bypass ceiling", async () => {
+    const adapter = adapterWith();
+    const input = runInput({ ceiling: "bypassPermissions" });
+    const run = adapter.createRun(input, contextWith());
+    const query = await started();
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [input.prompt[0]?.messageId as string]));
+    await flush();
+    await run.setMode?.("bypassPermissions");
+    expect(query.modes).toEqual(["bypassPermissions"]);
+  });
+});
+
 describe("an interrupt", () => {
   it("interrupts the turn, which ends interrupted though the provider calls it an error", async () => {
     const adapter = adapterWith();

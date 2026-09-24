@@ -12,6 +12,7 @@ import {
   type SpawnOptions,
   type SpawnedProcess,
 } from "@anthropic-ai/claude-agent-sdk";
+import type { Mode } from "@agent-harness/contracts";
 import type { PromptDecision, PromptKind, PromptMessage, RunContext, RunEnd, RunInput } from "../../adapter/contract.js";
 import type { Clock, Timer } from "../../serve/clock.js";
 import { AsyncQueue } from "./async-queue.js";
@@ -417,8 +418,10 @@ export class ClaudeProcess implements TurnControl {
   async #start(input: RunInput, turn: ClaudeTurn, carried: readonly PromptMessage[]): Promise<void> {
     let options: Options;
     try {
+      const resumePoint = await this.#resumePoint(input);
       options = buildRunOptions({
-        run: input,
+        // In the mode it has now, read after the wait: a change made while it was being prepared applies to the spawn.
+        run: { ...input, mode: this.#applied.mode },
         hostEnv: this.#deps.hostEnv,
         configDirectory: this.#deps.configDirectory(input.account),
         executablePath: this.#deps.executablePath(),
@@ -426,7 +429,7 @@ export class ClaudeProcess implements TurnControl {
         autoMemoryDirectory: this.#deps.autoMemoryDirectory(input),
         checkoutRoot: worktreeCheckout(input.workspace.path),
         sessionStore: this.#deps.sessionStore,
-        resumePoint: await this.#resumePoint(input),
+        resumePoint,
         canUseTool: this.#canUseTool,
         spawnProcess: this.#spawnProcess,
         abortController: this.#abort,
@@ -945,6 +948,26 @@ export class ClaudeProcess implements TurnControl {
       }
     }
     return all;
+  }
+
+  /**
+   * A live run's mode change (`modeChange`, `permissions.mode.set`), already
+   * clamped by the host to the run's ceiling: the SDK's mode setter on the
+   * spawned CLI, under the control timeout, which moves every turn after it;
+   * before the spawn, the mode the spawn takes. Bypass needs the SDK's opt-in
+   * at spawn, which a process started under a lower ceiling lacks.
+   */
+  async setMode(turn: ClaudeTurn, mode: Mode): Promise<void> {
+    if (this.closed) throw new Error("The Claude process is closing; the run's mode cannot change.");
+    if (turn.ended) throw new Error("The run has ended; its session's next run takes the mode.");
+    const next = claudeMode(mode);
+    if (next === "bypassPermissions" && !this.#spawn.bypassAllowed) {
+      throw new Error("This Claude process was started without the bypass opt-in (its run's ceiling was below bypassPermissions), so it cannot change to bypassPermissions.");
+    }
+    if (next === this.#applied.mode) return;
+    const query = this.#query;
+    if (query !== undefined) await this.#within(query.setPermissionMode(next), this.#deps.timings.controlTimeoutMs);
+    this.#applied = { ...this.#applied, mode: next };
   }
 
   answerPrompt(promptId: string, decision: PromptDecision): void {

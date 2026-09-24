@@ -200,6 +200,16 @@ describe("a Claude run through the adapter host", () => {
     expect(fake.queries).toHaveLength(t.controlQueries + 1);
   });
 
+  it("changes a live run's mode through the SDK's mode setter when the host is asked (permissions.mode.set)", async () => {
+    const t = await setup();
+    const { runId, messageId } = startRun(t);
+    const query = await runQuery(t, 1);
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [messageId]));
+    await vi.waitFor(() => expect(eventsOf(t).map((event) => event.type)).toContain("session.provider-linked"));
+    t.host.setMode(runId, "plan");
+    await vi.waitFor(() => expect(query.modes).toEqual(["plan"]));
+  });
+
   it("hands canUseTool to the auto-deny placeholder, which denies at once and records nothing", async () => {
     const t = await setup(autoDenyBroker);
     const { messageId } = startRun(t);
