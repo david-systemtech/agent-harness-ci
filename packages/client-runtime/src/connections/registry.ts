@@ -364,7 +364,14 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
     async attach(socket, document) {
       const e = entry();
       const { hello } = socket;
-      socket.onFrame((frame) => notifyAll(frameListeners, environmentId, frame));
+      // A seam listener that throws is reported, never thrown into the socket's message handler.
+      socket.onFrame((frame) => {
+        try {
+          notifyAll(frameListeners, environmentId, frame);
+        } catch (error) {
+          report(error);
+        }
+      });
       const descriptor = document ? fromDiscovery(e.saved.descriptor, document) : e.saved.descriptor;
       await updateSaved(environmentId, e, {
         clientSessionId: hello.clientSessionId,
@@ -657,6 +664,13 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
         await savePaired();
         await enterSequence(id, "last");
       }
+      if (entries.get(id) !== entry) {
+        // Removed while this pairing was being kept: nothing is attached to a forgotten entry.
+        if (answer.ok) answer.socket.close();
+        return { status: "paired", environmentId: id, ...(replaced && { replaced }) };
+      }
+      // A retry, enable, address edit or start that ran while this pairing was being kept is superseded by the machine itself:
+      // `adopt` and `start` halt first, closing any socket or dial that attempt opened and dropping its late answers.
       if (answer.ok && isEnabled(id)) {
         // The socket pairing tried is the connection's first one.
         entry.runner.adopt(answer.socket, document);

@@ -41,6 +41,9 @@ export { SESSION_LIST_PROJECTOR, sessionListProjector } from "./sessions/session
 export { SESSION_LIST_SELECTOR, sessionMethods, type SessionMethodsOptions } from "./sessions/methods.js";
 export { groupMethods, type GroupMethodsOptions } from "./sessions/group-methods.js";
 export { acceptAnyRunParameters, type RunParameters, type RunParametersCheck } from "./sessions/run-parameters.js";
+export { SETTLE_SWEEP_ACTOR, SETTLE_SWEEP_INTERVAL_MS, createSettleSweep, type SettleSweep, type SweepOutcome } from "./sessions/settle-sweep.js";
+export { settingsMethods, type SettingsMethodsOptions } from "./settings/methods.js";
+export { SETTINGS_PROJECTOR, readSettings, settingsProjector } from "./settings/settings-store.js";
 
 export { DEFAULT_LOG_PAGE } from "./auth/access-log.js";
 export {
