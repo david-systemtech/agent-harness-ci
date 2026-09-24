@@ -116,7 +116,7 @@ export interface NodePlatformOptions {
 /** The terminal UI's platform, with no shell: every shell member is absent with reason `no-shell` (ADR 0004). */
 export const nodePlatform = (options: NodePlatformOptions): Platform => ({
   documents: jsonDocuments(join(options.stateDir, DOCUMENTS_DIRECTORY)),
-  secrets: secretsDirectory(join(options.stateDir, SECRETS_DIRECTORY), join(options.stateDir, LEGACY_SECRETS_FILE)),
+  secrets: secretsDirectory(join(options.stateDir, SECRETS_DIRECTORY), join(options.stateDir, LEGACY_SECRETS_FILE), options.reportError),
   webSocket: options.webSocket ?? standardWebSocketFactory(globalThis.WebSocket),
   fetch: options.fetch ?? ((url, request) => globalThis.fetch(url, request)),
   clock: systemClock,

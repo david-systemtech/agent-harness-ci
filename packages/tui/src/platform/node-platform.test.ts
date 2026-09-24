@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -149,6 +149,24 @@ describe("the terminal UI's platform", () => {
     expect(readdirSync(stateDir).sort()).toEqual(["secrets"]);
     expect(readdirSync(join(stateDir, "secrets")).sort()).toEqual(["env-1.secret", "env-2.secret", "env-3.secret"]);
   });
+
+  it.each([["not JSON", "{ env-1: token-1"], ["not an object", '["token-1"]']])(
+    "keeps an earlier build's secrets.json it cannot read (%s) aside, unreadable, and says so once",
+    async (_what, text) => {
+      const reported: unknown[] = [];
+      const { stateDir, dataDir } = platformIn();
+      mkdirSync(stateDir, { recursive: true });
+      writeFileSync(join(stateDir, "secrets.json"), text, { mode: 0o600 });
+      const platform = nodePlatform({ stateDir, dataDir, version: "1.2.3", identity, reportError: (error) => reported.push(error) });
+      expect(await platform.secrets.get("env-1")).toBeUndefined();
+      await platform.secrets.set("env-3", "token-3");
+      expect(await platform.secrets.get("env-3")).toBe("token-3");
+      expect(readdirSync(stateDir).sort()).toEqual(["secrets", "secrets.json.unreadable"]);
+      expect(readFileSync(join(stateDir, "secrets.json.unreadable"), "utf8")).toBe(text);
+      expect(reported).toHaveLength(1);
+      expect(String(reported[0])).toContain("secrets.json.unreadable");
+    },
+  );
 
   it("reads the local environment's grant file from its data directory, and none when there is none", async () => {
     const { platform, dataDir } = platformIn();
