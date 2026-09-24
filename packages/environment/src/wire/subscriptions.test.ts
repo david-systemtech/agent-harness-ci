@@ -492,6 +492,51 @@ describe("ending a subscription", () => {
   });
 });
 
+describe("a subscription over stream kinds", () => {
+  /**
+   * A synthetic stream over every `session` and `group` stream, keeping only
+   * `probe.poked` events: a type the session list does not project, so the
+   * test appends to those kinds freely.
+   */
+  const probesSubscribe = defineMethod({
+    name: "probes.subscribe",
+    scope: "read",
+    kind: "stream",
+    params: subscriptionParams({}),
+    result: z.object({ count: z.int().nonnegative() }),
+    errors: [],
+  });
+  const poke = (kind: "session" | "group" | "access", id: string, types: readonly string[]) =>
+    (t: TestEnvironment) =>
+      t.env.log.append({ kind, id }, types.map((type) => ({ type, payload: {} })), { actor: "system:test" }).events.map((e) => e.sequence);
+
+  it("carries every stream of the kinds its source names, only the types it names, replayed then live, in sequence order", async () => {
+    const t = await start();
+    t.serve(probesSubscribe, () => ({ stream: { kinds: ["session", "group"], types: ["probe.poked"] }, snapshot: () => ({ count: 0 }) }));
+    const [a] = poke("session", "a", ["probe.poked"])(t);
+    const [b] = poke("group", "x", ["probe.poked", "probe.ignored"])(t);
+    poke("access", "a", ["probe.poked"])(t);
+    const client = await t.client();
+    const { subscription } = await client.subscribe("probes.subscribe", { afterSequence: 0 });
+    await frame(client, subscription, "synchronized");
+    const [c] = poke("session", "b", ["probe.poked"])(t);
+    const [, d] = poke("group", "y", ["probe.ignored", "probe.poked"])(t);
+    await roundTrip(client);
+    expect(shape(client, subscription)).toEqual(["subscribed", a, b, "synchronized", c, d]);
+  });
+
+  it("sends a snapshot when the events of those kinds after the cursor pass the bound", async () => {
+    const t = await start();
+    t.serve(probesSubscribe, () => ({ stream: { kinds: ["session", "group"] }, snapshot: () => ({ count: 7 }) }));
+    poke("session", "a", Array.from({ length: REPLAY_BOUND.events / 2 }, () => "probe.poked"))(t);
+    poke("group", "x", Array.from({ length: REPLAY_BOUND.events / 2 + 1 }, () => "probe.poked"))(t);
+    const client = await t.client();
+    const { subscription } = await client.subscribe("probes.subscribe", { afterSequence: 0 });
+    const snapshot = await frame(client, subscription, "snapshot");
+    expect(snapshot.payload).toEqual({ count: 7 });
+  });
+});
+
 describe("refusing a subscription", () => {
   it("refuses a stream whose scope the client session lacks forbidden, before any subscribed", async () => {
     const t = await start();

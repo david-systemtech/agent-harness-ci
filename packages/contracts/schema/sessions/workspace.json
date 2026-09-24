@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Workspace",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "const": "directory"
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The directory on the environment's machine."
+        }
+      },
+      "required": [
+        "kind",
+        "path"
+      ],
+      "description": "A directory the environment has."
+    }
+  ],
+  "description": "Where a session's code lives on its environment: its kind and path."
+}

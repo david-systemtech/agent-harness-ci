@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SettledOverride",
+  "type": "string",
+  "enum": [
+    "settled",
+    "active"
+  ],
+  "description": "What a settle or an unsettle holds a session to: settled, or active (auto-settle is blocked until the next activity clears it)."
+}

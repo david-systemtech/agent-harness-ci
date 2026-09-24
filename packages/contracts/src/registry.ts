@@ -12,6 +12,36 @@ import {
   environmentStatus,
   environmentSubscribe,
 } from "./methods/environment.js";
+import {
+  groupsCreate,
+  groupsDelete,
+  groupsList,
+  groupsRename,
+  groupsReorder,
+  sessionsArchive,
+  sessionsCreate,
+  sessionsDelete,
+  sessionsGet,
+  sessionsList,
+  sessionsListDeleted,
+  sessionsPin,
+  sessionsPurge,
+  sessionsRename,
+  sessionsReorderActive,
+  sessionsReorderPinned,
+  sessionsRestore,
+  sessionsSetGroup,
+  sessionsSettle,
+  sessionsSnooze,
+  sessionsSubscribe,
+  sessionsSubscribeSession,
+  sessionsTag,
+  sessionsUnarchive,
+  sessionsUnpin,
+  sessionsUnsettle,
+  sessionsUnsnooze,
+  sessionsUntag,
+} from "./methods/sessions.js";
 
 /**
  * Every method the environment answers, in one typed table: the environment's
@@ -27,10 +57,77 @@ export const methods = [
   accessSessionsRevoke,
   accessSessionsRefresh,
   accessLogList,
+  sessionsCreate,
+  sessionsRename,
+  sessionsArchive,
+  sessionsUnarchive,
+  sessionsPin,
+  sessionsUnpin,
+  sessionsReorderPinned,
+  sessionsReorderActive,
+  sessionsTag,
+  sessionsUntag,
+  sessionsSetGroup,
+  sessionsSettle,
+  sessionsUnsettle,
+  sessionsSnooze,
+  sessionsUnsnooze,
+  sessionsDelete,
+  sessionsRestore,
+  sessionsPurge,
+  groupsCreate,
+  groupsRename,
+  groupsReorder,
+  groupsDelete,
+  sessionsList,
+  sessionsGet,
+  sessionsListDeleted,
+  groupsList,
+  sessionsSubscribe,
+  sessionsSubscribeSession,
 ] as const;
 
 type Registered = (typeof methods)[number];
 export type MethodName = Registered["name"];
+/** The names of the command methods: those that take a `commandId` and answer with a receipt. */
+export type CommandMethodName = Extract<Registered, { readonly kind: "command" }>["name"];
+
+/**
+ * Registered methods the environment does not serve yet, each with the
+ * ticket that owes its handler. They are registered ahead of it because the
+ * session summary's field table names them (#114); a method leaves this
+ * list in the change that serves it, and the wire's test refuses a
+ * registered method that is neither served nor owed here.
+ */
+export const OWED_HANDLERS = {
+  // Filing (#115).
+  "sessions.archive": "#115",
+  "sessions.unarchive": "#115",
+  "sessions.pin": "#115",
+  "sessions.unpin": "#115",
+  "sessions.reorderPinned": "#115",
+  "sessions.reorderActive": "#115",
+  "sessions.tag": "#115",
+  "sessions.untag": "#115",
+  // Groups (#116).
+  "sessions.setGroup": "#116",
+  "groups.create": "#116",
+  "groups.rename": "#116",
+  "groups.reorder": "#116",
+  "groups.delete": "#116",
+  "groups.list": "#116",
+  // The shelf (#117).
+  "sessions.settle": "#117",
+  "sessions.unsettle": "#117",
+  "sessions.snooze": "#117",
+  "sessions.unsnooze": "#117",
+  // Deletion (#118).
+  "sessions.delete": "#118",
+  "sessions.restore": "#118",
+  "sessions.purge": "#118",
+  "sessions.listDeleted": "#118",
+  "sessions.subscribeSession": "#118",
+} as const satisfies { readonly [N in MethodName]?: `#${number}` };
 export type Registry = { readonly [M in Registered as M["name"]]: M };
 
 /** The methods by name. It has no prototype, so `toString` or `__proto__` is never a method. */

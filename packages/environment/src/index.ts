@@ -21,8 +21,11 @@ export {
   type EventLog,
   type EventLogOptions,
   type JsonObject,
+  selection,
+  type Selection,
   type PairingRow,
   type PairingTable,
+  type ProjectionContext,
   type ProjectionDb,
   type Projector,
   type ReplayMeasure,
@@ -30,8 +33,13 @@ export {
   type SqlValue,
   type StoredError,
   type StoredReceipt,
+  type StreamKinds,
   type StreamRef,
+  type StreamSelector,
 } from "./event-log/event-log.js";
+export { SESSION_LIST_PROJECTOR, sessionListProjector } from "./sessions/session-list.js";
+export { SESSION_LIST_SELECTOR, sessionMethods, type SessionMethodsOptions } from "./sessions/methods.js";
+export { acceptAnyRunParameters, type RunParameters, type RunParametersCheck } from "./sessions/run-parameters.js";
 
 export { DEFAULT_LOG_PAGE } from "./auth/access-log.js";
 export {

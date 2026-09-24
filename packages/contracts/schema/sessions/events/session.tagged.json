@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SessionTaggedPayload",
+  "type": "object",
+  "properties": {
+    "tag": {
+      "type": "string",
+      "pattern": "^\\s*[^\\s\\p{Cc}](?:\\P{Cc}{0,38}[^\\s\\p{Cc}])?\\s*$",
+      "description": "A free-form tag: 1 to 40 characters once trimmed, no control characters; stored trimmed, unique per session ignoring case."
+    }
+  },
+  "required": [
+    "tag"
+  ],
+  "description": "session.tagged: a tag was added, or its casing changed."
+}

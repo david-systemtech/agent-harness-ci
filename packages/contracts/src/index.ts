@@ -4,6 +4,7 @@ export * from "./access-log.js";
 export * from "./bootstrap.js";
 export * from "./discovery.js";
 export * from "./envelope.js";
+export * from "./event-types.js";
 export * from "./errors.js";
 export * from "./flags.js";
 export * from "./frames.js";
@@ -41,3 +42,5 @@ export { CommandReceipt, commandResponse, type CommandResponseSchema } from "./r
 export * from "./registry.js";
 export * from "./schema-export.js";
 export * from "./scopes.js";
+export * from "./sessions.js";
+export * from "./summary-fields.js";

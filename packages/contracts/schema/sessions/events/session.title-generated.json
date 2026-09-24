@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SessionTitleGeneratedPayload",
+  "type": "object",
+  "properties": {
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "source": {
+      "type": "string",
+      "enum": [
+        "prompt",
+        "provider"
+      ],
+      "description": "Where a generated title came from: prompt (the first user message's first line) or provider (the provider's summary)."
+    }
+  },
+  "required": [
+    "title",
+    "source"
+  ],
+  "description": "session.title-generated: a title was generated for the session; a user title still wins."
+}

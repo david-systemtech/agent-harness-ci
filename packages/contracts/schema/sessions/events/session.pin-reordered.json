@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SessionPinReorderedPayload",
+  "type": "object",
+  "properties": {
+    "pinOrderKey": {
+      "type": "string",
+      "pattern": "^[a-z]*[b-z]$",
+      "description": "A fractional order key: letters a to z compared as plain strings, never empty and never ending in a, so a key can always be made before any other."
+    }
+  },
+  "required": [
+    "pinOrderKey"
+  ],
+  "description": "session.pin-reordered: the pinned session was given a new key in the pinned block."
+}

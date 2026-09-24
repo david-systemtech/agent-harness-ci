@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "GeneratedTitleSource",
+  "type": "string",
+  "enum": [
+    "prompt",
+    "provider"
+  ],
+  "description": "Where a generated title came from: prompt (the first user message's first line) or provider (the provider's summary)."
+}

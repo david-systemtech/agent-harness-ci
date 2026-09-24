@@ -1,5 +1,5 @@
 import { decodeEvent, type EventRow, type Sql, type SqlValue, type Transaction } from "./database.js";
-import type { EventEnvelope } from "./envelope.js";
+import type { EventEnvelope, JsonObject } from "./envelope.js";
 import { logTables } from "./migrations.js";
 
 /** Events read per page when a projector catches up. */
@@ -16,6 +16,19 @@ export interface ProjectionDb {
 }
 
 /**
+ * What a projector is handed beside the event it applies. `attachMetadata`
+ * adds entries to the metadata of the event being appended, in the append's
+ * transaction, before anything is committed or published: the session list
+ * writes its summary patch this way. When the log is replayed into a
+ * projector (its registration catching up, a rebuild), the events are
+ * history and it does nothing. An entry may not replace one the appender or
+ * another projector set: the append throws and nothing commits.
+ */
+export interface ProjectionContext {
+  attachMetadata(entries: JsonObject): void;
+}
+
+/**
  * A named read model kept from the log. It owns the tables it declares, each
  * with the statements that create it (and its indexes); a rebuild drops
  * exactly those and creates them again. `apply` runs inside the transaction of
@@ -25,7 +38,7 @@ export interface ProjectionDb {
 export interface Projector {
   readonly name: string;
   readonly tables: Readonly<Record<string, string>>;
-  apply(event: EventEnvelope, db: ProjectionDb): void;
+  apply(event: EventEnvelope, db: ProjectionDb, context: ProjectionContext): void;
 }
 
 /**
@@ -34,7 +47,13 @@ export interface Projector {
  * `register` and `rebuild` open their own, or join the `atomically` open
  * now (a command's).
  */
-export const createProjections = (sql: Sql, transaction: Transaction, clock: () => Date) => {
+export const createProjections = (
+  sql: Sql,
+  transaction: Transaction,
+  clock: () => Date,
+  /** The log's write of an appended event's merged metadata to its row. */
+  attachMetadata: (event: EventEnvelope, metadata: JsonObject) => void,
+) => {
   const projectors: Projector[] = [];
   /** Every table a projector owns, to the projector that owns it. */
   const tableOwners = new Map<string, string>();
@@ -75,18 +94,42 @@ export const createProjections = (sql: Sql, transaction: Transaction, clock: () 
     setCursor(projector.name, 0);
   };
 
+  /** Replayed history: what a projector attaches to it is dropped. */
+  const replaying: ProjectionContext = { attachMetadata: () => undefined };
+
+  /**
+   * The context for applying `event`: when it is one of the events being
+   * appended now, what the projector attaches is merged into `attached`, by
+   * sequence, refusing any key the event or an earlier projector already holds.
+   */
+  const contextFor = (projector: Projector, event: EventEnvelope, attached: Map<number, JsonObject> | undefined): ProjectionContext => {
+    if (attached === undefined || !attached.has(event.sequence)) return replaying;
+    return {
+      attachMetadata(entries) {
+        const metadata = attached.get(event.sequence) as JsonObject;
+        for (const key of Object.keys(entries)) {
+          if (Object.hasOwn(metadata, key)) {
+            throw new Error(`Projector ${projector.name} attached metadata ${key} to a ${event.type} event, which already holds it.`);
+          }
+        }
+        attached.set(event.sequence, { ...metadata, ...entries });
+      },
+    };
+  };
+
   /**
    * Applies every event above the projector's cursor and moves the cursor to
    * the last. `justWritten` are the events the current append wrote: when they
    * follow the cursor directly they are applied as they are, rather than read
-   * back and decoded again.
+   * back and decoded again. `attached` holds their metadata by sequence, and
+   * gathers what the projector attaches to them.
    */
-  const catchUpOne = (projector: Projector, justWritten: readonly EventEnvelope[] = []): void => {
+  const catchUpOne = (projector: Projector, justWritten: readonly EventEnvelope[] = [], attached?: Map<number, JsonObject>): void => {
     const start = cursorOf(projector.name) ?? 0;
     let cursor = start;
     if (justWritten[0]?.sequence === cursor + 1) {
       for (const event of justWritten) {
-        projector.apply(event, db);
+        projector.apply(event, db, contextFor(projector, event, attached));
         cursor = event.sequence;
       }
     } else {
@@ -96,7 +139,8 @@ export const createProjections = (sql: Sql, transaction: Transaction, clock: () 
           cursor,
         );
         for (const row of rows) {
-          projector.apply(decodeEvent(row), db);
+          const event = decodeEvent(row);
+          projector.apply(event, db, contextFor(projector, event, attached));
           cursor = row.sequence;
         }
         if (rows.length < CATCH_UP_PAGE) break;
@@ -106,9 +150,20 @@ export const createProjections = (sql: Sql, transaction: Transaction, clock: () 
   };
 
   return {
-    /** Brings every projector up to the log's end, inside the caller's transaction. */
-    catchUp(justWritten: readonly EventEnvelope[]): void {
-      for (const projector of projectors) catchUpOne(projector, justWritten);
+    /**
+     * Brings every projector up to the log's end, inside the caller's
+     * transaction, and returns `justWritten` as they are now: each with the
+     * metadata the projectors attached to it, which the log writes to its row.
+     */
+    catchUp(justWritten: readonly EventEnvelope[]): EventEnvelope[] {
+      const attached = new Map(justWritten.map((event) => [event.sequence, event.metadata]));
+      for (const projector of projectors) catchUpOne(projector, justWritten, attached);
+      return justWritten.map((event) => {
+        const metadata = attached.get(event.sequence) as JsonObject;
+        if (metadata === event.metadata) return event;
+        attachMetadata(event, metadata);
+        return { ...event, metadata };
+      });
     },
 
     /** Creates the projector's tables if needed and catches it up from its cursor. */

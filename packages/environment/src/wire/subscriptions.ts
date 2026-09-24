@@ -1,7 +1,7 @@
 import { encodeFrame, type EndReason, type Frame } from "@agent-harness/contracts";
 import type { WebSocket } from "ws";
 import type { z } from "zod";
-import { REPLAY_BOUND, type EventEnvelope, type EventLog, type StreamRef } from "../event-log/event-log.js";
+import { REPLAY_BOUND, selection, type EventEnvelope, type EventLog, type Selection, type StreamSelector } from "../event-log/event-log.js";
 import { toWireEnvelope } from "./envelope.js";
 
 /**
@@ -23,8 +23,14 @@ import { toWireEnvelope } from "./envelope.js";
  * schema, and is checked against it.
  */
 export interface StreamSource<Payload = unknown> {
-  /** The one stream whose events the subscription carries. */
-  readonly stream: StreamRef;
+  /**
+   * The events the subscription carries: one stream (`{ kind, id }`), or
+   * every stream of some kinds, of the types named when it names them
+   * (`{ kinds, types? }`), as the session list carries the `list`-flagged
+   * events of every session and group stream. Replay, the replay bound and
+   * the live feed all read the same selection.
+   */
+  readonly stream: StreamSelector;
   /** The state as of the log's head, read when the snapshot is sent. A throw refuses the subscription. */
   snapshot(): Payload;
 }
@@ -41,7 +47,7 @@ export interface Outlet {
 /** Test seams. Neither is set outside tests. */
 export interface SubscriptionHooks {
   /** Awaited once a subscription's live feed is attached and before its catch-up reads: holds the catch-up open. */
-  beforeCatchUp?(subscription: { readonly id: string; readonly stream: StreamRef }): void | Promise<void>;
+  beforeCatchUp?(subscription: { readonly id: string; readonly stream: StreamSelector }): void | Promise<void>;
   /** Wraps each socket's outlet: a slow socket, which holds frames back as a slow network would. */
   outlet?(outlet: Outlet): Outlet;
 }
@@ -106,7 +112,9 @@ interface Subscription {
   readonly id: string;
   /** The request `subscribed` answers. */
   readonly requestId: string;
-  readonly stream: StreamRef;
+  readonly stream: StreamSelector;
+  /** The stream's test of a live event, from the same description the catch-up reads with. */
+  readonly selection: Selection;
   phase: "catching-up" | "live" | "ended";
   /** Whether `subscribed` has been sent: only then does the client know the id, and hear an `end`. */
   announced: boolean;
@@ -136,9 +144,6 @@ const plus = (measure: Measure, bytes: number): Measure => ({ count: measure.cou
  */
 const passesBound = (measure: Measure): boolean =>
   measure.count > 1 && (measure.count > REPLAY_BOUND.events || measure.bytes > REPLAY_BOUND.bytes);
-
-const sameStream = (event: EventEnvelope, stream: StreamRef): boolean =>
-  event.streamKind === stream.kind && event.streamId === stream.id;
 
 /** The socket's own outlet: `ws` calls back once a frame is written to the network, or has failed to be. */
 const socketOutlet = (ws: WebSocket): Outlet => ({
@@ -205,7 +210,7 @@ const deliver = (subscription: Subscription, event: EventEnvelope): void => {
 
 /** The live feed: delivered once live, kept (against the same bound) while catching up. */
 const hear = (subscription: Subscription, event: EventEnvelope): void => {
-  if (subscription.phase === "ended" || !sameStream(event, subscription.stream)) return;
+  if (subscription.phase === "ended" || !subscription.selection.matches(event)) return;
   if (subscription.phase === "live") return deliver(subscription, event);
   const heard = plus(subscription.heardMeasure, sizeOf(event));
   if (passesBound(heard)) return end(subscription, "overflow");
@@ -260,6 +265,7 @@ const openSubscription = async (channel: Channel, opening: Opening): Promise<voi
     id: `sub-${++channel.minted}`,
     requestId: opening.requestId,
     stream: opening.source.stream,
+    selection: selection(opening.source.stream),
     phase: "catching-up",
     announced: false,
     sent: opening.afterSequence,

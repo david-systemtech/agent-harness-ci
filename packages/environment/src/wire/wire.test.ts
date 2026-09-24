@@ -6,6 +6,7 @@ import {
   HelloFrame,
   PROTOCOL_VERSION,
   SCOPES,
+  OWED_HANDLERS,
   methods,
   type ClientSessionCredential,
   type Frame,
@@ -461,9 +462,11 @@ describe("requests", () => {
     expect(answer).toEqual({ type: "subscribed", id: expect.any(String), subscription: expect.any(String) });
   });
 
-  it("serves every registered method, so none is answered not_found for want of a handler (dispatch.test.ts covers one without)", async () => {
+  it("serves every registered method or owes it to a named ticket, and owes none it serves (dispatch.test.ts covers one without a handler)", async () => {
     const t = await start();
-    expect(methods.filter((method) => t.env.methods.get(method.name)?.handler === undefined).map((method) => method.name)).toEqual([]);
+    const unserved = methods.filter((method) => t.env.methods.get(method.name)?.handler === undefined).map((method) => method.name);
+    // An unserved method missing from the list is unowed; a served one still on it is owed by mistake.
+    expect(unserved.sort()).toEqual(Object.keys(OWED_HANDLERS).sort());
   });
 });
 

@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "sessions.subscribeSession params",
+  "type": "object",
+  "properties": {
+    "afterSequence": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991,
+      "description": "A position in the event log's global sequence; 0 is the cursor before the first event."
+    },
+    "sessionId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "A session's id: a version 4 UUID the creating client mints (never the provider's resume id), kept in lowercase."
+    }
+  },
+  "required": [
+    "afterSequence",
+    "sessionId"
+  ]
+}

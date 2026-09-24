@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SessionPurgedPayload",
+  "type": "object",
+  "properties": {
+    "providerTranscriptDeleted": {
+      "type": "boolean",
+      "description": "Whether the provider's transcript was deleted with the session."
+    }
+  },
+  "required": [
+    "providerTranscriptDeleted"
+  ],
+  "description": "session.purged: the session is gone; the only event left on its stream."
+}

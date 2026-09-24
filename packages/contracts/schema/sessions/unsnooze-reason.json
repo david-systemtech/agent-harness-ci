@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "UnsnoozeReason",
+  "type": "string",
+  "enum": [
+    "user",
+    "expired",
+    "activity",
+    "settled"
+  ],
+  "description": "Why a snoozed session woke: user (sessions.unsnooze or a pin), expired (its time passed), activity (a run started, ended or failed), settled."
+}

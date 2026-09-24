@@ -1,0 +1,7 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "GroupDeletedPayload",
+  "type": "object",
+  "properties": {},
+  "description": "group.deleted: the group is gone; each member was ungrouped by a session.group-set in the same transaction."
+}

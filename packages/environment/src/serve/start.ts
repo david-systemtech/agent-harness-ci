@@ -32,6 +32,8 @@ import {
 import { createPairings, pairRoute, type Pairings } from "../auth/pairings.js";
 import { createRateLimiter } from "../auth/rate-limit.js";
 import { formatActor, openEventLog, type EventLog, type Projector } from "../event-log/event-log.js";
+import { sessionMethods } from "../sessions/methods.js";
+import { sessionListProjector } from "../sessions/session-list.js";
 import type { SubscriptionHooks } from "../wire/subscriptions.js";
 import { createWire } from "../wire/wire.js";
 import { systemClock, type Clock } from "./clock.js";
@@ -123,7 +125,7 @@ export interface EnvironmentOptions {
   readonly launcher?: LauncherChannel;
   /** Preset: the file vault in the data directory. */
   readonly vault?: Vault;
-  /** Registered and caught up from their cursors in the `projectors` step. None exist yet. */
+  /** Registered and caught up from their cursors in the `projectors` step, after the environment's own (the session list). */
   readonly projectors?: readonly Projector[];
   /**
    * The environment's time: timestamps, the ping interval, the auth timeout,
@@ -251,7 +253,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   });
 
   await step("projectors", () => {
-    for (const projector of options.projectors ?? []) log.registerProjector(projector);
+    for (const projector of [sessionListProjector, ...(options.projectors ?? [])]) log.registerProjector(projector);
   });
 
   // Where pairing links point: set when the listeners are bound, before any request is served.
@@ -328,6 +330,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       result: { projectors: [...log.rebuildProjections()], sequence: log.head() },
     }),
     ...accessMethods({ pairings, clientSessions, accessLog }),
+    ...sessionMethods({ log }),
   });
 
   // The two exchanges and the wire are routed before the bind; all three refuse work until the gate below.

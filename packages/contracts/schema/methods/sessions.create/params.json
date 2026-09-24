@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "sessions.create params",
+  "type": "object",
+  "properties": {
+    "commandId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+      "description": "The client-generated UUID every command takes; a retry with the same id applies once."
+    },
+    "id": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "A session's id: a version 4 UUID the creating client mints (never the provider's resume id), kept in lowercase."
+    },
+    "title": {
+      "description": "The user's title; the fallback when absent.",
+      "type": "string",
+      "pattern": "^\\s*\\S(?:[\\s\\S]{0,198}\\S)?\\s*$"
+    },
+    "tags": {
+      "description": "Tags to start with; duplicates ignoring case keep the latest casing.",
+      "maxItems": 64,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^\\s*[^\\s\\p{Cc}](?:\\P{Cc}{0,38}[^\\s\\p{Cc}])?\\s*$",
+        "description": "A free-form tag: 1 to 40 characters once trimmed, no control characters; stored trimmed, unique per session ignoring case."
+      }
+    },
+    "groupId": {
+      "description": "A group on this environment to put the session in; none when absent or null.",
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+          "description": "A group's id: a version 4 UUID the creating client mints, kept in lowercase."
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "workspace": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "directory"
+            },
+            "path": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The directory on the environment's machine."
+            }
+          },
+          "required": [
+            "kind",
+            "path"
+          ],
+          "description": "A directory the environment has."
+        }
+      ],
+      "description": "Where a session's code lives on its environment: its kind and path."
+    },
+    "account": {
+      "description": "The account the session's runs use; the adapter workstream's to validate.",
+      "type": "string",
+      "minLength": 1
+    },
+    "model": {
+      "description": "The model the session's runs use; the adapter workstream's to validate.",
+      "type": "string",
+      "minLength": 1
+    },
+    "mode": {
+      "description": "The mode the session's runs start in; the permissions workstream's to validate.",
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "required": [
+    "commandId",
+    "id",
+    "workspace"
+  ]
+}

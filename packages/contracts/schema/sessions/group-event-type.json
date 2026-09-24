@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "GroupEventType",
+  "type": "string",
+  "enum": [
+    "group.created",
+    "group.renamed",
+    "group.reordered",
+    "group.deleted"
+  ],
+  "description": "The event types of a group stream: group.created, group.renamed, group.reordered, group.deleted."
+}

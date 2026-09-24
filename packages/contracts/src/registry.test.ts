@@ -3,6 +3,8 @@ import { z } from "zod";
 import {
   CommandId,
   CommandReceipt,
+  OWED_HANDLERS,
+  type CommandMethodName,
   METHOD_KINDS,
   SCOPES,
   Sequence,
@@ -48,7 +50,8 @@ describe("the method registry", () => {
   });
 
   it("gives the environment's own methods the scopes the env spec gives them", () => {
-    expect(Object.fromEntries(methods.map((m) => [m.name, m.scope]))).toEqual({
+    const environmentMethods = methods.filter((m) => m.name.startsWith("environment.") || m.name.startsWith("access."));
+    expect(Object.fromEntries(environmentMethods.map((m) => [m.name, m.scope]))).toEqual({
       "environment.status": "read",
       "environment.subscribe": "read",
       "environment.drain": "admin",
@@ -59,6 +62,53 @@ describe("the method registry", () => {
       "access.sessions.refresh": "read",
       "access.log.list": "admin",
     });
+  });
+
+  it("gives the session and group methods the scopes the session-state spec gives them: organisation commands sessions:write, reads read", () => {
+    const sessionMethods = methods.filter((m) => m.name.startsWith("sessions.") || m.name.startsWith("groups."));
+    expect(Object.fromEntries(sessionMethods.map((m) => [m.name, [m.kind, m.scope]]))).toEqual({
+      "sessions.create": ["command", "sessions:write"],
+      "sessions.rename": ["command", "sessions:write"],
+      "sessions.archive": ["command", "sessions:write"],
+      "sessions.unarchive": ["command", "sessions:write"],
+      "sessions.pin": ["command", "sessions:write"],
+      "sessions.unpin": ["command", "sessions:write"],
+      "sessions.reorderPinned": ["command", "sessions:write"],
+      "sessions.reorderActive": ["command", "sessions:write"],
+      "sessions.tag": ["command", "sessions:write"],
+      "sessions.untag": ["command", "sessions:write"],
+      "sessions.setGroup": ["command", "sessions:write"],
+      "sessions.settle": ["command", "sessions:write"],
+      "sessions.unsettle": ["command", "sessions:write"],
+      "sessions.snooze": ["command", "sessions:write"],
+      "sessions.unsnooze": ["command", "sessions:write"],
+      "sessions.delete": ["command", "sessions:write"],
+      "sessions.restore": ["command", "sessions:write"],
+      "sessions.purge": ["command", "sessions:write"],
+      "groups.create": ["command", "sessions:write"],
+      "groups.rename": ["command", "sessions:write"],
+      "groups.reorder": ["command", "sessions:write"],
+      "groups.delete": ["command", "sessions:write"],
+      "sessions.list": ["query", "read"],
+      "sessions.get": ["query", "read"],
+      "sessions.listDeleted": ["query", "read"],
+      "groups.list": ["query", "read"],
+      "sessions.subscribe": ["stream", "read"],
+      "sessions.subscribeSession": ["stream", "read"],
+    });
+  });
+
+  it("owes a handler only for a registered method, each to a named ticket", () => {
+    for (const [name, ticket] of Object.entries(OWED_HANDLERS)) {
+      expect(isMethodName(name), name).toBe(true);
+      expect(ticket, name).toMatch(/^#\d+$/);
+    }
+  });
+
+  it("names the command methods in a type of their own, which a query or a stream is not", () => {
+    expectTypeOf<"sessions.create">().toExtend<CommandMethodName>();
+    expectTypeOf<"sessions.list">().not.toExtend<CommandMethodName>();
+    expectTypeOf<"sessions.subscribe">().not.toExtend<CommandMethodName>();
   });
 
   it("names every method area.verb", () => {
@@ -80,6 +130,7 @@ describe("the method registry", () => {
       "access.pairings.create",
       "access.sessions.revoke",
       "access.sessions.refresh",
+      ...methods.filter((m) => m.kind === "command" && /^(sessions|groups)\./.test(m.name)).map((m) => m.name),
     ]);
   });
 
@@ -118,7 +169,7 @@ describe("the method registry", () => {
 
   it("takes an afterSequence cursor in the params of every stream", () => {
     const streams = methods.filter((m) => m.kind === "stream");
-    expect(streams.map((m) => m.name)).toEqual(["environment.subscribe"]);
+    expect(streams.map((m) => m.name)).toEqual(["environment.subscribe", "sessions.subscribe", "sessions.subscribeSession"]);
     for (const method of streams) expect(method.params.shape, method.name).toHaveProperty("afterSequence", Sequence);
   });
 
@@ -163,6 +214,34 @@ describe("the method registry", () => {
       | "access.sessions.revoke"
       | "access.sessions.refresh"
       | "access.log.list"
+      | "sessions.create"
+      | "sessions.rename"
+      | "sessions.archive"
+      | "sessions.unarchive"
+      | "sessions.pin"
+      | "sessions.unpin"
+      | "sessions.reorderPinned"
+      | "sessions.reorderActive"
+      | "sessions.tag"
+      | "sessions.untag"
+      | "sessions.setGroup"
+      | "sessions.settle"
+      | "sessions.unsettle"
+      | "sessions.snooze"
+      | "sessions.unsnooze"
+      | "sessions.delete"
+      | "sessions.restore"
+      | "sessions.purge"
+      | "groups.create"
+      | "groups.rename"
+      | "groups.reorder"
+      | "groups.delete"
+      | "sessions.list"
+      | "sessions.get"
+      | "sessions.listDeleted"
+      | "groups.list"
+      | "sessions.subscribe"
+      | "sessions.subscribeSession"
     >();
     expectTypeOf<ParamsOf<"access.sessions.revoke">>().toEqualTypeOf<{ commandId: string; clientSessionId: string }>();
   });
