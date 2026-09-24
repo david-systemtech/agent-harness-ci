@@ -13,7 +13,9 @@ export {
   type AppendResult,
   type ClientSessionRow,
   type ClientSessionTable,
-  type CommandReceipt,
+  type CommandKey,
+  type CommandOutcome,
+  type CommandRun,
   type EventEnvelope,
   type EventInput,
   type EventLog,
@@ -23,10 +25,11 @@ export {
   type PairingTable,
   type ProjectionDb,
   type Projector,
-  type ReceiptRequest,
   type ReplayMeasure,
   type Snapshot,
   type SqlValue,
+  type StoredError,
+  type StoredReceipt,
   type StreamRef,
 } from "./event-log/event-log.js";
 

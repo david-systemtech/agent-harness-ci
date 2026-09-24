@@ -49,7 +49,7 @@ describe("the JSON Schema export", () => {
     const index = readJson("index.json") as {
       protocolVersion: number;
       schemas: { path: string; title: string }[];
-      methods: { name: string; scope: string; kind: string; stream: boolean; params: string; result: string; error: string }[];
+      methods: { name: string; scope: string; kind: string; stream: boolean; params: string; result: string; response?: string; error: string }[];
     };
     expect(index.protocolVersion).toBe(contracts.PROTOCOL_VERSION);
     expect(index.schemas.map((s) => s.path).sort()).toEqual(filesOnDisk().filter((p) => p !== "index.json"));
@@ -61,6 +61,7 @@ describe("the JSON Schema export", () => {
         stream: m.kind === "stream",
         params: methodPath(m.name, "params"),
         result: methodPath(m.name, "result"),
+        ...(m.kind === "command" && { response: methodPath(m.name, "response") }),
         error: methodPath(m.name, "error"),
       })),
     );

@@ -1,13 +1,16 @@
 import {
   ContractError,
   invalidParams,
+  isCommand,
+  type CommandReceipt,
   type IssueInput,
   type JsonObject,
   type RequestFrame,
   type WireError,
 } from "@agent-harness/contracts";
 import type { VerifiedClientSession } from "../auth/client-sessions.js";
-import type { MethodTable } from "../serve/methods.js";
+import { formatActor, type CommandOutcome, type EventLog, type StoredError, type StoredReceipt } from "../event-log/event-log.js";
+import type { CommandAnswer, CommandRejection, MethodTable } from "../serve/methods.js";
 import type { Opening } from "./subscriptions.js";
 
 /** A request's answer: its result, or its error. */
@@ -31,15 +34,53 @@ interface Parser {
 const error = (code: string, message: string, data: Record<string, unknown> = {}): WireError => ({ code, message, data });
 
 /**
+ * The one conversion from the log's stored receipt to the contracts'
+ * `CommandReceipt`, what a command's response carries and the client's
+ * outbox retires the command on: a rejection's reason is its error's code.
+ */
+export const toWireReceipt = (receipt: StoredReceipt): CommandReceipt =>
+  receipt.status === "accepted"
+    ? { status: "accepted", sequence: receipt.sequence, changed: receipt.changed }
+    : { status: "rejected", sequence: receipt.sequence, changed: false, reason: receipt.error.code, error: { ...receipt.error } };
+
+/** The error a rejection is stored and answered with: its code, its message or a plain one, its data or none. */
+const rejectionError = ({ code, message, data }: CommandRejection): StoredError => ({
+  code,
+  message: message ?? `The command was rejected: ${code}.`,
+  data: data ?? {},
+});
+
+/**
+ * What the log runs for a handler's answer: its result checked against the
+ * method's schema (a throw, so nothing commits), or its rejection as the error it stores.
+ */
+const toOutcome = (method: string, result: Parser, answer: CommandAnswer<unknown>): CommandOutcome<unknown> => {
+  if (answer.rejected !== undefined) return { aggregate: answer.aggregate, rejected: rejectionError(answer.rejected) };
+  const checked = result.safeParse(answer.result);
+  if (!checked.success) throw new Error(`${method} answered outside its result schema: ${JSON.stringify(checked.error.issues)}`);
+  return { ...answer, result: checked.data };
+};
+
+/**
  * Answers requests from an authenticated socket with the methods of
  * `methods`. The scope check is here, once, before the params are read or a
  * handler is looked up, for queries, commands and streams alike; then the
  * params are parsed, the handler runs, and what it returns or throws becomes
  * the one answer. A stream's handler names a source, which `open` subscribes
  * to instead of an answer.
+ *
+ * A command runs through the log's `command` (env spec, "Commands"): keyed
+ * by the client session, as the actor, and the params' `commandId` in
+ * lowercase, so a UUID in either case is one key, a repeat is answered from
+ * the stored receipt and its handler never runs;
+ * otherwise the handler runs inside the command's transaction and the
+ * receipt is written with its events. The answer is `{receipt, result}`, the
+ * result only when this request applied the command; a rejection is a
+ * receipt too, not an error, since the receipt is what the client's outbox
+ * retires a command on.
  */
 export const createDispatch =
-  (methods: MethodTable) =>
+  (methods: MethodTable, log: Pick<EventLog, "command">) =>
   async (request: RequestFrame, clientSession: VerifiedClientSession, respond: Respond, open: Open): Promise<void> => {
     const { method, params } = request;
     const served = methods.get(method);
@@ -56,7 +97,6 @@ export const createDispatch =
     const parsed = (entry.params as Parser).safeParse(params);
     if (!parsed.success) return respond({ error: invalidParams(parsed.error.issues, `The params do not match ${method}'s schema.`) });
 
-    // Command receipts (#111) wrap the handlers of command methods, keyed by the client session and commandId.
     if (!served.handler) return respond({ error: error("not_found", `${method} is not served by this environment yet.`) });
     const context = { clientSession };
     let result: unknown;
@@ -66,6 +106,23 @@ export const createDispatch =
         // A stream's params hold its cursor: the registry refuses a stream without one.
         const { afterSequence } = parsed.data as { afterSequence: number };
         return await open({ requestId: request.id, source, afterSequence, payloadSchema: entry.result });
+      }
+      if (isCommand(served)) {
+        const handler = served.handler;
+        // A command's params hold its id, a UUID: the registry refuses a command without one.
+        const commandId = (parsed.data as { commandId: string }).commandId.toLowerCase();
+        const commandParams = { ...(parsed.data as object), commandId };
+        const actor = formatActor({ kind: "client_session", id: clientSession.id });
+        const run = log.command({ actor, commandId }, (tx) => {
+          const answer: unknown = handler(commandParams, { ...context, commandId, actor, tx });
+          if (answer instanceof Promise) {
+            answer.catch(() => undefined);
+            throw new Error(`The handler for ${method} answered later; a command's handler answers inside its transaction.`);
+          }
+          return toOutcome(method, entry.result as Parser, answer as CommandAnswer<unknown>);
+        });
+        const receipt = toWireReceipt(run.receipt);
+        return respond({ result: run.replayed || run.result === undefined ? { receipt } : { receipt, result: run.result } });
       }
       result = await served.handler(parsed.data, context);
     } catch (thrown) {

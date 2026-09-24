@@ -106,6 +106,14 @@ export const MIGRATIONS: readonly Migration[] = [
       ) STRICT;
     `,
   },
+  {
+    version: 4,
+    name: "command receipts: the rejection's error data",
+    // A rejection is stored as its error: the code is the reason and the message was already kept.
+    sql: `
+      ALTER TABLE command_receipts ADD COLUMN error_data TEXT;
+    `,
+  },
 ];
 
 const userVersion = (db: DatabaseSync): number => {

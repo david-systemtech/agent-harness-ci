@@ -54,7 +54,7 @@ const probeRun = defineMethod({
 const serveProbeRun = (t: TestEnvironment): void =>
   t.serve(probeRun, ({ run }) => {
     t.runs.start(run);
-    return { run };
+    return { aggregate: { kind: "run", id: run }, result: { run } };
   });
 
 /** A client session issued straight from the environment, holding only `scopes`. */
@@ -189,11 +189,14 @@ describe("the drain", () => {
     const watcher = await t.client();
     const { subscription } = await watcher.subscribe("environment.subscribe", { afterSequence: 0 });
     await watcher.next((f) => f.type === "synchronized" && f.subscription === subscription);
-    expect(await client.call("probe.run", { commandId: randomUUID(), run: "r1" })).toMatchObject({ result: { run: "r1" } });
+    expect(await client.call("probe.run", { commandId: randomUUID(), run: "r1" })).toMatchObject({ result: { result: { run: "r1" } } });
     t.runs.running("r1");
 
     const drainingSince = iso(t);
-    expect(await client.request("environment.drain", { commandId: randomUUID() })).toEqual({ drainingSince, trigger: "command" });
+    expect(await client.request("environment.drain", { commandId: randomUUID() })).toEqual({
+      receipt: { status: "accepted", sequence: t.env.log.head(), changed: true },
+      result: { drainingSince, trigger: "command" },
+    });
 
     expect(t.env.readiness()).toBe("draining");
     expect(await getJson(t.address, DISCOVERY_PATH)).toMatchObject({ readiness: "draining" });
@@ -284,14 +287,14 @@ describe("the drain", () => {
     const client = await t.client();
     const other = await t.client();
     const drainingSince = iso(t);
-    expect(await client.request("environment.drain", { commandId: randomUUID() })).toEqual({ drainingSince, trigger: "command" });
+    expect(await client.apply("environment.drain", { commandId: randomUUID() })).toEqual({ drainingSince, trigger: "command" });
     expect(await settled(t.env.drained)).toBe(false);
     expect(client.isOpen() && other.isOpen()).toBe(true);
     t.clock.advance(0);
     expect(await t.env.drained).toMatchObject({ endedBy: "runs-finished", cutRuns: [] });
     for (const socket of [client, other]) expect((await socket.closed).bye?.reason).toBe("draining");
     expect(client.received.slice(-2)).toEqual([
-      expect.objectContaining({ type: "response", result: { drainingSince, trigger: "command" } }),
+      expect.objectContaining({ type: "response", result: expect.objectContaining({ result: { drainingSince, trigger: "command" } }) }),
       expect.objectContaining({ type: "bye", reason: "draining" }),
     ]);
   });
@@ -307,7 +310,11 @@ describe("the drain", () => {
 
     expect(t.launcher.ask({ type: "drain?" })).toEqual({ type: "draining", drainingSince, trigger: "launcher" });
     t.clock.advance(MINUTE);
-    expect(await client.request("environment.drain", { commandId: randomUUID() })).toEqual({ drainingSince, trigger: "launcher" });
+    // Joining the drain under way appends nothing: accepted, unchanged.
+    expect(await client.request("environment.drain", { commandId: randomUUID() })).toEqual({
+      receipt: { status: "accepted", sequence: t.env.log.head(), changed: false },
+      result: { drainingSince, trigger: "launcher" },
+    });
     const joined = t.env.drain("signal");
     expect(t.env.drain("command")).toBe(joined);
     expect(t.launcher.ask({ type: "drain?" })).toEqual({ type: "draining", drainingSince, trigger: "launcher" });
@@ -379,9 +386,10 @@ describe("environment.rebuildProjections", () => {
     const probeSequences = [...applied];
     applied.length = 0;
 
+    // A rebuild appends no event: its receipt is accepted and unchanged, in the transaction of the rebuild.
     expect(await client.request("environment.rebuildProjections", { commandId: randomUUID() })).toEqual({
-      projectors: ["probe-counts"],
-      sequence: t.env.log.head(),
+      receipt: { status: "accepted", sequence: t.env.log.head(), changed: false },
+      result: { projectors: ["probe-counts"], sequence: t.env.log.head() },
     });
     expect(applied).toEqual(probeSequences);
     expect(await snapshot()).toEqual(before);

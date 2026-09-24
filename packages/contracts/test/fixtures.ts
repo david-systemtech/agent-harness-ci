@@ -436,6 +436,46 @@ const methodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
   },
 };
 
+/** Receipts as a command's response carries them: accepted with a change, a no-op, and a rejection. */
+export const validReceipts = {
+  accepted: { status: "accepted", sequence: 42, changed: true },
+  unchanged: { status: "accepted", sequence: 42, changed: false },
+  rejected: {
+    status: "rejected",
+    sequence: 42,
+    changed: false,
+    reason: "not_found",
+    error: { code: "not_found", message: "No client session is named cs-9.", data: {} },
+  },
+} as const;
+
+const invalidReceipts = [
+  { status: "accepted", sequence: 42 },
+  { status: "accepted", sequence: -1, changed: true },
+  { status: "rejected", sequence: 42, changed: false, reason: "not_found" },
+  { status: "rejected", sequence: 42, changed: true, reason: "not_found", error: validReceipts.rejected.error },
+  { status: "rejected", sequence: 42, changed: false, reason: "Not Found", error: validReceipts.rejected.error },
+  { status: "pending", sequence: 42, changed: false },
+];
+
+/**
+ * A command's response: every valid result beside an accepted receipt, and
+ * the receipt alone for a retry and a rejection; a result without a receipt,
+ * and an invalid result beside a valid receipt, are refused.
+ */
+const responseFixtures = (result: Fixtures): Fixtures => ({
+  valid: [
+    ...result.valid.map((valid) => ({ receipt: validReceipts.accepted, result: valid })),
+    { receipt: validReceipts.unchanged },
+    { receipt: validReceipts.rejected },
+  ],
+  invalid: [
+    ...result.valid.map((valid) => ({ result: valid })),
+    ...result.invalid.map((invalid) => ({ receipt: validReceipts.accepted, result: invalid })),
+    ...invalidReceipts.map((receipt) => ({ receipt })),
+  ],
+});
+
 const methodSchemaFixtures = Object.fromEntries(
   methods.flatMap((method): [string, Fixtures][] => {
     const own = methodFixtures[method.name];
@@ -443,6 +483,7 @@ const methodSchemaFixtures = Object.fromEntries(
     return [
       [methodPath(method.name, "params"), own.params],
       [methodPath(method.name, "result"), own.result],
+      ...(method.kind === "command" ? [[methodPath(method.name, "response"), responseFixtures(own.result)] as [string, Fixtures]] : []),
       [methodPath(method.name, "error"), methodErrorFixtures],
     ];
   }),
@@ -458,6 +499,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
   "ceiling.json": { valid: ["auto", "acceptEdits"], invalid: ["", 3] },
   "client-kind.json": { valid: ["desktop", "tui", "web", "program"], invalid: ["phone", "Desktop"] },
   "command-id.json": { valid: [uuid], invalid: ["not-a-uuid", "", 7] },
+  "command-receipt.json": { valid: Object.values(validReceipts), invalid: invalidReceipts },
   "environment-id.json": { valid: [uuid, otherUuid], invalid: ["not-a-uuid", "", 7] },
   "client-session-id.json": { valid: ["cs-1"], invalid: ["", 1] },
   "pairing-id.json": { valid: ["p-1"], invalid: ["", 1] },

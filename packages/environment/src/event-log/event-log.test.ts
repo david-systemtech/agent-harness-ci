@@ -268,7 +268,7 @@ describe("appending", () => {
       expect(() => log.append(s1, [note("refused")], { actor }), actor).toThrow(
         `The actor of an append is not kind:id of a known kind (client_session, routine, adapter, system): ${JSON.stringify(actor)}.`,
       );
-      expect(() => log.append(s1, [], { actor, commandId: "c-1", receipt: { status: "accepted" } }), actor).toThrow(/not kind:id/);
+      expect(() => log.command({ actor, commandId: "c-1" }, () => ({ aggregate: s1, result: null })), actor).toThrow(/not kind:id/);
     }
     expect(log.readStream(s1)).toEqual(before);
     expect(log.head()).toBe(1);
@@ -318,11 +318,11 @@ describe("one transaction for events, projections and the receipt", () => {
     const log = memoryLog({ projectors: [failingOn("boom")] });
 
     expect(() =>
-      log.append(s1, [note("fine"), { type: "boom", payload: {} }], {
-        actor: "client_session:1",
-        commandId: "c-1",
-        receipt: { status: "accepted" },
-      }),
+      log.command({ actor: "client_session:1", commandId: "c-1" }, () => ({
+        aggregate: s1,
+        result: null,
+        events: [note("fine"), { type: "boom", payload: {} }],
+      })),
     ).toThrow(/projector refused boom/);
     expect(log.readStream(s1)).toEqual([]);
     expect(log.receipt("client_session:1", "c-1")).toBeNull();
@@ -487,14 +487,12 @@ describe("subscribers", () => {
 });
 
 describe("command receipts", () => {
-  it("record an accepted command with its aggregate, its last sequence and changed true", () => {
+  const key = { actor: "client_session:1", commandId: "c-1" } as const;
+
+  it("record an accepted command with its aggregate, the head after it and changed true, beside the events it appended", () => {
     const { clock } = manualClock("2026-09-24T10:00:00.000Z");
     const log = memoryLog({ clock });
-    const result = log.append(s1, [note("1"), note("2")], {
-      actor: "client_session:1",
-      commandId: "c-1",
-      receipt: { status: "accepted" },
-    });
+    const run = log.command(key, () => ({ aggregate: s1, result: "done", events: [note("1"), note("2")] }));
 
     const expected = {
       actor: "client_session:1",
@@ -502,83 +500,98 @@ describe("command receipts", () => {
       stream: s1,
       status: "accepted",
       changed: true,
-      resultingSequence: 2,
+      sequence: 2,
       createdAt: "2026-09-24T10:00:00.000Z",
     };
-    expect(result.receipt).toEqual(expected);
-    expect(result.duplicate).toBe(false);
+    expect(run).toMatchObject({ replayed: false, receipt: expected, result: "done" });
+    expect(run.replayed || run.events.map((e) => [e.sequence, e.commandId, e.actor])).toEqual([
+      [1, "c-1", "client_session:1"],
+      [2, "c-1", "client_session:1"],
+    ]);
     expect(log.receipt("client_session:1", "c-1")).toEqual(expected);
   });
 
-  it("answer a repeated command id from the same actor with the stored receipt and append nothing", () => {
+  it("count the events the work appends itself through its transaction", () => {
+    const log = memoryLog();
+    const run = log.command(key, (tx) => {
+      log.append(s1, [note("own")], { tx, actor: key.actor, commandId: key.commandId });
+      return { aggregate: s1, result: null };
+    });
+    expect(run.receipt).toMatchObject({ status: "accepted", changed: true, sequence: 1 });
+    expect(run.replayed || run.events).toHaveLength(1);
+  });
+
+  it("answer a repeated command id from the same actor with the stored receipt, without running the work", () => {
     const log = memoryLog();
     const published: number[] = [];
     log.subscribe((event) => published.push(event.sequence));
-    const options = { actor: "client_session:1", commandId: "c-1", receipt: { status: "accepted" } } as const;
-    const first = log.append(s1, [note("once")], options);
+    let runs = 0;
+    const work = () => {
+      runs++;
+      return { aggregate: s1, result: null, events: [note("once")] };
+    };
+    const first = log.command(key, work);
 
-    const retry = log.append(s1, [note("once")], options);
-    expect(retry).toEqual({ events: [], receipt: first.receipt, duplicate: true });
+    expect(log.command(key, work)).toEqual({ replayed: true, receipt: first.receipt });
+    expect(runs).toBe(1);
     expect(log.readStream(s1)).toHaveLength(1);
     expect(published).toEqual([1]);
   });
 
   it("treat the same command id from another actor as another command", () => {
     const log = memoryLog();
-    log.append(s1, [note("a")], { actor: "client_session:1", commandId: "c-1", receipt: { status: "accepted" } });
-    const other = log.append(s1, [note("b")], {
-      actor: "client_session:2",
-      commandId: "c-1",
-      receipt: { status: "accepted" },
-    });
-    expect(other.duplicate).toBe(false);
+    log.command(key, () => ({ aggregate: s1, result: null, events: [note("a")] }));
+    const other = log.command({ actor: "client_session:2", commandId: "c-1" }, () => ({ aggregate: s1, result: null, events: [note("b")] }));
+    expect(other.replayed).toBe(false);
     expect(log.readStream(s1)).toHaveLength(2);
-    expect(log.receipt("client_session:2", "c-1")).toMatchObject({ resultingSequence: 2 });
+    expect(log.receipt("client_session:2", "c-1")).toMatchObject({ sequence: 2 });
+    expect(log.receipt("client_session:1", "c-1")).toMatchObject({ sequence: 1 });
   });
 
-  it("record an accepted command with no events as changed false", () => {
+  it("record an accepted command with no events as changed false, with the head it saw", () => {
     const log = memoryLog();
-    const { receipt, events } = log.append(s1, [], {
-      actor: "client_session:1",
-      commandId: "c-1",
-      receipt: { status: "accepted" },
-    });
-    expect(events).toEqual([]);
-    expect(receipt).toMatchObject({ status: "accepted", changed: false, resultingSequence: null });
+    log.append({ kind: "session", id: "other" }, [note("x"), note("y")], { actor: "system:test" });
+    const run = log.command(key, () => ({ aggregate: s1, result: null }));
+    expect(run.receipt).toMatchObject({ status: "accepted", changed: false, sequence: 2 });
+    expect(log.head()).toBe(2);
   });
 
-  it("record a rejection with reason not_found and no events, and answer its retry with the rejection", () => {
+  it("record a rejection as the error it gives, with no events, and answer its retry with the rejection", () => {
     const log = memoryLog();
-    const options = {
-      actor: "client_session:1",
-      commandId: "c-1",
-      receipt: { status: "rejected", reason: "not_found", message: "no session s9" },
-    } as const;
-    const { receipt, events } = log.append({ kind: "session", id: "s9" }, [], options);
-    expect(events).toEqual([]);
-    expect(receipt).toMatchObject({
-      stream: { kind: "session", id: "s9" },
-      status: "rejected",
-      changed: false,
-      reason: "not_found",
-      message: "no session s9",
-    });
+    const s9 = { kind: "session", id: "s9" };
+    const error = { code: "not_found", message: "no session s9", data: { kind: "session" } };
+    const run = log.command(key, () => ({ aggregate: s9, rejected: error }));
+    expect(run).toMatchObject({ replayed: false, events: [], result: undefined });
+    expect(run.receipt).toMatchObject({ stream: s9, status: "rejected", changed: false, sequence: 0, error });
+    expect(log.receipt(key.actor, key.commandId)).toEqual(run.receipt);
 
-    expect(log.append({ kind: "session", id: "s9" }, [], options)).toEqual({ events: [], receipt, duplicate: true });
-    expect(log.readStream({ kind: "session", id: "s9" })).toEqual([]);
+    expect(log.command(key, () => ({ aggregate: s9, result: null, events: [note("late")] }))).toEqual({ replayed: true, receipt: run.receipt });
+    expect(log.readStream(s9)).toEqual([]);
   });
 
-  it("refuse a rejection that carries events, writing nothing", () => {
+  it("refuse a rejection whose work appended events, writing nothing", () => {
     const log = memoryLog();
     expect(() =>
-      log.append(s1, [note("x")], {
-        actor: "client_session:1",
-        commandId: "c-1",
-        receipt: { status: "rejected", reason: "conflict" },
+      log.command(key, (tx) => {
+        log.append(s1, [note("x")], { tx, actor: key.actor });
+        return { aggregate: s1, rejected: { code: "conflict", message: "no", data: {} } };
       }),
     ).toThrow(/rejected/);
     expect(log.readStream(s1)).toEqual([]);
-    expect(log.receipt("client_session:1", "c-1")).toBeNull();
+    expect(log.receipt(key.actor, key.commandId)).toBeNull();
+  });
+
+  it("store nothing when the work throws, so the retry runs", () => {
+    const log = memoryLog();
+    expect(() =>
+      log.command(key, (tx) => {
+        log.append(s1, [note("x")], { tx, actor: key.actor });
+        throw new Error("the work failed");
+      }),
+    ).toThrow(/the work failed/);
+    expect(log.readStream(s1)).toEqual([]);
+    expect(log.receipt(key.actor, key.commandId)).toBeNull();
+    expect(log.command(key, () => ({ aggregate: s1, result: null, events: [note("y")] })).replayed).toBe(false);
   });
 
   it("are absent for a command never seen", () => {
@@ -588,8 +601,7 @@ describe("command receipts", () => {
   it("older than 30 days are removed by the retention pass and younger ones stay", () => {
     const time = manualClock("2026-08-01T00:00:00.000Z");
     const log = memoryLog({ clock: time.clock });
-    const command = (commandId: string) =>
-      log.append(s1, [], { actor: "client_session:1", commandId, receipt: { status: "accepted" } });
+    const command = (commandId: string) => log.command({ actor: "client_session:1", commandId }, () => ({ aggregate: s1, result: null }));
 
     command("old");
     time.set("2026-08-02T00:00:00.000Z");
@@ -607,6 +619,30 @@ describe("command receipts", () => {
     expect(log.pruneReceipts(new Date(new Date("2026-08-02T00:00:00.000Z").getTime() + 30 * DAY + 1))).toBe(1);
     expect(log.receipt("client_session:1", "exactly-30-days")).toBeNull();
     expect(log.receipt("client_session:1", "young")).not.toBeNull();
+  });
+
+  it("are not answered past 30 days even before a prune, and the retry runs as a new command", () => {
+    const time = manualClock("2026-08-01T00:00:00.000Z");
+    const log = memoryLog({ clock: time.clock });
+    const first = log.command(key, () => ({ aggregate: s1, result: null, events: [note("first")] }));
+
+    time.set(new Date(Date.parse("2026-08-01T00:00:00.000Z") + 30 * DAY).toISOString());
+    expect(log.command(key, () => ({ aggregate: s1, result: null, events: [note("kept")] }))).toEqual({ replayed: true, receipt: first.receipt });
+
+    time.set(new Date(Date.parse("2026-08-01T00:00:00.000Z") + 30 * DAY + 1).toISOString());
+    expect(log.receipt(key.actor, key.commandId)).toBeNull();
+    const again = log.command(key, () => ({ aggregate: s1, result: null, events: [note("again")] }));
+    expect(again).toMatchObject({ replayed: false, receipt: { sequence: 2, createdAt: time.clock().toISOString() } });
+    expect(log.receipt(key.actor, key.commandId)).toEqual(again.receipt);
+    expect(log.readStream(s1).map((e) => e.payload)).toEqual([{ text: "first" }, { text: "again" }]);
+  });
+
+  it("run a projection rebuild inside a command's transaction", () => {
+    const log = memoryLog({ projectors: [failingOn("never")] });
+    log.append(s1, [note("a")], { actor: "system:test" });
+    const run = log.command(key, () => ({ aggregate: s1, result: log.rebuildProjections() }));
+    expect(run).toMatchObject({ replayed: false, result: ["fails"], receipt: { changed: false, sequence: 1 } });
+    expect(log.read("SELECT sequence FROM fails_seen")).toEqual([{ sequence: 1 }]);
   });
 });
 

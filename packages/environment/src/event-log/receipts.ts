@@ -1,34 +1,40 @@
 import type { Sql } from "./database.js";
-import type { EventEnvelope, StreamRef } from "./envelope.js";
+import type { JsonObject, StreamRef } from "./envelope.js";
 
-/** How long a command receipt is kept. */
+/** How long a command receipt is kept: a retry after it is a new command. */
 export const RECEIPT_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 
-/** What a command's receipt records: accepted, or rejected with a reason such as `not_found`. */
-export type ReceiptRequest =
-  | { readonly status: "accepted" }
-  | { readonly status: "rejected"; readonly reason: string; readonly message?: string };
+/** The error a rejected command is stored with, as its caller shaped it: a code (the rejection's reason), a message and data. */
+export interface StoredError {
+  readonly code: string;
+  readonly message: string;
+  readonly data: JsonObject;
+}
 
-/** What every receipt carries: its key (actor and command id), the aggregate aimed at, and when. */
+/** What every stored receipt carries: its key (actor and command id), the aggregate aimed at, the head after it, and when. */
 export interface ReceiptBase {
   readonly actor: string;
   readonly commandId: string;
   /** The aggregate the command was aimed at. */
   readonly stream: StreamRef;
+  /** The log's head once the command committed: its last event, or the head it saw when it appended none. */
+  readonly sequence: number;
   /** ISO 8601, UTC. */
   readonly createdAt: string;
 }
 
-export type CommandReceipt = ReceiptBase &
+/**
+ * A command's receipt as the `command_receipts` table keeps it. The wire
+ * answers it as the contracts' `CommandReceipt` (`toWireReceipt` in `wire/dispatch.ts`).
+ */
+export type StoredReceipt = ReceiptBase &
   (
     | {
         readonly status: "accepted";
-        /** False for a command that was accepted but changed nothing. */
+        /** False for a command that was accepted and appended no event. */
         readonly changed: boolean;
-        /** The sequence of the command's last event; null when it appended none. */
-        readonly resultingSequence: number | null;
       }
-    | { readonly status: "rejected"; readonly changed: false; readonly reason: string; readonly message: string | null }
+    | { readonly status: "rejected"; readonly changed: false; readonly error: StoredError }
   );
 
 interface ReceiptRow {
@@ -41,64 +47,75 @@ interface ReceiptRow {
   resulting_sequence: number | null;
   error_reason: string | null;
   error_message: string | null;
+  error_data: string | null;
   created_at: string;
 }
 
-const decodeReceipt = (row: ReceiptRow): CommandReceipt => {
+const decodeReceipt = (row: ReceiptRow): StoredReceipt => {
   const base: ReceiptBase = {
     actor: row.actor,
     commandId: row.command_id,
     stream: { kind: row.stream_kind, id: row.stream_id },
+    sequence: row.resulting_sequence ?? 0,
     createdAt: row.created_at,
   };
-  return row.status === "accepted"
-    ? { ...base, status: "accepted", changed: row.changed === 1, resultingSequence: row.resulting_sequence }
-    : { ...base, status: "rejected", changed: false, reason: row.error_reason ?? "", message: row.error_message };
+  if (row.status === "accepted") return { ...base, status: "accepted", changed: row.changed === 1 };
+  const error: StoredError = {
+    code: row.error_reason ?? "",
+    message: row.error_message ?? "",
+    data: row.error_data === null ? {} : (JSON.parse(row.error_data) as JsonObject),
+  };
+  return { ...base, status: "rejected", changed: false, error };
 };
 
-/** The `command_receipts` table: read by key, written inside an append's transaction, pruned by age. */
+/** The oldest `created_at` a receipt may have at `now` and still be answered. */
+const cutoff = (now: Date): string => new Date(now.getTime() - RECEIPT_RETENTION_MS).toISOString();
+
+/**
+ * The `command_receipts` table: read by key within the retention period,
+ * written inside a command's transaction, pruned by age. A receipt older than
+ * the period is never answered, whether or not the prune has run yet.
+ */
 export const createReceipts = (sql: Sql) => ({
-  read(actor: string, commandId: string): CommandReceipt | null {
+  read(actor: string, commandId: string, now: Date): StoredReceipt | null {
     const row = sql.get<ReceiptRow>(
-      "SELECT * FROM command_receipts WHERE actor = ? AND command_id = ?",
+      "SELECT * FROM command_receipts WHERE actor = ? AND command_id = ? AND created_at >= ?",
       actor,
       commandId,
+      cutoff(now),
     );
     return row ? decodeReceipt(row) : null;
   },
 
-  /** Writes the receipt for a command whose events (none, for a rejection or a no-op) were just appended. */
-  write(base: ReceiptBase, request: ReceiptRequest, events: readonly EventEnvelope[]): CommandReceipt {
-    const receipt: CommandReceipt =
-      request.status === "accepted"
-        ? {
-            ...base,
-            status: "accepted",
-            changed: events.length > 0,
-            resultingSequence: events.at(-1)?.sequence ?? null,
-          }
-        : { ...base, status: "rejected", changed: false, reason: request.reason, message: request.message ?? null };
+  /** Writes a command's receipt, replacing one for the same key that is past the retention period and so was not answered. */
+  write(receipt: StoredReceipt): void {
     sql.run(
-      `INSERT INTO command_receipts (actor, command_id, stream_kind, stream_id, status, changed,
-                                     resulting_sequence, error_reason, error_message, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      "DELETE FROM command_receipts WHERE actor = ? AND command_id = ? AND created_at < ?",
+      receipt.actor,
+      receipt.commandId,
+      cutoff(new Date(receipt.createdAt)),
+    );
+    const error = receipt.status === "rejected" ? receipt.error : undefined;
+    sql.run(
+      `INSERT INTO command_receipts (actor, command_id, stream_kind, stream_id, status, changed, resulting_sequence,
+                                     error_reason, error_message, error_data, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       receipt.actor,
       receipt.commandId,
       receipt.stream.kind,
       receipt.stream.id,
       receipt.status,
       receipt.changed ? 1 : 0,
-      receipt.status === "accepted" ? receipt.resultingSequence : null,
-      receipt.status === "rejected" ? receipt.reason : null,
-      receipt.status === "rejected" ? receipt.message : null,
+      receipt.sequence,
+      error?.code ?? null,
+      error?.message ?? null,
+      error ? JSON.stringify(error.data) : null,
       receipt.createdAt,
     );
-    return receipt;
   },
 
   /** Removes receipts older than the retention period at `now`; returns how many. */
   prune(now: Date): number {
-    const cutoff = new Date(now.getTime() - RECEIPT_RETENTION_MS).toISOString();
-    return sql.run("DELETE FROM command_receipts WHERE created_at < ?", cutoff).changes;
+    return sql.run("DELETE FROM command_receipts WHERE created_at < ?", cutoff(now)).changes;
   },
 });

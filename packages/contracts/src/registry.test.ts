@@ -2,17 +2,22 @@ import { describe, expect, expectTypeOf, it } from "vitest";
 import { z } from "zod";
 import {
   CommandId,
+  CommandReceipt,
   METHOD_KINDS,
   SCOPES,
   Sequence,
   defineMethod,
   errorSchema,
+  isCommand,
   isMethodName,
   methods,
   registry,
   type ErrorOf,
   type MethodName,
+  type MintedPairing,
   type ParamsOf,
+  type ResponseOf,
+  type ResultOf,
   type SharedErrorCode,
 } from "./index.js";
 
@@ -76,6 +81,39 @@ describe("the method registry", () => {
       "access.sessions.revoke",
       "access.sessions.refresh",
     ]);
+  });
+
+  it("answers every command with its receipt beside its result, which a retry or a rejection leaves out", () => {
+    const receipt = { status: "accepted", sequence: 3, changed: true } as const;
+    for (const method of methods) {
+      if (method.kind !== "command") {
+        expect("response" in method, method.name).toBe(false);
+        continue;
+      }
+      expect(method.response.shape.receipt, method.name).toBe(CommandReceipt);
+      expect(method.response.safeParse({ receipt }).success, method.name).toBe(true);
+      expect(method.response.safeParse({}).success, method.name).toBe(false);
+    }
+    const drain = registry["environment.drain"].response;
+    expect(drain.safeParse({ receipt, result: { drainingSince: "2026-09-24T00:00:00.000Z", trigger: "command" } }).success).toBe(true);
+    expect(drain.safeParse({ receipt, result: { trigger: "command" } }).success).toBe(false);
+  });
+
+  it("types a command's response as its receipt and an optional result, and a query's as its result", () => {
+    expectTypeOf<ResponseOf<"access.pairings.create">>().toEqualTypeOf<{ receipt: CommandReceipt; result?: MintedPairing | undefined }>();
+    expectTypeOf<ResultOf<"access.pairings.create">>().toEqualTypeOf<MintedPairing>();
+    expectTypeOf<ResponseOf<"environment.status">>().toEqualTypeOf<ResultOf<"environment.status">>();
+  });
+
+  it("tells a command from its entry, narrowing it to one with a response", () => {
+    expect(methods.filter(isCommand).map((m) => m.name)).toEqual(
+      methods.filter((m) => m.kind === "command").map((m) => m.name),
+    );
+    const entry = registry["access.sessions.revoke"] as (typeof methods)[number];
+    if (!isCommand(entry)) throw new Error("access.sessions.revoke is a command");
+    expectTypeOf(entry.response.shape.receipt).toEqualTypeOf<typeof CommandReceipt>();
+    expect(isCommand(registry["environment.status"])).toBe(false);
+    expect(isCommand(registry["environment.subscribe"])).toBe(false);
   });
 
   it("takes an afterSequence cursor in the params of every stream", () => {

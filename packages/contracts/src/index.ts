@@ -14,8 +14,10 @@ export {
   METHOD_KINDS,
   commandParams,
   defineMethod,
+  isCommand,
   subscriptionParams,
   type ErrorMember,
+  type CommandResponsePart,
   type Method,
   type MethodErrorUnion,
   type MethodKind,
@@ -35,6 +37,7 @@ export {
   Timestamp,
 } from "./primitives.js";
 export type { MintedPairing } from "./methods/access.js";
+export { CommandReceipt, commandResponse, type CommandResponseSchema } from "./receipt.js";
 export * from "./registry.js";
 export * from "./schema-export.js";
 export * from "./scopes.js";

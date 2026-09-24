@@ -42,7 +42,7 @@ export interface WireOptions {
   readonly clientSessions: SocketSessions;
   readonly methods: MethodTable;
   readonly clock: Clock;
-  /** The log subscriptions replay from and listen to. */
+  /** The log subscriptions replay from and listen to, and commands run through. */
   readonly log: EventLog;
   /** Test seams for subscriptions. */
   readonly subscriptionHooks?: SubscriptionHooks;
@@ -117,7 +117,7 @@ const faultOf = (error: ContractError): string => {
 
 export const createWire = (options: WireOptions): Wire => {
   const { clientSessions, clock } = options;
-  const dispatch = createDispatch(options.methods);
+  const dispatch = createDispatch(options.methods, options.log);
   const subscriptions = createSubscriptions(options.log, options.subscriptionHooks);
   const server = new WebSocketServer({ noServer: true, maxPayload: MAX_FRAME_BYTES, clientTracking: false });
   const open = new Set<Socket>();

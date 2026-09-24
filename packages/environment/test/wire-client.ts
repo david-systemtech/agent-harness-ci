@@ -3,13 +3,19 @@ import {
   PROTOCOL_VERSION,
   WIRE_PATH,
   decodeFrame,
+  isCommand,
+  isMethodName,
+  registry,
   type ByeFrame,
   type ClientKind,
+  type CommandReceipt,
   type Frame,
   type HelloFrame,
+  type Method,
   type MethodName,
   type ParamsOf,
   type ResponseFrame,
+  type ResponseOf,
   type ResultOf,
   type SubscribedFrame,
 } from "@agent-harness/contracts";
@@ -182,8 +188,20 @@ export class ByeError extends Error {
 /** A socket that has authenticated: it holds its `hello` and makes typed requests. */
 export interface WireClient extends ClientSocket {
   readonly hello: HelloFrame;
-  /** Calls a method: its result, or a thrown `ContractError` carrying the response's error. */
-  request<N extends MethodName>(method: N, params: ParamsOf<N>): Promise<ResultOf<N>>;
+  /**
+   * Calls a method: what its response carries (a query's result; a
+   * command's receipt, and its result when this request applied it), or a
+   * thrown `ContractError` carrying the response's error.
+   */
+  request<N extends MethodName>(method: N, params: ParamsOf<N>): Promise<ResponseOf<N>>;
+  /** Calls a method the registry does not hold, one a suite serves: what its response carries, for the test to parse. */
+  request(method: string, params: Record<string, unknown>): Promise<unknown>;
+  /**
+   * Calls a method, a served one included, for its result alone, throwing
+   * unless a query answered or a command applied now (not rejected, not answered from an earlier receipt).
+   */
+  apply<N extends MethodName>(method: N, params: ParamsOf<N>): Promise<ResultOf<N>>;
+  apply(method: string, params: Record<string, unknown>): Promise<unknown>;
   /** Sends a request of any name and params and resolves with the frame that answers it. */
   call(method: string, params: Record<string, unknown>): Promise<ResponseFrame | SubscribedFrame>;
   /**
@@ -195,6 +213,8 @@ export interface WireClient extends ClientSocket {
 }
 
 export interface AuthOptions extends OpenOptions {
+  /** The entries of methods served beyond the registry, consulted first, so `apply` knows a served command. */
+  readonly methods?: (name: string) => Method | undefined;
   readonly token: string;
   /** Preset `tui`. */
   readonly clientKind?: ClientKind;
@@ -205,8 +225,9 @@ export interface AuthOptions extends OpenOptions {
 
 let requestIds = 0;
 
-/** Makes a socket into a client: typed requests, answered by id. */
-export const asClient = (socket: ClientSocket, hello: HelloFrame): WireClient => {
+/** Makes a socket into a client: typed requests, answered by id; `methods` names the entries served beyond the registry. */
+export const asClient = (socket: ClientSocket, hello: HelloFrame, methods?: AuthOptions["methods"]): WireClient => {
+  const entryOf = (name: string): Method | undefined => methods?.(name) ?? (isMethodName(name) ? registry[name] : undefined);
   const call = async (method: string, params: Record<string, unknown>) => {
     const id = `r${++requestIds}`;
     socket.send({ type: "request", id, method, params });
@@ -219,11 +240,23 @@ export const asClient = (socket: ClientSocket, hello: HelloFrame): WireClient =>
     ...socket,
     hello,
     call,
-    async request(method, params) {
+    async request(method: string, params: Record<string, unknown>) {
       const answer = await call(method, params);
       if (answer.type === "subscribed") throw new Error(`${method} is a stream; subscribe to it instead.`);
       if (answer.error) throw new ContractError(answer.error);
       return answer.result as never;
+    },
+    async apply(method: string, params: Record<string, unknown>) {
+      const answer = await call(method, params);
+      if (answer.type === "subscribed") throw new Error(`${method} is a stream; subscribe to it instead.`);
+      if (answer.error) throw new ContractError(answer.error);
+      const result = answer.result as { receipt?: CommandReceipt; result?: unknown };
+      const entry = entryOf(method);
+      if (entry === undefined || !isCommand(entry)) return result as never;
+      if (result.receipt?.status !== "accepted" || result.result === undefined) {
+        throw new Error(`${method} did not apply: ${JSON.stringify(result.receipt)}`);
+      }
+      return result.result as never;
     },
     async subscribe(method, params) {
       const answer = await call(method, params);
@@ -248,6 +281,6 @@ export const connectClient = async (address: Address, options: AuthOptions): Pro
     socket.next((frame) => frame.type === "hello" || frame.type === "bye"),
     socket.closed.then(() => undefined),
   ]).catch(() => undefined);
-  if (first?.type === "hello") return asClient(socket, first);
+  if (first?.type === "hello") return asClient(socket, first, options.methods);
   throw new ByeError(await withTimeout(socket.closed, "the socket to close after bye"));
 };

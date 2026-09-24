@@ -6,7 +6,7 @@ import { requireActor, type EventEnvelope, type EventInput, type JsonObject, typ
 import { applyMigrations } from "./migrations.js";
 import { createProjections, type Projector } from "./projectors.js";
 import { createPairingTable, type PairingTable } from "./pairings.js";
-import { createReceipts, type CommandReceipt, type ReceiptRequest } from "./receipts.js";
+import { createReceipts, type StoredError, type StoredReceipt } from "./receipts.js";
 import { createSnapshots, type Snapshot } from "./snapshots.js";
 import { loadSqlite } from "./sqlite.js";
 
@@ -15,7 +15,7 @@ export type { PairingRow, PairingTable } from "./pairings.js";
 export type { SqlValue } from "./database.js";
 export { formatActor, parseActor, type EventEnvelope, type EventInput, type JsonObject, type StreamRef } from "./envelope.js";
 export type { ProjectionDb, Projector } from "./projectors.js";
-export { RECEIPT_RETENTION_MS, type CommandReceipt, type ReceiptRequest } from "./receipts.js";
+export { RECEIPT_RETENTION_MS, type StoredError, type StoredReceipt } from "./receipts.js";
 export type { Snapshot } from "./snapshots.js";
 
 /** The most a subscription replays for one stream before it sends a snapshot instead (spec: "Subscriptions"). */
@@ -34,33 +34,55 @@ export interface Tx {
   afterCommit(callback: () => void): void;
 }
 
-interface AppendContext {
+/** How an append is attributed. */
+export interface AppendOptions {
   /** The client session, routine, adapter or system component appending, as `kind:id` (`formatActor`); any other form is refused. */
   readonly actor: string;
   /** The `atomically` the append must be part of; the append throws unless it is the one open. */
   readonly tx?: Tx;
+  /** The command that caused the events, when one did; `command` passes its own for the events it appends. */
+  readonly commandId?: string;
   readonly causationId?: string;
   readonly correlationId?: string;
 }
 
-/**
- * How an append is attributed. A `receipt` makes the append a command: it
- * needs the command id, it is answered from the stored receipt when the same
- * actor repeats that id, and the receipt is written in the append's transaction.
- */
-export type AppendOptions = AppendContext &
-  (
-    | { readonly commandId?: string; readonly receipt?: undefined }
-    | { readonly commandId: string; readonly receipt: ReceiptRequest }
-  );
-
 export interface AppendResult {
-  /** The events written, as a reader will see them; empty for a repeated command. */
+  /** The events written, as a reader will see them. */
   readonly events: readonly EventEnvelope[];
-  readonly receipt: CommandReceipt | null;
-  /** True when the command id was already answered and nothing was appended. */
-  readonly duplicate: boolean;
 }
+
+/** Who sent a command, as its receipt is keyed: the actor as `kind:id`, and the command's client-generated id. */
+export interface CommandKey {
+  readonly actor: string;
+  readonly commandId: string;
+}
+
+/**
+ * What a command's work decides: the aggregate it was aimed at, then either
+ * its result, with the events the log appends for it (the work may also
+ * append through its `Tx`), or its rejection, stored as the error it gives,
+ * which appends nothing.
+ */
+export type CommandOutcome<T> =
+  | {
+      readonly aggregate: StreamRef;
+      readonly result: T;
+      readonly events?: readonly EventInput[];
+      readonly rejected?: undefined;
+    }
+  | { readonly aggregate: StreamRef; readonly rejected: StoredError };
+
+/** How a command went: answered from the receipt of an earlier one with its key, or run now. */
+export type CommandRun<T> =
+  | { readonly replayed: true; readonly receipt: StoredReceipt }
+  | {
+      readonly replayed: false;
+      readonly receipt: StoredReceipt;
+      /** Every event the command appended, in order. */
+      readonly events: readonly EventEnvelope[];
+      /** The work's result; undefined for a rejection. */
+      readonly result: T | undefined;
+    };
 
 /** One stream's events after a cursor, measured against the replay bound. */
 export interface ReplayMeasure {
@@ -89,6 +111,16 @@ export interface EventLog {
   append(stream: StreamRef, events: readonly EventInput[], options: AppendOptions): AppendResult;
   /** One stream's events with a sequence above `afterSequence`, in order: every one, or the first `limit`. */
   readStream(stream: StreamRef, afterSequence?: number, limit?: number): EventEnvelope[];
+  /**
+   * Runs a command once per actor and command id (env spec, "Commands"). A
+   * key with a receipt in the retention period is answered from it and `work`
+   * does not run. Otherwise `work` runs inside one `atomically`, the events
+   * it names are appended to its aggregate with the key's actor and command
+   * id, and its receipt is written in the same transaction: accepted, with
+   * the head after it and whether it appended anything, or rejected. A throw
+   * rolls all of it back and stores no receipt, so a retry runs again.
+   */
+  command<T>(key: CommandKey, work: (tx: Tx) => CommandOutcome<T>): CommandRun<T>;
   /** Measures one stream's events after a cursor against the replay bound, in SQL, before decoding. */
   replayBound(stream: StreamRef, afterSequence: number): ReplayMeasure;
   /** The last sequence the log has given out, on any stream; 0 before the first event. */
@@ -106,8 +138,9 @@ export interface EventLog {
   rebuildProjections(): readonly string[];
   /** Reads rows (the projection read models, pragmas) with the connection query-only, so no write gets past the log. */
   read<Row = Record<string, unknown>>(sql: string, ...params: readonly SqlValue[]): Row[];
-  receipt(actor: string, commandId: string): CommandReceipt | null;
-  /** Removes receipts older than the retention period at `now`; returns how many. */
+  /** The receipt stored for an actor's command id, while the retention period keeps it. */
+  receipt(actor: string, commandId: string): StoredReceipt | null;
+  /** Removes receipts older than the retention period at `now`; returns how many. The environment's minute sweep calls it. */
   pruneReceipts(now: Date): number;
   /** Writes a stream's snapshot, replacing any earlier one. */
   writeSnapshot(stream: StreamRef, snapshot: { readonly sequence: number; readonly payload: unknown }): void;
@@ -200,7 +233,8 @@ export const openEventLog = (options: EventLogOptions): EventLog => {
     if (tx !== openTx) throw new Error("This write needs the transaction of the atomically open now.");
   };
 
-  const projections = createProjections(sql, begin, clock);
+  // A rebuild inside an `atomically` (the `environment.rebuildProjections` command) joins its transaction.
+  const projections = createProjections(sql, transaction, clock);
   const receipts = createReceipts(sql);
   const snapshots = createSnapshots(sql, clock);
   const clientSessions = createClientSessionTable(sql, requireTx);
@@ -244,12 +278,6 @@ export const openEventLog = (options: EventLogOptions): EventLog => {
   const log: EventLog = {
     append(stream, inputs, options) {
       if (options.tx !== undefined) requireTx(options.tx);
-      const request = options.receipt;
-      if (request?.status === "rejected" && inputs.length > 0) {
-        throw new TypeError(
-          `A rejected command appends no events; command ${options.commandId} carried ${inputs.length}.`,
-        );
-      }
       requireActor(options.actor);
       for (const input of inputs) {
         requireObject(input.payload, `The payload of a ${input.type} event`);
@@ -270,30 +298,53 @@ export const openEventLog = (options: EventLogOptions): EventLog => {
         toJson(input.metadata ?? {}, `The metadata of a ${input.type} event`),
       ]);
 
-      const result = transaction((): AppendResult => {
-        if (request) {
-          const stored = receipts.read(options.actor, options.commandId);
-          if (stored) return { events: [], receipt: stored, duplicate: true };
-        }
-        const events = rows.map((row) => decodeEvent(sql.get<EventRow>(insertEvent, ...row) as EventRow));
+      const events = transaction((): EventEnvelope[] => {
+        const written = rows.map((row) => decodeEvent(sql.get<EventRow>(insertEvent, ...row) as EventRow));
         projecting = true;
         try {
-          projections.catchUp(events);
+          projections.catchUp(written);
         } finally {
           projecting = false;
         }
-        const receipt = request
-          ? receipts.write(
-              { actor: options.actor, commandId: options.commandId, stream, createdAt: now },
-              request,
-              events,
-            )
-          : null;
-        return { events, receipt, duplicate: false };
+        return written;
       });
-      if (held) held.push(...result.events);
-      else publish(result.events);
-      return result;
+      if (held) held.push(...events);
+      else publish(events);
+      return { events };
+    },
+
+    command(key, work) {
+      requireActor(key.actor);
+      return log.atomically((tx) => {
+        const now = clock();
+        const stored = receipts.read(key.actor, key.commandId, now);
+        if (stored) return { replayed: true, receipt: stored };
+        // Every event appended in this transaction, the work's own appends included.
+        const appended = held ?? [];
+        const before = appended.length;
+        const outcome = work(tx);
+        if (outcome.rejected !== undefined) {
+          if (appended.length > before) {
+            throw new TypeError(`A rejected command appends no events; command ${key.commandId} appended ${appended.length - before}.`);
+          }
+        } else if (outcome.events !== undefined && outcome.events.length > 0) {
+          log.append(outcome.aggregate, outcome.events, { tx, actor: key.actor, commandId: key.commandId });
+        }
+        const events = appended.slice(before);
+        const base = {
+          actor: key.actor,
+          commandId: key.commandId,
+          stream: outcome.aggregate,
+          sequence: log.head(),
+          createdAt: now.toISOString(),
+        };
+        const receipt: StoredReceipt =
+          outcome.rejected === undefined
+            ? { ...base, status: "accepted", changed: events.length > 0 }
+            : { ...base, status: "rejected", changed: false, error: outcome.rejected };
+        receipts.write(receipt);
+        return { replayed: false, receipt, events, result: outcome.rejected === undefined ? outcome.result : undefined };
+      });
     },
 
     readStream(stream, afterSequence = 0, limit) {
@@ -381,7 +432,7 @@ export const openEventLog = (options: EventLogOptions): EventLog => {
       }
     },
 
-    receipt: (actor, commandId) => receipts.read(actor, commandId),
+    receipt: (actor, commandId) => receipts.read(actor, commandId, clock()),
     pruneReceipts: (now) => receipts.prune(now),
     writeSnapshot: (stream, snapshot) => snapshots.write(stream, snapshot),
     readSnapshot: (stream) => snapshots.read(stream),

@@ -322,8 +322,12 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   const table = createMethodTable({
     ...lifecycle.handlers,
     "environment.subscribe": () => lifecycle.source,
-    "environment.rebuildProjections": () => ({ projectors: [...log.rebuildProjections()], sequence: log.head() }),
-    ...accessMethods({ pairings, clientSessions, accessLog, atomically: accessLog.atomically }),
+    // The rebuild joins the command's transaction, so it and the receipt commit together.
+    "environment.rebuildProjections": () => ({
+      aggregate: environmentStream,
+      result: { projectors: [...log.rebuildProjections()], sequence: log.head() },
+    }),
+    ...accessMethods({ pairings, clientSessions, accessLog }),
   });
 
   // The two exchanges and the wire are routed before the bind; all three refuse work until the gate below.
@@ -390,12 +394,14 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   }
   wire.open();
   launcher.onQuery((query) => lifecycle.answer(query));
+  // The minute sweep: expired pairings, idle `tui` local client sessions, and receipts past their 30 days.
   const sweep = clock.setInterval(() => {
     try {
       accessLog.atomically((tx) => {
         clientSessions.sweep(tx);
         pairings.sweep(tx);
       });
+      log.pruneReceipts(clock.now());
     } catch (error) {
       console.error("The sweep failed:", error);
     }

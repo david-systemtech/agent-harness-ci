@@ -43,6 +43,8 @@ export const DEFAULT_LOG_PAGE = 100;
  * `record`, so the rows and their events commit together.
  */
 export interface AccessLog {
+  /** The `access` stream: the aggregate of the access commands. */
+  readonly stream: StreamRef;
   record<T extends AccessEventType>(tx: Tx, type: T, payload: AccessEventPayload<T>, attribution: Attribution): void;
   atomically<R>(work: (tx: Tx) => R): R;
   /** The stream's events after `afterSequence`, oldest first, at most `limit`. */
@@ -52,6 +54,7 @@ export interface AccessLog {
 export const createAccessLog = (log: EventLog, environmentId: string): AccessLog => {
   const stream: StreamRef = { kind: ACCESS_STREAM_KIND, id: environmentId };
   return {
+    stream,
     record(tx, type, payload, attribution) {
       log.append(stream, [{ type, payload }], {
         tx,

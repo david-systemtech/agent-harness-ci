@@ -154,27 +154,38 @@ describe("access.sessions.revoke", () => {
     const one = await t.client({ token: bot.token, clientKind: "program" });
     const two = await t.client({ token: bot.token, clientKind: "program" });
     const result = await client.request("access.sessions.revoke", { commandId: randomUUID(), clientSessionId: bot.clientSessionId });
-    expect(result).toEqual({ revokedAt: t.clock.now().toISOString() });
+    expect(result).toEqual({
+      receipt: { status: "accepted", sequence: expect.any(Number), changed: true },
+      result: { revokedAt: t.clock.now().toISOString() },
+    });
     for (const socket of [one, two]) expect((await socket.closed).bye?.reason).toBe("revoked");
     expect(await outcome(t, bot.token)).toBe("bye: revoked");
     expect(await client.request("environment.status", {})).toMatchObject({ readiness: "ready" });
   });
 
-  it("answers an unknown client session not_found", async () => {
+  it("rejects an unknown client session with a not_found receipt, not an error", async () => {
     const t = await start();
     const { client } = await admin(t);
-    const error = await refusal(client.request("access.sessions.revoke", { commandId: randomUUID(), clientSessionId: "no-such-session" }));
-    expect(error.toWire()).toMatchObject({ code: "not_found", data: {} });
+    const answer = await client.request("access.sessions.revoke", { commandId: randomUUID(), clientSessionId: "no-such-session" });
+    expect(answer).toEqual({
+      receipt: {
+        status: "rejected",
+        sequence: t.env.log.head(),
+        changed: false,
+        reason: "not_found",
+        error: { code: "not_found", message: "No client session is named no-such-session.", data: {} },
+      },
+    });
   });
 
-  it("answers a client session revoked already with when it was", async () => {
+  it("answers a client session revoked already with when it was, accepted as a command that changed nothing", async () => {
     const t = await start();
     const { client } = await admin(t);
     const bot = await t.pair();
     const first = await client.request("access.sessions.revoke", { commandId: randomUUID(), clientSessionId: bot.clientSessionId });
     t.clock.advance(MINUTE);
     const second = await client.request("access.sessions.revoke", { commandId: randomUUID(), clientSessionId: bot.clientSessionId });
-    expect(second).toEqual(first);
+    expect(second).toEqual({ receipt: { status: "accepted", sequence: t.env.log.head(), changed: false }, result: first.result });
     expect(ofType(await accessLog(client), "client-session.revoked")).toHaveLength(1);
   });
 
@@ -218,7 +229,7 @@ describe("access.sessions.refresh", () => {
     // Connected after the days pass, so no socket is pinged through them.
     t.clock.advance(20 * DAY);
     const client = await t.client({ token: bot.token, clientKind: "program" });
-    const renewed = await client.request("access.sessions.refresh", { commandId: randomUUID() });
+    const renewed = await client.apply("access.sessions.refresh", { commandId: randomUUID() });
     expect(renewed).toEqual({
       token: expect.any(String),
       clientSessionId: bot.clientSessionId,
@@ -234,7 +245,7 @@ describe("access.sessions.refresh", () => {
     const bot = await t.pair({ scopes: ["read"] });
     t.clock.advance(20 * DAY);
     const client = await t.client({ token: bot.token, clientKind: "program" });
-    const renewed = await client.request("access.sessions.refresh", { commandId: randomUUID() });
+    const renewed = await client.apply("access.sessions.refresh", { commandId: randomUUID() });
     await client.close();
     t.clock.advance(15 * DAY);
     expect(await outcome(t, bot.token)).toBe("hello");
@@ -298,7 +309,7 @@ describe("the access log", () => {
     const t = await start();
     const { client, credential: adminCredential } = await admin(t);
     const commandId = randomUUID();
-    const pairing = await client.request("access.pairings.create", { commandId, scopes: ["read"], ceiling: Ceiling.parse("plan") });
+    const pairing = await client.apply("access.pairings.create", { commandId, scopes: ["read"], ceiling: Ceiling.parse("plan") });
     const answer = await t.pairExchange({ code: pairing.code, kind: "web", label: "phone", protocolVersion: PROTOCOL_VERSION });
     const clientSessionId = answer.body["clientSessionId"];
     const events = await accessLog(client);
@@ -335,7 +346,7 @@ describe("the access log", () => {
   it("records a pairing that expired unused, when the sweep passes it", async () => {
     const t = await start();
     const { client } = await admin(t);
-    const pairing = await client.request("access.pairings.create", { commandId: randomUUID() });
+    const pairing = await client.apply("access.pairings.create", { commandId: randomUUID() });
     t.clock.advance(10 * MINUTE - SECOND);
     expect(ofType(await accessLog(client), "pairing.expired")).toEqual([]);
     t.clock.advance(SWEEP_INTERVAL_MS);
@@ -351,7 +362,7 @@ describe("the access log", () => {
     const { client } = await admin(t);
     // Minted half a minute after a sweep, so it expires between two of them.
     t.clock.advance(30 * SECOND);
-    const pairing = await client.request("access.pairings.create", { commandId: randomUUID() });
+    const pairing = await client.apply("access.pairings.create", { commandId: randomUUID() });
     t.clock.advance(10 * MINUTE);
     const body = { code: pairing.code, kind: "program", label: "late", protocolVersion: PROTOCOL_VERSION };
     expect((await t.pairExchange(body)).status).toBe(410);
@@ -403,7 +414,7 @@ describe("the access log", () => {
     t.clock.advance(DAY);
     const { client } = await admin(t);
     const botClient = await t.client({ token: bot.token, clientKind: "program" });
-    const renewed = await botClient.request("access.sessions.refresh", { commandId: randomUUID() });
+    const renewed = await botClient.apply("access.sessions.refresh", { commandId: randomUUID() });
     const refreshed = ofType(await accessLog(client), "client-session.refreshed");
     expect(refreshed.map((e) => e.payload)).toEqual([{ clientSessionId: bot.clientSessionId, expiresAt: renewed.expiresAt }]);
     expect(refreshed[0]?.actor).toEqual({ kind: "client_session", id: bot.clientSessionId });

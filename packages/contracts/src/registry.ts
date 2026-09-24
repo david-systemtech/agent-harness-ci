@@ -42,5 +42,13 @@ export const registry: Registry = Object.freeze(
 export const isMethodName = (name: string): name is MethodName => Object.hasOwn(registry, name);
 
 export type ParamsOf<N extends MethodName> = z.infer<Registry[N]["params"]>;
+/** The method's own result: what a query answers, what a command answers beside its receipt, a stream's snapshot. */
 export type ResultOf<N extends MethodName> = z.infer<Registry[N]["result"]>;
 export type ErrorOf<N extends MethodName> = z.infer<Registry[N]["error"]>;
+/**
+ * What a `response` to the method carries as its `result`: a query's result
+ * as it is; for a command, its receipt and, when this request applied it, its result.
+ */
+export type ResponseOf<N extends MethodName> = Registry[N] extends { readonly response: infer S extends z.ZodType }
+  ? z.infer<S>
+  : ResultOf<N>;

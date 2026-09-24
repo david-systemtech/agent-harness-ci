@@ -1,6 +1,7 @@
 import { ContractError, registry, type EnvironmentStatus, type RequestFrame, type Scope } from "@agent-harness/contracts";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { TOP_CEILING, type VerifiedClientSession } from "../auth/client-sessions.js";
+import { openEventLog, type EventLog } from "../event-log/event-log.js";
 import { createMethodTable, type MethodHandlers } from "../serve/methods.js";
 import { createDispatch, type Answer } from "./dispatch.js";
 import type { Opening } from "./subscriptions.js";
@@ -18,13 +19,26 @@ const caller = (scopes: readonly Scope[]): VerifiedClientSession => ({
 const ready: EnvironmentStatus = { readiness: "ready", activity: { state: "idle" }, updatesManagedOutside: false };
 const starting: EnvironmentStatus = { ...ready, readiness: "starting" };
 
+let logs: EventLog[] = [];
+afterEach(() => {
+  for (const log of logs) log.close();
+  logs = [];
+});
+
+/** A fresh in-memory log for the commands a dispatch runs. */
+const memoryLog = (): EventLog => {
+  const log = openEventLog({ path: ":memory:" });
+  logs.push(log);
+  return log;
+};
+
 const request = (method: string, params: Record<string, unknown> = {}): RequestFrame => ({ type: "request", id: "r1", method, params });
 
 /** Dispatches one request and resolves with the one answer it gave, and no subscription opened. */
 const answer = async (methods: MethodHandlers, frame: RequestFrame, scopes: readonly Scope[]): Promise<Answer> => {
   const answers: Answer[] = [];
   const open = vi.fn();
-  await createDispatch(createMethodTable(methods))(frame, caller(scopes), (given) => answers.push(given), open);
+  await createDispatch(createMethodTable(methods), memoryLog())(frame, caller(scopes), (given) => answers.push(given), open);
   expect(answers).toHaveLength(1);
   expect(open).not.toHaveBeenCalled();
   return answers[0] as Answer;
@@ -81,7 +95,7 @@ describe("dispatch", () => {
     const handler = vi.fn(() => source);
     const answers: Answer[] = [];
     const opened: Opening[] = [];
-    await createDispatch(createMethodTable({ "environment.subscribe": handler }))(
+    await createDispatch(createMethodTable({ "environment.subscribe": handler }), memoryLog())(
       request("environment.subscribe", { afterSequence: 7 }),
       caller(["read"]),
       (given) => answers.push(given),
@@ -104,7 +118,7 @@ describe("dispatch", () => {
       [new Error("boom"), "internal"],
     ] as const) {
       const answers: Answer[] = [];
-      await createDispatch(createMethodTable(methods))(request("environment.subscribe", { afterSequence: 0 }), caller(["read"]), (given) => answers.push(given), () => {
+      await createDispatch(createMethodTable(methods), memoryLog())(request("environment.subscribe", { afterSequence: 0 }), caller(["read"]), (given) => answers.push(given), () => {
         throw thrown;
       });
       expect(answers).toMatchObject([{ error: { code } }]);
@@ -114,11 +128,67 @@ describe("dispatch", () => {
 
   it("serves a handler registered on its table after dispatch was made, replacing the one before", async () => {
     const table = createMethodTable({ "environment.status": () => starting });
-    const dispatch = createDispatch(table);
+    const dispatch = createDispatch(table, memoryLog());
     table.register(registry["environment.status"], () => ready);
     const answers: Answer[] = [];
     await dispatch(request("environment.status"), caller(["read"]), (given) => answers.push(given), vi.fn());
     expect(answers).toEqual([{ result: ready }]);
+  });
+
+  it("runs a command in the log with the caller as its actor, and answers its receipt beside its result", async () => {
+    const log = memoryLog();
+    const stream = { kind: "environment", id: "e" };
+    const handler = vi.fn(() => ({ aggregate: stream, result: { drainingSince: "2026-09-24T00:00:00.000Z", trigger: "command" as const } }));
+    const commandId = "0f8fad5b-d9cb-469f-a165-70867728950e";
+    const answers: Answer[] = [];
+    await createDispatch(createMethodTable({ "environment.drain": handler }), log)(
+      request("environment.drain", { commandId }),
+      caller(["admin"]),
+      (given) => answers.push(given),
+      vi.fn(),
+    );
+    expect(answers).toEqual([
+      { result: { receipt: { status: "accepted", sequence: 0, changed: false }, result: { drainingSince: "2026-09-24T00:00:00.000Z", trigger: "command" } } },
+    ]);
+    expect(handler).toHaveBeenCalledWith({ commandId }, expect.objectContaining({ clientSession: caller(["admin"]), commandId, actor: "client_session:cs-1" }));
+    expect(log.receipt("client_session:cs-1", commandId)).toMatchObject({ stream, status: "accepted" });
+  });
+
+  it("answers a rejection in its receipt, its reason the code, with a plain message and no data when the handler gives none", async () => {
+    const log = memoryLog();
+    const stream = { kind: "environment", id: "e" };
+    const commandId = "0f8fad5b-d9cb-469f-a165-70867728950e";
+    const answers: Answer[] = [];
+    const methods: MethodHandlers = { "environment.drain": () => ({ aggregate: stream, rejected: { code: "conflict" } }) };
+    await createDispatch(createMethodTable(methods), log)(request("environment.drain", { commandId }), caller(["admin"]), (given) => answers.push(given), vi.fn());
+    const receipt = {
+      status: "rejected",
+      sequence: 0,
+      changed: false,
+      reason: "conflict",
+      error: { code: "conflict", message: "The command was rejected: conflict.", data: {} },
+    };
+    expect(answers).toEqual([{ result: { receipt } }]);
+    expect(log.receipt("client_session:cs-1", commandId)).toMatchObject({ status: "rejected", error: receipt.error });
+  });
+
+  it("answers internal and stores no receipt for a command whose handler answers later or outside its schema", async () => {
+    const quiet = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const stream = { kind: "environment", id: "e" };
+    const handlers = [
+      () => Promise.resolve({ aggregate: stream, result: { drainingSince: "2026-09-24T00:00:00.000Z", trigger: "command" } }),
+      () => ({ aggregate: stream, result: { trigger: "sometime" } }),
+    ];
+    for (const handler of handlers) {
+      const log = memoryLog();
+      const commandId = "0f8fad5b-d9cb-469f-a165-70867728950e";
+      const answers: Answer[] = [];
+      const methods = { "environment.drain": handler } as unknown as MethodHandlers;
+      await createDispatch(createMethodTable(methods), log)(request("environment.drain", { commandId }), caller(["admin"]), (given) => answers.push(given), vi.fn());
+      expect(answers).toMatchObject([{ error: { code: "internal" } }]);
+      expect(log.receipt("client_session:cs-1", commandId)).toBeNull();
+    }
+    quiet.mockRestore();
   });
 
   it("answers invalid_params with the issues", async () => {

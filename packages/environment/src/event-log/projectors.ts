@@ -31,7 +31,8 @@ export interface Projector {
 /**
  * The registered projectors, their tables and their cursors in
  * `projection_state`. `catchUp` runs inside the caller's transaction;
- * `register` and `rebuild` open their own.
+ * `register` and `rebuild` open their own, or join the `atomically` open
+ * now (a command's).
  */
 export const createProjections = (sql: Sql, transaction: Transaction, clock: () => Date) => {
   const projectors: Projector[] = [];
