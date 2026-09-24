@@ -49,7 +49,11 @@ describe("the scripted environment", () => {
             name: "desk",
             reach: "local",
             sessions: [{ title: "Gone" }],
-            receipts: { "sessions.archive": { rejected: "not_found", message: "No such session." }, "sessions.pin": "accepted" },
+            receipts: {
+              "sessions.archive": { rejected: "not_found", message: "No such session." },
+              "sessions.pin": "accepted",
+              "access.sessions.setCeiling": { rejected: "forbidden", message: "Not that one." },
+            },
           },
         ],
       },
@@ -69,9 +73,15 @@ describe("the scripted environment", () => {
     const sessionId = "0199aa00-0000-4000-8000-000000000001";
     const archive = await send("r1", "sessions.archive", { commandId: "0199aa00-0000-7000-8000-0000000000a1", sessionId });
     const pin = await send("r2", "sessions.pin", { commandId: "0199aa00-0000-7000-8000-0000000000a2", sessionId });
+    const ceiling = await send("r3", "access.sessions.setCeiling", {
+      commandId: "0199aa00-0000-7000-8000-0000000000a3",
+      clientSessionId: "0199cc00-0000-7000-8000-000000000001",
+      ceiling: "plan",
+    });
     socket.close();
     expect(archive.result).toMatchObject({ receipt: { status: "rejected", reason: "not_found", error: { message: "No such session." } } });
     expect(pin.result).toMatchObject({ receipt: { status: "accepted" } });
+    expect(ceiling.result).toMatchObject({ receipt: { status: "rejected", reason: "forbidden", error: { message: "Not that one." } } });
   });
 
   it("says bye with any reason", async () => {

@@ -56,7 +56,11 @@ export interface ScriptedEnvironment {
   readonly groups?: readonly Partial<Group>[];
   /** What `access.sessions.list` lists besides this terminal's own client session. */
   readonly clientSessions?: readonly Partial<ClientSessionRow>[];
-  /** How each command method is answered: preset accepted. */
+  /**
+   * How each method named is answered: preset accepted. A command's
+   * rejection is its receipt; a query's (`access.sessions.list`) is an
+   * error response with the reason as its code.
+   */
   readonly receipts?: Readonly<Record<string, ScriptedReceipt>>;
   /** How the pairing exchange answers: preset it accepts any code. */
   readonly pairing?: ScriptedPairingRefusal;
@@ -216,6 +220,10 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
   const others = (spec.clientSessions ?? []).map((c, i) => clientSessionOf(clock, c, i));
   const revoked = new Set<string>();
   wire.answer("access.sessions.list", (params) => {
+    const refusal = spec.receipts?.["access.sessions.list"];
+    if (refusal !== undefined && refusal !== "accepted") {
+      return { error: { code: refusal.rejected, message: refusal.message ?? `Rejected: ${refusal.rejected}.`, data: {} } };
+    }
     const own = wire.credential();
     const listed: ClientSessionRow[] = [
       ...others,
@@ -264,9 +272,10 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
       ceiling: Ceiling.parse("bypassPermissions"),
     });
   });
-  // Every other scripted command answers its receipt alone, as a retry answered from a stored receipt does.
+  // Every other scripted command, `access.*` ones included, answers its receipt alone, as a retry answered from a stored receipt does.
+  const ownResponders = new Set(["access.sessions.list", "access.sessions.revoke", "access.pairings.create"]);
   for (const method of Object.keys(spec.receipts ?? {})) {
-    if (method.startsWith("access.")) continue;
+    if (ownResponders.has(method)) continue;
     wire.answer(method, () => receiptFor(method) ?? { result: { receipt: { status: "accepted", sequence: ++sequence, changed: true } } });
   }
 

@@ -157,6 +157,14 @@ describe("/environment", () => {
     await app.waitFor("Revoking David's MacBook on laptop was rejected: No such client session.");
   });
 
+  it("says why when the environment refuses to list its client sessions", async () => {
+    const app = await twoEnvironments({ receipts: { "access.sessions.list": { rejected: "unavailable", message: "The access tables are rebuilding." } } });
+    await app.waitFor("● desk ready");
+    await openActions(app, 1);
+    await app.press(KEY.down, KEY.down, KEY.down, KEY.enter);
+    await app.waitFor("Cannot list the client sessions on laptop: The access tables are rebuilding.");
+  });
+
   it("answers absent with the reason when the client session lacks admin", async () => {
     const app = await twoEnvironments({ scopes: SCOPES.filter((s) => s !== "admin") });
     await app.waitFor("● desk ready");
