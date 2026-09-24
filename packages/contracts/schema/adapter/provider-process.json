@@ -1,0 +1,160 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ProviderProcess",
+  "type": "object",
+  "properties": {
+    "sessionId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "A session's id: a version 4 UUID the creating client mints (never the provider's resume id), kept in lowercase."
+    },
+    "provider": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$",
+      "description": "A provider's id, as the environment's adapter registry keys it: lowercase letters, digits and hyphens (claude)."
+    },
+    "state": {
+      "type": "string",
+      "enum": [
+        "starting",
+        "idle",
+        "busy",
+        "parked",
+        "stopping",
+        "stopped"
+      ],
+      "description": "A provider process's state: starting (its first turn has begun, the provider has not answered yet), idle (no turn), busy (a turn running), parked (a turn waiting on a raised prompt), stopping, stopped."
+    },
+    "runId": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+          "description": "A run's id: a version 4 UUID the environment mints when the run starts or is adopted."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The run live on the process; null when it has no turn."
+    },
+    "startedAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+      "description": "When the process was started, by its session's first run after a cold start."
+    },
+    "lastBusyAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+      "description": "When a turn last started or ended on it."
+    },
+    "parkedSince": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+          "description": "An instant as an ISO 8601 UTC timestamp."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "When its turn parked on a prompt, while parked; else null."
+    },
+    "holds": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "task",
+              "schedule"
+            ],
+            "description": "What holds an idle provider process from its idle stop: task (a live background task), schedule (a schedule registered in its session)."
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The task's or schedule's id, in the provider's terms."
+          }
+        },
+        "required": [
+          "kind",
+          "id"
+        ],
+        "description": "One piece of held work keeping an idle provider process from its idle stop."
+      },
+      "description": "The held work keeping it from its idle stop, oldest first."
+    },
+    "stopsAt": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+          "description": "An instant as an ISO 8601 UTC timestamp."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "When it stops if nothing changes: providers.processIdleMinutes after it went idle with no held work, or after it parked; null while busy, starting, held, stopping or stopped."
+    },
+    "stoppedAt": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+          "description": "An instant as an ISO 8601 UTC timestamp."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "When it stopped; null until then."
+    },
+    "stopReason": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "idle",
+            "parked",
+            "deleted",
+            "admin",
+            "drain",
+            "closed",
+            "failed"
+          ],
+          "description": "Why a provider process stopped: idle (idle for providers.processIdleMinutes with no held work), parked (parked on a prompt as long; its run ended interrupted, cause parked), deleted (its session was deleted), admin (providers.processes.stop), drain (the environment drained), closed (the environment closed), failed (its run failed and the environment ended it)."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Why it is stopping or stopped; null until then."
+    }
+  },
+  "required": [
+    "sessionId",
+    "provider",
+    "state",
+    "runId",
+    "startedAt",
+    "lastBusyAt",
+    "parkedSince",
+    "holds",
+    "stopsAt",
+    "stoppedAt",
+    "stopReason"
+  ],
+  "description": "A provider process the environment runs for one session: its state, its live run, its held work and when it stops."
+}

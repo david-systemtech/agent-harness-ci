@@ -6,6 +6,8 @@ import {
   type IssueInput,
   type MessageDeliveredPayload,
   type MessageRequeuedPayload,
+  type ProcessStopReason,
+  type ProviderProcess,
   type RunEndedPayload,
   type RunStartedPayload,
   type Workspace,
@@ -34,6 +36,7 @@ import type {
   RunEnd,
   UsageReading,
 } from "./contract.js";
+import { createProcessPool } from "./pool.js";
 import { createAdapterRegistry, type AdapterRegistry } from "./registry.js";
 import { createScopedAppend, type ScopedAppend } from "./scoped-append.js";
 import {
@@ -83,10 +86,19 @@ export interface AdapterHostOptions {
   readonly clampMode?: ModeClamp;
   /** How long an account's status or model probe may take before it counts as failed, so a hung probe cannot hang startup. Preset: `PROBE_TIMEOUT_MS`. */
   readonly probeTimeoutMs?: number;
+  /**
+   * The idle time of a provider process, in minutes (`providers.processIdleMinutes`),
+   * read each time a wait begins. Preset: the setting's preset, until the
+   * settings store (#117) and the key's registration (#134) supply it.
+   */
+  readonly processIdleMinutes?: () => number;
 }
 
 /** How long an account's status or model probe may take before the host gives up on it. */
 export const PROBE_TIMEOUT_MS = 5_000;
+
+/** How long closing waits for the provider processes to stop before it goes on without them. */
+export const PROCESS_STOP_TIMEOUT_MS = 10_000;
 
 /** A live run as the host reports it. */
 export interface ActiveRun {
@@ -128,12 +140,35 @@ export interface AdapterHost {
   usage(accountId: string): Promise<UsageReading>;
   /** The slash commands for an account and workspace (`commands`). */
   commands(accountId: string, workspace: Workspace): Promise<readonly ProviderCommand[]>;
-  /** Ends every live run (`disposed`, or `drained` when a drain's cap cut it) and stops taking events: the environment is closing. */
-  close(reason: "disposed" | "drained"): void;
+  /** The adapters' descriptors, one per provider (`providers.list`). */
+  providers(): readonly AdapterDescriptor[];
+  /** The provider processes (`providers.processes.*`). */
+  readonly processes: {
+    list(): ProviderProcess[];
+    /** Whether the session has a process that is not stopping or stopped. */
+    running(sessionId: string): boolean;
+    /** Stops the session's process for an admin: a run live on it ends `interrupted`, cause `user`. */
+    stop(sessionId: string): void;
+  };
+  /** The environment drains: every idle process stops now, and every busy one as its turn ends. */
+  drain(): void;
+  /**
+   * Ends every live run (`disposed`, or `drained` when a drain's cap cut it),
+   * stops taking events, and stops every provider process; resolves once they
+   * have stopped, or `PROCESS_STOP_TIMEOUT_MS` on. The environment is closing.
+   */
+  close(reason: "disposed" | "drained"): Promise<void>;
 }
 
 /** The host's own actor, for the run events it decides on itself: an end it appends, a run it starts from the queue. */
 export const HOST_ACTOR = formatActor({ kind: "system", id: "adapter-host" });
+
+/** `message.requeued` for each message of `runId`: the environment holds it now (ADR 0022). Always the host's. */
+export const requeuedEvents = (runId: string, messageIds: readonly string[]): EventInput[] =>
+  messageIds.map((messageId): EventInput => {
+    const payload: MessageRequeuedPayload = { runId, messageId };
+    return { type: "message.requeued", payload };
+  });
 
 /** An account as the host holds it once its probe has answered. */
 interface HeldAccount {
@@ -157,11 +192,13 @@ interface LiveRun {
   /**
    * Set when its `run.ended` could not be appended: the run stays live in
    * the run registry and to the run methods, as the log still says it is,
-   * until a restart's recovery sweep (#120) ends it.
+   * until a restart's recovery sweep (`recovery.ts`) ends it.
    */
   unrecorded: boolean;
   running: boolean;
   interrupting: boolean;
+  /** How many of its prompts the broker has not answered yet: while any is open, the run is parked. */
+  prompts: number;
 }
 
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
@@ -217,10 +254,30 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
    * The bytes of the attachments of messages sent during a run, whoever
    * holds them, until a run reads them (`message.delivered`, or the start of
    * a run of the environment's queue): an interrupt may hand a provider-held
-   * message back. They are never logged, and not kept across a restart (#120).
+   * message back. They are never logged, and not kept across a restart: a
+   * message the recovery sweep hands back is read by its text alone.
    */
   const heldAttachments = new Map<string, readonly AttachmentData[]>();
   let closing = false;
+
+  /**
+   * The provider processes (`pool.ts`): a run begins, answers, parks and ends
+   * on its session's process; the host stops the process with every run it
+   * ends itself, and ends the run of a process parked too long.
+   */
+  const pool = createProcessPool({
+    clock,
+    ...(options.processIdleMinutes !== undefined && { idleMinutes: options.processIdleMinutes }),
+    stopProcess: (sessionId, provider) => {
+      const adapter = adapters.get(provider);
+      if (adapter === undefined) throw new Error(`No adapter serves the provider ${provider}.`);
+      return adapter.stopProcess(sessionId);
+    },
+    onParkedTooLong: (sessionId) => {
+      const entry = live.get(sessionId);
+      if (entry !== undefined && !entry.ended) finish(entry, { type: "end", reason: "interrupted", cause: "parked" }, "host", "parked");
+    },
+  });
 
   const refOf = (account: HostAccount): AccountRef => ({ id: account.id, directory: account.directory ?? null });
 
@@ -282,17 +339,10 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     if (events.length > 0) log.append(sessionStream(sessionId), events, { actor, correlationId: runId });
   };
 
-  /** `message.requeued` for each message: the environment holds it now (ADR 0022). Always the host's. */
-  const requeued = (runId: string, messageIds: readonly string[]): EventInput[] =>
-    messageIds.map((messageId): EventInput => {
-      const payload: MessageRequeuedPayload = { runId, messageId };
-      return { type: "message.requeued", payload };
-    });
-
   /** Takes back into the environment's queue the messages of `runId` that the provider still holds, of `messageIds` or all. */
   const requeue = (sessionId: string, runId: string, messageIds?: readonly string[]): void => {
     const held = providerHeld(reader, sessionId, runId).filter((messageId) => messageIds === undefined || messageIds.includes(messageId));
-    append(sessionId, runId, HOST_ACTOR, requeued(runId, held));
+    append(sessionId, runId, HOST_ACTOR, requeuedEvents(runId, held));
   };
 
   const startFacts = (sessionId: string, ceiling: string): StartFacts => {
@@ -328,18 +378,23 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
    * owed: a turn the provider opened meanwhile, or the environment's queue
    * after a run that completed or failed.
    *
+   * The run's process goes with it (`pool.ts`): a released run leaves it
+   * idle, a disposed one stops it for `stop`'s reason (preset `failed`: its
+   * adapter failed it), so the next run starts cold.
+   *
    * If the end cannot be appended, the log still says the run is live, and
    * so does the host: the run stays in the run registry and the session
    * keeps it as its live run (a start is `run_active`) until a restart's
-   * recovery sweep (#120) ends it; the failure is logged loudly, and the
-   * adapter's run is let go as it would have been.
+   * recovery sweep (`recovery.ts`) ends it; the failure is logged loudly,
+   * and the adapter's run and its process are let go as they would have been.
    */
   const finish = (
     entry: LiveRun,
     end: RunEnd | { readonly type: "end"; readonly reason: "disposed" | "drained" },
     by: "adapter" | "host",
-    letGo: "dispose" | "release" = by === "host" || end.reason === "disposed" || end.reason === "drained" ? "dispose" : "release",
+    stop: ProcessStopReason = "failed",
   ): void => {
+    const letGo = by === "host" || end.reason === "disposed" || end.reason === "drained" ? "dispose" : "release";
     if (entry.ended) return;
     entry.ended = true;
     const reason = end.reason;
@@ -356,8 +411,13 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       resultText: full.resultText ?? null,
     };
     const letRunGo = (): void => {
-      if (letGo === "dispose") safely(() => entry.run?.dispose(), (e) => console.error(`Disposing run ${entry.runId} failed:`, e));
-      else safely(() => entry.run?.release(), (e) => console.error(`Releasing run ${entry.runId} failed:`, e));
+      if (letGo === "dispose") {
+        safely(() => entry.run?.dispose(), (e) => console.error(`Disposing run ${entry.runId} failed:`, e));
+        void pool.stop(entry.sessionId, stop);
+      } else {
+        safely(() => entry.run?.release(), (e) => console.error(`Releasing run ${entry.runId} failed:`, e));
+        pool.end(entry.sessionId, entry.runId);
+      }
     };
     try {
       log.atomically(() => {
@@ -404,7 +464,8 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
         }
         if (!entry.running) {
           entry.running = true;
-          registry.running(entry.runId);
+          if (entry.prompts === 0) registry.running(entry.runId);
+          pool.answered(entry.sessionId, entry.runId);
         }
         entry.append(event);
       }
@@ -414,8 +475,32 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     }
   };
 
+  /**
+   * The broker as a run is handed it: the run counts as parked, in the run
+   * registry the idle rule reads and on its process, from its first
+   * unanswered prompt until its last is answered.
+   */
+  const brokerFor = (entry: LiveRun): PermissionBroker => ({
+    request: async (request) => {
+      const parks = !entry.ended;
+      if (parks && ++entry.prompts === 1) {
+        registry.park(entry.runId);
+        pool.park(entry.sessionId, entry.runId);
+      }
+      try {
+        return await broker.request(request);
+      } finally {
+        if (parks && --entry.prompts === 0 && !entry.ended) {
+          registry.resume(entry.runId);
+          pool.unpark(entry.sessionId, entry.runId);
+        }
+      }
+    },
+  });
+
   const contextFor = (entry: LiveRun): RunContext => ({
-    broker,
+    broker: brokerFor(entry),
+    process: pool.port(entry.sessionId),
     adopt: (turn) => adopt(entry.plan, turn),
   });
 
@@ -442,10 +527,12 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       unrecorded: false,
       running: false,
       interrupting: false,
+      prompts: 0,
     };
     // Admitted first: a drain that refuses it leaves no live entry behind.
     registry.start(plan.runId);
     live.set(plan.sessionId, entry);
+    pool.begin(plan.sessionId, descriptor.provider, plan.runId);
     try {
       entry.run = create(entry);
     } catch (error) {
@@ -602,7 +689,8 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     if (event.type !== "session.deleted") return;
     dropAdoptions(event.streamId);
     const entry = live.get(event.streamId);
-    if (entry !== undefined) finish(entry, { type: "end", reason: "disposed" }, "host");
+    if (entry !== undefined) finish(entry, { type: "end", reason: "disposed" }, "host", "deleted");
+    void pool.stop(event.streamId, "deleted");
   });
 
   /**
@@ -700,7 +788,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
         (error) => {
           // The adapter could not interrupt: the host ends the run itself, interrupted as asked, and disposes it.
           console.error(`Interrupting run ${runId} failed; the host ends it:`, error);
-          finish(entry, { type: "end", reason: "interrupted", cause: "user" }, "host");
+          finish(entry, { type: "end", reason: "interrupted", cause: "user" }, "host", "failed");
         },
       );
     },
@@ -721,12 +809,30 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       const list = capability(held.adapter.descriptor, "commands", held.adapter.commands, "list commands");
       return list.call(held.adapter, refOf(held.config), workspace);
     },
-    close(reason) {
+    providers: () => adapters.list().map((adapter) => adapter.descriptor),
+    processes: {
+      list: () => pool.list(),
+      running: (sessionId) => pool.running(sessionId),
+      stop(sessionId) {
+        const entry = live.get(sessionId);
+        // A person stopped the process under the run: the run ends interrupted, as runs.interrupt would end it.
+        if (entry !== undefined && !entry.ended) finish(entry, { type: "end", reason: "interrupted", cause: "user" }, "host", "admin");
+        void pool.stop(sessionId, "admin");
+      },
+    },
+    drain: () => pool.drain(),
+    async close(reason) {
       if (closing) return;
       closing = true;
       unsubscribe();
-      for (const entry of [...live.values()]) finish(entry, { type: "end", reason }, "host");
+      const stop: ProcessStopReason = reason === "drained" ? "drain" : "closed";
+      for (const entry of [...live.values()]) finish(entry, { type: "end", reason }, "host", stop);
       for (const sessionId of [...adoptions.keys()]) dropAdoptions(sessionId);
+      try {
+        await withTimeout(() => pool.close(stop), PROCESS_STOP_TIMEOUT_MS, "Stopping the provider processes");
+      } catch (error) {
+        console.error("The provider processes did not all stop; the environment closes without them:", error);
+      }
     },
   };
 };

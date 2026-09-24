@@ -44,6 +44,7 @@ import {
   sessionsUntag,
 } from "./methods/sessions.js";
 import { runsInterrupt, runsSend, runsStart, runsStopTask } from "./methods/runs.js";
+import { providersList, providersProcessesList, providersProcessesStop } from "./methods/providers.js";
 
 /**
  * Every method the environment answers, in one typed table: the environment's
@@ -92,6 +93,9 @@ export const methods = [
   runsSend,
   runsInterrupt,
   runsStopTask,
+  providersList,
+  providersProcessesList,
+  providersProcessesStop,
 ] as const;
 
 type Registered = (typeof methods)[number];

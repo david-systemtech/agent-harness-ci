@@ -7,6 +7,7 @@ import type {
   InterruptCause,
   JsonObject,
   ModelUsage,
+  ProcessHoldKind,
   RunError,
   TranscriptPayload,
   Workspace,
@@ -237,9 +238,18 @@ export interface AdapterRun {
   answerPrompt?(promptId: string, decision: PromptDecision): void | Promise<void>;
   /** Stops one piece of delegated work (`subagents`). */
   stopTask?(taskId: string): void | Promise<void>;
-  /** Stops the run now: the host has ended it already (`disposed`, `drained`), and appends nothing more of it. */
+  /**
+   * Stops the run now: the host has ended it already (`disposed`, `drained`,
+   * and every end of its own), and appends nothing more of it. The pool then
+   * stops the session's process too (`Adapter.stopProcess`), so the next run
+   * starts cold.
+   */
   dispose(): void | Promise<void>;
-  /** The host is done with an ended run: the adapter may keep its provider process for the next (the pool, #120) or let it go. */
+  /**
+   * The host is done with a run its adapter ended: the adapter keeps the
+   * session's provider process for the next run, until the pool stops it
+   * (`Adapter.stopProcess`).
+   */
   release(): void;
 }
 
@@ -248,10 +258,30 @@ export interface ProviderTurn extends AdapterRun {
   readonly messageIds: readonly string[];
 }
 
+/**
+ * The port through which an adapter tells the pool (`pool.ts`) what holds
+ * the session's provider process from its idle stop (Artemis's retention
+ * rule): a live background task or a schedule registered in the session,
+ * each under its id. A hold outlives the run that took it: the port stays
+ * valid for the life of the process it was handed with, and does nothing
+ * once that process has stopped. Holding what is held already, or letting
+ * go what is not, changes nothing.
+ */
+export interface ProcessPort {
+  hold(kind: ProcessHoldKind, id: string): void;
+  unhold(kind: ProcessHoldKind, id: string): void;
+}
+
 /** What the host hands a run beside its input. */
 export interface RunContext {
-  /** Where the run's prompts go: the auto-deny placeholder until #130. */
+  /**
+   * Where the run's prompts go: the auto-deny placeholder until #130. The
+   * host hands the run the broker wrapped, so the run counts as parked
+   * while a request is unanswered.
+   */
   readonly broker: PermissionBroker;
+  /** Held work on the session's provider process (the pool's port). */
+  readonly process: ProcessPort;
   /**
    * The adoption hook: a turn the provider opened on its own is reported
    * here, and the host registers it as a run of the same session once the
@@ -265,6 +295,12 @@ export interface RunContext {
  * with the live run; any start-up it needs happens behind its event stream.
  * `status` is the probe the host reads each account's sign-in state and
  * identity with; `models` the catalogue it validates models against.
+ *
+ * The provider process a session's runs share is the environment's to start
+ * and stop (ADR 0015), through the pool: `createRun` starts the session's
+ * process when it has none and reuses it otherwise; `stopProcess` stops it.
+ * The pool never runs two runs of one session at once, and pre-warms
+ * nothing: after a stop, the next `createRun` starts cold.
  */
 export interface Adapter {
   readonly descriptor: AdapterDescriptor;
@@ -272,6 +308,12 @@ export interface Adapter {
   status(account: AccountRef): Promise<AuthStatus>;
   models(account: AccountRef): Promise<ModelCatalogue>;
   createRun(input: RunInput, context: RunContext): AdapterRun;
+  /**
+   * Stops the session's provider process, whichever it holds at the call; a
+   * `createRun` after the call starts a new one. Idempotent: a session with
+   * no process is a no-op. Resolves once the process has stopped.
+   */
+  stopProcess(sessionId: string): void | Promise<void>;
   /** Plan usage per window, with the account's identity (`planUsage`). */
   usage?(account: AccountRef): Promise<UsageReading>;
   /** The slash commands for an account and workspace, spending no tokens (`commands`). */

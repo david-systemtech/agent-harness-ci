@@ -34,6 +34,8 @@ import { createRateLimiter } from "../auth/rate-limit.js";
 import { formatActor, openEventLog, type EventLog, type Projector } from "../event-log/event-log.js";
 import type { Adapter } from "../adapter/contract.js";
 import { createAdapterHost, type AdapterHost, type HostAccount } from "../adapter/host.js";
+import { processMethods } from "../adapter/processes-methods.js";
+import { recoverCutRuns } from "../adapter/recovery.js";
 import type { InstructionComposer, ModeClamp, ToolServerFactory } from "../adapter/seams.js";
 import type { PermissionBroker } from "../adapter/contract.js";
 import { runMethods } from "../runs/run-methods.js";
@@ -154,6 +156,12 @@ export interface EnvironmentOptions {
   readonly accounts?: readonly HostAccount[];
   /** The account a session with none of its own runs on. Preset: the first account. */
   readonly defaultAccountId?: string;
+  /**
+   * The idle time of a provider process, in minutes: `providers.processIdleMinutes`,
+   * read each time a wait begins. Preset: the setting's preset (30). The
+   * settings store (#117) will supply it once the key is registered (#134).
+   */
+  readonly processIdleMinutes?: () => number;
   /** The adapter host's seams other workstreams fill; each has a preset (`adapter/seams.ts`). */
   readonly adapterSeams?: {
     readonly toolServers?: ToolServerFactory;
@@ -309,6 +317,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
 
   // The adapter host: the adapters, the accounts' sign-in states read through their probes, the run registry.
   const host: AdapterHost = await step("adapter-host", async () => {
+    // First the recovery sweep: a run the log left without an end was cut by the last stop, and is ended before anything can read it.
+    const recovered = recoverCutRuns({ log, clock });
+    if (recovered.length > 0) console.error(`The recovery sweep ended ${recovered.length} run(s) a restart cut: ${recovered.join(", ")}.`);
     const created = createAdapterHost({
       log,
       clock,
@@ -316,9 +327,11 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       ...(options.adapters !== undefined && { adapters: options.adapters }),
       ...(options.accounts !== undefined && { accounts: options.accounts }),
       ...(options.defaultAccountId !== undefined && { defaultAccountId: options.defaultAccountId }),
+      ...(options.processIdleMinutes !== undefined && { processIdleMinutes: options.processIdleMinutes }),
       ...options.adapterSeams,
     });
-    // Closed before the event log, so a run the close ends has its end appended: drained when a drain's cap cut it.
+    // Closed before the event log, so a run the close ends has its end appended (drained when a drain's cap cut it), and
+    // before the launcher's channel, so the launcher hears the environment go only once every provider process has stopped.
     closers.push(() => created.close(readiness === "draining" ? "drained" : "disposed"));
     await created.refresh();
     return created;
@@ -355,7 +368,11 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     stream: environmentStream,
     updatesManagedOutside: detector.inContainer() && !launcher.present(),
     readiness: () => readiness,
-    onDraining: () => void (readiness = "draining"),
+    onDraining: () => {
+      readiness = "draining";
+      // Idle provider processes stop now, busy ones as their turns end.
+      host.drain();
+    },
     close: () => close(),
   });
   const table = createMethodTable({
@@ -370,6 +387,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ...sessionMethods({ log, clock: now, deletion, validateRunParameters: host.validateSessionInput }),
     ...groupMethods({ log, clock: now }),
     ...runMethods({ log, host }),
+    ...processMethods({ log, host }),
   });
 
   // The two exchanges and the wire are routed before the bind; all three refuse work until the gate below.
