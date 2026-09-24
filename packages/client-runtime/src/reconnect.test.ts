@@ -1,4 +1,5 @@
-import { PROTOCOL_VERSION } from "@agent-harness/contracts";
+import { PROTOCOL_VERSION, type BootstrapGrant } from "@agent-harness/contracts";
+import { LOCAL_PLACEHOLDER_ID } from "./connections/records.js";
 import { describe, expect, it, onTestFinished } from "vitest";
 import type { InternalOptions } from "./internal.js";
 import { createRuntimeWithSeams } from "./internal.js";
@@ -270,7 +271,7 @@ describe("the network signal", () => {
     const { wire, clock, platform, runtime } = await paired();
     platform.network.setForeground(false);
     platform.network.setForeground(true);
-    expect(await wire.server.expect("request")).toMatchObject({ method: "environment.status" });
+    expect(await wire.server.request("environment.status")).toMatchObject({ method: "environment.status" });
     await flush();
     clock.advance(10_000);
     await flush();
@@ -634,10 +635,12 @@ describe("hello", () => {
     expect(runtime.projections.notices.read()).toEqual([]);
   });
 
-  it("is ready on hello alone, before any stream is attached", async () => {
+  it("is ready on hello once the session list has answered, even with a refusal: a stream fault is never a phase", async () => {
+    // The fake answers every method it has no responder for `not_found`, the two subscriptions included.
     const { wire, runtime } = await paired();
-    expect(wire.server.received().filter((frame) => frame.type === "request")).toEqual([]);
+    expect(wire.server.received().flatMap((frame) => (frame.type === "request" ? [frame.method] : []))).toEqual(["sessions.subscribe", "environment.subscribe"]);
     expect(record(runtime).phase).toBe("ready");
+    expect(runtime.projections.sessionList.read().environments).toEqual([{ environmentId: wire.environmentId, freshness: "empty", fault: expect.any(String) }]);
   });
 });
 
@@ -756,6 +759,158 @@ describe("the local environment", () => {
     expect(record(runtime)).toMatchObject({ phase: "ready", action: null });
   });
 
+  it("on a first launch with nothing listening lists this machine as service-down, polls on the ladder, and brings the environment in under its own id once startService starts it", async () => {
+    const clock = manualClock();
+    const wire = fakeWire({ clock, name: "desk" });
+    wire.discovery("unreachable");
+    // No grant file until the service runs: starting it writes one and the environment answers.
+    let running = false;
+    const grant = { read: async (): Promise<BootstrapGrant | undefined> => (running ? wire.grant.read() : undefined) };
+    const fake = fakeShell();
+    const shell = {
+      ...fake,
+      service: {
+        ...fake.service,
+        start: async () => {
+          await fake.service.start();
+          running = true;
+          wire.discovery({});
+        },
+      },
+    };
+    const platform = (documents?: ReturnType<typeof inMemoryPlatform>["documents"]) =>
+      inMemoryPlatform({ clock, kind: "tui", grant, shell, fetch: wire.fetch, webSocket: wire.webSocket, ...(documents && { documents }) });
+
+    const first = platform();
+    const { runtime } = createRuntimeWithSeams(first);
+    onTestFinished(() => runtime.close());
+    await runtime.start();
+    expect(runtime.local.read()).toMatchObject({ state: "failed", reason: "service-down" });
+    expect(record(runtime)).toMatchObject({ environmentId: LOCAL_PLACEHOLDER_ID, kind: "local", phase: "service-down", action: "service.start" });
+    expect(view(runtime)).toMatchObject({ environmentId: LOCAL_PLACEHOLDER_ID, kind: "local", primary: true, name: null, phase: "service-down", action: "service.start" });
+    expect(runtime.capability(LOCAL_PLACEHOLDER_ID, "sessions.archive")).toEqual({
+      status: "absent",
+      reason: "unreachable",
+      message: expect.stringContaining("service is not running"),
+    });
+    await expect(runtime.connections.remove(LOCAL_PLACEHOLDER_ID)).rejects.toThrow(/disable it instead/);
+
+    // Polled on the ladder: each failure waits the next rung.
+    const delay = untilRetry(runtime, clock.now());
+    expect(delay).toBeGreaterThanOrEqual(1000);
+    expect(delay).toBeLessThanOrEqual(1250);
+    clock.advance(delay);
+    await flush();
+    expect(record(runtime)).toMatchObject({ environmentId: LOCAL_PLACEHOLDER_ID, phase: "service-down" });
+    expect(untilRetry(runtime, clock.now())).toBeGreaterThanOrEqual(2000);
+
+    // Nothing of it is kept: a runtime started again on the same storage lists the placeholder again, not an environment.
+    const again = createRuntimeWithSeams(platform(first.documents)).runtime;
+    onTestFinished(() => again.close());
+    await again.start();
+    expect(record(again)).toMatchObject({ environmentId: LOCAL_PLACEHOLDER_ID, phase: "service-down" });
+    await again.close();
+
+    const startingService = runtime.connections.startService(LOCAL_PLACEHOLDER_ID);
+    await wire.server.accept();
+    await startingService;
+    expect(fake.calls).toContainEqual(["service.start", undefined]);
+    // The same one entry, now the environment itself.
+    expect(record(runtime)).toMatchObject({ environmentId: wire.environmentId, kind: "local", phase: "ready", action: null, descriptor: expect.objectContaining({ name: "desk" }) });
+    expect(view(runtime)).toMatchObject({ environmentId: wire.environmentId, name: "desk", primary: true });
+    expect(runtime.local.read()).toEqual({ state: "exchanged", environmentId: wire.environmentId });
+
+    // Seen once, it is remembered: with the service down again the next start lists it, never the placeholder.
+    await runtime.close();
+    running = false;
+    wire.discovery("unreachable");
+    const later = createRuntimeWithSeams(platform(first.documents)).runtime;
+    onTestFinished(() => later.close());
+    await later.start();
+    expect(record(later)).toMatchObject({ environmentId: wire.environmentId, phase: "service-down", action: "service.start" });
+  });
+
+  it("on a first launch lists this machine while the grant's address answers nothing, and the environment once it answers, carrying the ladder", async () => {
+    const clock = manualClock();
+    const wire = fakeWire({ clock, name: "desk" });
+    wire.discovery("unreachable");
+    const { runtime } = createRuntimeWithSeams(inMemoryPlatform({ clock, kind: "tui", grant: wire.grant, fetch: wire.fetch, webSocket: wire.webSocket }));
+    onTestFinished(() => runtime.close());
+    await runtime.start();
+    expect(record(runtime)).toMatchObject({ environmentId: LOCAL_PLACEHOLDER_ID, phase: "service-down", action: "service.start" });
+
+    clock.advance(untilRetry(runtime, clock.now()));
+    await flush();
+    const second = untilRetry(runtime, clock.now());
+    expect(second).toBeGreaterThanOrEqual(2000);
+
+    // It answers, but is still starting: the environment is listed under its own id at once, polled while it starts.
+    wire.discovery({ readiness: "starting" });
+    clock.advance(second);
+    await flush();
+    expect(record(runtime)).toMatchObject({ environmentId: wire.environmentId, kind: "local", phase: "starting", descriptor: expect.objectContaining({ name: "desk" }) });
+
+    // Its machine goes on from the placeholder's rung: a third failure waits the third rung, not the first.
+    wire.discovery("unreachable");
+    clock.advance(untilRetry(runtime, clock.now()));
+    await flush();
+    expect(record(runtime)).toMatchObject({ environmentId: wire.environmentId, phase: "service-down", action: "service.start" });
+    expect(untilRetry(runtime, clock.now())).toBeGreaterThanOrEqual(4000);
+
+    wire.discovery({});
+    clock.advance(untilRetry(runtime, clock.now()));
+    await wire.server.accept();
+    await flush();
+    expect(record(runtime)).toMatchObject({ environmentId: wire.environmentId, phase: "ready" });
+    expect(runtime.local.read()).toEqual({ state: "exchanged", environmentId: wire.environmentId });
+  });
+
+  it("puts the environment that replaces the placeholder first in the very publication that lists it, ahead of a paired one", async () => {
+    const clock = manualClock();
+    const local = fakeWire({ clock, name: "desk" });
+    const remote = fakeWire({ clock, name: "laptop", address: { host: "laptop.test", port: 7433 } });
+    const route = (url: string) => (url.includes("laptop.test") ? remote : local);
+    local.discovery("unreachable");
+    const { runtime } = createRuntimeWithSeams(
+      inMemoryPlatform({
+        clock,
+        kind: "tui",
+        grant: local.grant,
+        fetch: (url, request) => route(url).fetch(url, request),
+        webSocket: (url, handlers) => route(url).webSocket(url, handlers),
+      }),
+    );
+    onTestFinished(() => runtime.close());
+    await runtime.start();
+    const adding = runtime.connections.add({ link: remote.link });
+    await remote.server.accept();
+    await adding;
+    expect(runtime.connections.list.read().map((r) => r.environmentId)).toEqual([LOCAL_PLACEHOLDER_ID, remote.environmentId]);
+
+    const orders: string[][] = [];
+    runtime.connections.list.subscribe((list) => orders.push(list.map((r) => r.environmentId)));
+    // It answers, still starting: listed under its own id, and first from the first publication that lists it.
+    local.discovery({ readiness: "starting" });
+    const retryAt = runtime.connections.list.read()[0]?.retryAt as string;
+    clock.advance(Date.parse(retryAt) - clock.now().getTime());
+    await flush();
+    await flush();
+    const listed = orders.filter((order) => order.includes(local.environmentId));
+    expect(listed.length).toBeGreaterThan(0);
+    for (const order of listed) expect(order).toEqual([local.environmentId, remote.environmentId]);
+  });
+
+  it("on a first launch whose environment answers starting lists it under its own id, never a placeholder", async () => {
+    const clock = manualClock();
+    const wire = fakeWire({ clock, name: "desk" });
+    wire.discovery({ readiness: "starting" });
+    const { runtime } = createRuntimeWithSeams(inMemoryPlatform({ clock, kind: "tui", grant: wire.grant, fetch: wire.fetch, webSocket: wire.webSocket }));
+    onTestFinished(() => runtime.close());
+    await runtime.start();
+    expect(runtime.local.read()).toMatchObject({ state: "failed", reason: "starting" });
+    expect(record(runtime)).toMatchObject({ environmentId: wire.environmentId, kind: "local", phase: "starting", descriptor: expect.objectContaining({ name: "desk" }) });
+  });
+
   it("startService starts the ladder over, so a service still coming up is tried again within a second", async () => {
     const shell = fakeShell();
     const { wire, clock, runtime } = await local({ shell });
@@ -813,14 +968,15 @@ describe("token refresh", () => {
   it("runs daily while connected once fewer than seven days remain, keeping the new token and its expiry", async () => {
     const { wire, clock, platform, runtime } = await paired();
     const first = await platform.secrets.get(wire.environmentId);
-    expect(wire.server.received().filter((f) => f.type === "request")).toEqual([]);
+    const refreshes = () => wire.server.received().filter((f) => f.type === "request" && f.method === "access.sessions.refresh");
+    expect(refreshes()).toEqual([]);
 
     for (let day = 1; day <= 23; day++) clock.advance(DAY);
     await flush();
-    expect(wire.server.received().filter((f) => f.type === "request")).toEqual([]);
+    expect(refreshes()).toEqual([]);
 
     clock.advance(DAY);
-    expect(await wire.server.expect("request")).toMatchObject({ method: "access.sessions.refresh", params: { commandId: expect.any(String) } });
+    expect(await wire.server.request("access.sessions.refresh")).toMatchObject({ params: { commandId: expect.any(String) } });
     await flush();
     const token = await platform.secrets.get(wire.environmentId);
     expect(token).not.toBe(first);
@@ -837,7 +993,7 @@ describe("token refresh", () => {
     clock.advance(25 * DAY);
     platform.network.setOnline(true);
     await wire.server.accept();
-    expect(await wire.server.expect("request")).toMatchObject({ method: "access.sessions.refresh" });
+    expect(await wire.server.request("access.sessions.refresh")).toMatchObject({ method: "access.sessions.refresh" });
   });
 
   it("left unanswered, holds up neither retryNow nor the socket", async () => {
@@ -851,7 +1007,7 @@ describe("token refresh", () => {
     const retrying = runtime.connections.retryNow(wire.environmentId);
     await wire.server.accept();
     await retrying;
-    expect(await wire.server.expect("request")).toMatchObject({ method: "access.sessions.refresh" });
+    expect(await wire.server.request("access.sessions.refresh")).toMatchObject({ method: "access.sessions.refresh" });
     expect(record(runtime)).toMatchObject({ phase: "ready", refreshFailed: null });
   });
 

@@ -10,7 +10,8 @@ import type { ConnectionAction } from "./state-machine.js";
  * record and token are never written down; only the local environment's
  * identity (`local.environment`: its id, address and descriptor) is kept, so
  * it stays listed, as `service-down`, on a start where the grant cannot be
- * exchanged.
+ * exchanged. A local environment never seen, on a first launch with nothing
+ * listening, is listed under `LOCAL_PLACEHOLDER_ID` until it answers.
  */
 
 export type ConnectionKind = "local" | "paired";
@@ -212,6 +213,21 @@ export const writePairedConnections = (saved: Iterable<[string, SavedConnection]
         },
       ]),
   );
+
+/**
+ * The id the local connection is listed under before the local environment
+ * has ever answered: a first launch with the grant reader finding no grant,
+ * or a grant whose address answers nothing, and nothing remembered. It is
+ * not an environment id (those are UUIDs), so it never meets a real one. The
+ * placeholder is `service-down` with the `service.start` action and retries
+ * the grant on the ladder; no request or subscription goes to it, and it is
+ * never saved. The first grant exchange or discovery document that names the
+ * environment replaces it with the environment's own record, in its place.
+ */
+export const LOCAL_PLACEHOLDER_ID = "local";
+
+/** What the placeholder's record calls the environment in the runtime's own lines; `projections.environments` shows its name as null. */
+export const LOCAL_PLACEHOLDER_NAME = "This machine's local environment";
 
 /** The document the local environment's identity is kept in; never its token or client session. */
 export const LOCAL_ENVIRONMENT_DOCUMENT = "local.environment";

@@ -40,6 +40,7 @@ export {
 } from "./shell.js";
 export {
   BLOCKED_REASONS,
+  LOCAL_PLACEHOLDER_ID,
   PREFERENCE_KEYS,
   type BlockedReason,
   type ClientPreferences,
@@ -63,3 +64,14 @@ export type { LocalFailureReason, LocalStatus } from "./bootstrap.js";
 export type { AbsentReason, CapabilityAnswer, CapabilityName } from "./capabilities.js";
 export type { EnvironmentView } from "./projections/environments.js";
 export { REQUEST_TIMEOUT_MS, type RequestAnswer, type RequestFailure, type RequestFailureCode, type Requests } from "./requests.js";
+export type {
+  HeadingMember,
+  ListFreshness,
+  MergedGroupHeading,
+  RepositoryHeading,
+  SessionListView,
+  SessionRow,
+  SessionShelves,
+} from "./projections/session-list.js";
+export type { Freshness } from "./streams/stream.js";
+export { SESSION_LINGER_MS, type SessionHandle, type SessionView } from "./streams/session-handles.js";

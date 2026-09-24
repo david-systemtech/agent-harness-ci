@@ -13,9 +13,10 @@ import {
   type RunEndedPayload,
   type RunPolicy,
   type RunStartedPayload,
+  type SessionTitleSetPayload,
   type Workspace,
 } from "@agent-harness/contracts";
-import { formatActor, type EventLog, type EventInput } from "../event-log/event-log.js";
+import { formatActor, type EventEnvelope, type EventLog, type EventInput } from "../event-log/event-log.js";
 import type { RunActor } from "../permissions/resolver.js";
 import { environmentQueue, latestRun, messageCeilings, providerHeld, providerSessionOf, readRun, readSessionFacts } from "../runs/run-reads.js";
 import {
@@ -29,10 +30,12 @@ import {
 } from "../runs/run-decider.js";
 import type { Clock } from "../serve/clock.js";
 import { createRunRegistry, type MemoryRunRegistry } from "../serve/run-registry.js";
+import { appendRunEvents } from "../sessions/activity-companions.js";
 import type { ProviderTranscripts } from "../sessions/deletion.js";
 import type { RunParameters, RunParametersCheck } from "../sessions/run-parameters.js";
 import type { Reader } from "../sessions/session-reads.js";
 import { sessionStream } from "../sessions/streams.js";
+import { recordProviderTitle } from "../sessions/titles.js";
 import { capability } from "./capabilities.js";
 import type {
   AccountRef,
@@ -48,6 +51,7 @@ import type {
   RunEnd,
   UsageReading,
 } from "./contract.js";
+import type { AttachmentStage } from "./attachment-stage.js";
 import { createProcessPool } from "./pool.js";
 import type { PromptDecision } from "./contract.js";
 import { createAdapterRegistry, type AdapterRegistry } from "./registry.js";
@@ -74,6 +78,14 @@ import {
  * run's scoped append and nothing else, and appends the run's one
  * `run.ended` on every path. A run belongs to the environment, not to the
  * client that started it: nothing a socket does ends one.
+ *
+ * Every `run.started` and `run.ended` it appends carries the companions it
+ * owes the session's organisation fields, in its transaction
+ * (`sessions/activity-companions.ts`). Titles go through it too: after a
+ * run ends it reads the provider's title when the adapter declares
+ * `titleRead` (`sessions/titles.ts` records it), and once a user title
+ * commits it mirrors it to the provider when the adapter of the session's
+ * latest run declares `titleWrite`, best effort and never read back.
  */
 
 /** An account the host serves runs through: its id, its provider, and its config directory. The account store (#134) will supply these. */
@@ -115,8 +127,19 @@ export interface AdapterHostOptions {
   readonly processIdleMinutes?: () => number;
   /** How long closing waits, on the clock, for the provider processes to stop before it kills the rest. Preset: `PROCESS_STOP_TIMEOUT_MS`. */
   readonly processStopTimeoutMs?: number;
-  /** Where the bytes of sent messages' attachments wait until a run reads them, by message id. Preset: a fresh in-memory map, lost on a restart; staging them durably is #185's. */
+  /**
+   * The bytes of queued messages' attachments the host starts with, by
+   * message id: what the recovery sweep read back from the stage
+   * (`recoverStagedAttachments`). Preset: a fresh map.
+   */
   readonly stagedAttachments?: Map<string, StagedAttachments>;
+  /**
+   * Where those bytes are kept on disk until a run reads them, so a restart
+   * keeps them (`attachment-stage.ts`); the map is the fast path, the stage
+   * what a restart reads. Preset: none, the bytes in memory alone, for a host
+   * with no data directory.
+   */
+  readonly attachmentStage?: AttachmentStage;
 }
 
 /** The attachments of one message waiting to be read, with the session it was sent to. Never logged. */
@@ -160,6 +183,13 @@ export interface AdapterHost {
   unrecorded(runId: string): boolean;
   /** Starts a run its command committed: through its adapter, its events consumed from here on. */
   launch(run: PlannedRun): void;
+  /**
+   * Stages on disk the attachments of a message about to be queued, inside
+   * the command that queues it and before it answers, so its receipt means
+   * the bytes are safe. Throws `internal` when they cannot be staged: the
+   * send is refused, nothing of it recorded and no receipt kept.
+   */
+  stageAttachments(message: PromptMessage): void;
   /** Hands a message sent during a live run to its provider, or holds it for the next run, once its event committed. */
   queue(send: QueuedSend): void;
   /** Interrupts a live run with cancel; the messages its provider still held come back to the environment's queue. */
@@ -334,12 +364,25 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
    * holds them, until a run reads them (the launch of a run of the queue, a
    * steer's `message.delivered`, an adopted turn), since an interrupt may hand
    * a provider-held message back; a purged session's are dropped. They are
-   * never logged, and not kept across a restart: the `run_messages` rows
-   * keep a queued message's text, which is all a message the recovery sweep
-   * hands back is read by, and its bytes are #185's to keep.
+   * never logged. The map is the fast path; the stage keeps them on disk
+   * (`attachment-stage.ts`), written before the send that queued them answers
+   * and removed as they leave the map, so after a restart the recovery sweep
+   * reads them back and a message it hands back keeps its bytes.
    */
   const heldAttachments = options.stagedAttachments ?? new Map<string, StagedAttachments>();
+  const stage = options.attachmentStage;
   let closing = false;
+
+  /** A run has read the message, or its session is purged: its bytes go, from memory and from disk. */
+  const unstage = (messageId: string): void => {
+    heldAttachments.delete(messageId);
+    try {
+      stage?.remove(messageId);
+    } catch (error) {
+      // The message is read or gone from the log by now, so the next start's reload removes them.
+      console.error(`Removing the staged attachments of message ${messageId} failed; the next start removes them:`, error);
+    }
+  };
 
   /**
    * The provider processes (`pool.ts`): a run begins, answers, parks and ends
@@ -436,6 +479,11 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     for (const message of entry.launchedWith) {
       if (read.includes(message.messageId) && message.attachments.length > 0) {
         heldAttachments.set(message.messageId, { sessionId: entry.sessionId, attachments: message.attachments });
+        try {
+          stage?.write(message.messageId, message.attachments);
+        } catch (error) {
+          console.error(`STAGING THE ATTACHMENTS OF MESSAGE ${message.messageId} FAILED; they are kept in memory and a restart loses them:`, error);
+        }
       }
     }
     append(entry.sessionId, entry.runId, HOST_ACTOR, requeuedEvents(entry.runId, read));
@@ -463,6 +511,45 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       resolvePolicy,
       runId: randomUUID(),
     };
+  };
+
+  /**
+   * Once a run's end has committed, reads the title the provider generated
+   * for its session when the adapter declares `titleRead`, and records it as
+   * the generated title unless the user has set one (`sessions/titles.ts`),
+   * in a transaction of its own that names the end as its causation. Best
+   * effort: a read that fails is logged, and the title stays as it was.
+   */
+  const readProviderTitle = (entry: LiveRun, ended: EventEnvelope | undefined): void => {
+    if (!entry.descriptor.titleRead) return;
+    safely(
+      async () => {
+        const adapter = adapterOf(entry.plan.account);
+        const read = capability(entry.descriptor, "titleRead", adapter.readTitle, "read a provider title", "readTitle");
+        const title = await read.call(adapter, entry.sessionId);
+        if (title === null || closing) return;
+        const cause = ended === undefined ? {} : { causationId: ended.eventId };
+        recordProviderTitle(log, { sessionId: entry.sessionId, title }, { actor: entry.actor, correlationId: entry.runId, ...cause });
+      },
+      (error) => console.error(`Reading the provider's title of session ${entry.sessionId} failed:`, error),
+    );
+  };
+
+  /**
+   * Mirrors a user title that has committed into the provider's own title
+   * field, when the adapter of the session's latest run declares
+   * `titleWrite`: best effort (a failure is logged and changes nothing here)
+   * and never read back. A session that has never run has no provider
+   * session to title, so nothing is mirrored for it.
+   */
+  const mirrorTitle = (sessionId: string, title: string): void => {
+    const accountId = closing ? undefined : latestRun(reader, sessionId)?.accountId;
+    const adapter = accountId === undefined ? undefined : accounts.get(accountId)?.adapter;
+    if (adapter === undefined || !adapter.descriptor.titleWrite) return;
+    safely(
+      () => capability(adapter.descriptor, "titleWrite", adapter.writeTitle, "mirror a user title", "writeTitle").call(adapter, sessionId, title),
+      (error) => console.error(`Mirroring the title of session ${sessionId} to the provider failed:`, error),
+    );
   };
 
   /**
@@ -524,20 +611,25 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
         pool.end(entry.sessionId, entry.runId);
       }
     };
-    const record = (): void =>
-      log.atomically(() => {
+    // The end, with the companions it owes the session (a snoozed one wakes), in one transaction.
+    const record = (): EventEnvelope | undefined =>
+      log.atomically((tx) => {
         // A run whose adapter never had its input read none of it: what it was launched with is the environment's queue again.
         if (!entry.received) requeueUnread(entry);
         if (by === "host" || reason !== "completed") requeue(entry.sessionId, entry.runId);
         const actor = ended.by === "adapter" ? entry.actor : (ended.actor ?? HOST_ACTOR);
-        append(entry.sessionId, entry.runId, actor, [{ type: "run.ended", payload }], ended.by === "host" ? ended.commandId : undefined);
+        const commandId = ended.by === "host" ? ended.commandId : undefined;
+        const attribution = { tx, actor, correlationId: entry.runId, ...(commandId !== undefined && { commandId }) };
+        const [recorded] = appendRunEvents(log, entry.sessionId, [{ type: "run.ended", payload }], attribution);
+        return recorded;
       });
+    let recorded: EventEnvelope | undefined;
     try {
       try {
-        record();
+        recorded = record();
       } catch (first) {
         console.error(`Appending the end of run ${entry.runId} failed; trying once more:`, first);
-        record();
+        recorded = record();
       }
     } catch (appendError) {
       // The run is over here all the same: it leaves the registry and the session, so nothing waits on it, and
@@ -558,6 +650,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     if (live.get(entry.sessionId) === entry) live.delete(entry.sessionId);
     letRunGo();
     if (closing || reason === "disposed" || reason === "drained") return;
+    readProviderTitle(entry, recorded);
     const [adopted, ...rest] = adoptions.get(entry.sessionId) ?? [];
     if (adopted !== undefined) {
       if (rest.length > 0) adoptions.set(entry.sessionId, rest);
@@ -693,12 +786,11 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
   const launch = (plan: PlannedRun): void => {
     const prompt: PromptMessage[] = plan.prompt.map((message) => {
       const held = heldAttachments.get(message.messageId);
-      heldAttachments.delete(message.messageId);
       return held === undefined || message.attachments.length > 0 ? message : { ...message, attachments: held.attachments };
     });
     const scope = { sessionId: plan.sessionId, accountId: plan.account.id, workspace: plan.workspace };
-    begin(plan, (entry) =>
-      adapterOf(plan.account).createRun(
+    begin(plan, (entry) => {
+      const run = adapterOf(plan.account).createRun(
         {
           sessionId: plan.sessionId,
           runId: plan.runId,
@@ -716,9 +808,11 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
           prompt,
         },
         contextFor(entry),
-      ),
-      prompt,
-    );
+      );
+      // The adapter has them: nothing need keep their bytes now. Had it thrown, the host would hold them again (`requeueUnread`).
+      for (const message of prompt) unstage(message.messageId);
+      return run;
+    }, prompt);
   };
 
   /** `actor` with its client session's ceiling as it is now; undefined once that client session is revoked or expired. */
@@ -861,11 +955,9 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       return { type: "message.delivered", payload };
     });
     try {
-      append(plan.sessionId, runId, formatActor({ kind: "adapter", id: descriptor.provider }), [
-        { type: "run.started", payload: started },
-        policyResolvedEvent(runId, policy),
-        ...delivered,
-      ]);
+      const events: EventInput[] = [{ type: "run.started", payload: started }, policyResolvedEvent(runId, policy), ...delivered];
+      const attribution = { actor: formatActor({ kind: "adapter", id: descriptor.provider }), correlationId: runId };
+      log.atomically((tx) => appendRunEvents(log, plan.sessionId, events, { ...attribution, tx }));
     } catch (error) {
       console.error(`Recording a turn the provider opened for session ${previous.sessionId} failed; it is let go:`, error);
       safely(() => turn.dispose(), (e) => console.error("Disposing a turn failed:", e));
@@ -873,7 +965,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       return;
     }
     // The provider read them, bytes and all.
-    for (const messageId of turn.messageIds) heldAttachments.delete(messageId);
+    for (const messageId of turn.messageIds) unstage(messageId);
     begin(plan, () => turn);
   };
 
@@ -941,7 +1033,9 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
         console.error(`The queued messages of session ${previous.sessionId} could not start a run: ${decision.rejected.message}`);
         return;
       }
-      append(previous.sessionId, decision.run.runId, HOST_ACTOR, decision.events);
+      log.atomically((tx) =>
+        appendRunEvents(log, previous.sessionId, decision.events, { tx, actor: HOST_ACTOR, correlationId: decision.run.runId }),
+      );
       launch(decision.run);
     } catch (error) {
       console.error(`Starting the next run of session ${previous.sessionId} from its queue failed:`, error);
@@ -956,13 +1050,18 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
    */
   const unsubscribe = log.subscribe((event) => {
     if (event.streamKind !== SESSION_STREAM_KIND) return;
+    if (event.type === "session.title-set") {
+      const { title } = event.payload as SessionTitleSetPayload;
+      if (title !== null) mirrorTitle(event.streamId, title);
+      return;
+    }
     if (event.type === "message.delivered") {
       const delivered = event.payload as MessageDeliveredPayload;
-      if (delivered.delivery === "steered") heldAttachments.delete(delivered.messageId);
+      if (delivered.delivery === "steered") unstage(delivered.messageId);
       return;
     }
     if (event.type === "session.purged") {
-      for (const [messageId, staged] of heldAttachments) if (staged.sessionId === event.streamId) heldAttachments.delete(messageId);
+      for (const [messageId, staged] of [...heldAttachments]) if (staged.sessionId === event.streamId) unstage(messageId);
       return;
     }
     if (event.type !== "session.deleted") return;
@@ -1038,6 +1137,19 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     liveRun: (runId) => liveFacts(byRunId(runId)),
     unrecorded: (runId) => unrecordedRuns.has(runId),
     launch,
+    stageAttachments(message) {
+      if (stage === undefined || message.attachments.length === 0) return;
+      try {
+        stage.write(message.messageId, message.attachments);
+      } catch (error) {
+        console.error(`Staging the attachments of message ${message.messageId} failed; the send is refused:`, error);
+        throw new ContractError({
+          code: "internal",
+          message: "The message's attachments could not be kept on disk, so it was not sent; send it again.",
+          data: {},
+        });
+      }
+    },
     queue(send) {
       // Kept whoever holds it: an interrupt may hand a provider-held message back to the environment's queue.
       const sessionId = readRun(reader, send.runId)?.sessionId ?? null;

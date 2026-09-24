@@ -6,7 +6,7 @@ import {
   type KnownCapabilityFlag,
   type MethodName,
 } from "@agent-harness/contracts";
-import type { ConnectionRecord } from "./connections/records.js";
+import { LOCAL_PLACEHOLDER_ID, type ConnectionRecord } from "./connections/records.js";
 import { SHELL_MEMBERS, hasShellMember, type Shell, type ShellMember } from "./shell.js";
 
 /**
@@ -64,6 +64,13 @@ export const answerCapability = (name: CapabilityName, record: ConnectionRecord 
     return hasShellMember(shell, name) ? PRESENT : absent("no-shell", `This client cannot ${SHELL_MEMBER_PURPOSE[name]}: its shell has no ${name}.`);
   }
   if (!record) return absent("unreachable", "This client has no connection to that environment.");
+  if (record.environmentId === LOCAL_PLACEHOLDER_ID) {
+    // Nothing is connected until the local environment answers and is listed under its own id; only the shell is asked of it.
+    if (record.phase === "disabled") return absent("unreachable", "This machine's local environment is disabled on this client.");
+    if (record.phase === "connecting") return absent("not-ready", "Looking for this machine's local environment.");
+    if (record.phase === "service-down") return absent("unreachable", "This machine's local environment's service is not running: start it.");
+    return absent("unreachable", "This machine's local environment has not answered yet.");
+  }
   const environment = record.descriptor.name;
   switch (record.phase) {
     case "ready":

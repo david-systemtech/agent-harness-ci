@@ -1,4 +1,10 @@
-import type { GroupCreatedPayload, GroupRenamedPayload, GroupReorderedPayload, SessionGroupSetPayload } from "@agent-harness/contracts";
+import {
+  normaliseGroupName,
+  type GroupCreatedPayload,
+  type GroupRenamedPayload,
+  type GroupReorderedPayload,
+  type SessionGroupSetPayload,
+} from "@agent-harness/contracts";
 import type { EventInput } from "../event-log/event-log.js";
 import { groupNotFound, type Decision, type Refusal } from "./decider.js";
 
@@ -22,11 +28,13 @@ export interface GroupState {
 /** A deleted group: its id stays used, so a create with it is a conflict, and every other command is not found. */
 export const DELETED_GROUP: GroupState = { deleted: true, name: "", orderKey: null };
 
-/** A group's name as it is kept: trimmed, every run of white space one space. */
-export const normaliseGroupName = (name: string): string => name.trim().replace(/\s+/g, " ");
-
-/** What a group's name is unique on: the kept name, lowercased; the groups table holds it as `name_key`. */
-export const groupNameKey = (name: string): string => normaliseGroupName(name).toLowerCase();
+/**
+ * A group's name as it is kept (trimmed, white space collapsed), and what it
+ * is unique on (that, lowercased; the groups table holds it as `name_key`).
+ * Both live in contracts, since the client runtime merges headings by the
+ * same key; re-exported here for this package's modules.
+ */
+export { groupNameKey, normaliseGroupName } from "@agent-harness/contracts";
 
 /** Facts about the other groups a name depends on: which group holds a name ignoring case. */
 export interface NameContext {

@@ -1,4 +1,11 @@
-import { ClientSessionCredential, commandResponse, type DiscoveryDocument, type Frame, type ResponseFrame } from "@agent-harness/contracts";
+import {
+  ClientSessionCredential,
+  commandResponse,
+  type DiscoveryDocument,
+  type Frame,
+  type HelloFrame,
+  type ResponseFrame,
+} from "@agent-harness/contracts";
 import { exchangeGrant, readsGrant, type GrantExchange, type LocalStatus } from "../bootstrap.js";
 import { admitHello, checkDiscovery, readDiscovery } from "../discovery.js";
 import { uuidv7 } from "../ids.js";
@@ -15,9 +22,19 @@ import {
 } from "../pairing.js";
 import type { Platform, Timer } from "../platform.js";
 import { parseAddress } from "./address.js";
-import { SocketClosedError, authenticate, dial, type LiveSocket, type SocketClosed } from "./connection.js";
+import {
+  SocketClosedError,
+  authenticate,
+  dial,
+  type LiveSocket,
+  type SocketClosed,
+  type Subscribing,
+  type SubscriptionMessage,
+} from "./connection.js";
 import {
   LOCAL_ENVIRONMENT_DOCUMENT,
+  LOCAL_PLACEHOLDER_ID,
+  LOCAL_PLACEHOLDER_NAME,
   NO_PREFERENCES,
   PAIRED_CONNECTIONS_DOCUMENT,
   PREFERENCE_KEYS,
@@ -99,6 +116,47 @@ export interface ConnectionSeams {
   onForget(listener: (environmentId: string) => void | Promise<void>): () => void;
   /** A request on the environment's ready socket; rejects when there is none. */
   request(environmentId: string, method: string, params: Record<string, unknown>): Promise<ResponseFrame>;
+  /**
+   * A socket said a `hello` the connection admitted: it is the connection's
+   * ready socket now, and what hangs off it attaches (#127's subscriptions).
+   * Heard before the connection publishes `ready`, so a listener that sets
+   * `syncing` is never seen `ready` first.
+   */
+  onReady(listener: (environmentId: string, hello: HelloFrame) => void): () => void;
+  /** A subscription on the environment's ready socket (`LiveSocket.subscribe`); rejects with `NotConnectedError` when there is none. */
+  subscribe(
+    environmentId: string,
+    method: string,
+    params: Record<string, unknown>,
+    listener: (message: SubscriptionMessage) => void,
+  ): Promise<Subscribing>;
+  /** Ends a subscription on the environment's socket, if it still has that socket. */
+  unsubscribe(environmentId: string, subscription: string): void;
+  /**
+   * The session list is catching up on a ready socket: the connection shows
+   * `syncing` instead of `ready` until it is not, and `start`, `add`,
+   * `retryNow`, `setAddress`, `setEnabled` and `startService` settle once it
+   * is not. Cleared on its own when the socket goes.
+   */
+  setSyncing(environmentId: string, syncing: boolean): void;
+}
+
+/** What the cache (#127) tells the registry: read it before connections start, and whether an environment has anything cached. */
+export interface RegistryCaches {
+  /** Reads what is cached for these environments; the registry awaits it before any connection starts. */
+  load(environmentIds: readonly string[]): Promise<void>;
+  /** Whether the environment's session list is cached (a cursor on record), so it is unreachable from the start until it is reached. */
+  has(environmentId: string): boolean;
+}
+
+const NO_CACHES: RegistryCaches = { load: async () => undefined, has: () => false };
+
+/** A subscription asked of an environment with no ready socket. */
+export class NotConnectedError extends Error {
+  constructor(environmentId: string) {
+    super(`Environment ${environmentId} is not connected.`);
+    this.name = "NotConnectedError";
+  }
 }
 
 export interface Registry extends Connections {
@@ -122,9 +180,15 @@ interface Entry {
   readonly runner: Runner;
   /** A local connection's token, held in memory only: it lives as long as the record, which is never saved. */
   token: string | undefined;
+  /** What the first discovery read answers without reading: what the placeholder learned, handed to the entry that replaced it. */
+  pending?: DiscoveryAnswer | undefined;
+  /** The placeholder was replaced: the environment's entry, once it has begun; who waited on the placeholder waits on it. */
+  successor?: { readonly environmentId: string; readonly begun: Promise<Entry | undefined> };
 }
 
 const unknownEnvironment = (environmentId: string) => new Error(`There is no saved connection to environment ${environmentId}.`);
+
+const notYetSeen = () => new Error("This machine's local environment has not answered yet: its address comes from its grant, and it is not an environment to use until it answers.");
 
 const fromDiscovery = (descriptor: EnvironmentDescriptor, document: DiscoveryDocument): EnvironmentDescriptor => ({
   ...descriptor,
@@ -145,7 +209,7 @@ const revokedBy = (response: ResponseFrame): boolean => {
   return receipt?.status === "accepted" || (receipt?.status === "rejected" && receipt.reason === "not_found");
 };
 
-export const createRegistry = (platform: Platform, protocolVersion: number, notices: Notices): Registry => {
+export const createRegistry = (platform: Platform, protocolVersion: number, notices: Notices, caches: RegistryCaches = NO_CACHES): Registry => {
   const entries = new Map<string, Entry>();
   // A fault with no caller to take it: a renderer's listener that threw, a background write that failed.
   const report = (error: unknown): void => (platform.reportError ? platform.reportError(error) : void Promise.reject(error));
@@ -155,6 +219,9 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
   const frameListeners = new Set<(environmentId: string, frame: Frame) => void>();
   const closeListeners = new Set<(environmentId: string, closed: SocketClosed) => void>();
   const forgetListeners = new Set<(environmentId: string) => void | Promise<void>>();
+  const readyListeners = new Set<(environmentId: string, hello: HelloFrame) => void>();
+  /** The environments whose session list is catching up on a ready socket, and who waits for it to finish. */
+  const syncing = new Map<string, (() => void)[]>();
   let closed = false;
   let stopNetwork: (() => void) | undefined;
   // Writes go one after another, so an older write never lands over a newer one.
@@ -170,7 +237,8 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
       // A reason shows only beside `blocked`; a disabled connection keeps its block to re-check once enabled.
       blocked: machine.phase === "blocked" ? machine.blocked : null,
       enabled: isEnabled(environmentId),
-      phase: machine.phase,
+      // The machine says the socket is good; `syncing` is the session list catching up on it (#127).
+      phase: machine.phase === "ready" && syncing.has(environmentId) ? "syncing" : machine.phase,
       bye: machine.bye,
       retryAt: iso(machine.retryAt),
       unreachableSince: iso(machine.unreachableSince),
@@ -183,6 +251,8 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
   const publish = () => {
     const sequence = prefs.read()["environments.sequence"];
     const rank = (id: string) => {
+      // The placeholder is where the local environment will be: first. It never enters the saved sequence.
+      if (id === LOCAL_PLACEHOLDER_ID) return -1;
       const at = sequence.indexOf(id);
       return at === -1 ? sequence.length : at;
     };
@@ -212,7 +282,10 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
 
   /** The local environment's identity, so it stays listed while its service is down. Never its token or client session. */
   const rememberLocal = (environmentId: string, saved: SavedConnection) =>
-    enqueue(() => platform.documents.set(LOCAL_ENVIRONMENT_DOCUMENT, { environmentId, address: saved.address, descriptor: saved.descriptor }));
+    // The placeholder is nothing seen: it is never remembered.
+    environmentId === LOCAL_PLACEHOLDER_ID
+      ? Promise.resolve()
+      : enqueue(() => platform.documents.set(LOCAL_ENVIRONMENT_DOCUMENT, { environmentId, address: saved.address, descriptor: saved.descriptor }));
 
   const setPreferences = (change: (current: ClientPreferences) => ClientPreferences) => {
     prefs.update(change);
@@ -238,6 +311,28 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
   };
 
   const isCurrent = (environmentId: string, entry: Entry) => entries.get(environmentId) === entry && !closed;
+
+  /** The list is no longer catching up: whoever waits on it goes on. Answers whether it was. */
+  const endSyncing = (environmentId: string): boolean => {
+    const waiting = syncing.get(environmentId);
+    if (!waiting) return false;
+    syncing.delete(environmentId);
+    for (const resolve of waiting) resolve();
+    return true;
+  };
+
+  /** Settles once the attempt under way has, and the session list it attached is no longer catching up. */
+  const settledFor = async (environmentId: string, entry: Entry): Promise<void> => {
+    await entry.runner.settled();
+    if (entry.successor) {
+      const { environmentId: id } = entry.successor;
+      const next = await entry.successor.begun;
+      return next ? settledFor(id, next) : undefined;
+    }
+    const waiting = syncing.get(environmentId);
+    if (!waiting || entry.runner.state.step !== "open") return;
+    await new Promise<void>((resolve) => waiting.push(resolve));
+  };
 
   /**
    * Revokes `clientSessionId` with `token`, over `socket` when one is given,
@@ -295,13 +390,13 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
   const exchangeLocal = async (environmentId: string, entry: Entry): Promise<DiscoveryAnswer> => {
     const exchange = await exchangeGrant({ fetch: platform.fetch, grant: platform.grant, client: platform.client, protocolVersion });
     if (!isCurrent(environmentId, entry)) return { kind: "unreachable", message: "The connection was forgotten." };
-    if (!exchange.ok) {
-      local.set(exchange.status);
-      const status = exchange.status;
-      return status.state === "failed"
-        ? { kind: "grant-failed", reason: status.reason, message: status.message }
-        : { kind: "grant-failed", reason: "service-down", message: "This client reads no grant." };
+    const answer = answerOf(exchange);
+    if (!exchange.ok) local.set(exchange.status);
+    if (environmentId === LOCAL_PLACEHOLDER_ID) {
+      promote(entry, exchange, answer);
+      return answer;
     }
+    if (!exchange.ok) return answer;
     // A grant that is now another environment's: discovery's check blocks it `different-environment`, and the next start takes that one as the local environment.
     if (exchange.discovery.environmentId !== environmentId) return { kind: "document", document: exchange.discovery };
     entry.token = exchange.credential.token;
@@ -314,6 +409,90 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
       expiresAt: exchange.credential.expiresAt,
     });
     return { kind: "document", document: exchange.discovery };
+  };
+
+  /** What a grant exchange is to the connection's machine: the discovery document it read, or the failure in the phases' words. */
+  const answerOf = (exchange: GrantExchange): DiscoveryAnswer => {
+    if (exchange.ok) return { kind: "document", document: exchange.discovery };
+    const status = exchange.status;
+    return status.state === "failed"
+      ? { kind: "grant-failed", reason: status.reason, message: status.message }
+      : { kind: "grant-failed", reason: "service-down", message: "This client reads no grant." };
+  };
+
+  /**
+   * The local environment known from its discovery document alone (the
+   * exchange failed after it answered): listed and remembered under its id,
+   * with no client session yet; its machine exchanges the grant on its next attempt.
+   */
+  const seenLocal = async (origin: string, document: DiscoveryDocument, failures = 0): Promise<Entry> => {
+    const id = document.environmentId;
+    const saved: SavedConnection = {
+      address: origin,
+      kind: "local",
+      clientSessionId: null,
+      scopes: [],
+      ceiling: null,
+      descriptor: fromDiscovery(emptyDescriptor(document.environmentName), document),
+      blocked: null,
+      expiresAt: null,
+    };
+    const entry = newEntry(id, saved, undefined, failures);
+    entries.set(id, entry);
+    // In the sequence before any write is awaited, so the list that first shows it shows it first.
+    const entering = enterSequence(id, "first");
+    // Awaited below; marked handled here so a write failing first leaves no unhandled rejection behind.
+    entering.catch(() => undefined);
+    await rememberLocal(id, saved);
+    await entering;
+    return entry;
+  };
+
+  /**
+   * The placeholder's grant exchange named the environment: its own entry
+   * takes the placeholder's place, carrying the machine's failure count, and
+   * begins with what the exchange learned as its first discovery answer (the
+   * document, with the client session kept; or the failure, which the new
+   * machine waits out on the ladder from where the placeholder's was). A
+   * failure that named nothing leaves the placeholder, and so does one that
+   * names an environment already listed (a paired connection to this
+   * machine), until an exchange succeeds and replaces that as a start would.
+   */
+  const promote = (placeholder: Entry, exchange: GrantExchange, answer: DiscoveryAnswer): void => {
+    const document = exchange.discovery;
+    if (!document || (!exchange.ok && entries.has(document.environmentId))) return;
+    const id = document.environmentId;
+    const failures = placeholder.runner.state.failures;
+    let begun!: (entry: Entry | undefined) => void;
+    placeholder.successor = { environmentId: id, begun: new Promise((resolve) => (begun = resolve)) };
+    entries.delete(LOCAL_PLACEHOLDER_ID);
+    placeholder.runner.stop();
+    if (exchange.ok) local.set({ state: "exchanged", environmentId: id });
+    // The environment's entry is set before the first write is awaited, so the list goes from the placeholder to it in one step.
+    const listing = exchange.ok ? adoptLocal(exchange, failures) : seenLocal(exchange.origin as string, document, failures);
+    publish();
+    void (async (): Promise<Entry | undefined> => {
+      try {
+        await listing;
+      } catch (error) {
+        // A write that failed is reported; the entry is listed all the same.
+        report(error);
+      }
+      const entry = entries.get(id);
+      if (!entry || closed) return undefined;
+      entry.pending = answer;
+      if (prefs.read()["environments.enabled"][LOCAL_PLACEHOLDER_ID] !== undefined) {
+        await setPreferences((p) => ({
+          ...p,
+          "environments.enabled": Object.fromEntries(Object.entries(p["environments.enabled"]).filter(([key]) => key !== LOCAL_PLACEHOLDER_ID)),
+        })).catch(report);
+      }
+      begin(id, entry);
+      return entry;
+    })().then(begun, (error: unknown) => {
+      report(error);
+      begun(undefined);
+    });
   };
 
   /** Keeps a refreshed token where this connection's token lives, and its expiry on the record. */
@@ -346,6 +525,9 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
     random: platform.random ?? Math.random,
     async discover() {
       const e = entry();
+      const pending = e.pending;
+      e.pending = undefined;
+      if (pending) return pending;
       if (e.saved.kind === "local" && e.token === undefined) return exchangeLocal(environmentId, e);
       const read = await readDiscovery(platform.fetch, e.saved.address);
       if (read.ok) return { kind: "document", document: read.document };
@@ -372,6 +554,12 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
           report(error);
         }
       });
+      // What hangs off the socket attaches at once; a listener's fault is reported and costs the record nothing.
+      try {
+        notifyAll(readyListeners, environmentId, hello);
+      } catch (error) {
+        report(error);
+      }
       const descriptor = document ? fromDiscovery(e.saved.descriptor, document) : e.saved.descriptor;
       await updateSaved(environmentId, e, {
         clientSessionId: hello.clientSessionId,
@@ -399,6 +587,7 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
     },
     changed(next, previous) {
       const e = entry();
+      if (next.step !== "open") endSyncing(environmentId);
       if (!isCurrent(environmentId, e)) return;
       if (next.blocked !== previous.blocked) return updateSaved(environmentId, e, { blocked: next.blocked });
       publish();
@@ -407,15 +596,19 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
     report,
   });
 
-  const newEntry = (environmentId: string, saved: SavedConnection, token?: string): Entry => {
-    const machine = initialMachine({
-      environmentId,
-      protocolVersion,
-      kind: saved.kind,
-      name: saved.descriptor.name,
-      blocked: saved.blocked,
-      capabilities: saved.descriptor.capabilities,
-    });
+  /** `failures`: where the machine's ladder stands, carried over from the placeholder it replaces. */
+  const newEntry = (environmentId: string, saved: SavedConnection, token?: string, failures = 0): Entry => {
+    const machine = {
+      ...initialMachine({
+        environmentId,
+        protocolVersion,
+        kind: saved.kind,
+        name: saved.descriptor.name,
+        blocked: saved.blocked,
+        capabilities: saved.descriptor.capabilities,
+      }),
+      failures,
+    };
     const entry: Entry = { saved, token, runner: createRunner(hostFor(environmentId, () => entry), machine) };
     return entry;
   };
@@ -426,8 +619,8 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
       type: "start",
       enabled: isEnabled(environmentId),
       network: platform.network.read(),
-      // What #127 caches hangs off an environment reached before; until then, one with a `hello` on record.
-      hasCache: entry.saved.descriptor.lastSeen !== null,
+      // Cached streams are served while the environment is unreachable, so it is unreachable from the start until reached.
+      hasCache: caches.has(environmentId),
     });
 
   /**
@@ -461,14 +654,24 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
     };
   };
 
+  /** Takes the placeholder out: the local environment is listed under its own id now. */
+  const dropPlaceholder = () => {
+    const placeholder = entries.get(LOCAL_PLACEHOLDER_ID);
+    if (!placeholder) return;
+    entries.delete(LOCAL_PLACEHOLDER_ID);
+    placeholder.runner.stop();
+  };
+
   /**
    * Takes the local connection from a grant exchange. A paired connection to
    * the same environment is replaced: its client session is revoked with the
    * new local one (which holds every scope), then its record and token are
    * forgotten.
    */
-  const adoptLocal = async (exchange: Extract<GrantExchange, { ok: true }>) => {
+  const adoptLocal = async (exchange: Extract<GrantExchange, { ok: true }>, failures = 0) => {
     const id = exchange.discovery.environmentId;
+    // A placeholder from an earlier start that failed gives way; `promote` has taken it out already.
+    dropPlaceholder();
     const previous = entries.get(id);
     previous?.runner.stop();
     if (previous?.saved.kind === "paired") {
@@ -488,10 +691,14 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
       blocked: null,
       expiresAt: exchange.credential.expiresAt,
     };
-    entries.set(id, newEntry(id, saved, exchange.credential.token));
+    entries.set(id, newEntry(id, saved, exchange.credential.token, failures));
+    // In the sequence before any write is awaited, so the list that first shows it shows it first; one already there keeps its place.
+    const entering = enterSequence(id, "first");
+    // Awaited below; marked handled here so a write failing first leaves no unhandled rejection behind.
+    entering.catch(() => undefined);
     if (previous?.saved.kind === "paired") await savePaired();
     await rememberLocal(id, saved);
-    await enterSequence(id, "first");
+    await entering;
   };
 
   /**
@@ -513,6 +720,13 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
       ]);
       prefs.set(readPreferences(Object.fromEntries(stored) as Record<keyof ClientPreferences, unknown>));
       for (const [id, saved] of readPairedConnections(paired)) if (!entries.has(id)) entries.set(id, newEntry(id, saved));
+      // The caches of every environment known, before any connection starts: a cache that cannot be read is reported and counts as empty.
+      const known = readRememberedLocal(remembered);
+      try {
+        await caches.load([...entries.keys(), ...(known ? [known.environmentId] : [])]);
+      } catch (error) {
+        report(error);
+      }
       publish();
       loaded = true;
       return { remembered };
@@ -541,8 +755,37 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
       },
       request(environmentId, method, params) {
         const socket = entries.get(environmentId)?.runner.socket();
-        if (!socket) return Promise.reject(new Error(`Environment ${environmentId} is not connected.`));
+        if (!socket) return Promise.reject(new NotConnectedError(environmentId));
         return socket.request(method, params);
+      },
+      onReady(listener) {
+        readyListeners.add(listener);
+        return () => void readyListeners.delete(listener);
+      },
+      subscribe(environmentId, method, params, listener) {
+        const socket = entries.get(environmentId)?.runner.socket();
+        if (!socket) return Promise.reject(new NotConnectedError(environmentId));
+        // A subscriber that throws is reported, never thrown into the socket's message handler, as the other seams' listeners are.
+        return socket.subscribe(method, params, (message) => {
+          try {
+            listener(message);
+          } catch (error) {
+            report(error);
+          }
+        });
+      },
+      unsubscribe(environmentId, subscription) {
+        entries.get(environmentId)?.runner.socket()?.unsubscribe(subscription);
+      },
+      setSyncing(environmentId, on) {
+        const entry = entries.get(environmentId);
+        let changed = false;
+        if (!on) changed = endSyncing(environmentId);
+        else if (!syncing.has(environmentId) && entry?.runner.state.step === "open") {
+          syncing.set(environmentId, []);
+          changed = true;
+        }
+        if (changed && entry && isCurrent(environmentId, entry)) publish();
       },
     },
 
@@ -563,6 +806,26 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
           local.set(exchange.status);
           // The local environment stays listed from what was remembered of it; its machine tries the grant again on the ladder.
           const known = readRememberedLocal(remembered);
+          const listed = [...entries.values()].some((entry) => entry.saved.kind === "local");
+          if (!known && !listed && exchange.status.state === "failed") {
+            // Never seen: under its own id when its discovery document named it, else as the placeholder, until it answers.
+            const document = exchange.discovery;
+            if (document && !entries.has(document.environmentId)) await seenLocal(exchange.origin as string, document);
+            else if (!document) {
+              const placeholder: SavedConnection = {
+                address: exchange.origin ?? "",
+                kind: "local",
+                clientSessionId: null,
+                scopes: [],
+                ceiling: null,
+                descriptor: emptyDescriptor(LOCAL_PLACEHOLDER_NAME),
+                blocked: null,
+                expiresAt: null,
+              };
+              entries.set(LOCAL_PLACEHOLDER_ID, newEntry(LOCAL_PLACEHOLDER_ID, placeholder));
+              publish();
+            }
+          }
           if (known && !entries.has(known.environmentId) && exchange.status.state === "failed") {
             const saved: SavedConnection = {
               address: known.address,
@@ -583,7 +846,7 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
         for (const entry of entries.values()) entry.runner.feed({ type: "network", network });
       });
       for (const [id, entry] of entries) begin(id, entry);
-      await Promise.all([...entries.values()].map((entry) => entry.runner.settled()));
+      await Promise.all([...entries].map(([id, entry]) => settledFor(id, entry)));
     },
 
     async add(input, options = {}) {
@@ -686,7 +949,8 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
           entry.runner.resume();
           begin(id, entry);
         }
-        await entry.runner.settled();
+        // Settled once its session list is no longer catching up, so the caller sees `ready`, not `syncing`.
+        await settledFor(id, entry);
         return { status: "paired", environmentId: id, ...(replaced && { replaced }) };
       } catch (error) {
         // The pairing socket nobody took is closed, so the environment is not left holding a second socket.
@@ -705,11 +969,12 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
     async setAddress(environmentId, address) {
       if (!loaded) await ensureLoaded();
       const entry = entryOf(environmentId);
+      if (environmentId === LOCAL_PLACEHOLDER_ID) throw notYetSeen();
       const origin = parseAddress(address);
       if (!origin) throw new RangeError(`"${address}" is not an address.`);
       await updateSaved(environmentId, entry, { address: origin });
       entry.runner.feed({ type: "retryNow" });
-      await entry.runner.settled();
+      await settledFor(environmentId, entry);
     },
 
     async setEnabled(environmentId, enabled) {
@@ -718,12 +983,14 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
       await setPreferences((p) => ({ ...p, "environments.enabled": { ...p["environments.enabled"], [environmentId]: enabled } }));
       if (!enabled) return entry.runner.feed({ type: "disable" });
       begin(environmentId, entry);
-      await entry.runner.settled();
+      await settledFor(environmentId, entry);
     },
 
     async setOrder(environmentIds) {
       if (!loaded) await ensureLoaded();
-      const known = new Set(entries.keys());
+      // The placeholder always lists first and is never saved in the sequence: naming it or not is the same.
+      const known = new Set([...entries.keys()].filter((id) => id !== LOCAL_PLACEHOLDER_ID));
+      environmentIds = environmentIds.filter((id) => id !== LOCAL_PLACEHOLDER_ID);
       const given = new Set(environmentIds);
       if (given.size !== environmentIds.length || given.size !== known.size || [...given].some((id) => !known.has(id))) {
         throw new RangeError("The sequence must name every saved environment exactly once.");
@@ -739,6 +1006,7 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
     async setLastUsed(environmentId) {
       if (!loaded) await ensureLoaded();
       entryOf(environmentId);
+      if (environmentId === LOCAL_PLACEHOLDER_ID) throw notYetSeen();
       await setPreferences((p) => ({ ...p, "environments.lastUsed": environmentId }));
     },
 
@@ -754,6 +1022,7 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
       const result = await revokeHeld(environmentId, entry, socket);
       socket?.close();
       entries.delete(environmentId);
+      endSyncing(environmentId);
       await platform.secrets.delete(environmentId);
       await savePaired();
       await setPreferences((p) => ({
@@ -778,7 +1047,7 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
       if (!loaded) await ensureLoaded();
       const entry = entryOf(environmentId);
       entry.runner.feed({ type: "retryNow" });
-      await entry.runner.settled();
+      await settledFor(environmentId, entry);
     },
 
     async startService(environmentId) {
@@ -790,7 +1059,7 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
       await service.start();
       // A service just started is tried at once and then from the ladder's first rung, not 30 seconds out.
       entry.runner.feed({ type: "retryNow", fresh: true });
-      await entry.runner.settled();
+      await settledFor(environmentId, entry);
     },
 
     close() {
@@ -798,6 +1067,7 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
       stopNetwork?.();
       stopNetwork = undefined;
       for (const entry of entries.values()) entry.runner.stop();
+      for (const id of [...syncing.keys()]) endSyncing(id);
     },
   };
   return registry;
