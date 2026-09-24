@@ -214,12 +214,12 @@ Decided in building the Claude adapter (#121):
 - **The unsampled queries** (models, commands, plan usage) keep no transcript (`persistSession: false`); only the commands listing loads the account's plugins, and a trusted repository's project settings.
 - **Plan usage**: keyed by the account's directory (one account per identity, ADR 0018); the identity from `accountInfo()` on the same unsampled query, else the status command; a reading that failed is not kept; a verdict with no reading to fold into is dropped, since the next read is newer. The usage method is called with `skipBehaviors: true`.
 - **Declared false for now**: file attachments (Artemis stages them; not ported), session listing, subagent transcripts, titles and transcript delete (#137, #122).
+- **Modes** (#129's mapping): each of the four modes is the SDK `permissionMode` of its name, every one listed available; `allowDangerouslySkipPermissions` is set when the run's ceiling is `bypassPermissions`, whatever its mode, and a kept process serves a run under a bypass ceiling only when it was spawned with the opt-in, so a later change to bypass is refused by the provider as well as clamped below that ceiling.
 - **Deviations, each with its follow-up**:
   - Unknown SDK message types, and known ones the vocabulary has no event for (`compact_boundary` among them), are dropped: ADR 0001 is about a reader keeping an unknown kind rather than failing on it, and the adapter contract has no opaque adapter event that would carry one to the log. Follow-up: an opaque adapter event type in the contract (the scoped append's accepted types and the snapshot's `opaque` item), and a compaction marker in the vocabulary.
   - `command.ran` is not produced; the mapper reads no slash-command envelope. Follow-up: map the CLI's command envelopes and `local_command_output`.
   - `startEnvironment` passes no `sessionStore` and no `plugins` directory: the options carry both whenever the adapter is given them, and the store is #137's and the skill-set directory ticket 89's.
   - Only `test/fixtures/sdk/signed-out.json` is recorded from the bundled binary; the other fixtures are shaped from the declarations. The ownership handshake (the owners on a turn's first reply naming the uuid-stamped prompts) rests on the declarations' description until a signed-in streaming-input turn with uuid-stamped prompts, a mid-turn send and a queued turn is recorded. Follow-up: record it on an account and replay it through `adapter.test.ts` before the handshake is trusted.
-  - `allowDangerouslySkipPermissions` is keyed off the run's mode, not its ceiling, until #129 puts the ceiling on `RunInput`.
 
 Things the build session must verify first, in this order:
 

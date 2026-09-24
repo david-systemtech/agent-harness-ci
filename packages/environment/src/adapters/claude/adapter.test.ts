@@ -597,13 +597,23 @@ describe("the process across turns", () => {
     const adapter = adapterWith();
     const first = await oneTurn(adapter, runInput());
     await first.finish(sdk.tasks({ task_id: "task_1" }));
-    expect(() => adapter.createRun(runInput({ mode: "bypassPermissions", target: { kind: "resume", providerSessionId: PROVIDER_SESSION } }), contextWith())).toThrow(/still has work running/);
+    expect(() => adapter.createRun(runInput({ mode: "bypassPermissions", ceiling: "bypassPermissions", target: { kind: "resume", providerSessionId: PROVIDER_SESSION } }), contextWith())).toThrow(/still has work running/);
     first.query.emit(sdk.tasks());
     await new Promise((resolve) => setTimeout(resolve, 5));
-    adapter.createRun(runInput({ mode: "bypassPermissions", target: { kind: "resume", providerSessionId: PROVIDER_SESSION } }), contextWith());
+    adapter.createRun(runInput({ mode: "bypassPermissions", ceiling: "bypassPermissions", target: { kind: "resume", providerSessionId: PROVIDER_SESSION } }), contextWith());
     const second = await started(2);
     expect(first.query.closed).toBe(true);
     expect(second.options).toMatchObject({ permissionMode: "bypassPermissions", allowDangerouslySkipPermissions: true, resume: PROVIDER_SESSION });
+  });
+
+  it("spawns fresh, with the opt-in, for a run under a bypass ceiling in a lower mode, so its mode can later be changed to bypass", async () => {
+    const adapter = adapterWith();
+    const first = await oneTurn(adapter, runInput());
+    await first.finish();
+    adapter.createRun(runInput({ mode: "acceptEdits", ceiling: "bypassPermissions", target: { kind: "resume", providerSessionId: PROVIDER_SESSION } }), contextWith());
+    const second = await started(2);
+    expect(first.query.closed).toBe(true);
+    expect(second.options).toMatchObject({ permissionMode: "acceptEdits", allowDangerouslySkipPermissions: true });
   });
 
   it("never serves a fork on the process, and rewinds fresh from the entry before the message, read under the account's directory", async () => {
@@ -1040,7 +1050,7 @@ describe("a run that joins a kept process", () => {
     await drain(run);
     run.release();
     expect(query.closed).toBe(false);
-    const bypass = runInput({ mode: "bypassPermissions", target: { kind: "resume", providerSessionId: PROVIDER_SESSION } });
+    const bypass = runInput({ mode: "bypassPermissions", ceiling: "bypassPermissions", target: { kind: "resume", providerSessionId: PROVIDER_SESSION } });
     adapter.createRun(bypass, context);
     const fresh = await fake.made(2);
     const prompts = await fresh.promptsPushed(2);
@@ -1058,7 +1068,7 @@ describe("a run that joins a kept process", () => {
     await drain(run);
     run.release();
     // A run the kept process cannot serve replaces it: disposed (its first close), its pump ends later (its second).
-    const bypass = runInput({ mode: "bypassPermissions", target: { kind: "resume", providerSessionId: PROVIDER_SESSION } });
+    const bypass = runInput({ mode: "bypassPermissions", ceiling: "bypassPermissions", target: { kind: "resume", providerSessionId: PROVIDER_SESSION } });
     const second = adapter.createRun(bypass, context);
     const fresh = await fake.made(2);
     await fresh.promptsPushed(1);
@@ -1068,7 +1078,7 @@ describe("a run that joins a kept process", () => {
     await drain(second);
     second.release();
 
-    const third = runInput({ mode: "bypassPermissions", target: { kind: "resume", providerSessionId: PROVIDER_SESSION } });
+    const third = runInput({ mode: "bypassPermissions", ceiling: "bypassPermissions", target: { kind: "resume", providerSessionId: PROVIDER_SESSION } });
     adapter.createRun(third, context);
     await fresh.promptsPushed(2);
     expect(fake.queries).toHaveLength(2);

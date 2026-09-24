@@ -284,17 +284,18 @@ export class ClaudeProcess implements TurnControl {
     this.#deps = deps;
     this.#context = context;
     this.#ledger = new TaskLedger(deps.clock);
-    this.#spawn = this.#spawnKeyOf(first, mode);
+    this.#spawn = this.#spawnKeyOf(first);
     this.#spawnedFresh = first.target.kind === "fresh";
     this.#applied = { model: first.model, mode, effort: first.effort };
   }
 
-  #spawnKeyOf(input: RunInput, mode: ClaudeMode): SpawnKey {
+  #spawnKeyOf(input: RunInput): SpawnKey {
     return {
       directory: this.#deps.configDirectory(input.account),
       trusted: input.trusted,
       toolServers: input.toolServers.map((server) => server.name).join("\n"),
-      bypassAllowed: mode === "bypassPermissions",
+      // The SDK's opt-in follows the run's ceiling, so a run under a bypass ceiling may later be changed to bypass.
+      bypassAllowed: input.ceiling === "bypassPermissions",
     };
   }
 
@@ -315,9 +316,9 @@ export class ClaudeProcess implements TurnControl {
   canServe(input: RunInput): boolean {
     if (this.closed || this.#current !== undefined || this.#waiting.length > 0 || this.#undecided !== undefined) return false;
     if (input.target.kind !== "resume" || input.target.providerSessionId !== this.#providerSessionId) return false;
-    const key = this.#spawnKeyOf(input, claudeMode(input.mode));
+    const key = this.#spawnKeyOf(input);
     if (key.directory !== this.#spawn.directory || key.trusted !== this.#spawn.trusted || key.toolServers !== this.#spawn.toolServers) return false;
-    // Bypass needs the SDK's opt-in at spawn; a process started without it cannot enter bypass.
+    // A bypass ceiling needs the SDK's opt-in at spawn; a process started without it cannot enter bypass.
     return !key.bypassAllowed || this.#spawn.bypassAllowed;
   }
 

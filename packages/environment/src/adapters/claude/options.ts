@@ -142,7 +142,8 @@ export const buildRunOptions = (input: RunOptionsInput): Options => {
     ...(effort !== null && { effort }),
     permissionMode: mode,
     // The SDK's explicit opt-in, tied to the mode that needs it (#129 may tie it to the ceiling instead).
-    ...(mode === "bypassPermissions" && { allowDangerouslySkipPermissions: true }),
+    // Only under a bypass ceiling (permissions spec, the Claude mapping): a change to bypass under a lower one is refused by the provider as well as clamped.
+    ...(run.ceiling === "bypassPermissions" && { allowDangerouslySkipPermissions: true }),
     permissionPrompts: "host",
     canUseTool: input.canUseTool,
     ...(input.spawnProcess !== undefined && { spawnClaudeCodeProcess: input.spawnProcess }),

@@ -74,11 +74,18 @@ describe("the options a run is handed", () => {
   });
 
   it.each(CLAUDE_MODES)("passes the mode %s by the same name, prompts answered by the host", (mode) => {
-    const options = buildRunOptions(input({ mode }));
+    const options = buildRunOptions(input({ mode, ceiling: mode }));
     expect(options.permissionMode).toBe(mode);
     expect(options.permissionPrompts).toBe("host");
-    if (mode === "bypassPermissions") expect(options.allowDangerouslySkipPermissions).toBe(true);
-    else expect(options).not.toHaveProperty("allowDangerouslySkipPermissions");
+  });
+
+  it("opts into bypass (allowDangerouslySkipPermissions) exactly when the run's ceiling is bypassPermissions, whatever its mode", () => {
+    for (const mode of CLAUDE_MODES) {
+      expect(buildRunOptions(input({ mode, ceiling: "bypassPermissions" })).allowDangerouslySkipPermissions, mode).toBe(true);
+    }
+    for (const ceiling of ["plan", "acceptEdits", "auto"] as const) {
+      expect(buildRunOptions(input({ mode: "plan", ceiling })), ceiling).not.toHaveProperty("allowDangerouslySkipPermissions");
+    }
   });
 
   it("offers acceptEdits, plan, auto and bypassPermissions, and never default or dontAsk", () => {
