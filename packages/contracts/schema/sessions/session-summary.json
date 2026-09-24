@@ -297,6 +297,24 @@
       ],
       "description": "The model the latest run used; null before any run."
     },
+    "mode": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "plan",
+            "acceptEdits",
+            "auto",
+            "bypassPermissions"
+          ],
+          "description": "What an agent may do without asking during a run, in the order ceilings use: plan < acceptEdits < auto < bypassPermissions. Claude's default and dontAsk are never used."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The session's mode: the effective mode permissions.mode.set last gave it, else the one sessions.create recorded (clamped to its caller's ceiling); null when neither did, so a run's default applies. Each run clamps it again."
+    },
     "pullRequests": {
       "type": "array",
       "items": {
@@ -391,6 +409,7 @@
     "parkedPromptCount",
     "accountId",
     "model",
+    "mode",
     "pullRequests",
     "draft"
   ],

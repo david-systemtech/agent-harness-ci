@@ -42,6 +42,7 @@ export interface SessionRow {
   parked_prompt_count: number;
   account_id: string | null;
   model: string | null;
+  mode: string | null;
   pull_requests: string;
   draft: string | null;
   deleted_at: string | null;
@@ -86,6 +87,7 @@ export const SESSION_LIST_TABLES = {
     parked_prompt_count INTEGER NOT NULL DEFAULT 0,
     account_id TEXT,
     model TEXT,
+    mode TEXT,
     pull_requests TEXT NOT NULL DEFAULT '[]',
     draft TEXT,
     deleted_at TEXT,
@@ -146,6 +148,7 @@ export const toSummary = (reader: Reader, row: SessionRow): SessionSummary => ({
   parkedPromptCount: row.parked_prompt_count,
   accountId: row.account_id,
   model: row.model,
+  mode: row.mode as SessionSummary["mode"],
   pullRequests: JSON.parse(row.pull_requests) as SessionSummary["pullRequests"],
   draft: row.draft,
 });

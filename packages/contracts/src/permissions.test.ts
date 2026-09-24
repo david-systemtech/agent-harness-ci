@@ -12,6 +12,7 @@ import {
   MODES,
   Mode,
   PERMISSION_SETTINGS,
+  SUMMARY_FIELD_OWNERS,
   PERMISSION_SETTINGS_KEYS,
   ParkedPromptTtl,
   PermissionSettingsPatch,
@@ -185,11 +186,11 @@ describe("the permissions methods", () => {
 });
 
 describe("the permissions events", () => {
-  it("put run.policy.resolved and session.mode.set on the session stream, neither changing the session list", () => {
-    for (const type of ["run.policy.resolved", "session.mode.set"]) {
-      expect(EVENT_TYPES.session, type).toHaveProperty(type);
-      expect(isListEvent("session", type), type).toBe(false);
-    }
+  it("put run.policy.resolved and session.mode.set on the session stream: the policy changes nothing listed, the mode patches the summary's mode (#179)", () => {
+    for (const type of ["run.policy.resolved", "session.mode.set"]) expect(EVENT_TYPES.session, type).toHaveProperty(type);
+    expect(isListEvent("session", "run.policy.resolved")).toBe(false);
+    expect(isListEvent("session", "session.mode.set")).toBe(true);
+    expect(SUMMARY_FIELD_OWNERS.mode).toEqual({ command: "permissions.mode.set" });
   });
 
   it("put ceiling.changed, bypass.acknowledged and settings.changed on the access stream", () => {
