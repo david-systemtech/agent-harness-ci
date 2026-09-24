@@ -1,0 +1,167 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "providers.list result",
+  "type": "object",
+  "properties": {
+    "providers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "provider": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]*$",
+            "description": "A provider's id, as the environment's adapter registry keys it: lowercase letters, digits and hyphens (claude)."
+          },
+          "displayName": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The provider's name as a client shows it: Claude."
+          },
+          "interactivePrompts": {
+            "type": "boolean",
+            "description": "A run can stop and ask a permission prompt or a question, answered from any client."
+          },
+          "partialMessages": {
+            "type": "boolean",
+            "description": "A run streams assistant.delta fragments; without it only the settled items arrive."
+          },
+          "providerQueue": {
+            "type": "boolean",
+            "description": "The provider holds messages sent during a turn; without it the environment holds them and starts the next run with them when the turn ends."
+          },
+          "steering": {
+            "type": "boolean",
+            "description": "The provider folds a queued message into the running turn at its next boundary; presupposes providerQueue."
+          },
+          "resume": {
+            "type": "boolean",
+            "description": "A session's next run resumes the provider's own session."
+          },
+          "fork": {
+            "type": "boolean",
+            "description": "A session can be forked, from its end or from a user message."
+          },
+          "rewind": {
+            "type": "boolean",
+            "description": "A session can be rewound to a user message."
+          },
+          "sessionListing": {
+            "type": "boolean",
+            "description": "The provider's sessions can be listed."
+          },
+          "subagents": {
+            "type": "boolean",
+            "description": "A run delegates work to subagents and background tasks, reported by tasks.changed and stopped by runs.stopTask."
+          },
+          "subagentTranscripts": {
+            "type": "boolean",
+            "description": "A subagent's own transcript can be read on demand."
+          },
+          "titleRead": {
+            "type": "boolean",
+            "description": "The provider generates a session title the environment can read."
+          },
+          "titleWrite": {
+            "type": "boolean",
+            "description": "A user title can be mirrored into the provider's own title field."
+          },
+          "transcriptDelete": {
+            "type": "boolean",
+            "description": "The provider's transcript of a session can be deleted when the session is purged."
+          },
+          "planUsage": {
+            "type": "boolean",
+            "description": "Plan usage can be read per window, with the account's identity."
+          },
+          "liveModels": {
+            "type": "boolean",
+            "description": "The provider's models are listed live; without it the catalogue is the adapter's static list."
+          },
+          "commands": {
+            "type": "boolean",
+            "description": "The provider's slash commands can be listed for an account and workspace without spending tokens."
+          },
+          "imageInput": {
+            "type": "boolean",
+            "description": "A message can carry image attachments."
+          },
+          "fileInput": {
+            "type": "boolean",
+            "description": "A message can carry file attachments."
+          },
+          "instructionChannel": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "system-prompt-append",
+                  "developer-instructions",
+                  "prompt",
+                  "none"
+                ],
+                "description": "How an adapter delivers standing instructions to its provider: system-prompt-append (Claude), developer-instructions (Codex), prompt (a local model), or none."
+              },
+              "maxCharacters": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The most characters the channel carries; null when it has no cap."
+              }
+            },
+            "required": [
+              "kind",
+              "maxCharacters"
+            ],
+            "description": "An adapter's instruction channel: its kind and its character cap."
+          },
+          "modes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "The modes the adapter maps onto its provider (ADR 0006)."
+          }
+        },
+        "required": [
+          "provider",
+          "displayName",
+          "interactivePrompts",
+          "partialMessages",
+          "providerQueue",
+          "steering",
+          "resume",
+          "fork",
+          "rewind",
+          "sessionListing",
+          "subagents",
+          "subagentTranscripts",
+          "titleRead",
+          "titleWrite",
+          "transcriptDelete",
+          "planUsage",
+          "liveModels",
+          "commands",
+          "imageInput",
+          "fileInput",
+          "instructionChannel",
+          "modes"
+        ],
+        "description": "An adapter's capabilities descriptor: its provider, a flag per optional power, its instruction channel and its modes."
+      },
+      "description": "One descriptor per adapter the environment holds, by provider."
+    }
+  },
+  "required": [
+    "providers"
+  ]
+}

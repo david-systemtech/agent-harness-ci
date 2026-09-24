@@ -34,3 +34,16 @@ export type CapabilityFlags = z.infer<typeof CapabilityFlags>;
 
 /** Whether `flags` offer `flag`. Absent means unsupported; there is no third answer. */
 export const supports = (flags: readonly CapabilityFlag[], flag: CapabilityFlag): boolean => flags.includes(flag);
+
+/**
+ * The flag list: every capability flag an environment may offer and a client
+ * may ask about, each named by the workstream whose feature it gates. A
+ * client asks only about flags on this list (the client runtime's contract
+ * test holds it to that); an environment may still send a flag missing from
+ * it, from a newer version, which an older client ignores.
+ *
+ * - `self-update`: the environment can update itself to a client's version (the launcher workstream, ADR 0007).
+ * - `containment:workspace`, `containment:no-network`: the containment levels the environment can enforce (the permissions workstream).
+ */
+export const CAPABILITY_FLAG_LIST = ["self-update", "containment:workspace", "containment:no-network"] as const;
+export type KnownCapabilityFlag = (typeof CAPABILITY_FLAG_LIST)[number];

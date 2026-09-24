@@ -54,6 +54,7 @@ export {
   type ModelCatalogue,
   type ModelOption,
   type PermissionBroker,
+  type ProcessPort,
   type PromptDecision,
   type PromptKind,
   type PromptMessage,
@@ -70,7 +71,17 @@ export {
   type UsageReading,
   type UsageWindow,
 } from "./adapter/contract.js";
-export { HOST_ACTOR, createAdapterHost, type ActiveRun, type AdapterHost, type AdapterHostOptions, type HostAccount } from "./adapter/host.js";
+export {
+  HOST_ACTOR,
+  createAdapterHost,
+  type ActiveRun,
+  type AdapterHost,
+  type AdapterHostOptions,
+  type HostAccount,
+} from "./adapter/host.js";
+export { PROCESS_STOP_TIMEOUT_MS, STOPPED_LISTED_MS, createProcessPool, type ProcessPool, type ProcessPoolOptions } from "./adapter/pool.js";
+export { processMethods, type ProcessMethodsOptions } from "./adapter/processes-methods.js";
+export { recoverCutRuns } from "./adapter/recovery.js";
 export type { AccountFacts, LiveRunFacts, PlannedRun, QueuedSend, StartFacts } from "./runs/run-decider.js";
 export { createAdapterRegistry, type AdapterRegistry } from "./adapter/registry.js";
 export { createScopedAppend, type ScopedAppend } from "./adapter/scoped-append.js";
