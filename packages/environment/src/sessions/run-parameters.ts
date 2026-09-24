@@ -1,4 +1,5 @@
-import type { IssueInput } from "@agent-harness/contracts";
+import type { IssueInput, Mode } from "@agent-harness/contracts";
+import type { VerifiedClientSession } from "../auth/client-sessions.js";
 
 /**
  * The run parameters a session is created with: the account, model and mode
@@ -22,3 +23,14 @@ export type RunParametersCheck = (parameters: RunParameters) => readonly IssueIn
 
 /** Accepts every account, model and mode: the preset for a `sessionMethods` built without the adapter host (lower-seam tests). */
 export const acceptAnyRunParameters: RunParametersCheck = () => [];
+
+/**
+ * The mode `sessions.create` stores for a session given one (#129): clamped
+ * to the caller's ceiling and the account's modes, so no client leaves a
+ * mode above its ceiling for a later run to ask for; null when nothing at or
+ * below the ceiling is available.
+ */
+export type SessionModeClamp = (mode: Mode, account: string | null, clientSession: VerifiedClientSession) => Mode | null;
+
+/** Keeps the mode as given: the preset for a `sessionMethods` built without the permissions workstream (lower-seam tests). */
+export const keepSessionMode: SessionModeClamp = (mode) => mode;

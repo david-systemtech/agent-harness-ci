@@ -42,7 +42,7 @@ const started = (id: string, extra: Record<string, unknown> = {}) =>
     identity: null,
     model: "opus",
     effort: null,
-    mode: { requested: null, effective: null, clamped: false },
+    mode: { requested: null, effective: "acceptEdits", clamped: false },
     workspace: { kind: "directory", path: "/work" },
     origin: "client",
     promptMessageId: first,

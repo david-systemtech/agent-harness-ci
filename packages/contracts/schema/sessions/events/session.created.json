@@ -102,13 +102,19 @@
       "anyOf": [
         {
           "type": "string",
-          "minLength": 1
+          "enum": [
+            "plan",
+            "acceptEdits",
+            "auto",
+            "bypassPermissions"
+          ],
+          "description": "What an agent may do without asking during a run, in the order ceilings use: plan < acceptEdits < auto < bypassPermissions. Claude's default and dontAsk are never used."
         },
         {
           "type": "null"
         }
       ],
-      "description": "The mode asked for, if any; the permissions workstream validates it."
+      "description": "The mode asked for, if any; clamped at each run, and changed by session.mode.set."
     }
   },
   "required": [

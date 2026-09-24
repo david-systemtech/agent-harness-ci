@@ -7,9 +7,11 @@ import { PAIRED_CONNECTIONS_DOCUMENT } from "./connections/records.js";
 import { REVOKE_TIMEOUT_MS } from "./connections/registry.js";
 import type { HttpFetch, WebSocketFactory } from "./platform.js";
 import type { Runtime } from "./runtime.js";
-import { globalFetch, globalWebSocket, inMemoryDocuments, inMemoryPlatform, type InMemoryDocumentStore } from "./testing/in-memory-platform.js";
+import { globalFetch, globalWebSocket, inMemoryDocuments, inMemoryPlatform, manualClock, type InMemoryDocumentStore } from "./testing/in-memory-platform.js";
 
 const harness = useHarness();
+
+const DAY = 24 * 60 * 60 * 1000;
 
 const only = (runtime: Runtime) => {
   const [record, ...rest] = runtime.connections.list.read();
@@ -69,7 +71,8 @@ describe("hello", () => {
     impostor = true;
     await runtime.connections.retryNow(t.env.id);
 
-    expect(only(runtime)).toEqual({ ...cached, phase: "blocked", blocked: "different-environment" });
+    // A block is a failure after ready: the environment is unreachable from then.
+    expect(only(runtime)).toEqual({ ...cached, phase: "blocked", blocked: "different-environment", unreachableSince: platform.clock.now().toISOString() });
     await until(() => t.env.sockets() === 0, "the blocked socket to close");
 
     impostor = false;
@@ -92,6 +95,43 @@ describe("hello", () => {
   });
 });
 
+describe("token refresh", () => {
+  it("refreshes on connect through access.sessions.refresh when fewer than seven days remain, and keeps the new token", async () => {
+    const t = await harness.environment();
+    const platform = inMemoryPlatform();
+    const runtime = harness.runtime(platform);
+    await runtime.start();
+    await runtime.connections.add({ link: (await t.createPairing()).link });
+    const { clientSessionId, expiresAt } = only(runtime);
+    expect(Date.parse(expiresAt ?? "") - platform.clock.now().getTime()).toBe(30 * DAY);
+    const before = await platform.secrets.get(t.env.id);
+    await runtime.close();
+
+    // 24 days on, with no socket open: six days are left.
+    t.clock.advance(24 * DAY);
+    const later = inMemoryPlatform({ clock: manualClock(t.clock.now()), documents: platform.documents, secrets: platform.secrets });
+    const again = harness.runtime(later);
+    await again.start();
+    // The refresh is not waited on by start: it is under way once the connection is ready.
+    await until(() => only(again).expiresAt !== expiresAt, "the refresh to land");
+
+    const renewed = only(again);
+    expect(renewed).toMatchObject({ phase: "ready", clientSessionId, refreshFailed: null });
+    expect(Date.parse(renewed.expiresAt ?? "") - t.clock.now().getTime()).toBe(30 * DAY);
+    const token = await platform.secrets.get(t.env.id);
+    expect(token).not.toBe(before);
+    const admin = await t.client();
+    const { sessions } = await admin.apply("access.sessions.list", {});
+    expect(sessions.find((s) => s.id === clientSessionId)?.expiresAt).toBe(renewed.expiresAt);
+
+    // The new token is the one the next connect sends.
+    await again.close();
+    const third = harness.runtime(inMemoryPlatform({ clock: manualClock(t.clock.now()), documents: platform.documents, secrets: platform.secrets }));
+    await third.start();
+    expect(only(third).phase).toBe("ready");
+  });
+});
+
 describe("the in-process connections API", () => {
   it("reconnects on an address edit", async () => {
     const t = await harness.environment();
@@ -110,14 +150,21 @@ describe("the in-process connections API", () => {
   it("blocks an address edit that reaches another environment, sends it no token, and keeps the old cache", async () => {
     const a = await harness.environment({ name: "desk" });
     const b = await harness.environment({ name: "laptop" });
-    const runtime = harness.runtime(inMemoryPlatform());
+    const platform = inMemoryPlatform();
+    const runtime = harness.runtime(platform);
     await runtime.start();
     await runtime.connections.add({ link: (await a.createPairing()).link });
     const cached = only(runtime);
 
     await runtime.connections.setAddress(a.env.id, originOf(b.address));
 
-    expect(only(runtime)).toEqual({ ...cached, address: originOf(b.address), phase: "blocked", blocked: "different-environment" });
+    expect(only(runtime)).toEqual({
+      ...cached,
+      address: originOf(b.address),
+      phase: "blocked",
+      blocked: "different-environment",
+      unreachableSince: platform.clock.now().toISOString(),
+    });
     expect(b.env.sockets()).toBe(0);
 
     await runtime.connections.setAddress(a.env.id, originOf(a.address));
@@ -286,7 +333,7 @@ describe("the in-process connections API", () => {
     expect(sessions.map((s) => s.id)).toContain(clientSessionId);
   });
 
-  it("clears the blocked reason when the connection leaves blocked: a retry that finds nothing, or disabling it", async () => {
+  it("shows the blocked reason only with blocked: a retry that finds nothing stays blocked, disabling hides the reason and keeps it to re-check", async () => {
     const t = await harness.environment();
     let down = false;
     const platform = inMemoryPlatform({ fetch: failingFetch(() => down) });
@@ -299,17 +346,22 @@ describe("the in-process connections API", () => {
     expect(only(runtime).blocked).toBe("revoked");
     const savedBlocked = () => (platform.documents.entries()[PAIRED_CONNECTIONS_DOCUMENT] as Record<string, { blocked: unknown }>)[t.env.id]?.blocked;
 
+    // A re-check that cannot read discovery leaves the block as it was (#126), with no retry.
     down = true;
     await runtime.connections.retryNow(t.env.id);
-    expect(only(runtime)).toMatchObject({ phase: "backoff", blocked: null });
+    expect(only(runtime)).toMatchObject({ phase: "blocked", blocked: "revoked", retryAt: null });
 
-    // The revoked token blocks it again, then disabling leaves blocked.
     down = false;
     await runtime.connections.retryNow(t.env.id);
     expect(only(runtime)).toMatchObject({ phase: "blocked", blocked: "revoked" });
     await runtime.connections.setEnabled(t.env.id, false);
     expect(only(runtime)).toMatchObject({ phase: "disabled", blocked: null });
-    await until(() => savedBlocked() === null, "the cleared reason to be saved");
+    expect(savedBlocked()).toBe("revoked");
+
+    // Enabled again, the block is re-checked quietly: one notice in all.
+    await runtime.connections.setEnabled(t.env.id, true);
+    expect(only(runtime)).toMatchObject({ phase: "blocked", blocked: "revoked" });
+    expect(runtime.projections.notices.read().map((n) => n.kind)).toEqual(["revoked"]);
   });
 
   /** A paired connection blocked as `revoked` on a platform whose network `down()` controls. */
@@ -339,35 +391,35 @@ describe("the in-process connections API", () => {
         return base.set(key, value);
       },
     };
-    let down = false;
-    const { t, platform, runtime } = await blockedByRevoke({ documents, down: () => down });
+    const { t, platform, runtime } = await blockedByRevoke({ documents, down: () => false });
 
+    // The re-check's discovery document is written to the record in the background.
     failNext = true;
-    down = true;
     await runtime.connections.retryNow(t.env.id);
 
-    expect(only(runtime)).toMatchObject({ phase: "backoff", blocked: null });
+    expect(only(runtime)).toMatchObject({ phase: "blocked", blocked: "revoked" });
     await until(() => platform.reported.length > 0, "the failed write to be reported");
     expect(platform.reported).toEqual([expect.objectContaining({ message: "the disk is full" })]);
   });
 
   it("a renderer whose connections.list listener throws stops neither the attempt nor its persistence, and is reported", async () => {
-    let down = false;
-    const { t, platform, runtime, savedBlocked } = await blockedByRevoke({ down: () => down });
+    const { t, platform, runtime, savedBlocked } = await blockedByRevoke({ down: () => false });
     const fault = new Error("the renderer failed");
     runtime.connections.list.subscribe(() => {
       throw fault;
     });
 
-    down = true;
+    const reads = platform.documents.entries()[PAIRED_CONNECTIONS_DOCUMENT];
     await runtime.connections.retryNow(t.env.id);
 
-    expect(only(runtime)).toMatchObject({ phase: "backoff", blocked: null });
-    await until(() => savedBlocked() === null, "the cleared reason to be saved");
+    // The attempt ran to its end (discovery, then no token to send) and its write landed.
+    expect(only(runtime)).toMatchObject({ phase: "blocked", blocked: "revoked" });
+    expect(savedBlocked()).toBe("revoked");
+    expect(platform.documents.entries()[PAIRED_CONNECTIONS_DOCUMENT]).toEqual(reads);
     expect(platform.reported).toContain(fault);
   });
 
-  it("a start retried after a failed save leaves one socket, never an orphan still feeding frames", async () => {
+  it("a save that fails during start is reported, and leaves one socket, never an orphan still feeding frames", async () => {
     const t = await harness.environment();
     const saved = inMemoryPlatform();
     const pairing = harness.runtime(saved);
@@ -386,13 +438,15 @@ describe("the in-process connections API", () => {
         return saved.documents.set(key, value);
       },
     };
-    const runtime = harness.runtime(inMemoryPlatform({ documents, secrets: saved.secrets }));
+    const platform = inMemoryPlatform({ documents, secrets: saved.secrets });
+    const runtime = harness.runtime(platform);
 
-    await expect(runtime.start()).rejects.toThrow("the disk is full");
+    // The record's writes are the connection's background work (#126): a failed one is reported, and the start goes on.
     await runtime.start();
+    await until(() => platform.reported.length > 0, "the failed save to be reported");
+    expect(platform.reported).toEqual([expect.objectContaining({ message: "the disk is full" })]);
 
     expect(only(runtime).phase).toBe("ready");
-    await until(() => t.env.sockets() === 1, "the failed start's socket to close");
     await new Promise((resolve) => setTimeout(resolve, 100));
     expect(t.env.sockets()).toBe(1);
   });
@@ -419,7 +473,7 @@ describe("the in-process connections API", () => {
     ]);
   });
 
-  it("a retry that attaches while a pairing is being kept is replaced by the pairing's socket, never orphaned", async () => {
+  it("a retry while a pairing is being kept opens no second socket, and the pairing's is the one attached", async () => {
     const t = await harness.environment();
     const base = inMemoryDocuments();
     let hold = false;
@@ -439,13 +493,29 @@ describe("the in-process connections API", () => {
     const runtime = harness.runtime(inMemoryPlatform({ documents }));
     await runtime.start();
 
+    // A first pairing: the new entry's machine starts only when the pairing's socket is adopted, so a retry meanwhile opens nothing.
     hold = true;
     const adding = runtime.connections.add({ link: (await t.createPairing()).link });
     await until(() => held, "the new record's save to be held");
-    const retrying = runtime.connections.retryNow(t.env.id);
-    await until(() => t.env.sockets() === 2, "the retry's socket beside the pairing's");
+    const ignored = runtime.connections.retryNow(t.env.id);
     release();
     expect(await adding).toMatchObject({ status: "paired" });
+    await ignored;
+    expect(only(runtime).phase).toBe("ready");
+    await until(() => t.env.sockets() === 1, "one socket");
+
+    // A re-pair in place of a running connection: its machine holds from giving up the old socket to adopting the new one (#126),
+    // so a retry meanwhile opens nothing.
+    held = false;
+    hold = true;
+    const rePairing = runtime.connections.add({ link: (await t.createPairing()).link }, { rePair: t.env.id });
+    await until(() => held, "the re-paired record's save to be held");
+    await until(() => t.env.sockets() === 1, "the old socket to close");
+    const retrying = runtime.connections.retryNow(t.env.id);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(t.env.sockets()).toBe(1);
+    release();
+    expect(await rePairing).toMatchObject({ status: "paired" });
     await retrying;
 
     expect(only(runtime).phase).toBe("ready");

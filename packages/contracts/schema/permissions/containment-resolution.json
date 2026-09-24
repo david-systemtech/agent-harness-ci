@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ContainmentResolution",
+  "type": "object",
+  "properties": {
+    "requested": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "off",
+            "workspace",
+            "workspace-no-network"
+          ],
+          "description": "Where a run may reach: off (nothing applied), workspace (writes only inside the workspace), workspace-no-network (and no network for the model's commands and fetches)."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The session's own level; null when it names none, so the default applied."
+    },
+    "effective": {
+      "type": "string",
+      "enum": [
+        "off",
+        "workspace",
+        "workspace-no-network"
+      ],
+      "description": "Where a run may reach: off (nothing applied), workspace (writes only inside the workspace), workspace-no-network (and no network for the model's commands and fetches)."
+    },
+    "mechanism": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "What enforces it (bubblewrap, Seatbelt); null at off."
+    },
+    "reason": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Why the level asked for was not the one got, when it was not."
+    }
+  },
+  "required": [
+    "requested",
+    "effective",
+    "mechanism",
+    "reason"
+  ],
+  "description": "A run's containment as resolved at its start: requested, effective, the mechanism and, when lowered, why."
+}

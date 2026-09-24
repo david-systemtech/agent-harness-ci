@@ -49,6 +49,8 @@ export {
   type EnvironmentDescriptor,
 } from "./connections/records.js";
 export type { Connections, RemoveResult } from "./connections/registry.js";
+export type { ConnectionAction } from "./connections/state-machine.js";
+export { NOTICE_LIMIT, type Notice, type NoticeAction, type NoticeKind } from "./notices.js";
 export {
   parsePairingInput,
   type PairingFailure,

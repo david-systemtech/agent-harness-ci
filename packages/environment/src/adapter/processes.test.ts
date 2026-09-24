@@ -533,6 +533,7 @@ describe("a parked process", () => {
     expect(eventsOf(t, id).map((event) => event.type)).toEqual([
       "session.created",
       "run.started",
+      "run.policy.resolved",
       "message.sent",
       "session.title-generated",
       "assistant.text",
