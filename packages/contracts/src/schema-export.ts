@@ -17,6 +17,7 @@ import {
   Sequence,
   SubscriptionId,
   Timestamp,
+  JsonObject,
 } from "./primitives.js";
 import { methods } from "./registry.js";
 import { Ceiling, Scope, ScopeSet } from "./scopes.js";
@@ -62,6 +63,7 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "subscription-id.json", title: "SubscriptionId", schema: SubscriptionId },
   { path: "sequence.json", title: "Sequence", schema: Sequence },
   { path: "timestamp.json", title: "Timestamp", schema: Timestamp },
+  { path: "json-object.json", title: "JsonObject", schema: JsonObject },
   { path: "actor.json", title: "Actor", schema: Actor },
   { path: "event-envelope.json", title: "EventEnvelope", schema: EventEnvelope },
   { path: "errors/error-code.json", title: "ErrorCode", schema: ErrorCode },

@@ -24,6 +24,7 @@ export {
   ClientKind,
   ClientSessionId,
   CommandId,
+  JsonObject,
   RequestId,
   Sequence,
   SubscriptionId,

@@ -55,6 +55,10 @@
       "title": "Timestamp"
     },
     {
+      "path": "json-object.json",
+      "title": "JsonObject"
+    },
+    {
       "path": "actor.json",
       "title": "Actor"
     },

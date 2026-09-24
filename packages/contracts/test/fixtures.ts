@@ -298,6 +298,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
   "client-kind.json": { valid: ["desktop", "tui", "web", "program"], invalid: ["phone", "Desktop"] },
   "command-id.json": { valid: [uuid], invalid: ["not-a-uuid", "", 7] },
   "client-session-id.json": { valid: ["cs-1"], invalid: ["", 1] },
+  "json-object.json": { valid: [{}, { a: 1, nested: { b: [1, "two"] } }], invalid: [[], "x", 1, null] },
   "request-id.json": { valid: ["1", "a7"], invalid: ["", 1] },
   "subscription-id.json": { valid: ["sub-1"], invalid: ["", null] },
   "sequence.json": { valid: [0, 42], invalid: [-1, 1.5, "3"] },
