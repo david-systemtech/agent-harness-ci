@@ -313,7 +313,7 @@ describe("the environment record and the signing key", () => {
     expect(existsSync(join(env.dataDir, "vault.json"))).toBe(false);
   });
 
-  it.runIf(posix)("writes nothing outside the data directory", async () => {
+  it.runIf(process.platform === "linux")("writes nothing outside the data directory", async () => {
     const home = tempDir();
     const temp = tempDir();
     vi.stubEnv("HOME", home);
