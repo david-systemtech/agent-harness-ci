@@ -12,6 +12,7 @@ import { describe, expect, it } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { MANUAL_CLOCK_START } from "../../test/clock.js";
 import { createGroup } from "../../test/groups.js";
+import { end, fakeAdapter, gate } from "../../test/fake-adapter.js";
 import { startTestEnvironment, type TestEnvironment } from "../../test/helper.js";
 import {
   command,
@@ -491,5 +492,36 @@ describe("the field table's behavioural half", () => {
         expect(summary[field as keyof SessionSummary], `${name} shows ${field}`).toEqual(changed[field]);
       }
     }
+  });
+
+  it("changes every field run.started owns through a real run of the fake adapter: its patch names the field, and the summary shows the new value", async () => {
+    const held = gate();
+    const t = await startTestEnvironment({
+      adapter: fakeAdapter({
+        script: async function* () {
+          await held.opened;
+          yield end();
+        },
+      }),
+    });
+    onCleanup(() => t.close());
+    onCleanup(() => held.open());
+    const client = await t.client();
+    const owned = Object.entries(SUMMARY_FIELD_OWNERS).flatMap(([field, owner]) => ("event" in owner && owner.event === "run.started" ? [field] : []));
+    expect(owned.sort()).toEqual(["accountId", "activity", "lastActivityAt", "model"]);
+    const { id } = await create(client);
+    const list = await watch(client);
+    t.clock.advance(60_000);
+    await client.request("runs.start", { commandId: randomUUID(), sessionId: id, text: "Fix the receipts" });
+    const event = await list.next();
+    expect(event).toMatchObject({ type: "run.started", streamId: id });
+    const patch = patchOf(event);
+    const fields: Record<string, unknown> = patch.op === "set" ? patch.fields : {};
+    const summary = await get(client, id);
+    for (const field of owned) {
+      expect(fields, `run.started changes ${field}`).toHaveProperty(field);
+      expect(summary[field as keyof SessionSummary], `the summary shows ${field}`).toEqual(fields[field]);
+    }
+    expect(fields).toMatchObject({ activity: { state: "running", since: new Date(Date.parse(MANUAL_CLOCK_START) + 60_000).toISOString() }, accountId: "claude-max", model: "opus" });
   });
 });

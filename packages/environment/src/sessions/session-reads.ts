@@ -25,6 +25,7 @@ export const readSessionState = (reader: Reader, id: string): SessionState | nul
     purged: false,
     purgeAt: row.purge_at,
     userTitle: row.user_title,
+    generatedTitle: row.generated_title,
     archivedAt: row.archived_at,
     pinnedAt: row.pinned_at,
     pinOrderKey: row.pin_order_key,

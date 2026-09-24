@@ -97,8 +97,9 @@ describe("runs.start", () => {
     held.open();
 
     const events = [...early, ...(await session.until("run.ended", runId))];
-    expect(events.map((event) => event.type)).toEqual(["run.started", "run.policy.resolved", "message.sent", "assistant.text", "assistant.text", "run.ended"]);
-    const [started, , sent, text, , ended] = events as [EventEnvelope, EventEnvelope, EventEnvelope, EventEnvelope, EventEnvelope, EventEnvelope];
+    // The first user message generates the session's title in the start's transaction (#122).
+    expect(events.map((event) => event.type)).toEqual(["run.started", "run.policy.resolved", "message.sent", "session.title-generated", "assistant.text", "assistant.text", "run.ended"]);
+    const [started, , sent, , text, , ended] = events as [EventEnvelope, EventEnvelope, EventEnvelope, EventEnvelope, EventEnvelope, EventEnvelope, EventEnvelope];
     expect(started).toMatchObject({
       streamKind: "session",
       streamId: id,
@@ -128,8 +129,9 @@ describe("runs.start", () => {
     });
     const later = new Date(Date.parse(MANUAL_CLOCK_START) + 1000).toISOString();
     expect(patchOf(ended)).toEqual({ op: "set", sessionId: id, fields: { activity: { state: "idle", since: later }, lastActivityAt: later } });
-    // The session list carries the flagged run events only, each with its patch.
+    // The session list carries the flagged events only, each with its patch: the run's, and the title its message generated.
     expect((await list.next()).type).toBe("run.started");
+    expect((await list.next()).type).toBe("session.title-generated");
     expect((await list.next()).type).toBe("run.ended");
     expect(sent.metadata).toEqual({});
   });
@@ -148,8 +150,8 @@ describe("runs.start", () => {
     const { runId } = await startRun(client, id);
     const events = await session.until("run.ended", runId);
     // Its message never reached the adapter, so it is queued again before the end.
-    expect(events.map((event) => event.type)).toEqual(["run.started", "run.policy.resolved", "message.sent", "message.requeued", "run.ended"]);
-    expect(events[4]).toMatchObject({ actor: { kind: "system", id: "adapter-host" }, payload: { reason: "error", error: { message: "No process could be started." } } });
+    expect(events.map((event) => event.type)).toEqual(["run.started", "run.policy.resolved", "message.sent", "session.title-generated", "message.requeued", "run.ended"]);
+    expect(events[5]).toMatchObject({ actor: { kind: "system", id: "adapter-host" }, payload: { reason: "error", error: { message: "No process could be started." } } });
     expect((await client.request("sessions.get", { sessionId: id })).summary.activity).toMatchObject({ state: "idle" });
   });
 
@@ -170,8 +172,8 @@ describe("runs.start", () => {
     const session = await watch(client, id, t.env.log.head());
     const first = await startRun(client, id, "One");
     const failed = await session.until("run.ended", first.runId);
-    expect(failed.map((event) => event.type)).toEqual(["run.started", "run.policy.resolved", "message.sent", "message.requeued", "run.ended"]);
-    expect(failed[3]).toMatchObject({ actor: { kind: "system", id: "adapter-host" }, payload: { runId: first.runId, messageId: first.messageId } });
+    expect(failed.map((event) => event.type)).toEqual(["run.started", "run.policy.resolved", "message.sent", "session.title-generated", "message.requeued", "run.ended"]);
+    expect(failed[4]).toMatchObject({ actor: { kind: "system", id: "adapter-host" }, payload: { runId: first.runId, messageId: first.messageId } });
     expect(calls).toBe(1);
 
     const second = await startRun(client, id, "Two");
@@ -352,7 +354,7 @@ describe("a run belongs to the environment", () => {
     held.open();
     await session.until("run.ended", runId);
     const types = second.received.flatMap((f) => (f.type === "event" && f.subscription === session.subscription ? [f.event.type] : []));
-    expect(types).toEqual(["run.started", "run.policy.resolved", "message.sent", "assistant.text", "assistant.text", "run.ended"]);
+    expect(types).toEqual(["run.started", "run.policy.resolved", "message.sent", "session.title-generated", "assistant.text", "assistant.text", "run.ended"]);
     expect(t.adapter.lastRun()).toMatchObject({ interrupted: false, disposed: false });
   });
 

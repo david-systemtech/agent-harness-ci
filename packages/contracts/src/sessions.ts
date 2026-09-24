@@ -539,6 +539,7 @@ export type SessionListSnapshot = z.infer<typeof SessionListSnapshot>;
 // Payload types, for the environment's decider and projector.
 export type SessionCreatedPayload = z.infer<typeof SessionCreatedPayload>;
 export type SessionTitleSetPayload = z.infer<typeof SessionTitleSetPayload>;
+export type SessionTitleGeneratedPayload = z.infer<typeof SessionTitleGeneratedPayload>;
 export type SessionArchivedPayload = z.infer<typeof SessionArchivedPayload>;
 export type SessionPinnedPayload = z.infer<typeof SessionPinnedPayload>;
 export type SessionPinReorderedPayload = z.infer<typeof SessionPinReorderedPayload>;

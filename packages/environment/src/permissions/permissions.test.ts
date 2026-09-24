@@ -203,7 +203,8 @@ describe("run.policy.resolved", () => {
     }
     held.open();
     await untilEnded(t, id, runId);
-    expect(seen.map((event) => event.type)).toEqual(["run.started", "run.policy.resolved", "message.sent", "assistant.text"]);
+    // The first message generates the session's title in the start's transaction (#122).
+    expect(seen.map((event) => event.type)).toEqual(["run.started", "run.policy.resolved", "message.sent", "session.title-generated", "assistant.text"]);
     expect(seen[1]).toMatchObject({ correlationId: runId, actor: { kind: "client_session", id: client.hello.clientSessionId } });
     policyOf(t, id, runId);
   });
