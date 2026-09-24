@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { KEY, renderApp, type RenderedApp } from "../test/harness.js";
+import { resolveKeymap } from "./keys.js";
 
 /**
  * First launch (docs/specs/tui.md, "First launch: local detection, service
@@ -88,6 +89,19 @@ describe("service down", () => {
     await app.waitFor("● desk starting");
     app.environment("desk").discovery("ready");
     await app.waitFor("● desk ready");
+  });
+
+  it("answers the offer on a key the keybindings file gives it, Shift on a letter included", async () => {
+    const { keymap, problems } = resolveKeymap({ "confirm.yes": ["Shift+s"] });
+    expect(problems).toEqual([]);
+    const app = await launch({ script: { environments: [{ name: "desk", reach: "local", discovery: "nothing" }] }, keymap });
+    await app.waitFor(OFFER);
+    // `y` is no longer the answer: it is typed, and taken back.
+    await app.press("y");
+    expect(app.service.calls).toEqual([]);
+    expect(app.frame()).toContain("› y");
+    await app.press(KEY.backspace, "S");
+    expect(app.service.calls).toEqual(["start"]);
   });
 
   it("offers to install and start it when no service is installed", async () => {

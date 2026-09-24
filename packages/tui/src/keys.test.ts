@@ -80,11 +80,16 @@ describe("key names", () => {
     ["shift+tab", "Shift+Tab"],
     ["y", "y"],
     ["J", "J"],
+    // Shift on a letter is its capital, as the terminal sends it and `eventName` names it.
+    ["Shift+a", "A"],
+    ["shift+Y", "Y"],
+    ["Ctrl+Shift+a", "Ctrl+A"],
   ])("reads %s as %s", (written, name) => {
     expect(parseKeyName(written)).toBe(name);
   });
 
-  it.each(["Hyper+Q", "Ctrl+", "Enterr", ""])("refuses %j", (written) => {
+  // Shift on any other printable character names a character the keyboard layout decides.
+  it.each(["Hyper+Q", "Ctrl+", "Enterr", "", "Shift+1", "Shift+/"])("refuses %j", (written) => {
     expect(parseKeyName(written)).toBeUndefined();
   });
 
@@ -120,6 +125,14 @@ describe("the keybindings file", () => {
     expect(loaded.problems).toEqual([]);
     expect(loaded.keymap.keys["confirm.yes"]).toEqual(["Ctrl+Y", "Enter"]);
     expect([...loaded.keymap.remapped]).toEqual(["confirm.yes"]);
+  });
+
+  it("reads Shift on a letter as the capital the terminal sends, and refuses Shift on another character", () => {
+    const loaded = loadKeybindings(file(JSON.stringify({ "confirm.yes": ["Shift+y"], "confirm.no": ["Shift+1", "n"] })), { required: true });
+    expect(loaded.keymap.keys["confirm.yes"]).toEqual(["Y"]);
+    expect(loaded.keymap.keys["confirm.no"]).toEqual(["n"]);
+    expect([...loaded.keymap.remapped].sort()).toEqual(["confirm.no", "confirm.yes"]);
+    expect(loaded.problems).toEqual([expect.stringContaining('"Shift+1" is not a key name')]);
   });
 
   it("reports an unknown action id and an unknown key name, and ignores them", () => {

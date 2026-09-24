@@ -73,7 +73,12 @@ const NAMED: Readonly<Record<string, string>> = {
 };
 const MODIFIERS = ["Ctrl", "Alt", "Shift"] as const;
 
-/** A key name as written in the table or a keybindings file, in its one canonical form (`Ctrl+C`, `Esc`, `↑`, `y`); undefined for none. */
+/**
+ * A key name as written in the table or a keybindings file, in its one
+ * canonical form (`Ctrl+C`, `Esc`, `↑`, `y`), the form `eventName` gives the
+ * key Ink hears; undefined for none. `Shift+a` is `A`; Shift on a character
+ * that is not a letter is refused, since the layout decides what it sends.
+ */
 export const parseKeyName = (written: string): string | undefined => {
   const parts = written.trim().split("+");
   const base = parts.pop();
@@ -87,8 +92,14 @@ export const parseKeyName = (written: string): string | undefined => {
   const named = NAMED[base.toLowerCase()];
   let name: string;
   if (named) name = named;
-  else if ([...base].length === 1) name = modifiers.has("Ctrl") || modifiers.has("Alt") ? base.toUpperCase() : base;
-  else return undefined;
+  else if ([...base].length === 1) {
+    if (modifiers.has("Shift")) {
+      // Shift on a character is its case, as `eventName` hears it: a letter's capital; any other character's shifted form is the keyboard layout's.
+      if (base.toLowerCase() === base.toUpperCase()) return undefined;
+      modifiers.delete("Shift");
+      name = base.toUpperCase();
+    } else name = modifiers.has("Ctrl") || modifiers.has("Alt") ? base.toUpperCase() : base;
+  } else return undefined;
   return [...MODIFIERS.filter((m) => modifiers.has(m)), name].join("+");
 };
 

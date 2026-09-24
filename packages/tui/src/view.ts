@@ -44,7 +44,7 @@ export const findEnvironment = (views: readonly EnvironmentView[], wanted: strin
 /**
  * The environment the header is about (ADR 0005's default-environment
  * rule): the one `--environment` names, else the last used, else the local
- * one, else the primary.
+ * one, else the primary, which `projections.environments` lists first.
  */
 export const currentEnvironment = (
   views: readonly EnvironmentView[],
