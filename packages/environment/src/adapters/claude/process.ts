@@ -164,6 +164,21 @@ const speaksWithoutOwner = (message: unknown): boolean => {
 const isInit = (message: unknown): boolean => isRecord(message) && message["type"] === "system" && message["subtype"] === "init";
 
 /** A user message as the streaming input takes it, stamped with the harness's message id. */
+/** The image media types the SDK's image block takes (`Base64ImageSource`). */
+export const CLAUDE_IMAGE_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"] as const;
+type ClaudeImageType = (typeof CLAUDE_IMAGE_TYPES)[number];
+
+/** An image's media type as the SDK takes it; another is refused rather than sent under a label that is not its own. */
+const claudeImageType = (mediaType: string): ClaudeImageType => {
+  if ((CLAUDE_IMAGE_TYPES as readonly string[]).includes(mediaType)) return mediaType as ClaudeImageType;
+  throw new Error(`Claude does not take ${mediaType} images; it takes ${CLAUDE_IMAGE_TYPES.join(", ")}.`);
+};
+
+/** Throws unless every image the messages carry is one Claude takes. */
+export const checkImages = (messages: readonly PromptMessage[]): void => {
+  for (const message of messages) for (const attachment of message.attachments) if (attachment.kind === "image") claudeImageType(attachment.mediaType);
+};
+
 const userMessage = (message: PromptMessage): SDKUserMessage => {
   const images = message.attachments.filter((attachment) => attachment.kind === "image");
   const content: SDKUserMessage["message"]["content"] =
@@ -173,7 +188,7 @@ const userMessage = (message: PromptMessage): SDKUserMessage => {
           // Images before the text: a question placed after its image is answered better.
           ...images.map((image) => ({
             type: "image" as const,
-            source: { type: "base64" as const, media_type: image.mediaType as "image/png", data: Buffer.from(image.data).toString("base64") },
+            source: { type: "base64" as const, media_type: claudeImageType(image.mediaType), data: Buffer.from(image.data).toString("base64") },
           })),
           ...(message.text === "" ? [] : [{ type: "text" as const, text: message.text }]),
         ];
@@ -948,6 +963,7 @@ export class ClaudeProcess implements TurnControl {
   async send(turn: ClaudeTurn, message: PromptMessage): Promise<void> {
     if (this.closed || this.#prompts.closed) throw new Error("The Claude process is closing and takes no more messages.");
     if (turn.ended) throw new Error("The run has ended; its messages go to the next run.");
+    checkImages([message]);
     // Stamped with the harness's id: the CLI names it when a turn reads it, and an interrupt's receipt lists it.
     this.#queuedSends.set(message.messageId, message);
     this.#prompts.push(userMessage(message));

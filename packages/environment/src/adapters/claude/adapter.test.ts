@@ -253,6 +253,19 @@ describe("the streaming input", () => {
     expect(prompts[1]?.message.content).toBe("And this");
   });
 
+  it("labels each image with its own media type, and refuses one the SDK does not take before anything spawns, or when sent", async () => {
+    const adapter = adapterWith();
+    const image = (mediaType: string) => ({ ...message("Look"), attachments: [{ kind: "image" as const, name: "a", mediaType, data: new Uint8Array([1, 2, 3]) }] });
+    expect(() => adapter.createRun(runInput({ prompt: [image("image/bmp")] }), contextWith())).toThrow(/image\/bmp/);
+    expect(fake.queries).toHaveLength(0);
+
+    const run = adapter.createRun(runInput({ prompt: [image("image/jpeg"), image("image/webp")] }), contextWith());
+    const query = await fake.made(1);
+    const prompts: SDKUserMessage[] = await query.promptsPushed(2);
+    expect(prompts.map((prompt) => (prompt.message.content as { source?: { media_type: string } }[])[0]?.source?.media_type)).toEqual(["image/jpeg", "image/webp"]);
+    await expect(run.send(image("image/svg+xml"))).rejects.toThrow(/image\/svg\+xml/);
+  });
+
   it("pushes a message sent during the turn, and reports it steered when the turn reads it", async () => {
     const adapter = adapterWith();
     const input = runInput();

@@ -12,7 +12,7 @@ import { bundledExecutable } from "./executable.js";
 import { catalogueOf, staticCatalogue } from "./models.js";
 import { CLAUDE_MODES, claudeEffort, claudeMode } from "./options.js";
 import { createPlanUsageReader, readUsageMethod, type UsageOutcome } from "./plan-usage.js";
-import { ClaudeProcess, type ProcessDeps, type ProcessTimings } from "./process.js";
+import { ClaudeProcess, checkImages, type ProcessDeps, type ProcessTimings } from "./process.js";
 
 /**
  * The Claude adapter (claude-adapter spec; ADR 0015, ADR 0018): the first
@@ -201,9 +201,10 @@ export const createClaudeAdapter = (options: ClaudeAdapterOptions = {}): ClaudeA
       }
     },
     createRun(input, context) {
-      // Refused before anything spawns: a mode outside the four, an effort the SDK does not take, a run with nothing to say.
+      // Refused before anything spawns: a mode outside the four, an effort or an image type the SDK does not take, a run with nothing to say.
       claudeMode(input.mode);
       claudeEffort(input.effort);
+      checkImages(input.prompt);
       if (input.prompt.length === 0) throw new Error("A Claude run starts with a message.");
       const kept = processes.get(input.sessionId);
       let carried: PromptMessage[] = [];
