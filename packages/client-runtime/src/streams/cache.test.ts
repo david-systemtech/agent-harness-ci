@@ -295,6 +295,25 @@ describe("retention", () => {
     expect(setup.reported).toHaveLength(1);
   });
 
+  it("forgets an environment whose meta it does not read without deleting that meta, which still names its snapshots", async () => {
+    const setup = await setUp();
+    const foreign = { format: 99, sessions: { a: { size: 10 } } };
+    await setup.store.set(metaDocument("far"), foreign);
+    await setup.store.set(streamDocument("far", "list"), { format: 1, sequence: 1, snapshot: {} });
+    await setup.store.set(streamDocument("far", "session.a"), { format: 1, sequence: 1, snapshot: {} });
+    await setup.retention.load("far");
+    await setup.retention.forget("far");
+    expect(setup.store.entries()[streamDocument("far", "list")]).toBeUndefined();
+    expect(setup.store.entries()[metaDocument("far")]).toEqual(foreign);
+    expect(setup.store.entries()[streamDocument("far", "session.a")]).toBeDefined();
+
+    // A meta whose read fails is left the same way: what it names cannot be known.
+    await setup.store.set(metaDocument("dark"), { format: 1, skewMs: null, opened: [{ sessionId: "b", openedAt: "2026-09-24T00:00:00.000Z", bytes: 1 }] });
+    setup.unreadable.add(metaDocument("dark"));
+    await setup.retention.forget("dark");
+    expect(setup.store.entries()[metaDocument("dark")]).toBeDefined();
+  });
+
   it("forgets a session, and everything of an environment", async () => {
     const setup = await setUp();
     await open(setup, "a");
