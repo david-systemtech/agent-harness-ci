@@ -48,6 +48,7 @@ export const freshSummary = {
   parkedPromptCount: 0,
   accountId: null,
   model: null,
+  mode: null,
   pullRequests: [],
   draft: null,
 };
@@ -74,12 +75,15 @@ const fullSummary = {
   parkedPromptCount: 2,
   accountId: "claude-max",
   model: "claude-opus-5-5",
+  mode: "plan",
   pullRequests: [mergedPullRequest],
   draft: "Now the retention sweep",
 };
 
 const invalidSummaries = [
   {},
+  { ...freshSummary, mode: "yolo" },
+  { ...freshSummary, mode: "default" },
   { ...freshSummary, id: "not-a-uuid" },
   { ...freshSummary, title: "" },
   { ...freshSummary, titleSource: "provider" },

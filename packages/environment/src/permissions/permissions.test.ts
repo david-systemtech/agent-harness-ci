@@ -16,7 +16,7 @@ import { useCleanups } from "../../test/cleanups.js";
 import { MANUAL_CLOCK_START } from "../../test/clock.js";
 import { end, fakeAdapter, gate, say, type FakeAdapter, type FakeAdapterOptions, type Gate } from "../../test/fake-adapter.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
-import { create, refusal } from "../../test/sessions.js";
+import { create, get, patchOf, refusal } from "../../test/sessions.js";
 import type { WireClient } from "../../test/wire-client.js";
 import { toWireEnvelope } from "../wire/envelope.js";
 
@@ -168,6 +168,7 @@ describe("the clamp on every run", () => {
     const low = await pairedClient(t, "plan");
     const { id } = await create(low, { mode: "bypassPermissions" });
     expect(sessionEvents(t, id).find((event) => event.type === "session.created")?.payload["mode"]).toBe("plan");
+    expect((await get(low, id)).mode).toBe("plan");
     const desktop = await t.client();
     const { runId } = await startRun(desktop, id);
     await untilEnded(t, id, runId);
@@ -452,6 +453,11 @@ describe("permissions.mode.set", () => {
       actor: { kind: "client_session", id: client.hello.clientSessionId },
       payload: { mode: { requested: "bypassPermissions", effective: "auto", ceiling: "auto", clamped: true, clampReason: "ceiling" }, live: null },
     });
+    // The summary carries the effective mode (#179): the event is list-flagged and patches it, and updatedAt does not move.
+    expect(patchOf(set[0] as EventEnvelope)).toEqual({ op: "set", sessionId: id, fields: { mode: "auto" } });
+    const summary = await get(client, id);
+    expect(summary.mode).toBe("auto");
+    expect(summary.updatedAt).toBe(summary.createdAt);
 
     const { runId } = await startRun(client, id);
     await untilEnded(t, id, runId);
