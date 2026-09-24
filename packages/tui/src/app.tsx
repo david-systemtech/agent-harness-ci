@@ -192,17 +192,31 @@ export const App = (props: AppProps) => {
     }
   });
 
-  // The offer needs to know whether a service is installed and whether the grant file is there.
+  // The offer needs to know whether a service is installed and whether the grant file is there: asked afresh
+  // each time the local environment goes down, and after a start that failed.
   const asked = useRef(false);
-  useEffect(() => {
-    if (!down || asked.current) return;
-    asked.current = true;
+  const probe = () => {
     // Either answer failing is taken as no: the offer still stands on the other.
     const grantPresent = props.grant?.read().then((g) => g !== undefined) ?? Promise.resolve(false);
     void Promise.all([props.services.installed().catch(() => false), grantPresent.catch(() => false)]).then(([installed, present]) =>
       update({ installed, grantPresent: present }),
     );
+  };
+  useEffect(() => {
+    if (!down || asked.current) return;
+    asked.current = true;
+    probe();
   });
+  // Back up: the next time it goes down is a new outage, offered again (a `n` answered this one) and asked again.
+  useEffect(() => {
+    if (down) return;
+    asked.current = false;
+    setScreen((s) =>
+      s.offer === "running" || (s.offer !== "declined" && s.installed === undefined && s.grantPresent === undefined)
+        ? s
+        : { ...s, offer: s.offer === "declined" ? "open" : s.offer, installed: undefined, grantPresent: undefined },
+    );
+  }, [down]);
 
   const offerStands =
     down &&
@@ -214,9 +228,14 @@ export const App = (props: AppProps) => {
   const startService = () => {
     const installed = screen.installed ?? true;
     update({ offer: "running", line: undefined });
+    const failed = (line: string) => {
+      update({ offer: "open", line });
+      // What failed may have changed what is installed (an install that went through before its start failed).
+      probe();
+    };
     void startLocalEnvironment({ host, services: props.services, clock, installed, signal: quit.signal }).then(
-      (outcome) => quit.signal.aborted || update(outcome.ok ? { offer: "handed-over" } : { offer: "open", line: outcome.message }),
-      (error: unknown) => quit.signal.aborted || update({ offer: "open", line: messageOf(error) }),
+      (outcome) => quit.signal.aborted || (outcome.ok ? update({ offer: "handed-over" }) : failed(outcome.message)),
+      (error: unknown) => quit.signal.aborted || failed(messageOf(error)),
     );
   };
 

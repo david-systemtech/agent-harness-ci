@@ -47,7 +47,8 @@ export const startLocalEnvironment = async (options: {
   }
   if (signal.aborted) return STOPPED;
   const started = await services.start();
-  if (!started.ok) return started;
+  // An install that went through is said, so a failed start after it is not read as nothing having happened.
+  if (!started.ok) return options.installed ? started : { ok: false, message: `Installed, but starting it failed: ${started.message}` };
   const runtime = (): Runtime => host.current.read();
   for (let waited = 0; waited <= READINESS_WAIT_MS; waited += READINESS_POLL_MS) {
     if (signal.aborted) return STOPPED;

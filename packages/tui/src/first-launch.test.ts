@@ -119,6 +119,39 @@ describe("service down", () => {
     expect(app.runtime()).toBe(runtime);
   });
 
+  it("says the install went through when the start after it fails, and offers only the start next", async () => {
+    const app = await launch({
+      script: { environments: [{ name: "desk", reach: "local", discovery: "nothing" }] },
+      service: { installed: false, start: { ok: false, message: "Could not run systemctl: no user manager." } },
+    });
+    await app.waitFor("Install and start it? y/n");
+    await app.press("y");
+    await app.waitFor("Installed, but starting it failed: Could not run systemctl: no user manager.");
+    await app.waitFor(OFFER);
+    await app.press("y");
+    expect(app.service.calls).toEqual(["install", "start", "start"]);
+  });
+
+  it("asks again, afresh, when the environment goes down a second time", async () => {
+    const first = await launch({ script: { environments: [{ name: "desk", reach: "local", environmentId: DESK }] } });
+    await first.waitFor("● desk ready");
+    await first.unmount();
+    apps = [];
+    const app = await launch({
+      script: { environments: [{ name: "desk", reach: "local", environmentId: DESK, discovery: "nothing" }] },
+      platform: first.platform,
+    });
+    await app.waitFor(OFFER);
+    await app.press("n");
+    expect(app.frame()).not.toContain(OFFER);
+    app.environment("desk").discovery("ready");
+    await app.waitFor("● desk ready", 4000);
+    app.service.setInstalled(false);
+    app.environment("desk").discovery("nothing");
+    app.environment("desk").server.drop();
+    await app.waitFor("The environment on this machine is not running. Install and start it? y/n", 4000);
+  });
+
   it("offers to install and start it when no service is installed", async () => {
     const app = await launch({
       script: { environments: [{ name: "desk", reach: "local", discovery: "nothing" }] },

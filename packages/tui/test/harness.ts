@@ -41,6 +41,8 @@ export interface ScriptedService extends LocalService {
   readonly calls: readonly string[];
   /** How many times the environment's readiness was asked. */
   readinessPolls(): number;
+  /** Installs or uninstalls the service behind the terminal UI's back. */
+  setInstalled(installed: boolean): void;
 }
 
 export interface ServiceScript {
@@ -58,6 +60,9 @@ const scriptedService = (world: ScriptedWorld, script: ServiceScript = {}): Scri
   return {
     calls,
     readinessPolls: () => polls,
+    setInstalled: (value) => {
+      installed = value;
+    },
     installed: async () => installed,
     install: async () => {
       calls.push("install");
