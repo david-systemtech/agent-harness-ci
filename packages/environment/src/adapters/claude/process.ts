@@ -404,7 +404,7 @@ export class ClaudeProcess implements TurnControl {
       getSessionMessages: sdkGetSessionMessages,
     });
     const point = target.kind === "rewind" ? resolveRewindPoint(stored, anchor) : resolveForkPoint(stored, anchor);
-    if (point === null) throw new Error(`The message ${anchor} is not in the stored conversation, or nothing comes before it; a rewind to the first message is a new session.`);
+    if (point === null) throw new Error(`The message ${anchor} is not in the stored conversation, or nothing comes before it; a fork or a rewind from the first message is a new session.`);
     return point;
   }
 

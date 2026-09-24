@@ -595,6 +595,22 @@ describe("the process across turns", () => {
     expect(fake.queries).toHaveLength(0);
   });
 
+  it("ends a fork from a message it cannot place, rather than forking the whole session", async () => {
+    const adapter = adapterWith();
+    fake.stored.set(PROVIDER_SESSION, [
+      { type: "user", uuid: "p1", message: { role: "user", content: "First" } },
+      { type: "assistant", uuid: "a1", message: { role: "assistant", content: [] } },
+    ]);
+    // Not in the stored chain, and first in it (nothing comes before it to fork from).
+    for (const atMessageId of ["nowhere", "p1"]) {
+      const run = adapter.createRun(runInput({ target: { kind: "fork", providerSessionId: PROVIDER_SESSION, atMessageId } }), contextWith());
+      expect(ends(await drain(run))).toEqual([
+        expect.objectContaining({ reason: "error", error: expect.objectContaining({ message: expect.stringMatching(new RegExp(`${atMessageId} is not in the stored conversation`)) }) }),
+      ]);
+    }
+    expect(fake.queries).toHaveLength(0);
+  });
+
   it("stops the session's process for the pool whatever it holds, and resolves once it has stopped", async () => {
     const adapter = adapterWith();
     const turn = await oneTurn(adapter, runInput());
