@@ -60,7 +60,13 @@ const readGrant = (dataDir: string): BootstrapGrant => {
     }
     throw new PairFailure(`The bootstrap grant file ${path} could not be read: ${(error as Error).message}`, { cause: error });
   }
-  const grant = BootstrapGrant.safeParse(JSON.parse(text));
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new PairFailure(`The bootstrap grant file ${path} is not one an environment writes.`);
+  }
+  const grant = BootstrapGrant.safeParse(parsed);
   if (!grant.success) throw new PairFailure(`The bootstrap grant file ${path} is not one an environment writes.`);
   return grant.data;
 };
@@ -82,7 +88,9 @@ const exchangeGrant = async (origin: string, secret: string, net: Net): Promise<
     const refusal = BootstrapError.safeParse(body);
     throw new PairFailure(`The environment refused the bootstrap exchange: ${refusal.success ? refusal.data.message : `HTTP ${response.status}`}`);
   }
-  return ClientSessionCredential.parse(body);
+  const credential = ClientSessionCredential.safeParse(body);
+  if (!credential.success) throw new PairFailure(`The environment at ${origin} answered the bootstrap exchange with something that is not a client session.`);
+  return credential.data;
 };
 
 /**

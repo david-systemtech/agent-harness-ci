@@ -1,4 +1,5 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { createServer as createHttpServer } from "node:http";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,8 +9,7 @@ import {
   PROTOCOL_VERSION,
   SCOPES,
   formatPairingCode,
-  parsePairingLink,
-} from "@agent-harness/contracts";
+  parsePairingLink, BOOTSTRAP_GRANT_FILE } from "@agent-harness/contracts";
 import { DEFAULT_CEILING } from "@agent-harness/environment";
 import { renderUnicodeCompact } from "uqr";
 import { afterEach, describe, expect, it } from "vitest";
@@ -132,6 +132,28 @@ describe("agent-harness pair", () => {
     const cli = harness();
     expect(await runCli(["pair", "--data-dir", t.dataDir, "--port", String(free)], cli.context)).toBe(1);
     expect(cli.err()).toMatch(/did not answer/);
+  });
+
+  it("says so and exits 1 when the bootstrap grant file is not JSON", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "agent-harness-cli-"));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    writeFileSync(join(dir, BOOTSTRAP_GRANT_FILE), "{ not json");
+    const cli = harness();
+    expect(await runCli(["pair", "--data-dir", dir], cli.context)).toBe(1);
+    expect(cli.err()).toMatch(/not one an environment writes/);
+  });
+
+  it("says so and exits 1 when whatever answers on the port is not an environment", async () => {
+    const t = await start();
+    const impostor = createHttpServer((_, response) => {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ hello: "world" }));
+    });
+    const port = await new Promise<number>((resolve) => impostor.listen(0, "127.0.0.1", () => resolve((impostor.address() as AddressInfo).port)));
+    cleanups.push(() => void impostor.close());
+    const cli = harness();
+    expect(await runCli(["pair", "--data-dir", t.dataDir, "--port", String(port)], cli.context)).toBe(1);
+    expect(cli.err()).toMatch(/not a client session/);
   });
 
   it("prints its usage and exits 2 on arguments it cannot parse", async () => {
