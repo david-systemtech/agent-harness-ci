@@ -79,11 +79,12 @@ export const systemdPlatform = (installContext: InstallContext, commands: Servic
     definitionPath: () => path,
     install: async (spec) => {
       const written = writeDefinition(path, renderSystemdUnit(spec));
-      // What the manager held before: a replaced unit that was enabled keeps its enablement on a refusal; anything else is disabled again.
-      const wasEnabled = written.previous !== undefined && (await isEnabled());
       const wantsExisted = existsSync(wantsDir);
       let enabled = false;
+      let wasEnabled = false;
       try {
+        // What the manager held before: a replaced unit that was enabled keeps its enablement on a refusal; anything else is disabled again.
+        wasEnabled = written.previous !== undefined && (await isEnabled());
         await systemctl("daemon-reload");
         await systemctl("enable", unit);
         enabled = true;

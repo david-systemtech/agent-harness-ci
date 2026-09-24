@@ -142,6 +142,19 @@ describe("the systemd user unit", () => {
     }
   });
 
+  it("install puts the replaced unit back when the enablement probe itself cannot run", async () => {
+    const home = tempHome();
+    mkdirSync(dirname(unitPath(home)), { recursive: true });
+    writeFileSync(unitPath(home), "the previous unit\n");
+    const { service } = platformFor("linux", home, (_, args) => {
+      if (args.includes("is-enabled")) throw new Error("Could not run systemctl: spawn ENOENT");
+      return undefined;
+    });
+
+    await expect(service.install(specIn(home))).rejects.toThrow(/Could not run systemctl/);
+    expect(readFileSync(unitPath(home), "utf8")).toBe("the previous unit\n");
+  });
+
   it("install changes nothing and runs nothing when the existing unit cannot be read", async () => {
     const home = tempHome();
     mkdirSync(unitPath(home), { recursive: true });
