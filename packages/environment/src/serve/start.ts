@@ -33,11 +33,19 @@ import { createPairings, pairRoute, type Pairings } from "../auth/pairings.js";
 import { createRateLimiter } from "../auth/rate-limit.js";
 import { formatActor, openEventLog, type EventLog, type Projector } from "../event-log/event-log.js";
 import type { Adapter } from "../adapter/contract.js";
+import { createClaudeAdapter } from "../adapters/claude/index.js";
 import { createAdapterHost, type AdapterHost, type HostAccount } from "../adapter/host.js";
-import type { InstructionComposer, ModeClamp, ToolServerFactory } from "../adapter/seams.js";
+import { processMethods } from "../adapter/processes-methods.js";
+import { ATTACHMENTS_DIRECTORY, createAttachmentStage } from "../adapter/attachment-stage.js";
+import { recoverCutRuns, recoverStagedAttachments } from "../adapter/recovery.js";
+import type { InstructionComposer, PolicySeam, ToolServerFactory } from "../adapter/seams.js";
 import type { PermissionBroker } from "../adapter/contract.js";
+import { permissionMethods, sessionModeClamp } from "../permissions/methods.js";
+import { permissionsProjector, readPermissionSettings } from "../permissions/permissions-store.js";
+import { policySettings, resolvePolicy } from "../permissions/resolver.js";
 import { runMethods } from "../runs/run-methods.js";
 import { runsProjector } from "../runs/runs-projector.js";
+import { createCompactionSweep } from "../sessions/compaction.js";
 import { createDeletion } from "../sessions/deletion.js";
 import { groupMethods } from "../sessions/group-methods.js";
 import { sessionMethods } from "../sessions/methods.js";
@@ -47,7 +55,7 @@ import type { TerminalsOptions } from "../terminals/terminals.js";
 import { workspaceMethods } from "../workspace/methods.js";
 import { createSettleSweep } from "../sessions/settle-sweep.js";
 import { settingsMethods } from "../settings/methods.js";
-import { settingsProjector } from "../settings/settings-store.js";
+import { readSettings, settingsProjector } from "../settings/settings-store.js";
 import type { SubscriptionHooks } from "../wire/subscriptions.js";
 import { createWire } from "../wire/wire.js";
 import { systemClock, type Clock } from "./clock.js";
@@ -75,6 +83,9 @@ export const HARNESS_VERSION: string = (
  * environment on one machine passes its own.
  */
 export const DEFAULT_PORT = 7433;
+
+/** Where each repository's auto-memory directory lives in the data directory, shared by every account (ADR 0018). */
+export const AUTO_MEMORY_DIRECTORY = "auto-memory";
 
 /** The database file in the data directory. */
 export const DATABASE_FILE = "environment.db";
@@ -154,18 +165,26 @@ export interface EnvironmentOptions {
   readonly runs?: MemoryRunRegistry;
   /** Whether this is a container; with no launcher present too, updates are managed outside. Preset: `processContainerDetector`. */
   readonly containerDetector?: ContainerDetector;
-  /** The adapters the adapter host holds, one per provider. Preset: none, until the Claude adapter (#121). */
+  /** The adapters the adapter host holds, one per provider. Preset: the Claude adapter, with auto memory under the data directory. */
   readonly adapters?: readonly Adapter[];
   /** The accounts runs go through. Preset: none, until the account store (#134) supplies them. */
   readonly accounts?: readonly HostAccount[];
   /** The account a session with none of its own runs on. Preset: the first account. */
   readonly defaultAccountId?: string;
+  /**
+   * The idle time of a provider process, in minutes, read each time a wait
+   * begins. Preset: the `providers.processIdleMinutes` setting as the
+   * settings store holds it (its preset, 30, until it is set); a test passes
+   * its own.
+   */
+  readonly processIdleMinutes?: () => number;
   /** The adapter host's seams other workstreams fill; each has a preset (`adapter/seams.ts`). */
   readonly adapterSeams?: {
     readonly toolServers?: ToolServerFactory;
     readonly instructions?: InstructionComposer;
     readonly broker?: PermissionBroker;
-    readonly clampMode?: ModeClamp;
+    /** Preset: the policy resolver on the environment's permission settings (#129). */
+    readonly resolvePolicy?: PolicySeam;
   };
   /** How terminals start: the pty, the shell, the base environment. Preset: `node-pty`, the user's login shell, the clean base (`terminals/`). */
   readonly terminals?: Omit<TerminalsOptions, "clock">;
@@ -282,11 +301,13 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   });
 
   await step("projectors", () => {
-    for (const projector of [sessionListProjector, runsProjector, settingsProjector, ...(options.projectors ?? [])]) log.registerProjector(projector);
+    for (const projector of [sessionListProjector, runsProjector, settingsProjector, permissionsProjector, ...(options.projectors ?? [])]) log.registerProjector(projector);
   });
 
   // Where pairing links point: set when the listeners are bound, before any request is served.
   let linkOrigin: string | undefined;
+  // The permission settings (#129), read where they are used: inside a command, in its transaction.
+  const permissionSettings = () => readPermissionSettings({ all: (sql, ...params) => log.read(sql, ...params) });
 
   // The record, the signing key and the auth tables: client sessions and pairings are read once, here, into memory.
   const { record, clientSessions, pairings, accessLog } = await step("identity", async () => {
@@ -311,22 +332,45 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
         if (linkOrigin === undefined) throw new Error("A pairing link was asked for before the environment was bound.");
         return pairingLink(linkOrigin, code);
       },
+      defaultCeiling: () => permissionSettings()["permissions.defaultCeiling"],
     });
     return { record: loaded, clientSessions: loadedClientSessions, pairings: loadedPairings, accessLog: access };
   });
 
   // The adapter host: the adapters, the accounts' sign-in states read through their probes, the run registry.
   const host: AdapterHost = await step("adapter-host", async () => {
+    // First the recovery sweep: a run the log left without an end was cut by the last stop, and is ended before anything can read it.
+    const recovered = recoverCutRuns({ log, clock });
+    if (recovered.length > 0) console.error(`The recovery sweep ended ${recovered.length} run(s) a restart cut: ${recovered.join(", ")}.`);
+    // Then the queued messages' attachment bytes, read back from the stage, so a message the sweep handed back keeps them (#185).
+    const attachmentStage = createAttachmentStage(join(dataDir, ATTACHMENTS_DIRECTORY));
+    const stagedAttachments = recoverStagedAttachments({ log, stage: attachmentStage });
     const created = createAdapterHost({
       log,
       clock,
+      attachmentStage,
+      stagedAttachments,
       ...(options.runs !== undefined && { runs: options.runs }),
-      ...(options.adapters !== undefined && { adapters: options.adapters }),
+      adapters: options.adapters ?? [createClaudeAdapter({ clock, autoMemoryRoot: join(dataDir, AUTO_MEMORY_DIRECTORY) })],
       ...(options.accounts !== undefined && { accounts: options.accounts }),
       ...(options.defaultAccountId !== undefined && { defaultAccountId: options.defaultAccountId }),
+      // The policy resolver on the permission settings, and each client session's ceiling as it is now (#129).
+      resolvePolicy: ({ actor, requested, accountModes }) =>
+        resolvePolicy({
+          actor,
+          requested,
+          ceiling: actor.ceiling,
+          accountModes,
+          settings: policySettings(permissionSettings()),
+        }),
+      ceilingOf: (id) => clientSessions.ceiling(id),
+      processIdleMinutes:
+        options.processIdleMinutes ?? (() => readSettings({ all: (sql, ...params) => log.read(sql, ...params) })["providers.processIdleMinutes"]),
       ...options.adapterSeams,
     });
-    // Closed before the event log, so a run the close ends has its end appended: drained when a drain's cap cut it.
+    // Closed before the event log, so a run the close ends has its end appended (drained when a drain's cap cut it), and
+    // before the launcher's channel, so the launcher hears the environment go only once every provider process has
+    // stopped, or has been killed after the stop timeout.
     closers.push(() => created.close(readiness === "draining" ? "drained" : "disposed"));
     await created.refresh();
     return created;
@@ -363,7 +407,17 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     stream: environmentStream,
     updatesManagedOutside: detector.inContainer() && !launcher.present(),
     readiness: () => readiness,
-    onDraining: () => void (readiness = "draining"),
+    onDraining: () => {
+      readiness = "draining";
+      // New runs are refused before any process stops, so none starts on a process the drain is stopping.
+      host.runs.refuseNewRuns();
+      // Idle provider processes stop now, busy ones as their turns end; a failure here never stops the drain.
+      try {
+        host.drain();
+      } catch (error) {
+        console.error("Stopping the idle provider processes for the drain failed; the drain goes on:", error);
+      }
+    },
     close: () => close(),
   });
   // The terminals (#124): their output never enters the log; closed before the log is, and on a session's deletion.
@@ -382,9 +436,17 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     // The generic settings (#117), on the environment's settings stream.
     ...settingsMethods({ log, environmentId: record.id, onChange: (keys) => settleSweep.settingsChanged(keys) }),
     ...accessMethods({ pairings, clientSessions, accessLog }),
-    ...sessionMethods({ log, clock: now, deletion, validateRunParameters: host.validateSessionInput }),
+    ...sessionMethods({
+      log,
+      clock: now,
+      deletion,
+      validateRunParameters: host.validateSessionInput,
+      clampSessionMode: sessionModeClamp({ host, ceilingOf: (id) => clientSessions.ceiling(id) }),
+    }),
     ...groupMethods({ log, clock: now }),
-    ...runMethods({ log, host }),
+    ...runMethods({ log, host, ceilingOf: (id) => clientSessions.ceiling(id) }),
+    ...permissionMethods({ log, host, accessLog, clock, environmentId: record.id, ceilingOf: (id) => clientSessions.ceiling(id) }),
+    ...processMethods({ log, host }),
     ...terminalService.handlers,
     ...workspaceMethods({ log }),
   });
@@ -459,6 +521,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   }
   // The shelf's sweep (#117): a pass now, before the wire opens, then every five minutes.
   closers.push(settleSweep.start());
+  // Transcript compaction (#123): a pass now, before the wire opens, then once a day.
+  closers.push(createCompactionSweep({ log, clock }).start());
   wire.open();
   launcher.onQuery((query) => lifecycle.answer(query));
   // The minute sweep: expired pairings, idle `tui` local client sessions, receipts past their 30 days, and

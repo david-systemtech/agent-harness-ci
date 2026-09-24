@@ -20,7 +20,8 @@
     "liveModels",
     "commands",
     "imageInput",
-    "fileInput"
+    "fileInput",
+    "modeChange"
   ],
-  "description": "One optional power of the adapter contract: interactivePrompts, partialMessages, providerQueue (the provider holds messages sent during a turn), steering (it folds one into the running turn), resume, fork, rewind, sessionListing, subagents (delegated work it can stop), subagentTranscripts, titleRead, titleWrite, transcriptDelete, planUsage, liveModels, commands, imageInput, fileInput."
+  "description": "One optional power of the adapter contract: interactivePrompts, partialMessages, providerQueue (the provider holds messages sent during a turn), steering (it folds one into the running turn), resume, fork, rewind, sessionListing, subagents (delegated work it can stop), subagentTranscripts, titleRead, titleWrite, transcriptDelete, planUsage, liveModels, commands, imageInput, fileInput, modeChange (a live run's mode can be changed)."
 }

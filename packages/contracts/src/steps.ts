@@ -44,20 +44,49 @@ export const anyValidValue =
     SETTINGS[key].schema.safeParse(value).success || `${key} does not hold a valid value.`;
 
 /**
- * Every step. Only the Appearance step is registered so far, for the
- * auto-settle keys in its Sessions band (session-state spec, "Auto-settle:
- * rules and settings"); the milestone-1 steps arrive with Set up (#88), and
- * Appearance gains its theme (ADR 0023) there.
+ * Every step. Two are registered so far: Appearance, for the auto-settle
+ * keys in its Sessions band (session-state spec, "Auto-settle: rules and
+ * settings") and the transcript compaction window beside them (#123), and
+ * Account, for the process idle time (#120); the milestone-1 steps arrive
+ * with Set up (#88), and Appearance gains its theme (ADR 0023) there.
  */
 export const STEP_REGISTRY = [
   {
     id: "appearance",
-    writes: ["sessions.autoSettleAfterIdle", "sessions.autoSettleOnMerge"],
+    writes: ["sessions.autoSettleAfterIdle", "sessions.autoSettleOnMerge", "sessions.transcriptCompactAfterDays"],
     checks: [
       { key: "sessions.autoSettleAfterIdle", check: anyValidValue("sessions.autoSettleAfterIdle") },
       { key: "sessions.autoSettleOnMerge", check: anyValidValue("sessions.autoSettleOnMerge") },
+      { key: "sessions.transcriptCompactAfterDays", check: anyValidValue("sessions.transcriptCompactAfterDays") },
     ],
     links: [{ pane: "appearance", band: "sessions" }],
+  },
+  {
+    // The Account step (ADR 0018): the entry #134 completes with the default account, model family and effort.
+    id: "account",
+    writes: ["providers.processIdleMinutes"],
+    checks: [{ key: "providers.processIdleMinutes", check: anyValidValue("providers.processIdleMinutes") }],
+    links: [{ pane: "accounts", band: "default-model" }],
+  },
+  {
+    // The Permissions step (#129's keys; #141 owns the entry and its real checks): the Access band's
+    // Permissions row, `access.permissions` (ADR 0027).
+    id: "permissions",
+    writes: [
+      "permissions.defaultCeiling",
+      "permissions.unattended.mode",
+      "permissions.unattended.bypassAcknowledgedAt",
+      "permissions.parkedPrompt.ttl",
+      "permissions.containment.default",
+    ],
+    checks: [
+      { key: "permissions.defaultCeiling", check: anyValidValue("permissions.defaultCeiling") },
+      { key: "permissions.unattended.mode", check: anyValidValue("permissions.unattended.mode") },
+      { key: "permissions.unattended.bypassAcknowledgedAt", check: anyValidValue("permissions.unattended.bypassAcknowledgedAt") },
+      { key: "permissions.parkedPrompt.ttl", check: anyValidValue("permissions.parkedPrompt.ttl") },
+      { key: "permissions.containment.default", check: anyValidValue("permissions.containment.default") },
+    ],
+    links: [{ pane: "permissions", band: "access" }],
   },
 ] as const satisfies readonly Step[];
 

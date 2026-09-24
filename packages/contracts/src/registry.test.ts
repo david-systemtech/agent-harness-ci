@@ -60,6 +60,7 @@ describe("the method registry", () => {
       "access.sessions.list": "admin",
       "access.sessions.revoke": "admin",
       "access.sessions.refresh": "read",
+      "access.sessions.setCeiling": "admin",
       "access.log.list": "admin",
     });
   });
@@ -127,6 +128,15 @@ describe("the method registry", () => {
     });
   });
 
+  it("gives the providers methods the claude-adapter spec's scopes: the list at read, the processes at admin", () => {
+    const providerMethods = methods.filter((m) => m.name.startsWith("providers."));
+    expect(Object.fromEntries(providerMethods.map((m) => [m.name, [m.kind, m.scope]]))).toEqual({
+      "providers.list": ["query", "read"],
+      "providers.processes.list": ["query", "admin"],
+      "providers.processes.stop": ["command", "admin"],
+    });
+  });
+
   it("owes a handler only for a registered method, each to a named ticket", () => {
     for (const [name, ticket] of Object.entries(OWED_HANDLERS)) {
       expect(isMethodName(name), name).toBe(true);
@@ -159,12 +169,16 @@ describe("the method registry", () => {
       "access.pairings.create",
       "access.sessions.revoke",
       "access.sessions.refresh",
+      "access.sessions.setCeiling",
       ...methods.filter((m) => m.kind === "command" && /^(sessions|groups)\./.test(m.name)).map((m) => m.name),
       "runs.start",
       "runs.send",
       "runs.interrupt",
       "runs.stopTask",
+      "providers.processes.stop",
       "settings.update",
+      "permissions.mode.set",
+      "permissions.settings.set",
       "terminals.open",
       "terminals.write",
       "terminals.resize",
@@ -251,6 +265,7 @@ describe("the method registry", () => {
       | "access.sessions.list"
       | "access.sessions.revoke"
       | "access.sessions.refresh"
+      | "access.sessions.setCeiling"
       | "access.log.list"
       | "sessions.create"
       | "sessions.rename"
@@ -285,8 +300,14 @@ describe("the method registry", () => {
       | "runs.send"
       | "runs.interrupt"
       | "runs.stopTask"
+      | "providers.list"
+      | "providers.processes.list"
+      | "providers.processes.stop"
       | "settings.get"
       | "settings.update"
+      | "permissions.mode.set"
+      | "permissions.settings.get"
+      | "permissions.settings.set"
       | "terminals.open"
       | "terminals.write"
       | "terminals.resize"

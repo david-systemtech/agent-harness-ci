@@ -39,7 +39,7 @@ const task = {
 };
 const settledTask = { ...task, status: "failed", endedAt: later, subagentType: null, toolCallId: null, error: "It gave up." };
 
-const capabilities = {
+export const capabilities = {
   provider: "claude",
   displayName: "Claude",
   interactivePrompts: true,
@@ -60,8 +60,14 @@ const capabilities = {
   commands: true,
   imageInput: true,
   fileInput: false,
+  modeChange: true,
   instructionChannel: { kind: "system-prompt-append", maxCharacters: null },
-  modes: ["acceptEdits", "plan", "auto", "bypassPermissions"],
+  modes: [
+    { mode: "plan", available: true, reason: null },
+    { mode: "acceptEdits", available: true, reason: null },
+    { mode: "auto", available: false, reason: "No classifier on this plan." },
+    { mode: "bypassPermissions", available: true, reason: null },
+  ],
 };
 
 const credentialSpec = {
@@ -99,7 +105,7 @@ const payloads: Record<string, Fixtures> = {
         ...runStarted,
         identity: null,
         effort: null,
-        mode: { requested: null, effective: null, clamped: false },
+        mode: { requested: null, effective: "acceptEdits", clamped: false },
         origin: "provider",
         promptMessageId: null,
         queuedMessageIds: [messageId, otherMessageId],
@@ -273,7 +279,14 @@ export const runSchemaFixtures: Record<string, Fixtures> = {
   "adapter/capability-flag.json": { valid: ["providerQueue", "steering", "imageInput"], invalid: ["midRunSteering", ""] },
   "adapter/capabilities.json": {
     valid: [capabilities, { ...capabilities, provider: "fake", modes: [] }],
-    invalid: [{ ...capabilities, steering: "yes" }, { ...capabilities, provider: "Fake" }, { ...capabilities, instructionChannel: undefined }],
+    invalid: [
+      { ...capabilities, steering: "yes" },
+      { ...capabilities, provider: "Fake" },
+      { ...capabilities, instructionChannel: undefined },
+      { ...capabilities, modes: ["plan"] },
+      { ...capabilities, modes: [{ mode: "auto", available: false, reason: null }] },
+      { ...capabilities, modes: [{ mode: "default", available: true, reason: null }] },
+    ],
   },
   "adapter/credential-spec.json": {
     valid: [credentialSpec, { ...credentialSpec, strippedVariables: [] }],
@@ -313,7 +326,10 @@ export const runSchemaFixtures: Record<string, Fixtures> = {
       { kind: "image", name: "screen.png", mediaType: "png", data: "" },
     ],
   },
-  "transcript/run-mode.json": { valid: [mode, { requested: null, effective: null, clamped: false }], invalid: [{ requested: "plan", effective: "plan" }, { ...mode, clamped: "no" }] },
+  "transcript/run-mode.json": {
+    valid: [mode, { requested: null, effective: "acceptEdits", clamped: false }],
+    invalid: [{ requested: "plan", effective: "plan" }, { ...mode, clamped: "no" }, { requested: null, effective: null, clamped: false }, { ...mode, requested: "dontAsk" }],
+  },
   "transcript/model-usage.json": { valid: [usage, { ...usage, costUsd: null, contextWindow: null }], invalid: [{ ...usage, outputTokens: 1.5 }, { model: "opus" }] },
   "transcript/run-error.json": { valid: [{ message: "Gone.", code: null }, { message: "Gone.", code: "overloaded" }], invalid: [{ message: "" , code: null }, { code: null }] },
   "transcript/run-state.json": { valid: ["running", "ended"], invalid: ["starting", ""] },
@@ -360,6 +376,8 @@ export const runMethodFixtures: Record<string, { params: Fixtures; result: Fixtu
         { ...message, sessionId: "s-1" },
         { ...message, attachments: [{ kind: "audio", name: "a", mediaType: "audio/ogg", data: "" }] },
         { ...message, model: "" },
+        { ...message, mode: "default" },
+        { ...message, mode: "dontAsk" },
       ],
     },
     result: { valid: [{ runId, messageId }], invalid: [{ runId }, { runId: "r-1", messageId }] },

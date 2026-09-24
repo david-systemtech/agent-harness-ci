@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "permissions.mode.set result",
+  "type": "object",
+  "properties": {
+    "sessionId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "A session's id: a version 4 UUID the creating client mints (never the provider's resume id), kept in lowercase."
+    },
+    "mode": {
+      "type": "object",
+      "properties": {
+        "requested": {
+          "type": "string",
+          "enum": [
+            "plan",
+            "acceptEdits",
+            "auto",
+            "bypassPermissions"
+          ],
+          "description": "The mode asked for."
+        },
+        "effective": {
+          "type": "string",
+          "enum": [
+            "plan",
+            "acceptEdits",
+            "auto",
+            "bypassPermissions"
+          ],
+          "description": "The mode it got."
+        },
+        "ceiling": {
+          "type": "string",
+          "enum": [
+            "plan",
+            "acceptEdits",
+            "auto",
+            "bypassPermissions"
+          ],
+          "description": "The ceiling it was clamped to."
+        },
+        "clamped": {
+          "type": "boolean",
+          "description": "Whether the mode got is below the one asked for; false when none was asked for, since a default applied then and nothing was clamped."
+        },
+        "clampReason": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "ceiling",
+                "unavailable"
+              ],
+              "description": "Why a mode was lowered: ceiling (above the ceiling, lowered to it), or unavailable (the mode it would have had is one the account lists as unavailable, so the next lower available one)."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Why the mode asked for was lowered; null when it was not, or when none was asked for."
+        }
+      },
+      "required": [
+        "requested",
+        "effective",
+        "ceiling",
+        "clamped",
+        "clampReason"
+      ],
+      "description": "The mode asked for, the one the session got under the caller's ceiling and its account's modes, and the clamp."
+    },
+    "live": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "runId": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+              "description": "A run's id: a version 4 UUID the environment mints when the run starts or is adopted."
+            },
+            "mode": {
+              "type": "string",
+              "enum": [
+                "plan",
+                "acceptEdits",
+                "auto",
+                "bypassPermissions"
+              ],
+              "description": "The mode the live run was changed to: the session's, clamped to the run's own ceiling too."
+            }
+          },
+          "required": [
+            "runId",
+            "mode"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The live run the mode was applied to at once; null when none was live or its adapter cannot change a running run's mode, so it applies at the next run."
+    }
+  },
+  "required": [
+    "sessionId",
+    "mode",
+    "live"
+  ]
+}

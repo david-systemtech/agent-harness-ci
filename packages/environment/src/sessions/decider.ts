@@ -1,6 +1,7 @@
 import {
   MAX_TAGS,
   awakeShelfOf,
+  type Mode,
   type SessionArchivedPayload,
   type SessionActiveReorderedPayload,
   type SessionCreatedPayload,
@@ -29,7 +30,8 @@ import { stamp } from "./streams.js";
 
 /**
  * A session as the decider needs it: whether it is deleted (or purged), its
- * user title, and the summary fields the filing commands decide on.
+ * user and generated titles, and the summary fields the filing commands
+ * and the activity companions decide on.
  */
 export interface SessionState {
   /** Deleted: in its grace period, or purged. */
@@ -39,6 +41,8 @@ export interface SessionState {
   /** When a deleted session in its grace period is purged, as ISO 8601 UTC; null for one not deleted, or purged. */
   readonly purgeAt: string | null;
   readonly userTitle: string | null;
+  /** The generated title (from the first user message, or the provider's), which a user title hides; null before one. */
+  readonly generatedTitle: string | null;
   readonly archivedAt: string | null;
   readonly pinnedAt: string | null;
   readonly pinOrderKey: string | null;
@@ -60,6 +64,7 @@ export const PURGED_STATE: SessionState = {
   purged: true,
   purgeAt: null,
   userTitle: null,
+  generatedTitle: null,
   archivedAt: null,
   pinnedAt: null,
   pinOrderKey: null,
@@ -111,7 +116,7 @@ export interface CreateSession {
   readonly workspace: Workspace;
   readonly account: string | null;
   readonly model: string | null;
-  readonly mode: string | null;
+  readonly mode: Mode | null;
 }
 
 /** Facts about other aggregates `sessions.create` depends on. */

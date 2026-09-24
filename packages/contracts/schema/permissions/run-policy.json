@@ -1,0 +1,166 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RunPolicy",
+  "type": "object",
+  "properties": {
+    "actorKind": {
+      "type": "string",
+      "enum": [
+        "client",
+        "routine",
+        "bot",
+        "completions"
+      ],
+      "description": "Who started a run: client (a client session; attended), routine, bot, or completions (a program on the completions surface; unattended unless it asks otherwise)."
+    },
+    "attended": {
+      "type": "boolean",
+      "description": "Whether a person started the run (a client session), fixed at its start."
+    },
+    "mode": {
+      "type": "object",
+      "properties": {
+        "requested": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "plan",
+                "acceptEdits",
+                "auto",
+                "bypassPermissions"
+              ],
+              "description": "What an agent may do without asking during a run, in the order ceilings use: plan < acceptEdits < auto < bypassPermissions. Claude's default and dontAsk are never used."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The mode asked for; null when none was, so a default applied (acceptEdits, or the unattended default)."
+        },
+        "effective": {
+          "type": "string",
+          "enum": [
+            "plan",
+            "acceptEdits",
+            "auto",
+            "bypassPermissions"
+          ],
+          "description": "The mode it got."
+        },
+        "ceiling": {
+          "type": "string",
+          "enum": [
+            "plan",
+            "acceptEdits",
+            "auto",
+            "bypassPermissions"
+          ],
+          "description": "The ceiling it was clamped to."
+        },
+        "clamped": {
+          "type": "boolean",
+          "description": "Whether the mode got is below the one asked for; false when none was asked for, since a default applied then and nothing was clamped."
+        },
+        "clampReason": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "ceiling",
+                "unavailable"
+              ],
+              "description": "Why a mode was lowered: ceiling (above the ceiling, lowered to it), or unavailable (the mode it would have had is one the account lists as unavailable, so the next lower available one)."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Why the mode asked for was lowered; null when it was not, or when none was asked for."
+        }
+      },
+      "required": [
+        "requested",
+        "effective",
+        "ceiling",
+        "clamped",
+        "clampReason"
+      ],
+      "description": "A mode as the resolver decided it: requested, effective, the ceiling, and whether and why it was clamped."
+    },
+    "containment": {
+      "type": "object",
+      "properties": {
+        "requested": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "off",
+                "workspace",
+                "workspace-no-network"
+              ],
+              "description": "Where a run may reach: off (nothing applied), workspace (writes only inside the workspace), workspace-no-network (and no network for the model's commands and fetches)."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The session's own level; null when it names none, so the default applied."
+        },
+        "effective": {
+          "type": "string",
+          "enum": [
+            "off",
+            "workspace",
+            "workspace-no-network"
+          ],
+          "description": "Where a run may reach: off (nothing applied), workspace (writes only inside the workspace), workspace-no-network (and no network for the model's commands and fetches)."
+        },
+        "mechanism": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "What enforces it (bubblewrap, Seatbelt); null at off."
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Why the level asked for was not the one got, when it was not."
+        }
+      },
+      "required": [
+        "requested",
+        "effective",
+        "mechanism",
+        "reason"
+      ],
+      "description": "A run's containment as resolved at its start: requested, effective, the mechanism and, when lowered, why."
+    },
+    "unattendedDefaultApplied": {
+      "type": "boolean",
+      "description": "Whether the run named no mode and was unattended, so it got permissions.unattended.mode."
+    }
+  },
+  "required": [
+    "actorKind",
+    "attended",
+    "mode",
+    "containment",
+    "unattendedDefaultApplied"
+  ],
+  "description": "A run's resolved policy: who started it, whether attended, its mode and containment, and whether the unattended default applied."
+}

@@ -136,6 +136,18 @@ _Avoid_: permission level, approval policy, trust level
 The highest mode a connection, and anything created through it, may use; set at pairing, raised only with admin scope.
 _Avoid_: limit, cap, max mode
 
+**Clamp**:
+The lowering of a mode asked for to the highest the ceiling and the account allow, recorded with its reason and never refused; a default that is lowered is not a clamp.
+_Avoid_: cap, downgrade, rejection
+
+**Attended**:
+A run a person started from a client session, or a completions request that says a person is present, fixed at its start; its prompts park until someone answers or the TTL passes.
+_Avoid_: interactive, supervised, foreground
+
+**Unattended**:
+A run a routine, a bot or the completions surface started, with nobody present (a completions request may say otherwise for itself; a routine or a bot never can); it runs in the unattended default unless it names a mode, and anything that would ask is denied at once and recorded.
+_Avoid_: headless, background, automated
+
 **Containment**:
 Where a run may reach on its environment, independent of its mode: off, workspace only, or workspace with no network, enforced by the operating system or the container.
 _Avoid_: sandbox (the mechanism, not the setting), jail, isolation
@@ -283,6 +295,10 @@ _Avoid_: driver (T3's word), integration, connector
 **Provider process**:
 A long-lived process an adapter needs (Claude's per-conversation process, Codex's daemon), started, reused and stopped by the environment; never owned by a run or a client.
 _Avoid_: subprocess, worker, session process
+
+**Hold**:
+Work that keeps an idle provider process from stopping after the idle time: a live background task or a schedule registered in its session, reported by the adapter and let go when the work ends.
+_Avoid_: lease, lock, keep-alive
 
 **Instruction channel**:
 The way an adapter delivers standing instructions and always-on skills to its provider: a system-prompt append for Claude, developerInstructions for Codex, the prompt for a local model.

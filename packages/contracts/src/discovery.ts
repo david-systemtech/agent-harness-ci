@@ -38,6 +38,13 @@ export type AuthPolicy = z.infer<typeof AuthPolicy>;
 export const formatHostPort = (host: string, port?: number): string =>
   `${host.includes(":") ? `[${host}]` : host}${port === undefined ? "" : `:${port}`}`;
 
+/**
+ * The port an environment listens on when none is given, so an address typed
+ * without one means it. A chosen default (env spec, "Further Notes"); the
+ * environment's `DEFAULT_PORT` is held to it by a test.
+ */
+export const DEFAULT_ENVIRONMENT_PORT = 7433;
+
 /** Where an environment answers, unauthenticated, who it is and whether it is ready. */
 export const DISCOVERY_PATH = `/.well-known/${PRODUCT_NAME}/environment`;
 

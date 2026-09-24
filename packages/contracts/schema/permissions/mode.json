@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Mode",
+  "type": "string",
+  "enum": [
+    "plan",
+    "acceptEdits",
+    "auto",
+    "bypassPermissions"
+  ],
+  "description": "What an agent may do without asking during a run, in the order ceilings use: plan < acceptEdits < auto < bypassPermissions. Claude's default and dontAsk are never used."
+}

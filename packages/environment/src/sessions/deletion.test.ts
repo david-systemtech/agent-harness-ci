@@ -197,7 +197,7 @@ describe("a deleted session", () => {
    * restore and purge, on `sessionId` and its run `runId`. The test below
    * refuses a served command whose params carry a `sessionId` or a `runId`
    * and that is missing here, so each ticket that serves one (#117, the
-   * run verbs) adds it.
+   * run verbs, the process stop) adds it.
    */
   const onDeleted = (sessionId: string, runId: string): Partial<{ [N in CommandMethodName]: Omit<ParamsOf<N>, "commandId"> }> => ({
     "sessions.rename": { sessionId, title: "Back from the dead" },
@@ -219,8 +219,10 @@ describe("a deleted session", () => {
     "sessions.delete": { sessionId },
     "runs.start": { sessionId, text: "Back to work" },
     "runs.send": { sessionId, text: "Anyone there?" },
+    "permissions.mode.set": { sessionId, mode: "plan" },
     "runs.interrupt": { runId },
     "runs.stopTask": { runId, taskId: "t-1" },
+    "providers.processes.stop": { sessionId },
     "terminals.open": { id: randomUUID(), sessionId },
   });
 

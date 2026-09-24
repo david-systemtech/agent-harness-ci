@@ -1,0 +1,15 @@
+{
+  "source": "Message types the mapper does not translate: some the 0.3.281 union declares (status, compact_boundary, hook_started, prompt_suggestion, auth_status, tool_use_summary) and some it does not (a type from a later SDK, a message that is not an object).",
+  "messages": [
+    { "type": "system", "subtype": "status", "status": "requesting", "session_id": "5d1e9c3a-7b2f-4e8d-9a6c-3f0b1e2d4c5a", "uuid": "00000000-0000-4000-8000-000000000501" },
+    { "type": "system", "subtype": "compact_boundary", "compact_metadata": { "trigger": "auto", "pre_tokens": 1000 }, "session_id": "5d1e9c3a-7b2f-4e8d-9a6c-3f0b1e2d4c5a", "uuid": "00000000-0000-4000-8000-000000000502" },
+    { "type": "system", "subtype": "hook_started", "hook_id": "h1", "hook_name": "SessionStart", "hook_event": "SessionStart", "session_id": "5d1e9c3a-7b2f-4e8d-9a6c-3f0b1e2d4c5a", "uuid": "00000000-0000-4000-8000-000000000503" },
+    { "type": "prompt_suggestion", "suggestion": "Run the tests", "session_id": "5d1e9c3a-7b2f-4e8d-9a6c-3f0b1e2d4c5a", "uuid": "00000000-0000-4000-8000-000000000504" },
+    { "type": "auth_status", "isAuthenticating": false, "output": [], "session_id": "5d1e9c3a-7b2f-4e8d-9a6c-3f0b1e2d4c5a", "uuid": "00000000-0000-4000-8000-000000000505" },
+    { "type": "tool_use_summary", "summary": "Listed files", "preceding_tool_use_ids": [], "session_id": "5d1e9c3a-7b2f-4e8d-9a6c-3f0b1e2d4c5a", "uuid": "00000000-0000-4000-8000-000000000506" },
+    { "type": "hologram", "subtype": "from-the-future", "session_id": "5d1e9c3a-7b2f-4e8d-9a6c-3f0b1e2d4c5a", "uuid": "00000000-0000-4000-8000-000000000507" },
+    { "type": "system", "subtype": "never-heard-of-it", "session_id": "5d1e9c3a-7b2f-4e8d-9a6c-3f0b1e2d4c5a", "uuid": "00000000-0000-4000-8000-000000000508" },
+    "not an object",
+    null
+  ]
+}

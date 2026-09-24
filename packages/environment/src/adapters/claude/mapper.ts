@@ -1,0 +1,385 @@
+import type { JsonObject, ModelUsage, RunError } from "@agent-harness/contracts";
+import type { AdapterEvent, RunEnd, TranscriptEvent } from "../../adapter/contract.js";
+import type { TaskLedger } from "./tasks.js";
+
+/**
+ * The mapper (claude-adapter spec, "The Claude adapter, ported after the
+ * audit's fixes"; Artemis's `mapper.ts`, extended for the vocabulary): one
+ * SDK message in, the transcript events it means out, for one turn. Pure
+ * over its arguments: everything it remembers is on the turn's state, which
+ * the process owns and hands in (the ledger is the process's, shared by its
+ * turns). Deltas come out one per stream fragment; the delta batcher gathers
+ * them. SDK messages are read structurally rather than through the SDK's
+ * unions, so a payload the SDK reshapes degrades to no event instead of a
+ * throw inside the pump; a type it does not know stays opaque, passed over
+ * (ADR 0001).
+ *
+ * What it does not map, by decision: a subagent's own text and thinking
+ * (its transcript is read on demand, not logged; its tool calls are, nested
+ * under the call that started it), the prompt echo and replayed history (the
+ * host records what was sent), and per-message token counts (the result
+ * carries the run's).
+ */
+
+/** A tool call opened and not yet ended. */
+interface OpenTool {
+  readonly startedAt: number;
+}
+
+/** The message a stream is building, by stream (the main thread, or a subagent's tool call). */
+interface Stream {
+  readonly messageId: string;
+  blockIndex: number | undefined;
+}
+
+/** An item streamed and not yet settled, whose text an interrupt keeps (ADR 0022). */
+interface OpenItem {
+  readonly kind: "text" | "thinking";
+  text: string;
+}
+
+export interface MapperState {
+  /** Whether this turn has reported the provider's session (once per run). */
+  linked: boolean;
+  providerSessionId: string | null;
+  /** Set by the end: nothing is mapped after it. */
+  ended: boolean;
+  /** Set by an interrupt, so the ending reads as one whatever the provider calls it. */
+  interruptRequested: boolean;
+  readonly openTools: Map<string, OpenTool>;
+  readonly closedTools: Set<string>;
+  readonly streams: Map<string, Stream>;
+  readonly openItems: Map<string, OpenItem>;
+  /** The provider's last in-band error, for an ending that names none. */
+  lastError: RunError | null;
+  /** The process's delegated-work ledger, shared across its turns. */
+  readonly ledger: TaskLedger;
+  readonly now: () => number;
+}
+
+export const createMapperState = (options: { readonly ledger: TaskLedger; readonly now: () => number }): MapperState => ({
+  linked: false,
+  providerSessionId: null,
+  ended: false,
+  interruptRequested: false,
+  openTools: new Map(),
+  closedTools: new Set(),
+  streams: new Map(),
+  openItems: new Map(),
+  lastError: null,
+  ledger: options.ledger,
+  now: options.now,
+});
+
+type Record_ = Record<string, unknown>;
+
+const isRecord = (value: unknown): value is Record_ => value !== null && typeof value === "object" && !Array.isArray(value);
+const text = (value: unknown): string | null => (typeof value === "string" && value !== "" ? value : null);
+const count = (value: unknown): number => (typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.round(value) : 0);
+
+/** Any value as JSON the log can hold: a copy, with what JSON cannot carry dropped. */
+export const toJson = (value: unknown): unknown => {
+  if (value === undefined) return null;
+  try {
+    return JSON.parse(JSON.stringify(value)) as unknown;
+  } catch {
+    return String(value);
+  }
+};
+
+const toJsonObject = (value: unknown): JsonObject => {
+  const json = toJson(value);
+  return isRecord(json) ? json : { value: json };
+};
+
+/** The stream a message belongs to: a subagent's under its tool call, else the main thread's. */
+const MAIN = "";
+const streamOf = (message: Record_): string => text(message["parent_tool_use_id"]) ?? MAIN;
+
+const itemIdOf = (messageId: string, index: number): string => `${messageId}:${index}`;
+
+const event = <T extends TranscriptEvent["type"]>(type: T, payload: Extract<TranscriptEvent, { type: T }>["payload"]): TranscriptEvent =>
+  ({ type, payload }) as TranscriptEvent;
+
+const startTool = (state: MapperState, block: Record_, parent: string | null): TranscriptEvent[] => {
+  const id = text(block["id"]);
+  const name = text(block["name"]);
+  if (id === null || name === null || state.openTools.has(id) || state.closedTools.has(id)) return [];
+  state.openTools.set(id, { startedAt: state.now() });
+  return [event("tool.started", { toolCallId: id, name, input: toJsonObject(block["input"]), title: null, agentId: parent, parentToolCallId: parent })];
+};
+
+/**
+ * Ends a tool call once. Only one this turn saw start: an end for another
+ * (a result or denial for a call of an earlier turn, which that turn's end
+ * cancelled) would be a `tool.ended` with no `tool.started` to pair with.
+ */
+const endTool = (state: MapperState, id: string, status: "ok" | "error" | "cancelled", output: unknown): TranscriptEvent[] => {
+  const open = state.openTools.get(id);
+  if (open === undefined) return [];
+  state.openTools.delete(id);
+  state.closedTools.add(id);
+  return [event("tool.ended", { toolCallId: id, status, output: toJson(output) as never, durationMs: Math.max(0, state.now() - open.startedAt) })];
+};
+
+const mapInit = (message: Record_, state: MapperState): TranscriptEvent[] => {
+  const sessionId = text(message["session_id"]);
+  if (sessionId === null) return [];
+  state.providerSessionId = sessionId;
+  if (state.linked) return [];
+  state.linked = true;
+  return [event("session.provider-linked", { providerSessionId: sessionId })];
+};
+
+const mapStreamEvent = (message: Record_, state: MapperState): TranscriptEvent[] => {
+  const key = streamOf(message);
+  const raw = message["event"];
+  if (!isRecord(raw)) return [];
+  switch (raw["type"]) {
+    case "message_start": {
+      const id = isRecord(raw["message"]) ? text(raw["message"]["id"]) : null;
+      if (id !== null) state.streams.set(key, { messageId: id, blockIndex: undefined });
+      return [];
+    }
+    case "content_block_start": {
+      const stream = state.streams.get(key);
+      if (stream !== undefined && typeof raw["index"] === "number") stream.blockIndex = raw["index"];
+      return [];
+    }
+    case "content_block_delta": {
+      // A subagent's words are its own transcript's, read on demand.
+      if (key !== MAIN) return [];
+      const stream = state.streams.get(key);
+      const index = raw["index"];
+      const delta = raw["delta"];
+      if (stream === undefined || typeof index !== "number" || !isRecord(delta)) return [];
+      stream.blockIndex = index;
+      const kind = delta["type"] === "text_delta" ? "text" : delta["type"] === "thinking_delta" ? "thinking" : null;
+      const fragment = kind === "text" ? text(delta["text"]) : kind === "thinking" ? text(delta["thinking"]) : null;
+      if (kind === null || fragment === null) return [];
+      const itemId = itemIdOf(stream.messageId, index);
+      const open = state.openItems.get(itemId);
+      if (open === undefined) state.openItems.set(itemId, { kind, text: fragment });
+      else open.text += fragment;
+      return [event("assistant.delta", { itemId, fragments: [{ kind, text: fragment }] })];
+    }
+    case "message_stop":
+      state.streams.delete(key);
+      return [];
+    default:
+      return [];
+  }
+};
+
+const mapAssistant = (message: Record_, state: MapperState): TranscriptEvent[] => {
+  const body = message["message"];
+  if (!isRecord(body)) return [];
+  const parent = text(message["parent_tool_use_id"]);
+  const error = text(message["error"]);
+  if (error !== null) state.lastError = { message: `The provider reported ${error} while answering.`, code: error };
+  const content = Array.isArray(body["content"]) ? body["content"] : [];
+  const messageId = text(body["id"]) ?? text(message["uuid"]) ?? "message";
+  // A streamed message arrives one settled block at a time, under the index the stream gave it.
+  const stream = state.streams.get(streamOf(message));
+  const streamedIndex = stream !== undefined && stream.messageId === messageId && content.length === 1 ? stream.blockIndex : undefined;
+  const aborted = message["aborted"] === true;
+  const events: TranscriptEvent[] = [];
+  content.forEach((block: unknown, position: number) => {
+    if (!isRecord(block)) return;
+    const itemId = itemIdOf(messageId, streamedIndex ?? position);
+    switch (block["type"]) {
+      case "text":
+      case "thinking": {
+        if (parent !== null) return;
+        const kind = block["type"];
+        const streamed = state.openItems.get(itemId)?.text ?? "";
+        const own = typeof block[kind] === "string" ? (block[kind] as string) : "";
+        // A settled block can come back empty (thinking omitted from the settled copy) though its text streamed: the streamed text stands.
+        const said = own === "" ? streamed : own;
+        state.openItems.delete(itemId);
+        if (kind === "thinking" && said === "") return;
+        events.push(event(kind === "text" ? "assistant.text" : "assistant.thinking", { itemId, text: said, aborted }));
+        return;
+      }
+      case "tool_use":
+      case "server_tool_use":
+      case "mcp_tool_use":
+        events.push(...startTool(state, block, parent));
+        return;
+      default: {
+        // A server tool's result rides the assistant message (web search, fetch).
+        const id = text(block["tool_use_id"]);
+        if (id !== null && typeof block["type"] === "string" && block["type"].endsWith("_tool_result")) {
+          events.push(...endTool(state, id, block["is_error"] === true ? "error" : "ok", block["content"]));
+        }
+      }
+    }
+  });
+  return events;
+};
+
+const mapUser = (message: Record_, state: MapperState): TranscriptEvent[] => {
+  // The stream a message ends is done: a tool result closes the assistant message that asked.
+  state.streams.delete(streamOf(message));
+  const body = message["message"];
+  if (!isRecord(body) || !Array.isArray(body["content"])) return [];
+  const results = body["content"].filter((block): block is Record_ => isRecord(block) && block["type"] === "tool_result");
+  return results.flatMap((block) => {
+    const id = text(block["tool_use_id"]);
+    if (id === null) return [];
+    // The structured output, when the message carries one result, is what the tool returned; else the text the model read.
+    const output = results.length === 1 && message["tool_use_result"] !== undefined ? message["tool_use_result"] : block["content"];
+    return endTool(state, id, block["is_error"] === true ? "error" : "ok", output);
+  });
+};
+
+const mapToolProgress = (message: Record_, state: MapperState): TranscriptEvent[] => {
+  const id = text(message["tool_use_id"]);
+  if (id === null || !state.openTools.has(id)) return [];
+  return [event("tool.updated", { toolCallId: id, update: { elapsedSeconds: count(message["elapsed_time_seconds"]) } })];
+};
+
+const RATE_LIMIT_STATUS: Readonly<Record<string, "allowed" | "warning" | "rejected">> = {
+  allowed: "allowed",
+  allowed_warning: "warning",
+  rejected: "rejected",
+};
+
+/** The rate-limit verdict of a message, when it names a window and a status; also what the plan-usage read folds in. */
+export const readRateLimit = (message: unknown): { window: string; status: "allowed" | "warning" | "rejected"; utilisation: number | null; resetsAt: string | null } | null => {
+  if (!isRecord(message) || message["type"] !== "rate_limit_event" || !isRecord(message["rate_limit_info"])) return null;
+  const info = message["rate_limit_info"];
+  const status = typeof info["status"] === "string" ? RATE_LIMIT_STATUS[info["status"]] : undefined;
+  const window = text(info["rateLimitType"]);
+  if (status === undefined || window === null) return null;
+  const used = info["utilization"];
+  const resets = info["resetsAt"];
+  return {
+    window,
+    status,
+    // A percentage, as Artemis read it, carried as the vocabulary's fraction.
+    utilisation: typeof used === "number" && Number.isFinite(used) ? Math.max(0, used) / 100 : null,
+    // Epoch seconds, or milliseconds from a producer that sends those.
+    resetsAt: typeof resets === "number" && Number.isFinite(resets) && resets > 0 ? new Date(resets > 1e12 ? resets : resets * 1000).toISOString() : null,
+  };
+};
+
+const modelUsage = (raw: unknown): ModelUsage[] => {
+  if (!isRecord(raw)) return [];
+  return Object.entries(raw).flatMap(([model, entry]): ModelUsage[] => {
+    if (!isRecord(entry) || model === "") return [];
+    const cost = entry["costUSD"];
+    const window = entry["contextWindow"];
+    return [
+      {
+        model,
+        inputTokens: count(entry["inputTokens"]),
+        outputTokens: count(entry["outputTokens"]),
+        cacheReadTokens: count(entry["cacheReadInputTokens"]),
+        cacheWriteTokens: count(entry["cacheCreationInputTokens"]),
+        costUsd: typeof cost === "number" && Number.isFinite(cost) && cost >= 0 ? cost : null,
+        contextWindow: typeof window === "number" && Number.isInteger(window) && window > 0 ? window : null,
+      },
+    ];
+  });
+};
+
+/**
+ * Closes a turn: its open tool calls cancelled, its open items settled as
+ * aborted with the text they had (ADR 0022), then its one end. Nothing when
+ * the turn has ended already, so a turn ends once whoever ends it.
+ */
+export const endTurn = (state: MapperState, end: Omit<RunEnd, "type">): AdapterEvent[] => {
+  if (state.ended) return [];
+  state.ended = true;
+  const events: AdapterEvent[] = [];
+  for (const id of [...state.openTools.keys()]) events.push(...endTool(state, id, "cancelled", null));
+  for (const [itemId, item] of state.openItems) {
+    events.push(event(item.kind === "text" ? "assistant.text" : "assistant.thinking", { itemId, text: item.text, aborted: true }));
+  }
+  state.openItems.clear();
+  state.streams.clear();
+  const interrupted = state.interruptRequested && end.reason !== "completed";
+  events.push({
+    type: "end",
+    reason: interrupted ? "interrupted" : end.reason,
+    cause: interrupted ? "user" : (end.cause ?? null),
+    error: interrupted || end.reason !== "error" ? null : (end.error ?? state.lastError ?? { message: "The run failed.", code: null }),
+    usage: end.usage ?? null,
+    turnCount: end.turnCount ?? null,
+    resultText: end.resultText ?? null,
+  });
+  return events;
+};
+
+const mapResult = (message: Record_, state: MapperState): AdapterEvent[] => {
+  const usage = modelUsage(message["modelUsage"]);
+  const succeeded = message["subtype"] === "success" && message["is_error"] !== true;
+  const errors = Array.isArray(message["errors"]) ? message["errors"].filter((entry): entry is string => typeof entry === "string" && entry !== "") : [];
+  const error: RunError | null = succeeded
+    ? null
+    : {
+        message: errors.join("; ") || text(message["result"]) || state.lastError?.message || "The run failed.",
+        code: state.lastError?.code ?? text(message["terminal_reason"]) ?? text(message["subtype"]),
+      };
+  const reported: AdapterEvent[] = usage.length > 0 ? [event("usage.reported", { models: usage })] : [];
+  const end = endTurn(state, {
+    reason: succeeded ? "completed" : "error",
+    error,
+    usage: usage.length > 0 ? usage : null,
+    turnCount: count(message["num_turns"]),
+    resultText: succeeded ? text(message["result"]) : null,
+  });
+  // The usage comes first, then whatever the ending cancels and settles, then the end.
+  return [...reported, ...end];
+};
+
+/** The ledger's rows, when a message changed them. */
+const tasksChanged = (state: MapperState): TranscriptEvent[] => (state.ledger.dirty ? [event("tasks.changed", { tasks: state.ledger.snapshot() })] : []);
+
+/**
+ * One SDK message as the transcript events it means for the turn `state`
+ * belongs to. The ledger reads every message, ended turn or not, so work
+ * that outlives a turn is known to the next; nothing else is mapped once the
+ * turn has ended.
+ */
+export const mapSdkMessage = (message: unknown, state: MapperState): AdapterEvent[] => {
+  if (!isRecord(message)) return [];
+  state.ledger.observe(message);
+  if (state.ended) return [];
+  switch (message["type"]) {
+    case "system":
+      switch (message["subtype"]) {
+        case "init":
+          return mapInit(message, state);
+        case "permission_denied": {
+          const id = text(message["tool_use_id"]);
+          return id === null ? [] : endTool(state, id, "error", text(message["message"]) ?? "The tool call was denied.");
+        }
+        case "background_tasks_changed":
+        case "task_started":
+        case "task_progress":
+        case "task_updated":
+        case "task_notification":
+          return tasksChanged(state);
+        default:
+          return [];
+      }
+    case "stream_event":
+      return mapStreamEvent(message, state);
+    case "assistant":
+      return mapAssistant(message, state);
+    case "user":
+      return mapUser(message, state);
+    case "tool_progress":
+      return mapToolProgress(message, state);
+    case "rate_limit_event": {
+      const verdict = readRateLimit(message);
+      return verdict === null ? [] : [event("plan.limit", verdict)];
+    }
+    case "result":
+      return mapResult(message, state);
+    default:
+      return [];
+  }
+};

@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ProcessHold",
+  "type": "object",
+  "properties": {
+    "kind": {
+      "type": "string",
+      "enum": [
+        "task",
+        "schedule"
+      ],
+      "description": "What holds an idle provider process from its idle stop: task (a live background task), schedule (a schedule registered in its session)."
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The task's or schedule's id, in the provider's terms."
+    }
+  },
+  "required": [
+    "kind",
+    "id"
+  ],
+  "description": "One piece of held work keeping an idle provider process from its idle stop."
+}

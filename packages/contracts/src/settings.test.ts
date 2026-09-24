@@ -8,10 +8,15 @@ import {
   SETTINGS_KEYS,
   SettingsPatch,
   SettingsValues,
+  TRANSCRIPT_COMPACT_DAYS,
   eventTypeEntry,
   isListEvent,
   presetSettings,
   registry,
+  GENERIC_SETTINGS_KEYS,
+  PERMISSION_SETTINGS_KEYS,
+  isGenericSettingsKey,
+  presetPermissionSettings,
 } from "./index.js";
 
 /**
@@ -21,14 +26,36 @@ import {
  */
 
 describe("the settings keys", () => {
-  it("are the two auto-settle keys, preset to 14 days idle and no settle on merge", () => {
-    expect(SETTINGS_KEYS).toEqual(["sessions.autoSettleAfterIdle", "sessions.autoSettleOnMerge"]);
+  it("are the two auto-settle keys, preset to 14 days idle and no settle on merge, the transcript compaction window, preset to 90 days, the process idle time, preset to 30 minutes, then the permission keys (#129)", () => {
+    expect(SETTINGS_KEYS).toEqual([
+      "sessions.autoSettleAfterIdle",
+      "sessions.autoSettleOnMerge",
+      "sessions.transcriptCompactAfterDays",
+      "providers.processIdleMinutes",
+      ...PERMISSION_SETTINGS_KEYS,
+    ]);
     for (const key of AUTO_SETTLE_KEYS) expect(SETTINGS_KEYS, key).toContain(key);
     expect(presetSettings()).toEqual({
       "sessions.autoSettleAfterIdle": { amount: 14, unit: "days" },
       "sessions.autoSettleOnMerge": false,
+      "sessions.transcriptCompactAfterDays": 90,
+      "providers.processIdleMinutes": 30,
+      ...presetPermissionSettings(),
     });
     for (const key of SETTINGS_KEYS) expect(SETTINGS[key].schema.safeParse(SETTINGS[key].preset).success, key).toBe(true);
+  });
+
+  it("leave the permission keys to permissions.settings.set: settings.update refuses them, settings.get reads them", () => {
+    expect(GENERIC_SETTINGS_KEYS).toEqual(["sessions.autoSettleAfterIdle", "sessions.autoSettleOnMerge", "sessions.transcriptCompactAfterDays", "providers.processIdleMinutes"]);
+    for (const key of PERMISSION_SETTINGS_KEYS) {
+      expect(SETTINGS[key].writtenBy, key).toBe("permissions.settings.set");
+      expect(isGenericSettingsKey(key), key).toBe(false);
+    }
+    const commandId = "0f8fad5b-d9cb-469f-a165-70867728950e";
+    expect(registry["settings.update"].params.safeParse({ commandId, values: { "permissions.unattended.mode": "bypassPermissions" } }).success).toBe(false);
+    expect(registry["settings.update"].params.safeParse({ commandId, values: { "sessions.autoSettleOnMerge": true } }).success).toBe(true);
+    expect(registry["settings.update"].params.safeParse({ commandId, values: { "providers.processIdleMinutes": 5 } }).success).toBe(true);
+    expect(registry["settings.get"].params.safeParse({ keys: ["permissions.defaultCeiling"] }).success).toBe(true);
   });
 
   it("take an idle span of 1 to 1000 days, weeks or months, or null for never", () => {
@@ -54,6 +81,14 @@ describe("the settings keys", () => {
     const merge = SETTINGS["sessions.autoSettleOnMerge"].schema;
     expect(merge.safeParse(true).success).toBe(true);
     for (const value of [null, "true", 1]) expect(merge.safeParse(value).success, JSON.stringify(value)).toBe(false);
+  });
+
+  it("take a whole number of days, 1 to 3650, for the transcript compaction window, never null", () => {
+    const window = SETTINGS["sessions.transcriptCompactAfterDays"].schema;
+    for (const value of [1, 90, TRANSCRIPT_COMPACT_DAYS.max]) expect(window.safeParse(value).success, String(value)).toBe(true);
+    for (const value of [0, TRANSCRIPT_COMPACT_DAYS.max + 1, 1.5, null, "90", { amount: 90, unit: "days" }]) {
+      expect(window.safeParse(value).success, JSON.stringify(value)).toBe(false);
+    }
   });
 
   it("are set some at a time, each checked against its own schema, and refuse a key that is not a setting", () => {

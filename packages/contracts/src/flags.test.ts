@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CapabilityFlags, PROTOCOL_VERSION, ProtocolVersion, supports } from "./index.js";
+import { CAPABILITY_FLAG_LIST, CapabilityFlag, CapabilityFlags, PROTOCOL_VERSION, ProtocolVersion, supports } from "./index.js";
 
 describe("protocol negotiation", () => {
   it("is one integer, 1, and a client may announce any positive integer", () => {
@@ -19,5 +19,11 @@ describe("protocol negotiation", () => {
     expect(supports(["terminal"], "terminal")).toBe(true);
     expect(supports(["terminal"], "files")).toBe(false);
     expect(supports([], "terminal")).toBe(false);
+  });
+
+  it("keeps a flag list of distinct, well-formed flags, which a hello may carry", () => {
+    expect(new Set(CAPABILITY_FLAG_LIST).size).toBe(CAPABILITY_FLAG_LIST.length);
+    for (const flag of CAPABILITY_FLAG_LIST) expect(CapabilityFlag.safeParse(flag).success, flag).toBe(true);
+    expect(CapabilityFlags.safeParse([...CAPABILITY_FLAG_LIST]).success).toBe(true);
   });
 });

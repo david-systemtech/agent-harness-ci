@@ -6,10 +6,12 @@ import {
   GROUP_EVENT_TYPES,
   GroupId,
   GroupName,
+  groupNameKey,
   GroupPatch,
   LIST_PATCH_KEY,
   MAX_DRAFT_LENGTH,
   MAX_TAGS,
+  normaliseGroupName,
   OrderKey,
   SESSION_EVENT_TYPES,
   SUMMARY_FIELD_OWNERS,
@@ -17,6 +19,7 @@ import {
   SessionId,
   SessionSummary,
   SummaryPatch,
+  TRANSCRIPT_EVENT_TYPES,
   Tag,
   UserTitle,
   isListEvent,
@@ -90,6 +93,14 @@ describe("the summary field table", () => {
     expect(SUMMARY_FIELD_OWNERS.parkedPromptCount).toEqual({ event: "prompt.opened" });
     expect(SUMMARY_FIELD_OWNERS.pullRequests).toEqual({ event: "session.pull-request-linked" });
     expect(SUMMARY_FIELD_OWNERS.title).toEqual({ command: "sessions.rename" });
+  });
+
+  it("gives the run's fields to run.started, which carries the account and model, and flags the run's end and the generated title too", () => {
+    for (const key of ["activity", "lastActivityAt", "accountId", "model"] as const) expect(SUMMARY_FIELD_OWNERS[key], key).toEqual({ event: "run.started" });
+    expect(Object.keys(TRANSCRIPT_EVENT_TYPES["run.started"].payload.shape)).toEqual(expect.arrayContaining(["accountId", "model"]));
+    expect(Object.keys(TRANSCRIPT_EVENT_TYPES["run.ended"].payload.shape)).not.toEqual(expect.arrayContaining(["accountId"]));
+    for (const type of ["run.started", "run.ended", "session.title-generated"]) expect(isListEvent("session", type), type).toBe(true);
+    expect(isListEvent("session", "message.sent")).toBe(false);
   });
 
   it("gives the draft to sessions.setDraft, an absolute setter, through one list-flagged session.draft-set", () => {
@@ -245,6 +256,7 @@ const fresh = {
   parkedPromptCount: 0,
   accountId: null,
   model: null,
+  mode: null,
   pullRequests: [],
   draft: null,
 };
@@ -276,6 +288,7 @@ describe("the session summary", () => {
       "parkedPromptCount",
       "accountId",
       "model",
+      "mode",
       "pullRequests",
       "draft",
     ]);
@@ -301,6 +314,12 @@ describe("the session summary", () => {
       expect(SessionId.safeParse(id).success, id).toBe(false);
       expect(GroupId.safeParse(id).success, id).toBe(false);
     }
+  });
+
+  it("keys a group name trimmed, its white space collapsed and lowercased, as an environment and a client merging headings both fold it", () => {
+    expect(normaliseGroupName("  Cool \t Jams\n\n and  friends ")).toBe("Cool Jams and friends");
+    expect(groupNameKey("  COOL   jams ")).toBe("cool jams");
+    expect(groupNameKey("Brandsolidate")).toBe(groupNameKey(" brandSOLIDATE "));
   });
 
   it("measures titles, tags and group names after trimming: surrounding white space is not counted", () => {

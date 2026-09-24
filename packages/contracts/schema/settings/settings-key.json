@@ -4,7 +4,14 @@
   "type": "string",
   "enum": [
     "sessions.autoSettleAfterIdle",
-    "sessions.autoSettleOnMerge"
+    "sessions.autoSettleOnMerge",
+    "sessions.transcriptCompactAfterDays",
+    "providers.processIdleMinutes",
+    "permissions.defaultCeiling",
+    "permissions.unattended.mode",
+    "permissions.unattended.bypassAcknowledgedAt",
+    "permissions.parkedPrompt.ttl",
+    "permissions.containment.default"
   ],
-  "description": "A settings key: sessions.autoSettleAfterIdle, sessions.autoSettleOnMerge."
+  "description": "A settings key: sessions.autoSettleAfterIdle, sessions.autoSettleOnMerge, sessions.transcriptCompactAfterDays, providers.processIdleMinutes, permissions.defaultCeiling, permissions.unattended.mode, permissions.unattended.bypassAcknowledgedAt, permissions.parkedPrompt.ttl, permissions.containment.default."
 }

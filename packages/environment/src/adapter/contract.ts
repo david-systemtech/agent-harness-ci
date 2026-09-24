@@ -6,7 +6,9 @@ import type {
   CredentialSpec,
   InterruptCause,
   JsonObject,
+  Mode,
   ModelUsage,
+  ProcessHoldKind,
   RunError,
   TranscriptPayload,
   Workspace,
@@ -67,6 +69,8 @@ export interface UsageWindow {
   /** How much is used, 0 to 1 and beyond; null when the provider does not say. */
   readonly utilisation: number | null;
   readonly resetsAt: string | null;
+  /** The latest rate-limit verdict a run reported for the window (`plan.limit`), folded in after the reading. */
+  readonly verdict?: "allowed" | "warning" | "rejected";
 }
 
 /** Plan usage for an account (`planUsage`), with the identity a client pools it by (ADR 0005, ADR 0018). */
@@ -74,6 +78,12 @@ export interface UsageReading {
   readonly identity: AccountIdentity;
   readonly windows: readonly UsageWindow[];
   readonly readAt: string;
+  /**
+   * Why there are no windows, when the provider reported none: an API-key
+   * login, a binary whose usage method was renamed, a read that failed. A
+   * client degrades to absent-with-reason on it. Absent on a reading with windows.
+   */
+  readonly unavailableReason?: string;
 }
 
 /** A slash command the provider offers an account in a workspace (`commands`). */
@@ -124,7 +134,7 @@ export interface ToolServer {
 /**
  * Everything a run needs, resolved by the host: the session and run, the
  * account's directory, the workspace and repository, model, effort and the
- * clamped mode, the composed instruction text, what it continues from, the
+ * mode the policy resolver gave it, the composed instruction text, what it continues from, the
  * factory's tool servers, the trust decision, and the prompt, which is the
  * messages it starts with in order (queued ones first).
  */
@@ -136,7 +146,10 @@ export interface RunInput {
   readonly repositoryIdentity: string | null;
   readonly model: string;
   readonly effort: string | null;
-  readonly mode: string | null;
+  /** The run's effective mode (`run.policy.resolved`): the adapter maps it onto its provider. */
+  readonly mode: Mode;
+  /** The ceiling the run was resolved under: Claude sets `allowDangerouslySkipPermissions` only when it is bypassPermissions. */
+  readonly ceiling: Mode;
   readonly instructions: string;
   readonly target: RunTarget;
   readonly toolServers: readonly ToolServer[];
@@ -152,9 +165,40 @@ export type PromptKind = "permission" | "denylist" | "question" | "plan";
 export interface PromptRequest {
   readonly sessionId: string;
   readonly runId: string;
+  /**
+   * The prompt's id. An adapter that also takes answers through
+   * `AdapterRun.answerPrompt` (its own permission table) names it here, so an
+   * answer given there names the same prompt; otherwise the host mints one.
+   * The broker always receives it, and records it as the prompt's id.
+   */
+  readonly promptId?: string;
   readonly kind: PromptKind;
   /** What the provider asks, in its terms; the broker (#130) fixes the shape it records. */
   readonly detail: JsonObject;
+  /**
+   * Aborted when the provider withdraws the request (the tool call became
+   * moot, the turn was interrupted): the adapter has answered it itself, so
+   * the host counts the prompt answered, once, and at once when it had
+   * aborted before the request was made, and the broker may close it.
+   */
+  readonly signal?: AbortSignal;
+}
+
+/**
+ * What an adapter's `answerPrompt` throws when the answer cannot reach a
+ * tool call: `run_ended`, the run the prompt belongs to has ended (the call
+ * is denied, never allowed), or `not_open`, the adapter has no such prompt
+ * open. The host refuses the answer `conflict` with the reason, so whoever
+ * answered can say so (#130).
+ */
+export class PromptClosed extends Error {
+  constructor(
+    message: string,
+    readonly reason: "run_ended" | "not_open",
+  ) {
+    super(message);
+    this.name = "PromptClosed";
+  }
 }
 
 /** The answer to a prompt: allowed or denied, with a message for the model. */
@@ -167,6 +211,13 @@ export interface PromptDecision {
  * Where a run's prompts go (claude-adapter spec, "The permission broker"):
  * the one place a provider's prompt or question lands. #130 replaces the
  * auto-deny placeholder (`seams.ts`) with the broker that parks prompts.
+ *
+ * The host counts a run parked from a request until that prompt is
+ * answered: when the request settles, or when the host answers it through
+ * `AdapterHost.answerPrompt`, whichever comes first. An answer given any
+ * other way must settle the request, or the run stays parked and is ended
+ * `interrupted`, cause `parked`, once its process has been parked for the
+ * idle time.
  */
 export interface PermissionBroker {
   request(request: PromptRequest): Promise<PromptDecision>;
@@ -233,25 +284,79 @@ export interface AdapterRun {
    * takes back into the environment's queue (ADR 0022).
    */
   interrupt(): Promise<{ readonly stillQueued: readonly string[] }>;
-  /** Answers a parked prompt (`interactivePrompts`). */
+  /**
+   * Answers a parked prompt (`interactivePrompts`); throws `PromptClosed`
+   * when the answer can reach no tool call. An adapter denies its run's
+   * parked prompts itself as the run ends, however it ends: once a run is no
+   * longer live the host refuses answers `run_ended` without asking it.
+   */
   answerPrompt?(promptId: string, decision: PromptDecision): void | Promise<void>;
   /** Stops one piece of delegated work (`subagents`). */
   stopTask?(taskId: string): void | Promise<void>;
-  /** Stops the run now: the host has ended it already (`disposed`, `drained`), and appends nothing more of it. */
+  /**
+   * Changes the running run's mode (`modeChange`; Claude's mode setter):
+   * what `permissions.mode.set` asked for, already clamped to the run's
+   * ceiling and the account's modes. The run's resolved policy stays as it was recorded.
+   */
+  setMode?(mode: Mode): void | Promise<void>;
+  /**
+   * Stops the run now: the host has ended it already (`disposed`, `drained`,
+   * and every end of its own), and appends nothing more of it. The pool then
+   * stops the session's process too (`Adapter.stopProcess`), so the next run
+   * starts cold.
+   */
   dispose(): void | Promise<void>;
-  /** The host is done with an ended run: the adapter may keep its provider process for the next (the pool, #120) or let it go. */
+  /**
+   * The host is done with a run its adapter ended: the adapter keeps the
+   * session's provider process for the next run, until the pool stops it
+   * (`Adapter.stopProcess`).
+   */
   release(): void;
 }
 
 /** A turn the provider opened on its own: a run the host adopts into the same session, and the queued messages it opened with. */
 export interface ProviderTurn extends AdapterRun {
   readonly messageIds: readonly string[];
+  /**
+   * Tells the turn the run id the host adopted it under, once the run is
+   * registered and before its events are read, so what it asks the broker
+   * names its run and parks it; a turn the host lets go is never told one.
+   */
+  onAdopted?(runId: string): void;
+}
+
+/**
+ * The port through which an adapter tells the pool (`pool.ts`) what holds
+ * the session's provider process from its idle stop (Artemis's retention
+ * rule): a live background task or a schedule registered in the session,
+ * each under its id. A hold outlives the run that took it: the port stays
+ * valid for the life of the process it was handed with, and does nothing
+ * once that process has stopped. Holding what is held already, or letting
+ * go what is not, changes nothing.
+ */
+export interface ProcessPort {
+  /** Held work under a non-empty id; an empty id is logged and ignored. */
+  hold(kind: ProcessHoldKind, id: string): void;
+  unhold(kind: ProcessHoldKind, id: string): void;
+  /**
+   * The process exited on its own (its transport failed, the provider quit):
+   * the pool records it stopped, reason `exited`, calls no `stopProcess`, and
+   * the session's next run starts cold. A run live on it is its adapter's to
+   * end, as its stream fails.
+   */
+  exited(): void;
 }
 
 /** What the host hands a run beside its input. */
 export interface RunContext {
-  /** Where the run's prompts go: the auto-deny placeholder until #130. */
+  /**
+   * Where the run's prompts go: the auto-deny placeholder until #130. The
+   * host hands the run the broker wrapped, so the run counts as parked
+   * while a request is unanswered.
+   */
   readonly broker: PermissionBroker;
+  /** Held work on the session's provider process (the pool's port). */
+  readonly process: ProcessPort;
   /**
    * The adoption hook: a turn the provider opened on its own is reported
    * here, and the host registers it as a run of the same session once the
@@ -265,6 +370,12 @@ export interface RunContext {
  * with the live run; any start-up it needs happens behind its event stream.
  * `status` is the probe the host reads each account's sign-in state and
  * identity with; `models` the catalogue it validates models against.
+ *
+ * The provider process a session's runs share is the environment's to start
+ * and stop (ADR 0015), through the pool: `createRun` starts the session's
+ * process when it has none and reuses it otherwise; `stopProcess` stops it.
+ * The pool never runs two runs of one session at once, and pre-warms
+ * nothing: after a stop, the next `createRun` starts cold.
  */
 export interface Adapter {
   readonly descriptor: AdapterDescriptor;
@@ -272,15 +383,38 @@ export interface Adapter {
   status(account: AccountRef): Promise<AuthStatus>;
   models(account: AccountRef): Promise<ModelCatalogue>;
   createRun(input: RunInput, context: RunContext): AdapterRun;
+  /**
+   * Stops the session's provider process, whichever it holds at the call; a
+   * `createRun` after the call starts a new one. Idempotent: a session with
+   * no process is a no-op. Resolves once the process has stopped. With
+   * `kill`, the environment is closing and a stop has taken too long: the
+   * process is killed at once, and the answer is not waited for.
+   */
+  stopProcess(sessionId: string, options?: { readonly kill?: boolean }): void | Promise<void>;
   /** Plan usage per window, with the account's identity (`planUsage`). */
   usage?(account: AccountRef): Promise<UsageReading>;
-  /** The slash commands for an account and workspace, spending no tokens (`commands`). */
-  commands?(account: AccountRef, workspace: Workspace): Promise<readonly ProviderCommand[]>;
+  /**
+   * The slash commands for an account and workspace, spending no tokens
+   * (`commands`); a trusted repository's own commands among them.
+   */
+  commands?(account: AccountRef, workspace: Workspace, scope?: { readonly trusted: boolean }): Promise<readonly ProviderCommand[]>;
   /** The provider's sessions (`sessionListing`). */
   listSessions?(account: AccountRef): Promise<readonly ProviderSessionInfo[]>;
-  /** The title the provider generated for a session (`titleRead`). */
+  /**
+   * The title the provider generated for a session (`titleRead`), or null for
+   * none yet: its own summary, never the title field `writeTitle` mirrors a
+   * user title into, so a mirrored title is never read back. The host reads
+   * it after each run of the session ends and records it as the generated
+   * title (source `provider`) unless the user has set one (`sessions/titles.ts`).
+   */
   readTitle?(sessionId: string): Promise<string | null>;
-  /** Mirrors a user title into the provider's own title field (`titleWrite`); best effort, never read back. */
+  /**
+   * Mirrors a user title into the provider's own title field (`titleWrite`):
+   * the host calls it once a `session.title-set` with a title has committed
+   * on a session that has run through this adapter, best effort (a failure
+   * is logged), and never reads it back. A title cleared to null is not mirrored. No member of the contract writes the
+   * provider's tag field: organisation never depends on what a provider can hold.
+   */
   writeTitle?(sessionId: string, title: string): Promise<void>;
   /** A subagent's own transcript, read on demand (`subagentTranscripts`). */
   subagentTranscript?(sessionId: string, agentId: string): Promise<readonly JsonObject[]>;

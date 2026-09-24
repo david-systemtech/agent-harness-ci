@@ -47,10 +47,22 @@
         "sessions.autoSettleOnMerge": {
           "type": "boolean",
           "description": "Whether auto-settle settles a session one of whose pull requests merged at or after its anchor, the latest of its last activity, its unsettling and the end of its last snooze (settledBy auto-merge)."
+        },
+        "sessions.transcriptCompactAfterDays": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3650,
+          "description": "How many whole days a session goes with no run, command or event before its transcript events are folded into a snapshot that replaces them for replay; 1 to 3650. Organisation events are never compacted."
+        },
+        "providers.processIdleMinutes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1440,
+          "description": "How many minutes a provider process may be idle with no held work, or parked on a prompt, before it stops: 1 to 1440; preset 30."
         }
       },
       "additionalProperties": false,
-      "description": "Some settings' values by key, each valid for its key; a key that is not a setting is refused."
+      "description": "Some settings' values by key, each valid for its key; a key that is not a setting, or that a method of its own writes (the permissions.* keys: permissions.settings.set), is refused."
     }
   },
   "required": [

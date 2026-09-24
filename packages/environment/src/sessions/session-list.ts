@@ -11,10 +11,12 @@ import {
   type SessionDeletedPayload,
   type SessionDraftSetPayload,
   type SessionGroupSetPayload,
+  type SessionModeSetPayload,
   type SessionPinReorderedPayload,
   type SessionPinnedPayload,
   type SessionSummary,
   type SessionTaggedPayload,
+  type SessionTitleGeneratedPayload,
   type SessionTitleSetPayload,
   type SessionUntaggedPayload,
   type SummaryPatch,
@@ -91,8 +93,8 @@ const SESSION_PROJECTIONS: Partial<Record<string, Projection>> = {
     const { title, source } = titleOf(payload.title, null);
     db.run(
       `INSERT INTO sessions (id, created_at, updated_at, title, title_source, user_title, group_id, workspace,
-                             repository_identity, activity)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                             repository_identity, activity, mode)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       event.streamId,
       event.occurredAt,
       event.occurredAt,
@@ -103,9 +105,12 @@ const SESSION_PROJECTIONS: Partial<Record<string, Projection>> = {
       JSON.stringify(payload.workspace),
       payload.repositoryIdentity,
       JSON.stringify({ state: "idle", since: event.occurredAt }),
+      payload.mode,
     );
     insertTags(db, event.streamId, payload.tags);
   },
+  // The mode the permissions workstream gave the session (#129, #179); not an organisation change, so `updatedAt` stays.
+  "session.mode.set": (event, db) => setColumns(event, db, { mode: (event.payload as SessionModeSetPayload).mode.effective }),
   "session.title-set": (event, db) => {
     const payload = event.payload as SessionTitleSetPayload;
     const [row] = db.all<Pick<SessionRow, "generated_title">>("SELECT generated_title FROM sessions WHERE id = ?", event.streamId);
@@ -118,6 +123,14 @@ const SESSION_PROJECTIONS: Partial<Record<string, Projection>> = {
       event.occurredAt,
       event.streamId,
     );
+  },
+  // The fallback under the user's title (#122): what the session shows when the user has set none. Generated, not
+  // organised by anyone, so it leaves updatedAt where it was; under a user title its patch changes no field shown.
+  "session.title-generated": (event, db) => {
+    const payload = event.payload as SessionTitleGeneratedPayload;
+    const [row] = db.all<Pick<SessionRow, "user_title">>("SELECT user_title FROM sessions WHERE id = ?", event.streamId);
+    const { title, source } = titleOf(row?.user_title ?? null, payload.title);
+    setColumns(event, db, { generated_title: payload.title, title, title_source: source });
   },
   "session.archived": (event, db) => organise(event, db, { archived_at: (event.payload as SessionArchivedPayload).archivedAt }),
   "session.unarchived": (event, db) => organise(event, db, { archived_at: null }),
@@ -170,12 +183,15 @@ const SESSION_PROJECTIONS: Partial<Record<string, Projection>> = {
   "session.group-set": (event, db) => organise(event, db, { group_id: (event.payload as SessionGroupSetPayload).groupId }),
 };
 
+/** The session event types the projector projects: every `list`-flagged type of the session stream, which its test holds it to. */
+export const PROJECTED_SESSION_EVENT_TYPES: readonly string[] = Object.keys(SESSION_PROJECTIONS);
+
 /**
  * The projector. Every `list`-flagged session event is projected and its
  * summary patch attached, every group event and its group patch. A flagged
  * event it has no projection for fails its append, so no flagged event
- * reaches a client without its patch when it changes the list: the session
- * types later tickets append (#120 to #122). A flagged session event that
+ * reaches a client without its patch when it changes the list: a type
+ * flagged later comes with its projection. A flagged session event that
  * leaves its session out of the list before and after carries no patch, and
  * a client skips it: a deleted session ungrouped when its group is deleted,
  * and the `run.ended` (`disposed`) of a run the session's deletion let go.
