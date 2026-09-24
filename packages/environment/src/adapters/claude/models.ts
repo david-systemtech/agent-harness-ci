@@ -13,6 +13,7 @@ import { CLAUDE_EFFORTS } from "./options.js";
  * known one rather than being guessed at.
  */
 
+// The families the pinned SDK names as model aliases ('fable', 'opus', 'sonnet', 'haiku'; `claude-fable-5` its fullest id), Fable above Opus.
 const FAMILY_TIERS: Readonly<Record<string, number>> = { haiku: 0, sonnet: 1, opus: 2, fable: 3 };
 
 /** The tier of a family nobody here can place. */

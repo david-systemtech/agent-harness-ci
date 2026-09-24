@@ -159,6 +159,12 @@ describe("a Claude process's environment", () => {
     expect(ambientConfigDirectory({})).toBe(join(homedir(), ".claude"));
   });
 
+  it("reads an empty HOME or USERPROFILE as unset, never a relative .claude", () => {
+    expect(ambientConfigDirectory({ HOME: "", USERPROFILE: "C:\\Users\\seth" })).toBe(join("C:\\Users\\seth", ".claude"));
+    expect(ambientConfigDirectory({ HOME: "", USERPROFILE: "" })).toBe(join(homedir(), ".claude"));
+    expect(ambientConfigDirectory({ CLAUDE_CONFIG_DIR: "", HOME: "" })).toBe(join(homedir(), ".claude"));
+  });
+
   it("does not touch the host's environment", () => {
     const before = { ...host };
     composeRunEnvironment(host, "/data/accounts/work", { EXTRA: "1" });

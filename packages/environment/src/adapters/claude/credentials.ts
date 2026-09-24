@@ -105,9 +105,9 @@ export const isScrubbed = (name: string): boolean => {
  * holds at the moment (the config-directory queue writes it while a helper runs).
  */
 export const ambientConfigDirectory = (host: HostEnvironment): string => {
-  const set = host[CLAUDE_CONFIG_DIR];
-  if (set !== undefined && set !== "") return set;
-  return join(host["HOME"] ?? host["USERPROFILE"] ?? homedir(), ".claude");
+  // An empty value is unset, as the CLI reads it: never a relative `.claude` under whatever the working directory is.
+  const given = (name: string): string | undefined => (host[name] === "" ? undefined : host[name]);
+  return given(CLAUDE_CONFIG_DIR) ?? join(given("HOME") ?? given("USERPROFILE") ?? homedir(), ".claude");
 };
 
 /**
