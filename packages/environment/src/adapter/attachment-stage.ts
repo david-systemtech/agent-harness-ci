@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { chmodSync, closeSync, fsyncSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, rmSync, writeSync } from "node:fs";
-import { join } from "node:path";
+import { chmodSync, closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, rmSync, writeSync } from "node:fs";
+import { dirname, join } from "node:path";
 import type { AttachmentRecord } from "@agent-harness/contracts";
 import type { AttachmentData } from "./contract.js";
 
@@ -47,8 +47,19 @@ const checked = (messageId: string): string => {
 };
 
 /** A directory readable by its owner alone, made if it is missing. */
+/**
+ * Makes `path` a 0700 directory of the environment's own. A directory made
+ * here is synced into its parent, since a new directory entry is durable
+ * only once the parent is: the receipt promises the bytes survive a crash,
+ * and the first stage on a fresh environment creates the root itself.
+ */
 const ownDirectory = (path: string): void => {
-  mkdirSync(path, { recursive: true, mode: 0o700 });
+  const missing: string[] = [];
+  for (let ancestor = path; !existsSync(ancestor); ancestor = dirname(ancestor)) missing.unshift(ancestor);
+  for (const directory of missing) {
+    mkdirSync(directory, { mode: 0o700 });
+    syncDirectory(dirname(directory));
+  }
   if (process.platform !== "win32") chmodSync(path, 0o700);
 };
 
