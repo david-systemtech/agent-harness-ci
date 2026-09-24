@@ -195,6 +195,18 @@ describe("reading the status through the bundled binary", () => {
     expect(status).toMatchObject({ signedIn: false, error: "config unreadable" });
   });
 
+  it("says how the binary exited when it printed nothing, and that it could not be run when it never exited", async () => {
+    const exited = await readClaudeStatus({ executable: "/sdk/claude", directory: "/d", hostEnv: {}, run: async () => ({ code: 3, stdout: "", stderr: "" }) });
+    expect(exited).toMatchObject({ signedIn: false, error: "The Claude binary exited with code 3." });
+    const unrun = await readClaudeStatus({ executable: "/sdk/claude", directory: "/d", hostEnv: {}, run: async () => ({ code: null, stdout: "", stderr: "" }) });
+    expect(unrun).toMatchObject({ signedIn: false, error: "The bundled Claude binary could not be run." });
+  });
+
+  it("says what was wrong with the status when the binary exited cleanly with nothing readable", async () => {
+    const status = await readClaudeStatus({ executable: "/sdk/claude", directory: "/d", hostEnv: {}, run: async () => ({ code: 0, stdout: "not json", stderr: "" }) });
+    expect(status).toMatchObject({ signedIn: false, error: "The Claude binary did not print a readable status." });
+  });
+
   it("never spawns anything when this platform has no bundled binary", async () => {
     let ran = false;
     const status = await readClaudeStatus({

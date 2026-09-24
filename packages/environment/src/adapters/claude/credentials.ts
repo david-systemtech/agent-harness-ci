@@ -237,6 +237,7 @@ export const readClaudeStatus = async (options: StatusReadOptions): Promise<Auth
   const result = await run(options.executable, CLAUDE_STATUS_ARGV, composeRunEnvironment(options.hostEnv, options.directory), options.timeoutMs ?? 15_000);
   const parsed = parseClaudeStatus(result.stdout);
   if (parsed.error === null) return parsed;
-  const fallback = result.code === null ? "The bundled Claude binary could not be run." : `The Claude binary exited with code ${result.code}.`;
-  return { ...parsed, error: result.stderr.trim() || parsed.error || fallback };
+  // The binary's own words; else how it failed, when it did; else what was wrong with what it printed.
+  const failed = result.code === null ? "The bundled Claude binary could not be run." : result.code !== 0 ? `The Claude binary exited with code ${result.code}.` : null;
+  return { ...parsed, error: result.stderr.trim() || failed || parsed.error };
 };
