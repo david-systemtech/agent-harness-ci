@@ -45,7 +45,7 @@ describe("requests.call", () => {
           link: "http://fake.test:7433/pair#K7Q2MXH4RT",
           expiresAt: "2026-09-24T00:10:00.000Z",
           scopes: ["read"],
-          ceiling: "top",
+          ceiling: "bypassPermissions",
         },
       },
     }));

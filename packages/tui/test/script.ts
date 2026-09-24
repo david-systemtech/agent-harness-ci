@@ -131,6 +131,7 @@ const summaryOf = (clock: ManualClock, partial: Partial<SessionSummary>, index: 
     parkedPromptCount: 0,
     accountId: null,
     model: null,
+    mode: null,
     pullRequests: [],
     draft: null,
     ...partial,
@@ -160,7 +161,7 @@ const clientSessionOf = (clock: ManualClock, partial: Partial<ClientSessionRow>,
     expiresAt: new Date(clock.now().getTime() + 30 * 24 * 60 * 60 * 1000).toISOString(),
     revokedAt: null,
     scopes: [...SCOPES],
-    ceiling: Ceiling.parse("top"),
+    ceiling: Ceiling.parse("bypassPermissions"),
     local: false,
     ...partial,
   };
@@ -256,7 +257,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
       link: `${wire.origin}/pair#${code}`,
       expiresAt: new Date(clock.now().getTime() + 10 * 60 * 1000).toISOString(),
       scopes: [...SCOPES],
-      ceiling: Ceiling.parse("top"),
+      ceiling: Ceiling.parse("bypassPermissions"),
     });
   });
   // Every other scripted command answers its receipt alone, as a retry answered from a stored receipt does.
