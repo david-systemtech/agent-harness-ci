@@ -84,6 +84,18 @@ _Avoid_: SDK, store, bridge
 The small set of things only a desktop app can do for a client (native dialogs, file pickers, the embedded web view, window chrome, notifications), reached through capability flags and never carrying session state.
 _Avoid_: main process, IPC, bridge
 
+**Theme**:
+A name and seven seeds (Canvas, Accent, Machine, Thinking, Success, Warning, Danger), each one hue and chroma, from which every colour the GUI and the web tab paint is derived, and which the terminal UI maps onto its terminal's own colours; an environment setting, with Artemis's colours as the default.
+_Avoid_: skin, palette (the derived ladder, not the setting), colour scheme (light or dark, which is the client's)
+
+**Seed**:
+One of a theme's seven colours, a hue and chroma in OKLCH, from which the theme package derives a ladder of tokens for light and dark within the contrast rules.
+_Avoid_: brand colour, base colour, primary (the role is named)
+
+**Token**:
+A named colour the GUI and web renderers use in place of a literal, derived from a seed at runtime and applied as a CSS variable; the only way those packages colour anything, apart from the allowlisted fallbacks the lint names.
+_Avoid_: variable (the mechanism), hex, swatch (the picker's preview)
+
 **Pane**:
 One view inside a client's window (a conversation, a terminal, files, a diff, the browser dock); which panes are open and how they are laid out is client-local presentation, not organisation state.
 _Avoid_: tab, panel, dock (the region that holds panes; the proper name "browser dock" for the embedded-browser pane is the one exception)
