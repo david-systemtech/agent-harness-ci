@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ScopeSet",
+  "minItems": 1,
+  "type": "array",
+  "items": {
+    "type": "string",
+    "enum": [
+      "read",
+      "sessions:write",
+      "runs:drive",
+      "terminal",
+      "admin"
+    ],
+    "description": "One of the five scopes a method may require."
+  },
+  "uniqueItems": true,
+  "description": "The scopes a client session holds, as a non-empty set."
+}

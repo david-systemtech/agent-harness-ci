@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CapabilityFlags",
+  "type": "array",
+  "items": {
+    "type": "string",
+    "minLength": 1,
+    "description": "One capability an environment offers."
+  },
+  "uniqueItems": true,
+  "description": "The capabilities an environment offers, as a set; an absent flag means unsupported."
+}

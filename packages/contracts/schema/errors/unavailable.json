@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "UnavailableError",
+  "type": "object",
+  "properties": {
+    "code": {
+      "type": "string",
+      "const": "unavailable"
+    },
+    "message": {
+      "type": "string"
+    },
+    "data": {
+      "type": "object",
+      "properties": {
+        "readiness": {
+          "type": "string",
+          "enum": [
+            "starting",
+            "draining"
+          ]
+        }
+      },
+      "required": [
+        "readiness"
+      ]
+    }
+  },
+  "required": [
+    "code",
+    "message",
+    "data"
+  ],
+  "description": "The environment is starting or draining; data.readiness says which."
+}

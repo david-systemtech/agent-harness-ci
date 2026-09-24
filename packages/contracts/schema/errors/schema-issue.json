@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SchemaIssue",
+  "type": "object",
+  "properties": {
+    "code": {
+      "type": "string"
+    },
+    "path": {
+      "type": "array",
+      "items": {
+        "type": [
+          "string",
+          "number"
+        ]
+      }
+    },
+    "message": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "code",
+    "path",
+    "message"
+  ],
+  "additionalProperties": {},
+  "description": "One schema issue: a code, the path to the offending value and a message."
+}

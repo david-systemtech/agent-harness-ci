@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Actor",
+  "type": "object",
+  "properties": {
+    "kind": {
+      "type": "string",
+      "enum": [
+        "client_session",
+        "routine",
+        "adapter",
+        "system"
+      ]
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "required": [
+    "kind",
+    "id"
+  ],
+  "description": "Who caused an event: a client session, routine, adapter or system component."
+}

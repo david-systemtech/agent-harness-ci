@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "access.pairings.create params",
+  "type": "object",
+  "properties": {
+    "commandId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+      "description": "The client-generated UUID every mutating method takes; a retry with the same id applies once."
+    },
+    "scopes": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "read",
+          "sessions:write",
+          "runs:drive",
+          "terminal",
+          "admin"
+        ],
+        "description": "One of the five scopes a method may require."
+      },
+      "uniqueItems": true,
+      "description": "The scopes a client session holds, as a non-empty set."
+    },
+    "ceiling": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The highest mode a client session may use; its values are the permissions workstream's."
+    }
+  },
+  "required": [
+    "commandId"
+  ]
+}

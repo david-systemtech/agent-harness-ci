@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Scope",
+  "type": "string",
+  "enum": [
+    "read",
+    "sessions:write",
+    "runs:drive",
+    "terminal",
+    "admin"
+  ],
+  "description": "One of the five scopes a method may require."
+}

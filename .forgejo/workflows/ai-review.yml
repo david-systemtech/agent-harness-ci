@@ -128,7 +128,7 @@ jobs:
           # leaves out. Put every generated file here: the script sizes its
           # reasoning to the diff, and a large generated file can take a
           # review to its token ceiling with nothing to show.
-          REVIEW_SKIP: docs/research/*
+          REVIEW_SKIP: docs/research/* packages/contracts/schema/*
         run: python3 .ci/scripts/ai_review.py
 
   # The label is a button, not a state: `labeled` fires only when a label goes

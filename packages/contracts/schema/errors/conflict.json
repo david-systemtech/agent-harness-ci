@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ConflictError",
+  "type": "object",
+  "properties": {
+    "code": {
+      "type": "string",
+      "const": "conflict"
+    },
+    "message": {
+      "type": "string"
+    },
+    "data": {
+      "type": "object",
+      "properties": {}
+    }
+  },
+  "required": [
+    "code",
+    "message",
+    "data"
+  ],
+  "description": "The target's state does not allow the method now."
+}

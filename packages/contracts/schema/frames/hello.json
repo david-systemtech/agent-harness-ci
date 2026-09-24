@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "HelloFrame",
+  "type": "object",
+  "properties": {
+    "type": {
+      "type": "string",
+      "const": "hello"
+    },
+    "protocolVersion": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "description": "A wire protocol version: one integer, bumped only on a breaking change."
+    },
+    "capabilities": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "description": "One capability an environment offers."
+      },
+      "uniqueItems": true,
+      "description": "The capabilities an environment offers, as a set; an absent flag means unsupported."
+    },
+    "environmentId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "environmentName": {
+      "type": "string"
+    },
+    "clientSessionId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "scopes": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "read",
+          "sessions:write",
+          "runs:drive",
+          "terminal",
+          "admin"
+        ],
+        "description": "One of the five scopes a method may require."
+      },
+      "uniqueItems": true,
+      "description": "The scopes a client session holds, as a non-empty set."
+    },
+    "ceiling": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The highest mode a client session may use; its values are the permissions workstream's."
+    },
+    "serverTime": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+      "description": "An instant as an ISO 8601 UTC timestamp."
+    }
+  },
+  "required": [
+    "type",
+    "protocolVersion",
+    "capabilities",
+    "environmentId",
+    "environmentName",
+    "clientSessionId",
+    "scopes",
+    "ceiling",
+    "serverTime"
+  ],
+  "description": "Server, in reply to a valid auth: what the environment is and what this client session may do."
+}

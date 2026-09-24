@@ -1,0 +1,8 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ProtocolVersion",
+  "type": "integer",
+  "exclusiveMinimum": 0,
+  "maximum": 9007199254740991,
+  "description": "A wire protocol version: one integer, bumped only on a breaking change."
+}
