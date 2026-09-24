@@ -48,6 +48,7 @@ export const freshSummary = {
   parkedPromptCount: 0,
   accountId: null,
   model: null,
+  mode: null,
   pullRequests: [],
   draft: null,
 };
@@ -74,12 +75,15 @@ const fullSummary = {
   parkedPromptCount: 2,
   accountId: "claude-max",
   model: "claude-opus-5-5",
+  mode: "plan",
   pullRequests: [mergedPullRequest],
   draft: "Now the retention sweep",
 };
 
 const invalidSummaries = [
   {},
+  { ...freshSummary, mode: "yolo" },
+  { ...freshSummary, mode: "default" },
   { ...freshSummary, id: "not-a-uuid" },
   { ...freshSummary, title: "" },
   { ...freshSummary, titleSource: "provider" },
@@ -180,14 +184,14 @@ export const sessionSchemaFixtures: Record<string, Fixtures> = {
     invalid: ["", "   ", "x".repeat(201), ` ${"x".repeat(201)} `],
   },
   "sessions/tag.json": {
-    valid: ["wip", "Seth", "x".repeat(40), ` ${"x".repeat(40)}  `, "two words"],
-    invalid: ["", " ", "x".repeat(41), "a\tb", "a\u0085b"],
+    valid: ["wip", "Seth", "x".repeat(40), ` ${"x".repeat(40)}  `, "two words", "naïve", "日本語"],
+    invalid: ["", " ", "x".repeat(41), "a\tb", "a\u0085b", "a\u0000b", "\u200B", "a\u200Bb", "\uFEFF", "a\uFEFFb"],
   },
   "sessions/draft.json": { valid: ["", "Now the retention sweep", "x".repeat(65_536)], invalid: [null, "x".repeat(65_537)] },
   "sessions/stored-draft.json": { valid: [null, "Now the retention sweep", "x".repeat(65_536)], invalid: ["", "x".repeat(65_537), 7] },
   "sessions/group-name.json": {
-    valid: ["Brandsolidate", "x".repeat(80), ` ${"x".repeat(80)} `],
-    invalid: ["", "  ", "x".repeat(81)],
+    valid: ["Brandsolidate", "x".repeat(80), ` ${"x".repeat(80)} `, "Cool \t Jams\n and friends", "naïve", "日本語"],
+    invalid: ["", "  ", "x".repeat(81), "a\u0000b", "a\u001Bb", "a\u0085b", "\u200B", "a\u200Bb", "\u200B\u200B", "\uFEFF", "a\uFEFFb", "a\u2060b"],
   },
   "sessions/title-source.json": { valid: ["user", "generated", "default"], invalid: ["prompt", "provider", ""] },
   "sessions/generated-title-source.json": { valid: ["prompt", "provider"], invalid: ["user", ""] },

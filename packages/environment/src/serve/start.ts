@@ -36,7 +36,8 @@ import type { Adapter } from "../adapter/contract.js";
 import { createClaudeAdapter } from "../adapters/claude/index.js";
 import { createAdapterHost, type AdapterHost, type HostAccount } from "../adapter/host.js";
 import { processMethods } from "../adapter/processes-methods.js";
-import { recoverCutRuns } from "../adapter/recovery.js";
+import { ATTACHMENTS_DIRECTORY, createAttachmentStage } from "../adapter/attachment-stage.js";
+import { recoverCutRuns, recoverStagedAttachments } from "../adapter/recovery.js";
 import type { InstructionComposer, PolicySeam, ToolServerFactory } from "../adapter/seams.js";
 import type { PermissionBroker } from "../adapter/contract.js";
 import { permissionMethods, sessionModeClamp } from "../permissions/methods.js";
@@ -44,6 +45,7 @@ import { permissionsProjector, readPermissionSettings } from "../permissions/per
 import { policySettings, resolvePolicy } from "../permissions/resolver.js";
 import { runMethods } from "../runs/run-methods.js";
 import { runsProjector } from "../runs/runs-projector.js";
+import { createCompactionSweep } from "../sessions/compaction.js";
 import { createDeletion } from "../sessions/deletion.js";
 import { groupMethods } from "../sessions/group-methods.js";
 import { sessionMethods } from "../sessions/methods.js";
@@ -335,9 +337,14 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     // First the recovery sweep: a run the log left without an end was cut by the last stop, and is ended before anything can read it.
     const recovered = recoverCutRuns({ log, clock });
     if (recovered.length > 0) console.error(`The recovery sweep ended ${recovered.length} run(s) a restart cut: ${recovered.join(", ")}.`);
+    // Then the queued messages' attachment bytes, read back from the stage, so a message the sweep handed back keeps them (#185).
+    const attachmentStage = createAttachmentStage(join(dataDir, ATTACHMENTS_DIRECTORY));
+    const stagedAttachments = recoverStagedAttachments({ log, stage: attachmentStage });
     const created = createAdapterHost({
       log,
       clock,
+      attachmentStage,
+      stagedAttachments,
       ...(options.runs !== undefined && { runs: options.runs }),
       adapters: options.adapters ?? [createClaudeAdapter({ clock, autoMemoryRoot: join(dataDir, AUTO_MEMORY_DIRECTORY) })],
       ...(options.accounts !== undefined && { accounts: options.accounts }),
@@ -504,6 +511,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   }
   // The shelf's sweep (#117): a pass now, before the wire opens, then every five minutes.
   closers.push(settleSweep.start());
+  // Transcript compaction (#123): a pass now, before the wire opens, then once a day.
+  closers.push(createCompactionSweep({ log, clock }).start());
   wire.open();
   launcher.onQuery((query) => lifecycle.answer(query));
   // The minute sweep: expired pairings, idle `tui` local client sessions, receipts past their 30 days, and
