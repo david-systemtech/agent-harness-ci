@@ -112,6 +112,22 @@ describe("the method registry", () => {
     expect(isMethodName("runs.answerPrompt")).toBe(false);
   });
 
+  it("gives the terminal, file and diff methods the terminal scope the tui spec gives them, the mutating ones as commands", () => {
+    const terminalMethods = methods.filter((m) => /^(terminals|files|diffs)\./.test(m.name));
+    expect(Object.fromEntries(terminalMethods.map((m) => [m.name, [m.kind, m.scope]]))).toEqual({
+      "terminals.open": ["command", "terminal"],
+      "terminals.write": ["command", "terminal"],
+      "terminals.resize": ["command", "terminal"],
+      "terminals.close": ["command", "terminal"],
+      "terminals.list": ["query", "terminal"],
+      "terminals.subscribe": ["stream", "terminal"],
+      "files.list": ["query", "terminal"],
+      "files.read": ["query", "terminal"],
+      "diffs.workingTree": ["query", "terminal"],
+      "diffs.session": ["query", "terminal"],
+    });
+  });
+
   it("gives the providers methods the claude-adapter spec's scopes: the list at read, the processes at admin", () => {
     const providerMethods = methods.filter((m) => m.name.startsWith("providers."));
     expect(Object.fromEntries(providerMethods.map((m) => [m.name, [m.kind, m.scope]]))).toEqual({
@@ -163,6 +179,10 @@ describe("the method registry", () => {
       "settings.update",
       "permissions.mode.set",
       "permissions.settings.set",
+      "terminals.open",
+      "terminals.write",
+      "terminals.resize",
+      "terminals.close",
     ]);
   });
 
@@ -201,7 +221,7 @@ describe("the method registry", () => {
 
   it("takes an afterSequence cursor in the params of every stream", () => {
     const streams = methods.filter((m) => m.kind === "stream");
-    expect(streams.map((m) => m.name)).toEqual(["environment.subscribe", "sessions.subscribe", "sessions.subscribeSession"]);
+    expect(streams.map((m) => m.name)).toEqual(["environment.subscribe", "sessions.subscribe", "sessions.subscribeSession", "terminals.subscribe"]);
     for (const method of streams) expect(method.params.shape, method.name).toHaveProperty("afterSequence", Sequence);
   });
 
@@ -288,6 +308,16 @@ describe("the method registry", () => {
       | "permissions.mode.set"
       | "permissions.settings.get"
       | "permissions.settings.set"
+      | "terminals.open"
+      | "terminals.write"
+      | "terminals.resize"
+      | "terminals.close"
+      | "terminals.list"
+      | "terminals.subscribe"
+      | "files.list"
+      | "files.read"
+      | "diffs.workingTree"
+      | "diffs.session"
     >();
     expectTypeOf<ParamsOf<"access.sessions.revoke">>().toEqualTypeOf<{ commandId: string; clientSessionId: string }>();
   });

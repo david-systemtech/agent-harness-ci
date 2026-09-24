@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "diffs.session result",
+  "type": "object",
+  "properties": {
+    "files": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Relative to the workspace when the file is inside it, else as the tool named it."
+          },
+          "diff": {
+            "type": "string",
+            "description": "A unified diff of the changes, one hunk per change in order. A hunk's line numbers are the file's when the tool's output carried its patch, else counted from the edited text."
+          },
+          "changes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "runId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+                  "description": "A run's id: a version 4 UUID the environment mints when the run starts or is adopted."
+                },
+                "toolCallId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "tool": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The tool's name as the provider gave it: Edit, MultiEdit, Write, NotebookEdit."
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "ok",
+                    "error",
+                    "cancelled"
+                  ],
+                  "description": "How a tool call ended: ok, error, or cancelled."
+                }
+              },
+              "required": [
+                "runId",
+                "toolCallId",
+                "tool",
+                "status"
+              ],
+              "description": "One tool call that changed a file: its run, call, tool and how it ended."
+            }
+          }
+        },
+        "required": [
+          "path",
+          "diff",
+          "changes"
+        ],
+        "description": "A file the session's runs changed: its path, the diff and the tool calls behind it."
+      }
+    },
+    "truncated": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "files",
+    "truncated"
+  ]
+}

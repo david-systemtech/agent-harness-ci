@@ -67,4 +67,5 @@ export * from "./sessions.js";
 export * from "./settings.js";
 export * from "./steps.js";
 export * from "./summary-fields.js";
+export * from "./terminals.js";
 export * from "./transcript.js";

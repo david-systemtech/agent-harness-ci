@@ -12,6 +12,7 @@ import { providerMethodFixtures, providerSchemaFixtures } from "./provider-fixtu
 import { runMethodFixtures, runSchemaFixtures } from "./run-fixtures.js";
 import { sessionMethodFixtures, sessionSchemaFixtures } from "./session-fixtures.js";
 import { settingsMethodFixtures, settingsSchemaFixtures } from "./settings-fixtures.js";
+import { terminalMethodFixtures, terminalSchemaFixtures } from "./terminal-fixtures.js";
 
 const uuid = "0f8fad5b-d9cb-469f-a165-70867728950e";
 const otherUuid = "7c9e6679-7425-40de-944b-e07fc1f90ae7";
@@ -460,6 +461,7 @@ const methodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
   ...providerMethodFixtures,
   ...settingsMethodFixtures,
   ...permissionMethodFixtures,
+  ...terminalMethodFixtures,
 };
 
 /** Receipts as a command's response carries them: accepted with a change, a no-op, and a rejection. */
@@ -711,5 +713,6 @@ export const schemaFixtures: Record<string, Fixtures> = {
   ...providerSchemaFixtures,
   ...settingsSchemaFixtures,
   ...permissionSchemaFixtures,
+  ...terminalSchemaFixtures,
   ...methodSchemaFixtures,
 };

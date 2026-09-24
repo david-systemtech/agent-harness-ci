@@ -21,7 +21,7 @@
         "closed",
         "deleted"
       ],
-      "description": "Why a subscription ended: the client unsubscribed; it fell too far behind (resubscribe from its cursor); its client session was revoked; the connection closed; or what it follows was deleted (a session's subscription, after delivering session.deleted)."
+      "description": "Why a subscription ended: the client unsubscribed; it fell too far behind (resubscribe from its cursor); its client session was revoked; the connection closed, or the terminal it follows did (after delivering terminal.exited); or what it follows was deleted (a session's subscription after delivering session.deleted, a terminal's after its session's deletion ended it)."
     }
   },
   "required": [
