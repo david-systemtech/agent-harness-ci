@@ -85,8 +85,7 @@ export const validFrames: Record<FrameType, readonly object[]> = {
     { type: "end", subscription: "sub-1", reason: "overflow" },
   ],
   unsubscribe: [{ type: "unsubscribe", subscription: "sub-1" }],
-  // A field the reader does not know is tolerated by the codec and by the export alike (frames.ts).
-  ping: [{ type: "ping" }, { type: "ping", sentAt: at }],
+  ping: [{ type: "ping" }],
   pong: [{ type: "pong" }],
   bye: [
     { type: "bye", reason: "draining" },
@@ -107,6 +106,17 @@ const beyondJsonSchema: ReadonlySet<string> = new Set([eventSequenceMismatch]);
  * with no fields (`ping`, `pong`) can only be malformed as text: cut short, or
  * not a JSON object.
  */
+/**
+ * Frames carrying a field the reader does not know. The codec drops the field and the export
+ * tolerates it, so adding an optional field never bumps the protocol version (frames.ts); these
+ * do not round-trip byte for byte, so they sit apart from `validFrames`.
+ */
+export const toleratedFrames: Partial<Record<FrameType, readonly object[]>> = {
+  ping: [{ type: "ping", sentAt: at }],
+  hello: [{ ...validFrames.hello[0], region: "manila" }],
+  request: [{ type: "request", id: "1", method: "environment.status", params: {}, priority: "high" }],
+};
+
 export const malformedFrames: Record<FrameType, readonly string[]> = {
   auth: [
     json({ type: "auth", protocolVersion: 1, clientKind: "tui", harnessVersion: "0.1.0" }),
@@ -178,7 +188,7 @@ interface Fixtures {
 const frameFixtures = Object.fromEntries(
   FRAME_TYPES.map((kind): [string, Fixtures] => [
     `frames/${kind}.json`,
-    { valid: validFrames[kind], invalid: malformedJson(kind) },
+    { valid: [...validFrames[kind], ...(toleratedFrames[kind] ?? [])], invalid: malformedJson(kind) },
   ]),
 );
 

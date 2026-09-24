@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { malformedFrames, validFrames } from "../test/fixtures.js";
+import { malformedFrames, validFrames, toleratedFrames } from "../test/fixtures.js";
 import {
   BYE_REASONS,
   ContractError,
@@ -99,6 +99,9 @@ describe("the frame codec", () => {
 
   it("accepts a frame carrying a field it does not know, so adding an optional field never bumps the protocol", () => {
     expect(decodeFrame(JSON.stringify({ type: "ping", sentAt: "2026-09-24T00:00:00Z" }))).toEqual({ type: "ping" });
+    for (const [kind, frames] of Object.entries(toleratedFrames)) {
+      for (const frame of frames) expect(decodeFrame(JSON.stringify(frame))).toMatchObject({ type: kind });
+    }
   });
 
   it("refuses a response with both a result and an error, or with neither", () => {
