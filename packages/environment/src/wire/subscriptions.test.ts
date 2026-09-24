@@ -56,7 +56,8 @@ const start = async (options: TestEnvironmentOptions = {}): Promise<TestEnvironm
     return {
       stream: probeStream(probe),
       snapshot: () => ({ count: appended.get(probe) ?? 0 }),
-      // A probe.ended event ends the subscription, as a session's deletion ends its own.
+      // Every probe.ended event ends the subscription: the source's answer is the rule, replayed or live.
+      // A session's source answers from its state now, so an undone deletion does not (deletion.test.ts).
       endOn: (event) => (event.type === "probe.ended" ? "deleted" : undefined),
     };
   });

@@ -125,6 +125,22 @@ describe("purging a session", () => {
     expect(deletion.purgeDue(new Date(inDays(100)))).toEqual([]);
   });
 
+  it("purges the others when one fails, then throws naming the one that failed, which stays deleted for the next sweep", () => {
+    const log = open();
+    for (const id of [purged, kept]) {
+      log.append(stream(id), [created([])], { actor });
+      log.append(stream(id), [deleted(START, id === purged)], { actor });
+    }
+    // An adapter that broke the synchronous contract fails the purge that asked it.
+    const transcripts: ProviderTranscripts = { deleteTranscript: () => Promise.resolve() as unknown as undefined };
+    const deletion = createDeletion({ log, transcripts });
+
+    expect(() => deletion.purgeDue(new Date(inDays(31)))).toThrow(new RegExp(`Purging 1 of 2 sessions failed: ${purged}`));
+    expect(log.readStream(stream(kept)).map((event) => event.type)).toEqual(["session.purged"]);
+    expect(log.readStream(stream(purged)).map((event) => event.type)).toEqual(["session.created", "session.deleted"]);
+    expect(tables(log).sessions.map((row) => row["id"])).toEqual([purged]);
+  });
+
   it("gives the same tables when the projections are rebuilt after a purge", () => {
     const log = open();
     seed(log);

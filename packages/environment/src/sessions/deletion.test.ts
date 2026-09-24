@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { join } from "node:path";
 import {
   Ceiling,
   SessionListSnapshot,
@@ -13,9 +14,9 @@ import {
 } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
-import { MANUAL_CLOCK_START } from "../../test/clock.js";
+import { MANUAL_CLOCK_START, manualClock } from "../../test/clock.js";
 import { fakeProvider, type FakeProviderOptions } from "../../test/fake-provider.js";
-import { startTestEnvironment, type TestEnvironment } from "../../test/helper.js";
+import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import {
   command,
   create,
@@ -39,16 +40,31 @@ import type { WireClient } from "../../test/wire-client.js";
  * subscription, each asserted as a client sees it.
  */
 
-const { onCleanup } = useCleanups();
+const { onCleanup, tempDir } = useCleanups();
 
 const MINUTE = 60_000;
 const DAY = 24 * 60 * MINUTE;
 const GRACE_MS = 30 * DAY;
 
-const start = async (provider: FakeProviderOptions = {}): Promise<TestEnvironment> => {
-  const t = await startTestEnvironment({ provider: fakeProvider([], provider) });
+const start = async (provider: FakeProviderOptions = {}, options: Omit<TestEnvironmentOptions, "provider"> = {}): Promise<TestEnvironment> => {
+  const t = await startTestEnvironment({ ...options, provider: fakeProvider([], provider) });
   onCleanup(() => t.close());
   return t;
+};
+
+/** Hooks that hold every catch-up until released, telling the test when one is held. */
+const holdCatchUp = () => {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  let reach!: () => void;
+  const reached = new Promise<void>((resolve) => (reach = resolve));
+  const hooks = {
+    beforeCatchUp: async () => {
+      reach();
+      await gate;
+    },
+  };
+  return { hooks, reached, release };
 };
 
 /** The instant `ms` after the manual clock's start. */
@@ -379,6 +395,18 @@ describe("sessions.purge", () => {
     expect(t.provider.deletedTranscripts).toEqual([id]);
   });
 
+  it("refuses an adapter whose delete answers later: the purge fails and commits nothing, and the session stays deleted", async () => {
+    const t = await start({ deleteTranscript: "async" });
+    const client = await t.client();
+    const { id } = await create(client);
+    await deleteSession(client, id, true);
+    const head = t.env.log.head();
+    expect(await refusal(purgeSession(client, id))).toMatchObject({ code: "internal" });
+    expect(t.env.log.head()).toBe(head);
+    expect(t.provider.deletedTranscripts).toEqual([id]);
+    expect((await client.request("sessions.listDeleted", {})).sessions.map((summary) => summary.id)).toEqual([id]);
+  });
+
   it("leaves a client subscribed to the list from a cursor before the purge the tombstone alone, whose patch drops the id", async () => {
     const t = await start();
     let client = await t.client();
@@ -426,6 +454,46 @@ describe("the purge sweep", () => {
     expect(await client.request("sessions.listDeleted", {})).toEqual({ sessions: [] });
     expect((await client.request("sessions.list", {})).sessions.map((summary) => summary.id)).toEqual([live.id]);
     expect(t.provider.deletedTranscripts).toEqual([first.id]);
+  });
+});
+
+describe("a session past its purgeAt before the sweep reaches it", () => {
+  it("is neither listed as deleted nor restorable, and the next sweep purges it", async () => {
+    const t = await start();
+    let client = await t.client();
+    const { id } = await create(client);
+    // Deleted half a minute in, so its purgeAt falls between two minute sweeps.
+    client = await pass(t, client, MINUTE / 2);
+    expect((await deleteSession(client, id)).result?.purgeAt).toBe(at(MINUTE / 2 + GRACE_MS));
+    client = await pass(t, client, GRACE_MS);
+
+    expect(await client.request("sessions.listDeleted", {})).toEqual({ sessions: [] });
+    expectNotFound(t, await command(client, "sessions.restore", { sessionId: id }), id, t.env.log.head());
+    expect((await listFromStart(client)).filter((event) => event.streamId === id).map((event) => event.type)).toEqual([
+      "session.created",
+      "session.deleted",
+    ]);
+
+    client = await pass(t, client, MINUTE / 2);
+    expect((await listFromStart(client)).filter((event) => event.streamId === id).map((event) => event.type)).toEqual(["session.purged"]);
+  });
+
+  it("is purged once at startup, before the wire opens, when the environment was down past its purgeAt", async () => {
+    const dataDir = join(tempDir(), "data");
+    const first = await start({ deleteTranscript: true }, { dataDir });
+    const client = await first.client();
+    const { id } = await create(client);
+    await deleteSession(client, id, true);
+    await first.close();
+
+    const t = await start({ deleteTranscript: true }, { dataDir, clock: manualClock(at(GRACE_MS + DAY)) });
+    const again = await t.client();
+    const events = (await listFromStart(again)).filter((event) => event.streamId === id);
+    expect(events).toEqual([
+      expect.objectContaining({ type: "session.purged", actor: { kind: "system", id: "sweep" }, payload: { providerTranscript: { outcome: "deleted" } } }),
+    ]);
+    expect(t.provider.deletedTranscripts).toEqual([id]);
+    expect(await again.request("sessions.listDeleted", {})).toEqual({ sessions: [] });
   });
 });
 
@@ -518,6 +586,74 @@ describe("sessions.subscribeSession", () => {
     await command(client, "sessions.restore", { sessionId: id });
     await roundTrip(client);
     expect(shape(client, subscription)).toEqual(["subscribed", "synchronized", "session.deleted", "end deleted"]);
+    expect(t.env.subscriptions()).toBe(0);
+  });
+
+  it("replays a restored session across its old deletion without ending: the events after the restore follow, then live ones", async () => {
+    const t = await start();
+    const client = await t.client();
+    const cursor = t.env.log.head();
+    const { id } = await create(client);
+    await deleteSession(client, id);
+    await command(client, "sessions.restore", { sessionId: id });
+    await command(client, "sessions.archive", { sessionId: id });
+
+    const { subscription } = await client.subscribe("sessions.subscribeSession", { sessionId: id, afterSequence: cursor });
+    await client.next((f) => f.type === "synchronized" && "subscription" in f && f.subscription === subscription);
+    await command(client, "sessions.unarchive", { sessionId: id });
+    await client.next((f) => f.type === "event" && f.subscription === subscription && f.event.type === "session.unarchived");
+    expect(shape(client, subscription)).toEqual([
+      "subscribed",
+      "session.created",
+      "session.deleted",
+      "session.restored",
+      "session.archived",
+      "synchronized",
+      "session.unarchived",
+    ]);
+    expect(t.env.subscriptions()).toBe(1);
+  });
+
+  it("ends at the deletion that holds now when the session is deleted, restored and deleted again while its catch-up is held", async () => {
+    const hold = holdCatchUp();
+    const t = await start({}, { subscriptionHooks: hold.hooks });
+    const client = await t.client();
+    const { id } = await create(client);
+    const subscribing = client.subscribe("sessions.subscribeSession", { sessionId: id, afterSequence: t.env.log.head() });
+    await hold.reached;
+    await deleteSession(client, id);
+    await command(client, "sessions.restore", { sessionId: id });
+    await command(client, "sessions.tag", { sessionId: id, tag: "wip" });
+    await deleteSession(client, id);
+    hold.release();
+    const { subscription } = await subscribing;
+    expect(await client.next((f) => f.type === "end" && f.subscription === subscription)).toMatchObject({ reason: "deleted" });
+    await roundTrip(client);
+    expect(shape(client, subscription)).toEqual([
+      "subscribed",
+      "session.deleted",
+      "session.restored",
+      "session.tagged",
+      "session.deleted",
+      "end deleted",
+    ]);
+  });
+
+  it("ends deleted on session.purged when the session is deleted and purged while its catch-up is held", async () => {
+    const hold = holdCatchUp();
+    const t = await start({}, { subscriptionHooks: hold.hooks });
+    const client = await t.client();
+    const { id } = await create(client);
+    const subscribing = client.subscribe("sessions.subscribeSession", { sessionId: id, afterSequence: t.env.log.head() });
+    await hold.reached;
+    await deleteSession(client, id);
+    await purgeSession(client, id);
+    hold.release();
+    const { subscription } = await subscribing;
+    expect(await client.next((f) => f.type === "end" && f.subscription === subscription)).toMatchObject({ reason: "deleted" });
+    await roundTrip(client);
+    // The purge took the deletion with the rest of the stream: the tombstone is all there is to replay.
+    expect(shape(client, subscription)).toEqual(["subscribed", "session.purged", "end deleted"]);
     expect(t.env.subscriptions()).toBe(0);
   });
 

@@ -27,12 +27,11 @@ import type { EventInput, JsonObject } from "../event-log/event-log.js";
  * user title, and the summary fields the filing commands decide on.
  */
 export interface SessionState {
+  /** Deleted: in its grace period, or purged. */
   readonly deleted: boolean;
-  /**
-   * When a deleted session is purged, as ISO 8601 UTC: set while it is in
-   * its grace period, null for a session not deleted and for one purged
-   * (deleted with nothing left of it).
-   */
+  /** Purged: deleted with nothing left of it but its tombstone; its id stays used. */
+  readonly purged: boolean;
+  /** When a deleted session in its grace period is purged, as ISO 8601 UTC; null for one not deleted, or purged. */
   readonly purgeAt: string | null;
   readonly userTitle: string | null;
   readonly archivedAt: string | null;
@@ -49,6 +48,7 @@ export interface SessionState {
 /** A purged session: its id stays used, so it reads as deleted with nothing left of it. */
 export const PURGED_STATE: SessionState = {
   deleted: true,
+  purged: true,
   purgeAt: null,
   userTitle: null,
   archivedAt: null,
@@ -369,10 +369,9 @@ export const decideDelete = (state: SessionState | null, command: DeleteSession)
  * created. A session that is not deleted is unchanged.
  */
 export const decideRestore = (state: SessionState | null, command: OnSession & AtTime): Decision => {
-  if (state === null || (state.deleted && (state.purgeAt === null || command.at >= state.purgeAt))) {
-    return { rejected: sessionNotFound(command.sessionId) };
-  }
+  if (state === null || state.purged) return { rejected: sessionNotFound(command.sessionId) };
   if (!state.deleted) return unchanged;
+  if (state.purgeAt === null || command.at >= state.purgeAt) return { rejected: sessionNotFound(command.sessionId) };
   return { events: [{ type: "session.restored", payload: {} }] };
 };
 
@@ -387,7 +386,7 @@ export const decidePurge = (
   state: SessionState | null,
   command: OnSession,
 ): { readonly purge: true; readonly rejected?: undefined } | { readonly rejected: Refusal } => {
-  if (state === null || (state.deleted && state.purgeAt === null)) return { rejected: sessionNotFound(command.sessionId) };
+  if (state === null || state.purged) return { rejected: sessionNotFound(command.sessionId) };
   if (!state.deleted) return conflict(command.sessionId, "not_deleted", `The session ${command.sessionId} is not deleted, so it cannot be purged.`);
   return { purge: true };
 };

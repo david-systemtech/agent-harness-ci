@@ -22,6 +22,7 @@ export const readSessionState = (reader: Reader, id: string): SessionState | nul
   if (row === undefined) return null;
   return {
     deleted: row.deleted_at !== null,
+    purged: false,
     purgeAt: row.purge_at,
     userTitle: row.user_title,
     archivedAt: row.archived_at,
@@ -39,11 +40,24 @@ export const readSessionState = (reader: Reader, id: string): SessionState | nul
 export const listSummaries = (reader: Reader): SessionSummary[] =>
   reader.all<SessionRow>("SELECT * FROM sessions WHERE deleted_at IS NULL ORDER BY created_at, id").map((row) => toSummary(reader, row));
 
-/** Every deleted session not yet purged, with when it was deleted and will be purged; oldest deletion first. */
-export const listDeleted = (reader: Reader): DeletedSessionSummary[] =>
+/**
+ * Every deleted session that can still be restored at `now`, with when it
+ * was deleted and will be purged; oldest deletion first. One whose `purgeAt`
+ * has come is left out before the sweep purges it, since restore refuses it.
+ */
+export const listDeleted = (reader: Reader, now: Date): DeletedSessionSummary[] =>
   reader
-    .all<SessionRow>("SELECT * FROM sessions WHERE deleted_at IS NOT NULL ORDER BY deleted_at, id")
+    .all<SessionRow>("SELECT * FROM sessions WHERE deleted_at IS NOT NULL AND purge_at > ? ORDER BY deleted_at, id", now.toISOString())
     .map((row) => ({ ...toSummary(reader, row), deletedAt: row.deleted_at as string, purgeAt: row.purge_at as string }));
+
+/** When a deleted session was deleted and will be purged; null when it is not deleted, or there is none. */
+export const readDeletion = (reader: Reader, id: string): { deletedAt: string; purgeAt: string } | null => {
+  const [row] = reader.all<Pick<SessionRow, "deleted_at" | "purge_at">>(
+    "SELECT deleted_at, purge_at FROM sessions WHERE id = ? AND deleted_at IS NOT NULL",
+    id,
+  );
+  return row === undefined ? null : { deletedAt: row.deleted_at as string, purgeAt: row.purge_at as string };
+};
 
 /** Every group, oldest first. */
 export const listGroups = (reader: Reader): Group[] =>

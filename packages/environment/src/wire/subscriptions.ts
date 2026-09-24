@@ -40,8 +40,11 @@ export interface StreamSource<Payload = unknown> {
   /**
    * The reason an event of the stream ends the subscription, or undefined
    * for one that does not: the event is delivered, replayed or live, then
-   * `end` with the reason, and nothing after it (a session's subscription
-   * ends `deleted` on `session.deleted`). Absent: no event ends it.
+   * `end` with the reason, and nothing after it. Asked of every event in
+   * order, replayed ones too, so a source whose ending can be undone reads
+   * its state now to answer: a session's subscription ends `deleted` on the
+   * `session.deleted` that holds now, not on one a restore undid. Absent: no
+   * event ends it.
    */
   endOn?(event: EventEnvelope): SourceEndReason | undefined;
 }

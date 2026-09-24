@@ -18,12 +18,24 @@ import { formatActor, type EventEnvelope, type EventLog, type StreamRef, type Tx
 /**
  * What the purge needs of the adapter (the adapter host, #119, supplies it):
  * the capability to delete the provider's own transcript of a session,
- * present only when the adapter declares it. It runs inside the purge's
- * transaction, so it answers at once; a throw is recorded in the tombstone
- * as `failed` with its message, and the session is purged all the same.
+ * present only when the adapter declares it.
+ *
+ * - **Synchronous**: it runs inside the purge's transaction, which holds the
+ *   log's write lock, and answers before it returns. One that answers with a
+ *   promise fails the purge, which commits nothing; the call it started is
+ *   left to finish on its own.
+ * - **Irreversible**: once it returns the transcript is gone, whatever
+ *   becomes of the transaction.
+ * - **Idempotent**: the purge calls it last, just before its tombstone, but a
+ *   tombstone that fails to commit rolls the purge back and the sweep calls
+ *   it again a minute later, for a transcript already deleted; that call
+ *   must succeed (or throw, which is recorded as `failed`).
+ *
+ * A throw is recorded in the tombstone as `failed` with its message, and the
+ * session is purged all the same.
  */
 export interface ProviderTranscripts {
-  readonly deleteTranscript?: (sessionId: string) => void;
+  readonly deleteTranscript?: (sessionId: string) => undefined;
 }
 
 /** Who a purge is appended as, and in which transaction: a command's, or the sweep's own. */
@@ -45,7 +57,7 @@ export interface Deletion {
    * Purges every deleted session whose `purgeAt` is at or before `now`, each
    * in a transaction of its own, as the sweep; returns their ids, in the
    * order of their `purgeAt`. One that fails does not stop the others: they
-   * are purged, then the failures are thrown together.
+   * are purged, then the failures are thrown together, naming each session.
    */
   purgeDue(now: Date): string[];
 }
@@ -63,20 +75,34 @@ const sessionStream = (id: string): StreamRef => ({ kind: SESSION_STREAM_KIND, i
 
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
+/** Whether `value` is a promise, or anything else with a `then` to await. */
+const isThenable = (value: unknown): value is PromiseLike<unknown> =>
+  (typeof value === "object" || typeof value === "function") && value !== null && typeof (value as { then?: unknown }).then === "function";
+
 export const createDeletion = (options: DeletionOptions): Deletion => {
   const { log } = options;
   const transcripts = options.transcripts ?? {};
 
-  /** What the purge does with the provider's transcript: what the delete asked, and what the adapter can do. */
+  /**
+   * What the purge does with the provider's transcript: what the delete
+   * asked, and what the adapter can do. An adapter that answers with a
+   * promise fails the purge rather than being recorded as done.
+   */
   const providerTranscript = (sessionId: string, asked: boolean): ProviderTranscriptOutcome => {
     if (!asked) return { outcome: "kept" };
     if (transcripts.deleteTranscript === undefined) return { outcome: "unsupported" };
+    let answered: unknown;
     try {
-      transcripts.deleteTranscript(sessionId);
-      return { outcome: "deleted" };
+      answered = transcripts.deleteTranscript(sessionId);
     } catch (error) {
       return { outcome: "failed", message: messageOf(error) };
     }
+    if (isThenable(answered)) {
+      // Its outcome is unknowable here; a rejection is not left unhandled.
+      Promise.resolve(answered).catch(() => undefined);
+      throw new Error(`The adapter's transcript delete for session ${sessionId} answered with a promise; it must answer at once.`);
+    }
+    return { outcome: "deleted" };
   };
 
   const purgeSession = (sessionId: string, context: PurgeContext): EventEnvelope => {
@@ -87,7 +113,7 @@ export const createDeletion = (options: DeletionOptions): Deletion => {
     if (row === undefined) throw new Error(`The session ${sessionId} is not deleted, so it cannot be purged.`);
     const stream = sessionStream(sessionId);
     log.purgeStream(stream, { tx: context.tx });
-    // Asked after the log's rows are gone and before the tombstone, so the tombstone records what it did.
+    // The adapter last, since what it does cannot be undone: after it only the tombstone's append and its projection.
     const payload: SessionPurgedPayload = { providerTranscript: providerTranscript(sessionId, row.delete_provider_transcript === 1) };
     const { events } = log.append(stream, [{ type: "session.purged", payload }], {
       tx: context.tx,
@@ -105,16 +131,20 @@ export const createDeletion = (options: DeletionOptions): Deletion => {
         now.toISOString(),
       );
       const purged: string[] = [];
+      const failed: string[] = [];
       const failures: unknown[] = [];
       for (const { id } of due) {
         try {
           log.atomically((tx) => purgeSession(id, { tx, actor: SWEEP_ACTOR }));
           purged.push(id);
         } catch (error) {
+          failed.push(id);
           failures.push(error);
         }
       }
-      if (failures.length > 0) throw new AggregateError(failures, `The sweep failed to purge ${failures.length} of ${due.length} sessions.`);
+      if (failures.length > 0) {
+        throw new AggregateError(failures, `Purging ${failures.length} of ${due.length} sessions failed: ${failed.join(", ")}.`);
+      }
       return purged;
     },
   };

@@ -22,10 +22,12 @@ export interface FakeProvider {
 export interface FakeProviderOptions {
   /**
    * Whether the fake declares transcript delete: `true` deletes (and
-   * records it), `{ fails }` records the call and throws `fails`. Preset:
-   * not declared, as an adapter without the capability.
+   * records it), `{ fails }` records the call and throws `fails`, `async`
+   * records it and answers with a promise, as an adapter that broke the
+   * synchronous contract would. Preset: not declared, as an adapter without
+   * the capability.
    */
-  readonly deleteTranscript?: true | { readonly fails: string };
+  readonly deleteTranscript?: true | "async" | { readonly fails: string };
 }
 
 export const fakeProvider = (script: readonly string[] = [], options: FakeProviderOptions = {}): FakeProvider => {
@@ -37,7 +39,10 @@ export const fakeProvider = (script: readonly string[] = [], options: FakeProvid
       : {
           deleteTranscript: (sessionId) => {
             deletedTranscripts.push(sessionId);
+            // The one cast: what the type refuses, an adapter could still do at run time.
+            if (declared === "async") return Promise.resolve() as unknown as undefined;
             if (declared !== true) throw new Error(declared.fails);
+            return undefined;
           },
         };
   return { kind: "fake", script, transcripts, deletedTranscripts };

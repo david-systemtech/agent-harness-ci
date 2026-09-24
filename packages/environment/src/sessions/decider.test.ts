@@ -49,12 +49,18 @@ const command = (overrides: Partial<CreateSession> = {}): CreateSession => ({
 const live = (userTitle: string | null = null, fields: Partial<SessionState> = {}): SessionState => ({
   ...PURGED_STATE,
   deleted: false,
+  purged: false,
   userTitle,
   ...fields,
 });
 
-/** A deleted session with the fields given. */
-const deleted = (fields: Partial<SessionState> = {}): SessionState => ({ ...PURGED_STATE, ...fields });
+/** A deleted session in its grace period, with the fields given. */
+const deleted = (fields: Partial<SessionState> = {}): SessionState => ({
+  ...PURGED_STATE,
+  purged: false,
+  purgeAt: "2026-10-24T01:02:03.456Z",
+  ...fields,
+});
 
 const at = "2026-09-24T01:02:03.456Z";
 const later = "2026-09-24T02:00:00.000Z";
@@ -357,6 +363,10 @@ describe("deciding deletion", () => {
     expect(decideRestore(inGrace, { sessionId: id, at })).toEqual({ events: [{ type: "session.restored", payload: {} }] });
     const lastInstant = new Date(Date.parse(purgeAt) - 1).toISOString();
     expect(decideRestore(inGrace, { sessionId: id, at: lastInstant })).toEqual({ events: [{ type: "session.restored", payload: {} }] });
+  });
+
+  it("reads a purged session as deleted, purged, with no purgeAt", () => {
+    expect(PURGED_STATE).toMatchObject({ deleted: true, purged: true, purgeAt: null });
   });
 
   it("refuses to restore once purgeAt has come, even before the sweep purges it, not_found", () => {
