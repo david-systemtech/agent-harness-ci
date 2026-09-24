@@ -39,7 +39,7 @@ const task = {
 };
 const settledTask = { ...task, status: "failed", endedAt: later, subagentType: null, toolCallId: null, error: "It gave up." };
 
-const capabilities = {
+export const capabilities = {
   provider: "claude",
   displayName: "Claude",
   interactivePrompts: true,

@@ -72,6 +72,10 @@ export interface TestEnvironmentOptions {
   readonly containerDetector?: ContainerDetector;
   /** Preset: a test launcher that says no launcher is present. */
   readonly launcher?: TestLauncher;
+  /** The adapter host's seams (the broker, the clamp, ...); preset: each seam's own. */
+  readonly adapterSeams?: EnvironmentOptions["adapterSeams"];
+  /** The idle time of a provider process, in minutes; preset: the setting's preset. */
+  readonly processIdleMinutes?: () => number;
 }
 
 /** A machine with no Tailscale address and no tailnet name. */
@@ -213,6 +217,8 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
     ...(options.bindLan !== undefined && { bindLan: options.bindLan }),
     ...(options.lanAddress !== undefined && { lanAddress: options.lanAddress }),
     ...(options.tailnetName !== undefined && { tailnetName: options.tailnetName }),
+    ...(options.adapterSeams !== undefined && { adapterSeams: options.adapterSeams }),
+    ...(options.processIdleMinutes !== undefined && { processIdleMinutes: options.processIdleMinutes }),
   };
   let env: EnvironmentHandle;
   try {

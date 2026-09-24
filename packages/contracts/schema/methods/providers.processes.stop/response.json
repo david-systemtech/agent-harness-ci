@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "settings.update response",
+  "title": "providers.processes.stop response",
   "type": "object",
   "properties": {
     "receipt": {
@@ -93,63 +93,20 @@
       "description": "The method's result, present when this request applied the command; absent on a retry and on a rejection.",
       "type": "object",
       "properties": {
-        "values": {
-          "type": "object",
-          "properties": {
-            "sessions.autoSettleAfterIdle": {
-              "anyOf": [
-                {
-                  "type": "object",
-                  "properties": {
-                    "amount": {
-                      "type": "integer",
-                      "minimum": 1,
-                      "maximum": 1000
-                    },
-                    "unit": {
-                      "type": "string",
-                      "enum": [
-                        "days",
-                        "weeks",
-                        "months"
-                      ],
-                      "description": "What an idle span is counted in: days, weeks (seven days) or months (calendar months, a month-end clamped to the shorter month's last day)."
-                    }
-                  },
-                  "required": [
-                    "amount",
-                    "unit"
-                  ],
-                  "description": "A span of quiet: 1 to 1000 days, weeks or calendar months."
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "How long a session is quiet before auto-settle settles it (settledBy auto-idle); null never settles a session for being idle."
-            },
-            "sessions.autoSettleOnMerge": {
-              "type": "boolean",
-              "description": "Whether auto-settle settles a session one of whose pull requests merged at or after its anchor, the latest of its last activity, its unsettling and the end of its last snooze (settledBy auto-merge)."
-            },
-            "providers.processIdleMinutes": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 1440,
-              "description": "How many minutes a provider process may be idle with no held work, or parked on a prompt, before it stops: 1 to 1440; preset 30."
-            }
-          },
-          "required": [
-            "sessions.autoSettleAfterIdle",
-            "sessions.autoSettleOnMerge",
-            "providers.processIdleMinutes"
-          ],
-          "additionalProperties": false,
-          "description": "Every setting's value, by key; a key never set holds its preset."
+        "sessionId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+          "description": "A session's id: a version 4 UUID the creating client mints (never the provider's resume id), kept in lowercase."
+        },
+        "ended": {
+          "type": "boolean",
+          "description": "True when the session had no process running, so nothing was stopped."
         }
       },
       "required": [
-        "values"
+        "sessionId",
+        "ended"
       ]
     }
   },
