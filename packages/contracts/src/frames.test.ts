@@ -50,8 +50,8 @@ describe("the frame kinds", () => {
     expect(Object.keys(malformedFrames).sort()).toEqual([...FRAME_TYPES].sort());
   });
 
-  it("end a subscription for one of four reasons, and a connection for one of six", () => {
-    expect(END_REASONS).toEqual(["unsubscribed", "overflow", "revoked", "closed"]);
+  it("end a subscription for one of five reasons, and a connection for one of six", () => {
+    expect(END_REASONS).toEqual(["unsubscribed", "overflow", "revoked", "closed", "deleted"]);
     expect(BYE_REASONS).toEqual(["unauthorized", "expired", "revoked", "protocol", "draining", "updating"]);
   });
 });

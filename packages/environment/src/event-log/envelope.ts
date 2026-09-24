@@ -16,7 +16,7 @@ export interface EventEnvelope {
   readonly eventId: string;
   readonly streamKind: string;
   readonly streamId: string;
-  /** 1 for a stream's first event, then one more for each event on that stream. */
+  /** 1 for a stream's first event, then one more for each event on that stream; a purge's tombstone is 1 again, alone on its stream (`purgeStream`). */
   readonly streamVersion: number;
   readonly type: string;
   /** ISO 8601, UTC. */

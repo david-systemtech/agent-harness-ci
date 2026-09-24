@@ -41,8 +41,8 @@ export const create = async (client: WireClient, params: CreateParams = {}) => {
 export const rename = async (client: WireClient, sessionId: string, title: string | null, commandId = randomUUID()) =>
   registry["sessions.rename"].response.parse(await client.request("sessions.rename", { commandId, sessionId, title }));
 
-/** A command on one session: its params but the command id, which `command` mints unless given. */
-type SessionCommandParams<N extends MethodName> = Omit<ParamsOf<N>, "commandId"> & { commandId?: string };
+/** A command's params but the command id, which `command` mints unless given. */
+type CommandParams<N extends MethodName> = Omit<ParamsOf<N>, "commandId"> & { commandId?: string };
 
 /** The session commands that answer with the summary, by name. */
 export type SessionCommand =
@@ -54,11 +54,33 @@ export type SessionCommand =
   | "sessions.reorderActive"
   | "sessions.tag"
   | "sessions.untag"
-  | "sessions.setDraft";
+  | "sessions.setDraft"
+  | "sessions.setGroup"
+  | "sessions.restore";
 
-/** Sends a session command with a fresh command id (unless one is given); resolves with what its response carries, checked against its schema. */
-export const command = async <N extends SessionCommand>(client: WireClient, method: N, params: SessionCommandParams<N>): Promise<ResponseOf<N>> =>
+/** The group commands, by name. */
+export type GroupCommand = "groups.create" | "groups.rename" | "groups.reorder" | "groups.delete";
+
+/**
+ * Sends a session or group command with a fresh command id (unless one is
+ * given); resolves with what its response carries, checked against its schema.
+ */
+export const command = async <N extends SessionCommand | GroupCommand>(client: WireClient, method: N, params: CommandParams<N>): Promise<ResponseOf<N>> =>
   registry[method].response.parse(await client.request(method, { commandId: randomUUID(), ...params } as ParamsOf<N>)) as ResponseOf<N>;
+
+/** Sends `sessions.delete` with a fresh command id; resolves with what its response carries. */
+export const deleteSession = async (client: WireClient, sessionId: string, deleteProviderTranscript?: boolean) =>
+  registry["sessions.delete"].response.parse(
+    await client.request("sessions.delete", {
+      commandId: randomUUID(),
+      sessionId,
+      ...(deleteProviderTranscript !== undefined && { deleteProviderTranscript }),
+    }),
+  );
+
+/** Sends `sessions.purge` with a fresh command id; resolves with what its response carries. */
+export const purgeSession = async (client: WireClient, sessionId: string) =>
+  registry["sessions.purge"].response.parse(await client.request("sessions.purge", { commandId: randomUUID(), sessionId }));
 
 /** The summary `sessions.get` answers. */
 export const get = async (client: WireClient, sessionId: string): Promise<SessionSummary> =>
@@ -132,12 +154,14 @@ export const patchOf = (event: EventEnvelope) => SummaryPatch.parse(event.metada
 /**
  * A client's reduction of the session list: a snapshot, then every patch
  * applied in order, and nothing read from a payload (session-state spec,
- * "The list stream and the summary patch").
+ * "The list stream and the summary patch"). An event with no patch changes
+ * nothing listed, and is skipped.
  */
 export const reduce = (snapshot: { sessions: readonly SessionSummary[]; groups: readonly Group[] }, events: readonly EventEnvelope[]) => {
   const sessions = new Map(snapshot.sessions.map((summary) => [summary.id, summary]));
   const groups = new Map(snapshot.groups.map((group) => [group.id, group]));
   for (const event of events) {
+    if (event.metadata[LIST_PATCH_KEY] === undefined) continue;
     if (event.streamKind === "group") {
       const patch = GroupPatch.parse(event.metadata[LIST_PATCH_KEY]);
       if (patch.op === "add") groups.set(patch.group.id, patch.group);

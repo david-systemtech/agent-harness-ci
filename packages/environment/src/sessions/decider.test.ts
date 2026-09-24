@@ -1,14 +1,19 @@
 import { describe, expect, it } from "vitest";
 import { MAX_TAGS } from "@agent-harness/contracts";
 import {
+  DELETION_GRACE_MS,
   PURGED_STATE,
   decideArchive,
   decideCreate,
+  decideDelete,
   decidePin,
+  decidePurge,
+  decideRestore,
   decideRename,
   decideReorderActive,
   decideReorderPinned,
   decideSetDraft,
+  decideSetGroup,
   decideTag,
   decideUnarchive,
   decideUnpin,
@@ -45,12 +50,18 @@ const command = (overrides: Partial<CreateSession> = {}): CreateSession => ({
 const live = (userTitle: string | null = null, fields: Partial<SessionState> = {}): SessionState => ({
   ...PURGED_STATE,
   deleted: false,
+  purged: false,
   userTitle,
   ...fields,
 });
 
-/** A deleted session with the fields given. */
-const deleted = (fields: Partial<SessionState> = {}): SessionState => ({ ...PURGED_STATE, ...fields });
+/** A deleted session in its grace period, with the fields given. */
+const deleted = (fields: Partial<SessionState> = {}): SessionState => ({
+  ...PURGED_STATE,
+  purged: false,
+  purgeAt: "2026-10-24T01:02:03.456Z",
+  ...fields,
+});
 
 const at = "2026-09-24T01:02:03.456Z";
 const later = "2026-09-24T02:00:00.000Z";
@@ -307,5 +318,97 @@ describe("deciding sessions.setDraft", () => {
     expect(decideSetDraft(live(null, { draft: "same" }), { sessionId: id, draft: "same" })).toEqual({ events: [] });
     expect(decideSetDraft(live(), { sessionId: id, draft: null })).toEqual({ events: [] });
     expect(decideSetDraft(live(), { sessionId: id, draft: "" })).toEqual({ events: [] });
+  });
+});
+
+describe("deciding deletion", () => {
+  const purgeAt = "2026-10-24T01:02:03.456Z";
+  /** A session deleted and in its grace period until `purgeAt`. */
+  const inGrace = deleted({ purgeAt });
+
+  it("keeps a deleted session thirty days, as a constant", () => {
+    expect(DELETION_GRACE_MS).toBe(30 * 24 * 60 * 60 * 1000);
+  });
+
+  it("deletes a live session: session.deleted at `at`, purgeAt thirty days on, and the transcript flag as asked", () => {
+    for (const deleteProviderTranscript of [false, true]) {
+      expect(decideDelete(live(), { sessionId: id, at, deleteProviderTranscript })).toEqual({
+        events: [{ type: "session.deleted", payload: { deletedAt: at, purgeAt: new Date(Date.parse(at) + DELETION_GRACE_MS).toISOString(), deleteProviderTranscript } }],
+      });
+    }
+  });
+
+  it("refuses to delete a session that does not exist, is deleted or is purged not_found, as every command but restore and purge", () => {
+    for (const state of [null, inGrace, PURGED_STATE]) {
+      expect(decideDelete(state, { sessionId: id, at, deleteProviderTranscript: false })).toEqual({ rejected: sessionNotFound(id) });
+    }
+  });
+
+  it("refuses every other command on a deleted session not_found", () => {
+    const decisions: Decision[] = [
+      decideRename(inGrace, { sessionId: id, title: "x" }),
+      decideArchive(inGrace, { sessionId: id, at }),
+      decideUnarchive(deleted({ purgeAt, archivedAt: at }), { sessionId: id }),
+      decidePin(inGrace, { sessionId: id, orderKey: null, at }),
+      decideUnpin(deleted({ purgeAt, pinnedAt: at }), { sessionId: id }),
+      decideReorderPinned(deleted({ purgeAt, pinnedAt: at }), { sessionId: id, orderKey: "g" }),
+      decideReorderActive(inGrace, { sessionId: id, orderKey: "g" }),
+      decideTag(inGrace, { sessionId: id, tag: "wip" }),
+      decideUntag(deleted({ purgeAt, tags: ["wip"] }), { sessionId: id, tag: "wip" }),
+      decideSetDraft(inGrace, { sessionId: id, draft: "x" }),
+      decideSetGroup(inGrace, { sessionId: id, groupId: null }, { groupExists: false }),
+    ];
+    for (const decision of decisions) expect(decision).toEqual({ rejected: sessionNotFound(id) });
+  });
+
+  it("restores a deleted session before its purgeAt: one session.restored", () => {
+    expect(decideRestore(inGrace, { sessionId: id, at })).toEqual({ events: [{ type: "session.restored", payload: {} }] });
+    const lastInstant = new Date(Date.parse(purgeAt) - 1).toISOString();
+    expect(decideRestore(inGrace, { sessionId: id, at: lastInstant })).toEqual({ events: [{ type: "session.restored", payload: {} }] });
+  });
+
+  it("reads a purged session as deleted, purged, with no purgeAt", () => {
+    expect(PURGED_STATE).toMatchObject({ deleted: true, purged: true, purgeAt: null });
+  });
+
+  it("refuses to restore once purgeAt has come, even before the sweep purges it, not_found", () => {
+    for (const now of [purgeAt, "2026-11-01T00:00:00.000Z"]) {
+      expect(decideRestore(inGrace, { sessionId: id, at: now })).toEqual({ rejected: sessionNotFound(id) });
+    }
+  });
+
+  it("refuses to restore a session that does not exist or is purged not_found; one not deleted is unchanged", () => {
+    for (const state of [null, PURGED_STATE]) expect(decideRestore(state, { sessionId: id, at })).toEqual({ rejected: sessionNotFound(id) });
+    expect(decideRestore(live(), { sessionId: id, at })).toEqual({ events: [] });
+  });
+
+  it("purges only a deleted session: one not deleted is a conflict, not_deleted; one that does not exist or is purged not_found", () => {
+    expect(decidePurge(inGrace, { sessionId: id })).toEqual({ purge: true });
+    expect(decidePurge(live(), { sessionId: id })).toMatchObject({ rejected: { code: "conflict", data: { reason: "not_deleted", sessionId: id } } });
+    for (const state of [null, PURGED_STATE]) expect(decidePurge(state, { sessionId: id })).toEqual({ rejected: sessionNotFound(id) });
+  });
+});
+
+describe("deciding sessions.setGroup", () => {
+  it("sets the group or null; the group it is in is unchanged", () => {
+    expect(decideSetGroup(live(), { sessionId: id, groupId }, { groupExists: true })).toEqual({
+      events: [{ type: "session.group-set", payload: { groupId } }],
+    });
+    expect(decideSetGroup(live(null, { groupId }), { sessionId: id, groupId: null }, { groupExists: false })).toEqual({
+      events: [{ type: "session.group-set", payload: { groupId: null } }],
+    });
+    expect(decideSetGroup(live(null, { groupId }), { sessionId: id, groupId }, { groupExists: true })).toEqual({ events: [] });
+    expect(decideSetGroup(live(), { sessionId: id, groupId: null }, { groupExists: false })).toEqual({ events: [] });
+  });
+
+  it("refuses a session not there before a group not there, each not_found with its kind", () => {
+    for (const state of [null, PURGED_STATE]) {
+      expect(decideSetGroup(state, { sessionId: id, groupId }, { groupExists: false })).toMatchObject({
+        rejected: { code: "not_found", data: { kind: "session", sessionId: id } },
+      });
+    }
+    expect(decideSetGroup(live(), { sessionId: id, groupId }, { groupExists: false })).toMatchObject({
+      rejected: { code: "not_found", data: { kind: "group", groupId } },
+    });
   });
 });

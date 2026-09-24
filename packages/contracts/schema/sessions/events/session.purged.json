@@ -3,13 +3,71 @@
   "title": "SessionPurgedPayload",
   "type": "object",
   "properties": {
-    "providerTranscriptDeleted": {
-      "type": "boolean",
-      "description": "Whether the provider's transcript was deleted with the session."
+    "providerTranscript": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "outcome": {
+              "type": "string",
+              "const": "kept"
+            }
+          },
+          "required": [
+            "outcome"
+          ],
+          "description": "The delete did not ask for it to go: the provider's transcript is untouched."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "outcome": {
+              "type": "string",
+              "const": "deleted"
+            }
+          },
+          "required": [
+            "outcome"
+          ],
+          "description": "The adapter deleted the provider's transcript."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "outcome": {
+              "type": "string",
+              "const": "unsupported"
+            }
+          },
+          "required": [
+            "outcome"
+          ],
+          "description": "The delete asked for it, but the adapter cannot delete a transcript: it is untouched."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "outcome": {
+              "type": "string",
+              "const": "failed"
+            },
+            "message": {
+              "type": "string",
+              "description": "What the adapter said went wrong."
+            }
+          },
+          "required": [
+            "outcome",
+            "message"
+          ],
+          "description": "The adapter's delete failed; the session was purged all the same."
+        }
+      ],
+      "description": "What a purge did with the provider's own transcript: kept, deleted, unsupported, or failed with a message."
     }
   },
   "required": [
-    "providerTranscriptDeleted"
+    "providerTranscript"
   ],
-  "description": "session.purged: the session is gone; the only event left on its stream."
+  "description": "session.purged: the session is gone. The tombstone: the only event left on its stream, so a client replaying from an older cursor drops the id."
 }
