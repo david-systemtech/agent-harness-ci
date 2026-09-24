@@ -1,6 +1,6 @@
 import type { Group, SessionSummary } from "@agent-harness/contracts";
 import type { SessionState } from "./decider.js";
-import { toGroup, toSummary, type GroupRow, type Reader, type SessionRow } from "./session-tables.js";
+import { tagsOf, toGroup, toSummary, type GroupRow, type Reader, type SessionRow } from "./session-tables.js";
 
 export type { Reader } from "./session-tables.js";
 
@@ -18,8 +18,20 @@ export const readSummary = (reader: Reader, id: string): SessionSummary | null =
 
 /** The session as the decider needs it, deleted or not; null when there is no row (never created, or purged). */
 export const readSessionState = (reader: Reader, id: string): SessionState | null => {
-  const [row] = reader.all<Pick<SessionRow, "deleted_at" | "user_title">>("SELECT deleted_at, user_title FROM sessions WHERE id = ?", id);
-  return row === undefined ? null : { deleted: row.deleted_at !== null, userTitle: row.user_title };
+  const [row] = reader.all<SessionRow>("SELECT * FROM sessions WHERE id = ?", id);
+  if (row === undefined) return null;
+  return {
+    deleted: row.deleted_at !== null,
+    userTitle: row.user_title,
+    archivedAt: row.archived_at,
+    pinnedAt: row.pinned_at,
+    pinOrderKey: row.pin_order_key,
+    activeOrderKey: row.active_order_key,
+    settledAt: row.settled_at,
+    snoozedUntil: row.snoozed_until,
+    tags: tagsOf(reader, id),
+    draft: row.draft,
+  };
 };
 
 /** Every session not deleted, oldest first. */

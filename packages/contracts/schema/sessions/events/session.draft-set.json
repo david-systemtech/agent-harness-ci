@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SessionDraftSetPayload",
+  "type": "object",
+  "properties": {
+    "draft": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 65536,
+          "description": "A session's composer draft as sent: the text typed and not sent, up to 65536 characters counted as UTF-16 code units; an empty draft is stored as none (null)."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "A session's composer draft as stored: the text typed and not sent, 1 to 65536 characters counted as UTF-16 code units, or null when there is none."
+    }
+  },
+  "required": [
+    "draft"
+  ],
+  "description": "session.draft-set: the session's composer draft was replaced, or cleared (null)."
+}

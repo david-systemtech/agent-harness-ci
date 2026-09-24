@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { EventTypeEntry } from "./event-types.js";
+import { OrderKey } from "./ordering.js";
 import { JsonObject, Sequence, Timestamp } from "./primitives.js";
 
 /**
@@ -35,20 +36,6 @@ export const GroupId = z.uuidv4().meta({ description: "A group's id: a version 4
 export type GroupId = z.infer<typeof GroupId>;
 
 /**
- * A fractional order key: letters `a` to `z`, compared as plain strings,
- * never empty and never ending in `a`, so a key can always be made before
- * any key. Clients make keys; the environment only stores them.
- */
-export const OrderKey = z
-  .string()
-  .regex(/^[a-z]*[b-z]$/)
-  .meta({
-    description:
-      "A fractional order key: letters a to z compared as plain strings, never empty and never ending in a, so a key can always be made before any other.",
-  });
-export type OrderKey = z.infer<typeof OrderKey>;
-
-/**
  * A title a user gives a session: 1 to 200 characters once trimmed, so
  * white space around it is not counted. The pattern says exactly that: a
  * first and a last character that are not white space, at most 200 from
@@ -76,6 +63,30 @@ export type Tag = z.infer<typeof Tag>;
 
 /** The most tags a session holds. */
 export const MAX_TAGS = 64;
+
+/** The longest draft a session holds, in characters counted as UTF-16 code units (what a string's length counts). */
+export const MAX_DRAFT_LENGTH = 65_536;
+
+/**
+ * A session's composer draft as a client sends it: the text a user has
+ * typed and not sent, any characters, up to `MAX_DRAFT_LENGTH` UTF-16 code
+ * units. The environment keeps what it is sent; an empty draft is no draft.
+ */
+export const Draft = z
+  .string()
+  .max(MAX_DRAFT_LENGTH)
+  .meta({
+    description: `A session's composer draft as sent: the text typed and not sent, up to ${MAX_DRAFT_LENGTH} characters counted as UTF-16 code units; an empty draft is stored as none (null).`,
+  });
+export type Draft = z.infer<typeof Draft>;
+
+/** A draft as a session stores it: never empty, or null for none. What the summary holds and `session.draft-set` records. */
+export const StoredDraft = Draft.min(1)
+  .nullable()
+  .meta({
+    description: `A session's composer draft as stored: the text typed and not sent, 1 to ${MAX_DRAFT_LENGTH} characters counted as UTF-16 code units, or null when there is none.`,
+  });
+export type StoredDraft = z.infer<typeof StoredDraft>;
 
 /**
  * A group's name: 1 to 80 characters once trimmed; stored trimmed with white
@@ -172,7 +183,7 @@ export const SessionSummary = z
     // Identity.
     id: SessionId,
     createdAt: Timestamp,
-    updatedAt: Timestamp.meta({ description: "The last organisation change." }),
+    updatedAt: Timestamp.meta({ description: "The last organisation change; setting the draft is not one." }),
     lastActivityAt: Timestamp.nullable().meta({
       description: "The last run start, run end, user message or prompt answer; null before any.",
     }),
@@ -207,8 +218,12 @@ export const SessionSummary = z
     model: z.string().min(1).nullable().meta({ description: "The model the latest run used; null before any run." }),
     // Forge (ADR 0012).
     pullRequests: z.array(PullRequest),
+    // Composer: the draft is a session field, so it follows the session between clients.
+    draft: StoredDraft,
   })
-  .meta({ description: "A session as every client renders its list row: identity, title, filing, shelf, place, activity and forge." });
+  .meta({
+    description: "A session as every client renders its list row: identity, title, filing, shelf, place, activity, forge and the composer draft.",
+  });
 export type SessionSummary = z.infer<typeof SessionSummary>;
 
 /** Every key of the summary, in the schema's order. */
@@ -335,6 +350,9 @@ export const SessionActiveReorderedPayload = z
   .meta({ description: "session.active-reordered: the session's key in the active list was set, or cleared (null)." });
 export const SessionTaggedPayload = z.object({ tag: Tag }).meta({ description: "session.tagged: a tag was added, or its casing changed." });
 export const SessionUntaggedPayload = z.object({ tag: Tag }).meta({ description: "session.untagged: a tag was removed." });
+export const SessionDraftSetPayload = z
+  .object({ draft: StoredDraft })
+  .meta({ description: "session.draft-set: the session's composer draft was replaced, or cleared (null)." });
 export const SessionGroupSetPayload = z
   .object({ groupId: GroupId.nullable() })
   .meta({ description: "session.group-set: the session was put in a group, or taken out of one (null)." });
@@ -431,6 +449,7 @@ export const SESSION_EVENT_TYPES = {
   "session.active-reordered": listed(SessionActiveReorderedPayload, SummaryPatch),
   "session.tagged": listed(SessionTaggedPayload, SummaryPatch),
   "session.untagged": listed(SessionUntaggedPayload, SummaryPatch),
+  "session.draft-set": listed(SessionDraftSetPayload, SummaryPatch),
   "session.group-set": listed(SessionGroupSetPayload, SummaryPatch),
   "session.settled": listed(SessionSettledPayload, SummaryPatch),
   "session.unsettled": listed(SessionUnsettledPayload, SummaryPatch),
@@ -484,3 +503,10 @@ export type SessionListSnapshot = z.infer<typeof SessionListSnapshot>;
 // Payload types, for the environment's decider and projector.
 export type SessionCreatedPayload = z.infer<typeof SessionCreatedPayload>;
 export type SessionTitleSetPayload = z.infer<typeof SessionTitleSetPayload>;
+export type SessionArchivedPayload = z.infer<typeof SessionArchivedPayload>;
+export type SessionPinnedPayload = z.infer<typeof SessionPinnedPayload>;
+export type SessionPinReorderedPayload = z.infer<typeof SessionPinReorderedPayload>;
+export type SessionActiveReorderedPayload = z.infer<typeof SessionActiveReorderedPayload>;
+export type SessionTaggedPayload = z.infer<typeof SessionTaggedPayload>;
+export type SessionUntaggedPayload = z.infer<typeof SessionUntaggedPayload>;
+export type SessionDraftSetPayload = z.infer<typeof SessionDraftSetPayload>;

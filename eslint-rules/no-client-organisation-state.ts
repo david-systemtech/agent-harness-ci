@@ -55,6 +55,8 @@ export const FORBIDDEN_WORDS = [
   "snooze",
   "title",
   "rename",
+  // The composer draft is a session field (#115): a client buffers it only in the outbox, never in a store of its own.
+  "draft",
 ] as const;
 
 /** The presentation module's keys. Client-local presentation, never organisation state (glossary: Pane). */

@@ -42,7 +42,7 @@ describe("the session-list projector", () => {
     log.append({ kind: "session", id }, [created], { actor: "system:test" });
     const head = log.head();
     for (const [kind, type] of [
-      ["session", "session.archived"],
+      ["session", "session.settled"],
       ["session", "run.started"],
       ["group", "group.created"],
     ] as const) {

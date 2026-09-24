@@ -47,7 +47,8 @@ import {
   GroupId,
   GroupName,
   GroupPatch,
-  OrderKey,
+  Draft,
+  StoredDraft,
   PullRequest,
   PullRequestState,
   SESSION_EVENT_TYPES,
@@ -67,6 +68,7 @@ import {
   Workspace,
 } from "./sessions.js";
 import type { EventTypeEntry } from "./event-types.js";
+import { OrderKey } from "./ordering.js";
 import { methods } from "./registry.js";
 import { Ceiling, Scope, ScopeSet } from "./scopes.js";
 
@@ -154,6 +156,8 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "sessions/order-key.json", title: "OrderKey", schema: OrderKey },
   { path: "sessions/user-title.json", title: "UserTitle", schema: UserTitle },
   { path: "sessions/tag.json", title: "Tag", schema: Tag },
+  { path: "sessions/draft.json", title: "Draft", schema: Draft },
+  { path: "sessions/stored-draft.json", title: "StoredDraft", schema: StoredDraft },
   { path: "sessions/group-name.json", title: "GroupName", schema: GroupName },
   { path: "sessions/title-source.json", title: "TitleSource", schema: TitleSource },
   { path: "sessions/generated-title-source.json", title: "GeneratedTitleSource", schema: GeneratedTitleSource },

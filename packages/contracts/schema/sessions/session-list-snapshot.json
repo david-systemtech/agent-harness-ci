@@ -30,7 +30,7 @@
             "type": "string",
             "format": "date-time",
             "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
-            "description": "The last organisation change."
+            "description": "The last organisation change; setting the draft is not one."
           },
           "lastActivityAt": {
             "anyOf": [
@@ -90,7 +90,7 @@
             "anyOf": [
               {
                 "type": "string",
-                "pattern": "^[a-z]*[b-z]$",
+                "pattern": "^[abcdefghijklmnopqrstuvwxyz]*[bcdefghijklmnopqrstuvwxyz]$",
                 "description": "A fractional order key: letters a to z compared as plain strings, never empty and never ending in a, so a key can always be made before any other."
               },
               {
@@ -102,7 +102,7 @@
             "anyOf": [
               {
                 "type": "string",
-                "pattern": "^[a-z]*[b-z]$",
+                "pattern": "^[abcdefghijklmnopqrstuvwxyz]*[bcdefghijklmnopqrstuvwxyz]$",
                 "description": "A fractional order key: letters a to z compared as plain strings, never empty and never ending in a, so a key can always be made before any other."
               },
               {
@@ -361,6 +361,20 @@
               ],
               "description": "A pull request linked to a session: its url, state, and when it merged or closed."
             }
+          },
+          "draft": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 65536,
+                "description": "A session's composer draft as sent: the text typed and not sent, up to 65536 characters counted as UTF-16 code units; an empty draft is stored as none (null)."
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A session's composer draft as stored: the text typed and not sent, 1 to 65536 characters counted as UTF-16 code units, or null when there is none."
           }
         },
         "required": [
@@ -388,9 +402,10 @@
           "parkedPromptCount",
           "accountId",
           "model",
-          "pullRequests"
+          "pullRequests",
+          "draft"
         ],
-        "description": "A session as every client renders its list row: identity, title, filing, shelf, place, activity and forge."
+        "description": "A session as every client renders its list row: identity, title, filing, shelf, place, activity, forge and the composer draft."
       }
     },
     "groups": {
@@ -413,7 +428,7 @@
             "anyOf": [
               {
                 "type": "string",
-                "pattern": "^[a-z]*[b-z]$",
+                "pattern": "^[abcdefghijklmnopqrstuvwxyz]*[bcdefghijklmnopqrstuvwxyz]$",
                 "description": "A fractional order key: letters a to z compared as plain strings, never empty and never ending in a, so a key can always be made before any other."
               },
               {

@@ -330,7 +330,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       result: { projectors: [...log.rebuildProjections()], sequence: log.head() },
     }),
     ...accessMethods({ pairings, clientSessions, accessLog }),
-    ...sessionMethods({ log }),
+    ...sessionMethods({ log, clock: now }),
   });
 
   // The two exchanges and the wire are routed before the bind; all three refuse work until the gate below.

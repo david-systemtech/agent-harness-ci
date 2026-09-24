@@ -30,6 +30,7 @@ import {
   sessionsReorderActive,
   sessionsReorderPinned,
   sessionsRestore,
+  sessionsSetDraft,
   sessionsSetGroup,
   sessionsSettle,
   sessionsSnooze,
@@ -67,6 +68,7 @@ export const methods = [
   sessionsReorderActive,
   sessionsTag,
   sessionsUntag,
+  sessionsSetDraft,
   sessionsSetGroup,
   sessionsSettle,
   sessionsUnsettle,
@@ -100,15 +102,6 @@ export type CommandMethodName = Extract<Registered, { readonly kind: "command" }
  * registered method that is neither served nor owed here.
  */
 export const OWED_HANDLERS = {
-  // Filing (#115).
-  "sessions.archive": "#115",
-  "sessions.unarchive": "#115",
-  "sessions.pin": "#115",
-  "sessions.unpin": "#115",
-  "sessions.reorderPinned": "#115",
-  "sessions.reorderActive": "#115",
-  "sessions.tag": "#115",
-  "sessions.untag": "#115",
   // Groups (#116).
   "sessions.setGroup": "#116",
   "groups.create": "#116",

@@ -1,5 +1,25 @@
 import { describe, expect, it } from "vitest";
-import { decideCreate, decideRename, normaliseTags, sessionNotFound, tagKey, type CreateSession, type SessionState } from "./decider.js";
+import { MAX_TAGS } from "@agent-harness/contracts";
+import {
+  PURGED_STATE,
+  decideArchive,
+  decideCreate,
+  decidePin,
+  decideRename,
+  decideReorderActive,
+  decideReorderPinned,
+  decideSetDraft,
+  decideTag,
+  decideUnarchive,
+  decideUnpin,
+  decideUntag,
+  normaliseTags,
+  sessionNotFound,
+  tagKey,
+  type CreateSession,
+  type Decision,
+  type SessionState,
+} from "./decider.js";
 
 /**
  * The session aggregate's decider on its own: pure, so each rule is a plain
@@ -21,7 +41,19 @@ const command = (overrides: Partial<CreateSession> = {}): CreateSession => ({
   ...overrides,
 });
 
-const live = (userTitle: string | null = null): SessionState => ({ deleted: false, userTitle });
+/** A session that is not deleted, with the user title and any other fields given. */
+const live = (userTitle: string | null = null, fields: Partial<SessionState> = {}): SessionState => ({
+  ...PURGED_STATE,
+  deleted: false,
+  userTitle,
+  ...fields,
+});
+
+/** A deleted session with the fields given. */
+const deleted = (fields: Partial<SessionState> = {}): SessionState => ({ ...PURGED_STATE, ...fields });
+
+const at = "2026-09-24T01:02:03.456Z";
+const later = "2026-09-24T02:00:00.000Z";
 
 describe("deciding sessions.create", () => {
   it("creates a session that never existed: one session.created, no repository identity", () => {
@@ -50,7 +82,7 @@ describe("deciding sessions.create", () => {
   });
 
   it("refuses an id already used, live, deleted or purged, conflict with reason exists", () => {
-    for (const state of [live(), { deleted: true, userTitle: null }]) {
+    for (const state of [live(), PURGED_STATE]) {
       expect(decideCreate(state, command(), { groupExists: true })).toMatchObject({
         rejected: { code: "conflict", data: { reason: "exists", sessionId: id } },
       });
@@ -79,7 +111,7 @@ describe("deciding sessions.rename", () => {
   });
 
   it("refuses a session that does not exist, or is deleted, not_found, kind session", () => {
-    for (const state of [null, { deleted: true, userTitle: "Gone" }]) {
+    for (const state of [null, deleted({ userTitle: "Gone" })]) {
       expect(decideRename(state, { sessionId: id, title: "x" })).toMatchObject({ rejected: { code: "not_found", data: { kind: "session", sessionId: id } } });
     }
   });
@@ -100,5 +132,180 @@ describe("normalising tags", () => {
     expect(normaliseTags(["wip", " Seth", "review", "WIP", "seth "])).toEqual(["review", "seth", "WIP"]);
     expect(normaliseTags([])).toEqual([]);
     expect(normaliseTags(["b", "B", "a"])).toEqual(["a", "B"]);
+  });
+});
+
+/** The event types a decision appends, or its refusal's code and reason. */
+const outcome = (decision: Decision): string[] | { code: string; reason?: unknown } =>
+  decision.rejected === undefined
+    ? decision.events.map((event) => event.type)
+    : { code: decision.rejected.code, ...("reason" in decision.rejected.data && { reason: decision.rejected.data.reason }) };
+
+describe("deciding the filing commands on a session that is not there", () => {
+  const sessionId = id;
+  const every: [string, (state: SessionState | null) => Decision][] = [
+    ["archive", (state) => decideArchive(state, { sessionId, at })],
+    ["unarchive", (state) => decideUnarchive(state, { sessionId })],
+    ["pin", (state) => decidePin(state, { sessionId, orderKey: null, at })],
+    ["unpin", (state) => decideUnpin(state, { sessionId })],
+    ["reorderPinned", (state) => decideReorderPinned(state, { sessionId, orderKey: "m" })],
+    ["reorderActive", (state) => decideReorderActive(state, { sessionId, orderKey: "m" })],
+    ["tag", (state) => decideTag(state, { sessionId, tag: "wip" })],
+    ["untag", (state) => decideUntag(state, { sessionId, tag: "wip" })],
+    ["setDraft", (state) => decideSetDraft(state, { sessionId, draft: "typed" })],
+  ];
+
+  it("refuses every one not_found, kind session, whether never created, deleted or purged", () => {
+    for (const [name, decide] of every) {
+      for (const state of [null, deleted({ pinnedAt: at, tags: ["wip"] }), PURGED_STATE]) {
+        expect(decide(state), name).toEqual({ rejected: sessionNotFound(sessionId) });
+      }
+    }
+  });
+});
+
+describe("deciding sessions.archive and sessions.unarchive", () => {
+  it("archives at the time given, and unarchives an archived session", () => {
+    expect(decideArchive(live(), { sessionId: id, at })).toEqual({ events: [{ type: "session.archived", payload: { archivedAt: at } }] });
+    expect(decideUnarchive(live(null, { archivedAt: at }), { sessionId: id })).toEqual({ events: [{ type: "session.unarchived", payload: {} }] });
+  });
+
+  it("changes nothing on an archived session's archive, or an unarchived one's unarchive", () => {
+    expect(decideArchive(live(null, { archivedAt: at }), { sessionId: id, at: later })).toEqual({ events: [] });
+    expect(decideUnarchive(live(), { sessionId: id })).toEqual({ events: [] });
+  });
+});
+
+describe("deciding sessions.pin and sessions.unpin", () => {
+  it("pins at the time given, with the key or none", () => {
+    expect(decidePin(live(), { sessionId: id, orderKey: null, at })).toEqual({
+      events: [{ type: "session.pinned", payload: { pinnedAt: at, pinOrderKey: null } }],
+    });
+    expect(decidePin(live(), { sessionId: id, orderKey: "m", at })).toEqual({
+      events: [{ type: "session.pinned", payload: { pinnedAt: at, pinOrderKey: "m" } }],
+    });
+  });
+
+  it("pins a settled, snoozed or archived session with session.pinned alone; the companions (unsettle, wake) are #117's", () => {
+    for (const fields of [{ settledAt: at }, { snoozedUntil: later }, { archivedAt: at }]) {
+      expect(outcome(decidePin(live(null, fields), { sessionId: id, orderKey: null, at: later }))).toEqual(["session.pinned"]);
+    }
+  });
+
+  it("changes nothing on a pinned session given no key or its own; another key moves it in the block, keeping the pin's time", () => {
+    const pinned = live(null, { pinnedAt: at, pinOrderKey: "m" });
+    expect(decidePin(pinned, { sessionId: id, orderKey: null, at: later })).toEqual({ events: [] });
+    expect(decidePin(pinned, { sessionId: id, orderKey: "m", at: later })).toEqual({ events: [] });
+    expect(decidePin(pinned, { sessionId: id, orderKey: "c", at: later })).toEqual({
+      events: [{ type: "session.pin-reordered", payload: { pinOrderKey: "c" } }],
+    });
+    expect(decidePin(live(null, { pinnedAt: at }), { sessionId: id, orderKey: "c", at: later })).toEqual({
+      events: [{ type: "session.pin-reordered", payload: { pinOrderKey: "c" } }],
+    });
+  });
+
+  it("unpins a pinned session, and changes nothing on one that is not", () => {
+    expect(decideUnpin(live(null, { pinnedAt: at, pinOrderKey: "m" }), { sessionId: id })).toEqual({
+      events: [{ type: "session.unpinned", payload: {} }],
+    });
+    expect(decideUnpin(live(), { sessionId: id })).toEqual({ events: [] });
+  });
+});
+
+describe("deciding sessions.reorderPinned", () => {
+  it("moves a pinned session to the key, and changes nothing at its own key", () => {
+    const pinned = live(null, { pinnedAt: at, pinOrderKey: "m" });
+    expect(decideReorderPinned(pinned, { sessionId: id, orderKey: "c" })).toEqual({
+      events: [{ type: "session.pin-reordered", payload: { pinOrderKey: "c" } }],
+    });
+    expect(decideReorderPinned(pinned, { sessionId: id, orderKey: "m" })).toEqual({ events: [] });
+    expect(outcome(decideReorderPinned(live(null, { pinnedAt: at }), { sessionId: id, orderKey: "m" }))).toEqual(["session.pin-reordered"]);
+  });
+
+  it("refuses a session that is not pinned conflict, reason not_pinned", () => {
+    expect(decideReorderPinned(live(), { sessionId: id, orderKey: "c" })).toMatchObject({
+      rejected: { code: "conflict", data: { reason: "not_pinned", sessionId: id } },
+    });
+  });
+});
+
+describe("deciding sessions.reorderActive", () => {
+  it("arranges an active session, and changes nothing at its own key", () => {
+    expect(decideReorderActive(live(), { sessionId: id, orderKey: "g" })).toEqual({
+      events: [{ type: "session.active-reordered", payload: { activeOrderKey: "g" } }],
+    });
+    expect(decideReorderActive(live(null, { activeOrderKey: "g" }), { sessionId: id, orderKey: "g" })).toEqual({ events: [] });
+  });
+
+  it("refuses a pinned, settled or archived session conflict, reason not_active", () => {
+    for (const fields of [{ pinnedAt: at }, { settledAt: at }, { archivedAt: at }]) {
+      expect(outcome(decideReorderActive(live(null, fields), { sessionId: id, orderKey: "g" })), JSON.stringify(fields)).toEqual({
+        code: "conflict",
+        reason: "not_active",
+      });
+    }
+  });
+
+  it("arranges a snoozed session, which keeps its active slot for when it wakes", () => {
+    expect(outcome(decideReorderActive(live(null, { snoozedUntil: later }), { sessionId: id, orderKey: "g" }))).toEqual([
+      "session.active-reordered",
+    ]);
+  });
+});
+
+describe("deciding sessions.tag and sessions.untag", () => {
+  it("adds a tag trimmed", () => {
+    expect(decideTag(live(null, { tags: ["wip"] }), { sessionId: id, tag: "  review " })).toEqual({
+      events: [{ type: "session.tagged", payload: { tag: "review" } }],
+    });
+  });
+
+  it("changes nothing for a tag held in the same casing; a new casing is tagged again, so the latest casing is kept", () => {
+    expect(decideTag(live(null, { tags: ["wip"] }), { sessionId: id, tag: " wip" })).toEqual({ events: [] });
+    expect(decideTag(live(null, { tags: ["wip"] }), { sessionId: id, tag: "WIP" })).toEqual({
+      events: [{ type: "session.tagged", payload: { tag: "WIP" } }],
+    });
+  });
+
+  it(`refuses a tag past ${MAX_TAGS} conflict, reason too_many_tags, while a casing of one held is still taken`, () => {
+    const full = live(null, { tags: Array.from({ length: MAX_TAGS }, (_, i) => `t${i}`) });
+    expect(decideTag(full, { sessionId: id, tag: "one-more" })).toMatchObject({
+      rejected: { code: "conflict", data: { reason: "too_many_tags", sessionId: id, limit: MAX_TAGS } },
+    });
+    expect(outcome(decideTag(full, { sessionId: id, tag: "T0" }))).toEqual(["session.tagged"]);
+    const almost = live(null, { tags: Array.from({ length: MAX_TAGS - 1 }, (_, i) => `t${i}`) });
+    expect(outcome(decideTag(almost, { sessionId: id, tag: "one-more" }))).toEqual(["session.tagged"]);
+  });
+
+  it("removes a tag matched ignoring case, naming it as the session held it; one not held changes nothing", () => {
+    expect(decideUntag(live(null, { tags: ["review", "Seth"] }), { sessionId: id, tag: " SETH " })).toEqual({
+      events: [{ type: "session.untagged", payload: { tag: "Seth" } }],
+    });
+    expect(decideUntag(live(null, { tags: ["review"] }), { sessionId: id, tag: "Seth" })).toEqual({ events: [] });
+  });
+});
+
+describe("deciding sessions.setDraft", () => {
+  it("replaces the draft with the value sent, as it is", () => {
+    expect(decideSetDraft(live(), { sessionId: id, draft: "  typed \n" })).toEqual({
+      events: [{ type: "session.draft-set", payload: { draft: "  typed \n" } }],
+    });
+    expect(decideSetDraft(live(null, { draft: "old" }), { sessionId: id, draft: "new" })).toEqual({
+      events: [{ type: "session.draft-set", payload: { draft: "new" } }],
+    });
+  });
+
+  it("clears it with null or an empty string", () => {
+    for (const draft of [null, ""]) {
+      expect(decideSetDraft(live(null, { draft: "old" }), { sessionId: id, draft })).toEqual({
+        events: [{ type: "session.draft-set", payload: { draft: null } }],
+      });
+    }
+  });
+
+  it("changes nothing when the draft is already the one sent, or there is none to clear", () => {
+    expect(decideSetDraft(live(null, { draft: "same" }), { sessionId: id, draft: "same" })).toEqual({ events: [] });
+    expect(decideSetDraft(live(), { sessionId: id, draft: null })).toEqual({ events: [] });
+    expect(decideSetDraft(live(), { sessionId: id, draft: "" })).toEqual({ events: [] });
   });
 });

@@ -77,6 +77,7 @@ describe("the method registry", () => {
       "sessions.reorderActive": ["command", "sessions:write"],
       "sessions.tag": ["command", "sessions:write"],
       "sessions.untag": ["command", "sessions:write"],
+      "sessions.setDraft": ["command", "sessions:write"],
       "sessions.setGroup": ["command", "sessions:write"],
       "sessions.settle": ["command", "sessions:write"],
       "sessions.unsettle": ["command", "sessions:write"],
@@ -224,6 +225,7 @@ describe("the method registry", () => {
       | "sessions.reorderActive"
       | "sessions.tag"
       | "sessions.untag"
+      | "sessions.setDraft"
       | "sessions.setGroup"
       | "sessions.settle"
       | "sessions.unsettle"

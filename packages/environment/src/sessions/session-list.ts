@@ -2,12 +2,19 @@ import {
   LIST_PATCH_KEY,
   SESSION_STREAM_KIND,
   isListEvent,
+  type SessionActiveReorderedPayload,
+  type SessionArchivedPayload,
   type SessionCreatedPayload,
+  type SessionDraftSetPayload,
+  type SessionPinReorderedPayload,
+  type SessionPinnedPayload,
   type SessionSummary,
+  type SessionTaggedPayload,
   type SessionTitleSetPayload,
+  type SessionUntaggedPayload,
   type SummaryPatch,
 } from "@agent-harness/contracts";
-import type { EventEnvelope, ProjectionDb, Projector } from "../event-log/event-log.js";
+import type { EventEnvelope, ProjectionDb, Projector, SqlValue } from "../event-log/event-log.js";
 import { tagKey } from "./decider.js";
 import { readSummary } from "./session-reads.js";
 import { SESSION_LIST_TABLES, titleOf, type SessionRow } from "./session-tables.js";
@@ -46,6 +53,19 @@ const insertTags = (db: ProjectionDb, sessionId: string, tags: readonly string[]
   for (const tag of tags) db.run("INSERT INTO session_tags (session_id, tag, tag_key) VALUES (?, ?, ?)", sessionId, tag, tagKey(tag));
 };
 
+/** Sets columns of the event's session and nothing else; the column names are this module's own, never input. */
+const setColumns = (event: EventEnvelope, db: ProjectionDb, columns: Readonly<Record<string, SqlValue>>): void => {
+  const names = Object.keys(columns);
+  db.run(`UPDATE sessions SET ${names.map((name) => `${name} = ?`).join(", ")} WHERE id = ?`, ...Object.values(columns), event.streamId);
+};
+
+/**
+ * Sets columns of the event's session and moves its `updatedAt` to the
+ * event's time: the projection of an organisation change.
+ */
+const organise = (event: EventEnvelope, db: ProjectionDb, columns: Readonly<Record<string, SqlValue>>): void =>
+  setColumns(event, db, { ...columns, updated_at: event.occurredAt });
+
 const SESSION_PROJECTIONS: Partial<Record<string, Projection>> = {
   "session.created": (event, db) => {
     const payload = event.payload as SessionCreatedPayload;
@@ -80,6 +100,35 @@ const SESSION_PROJECTIONS: Partial<Record<string, Projection>> = {
       event.streamId,
     );
   },
+  "session.archived": (event, db) => organise(event, db, { archived_at: (event.payload as SessionArchivedPayload).archivedAt }),
+  "session.unarchived": (event, db) => organise(event, db, { archived_at: null }),
+  "session.pinned": (event, db) => {
+    const payload = event.payload as SessionPinnedPayload;
+    organise(event, db, { pinned_at: payload.pinnedAt, pin_order_key: payload.pinOrderKey });
+  },
+  "session.unpinned": (event, db) => organise(event, db, { pinned_at: null, pin_order_key: null }),
+  "session.pin-reordered": (event, db) => organise(event, db, { pin_order_key: (event.payload as SessionPinReorderedPayload).pinOrderKey }),
+  "session.active-reordered": (event, db) =>
+    organise(event, db, { active_order_key: (event.payload as SessionActiveReorderedPayload).activeOrderKey }),
+  "session.tagged": (event, db) => {
+    const { tag } = event.payload as SessionTaggedPayload;
+    // A tag held in another casing takes this one: one row per case-folded key.
+    db.run(
+      `INSERT INTO session_tags (session_id, tag, tag_key) VALUES (?, ?, ?)
+       ON CONFLICT (session_id, tag_key) DO UPDATE SET tag = excluded.tag`,
+      event.streamId,
+      tag,
+      tagKey(tag),
+    );
+    organise(event, db, {});
+  },
+  "session.untagged": (event, db) => {
+    const { tag } = event.payload as SessionUntaggedPayload;
+    db.run("DELETE FROM session_tags WHERE session_id = ? AND tag_key = ?", event.streamId, tagKey(tag));
+    organise(event, db, {});
+  },
+  // The draft is not an organisation change, so it leaves updatedAt where it was.
+  "session.draft-set": (event, db) => setColumns(event, db, { draft: (event.payload as SessionDraftSetPayload).draft }),
 };
 
 /**
