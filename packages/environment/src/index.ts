@@ -91,6 +91,9 @@ export { capability, requireCapability, unsupported } from "./adapter/capabiliti
 export { RUNS_PROJECTOR, runsProjector } from "./runs/runs-projector.js";
 export { runMethods, type RunMethodsOptions } from "./runs/run-methods.js";
 export { foldTranscript, type TranscriptParts } from "./runs/transcript.js";
+export { SETTLE_SWEEP_ACTOR, SETTLE_SWEEP_INTERVAL_MS, createSettleSweep, type SettleSweep, type SweepOutcome } from "./sessions/settle-sweep.js";
+export { settingsMethods, type SettingsMethodsOptions } from "./settings/methods.js";
+export { SETTINGS_PROJECTOR, readSettings, settingsProjector } from "./settings/settings-store.js";
 
 export { DEFAULT_LOG_PAGE } from "./auth/access-log.js";
 export {

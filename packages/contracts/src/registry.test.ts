@@ -148,6 +148,7 @@ describe("the method registry", () => {
       "runs.send",
       "runs.interrupt",
       "runs.stopTask",
+      "settings.update",
     ]);
   });
 
@@ -264,6 +265,8 @@ describe("the method registry", () => {
       | "runs.send"
       | "runs.interrupt"
       | "runs.stopTask"
+      | "settings.get"
+      | "settings.update"
     >();
     expectTypeOf<ParamsOf<"access.sessions.revoke">>().toEqualTypeOf<{ commandId: string; clientSessionId: string }>();
   });
