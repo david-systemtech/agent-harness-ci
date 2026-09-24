@@ -119,6 +119,20 @@ describe("the task ledger", () => {
     expect(rows.some((row) => row.taskId === "s0")).toBe(false);
   });
 
+  it("caps the settled rows however a task settles: through the level dropping it, or a patch to a terminal status, not only a notification", () => {
+    const { tasks } = ledger();
+    for (let n = 0; n < SETTLED_LIMIT + 2; n += 1) {
+      tasks.observe(level({ task_id: `l${n}`, description: `Level ${n}` }));
+      tasks.observe(level());
+    }
+    tasks.observe(started({ task_id: "patched", description: "Patched" }));
+    tasks.observe(updated("patched", { status: "failed" }));
+    const rows = tasks.snapshot();
+    expect(rows.filter((row) => row.status !== "running")).toHaveLength(SETTLED_LIMIT);
+    expect(rows.some((row) => row.taskId === "l0")).toBe(false);
+    expect(rows.some((row) => row.taskId === "patched")).toBe(true);
+  });
+
   it("reports whether anything changed, and clears its dirty flag when the snapshot is taken", () => {
     const { tasks } = ledger();
     expect(tasks.observe({ type: "system", subtype: "status" })).toBe(false);

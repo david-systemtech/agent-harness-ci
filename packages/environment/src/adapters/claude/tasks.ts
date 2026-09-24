@@ -109,10 +109,20 @@ export class TaskLedger {
     );
   }
 
+  /** Writes the row; when it settles a task, the settled rows past the cap go, oldest first, and the level index forgets what is gone. */
   #put(row: DelegatedWorkRow): true {
     this.#rows.set(row.taskId, row);
     this.#dirty = true;
+    if (!LIVE.has(row.status)) this.#prune();
     return true;
+  }
+
+  #prune(): void {
+    const settled = [...this.#rows.values()].filter((row) => !LIVE.has(row.status));
+    for (const row of settled.slice(0, Math.max(0, settled.length - SETTLED_LIMIT))) {
+      this.#rows.delete(row.taskId);
+      this.#fromLevel.delete(row.taskId);
+    }
   }
 
   #level(message: Message): boolean {
@@ -197,8 +207,6 @@ export class TaskLedger {
       endedAt: this.#now(),
       toolCallId: text(message["tool_use_id"]) ?? base.toolCallId,
     });
-    const settled = [...this.#rows.values()].filter((row) => !LIVE.has(row.status));
-    for (const row of settled.slice(0, Math.max(0, settled.length - SETTLED_LIMIT))) this.#rows.delete(row.taskId);
     return true;
   }
 }
