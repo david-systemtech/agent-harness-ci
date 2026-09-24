@@ -88,8 +88,8 @@ export interface EventLog {
   subscribe(listener: (event: EventEnvelope) => void): () => void;
   /** Creates the projector's tables if needed and catches it up from its cursor. */
   registerProjector(projector: Projector): void;
-  /** Drops every registered projector's tables, recreates them and replays the whole log, in one transaction. */
-  rebuildProjections(): void;
+  /** Drops every registered projector's tables, recreates them and replays the whole log, in one transaction; returns the projectors' names. */
+  rebuildProjections(): readonly string[];
   /** Reads rows (the projection read models, pragmas) with the connection query-only, so no write gets past the log. */
   read<Row = Record<string, unknown>>(sql: string, ...params: readonly SqlValue[]): Row[];
   receipt(actor: string, commandId: string): CommandReceipt | null;

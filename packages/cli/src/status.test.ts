@@ -151,7 +151,7 @@ describe("agent-harness status", () => {
       port: 0,
       name: "status-test",
       user: { isPrivileged: () => false },
-      launcher: { prepared: () => undefined, close: () => undefined },
+      launcher: { prepared: () => undefined, close: () => undefined, present: () => false, onQuery: () => undefined },
     });
     cleanups.push(() => env.close());
 

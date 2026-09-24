@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "EnvironmentActivity",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "state": {
+          "type": "string",
+          "const": "idle"
+        }
+      },
+      "required": [
+        "state"
+      ],
+      "description": "No run is starting or running, none started or ended in the last ten minutes, and none parked on a prompt in the last ten minutes: an update may proceed."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "state": {
+          "type": "string",
+          "const": "busy"
+        },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "run-starting",
+            "run-running",
+            "parked-prompt",
+            "recent-activity"
+          ],
+          "description": "Why the environment is busy: run-starting and run-running (a run is starting or running), parked-prompt (a run parked on a prompt in the last ten minutes), recent-activity (a run started or ended in the last ten minutes)."
+        },
+        "busyUntil": {
+          "description": "When the environment stops counting as busy if nothing else happens: ten minutes after the parked prompt or the latest start or end. Absent while a run is starting or running.",
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+        }
+      },
+      "required": [
+        "state",
+        "reason"
+      ],
+      "description": "Work is under way, or was too recently: the reason, and when it stops counting when that is known."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "state": {
+          "type": "string",
+          "const": "draining"
+        },
+        "drainingSince": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+          "description": "An instant as an ISO 8601 UTC timestamp."
+        }
+      },
+      "required": [
+        "state",
+        "drainingSince"
+      ],
+      "description": "New runs are refused and running ones are let finish before a restart: since when."
+    }
+  ],
+  "description": "Whether the environment is idle, busy (with the reason) or draining."
+}
