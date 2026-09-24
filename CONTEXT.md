@@ -185,11 +185,23 @@ The one list of values the harness has resolved or injected, consulted by transc
 _Avoid_: redaction list, filter, mask
 
 **Forge account**:
-An environment's one identity on one forge host (GitHub, Forgejo, Gitea; GitLab later) with its credential source and known scopes; the only thing banks, skill sources, the tracker, pull requests, releases and repository creation authenticate with on that host.
+An environment's one identity on one forge origin (GitHub, Forgejo, Gitea; GitLab later), with any verified alias origins, a slug, its credential source and its capabilities; the only thing banks, skill sources, the tracker, pull requests, releases and repository creation authenticate with on that origin.
 _Avoid_: token (the credential, not the account), git account, forge connection
 
+**Forge origin**:
+The scheme, host and port a forge account is keyed by, to which every remote URL of that forge normalises; an alias is a second origin the same instance answers on, accepted only once the account's credential proves the same identity there.
+_Avoid_: host (ambiguous with the machine), base URL, remote
+
+**Forge capability**:
+One thing a forge account may be able to do (read repositories, write issues, open pull requests, create repositories, read releases), each verified, failed or unknown; reads are probed, writes are learned from use.
+_Avoid_: scope (the provider's token setting), permission (the harness's run modes)
+
+**Credential helper**:
+The harness command a run's git calls for a forge origin's credential, which answers from the environment's vault for that run only; it serves git's http transport for the account's origins and leaves ssh to the user's keys.
+_Avoid_: git credential store, token file, GCM
+
 **Primary forge**:
-The one forge host a user has marked as the default, flagged on that host's account on every environment: where new repositories are created and the release channel is read unless another forge is named.
+The one forge origin a user has marked as the default, flagged on that origin's account on every environment: where new repositories are created and the release channel is read unless another forge is named.
 _Avoid_: default remote, main forge, home forge
 
 **Tier**:
