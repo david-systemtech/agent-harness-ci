@@ -24,7 +24,7 @@ import type { InterfaceDetector } from "../src/serve/interfaces.js";
 import { startEnvironment, type EnvironmentHandle, type EnvironmentOptions, type StartupHooks } from "../src/serve/start.js";
 import type { ContainerDetector } from "../src/serve/container.js";
 import { createRunRegistry, type MemoryRunRegistry } from "../src/serve/run-registry.js";
-import type { HandlerResult, MethodContext, MethodHandler } from "../src/serve/methods.js";
+import type { ContextOf, HandlerReturn, MethodHandler } from "../src/serve/methods.js";
 import type { SubscriptionHooks } from "../src/wire/subscriptions.js";
 import { manualClock, type ManualClock } from "./clock.js";
 import { fakeProvider, type FakeProvider } from "./fake-provider.js";
@@ -95,8 +95,12 @@ export interface ClientOptions extends OpenOptions, Partial<Omit<AuthOptions, "t
   readonly token?: string;
 }
 
-/** What a test method's handler returns: its result, or for a stream the source whose snapshot the result is. */
-export type TestAnswer<M extends Method> = HandlerResult<M["kind"], z.infer<M["result"]>>;
+/**
+ * What a test method's handler returns: its result; for a command the
+ * outcome naming its aggregate, at once; for a stream the source whose
+ * snapshot the result is.
+ */
+export type TestAnswer<M extends Method> = HandlerReturn<M["kind"], z.infer<M["result"]>>;
 
 /** A raw answer from the bootstrap exchange. */
 export interface ExchangeAnswer {
@@ -122,7 +126,7 @@ export interface TestEnvironment {
   bootstrap(kind?: BootstrapKind, label?: string): Promise<ClientSessionCredential>;
   /** Posts `body` to the pairing exchange as it is. */
   pairExchange(body: unknown): Promise<ExchangeAnswer>;
-  /** Mints a pairing through the default client (`access.pairings.create`), on a socket closed after, and returns its result. */
+  /** Mints a pairing through the default client (`access.pairings.create`), on a socket closed after, and returns its result (the receipt aside). */
   createPairing(options?: Pick<PairOptions, "scopes" | "ceiling">): Promise<ResultOf<"access.pairings.create">>;
   /** Mints a pairing and exchanges it at `/api/pair`; throws unless both succeed. */
   pair(options?: PairOptions): Promise<ClientSessionCredential>;
@@ -132,12 +136,13 @@ export interface TestEnvironment {
   open(options?: OpenOptions): Promise<ClientSocket>;
   /**
    * Serves a method the contracts registry does not hold, a suite's
-   * synthetic stream, on the environment's method table as if it were
-   * registered: its handler typed from the method's own schemas.
+   * synthetic stream or command, on the environment's method table as if it
+   * were registered: its handler typed from the method's own schemas. A
+   * command is answered with its receipt like any other.
    */
   serve<M extends Method>(
     method: M,
-    handler: (params: z.infer<M["params"]>, context: MethodContext) => TestAnswer<M> | Promise<TestAnswer<M>>,
+    handler: (params: z.infer<M["params"]>, context: ContextOf<M["kind"]>) => TestAnswer<M>,
   ): void;
   /** Closes every client, then the environment, then removes the data directory if the helper made it. */
   close(): Promise<void>;
@@ -262,7 +267,7 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
   const createPairing = async (pairOptions: Pick<PairOptions, "scopes" | "ceiling"> = {}) => {
     const admin = track(await defaultClient({}));
     try {
-      return await admin.request("access.pairings.create", {
+      return await admin.apply("access.pairings.create", {
         commandId: randomUUID(),
         ...(pairOptions.scopes !== undefined && { scopes: [...pairOptions.scopes] }),
         ...(pairOptions.ceiling !== undefined && { ceiling: pairOptions.ceiling }),

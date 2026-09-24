@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { SHARED_ERRORS, SHARED_ERROR_CODES } from "./errors.js";
 import { CommandId, Sequence } from "./primitives.js";
+import { commandResponse, type CommandResponseSchema } from "./receipt.js";
 import { SCOPES, type Scope } from "./scopes.js";
 
 /** One error member a method adds to the shared union, made with `errorSchema`. */
@@ -8,9 +9,10 @@ export type ErrorMember = z.ZodObject<{ code: z.ZodLiteral<string>; message: z.Z
 
 /**
  * What a method is: a query reads and answers once; a command changes
- * something and takes a client-generated `commandId`, so a retry applies once;
- * a stream is a subscription, answered by `subscribed`, then a snapshot or a
- * replay from its `afterSequence` cursor, then live events.
+ * something and takes a client-generated `commandId`, so a retry applies
+ * once, and is answered with its receipt beside its result; a stream is a
+ * subscription, answered by `subscribed`, then a snapshot or a replay from
+ * its `afterSequence` cursor, then live events.
  */
 export const METHOD_KINDS = ["query", "command", "stream"] as const;
 export type MethodKind = (typeof METHOD_KINDS)[number];
@@ -58,8 +60,20 @@ export type MethodErrorUnion<M extends MethodSpec> = z.ZodDiscriminatedUnion<
   "code"
 >;
 
-/** A registry entry: its spec plus the error union built from it. */
-export type Method<M extends MethodSpec = MethodSpec> = M & { readonly error: MethodErrorUnion<M> };
+/**
+ * What a command's entry adds: the schema of its `response`'s result, the
+ * receipt beside the method's own result (`commandResponse`).
+ */
+export type CommandResponsePart<M extends MethodSpec> = M extends { readonly kind: "command" }
+  ? { readonly response: CommandResponseSchema<M["result"]> }
+  : unknown;
+
+/**
+ * A registry entry: its spec plus the error union built from it, and for a
+ * command the schema its response carries. A query's response carries its
+ * `result` as it is; a stream is answered `subscribed`.
+ */
+export type Method<M extends MethodSpec = MethodSpec> = M & { readonly error: MethodErrorUnion<M> } & CommandResponsePart<M>;
 
 const METHOD_NAME = /^[a-z][A-Za-z]*(\.[a-z][A-Za-z]*)+$/;
 
@@ -92,7 +106,8 @@ export const defineMethod = <const M extends MethodSpec>(spec: M): Method<M> => 
     own.add(code);
   }
   const error = z.discriminatedUnion("code", [...SHARED_ERRORS, ...spec.errors]);
-  return Object.freeze({ ...spec, error }) as unknown as Method<M>;
+  const response = kind === "command" ? { response: commandResponse(spec.result) } : {};
+  return Object.freeze({ ...spec, error, ...response }) as unknown as Method<M>;
 };
 
 /** A command's params: `shape` plus the `commandId` every command takes. */

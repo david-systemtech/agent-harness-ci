@@ -68,8 +68,8 @@ export const accessSessionsList = defineMethod({
 /**
  * Revoke a client session: its sockets get `bye: revoked` and its token is
  * refused from then on. Revoking the caller's own client session is allowed
- * and closes the caller. An unknown id is `not_found`; one revoked already
- * answers when it was.
+ * and closes the caller. An unknown id is rejected with a receipt of reason
+ * `not_found`; one revoked already answers when it was, unchanged.
  */
 export const accessSessionsRevoke = defineMethod({
   name: "access.sessions.revoke",

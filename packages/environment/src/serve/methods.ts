@@ -8,6 +8,7 @@ import {
   type ResultOf,
 } from "@agent-harness/contracts";
 import type { VerifiedClientSession } from "../auth/client-sessions.js";
+import type { CommandOutcome, Tx } from "../event-log/event-log.js";
 import type { StreamSource } from "../wire/subscriptions.js";
 
 /** Who is calling: the client session the connection authenticated as. */
@@ -16,38 +17,74 @@ export interface MethodContext {
 }
 
 /**
- * What the handler of a method of `Kind` returns: its `Result`, or for a
- * stream the source its subscription reads, whose snapshot is the `Result`.
+ * What a command's handler is given beyond the caller: the command's id, the
+ * caller as the log names an actor (`client_session:<id>`), and the
+ * transaction the command runs in, which every append and auth-table write
+ * of the handler takes, so they commit with the receipt or not at all.
  */
-export type HandlerResult<Kind extends MethodKind, Result> = Kind extends "stream" ? StreamSource<Result> : Result;
+export interface CommandContext extends MethodContext {
+  readonly commandId: string;
+  readonly actor: string;
+  readonly tx: Tx;
+}
+
+/** The context a handler of a method of `Kind` is given. */
+export type ContextOf<Kind extends MethodKind> = Kind extends "command" ? CommandContext : MethodContext;
+
+/**
+ * What the handler of a method of `Kind` returns: its `Result`; for a
+ * command, the outcome that names its aggregate and carries its `Result` and
+ * events, or its rejection; for a stream, the source its subscription reads,
+ * whose snapshot is the `Result`.
+ */
+export type HandlerResult<Kind extends MethodKind, Result> = Kind extends "stream"
+  ? StreamSource<Result>
+  : Kind extends "command"
+    ? CommandOutcome<Result>
+    : Result;
+
+/**
+ * What a handler of a method of `Kind` gives back. A command's handler runs
+ * inside the command's transaction, so it answers at once; a query's and a
+ * stream's may answer later.
+ */
+export type HandlerReturn<Kind extends MethodKind, Result> = Kind extends "command"
+  ? HandlerResult<Kind, Result>
+  : HandlerResult<Kind, Result> | Promise<HandlerResult<Kind, Result>>;
 
 /**
  * How the environment answers one method, after the wire has checked the
  * caller's scope and the params against the registry's schema. A thrown
  * `ContractError` is the answer's error; anything else thrown is `internal`.
- * A stream's handler names the `StreamSource` to subscribe to; the
- * subscription is the wire's.
+ * A command's handler runs once per client session and command id, and is
+ * answered with its receipt (`wire/dispatch.ts`); a rejection it returns is
+ * stored in the receipt, while a throw stores nothing. A stream's handler
+ * names the `StreamSource` to subscribe to; the subscription is the wire's.
  */
 export type MethodHandler<N extends MethodName> = (
   params: ParamsOf<N>,
-  context: MethodContext,
-) => HandlerResult<Registry[N]["kind"], ResultOf<N>> | Promise<HandlerResult<Registry[N]["kind"], ResultOf<N>>>;
+  context: ContextOf<Registry[N]["kind"]>,
+) => HandlerReturn<Registry[N]["kind"], ResultOf<N>>;
 
 /** Handlers by contracts method name, as the environment starts with them. */
 export type MethodHandlers = { readonly [N in MethodName]?: MethodHandler<N> };
 
 /** A stream's handler as dispatch calls it: its params were checked against its method's schema just before. */
 type StreamHandler = (params: unknown, context: MethodContext) => StreamSource | Promise<StreamSource>;
-/** A query's or command's handler as dispatch calls it. */
-type ResultHandler = (params: unknown, context: MethodContext) => unknown;
+/** A query's handler as dispatch calls it. */
+type QueryHandler = (params: unknown, context: MethodContext) => unknown;
+/** A command's handler as dispatch calls it, inside the command's transaction. */
+type CommandHandler = (params: unknown, context: CommandContext) => CommandOutcome<unknown>;
 
 /**
  * One method as dispatch serves it: its registry entry and its handler, if
- * one is registered. The kind says which handlers name a stream source.
+ * one is registered. The kind says which handlers name a stream source and
+ * which run as commands.
  */
 export type ServedMethod =
   | { readonly kind: "stream"; readonly method: Method; readonly handler: StreamHandler | undefined }
-  | { readonly kind: "query" | "command"; readonly method: Method; readonly handler: ResultHandler | undefined };
+  | { readonly kind: "command"; readonly method: Method; readonly handler: CommandHandler | undefined }
+  | { readonly kind: "query"; readonly method: Method; readonly handler: QueryHandler | undefined };
 
 /**
  * The methods the wire dispatches into after its scope check: every method of

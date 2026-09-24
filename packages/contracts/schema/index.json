@@ -35,6 +35,10 @@
       "title": "CommandId"
     },
     {
+      "path": "command-receipt.json",
+      "title": "CommandReceipt"
+    },
+    {
       "path": "environment-id.json",
       "title": "EnvironmentId"
     },
@@ -359,6 +363,10 @@
       "title": "environment.drain result"
     },
     {
+      "path": "methods/environment.drain/response.json",
+      "title": "environment.drain response"
+    },
+    {
       "path": "methods/environment.drain/error.json",
       "title": "environment.drain error"
     },
@@ -371,6 +379,10 @@
       "title": "environment.rebuildProjections result"
     },
     {
+      "path": "methods/environment.rebuildProjections/response.json",
+      "title": "environment.rebuildProjections response"
+    },
+    {
       "path": "methods/environment.rebuildProjections/error.json",
       "title": "environment.rebuildProjections error"
     },
@@ -381,6 +393,10 @@
     {
       "path": "methods/access.pairings.create/result.json",
       "title": "access.pairings.create result"
+    },
+    {
+      "path": "methods/access.pairings.create/response.json",
+      "title": "access.pairings.create response"
     },
     {
       "path": "methods/access.pairings.create/error.json",
@@ -407,6 +423,10 @@
       "title": "access.sessions.revoke result"
     },
     {
+      "path": "methods/access.sessions.revoke/response.json",
+      "title": "access.sessions.revoke response"
+    },
+    {
       "path": "methods/access.sessions.revoke/error.json",
       "title": "access.sessions.revoke error"
     },
@@ -417,6 +437,10 @@
     {
       "path": "methods/access.sessions.refresh/result.json",
       "title": "access.sessions.refresh result"
+    },
+    {
+      "path": "methods/access.sessions.refresh/response.json",
+      "title": "access.sessions.refresh response"
     },
     {
       "path": "methods/access.sessions.refresh/error.json",
@@ -461,6 +485,7 @@
       "stream": false,
       "params": "methods/environment.drain/params.json",
       "result": "methods/environment.drain/result.json",
+      "response": "methods/environment.drain/response.json",
       "error": "methods/environment.drain/error.json"
     },
     {
@@ -470,6 +495,7 @@
       "stream": false,
       "params": "methods/environment.rebuildProjections/params.json",
       "result": "methods/environment.rebuildProjections/result.json",
+      "response": "methods/environment.rebuildProjections/response.json",
       "error": "methods/environment.rebuildProjections/error.json"
     },
     {
@@ -479,6 +505,7 @@
       "stream": false,
       "params": "methods/access.pairings.create/params.json",
       "result": "methods/access.pairings.create/result.json",
+      "response": "methods/access.pairings.create/response.json",
       "error": "methods/access.pairings.create/error.json"
     },
     {
@@ -497,6 +524,7 @@
       "stream": false,
       "params": "methods/access.sessions.revoke/params.json",
       "result": "methods/access.sessions.revoke/result.json",
+      "response": "methods/access.sessions.revoke/response.json",
       "error": "methods/access.sessions.revoke/error.json"
     },
     {
@@ -506,6 +534,7 @@
       "stream": false,
       "params": "methods/access.sessions.refresh/params.json",
       "result": "methods/access.sessions.refresh/result.json",
+      "response": "methods/access.sessions.refresh/response.json",
       "error": "methods/access.sessions.refresh/error.json"
     },
     {

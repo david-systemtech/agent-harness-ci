@@ -183,8 +183,11 @@ export const createLifecycle = (options: LifecycleOptions): Lifecycle => {
       query.type === "drain?" ? { type: "draining", ...startedOf(drain("launcher")) } : { type: "idle", ...status() },
     handlers: {
       "environment.status": status,
-      "environment.drain": ({ commandId }, { clientSession }) =>
-        startedOf(drain("command", { actor: formatActor({ kind: "client_session", id: clientSession.id }), commandId })),
+      // The notice joins the command's transaction; a drain it joins appends nothing, so its receipt says unchanged.
+      "environment.drain": (_params, { actor, commandId }) => ({
+        aggregate: options.stream,
+        result: startedOf(drain("command", { actor, commandId })),
+      }),
     },
     // The snapshot, sent when replay from the cursor is out of bounds, is the status now.
     source: { stream: options.stream, snapshot: () => ({ status: status() }) },

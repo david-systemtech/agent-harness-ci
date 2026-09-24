@@ -185,11 +185,7 @@ describe("projectors", () => {
 
   it("leave the events, receipts and snapshots alone when rebuilt", () => {
     const log = track(openEventLog({ path: ":memory:", projectors: [countingProjector().projector] }));
-    log.append({ kind: "session", id: "a" }, [note("1")], {
-      actor: "client_session:1",
-      commandId: "c-1",
-      receipt: { status: "accepted" },
-    });
+    log.command({ actor: "client_session:1", commandId: "c-1" }, () => ({ aggregate: { kind: "session", id: "a" }, result: null, events: [note("1")] }));
     log.writeSnapshot({ kind: "session", id: "a" }, { sequence: 1, payload: { n: 1 } });
 
     log.rebuildProjections();

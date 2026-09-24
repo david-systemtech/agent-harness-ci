@@ -145,12 +145,18 @@ const createOverWire = (
           return fail(`The environment closed the socket (${frame.reason})${frame.message ? `: ${frame.message}` : "."}`);
         }
         case "response": {
-          if (frame.id === "revoke" && frame.error) return fail(`The environment would not revoke this CLI's client session: ${frame.error.message}`);
+          if (frame.id === "revoke") {
+            // Refused as an error, or rejected in its receipt; accepted, the bye that follows settles it.
+            const receipt = registry["access.sessions.revoke"].response.safeParse(frame.result).data?.receipt;
+            const refusal = frame.error?.message ?? (receipt?.status === "rejected" ? receipt.error.message : undefined);
+            return refusal === undefined ? undefined : fail(`The environment would not revoke this CLI's client session: ${refusal}`);
+          }
           if (frame.id !== "pair") return;
           if (frame.error) return fail(`The environment refused to mint a pairing code: ${frame.error.message}`);
-          const result = registry["access.pairings.create"].result.safeParse(frame.result);
-          if (!result.success) return fail("The environment answered with something that is not a pairing code.");
-          minted = result.data;
+          // The response is the command's receipt beside the pairing; a fresh command id always carries the pairing.
+          const answer = registry["access.pairings.create"].response.safeParse(frame.result);
+          if (!answer.success || answer.data.result === undefined) return fail("The environment answered with something that is not a pairing code.");
+          minted = answer.data.result;
           return request("revoke", "access.sessions.revoke", { commandId: randomUUID(), clientSessionId: credential.clientSessionId });
         }
         default:

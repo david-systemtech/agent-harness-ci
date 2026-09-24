@@ -3,7 +3,7 @@
  * test, run on its own worker thread with its own connection. The test loads
  * it through tsx's `tsImport`. It opens the database, reports ready, waits on
  * the shared gate, then sends `rounds` commands to one stream, alternating
- * one-event and three-event appends, each with a receipt, and reports every
+ * one-event and three-event commands, each with a receipt, and reports every
  * event it wrote.
  *
  * The receipt lookup reads before the insert writes, which is the path on
@@ -52,16 +52,12 @@ const run = (input: AppenderInput, post: (message: AppenderMessage) => void): vo
       type: "race.step",
       payload: { appender: input.name, round, i },
     }));
-    const result = log.append(input.stream, events, {
-      actor: `system:${input.name}`,
-      commandId: `${input.name}-${round}`,
-      receipt: { status: "accepted" },
-    });
-    if (
-      result.duplicate ||
-      result.receipt?.status !== "accepted" ||
-      result.receipt.resultingSequence !== result.events.at(-1)?.sequence
-    ) {
+    const result = log.command({ actor: `system:${input.name}`, commandId: `${input.name}-${round}` }, () => ({
+      aggregate: input.stream,
+      result: null,
+      events,
+    }));
+    if (result.replayed || result.receipt.status !== "accepted" || result.receipt.sequence !== result.events.at(-1)?.sequence) {
       throw new Error(`Round ${round} got a wrong receipt: ${JSON.stringify(result.receipt)}`);
     }
     appends.push(
