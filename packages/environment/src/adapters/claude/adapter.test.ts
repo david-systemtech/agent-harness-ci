@@ -472,7 +472,7 @@ describe("the process across turns", () => {
     await vi.waitFor(() => expect(used.prompts.some((prompt) => prompt.uuid === input.prompt[0]?.messageId)).toBe(true));
     const events = reading(run);
     return { run, query: used, events, finish: async (...extra: unknown[]) => {
-      used.emit(...(query === undefined ? [sdk.init(PROVIDER_SESSION)] : [sdk.init(PROVIDER_SESSION)]), sdk.replyStart(`msg_${randomUUID()}`, [input.prompt[0]?.messageId as string]), ...extra, sdk.result(PROVIDER_SESSION));
+      used.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart(`msg_${randomUUID()}`, [input.prompt[0]?.messageId as string]), ...extra, sdk.result(PROVIDER_SESSION));
       const done = await events.done;
       run.release();
       return done;
