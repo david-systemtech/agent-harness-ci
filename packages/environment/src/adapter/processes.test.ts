@@ -17,7 +17,7 @@ import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions
 import { testLauncher } from "../../test/launcher.js";
 import { create, deleteSession, refusal } from "../../test/sessions.js";
 import type { WireClient } from "../../test/wire-client.js";
-import type { EventEnvelope } from "../event-log/event-log.js";
+import type { EventEnvelope, EventLog } from "../event-log/event-log.js";
 import { DRAIN_CAP_MS } from "../serve/lifecycle.js";
 import { PROCESS_STOP_TIMEOUT_MS } from "./pool.js";
 import type { PermissionBroker, PromptDecision } from "./contract.js";
@@ -116,23 +116,30 @@ const idleProcess = (sessionId: string, startedAt: number, lastBusyAt = startedA
 
 /**
  * A broker that parks every prompt until the test answers it, as the
- * permissions workstream's (#130) will. It records nothing: the session list
- * refuses `prompt.opened` until #117 projects it, so that a prompt stays
- * open in the log across its run's end is the fold's test
- * (`runs/transcript.test.ts`); here, that the host appends no answer.
+ * permissions workstream's (#130) will: once `attach` hands it the
+ * environment's log, it records each prompt's `prompt.opened` on the
+ * session's stream under the id the host handed it.
  */
 const parkingBroker = () => {
   const waiting: ((decision: PromptDecision) => void)[] = [];
   let asked = 0;
+  let log: EventLog | undefined;
   const broker: PermissionBroker = {
-    request: () =>
+    request: (request) =>
       new Promise((resolve) => {
         asked += 1;
+        log?.append(
+          { kind: "session", id: request.sessionId },
+          [{ type: "prompt.opened", payload: { promptId: request.promptId ?? "", kind: request.kind } }],
+          { actor: "system:broker" },
+        );
         waiting.push(resolve);
       }),
   };
   return {
     broker,
+    /** Records every prompt asked from now on in `opened`. */
+    attach: (opened: EventLog) => void (log = opened),
     /** How many prompts have been asked. */
     asked: () => asked,
     /** How many prompts nobody has answered. */
@@ -250,7 +257,18 @@ describe("the idle stop", () => {
     expect(await processes(client)).toEqual([idleProcess(id, IDLE + 60 * MINUTE)]);
   });
 
-  it("reads the idle time through its setting's seam", async () => {
+  it("reads the idle time from providers.processIdleMinutes as each wait begins", async () => {
+    const t = await start();
+    const client = await t.client();
+    const { id } = await create(client);
+    await client.request("settings.update", { commandId: randomUUID(), values: { "providers.processIdleMinutes": 5 } });
+    await untilEnded(t, id, (await startRun(client, id)).runId);
+    expect(await processOf(client, id)).toMatchObject({ state: "idle", stopsAt: at(5 * MINUTE) });
+    t.clock.advance(5 * MINUTE);
+    await vi.waitFor(async () => expect(await processOf(client, id)).toMatchObject({ state: "stopped", stopReason: "idle", stoppedAt: at(5 * MINUTE) }));
+  });
+
+  it("reads the idle time through its seam when the environment is given one", async () => {
     const t = await start({}, { processIdleMinutes: () => 5 });
     const client = await t.client();
     const { id } = await create(client);
@@ -475,10 +493,11 @@ describe("a stop by another cause", () => {
 });
 
 describe("a parked process", () => {
-  it("counts as busy for ten minutes only, and stops once parked for the idle time: its run ends interrupted with cause parked, and its prompt is left unanswered", async () => {
+  it("counts as busy for ten minutes only, and stops once parked for the idle time: its run ends interrupted with cause parked, and its prompt stays open", async () => {
     const prompts = parkingBroker();
     const ask = gate();
     const t = await start({ script: askingScript(ask.opened) }, { adapterSeams: { broker: prompts.broker } });
+    prompts.attach(t.env.log);
     const client = await t.client();
     const { id } = await create(client);
     const { runId } = await startRun(client, id);
@@ -508,13 +527,14 @@ describe("a parked process", () => {
     expect(t.adapter.lastRun()).toMatchObject({ disposed: true });
     expect(t.adapter.processesOf(id)[0]?.stopped).toBe(true);
 
-    // The prompt stays open: nothing answered it, and nothing but the run's end was appended.
+    // The prompt stays open in the log and in the snapshot a client gets: nothing answered it, and nothing but the run's end was appended after it.
     expect(prompts.open()).toBe(1);
-    expect(eventsOf(t, id).map((event) => event.type)).toEqual(["session.created", "run.started", "message.sent", "assistant.text", "run.ended"]);
+    expect(eventsOf(t, id).map((event) => event.type)).toEqual(["session.created", "run.started", "message.sent", "assistant.text", "prompt.opened", "run.ended"]);
     const { subscription } = await client.subscribe("sessions.subscribeSession", { sessionId: id, afterSequence: t.env.log.head() + 1000 });
     const frame = await client.next((f) => f.type === "snapshot" && f.subscription === subscription);
     const snapshot = SessionSnapshot.parse(frame.type === "snapshot" && frame.payload);
     expect(snapshot.runs).toEqual([expect.objectContaining({ runId, state: "ended", reason: "interrupted", cause: "parked" })]);
+    expect(snapshot.parkedPrompts).toEqual([expect.objectContaining({ openedAt: at(parkedAt), prompt: expect.objectContaining({ kind: "permission" }) })]);
   });
 
   it("parks a turn the provider opened on its own, which asks through the context of the run it followed, and stops it once parked for the idle time", async () => {
@@ -718,7 +738,7 @@ describe("a drain and its close", () => {
 });
 
 describe("the recovery sweep", () => {
-  it("ends every run the log left without an end interrupted with cause restart, after taking back what its provider held, and answers none of its prompts", async () => {
+  it("ends every run the log left without an end interrupted with cause restart, after taking back what its provider held, and leaves its prompts open", async () => {
     const dataDir = join(tempDir(), "data");
     const prompts = parkingBroker();
     const ask = gate();
@@ -727,6 +747,7 @@ describe("the recovery sweep", () => {
       yield* askingScript(ask.opened)(controls);
     };
     const t = await start({ capabilities: { steering: false }, script }, { dataDir, adapterSeams: { broker: prompts.broker } });
+    prompts.attach(t.env.log);
     const client = await t.client();
     const { id } = await create(client);
     const { runId } = await startRun(client, id);
@@ -764,6 +785,7 @@ describe("the recovery sweep", () => {
     const frame = await later.next((f) => f.type === "snapshot" && f.subscription === subscription);
     const snapshot = SessionSnapshot.parse(frame.type === "snapshot" && frame.payload);
     expect(snapshot.runs).toEqual([expect.objectContaining({ runId, state: "ended", reason: "interrupted", cause: "restart" })]);
+    expect(snapshot.parkedPrompts).toEqual([expect.objectContaining({ prompt: expect.objectContaining({ kind: "permission" }) })]);
     expect(await later.request("environment.status", {})).toMatchObject({ activity: { state: "idle" } });
 
     // The next run starts cold, resumes the provider's session, and reads the message the provider held first.

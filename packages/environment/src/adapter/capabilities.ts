@@ -14,8 +14,9 @@ export const unsupported = (
   flag: AdapterCapabilityFlag,
   path: readonly (string | number)[],
   what: string,
+  why = `it does not declare ${flag}`,
 ): ContractError => {
-  const message = `The ${descriptor.displayName} adapter cannot ${what}: it does not declare ${flag}.`;
+  const message = `The ${descriptor.displayName} adapter cannot ${what}: ${why}.`;
   const error = invalidParams([{ code: "custom", path: [...path], message }], message);
   return new ContractError({ ...error, data: { ...error.data, reason: "unsupported", capability: flag, provider: descriptor.provider } });
 };
@@ -40,8 +41,9 @@ export const capability = <F>(
   flag: AdapterCapabilityFlag,
   method: F | undefined,
   what: string,
+  methodName = "the method that goes with it",
 ): F => {
   requireCapability(descriptor, flag, [], what);
-  if (method === undefined) throw unsupported(descriptor, flag, [], what);
+  if (method === undefined) throw unsupported(descriptor, flag, [], what, `it declares ${flag} but has no ${methodName}`);
   return method;
 };

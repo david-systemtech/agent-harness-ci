@@ -304,6 +304,11 @@ export const runSchemaFixtures: Record<string, Fixtures> = {
     valid: [{ kind: "image", name: "screen.png", mediaType: "image/png", data: "iVBORw0KGgo=" }, { kind: "file", name: "notes.txt", mediaType: "text/plain", data: "" }],
     invalid: [
       { kind: "image", name: "screen.png", mediaType: "image/png", data: "not base64!" },
+      // Unpadded, or padded wrong: base64 comes in whole groups of four.
+      { kind: "image", name: "screen.png", mediaType: "image/png", data: "iVBORw0KGgo" },
+      { kind: "image", name: "screen.png", mediaType: "image/png", data: "abc" },
+      { kind: "image", name: "screen.png", mediaType: "image/png", data: "ab=c" },
+      { kind: "image", name: "screen.png", mediaType: "image/png", data: "a===" },
       { kind: "image", name: "", mediaType: "image/png", data: "" },
       { kind: "image", name: "screen.png", mediaType: "png", data: "" },
     ],
@@ -365,7 +370,10 @@ export const runMethodFixtures: Record<string, { params: Fixtures; result: Fixtu
   },
   "runs.interrupt": {
     params: { valid: [{ commandId, runId }], invalid: noRun },
-    result: { valid: [{ runId, ended: false }, { runId, ended: true }], invalid: [{ runId }, { runId, ended: "no" }] },
+    result: {
+      valid: [{ runId, ended: false }, { runId, ended: true }, { runId, ended: true, unrecorded: true }],
+      invalid: [{ runId }, { runId, ended: "no" }, { runId, ended: true, unrecorded: false }],
+    },
   },
   "runs.stopTask": {
     params: { valid: [{ commandId, runId, taskId: "t-1" }], invalid: [...noRun, { commandId, runId, taskId: "" }] },

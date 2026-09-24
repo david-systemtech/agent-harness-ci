@@ -25,7 +25,7 @@ export const EventEnvelope = z
     sequence: Sequence.min(1).meta({ description: "The event's place in the log's global sequence, from 1." }),
     eventId: z.uuid(),
     streamKind: z.string().min(1).meta({
-      description: "The kind of stream the event belongs to: environment, access, session.",
+      description: "The kind of stream the event belongs to: environment, access, session, group, settings.",
     }),
     streamId: z.string().min(1),
     streamVersion: z.int().positive().meta({ description: "The event's place in its own stream, from 1." }),

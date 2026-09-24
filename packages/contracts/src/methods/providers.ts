@@ -77,10 +77,10 @@ export const ProviderProcess = z
 export type ProviderProcess = z.infer<typeof ProviderProcess>;
 
 /**
- * The settings key a provider process's idle time is read from (ADR 0015).
- * Its row in the settings table (`settings.ts`, #117) is owed with the
- * Account step's registry entry, by #134: `ProcessIdleMinutes` and
- * `PROCESS_IDLE_MINUTES_PRESET` are that row's schema and preset.
+ * The settings key a provider process's idle time is read from (ADR 0015):
+ * its row in the settings table (`settings.ts`) has `ProcessIdleMinutes` and
+ * `PROCESS_IDLE_MINUTES_PRESET` as its schema and preset, under the Account
+ * step's registry entry, which #134 completes with the account keys.
  */
 export const PROCESS_IDLE_MINUTES_KEY = "providers.processIdleMinutes";
 /** How long a provider process may be idle, or parked on a prompt, before it stops, until the setting says otherwise. */

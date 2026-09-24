@@ -97,7 +97,8 @@ export const runMethods = (options: RunMethodsOptions): MethodHandlers => {
       const decision = decideInterrupt(facts);
       if (decision.rejected !== undefined) return { aggregate, rejected: decision.rejected };
       if (!decision.ended) afterCommit(context.tx, () => host.interrupt(runId));
-      return { aggregate, result: { runId, ended: decision.ended } };
+      // A run whose end the log could not take is over here all the same: ended, and said to be unrecorded.
+      return { aggregate, result: { runId, ended: decision.ended, ...(decision.ended && host.unrecorded(runId) && { unrecorded: true }) } };
     },
 
     "runs.stopTask": (params, context) => {

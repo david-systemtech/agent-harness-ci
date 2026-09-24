@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SettingsKey",
+  "type": "string",
+  "enum": [
+    "sessions.autoSettleAfterIdle",
+    "sessions.autoSettleOnMerge",
+    "providers.processIdleMinutes"
+  ],
+  "description": "A settings key: sessions.autoSettleAfterIdle, sessions.autoSettleOnMerge, providers.processIdleMinutes."
+}

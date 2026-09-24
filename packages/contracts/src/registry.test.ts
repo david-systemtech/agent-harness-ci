@@ -158,6 +158,7 @@ describe("the method registry", () => {
       "runs.interrupt",
       "runs.stopTask",
       "providers.processes.stop",
+      "settings.update",
     ]);
   });
 
@@ -277,6 +278,8 @@ describe("the method registry", () => {
       | "providers.list"
       | "providers.processes.list"
       | "providers.processes.stop"
+      | "settings.get"
+      | "settings.update"
     >();
     expectTypeOf<ParamsOf<"access.sessions.revoke">>().toEqualTypeOf<{ commandId: string; clientSessionId: string }>();
   });

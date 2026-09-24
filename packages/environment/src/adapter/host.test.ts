@@ -8,8 +8,8 @@ import { decideSend, decideStart, type StartCommand } from "../runs/run-decider.
 import { environmentQueue } from "../runs/run-reads.js";
 import { runsProjector } from "../runs/runs-projector.js";
 import { sessionListProjector } from "../sessions/session-list.js";
-import type { AdapterEvent, PermissionBroker, PromptRequest, TranscriptEvent } from "./contract.js";
-import { createAdapterHost, type AdapterHost, type AdapterHostOptions } from "./host.js";
+import type { AdapterEvent, PermissionBroker, PromptRequest, ProviderTurn, RunContext, TranscriptEvent } from "./contract.js";
+import { createAdapterHost, type AdapterHost, type AdapterHostOptions, type StagedAttachments } from "./host.js";
 import { createScopedAppend } from "./scoped-append.js";
 import { composeInstructions } from "./seams.js";
 
@@ -227,7 +227,7 @@ describe("one end per run on every exit path", () => {
     expect(eventsOf(t).map((event) => event.type)).toEqual(["run.started", "message.sent", "assistant.text", "run.ended"]);
   });
 
-  it("ends the run disposed when the host lets it go mid-run, disposes it, and drops what it yields after", async () => {
+  it("ends the run drained when the environment closes while draining mid-run, disposes it, and drops what it yields after", async () => {
     const held = gate();
     const t = await setup(
       fakeAdapter({
@@ -450,7 +450,27 @@ describe("the host's own bookkeeping", () => {
     expect(t.host.activeRuns()).toEqual([]);
   });
 
-  it("keeps a run live, as the log says, when its end cannot be appended, and logs it loudly", async () => {
+  it("tries the end's append once more when it fails, and records one end", async () => {
+    let failures = 0;
+    const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const t = await setup(fakeAdapter(), {}, (log) => ({
+      ...log,
+      append: (stream, events, options) => {
+        if (failures < 1 && events.some((event) => event.type === "run.ended")) {
+          failures += 1;
+          throw new Error("The database is busy.");
+        }
+        return log.append(stream, events, options);
+      },
+    }));
+    const runId = startRun(t);
+    await untilEnded(t, runId);
+    expect(endsOf(t, runId)).toHaveLength(1);
+    expect(t.host.unrecorded(runId)).toBe(false);
+    errors.mockRestore();
+  });
+
+  it("ends a run whose end cannot be appended twice here all the same, says it is unrecorded, and logs it loudly", async () => {
     let failEnds = false;
     const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const held = gate();
@@ -470,11 +490,78 @@ describe("the host's own bookkeeping", () => {
     failEnds = true;
     held.open();
     await vi.waitFor(() => expect(t.adapter.lastRun().released).toBe(true));
+    // The log has no end for it; the host does not wait on it: not live, ended in the registry, unrecorded.
     expect(endsOf(t, runId)).toEqual([]);
-    expect(t.host.live(t.sessionId)).toMatchObject({ runId });
-    expect([...t.host.runs.runs()]).toMatchObject([{ id: runId, state: "running" }]);
+    expect(t.host.live(t.sessionId)).toBeNull();
+    expect(t.host.liveRun(runId)).toBeNull();
+    expect(t.host.unrecorded(runId)).toBe(true);
+    expect([...t.host.runs.runs()]).toMatchObject([{ id: runId, state: "ended" }]);
     expect(errors.mock.calls.some(([message]) => String(message).startsWith(`THE END OF RUN ${runId}`))).toBe(true);
+    // A new start is taken.
+    failEnds = false;
+    const next = startRun(t, "Again");
+    await untilEnded(t, next);
     errors.mockRestore();
+  });
+
+  it("takes back a message handed on after its run had ended, which the end could not take back", async () => {
+    const held = gate();
+    const t = await setup(fakeAdapter({ capabilities: { steering: false }, script: async function* () { yield say("Working"); await held.opened; yield end(); } }));
+    const runId = startRun(t);
+    await vi.waitFor(() => expect(eventsOf(t).some((event) => event.type === "assistant.text")).toBe(true));
+    // Decided while the run was live, committed and handed on after it ended.
+    const decision = decideSend(t.host.startFacts(t.sessionId, "bypassPermissions"), { messageId: randomUUID(), text: "Late", attachments: [] });
+    if (decision.rejected !== undefined || decision.queued === undefined) throw new Error("The message was not queued.");
+    held.open();
+    await untilEnded(t, runId);
+    t.log.append({ kind: "session", id: t.sessionId }, decision.events, { actor: "client_session:test", correlationId: runId });
+    t.host.queue(decision.queued);
+    expect(eventsOf(t).at(-1)).toMatchObject({ type: "message.requeued", actor: "system:adapter-host", payload: { runId, messageId: decision.result.messageId } });
+    expect(environmentQueue({ all: (sql, ...params) => t.log.read(sql, ...params) }, t.sessionId).map((queued) => queued.messageId)).toEqual([decision.result.messageId]);
+  });
+
+  it("does not adopt a turn the provider opens for a session deleted since, and takes back what it was to read", async () => {
+    let captured: RunContext | undefined;
+    const t = await setup(
+      fakeAdapter({
+        script: ({ context }) => {
+          captured = context;
+          return [end()];
+        },
+      }),
+    );
+    const runId = startRun(t);
+    await untilEnded(t, runId);
+    t.log.append({ kind: "session", id: t.sessionId }, [{ type: "session.deleted", payload: { deletedAt: "2026-09-24T00:00:00.000Z", purgeAt: "2026-10-24T00:00:00.000Z", deleteProviderTranscript: false } }], { actor: "system:test" });
+    let disposed = false;
+    const turn: ProviderTurn = {
+      messageIds: [],
+      events: { [Symbol.asyncIterator]: () => ({ next: async () => ({ value: end(), done: false }) }) },
+      send: () => undefined,
+      interrupt: async () => ({ stillQueued: [] }),
+      dispose: () => {
+        disposed = true;
+      },
+      release: () => undefined,
+    };
+    const before = t.log.head();
+    captured?.adopt(turn);
+    expect(disposed).toBe(true);
+    expect(t.log.head()).toBe(before);
+    expect(eventsOf(t).filter((event) => event.type === "run.started")).toHaveLength(1);
+  });
+
+  it("names the missing method when an adapter declares a flag without it", async () => {
+    const adapter = fakeAdapter();
+    const t = await setup({ ...adapter, usage: undefined } as unknown as FakeAdapter);
+    let thrown: unknown;
+    try {
+      await t.host.usage("acct");
+    } catch (error) {
+      thrown = error;
+    }
+    expect((thrown as ContractError).message).toBe("The Fake adapter cannot read plan usage: it declares planUsage but has no usage.");
+    expect((thrown as ContractError).data).toMatchObject({ reason: "unsupported", capability: "planUsage" });
   });
 
   it("names no cause for an interrupted end the host did not ask for", async () => {
@@ -514,6 +601,32 @@ describe("the host's own bookkeeping", () => {
     t.log.append({ kind: "session", id: t.sessionId }, [{ type: "message.sent", payload: { runId, messageId, text: "Mine", attachments: [], delivery: "queued", heldBy: "environment", ceiling: "plan" } }], { actor: "system:test" });
     t.log.append({ kind: "session", id: other }, [{ type: "message.delivered", payload: { runId, messageId, delivery: "prompt" } }], { actor: "system:test" });
     expect(environmentQueue({ all: (sql, ...params) => t.log.read(sql, ...params) }, t.sessionId)).toEqual([{ messageId, text: "Mine", ceiling: "plan" }]);
+  });
+
+  it("keeps a queued message's bytes through the session's deletion, for a restore, and drops them when it is purged", async () => {
+    const held = gate();
+    const staged = new Map<string, StagedAttachments>();
+    const t = await setup(
+      fakeAdapter({ capabilities: { providerQueue: false, steering: false }, script: async function* () { await held.opened; yield end(); } }),
+      { stagedAttachments: staged },
+    );
+    const runId = startRun(t, "First");
+    const decision = decideSend(t.host.startFacts(t.sessionId, "bypassPermissions"), {
+      messageId: randomUUID(),
+      text: "With a picture",
+      attachments: [{ kind: "image", name: "a.png", mediaType: "image/png", data: Buffer.from("pixels").toString("base64") }],
+    });
+    if (decision.rejected !== undefined || decision.queued === undefined) throw new Error("The message was not queued.");
+    t.log.append({ kind: "session", id: t.sessionId }, decision.events, { actor: "client_session:test", correlationId: runId });
+    t.host.queue(decision.queued);
+    expect([...staged.values()].map((entry) => entry.sessionId)).toEqual([t.sessionId]);
+
+    const stream = { kind: "session", id: t.sessionId } as const;
+    t.log.append(stream, [{ type: "session.deleted", payload: { deletedAt: "2026-09-24T00:00:00.000Z", purgeAt: "2026-10-24T00:00:00.000Z", deleteProviderTranscript: false } }], { actor: "system:test" });
+    expect(staged.size).toBe(1);
+    t.log.append(stream, [{ type: "session.purged", payload: { providerTranscript: { outcome: "kept" } } }], { actor: "system:test" });
+    expect(staged.size).toBe(0);
+    held.open();
   });
 
   it("gives up on a status probe that never answers, so startup goes on with the account signed out", async () => {

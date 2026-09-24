@@ -367,6 +367,23 @@ describe("atomically", () => {
     expect(order).toEqual(["committed", "heard 1, row stored: true", "heard 2, row stored: true"]);
   });
 
+  it("publishes what an after-commit callback appends after the events of the transaction that committed", () => {
+    const log = memoryLog();
+    const heard: string[] = [];
+    log.subscribe((event) => heard.push(`${event.sequence} ${String(event.payload["text"])}`));
+    log.atomically((tx) => {
+      log.append(s1, [note("one"), note("two")], { actor: "system:test", tx });
+      tx.afterCommit(() => log.atomically((inner) => log.append(s1, [note("set off")], { actor: "system:test", tx: inner })));
+    });
+    expect(heard).toEqual(["1 one", "2 two", "3 set off"]);
+    // A command's too: the work it sets off is committed and heard before the command returns.
+    log.command({ actor: "system:test", commandId: "0f8fad5b-d9cb-469f-a165-70867728950e" }, (tx) => {
+      tx.afterCommit(() => log.append(s1, [note("after the command")], { actor: "system:test" }));
+      return { aggregate: s1, result: null, events: [note("the command")] };
+    });
+    expect(heard.slice(3)).toEqual(["4 the command", "5 after the command"]);
+  });
+
   it("writes none of it when the work throws, and runs no after-commit callback and publishes nothing", () => {
     const log = memoryLog();
     const heard: number[] = [];
@@ -797,6 +814,14 @@ describe("snapshots", () => {
       sequence: 3,
       payload: ["kept"],
     });
+  });
+});
+
+describe("an append's events", () => {
+  it("are refused with a key an event does not have, so nothing meant for the append is silently dropped", () => {
+    const log = memoryLog();
+    expect(() => log.append(s1, [{ ...note("one"), companion: true } as never], { actor: "system:test" })).toThrow(/companion/);
+    expect(log.head()).toBe(0);
   });
 });
 

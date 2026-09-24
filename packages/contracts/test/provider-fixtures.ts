@@ -44,7 +44,6 @@ export const providerSchemaFixtures: Record<string, Fixtures> = {
     valid: [busy, held, parked, stopped],
     invalid: [{ ...busy, state: "running" }, { ...busy, sessionId: "s-1" }, { ...busy, holds: [{ kind: "task" }] }, { ...stopped, stopReason: "tired" }, { sessionId }],
   },
-  "adapter/process-idle-minutes.json": { valid: [1, 30, 1440], invalid: [0, 1441, 1.5, "30"] },
 };
 
 /** Params and results for every providers method. */

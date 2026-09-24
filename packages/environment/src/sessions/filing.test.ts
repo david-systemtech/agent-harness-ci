@@ -224,7 +224,7 @@ describe("sessions.reorderActive", () => {
     await expectNoOp(t, () => command(client, "sessions.reorderActive", { sessionId: id, orderKey: "g" }));
   });
 
-  it("is conflict with reason not_active on a pinned or an archived session (settled is the decider's test until #117 serves settle)", async () => {
+  it("is conflict with reason not_active on a pinned or an archived session (a settled one: shelf.test.ts)", async () => {
     const t = await start();
     const { client, id } = await withSession(t);
     await command(client, "sessions.pin", { sessionId: id });

@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "settings.get params",
+  "type": "object",
+  "properties": {
+    "keys": {
+      "description": "The keys to read; every key when absent.",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "sessions.autoSettleAfterIdle",
+          "sessions.autoSettleOnMerge",
+          "providers.processIdleMinutes"
+        ],
+        "description": "A settings key: sessions.autoSettleAfterIdle, sessions.autoSettleOnMerge, providers.processIdleMinutes."
+      },
+      "uniqueItems": true
+    }
+  }
+}

@@ -44,6 +44,9 @@ import { createDeletion } from "../sessions/deletion.js";
 import { groupMethods } from "../sessions/group-methods.js";
 import { sessionMethods } from "../sessions/methods.js";
 import { sessionListProjector } from "../sessions/session-list.js";
+import { createSettleSweep } from "../sessions/settle-sweep.js";
+import { settingsMethods } from "../settings/methods.js";
+import { readSettings, settingsProjector } from "../settings/settings-store.js";
 import type { SubscriptionHooks } from "../wire/subscriptions.js";
 import { createWire } from "../wire/wire.js";
 import { systemClock, type Clock } from "./clock.js";
@@ -157,9 +160,10 @@ export interface EnvironmentOptions {
   /** The account a session with none of its own runs on. Preset: the first account. */
   readonly defaultAccountId?: string;
   /**
-   * The idle time of a provider process, in minutes: `providers.processIdleMinutes`,
-   * read each time a wait begins. Preset: the setting's preset (30). The
-   * settings store (#117) will supply it once the key is registered (#134).
+   * The idle time of a provider process, in minutes, read each time a wait
+   * begins. Preset: the `providers.processIdleMinutes` setting as the
+   * settings store holds it (its preset, 30, until it is set); a test passes
+   * its own.
    */
   readonly processIdleMinutes?: () => number;
   /** The adapter host's seams other workstreams fill; each has a preset (`adapter/seams.ts`). */
@@ -282,7 +286,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   });
 
   await step("projectors", () => {
-    for (const projector of [sessionListProjector, runsProjector, ...(options.projectors ?? [])]) log.registerProjector(projector);
+    for (const projector of [sessionListProjector, runsProjector, settingsProjector, ...(options.projectors ?? [])]) log.registerProjector(projector);
   });
 
   // Where pairing links point: set when the listeners are bound, before any request is served.
@@ -327,7 +331,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       ...(options.adapters !== undefined && { adapters: options.adapters }),
       ...(options.accounts !== undefined && { accounts: options.accounts }),
       ...(options.defaultAccountId !== undefined && { defaultAccountId: options.defaultAccountId }),
-      ...(options.processIdleMinutes !== undefined && { processIdleMinutes: options.processIdleMinutes }),
+      processIdleMinutes:
+        options.processIdleMinutes ?? (() => readSettings({ all: (sql, ...params) => log.read(sql, ...params) })["providers.processIdleMinutes"]),
       ...options.adapterSeams,
     });
     // Closed before the event log, so a run the close ends has its end appended (drained when a drain's cap cut it), and
@@ -382,6 +387,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     },
     close: () => close(),
   });
+  // The shelf's sweep (#117): started once the environment is ready; a settings change runs it from the change's commit.
+  const settleSweep = createSettleSweep({ log, clock });
   const table = createMethodTable({
     ...lifecycle.handlers,
     "environment.subscribe": () => lifecycle.source,
@@ -390,6 +397,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       aggregate: environmentStream,
       result: { projectors: [...log.rebuildProjections()], sequence: log.head() },
     }),
+    // The generic settings (#117), on the environment's settings stream.
+    ...settingsMethods({ log, environmentId: record.id, onChange: (keys) => settleSweep.settingsChanged(keys) }),
     ...accessMethods({ pairings, clientSessions, accessLog }),
     ...sessionMethods({ log, clock: now, deletion, validateRunParameters: host.validateSessionInput }),
     ...groupMethods({ log, clock: now }),
@@ -465,6 +474,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   } catch (error) {
     console.error("The startup purge failed; the minute sweep will try again:", error);
   }
+  // The shelf's sweep (#117): a pass now, before the wire opens, then every five minutes.
+  closers.push(settleSweep.start());
   wire.open();
   launcher.onQuery((query) => lifecycle.answer(query));
   // The minute sweep: expired pairings, idle `tui` local client sessions, receipts past their 30 days, and

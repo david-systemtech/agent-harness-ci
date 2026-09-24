@@ -3,6 +3,7 @@ import { ACCESS_EVENT_PAYLOADS, ACCESS_EVENT_TYPES, ACCESS_STREAM_KIND } from ".
 import { ENVIRONMENT_NOTICE_TYPES, ENVIRONMENT_STREAM_KIND, EnvironmentNotice } from "./notices.js";
 import { GROUP_EVENT_TYPES, GROUP_STREAM_KIND, SESSION_EVENT_TYPES, SESSION_STREAM_KIND } from "./sessions.js";
 import { TRANSCRIPT_EVENT_TYPES } from "./transcript.js";
+import { SETTINGS_EVENT_TYPES, SETTINGS_STREAM_KIND } from "./settings.js";
 
 /**
  * The event-type table: every event type the environment's log carries, by
@@ -58,6 +59,7 @@ export const EVENT_TYPES = {
   [ACCESS_STREAM_KIND]: accessEventTypes,
   [SESSION_STREAM_KIND]: sessionEventTypes,
   [GROUP_STREAM_KIND]: GROUP_EVENT_TYPES,
+  [SETTINGS_STREAM_KIND]: SETTINGS_EVENT_TYPES,
 } as const satisfies Readonly<Record<string, EventTypeTable>>;
 
 export type SessionEventType = keyof typeof sessionEventTypes;
