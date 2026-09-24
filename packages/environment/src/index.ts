@@ -88,6 +88,17 @@ export {
   type ToolServerScope,
 } from "./adapter/seams.js";
 export { capability, requireCapability, unsupported } from "./adapter/capabilities.js";
+export {
+  CLAUDE_DESCRIPTOR,
+  CLAUDE_MODES,
+  CLAUDE_PROVIDER,
+  autoMemoryDirectory,
+  claudeCredentials,
+  createClaudeAdapter,
+  parseClaudeStatus,
+  type ClaudeAdapter,
+  type ClaudeAdapterOptions,
+} from "./adapters/claude/index.js";
 export { RUNS_PROJECTOR, runsProjector } from "./runs/runs-projector.js";
 export { runMethods, type RunMethodsOptions } from "./runs/run-methods.js";
 export { foldTranscript, type TranscriptParts } from "./runs/transcript.js";

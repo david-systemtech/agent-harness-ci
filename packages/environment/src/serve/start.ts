@@ -33,6 +33,7 @@ import { createPairings, pairRoute, type Pairings } from "../auth/pairings.js";
 import { createRateLimiter } from "../auth/rate-limit.js";
 import { formatActor, openEventLog, type EventLog, type Projector } from "../event-log/event-log.js";
 import type { Adapter } from "../adapter/contract.js";
+import { createClaudeAdapter } from "../adapters/claude/index.js";
 import { createAdapterHost, type AdapterHost, type HostAccount } from "../adapter/host.js";
 import type { InstructionComposer, ModeClamp, ToolServerFactory } from "../adapter/seams.js";
 import type { PermissionBroker } from "../adapter/contract.js";
@@ -69,6 +70,9 @@ export const HARNESS_VERSION: string = (
  * environment on one machine passes its own.
  */
 export const DEFAULT_PORT = 7433;
+
+/** Where each repository's auto-memory directory lives in the data directory, shared by every account (ADR 0018). */
+export const AUTO_MEMORY_DIRECTORY = "auto-memory";
 
 /** The database file in the data directory. */
 export const DATABASE_FILE = "environment.db";
@@ -148,7 +152,7 @@ export interface EnvironmentOptions {
   readonly runs?: MemoryRunRegistry;
   /** Whether this is a container; with no launcher present too, updates are managed outside. Preset: `processContainerDetector`. */
   readonly containerDetector?: ContainerDetector;
-  /** The adapters the adapter host holds, one per provider. Preset: none, until the Claude adapter (#121). */
+  /** The adapters the adapter host holds, one per provider. Preset: the Claude adapter, with auto memory under the data directory. */
   readonly adapters?: readonly Adapter[];
   /** The accounts runs go through. Preset: none, until the account store (#134) supplies them. */
   readonly accounts?: readonly HostAccount[];
@@ -313,7 +317,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       log,
       clock,
       ...(options.runs !== undefined && { runs: options.runs }),
-      ...(options.adapters !== undefined && { adapters: options.adapters }),
+      adapters: options.adapters ?? [createClaudeAdapter({ clock, autoMemoryRoot: join(dataDir, AUTO_MEMORY_DIRECTORY) })],
       ...(options.accounts !== undefined && { accounts: options.accounts }),
       ...(options.defaultAccountId !== undefined && { defaultAccountId: options.defaultAccountId }),
       ...options.adapterSeams,

@@ -426,6 +426,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       safely(() => turn.dispose(), (e) => console.error("Disposing a turn the drain refused failed:", e));
       return;
     }
+    safely(() => turn.onAdopted?.(runId), (e) => console.error("Telling an adopted turn its run id failed:", e));
     const plan: PlannedRun = { ...previous, runId, prompt: [], resumeFrom: null };
     const started: RunStartedPayload = {
       runId,
@@ -619,6 +620,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       for (const entry of [...live.values()]) finish(entry, { type: "end", reason }, "host");
       for (const turns of adoptions.values()) for (const turn of turns) safely(() => turn.dispose(), (e) => console.error("Disposing a turn failed:", e));
       adoptions.clear();
+      for (const adapter of adapters.list()) safely(() => adapter.close?.(), (e) => console.error(`Closing the ${adapter.descriptor.provider} adapter failed:`, e));
     },
   };
 };

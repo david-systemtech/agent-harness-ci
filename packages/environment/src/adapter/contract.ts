@@ -67,6 +67,8 @@ export interface UsageWindow {
   /** How much is used, 0 to 1 and beyond; null when the provider does not say. */
   readonly utilisation: number | null;
   readonly resetsAt: string | null;
+  /** The latest rate-limit verdict a run reported for the window (`plan.limit`), folded in after the reading. */
+  readonly verdict?: "allowed" | "warning" | "rejected";
 }
 
 /** Plan usage for an account (`planUsage`), with the identity a client pools it by (ADR 0005, ADR 0018). */
@@ -74,6 +76,12 @@ export interface UsageReading {
   readonly identity: AccountIdentity;
   readonly windows: readonly UsageWindow[];
   readonly readAt: string;
+  /**
+   * Why there are no windows, when the provider reported none: an API-key
+   * login, a binary whose usage method was renamed, a read that failed. A
+   * client degrades to absent-with-reason on it. Absent on a reading with windows.
+   */
+  readonly unavailableReason?: string;
 }
 
 /** A slash command the provider offers an account in a workspace (`commands`). */
@@ -246,6 +254,8 @@ export interface AdapterRun {
 /** A turn the provider opened on its own: a run the host adopts into the same session, and the queued messages it opened with. */
 export interface ProviderTurn extends AdapterRun {
   readonly messageIds: readonly string[];
+  /** Tells the turn the run id the host adopted it under, before its events are read, so what it asks the broker names its run. */
+  onAdopted?(runId: string): void;
 }
 
 /** What the host hands a run beside its input. */
@@ -290,4 +300,10 @@ export interface Adapter {
    * purge's transaction (`sessions/deletion.ts`, `ProviderTranscripts`).
    */
   deleteTranscript?(sessionId: string): undefined;
+  /**
+   * The environment is closing: stop every provider process the adapter
+   * still holds, including one kept for work that outlived its run (a
+   * background task, a schedule). The host calls it after ending its runs.
+   */
+  close?(): void;
 }
