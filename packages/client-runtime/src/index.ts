@@ -74,7 +74,18 @@ export {
   type RejectedReceipt,
 } from "./outbox/outbox.js";
 export { DRAFT_DEBOUNCE_MS, type Drafts } from "./outbox/drafts.js";
-export { REQUEST_TIMEOUT_MS, type RequestAnswer, type RequestFailure, type RequestFailureCode, type Requests } from "./requests.js";
+export {
+  CACHE_REFRESH_NOTICES,
+  QUERY_REFRESH_NOTICES,
+  REQUEST_CACHE_TTL_MS,
+  REQUEST_TIMEOUT_MS,
+  type CachedAnswer,
+  type QueryMethodName,
+  type RequestAnswer,
+  type RequestFailure,
+  type RequestFailureCode,
+  type Requests,
+} from "./requests.js";
 export type {
   HeadingMember,
   ListFreshness,

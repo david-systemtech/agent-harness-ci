@@ -8,7 +8,7 @@ import { createOutbox, type Outbox } from "./outbox/outbox.js";
 import { overlaidLists, pendingTargets } from "./outbox/overlay.js";
 import type { Platform } from "./platform.js";
 import { environmentsProjection } from "./projections/environments.js";
-import { createRequests } from "./requests.js";
+import { createRequestCache, createRequests, type Requests } from "./requests.js";
 import { searchProjection } from "./projections/search.js";
 import { sessionListProjection } from "./projections/session-list.js";
 import type { Runtime } from "./runtime.js";
@@ -51,8 +51,10 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
     records: registry.list,
     notices,
     report,
-    applied(environmentId, stream, event) {
+    applied(environmentId, stream, event, news) {
       if (stream === "list") outbox.applied(environmentId, event);
+      // A notice replayed onto a stream that held nothing is history: every ready fetches the cache again anyway.
+      if (stream === "environment" && news) requestCache.noticed(environmentId, event.type);
     },
   });
   const outbox: Outbox = createOutbox({
@@ -87,7 +89,10 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
   let closing: Promise<void> | undefined;
   let started: Promise<void> | undefined;
   const capability: Runtime["capability"] = (environmentId, name) => answerCapability(name, registry.record(environmentId), platform.shell);
-  const requests = createRequests({ clock: platform.clock, capability, request: registry.seams.request });
+  const { call } = createRequests({ clock: platform.clock, capability, request: registry.seams.request });
+  const requestCache = createRequestCache({ clock: platform.clock, call, records: registry.list, report });
+  registry.seams.onForget((environmentId) => requestCache.forget(environmentId));
+  const requests: Requests = { call, cached: (environmentId, method, params) => requestCache.cached(environmentId, method, params) };
 
   const runtime: Runtime = {
     // A start that failed is not kept: the next call starts again.
@@ -135,6 +140,7 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
         drafts.close();
         await outbox.close();
         sessionList.stop();
+        requestCache.close();
         await made.close();
       })();
       return closing;
