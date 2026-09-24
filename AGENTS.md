@@ -33,6 +33,10 @@ the event log uses; pnpm comes from the `packageManager` pin through
 
 - `pnpm install`, then `pnpm typecheck` (`tsc -b`), `pnpm lint` and `pnpm test`
   (Vitest, every package's suite); CI runs the same three.
+- `packages/contracts/schema/` is the JSON Schema export of every contracts
+  schema, committed as the release artefact for clients in other languages.
+  After changing a schema run `pnpm --filter @agent-harness/contracts
+  export-schemas` and commit the result; CI regenerates it and fails on drift.
 - Two local lint rules in `eslint-rules/` enforce ADR 0003 and 0004:
   `agent-harness/no-client-organisation-state` (its allowlisted modules and the
   enumerated presentation keys are constants at the top of the rule) and

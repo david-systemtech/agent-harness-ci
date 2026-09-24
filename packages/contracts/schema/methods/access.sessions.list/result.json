@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "access.sessions.list result",
+  "type": "object",
+  "properties": {
+    "sessions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "A client session's id, as hello names it and the access methods list and revoke it."
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "desktop",
+              "tui",
+              "web",
+              "program"
+            ],
+            "description": "What kind of client a client session belongs to: the desktop window, the terminal UI, a browser tab, or a program (a script or bot driving the wire)."
+          },
+          "label": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+            "description": "An instant as an ISO 8601 UTC timestamp."
+          },
+          "lastSeenAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                "description": "An instant as an ISO 8601 UTC timestamp."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "scopes": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "read",
+                "sessions:write",
+                "runs:drive",
+                "terminal",
+                "admin"
+              ],
+              "description": "One of the five scopes a method may require: read (list and subscribe), sessions:write (organisation commands), runs:drive (start, send, interrupt, answer prompts), terminal (terminals, files and diffs), admin (pairings, client sessions, drain, rebuild, settings)."
+            },
+            "uniqueItems": true,
+            "description": "The scopes a client session holds, as a non-empty set."
+          },
+          "ceiling": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The highest mode a client session may use; its values are the permissions workstream's."
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "label",
+          "createdAt",
+          "lastSeenAt",
+          "scopes",
+          "ceiling"
+        ]
+      }
+    }
+  },
+  "required": [
+    "sessions"
+  ]
+}

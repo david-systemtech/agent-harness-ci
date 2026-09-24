@@ -4,5 +4,32 @@
  */
 export const PRODUCT_NAME = "agent-harness";
 
-/** The wire protocol version an environment and its clients agree on in `hello`. */
-export const PROTOCOL_VERSION = 1;
+export * from "./envelope.js";
+export * from "./errors.js";
+export * from "./flags.js";
+export * from "./frames.js";
+export {
+  METHOD_KINDS,
+  commandParams,
+  defineMethod,
+  subscriptionParams,
+  type ErrorMember,
+  type Method,
+  type MethodErrorUnion,
+  type MethodKind,
+  type MethodSpec,
+} from "./method.js";
+export {
+  CLIENT_KINDS,
+  ClientKind,
+  ClientSessionId,
+  CommandId,
+  JsonObject,
+  RequestId,
+  Sequence,
+  SubscriptionId,
+  Timestamp,
+} from "./primitives.js";
+export * from "./registry.js";
+export * from "./schema-export.js";
+export * from "./scopes.js";

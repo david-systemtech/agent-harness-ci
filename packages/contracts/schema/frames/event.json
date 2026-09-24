@@ -1,0 +1,167 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "EventFrame",
+  "type": "object",
+  "properties": {
+    "type": {
+      "type": "string",
+      "const": "event"
+    },
+    "subscription": {
+      "type": "string",
+      "minLength": 1,
+      "description": "A subscription's id, chosen by the environment and carried by every subscription message."
+    },
+    "sequence": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991,
+      "description": "The event's global sequence; always equal to event.sequence."
+    },
+    "event": {
+      "type": "object",
+      "properties": {
+        "sequence": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991,
+          "description": "The event's place in the log's global sequence, from 1."
+        },
+        "eventId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "streamKind": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The kind of stream the event belongs to: environment, access, session."
+        },
+        "streamId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "streamVersion": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "description": "The event's place in its own stream, from 1."
+        },
+        "type": {
+          "type": "string",
+          "minLength": 1,
+          "description": "What happened, area.verb in the past tense: pairing.created."
+        },
+        "occurredAt": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+          "description": "An instant as an ISO 8601 UTC timestamp."
+        },
+        "commandId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+              "description": "The client-generated UUID every command takes; a retry with the same id applies once."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The command that produced the event; null when none did."
+        },
+        "causationId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The event that caused this one; null when none did."
+        },
+        "correlationId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The id every event of one piece of work shares; null when there is none."
+        },
+        "actor": {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "client_session",
+                "routine",
+                "adapter",
+                "system"
+              ],
+              "description": "What caused the event: a client session, a routine, a provider adapter or the environment itself."
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The actor's id within its kind; a system component names itself."
+            }
+          },
+          "required": [
+            "kind",
+            "id"
+          ],
+          "description": "Who caused an event: a client session, routine, adapter or system component."
+        },
+        "payload": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {},
+          "description": "The event's data; its shape belongs to the stream's workstream."
+        },
+        "metadata": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {}
+        }
+      },
+      "required": [
+        "sequence",
+        "eventId",
+        "streamKind",
+        "streamId",
+        "streamVersion",
+        "type",
+        "occurredAt",
+        "commandId",
+        "causationId",
+        "correlationId",
+        "actor",
+        "payload",
+        "metadata"
+      ],
+      "description": "One event on the environment's log, as every stream carries it."
+    }
+  },
+  "required": [
+    "type",
+    "subscription",
+    "sequence",
+    "event"
+  ],
+  "description": "From the environment: one event of the subscription's stream. sequence equals event.sequence, a rule the decoder keeps and this schema cannot state."
+}

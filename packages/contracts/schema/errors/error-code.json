@@ -1,0 +1,7 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ErrorCode",
+  "type": "string",
+  "pattern": "^[a-z][a-z0-9_]*$",
+  "description": "A stable error code in snake case."
+}

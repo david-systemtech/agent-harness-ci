@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ByeReason",
+  "type": "string",
+  "enum": [
+    "unauthorized",
+    "expired",
+    "revoked",
+    "protocol",
+    "draining",
+    "updating"
+  ],
+  "description": "Why the environment is closing the connection: the token is invalid, foreign or unknown; it expired; the client session was revoked; the protocol versions differ; or the environment is draining or updating."
+}
