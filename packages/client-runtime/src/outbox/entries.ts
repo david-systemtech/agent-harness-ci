@@ -29,6 +29,13 @@ export interface OutboxEntry {
   readonly createdAt: string;
   /** How many times it has been sent. */
   readonly attempts: number;
+  /**
+   * The client session it was last sent on; null until it is sent. The
+   * environment keys receipts by client session, so a retry on another
+   * (the local connection's is new on every start; a re-pair makes a new
+   * one) is run again rather than answered from its receipt.
+   */
+  readonly sentOn: string | null;
   readonly state: EntryState;
   /** What its optimistic rule says it will change in the list, shown over the list until the environment says so; null when it has none. */
   readonly overlay: OverlayChange | null;
@@ -78,6 +85,7 @@ const readOverlay = (value: unknown): OverlayChange | null | undefined => {
 const readEntry = (value: unknown, environmentId: string): OutboxEntry | undefined => {
   if (!isObject(value)) return undefined;
   const { commandId, method, params, createdAt, attempts, state, label } = value;
+  const sentOn = value["sentOn"] ?? null;
   if (typeof commandId !== "string" || typeof method !== "string" || !isMethodName(method) || !isObject(params)) return undefined;
   const spec = registry[method];
   if (!isCommand(spec) || (spec.scope !== "sessions:write" && spec.scope !== "runs:drive")) return undefined;
@@ -86,10 +94,11 @@ const readEntry = (value: unknown, environmentId: string): OutboxEntry | undefin
   if (typeof attempts !== "number" || !Number.isInteger(attempts) || attempts < 0) return undefined;
   if (state !== "queued" && state !== "in-flight") return undefined;
   if (label !== null && typeof label !== "string") return undefined;
+  if (sentOn !== null && typeof sentOn !== "string") return undefined;
   const target = readTarget(value["target"]);
   const overlay = readOverlay(value["overlay"]);
   if (target === undefined || overlay === undefined) return undefined;
-  return { commandId, environmentId, method: method as CommandMethodName, params, target, createdAt, attempts, state, overlay, label };
+  return { commandId, environmentId, method: method as CommandMethodName, params, target, createdAt, attempts, sentOn, state, overlay, label };
 };
 
 /** The document as entries; an entry this build cannot send is skipped and counted, a document in another form is not read. */

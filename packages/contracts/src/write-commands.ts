@@ -21,7 +21,11 @@ export type SessionWriteMethodName = {
  *
  * A refusal a setter may meet (`not_pinned`, `not_active`, `name_taken`,
  * `out_of_window`) depends on the target's state too, but the later command
- * would meet it the same way, so it does not stop the coalescing.
+ * would meet it the same way, so it does not stop the coalescing. What an
+ * earlier setter sets may matter to a command queued between the two,
+ * though: a group's name is unique on its environment, so an outbox keeps a
+ * `groups.rename` with a create or another group's rename behind it, which
+ * may take the name it gives up.
  */
 export type WriteCommandKind =
   | { readonly setter: { readonly target: "session"; readonly fields: readonly (keyof SessionSummary)[] } }

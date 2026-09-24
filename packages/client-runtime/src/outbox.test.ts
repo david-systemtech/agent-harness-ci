@@ -161,7 +161,7 @@ describe("commands.dispatch", () => {
     expect(pendingCount(runtime)).toBe(0);
   });
 
-  it("counts a retry refused for what its own earlier attempt did as accepted: a create that exists, a delete of what is gone", async () => {
+  it("counts a retry refused for what its own earlier attempt did as accepted (a create that exists), never a first attempt's refusal (a delete of what is gone)", async () => {
     const { runtime, wire, clock, id } = await paired();
     wire.answer("groups.create", () => undefined);
     wire.answer("sessions.delete", () => undefined);
@@ -206,6 +206,98 @@ describe("commands.dispatch", () => {
     expect(again.params["commandId"]).toBe(first.params["commandId"]);
     expect(await inFlight).toMatchObject({ ok: true, commandId: first.params["commandId"] });
     expect(requests(wire, "runs.interrupt")).toHaveLength(1);
+  });
+
+  it("sends a runs:drive command in flight again after a restart on the same client session, with its command id", async () => {
+    const first = await paired();
+    first.wire.answer("runs.interrupt", () => undefined);
+    const answer = first.runtime.commands.dispatch(first.id, "runs.interrupt", { runId: randomUUID() });
+    const sent = await first.wire.server.request("runs.interrupt");
+    await first.runtime.close();
+    expect(await answer).toMatchObject({ ok: false, error: { code: "closed" } });
+
+    const wire = fakeWire({ clock: first.clock, environmentId: first.id, name: "desk" });
+    wire.answer("runs.interrupt", () => answering(accepted(5)));
+    const platform = inMemoryPlatform({ clock: first.clock, fetch: wire.fetch, webSocket: wire.webSocket, documents: first.platform.documents, secrets: first.platform.secrets });
+    const { runtime } = createRuntimeWithSeams(platform);
+    onTestFinished(() => runtime.close());
+    void runtime.start();
+    await wire.server.accept({ clientSessionId: first.wire.credential()?.clientSessionId as string });
+    const again = await wire.server.request("runs.interrupt");
+    expect(again.params["commandId"]).toBe(sent.params["commandId"]);
+    await flush();
+    expect(pendingCount(runtime)).toBe(0);
+  });
+
+  it("never sends a runs:drive command in flight again under a new client session, which the environment would run a second time: it is dropped with a notice", async () => {
+    const clock = manualClock();
+    const wire = fakeWire({ clock, name: "desk" });
+    const platform = (documents?: InMemoryDocumentStore) =>
+      inMemoryPlatform({ clock, kind: "tui", grant: wire.grant, fetch: wire.fetch, webSocket: wire.webSocket, ...(documents && { documents }) });
+    const first = platform();
+    const one = createRuntimeWithSeams(first).runtime;
+    onTestFinished(() => one.close());
+    const starting = one.start();
+    await wire.server.accept();
+    await starting;
+    wire.answer("runs.interrupt", () => undefined);
+    void one.commands.dispatch(wire.environmentId, "runs.interrupt", { runId: randomUUID() });
+    await wire.server.request("runs.interrupt");
+    const before = wire.credential()?.clientSessionId;
+    await one.close();
+
+    // The local connection exchanges the grant on every start: a new client session, whose receipts are its own.
+    wire.answer("runs.interrupt", () => answering(accepted(5)));
+    const { runtime } = createRuntimeWithSeams(platform(first.documents));
+    onTestFinished(() => runtime.close());
+    const again = runtime.start();
+    await wire.server.accept();
+    await again;
+    await flush();
+    expect(wire.credential()?.clientSessionId).not.toBe(before);
+    expect(requests(wire, "runs.interrupt")).toEqual([]);
+    expect(pendingCount(runtime)).toBe(0);
+    expect(runtime.projections.notices.read().filter((n) => n.kind === "command-dropped").map((n) => n.message)).toEqual([
+      expect.stringMatching(/^Interrupt on desk was dropped: .*new client session/),
+    ]);
+  });
+
+  it("holds a sessions:write command the environment answered unavailable, and sends it again with its command id on the next ready", async () => {
+    const { runtime, wire, clock, id } = await paired();
+    wire.answer("sessions.archive", () => ({ error: { code: "unavailable", message: "Starting.", data: {} } }));
+    const answer = runtime.commands.dispatch(id, "sessions.archive", { sessionId: randomUUID() });
+    const first = await wire.server.request("sessions.archive");
+    await flush();
+    expect(pendingCount(runtime)).toBe(1);
+    expect(runtime.projections.notices.read().filter((n) => n.kind === "command-rejected")).toEqual([]);
+
+    wire.answer("sessions.archive", () => answering(accepted(6)));
+    wire.server.drop();
+    await flush();
+    clock.advance(1250);
+    await wire.server.accept();
+    const second = await wire.server.request("sessions.archive");
+    expect(second.params["commandId"]).toBe(first.params["commandId"]);
+    expect(await answer).toMatchObject({ ok: true, commandId: first.params["commandId"] });
+  });
+
+  it("forgets the outbox of an environment removed from this client: what waited is answered forgotten and never sent", async () => {
+    const { runtime, wire, id } = await paired();
+    await cut(wire);
+    const answer = runtime.commands.dispatch(id, "sessions.archive", { sessionId: randomUUID() });
+    await flush();
+    expect(pendingCount(runtime)).toBe(1);
+    await runtime.connections.remove(id);
+    expect(await answer).toMatchObject({ ok: false, error: { code: "forgotten" } });
+
+    // Paired again, it starts with an empty outbox.
+    wire.discovery({});
+    const adding = runtime.connections.add({ link: wire.link });
+    await wire.server.accept();
+    expect(await adding).toMatchObject({ status: "paired" });
+    await flush();
+    expect(requests(wire, "sessions.archive")).toEqual([]);
+    expect(pendingCount(runtime)).toBe(0);
   });
 
   it("queues a sessions:write command while unreachable, counts it pending, and sends it once the environment is back", async () => {
@@ -413,6 +505,24 @@ describe("coalescing", () => {
     void runtime.commands.dispatch(id, "sessions.tag", { sessionId, tag: "a" });
     await flush();
     expect(pendingCount(runtime)).toBe(4);
+  });
+  it("keeps a queued group rename that a create or another group's rename behind it may rely on, since it gives up a name they may take", async () => {
+    const { runtime, wire, id, list } = await paired({ list: true });
+    const [renamed, created] = [randomUUID(), randomUUID()];
+    listed(list, 10, [], [groupOf(renamed, "Brandsolidate")]);
+    await flush();
+    await cut(wire);
+    void runtime.commands.dispatch(id, "groups.rename", { groupId: renamed, name: "Cool-Jams" });
+    void runtime.commands.dispatch(id, "groups.rename", { groupId: renamed, name: "Bluebeards" });
+    await flush();
+    expect(pendingCount(runtime)).toBe(1);
+
+    // The create takes the name the first rename gives up: sent without that rename, the environment would refuse it name_taken.
+    void runtime.commands.dispatch(id, "groups.create", { id: created, name: "Brandsolidate" });
+    void runtime.commands.dispatch(id, "groups.rename", { groupId: renamed, name: "Sir Waggingtons" });
+    await flush();
+    expect(pendingCount(runtime)).toBe(3);
+    expect(runtime.projections.sessionList.read().groups.map((h) => h.name).sort()).toEqual(["Brandsolidate", "Sir Waggingtons"]);
   });
 });
 

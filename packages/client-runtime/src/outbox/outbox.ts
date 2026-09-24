@@ -48,8 +48,10 @@ export { DRAFT_DEBOUNCE_MS } from "./drafts.js";
  *   queue: dispatched while unreachable they fail at once with `unreachable`,
  *   and one still waiting its turn when the socket goes fails the same way;
  *   one already in flight is sent again, so an answer given as the link
- *   drops applies once. `admin` and `read` commands are direct requests
- *   (`requests.call`), never queued.
+ *   drops applies once; but never on another client session than it was
+ *   sent on, whose retry the environment would run a second time: then it
+ *   is dropped with a notice. `admin` and `read` commands are direct
+ *   requests (`requests.call`), never queued.
  * - An accepted receipt removes the entry, and its overlay stays until the
  *   list's cursor reaches the receipt's sequence (or an event carrying its
  *   command id applies first). A rejection removes the entry and its
@@ -58,7 +60,8 @@ export { DRAFT_DEBOUNCE_MS } from "./drafts.js";
  *   again on the next ready.
  * - A `queued` setter (`SESSION_WRITE_COMMANDS`) of the same method and
  *   target as a later one is replaced by it: dropped with its overlay, its
- *   answer the later one's.
+ *   answer the later one's; but not a group's rename with a create or
+ *   another group's rename behind it, which may take the name it gives up.
  * - An entry dispatched more than seven days ago is dropped with a notice.
  */
 
@@ -80,7 +83,9 @@ export type RejectedReceipt = Extract<CommandReceipt, { readonly status: "reject
  * environment's reason (a rejected receipt's, which the failure carries, or
  * an error answer's code), `malformed` (an answer that is not the method's),
  * `unreachable` (a `runs:drive` command still waiting its turn when the
- * socket went), `expired` (seven days unsent), `forgotten` (its environment
+ * socket went), `unconfirmed` (a `runs:drive` command in flight when the
+ * client session changed, which is not sent again: whether it applied is
+ * not known), `expired` (seven days unsent), `forgotten` (its environment
  * was removed), `closed` (the runtime closed first: the entry stays in the
  * outbox for the next start).
  */
@@ -89,6 +94,7 @@ export type DispatchFailureCode =
   | "direct"
   | "invalid_params"
   | "malformed"
+  | "unconfirmed"
   | "expired"
   | "forgotten"
   | "closed"
@@ -180,6 +186,15 @@ const EMPTY: EnvironmentOutbox = { entries: [], overlays: [] };
 type Answer = DispatchAnswer<CommandMethodName>;
 
 const sameTarget = (a: Target | null, b: Target | null) => a !== null && b !== null && a.kind === b.kind && a.id === b.id;
+
+/**
+ * Whether an entry queued behind `earlier` may rely on what `earlier` sets,
+ * so a later setter may not stand in for it at the end of the queue: a
+ * group's name is unique on its environment, so a rename gives up a name
+ * that a create, or another group's rename, queued behind it may take.
+ */
+const reliedOn = (earlier: OutboxEntry, behind: readonly OutboxEntry[]): boolean =>
+  earlier.method === "groups.rename" && behind.some((e) => (e.method === "groups.create" || e.method === "groups.rename") && !sameTarget(e.target, earlier.target));
 
 /** Whether the scope's commands go through the outbox. */
 const queuedScope = (scope: string): scope is "sessions:write" | "runs:drive" => scope === "sessions:write" || scope === "runs:drive";
@@ -349,13 +364,36 @@ export const createOutbox = (host: OutboxHost): Outbox => {
     void persist(environmentId);
   };
 
+  /**
+   * A `runs:drive` command in flight when the client session changed: the
+   * environment would run a retry under the new one again (a message sent
+   * twice), so it leaves unsent, and a notice says it may not have applied.
+   */
+  const unconfirmed = (entry: OutboxEntry) => {
+    const label = labelOf(entry);
+    const name = nameOf(entry.environmentId);
+    remove(entry);
+    notices.raise(entry.environmentId, {
+      kind: "command-dropped",
+      message: `${verbOf(entry.method)} on ${label} was dropped: it was sent before this client reconnected to ${name} as a new client session, so whether it applied is not known, and it is not sent again.`,
+      action: null,
+    });
+    answer(entry.commandId, failure(entry.commandId, "unconfirmed", `It was sent before this client reconnected to ${name} as a new client session, which would run it again; it may or may not have applied.`));
+  };
+
   /** Sends the environment's next entry, if its socket is ready and nothing is under way. */
-  const kick = (environmentId: string) => {
+  const kick = (environmentId: string): void => {
     const sender = senders.get(environmentId);
     if (!sender || closed || !sender.ready || !sender.isLoaded || sender.sending !== null || sender.stalled) return;
     const next = outboxOf(environmentId).entries.find((entry) => entry.state === "queued" || entry.state === "in-flight");
     if (!next) return;
-    const sending: OutboxEntry = { ...next, state: "in-flight", attempts: next.attempts + 1 };
+    const session = host.record(environmentId)?.clientSessionId ?? null;
+    if (next.state === "in-flight" && next.sentOn !== session && registry[next.method].scope === "runs:drive") {
+      unconfirmed(next);
+      void persist(environmentId);
+      return kick(environmentId);
+    }
+    const sending: OutboxEntry = { ...next, state: "in-flight", attempts: next.attempts + 1, sentOn: session };
     change(environmentId, (current) => ({ ...current, entries: current.entries.map((e) => (e.commandId === next.commandId ? sending : e)) }));
     sender.sending = next.commandId;
     void persist(environmentId);
@@ -458,7 +496,7 @@ export const createOutbox = (host: OutboxHost): Outbox => {
       for (const entry of unsent) {
         notices.raise(environmentId, {
           kind: "command-dropped",
-          message: `${verbOf(entry.method)} on ${entry.label ?? nameOf(environmentId)} was dropped: it was not sent before this client closed, and run commands never queue.`,
+          message: `${verbOf(entry.method)} on ${entry.label ?? nameOf(environmentId)} was dropped: this client closed before ${nameOf(environmentId)} answered it, and run commands never queue, so it may not have applied.`,
           action: null,
         });
       }
@@ -512,14 +550,16 @@ export const createOutbox = (host: OutboxHost): Outbox => {
         target,
         createdAt: clock.now().toISOString(),
         attempts: 0,
+        sentOn: null,
         state: "queued",
         overlay: spec.scope === "sessions:write" ? overlayOf(method, stored, shown, host.now(environmentId).toISOString()) : null,
         label: labelAtDispatch(method, stored, target, shown),
       };
       const kind = (SESSION_WRITE_COMMANDS as Readonly<Record<string, (typeof SESSION_WRITE_COMMANDS)[SessionWriteMethodName]>>)[method];
+      const queue = outboxOf(environmentId).entries;
       const replaced =
         kind !== undefined && "setter" in kind
-          ? outboxOf(environmentId).entries.filter((e) => e.state === "queued" && e.method === method && sameTarget(e.target, target))
+          ? queue.filter((e, at) => e.state === "queued" && e.method === method && sameTarget(e.target, target) && !reliedOn(e, queue.slice(at + 1)))
           : [];
       const gone = new Set(replaced.map((e) => e.commandId));
       change(environmentId, (current) => ({

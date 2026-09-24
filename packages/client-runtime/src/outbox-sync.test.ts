@@ -151,6 +151,32 @@ describe("the outbox against an environment", () => {
     await until(() => runtime.projections.sessionList.read().pinned.length === 1, "the pin to be listed");
   });
 
+  it("rejects a command queued offline whose session another client deleted meanwhile not_found, reverting it with one notice", async () => {
+    const t = await harness.environment({ name: "desk" });
+    const one = await pairedWithSession(t, "Invoices");
+    const two = harness.runtime(inMemoryPlatform());
+    await two.start();
+    await two.connections.add({ link: (await t.createPairing()).link });
+
+    one.platform.network.setOnline(false);
+    one.wire.setDown(true);
+    one.wire.cut();
+    await until(() => phase(one.runtime) === "backoff", "the connection to be lost");
+    const answer = one.runtime.commands.dispatch(t.env.id, "sessions.archive", { sessionId: one.sessionId });
+    await until(() => row(one.runtime, one.sessionId)?.pending === true, "the row to show pending");
+    expect(await two.commands.dispatch(t.env.id, "sessions.delete", { sessionId: one.sessionId })).toMatchObject({ ok: true });
+
+    one.wire.setDown(false);
+    one.platform.network.setOnline(true);
+    expect(await answer).toMatchObject({ ok: false, error: { code: "not_found", receipt: { status: "rejected", reason: "not_found" } } });
+    await until(() => row(one.runtime, one.sessionId) === undefined, "the deletion to reach the first runtime");
+    expect(one.runtime.projections.notices.read().filter((n) => n.kind === "command-rejected").map((n) => n.message)).toEqual([
+      "Archive on Invoices was rejected: it no longer exists.",
+    ]);
+    expect(one.runtime.projections.environments.read()[0]?.pendingCommands).toBe(0);
+    expect(applied(t, one.sessionId, "session.archived")).toBe(0);
+  });
+
   it("carries a draft typed in one runtime to another on the same environment", async () => {
     const t = await harness.environment({ name: "desk" });
     const one = await pairedWithSession(t, "Invoices");
