@@ -45,6 +45,7 @@ import {
   SettingsKeyName,
   SettingsPatch,
   SettingsValues,
+  TranscriptCompactAfterDays,
 } from "./settings.js";
 import { isCommand } from "./method.js";
 import { CommandReceipt } from "./receipt.js";
@@ -301,6 +302,11 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "settings/idle-span.json", title: "IdleSpan", schema: IdleSpan },
   { path: "settings/keys/sessions.autoSettleAfterIdle.json", title: "AutoSettleAfterIdle", schema: AutoSettleAfterIdle },
   { path: "settings/keys/sessions.autoSettleOnMerge.json", title: "AutoSettleOnMerge", schema: AutoSettleOnMerge },
+  {
+    path: "settings/keys/sessions.transcriptCompactAfterDays.json",
+    title: "TranscriptCompactAfterDays",
+    schema: TranscriptCompactAfterDays,
+  },
   { path: "settings/keys/providers.processIdleMinutes.json", title: "ProcessIdleMinutes", schema: ProcessIdleMinutes },
   { path: "settings/settings-values.json", title: "SettingsValues", schema: SettingsValues },
   { path: "settings/settings-patch.json", title: "SettingsPatch", schema: SettingsPatch },

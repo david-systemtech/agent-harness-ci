@@ -44,18 +44,20 @@ export const anyValidValue =
     SETTINGS[key].schema.safeParse(value).success || `${key} does not hold a valid value.`;
 
 /**
- * Every step. Only the Appearance step is registered so far, for the
- * auto-settle keys in its Sessions band (session-state spec, "Auto-settle:
- * rules and settings"); the milestone-1 steps arrive with Set up (#88), and
- * Appearance gains its theme (ADR 0023) there.
+ * Every step. Two are registered so far: Appearance, for the auto-settle
+ * keys in its Sessions band (session-state spec, "Auto-settle: rules and
+ * settings") and the transcript compaction window beside them (#123), and
+ * Account, for the process idle time (#120); the milestone-1 steps arrive
+ * with Set up (#88), and Appearance gains its theme (ADR 0023) there.
  */
 export const STEP_REGISTRY = [
   {
     id: "appearance",
-    writes: ["sessions.autoSettleAfterIdle", "sessions.autoSettleOnMerge"],
+    writes: ["sessions.autoSettleAfterIdle", "sessions.autoSettleOnMerge", "sessions.transcriptCompactAfterDays"],
     checks: [
       { key: "sessions.autoSettleAfterIdle", check: anyValidValue("sessions.autoSettleAfterIdle") },
       { key: "sessions.autoSettleOnMerge", check: anyValidValue("sessions.autoSettleOnMerge") },
+      { key: "sessions.transcriptCompactAfterDays", check: anyValidValue("sessions.transcriptCompactAfterDays") },
     ],
     links: [{ pane: "appearance", band: "sessions" }],
   },

@@ -21,6 +21,7 @@ import {
 } from "@agent-harness/contracts";
 import { decodeEvent, type EventRow } from "../event-log/database.js";
 import type { EventEnvelope, EventLog } from "../event-log/event-log.js";
+import { sessionStream } from "../sessions/streams.js";
 
 /**
  * The transcript part of a session's snapshot (claude-adapter spec, the
@@ -32,7 +33,8 @@ import type { EventEnvelope, EventLog } from "../event-log/event-log.js";
  * spec says (and left out of the read, `readTranscriptEvents`): the snapshot
  * holds settled items, and a client applies deltas to the open item. The
  * fold is not bounded for a live session: compaction (#123) folds only
- * sessions long left untouched (ADR 0002).
+ * sessions long left untouched (ADR 0002), and a compacted session's fold
+ * goes on from its compaction's snapshot (`sessionTranscript`).
  */
 
 export interface TranscriptParts {
@@ -51,29 +53,63 @@ type Item = { kind: string; sequence: number };
 const knownType = (type: string): boolean => eventTypeEntry(SESSION_STREAM_KIND, type) !== undefined;
 
 /**
- * The session's events the fold reads, oldest first: every event of its
- * stream but `assistant.delta`, left out in the query, since the settled
- * `assistant.text` and `assistant.thinking` carry the whole text. Still the
- * whole stream otherwise: compaction (#123) folds only sessions long left
- * untouched (ADR 0002), so for a live session the read grows with it.
+ * The session's events the fold reads after `afterSequence`, oldest first:
+ * every event of its stream but `assistant.delta`, left out in the query,
+ * since the settled `assistant.text` and `assistant.thinking` carry the
+ * whole text. Still the whole stream otherwise, or what follows its
+ * compaction: compaction (#123) folds only sessions long left untouched
+ * (ADR 0002), so for a live session the read grows with it.
  */
-export const readTranscriptEvents = (log: Pick<EventLog, "read">, sessionId: string): EventEnvelope[] =>
+export const readTranscriptEvents = (log: Pick<EventLog, "read">, sessionId: string, afterSequence = 0): EventEnvelope[] =>
   log
     .read<EventRow>(
-      `SELECT * FROM events WHERE stream_kind = '${SESSION_STREAM_KIND}' AND stream_id = ? AND type <> 'assistant.delta' ORDER BY sequence`,
+      `SELECT * FROM events WHERE stream_kind = '${SESSION_STREAM_KIND}' AND stream_id = ? AND sequence > ? AND type <> 'assistant.delta' ORDER BY sequence`,
       sessionId,
+      afterSequence,
     )
     .map(decodeEvent);
 
-/** Folds one session's events, oldest first, into its runs, its settled items and its parked prompts. */
-export const foldTranscript = (events: Iterable<EventEnvelope>): TranscriptParts => {
-  const runs = new Map<string, Mutable<RunSummary>>();
-  let items: Item[] = [];
-  const parked = new Map<string, ParkedPrompt>();
+/**
+ * The session's transcript as of the log's head: its compaction's fold, if
+ * it has been compacted (`sessions/compaction.ts`), folded on with the
+ * events after it; else the fold of its whole stream.
+ */
+export const sessionTranscript = (log: Pick<EventLog, "read" | "readSnapshot">, sessionId: string): TranscriptParts => {
+  const snapshot = log.readSnapshot(sessionStream(sessionId));
+  const events = readTranscriptEvents(log, sessionId, snapshot?.sequence ?? 0);
+  return snapshot === null ? foldTranscript(events) : foldTranscript(events, snapshot.payload as TranscriptParts);
+};
+
+/**
+ * Folds one session's events, oldest first, into its runs, its settled
+ * items and its parked prompts; from `from`, a fold of the events before
+ * them (a compaction's snapshot), when given, which it leaves unchanged.
+ * Folding on from a fold gives what folding every event would, but for an
+ * event aimed at an item a rewind hid before the fold: that item is not in
+ * the fold to update, and stays hidden either way.
+ */
+export const foldTranscript = (events: Iterable<EventEnvelope>, from?: TranscriptParts): TranscriptParts => {
+  const start = from === undefined ? undefined : (structuredClone(from) as { runs: Mutable<RunSummary>[]; items: Item[]; parkedPrompts: ParkedPrompt[] });
+  const runs = new Map<string, Mutable<RunSummary>>(start?.runs.map((run) => [run.runId, run]));
+  let items: Item[] = start?.items ?? [];
+  const parked = new Map<string, ParkedPrompt>(start?.parkedPrompts.map((prompt) => [prompt.promptId, prompt]));
   /** Items to update later, by the id their events carry. */
   const messages = new Map<string, ItemOf<"user-message">>();
   const toolCalls = new Map<string, ItemOf<"tool-call">>();
   const ledgers = new Map<string, ItemOf<"tasks">>();
+  // The items of the fold it goes on from that later events update, by the ids those carry.
+  for (const item of items) {
+    if (item.kind === "user-message") {
+      const message = item as unknown as ItemOf<"user-message">;
+      messages.set(message.messageId, message);
+    } else if (item.kind === "tool-call") {
+      const call = item as unknown as ItemOf<"tool-call">;
+      toolCalls.set(call.toolCallId, call);
+    } else if (item.kind === "tasks") {
+      const ledger = item as unknown as ItemOf<"tasks">;
+      ledgers.set(ledger.runId, ledger);
+    }
+  }
 
   const push = <I extends Item>(item: I): I => {
     items.push(item);
