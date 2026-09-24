@@ -35,7 +35,7 @@ describe("settings.get", () => {
     const t = await start();
     const client = await t.client();
     expect(await client.request("settings.get", {})).toEqual({
-      values: { "sessions.autoSettleAfterIdle": { amount: 14, unit: "days" }, "sessions.autoSettleOnMerge": false },
+      values: { "sessions.autoSettleAfterIdle": { amount: 14, unit: "days" }, "sessions.autoSettleOnMerge": false, "providers.processIdleMinutes": 30 },
     });
   });
 
@@ -159,7 +159,7 @@ describe("settings.update", () => {
     const dataDir = join(tempDir(), "data");
     const first = await start(dataDir);
     const client = await first.client();
-    const values = { "sessions.autoSettleAfterIdle": { amount: 3, unit: "months" }, "sessions.autoSettleOnMerge": true } as const;
+    const values = { "sessions.autoSettleAfterIdle": { amount: 3, unit: "months" }, "sessions.autoSettleOnMerge": true, "providers.processIdleMinutes": 45 } as const;
     await updateSettings(client, values);
     await first.close();
 

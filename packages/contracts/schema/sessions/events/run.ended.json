@@ -1,0 +1,188 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RunEndedPayload",
+  "type": "object",
+  "properties": {
+    "runId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "A run's id: a version 4 UUID the environment mints when the run starts or is adopted."
+    },
+    "reason": {
+      "type": "string",
+      "enum": [
+        "completed",
+        "error",
+        "interrupted",
+        "disposed",
+        "drained"
+      ],
+      "description": "Why a run ended: completed, error, interrupted (with its cause), disposed (the environment let the run go: its session was deleted, or the environment closed), drained (cut by a drain's cap)."
+    },
+    "cause": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "user",
+            "read-now",
+            "restart",
+            "parked"
+          ],
+          "description": "What interrupted a run: user (runs.interrupt), read-now, restart (the recovery sweep after a restart), parked (its process was stopped while parked on a prompt)."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "What interrupted the run, when its reason is interrupted; else null."
+    },
+    "error": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "message": {
+              "type": "string",
+              "minLength": 1
+            },
+            "code": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The provider's or the environment's code for it, when there is one."
+            }
+          },
+          "required": [
+            "message",
+            "code"
+          ],
+          "description": "What went wrong in a run: a message and, when there is one, a code."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "What went wrong, when the reason is error; else null."
+    },
+    "usage": {
+      "anyOf": [
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "model": {
+                "type": "string",
+                "minLength": 1
+              },
+              "inputTokens": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "outputTokens": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "cacheReadTokens": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "cacheWriteTokens": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "costUsd": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "What the tokens cost in US dollars, when the provider says."
+              },
+              "contextWindow": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The model's context window in tokens, when the provider says."
+              }
+            },
+            "required": [
+              "model",
+              "inputTokens",
+              "outputTokens",
+              "cacheReadTokens",
+              "cacheWriteTokens",
+              "costUsd",
+              "contextWindow"
+            ],
+            "description": "One model's token spend in a run: input, output, cache reads and writes, cost and context window."
+          }
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The run's token spend per model, when the provider reported it."
+    },
+    "durationMs": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991,
+      "description": "From run.started to run.ended, on the environment's clock."
+    },
+    "turnCount": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The provider's turns in the run, when it says."
+    },
+    "resultText": {
+      "description": "The run's final answer as the provider reports it, when it does.",
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "runId",
+    "reason",
+    "cause",
+    "error",
+    "usage",
+    "durationMs",
+    "turnCount",
+    "resultText"
+  ],
+  "description": "run.ended: the run ended, once, on every path; its endedAt is the event's occurredAt."
+}

@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AttachmentKind",
+  "type": "string",
+  "enum": [
+    "image",
+    "file"
+  ],
+  "description": "What an attachment is: an image (the adapter needs imageInput) or a file (fileInput)."
+}

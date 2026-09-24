@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "InterruptCause",
+  "type": "string",
+  "enum": [
+    "user",
+    "read-now",
+    "restart",
+    "parked"
+  ],
+  "description": "What interrupted a run: user (runs.interrupt), read-now, restart (the recovery sweep after a restart), parked (its process was stopped while parked on a prompt)."
+}

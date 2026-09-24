@@ -37,6 +37,7 @@ import { createDeletion, type Deletion } from "./deletion.js";
 import { groupExists, listGroups } from "./group-reads.js";
 import { acceptAnyRunParameters, type RunParametersCheck } from "./run-parameters.js";
 import { listDeleted, listSummaries, readDeletion, readSessionState, readSummary, type Reader } from "./session-reads.js";
+import { foldTranscript, readTranscriptEvents } from "../runs/transcript.js";
 import { sessionStream } from "./streams.js";
 
 /**
@@ -60,7 +61,7 @@ import { sessionStream } from "./streams.js";
 
 export interface SessionMethodsOptions {
   readonly log: EventLog;
-  /** The account, model and mode check `sessions.create` runs; preset: every value accepted, until #119 and the permissions workstream fill it. */
+  /** The account, model and mode check `sessions.create` runs: the environment passes the adapter host's (`validateSessionInput`); preset: every value accepted. */
   readonly validateRunParameters?: RunParametersCheck;
   /** The environment's clock, which stamps the times a command records (`archivedAt`, `pinnedAt`); preset: the system's. */
   readonly clock?: () => Date;
@@ -272,8 +273,8 @@ export const sessionMethods = (options: SessionMethodsOptions): MethodHandlers =
       };
       return {
         stream: sessionStream(id),
-        // The transcript's shape is the adapter workstream's (#119): an empty object until it fills it.
-        snapshot: () => ({ sequence: log.head(), summary: summaryOf(), transcript: {} }),
+        // The runs, items and parked prompts are folded from the stream as it stands (`runs/transcript.ts`).
+        snapshot: () => ({ sequence: log.head(), summary: summaryOf(), ...foldTranscript(readTranscriptEvents(log, id)) }),
         endOn: (event) =>
           event.type === "session.purged" || (event.type === "session.deleted" && holdsNow(event)) ? "deleted" : undefined,
       };

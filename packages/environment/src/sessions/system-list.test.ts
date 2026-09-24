@@ -1,12 +1,15 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { runPayload } from "../../test/shelf.js";
 import { openEventLog, type EventLog } from "../event-log/event-log.js";
+import { runsProjector } from "../runs/runs-projector.js";
 import { sessionListProjector } from "./session-list.js";
 import { readSummary, type Reader } from "./session-reads.js";
 
 /**
- * The provisional run and prompt projections at the lower seam (until #119,
- * #130 and #122): what the activity fields read after each sequence of
- * events, from their types and times alone.
+ * The run and prompt projections at the lower seam: what the activity
+ * fields read after each sequence of events, the runs' with the payloads
+ * the adapter host appends (#119), the prompts' from their types and times
+ * alone (provisional until #130).
  */
 
 let logs: EventLog[] = [];
@@ -24,21 +27,27 @@ const created = {
 /** A log with the session list and a session created at midnight; each seeded event is a minute after the one before. */
 const withSession = () => {
   let minute = 0;
-  const log = openEventLog({ path: ":memory:", projectors: [sessionListProjector], clock: () => new Date(Date.UTC(2026, 8, 24, 0, minute)) });
+  const log = openEventLog({ path: ":memory:", projectors: [sessionListProjector, runsProjector], clock: () => new Date(Date.UTC(2026, 8, 24, 0, minute)) });
   logs.push(log);
   log.append({ kind: "session", id }, [created], { actor: "system:test" });
   const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
   const seed = (...types: string[]) => {
     for (const type of types) {
       minute++;
-      log.append({ kind: "session", id }, [{ type, payload: {} }], { actor: "adapter:test" });
+      log.append({ kind: "session", id }, [{ type, payload: runPayload(id, type) }], { actor: "adapter:test" });
     }
     return readSummary(reader, id);
   };
   return { seed };
 };
 
-describe("the provisional activity projections", () => {
+describe("the activity projections", () => {
+  it("set the account and model a run started on", () => {
+    const { seed } = withSession();
+    expect(seed("run.started")).toMatchObject({ accountId: "claude-max", model: "opus", activity: { state: "running" } });
+    expect(seed("run.ended")).toMatchObject({ accountId: "claude-max", model: "opus", activity: { state: "idle" } });
+  });
+
   it("run a started run, park it on a prompt, and run it again when the prompt is answered", () => {
     const { seed } = withSession();
     expect(seed("run.started")).toMatchObject({ activity: { state: "running", since: "2026-09-24T00:01:00.000Z" }, lastActivityAt: "2026-09-24T00:01:00.000Z" });

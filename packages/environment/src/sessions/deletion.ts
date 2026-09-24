@@ -1,4 +1,4 @@
-import type { ProviderTranscriptOutcome, SessionPurgedPayload } from "@agent-harness/contracts";
+import { ContractError, type ProviderTranscriptOutcome, type SessionPurgedPayload } from "@agent-harness/contracts";
 import { SYSTEM } from "../auth/access-log.js";
 import { formatActor, type EventEnvelope, type EventLog, type Tx } from "../event-log/event-log.js";
 import { sessionStream } from "./streams.js";
@@ -94,6 +94,8 @@ export const createDeletion = (options: DeletionOptions): Deletion => {
     try {
       answered = transcripts.deleteTranscript(sessionId);
     } catch (error) {
+      // A refusal that it cannot (the session's adapter lacks the capability, or its provider is not known here) is not a failure.
+      if (error instanceof ContractError && error.data["reason"] === "unsupported") return { outcome: "unsupported" };
       return { outcome: "failed", message: messageOf(error) };
     }
     if (isThenable(answered)) {

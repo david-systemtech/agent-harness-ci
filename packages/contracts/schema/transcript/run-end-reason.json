@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RunEndReason",
+  "type": "string",
+  "enum": [
+    "completed",
+    "error",
+    "interrupted",
+    "disposed",
+    "drained"
+  ],
+  "description": "Why a run ended: completed, error, interrupted (with its cause), disposed (the environment let the run go: its session was deleted, or the environment closed), drained (cut by a drain's cap)."
+}

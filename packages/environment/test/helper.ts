@@ -27,7 +27,8 @@ import { createRunRegistry, type MemoryRunRegistry } from "../src/serve/run-regi
 import type { ContextOf, HandlerReturn, MethodHandler } from "../src/serve/methods.js";
 import type { SubscriptionHooks } from "../src/wire/subscriptions.js";
 import { manualClock, type ManualClock } from "./clock.js";
-import { fakeProvider, type FakeProvider } from "./fake-provider.js";
+import type { HostAccount } from "../src/adapter/host.js";
+import { fakeAdapter, type FakeAdapter } from "./fake-adapter.js";
 import { testLauncher, type TestLauncher } from "./launcher.js";
 import {
   ByeError,
@@ -43,15 +44,17 @@ import {
 /**
  * The primary seam (env spec, "Testing Decisions"): an environment started
  * in-process on a temporary data directory, bound to loopback on port 0, with
- * a scripted fake provider and a manual clock, driven by a real client over a
- * real WebSocket. Every behaviour of the wire is a test through it.
+ * the scripted fake adapter and a manual clock, driven by a real client over
+ * a real WebSocket. Every behaviour of the wire is a test through it.
  */
 
 export interface TestEnvironmentOptions {
   /** Preset: a manual clock at `MANUAL_CLOCK_START`. */
   readonly clock?: ManualClock;
-  /** Preset: a fake provider with an empty script. #119 replaces it with the adapter contract's fake. */
-  readonly provider?: FakeProvider;
+  /** Preset: the scripted fake adapter with its preset script (`fake-adapter.ts`). */
+  readonly adapter?: FakeAdapter;
+  /** The accounts runs go through. Preset: one, `claude-max`, on the fake adapter's provider. */
+  readonly accounts?: readonly HostAccount[];
   /** A data directory to start on, kept by `close`: a restart on the same directory. Preset: a fresh temporary one, removed by `close`. */
   readonly dataDir?: string;
   readonly name?: string;
@@ -69,6 +72,10 @@ export interface TestEnvironmentOptions {
   readonly containerDetector?: ContainerDetector;
   /** Preset: a test launcher that says no launcher is present. */
   readonly launcher?: TestLauncher;
+  /** The adapter host's seams (the broker, the clamp, ...); preset: each seam's own. */
+  readonly adapterSeams?: EnvironmentOptions["adapterSeams"];
+  /** The idle time of a provider process, in minutes; preset: the setting's preset. */
+  readonly processIdleMinutes?: () => number;
 }
 
 /** A machine with no Tailscale address and no tailnet name. */
@@ -112,7 +119,7 @@ export interface TestEnvironment {
   readonly env: EnvironmentHandle;
   readonly address: Address;
   readonly clock: ManualClock;
-  readonly provider: FakeProvider;
+  readonly adapter: FakeAdapter;
   readonly dataDir: string;
   /** The run registry the environment's idle rule and drain read: the test starts, parks and ends runs on it. */
   readonly runs: MemoryRunRegistry;
@@ -196,7 +203,8 @@ export const bootstrapExchange = async (
 /** Starts an environment for a test. The caller closes it, typically with its cleanup hook. */
 export const startTestEnvironment = async (options: TestEnvironmentOptions = {}): Promise<TestEnvironment> => {
   const clock = options.clock ?? manualClock();
-  const provider = options.provider ?? fakeProvider();
+  const adapter = options.adapter ?? fakeAdapter();
+  const accounts = options.accounts ?? [{ id: "claude-max", provider: adapter.descriptor.provider }];
   const ownDir = options.dataDir === undefined ? mkdtempSync(join(tmpdir(), "agent-harness-env-")) : undefined;
   const dataDir = options.dataDir ?? join(ownDir as string, "data");
   const runs = createRunRegistry({ clock });
@@ -209,6 +217,8 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
     ...(options.bindLan !== undefined && { bindLan: options.bindLan }),
     ...(options.lanAddress !== undefined && { lanAddress: options.lanAddress }),
     ...(options.tailnetName !== undefined && { tailnetName: options.tailnetName }),
+    ...(options.adapterSeams !== undefined && { adapterSeams: options.adapterSeams }),
+    ...(options.processIdleMinutes !== undefined && { processIdleMinutes: options.processIdleMinutes }),
   };
   let env: EnvironmentHandle;
   try {
@@ -222,7 +232,8 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
       runs,
       containerDetector: options.containerDetector ?? { inContainer: () => false },
       interfaces: options.interfaces ?? NO_INTERFACES,
-      transcripts: provider.transcripts,
+      adapters: [adapter],
+      accounts,
       ...passed,
       ...(options.subscriptionHooks !== undefined && { subscriptionHooks: options.subscriptionHooks }),
     });
@@ -286,7 +297,7 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
     env,
     address: env.address,
     clock,
-    provider,
+    adapter,
     dataDir,
     runs,
     launcher,
