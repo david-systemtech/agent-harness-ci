@@ -79,6 +79,11 @@
         }
       ],
       "description": "Who holds a queued message; null for a prompt."
+    },
+    "ceiling": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The ceiling of the connection that sent it (ADR 0006): a run the environment later starts with it is clamped to it, as well as to the ceiling of whoever started that run."
     }
   },
   "required": [
@@ -87,7 +92,8 @@
     "text",
     "attachments",
     "delivery",
-    "heldBy"
+    "heldBy",
+    "ceiling"
   ],
   "description": "message.sent: a client sent the session a message; runId is the run it starts, or the run live when it was queued."
 }

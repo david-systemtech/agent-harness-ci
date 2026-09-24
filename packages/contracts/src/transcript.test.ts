@@ -7,6 +7,7 @@ import {
   CredentialSpec,
   DelegatedWorkRow,
   EVENT_TYPES,
+  KNOWN_ITEM_KINDS,
   RunSuggestion,
   SendResponse,
   SessionEventType,
@@ -121,7 +122,7 @@ describe("the transcript vocabulary", () => {
 
   it("sends a message as a prompt or queued, and delivers a queued one steered or as a prompt", () => {
     const sent = TRANSCRIPT_EVENT_TYPES["message.sent"].payload;
-    const message = { runId, messageId, text: "Now the tests", attachments: [], delivery: "queued", heldBy: "provider" };
+    const message = { runId, messageId, text: "Now the tests", attachments: [], delivery: "queued", heldBy: "provider", ceiling: "acceptEdits" };
     expect(sent.safeParse(message).success).toBe(true);
     expect(sent.safeParse({ ...message, delivery: "steered" }).success).toBe(false);
     const delivered = TRANSCRIPT_EVENT_TYPES["message.delivered"].payload;
@@ -175,6 +176,11 @@ describe("the per-session snapshot", () => {
     // An item still needs a kind and its place.
     expect(TranscriptItem.safeParse({ sequence: 7 }).success).toBe(false);
     expect(TranscriptItem.safeParse({ kind: "plan-card" }).success).toBe(false);
+    // A known kind is never opaque: a malformed one fails, in zod and in the exported JSON Schema's pattern.
+    expect(TranscriptItem.safeParse({ kind: "assistant-text", sequence: 7 }).success).toBe(false);
+    expect(KNOWN_ITEM_KINDS).toEqual(TranscriptItem.options.slice(0, -1).map((option) => (option.shape.kind as z.ZodLiteral<string>).value));
+    const exported = exportedSchemas().find((entry) => entry.path === "transcript/transcript-item.json");
+    expect(JSON.stringify(exported && z.toJSONSchema(exported.schema))).toContain("(?!(?:user-message|");
   });
 });
 
