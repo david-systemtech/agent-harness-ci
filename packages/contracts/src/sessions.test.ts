@@ -6,10 +6,12 @@ import {
   GROUP_EVENT_TYPES,
   GroupId,
   GroupName,
+  groupNameKey,
   GroupPatch,
   LIST_PATCH_KEY,
   MAX_DRAFT_LENGTH,
   MAX_TAGS,
+  normaliseGroupName,
   OrderKey,
   SESSION_EVENT_TYPES,
   SUMMARY_FIELD_OWNERS,
@@ -312,6 +314,12 @@ describe("the session summary", () => {
       expect(SessionId.safeParse(id).success, id).toBe(false);
       expect(GroupId.safeParse(id).success, id).toBe(false);
     }
+  });
+
+  it("keys a group name trimmed, its white space collapsed and lowercased, as an environment and a client merging headings both fold it", () => {
+    expect(normaliseGroupName("  Cool \t Jams\n\n and  friends ")).toBe("Cool Jams and friends");
+    expect(groupNameKey("  COOL   jams ")).toBe("cool jams");
+    expect(groupNameKey("Brandsolidate")).toBe(groupNameKey(" brandSOLIDATE "));
   });
 
   it("measures titles, tags and group names after trimming: surrounding white space is not counted", () => {

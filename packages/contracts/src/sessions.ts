@@ -104,6 +104,20 @@ export const GroupName = z
   });
 export type GroupName = z.infer<typeof GroupName>;
 
+/**
+ * A group's name as an environment keeps it: trimmed, every run of white
+ * space one space.
+ */
+export const normaliseGroupName = (name: string): string => name.trim().replace(/\s+/g, " ");
+
+/**
+ * What a group's name is compared on: the kept name, lowercased. An
+ * environment holds names unique on it; a client merges same-named groups
+ * from several environments into one heading on it (session-state spec,
+ * "Merged groups by name"), so both fold names the same way.
+ */
+export const groupNameKey = (name: string): string => normaliseGroupName(name).toLowerCase();
+
 /** Where a session's title came from: the user, a generated title (from the first prompt or the provider), or the default. */
 export const TITLE_SOURCES = ["user", "generated", "default"] as const;
 export const TitleSource = z.enum(TITLE_SOURCES).meta({

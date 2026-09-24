@@ -1,4 +1,11 @@
-import { ClientSessionCredential, commandResponse, type DiscoveryDocument, type Frame, type ResponseFrame } from "@agent-harness/contracts";
+import {
+  ClientSessionCredential,
+  commandResponse,
+  type DiscoveryDocument,
+  type Frame,
+  type HelloFrame,
+  type ResponseFrame,
+} from "@agent-harness/contracts";
 import { exchangeGrant, readsGrant, type GrantExchange, type LocalStatus } from "../bootstrap.js";
 import { admitHello, checkDiscovery, readDiscovery } from "../discovery.js";
 import { uuidv7 } from "../ids.js";
@@ -15,7 +22,15 @@ import {
 } from "../pairing.js";
 import type { Platform, Timer } from "../platform.js";
 import { parseAddress } from "./address.js";
-import { SocketClosedError, authenticate, dial, type LiveSocket, type SocketClosed } from "./connection.js";
+import {
+  SocketClosedError,
+  authenticate,
+  dial,
+  type LiveSocket,
+  type SocketClosed,
+  type Subscribing,
+  type SubscriptionMessage,
+} from "./connection.js";
 import {
   LOCAL_ENVIRONMENT_DOCUMENT,
   NO_PREFERENCES,
@@ -99,6 +114,47 @@ export interface ConnectionSeams {
   onForget(listener: (environmentId: string) => void | Promise<void>): () => void;
   /** A request on the environment's ready socket; rejects when there is none. */
   request(environmentId: string, method: string, params: Record<string, unknown>): Promise<ResponseFrame>;
+  /**
+   * A socket said a `hello` the connection admitted: it is the connection's
+   * ready socket now, and what hangs off it attaches (#127's subscriptions).
+   * Heard before the connection publishes `ready`, so a listener that sets
+   * `syncing` is never seen `ready` first.
+   */
+  onReady(listener: (environmentId: string, hello: HelloFrame) => void): () => void;
+  /** A subscription on the environment's ready socket (`LiveSocket.subscribe`); rejects with `NotConnectedError` when there is none. */
+  subscribe(
+    environmentId: string,
+    method: string,
+    params: Record<string, unknown>,
+    listener: (message: SubscriptionMessage) => void,
+  ): Promise<Subscribing>;
+  /** Ends a subscription on the environment's socket, if it still has that socket. */
+  unsubscribe(environmentId: string, subscription: string): void;
+  /**
+   * The session list is catching up on a ready socket: the connection shows
+   * `syncing` instead of `ready` until it is not, and `start`, `add`,
+   * `retryNow`, `setAddress`, `setEnabled` and `startService` settle once it
+   * is not. Cleared on its own when the socket goes.
+   */
+  setSyncing(environmentId: string, syncing: boolean): void;
+}
+
+/** What the cache (#127) tells the registry: read it before connections start, and whether an environment has anything cached. */
+export interface RegistryCaches {
+  /** Reads what is cached for these environments; the registry awaits it before any connection starts. */
+  load(environmentIds: readonly string[]): Promise<void>;
+  /** Whether the environment's session list is cached (a cursor on record), so it is unreachable from the start until it is reached. */
+  has(environmentId: string): boolean;
+}
+
+const NO_CACHES: RegistryCaches = { load: async () => undefined, has: () => false };
+
+/** A subscription asked of an environment with no ready socket. */
+export class NotConnectedError extends Error {
+  constructor(environmentId: string) {
+    super(`Environment ${environmentId} is not connected.`);
+    this.name = "NotConnectedError";
+  }
 }
 
 export interface Registry extends Connections {
@@ -145,7 +201,7 @@ const revokedBy = (response: ResponseFrame): boolean => {
   return receipt?.status === "accepted" || (receipt?.status === "rejected" && receipt.reason === "not_found");
 };
 
-export const createRegistry = (platform: Platform, protocolVersion: number, notices: Notices): Registry => {
+export const createRegistry = (platform: Platform, protocolVersion: number, notices: Notices, caches: RegistryCaches = NO_CACHES): Registry => {
   const entries = new Map<string, Entry>();
   // A fault with no caller to take it: a renderer's listener that threw, a background write that failed.
   const report = (error: unknown): void => (platform.reportError ? platform.reportError(error) : void Promise.reject(error));
@@ -155,6 +211,9 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
   const frameListeners = new Set<(environmentId: string, frame: Frame) => void>();
   const closeListeners = new Set<(environmentId: string, closed: SocketClosed) => void>();
   const forgetListeners = new Set<(environmentId: string) => void | Promise<void>>();
+  const readyListeners = new Set<(environmentId: string, hello: HelloFrame) => void>();
+  /** The environments whose session list is catching up on a ready socket, and who waits for it to finish. */
+  const syncing = new Map<string, (() => void)[]>();
   let closed = false;
   let stopNetwork: (() => void) | undefined;
   // Writes go one after another, so an older write never lands over a newer one.
@@ -170,7 +229,8 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
       // A reason shows only beside `blocked`; a disabled connection keeps its block to re-check once enabled.
       blocked: machine.phase === "blocked" ? machine.blocked : null,
       enabled: isEnabled(environmentId),
-      phase: machine.phase,
+      // The machine says the socket is good; `syncing` is the session list catching up on it (#127).
+      phase: machine.phase === "ready" && syncing.has(environmentId) ? "syncing" : machine.phase,
       bye: machine.bye,
       retryAt: iso(machine.retryAt),
       unreachableSince: iso(machine.unreachableSince),
@@ -238,6 +298,23 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
   };
 
   const isCurrent = (environmentId: string, entry: Entry) => entries.get(environmentId) === entry && !closed;
+
+  /** The list is no longer catching up: whoever waits on it goes on. Answers whether it was. */
+  const endSyncing = (environmentId: string): boolean => {
+    const waiting = syncing.get(environmentId);
+    if (!waiting) return false;
+    syncing.delete(environmentId);
+    for (const resolve of waiting) resolve();
+    return true;
+  };
+
+  /** Settles once the attempt under way has, and the session list it attached is no longer catching up. */
+  const settledFor = async (environmentId: string, entry: Entry): Promise<void> => {
+    await entry.runner.settled();
+    const waiting = syncing.get(environmentId);
+    if (!waiting || entry.runner.state.step !== "open") return;
+    await new Promise<void>((resolve) => waiting.push(resolve));
+  };
 
   /**
    * Revokes `clientSessionId` with `token`, over `socket` when one is given,
@@ -372,6 +449,12 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
           report(error);
         }
       });
+      // What hangs off the socket attaches at once; a listener's fault is reported and costs the record nothing.
+      try {
+        notifyAll(readyListeners, environmentId, hello);
+      } catch (error) {
+        report(error);
+      }
       const descriptor = document ? fromDiscovery(e.saved.descriptor, document) : e.saved.descriptor;
       await updateSaved(environmentId, e, {
         clientSessionId: hello.clientSessionId,
@@ -399,6 +482,7 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
     },
     changed(next, previous) {
       const e = entry();
+      if (next.step !== "open") endSyncing(environmentId);
       if (!isCurrent(environmentId, e)) return;
       if (next.blocked !== previous.blocked) return updateSaved(environmentId, e, { blocked: next.blocked });
       publish();
@@ -426,8 +510,8 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
       type: "start",
       enabled: isEnabled(environmentId),
       network: platform.network.read(),
-      // What #127 caches hangs off an environment reached before; until then, one with a `hello` on record.
-      hasCache: entry.saved.descriptor.lastSeen !== null,
+      // Cached streams are served while the environment is unreachable, so it is unreachable from the start until reached.
+      hasCache: caches.has(environmentId),
     });
 
   /**
@@ -513,6 +597,13 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
       ]);
       prefs.set(readPreferences(Object.fromEntries(stored) as Record<keyof ClientPreferences, unknown>));
       for (const [id, saved] of readPairedConnections(paired)) if (!entries.has(id)) entries.set(id, newEntry(id, saved));
+      // The caches of every environment known, before any connection starts: a cache that cannot be read is reported and counts as empty.
+      const known = readRememberedLocal(remembered);
+      try {
+        await caches.load([...entries.keys(), ...(known ? [known.environmentId] : [])]);
+      } catch (error) {
+        report(error);
+      }
       publish();
       loaded = true;
       return { remembered };
@@ -541,8 +632,37 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
       },
       request(environmentId, method, params) {
         const socket = entries.get(environmentId)?.runner.socket();
-        if (!socket) return Promise.reject(new Error(`Environment ${environmentId} is not connected.`));
+        if (!socket) return Promise.reject(new NotConnectedError(environmentId));
         return socket.request(method, params);
+      },
+      onReady(listener) {
+        readyListeners.add(listener);
+        return () => void readyListeners.delete(listener);
+      },
+      subscribe(environmentId, method, params, listener) {
+        const socket = entries.get(environmentId)?.runner.socket();
+        if (!socket) return Promise.reject(new NotConnectedError(environmentId));
+        // A subscriber that throws is reported, never thrown into the socket's message handler, as the other seams' listeners are.
+        return socket.subscribe(method, params, (message) => {
+          try {
+            listener(message);
+          } catch (error) {
+            report(error);
+          }
+        });
+      },
+      unsubscribe(environmentId, subscription) {
+        entries.get(environmentId)?.runner.socket()?.unsubscribe(subscription);
+      },
+      setSyncing(environmentId, on) {
+        const entry = entries.get(environmentId);
+        let changed = false;
+        if (!on) changed = endSyncing(environmentId);
+        else if (!syncing.has(environmentId) && entry?.runner.state.step === "open") {
+          syncing.set(environmentId, []);
+          changed = true;
+        }
+        if (changed && entry && isCurrent(environmentId, entry)) publish();
       },
     },
 
@@ -583,7 +703,7 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
         for (const entry of entries.values()) entry.runner.feed({ type: "network", network });
       });
       for (const [id, entry] of entries) begin(id, entry);
-      await Promise.all([...entries.values()].map((entry) => entry.runner.settled()));
+      await Promise.all([...entries].map(([id, entry]) => settledFor(id, entry)));
     },
 
     async add(input, options = {}) {
@@ -686,7 +806,8 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
           entry.runner.resume();
           begin(id, entry);
         }
-        await entry.runner.settled();
+        // Settled once its session list is no longer catching up, so the caller sees `ready`, not `syncing`.
+        await settledFor(id, entry);
         return { status: "paired", environmentId: id, ...(replaced && { replaced }) };
       } catch (error) {
         // The pairing socket nobody took is closed, so the environment is not left holding a second socket.
@@ -709,7 +830,7 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
       if (!origin) throw new RangeError(`"${address}" is not an address.`);
       await updateSaved(environmentId, entry, { address: origin });
       entry.runner.feed({ type: "retryNow" });
-      await entry.runner.settled();
+      await settledFor(environmentId, entry);
     },
 
     async setEnabled(environmentId, enabled) {
@@ -718,7 +839,7 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
       await setPreferences((p) => ({ ...p, "environments.enabled": { ...p["environments.enabled"], [environmentId]: enabled } }));
       if (!enabled) return entry.runner.feed({ type: "disable" });
       begin(environmentId, entry);
-      await entry.runner.settled();
+      await settledFor(environmentId, entry);
     },
 
     async setOrder(environmentIds) {
@@ -754,6 +875,7 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
       const result = await revokeHeld(environmentId, entry, socket);
       socket?.close();
       entries.delete(environmentId);
+      endSyncing(environmentId);
       await platform.secrets.delete(environmentId);
       await savePaired();
       await setPreferences((p) => ({
@@ -778,7 +900,7 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
       if (!loaded) await ensureLoaded();
       const entry = entryOf(environmentId);
       entry.runner.feed({ type: "retryNow" });
-      await entry.runner.settled();
+      await settledFor(environmentId, entry);
     },
 
     async startService(environmentId) {
@@ -790,7 +912,7 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
       await service.start();
       // A service just started is tried at once and then from the ladder's first rung, not 30 seconds out.
       entry.runner.feed({ type: "retryNow", fresh: true });
-      await entry.runner.settled();
+      await settledFor(environmentId, entry);
     },
 
     close() {
@@ -798,6 +920,7 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
       stopNetwork?.();
       stopNetwork = undefined;
       for (const entry of entries.values()) entry.runner.stop();
+      for (const id of [...syncing.keys()]) endSyncing(id);
     },
   };
   return registry;
