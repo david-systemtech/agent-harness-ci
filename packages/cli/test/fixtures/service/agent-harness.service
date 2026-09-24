@@ -1,0 +1,15 @@
+# The agent-harness environment. Written by "agent-harness service install";
+# "agent-harness service uninstall" removes it.
+[Unit]
+Description=agent-harness environment
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/node /home/david/.local/share/agent-harness/0.1.0/dist/main.js serve --data-dir /home/david/.local/state/agent-harness --port 7433
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:/home/david/.local/state/agent-harness/logs/service.log
+StandardError=append:/home/david/.local/state/agent-harness/logs/service.log
+
+[Install]
+WantedBy=default.target

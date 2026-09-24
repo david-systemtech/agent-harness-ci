@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-16"?>
+<!-- The agent-harness environment. Written by "agent-harness service install"; "agent-harness service uninstall" removes it. -->
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo>
+    <Description>The agent-harness environment, started at logon.</Description>
+  </RegistrationInfo>
+  <Triggers>
+    <LogonTrigger>
+      <Enabled>true</Enabled>
+      <UserId>GAMINGPC\david</UserId>
+    </LogonTrigger>
+  </Triggers>
+  <Principals>
+    <Principal id="Author">
+      <UserId>GAMINGPC\david</UserId>
+      <LogonType>InteractiveToken</LogonType>
+      <RunLevel>LeastPrivilege</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <AllowStartOnDemand>true</AllowStartOnDemand>
+    <Enabled>true</Enabled>
+    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+    <RestartOnFailure>
+      <Interval>PT1M</Interval>
+      <Count>999</Count>
+    </RestartOnFailure>
+  </Settings>
+  <Actions Context="Author">
+    <Exec>
+      <Command>%SystemRoot%\System32\conhost.exe</Command>
+      <Arguments>--headless "C:\Program Files\nodejs\node.exe" C:\Users\david\AppData\Local\Programs\agent-harness\0.1.0\dist\main.js serve --data-dir C:\Users\david\AppData\Local\agent-harness --port 7433</Arguments>
+    </Exec>
+  </Actions>
+</Task>

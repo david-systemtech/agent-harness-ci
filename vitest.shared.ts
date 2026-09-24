@@ -10,7 +10,9 @@ export const packageProject = (name: string, overrides: UserWorkspaceConfig = {}
   mergeConfig(
     defineProject({
       ssr: { resolve: { conditions: ["@agent-harness/source", "module", "node", "development|production"] } },
-      test: { name, include: ["src/**/*.test.ts"] },
+      test: {
+    // Spawning tsx or running ESLint takes seconds on a loaded CI runner; 5 s flapped there.
+    testTimeout: 30_000, name, include: ["src/**/*.test.ts"] },
     }),
     overrides,
   );

@@ -1,0 +1,22 @@
+import { parseArgs, type ParseArgsOptionsConfig } from "node:util";
+
+/** Arguments the CLI cannot parse: it prints the message and its usage, and exits 2. */
+export class UsageError extends Error {}
+
+/** The options of one verb, strictly: an unknown option or a positional is a `UsageError`. */
+export const parseOptions = <const Options extends ParseArgsOptionsConfig>(args: readonly string[], options: Options) => {
+  try {
+    return parseArgs({ args: [...args], options, strict: true, allowPositionals: false }).values;
+  } catch (error) {
+    throw new UsageError(error instanceof Error ? error.message : String(error));
+  }
+};
+
+/** A `--port` value from `min` (0 lets `serve` pick a free port) to 65535, or undefined when none was given. */
+export const parsePort = (value: string | undefined, min: 0 | 1): number | undefined => {
+  if (value === undefined) return undefined;
+  if (!(/^\d+$/.test(value) && Number(value) >= min && Number(value) <= 65535)) {
+    throw new UsageError(`--port takes a port number from ${min} to 65535; got ${value}.`);
+  }
+  return Number(value);
+};
