@@ -437,6 +437,7 @@ describe("the generated title", () => {
 
     const events = eventsOf(t, id, head, first.sequence);
     const titled = events.at(-1) as EventEnvelope;
+    // The line as the rule leaves it, written out: its white space collapsed by hand, then cut to 80 and trimmed.
     const expected = `Fix the receipts ${"and the sweep ".repeat(8)}`.slice(0, 80).trimEnd();
     expect(titled).toMatchObject({ type: "session.title-generated", payload: { title: expected, source: "prompt" } });
     expect(titled.causationId).toBe(events.find((event) => event.type === "message.sent")?.eventId);
