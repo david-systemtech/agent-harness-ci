@@ -12,8 +12,8 @@ interface Fixtures {
 
 const commandId = "0f8fad5b-d9cb-469f-a165-70867728950e";
 
-const presets = { "sessions.autoSettleAfterIdle": { amount: 14, unit: "days" }, "sessions.autoSettleOnMerge": false };
-const changed = { "sessions.autoSettleAfterIdle": null, "sessions.autoSettleOnMerge": true };
+const presets = { "sessions.autoSettleAfterIdle": { amount: 14, unit: "days" }, "sessions.autoSettleOnMerge": false, "sessions.transcriptCompactAfterDays": 90 };
+const changed = { "sessions.autoSettleAfterIdle": null, "sessions.autoSettleOnMerge": true, "sessions.transcriptCompactAfterDays": 30 };
 
 const idleSpans: Fixtures = {
   valid: [
@@ -26,15 +26,25 @@ const idleSpans: Fixtures = {
 
 const patches: Fixtures = {
   valid: [{}, presets, changed, { "sessions.autoSettleOnMerge": true }],
-  invalid: [{ "sessions.autoSettleOnMerge": null }, { "sessions.autoSettleAfterIdle": 14 }, { theme: "artemis" }, []],
+  invalid: [
+    { "sessions.autoSettleOnMerge": null },
+    { "sessions.autoSettleAfterIdle": 14 },
+    { "sessions.transcriptCompactAfterDays": null },
+    { theme: "artemis" },
+    [],
+  ],
 };
 
 export const settingsSchemaFixtures: Record<string, Fixtures> = {
-  "settings/settings-key.json": { valid: ["sessions.autoSettleAfterIdle", "sessions.autoSettleOnMerge"], invalid: ["theme", ""] },
+  "settings/settings-key.json": {
+    valid: ["sessions.autoSettleAfterIdle", "sessions.autoSettleOnMerge", "sessions.transcriptCompactAfterDays"],
+    invalid: ["theme", ""],
+  },
   "settings/idle-span-unit.json": { valid: ["days", "weeks", "months"], invalid: ["years", "Days"] },
   "settings/idle-span.json": idleSpans,
   "settings/keys/sessions.autoSettleAfterIdle.json": { valid: [null, ...idleSpans.valid], invalid: [false, ...idleSpans.invalid] },
   "settings/keys/sessions.autoSettleOnMerge.json": { valid: [true, false], invalid: [null, "true"] },
+  "settings/keys/sessions.transcriptCompactAfterDays.json": { valid: [1, 90, 3650], invalid: [0, 3651, 1.5, null, "90"] },
   "settings/settings-values.json": {
     valid: [presets, changed],
     invalid: [{}, { "sessions.autoSettleOnMerge": false }, { ...presets, theme: "artemis" }],

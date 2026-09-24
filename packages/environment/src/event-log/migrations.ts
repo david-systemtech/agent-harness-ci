@@ -114,6 +114,15 @@ export const MIGRATIONS: readonly Migration[] = [
       ALTER TABLE command_receipts ADD COLUMN error_data TEXT;
     `,
   },
+  {
+    version: 5,
+    name: "snapshots: the stream version a compaction folded to, and how many events it removed",
+    // A compaction (#123) may remove a stream's last events; the version it folded to keeps the stream's next one above them.
+    sql: `
+      ALTER TABLE snapshots ADD COLUMN stream_version INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE snapshots ADD COLUMN folded INTEGER NOT NULL DEFAULT 0;
+    `,
+  },
 ];
 
 const userVersion = (db: DatabaseSync): number => {

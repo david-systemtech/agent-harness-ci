@@ -7,7 +7,7 @@
       "type": "integer",
       "minimum": 0,
       "maximum": 9007199254740991,
-      "description": "The log's head the snapshot was read at."
+      "description": "Where the snapshot stands: the log's head it was read at; or, for a compacted session replayed from a cursor older than its compaction, the sequence of the last event the compaction folded, the events after it replayed next. The summary is always read at the head."
     },
     "summary": {
       "type": "object",

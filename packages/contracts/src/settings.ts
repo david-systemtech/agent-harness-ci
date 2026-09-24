@@ -46,6 +46,22 @@ export const AutoSettleOnMerge = z.boolean().meta({
   description: "Whether auto-settle settles a session one of whose pull requests merged at or after its anchor, the latest of its last activity, its unsettling and the end of its last snooze (settledBy auto-merge).",
 });
 
+/** The fewest and the most days `sessions.transcriptCompactAfterDays` takes. */
+export const TRANSCRIPT_COMPACT_DAYS = { min: 1, max: 3650 } as const;
+
+/**
+ * `sessions.transcriptCompactAfterDays`: how many days a session is left
+ * untouched before its transcript is compacted (env spec, "The event log":
+ * compaction; ADR 0002). Never null: a pruning policy is owed, not optional.
+ */
+export const TranscriptCompactAfterDays = z
+  .int()
+  .min(TRANSCRIPT_COMPACT_DAYS.min)
+  .max(TRANSCRIPT_COMPACT_DAYS.max)
+  .meta({
+    description: `How many whole days a session goes with no run, command or event before its transcript events are folded into a snapshot that replaces them for replay; ${TRANSCRIPT_COMPACT_DAYS.min} to ${TRANSCRIPT_COMPACT_DAYS.max}. Organisation events are never compacted.`,
+  });
+
 /** Where a key sits in Set up: the step whose registry entry writes it, and the band of that step's settings pane it shows in. */
 export interface SettingPlace {
   readonly id: string;
@@ -64,8 +80,9 @@ const setting = <const S extends z.ZodType>(definition: SettingDefinition<S>): S
 
 /**
  * Every settings key. The two auto-settle keys sit under the Appearance
- * step's entry, in a Sessions band of its pane (session-state spec); the Set
- * up workstream (#88) may re-home them.
+ * step's entry, in a Sessions band of its pane (session-state spec), and the
+ * transcript compaction window (#123) beside them; the Set up workstream
+ * (#88) may re-home them.
  */
 export const SETTINGS = {
   "sessions.autoSettleAfterIdle": setting({
@@ -76,6 +93,11 @@ export const SETTINGS = {
   "sessions.autoSettleOnMerge": setting({
     schema: AutoSettleOnMerge,
     preset: false,
+    step: { id: "appearance", band: "sessions" },
+  }),
+  "sessions.transcriptCompactAfterDays": setting({
+    schema: TranscriptCompactAfterDays,
+    preset: 90,
     step: { id: "appearance", band: "sessions" },
   }),
 } as const;

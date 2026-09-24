@@ -798,6 +798,9 @@ describe("snapshots", () => {
     expect(log.readSnapshot(s1)).toEqual({
       stream: s1,
       sequence: 20,
+      // Written, not compacted: no version it folded to, and no event removed.
+      streamVersion: 0,
+      folded: 0,
       payload: { turns: 2 },
       createdAt: "2026-09-24T10:00:00.000Z",
     });

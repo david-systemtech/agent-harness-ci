@@ -131,11 +131,18 @@
             "sessions.autoSettleOnMerge": {
               "type": "boolean",
               "description": "Whether auto-settle settles a session one of whose pull requests merged at or after its anchor, the latest of its last activity, its unsettling and the end of its last snooze (settledBy auto-merge)."
+            },
+            "sessions.transcriptCompactAfterDays": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 3650,
+              "description": "How many whole days a session goes with no run, command or event before its transcript events are folded into a snapshot that replaces them for replay; 1 to 3650. Organisation events are never compacted."
             }
           },
           "required": [
             "sessions.autoSettleAfterIdle",
-            "sessions.autoSettleOnMerge"
+            "sessions.autoSettleOnMerge",
+            "sessions.transcriptCompactAfterDays"
           ],
           "additionalProperties": false,
           "description": "Every setting's value, by key; a key never set holds its preset."

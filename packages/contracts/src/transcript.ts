@@ -468,13 +468,17 @@ export type ParkedPrompt = z.infer<typeof ParkedPrompt>;
 
 /**
  * What `sessions.subscribeSession` sends when replay from the cursor is out
- * of bounds: the session at `sequence`, its summary, its runs, the settled
- * items of its transcript (deltas are applied by the client to the open
- * item) and the prompts parked on it.
+ * of bounds, or when the cursor is older than the session's compaction
+ * (#123), whose fold it then stands in for: the session at `sequence`, its
+ * summary, its runs, the settled items of its transcript (deltas are
+ * applied by the client to the open item) and the prompts parked on it.
  */
 export const SessionSnapshot = z
   .object({
-    sequence: Sequence.meta({ description: "The log's head the snapshot was read at." }),
+    sequence: Sequence.meta({
+      description:
+        "Where the snapshot stands: the log's head it was read at; or, for a compacted session replayed from a cursor older than its compaction, the sequence of the last event the compaction folded, the events after it replayed next. The summary is always read at the head.",
+    }),
     summary: SessionSummary,
     runs: z.array(RunSummary).meta({ description: "Every run of the session, oldest first." }),
     items: z.array(TranscriptItem).meta({ description: "The settled items of the transcript, in order; items a rewind hid are left out." }),

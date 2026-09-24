@@ -8,7 +8,7 @@ import { applyMigrations } from "./migrations.js";
 import { createProjections, type Projector } from "./projectors.js";
 import { createPairingTable, type PairingTable } from "./pairings.js";
 import { createReceipts, type StoredError, type StoredReceipt } from "./receipts.js";
-import { createSnapshots, type Snapshot } from "./snapshots.js";
+import { createSnapshots, type Compaction, type Snapshot } from "./snapshots.js";
 import { loadSqlite } from "./sqlite.js";
 
 export type { ClientSessionRow, ClientSessionTable } from "./client-sessions.js";
@@ -18,7 +18,7 @@ export { formatActor, parseActor, type EventEnvelope, type EventInput, type Json
 export { selection, type Selection, type StreamKinds, type StreamSelector } from "./stream-selector.js";
 export type { ProjectionContext, ProjectionDb, Projector } from "./projectors.js";
 export { RECEIPT_RETENTION_MS, type StoredError, type StoredReceipt } from "./receipts.js";
-export type { Snapshot } from "./snapshots.js";
+export type { Compaction, Snapshot } from "./snapshots.js";
 
 /** The most a subscription replays for one stream before it sends a snapshot instead (spec: "Subscriptions"). */
 export const REPLAY_BOUND = { events: 1000, bytes: 8 * 1024 * 1024 } as const;
@@ -99,6 +99,14 @@ export interface ReplayMeasure {
   readonly withinBound: boolean;
 }
 
+/** Where a replay from a cursor starts (`replayStart`). */
+export interface ReplayStart {
+  /** The sequence replay reads the events after: the cursor, or the snapshot's sequence when the snapshot stands in for events below it. */
+  readonly after: number;
+  /** The snapshot sent before those events, standing in for the stream's events at or below its sequence; null when replay is the events alone. */
+  readonly snapshot: Snapshot | null;
+}
+
 export interface EventLogOptions {
   /** A database file, or `:memory:` for a private in-memory database. */
   readonly path: string;
@@ -134,6 +142,15 @@ export interface EventLog {
   command<T>(key: CommandKey, work: (tx: Tx) => CommandOutcome<T>): CommandRun<T>;
   /** Measures the events `selector` names after a cursor against the replay bound, in SQL, before decoding. */
   replayBound(selector: StreamSelector, afterSequence: number): ReplayMeasure;
+  /**
+   * Where a replay of `selector` from `afterSequence` starts. A stream's
+   * snapshot stands in for its events at or below the snapshot's sequence
+   * (a compaction removed some of them): a cursor below it is answered with
+   * the snapshot, then the events after it, and the replay bound is measured
+   * from there. A cursor at or above it, a stream with no snapshot, and a
+   * selection of many streams replay the events after the cursor.
+   */
+  replayStart(selector: StreamSelector, afterSequence: number): ReplayStart;
   /** The last sequence the log has given out, on any stream; 0 before the first event. */
   head(): number;
   /**
@@ -159,15 +176,31 @@ export interface EventLog {
   pruneReceipts(now: Date): number;
   /**
    * Deletes every event of one stream and its snapshot, inside the
-   * `atomically` open now: the one removal from the log, which a purge makes
-   * (env spec, "Deletion") before it appends the stream's tombstone in the
-   * same transaction. The head is never lowered, so no sequence is given out
-   * twice; the stream's next event is its version 1 again. Neither a
+   * `atomically` open now: the removal of a whole stream, which a purge
+   * makes (env spec, "Deletion") before it appends the stream's tombstone in
+   * the same transaction; a compaction (`compactStream`) is the other
+   * removal, of some events. The head is never lowered, so no sequence is
+   * given out twice; the stream's next event is its version 1 again, the
+   * snapshot that held its versions up being gone with it. Neither a
    * projector nor a caller without the open transaction may call it.
    * Returns how many events it deleted.
    */
   purgeStream(stream: StreamRef, options: { readonly tx: Tx }): number;
-  /** Writes a stream's snapshot, replacing any earlier one. */
+  /**
+   * Compacts one stream inside the `atomically` open now (env spec, "The
+   * event log": compaction): writes the snapshot that stands in, for replay,
+   * for the stream's events at or below `compaction.sequence`, replacing any
+   * earlier one, and removes the events it names, each of which must be the
+   * stream's and at or below that sequence. The stream's versions keep
+   * rising: its next event is numbered above the last one the snapshot
+   * folds, though a compaction removed it. The head is untouched and nothing
+   * is appended, so no subscriber hears of it. Which events a stream may
+   * lose is its owner's rule (`sessions/compaction.ts`). Neither a projector
+   * nor a caller without the open transaction may call it. Returns how many
+   * events it removed.
+   */
+  compactStream(stream: StreamRef, compaction: Compaction, options: { readonly tx: Tx }): number;
+  /** Writes a stream's snapshot, replacing any earlier one's sequence and payload. */
   writeSnapshot(stream: StreamRef, snapshot: { readonly sequence: number; readonly payload: unknown }): void;
   readSnapshot(stream: StreamRef): Snapshot | null;
   /**
@@ -276,10 +309,14 @@ export const openEventLog = (options: EventLogOptions): EventLog => {
   const clientSessions = createClientSessionTable(sql, requireTx);
   const pairings = createPairingTable(sql, requireTx);
 
+  // The stream's next version: above its last event, and above the last one its snapshot folds, which a compaction may have removed.
   const insertEvent = `
     INSERT INTO events (event_id, stream_kind, stream_id, stream_version, type, occurred_at,
                         command_id, causation_id, correlation_id, actor, payload, metadata)
-    SELECT ?1, ?2, ?3, COALESCE(MAX(stream_version), 0) + 1, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11
+    SELECT ?1, ?2, ?3,
+           MAX(COALESCE(MAX(stream_version), 0),
+               COALESCE((SELECT stream_version FROM snapshots WHERE stream_kind = ?2 AND stream_id = ?3), 0)) + 1,
+           ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11
     FROM events WHERE stream_kind = ?2 AND stream_id = ?3
     RETURNING *`;
 
@@ -454,6 +491,11 @@ export const openEventLog = (options: EventLogOptions): EventLog => {
       };
     },
 
+    replayStart(selector, afterSequence) {
+      const snapshot = "id" in selector ? snapshots.read(selector) : null;
+      return snapshot !== null && afterSequence < snapshot.sequence ? { after: snapshot.sequence, snapshot } : { after: afterSequence, snapshot: null };
+    },
+
     head() {
       // The autoincrement's own counter: what a rolled-back append never took, and what a purge never lowers.
       return sql.get<{ head: number }>("SELECT seq AS head FROM sqlite_sequence WHERE name = 'events'")?.head ?? 0;
@@ -486,6 +528,10 @@ export const openEventLog = (options: EventLogOptions): EventLog => {
       const { changes } = sql.run("DELETE FROM events WHERE stream_kind = ? AND stream_id = ?", stream.kind, stream.id);
       snapshots.remove(stream);
       return changes;
+    },
+    compactStream(stream, compaction, options) {
+      requireTx(options.tx);
+      return snapshots.compact(stream, compaction);
     },
     writeSnapshot: (stream, snapshot) => snapshots.write(stream, snapshot),
     readSnapshot: (stream) => snapshots.read(stream),

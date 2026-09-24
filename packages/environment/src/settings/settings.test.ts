@@ -31,11 +31,15 @@ const scopedClient = (t: TestEnvironment, scopes: Scope[]) =>
   t.client({ token: t.env.clientSessions.issue({ kind: "program", label: "a scoped program", scopes, ceiling: Ceiling.parse("acceptEdits") }).token });
 
 describe("settings.get", () => {
-  it("answers every key at its preset on an environment nobody has changed: 14 days idle, no settle on merge", async () => {
+  it("answers every key at its preset on an environment nobody has changed: 14 days idle, no settle on merge, compaction after 90 days", async () => {
     const t = await start();
     const client = await t.client();
     expect(await client.request("settings.get", {})).toEqual({
-      values: { "sessions.autoSettleAfterIdle": { amount: 14, unit: "days" }, "sessions.autoSettleOnMerge": false },
+      values: {
+        "sessions.autoSettleAfterIdle": { amount: 14, unit: "days" },
+        "sessions.autoSettleOnMerge": false,
+        "sessions.transcriptCompactAfterDays": 90,
+      },
     });
   });
 
@@ -165,9 +169,9 @@ describe("settings.update", () => {
 
     const second = await start(dataDir);
     const again = await second.client();
-    expect(await again.request("settings.get", {})).toEqual({ values });
+    expect(await again.request("settings.get", {})).toEqual({ values: { ...presets, ...values } });
     const rebuilt = await again.request("environment.rebuildProjections", { commandId: randomUUID() });
     expect(rebuilt.result?.projectors).toEqual(expect.arrayContaining(["session-list", "settings"]));
-    expect(await again.request("settings.get", {})).toEqual({ values });
+    expect(await again.request("settings.get", {})).toEqual({ values: { ...presets, ...values } });
   });
 });

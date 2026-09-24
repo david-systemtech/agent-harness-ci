@@ -10,9 +10,10 @@
         "type": "string",
         "enum": [
           "sessions.autoSettleAfterIdle",
-          "sessions.autoSettleOnMerge"
+          "sessions.autoSettleOnMerge",
+          "sessions.transcriptCompactAfterDays"
         ],
-        "description": "A settings key: sessions.autoSettleAfterIdle, sessions.autoSettleOnMerge."
+        "description": "A settings key: sessions.autoSettleAfterIdle, sessions.autoSettleOnMerge, sessions.transcriptCompactAfterDays."
       },
       "uniqueItems": true
     }
