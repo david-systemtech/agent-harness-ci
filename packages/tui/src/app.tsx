@@ -81,7 +81,14 @@ type Card =
   | { readonly kind: "none" }
   | { readonly kind: "environments"; readonly cursor: number }
   | { readonly kind: "menu"; readonly environmentId: string; readonly cursor: number }
-  | { readonly kind: "client-sessions"; readonly environmentId: string; readonly cursor: number; readonly rows: readonly ClientSessionRow[] | undefined }
+  | {
+      readonly kind: "client-sessions";
+      readonly environmentId: string;
+      readonly cursor: number;
+      readonly rows: readonly ClientSessionRow[] | undefined;
+      /** Which listing the card waits for: an earlier one answering late is not drawn. */
+      readonly listing: number;
+    }
   | { readonly kind: "minted"; readonly lines: MintedLines };
 
 interface Question {
@@ -262,11 +269,20 @@ export const App = (props: AppProps) => {
 
   const viewOf = (environmentId: string): EnvironmentView | undefined => views.find((v) => v.environmentId === environmentId);
 
+  // A connection's menu or client sessions whose environment is gone (removed meanwhile) gives way to the list of environments.
+  const shownEnvironment = screen.card.kind === "menu" || screen.card.kind === "client-sessions" ? screen.card.environmentId : undefined;
+  const shownGone = shownEnvironment !== undefined && !views.some((v) => v.environmentId === shownEnvironment);
+  useEffect(() => {
+    if (shownGone) setScreen((s) => (s.card.kind === "menu" || s.card.kind === "client-sessions" ? { ...s, card: { kind: "environments", cursor: 0 } } : s));
+  }, [shownGone]);
+
+  const listings = useRef(0);
   const openClientSessions = (view: EnvironmentView) => {
-    update({ card: { kind: "client-sessions", environmentId: view.environmentId, cursor: 0, rows: undefined } });
+    const listing = ++listings.current;
+    update({ card: { kind: "client-sessions", environmentId: view.environmentId, cursor: 0, rows: undefined, listing } });
     void listClientSessions(runtime, view).then((outcome) =>
       setScreen((s) =>
-        s.card.kind === "client-sessions" && s.card.environmentId === view.environmentId
+        s.card.kind === "client-sessions" && s.card.listing === listing
           ? outcome.ok
             ? { ...s, card: { ...s.card, rows: outcome.rows } }
             : { ...s, card: { kind: "menu", environmentId: view.environmentId, cursor: 0 }, line: outcome.line }

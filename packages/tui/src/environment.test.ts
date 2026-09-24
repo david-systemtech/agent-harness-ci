@@ -1,4 +1,5 @@
-import { SCOPES } from "@agent-harness/contracts";
+import type { FakeAnswer } from "@agent-harness/client-runtime/testing/fake-wire";
+import { Ceiling, SCOPES } from "@agent-harness/contracts";
 import { afterEach, describe, expect, it } from "vitest";
 import { KEY, renderApp, type RenderedApp } from "../test/harness.js";
 
@@ -22,6 +23,17 @@ const launch = async (...args: Parameters<typeof renderApp>) => {
 const run = async (app: RenderedApp, command: string) => {
   await app.type(command);
   await app.press(KEY.enter);
+};
+/** A client session row as `access.sessions.list` answers it. */
+const clientSessionRow = {
+  kind: "desktop",
+  createdAt: "2026-09-24T00:00:00.000Z",
+  lastSeenAt: "2026-09-24T00:00:00.000Z",
+  expiresAt: "2026-10-24T00:00:00.000Z",
+  revokedAt: null,
+  scopes: [...SCOPES],
+  ceiling: Ceiling.parse("bypassPermissions"),
+  local: false,
 };
 const rowWith = (frame: string, text: string) => frame.split("\n").find((row) => row.includes(text)) ?? "";
 
@@ -142,9 +154,45 @@ describe("/environment", () => {
     await app.waitFor("Revoke David's MacBook on laptop? y/n");
     await app.press("y");
     await app.waitFor("Revoked David's MacBook on laptop.");
-    expect(app.environment("laptop").requests("access.sessions.revoke")).toMatchObject([{ params: { clientSessionId: expect.any(String) } }]);
+    const [listed] = app.environment("laptop").requests("access.sessions.list");
+    expect(listed).toBeDefined();
+    expect(app.environment("laptop").requests("access.sessions.revoke")).toMatchObject([{ params: { clientSessionId: "0199cc00-0000-7000-8000-000000000001" } }]);
+    // The card lists again, without the revoked row; this terminal's own stays.
+    await app.waitUntil(() => app.environment("laptop").requests("access.sessions.list").length === 2, "the client sessions listed again");
+    await app.waitFor(/seth@desk:pts\/3\s+tui/);
+    expect(app.frame()).not.toMatch(/David's MacBook\s+desktop/);
+  });
+
+  it("draws only the latest listing when an earlier one answers after it", async () => {
+    const app = await twoEnvironments();
+    await app.waitFor("● desk ready");
+    const pending: ((answer: FakeAnswer) => void)[] = [];
+    const laptop = app.environment("laptop");
+    laptop.wire.answer("access.sessions.list", () => new Promise<FakeAnswer>((resolve) => pending.push(resolve)));
+    const row = (label: string) => ({ ...clientSessionRow, id: `0199cc00-0000-7000-8000-00000000000${pending.length}`, label });
+    await openActions(app, 1);
+    await app.press(KEY.down, KEY.down, KEY.down, KEY.enter);
+    await app.waitFor("Listing…");
+    await app.press(KEY.esc, KEY.down, KEY.down, KEY.down, KEY.enter);
+    await app.waitUntil(() => pending.length === 2, "a second listing");
+    pending[1]?.({ result: { sessions: [row("Newer listing")] } });
+    await app.waitFor("Newer listing");
+    pending[0]?.({ result: { sessions: [row("Older listing")] } });
     await app.tick(3);
-    expect(app.frame()).not.toContain("David's MacBook  ");
+    expect(app.frame()).toContain("Newer listing");
+    expect(app.frame()).not.toContain("Older listing");
+  });
+
+  it("goes back to the list of environments when the one whose client sessions are open is removed", async () => {
+    const app = await twoEnvironments();
+    await app.waitFor("● desk ready");
+    await openActions(app, 1);
+    await app.press(KEY.down, KEY.down, KEY.down, KEY.enter);
+    await app.waitFor("David's MacBook");
+    await app.runtime().connections.remove(app.environment("laptop").environmentId);
+    await app.waitFor("Environments");
+    expect(app.frame()).not.toContain("Client sessions on laptop");
+    expect(app.frame()).toMatch(/› desk\s+local/);
   });
 
   it("says a rejected revoke as the receipt gives it", async () => {
