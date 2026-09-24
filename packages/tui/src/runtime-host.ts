@@ -13,9 +13,9 @@ export interface RuntimeHost {
   readonly current: Observable<Runtime>;
   /** Whether the current runtime's start has settled, so an empty list means nothing is known rather than not yet. */
   readonly started: Observable<boolean>;
-  /** Starts the current runtime; a failed start is reported and may be tried again. */
+  /** Starts the current runtime; a failed start is reported and may be tried again. Does nothing once closed. */
   start(): Promise<void>;
-  /** Closes the current runtime, makes a fresh one and starts it. */
+  /** Closes the current runtime, makes a fresh one and starts it, unless the host is closed meanwhile. */
   restart(): Promise<void>;
   close(): Promise<void>;
 }
@@ -25,9 +25,11 @@ export const createRuntimeHost = (make: () => Runtime): RuntimeHost => {
   const started = writable(false);
   let closed = false;
   const start = async () => {
+    // Once closed, nothing the host holds is started again.
+    if (closed) return;
     const runtime = current.read();
     await runtime.start();
-    if (current.read() === runtime) started.set(true);
+    if (current.read() === runtime && !closed) started.set(true);
   };
   return {
     current,
@@ -39,6 +41,7 @@ export const createRuntimeHost = (make: () => Runtime): RuntimeHost => {
       started.set(false);
       current.set(make());
       await previous.close();
+      // A close while the old runtime closed has closed the fresh one too; start does nothing then.
       await start();
     },
     async close() {
