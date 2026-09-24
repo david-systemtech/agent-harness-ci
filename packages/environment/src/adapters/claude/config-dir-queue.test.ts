@@ -23,6 +23,23 @@ const helper = (env: Record<string, string | undefined>, log: string[], name: st
   return seen;
 };
 
+/** Timers the test fires by hand, in the order they were set. */
+const manualTimers = () => {
+  const set: { callback: () => void; cancelled: boolean }[] = [];
+  return {
+    setTimeout: (callback: () => void) => {
+      const timer = { callback, cancelled: false };
+      set.push(timer);
+      return { cancel: () => void (timer.cancelled = true) };
+    },
+    /** Fires the `index`th timer set, unless it was cancelled. */
+    fire: (index: number) => {
+      const timer = set[index];
+      if (timer !== undefined && !timer.cancelled) timer.callback();
+    },
+  };
+};
+
 describe("the config-directory queue", () => {
   it("serialises two helpers on one directory", async () => {
     const env: Record<string, string | undefined> = {};
@@ -51,17 +68,64 @@ describe("the config-directory queue", () => {
     expect(bare).not.toHaveProperty("CLAUDE_CONFIG_DIR");
   });
 
-  it("refuses a helper that does not answer in time, restores the variable, and runs the next", async () => {
+  it("refuses a helper that does not answer in time, and runs the next once it settles, with the variable restored", async () => {
     const env: Record<string, string | undefined> = {};
-    let fire: (() => void) | undefined;
-    const queue = createConfigDirQueue(env, { timeoutMs: 1_000, setTimeout: (callback) => ((fire = callback), { cancel: () => undefined }) });
-    const wedged = queue.run("/accounts/a", () => new Promise<never>(() => undefined));
+    const timers = manualTimers();
+    const queue = createConfigDirQueue(env, { timeoutMs: 1_000, setTimeout: timers.setTimeout });
+    let free: () => void = () => undefined;
+    const wedged = queue.run("/accounts/a", () => new Promise<void>((resolve) => (free = resolve)));
     const next = queue.run("/accounts/b", async () => env["CLAUDE_CONFIG_DIR"]);
     await tick();
-    fire?.();
+    timers.fire(0);
     await expect(wedged).rejects.toThrow(/did not answer within 1000 ms/);
+    free();
     await expect(next).resolves.toBe("/accounts/b");
     expect(env).not.toHaveProperty("CLAUDE_CONFIG_DIR");
+  });
+
+  it("keeps a timed-out helper's directory until it settles, so a helper that resumes after its time reads its own and the next waits for it", async () => {
+    const env: Record<string, string | undefined> = {};
+    const timers = manualTimers();
+    const queue = createConfigDirQueue(env, { timeoutMs: 1_000, setTimeout: timers.setTimeout });
+    const log: string[] = [];
+    let free: () => void = () => undefined;
+    const freed = new Promise<void>((resolve) => (free = resolve));
+    // Wedged on a store lock that later frees, then reading the variable again and writing under it, as a mutation helper does.
+    const wedged = queue.run("/accounts/a", async () => {
+      log.push(`a start ${env["CLAUDE_CONFIG_DIR"] ?? "-"}`);
+      await freed;
+      log.push(`a writes under ${env["CLAUDE_CONFIG_DIR"] ?? "-"}`);
+    });
+    const next = queue.run("/accounts/b", helper(env, log, "b"));
+    await tick();
+    timers.fire(0);
+    await expect(wedged).rejects.toThrow(/did not answer within 1000 ms/);
+    await tick();
+    expect(log).toEqual(["a start /accounts/a"]);
+    expect(env["CLAUDE_CONFIG_DIR"]).toBe("/accounts/a");
+
+    free();
+    await expect(next).resolves.toBe("/accounts/b");
+    expect(log).toEqual(["a start /accounts/a", "a writes under /accounts/a", "b start /accounts/b", "b end /accounts/b"]);
+    expect(env).not.toHaveProperty("CLAUDE_CONFIG_DIR");
+  });
+
+  it("refuses a call whose time runs out while it waits behind a helper that never settles, and never runs it", async () => {
+    const env: Record<string, string | undefined> = {};
+    const timers = manualTimers();
+    const queue = createConfigDirQueue(env, { timeoutMs: 1_000, setTimeout: timers.setTimeout });
+    const wedged = queue.run("/accounts/a", () => new Promise<never>(() => undefined));
+    let ran = false;
+    const waiting = queue.run("/accounts/b", async () => {
+      ran = true;
+    });
+    await tick();
+    timers.fire(0);
+    timers.fire(1);
+    await expect(wedged).rejects.toThrow(/did not answer within 1000 ms/);
+    await expect(waiting).rejects.toThrow(/did not answer within 1000 ms/);
+    await tick();
+    expect(ran).toBe(false);
   });
 
   it("keeps going after a helper throws, with the variable restored", async () => {
