@@ -730,7 +730,7 @@ describe("reading by stream kind", () => {
 
   it("reads every stream of the kinds named, in sequence order, after a cursor and up to a limit", () => {
     const log = mixed();
-    const kinds = { kinds: ["session", "group"] };
+    const kinds = { kinds: ["session", "group"] } as const;
     expect(where(log.readStream(kinds))).toEqual([
       "1 session/a session.created",
       "3 group/g group.created",

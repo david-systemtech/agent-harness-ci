@@ -1,19 +1,28 @@
-import type { MethodName } from "./registry.js";
+import type { CommandMethodName } from "./registry.js";
 import type { SessionEventType, SessionSummary } from "./sessions.js";
 
 /**
- * Who writes a summary field: the command a user changes it with, or, for a
+ * Who owns a summary field: the command a user sets it with (a command-kind
+ * registry entry, so a query or a stream does not compile here), or, for a
  * field only the system writes (the run and prompt events, the forge's
  * pull-request events), the `list`-flagged event type that writes it.
  */
-export type SummaryFieldOwner = { readonly command: MethodName } | { readonly event: SessionEventType };
+export type SummaryFieldOwner = { readonly command: CommandMethodName } | { readonly event: SessionEventType };
 
 /**
  * The field table (session-state spec, "The contract test and the lint";
  * ADR 0003): every key of the session summary and its owner. The contract
  * test fails when a key of the summary is missing here, a named command is
- * not in the registry, or a named event type is not `list`-flagged, so a
- * session field with no command and no event cannot be added.
+ * not in the registry or is not a command, or a named event type is not
+ * `list`-flagged, so a session field with no command and no event cannot be
+ * added.
+ *
+ * The table is ownership, not the complete list of writers. An owner is the
+ * first writer of its field, the one a user (or, for a system field, the
+ * system) sets it with; later commands and events also write fields owned
+ * elsewhere: every organisation command moves `updatedAt`, a pin or a run
+ * start moves `settledOverride` through the companion events, a sync moves
+ * `pullRequests`, a generated title moves `title` and `titleSource`.
  */
 export const SUMMARY_FIELD_OWNERS = {
   // Identity: born with the session; updatedAt then moves with every organisation command.

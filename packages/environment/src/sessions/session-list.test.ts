@@ -1,7 +1,8 @@
 import { LIST_PATCH_KEY } from "@agent-harness/contracts";
 import { afterEach, describe, expect, it } from "vitest";
 import { openEventLog, type EventLog } from "../event-log/event-log.js";
-import { listSummaries, sessionListProjector, type Reader } from "./session-list.js";
+import { sessionListProjector } from "./session-list.js";
+import { listSummaries, type Reader } from "./session-reads.js";
 
 /**
  * The session-list projector at the lower seam: against an in-memory log,

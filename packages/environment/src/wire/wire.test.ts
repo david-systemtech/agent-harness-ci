@@ -6,6 +6,7 @@ import {
   HelloFrame,
   PROTOCOL_VERSION,
   SCOPES,
+  OWED_HANDLERS,
   methods,
   type ClientSessionCredential,
   type Frame,
@@ -461,35 +462,11 @@ describe("requests", () => {
     expect(answer).toEqual({ type: "subscribed", id: expect.any(String), subscription: expect.any(String) });
   });
 
-  it("serves every registered method but the session-state ones later tickets serve, so none is answered not_found for want of a handler (dispatch.test.ts covers one without)", async () => {
+  it("serves every registered method or owes it to a named ticket, and owes none it serves (dispatch.test.ts covers one without a handler)", async () => {
     const t = await start();
-    // Registered with the session summary (#114) so the field table's owners exist; #115 to #118 serve them.
-    const servedLater = [
-      "sessions.archive",
-      "sessions.unarchive",
-      "sessions.pin",
-      "sessions.unpin",
-      "sessions.reorderPinned",
-      "sessions.reorderActive",
-      "sessions.tag",
-      "sessions.untag",
-      "sessions.setGroup",
-      "sessions.settle",
-      "sessions.unsettle",
-      "sessions.snooze",
-      "sessions.unsnooze",
-      "sessions.delete",
-      "sessions.restore",
-      "sessions.purge",
-      "groups.create",
-      "groups.rename",
-      "groups.reorder",
-      "groups.delete",
-      "sessions.listDeleted",
-      "groups.list",
-      "sessions.subscribeSession",
-    ];
-    expect(methods.filter((method) => t.env.methods.get(method.name)?.handler === undefined).map((method) => method.name)).toEqual(servedLater);
+    const unserved = methods.filter((method) => t.env.methods.get(method.name)?.handler === undefined).map((method) => method.name);
+    // An unserved method missing from the list is unowed; a served one still on it is owed by mistake.
+    expect(unserved.sort()).toEqual(Object.keys(OWED_HANDLERS).sort());
   });
 });
 

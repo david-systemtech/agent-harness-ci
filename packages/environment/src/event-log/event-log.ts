@@ -2,15 +2,8 @@ import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { createClientSessionTable, type ClientSessionTable } from "./client-sessions.js";
 import { createSql, decodeEvent, toJson, type EventRow, type SqlValue, type Transaction } from "./database.js";
-import {
-  isStreamKinds,
-  requireActor,
-  type EventEnvelope,
-  type EventInput,
-  type JsonObject,
-  type StreamRef,
-  type StreamSelector,
-} from "./envelope.js";
+import { requireActor, type EventEnvelope, type EventInput, type JsonObject, type StreamRef } from "./envelope.js";
+import { selection, type StreamSelector } from "./stream-selector.js";
 import { applyMigrations } from "./migrations.js";
 import { createProjections, type Projector } from "./projectors.js";
 import { createPairingTable, type PairingTable } from "./pairings.js";
@@ -21,18 +14,8 @@ import { loadSqlite } from "./sqlite.js";
 export type { ClientSessionRow, ClientSessionTable } from "./client-sessions.js";
 export type { PairingRow, PairingTable } from "./pairings.js";
 export type { SqlValue } from "./database.js";
-export {
-  formatActor,
-  isStreamKinds,
-  parseActor,
-  selects,
-  type EventEnvelope,
-  type EventInput,
-  type JsonObject,
-  type StreamKinds,
-  type StreamRef,
-  type StreamSelector,
-} from "./envelope.js";
+export { formatActor, parseActor, type EventEnvelope, type EventInput, type JsonObject, type StreamRef } from "./envelope.js";
+export { selection, type Selection, type StreamKinds, type StreamSelector } from "./stream-selector.js";
 export type { ProjectionContext, ProjectionDb, Projector } from "./projectors.js";
 export { RECEIPT_RETENTION_MS, type StoredError, type StoredReceipt } from "./receipts.js";
 export type { Snapshot } from "./snapshots.js";
@@ -184,21 +167,6 @@ export interface EventLog {
   close(): void;
 }
 
-/**
- * The SQL condition on `events` for `selector`, and its parameters: one
- * stream by kind and id, or a set of kinds (and of types, when given) passed
- * as JSON arrays, so each form is one prepared statement whatever the sets hold.
- */
-const selection = (selector: StreamSelector): { where: string; params: SqlValue[] } =>
-  isStreamKinds(selector)
-    ? selector.types === undefined
-      ? { where: "stream_kind IN (SELECT value FROM json_each(?))", params: [JSON.stringify(selector.kinds)] }
-      : {
-          where: "stream_kind IN (SELECT value FROM json_each(?)) AND type IN (SELECT value FROM json_each(?))",
-          params: [JSON.stringify(selector.kinds), JSON.stringify(selector.types)],
-        }
-    : { where: "stream_kind = ? AND stream_id = ?", params: [selector.kind, selector.id] };
-
 /** Throws unless `value` is a JSON object: the contracts' envelope carries payload and metadata as objects. */
 const requireObject: (value: unknown, what: string) => asserts value is JsonObject = (value, what) => {
   if (typeof value === "object" && value !== null && !Array.isArray(value)) return;
@@ -273,7 +241,15 @@ export const openEventLog = (options: EventLogOptions): EventLog => {
   };
 
   // A rebuild inside an `atomically` (the `environment.rebuildProjections` command) joins its transaction.
-  const projections = createProjections(sql, transaction, clock);
+  /**
+   * Writes the metadata the projectors attached to an event being appended,
+   * merged with what it had, to its row: the one write to `events` besides
+   * the insert, and the log's own.
+   */
+  const attachMetadata = (event: EventEnvelope, metadata: JsonObject): void => {
+    sql.run("UPDATE events SET metadata = ? WHERE sequence = ?", toJson(metadata, `The metadata of a ${event.type} event`), event.sequence);
+  };
+  const projections = createProjections(sql, transaction, clock, attachMetadata);
   const receipts = createReceipts(sql);
   const snapshots = createSnapshots(sql, clock);
   const clientSessions = createClientSessionTable(sql, requireTx);

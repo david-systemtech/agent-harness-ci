@@ -15,6 +15,8 @@ const sessionId = "7c9e6679-7425-40de-944b-e07fc1f90ae7";
 const groupId = "1b4e28ba-2fa1-41d2-883f-0016d3cca427";
 const at = "2026-09-24T01:02:03.456Z";
 const later = "2026-09-29T09:00:00.000Z";
+/** A version 1 UUID: a UUID, but not the version 4 a session or group id must be. */
+const v1 = "c232ab00-9414-11ec-b3c8-9f6bdeced846";
 
 const workspace = { kind: "directory", path: "/work/agent-harness" };
 const pullRequest = { url: "https://git.systemtech.dev:5526/david/agent-harness/pulls/167", state: "open", mergedAt: null, closedAt: null };
@@ -154,12 +156,21 @@ const eventPayloads: Record<string, Fixtures> = {
 
 /** Every session and group schema the export writes, by path. */
 export const sessionSchemaFixtures: Record<string, Fixtures> = {
-  "sessions/session-id.json": { valid: [sessionId], invalid: ["s-1", "", 7] },
-  "sessions/group-id.json": { valid: [groupId], invalid: ["g-1", ""] },
+  "sessions/session-id.json": { valid: [sessionId], invalid: ["s-1", "", 7, v1] },
+  "sessions/group-id.json": { valid: [groupId], invalid: ["g-1", "", v1] },
   "sessions/order-key.json": { valid: ["b", "an", "zzz"], invalid: ["", "a", "ba", "B", "b1"] },
-  "sessions/user-title.json": { valid: ["Fix it", "x".repeat(200)], invalid: ["", "   ", "x".repeat(201)] },
-  "sessions/tag.json": { valid: ["wip", "Seth", "x".repeat(40)], invalid: ["", " ", "x".repeat(41), "a\tb"] },
-  "sessions/group-name.json": { valid: ["Brandsolidate", "x".repeat(80)], invalid: ["", "  ", "x".repeat(81)] },
+  "sessions/user-title.json": {
+    valid: ["Fix it", "x".repeat(200), `  ${"x".repeat(200)}  `, "a b"],
+    invalid: ["", "   ", "x".repeat(201), ` ${"x".repeat(201)} `],
+  },
+  "sessions/tag.json": {
+    valid: ["wip", "Seth", "x".repeat(40), ` ${"x".repeat(40)}  `, "two words"],
+    invalid: ["", " ", "x".repeat(41), "a\tb", "a\u0085b"],
+  },
+  "sessions/group-name.json": {
+    valid: ["Brandsolidate", "x".repeat(80), ` ${"x".repeat(80)} `],
+    invalid: ["", "  ", "x".repeat(81)],
+  },
   "sessions/title-source.json": { valid: ["user", "generated", "default"], invalid: ["prompt", "provider", ""] },
   "sessions/generated-title-source.json": { valid: ["prompt", "provider"], invalid: ["user", ""] },
   "sessions/settled-override.json": { valid: ["settled", "active"], invalid: ["archived", ""] },
@@ -225,6 +236,7 @@ export const sessionMethodFixtures: Record<string, { params: Fixtures; result: F
       invalid: [
         { commandId, workspace },
         { commandId, id: "s-1", workspace },
+        { commandId, id: v1, workspace },
         { commandId, id: sessionId },
         { commandId, id: sessionId, workspace, title: "" },
         { commandId, id: sessionId, workspace, title: "x".repeat(201) },
@@ -294,7 +306,7 @@ export const sessionMethodFixtures: Record<string, { params: Fixtures; result: F
     result: groupResult,
   },
   "groups.delete": {
-    params: { valid: [{ commandId, groupId }], invalid: [{ commandId }, { groupId }] },
+    params: { valid: [{ commandId, groupId }], invalid: [{ commandId }, { groupId }, { commandId, groupId: v1 }] },
     result: { valid: [{ groupId }], invalid: [{}, { groupId: "g-1" }] },
   },
   "sessions.list": {

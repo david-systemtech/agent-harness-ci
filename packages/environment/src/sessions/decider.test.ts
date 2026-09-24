@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decideCreate, decideRename, normaliseTags, type CreateSession, type SessionState } from "./decider.js";
+import { decideCreate, decideRename, normaliseTags, sessionNotFound, tagKey, type CreateSession, type SessionState } from "./decider.js";
 
 /**
  * The session aggregate's decider on its own: pure, so each rule is a plain
@@ -67,25 +67,35 @@ describe("deciding sessions.create", () => {
 
 describe("deciding sessions.rename", () => {
   it("sets a trimmed user title with source user", () => {
-    expect(decideRename(live(), id, "  New name ")).toEqual({
+    expect(decideRename(live(), { sessionId: id, title: "  New name " })).toEqual({
       events: [{ type: "session.title-set", payload: { title: "New name", source: "user" } }],
     });
-    expect(decideRename(live("Old"), id, null)).toEqual({ events: [{ type: "session.title-set", payload: { title: null, source: "user" } }] });
+    expect(decideRename(live("Old"), { sessionId: id, title: null })).toEqual({ events: [{ type: "session.title-set", payload: { title: null, source: "user" } }] });
   });
 
   it("changes nothing when the title is already the session's", () => {
-    expect(decideRename(live("Same"), id, " Same")).toEqual({ events: [] });
-    expect(decideRename(live(), id, null)).toEqual({ events: [] });
+    expect(decideRename(live("Same"), { sessionId: id, title: " Same" })).toEqual({ events: [] });
+    expect(decideRename(live(), { sessionId: id, title: null })).toEqual({ events: [] });
   });
 
   it("refuses a session that does not exist, or is deleted, not_found, kind session", () => {
     for (const state of [null, { deleted: true, userTitle: "Gone" }]) {
-      expect(decideRename(state, id, "x")).toMatchObject({ rejected: { code: "not_found", data: { kind: "session", sessionId: id } } });
+      expect(decideRename(state, { sessionId: id, title: "x" })).toMatchObject({ rejected: { code: "not_found", data: { kind: "session", sessionId: id } } });
     }
   });
 });
 
+describe("refusing a session that is not there", () => {
+  it("is one not_found, kind session, naming the id: what a command's receipt and sessions.get both carry", () => {
+    expect(sessionNotFound(id)).toEqual({ code: "not_found", message: `No session ${id} is on this environment.`, data: { kind: "session", sessionId: id } });
+  });
+});
+
 describe("normalising tags", () => {
+  it("folds case one way for uniqueness and order, the key the session-tags table is unique on", () => {
+    expect(tagKey("WiP")).toBe("wip");
+  });
+
   it("trims, keeps one per spelling ignoring case with the latest casing, and sorts ignoring case", () => {
     expect(normaliseTags(["wip", " Seth", "review", "WIP", "seth "])).toEqual(["review", "seth", "WIP"]);
     expect(normaliseTags([])).toEqual([]);

@@ -12,17 +12,15 @@
     "sessionId": {
       "type": "string",
       "format": "uuid",
-      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
-      "description": "A session's id: a UUID the creating client mints (never the provider's resume id), kept in lowercase."
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "A session's id: a version 4 UUID the creating client mints (never the provider's resume id), kept in lowercase."
     },
     "title": {
       "anyOf": [
         {
           "type": "string",
-          "minLength": 1,
-          "maxLength": 200,
-          "pattern": "\\S",
-          "description": "A title a user gives a session: 1 to 200 characters, not all white space; stored trimmed."
+          "pattern": "^\\s*\\S(?:[\\s\\S]{0,198}\\S)?\\s*$",
+          "description": "A title a user gives a session: 1 to 200 characters once trimmed; white space around it is not counted, and it is stored trimmed."
         },
         {
           "type": "null"

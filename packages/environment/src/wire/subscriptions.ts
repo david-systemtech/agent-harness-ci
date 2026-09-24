@@ -1,7 +1,7 @@
 import { encodeFrame, type EndReason, type Frame } from "@agent-harness/contracts";
 import type { WebSocket } from "ws";
 import type { z } from "zod";
-import { REPLAY_BOUND, selects, type EventEnvelope, type EventLog, type StreamSelector } from "../event-log/event-log.js";
+import { REPLAY_BOUND, selection, type EventEnvelope, type EventLog, type Selection, type StreamSelector } from "../event-log/event-log.js";
 import { toWireEnvelope } from "./envelope.js";
 
 /**
@@ -113,6 +113,8 @@ interface Subscription {
   /** The request `subscribed` answers. */
   readonly requestId: string;
   readonly stream: StreamSelector;
+  /** The stream's test of a live event, from the same description the catch-up reads with. */
+  readonly selection: Selection;
   phase: "catching-up" | "live" | "ended";
   /** Whether `subscribed` has been sent: only then does the client know the id, and hear an `end`. */
   announced: boolean;
@@ -208,7 +210,7 @@ const deliver = (subscription: Subscription, event: EventEnvelope): void => {
 
 /** The live feed: delivered once live, kept (against the same bound) while catching up. */
 const hear = (subscription: Subscription, event: EventEnvelope): void => {
-  if (subscription.phase === "ended" || !selects(subscription.stream, event)) return;
+  if (subscription.phase === "ended" || !subscription.selection.matches(event)) return;
   if (subscription.phase === "live") return deliver(subscription, event);
   const heard = plus(subscription.heardMeasure, sizeOf(event));
   if (passesBound(heard)) return end(subscription, "overflow");
@@ -263,6 +265,7 @@ const openSubscription = async (channel: Channel, opening: Opening): Promise<voi
     id: `sub-${++channel.minted}`,
     requestId: opening.requestId,
     stream: opening.source.stream,
+    selection: selection(opening.source.stream),
     phase: "catching-up",
     announced: false,
     sent: opening.afterSequence,

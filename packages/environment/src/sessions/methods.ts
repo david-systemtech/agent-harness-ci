@@ -8,9 +8,9 @@ import {
 } from "@agent-harness/contracts";
 import type { EventLog, StreamRef } from "../event-log/event-log.js";
 import type { CommandAnswer, CommandContext, MethodHandlers } from "../serve/methods.js";
-import { decideCreate, decideRename, type Decision, type Refusal, type SessionState } from "./decider.js";
+import { decideCreate, decideRename, sessionNotFound, type Decision, type Refusal, type SessionState } from "./decider.js";
 import { acceptAnyRunParameters, type RunParametersCheck } from "./run-parameters.js";
-import { listGroups, listSummaries, readSessionState, readSummary, type Reader } from "./session-list.js";
+import { groupExists, listGroups, listSummaries, readSessionState, readSummary, type Reader } from "./session-reads.js";
 
 /**
  * The session-organisation handlers on the method table (session-state
@@ -77,14 +77,13 @@ export const sessionMethods = (options: SessionMethodsOptions): MethodHandlers =
       const issues = validateRunParameters(run);
       if (issues.length > 0) throw new ContractError(invalidParams(issues, "The account, model or mode is not one this environment offers."));
       const groupId = params.groupId?.toLowerCase() ?? null;
-      const groupExists = groupId !== null && reader.all("SELECT 1 FROM groups WHERE id = ?", groupId).length > 0;
       const command = { id, title: params.title ?? null, tags: params.tags ?? [], groupId, workspace: params.workspace, ...run };
-      return carryOut(id, decideCreate(stateOf(id), command, { groupExists }), context);
+      return carryOut(id, decideCreate(stateOf(id), command, { groupExists: groupId !== null && groupExists(reader, groupId) }), context);
     },
 
     "sessions.rename": (params, context) => {
       const id = params.sessionId.toLowerCase();
-      return carryOut(id, decideRename(stateOf(id), id, params.title), context);
+      return carryOut(id, decideRename(stateOf(id), { sessionId: id, title: params.title }), context);
     },
 
     "sessions.list": () => ({ sequence: log.head(), sessions: listSummaries(reader) }),
@@ -92,9 +91,7 @@ export const sessionMethods = (options: SessionMethodsOptions): MethodHandlers =
     "sessions.get": ({ sessionId }) => {
       const id = sessionId.toLowerCase();
       const summary = readSummary(reader, id);
-      if (summary === null) {
-        throw new ContractError({ code: "not_found", message: `No session ${id} is on this environment.`, data: { kind: "session", sessionId: id } });
-      }
+      if (summary === null) throw new ContractError(sessionNotFound(id));
       return { summary };
     },
 

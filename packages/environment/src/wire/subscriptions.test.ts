@@ -493,7 +493,11 @@ describe("ending a subscription", () => {
 });
 
 describe("a subscription over stream kinds", () => {
-  /** A synthetic stream over every `probe` and `prod` stream, keeping only `probe.poked` events. */
+  /**
+   * A synthetic stream over every `session` and `group` stream, keeping only
+   * `probe.poked` events: a type the session list does not project, so the
+   * test appends to those kinds freely.
+   */
   const probesSubscribe = defineMethod({
     name: "probes.subscribe",
     scope: "read",
@@ -502,34 +506,30 @@ describe("a subscription over stream kinds", () => {
     result: z.object({ count: z.int().nonnegative() }),
     errors: [],
   });
+  const poke = (kind: "session" | "group" | "access", id: string, types: readonly string[]) =>
+    (t: TestEnvironment) =>
+      t.env.log.append({ kind, id }, types.map((type) => ({ type, payload: {} })), { actor: "system:test" }).events.map((e) => e.sequence);
 
   it("carries every stream of the kinds its source names, only the types it names, replayed then live, in sequence order", async () => {
     const t = await start();
-    t.serve(probesSubscribe, () => ({ stream: { kinds: ["probe", "prod"], types: ["probe.poked"] }, snapshot: () => ({ count: 0 }) }));
-    const [a] = append(t, "a", 1);
-    t.env.log.append({ kind: "prod", id: "x" }, [{ type: "probe.poked", payload: {} }, { type: "prod.ignored", payload: {} }], {
-      actor: "system:test",
-    });
-    t.env.log.append({ kind: "elsewhere", id: "a" }, [{ type: "probe.poked", payload: {} }], { actor: "system:test" });
+    t.serve(probesSubscribe, () => ({ stream: { kinds: ["session", "group"], types: ["probe.poked"] }, snapshot: () => ({ count: 0 }) }));
+    const [a] = poke("session", "a", ["probe.poked"])(t);
+    const [b] = poke("group", "x", ["probe.poked", "probe.ignored"])(t);
+    poke("access", "a", ["probe.poked"])(t);
     const client = await t.client();
     const { subscription } = await client.subscribe("probes.subscribe", { afterSequence: 0 });
     await frame(client, subscription, "synchronized");
-    const [b] = append(t, "b", 1);
-    t.env.log.append({ kind: "prod", id: "y" }, [{ type: "prod.ignored", payload: {} }, { type: "probe.poked", payload: {} }], {
-      actor: "system:test",
-    });
+    const [c] = poke("session", "b", ["probe.poked"])(t);
+    const [, d] = poke("group", "y", ["probe.ignored", "probe.poked"])(t);
     await roundTrip(client);
-    const replayed = (a as number) + 1;
-    expect(shape(client, subscription)).toEqual(["subscribed", a, replayed, "synchronized", b, (b as number) + 2]);
+    expect(shape(client, subscription)).toEqual(["subscribed", a, b, "synchronized", c, d]);
   });
 
   it("sends a snapshot when the events of those kinds after the cursor pass the bound", async () => {
     const t = await start();
-    t.serve(probesSubscribe, () => ({ stream: { kinds: ["probe", "prod"] }, snapshot: () => ({ count: 7 }) }));
-    append(t, "a", REPLAY_BOUND.events / 2);
-    t.env.log.append({ kind: "prod", id: "x" }, Array.from({ length: REPLAY_BOUND.events / 2 + 1 }, () => ({ type: "prod.made", payload: {} })), {
-      actor: "system:test",
-    });
+    t.serve(probesSubscribe, () => ({ stream: { kinds: ["session", "group"] }, snapshot: () => ({ count: 7 }) }));
+    poke("session", "a", Array.from({ length: REPLAY_BOUND.events / 2 }, () => "probe.poked"))(t);
+    poke("group", "x", Array.from({ length: REPLAY_BOUND.events / 2 + 1 }, () => "probe.poked"))(t);
     const client = await t.client();
     const { subscription } = await client.subscribe("probes.subscribe", { afterSequence: 0 });
     const snapshot = await frame(client, subscription, "snapshot");

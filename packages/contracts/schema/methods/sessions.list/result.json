@@ -17,8 +17,8 @@
           "id": {
             "type": "string",
             "format": "uuid",
-            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
-            "description": "A session's id: a UUID the creating client mints (never the provider's resume id), kept in lowercase."
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+            "description": "A session's id: a version 4 UUID the creating client mints (never the provider's resume id), kept in lowercase."
           },
           "createdAt": {
             "type": "string",
@@ -114,10 +114,8 @@
             "type": "array",
             "items": {
               "type": "string",
-              "minLength": 1,
-              "maxLength": 40,
-              "pattern": "^(?=.*\\S)\\P{Cc}+$",
-              "description": "A free-form tag: 1 to 40 characters, no control characters, not all white space; stored trimmed, unique per session ignoring case."
+              "pattern": "^\\s*[^\\s\\p{Cc}](?:\\P{Cc}{0,38}[^\\s\\p{Cc}])?\\s*$",
+              "description": "A free-form tag: 1 to 40 characters once trimmed, no control characters; stored trimmed, unique per session ignoring case."
             },
             "description": "The session's tags, sorted ignoring case."
           },
@@ -126,8 +124,8 @@
               {
                 "type": "string",
                 "format": "uuid",
-                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
-                "description": "A group's id: a UUID the creating client mints, kept in lowercase."
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+                "description": "A group's id: a version 4 UUID the creating client mints, kept in lowercase."
               },
               {
                 "type": "null"

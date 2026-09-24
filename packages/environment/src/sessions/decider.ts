@@ -41,11 +41,21 @@ export interface CreateContext {
   readonly groupExists: boolean;
 }
 
-const sessionNotFound = (sessionId: string): Refusal => ({
+/** `sessions.rename` as the decider takes it. */
+export interface RenameSession {
+  readonly sessionId: string;
+  readonly title: string | null;
+}
+
+/** The one refusal of a session that is not on this environment: a command's rejected receipt and `sessions.get` both carry it. */
+export const sessionNotFound = (sessionId: string): Refusal & { readonly code: "not_found" } => ({
   code: "not_found",
   message: `No session ${sessionId} is on this environment.`,
   data: { kind: "session", sessionId },
 });
+
+/** A tag's case-folded key: what a session's tags are unique on and sorted by, here and in the session-tags table. */
+export const tagKey = (tag: string): string => tag.toLowerCase();
 
 /**
  * Tags as a session keeps them: trimmed, one per spelling ignoring case
@@ -56,7 +66,7 @@ export const normaliseTags = (tags: readonly string[]): string[] => {
   const byKey = new Map<string, string>();
   for (const tag of tags) {
     const trimmed = tag.trim();
-    const key = trimmed.toLowerCase();
+    const key = tagKey(trimmed);
     byKey.delete(key);
     byKey.set(key, trimmed);
   }
@@ -105,9 +115,9 @@ export const decideCreate = (state: SessionState | null, command: CreateSession,
  * the session already has changes nothing. A session that does not exist or
  * is deleted is not found.
  */
-export const decideRename = (state: SessionState | null, sessionId: string, title: string | null): Decision => {
-  if (state === null || state.deleted) return { rejected: sessionNotFound(sessionId) };
-  const next = userTitle(title);
+export const decideRename = (state: SessionState | null, command: RenameSession): Decision => {
+  if (state === null || state.deleted) return { rejected: sessionNotFound(command.sessionId) };
+  const next = userTitle(command.title);
   if (next === state.userTitle) return { events: [] };
   const payload: SessionTitleSetPayload = { title: next, source: "user" };
   return { events: [{ type: "session.title-set", payload }] };

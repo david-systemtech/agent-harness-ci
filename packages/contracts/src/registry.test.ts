@@ -3,6 +3,8 @@ import { z } from "zod";
 import {
   CommandId,
   CommandReceipt,
+  OWED_HANDLERS,
+  type CommandMethodName,
   METHOD_KINDS,
   SCOPES,
   Sequence,
@@ -94,6 +96,19 @@ describe("the method registry", () => {
       "sessions.subscribe": ["stream", "read"],
       "sessions.subscribeSession": ["stream", "read"],
     });
+  });
+
+  it("owes a handler only for a registered method, each to a named ticket", () => {
+    for (const [name, ticket] of Object.entries(OWED_HANDLERS)) {
+      expect(isMethodName(name), name).toBe(true);
+      expect(ticket, name).toMatch(/^#\d+$/);
+    }
+  });
+
+  it("names the command methods in a type of their own, which a query or a stream is not", () => {
+    expectTypeOf<"sessions.create">().toExtend<CommandMethodName>();
+    expectTypeOf<"sessions.list">().not.toExtend<CommandMethodName>();
+    expectTypeOf<"sessions.subscribe">().not.toExtend<CommandMethodName>();
   });
 
   it("names every method area.verb", () => {

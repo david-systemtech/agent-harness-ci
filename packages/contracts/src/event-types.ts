@@ -20,7 +20,7 @@ export type EventTypeEntry =
       /** Set when the type's name and flag are reserved here and its payload is the named workstream's to fix. */
       readonly reservedFor?: string;
     }
-  | { readonly list: false; readonly payload: z.ZodType; readonly patch?: undefined; readonly reservedFor?: undefined };
+  | { readonly list: false; readonly payload: z.ZodType; readonly patch?: undefined; readonly reservedFor?: string };
 
 /** Event types by name. */
 export type EventTypeTable = Readonly<Record<string, EventTypeEntry>>;

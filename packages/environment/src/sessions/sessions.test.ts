@@ -175,7 +175,7 @@ describe("sessions.create", () => {
   it("keeps a title trimmed, and tags trimmed, one per spelling ignoring case with the latest casing, sorted ignoring case", async () => {
     const t = await start();
     const client = await t.client();
-    const { id, result } = await create(client, { title: "  Fix the receipts ", tags: ["wip", " Seth", "review", "WIP", "seth "] });
+    const { id, result } = await create(client, { title: "  Fix the receipts ", tags: ["wip", " Seth", "review", "WIP", `seth${" ".repeat(40)}`] });
     const expected = freshSummary(id, { title: "Fix the receipts", titleSource: "user", tags: ["review", "seth", "WIP"] });
     expect(result).toEqual({ summary: expected });
     expect(await get(client, id)).toEqual(expected);
@@ -201,6 +201,12 @@ describe("sessions.create", () => {
     ]) {
       expect(await refusal(request)).toMatchObject({ code: "invalid_params" });
     }
+    // A UUID of another version than 4 is malformed too; the command id may be any UUID.
+    const v1 = "c232ab00-9414-11ec-b3c8-9f6bdeced846";
+    expect(await refusal(client.request("sessions.create", { commandId: v1, id: v1, workspace }))).toMatchObject({
+      code: "invalid_params",
+      data: { issues: [expect.objectContaining({ path: ["id"] })] },
+    });
     expect(await refusal(client.request("sessions.create", { commandId: randomUUID(), id: randomUUID() } as never))).toMatchObject({
       code: "invalid_params",
       data: { issues: [expect.objectContaining({ path: ["workspace"] })] },
@@ -341,6 +347,9 @@ describe("sessions.rename", () => {
       });
     }
     expect((await rename(client, id, "x".repeat(200))).result?.summary.title).toBe("x".repeat(200));
+    // Measured once trimmed: 200 characters with white space around them are 200 characters.
+    expect((await rename(client, id, `  ${"y".repeat(200)} `)).result?.summary.title).toBe("y".repeat(200));
+    expect(await refusal(rename(client, id, ` ${"y".repeat(201)} `))).toMatchObject({ code: "invalid_params" });
   });
 });
 

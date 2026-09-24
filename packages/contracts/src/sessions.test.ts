@@ -4,12 +4,15 @@ import {
   DEFAULT_TITLE,
   EVENT_TYPES,
   GROUP_EVENT_TYPES,
+  GroupId,
+  GroupName,
   GroupPatch,
   LIST_PATCH_KEY,
   OrderKey,
   SESSION_EVENT_TYPES,
   SUMMARY_FIELD_OWNERS,
   SUMMARY_KEYS,
+  SessionId,
   SessionSummary,
   SummaryPatch,
   Tag,
@@ -18,6 +21,7 @@ import {
   listEventTypes,
   registry,
   type EventTypeTable,
+  type SummaryFieldOwner,
 } from "./index.js";
 
 /**
@@ -49,7 +53,9 @@ const fieldTableProblems = (
       continue;
     }
     if ("command" in owner) {
-      if (!Object.hasOwn(methods, owner.command)) problems.push(`${key}: the command ${owner.command} is not registered`);
+      const method = Object.hasOwn(methods, owner.command) ? (methods[owner.command] as { kind?: unknown }) : undefined;
+      if (method === undefined) problems.push(`${key}: the command ${owner.command} is not registered`);
+      else if (method.kind !== "command") problems.push(`${key}: ${owner.command} is a ${String(method.kind)}, not a command`);
       continue;
     }
     const flagged = Object.values(events).some((table) => Object.hasOwn(table, owner.event) && table[owner.event]?.list === true);
@@ -98,6 +104,19 @@ describe("the summary field table", () => {
     ]);
   });
 
+  it("fails when a field's owner is a registered method that is not a command, and does not compile one", () => {
+    const query = { ...owners, groupId: { command: "sessions.list" } };
+    expect(fieldTableProblems(query, keys, registry, EVENT_TYPES)).toEqual(["groupId: sessions.list is a query, not a command"]);
+    // @ts-expect-error: a query is no owner; only a command-kind registry entry is.
+    const owner: SummaryFieldOwner = { command: "sessions.list" };
+    // @ts-expect-error: nor is a stream.
+    const stream: SummaryFieldOwner = { command: "sessions.subscribe" };
+    expect([owner, stream]).toHaveLength(2);
+    for (const entry of Object.values(SUMMARY_FIELD_OWNERS)) {
+      if ("command" in entry) expect(registry[entry.command].kind, entry.command).toBe("command");
+    }
+  });
+
   it("fails when a field's event type is not list-flagged, or not registered at all", () => {
     const unflagged: EventTables = {
       ...EVENT_TYPES,
@@ -138,8 +157,10 @@ describe("the event-type table", () => {
     expect(eventTableProblems(broken)).toEqual(["group group.renamed: list-flagged with no patch schema"]);
   });
 
-  it("flags every session and group type, with the summary patch and the group patch", () => {
-    for (const entry of Object.values(SESSION_EVENT_TYPES)) expect(entry).toMatchObject({ list: true, patch: SummaryPatch });
+  it("flags every session and group type but message.sent, with the summary patch and the group patch", () => {
+    for (const [type, entry] of Object.entries(SESSION_EVENT_TYPES)) {
+      if (type !== "message.sent") expect(entry, type).toMatchObject({ list: true, patch: SummaryPatch });
+    }
     for (const entry of Object.values(GROUP_EVENT_TYPES)) expect(entry).toMatchObject({ list: true, patch: GroupPatch });
   });
 
@@ -153,17 +174,18 @@ describe("the event-type table", () => {
     expect(isListEvent("session", "toString")).toBe(false);
   });
 
-  it("reserves the run, message and prompt names for their workstreams, flagged, with payloads left to them", () => {
+  it("reserves the run, message and prompt names for their workstreams with payloads left to them; message.sent changes no summary field, so it is not flagged", () => {
     const reserved = Object.entries(SESSION_EVENT_TYPES).flatMap(([type, entry]) =>
-      "reservedFor" in entry ? [[type, entry.reservedFor]] : [],
+      "reservedFor" in entry ? [[type, entry.reservedFor, entry.list]] : [],
     );
     expect(reserved).toEqual([
-      ["run.started", "the adapter workstream (#119)"],
-      ["run.ended", "the adapter workstream (#119)"],
-      ["message.sent", "the adapter workstream (#119)"],
-      ["prompt.opened", "the permissions workstream (#130)"],
-      ["prompt.answered", "the permissions workstream (#130)"],
+      ["run.started", "the adapter workstream (#119)", true],
+      ["run.ended", "the adapter workstream (#119)", true],
+      ["message.sent", "the adapter workstream (#119)", false],
+      ["prompt.opened", "the permissions workstream (#130)", true],
+      ["prompt.answered", "the permissions workstream (#130)", true],
     ]);
+    expect(isListEvent("session", "message.sent")).toBe(false);
   });
 
   it("lists the flagged types the session list carries", () => {
@@ -246,6 +268,27 @@ describe("the session summary", () => {
     expect(SummaryPatch.safeParse({ op: "set", sessionId: fresh.id, fields: { titleSource: "nobody" } }).success).toBe(false);
     expect(SummaryPatch.safeParse({ op: "remove", sessionId: fresh.id }).success).toBe(true);
     expect(SummaryPatch.safeParse({ op: "remove" }).success).toBe(false);
+  });
+
+  it("takes session and group ids that are version 4 UUIDs, and no other version", () => {
+    expect(SessionId.safeParse(fresh.id).success).toBe(true);
+    expect(GroupId.safeParse("1b4e28ba-2fa1-41d2-883f-0016d3cca427").success).toBe(true);
+    // A version 1 UUID, and a version 7 one.
+    for (const id of ["c232ab00-9414-11ec-b3c8-9f6bdeced846", "01920f3e-7c4a-7b8e-9f1a-2b3c4d5e6f70"]) {
+      expect(SessionId.safeParse(id).success, id).toBe(false);
+      expect(GroupId.safeParse(id).success, id).toBe(false);
+    }
+  });
+
+  it("measures titles, tags and group names after trimming: surrounding white space is not counted", () => {
+    expect(UserTitle.safeParse(`  ${"x".repeat(200)}  `).success).toBe(true);
+    expect(UserTitle.safeParse(` ${"x".repeat(201)} `).success).toBe(false);
+    expect(UserTitle.safeParse(" a b ").success).toBe(true);
+    expect(Tag.safeParse(`  ${"x".repeat(40)} `).success).toBe(true);
+    expect(Tag.safeParse(` ${"x".repeat(41)}`).success).toBe(false);
+    expect(Tag.safeParse(" a\tb ").success).toBe(false);
+    expect(GroupName.safeParse(` ${"x".repeat(80)} `).success).toBe(true);
+    expect(GroupName.safeParse("x".repeat(81)).success).toBe(false);
   });
 
   it("takes order keys over a to z that never end in a, titles of 1 to 200 characters and tags of 1 to 40", () => {

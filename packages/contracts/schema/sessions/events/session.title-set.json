@@ -7,10 +7,8 @@
       "anyOf": [
         {
           "type": "string",
-          "minLength": 1,
-          "maxLength": 200,
-          "pattern": "\\S",
-          "description": "A title a user gives a session: 1 to 200 characters, not all white space; stored trimmed."
+          "pattern": "^\\s*\\S(?:[\\s\\S]{0,198}\\S)?\\s*$",
+          "description": "A title a user gives a session: 1 to 200 characters once trimmed; white space around it is not counted, and it is stored trimmed."
         },
         {
           "type": "null"

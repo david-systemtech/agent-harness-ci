@@ -50,28 +50,6 @@ export interface StreamRef {
 }
 
 /**
- * Every stream of some kinds, read as one sequence: the session list reads
- * every `session` and `group` stream. `types`, when given, keeps only those
- * event types (the `list`-flagged ones).
- */
-export interface StreamKinds {
-  readonly kinds: readonly string[];
-  readonly types?: readonly string[];
-}
-
-/** Which events a reader wants: one stream, or every stream of some kinds. */
-export type StreamSelector = StreamRef | StreamKinds;
-
-/** Whether `selector` names streams by kind rather than one stream. */
-export const isStreamKinds = (selector: StreamSelector): selector is StreamKinds => "kinds" in selector;
-
-/** Whether `event` is one `selector` reads. */
-export const selects = (selector: StreamSelector, event: Pick<EventEnvelope, "streamKind" | "streamId" | "type">): boolean =>
-  isStreamKinds(selector)
-    ? selector.kinds.includes(event.streamKind) && (selector.types === undefined || selector.types.includes(event.type))
-    : event.streamKind === selector.kind && event.streamId === selector.id;
-
-/**
  * An actor as the log stores it: one string, `kind:id`, the kind one of the
  * contracts' actor kinds (`client_session:cs-1`, `system:lifecycle`).
  */

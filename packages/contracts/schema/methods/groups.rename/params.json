@@ -12,15 +12,13 @@
     "groupId": {
       "type": "string",
       "format": "uuid",
-      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
-      "description": "A group's id: a UUID the creating client mints, kept in lowercase."
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "A group's id: a version 4 UUID the creating client mints, kept in lowercase."
     },
     "name": {
       "type": "string",
-      "minLength": 1,
-      "maxLength": 80,
-      "pattern": "\\S",
-      "description": "A group's name: 1 to 80 characters, not all white space; stored trimmed with white space collapsed, unique per environment ignoring case."
+      "pattern": "^\\s*\\S(?:[\\s\\S]{0,78}\\S)?\\s*$",
+      "description": "A group's name: 1 to 80 characters once trimmed; stored trimmed with white space collapsed, unique per environment ignoring case."
     }
   },
   "required": [

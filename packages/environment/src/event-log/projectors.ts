@@ -1,4 +1,4 @@
-import { decodeEvent, toJson, type EventRow, type Sql, type SqlValue, type Transaction } from "./database.js";
+import { decodeEvent, type EventRow, type Sql, type SqlValue, type Transaction } from "./database.js";
 import type { EventEnvelope, JsonObject } from "./envelope.js";
 import { logTables } from "./migrations.js";
 
@@ -47,7 +47,13 @@ export interface Projector {
  * `register` and `rebuild` open their own, or join the `atomically` open
  * now (a command's).
  */
-export const createProjections = (sql: Sql, transaction: Transaction, clock: () => Date) => {
+export const createProjections = (
+  sql: Sql,
+  transaction: Transaction,
+  clock: () => Date,
+  /** The log's write of an appended event's merged metadata to its row. */
+  attachMetadata: (event: EventEnvelope, metadata: JsonObject) => void,
+) => {
   const projectors: Projector[] = [];
   /** Every table a projector owns, to the projector that owns it. */
   const tableOwners = new Map<string, string>();
@@ -147,7 +153,7 @@ export const createProjections = (sql: Sql, transaction: Transaction, clock: () 
     /**
      * Brings every projector up to the log's end, inside the caller's
      * transaction, and returns `justWritten` as they are now: each with the
-     * metadata the projectors attached to it, written to its row.
+     * metadata the projectors attached to it, which the log writes to its row.
      */
     catchUp(justWritten: readonly EventEnvelope[]): EventEnvelope[] {
       const attached = new Map(justWritten.map((event) => [event.sequence, event.metadata]));
@@ -155,7 +161,7 @@ export const createProjections = (sql: Sql, transaction: Transaction, clock: () 
       return justWritten.map((event) => {
         const metadata = attached.get(event.sequence) as JsonObject;
         if (metadata === event.metadata) return event;
-        sql.run("UPDATE events SET metadata = ? WHERE sequence = ?", toJson(metadata, `The metadata of a ${event.type} event`), event.sequence);
+        attachMetadata(event, metadata);
         return { ...event, metadata };
       });
     },

@@ -21,17 +21,17 @@ export const GROUP_STREAM_KIND = "group";
 export const DEFAULT_TITLE = "New session";
 
 /**
- * A session's id: a UUID the creating client mints, so offline creation can
+ * A session's id: a version 4 UUID the creating client mints, so offline creation can
  * chain commands; never the provider's resume id. The environment keeps it
  * in lowercase, whatever case it arrived in.
  */
-export const SessionId = z.uuid().meta({
-  description: "A session's id: a UUID the creating client mints (never the provider's resume id), kept in lowercase.",
+export const SessionId = z.uuidv4().meta({
+  description: "A session's id: a version 4 UUID the creating client mints (never the provider's resume id), kept in lowercase.",
 });
 export type SessionId = z.infer<typeof SessionId>;
 
-/** A group's id: a UUID the creating client mints, kept in lowercase. */
-export const GroupId = z.uuid().meta({ description: "A group's id: a UUID the creating client mints, kept in lowercase." });
+/** A group's id: a version 4 UUID the creating client mints, kept in lowercase. */
+export const GroupId = z.uuidv4().meta({ description: "A group's id: a version 4 UUID the creating client mints, kept in lowercase." });
 export type GroupId = z.infer<typeof GroupId>;
 
 /**
@@ -49,45 +49,44 @@ export const OrderKey = z
 export type OrderKey = z.infer<typeof OrderKey>;
 
 /**
- * A title a user gives a session: 1 to 200 characters with at least one that
- * is not white space. The environment stores it trimmed.
+ * A title a user gives a session: 1 to 200 characters once trimmed, so
+ * white space around it is not counted. The pattern says exactly that: a
+ * first and a last character that are not white space, at most 200 from
+ * the first to the last. The environment stores it trimmed.
  */
 export const UserTitle = z
   .string()
-  .min(1)
-  .max(200)
-  .regex(/\S/)
-  .meta({ description: "A title a user gives a session: 1 to 200 characters, not all white space; stored trimmed." });
+  .regex(/^\s*\S(?:[\s\S]{0,198}\S)?\s*$/)
+  .meta({ description: "A title a user gives a session: 1 to 200 characters once trimmed; white space around it is not counted, and it is stored trimmed." });
 export type UserTitle = z.infer<typeof UserTitle>;
 
 /**
- * A tag: 1 to 40 characters, no control characters, not all white space.
+ * A tag: 1 to 40 characters once trimmed, none of them a control character.
  * Stored trimmed; unique per session ignoring case, the latest casing kept;
  * at most 64 on a session.
  */
 export const Tag = z
   .string()
-  .min(1)
-  .max(40)
-  .regex(/^(?=.*\S)\P{Cc}+$/u)
+  .regex(/^\s*[^\s\p{Cc}](?:\P{Cc}{0,38}[^\s\p{Cc}])?\s*$/u)
   .meta({
     description:
-      "A free-form tag: 1 to 40 characters, no control characters, not all white space; stored trimmed, unique per session ignoring case.",
+      "A free-form tag: 1 to 40 characters once trimmed, no control characters; stored trimmed, unique per session ignoring case.",
   });
 export type Tag = z.infer<typeof Tag>;
 
 /** The most tags a session holds. */
 export const MAX_TAGS = 64;
 
-/** A group's name: 1 to 80 characters, not all white space; stored trimmed with white space collapsed, unique per environment ignoring case. */
+/**
+ * A group's name: 1 to 80 characters once trimmed; stored trimmed with white
+ * space collapsed, unique per environment ignoring case.
+ */
 export const GroupName = z
   .string()
-  .min(1)
-  .max(80)
-  .regex(/\S/)
+  .regex(/^\s*\S(?:[\s\S]{0,78}\S)?\s*$/)
   .meta({
     description:
-      "A group's name: 1 to 80 characters, not all white space; stored trimmed with white space collapsed, unique per environment ignoring case.",
+      "A group's name: 1 to 80 characters once trimmed; stored trimmed with white space collapsed, unique per environment ignoring case.",
   });
 export type GroupName = z.infer<typeof GroupName>;
 
@@ -399,21 +398,26 @@ export const GroupDeletedPayload = z
  * An event type reserved by name for another workstream, which fixes its
  * payload: the run and message events are the adapter's (#119), the prompt
  * events the permissions workstream's (#130). Its payload is any object until
- * then; it is `list`-flagged here so the summary's activity fields have an
- * owner from phase A, and the export leaves it out.
+ * then, and the export leaves it out. The run and prompt types are
+ * `list`-flagged here, so the summary's activity fields have an owner from
+ * phase A; `message.sent` changes no summary field and is not.
  */
+const reservedPayload = (type: string, reservedFor: string) =>
+  JsonObject.meta({ description: `${type}: reserved; its payload is ${reservedFor}'s.` });
 const reserved = (type: string, reservedFor: string) =>
-  ({ list: true, payload: JsonObject.meta({ description: `${type}: reserved; its payload is ${reservedFor}'s.` }), patch: SummaryPatch, reservedFor }) as const;
+  ({ list: true, payload: reservedPayload(type, reservedFor), patch: SummaryPatch, reservedFor }) as const;
+const reservedUnlisted = (type: string, reservedFor: string) =>
+  ({ list: false, payload: reservedPayload(type, reservedFor), reservedFor }) as const;
 
 const listed = <const P extends z.ZodType, const Patch extends z.ZodType>(payload: P, patch: Patch) =>
   ({ list: true, payload, patch }) as const;
 
 /**
- * The event types of the `session` stream. Every one changes a summary, so
- * every one is `list`-flagged with a `SummaryPatch`. The run, message and
- * prompt types are reserved by name for the adapter (#119) and permissions
- * (#130) workstreams; they change `activity`, `parkedPromptCount`,
- * `lastActivityAt`, `accountId` and `model`.
+ * The event types of the `session` stream. Every one but `message.sent`
+ * changes a summary, so is `list`-flagged with a `SummaryPatch`. The run,
+ * message and prompt types are reserved by name for the adapter (#119) and
+ * permissions (#130) workstreams; the run and prompt types change
+ * `activity`, `parkedPromptCount`, `lastActivityAt`, `accountId` and `model`.
  */
 export const SESSION_EVENT_TYPES = {
   "session.created": listed(SessionCreatedPayload, SummaryPatch),
@@ -440,7 +444,7 @@ export const SESSION_EVENT_TYPES = {
   "session.pull-request-synced": listed(SessionPullRequestSyncedPayload, SummaryPatch),
   "run.started": reserved("run.started", "the adapter workstream (#119)"),
   "run.ended": reserved("run.ended", "the adapter workstream (#119)"),
-  "message.sent": reserved("message.sent", "the adapter workstream (#119)"),
+  "message.sent": reservedUnlisted("message.sent", "the adapter workstream (#119)"),
   "prompt.opened": reserved("prompt.opened", "the permissions workstream (#130)"),
   "prompt.answered": reserved("prompt.answered", "the permissions workstream (#130)"),
 } as const satisfies Record<string, EventTypeEntry>;
