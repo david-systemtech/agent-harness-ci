@@ -491,6 +491,8 @@ export const reduce = (state: MachineState, input: MachineInput, context: Machin
       case "network": {
         const was = state.network;
         const network = input.network;
+        // Nothing moved: the same state, so the runner publishes nothing.
+        if (network.online === was.online && network.foreground === was.foreground) return state;
         const s = { ...state, network };
         if (state.phase === "disabled") return s;
         if (!network.online) {
@@ -500,7 +502,13 @@ export const reduce = (state: MachineState, input: MachineInput, context: Machin
         }
         const foregrounded = network.foreground && !was.foreground;
         if (!was.online || foregrounded) {
-          if (s.parked) return begin(halt(s));
+          if (s.parked) {
+            // A parked wait after `bye: draining` or `updating`, or a parked `starting` poll, is waited out again from now, never cut
+            // short (the timer was cancelled when it parked); only a ladder retry (`backoff`, `service-down`) or a block's re-check begins at once.
+            if (s.phase === "starting") return wait(s, "starting", STARTING_POLL_MS);
+            if (s.phase === "draining" || s.phase === "updating") return wait(s, s.phase, BYE_WAIT_MS);
+            return begin(halt(s));
+          }
           if (s.step === "open" && foregrounded && !s.probing) {
             out.push({ type: "probe", attempt: s.attempt }, { type: "arm-timer", timer: "probe", ms: PROBE_TIMEOUT_MS });
             return { ...s, probing: true };
