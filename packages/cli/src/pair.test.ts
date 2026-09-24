@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { createServer as createHttpServer } from "node:http";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type AddressInfo } from "node:net";
@@ -76,6 +77,19 @@ describe("agent-harness pair", () => {
     const answer = await t.pairExchange({ code: parsed.code, kind: "web", label: "phone", protocolVersion: PROTOCOL_VERSION });
     expect(answer.status).toBe(200);
     expect(ClientSessionCredential.parse(answer.body)).toMatchObject({ scopes: [...SCOPES], ceiling: DEFAULT_CEILING });
+    expect(DEFAULT_CEILING).toBe("acceptEdits");
+  });
+
+  it("presets the ceiling from the environment's permissions.defaultCeiling setting", async () => {
+    const t = await start();
+    const admin = await t.client();
+    await admin.apply("permissions.settings.set", { commandId: randomUUID(), values: { "permissions.defaultCeiling": "plan" } });
+    const cli = harness();
+    expect(await runCli(["pair", "--data-dir", t.dataDir], cli.context)).toBe(0);
+    expect(cli.out()).toContain("Ceiling: plan");
+    const code = parsePairingLink(linkIn(cli.out()))?.code;
+    const answer = await t.pairExchange({ code, kind: "program", label: "bot", protocolVersion: PROTOCOL_VERSION });
+    expect(answer.body).toMatchObject({ ceiling: "plan" });
   });
 
   it("mints the scopes and ceiling it is given", async () => {
@@ -162,6 +176,8 @@ describe("agent-harness pair", () => {
       ["pair", "--scopes", ""],
       ["pair", "--scopes", "read,read"],
       ["pair", "--ceiling", ""],
+      ["pair", "--ceiling", "default"],
+      ["pair", "--ceiling", "dontAsk"],
       ["pair", "--port", "0"],
       ["pair", "--port", "http"],
       ["pair", "extra"],
@@ -170,6 +186,7 @@ describe("agent-harness pair", () => {
       const cli = harness();
       expect(await runCli(args, cli.context), args.join(" ")).toBe(2);
       expect(cli.err()).toContain("agent-harness pair [--scopes <a,b>] [--ceiling <mode>] [--data-dir <path>] [--port <n>]");
+      if (args[1] === "--ceiling") expect(cli.err()).toContain("--ceiling takes one of plan, acceptEdits, auto, bypassPermissions");
     }
   });
 });

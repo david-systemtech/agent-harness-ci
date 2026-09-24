@@ -1,5 +1,5 @@
 import { parseArgs } from "node:util";
-import { Ceiling, DISCOVERY_PATH, PRODUCT_NAME, SCOPES, ScopeSet } from "@agent-harness/contracts";
+import { Ceiling, DISCOVERY_PATH, MODES, PRODUCT_NAME, SCOPES, ScopeSet } from "@agent-harness/contracts";
 import {
   HARNESS_VERSION,
   defaultDataDirectory,
@@ -108,7 +108,7 @@ const parsePair = (args: readonly string[]): PairArgs => {
   let ceiling: Ceiling | undefined;
   if (values.ceiling !== undefined) {
     const parsed = Ceiling.safeParse(values.ceiling);
-    if (!parsed.success) throw new UsageError("--ceiling takes a mode name.");
+    if (!parsed.success) throw new UsageError(`--ceiling takes one of ${MODES.join(", ")}; got ${values.ceiling === "" ? "nothing" : values.ceiling}.`);
     ceiling = parsed.data;
   }
   return { dataDir: values["data-dir"] ?? defaultDataDirectory(), port: port === undefined ? undefined : Number(port), scopes, ceiling };

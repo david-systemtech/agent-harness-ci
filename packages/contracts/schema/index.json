@@ -187,6 +187,14 @@
       "title": "CeilingChangedPayload"
     },
     {
+      "path": "access/events/bypass.acknowledged.json",
+      "title": "BypassAcknowledgedPayload"
+    },
+    {
+      "path": "access/events/settings.changed.json",
+      "title": "SettingsChangedPayload"
+    },
+    {
       "path": "sessions/session-id.json",
       "title": "SessionId"
     },
@@ -463,6 +471,14 @@
       "title": "RunEndedPayload"
     },
     {
+      "path": "sessions/events/run.policy.resolved.json",
+      "title": "RunPolicyResolvedPayload"
+    },
+    {
+      "path": "sessions/events/session.mode.set.json",
+      "title": "SessionModeSetPayload"
+    },
+    {
       "path": "sessions/events/group.created.json",
       "title": "GroupCreatedPayload"
     },
@@ -623,6 +639,66 @@
       "title": "SessionSnapshot"
     },
     {
+      "path": "permissions/mode.json",
+      "title": "Mode"
+    },
+    {
+      "path": "permissions/mode-availability.json",
+      "title": "ModeAvailability"
+    },
+    {
+      "path": "permissions/run-actor-kind.json",
+      "title": "RunActorKind"
+    },
+    {
+      "path": "permissions/clamp-reason.json",
+      "title": "ClampReason"
+    },
+    {
+      "path": "permissions/mode-resolution.json",
+      "title": "ModeResolution"
+    },
+    {
+      "path": "permissions/containment-level.json",
+      "title": "ContainmentLevel"
+    },
+    {
+      "path": "permissions/containment-availability.json",
+      "title": "ContainmentAvailability"
+    },
+    {
+      "path": "permissions/containment-resolution.json",
+      "title": "ContainmentResolution"
+    },
+    {
+      "path": "permissions/run-policy.json",
+      "title": "RunPolicy"
+    },
+    {
+      "path": "permissions/settings-area.json",
+      "title": "SettingsArea"
+    },
+    {
+      "path": "permissions/unattended-mode.json",
+      "title": "UnattendedMode"
+    },
+    {
+      "path": "permissions/ttl-unit.json",
+      "title": "TtlUnit"
+    },
+    {
+      "path": "permissions/parked-prompt-ttl.json",
+      "title": "ParkedPromptTtl"
+    },
+    {
+      "path": "permissions/settings-values.json",
+      "title": "PermissionSettingsValues"
+    },
+    {
+      "path": "permissions/settings-patch.json",
+      "title": "PermissionSettingsPatch"
+    },
+    {
       "path": "actor.json",
       "title": "Actor"
     },
@@ -657,6 +733,10 @@
     {
       "path": "settings/keys/sessions.autoSettleOnMerge.json",
       "title": "AutoSettleOnMerge"
+    },
+    {
+      "path": "settings/keys/sessions.transcriptCompactAfterDays.json",
+      "title": "TranscriptCompactAfterDays"
     },
     {
       "path": "settings/keys/providers.processIdleMinutes.json",
@@ -741,6 +821,10 @@
     {
       "path": "errors/protocol_mismatch.json",
       "title": "ProtocolMismatchError"
+    },
+    {
+      "path": "errors/containment_unavailable.json",
+      "title": "ContainmentUnavailableError"
     },
     {
       "path": "frames/frame.json",
@@ -921,6 +1005,22 @@
     {
       "path": "methods/access.sessions.refresh/error.json",
       "title": "access.sessions.refresh error"
+    },
+    {
+      "path": "methods/access.sessions.setCeiling/params.json",
+      "title": "access.sessions.setCeiling params"
+    },
+    {
+      "path": "methods/access.sessions.setCeiling/result.json",
+      "title": "access.sessions.setCeiling result"
+    },
+    {
+      "path": "methods/access.sessions.setCeiling/response.json",
+      "title": "access.sessions.setCeiling response"
+    },
+    {
+      "path": "methods/access.sessions.setCeiling/error.json",
+      "title": "access.sessions.setCeiling error"
     },
     {
       "path": "methods/access.log.list/params.json",
@@ -1505,6 +1605,50 @@
     {
       "path": "methods/settings.update/error.json",
       "title": "settings.update error"
+    },
+    {
+      "path": "methods/permissions.mode.set/params.json",
+      "title": "permissions.mode.set params"
+    },
+    {
+      "path": "methods/permissions.mode.set/result.json",
+      "title": "permissions.mode.set result"
+    },
+    {
+      "path": "methods/permissions.mode.set/response.json",
+      "title": "permissions.mode.set response"
+    },
+    {
+      "path": "methods/permissions.mode.set/error.json",
+      "title": "permissions.mode.set error"
+    },
+    {
+      "path": "methods/permissions.settings.get/params.json",
+      "title": "permissions.settings.get params"
+    },
+    {
+      "path": "methods/permissions.settings.get/result.json",
+      "title": "permissions.settings.get result"
+    },
+    {
+      "path": "methods/permissions.settings.get/error.json",
+      "title": "permissions.settings.get error"
+    },
+    {
+      "path": "methods/permissions.settings.set/params.json",
+      "title": "permissions.settings.set params"
+    },
+    {
+      "path": "methods/permissions.settings.set/result.json",
+      "title": "permissions.settings.set result"
+    },
+    {
+      "path": "methods/permissions.settings.set/response.json",
+      "title": "permissions.settings.set response"
+    },
+    {
+      "path": "methods/permissions.settings.set/error.json",
+      "title": "permissions.settings.set error"
     }
   ],
   "methods": [
@@ -1584,6 +1728,16 @@
       "result": "methods/access.sessions.refresh/result.json",
       "response": "methods/access.sessions.refresh/response.json",
       "error": "methods/access.sessions.refresh/error.json"
+    },
+    {
+      "name": "access.sessions.setCeiling",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/access.sessions.setCeiling/params.json",
+      "result": "methods/access.sessions.setCeiling/result.json",
+      "response": "methods/access.sessions.setCeiling/response.json",
+      "error": "methods/access.sessions.setCeiling/error.json"
     },
     {
       "name": "access.log.list",
@@ -1964,6 +2118,35 @@
       "result": "methods/settings.update/result.json",
       "response": "methods/settings.update/response.json",
       "error": "methods/settings.update/error.json"
+    },
+    {
+      "name": "permissions.mode.set",
+      "scope": "runs:drive",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/permissions.mode.set/params.json",
+      "result": "methods/permissions.mode.set/result.json",
+      "response": "methods/permissions.mode.set/response.json",
+      "error": "methods/permissions.mode.set/error.json"
+    },
+    {
+      "name": "permissions.settings.get",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/permissions.settings.get/params.json",
+      "result": "methods/permissions.settings.get/result.json",
+      "error": "methods/permissions.settings.get/error.json"
+    },
+    {
+      "name": "permissions.settings.set",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/permissions.settings.set/params.json",
+      "result": "methods/permissions.settings.set/result.json",
+      "response": "methods/permissions.settings.set/response.json",
+      "error": "methods/permissions.settings.set/error.json"
     }
   ]
 }

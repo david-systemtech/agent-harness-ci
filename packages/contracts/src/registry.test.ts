@@ -60,6 +60,7 @@ describe("the method registry", () => {
       "access.sessions.list": "admin",
       "access.sessions.revoke": "admin",
       "access.sessions.refresh": "read",
+      "access.sessions.setCeiling": "admin",
       "access.log.list": "admin",
     });
   });
@@ -152,6 +153,7 @@ describe("the method registry", () => {
       "access.pairings.create",
       "access.sessions.revoke",
       "access.sessions.refresh",
+      "access.sessions.setCeiling",
       ...methods.filter((m) => m.kind === "command" && /^(sessions|groups)\./.test(m.name)).map((m) => m.name),
       "runs.start",
       "runs.send",
@@ -159,6 +161,8 @@ describe("the method registry", () => {
       "runs.stopTask",
       "providers.processes.stop",
       "settings.update",
+      "permissions.mode.set",
+      "permissions.settings.set",
     ]);
   });
 
@@ -241,6 +245,7 @@ describe("the method registry", () => {
       | "access.sessions.list"
       | "access.sessions.revoke"
       | "access.sessions.refresh"
+      | "access.sessions.setCeiling"
       | "access.log.list"
       | "sessions.create"
       | "sessions.rename"
@@ -280,6 +285,9 @@ describe("the method registry", () => {
       | "providers.processes.stop"
       | "settings.get"
       | "settings.update"
+      | "permissions.mode.set"
+      | "permissions.settings.get"
+      | "permissions.settings.set"
     >();
     expectTypeOf<ParamsOf<"access.sessions.revoke">>().toEqualTypeOf<{ commandId: string; clientSessionId: string }>();
   });

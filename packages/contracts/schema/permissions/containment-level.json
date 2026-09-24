@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ContainmentLevel",
+  "type": "string",
+  "enum": [
+    "off",
+    "workspace",
+    "workspace-no-network"
+  ],
+  "description": "Where a run may reach: off (nothing applied), workspace (writes only inside the workspace), workspace-no-network (and no network for the model's commands and fetches)."
+}

@@ -8,7 +8,7 @@ import { Ceiling, ScopeSet } from "../scopes.js";
 /**
  * Mint a one-time pairing code, valid for ten minutes and one exchange at
  * `/api/pair`. The scopes and ceiling default to every scope and the
- * environment's default ceiling.
+ * environment's default ceiling, the setting `permissions.defaultCeiling`.
  */
 export const accessPairingsCreate = defineMethod({
   name: "access.pairings.create",
@@ -16,7 +16,7 @@ export const accessPairingsCreate = defineMethod({
   params: commandParams({
     scopes: ScopeSet.optional().meta({ description: "The scopes the client session will hold; every scope when absent." }),
     ceiling: Ceiling.optional().meta({
-      description: "The client session's ceiling; the environment's default ceiling when absent.",
+      description: "The client session's ceiling; the environment's default ceiling (the setting permissions.defaultCeiling) when absent.",
     }),
   }),
   result: z.object({
@@ -76,6 +76,25 @@ export const accessSessionsRevoke = defineMethod({
   scope: "admin",
   params: commandParams({ clientSessionId: ClientSessionId }),
   result: z.object({ revokedAt: Timestamp }),
+  errors: [],
+  kind: "command",
+});
+
+/**
+ * Change another client session's ceiling (permissions spec, "Ceilings"):
+ * raising or lowering it, recorded as `ceiling.changed` in the access log
+ * and applied to that client session's next run; a run already going keeps
+ * the policy it started with. The caller's own client session is refused
+ * with a receipt of reason `conflict` and `data.reason` `own_session`,
+ * whatever its scopes, so no client session changes its own ceiling. An
+ * unknown id is `not_found`, a revoked one `conflict` with reason `revoked`;
+ * the ceiling it has already changes nothing.
+ */
+export const accessSessionsSetCeiling = defineMethod({
+  name: "access.sessions.setCeiling",
+  scope: "admin",
+  params: commandParams({ clientSessionId: ClientSessionId, ceiling: Ceiling }),
+  result: z.object({ clientSessionId: ClientSessionId, from: Ceiling, to: Ceiling }),
   errors: [],
   kind: "command",
 });

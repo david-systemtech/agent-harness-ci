@@ -133,8 +133,13 @@
         },
         "ceiling": {
           "type": "string",
-          "minLength": 1,
-          "description": "The highest mode a client session may use; its values are the permissions workstream's."
+          "enum": [
+            "plan",
+            "acceptEdits",
+            "auto",
+            "bypassPermissions"
+          ],
+          "description": "The highest mode a client session, and anything created through it, may use: plan, acceptEdits, auto or bypassPermissions."
         }
       },
       "required": [

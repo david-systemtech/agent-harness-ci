@@ -35,9 +35,9 @@ import {
 } from "./decider.js";
 import { createDeletion, type Deletion } from "./deletion.js";
 import { groupExists, listGroups } from "./group-reads.js";
-import { acceptAnyRunParameters, type RunParametersCheck } from "./run-parameters.js";
+import { acceptAnyRunParameters, keepSessionMode, type RunParametersCheck, type SessionModeClamp } from "./run-parameters.js";
 import { listDeleted, listSummaries, readDeletion, readSessionState, readSummary, type Reader } from "./session-reads.js";
-import { foldTranscript, readTranscriptEvents } from "../runs/transcript.js";
+import { sessionTranscript, type TranscriptParts } from "../runs/transcript.js";
 import { sessionStream } from "./streams.js";
 
 /**
@@ -63,6 +63,8 @@ export interface SessionMethodsOptions {
   readonly log: EventLog;
   /** The account, model and mode check `sessions.create` runs: the environment passes the adapter host's (`validateSessionInput`); preset: every value accepted. */
   readonly validateRunParameters?: RunParametersCheck;
+  /** The clamp a mode `sessions.create` is given goes through before it is stored (#129); preset: kept as given. */
+  readonly clampSessionMode?: SessionModeClamp;
   /** The environment's clock, which stamps the times a command records (`archivedAt`, `pinnedAt`); preset: the system's. */
   readonly clock?: () => Date;
   /** The purge `sessions.purge` runs; preset: one over `log` whose adapter cannot delete a transcript. The environment shares its own with the sweep. */
@@ -78,6 +80,7 @@ export const SESSION_LIST_SELECTOR = {
 export const sessionMethods = (options: SessionMethodsOptions): MethodHandlers => {
   const { log } = options;
   const validateRunParameters = options.validateRunParameters ?? acceptAnyRunParameters;
+  const clampSessionMode = options.clampSessionMode ?? keepSessionMode;
   const clock = options.clock ?? (() => new Date());
   const deletion = options.deletion ?? createDeletion({ log });
   // The log's query-only read: inside a command it reads that command's own transaction.
@@ -140,9 +143,11 @@ export const sessionMethods = (options: SessionMethodsOptions): MethodHandlers =
   return {
     "sessions.create": (params, context) => {
       const id = params.id.toLowerCase();
-      const run = { account: params.account ?? null, model: params.model ?? null, mode: params.mode ?? null };
-      const issues = validateRunParameters(run);
+      const asked = { account: params.account ?? null, model: params.model ?? null, mode: params.mode ?? null };
+      const issues = validateRunParameters(asked);
       if (issues.length > 0) throw new ContractError(invalidParams(issues, "The account, model or mode is not one this environment offers."));
+      // The mode is stored as the caller's ceiling allows it (#129).
+      const run = { ...asked, mode: asked.mode === null ? null : clampSessionMode(asked.mode, asked.account, context.clientSession) };
       const groupId = params.groupId?.toLowerCase() ?? null;
       const command = { id, title: params.title ?? null, tags: params.tags ?? [], groupId, workspace: params.workspace, ...run };
       return carryOut(id, decideCreate(stateOf(id), command, { groupExists: groupId !== null && groupExists(reader, groupId) }), context);
@@ -273,8 +278,11 @@ export const sessionMethods = (options: SessionMethodsOptions): MethodHandlers =
       };
       return {
         stream: sessionStream(id),
-        // The runs, items and parked prompts are folded from the stream as it stands (`runs/transcript.ts`).
-        snapshot: () => ({ sequence: log.head(), summary: summaryOf(), ...foldTranscript(readTranscriptEvents(log, id)) }),
+        // The runs, items and parked prompts are folded from the stream as it stands, from its compaction's fold if it has one (`runs/transcript.ts`).
+        snapshot: () => ({ sequence: log.head(), summary: summaryOf(), ...sessionTranscript(log, id) }),
+        // A cursor older than the session's compaction (#123) gets its fold, at the compaction's sequence, then the events after it.
+        // The summary is the list's, read at the head: the patches replayed after it set what they set again.
+        compacted: (snapshot) => ({ sequence: snapshot.sequence, summary: summaryOf(), ...(snapshot.payload as TranscriptParts) }),
         endOn: (event) =>
           event.type === "session.purged" || (event.type === "session.deleted" && holdsNow(event)) ? "deleted" : undefined,
       };

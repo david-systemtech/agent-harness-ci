@@ -79,7 +79,7 @@ describe("the pairing exchange's errors", () => {
 });
 
 describe("the access log", () => {
-  it("has a payload schema for every event type the env spec lists", () => {
+  it("has a payload schema for every event type the env spec lists, then the permissions spec's", () => {
     expect(ACCESS_EVENT_TYPES).toEqual([
       "pairing.created",
       "pairing.exchanged",
@@ -91,6 +91,8 @@ describe("the access log", () => {
       "socket.closed",
       "scope.granted",
       "ceiling.changed",
+      "bypass.acknowledged",
+      "settings.changed",
     ]);
     expect(Object.keys(ACCESS_EVENT_PAYLOADS)).toEqual([...ACCESS_EVENT_TYPES]);
   });

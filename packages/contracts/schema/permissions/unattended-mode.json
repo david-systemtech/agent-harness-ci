@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "UnattendedMode",
+  "type": "string",
+  "enum": [
+    "acceptEdits",
+    "bypassPermissions"
+  ],
+  "description": "The mode of every unattended run that names none (a routine or bot without an override, a completions request without a mode): acceptEdits or bypassPermissions."
+}

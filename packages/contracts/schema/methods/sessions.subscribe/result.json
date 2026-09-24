@@ -114,8 +114,8 @@
             "type": "array",
             "items": {
               "type": "string",
-              "pattern": "^\\s*[^\\s\\p{Cc}](?:\\P{Cc}{0,38}[^\\s\\p{Cc}])?\\s*$",
-              "description": "A free-form tag: 1 to 40 characters once trimmed, no control characters; stored trimmed, unique per session ignoring case."
+              "pattern": "^\\s*[^\\s\\p{Cc}\\p{Cf}](?:[^\\p{Cc}\\p{Cf}]{0,38}[^\\s\\p{Cc}\\p{Cf}])?\\s*$",
+              "description": "A free-form tag: 1 to 40 characters once trimmed, no control or format (zero-width) characters; stored trimmed, unique per session ignoring case."
             },
             "description": "The session's tags, sorted ignoring case."
           },
@@ -308,6 +308,24 @@
             ],
             "description": "The model the latest run used; null before any run."
           },
+          "mode": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "plan",
+                  "acceptEdits",
+                  "auto",
+                  "bypassPermissions"
+                ],
+                "description": "What an agent may do without asking during a run, in the order ceilings use: plan < acceptEdits < auto < bypassPermissions. Claude's default and dontAsk are never used."
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The session's mode: the effective mode permissions.mode.set last gave it, else the one sessions.create recorded (clamped to its caller's ceiling); null when neither did, so a run's default applies. Each run clamps it again."
+          },
           "pullRequests": {
             "type": "array",
             "items": {
@@ -402,6 +420,7 @@
           "parkedPromptCount",
           "accountId",
           "model",
+          "mode",
           "pullRequests",
           "draft"
         ],
@@ -421,8 +440,8 @@
           },
           "name": {
             "type": "string",
-            "pattern": "^\\s*\\S(?:[\\s\\S]{0,78}\\S)?\\s*$",
-            "description": "A group's name: 1 to 80 characters once trimmed; stored trimmed with white space collapsed, unique per environment ignoring case."
+            "pattern": "^\\s*[^\\s\\p{Cc}\\p{Cf}](?:(?:[^\\p{Cc}\\p{Cf}]|[\\t\\n\\v\\f\\r]){0,78}[^\\s\\p{Cc}\\p{Cf}])?\\s*$",
+            "description": "A group's name: 1 to 80 characters once trimmed, no control or format (zero-width) characters other than white space; stored trimmed with white space collapsed, unique per environment ignoring case."
           },
           "orderKey": {
             "anyOf": [

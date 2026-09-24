@@ -453,6 +453,12 @@ describe("the field table's behavioural half", () => {
       await command(client, "sessions.setDraft", { sessionId: id, draft: "Now the retention sweep" });
       return { id, list, type: "session.draft-set" };
     },
+    "permissions.mode.set": async (client) => {
+      const { id } = await create(client);
+      const list = await watch(client);
+      await client.request("permissions.mode.set", { commandId: randomUUID(), sessionId: id, mode: "plan" });
+      return { id, list, type: "session.mode.set" };
+    },
     "sessions.setGroup": async (client) => {
       const { id: groupId } = await createGroup(client, { name: `Group ${randomUUID()}` });
       const { id } = await create(client);

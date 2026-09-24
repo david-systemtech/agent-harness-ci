@@ -1,11 +1,12 @@
-import type { Workspace } from "@agent-harness/contracts";
+import { presetPermissionSettings, type Mode, type ModeAvailability, type Workspace } from "@agent-harness/contracts";
+import { policySettings, resolvePolicy, type PolicyOutcome, type RunActor } from "../permissions/resolver.js";
 import type { PermissionBroker, ToolServer } from "./contract.js";
 
 /**
  * The host's seams other workstreams fill (claude-adapter spec, "The adapter
  * contract", the paragraph on what the host supplies): the tool-server
- * factory, the instruction composer, the permission broker and the mode
- * clamp. Each has a preset that keeps a run going without its workstream.
+ * factory, the instruction composer, the permission broker and the policy
+ * resolver. Each has a preset that keeps a run going without its workstream.
  */
 
 /** What a run's tool servers close over: the account, the workspace and the session. */
@@ -70,17 +71,27 @@ export const autoDenyBroker: PermissionBroker = {
   }),
 };
 
-/** A mode after the clamp to the connection's ceiling (ADR 0006): the mode, and whether the clamp lowered it. */
-export interface ClampedMode {
-  readonly mode: string | null;
-  readonly clamped: boolean;
+/** What a run's policy is resolved from, beside the settings: who started it, the mode asked for, and the account's modes. */
+export interface PolicyRequest {
+  readonly actor: RunActor;
+  /** The mode the run or its session asks for; null when neither names one. */
+  readonly requested: Mode | null;
+  readonly accountModes: readonly ModeAvailability[];
 }
 
 /**
- * Clamps a requested mode to a connection's ceiling, never refusing it
- * (ADR 0006). #129 fills it with the mode order; preset: the identity, the
- * requested mode unchanged.
+ * Resolves a run's policy at its start (#129, `permissions/resolver.ts`):
+ * the mode clamped to the ceiling and the account's modes, never refused
+ * for being above them. The environment's reads the permission settings;
+ * preset: the resolver on the settings' presets.
  */
-export type ModeClamp = (requested: string | null, ceiling: string) => ClampedMode;
+export type PolicySeam = (request: PolicyRequest) => PolicyOutcome;
 
-export const identityClamp: ModeClamp = (requested) => ({ mode: requested, clamped: false });
+export const presetPolicy: PolicySeam = ({ actor, requested, accountModes }) =>
+  resolvePolicy({
+    actor,
+    requested,
+    ceiling: actor.ceiling,
+    accountModes,
+    settings: policySettings(presetPermissionSettings()),
+  });
