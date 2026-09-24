@@ -404,6 +404,30 @@ describe("a provider's held messages when the host ends the run (ADR 0022: nothi
     expect(queuedIds(t)).toEqual([messageId]);
   });
 
+  it("takes back every message an interrupt reports its provider no longer holds, each under the run it was sent during", async () => {
+    const held = gate();
+    const adapter = fakeAdapter({ capabilities: { steering: false }, script: async function* () { yield say("Working"); await held.opened; yield end(); } });
+    const create = adapter.createRun;
+    let reported: string[] = [];
+    const t = await setup({ ...adapter, createRun: (input, context) => ({ ...create(input, context), interrupt: async () => ({ stillQueued: reported }) }) } as FakeAdapter);
+    const runId = startRun(t);
+    await vi.waitFor(() => expect(eventsOf(t).map((event) => event.type)).toContain("assistant.text"));
+    // A message an earlier run of the session left with the provider (a let-go process hands its queue to the next).
+    const earlier = randomUUID();
+    const carried = randomUUID();
+    t.log.append({ kind: "session", id: t.sessionId }, [{ type: "message.sent", payload: { runId: earlier, messageId: carried, text: "Also this", attachments: [], delivery: "queued", heldBy: "provider", ceiling: "bypassPermissions" } }], { actor: "client_session:test" });
+    const own = sendDuring(t, "And this");
+    reported = [carried, own, randomUUID()];
+    t.host.interrupt(runId);
+    await vi.waitFor(() => expect(eventsOf(t).filter((event) => event.type === "message.requeued")).toHaveLength(2));
+    expect(eventsOf(t).filter((event) => event.type === "message.requeued").map((event) => event.payload)).toEqual([
+      { runId: earlier, messageId: carried },
+      { runId, messageId: own },
+    ]);
+    expect(environmentQueue({ all: (sql, ...params) => t.log.read(sql, ...params) }, t.sessionId).map((message) => message.messageId)).toEqual([carried, own]);
+    held.open();
+  });
+
   it("takes them back when the adapter's interrupt fails and the host ends the run", async () => {
     const held = gate();
     const adapter = holding(held, "wait");

@@ -484,6 +484,24 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     append(sessionId, runId, HOST_ACTOR, requeuedEvents(runId, held));
   };
 
+  /**
+   * Takes back the messages an interrupt reports its provider no longer
+   * holds, whichever run of the session each was sent during: a provider's
+   * queue is the session's, so cancelling it can return a message an earlier
+   * run left with the provider (one a replaced process handed on). Each is
+   * requeued under its own run, in the order sent; an id the provider does
+   * not hold for the session is ignored.
+   */
+  const requeueReported = (sessionId: string, messageIds: readonly string[]): void => {
+    if (messageIds.length === 0) return;
+    const held = reader
+      .all<{ message_id: string; run_id: string }>("SELECT message_id, run_id FROM run_messages WHERE session_id = ? AND held_by = 'provider' ORDER BY sequence", sessionId)
+      .filter((row) => messageIds.includes(row.message_id));
+    log.atomically(() => {
+      for (const row of held) append(sessionId, row.run_id, HOST_ACTOR, requeuedEvents(row.run_id, [row.message_id]));
+    });
+  };
+
   const startFacts = (sessionId: string, actor: RunActor): StartFacts => {
     const session = readSessionFacts(log, reader, sessionId);
     const accountId = session?.account ?? defaultAccountId;
@@ -1141,9 +1159,9 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       safely(
         async () => {
           const { stillQueued } = await run.interrupt();
-          // What the provider still held comes back to the environment's queue, in its order (ADR 0022). If the run's
-          // end came first, its end took back everything the provider held, these among them.
-          if (!closing && !entry.ended) requeue(entry.sessionId, runId, stillQueued);
+          // What the provider no longer holds comes back to the environment's queue, in its order (ADR 0022), this run's
+          // and any an earlier run left with the provider. If the run's end came first, it took back this run's already.
+          if (!closing && !entry.ended) requeueReported(entry.sessionId, stillQueued);
         },
         (error) => {
           // The adapter could not interrupt: the host ends the run itself, interrupted as asked, and disposes it.
