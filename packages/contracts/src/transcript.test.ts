@@ -2,12 +2,14 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import {
   AdapterCapabilities,
+  AttachmentInput,
   AuthStatus,
   CAPABILITY_FLAGS,
   CredentialSpec,
   DelegatedWorkRow,
   EVENT_TYPES,
   KNOWN_ITEM_KINDS,
+  MAX_ATTACHMENT_BYTES,
   RunSuggestion,
   SendResponse,
   SessionEventType,
@@ -209,6 +211,15 @@ describe("the adapter's transport-neutral schemas", () => {
         error: null,
       }).success,
     ).toBe(true);
+  });
+
+  it("cap an attachment on its decoded bytes, padding included: the largest padded one is taken, one byte more is not", () => {
+    const groups = Math.ceil(MAX_ATTACHMENT_BYTES / 3);
+    const attachment = (data: string) => ({ kind: "file", name: "big.bin", mediaType: "application/octet-stream", data });
+    // MAX_ATTACHMENT_BYTES leaves two bytes in its last group, so the largest attachment ends in one =.
+    expect(MAX_ATTACHMENT_BYTES % 3).toBe(2);
+    expect(AttachmentInput.safeParse(attachment(`${"A".repeat(groups * 4 - 1)}=`)).success).toBe(true);
+    expect(AttachmentInput.safeParse(attachment("A".repeat(groups * 4))).success).toBe(false);
   });
 
   it("are all in the JSON Schema export, with the vocabulary's payloads and the snapshot", () => {

@@ -124,6 +124,8 @@ export interface AdapterHost {
   live(sessionId: string): LiveRunFacts | null;
   /** The live run `runId` names; null once it has ended. */
   liveRun(runId: string): LiveRunFacts | null;
+  /** Whether the run ended here with its `run.ended` not in the log (two appends failed): the recovery sweep (#120) records it at the next start. */
+  unrecorded(runId: string): boolean;
   /** Starts a run its command committed: through its adapter, its events consumed from here on. */
   launch(run: PlannedRun): void;
   /** Hands a message sent during a live run to its provider, or holds it for the next run, once its event committed. */
@@ -160,12 +162,19 @@ interface LiveRun {
   readonly append: ScopedAppend;
   readonly startedAt: number;
   run: AdapterRun | undefined;
-  /** Set once the host ends it; nothing of it is appended after. */
+  /**
+   * Set once the host ends it, synchronously and first thing in `finish`,
+   * before any await or append, so a second end (the adapter's end racing a
+   * dispose, a deletion, a failed interrupt) sees it and does nothing:
+   * exactly one `run.ended` per run rests on it.
+   */
   ended: boolean;
   /**
-   * Set when its `run.ended` could not be appended: the run stays live in
-   * the run registry and to the run methods, as the log still says it is,
-   * until a restart's recovery sweep (#120) ends it.
+   * Set when its `run.ended` could not be appended, twice: the run is over
+   * here (let go, ended in the run registry, no longer the session's live
+   * run, so a start is accepted and an interrupt answers `ended` with
+   * `unrecorded`), while the log still has no end for it until the
+   * recovery sweep (#120) appends one at the next start.
    */
   unrecorded: boolean;
   running: boolean;
@@ -223,6 +232,8 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
   const accounts = new Map<string, HeldAccount>();
   /** Live runs by session: at most one each. */
   const live = new Map<string, LiveRun>();
+  /** Runs that ended here with their end not in the log. */
+  const unrecordedRuns = new Set<string>();
   /** Turns a provider opened while the run before them was still live, waiting for it to end, each with the run it followed. */
   const adoptions = new Map<string, { readonly previous: PlannedRun; readonly turn: ProviderTurn }[]>();
   /**
@@ -283,8 +294,8 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     return which === null ? null : (accounts.get(which)?.facts ?? null);
   };
 
-  /** Whether a run is still live as the log tells it: not ended, or ended with its end not recorded. */
-  const isLive = (entry: LiveRun): boolean => !entry.ended || entry.unrecorded;
+  /** Whether a run is still live: not ended by the host. */
+  const isLive = (entry: LiveRun): boolean => !entry.ended;
 
   const byRunId = (runId: string): LiveRun | undefined => [...live.values()].find((entry) => entry.runId === runId && isLive(entry));
 
@@ -373,6 +384,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     by: "adapter" | "host",
     letGo: "dispose" | "release" = by === "host" || end.reason === "disposed" || end.reason === "drained" ? "dispose" : "release",
   ): void => {
+    // Synchronous, before anything else: exactly one end per run rests on this flag (see `LiveRun.ended`).
     if (entry.ended) return;
     entry.ended = true;
     const reason = end.reason;
@@ -392,20 +404,33 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       if (letGo === "dispose") safely(() => entry.run?.dispose(), (e) => console.error(`Disposing run ${entry.runId} failed:`, e));
       else safely(() => entry.run?.release(), (e) => console.error(`Releasing run ${entry.runId} failed:`, e));
     };
-    try {
+    const record = (): void =>
       log.atomically(() => {
         // A run whose adapter never had its input read none of it: what it was launched with is the environment's queue again.
         if (!entry.received) requeueUnread(entry);
         if (by === "host" || reason !== "completed") requeue(entry.sessionId, entry.runId);
         append(entry.sessionId, entry.runId, by === "adapter" ? entry.actor : HOST_ACTOR, [{ type: "run.ended", payload }]);
       });
+    try {
+      try {
+        record();
+      } catch (first) {
+        console.error(`Appending the end of run ${entry.runId} failed; trying once more:`, first);
+        record();
+      }
     } catch (appendError) {
+      // The run is over here all the same: it leaves the registry and the session, so nothing waits on it, and
+      // `runs.interrupt` answers it ended and unrecorded. The log's missing end is the recovery sweep's (#120).
       entry.unrecorded = true;
+      unrecordedRuns.add(entry.runId);
       console.error(
-        `THE END OF RUN ${entry.runId} OF SESSION ${entry.sessionId} COULD NOT BE APPENDED (${reason}); the run counts as live until a restart's recovery sweep ends it:`,
+        `THE END OF RUN ${entry.runId} OF SESSION ${entry.sessionId} COULD NOT BE APPENDED (${reason}); the log has no end for it until the recovery sweep at the next start:`,
         appendError,
       );
+      registry.end(entry.runId);
+      if (live.get(entry.sessionId) === entry) live.delete(entry.sessionId);
       letRunGo();
+      dropAdoptions(entry.sessionId);
       return;
     }
     registry.end(entry.runId);
@@ -540,6 +565,13 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
    */
   const adoptNow = (previous: PlannedRun, turn: ProviderTurn): void => {
     const runId = randomUUID();
+    const session = readSessionFacts(log, reader, previous.sessionId);
+    if (session === null || session.deleted) {
+      // Deleted (or purged) since the run it followed: no run of it may start; what the turn was to read goes back.
+      safely(() => turn.dispose(), (e) => console.error("Disposing a turn of a deleted session failed:", e));
+      requeueTurn(previous, turn);
+      return;
+    }
     try {
       registry.admit();
     } catch {
@@ -680,7 +712,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     ? {
         deleteTranscript: (sessionId) => {
           const adapter = adapterOfSession(sessionId);
-          const remove = capability(adapter.descriptor, "transcriptDelete", adapter.deleteTranscript, "delete a provider transcript");
+          const remove = capability(adapter.descriptor, "transcriptDelete", adapter.deleteTranscript, "delete a provider transcript", "deleteTranscript");
           return remove.call(adapter, sessionId);
         },
       }
@@ -721,13 +753,20 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     startFacts,
     live: (sessionId) => liveFacts(live.get(sessionId)),
     liveRun: (runId) => liveFacts(byRunId(runId)),
+    unrecorded: (runId) => unrecordedRuns.has(runId),
     launch,
     queue(send) {
       // Kept whoever holds it: an interrupt may hand a provider-held message back to the environment's queue.
       const sessionId = readRun(reader, send.runId)?.sessionId ?? null;
       if (sessionId !== null) heldAttachments.set(send.message.messageId, { sessionId, attachments: send.message.attachments });
+      if (send.heldBy === "environment") return;
       const entry = byRunId(send.runId);
-      if (send.heldBy === "environment" || entry === undefined || entry.ended) return;
+      if (entry === undefined || entry.ended) {
+        // Its run ended before the send was handed on, and that end took back only what was on the log then: the
+        // provider never had this one, so the environment holds it (ADR 0022: nothing is lost).
+        if (!closing && sessionId !== null) requeue(sessionId, send.runId, [send.message.messageId]);
+        return;
+      }
       const run = entry.run;
       safely(
         () => run?.send(send.message),
@@ -761,17 +800,17 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       const entry = byRunId(runId);
       const run = entry?.run;
       if (entry === undefined || run === undefined) return;
-      const stop = capability(entry.descriptor, "subagents", run.stopTask, "stop delegated work");
+      const stop = capability(entry.descriptor, "subagents", run.stopTask, "stop delegated work", "stopTask");
       safely(() => stop.call(run, taskId), (error) => console.error(`Stopping task ${taskId} of run ${runId} failed:`, error));
     },
     async usage(accountId) {
       const held = heldAccount(accountId);
-      const read = capability(held.adapter.descriptor, "planUsage", held.adapter.usage, "read plan usage");
+      const read = capability(held.adapter.descriptor, "planUsage", held.adapter.usage, "read plan usage", "usage");
       return read.call(held.adapter, refOf(held.config));
     },
     async commands(accountId, workspace) {
       const held = heldAccount(accountId);
-      const list = capability(held.adapter.descriptor, "commands", held.adapter.commands, "list commands");
+      const list = capability(held.adapter.descriptor, "commands", held.adapter.commands, "list commands", "commands");
       return list.call(held.adapter, refOf(held.config), workspace);
     },
     close(reason) {
