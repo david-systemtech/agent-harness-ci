@@ -57,4 +57,6 @@ export const SUMMARY_FIELD_OWNERS = {
   model: { event: "run.started" },
   // Forge (ADR 0012): the forge workstream's events.
   pullRequests: { event: "session.pull-request-linked" },
+  // Composer: an absolute setter, which a client's outbox coalesces.
+  draft: { command: "sessions.setDraft" },
 } as const satisfies { readonly [K in keyof SessionSummary]-?: SummaryFieldOwner };

@@ -1,13 +1,14 @@
 import { z } from "zod";
 import { commandParams, defineMethod, subscriptionParams } from "../method.js";
 import { JsonObject, Sequence, Timestamp } from "../primitives.js";
+import { OrderKey } from "../ordering.js";
 import {
   DeletedSessionSummary,
+  Draft,
   Group,
   GroupId,
   GroupName,
   MAX_TAGS,
-  OrderKey,
   SessionId,
   SessionListSnapshot,
   SessionSummary,
@@ -125,6 +126,24 @@ export const sessionsUntag = defineMethod({
   scope: "sessions:write",
   kind: "command",
   params: commandParams({ ...sessionTarget, tag: Tag }),
+  result: summaryResult,
+  errors: [],
+});
+
+/**
+ * Replace the session's composer draft with `draft`, or clear it with null
+ * or an empty string. An absolute setter: the value sent replaces the stored
+ * one, so a client's outbox keeps only the latest of several queued for a
+ * session. Setting it does not move `updatedAt`.
+ */
+export const sessionsSetDraft = defineMethod({
+  name: "sessions.setDraft",
+  scope: "sessions:write",
+  kind: "command",
+  params: commandParams({
+    ...sessionTarget,
+    draft: Draft.nullable().meta({ description: "The draft that replaces the stored one; null or an empty string clears it." }),
+  }),
   result: summaryResult,
   errors: [],
 });

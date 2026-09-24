@@ -207,6 +207,10 @@
       "title": "Tag"
     },
     {
+      "path": "sessions/draft.json",
+      "title": "Draft"
+    },
+    {
       "path": "sessions/group-name.json",
       "title": "GroupName"
     },
@@ -329,6 +333,10 @@
     {
       "path": "sessions/events/session.untagged.json",
       "title": "SessionUntaggedPayload"
+    },
+    {
+      "path": "sessions/events/session.draft-set.json",
+      "title": "SessionDraftSetPayload"
     },
     {
       "path": "sessions/events/session.group-set.json",
@@ -823,6 +831,22 @@
       "title": "sessions.untag error"
     },
     {
+      "path": "methods/sessions.setDraft/params.json",
+      "title": "sessions.setDraft params"
+    },
+    {
+      "path": "methods/sessions.setDraft/result.json",
+      "title": "sessions.setDraft result"
+    },
+    {
+      "path": "methods/sessions.setDraft/response.json",
+      "title": "sessions.setDraft response"
+    },
+    {
+      "path": "methods/sessions.setDraft/error.json",
+      "title": "sessions.setDraft error"
+    },
+    {
       "path": "methods/sessions.setGroup/params.json",
       "title": "sessions.setGroup params"
     },
@@ -1273,6 +1297,16 @@
       "result": "methods/sessions.untag/result.json",
       "response": "methods/sessions.untag/response.json",
       "error": "methods/sessions.untag/error.json"
+    },
+    {
+      "name": "sessions.setDraft",
+      "scope": "sessions:write",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/sessions.setDraft/params.json",
+      "result": "methods/sessions.setDraft/result.json",
+      "response": "methods/sessions.setDraft/response.json",
+      "error": "methods/sessions.setDraft/error.json"
     },
     {
       "name": "sessions.setGroup",

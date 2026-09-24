@@ -41,6 +41,7 @@ export interface SessionRow {
   account_id: string | null;
   model: string | null;
   pull_requests: string;
+  draft: string | null;
   deleted_at: string | null;
   purge_at: string | null;
   delete_provider_transcript: number;
@@ -83,6 +84,7 @@ export const SESSION_LIST_TABLES = {
     account_id TEXT,
     model TEXT,
     pull_requests TEXT NOT NULL DEFAULT '[]',
+    draft TEXT,
     deleted_at TEXT,
     purge_at TEXT,
     delete_provider_transcript INTEGER NOT NULL DEFAULT 0
@@ -112,7 +114,7 @@ export const titleOf = (userTitle: string | null, generatedTitle: string | null)
       : { title: DEFAULT_TITLE, source: "default" };
 
 /** The session's tags, in the order the summary holds them: by their case-folded key. */
-const tagsOf = (reader: Reader, id: string): string[] =>
+export const tagsOf = (reader: Reader, id: string): string[] =>
   reader.all<{ tag: string }>("SELECT tag FROM session_tags WHERE session_id = ? ORDER BY tag_key", id).map((row) => row.tag);
 
 /** A `sessions` row as the summary, its tags read beside it. */
@@ -142,6 +144,7 @@ export const toSummary = (reader: Reader, row: SessionRow): SessionSummary => ({
   accountId: row.account_id,
   model: row.model,
   pullRequests: JSON.parse(row.pull_requests) as SessionSummary["pullRequests"],
+  draft: row.draft,
 });
 
 /** A `groups` row as the group. */

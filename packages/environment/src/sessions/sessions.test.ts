@@ -1,24 +1,30 @@
 import { randomUUID } from "node:crypto";
 import {
   Ceiling,
-  ContractError,
   DEFAULT_TITLE,
-  GroupPatch,
-  LIST_PATCH_KEY,
   SUMMARY_FIELD_OWNERS,
   SessionListSnapshot,
-  SummaryPatch,
-  registry,
   type EventEnvelope,
   type EventFrame,
-  type Group,
-  type ParamsOf,
   type SessionSummary,
 } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { MANUAL_CLOCK_START } from "../../test/clock.js";
 import { startTestEnvironment, type TestEnvironment } from "../../test/helper.js";
+import {
+  command,
+  create,
+  freshSummary,
+  get,
+  listStream,
+  patchOf,
+  reduce,
+  refusal,
+  rename,
+  workspace,
+  type ListStream,
+} from "../../test/sessions.js";
 import type { WireClient } from "../../test/wire-client.js";
 
 /**
@@ -31,114 +37,10 @@ import type { WireClient } from "../../test/wire-client.js";
 
 const { onCleanup } = useCleanups();
 
-const workspace = { kind: "directory", path: "/work/agent-harness" } as const;
-
 const start = async (): Promise<TestEnvironment> => {
   const t = await startTestEnvironment();
   onCleanup(() => t.close());
   return t;
-};
-
-type CreateParams = Omit<ParamsOf<"sessions.create">, "commandId" | "id" | "workspace"> & { id?: string; commandId?: string };
-
-/** Sends `sessions.create` for a fresh id (or the one given) in the test workspace; resolves with what its response carries. */
-const create = async (client: WireClient, params: CreateParams = {}) => {
-  const id = params.id ?? randomUUID();
-  const response = registry["sessions.create"].response.parse(
-    await client.request("sessions.create", { commandId: randomUUID(), workspace, ...params, id }),
-  );
-  return { id, ...response };
-};
-
-/** Sends `sessions.rename`; resolves with what its response carries. */
-const rename = async (client: WireClient, sessionId: string, title: string | null, commandId = randomUUID()) =>
-  registry["sessions.rename"].response.parse(await client.request("sessions.rename", { commandId, sessionId, title }));
-
-/** The summary `sessions.get` answers. */
-const get = async (client: WireClient, sessionId: string): Promise<SessionSummary> =>
-  (await client.request("sessions.get", { sessionId })).summary;
-
-/** The code a request was refused with; throws if it was answered. */
-const refusal = async (request: Promise<unknown>): Promise<{ code: string; data: Record<string, unknown> }> => {
-  try {
-    await request;
-  } catch (error) {
-    if (error instanceof ContractError) return { code: error.code, data: error.data };
-    throw error;
-  }
-  throw new Error("The request was answered, not refused.");
-};
-
-/** A summary as a session created at the manual clock's start in the test workspace has it. */
-const freshSummary = (id: string, overrides: Partial<SessionSummary> = {}): SessionSummary => ({
-  id,
-  createdAt: MANUAL_CLOCK_START,
-  updatedAt: MANUAL_CLOCK_START,
-  lastActivityAt: null,
-  title: DEFAULT_TITLE,
-  titleSource: "default",
-  archivedAt: null,
-  pinnedAt: null,
-  pinOrderKey: null,
-  activeOrderKey: null,
-  tags: [],
-  groupId: null,
-  settledAt: null,
-  settledOverride: null,
-  settledBy: null,
-  unsettledAt: null,
-  snoozedUntil: null,
-  snoozedAt: null,
-  workspace,
-  repositoryIdentity: null,
-  activity: { state: "idle", since: MANUAL_CLOCK_START },
-  parkedPromptCount: 0,
-  accountId: null,
-  model: null,
-  pullRequests: [],
-  ...overrides,
-});
-
-/**
- * The session list as a client sees it: subscribed from `afterSequence`,
- * every event frame kept in order. `next` waits for the next event.
- */
-const listStream = async (client: WireClient, afterSequence: number) => {
-  const { subscription } = await client.subscribe("sessions.subscribe", { afterSequence });
-  const next = async (): Promise<EventEnvelope> => {
-    const frame = await client.next((f): f is EventFrame => f.type === "event" && f.subscription === subscription);
-    return frame.event;
-  };
-  await client.next((f) => f.type === "synchronized" && "subscription" in f && f.subscription === subscription);
-  return { subscription, next };
-};
-
-/** The summary patch an event carries in its metadata, checked against the contracts' schema. */
-const patchOf = (event: EventEnvelope) => SummaryPatch.parse(event.metadata[LIST_PATCH_KEY]);
-
-/**
- * A client's reduction of the session list: a snapshot, then every patch
- * applied in order, and nothing read from a payload (session-state spec,
- * "The list stream and the summary patch").
- */
-const reduce = (snapshot: { sessions: readonly SessionSummary[]; groups: readonly Group[] }, events: readonly EventEnvelope[]) => {
-  const sessions = new Map(snapshot.sessions.map((summary) => [summary.id, summary]));
-  const groups = new Map(snapshot.groups.map((group) => [group.id, group]));
-  for (const event of events) {
-    if (event.streamKind === "group") {
-      const patch = GroupPatch.parse(event.metadata[LIST_PATCH_KEY]);
-      if (patch.op === "add") groups.set(patch.group.id, patch.group);
-      else if (patch.op === "remove") groups.delete(patch.groupId);
-      else groups.set(patch.groupId, { ...(groups.get(patch.groupId) as Group), ...patch.fields } as Group);
-      continue;
-    }
-    const patch = patchOf(event);
-    if (patch.op === "add") sessions.set(patch.summary.id, patch.summary);
-    else if (patch.op === "remove") sessions.delete(patch.sessionId);
-    else sessions.set(patch.sessionId, { ...(sessions.get(patch.sessionId) as SessionSummary), ...patch.fields } as SessionSummary);
-  }
-  const byId = <T extends { id: string }>(items: Iterable<T>) => [...items].sort((a, b) => (a.id < b.id ? -1 : 1));
-  return { sessions: byId(sessions.values()), groups: byId(groups.values()) };
 };
 
 /** A client session issued straight from the environment, holding only `scopes`. */
@@ -466,46 +368,94 @@ describe("sessions.subscribe", () => {
 });
 
 describe("the field table's behavioural half", () => {
+  /** What a scenario did: the session it changed, the list it watched, and the event type the owning command appends. */
+  interface Issued {
+    readonly id: string;
+    readonly list: ListStream;
+    readonly type: string;
+  }
+
+  /** Subscribes to the list from its head now, so the scenario's own event is the next one. */
+  const watch = async (client: WireClient): Promise<ListStream> => listStream(client, (await client.request("sessions.list", {})).sequence);
+
   /**
    * For each owning command the environment serves, a scenario issuing it
-   * through a real client, resolving with the event it appended. The test
-   * below refuses a served command with no scenario here, so each ticket that
-   * serves one (#115 to #118) adds its own.
+   * through a real client, resolving with the event type it appends. The
+   * test below refuses a served command with no scenario here, so each
+   * ticket that serves one (#115 to #118) adds its own.
    */
-  const scenarios: Record<string, (client: WireClient) => Promise<{ id: string; list: Awaited<ReturnType<typeof listStream>> }>> = {
+  const scenarios: Record<string, (client: WireClient) => Promise<Issued>> = {
     "sessions.create": async (client) => {
-      const list = await listStream(client, (await client.request("sessions.list", {})).sequence);
+      const list = await watch(client);
       const { id } = await create(client);
-      return { id, list };
+      return { id, list, type: "session.created" };
     },
     "sessions.rename": async (client) => {
       const { id } = await create(client);
-      const list = await listStream(client, (await client.request("sessions.list", {})).sequence);
+      const list = await watch(client);
       await rename(client, id, "A user title");
-      return { id, list };
+      return { id, list, type: "session.title-set" };
+    },
+    "sessions.archive": async (client) => {
+      const { id } = await create(client);
+      const list = await watch(client);
+      await command(client, "sessions.archive", { sessionId: id });
+      return { id, list, type: "session.archived" };
+    },
+    "sessions.pin": async (client) => {
+      const { id } = await create(client);
+      const list = await watch(client);
+      await command(client, "sessions.pin", { sessionId: id });
+      return { id, list, type: "session.pinned" };
+    },
+    "sessions.reorderPinned": async (client) => {
+      const { id } = await create(client);
+      await command(client, "sessions.pin", { sessionId: id });
+      const list = await watch(client);
+      await command(client, "sessions.reorderPinned", { sessionId: id, orderKey: "g" });
+      return { id, list, type: "session.pin-reordered" };
+    },
+    "sessions.reorderActive": async (client) => {
+      const { id } = await create(client);
+      const list = await watch(client);
+      await command(client, "sessions.reorderActive", { sessionId: id, orderKey: "g" });
+      return { id, list, type: "session.active-reordered" };
+    },
+    "sessions.tag": async (client) => {
+      const { id } = await create(client);
+      const list = await watch(client);
+      await command(client, "sessions.tag", { sessionId: id, tag: "wip" });
+      return { id, list, type: "session.tagged" };
+    },
+    "sessions.setDraft": async (client) => {
+      const { id } = await create(client);
+      const list = await watch(client);
+      await command(client, "sessions.setDraft", { sessionId: id, draft: "Now the retention sweep" });
+      return { id, list, type: "session.draft-set" };
     },
   };
 
-  it("changes every field a served command owns: the event's patch names the field and the summary shows the new value", async () => {
+  it("changes every field a served command owns: its event on the list, the event's patch naming the field, and the summary showing the new value", async () => {
     const t = await start();
     const client = await t.client();
     const owned = new Map<string, string[]>();
     for (const [field, owner] of Object.entries(SUMMARY_FIELD_OWNERS)) {
       if ("command" in owner) owned.set(owner.command, [...(owned.get(owner.command) ?? []), field]);
     }
-    const served = [...owned.keys()].filter((command) => t.env.methods.get(command)?.handler !== undefined);
+    const served = [...owned.keys()].filter((name) => t.env.methods.get(name)?.handler !== undefined);
     expect(served.sort()).toEqual(Object.keys(scenarios).sort());
 
-    for (const command of served) {
-      const scenario = scenarios[command] as (typeof scenarios)[string];
-      const { id, list } = await scenario(client);
+    for (const name of served) {
+      const scenario = scenarios[name] as (typeof scenarios)[string];
+      const { id, list, type } = await scenario(client);
       const event = await list.next();
+      expect(event, name).toMatchObject({ type, streamKind: "session", streamId: id });
       const patch = patchOf(event);
       const summary = await get(client, id);
       const changed: Record<string, unknown> = patch.op === "add" ? patch.summary : patch.op === "set" ? { id, ...patch.fields } : {};
-      for (const field of owned.get(command) ?? []) {
-        expect(changed, `${command} changes ${field}`).toHaveProperty(field);
-        expect(summary[field as keyof SessionSummary], `${command} shows ${field}`).toEqual(changed[field]);
+      for (const field of owned.get(name) ?? []) {
+        expect(changed, `${name} changes ${field}`).toHaveProperty(field);
+        expect(summary[field as keyof SessionSummary], `${name} shows ${field}`).toEqual(changed[field]);
       }
     }
   });

@@ -353,6 +353,20 @@
             ],
             "description": "A pull request linked to a session: its url, state, and when it merged or closed."
           }
+        },
+        "draft": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 65536,
+              "description": "A session's composer draft: the text typed and not sent, up to 65,536 characters; an empty draft is stored as none (null)."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The composer draft: the text typed and not sent, never empty; null when there is none. Setting it does not move updatedAt."
         }
       },
       "required": [
@@ -380,9 +394,10 @@
         "parkedPromptCount",
         "accountId",
         "model",
-        "pullRequests"
+        "pullRequests",
+        "draft"
       ],
-      "description": "A session as every client renders its list row: identity, title, filing, shelf, place, activity and forge."
+      "description": "A session as every client renders its list row: identity, title, filing, shelf, place, activity, forge and the composer draft."
     }
   },
   "required": [

@@ -8,6 +8,8 @@ import {
   GroupName,
   GroupPatch,
   LIST_PATCH_KEY,
+  MAX_DRAFT_LENGTH,
+  MAX_TAGS,
   OrderKey,
   SESSION_EVENT_TYPES,
   SUMMARY_FIELD_OWNERS,
@@ -88,6 +90,12 @@ describe("the summary field table", () => {
     expect(SUMMARY_FIELD_OWNERS.parkedPromptCount).toEqual({ event: "prompt.opened" });
     expect(SUMMARY_FIELD_OWNERS.pullRequests).toEqual({ event: "session.pull-request-linked" });
     expect(SUMMARY_FIELD_OWNERS.title).toEqual({ command: "sessions.rename" });
+  });
+
+  it("gives the draft to sessions.setDraft, an absolute setter, through one list-flagged session.draft-set", () => {
+    expect(SUMMARY_FIELD_OWNERS.draft).toEqual({ command: "sessions.setDraft" });
+    expect(registry["sessions.setDraft"]).toMatchObject({ kind: "command", scope: "sessions:write" });
+    expect(isListEvent("session", "session.draft-set")).toBe(true);
   });
 
   it("fails when a summary field is missing from it", () => {
@@ -225,6 +233,7 @@ const fresh = {
   accountId: null,
   model: null,
   pullRequests: [],
+  draft: null,
 };
 
 describe("the session summary", () => {
@@ -255,6 +264,7 @@ describe("the session summary", () => {
       "accountId",
       "model",
       "pullRequests",
+      "draft",
     ]);
     expect(SessionSummary.parse(fresh)).toEqual(fresh);
     expect(SessionSummary.safeParse({ ...fresh, title: "" }).success).toBe(false);
@@ -297,6 +307,21 @@ describe("the session summary", () => {
     expect(UserTitle.safeParse("x".repeat(200)).success).toBe(true);
     for (const title of ["", "   ", "x".repeat(201)]) expect(UserTitle.safeParse(title).success, title).toBe(false);
     expect(Tag.safeParse("x".repeat(40)).success).toBe(true);
+    expect(MAX_TAGS).toBe(64);
     for (const tag of ["", " ", "x".repeat(41), "a\tb", "a\u007f"]) expect(Tag.safeParse(tag).success, JSON.stringify(tag)).toBe(false);
+  });
+
+  it("carries a draft of any characters up to the limit, never empty in the summary, null for none", () => {
+    for (const draft of [null, "Now look at the receipts", " ", "line one\nline two\ttabbed", "x".repeat(MAX_DRAFT_LENGTH)]) {
+      expect(SessionSummary.safeParse({ ...fresh, draft }).success, JSON.stringify(draft)?.slice(0, 20)).toBe(true);
+    }
+    for (const draft of ["", "x".repeat(MAX_DRAFT_LENGTH + 1), 7]) {
+      expect(SessionSummary.safeParse({ ...fresh, draft }).success, JSON.stringify(draft).slice(0, 20)).toBe(false);
+    }
+    // The command takes an empty string, which clears the draft like null.
+    const params = registry["sessions.setDraft"].params;
+    const target = { commandId: fresh.id, sessionId: fresh.id };
+    for (const draft of [null, "", "x".repeat(MAX_DRAFT_LENGTH)]) expect(params.safeParse({ ...target, draft }).success).toBe(true);
+    for (const draft of [undefined, "x".repeat(MAX_DRAFT_LENGTH + 1)]) expect(params.safeParse({ ...target, draft }).success).toBe(false);
   });
 });

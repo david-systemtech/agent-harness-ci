@@ -49,6 +49,7 @@ export const freshSummary = {
   accountId: null,
   model: null,
   pullRequests: [],
+  draft: null,
 };
 
 const fullSummary = {
@@ -74,6 +75,7 @@ const fullSummary = {
   accountId: "claude-max",
   model: "claude-opus-5-5",
   pullRequests: [mergedPullRequest],
+  draft: "Now the retention sweep",
 };
 
 const invalidSummaries = [
@@ -87,6 +89,7 @@ const invalidSummaries = [
   { ...freshSummary, parkedPromptCount: -1 },
   { ...freshSummary, workspace: { kind: "none" } },
   { ...freshSummary, pullRequests: [{ ...pullRequest, state: "draft" }] },
+  { ...freshSummary, draft: "" },
 ];
 
 const group = { id: groupId, name: "Brandsolidate", orderKey: null, createdAt: at, updatedAt: at };
@@ -122,6 +125,7 @@ const eventPayloads: Record<string, Fixtures> = {
   "session.active-reordered": { valid: [{ activeOrderKey: "c" }, { activeOrderKey: null }], invalid: [{}, { activeOrderKey: "" }] },
   "session.tagged": { valid: [{ tag: "wip" }], invalid: [{}, { tag: "" }] },
   "session.untagged": { valid: [{ tag: "Seth" }], invalid: [{ tag: 1 }, { tag: "x".repeat(41) }] },
+  "session.draft-set": { valid: [{ draft: "Now the retention sweep" }, { draft: null }], invalid: [{}, { draft: "" }] },
   "session.group-set": { valid: [{ groupId }, { groupId: null }], invalid: [{}, { groupId: "g-1" }] },
   "session.settled": {
     valid: [{ settledAt: at, by: "user" }, { settledAt: at, by: "auto-idle" }],
@@ -167,6 +171,7 @@ export const sessionSchemaFixtures: Record<string, Fixtures> = {
     valid: ["wip", "Seth", "x".repeat(40), ` ${"x".repeat(40)}  `, "two words"],
     invalid: ["", " ", "x".repeat(41), "a\tb", "a\u0085b"],
   },
+  "sessions/draft.json": { valid: ["", "Now the retention sweep", "x".repeat(65_536)], invalid: [null, "x".repeat(65_537)] },
   "sessions/group-name.json": {
     valid: ["Brandsolidate", "x".repeat(80), ` ${"x".repeat(80)} `],
     invalid: ["", "  ", "x".repeat(81)],
@@ -270,6 +275,13 @@ export const sessionMethodFixtures: Record<string, { params: Fixtures; result: F
   },
   "sessions.tag": { params: { valid: [{ ...target, tag: "wip" }], invalid: [target, { ...target, tag: "" }] }, result: summaryResult },
   "sessions.untag": { params: { valid: [{ ...target, tag: "wip" }], invalid: [target, { ...target, tag: "x".repeat(41) }] }, result: summaryResult },
+  "sessions.setDraft": {
+    params: {
+      valid: [{ ...target, draft: "Now the retention sweep" }, { ...target, draft: null }, { ...target, draft: "" }],
+      invalid: [target, { ...target, draft: 7 }, { ...target, draft: "x".repeat(65_537) }],
+    },
+    result: summaryResult,
+  },
   "sessions.setGroup": {
     params: { valid: [{ ...target, groupId }, { ...target, groupId: null }], invalid: [target, { ...target, groupId: "g-1" }] },
     result: summaryResult,

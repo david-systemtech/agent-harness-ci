@@ -43,7 +43,7 @@ Every rule below cites ADR 0003 unless another decision is named.
 
 ### Modules and ownership
 
-- The **contracts package** gains the session summary, group and event payload schemas; the `sessions`, `groups` and `settings` registry entries with their scopes; the `list` flag on event types; the summary field table the contract test reads; the two auto-settle settings keys.
+- The **contracts package** gains the session summary, group and event payload schemas; the `sessions`, `groups` and `settings` registry entries with their scopes; the `list` flag on event types; the summary field table the contract test reads; the two auto-settle settings keys; the ordering module every client imports, which validates and generates order keys and implements the sort and shelf membership of "Ordering: fractional keys".
 - The **environment package** gains the session-organisation module: command handlers for the session and group aggregates (a pure decider in T3 Code's sense: projection plus command gives events or a typed refusal), the session-list projector that writes the read models and the summary patch, the maintenance sweep (auto-settle, snooze expiry, purge) and the title fallback.
 - The **client runtime** (ticket 80) gains no state of its own for these fields; its obligations here are the reduction rules (apply patches, sort by keys, merge headings by name).
 
@@ -58,6 +58,7 @@ The one shape every client renders a list row from, with who writes each field:
 - Place (ADR 0005), both written by `sessions.create`: `workspace` (kind and path; the workspace workstream's, phase A fills kind `directory` from the creating command) and `repositoryIdentity` (the canonical remote URL; `sessions.create` writes null until that workstream resolves it).
 - Activity, written by the adapter's and permissions workstream's run and prompt events: `activity` (`idle`, `starting`, `running` or `parked`, with `since`), `parkedPromptCount`, `accountId` and `model`.
 - Forge (ADR 0012), written by the forge workstream's events, empty in phase A: `pullRequests`, each with url, state (`open`, `closed`, `merged`), `mergedAt`, `closedAt`.
+- Composer: `draft`, the text typed in the composer and not sent, never empty, or null; written by `sessions.setDraft`, so a draft follows the session between clients (conflict X3). It is not an organisation change and does not move `updatedAt`.
 
 Deleted sessions are not in the list; `deletedAt` and `purgeAt` appear only on the deleted-sessions query. Environment id is not a field: the client runtime knows which connection a summary came from and attaches the badge.
 
@@ -74,7 +75,8 @@ Every command is a registry method with scope `sessions:write` unless stated, ta
 - `sessions.archive`, `sessions.unarchive`: `sessionId`.
 - `sessions.pin` (`sessionId`, optional `orderKey`), `sessions.unpin`, `sessions.reorderPinned` (`sessionId`, `orderKey`; `conflict` with reason `not_pinned` on an unpinned session, so a reorder that raced an unpin never resurrects the pin).
 - `sessions.reorderActive`: `sessionId`, `orderKey`; `conflict` with reason `not_active` on a pinned, settled or archived session. A snoozed session keeps its active slot and may be reordered, as in T3 Code, since it returns to the active list when it wakes.
-- `sessions.tag`, `sessions.untag`: `sessionId`, `tag` (trimmed, 1 to 40 characters, no control characters; unique per session ignoring case with the latest casing kept; at most 64 per session).
+- `sessions.tag`, `sessions.untag`: `sessionId`, `tag` (trimmed, 1 to 40 characters, no control characters; unique per session ignoring case with the latest casing kept; at most 64 per session, one more is `conflict` with reason `too_many_tags`).
+- `sessions.setDraft`: `sessionId`, `draft` (up to 65,536 characters, or null; an empty string is null). An absolute setter: the value sent replaces the stored draft, so a client's outbox keeps only the latest queued for a session; the client runtime debounces it one second.
 - `sessions.setGroup`: `sessionId`, `groupId` or null; `not_found` with data kind `group` when the group is not on this environment.
 - `sessions.settle`, `sessions.unsettle`: never refused for lifecycle reasons.
 - `sessions.snooze`: `sessionId`, `until` (absolute UTC, after now, at most one year ahead). `sessions.unsnooze`.
@@ -87,7 +89,7 @@ A repeated `commandId` returns the stored receipt (environment specification). A
 
 ### Events
 
-Stream kind `session`, stream id the session id: `session.created`, `session.title-set` (title or null, source `user`), `session.title-generated` (title, source `prompt` or `provider`), `session.archived`, `session.unarchived`, `session.pinned` (pinnedAt, optional pinOrderKey), `session.unpinned`, `session.pin-reordered`, `session.active-reordered`, `session.tagged`, `session.untagged`, `session.group-set`, `session.settled` (settledAt, by; sets `settledOverride` to `settled`), `session.unsettled` (unsettledAt, reason `user` or `activity`), `session.snoozed`, `session.unsnoozed` (reason `user`, `expired`, `activity` or `settled`), `session.deleted` (deletedAt, purgeAt, deleteProviderTranscript), `session.restored`, `session.purged`. Reserved for the forge workstream, payload fixed here so the summary field has an owner from phase A: `session.pull-request-linked`, `session.pull-request-unlinked`, `session.pull-request-synced` (url, state, mergedAt, closedAt). Stream kind `group`: `group.created`, `group.renamed`, `group.reordered`, `group.deleted`. The envelope, whose actor answers "who archived this", is the environment specification's.
+Stream kind `session`, stream id the session id: `session.created`, `session.title-set` (title or null, source `user`), `session.title-generated` (title, source `prompt` or `provider`), `session.archived`, `session.unarchived`, `session.pinned` (pinnedAt, optional pinOrderKey), `session.unpinned`, `session.pin-reordered`, `session.active-reordered`, `session.tagged`, `session.untagged`, `session.draft-set` (draft or null), `session.group-set`, `session.settled` (settledAt, by; sets `settledOverride` to `settled`), `session.unsettled` (unsettledAt, reason `user` or `activity`), `session.snoozed`, `session.unsnoozed` (reason `user`, `expired`, `activity` or `settled`), `session.deleted` (deletedAt, purgeAt, deleteProviderTranscript), `session.restored`, `session.purged`. Reserved for the forge workstream, payload fixed here so the summary field has an owner from phase A: `session.pull-request-linked`, `session.pull-request-unlinked`, `session.pull-request-synced` (url, state, mergedAt, closedAt). Stream kind `group`: `group.created`, `group.renamed`, `group.reordered`, `group.deleted`. The envelope, whose actor answers "who archived this", is the environment specification's.
 
 Companion events, appended in the same transaction with the command's id as causation:
 
@@ -110,7 +112,7 @@ Clients keep a snapshot and `lastSequence` per subscription, advance the cursor 
 
 ### Ordering: fractional keys
 
-Order keys are strings over `a` to `z`, compared as plain strings, never empty and never ending in `a` (so a key can always be generated before any key), as in T3 Code's client runtime. A move writes one key to one session on its own environment and touches no neighbour, so lists from several environments merge without agreement. Key generation is a client obligation: the key between the rendered neighbours, or evenly spread keys for the section when a neighbour has none, one command per session. Sorting, identical in every client:
+Order keys are strings over `a` to `z`, compared as plain strings, never empty and never ending in `a` (so a key can always be generated before any key), as in T3 Code's client runtime. A move writes one key to one session on its own environment and touches no neighbour, so lists from several environments merge without agreement. Key generation is a client obligation: the key between the rendered neighbours, or evenly spread keys for the section when a neighbour has none, one command per session. The contracts package's ordering module generates both and sorts; every client imports it. Sorting, identical in every client:
 
 - Pinned block: keyed sessions ascending by `pinOrderKey`, then keyless by `pinnedAt` ascending (the terminal UI's oldest pin first).
 - Active list: keyless sessions first, by the latest of `lastActivityAt`, `unsettledAt` and `createdAt`, newest first (Artemis's order, ADR 0004's parity default); then keyed sessions ascending by `activeOrderKey`. New and unsettled sessions appear above the arranged run; arranging a session takes it out of the activity order.
@@ -149,7 +151,7 @@ Read models in the environment's SQLite database, written in the same transactio
 
 ### The contract test and the lint
 
-**Contract test**, in the contracts package: a field table maps every key of the summary schema to its owning command or, for a field written by a system event (`activity`, `pullRequests`, `lastActivityAt`), to the `list`-flagged event type that writes it. It fails when a key is missing from the table, a named command is not in the registry, or a named event type is not flagged. Its behavioural half runs through the primary seam: for every user-set field it issues the owning command through a real client and asserts the event, its patch and the changed summary.
+**Contract test**, in the contracts package: a field table maps every key of the summary schema to its owning command (`draft` to `sessions.setDraft`) or, for a field written by a system event (`activity`, `pullRequests`, `lastActivityAt`), to the `list`-flagged event type that writes it. It fails when a key is missing from the table, a named command is not in the registry, or a named event type is not flagged. Its behavioural half runs through the primary seam: for every user-set field it issues the owning command through a real client and asserts the event, its patch and the changed summary.
 
 **Lint**, a rule in the repository's lint configuration run in CI with a fixture test proving it fires: in every client package (client runtime, terminal UI, GUI, web) it forbids a store, atom, slice, reducer key, preferences key, settings key or web-storage key whose name contains `archive`, `pin`, `order`, `group`, `tag`, `settle`, `snooze`, `title` or `rename`, ignoring case, outside the client runtime's projection cache module, its outbox module and one allowlisted presentation module whose keys are enumerated (`collapsedHeadings`, pane layout, sidebar width). Adding a presentation key means adding it to that list, a review event rather than a lint error.
 
@@ -183,7 +185,10 @@ A good test drives a real client against an environment and asserts what a clien
 Chosen defaults not decided on a ticket, listed for review:
 
 - Deletion grace 30 days as a constant; `sessions.purge` to skip it; the sweep every five minutes, at startup and on a settings change.
-- Group name 1 to 80 characters, unique per environment ignoring case; tag 1 to 40 characters, unique per session ignoring case, at most 64; user title up to 200 characters; generated title 80 characters from the first prompt line; snooze at most one year ahead.
+- Group name 1 to 80 characters, unique per environment ignoring case; tag 1 to 40 characters, unique per session ignoring case, at most 64, and one more `conflict` with reason `too_many_tags`; user title up to 200 characters; generated title 80 characters from the first prompt line; snooze at most one year ahead.
+- The composer draft is a session field (conflict X3, resolved by ticket 115): `draft` on the summary, `sessions.setDraft` an absolute setter, `session.draft-set` its `list`-flagged event, following the `session.*-set` pattern. Up to 65,536 characters; an empty draft is stored as null; setting it does not move `updatedAt`, since typing is not organisation. Sending a message does not clear it here; that is the adapter workstream's to decide with its send method.
+- `sessions.pin` on a pinned session: with no key or its own key it changes nothing; with another key it appends `session.pin-reordered`, keeping `pinnedAt`, so an outbox's pin still sets the key it carried.
+- `settledAt` is what makes a session settled for shelf membership; unsettling clears it.
 - The order-key alphabet and the sort rules of the Ordering subsection; the companion events of the Events subsection.
 - Group collapse is client-local presentation keyed by heading name, on the lint's allowlist.
 - Client-minted version 4 UUIDs for sessions and groups; no-op commands accepted with no event and `changed: false`.
