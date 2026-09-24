@@ -29,6 +29,8 @@ export interface ClientSessionTable {
   revoke(id: string, at: string): void;
   /** Records that a connection of the session opened or closed at `at`. */
   touch(id: string, at: string): void;
+  /** Moves the session's expiry to `expiresAt`: a refresh. */
+  extend(id: string, expiresAt: string): void;
 }
 
 interface Row {
@@ -85,6 +87,9 @@ export const createClientSessionTable = (sql: Sql, transaction: Transaction): Cl
     revoke,
     touch: (id, at) => {
       sql.run("UPDATE client_sessions SET last_seen_at = ? WHERE id = ?", at, id);
+    },
+    extend: (id, expiresAt) => {
+      sql.run("UPDATE client_sessions SET expires_at = ? WHERE id = ?", expiresAt, id);
     },
   };
 };

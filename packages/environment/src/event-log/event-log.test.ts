@@ -71,7 +71,7 @@ describe("opening the event log", () => {
     const tables = log
       .read<{ name: string }>("SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")
       .map((t) => t.name);
-    expect(tables.sort()).toEqual(["client_sessions", "command_receipts", "events", "projection_state", "snapshots"]);
+    expect(tables.sort()).toEqual(["client_sessions", "command_receipts", "events", "pairings", "projection_state", "snapshots"]);
     expect(log.read("PRAGMA user_version")).toEqual([{ user_version: MIGRATIONS.length }]);
   });
 
@@ -205,6 +205,13 @@ describe("appending", () => {
     expect(log.readStream(s1, 4)).toEqual([]);
   });
 
+  it("reads at most a limit of one stream's events", () => {
+    const log = memoryLog();
+    log.append(s1, [note("1"), note("2"), note("3")], { actor: "test" });
+    expect(log.readStream(s1, 0, 2).map((e) => e.payload)).toEqual([{ text: "1" }, { text: "2" }]);
+    expect(log.readStream(s1, 2, 5).map((e) => e.payload)).toEqual([{ text: "3" }]);
+  });
+
   it("is unique on stream kind, stream id and stream version", () => {
     const path = tempDatabase();
     const log = track(openEventLog({ path }));
@@ -285,6 +292,80 @@ describe("one transaction for events, projections and the receipt", () => {
     const { events } = log.append(s1, [note("after")], { actor: "test" });
     expect(events.map((e) => e.streamVersion)).toEqual([1]);
     expect(log.read("SELECT sequence FROM fails_seen")).toEqual([{ sequence: events[0]?.sequence }]);
+  });
+});
+
+describe("atomically", () => {
+  const row = (id: string) => ({
+    id,
+    kind: "program" as const,
+    label: id,
+    scopes: ["read" as const],
+    ceiling: "plan" as never,
+    local: false,
+    createdAt: "2026-09-24T00:00:00.000Z",
+    lastSeenAt: null,
+    expiresAt: "2026-10-24T00:00:00.000Z",
+    revokedAt: null,
+  });
+
+  it("commits appends and auth-table writes together, and publishes the events after the commit", () => {
+    const log = memoryLog();
+    const heard: number[] = [];
+    const committedWhenHeard: boolean[] = [];
+    log.subscribe((event) => {
+      heard.push(event.sequence);
+      committedWhenHeard.push(log.clientSessions.all().some((r) => r.id === "cs-1"));
+    });
+    log.atomically(() => {
+      log.clientSessions.insert(row("cs-1"), []);
+      log.append(s1, [note("one")], { actor: "test" });
+      log.append(s1, [note("two")], { actor: "test" });
+      expect(heard).toEqual([]);
+    });
+    expect(heard).toEqual([1, 2]);
+    expect(committedWhenHeard).toEqual([true, true]);
+  });
+
+  it("writes none of it when the work throws, and publishes nothing", () => {
+    const log = memoryLog();
+    const heard: number[] = [];
+    log.subscribe((event) => heard.push(event.sequence));
+    expect(() =>
+      log.atomically(() => {
+        log.clientSessions.insert(row("cs-1"), []);
+        log.append(s1, [note("one")], { actor: "test" });
+        throw new Error("changed my mind");
+      }),
+    ).toThrow("changed my mind");
+    expect(log.readStream(s1)).toEqual([]);
+    expect(log.clientSessions.all()).toEqual([]);
+    expect(heard).toEqual([]);
+    log.append(s1, [note("after")], { actor: "test" });
+    expect(heard).toHaveLength(1);
+  });
+
+  it("joins an outer atomically rather than nesting", () => {
+    const log = memoryLog();
+    expect(() =>
+      log.atomically(() => {
+        log.atomically(() => log.append(s1, [note("inner")], { actor: "test" }));
+        throw new Error("the outer fails");
+      }),
+    ).toThrow("the outer fails");
+    expect(log.readStream(s1)).toEqual([]);
+  });
+
+  it("is refused to a projector", () => {
+    const log = memoryLog();
+    log.registerProjector({
+      name: "sneaky",
+      tables: { sneaky_seen: "CREATE TABLE sneaky_seen (sequence INTEGER PRIMARY KEY)" },
+      apply: () => log.atomically(() => undefined),
+    });
+    expect(() => log.append(s1, [note("one")], { actor: "test" })).toThrow(/projector/);
+    expect(() => log.atomically(() => log.append(s1, [note("two")], { actor: "test" }))).toThrow(/projector/);
+    expect(log.readStream(s1)).toEqual([]);
   });
 });
 

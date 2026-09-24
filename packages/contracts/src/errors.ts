@@ -71,8 +71,8 @@ export const InternalError = errorSchema("internal", z.object({})).meta({
 });
 
 /**
- * An unauthenticated exchange (`/api/bootstrap`, and `/api/pair` with #109)
- * came too often from one address; `data.retryAfterMs` says when the next is
+ * An unauthenticated exchange (`/api/bootstrap` or `/api/pair`) came too
+ * often from one address; `data.retryAfterMs` says when the next is
  * taken. Not a method error: methods sit behind a client session.
  */
 export const RateLimitedError = errorSchema(

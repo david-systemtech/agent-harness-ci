@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ACCESS_EVENT_PAYLOADS, ACCESS_EVENT_TYPES, AccessEventType, ClientSessionOrigin, RevocationReason } from "./access-log.js";
 import { BootstrapError, BootstrapGrant, BootstrapKind, BootstrapRequest, ClientSessionCredential } from "./bootstrap.js";
 import { AuthPolicy, DiscoveryDocument, EnvironmentReadiness, HealthDocument } from "./discovery.js";
 import { Actor, EventEnvelope } from "./envelope.js";
@@ -22,7 +23,16 @@ import {
   SubscriptionId,
   Timestamp,
   JsonObject,
+  PairingId,
 } from "./primitives.js";
+import {
+  PairError,
+  PairRequest,
+  PairingExpiredError,
+  PairingInvalidError,
+  PairingUsedError,
+  ProtocolMismatchError,
+} from "./pairing.js";
 import { methods } from "./registry.js";
 import { Ceiling, Scope, ScopeSet } from "./scopes.js";
 
@@ -64,6 +74,7 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "command-id.json", title: "CommandId", schema: CommandId },
   { path: "environment-id.json", title: "EnvironmentId", schema: EnvironmentId },
   { path: "client-session-id.json", title: "ClientSessionId", schema: ClientSessionId },
+  { path: "pairing-id.json", title: "PairingId", schema: PairingId },
   { path: "request-id.json", title: "RequestId", schema: RequestId },
   { path: "subscription-id.json", title: "SubscriptionId", schema: SubscriptionId },
   { path: "sequence.json", title: "Sequence", schema: Sequence },
@@ -78,6 +89,16 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "bootstrap/request.json", title: "BootstrapRequest", schema: BootstrapRequest },
   { path: "bootstrap/error.json", title: "BootstrapError", schema: BootstrapError },
   { path: "client-session-credential.json", title: "ClientSessionCredential", schema: ClientSessionCredential },
+  { path: "pair/request.json", title: "PairRequest", schema: PairRequest },
+  { path: "pair/error.json", title: "PairError", schema: PairError },
+  { path: "access/event-type.json", title: "AccessEventType", schema: AccessEventType },
+  { path: "access/client-session-origin.json", title: "ClientSessionOrigin", schema: ClientSessionOrigin },
+  { path: "access/revocation-reason.json", title: "RevocationReason", schema: RevocationReason },
+  ...ACCESS_EVENT_TYPES.map((type) => ({
+    path: `access/events/${type}.json`,
+    title: `${pascal(type)}Payload`,
+    schema: ACCESS_EVENT_PAYLOADS[type],
+  })),
   { path: "actor.json", title: "Actor", schema: Actor },
   { path: "event-envelope.json", title: "EventEnvelope", schema: EventEnvelope },
   { path: "errors/error-code.json", title: "ErrorCode", schema: ErrorCode },
@@ -89,6 +110,10 @@ export const exportedSchemas = (): ExportedSchema[] => [
     return { path: `errors/${code}.json`, title: `${pascal(code)}Error`, schema: member };
   }),
   { path: "errors/rate_limited.json", title: "RateLimitedError", schema: RateLimitedError },
+  { path: "errors/pairing_invalid.json", title: "PairingInvalidError", schema: PairingInvalidError },
+  { path: "errors/pairing_expired.json", title: "PairingExpiredError", schema: PairingExpiredError },
+  { path: "errors/pairing_used.json", title: "PairingUsedError", schema: PairingUsedError },
+  { path: "errors/protocol_mismatch.json", title: "ProtocolMismatchError", schema: ProtocolMismatchError },
   { path: "frames/frame.json", title: "Frame", schema: Frame },
   ...FRAME_TYPES.map((kind) => ({ path: `frames/${kind}.json`, title: `${pascal(kind)}Frame`, schema: FRAME_SCHEMAS[kind] })),
   { path: "frames/end-reason.json", title: "EndReason", schema: EndReason },

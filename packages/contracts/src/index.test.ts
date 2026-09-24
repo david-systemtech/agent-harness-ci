@@ -4,6 +4,7 @@ import {
   BOOTSTRAP_PATH,
   DISCOVERY_PATH,
   HEALTH_PATH,
+  PAIR_PATH,
   PRODUCT_NAME,
   PROTOCOL_VERSION,
   WIRE_PATH,
@@ -27,5 +28,9 @@ describe("contracts", () => {
     expect(WIRE_PATH).toBe("/ws");
     expect(BOOTSTRAP_PATH).toBe("/api/bootstrap");
     expect(BOOTSTRAP_GRANT_FILE).toBe("bootstrap-grant.json");
+  });
+
+  it("puts the pairing exchange at /api/pair", () => {
+    expect(PAIR_PATH).toBe("/api/pair");
   });
 });

@@ -30,7 +30,11 @@ const harness = () => {
     stdout: (text) => void (out += text),
     stderr: (text) => void (err += text),
     stopRequested: () => stopped,
-    environment: { user: { isPrivileged: () => false }, launcher: { prepared, close } },
+    environment: {
+      user: { isPrivileged: () => false },
+      launcher: { prepared, close },
+      interfaces: { tailscaleAddress: () => undefined, tailnetName: () => undefined },
+    },
   };
   return { context, stop, prepared, close, out: () => out, err: () => err };
 };

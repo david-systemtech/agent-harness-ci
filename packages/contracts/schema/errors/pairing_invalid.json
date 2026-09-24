@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PairingInvalidError",
+  "type": "object",
+  "properties": {
+    "code": {
+      "type": "string",
+      "const": "pairing_invalid"
+    },
+    "message": {
+      "type": "string"
+    },
+    "data": {
+      "type": "object",
+      "properties": {}
+    }
+  },
+  "required": [
+    "code",
+    "message",
+    "data"
+  ],
+  "description": "The pairing code is not one this environment issued."
+}

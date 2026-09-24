@@ -5,11 +5,13 @@ import { createSql, decodeEvent, toJson, type EventRow, type SqlValue, type Tran
 import type { EventEnvelope, EventInput, StreamRef } from "./envelope.js";
 import { applyMigrations } from "./migrations.js";
 import { createProjections, type Projector } from "./projectors.js";
+import { createPairingTable, type PairingTable } from "./pairings.js";
 import { createReceipts, type CommandReceipt, type ReceiptRequest } from "./receipts.js";
 import { createSnapshots, type Snapshot } from "./snapshots.js";
 import { loadSqlite } from "./sqlite.js";
 
 export type { ClientSessionRow, ClientSessionTable } from "./client-sessions.js";
+export type { PairingRow, PairingTable } from "./pairings.js";
 export type { SqlValue } from "./database.js";
 export type { EventEnvelope, EventInput, JsonObject, StreamRef } from "./envelope.js";
 export type { ProjectionDb, Projector } from "./projectors.js";
@@ -73,8 +75,8 @@ export interface EventLog {
    * writes and the receipt; subscribers hear of them only after it commits.
    */
   append(stream: StreamRef, events: readonly EventInput[], options: AppendOptions): AppendResult;
-  /** One stream's events with a sequence above `afterSequence`, in order. */
-  readStream(stream: StreamRef, afterSequence?: number): EventEnvelope[];
+  /** One stream's events with a sequence above `afterSequence`, in order: every one, or the first `limit`. */
+  readStream(stream: StreamRef, afterSequence?: number, limit?: number): EventEnvelope[];
   /** Measures one stream's events after a cursor against the replay bound, in SQL, before decoding. */
   replayBound(stream: StreamRef, afterSequence: number): ReplayMeasure;
   /**
@@ -96,8 +98,17 @@ export interface EventLog {
   /** Writes a stream's snapshot, replacing any earlier one. */
   writeSnapshot(stream: StreamRef, snapshot: { readonly sequence: number; readonly payload: unknown }): void;
   readSnapshot(stream: StreamRef): Snapshot | null;
+  /**
+   * Runs `work` in one write transaction: every append and auth-table write
+   * inside it commits together or not at all, and subscribers hear the
+   * appended events after the commit. A call inside another `atomically`
+   * joins it; a projector may not call it.
+   */
+  atomically<T>(work: () => T): T;
   /** The auth table of client sessions, which the environment loads once on start and then only writes. */
   readonly clientSessions: ClientSessionTable;
+  /** The auth table of pairing codes, loaded once on start and then only written. */
+  readonly pairings: PairingTable;
   close(): void;
 }
 
@@ -130,8 +141,15 @@ export const openEventLog = (options: EventLogOptions): EventLog => {
   let closed = false;
 
   let inTransaction = false;
+  /** Inside `atomically`: a write joins its transaction rather than opening one. */
+  let joinable = false;
+  /** Inside a projector's `apply`, which may not write anywhere but its own tables. */
+  let projecting = false;
+  /** Events appended inside `atomically`, published once it commits. */
+  let held: EventEnvelope[] | undefined;
+
   /** BEGIN IMMEDIATE takes the write lock up front, so concurrent writers queue on the busy timeout. */
-  const transaction: Transaction = (work) => {
+  const begin: Transaction = (work) => {
     if (inTransaction) {
       throw new Error("The event log does not nest transactions: a projector may not append, register or rebuild.");
     }
@@ -151,10 +169,14 @@ export const openEventLog = (options: EventLogOptions): EventLog => {
     }
   };
 
-  const projections = createProjections(sql, transaction, clock);
+  /** A write's transaction: its own, or the one `atomically` holds open. */
+  const transaction: Transaction = (work) => (joinable && !projecting ? work() : begin(work));
+
+  const projections = createProjections(sql, begin, clock);
   const receipts = createReceipts(sql);
   const snapshots = createSnapshots(sql, clock);
   const clientSessions = createClientSessionTable(sql, transaction);
+  const pairings = createPairingTable(sql);
 
   const insertEvent = `
     INSERT INTO events (event_id, stream_kind, stream_id, stream_version, type, occurred_at,
@@ -220,7 +242,12 @@ export const openEventLog = (options: EventLogOptions): EventLog => {
           if (stored) return { events: [], receipt: stored, duplicate: true };
         }
         const events = rows.map((row) => decodeEvent(sql.get<EventRow>(insertEvent, ...row) as EventRow));
-        projections.catchUp(events);
+        projecting = true;
+        try {
+          projections.catchUp(events);
+        } finally {
+          projecting = false;
+        }
         const receipt = request
           ? receipts.write(
               { actor: options.actor, commandId: options.commandId, stream, createdAt: now },
@@ -230,19 +257,40 @@ export const openEventLog = (options: EventLogOptions): EventLog => {
           : null;
         return { events, receipt, duplicate: false };
       });
-      publish(result.events);
+      if (held) held.push(...result.events);
+      else publish(result.events);
       return result;
     },
 
-    readStream(stream, afterSequence = 0) {
+    readStream(stream, afterSequence = 0, limit) {
       return sql
         .all<EventRow>(
-          "SELECT * FROM events WHERE stream_kind = ? AND stream_id = ? AND sequence > ? ORDER BY sequence",
+          // SQLite reads a negative LIMIT as none.
+          "SELECT * FROM events WHERE stream_kind = ? AND stream_id = ? AND sequence > ? ORDER BY sequence LIMIT ?",
           stream.kind,
           stream.id,
           afterSequence,
+          limit ?? -1,
         )
         .map(decodeEvent);
+    },
+
+    atomically(work) {
+      if (projecting) throw new Error("A projector may not append or write the auth tables.");
+      if (joinable) return work();
+      const appended: EventEnvelope[] = [];
+      const result = begin(() => {
+        joinable = true;
+        held = appended;
+        try {
+          return work();
+        } finally {
+          joinable = false;
+          held = undefined;
+        }
+      });
+      publish(appended);
+      return result;
     },
 
     replayBound(stream, afterSequence) {
@@ -290,6 +338,7 @@ export const openEventLog = (options: EventLogOptions): EventLog => {
     writeSnapshot: (stream, snapshot) => snapshots.write(stream, snapshot),
     readSnapshot: (stream) => snapshots.read(stream),
     clientSessions,
+    pairings,
 
     close() {
       if (closed) return;

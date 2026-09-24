@@ -5,16 +5,21 @@ import {
   BOOTSTRAP_PATH,
   DISCOVERY_PATH,
   HEALTH_PATH,
+  PAIR_PATH,
   PROTOCOL_VERSION,
   WIRE_PATH,
+  pairingLink,
   type AuthPolicy,
   type CapabilityFlags,
   type DiscoveryDocument,
   type EnvironmentReadiness,
   type HealthDocument,
 } from "@agent-harness/contracts";
+import { SYSTEM, createAccessLog } from "../auth/access-log.js";
+import { accessMethods } from "../auth/access-methods.js";
 import { createBootstrapGrant } from "../auth/bootstrap.js";
 import { SWEEP_INTERVAL_MS, createClientSessions, type ClientSessionIssuer, type ClientSessions } from "../auth/client-sessions.js";
+import { createPairings, pairRoute, type Pairings } from "../auth/pairings.js";
 import { createRateLimiter } from "../auth/rate-limit.js";
 import { openEventLog, type EventLog, type Projector } from "../event-log/event-log.js";
 import { createWire } from "../wire/wire.js";
@@ -23,6 +28,7 @@ import { createCloserStack } from "./closers.js";
 import { defaultDataDirectory, prepareDataDirectory } from "./data-directory.js";
 import { createHttpSurface, sendJson, type Address, type HttpRoutes } from "./http.js";
 import { ensureSigningKey, loadOrCreateRecord, type EnvironmentRecord } from "./identity.js";
+import { LOOPBACK, bindList, tailscaleDetector, type BoundInterface, type InterfaceDetector } from "./interfaces.js";
 import { processLauncherChannel, type LauncherChannel } from "./launcher.js";
 import type { MethodHandlers } from "./methods.js";
 import { processUserCheck, refusePrivilegedUser, type UserCheck } from "./user.js";
@@ -39,9 +45,6 @@ export const HARNESS_VERSION: string = (
  * environment on one machine passes its own.
  */
 export const DEFAULT_PORT = 7433;
-
-/** The loopback address the environment binds. The tailnet interface is #109's. */
-const LOOPBACK = "127.0.0.1";
 
 /** The database file in the data directory. */
 export const DATABASE_FILE = "environment.db";
@@ -90,8 +93,16 @@ export interface EnvironmentOptions {
   readonly port?: number;
   /** The name a new environment is created with; preset: the machine's hostname. An existing environment keeps its own. */
   readonly name?: string;
-  /** The environment's own tailnet name, which the Host check accepts beside loopback. */
+  /** The environment's own tailnet name, which the Host check accepts beside loopback. Preset: the detector's. */
   readonly tailnetName?: string;
+  /** What is found to bind beside loopback. Preset: the `tailscale` CLI (`tailscaleDetector`); tests pass their own. */
+  readonly interfaces?: InterfaceDetector;
+  /** The tailnet setting: bind the Tailscale address. Preset: on when an address is found. The settings store (#117) will hold it. */
+  readonly bindTailnet?: boolean;
+  /** The LAN setting: bind `lanAddress`. Preset: off. The settings store (#117) will hold it. */
+  readonly bindLan?: boolean;
+  /** The LAN address bound when `bindLan` is on. Never the wildcard address. */
+  readonly lanAddress?: string;
   /** Preset: the running process's user (`processUserCheck`). */
   readonly user?: UserCheck;
   /** Preset: the IPC channel of a launcher that spawned the environment, else nothing (`processLauncherChannel`). */
@@ -116,12 +127,16 @@ export interface EnvironmentHandle {
   readonly dataDir: string;
   /** Where the loopback listener is bound. */
   readonly address: Address;
+  /** Every address a listener is bound to, loopback first, all on one port. */
+  readonly addresses: readonly Address[];
+  /** `local-only` when only loopback is bound, `tailnet` otherwise. */
+  readonly authPolicy: AuthPolicy;
   readiness(): EnvironmentReadiness;
   /** The handlers the wire dispatches into, by method name, after its scope check. */
   readonly methods: MethodHandlers;
   /** The listener's route table, behind the Host check. */
   readonly http: HttpRoutes;
-  /** Issuing and revoking client sessions: the seam pairing and the access methods (#109) build on. */
+  /** Issuing (by an in-process pairing) and revoking client sessions from the embedding process. */
   readonly clientSessions: ClientSessionIssuer;
   /** How many WebSocket sockets are open on the wire. */
   sockets(): number;
@@ -133,6 +148,18 @@ export interface EnvironmentHandle {
    */
   close(): Promise<void>;
 }
+
+/**
+ * The host a pairing link names: the tailnet name when the tailnet address is
+ * bound and has one, else the first address bound beyond loopback, else
+ * loopback, which pairs a client on this machine only.
+ */
+const linkHost = (listening: readonly { readonly address: Address; readonly interface: BoundInterface }[], tailnetName: string | undefined): string => {
+  const tailnet = listening.find((entry) => entry.interface === "tailnet");
+  if (tailnet && tailnetName !== undefined) return tailnetName;
+  const host = (listening.find((entry) => entry.interface !== "loopback") ?? listening[0])?.address.host ?? LOOPBACK;
+  return host.includes(":") ? `[${host}]` : host;
+};
 
 /**
  * Starts an environment: refuses root before anything is created, then runs
@@ -149,8 +176,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   const now = () => clock.now();
   const launcher = options.launcher ?? processLauncherChannel();
   const capabilities: CapabilityFlags = [];
-  // Only loopback is bound until the tailnet binding (#109).
-  const authPolicy: AuthPolicy = "local-only";
+  // Set when the listeners are bound: local-only until then, which is what binding loopback alone means.
+  let authPolicy: AuthPolicy = "local-only";
+  let tailnetName = options.tailnetName;
 
   let readiness: EnvironmentReadiness = "starting";
   let address: Address | undefined;
@@ -180,20 +208,40 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     for (const projector of options.projectors ?? []) log.registerProjector(projector);
   });
 
-  // The record, the signing key and the auth tables: client sessions are read once, here, into memory.
-  const { record, clientSessions } = await step("identity", async () => {
+  // Where pairing links point: set when the listeners are bound, before any request is served.
+  let linkOrigin: string | undefined;
+
+  // The record, the signing key and the auth tables: client sessions and pairings are read once, here, into memory.
+  const { record, clientSessions, pairings, accessLog } = await step("identity", async () => {
     const name = (options.name ?? hostname()).trim();
     if (!name) throw new Error("An environment's name cannot be empty.");
     const loaded: EnvironmentRecord = loadOrCreateRecord(dataDir, name, now);
     const key = await ensureSigningKey(options.vault ?? fileVault(join(dataDir, VAULT_FILE)));
-    const loadedClientSessions: ClientSessions = createClientSessions({ table: log.clientSessions, key, environmentId: loaded.id, clock });
-    return { record: loaded, clientSessions: loadedClientSessions };
+    const access = createAccessLog(log, loaded.id);
+    const loadedClientSessions: ClientSessions = createClientSessions({
+      table: log.clientSessions,
+      accessLog: access,
+      key,
+      environmentId: loaded.id,
+      clock,
+    });
+    const loadedPairings: Pairings = createPairings({
+      table: log.pairings,
+      clientSessions: loadedClientSessions,
+      accessLog: access,
+      clock,
+      link: (code) => {
+        if (linkOrigin === undefined) throw new Error("A pairing link was asked for before the environment was bound.");
+        return pairingLink(linkOrigin, code);
+      },
+    });
+    return { record: loaded, clientSessions: loadedClientSessions, pairings: loadedPairings, accessLog: access };
   });
 
   // The adapter host (#119) starts here; there is none yet.
   await step("adapter-host", () => undefined);
 
-  const surface = createHttpSurface({ tailnetName: options.tailnetName });
+  const surface = createHttpSurface({ tailnetName: () => tailnetName });
   const noStore = { "cache-control": "no-store" };
   surface.route("GET", DISCOVERY_PATH, (_request, response) => {
     const document: DiscoveryDocument = {
@@ -214,9 +262,10 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
 
   const methods: MethodHandlers = {
     "environment.status": () => ({ readiness }),
+    ...accessMethods({ pairings, clientSessions, accessLog }),
   };
 
-  // The grant file and the wire are routed before the bind; both refuse work until the gate below.
+  // The two exchanges and the wire are routed before the bind; all three refuse work until the gate below.
   const grant = createBootstrapGrant({
     dataDir,
     clientSessions,
@@ -224,24 +273,45 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     readiness: () => readiness,
   });
   surface.route("POST", BOOTSTRAP_PATH, grant.exchange);
+  surface.route("POST", PAIR_PATH, pairRoute({ pairings, rateLimiter: createRateLimiter({ clock }), readiness: () => readiness }));
   const wire = createWire({ environment: record, capabilities, clientSessions, methods, clock });
   surface.upgrade(WIRE_PATH, wire.upgrade);
 
   const bound = await step("listen", async () => {
+    const interfaces = options.interfaces ?? tailscaleDetector();
+    const tailscaleAddress = interfaces.tailscaleAddress();
+    tailnetName ??= interfaces.tailnetName();
+    const binds = bindList({ tailscaleAddress, bindTailnet: options.bindTailnet, bindLan: options.bindLan, lanAddress: options.lanAddress });
     closers.push(() => surface.close());
-    const listening = await surface.listen(LOOPBACK, options.port ?? DEFAULT_PORT);
-    address = listening;
-    // Closed before the listener, so no socket holds its close open.
+    // Loopback first: its port, chosen when 0 is asked for, is every other listener's.
+    const listening: { address: Address; interface: BoundInterface }[] = [];
+    for (const bind of binds) {
+      const port = listening[0]?.address.port ?? options.port ?? DEFAULT_PORT;
+      listening.push({ address: await surface.listen(bind.host, port), interface: bind.interface });
+    }
+    const [loopback] = listening;
+    if (!loopback) throw new Error("No listener was bound.");
+    address = loopback.address;
+    authPolicy = listening.length > 1 ? "tailnet" : "local-only";
+    linkOrigin = `http://${linkHost(listening, tailnetName)}:${loopback.address.port}`;
+    // Closed before the listeners, so no socket holds their close open.
     closers.push(() => wire.close());
     closers.push(() => grant.remove());
-    grant.issue(listening);
-    return listening;
+    grant.issue(loopback.address);
+    return { address: loopback.address, addresses: listening.map((entry) => entry.address) };
   });
 
   await step("prepared", () => launcher.prepared());
   readiness = "ready";
   wire.open();
-  const sweep = clock.setInterval(() => clientSessions.sweep(), SWEEP_INTERVAL_MS);
+  const sweep = clock.setInterval(() => {
+    try {
+      clientSessions.sweep();
+      pairings.sweep();
+    } catch (error) {
+      console.error("The sweep failed:", error);
+    }
+  }, SWEEP_INTERVAL_MS);
   closers.push(() => sweep.cancel());
 
   // Concurrent closes share one attempt; a close after a failed one retries what did not close.
@@ -250,11 +320,21 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     id: record.id,
     name: record.name,
     dataDir,
-    address: bound,
+    address: bound.address,
+    addresses: bound.addresses,
+    authPolicy,
     readiness: () => readiness,
     methods,
     http: { route: (method, path, handler) => surface.route(method, path, handler) },
-    clientSessions: { issue: (request) => clientSessions.issue(request), revoke: (id) => clientSessions.revoke(id) },
+    clientSessions: {
+      issue(request) {
+        const { code } = pairings.create({ scopes: request.scopes, ceiling: request.ceiling }, SYSTEM.owner);
+        const exchanged = pairings.exchange(code, { kind: request.kind, label: request.label });
+        if (!exchanged.ok) throw new Error(`The in-process pairing was refused: ${exchanged.refusal}.`);
+        return exchanged.credential;
+      },
+      revoke: (id) => clientSessions.revoke(id, "requested", SYSTEM.owner)?.changed === true,
+    },
     sockets: () => wire.sockets(),
     close: () => (closing ??= closers.closeAll().finally(() => (closing = undefined))),
   };

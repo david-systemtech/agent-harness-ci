@@ -2,5 +2,10 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "access.sessions.list params",
   "type": "object",
-  "properties": {}
+  "properties": {
+    "includeEnded": {
+      "description": "Include client sessions that were revoked or have expired; false when absent.",
+      "type": "boolean"
+    }
+  }
 }

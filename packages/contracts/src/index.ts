@@ -1,11 +1,13 @@
 export { PRODUCT_NAME } from "./product.js";
 
+export * from "./access-log.js";
 export * from "./bootstrap.js";
 export * from "./discovery.js";
 export * from "./envelope.js";
 export * from "./errors.js";
 export * from "./flags.js";
 export * from "./frames.js";
+export * from "./pairing.js";
 export {
   METHOD_KINDS,
   commandParams,
@@ -24,6 +26,7 @@ export {
   CommandId,
   EnvironmentId,
   JsonObject,
+  PairingId,
   RequestId,
   Sequence,
   SubscriptionId,

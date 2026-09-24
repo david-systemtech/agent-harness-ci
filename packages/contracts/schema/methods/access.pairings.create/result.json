@@ -3,15 +3,20 @@
   "title": "access.pairings.create result",
   "type": "object",
   "properties": {
+    "pairingId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "A pairing's id, as the access log names it; the code itself is never logged."
+    },
     "code": {
       "type": "string",
       "minLength": 1,
-      "description": "The one-time pairing code, for typing."
+      "description": "The one-time pairing code in its canonical form; show it in two groups of five for typing."
     },
     "link": {
       "type": "string",
       "format": "uri",
-      "description": "A link with the code in its fragment, also rendered as a QR."
+      "description": "http://<address>/pair#<code>: the code in the fragment, so it never reaches a log. Render it as a QR."
     },
     "expiresAt": {
       "type": "string",
@@ -43,6 +48,7 @@
     }
   },
   "required": [
+    "pairingId",
     "code",
     "link",
     "expiresAt",

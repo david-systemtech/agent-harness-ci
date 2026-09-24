@@ -63,6 +63,59 @@ const without = (value: Record<string, unknown>, key: string): Record<string, un
 
 const envelopeWithoutCommandId = without(validEnvelope, "commandId");
 
+/** A pairing exchange's body. */
+const validPairRequest = { code: "K7Q2M-XH4RT", kind: "program", label: "nightly bot", protocolVersion: 1 };
+
+/** The pairing exchange's own refusals, one instance each. */
+const pairErrors = {
+  pairing_invalid: { code: "pairing_invalid", message: "No such pairing code.", data: {} },
+  pairing_expired: { code: "pairing_expired", message: "The pairing code has expired.", data: {} },
+  pairing_used: { code: "pairing_used", message: "The pairing code has been used.", data: {} },
+  protocol_mismatch: { code: "protocol_mismatch", message: "The client speaks protocol 2.", data: { protocolVersion: 1 } },
+};
+
+/** One valid payload for every access event type. */
+const accessPayloads = {
+  "pairing.created": { pairingId: "p-1", scopes: ["read", "admin"], ceiling: "auto", expiresAt: at },
+  "pairing.exchanged": { pairingId: "p-1", clientSessionId: "cs-1" },
+  "pairing.expired": { pairingId: "p-1" },
+  "client-session.created": {
+    clientSessionId: "cs-1",
+    kind: "web",
+    label: "phone browser",
+    scopes: ["read"],
+    ceiling: "plan",
+    local: false,
+    how: "pairing",
+    pairingId: "p-1",
+    expiresAt: at,
+  },
+  "client-session.refreshed": { clientSessionId: "cs-1", expiresAt: at },
+  "client-session.revoked": { clientSessionId: "cs-1", reason: "requested" },
+  "socket.opened": { clientSessionId: "cs-1", socketId: "s-1", remoteAddress: "100.101.102.103" },
+  "socket.closed": { clientSessionId: "cs-1", socketId: "s-1" },
+  "scope.granted": { clientSessionId: "cs-1", granted: ["admin"], scopes: ["read", "admin"] },
+  "ceiling.changed": { clientSessionId: "cs-1", from: "plan", to: "auto" },
+};
+
+/** An invalid payload for every access event type. */
+const invalidAccessPayloads: Record<keyof typeof accessPayloads, readonly unknown[]> = {
+  "pairing.created": [{ ...accessPayloads["pairing.created"], scopes: [] }, { pairingId: "p-1" }],
+  "pairing.exchanged": [{ pairingId: "p-1" }, { pairingId: "", clientSessionId: "cs-1" }],
+  "pairing.expired": [{}, { pairingId: 1 }],
+  "client-session.created": [
+    { ...accessPayloads["client-session.created"], how: "magic" },
+    without(accessPayloads["client-session.created"], "pairingId"),
+  ],
+  "client-session.refreshed": [{ clientSessionId: "cs-1" }, { clientSessionId: "cs-1", expiresAt: "later" }],
+  "client-session.revoked": [{ clientSessionId: "cs-1", reason: "because" }, { reason: "idle" }],
+  "socket.opened": [{ clientSessionId: "cs-1", socketId: "s-1" }, { clientSessionId: "cs-1", socketId: "", remoteAddress: null }],
+  "socket.closed": [{ clientSessionId: "cs-1" }, { socketId: "s-1" }],
+  "scope.granted": [{ clientSessionId: "cs-1", granted: [], scopes: ["read"] }, { clientSessionId: "cs-1", scopes: ["read"] }],
+  "ceiling.changed": [{ clientSessionId: "cs-1", from: "", to: "auto" }, { clientSessionId: "cs-1", to: "auto" }],
+};
+
+
 /** Every error the shared union holds, one instance each. */
 export const sharedErrors = {
   unauthorized: { code: "unauthorized", message: "The token is not valid here.", data: {} },
@@ -262,18 +315,23 @@ const methodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
     result: {
       valid: [
         {
-          code: "K7Q-2MX",
-          link: "agent-harness://pair#K7Q-2MX",
+          pairingId: "p-1",
+          code: "K7Q2MXH4RT",
+          link: "http://desk.tail1234.ts.net:7433/pair#K7Q2MXH4RT",
           expiresAt: at,
           scopes: ["read", "admin"],
           ceiling: "auto",
         },
       ],
-      invalid: [{ code: "K7Q-2MX", link: "agent-harness://pair#K7Q-2MX", expiresAt: at, scopes: ["read"] }],
+      invalid: [
+        { pairingId: "p-1", code: "K7Q2MXH4RT", link: "http://127.0.0.1:7433/pair#K7Q2MXH4RT", expiresAt: at, scopes: ["read"] },
+        { pairingId: "p-1", code: "K7Q2MXH4RT", link: "not a link", expiresAt: at, scopes: ["read"], ceiling: "auto" },
+        { code: "K7Q2MXH4RT", link: "http://127.0.0.1:7433/pair#K7Q2MXH4RT", expiresAt: at, scopes: ["read"], ceiling: "auto" },
+      ],
     },
   },
   "access.sessions.list": {
-    params: { valid: [{}], invalid: [null] },
+    params: { valid: [{}, { includeEnded: true }], invalid: [null, { includeEnded: "yes" }] },
     result: {
       valid: [
         { sessions: [] },
@@ -285,18 +343,45 @@ const methodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
               label: "Mac",
               createdAt: at,
               lastSeenAt: null,
+              expiresAt: at,
+              revokedAt: null,
               scopes: ["read", "admin"],
               ceiling: "auto",
+              local: false,
+            },
+            {
+              id: "cs-2",
+              kind: "program",
+              label: "nightly bot",
+              createdAt: at,
+              lastSeenAt: at,
+              expiresAt: at,
+              revokedAt: at,
+              scopes: ["read"],
+              ceiling: "plan",
+              local: false,
             },
           ],
         },
       ],
-      invalid: [{}, { sessions: [{ id: "cs-1", kind: "phone" }] }],
+      invalid: [
+        {},
+        { sessions: [{ id: "cs-1", kind: "phone" }] },
+        {
+          sessions: [
+            { id: "cs-1", kind: "tui", label: "t", createdAt: at, lastSeenAt: null, expiresAt: at, revokedAt: null, scopes: ["read"], ceiling: "auto" },
+          ],
+        },
+      ],
     },
   },
   "access.sessions.revoke": {
     params: { valid: [{ commandId: uuid, clientSessionId: "cs-2" }], invalid: [{ commandId: uuid }, { clientSessionId: "cs-2" }] },
     result: { valid: [{ revokedAt: at }], invalid: [{ revokedAt: "later" }] },
+  },
+  "access.sessions.refresh": {
+    params: { valid: [{ commandId: uuid }], invalid: [{}, { commandId: "again" }] },
+    result: { valid: [validCredential], invalid: [without(validCredential, "token"), { ...validCredential, expiresAt: "soon" }] },
   },
   "access.log.list": {
     params: {
@@ -331,6 +416,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
   "command-id.json": { valid: [uuid], invalid: ["not-a-uuid", "", 7] },
   "environment-id.json": { valid: [uuid, otherUuid], invalid: ["not-a-uuid", "", 7] },
   "client-session-id.json": { valid: ["cs-1"], invalid: ["", 1] },
+  "pairing-id.json": { valid: ["p-1"], invalid: ["", 1] },
   "json-object.json": { valid: [{}, { a: 1, nested: { b: [1, "two"] } }], invalid: [[], "x", 1, null] },
   "request-id.json": { valid: ["1", "a7"], invalid: ["", 1] },
   "subscription-id.json": { valid: ["sub-1"], invalid: ["", null] },
@@ -389,6 +475,39 @@ export const schemaFixtures: Record<string, Fixtures> = {
       { ...validCredential, expiresAt: "in a month" },
     ],
   },
+  "pair/request.json": {
+    valid: [validPairRequest, { ...validPairRequest, code: "k7q2mxh4rt", kind: "web", protocolVersion: 2 }],
+    invalid: [
+      without(validPairRequest, "protocolVersion"),
+      { ...validPairRequest, code: "" },
+      { ...validPairRequest, code: "x".repeat(65) },
+      { ...validPairRequest, kind: "phone" },
+      { ...validPairRequest, label: "" },
+      { ...validPairRequest, protocolVersion: 0 },
+    ],
+  },
+  "pair/error.json": {
+    valid: [...Object.values(pairErrors), sharedErrors.invalid_params, sharedErrors.unavailable, sharedErrors.internal, validRateLimited],
+    invalid: [sharedErrors.unauthorized, sharedErrors.not_found, { code: "pairing_used", message: "m" }],
+  },
+  ...Object.fromEntries(
+    Object.entries(pairErrors).map(([code, error]): [string, Fixtures] => [
+      `errors/${code}.json`,
+      { valid: [error], invalid: [{ ...error, data: "x" }, { code, message: "m" }, { ...error, code: "other" }] },
+    ]),
+  ),
+  "access/event-type.json": {
+    valid: Object.keys(accessPayloads),
+    invalid: ["connection.opened", "pairing.created ", ""],
+  },
+  "access/client-session-origin.json": { valid: ["bootstrap", "pairing"], invalid: ["login", ""] },
+  "access/revocation-reason.json": { valid: ["requested", "replaced", "idle"], invalid: ["expired", ""] },
+  ...Object.fromEntries(
+    Object.entries(accessPayloads).map(([type, payload]): [string, Fixtures] => [
+      `access/events/${type}.json`,
+      { valid: [payload], invalid: invalidAccessPayloads[type as keyof typeof accessPayloads] },
+    ]),
+  ),
   "actor.json": {
     valid: [validActor, { kind: "system", id: "maintenance" }, { kind: "routine", id: "r-1" }, { kind: "adapter", id: "claude" }],
     invalid: [{ kind: "user", id: "david" }, { kind: "routine" }, { kind: "system", id: "" }],

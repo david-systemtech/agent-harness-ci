@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ClientSessionCreatedPayload",
+  "type": "object",
+  "properties": {
+    "clientSessionId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "A client session's id, as hello names it and the access methods list and revoke it."
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "desktop",
+        "tui",
+        "web",
+        "program"
+      ],
+      "description": "What kind of client a client session belongs to: the desktop window, the terminal UI, a browser tab, or a program (a script or bot driving the wire)."
+    },
+    "label": {
+      "type": "string"
+    },
+    "scopes": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "read",
+          "sessions:write",
+          "runs:drive",
+          "terminal",
+          "admin"
+        ],
+        "description": "One of the five scopes a method may require: read (list and subscribe), sessions:write (organisation commands), runs:drive (start, send, interrupt, answer prompts), terminal (terminals, files and diffs), admin (pairings, client sessions, drain, rebuild, settings)."
+      },
+      "uniqueItems": true,
+      "description": "The scopes a client session holds, as a non-empty set."
+    },
+    "ceiling": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The highest mode a client session may use; its values are the permissions workstream's."
+    },
+    "local": {
+      "type": "boolean",
+      "description": "Made through the bootstrap grant rather than by pairing."
+    },
+    "how": {
+      "type": "string",
+      "enum": [
+        "bootstrap",
+        "pairing"
+      ],
+      "description": "How a client session was made: through the bootstrap grant, by a local client, or by exchanging a pairing code."
+    },
+    "pairingId": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "description": "A pairing's id, as the access log names it; the code itself is never logged."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The pairing exchanged for it; null for a bootstrap."
+    },
+    "expiresAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+      "description": "An instant as an ISO 8601 UTC timestamp."
+    }
+  },
+  "required": [
+    "clientSessionId",
+    "kind",
+    "label",
+    "scopes",
+    "ceiling",
+    "local",
+    "how",
+    "pairingId",
+    "expiresAt"
+  ],
+  "description": "client-session.created: a client session was made, and what it may do."
+}

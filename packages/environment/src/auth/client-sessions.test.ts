@@ -1,8 +1,9 @@
 import { randomBytes } from "node:crypto";
 import { Ceiling, SCOPES } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
-import { manualClock } from "../../test/clock.js";
+import { manualClock, type ManualClock } from "../../test/clock.js";
 import type { ClientSessionRow, ClientSessionTable } from "../event-log/client-sessions.js";
+import { SYSTEM, type AccessLog } from "./access-log.js";
 import { TOKEN_LIFETIME_MS, TOP_CEILING, createClientSessions } from "./client-sessions.js";
 
 const environmentId = "7c9e6679-7425-40de-944b-e07fc1f90ae7";
@@ -33,24 +34,44 @@ const memoryTable = () => {
       const existing = stored.get(id);
       if (existing) existing.lastSeenAt = at;
     },
+    extend: (id, expiresAt) => {
+      const existing = stored.get(id);
+      if (existing) existing.expiresAt = expiresAt;
+    },
   };
   return { table, stored, reads: () => reads };
 };
+
+/** An access log that keeps what it is told, in memory, and runs `atomically` work at once. */
+const memoryAccessLog = () => {
+  const recorded: { type: string; payload: unknown }[] = [];
+  const accessLog: Pick<AccessLog, "record" | "atomically"> = {
+    record: (type, payload) => void recorded.push({ type, payload }),
+    atomically: (work) => work(),
+  };
+  return { accessLog, recorded };
+};
+
+const owner = SYSTEM.owner;
+
+/** Client sessions over `table`, recording into a fresh in-memory access log. */
+const sessions = (table: ClientSessionTable, key: Buffer, clock: ManualClock, id = environmentId) =>
+  createClientSessions({ table, key, environmentId: id, clock, accessLog: memoryAccessLog().accessLog });
 
 describe("client sessions", () => {
   it("verify a token with no read of the table after they are loaded", () => {
     const clock = manualClock();
     const memory = memoryTable();
-    const clientSessions = createClientSessions({ table: memory.table, key: randomBytes(32), environmentId, clock });
+    const clientSessions = sessions(memory.table, randomBytes(32), clock);
     expect(memory.reads()).toBe(1);
 
     const local = clientSessions.issueLocal("desktop", "desktop");
-    const narrow = clientSessions.issue({ kind: "program", label: "bot", scopes: ["read"], ceiling: Ceiling.parse("plan") });
+    const narrow = clientSessions.issue({ kind: "program", label: "bot", scopes: ["read"], ceiling: Ceiling.parse("plan") }, "p-1");
     for (let i = 0; i < 5; i++) {
       expect(clientSessions.verify(local.token)).toMatchObject({ ok: true, clientSession: { id: local.clientSessionId, local: true } });
       expect(clientSessions.verify(narrow.token)).toMatchObject({ ok: true, clientSession: { scopes: ["read"], local: false } });
     }
-    clientSessions.revoke(narrow.clientSessionId);
+    clientSessions.revoke(narrow.clientSessionId, "requested", owner);
     expect(clientSessions.verify(narrow.token)).toMatchObject({ ok: false, reason: "revoked" });
     expect(memory.reads()).toBe(1);
   });
@@ -59,22 +80,22 @@ describe("client sessions", () => {
     const clock = manualClock();
     const key = randomBytes(32);
     const memory = memoryTable();
-    const first = createClientSessions({ table: memory.table, key, environmentId, clock });
-    const narrow = first.issue({ kind: "program", label: "bot", scopes: ["read"], ceiling: Ceiling.parse("plan") });
+    const first = sessions(memory.table, key, clock);
+    const narrow = first.issue({ kind: "program", label: "bot", scopes: ["read"], ceiling: Ceiling.parse("plan") }, "p-1");
     const stored = memory.stored.get(narrow.clientSessionId);
     if (!stored) throw new Error("the client session was not stored");
     stored.scopes = ["read", "admin"];
     stored.ceiling = Ceiling.parse("auto");
     stored.kind = "web";
 
-    const second = createClientSessions({ table: memory.table, key, environmentId, clock });
+    const second = sessions(memory.table, key, clock);
     expect(second.verify(narrow.token)).toMatchObject({
       ok: true,
       clientSession: { kind: "web", scopes: ["read", "admin"], ceiling: "auto", local: false },
     });
 
     stored.expiresAt = clock.now().toISOString();
-    const third = createClientSessions({ table: memory.table, key, environmentId, clock });
+    const third = sessions(memory.table, key, clock);
     expect(third.verify(narrow.token)).toMatchObject({ ok: false, reason: "expired" });
   });
 
@@ -82,19 +103,19 @@ describe("client sessions", () => {
     const clock = manualClock();
     const key = randomBytes(32);
     const memory = memoryTable();
-    const first = createClientSessions({ table: memory.table, key, environmentId, clock });
+    const first = sessions(memory.table, key, clock);
     const kept = first.issueLocal("tui", "kept");
     const gone = first.issueLocal("tui", "gone");
-    first.revoke(gone.clientSessionId);
+    first.revoke(gone.clientSessionId, "requested", owner);
 
-    const second = createClientSessions({ table: memory.table, key, environmentId, clock });
+    const second = sessions(memory.table, key, clock);
     expect(second.verify(kept.token)).toMatchObject({ ok: true });
     expect(second.verify(gone.token)).toMatchObject({ ok: false, reason: "revoked" });
   });
 
   it("issue local client sessions with every scope and the top ceiling, for 30 days", () => {
     const clock = manualClock();
-    const clientSessions = createClientSessions({ table: memoryTable().table, key: randomBytes(32), environmentId, clock });
+    const clientSessions = sessions(memoryTable().table, randomBytes(32), clock);
     const credential = clientSessions.issueLocal("tui", "t");
     expect(credential).toMatchObject({ scopes: [...SCOPES], ceiling: TOP_CEILING });
     expect(Date.parse(credential.expiresAt) - clock.now().getTime()).toBe(TOKEN_LIFETIME_MS);
@@ -108,35 +129,35 @@ describe("client sessions", () => {
     const key = randomBytes(32);
     const clock = manualClock();
     const memory = memoryTable();
-    const other = createClientSessions({ table: memory.table, key, environmentId: "0f8fad5b-d9cb-469f-a165-70867728950e", clock });
+    const other = sessions(memory.table, key, clock, "0f8fad5b-d9cb-469f-a165-70867728950e");
     const credential = other.issueLocal("tui", "elsewhere");
-    const here = createClientSessions({ table: memory.table, key, environmentId, clock });
+    const here = sessions(memory.table, key, clock);
     expect(here.verify(credential.token)).toMatchObject({ ok: false, reason: "unauthorized" });
   });
 
   it("tell listeners of a revocation once", () => {
-    const clientSessions = createClientSessions({ table: memoryTable().table, key: randomBytes(32), environmentId, clock: manualClock() });
+    const clientSessions = sessions(memoryTable().table, randomBytes(32), manualClock());
     const heard: string[] = [];
     clientSessions.onRevoked((id) => heard.push(id));
     const first = clientSessions.issueLocal("desktop", "one");
     const second = clientSessions.issueLocal("desktop", "two");
     expect(heard).toEqual([first.clientSessionId]);
-    expect(clientSessions.revoke(second.clientSessionId)).toBe(true);
-    expect(clientSessions.revoke(second.clientSessionId)).toBe(false);
+    expect(clientSessions.revoke(second.clientSessionId, "requested", owner)).toMatchObject({ changed: true });
+    expect(clientSessions.revoke(second.clientSessionId, "requested", owner)).toMatchObject({ changed: false });
     expect(heard).toEqual([first.clientSessionId, second.clientSessionId]);
   });
 
   it("count open sockets per client session for the tui sweep", () => {
     const clock = manualClock();
-    const clientSessions = createClientSessions({ table: memoryTable().table, key: randomBytes(32), environmentId, clock });
+    const clientSessions = sessions(memoryTable().table, randomBytes(32), clock);
     const tui = clientSessions.issueLocal("tui", "t");
-    clientSessions.socketOpened(tui.clientSessionId);
-    clientSessions.socketOpened(tui.clientSessionId);
-    clientSessions.socketClosed(tui.clientSessionId);
+    clientSessions.socketOpened(tui.clientSessionId, { socketId: "s" });
+    clientSessions.socketOpened(tui.clientSessionId, { socketId: "s" });
+    clientSessions.socketClosed(tui.clientSessionId, { socketId: "s" });
     clock.advance(2 * 60 * 60 * 1000);
     clientSessions.sweep();
     expect(clientSessions.verify(tui.token)).toMatchObject({ ok: true });
-    clientSessions.socketClosed(tui.clientSessionId);
+    clientSessions.socketClosed(tui.clientSessionId, { socketId: "s" });
     clock.advance(60 * 60 * 1000);
     clientSessions.sweep();
     expect(clientSessions.verify(tui.token)).toMatchObject({ ok: false, reason: "revoked" });

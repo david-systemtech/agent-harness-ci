@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CeilingChangedPayload",
+  "type": "object",
+  "properties": {
+    "clientSessionId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "A client session's id, as hello names it and the access methods list and revoke it."
+    },
+    "from": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The highest mode a client session may use; its values are the permissions workstream's."
+    },
+    "to": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The highest mode a client session may use; its values are the permissions workstream's."
+    }
+  },
+  "required": [
+    "clientSessionId",
+    "from",
+    "to"
+  ],
+  "description": "ceiling.changed: a client session's ceiling was changed, which only an admin may do."
+}

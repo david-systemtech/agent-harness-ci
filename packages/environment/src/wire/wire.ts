@@ -11,6 +11,8 @@ import {
   type Frame,
   type HelloFrame,
 } from "@agent-harness/contracts";
+import { randomUUID } from "node:crypto";
+import type { IncomingMessage } from "node:http";
 import { WebSocketServer, type RawData, type WebSocket } from "ws";
 import type { ClientSessions, VerifiedClientSession } from "../auth/client-sessions.js";
 import type { Clock, Timer } from "../serve/clock.js";
@@ -58,6 +60,9 @@ type Decoded = { readonly ok: true; readonly frame: Frame } | { readonly ok: fal
 
 interface Socket {
   readonly ws: WebSocket;
+  /** The socket's id and where it came from, as the access log records it. */
+  readonly id: string;
+  readonly remoteAddress: string | undefined;
   /** Waiting for `auth`, authenticated, or closing after a `bye`. */
   phase: "awaiting-auth" | "authenticated" | "closing";
   /** An `auth` frame that arrived before the gate, answered when it opens. */
@@ -145,7 +150,8 @@ export const createWire = (options: WireOptions): Wire => {
 
   const tick = (socket: Socket): void => {
     const clientSession = socket.clientSession;
-    if (clientSession && clock.now().getTime() >= clientSession.expiresAt) {
+    // The expiry is read afresh: a refresh moves it.
+    if (clientSession && clock.now().getTime() >= (clientSessions.expiresAt(clientSession.id) ?? clientSession.expiresAt)) {
       return closeWith(socket, { reason: "expired", message: "The client session's token has expired." }, CLOSE.bye);
     }
     // A missing pong is the client's watchdog to act on, not the environment's.
@@ -178,8 +184,7 @@ export const createWire = (options: WireOptions): Wire => {
     const clientSession = verification.clientSession;
     socket.phase = "authenticated";
     socket.clientSession = clientSession;
-    // #109 appends the access log's event for this socket opening here, and for its closing in onClose.
-    clientSessions.socketOpened(clientSession.id);
+    clientSessions.socketOpened(clientSession.id, { socketId: socket.id, remoteAddress: socket.remoteAddress });
     const hello: HelloFrame = {
       type: "hello",
       protocolVersion: PROTOCOL_VERSION,
@@ -247,12 +252,21 @@ export const createWire = (options: WireOptions): Wire => {
   const onClose = (socket: Socket): void => {
     stopTimers(socket);
     socket.phase = "closing";
-    if (socket.clientSession) clientSessions.socketClosed(socket.clientSession.id);
+    if (socket.clientSession) clientSessions.socketClosed(socket.clientSession.id, { socketId: socket.id });
     open.delete(socket);
   };
 
-  const accept = (ws: WebSocket): void => {
-    const socket: Socket = { ws, phase: "awaiting-auth", held: undefined, authTimer: undefined, clientSession: undefined, ping: undefined };
+  const accept = (ws: WebSocket, request: IncomingMessage): void => {
+    const socket: Socket = {
+      ws,
+      id: randomUUID(),
+      remoteAddress: request.socket.remoteAddress,
+      phase: "awaiting-auth",
+      held: undefined,
+      authTimer: undefined,
+      clientSession: undefined,
+      ping: undefined,
+    };
     open.add(socket);
     ws.on("message", (data, isBinary) => onMessage(socket, data, isBinary));
     ws.on("close", () => onClose(socket));

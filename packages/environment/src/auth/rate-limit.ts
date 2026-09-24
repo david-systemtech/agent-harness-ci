@@ -3,7 +3,7 @@ import type { Clock } from "../serve/clock.js";
 /**
  * The rate the unauthenticated exchanges take from one remote address: a
  * burst of `capacity`, refilled evenly over `windowMs`. A chosen default: 10
- * a minute. `/api/bootstrap` uses it now and `/api/pair` with #109.
+ * a minute. `/api/bootstrap` and `/api/pair` each keep their own buckets at it.
  */
 export const EXCHANGE_RATE = { capacity: 10, windowMs: 60_000 } as const;
 

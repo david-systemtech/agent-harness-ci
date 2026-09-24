@@ -33,7 +33,7 @@ const start = async (options: TestEnvironmentOptions = {}): Promise<TestEnvironm
   return t;
 };
 
-/** A client session issued straight from the environment, as pairing (#109) will: here, to hold fewer scopes. */
+/** A client session issued through the handle's in-process pairing: here, to hold fewer scopes. */
 const issue = (t: TestEnvironment, scopes: readonly Scope[]): ClientSessionCredential =>
   t.env.clientSessions.issue({ kind: "program", label: "a narrow program", scopes, ceiling: Ceiling.parse("acceptEdits") });
 
@@ -463,7 +463,7 @@ describe("requests", () => {
   it("answers a registered method with no handler yet not_found", async () => {
     const t = await start();
     const client = await t.client();
-    const answer = await client.call("access.sessions.list", {});
+    const answer = await client.call("environment.drain", { commandId: "0f8fad5b-d9cb-469f-a165-70867728950e" });
     expect(answer).toMatchObject({ type: "response", error: { code: "not_found" } });
   });
 });

@@ -51,6 +51,7 @@ describe("the method registry", () => {
       "access.pairings.create": "admin",
       "access.sessions.list": "admin",
       "access.sessions.revoke": "admin",
+      "access.sessions.refresh": "read",
       "access.log.list": "admin",
     });
   });
@@ -73,6 +74,7 @@ describe("the method registry", () => {
       "environment.rebuildProjections",
       "access.pairings.create",
       "access.sessions.revoke",
+      "access.sessions.refresh",
     ]);
   });
 
@@ -121,6 +123,7 @@ describe("the method registry", () => {
       | "access.pairings.create"
       | "access.sessions.list"
       | "access.sessions.revoke"
+      | "access.sessions.refresh"
       | "access.log.list"
     >();
     expectTypeOf<ParamsOf<"access.sessions.revoke">>().toEqualTypeOf<{ commandId: string; clientSessionId: string }>();
