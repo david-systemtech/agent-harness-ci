@@ -23,8 +23,18 @@ export interface SettingsMethodsOptions {
   readonly onChange?: (keys: readonly SettingsKey[]) => void;
 }
 
-/** Two values of one key, compared as the JSON they are stored as; a key's schema gives its fields one order. */
-const same = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
+/** Two values of one key, compared by structure: a client may list an object's fields in any order. */
+const same = (a: unknown, b: unknown): boolean => {
+  if (a === b) return true;
+  if (typeof a !== "object" || typeof b !== "object" || a === null || b === null) return false;
+  if (Array.isArray(a) || Array.isArray(b)) {
+    return Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((item, i) => same(item, b[i]));
+  }
+  const left = a as Record<string, unknown>;
+  const right = b as Record<string, unknown>;
+  const keys = Object.keys(left);
+  return keys.length === Object.keys(right).length && keys.every((key) => key in right && same(left[key], right[key]));
+};
 
 export const settingsMethods = (options: SettingsMethodsOptions): MethodHandlers => {
   const { log } = options;

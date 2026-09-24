@@ -43,7 +43,7 @@ export const AutoSettleAfterIdle = IdleSpan.nullable().meta({
 
 /** `sessions.autoSettleOnMerge`: whether a session one of whose pull requests merged is settled. */
 export const AutoSettleOnMerge = z.boolean().meta({
-  description: "Whether auto-settle settles a session one of whose pull requests merged at or after its last activity (settledBy auto-merge).",
+  description: "Whether auto-settle settles a session one of whose pull requests merged at or after its anchor, the latest of its last activity, its unsettling and the end of its last snooze (settledBy auto-merge).",
 });
 
 /** Where a key sits in Set up: the step whose registry entry writes it, and the band of that step's settings pane it shows in. */

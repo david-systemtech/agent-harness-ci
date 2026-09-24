@@ -94,6 +94,16 @@ describe("settings.update", () => {
     expect(await client.request("settings.get", { keys: ["sessions.autoSettleAfterIdle"] })).toEqual({ values: { "sessions.autoSettleAfterIdle": null } });
   });
 
+  it("changes nothing when a held object value is sent with its fields in another order", async () => {
+    const t = await start();
+    const client = await t.client();
+    await updateSettings(client, { "sessions.autoSettleAfterIdle": { amount: 3, unit: "weeks" } });
+    const head = t.env.log.head();
+    const answer = await updateSettings(client, { "sessions.autoSettleAfterIdle": { unit: "weeks", amount: 3 } });
+    expect(answer.receipt).toEqual({ status: "accepted", sequence: head, changed: false });
+    expect(t.env.log.head()).toBe(head);
+  });
+
   it("answers a retry of the same command its first receipt, applying it once", async () => {
     const t = await start();
     const client = await t.client();
