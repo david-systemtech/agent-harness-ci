@@ -1186,6 +1186,50 @@ describe("a run that joins a kept process", () => {
     expect(fake.queries).toHaveLength(2);
   });
 
+  it("takes no schedule hold for a CronCreate or a ScheduleWakeup that was denied or failed, and one for a create that succeeded", async () => {
+    const adapter = adapterWith();
+    const input = runInput();
+    const run = adapter.createRun(input, contextWith());
+    const query = await started();
+    query.emit(
+      sdk.init(PROVIDER_SESSION),
+      sdk.replyStart("msg_1", [input.prompt[0]?.messageId as string]),
+      sdk.toolUse("toolu_denied", "CronCreate", { cron: "0 * * * *" }),
+      sdk.toolResult("toolu_denied", "The user denied this tool call.", true),
+      sdk.toolUse("toolu_wake", "ScheduleWakeup"),
+      sdk.toolResult("toolu_wake", "Could not schedule.", true),
+    );
+    await flush();
+    expect(port).toEqual([]);
+    query.emit(sdk.toolUse("toolu_cron", "CronCreate", { cron: "0 * * * *" }));
+    await flush();
+    // Counted on its outcome, not its start: an ask may still deny it.
+    expect(port).toEqual([]);
+    query.emit(sdk.toolResult("toolu_cron"), sdk.result(PROVIDER_SESSION));
+    await drain(run);
+    expect(port).toEqual(["hold schedule:claude-schedules"]);
+  });
+
+  it("follows the CLI's own list of the session's schedules at each stop, so a one-shot job that expired lets the hold go", async () => {
+    const adapter = adapterWith();
+    const input = runInput();
+    const run = adapter.createRun(input, contextWith());
+    const query = await started();
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [input.prompt[0]?.messageId as string]), sdk.toolUse("toolu_cron", "CronCreate"), sdk.toolResult("toolu_cron"));
+    await flush();
+    expect(port).toEqual(["hold schedule:claude-schedules"]);
+    const stop = query.options.hooks?.Stop?.[0]?.hooks[0];
+    expect(stop).toBeDefined();
+    const stopped = (crons: { id: string; schedule: string; recurring: boolean; prompt: string }[]) =>
+      stop?.({ hook_event_name: "Stop", session_id: "s", transcript_path: "", cwd: "/work/repo", stop_hook_active: false, session_crons: crons } as never, undefined, { signal: new AbortController().signal });
+    expect(await stopped([{ id: "c1", schedule: "30 9 25 9 *", recurring: false, prompt: "Check the deploy" }])).toEqual({});
+    expect(port).toEqual(["hold schedule:claude-schedules"]);
+    await stopped([]);
+    expect(port).toEqual(["hold schedule:claude-schedules", "unhold schedule:claude-schedules"]);
+    query.emit(sdk.result(PROVIDER_SESSION));
+    await drain(run);
+  });
+
   it("lets the schedule hold go once CronDelete removes the job", async () => {
     const adapter = adapterWith();
     const context = contextWith();

@@ -98,6 +98,12 @@ describe("the options a run is handed", () => {
     expect(buildRunOptions(input({ mode: null as never })).permissionMode).toBe("acceptEdits");
   });
 
+  it("hands the process's Stop hook to the SDK when it has one, and sets no hooks otherwise", async () => {
+    const onStop = async () => ({});
+    expect(buildRunOptions(input({}, { onStop })).hooks).toEqual({ Stop: [{ hooks: [onStop] }] });
+    expect(buildRunOptions(input())).not.toHaveProperty("hooks");
+  });
+
   it("keeps the claude_code preset and appends the composed instructions", () => {
     expect(buildRunOptions(input()).systemPrompt).toEqual({
       type: "preset",

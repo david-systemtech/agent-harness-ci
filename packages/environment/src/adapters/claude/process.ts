@@ -4,6 +4,7 @@ import {
   getSessionMessages as sdkGetSessionMessages,
   query as sdkQuery,
   type CanUseTool,
+  type HookCallback,
   type Options,
   type PermissionResult,
   type Query,
@@ -101,9 +102,11 @@ export interface ProcessTimings {
 
 /**
  * The tools that leave a job in the process that only fires while it idles
- * (Artemis's list): a process holding one is kept. A cron job is counted
- * until `CronDelete` removes one; a wakeup until a turn of the provider's
- * own opens with no message behind it, which is the wakeup firing.
+ * (Artemis's list): a process holding one is kept. Each is counted when its
+ * call ends `ok`, never when it starts, since a call may still be denied or
+ * fail: a cron job until `CronDelete` removes one; a wakeup until a turn of
+ * the provider's own opens with no message behind it, which is the wakeup
+ * firing.
  */
 const CRON_CREATE = "CronCreate";
 /** The one schedule hold's id: the port holds a schedule while any is registered. */
@@ -265,6 +268,8 @@ export class ClaudeProcess implements TurnControl {
   readonly #liveTasks = new Set<string>();
   #crons = 0;
   #wakeups = 0;
+  /** Schedule tool calls started and not ended yet, by call id: counted once they end `ok`. */
+  readonly #scheduling = new Map<string, string>();
   #settling = false;
   #settleOwed = false;
   #settleTimer: Timer | undefined;
@@ -431,6 +436,7 @@ export class ClaudeProcess implements TurnControl {
         sessionStore: this.#deps.sessionStore,
         resumePoint,
         canUseTool: this.#canUseTool,
+        onStop: this.#onStop,
         spawnProcess: this.#spawnProcess,
         abortController: this.#abort,
         stderr: (data) => this.#deps.diagnostic(`Claude (session ${this.sessionId}): ${data.trimEnd()}`),
@@ -615,10 +621,18 @@ export class ClaudeProcess implements TurnControl {
       turn.emit({ type: "message.delivered", payload: { messageId: owner, delivery: "steered" } });
     }
     for (const event of turn.map(message)) {
-      if (event.type !== "tool.started") continue;
-      if (event.payload.name === CRON_CREATE) this.#crons += 1;
-      else if (event.payload.name === CRON_DELETE) this.#crons = Math.max(0, this.#crons - 1);
-      else if (event.payload.name === WAKEUP) this.#wakeups += 1;
+      if (event.type === "tool.started") {
+        if (event.payload.name === CRON_CREATE || event.payload.name === CRON_DELETE || event.payload.name === WAKEUP) this.#scheduling.set(event.payload.toolCallId, event.payload.name);
+        continue;
+      }
+      if (event.type !== "tool.ended") continue;
+      const name = this.#scheduling.get(event.payload.toolCallId);
+      this.#scheduling.delete(event.payload.toolCallId);
+      // A call denied, failed or cancelled registered nothing, and removed nothing.
+      if (name === undefined || event.payload.status !== "ok") continue;
+      if (name === CRON_CREATE) this.#crons += 1;
+      else if (name === CRON_DELETE) this.#crons = Math.max(0, this.#crons - 1);
+      else this.#wakeups += 1;
       this.#holdSchedule();
     }
     if (turn.state.providerSessionId !== null) this.#providerSessionId = turn.state.providerSessionId;
@@ -728,12 +742,29 @@ export class ClaudeProcess implements TurnControl {
     else this.#context.process.unhold("schedule", SCHEDULE_HOLD_ID);
   }
 
+  /**
+   * The CLI's own list of the session's scheduled jobs, as each turn stops
+   * (the Stop hook's `session_crons`): the counts follow it, so a one-shot
+   * job that fired or expired, which no tool call removes, lets the hold go.
+   */
+  readonly #onStop: HookCallback = async (input) => {
+    const crons = (input as { readonly session_crons?: unknown }).session_crons;
+    if (input.hook_event_name === "Stop" && Array.isArray(crons) && !this.closed) {
+      const recurring = crons.filter((cron) => isRecord(cron) && cron["recurring"] === true).length;
+      this.#crons = recurring;
+      this.#wakeups = crons.length - recurring;
+      this.#holdSchedule();
+    }
+    return {};
+  };
+
   /** Lets go of every hold this process took: it is being replaced or stopped. */
   #unholdAll(): void {
     for (const id of this.#liveTasks) this.#context.process.unhold("task", id);
     this.#liveTasks.clear();
     this.#crons = 0;
     this.#wakeups = 0;
+    this.#scheduling.clear();
     this.#holdSchedule();
   }
 

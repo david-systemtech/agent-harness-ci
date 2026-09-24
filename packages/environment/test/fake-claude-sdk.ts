@@ -280,9 +280,9 @@ export const sdk = {
     session_id: "s",
     uuid: crypto.randomUUID(),
   }),
-  toolResult: (id: string, content: unknown = "ok") => ({
+  toolResult: (id: string, content: unknown = "ok", isError = false) => ({
     type: "user",
-    message: { role: "user", content: [{ type: "tool_result", tool_use_id: id, content, is_error: false }] },
+    message: { role: "user", content: [{ type: "tool_result", tool_use_id: id, content, is_error: isError }] },
     parent_tool_use_id: null,
     session_id: "s",
     uuid: crypto.randomUUID(),

@@ -1,4 +1,4 @@
-import type { CanUseTool, EffortLevel, McpServerConfig, Options, PermissionMode, SessionStore, SettingSource } from "@anthropic-ai/claude-agent-sdk";
+import type { CanUseTool, EffortLevel, HookCallback, McpServerConfig, Options, PermissionMode, SessionStore, SettingSource } from "@anthropic-ai/claude-agent-sdk";
 import type { RunInput } from "../../adapter/contract.js";
 import { composeRunEnvironment, type HostEnvironment } from "./credentials.js";
 
@@ -61,6 +61,8 @@ export interface RunOptionsInput {
   readonly resumePoint: ResumePoint | null;
   /** The host's broker seam, through the process's permission table. */
   readonly canUseTool: CanUseTool;
+  /** Called as each turn stops, with the session's scheduled jobs as the CLI lists them (`session_crons`). */
+  readonly onStop?: HookCallback;
   /** The process's own spawn of the CLI, so a kill reaches the child; absent, the SDK spawns it. */
   readonly spawnProcess?: NonNullable<Options["spawnClaudeCodeProcess"]>;
   readonly abortController: AbortController;
@@ -145,6 +147,7 @@ export const buildRunOptions = (input: RunOptionsInput): Options => {
     ...(run.ceiling === "bypassPermissions" && { allowDangerouslySkipPermissions: true }),
     permissionPrompts: "host",
     canUseTool: input.canUseTool,
+    ...(input.onStop !== undefined && { hooks: { Stop: [{ hooks: [input.onStop] }] } }),
     ...(input.spawnProcess !== undefined && { spawnClaudeCodeProcess: input.spawnProcess }),
     systemPrompt: systemPrompt(run.instructions),
     settingSources,
