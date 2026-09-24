@@ -19,6 +19,8 @@ export interface FakeControls {
   interruptReceipt?: (options: { cancelQueued?: boolean } | undefined) => Promise<{ still_queued: string[]; cancelled?: string[] } | undefined>;
   /** Leaves `interrupt` taking no options, as an SDK without `cancelQueued` has it. */
   plainInterrupt?: boolean;
+  /** What `stopTask` answers once it has recorded the task; preset: at once. */
+  stopTask?: (taskId: string) => Promise<void>;
   /** What `cancelAsyncMessage` answers per uuid; absent means the method is absent. */
   cancelled?: (uuid: string) => boolean;
   accountInfo?: () => Promise<{ email?: string; organization?: string }>;
@@ -161,6 +163,7 @@ export class FakeQuery {
 
   async stopTask(taskId: string): Promise<void> {
     this.stoppedTasks.push(taskId);
+    await this.controls.stopTask?.(taskId);
   }
 
   async accountInfo(): Promise<{ email?: string; organization?: string }> {

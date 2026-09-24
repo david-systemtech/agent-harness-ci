@@ -976,8 +976,17 @@ export class ClaudeProcess implements TurnControl {
     parked.answer(decision);
   }
 
+  /**
+   * Stops one piece of delegated work, under the control timeout like every
+   * other control call. A stop that does not answer in time is refused to
+   * the caller and nothing else: the run and its other work go on, and the
+   * task, if it did stop, settles through the ledger as any task does.
+   */
   async stopTask(taskId: string): Promise<void> {
-    await this.#query?.stopTask(taskId);
+    if (this.closed) throw new Error("The Claude process is closing; its tasks stop with it.");
+    const query = this.#query;
+    if (query === undefined) throw new Error(`The Claude process has not started, so it has no task ${taskId} to stop.`);
+    await this.#within(query.stopTask(taskId), this.#deps.timings.controlTimeoutMs);
   }
 
   /** The host is done with an ended turn: the process is kept for the next run, until the pool stops it. */

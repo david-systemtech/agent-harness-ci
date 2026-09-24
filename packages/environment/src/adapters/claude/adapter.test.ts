@@ -32,7 +32,7 @@ vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
   },
 }));
 
-const { createClaudeAdapter, CLAUDE_DESCRIPTOR } = await import("./index.js");
+const { createClaudeAdapter, CLAUDE_DESCRIPTOR, DEFAULT_TIMINGS } = await import("./index.js");
 const { createConfigDirQueue } = await import("./config-dir-queue.js");
 
 const SESSION = "6f1d2a4e-8c3b-4f5a-9d7e-1a2b3c4d5e6f";
@@ -390,6 +390,41 @@ describe("canUseTool on the broker seam", () => {
     await new Promise((resolve) => setTimeout(resolve, 1));
     abort.abort();
     expect(await asked).toMatchObject({ behavior: "deny", message: "The provider aborted this tool call." });
+  });
+});
+
+describe("stopping delegated work", () => {
+  it("stops a task through the SDK, bounded by the control timeout: a stop that never answers is refused after it, and the run goes on", async () => {
+    fake.controls = { stopTask: () => new Promise<void>(() => undefined) };
+    const adapter = adapterWith();
+    const input = runInput();
+    const run = adapter.createRun(input, contextWith());
+    const query = await started();
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [input.prompt[0]?.messageId as string]), sdk.tasks({ task_id: "task_1" }));
+    await flush();
+    const stopping = Promise.resolve(run.stopTask?.("task_1")).then(
+      () => "stopped",
+      (error: unknown) => (error as Error).message,
+    );
+    await flush();
+    expect(query.stoppedTasks).toEqual(["task_1"]);
+    clock.advance(DEFAULT_TIMINGS.controlTimeoutMs);
+    expect(await stopping).toMatch(/No answer after/);
+    expect(query.closed).toBe(false);
+    query.emit(sdk.result(PROVIDER_SESSION));
+    expect(ends(await drain(run))).toEqual([expect.objectContaining({ reason: "completed" })]);
+  });
+
+  it("refuses to stop a task on a process that has been stopped", async () => {
+    const adapter = adapterWith();
+    const input = runInput();
+    const run = adapter.createRun(input, contextWith());
+    const query = await started();
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [input.prompt[0]?.messageId as string]), sdk.tasks({ task_id: "task_1" }));
+    await flush();
+    await adapter.stopProcess(SESSION);
+    await expect(Promise.resolve(run.stopTask?.("task_1"))).rejects.toThrow(/closing/);
+    expect(query.stoppedTasks).toEqual([]);
   });
 });
 
