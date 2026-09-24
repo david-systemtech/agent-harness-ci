@@ -151,6 +151,19 @@ describe("the transcript fold", () => {
     ];
     expect(foldTranscript(events).parkedPrompts).toEqual([{ promptId: "p-2", sequence: 2, openedAt: at(2), prompt: { promptId: "p-2", kind: "question" } }]);
   });
+  it("keeps a prompt parked when its run ends without an answer, by a parked stop or a restart (ADR 0007)", () => {
+    for (const cause of ["parked", "restart"]) {
+      sequence = 0;
+      const events = [
+        started(runId),
+        event("prompt.opened", { promptId: "p-1", runId, kind: "permission" }),
+        event("run.ended", { runId, reason: "interrupted", cause, error: null, usage: null, durationMs: 1, turnCount: null, resultText: null }),
+      ];
+      const folded = foldTranscript(events);
+      expect(folded.parkedPrompts, cause).toEqual([{ promptId: "p-1", sequence: 2, openedAt: at(2), prompt: { promptId: "p-1", runId, kind: "permission" } }]);
+      expect(folded.runs, cause).toEqual([expect.objectContaining({ runId, state: "ended", reason: "interrupted", cause })]);
+    }
+  });
 });
 
 describe("the read the fold takes", () => {

@@ -20,8 +20,8 @@ const permissionPresets = {
   "permissions.parkedPrompt.ttl": { amount: 24, unit: "hours" },
   "permissions.containment.default": "off",
 };
-const presets = { "sessions.autoSettleAfterIdle": { amount: 14, unit: "days" }, "sessions.autoSettleOnMerge": false, ...permissionPresets };
-const changed = { "sessions.autoSettleAfterIdle": null, "sessions.autoSettleOnMerge": true };
+const presets = { "sessions.autoSettleAfterIdle": { amount: 14, unit: "days" }, "sessions.autoSettleOnMerge": false, "providers.processIdleMinutes": 30, ...permissionPresets };
+const changed = { "sessions.autoSettleAfterIdle": null, "sessions.autoSettleOnMerge": true, "providers.processIdleMinutes": 5 };
 
 const idleSpans: Fixtures = {
   valid: [
@@ -34,15 +34,16 @@ const idleSpans: Fixtures = {
 
 const patches: Fixtures = {
   valid: [{}, presets, changed, { "sessions.autoSettleOnMerge": true }],
-  invalid: [{ "sessions.autoSettleOnMerge": null }, { "sessions.autoSettleAfterIdle": 14 }, { theme: "artemis" }, []],
+  invalid: [{ "sessions.autoSettleOnMerge": null }, { "sessions.autoSettleAfterIdle": 14 }, { "providers.processIdleMinutes": 0 }, { theme: "artemis" }, []],
 };
 
 export const settingsSchemaFixtures: Record<string, Fixtures> = {
-  "settings/settings-key.json": { valid: ["sessions.autoSettleAfterIdle", "sessions.autoSettleOnMerge", "permissions.defaultCeiling"], invalid: ["theme", ""] },
+  "settings/settings-key.json": { valid: ["sessions.autoSettleAfterIdle", "sessions.autoSettleOnMerge", "providers.processIdleMinutes", "permissions.defaultCeiling"], invalid: ["theme", ""] },
   "settings/idle-span-unit.json": { valid: ["days", "weeks", "months"], invalid: ["years", "Days"] },
   "settings/idle-span.json": idleSpans,
   "settings/keys/sessions.autoSettleAfterIdle.json": { valid: [null, ...idleSpans.valid], invalid: [false, ...idleSpans.invalid] },
   "settings/keys/sessions.autoSettleOnMerge.json": { valid: [true, false], invalid: [null, "true"] },
+  "settings/keys/providers.processIdleMinutes.json": { valid: [1, 30, 1440], invalid: [0, 1441, 1.5, "30"] },
   "settings/settings-values.json": {
     valid: [presets, { ...permissionPresets, ...changed }],
     invalid: [{}, { "sessions.autoSettleOnMerge": false }, { ...presets, theme: "artemis" }, changed],

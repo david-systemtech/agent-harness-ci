@@ -8,6 +8,7 @@
  */
 import { BYPASS_SENTENCE, FRAME_TYPES, SHARED_ERROR_CODES, methodPath, methods, type FrameType } from "../src/index.js";
 import { permissionMethodFixtures, permissionSchemaFixtures } from "./permission-fixtures.js";
+import { providerMethodFixtures, providerSchemaFixtures } from "./provider-fixtures.js";
 import { runMethodFixtures, runSchemaFixtures } from "./run-fixtures.js";
 import { sessionMethodFixtures, sessionSchemaFixtures } from "./session-fixtures.js";
 import { settingsMethodFixtures, settingsSchemaFixtures } from "./settings-fixtures.js";
@@ -456,6 +457,7 @@ const methodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
   },
   ...sessionMethodFixtures,
   ...runMethodFixtures,
+  ...providerMethodFixtures,
   ...settingsMethodFixtures,
   ...permissionMethodFixtures,
 };
@@ -706,6 +708,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
   },
   ...sessionSchemaFixtures,
   ...runSchemaFixtures,
+  ...providerSchemaFixtures,
   ...settingsSchemaFixtures,
   ...permissionSchemaFixtures,
   ...methodSchemaFixtures,

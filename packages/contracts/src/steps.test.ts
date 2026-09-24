@@ -51,7 +51,7 @@ const stepRegistryProblems = (settings: LooseSettings, steps: readonly LooseStep
 
 const settings = SETTINGS as LooseSettings;
 const steps = STEP_REGISTRY as readonly LooseStep[];
-const [appearance] = steps as [LooseStep];
+const [appearance, account] = steps as [LooseStep, LooseStep];
 /** The auto-settle keys alone: the table the Appearance step's broken-on-purpose registries are checked against. */
 const sessionSettings = Object.fromEntries(AUTO_SETTLE_KEYS.map((key) => [key, SETTINGS[key]])) as LooseSettings;
 
@@ -61,7 +61,7 @@ describe("the step registry", () => {
   });
 
   it("puts both auto-settle keys under the Appearance entry's Sessions band", () => {
-    expect(STEP_REGISTRY.map((step) => step.id)).toEqual(["appearance", "permissions"]);
+    expect(STEP_REGISTRY.map((step) => step.id)).toEqual(["appearance", "account", "permissions"]);
     expect(appearance.writes).toEqual(["sessions.autoSettleAfterIdle", "sessions.autoSettleOnMerge"]);
     expect(appearance.links).toEqual([{ pane: "appearance", band: "sessions" }]);
     for (const key of AUTO_SETTLE_KEYS) expect(SETTINGS[key].step, key).toEqual({ id: "appearance", band: "sessions" });
@@ -72,6 +72,16 @@ describe("the step registry", () => {
     expect(permissions?.writes).toEqual([...PERMISSION_SETTINGS_KEYS]);
     expect(permissions?.links).toEqual([{ pane: "permissions", band: "access" }]);
     for (const key of PERMISSION_SETTINGS_KEYS) expect(SETTINGS[key].step, key).toEqual({ id: "permissions", band: "access" });
+  });
+
+  it("puts providers.processIdleMinutes under the Account entry's Default model band, checked done on any valid value", () => {
+    expect(account.writes).toEqual(["providers.processIdleMinutes"]);
+    expect(account.links).toEqual([{ pane: "accounts", band: "default-model" }]);
+    expect(SETTINGS["providers.processIdleMinutes"].step).toEqual({ id: "account", band: "default-model" });
+    const check = (account.checks[0] as LooseStep["checks"][number]).check;
+    expect(check(presetSettings()["providers.processIdleMinutes"])).toBe(true);
+    expect(check(1440)).toBe(true);
+    expect(check(0)).toMatch(/providers\.processIdleMinutes/);
   });
 
   it("fails when a settings key names no entry, or no entry writes it", () => {
