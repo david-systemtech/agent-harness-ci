@@ -85,7 +85,8 @@ export const validFrames: Record<FrameType, readonly object[]> = {
     { type: "end", subscription: "sub-1", reason: "overflow" },
   ],
   unsubscribe: [{ type: "unsubscribe", subscription: "sub-1" }],
-  ping: [{ type: "ping" }],
+  // A field the reader does not know is tolerated by the codec and by the export alike (frames.ts).
+  ping: [{ type: "ping" }, { type: "ping", sentAt: at }],
   pong: [{ type: "pong" }],
   bye: [
     { type: "bye", reason: "draining" },
@@ -117,6 +118,7 @@ export const malformedFrames: Record<FrameType, readonly string[]> = {
     json({ ...validFrames.hello[0], environmentId: "not-a-uuid" }),
     json({ ...validFrames.hello[0], scopes: ["read", "write"] }),
     json({ ...validFrames.hello[0], scopes: ["read", "read"] }),
+    json({ ...validFrames.hello[0], scopes: [] }),
     json({ ...validFrames.hello[0], capabilities: "terminal" }),
     json({ ...validFrames.hello[0], serverTime: "yesterday" }),
   ],
