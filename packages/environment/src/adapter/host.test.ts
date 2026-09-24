@@ -1022,16 +1022,50 @@ describe("a run's prompts", () => {
     expect(t.host.processes.list()[0]?.state).toBe("busy");
   });
 
+  it("refuses an answer prompt_not_open for a prompt its live run has not raised, and run_ended once the run has ended, whatever the adapter would say", async () => {
+    const requests: PromptRequest[] = [];
+    const broker: PermissionBroker = { request: (request) => (requests.push(request), new Promise(() => undefined)) };
+    const held = gate();
+    const t = await setup(
+      fakeAdapter({
+        script: async function* ({ context, input }) {
+          yield say("Asking");
+          void context.broker.request({ sessionId: input.sessionId, runId: input.runId, promptId: "p-1", kind: "permission", detail: {} });
+          await held.opened;
+          yield end();
+        },
+      }),
+      { broker },
+    );
+    const runId = startRun(t);
+    await vi.waitFor(() => expect(requests).toHaveLength(1));
+    expect(() => t.host.answerPrompt(runId, "p-unknown", { decision: "allow" })).toThrow(expect.objectContaining({ code: "conflict", data: expect.objectContaining({ reason: "prompt_not_open" }) }));
+    expect([...t.host.runs.runs()].find((run) => run.id === runId)?.state).toBe("parked");
+    held.open();
+    await untilEnded(t, runId);
+    expect(() => t.host.answerPrompt(runId, "p-1", { decision: "allow" })).toThrow(expect.objectContaining({ code: "conflict", data: expect.objectContaining({ reason: "run_ended" }) }));
+  });
+
   it("refuses an answer conflict when an adapter that answers asynchronously says the prompt is closed", async () => {
     const held = gate();
-    const adapter = fakeAdapter({ script: async function* () { yield say("Working"); await held.opened; yield end(); } });
+    const adapter = fakeAdapter({
+      script: async function* ({ context, input }) {
+        yield say("Working");
+        void context.broker.request({ sessionId: input.sessionId, runId: input.runId, promptId: "p-1", kind: "permission", detail: {} });
+        await held.opened;
+        yield end();
+      },
+    });
     const create = adapter.createRun;
-    const t = await setup({
-      ...adapter,
-      createRun: (input, context) => ({ ...create(input, context), answerPrompt: () => Promise.reject(new PromptClosed("The run has ended.", "run_ended")) }),
-    } as FakeAdapter);
+    const t = await setup(
+      {
+        ...adapter,
+        createRun: (input, context) => ({ ...create(input, context), answerPrompt: () => Promise.reject(new PromptClosed("The run has ended.", "run_ended")) }),
+      } as FakeAdapter,
+      { broker: { request: () => new Promise(() => undefined) } },
+    );
     const runId = startRun(t);
-    await vi.waitFor(() => expect(eventsOf(t).map((event) => event.type)).toContain("assistant.text"));
+    await vi.waitFor(() => expect([...t.host.runs.runs()].find((run) => run.id === runId)?.state).toBe("parked"));
     await expect(t.host.answerPrompt(runId, "p-1", { decision: "allow" })).rejects.toMatchObject({ code: "conflict", data: { reason: "run_ended", runId, promptId: "p-1" } });
     held.open();
   });

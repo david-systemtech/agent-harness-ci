@@ -204,7 +204,8 @@ export interface AdapterHost {
    * way every answer a client gives reaches a run (#130). Refused `conflict`
    * with reason `run_ended` when the run is no longer live (a prompt kept
    * open across its end is #130's to deliver another way), and
-   * `prompt_not_open` when the adapter holds no such prompt open: thrown
+   * `prompt_not_open` when the live run has not raised it or it is answered
+   * already (the host's own record), or the adapter holds it no longer: thrown
    * when the adapter answers at once, and the returned promise rejected
    * when it answers asynchronously, so the caller awaits what it returns.
    */
@@ -1243,6 +1244,9 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
         new ContractError({ code: "conflict", message, data: { reason, runId, promptId } });
       if (entry === undefined || run === undefined) throw closed("run_ended", `Run ${runId} has ended, so prompt ${promptId} can no longer be answered through it.`);
       const answer = capability(entry.descriptor, "interactivePrompts", run.answerPrompt, "answer a prompt", "answerPrompt");
+      // The host's own record first, whatever the adapter would say: a prompt this live run has not raised, or that is
+      // answered already, is not open.
+      if (!entry.prompts.has(promptId)) throw closed("prompt_not_open", `Run ${runId} has no prompt ${promptId} open.`);
       // Answered either way: a prompt the adapter no longer holds open parks nothing.
       answered(entry, promptId);
       const refusal = (error: unknown): unknown =>
