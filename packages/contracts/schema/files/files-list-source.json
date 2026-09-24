@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FilesListSource",
+  "type": "string",
+  "enum": [
+    "git",
+    "walk"
+  ],
+  "description": "Where the listing came from: git (tracked and untracked, non-ignored files) or walk (the bounded walk with its skip list)."
+}

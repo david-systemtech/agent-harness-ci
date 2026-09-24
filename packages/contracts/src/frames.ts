@@ -28,7 +28,7 @@ export const WIRE_PATH = "/ws";
 export const END_REASONS = ["unsubscribed", "overflow", "revoked", "closed", "deleted"] as const;
 export const EndReason = z.enum(END_REASONS).meta({
   description:
-    "Why a subscription ended: the client unsubscribed; it fell too far behind (resubscribe from its cursor); its client session was revoked; the connection closed; or what it follows was deleted (a session's subscription, after delivering session.deleted).",
+    "Why a subscription ended: the client unsubscribed; it fell too far behind (resubscribe from its cursor); its client session was revoked; the connection closed, or the terminal it follows did (after delivering terminal.exited); or what it follows was deleted (a session's subscription after delivering session.deleted, a terminal's after its session's deletion ended it).",
 });
 export type EndReason = z.infer<typeof EndReason>;
 
@@ -126,7 +126,10 @@ export const EventFrame = z
   .object({
     type: z.literal("event"),
     subscription: SubscriptionId,
-    sequence: Sequence.min(1).meta({ description: "The event's global sequence; always equal to event.sequence." }),
+    sequence: Sequence.min(1).meta({
+      description:
+        "The event's sequence in its subscription: the log's global sequence, or for terminals.subscribe the terminal's own output sequence; always equal to event.sequence.",
+    }),
     event: EventEnvelope,
   })
   .refine((frame) => frame.sequence === frame.event.sequence, {

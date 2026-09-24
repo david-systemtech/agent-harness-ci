@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TerminalExitedPayload",
+  "type": "object",
+  "properties": {
+    "exitCode": {
+      "type": "integer",
+      "minimum": -9007199254740991,
+      "maximum": 9007199254740991,
+      "description": "The shell's exit code."
+    },
+    "signal": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The signal that ended it, when one did."
+    },
+    "cause": {
+      "type": "string",
+      "enum": [
+        "exited",
+        "closed",
+        "deleted"
+      ],
+      "description": "Why a terminal ended: its process exited on its own, terminals.close closed it, or its session was deleted."
+    }
+  },
+  "required": [
+    "exitCode",
+    "signal",
+    "cause"
+  ],
+  "description": "terminal.exited: the terminal ended, and why. The subscription ends after it: deleted when its session was deleted, closed otherwise."
+}

@@ -1,7 +1,15 @@
 import { encodeFrame, type EndReason, type Frame } from "@agent-harness/contracts";
 import type { WebSocket } from "ws";
 import type { z } from "zod";
-import { REPLAY_BOUND, selection, type EventEnvelope, type EventLog, type Selection, type StreamSelector } from "../event-log/event-log.js";
+import {
+  REPLAY_BOUND,
+  selection,
+  type EventEnvelope,
+  type EventLog,
+  type Selection,
+  type StreamRef,
+  type StreamSelector,
+} from "../event-log/event-log.js";
 import { toWireEnvelope } from "./envelope.js";
 
 /**
@@ -14,19 +22,30 @@ import { toWireEnvelope } from "./envelope.js";
  * snapshot of the source's read model is. Then `synchronized`, once, and the
  * live events, each sent once: whatever the live feed heard at or below what
  * catch-up already sent is dropped, by sequence.
+ *
+ * A source is the log's, as every subscription but a terminal's is, or a
+ * feed of its own (`FeedSource`): a terminal's output never enters the log
+ * (tui spec), so its subscription replays from the terminal's scrollback and
+ * hears the terminal live, with the same frames, the same catch-up order and
+ * the same overflow rule, over the terminal's own sequence.
  */
-
-/** Why a source ends its own subscription: what it follows is gone. */
-export type SourceEndReason = Extract<EndReason, "deleted">;
 
 /**
- * What a stream method's handler answers: which events the subscription
- * carries, the read model sent as its snapshot when replay from the cursor
- * would pass the bound, and, when the stream can end, the event that ends
- * it. The payload's shape is the method's `result` schema, and is checked
- * against it.
+ * Why a source ends its own subscription: what it follows is gone
+ * (`deleted`), or has closed (`closed`: a terminal whose shell exited or was
+ * closed).
  */
-export interface StreamSource<Payload = unknown> {
+export type SourceEndReason = Extract<EndReason, "deleted" | "closed">;
+
+/**
+ * What a stream method's handler answers when the log is what the
+ * subscription follows: which events it carries, the read model sent as its
+ * snapshot when replay from the cursor would pass the bound, and, when the
+ * stream can end, the event that ends it. The payload's shape is the
+ * method's `result` schema, and is checked against it.
+ */
+export interface LogSource<Payload = unknown> {
+  readonly feed?: undefined;
   /**
    * The events the subscription carries: one stream (`{ kind, id }`), or
    * every stream of some kinds, of the types named when it names them
@@ -48,6 +67,46 @@ export interface StreamSource<Payload = unknown> {
    */
   endOn?(event: EventEnvelope): SourceEndReason | undefined;
 }
+
+/**
+ * What a feed's catch-up answers for a client at a cursor: the snapshot to
+ * send first, when the feed cannot replay from the cursor, then the events
+ * to send after it (a replay, or the event that ends the feed), and the
+ * feed's head, which `synchronized` names when nothing ends it.
+ */
+export interface FeedCatchUp<Payload = unknown> {
+  readonly snapshot?: { readonly sequence: number; readonly payload: Payload };
+  readonly events: readonly EventEnvelope[];
+  readonly sequence: number;
+}
+
+/**
+ * A feed outside the log. Both calls are synchronous and are made in one
+ * turn, the listener first, so nothing the feed publishes between them is
+ * lost; what the listener hears at or below what catch-up sent is dropped by
+ * sequence. Its events are envelopes as the log's are, over the feed's own
+ * sequence and stream.
+ */
+export interface Feed<Payload = unknown> {
+  /** Hears every event the feed publishes from now on; returns the detach. */
+  subscribe(listener: (event: EventEnvelope) => void): () => void;
+  catchUp(afterSequence: number): FeedCatchUp<Payload>;
+}
+
+/**
+ * What a stream method's handler answers when the subscription follows a
+ * feed of its own: the one stream its events name, the feed, and the event
+ * that ends it. The snapshot's payload is checked against the method's
+ * `result` schema, as a log source's is.
+ */
+export interface FeedSource<Payload = unknown> {
+  readonly stream: StreamRef;
+  readonly feed: Feed<Payload>;
+  endOn?(event: EventEnvelope): SourceEndReason | undefined;
+}
+
+/** What a stream method's handler answers: a source over the log, or a feed of its own. */
+export type StreamSource<Payload = unknown> = LogSource<Payload> | FeedSource<Payload>;
 
 /**
  * Where a socket's subscription frames go: sent as text, with `flushed`
@@ -237,6 +296,53 @@ const hear = (subscription: Subscription, event: EventEnvelope): void => {
   subscription.heardMeasure = heard;
 };
 
+/** What catch-up read for the client: its frames, the sequence it synchronizes to, and the reason it ends there, if it does. */
+interface CaughtUp {
+  readonly frames: readonly string[];
+  readonly synchronizedAt: number;
+  readonly ended: SourceEndReason | undefined;
+}
+
+/** The snapshot frame for `payload`, checked against the method's schema: a throw here comes before `subscribed`, for dispatch to answer. */
+const snapshotFrame = (subscription: Subscription, opening: Opening, sequence: number, payload: unknown): string =>
+  encodeFrame({ type: "snapshot", subscription: subscription.id, sequence, payload: opening.payloadSchema.parse(payload) as Record<string, unknown> });
+
+/** Adds each event's frame to `frames` up to and including one the source ends on; answers where that leaves the client. */
+const replay = (subscription: Subscription, events: Iterable<EventEnvelope>, frames: string[], from: number): Omit<CaughtUp, "frames"> => {
+  let synchronizedAt = from;
+  for (const event of events) {
+    frames.push(eventFrame(subscription, event));
+    synchronizedAt = Math.max(synchronizedAt, event.sequence);
+    const ended = subscription.endOn?.(event);
+    if (ended !== undefined) return { synchronizedAt, ended };
+  }
+  return { synchronizedAt, ended: undefined };
+};
+
+/** Catch-up from the log: the events after the cursor within the replay bound, else the source's snapshot at the head. */
+const catchUpFromLog = (subscription: Subscription, opening: Opening, source: LogSource): CaughtUp => {
+  const { log } = subscription.channel.shared;
+  const head = log.head();
+  const frames: string[] = [];
+  // A cursor past the head is not this log's (its data directory was replaced): the snapshot resets the client.
+  const replayable = opening.afterSequence <= head && log.replayBound(subscription.stream, opening.afterSequence).withinBound;
+  if (replayable) return { frames, ...replay(subscription, log.readStream(subscription.stream, opening.afterSequence), frames, head) };
+  frames.push(snapshotFrame(subscription, opening, head, source.snapshot()));
+  return { frames, synchronizedAt: head, ended: undefined };
+};
+
+/** Catch-up from a feed: its snapshot when it sends one, then its events. */
+const catchUpFromFeed = (subscription: Subscription, opening: Opening, feed: Feed): CaughtUp => {
+  const answer = feed.catchUp(opening.afterSequence);
+  const frames: string[] = [];
+  let from = answer.sequence;
+  if (answer.snapshot !== undefined) {
+    frames.push(snapshotFrame(subscription, opening, answer.snapshot.sequence, answer.snapshot.payload));
+    from = Math.max(from, answer.snapshot.sequence);
+  }
+  return { frames, ...replay(subscription, answer.events, frames, from) };
+};
+
 /**
  * Reads what the client missed and sends it, with `subscribed` first and
  * `synchronized` last, then goes live with what the feed heard meanwhile.
@@ -247,25 +353,9 @@ const hear = (subscription: Subscription, event: EventEnvelope): void => {
  * subscription instead of synchronizing it.
  */
 const catchUp = (subscription: Subscription, opening: Opening): void => {
-  const { log } = subscription.channel.shared;
-  const head = log.head();
-  const frames: string[] = [];
-  let synchronizedAt = head;
-  let ended: SourceEndReason | undefined;
-  // A cursor past the head is not this log's (its data directory was replaced): the snapshot resets the client.
-  const replayable = opening.afterSequence <= head && log.replayBound(subscription.stream, opening.afterSequence).withinBound;
-  if (replayable) {
-    for (const event of log.readStream(subscription.stream, opening.afterSequence)) {
-      frames.push(eventFrame(subscription, event));
-      synchronizedAt = Math.max(synchronizedAt, event.sequence);
-      ended = subscription.endOn?.(event);
-      if (ended !== undefined) break;
-    }
-  } else {
-    // A read model that fails, or does not match its schema, throws here: before `subscribed`, for dispatch to answer.
-    const payload = opening.payloadSchema.parse(opening.source.snapshot()) as Record<string, unknown>;
-    frames.push(encodeFrame({ type: "snapshot", subscription: subscription.id, sequence: head, payload }));
-  }
+  const { source } = opening;
+  const { frames, synchronizedAt, ended } =
+    source.feed === undefined ? catchUpFromLog(subscription, opening, source) : catchUpFromFeed(subscription, opening, source.feed);
 
   const { channel } = subscription;
   announce(subscription);
@@ -303,7 +393,9 @@ const openSubscription = async (channel: Channel, opening: Opening): Promise<voi
   channel.subscriptions.set(subscription.id, subscription);
   shared.open.add(subscription);
   // The live feed first: nothing appended from here on is missed, whenever catch-up reads.
-  subscription.detach = shared.log.subscribe((event) => hear(subscription, event));
+  const listener = (event: EventEnvelope): void => hear(subscription, event);
+  const { source } = opening;
+  subscription.detach = source.feed === undefined ? shared.log.subscribe(listener) : source.feed.subscribe(listener);
   try {
     await shared.hooks.beforeCatchUp?.({ id: subscription.id, stream: subscription.stream });
     // Ended while held (the socket closed, or the feed overflowed): nothing more to send.

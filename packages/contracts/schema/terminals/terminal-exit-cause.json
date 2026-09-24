@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TerminalExitCause",
+  "type": "string",
+  "enum": [
+    "exited",
+    "closed",
+    "deleted"
+  ],
+  "description": "Why a terminal ended: its process exited on its own, terminals.close closed it, or its session was deleted."
+}

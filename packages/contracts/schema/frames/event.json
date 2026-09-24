@@ -16,7 +16,7 @@
       "type": "integer",
       "minimum": 1,
       "maximum": 9007199254740991,
-      "description": "The event's global sequence; always equal to event.sequence."
+      "description": "The event's sequence in its subscription: the log's global sequence, or for terminals.subscribe the terminal's own output sequence; always equal to event.sequence."
     },
     "event": {
       "type": "object",
@@ -25,7 +25,7 @@
           "type": "integer",
           "minimum": 1,
           "maximum": 9007199254740991,
-          "description": "The event's place in the log's global sequence, from 1."
+          "description": "The event's place in the log's global sequence, from 1; for a terminal's output, never logged, its place in the terminal's own."
         },
         "eventId": {
           "type": "string",
@@ -35,7 +35,7 @@
         "streamKind": {
           "type": "string",
           "minLength": 1,
-          "description": "The kind of stream the event belongs to: environment, access, session."
+          "description": "The kind of stream the event belongs to: environment, access, session; terminal for a terminal's output, which terminals.subscribe carries and the log never holds."
         },
         "streamId": {
           "type": "string",

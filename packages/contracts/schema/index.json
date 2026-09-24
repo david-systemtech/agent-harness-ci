@@ -603,6 +603,58 @@
       "title": "SessionSnapshot"
     },
     {
+      "path": "terminals/terminal-id.json",
+      "title": "TerminalId"
+    },
+    {
+      "path": "terminals/terminal-columns.json",
+      "title": "TerminalColumns"
+    },
+    {
+      "path": "terminals/terminal-rows.json",
+      "title": "TerminalRows"
+    },
+    {
+      "path": "terminals/terminal-environment.json",
+      "title": "TerminalEnvironment"
+    },
+    {
+      "path": "terminals/terminal-exit-cause.json",
+      "title": "TerminalExitCause"
+    },
+    {
+      "path": "terminals/terminal-info.json",
+      "title": "TerminalInfo"
+    },
+    {
+      "path": "terminals/terminal-snapshot.json",
+      "title": "TerminalSnapshot"
+    },
+    {
+      "path": "terminals/events/terminal.output.json",
+      "title": "TerminalOutputPayload"
+    },
+    {
+      "path": "terminals/events/terminal.exited.json",
+      "title": "TerminalExitedPayload"
+    },
+    {
+      "path": "files/workspace-path.json",
+      "title": "WorkspacePath"
+    },
+    {
+      "path": "files/files-list-source.json",
+      "title": "FilesListSource"
+    },
+    {
+      "path": "diffs/session-diff-change.json",
+      "title": "SessionDiffChange"
+    },
+    {
+      "path": "diffs/session-diff-file.json",
+      "title": "SessionDiffFile"
+    },
+    {
       "path": "actor.json",
       "title": "Actor"
     },
@@ -1377,6 +1429,142 @@
     {
       "path": "methods/runs.stopTask/error.json",
       "title": "runs.stopTask error"
+    },
+    {
+      "path": "methods/terminals.open/params.json",
+      "title": "terminals.open params"
+    },
+    {
+      "path": "methods/terminals.open/result.json",
+      "title": "terminals.open result"
+    },
+    {
+      "path": "methods/terminals.open/response.json",
+      "title": "terminals.open response"
+    },
+    {
+      "path": "methods/terminals.open/error.json",
+      "title": "terminals.open error"
+    },
+    {
+      "path": "methods/terminals.write/params.json",
+      "title": "terminals.write params"
+    },
+    {
+      "path": "methods/terminals.write/result.json",
+      "title": "terminals.write result"
+    },
+    {
+      "path": "methods/terminals.write/response.json",
+      "title": "terminals.write response"
+    },
+    {
+      "path": "methods/terminals.write/error.json",
+      "title": "terminals.write error"
+    },
+    {
+      "path": "methods/terminals.resize/params.json",
+      "title": "terminals.resize params"
+    },
+    {
+      "path": "methods/terminals.resize/result.json",
+      "title": "terminals.resize result"
+    },
+    {
+      "path": "methods/terminals.resize/response.json",
+      "title": "terminals.resize response"
+    },
+    {
+      "path": "methods/terminals.resize/error.json",
+      "title": "terminals.resize error"
+    },
+    {
+      "path": "methods/terminals.close/params.json",
+      "title": "terminals.close params"
+    },
+    {
+      "path": "methods/terminals.close/result.json",
+      "title": "terminals.close result"
+    },
+    {
+      "path": "methods/terminals.close/response.json",
+      "title": "terminals.close response"
+    },
+    {
+      "path": "methods/terminals.close/error.json",
+      "title": "terminals.close error"
+    },
+    {
+      "path": "methods/terminals.list/params.json",
+      "title": "terminals.list params"
+    },
+    {
+      "path": "methods/terminals.list/result.json",
+      "title": "terminals.list result"
+    },
+    {
+      "path": "methods/terminals.list/error.json",
+      "title": "terminals.list error"
+    },
+    {
+      "path": "methods/terminals.subscribe/params.json",
+      "title": "terminals.subscribe params"
+    },
+    {
+      "path": "methods/terminals.subscribe/result.json",
+      "title": "terminals.subscribe result"
+    },
+    {
+      "path": "methods/terminals.subscribe/error.json",
+      "title": "terminals.subscribe error"
+    },
+    {
+      "path": "methods/files.list/params.json",
+      "title": "files.list params"
+    },
+    {
+      "path": "methods/files.list/result.json",
+      "title": "files.list result"
+    },
+    {
+      "path": "methods/files.list/error.json",
+      "title": "files.list error"
+    },
+    {
+      "path": "methods/files.read/params.json",
+      "title": "files.read params"
+    },
+    {
+      "path": "methods/files.read/result.json",
+      "title": "files.read result"
+    },
+    {
+      "path": "methods/files.read/error.json",
+      "title": "files.read error"
+    },
+    {
+      "path": "methods/diffs.workingTree/params.json",
+      "title": "diffs.workingTree params"
+    },
+    {
+      "path": "methods/diffs.workingTree/result.json",
+      "title": "diffs.workingTree result"
+    },
+    {
+      "path": "methods/diffs.workingTree/error.json",
+      "title": "diffs.workingTree error"
+    },
+    {
+      "path": "methods/diffs.session/params.json",
+      "title": "diffs.session params"
+    },
+    {
+      "path": "methods/diffs.session/result.json",
+      "title": "diffs.session result"
+    },
+    {
+      "path": "methods/diffs.session/error.json",
+      "title": "diffs.session error"
     }
   ],
   "methods": [
@@ -1789,6 +1977,100 @@
       "result": "methods/runs.stopTask/result.json",
       "response": "methods/runs.stopTask/response.json",
       "error": "methods/runs.stopTask/error.json"
+    },
+    {
+      "name": "terminals.open",
+      "scope": "terminal",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/terminals.open/params.json",
+      "result": "methods/terminals.open/result.json",
+      "response": "methods/terminals.open/response.json",
+      "error": "methods/terminals.open/error.json"
+    },
+    {
+      "name": "terminals.write",
+      "scope": "terminal",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/terminals.write/params.json",
+      "result": "methods/terminals.write/result.json",
+      "response": "methods/terminals.write/response.json",
+      "error": "methods/terminals.write/error.json"
+    },
+    {
+      "name": "terminals.resize",
+      "scope": "terminal",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/terminals.resize/params.json",
+      "result": "methods/terminals.resize/result.json",
+      "response": "methods/terminals.resize/response.json",
+      "error": "methods/terminals.resize/error.json"
+    },
+    {
+      "name": "terminals.close",
+      "scope": "terminal",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/terminals.close/params.json",
+      "result": "methods/terminals.close/result.json",
+      "response": "methods/terminals.close/response.json",
+      "error": "methods/terminals.close/error.json"
+    },
+    {
+      "name": "terminals.list",
+      "scope": "terminal",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/terminals.list/params.json",
+      "result": "methods/terminals.list/result.json",
+      "error": "methods/terminals.list/error.json"
+    },
+    {
+      "name": "terminals.subscribe",
+      "scope": "terminal",
+      "kind": "stream",
+      "stream": true,
+      "params": "methods/terminals.subscribe/params.json",
+      "result": "methods/terminals.subscribe/result.json",
+      "error": "methods/terminals.subscribe/error.json"
+    },
+    {
+      "name": "files.list",
+      "scope": "terminal",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/files.list/params.json",
+      "result": "methods/files.list/result.json",
+      "error": "methods/files.list/error.json"
+    },
+    {
+      "name": "files.read",
+      "scope": "terminal",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/files.read/params.json",
+      "result": "methods/files.read/result.json",
+      "error": "methods/files.read/error.json"
+    },
+    {
+      "name": "diffs.workingTree",
+      "scope": "terminal",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/diffs.workingTree/params.json",
+      "result": "methods/diffs.workingTree/result.json",
+      "error": "methods/diffs.workingTree/error.json"
+    },
+    {
+      "name": "diffs.session",
+      "scope": "terminal",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/diffs.session/params.json",
+      "result": "methods/diffs.session/result.json",
+      "error": "methods/diffs.session/error.json"
     }
   ]
 }

@@ -42,6 +42,9 @@ import { createDeletion } from "../sessions/deletion.js";
 import { groupMethods } from "../sessions/group-methods.js";
 import { sessionMethods } from "../sessions/methods.js";
 import { sessionListProjector } from "../sessions/session-list.js";
+import { createTerminalService } from "../terminals/service.js";
+import type { TerminalsOptions } from "../terminals/terminals.js";
+import { workspaceMethods } from "../workspace/methods.js";
 import type { SubscriptionHooks } from "../wire/subscriptions.js";
 import { createWire } from "../wire/wire.js";
 import { systemClock, type Clock } from "./clock.js";
@@ -161,6 +164,8 @@ export interface EnvironmentOptions {
     readonly broker?: PermissionBroker;
     readonly clampMode?: ModeClamp;
   };
+  /** How terminals start: the pty, the shell, the base environment. Preset: `node-pty`, the user's login shell, the clean base (`terminals/`). */
+  readonly terminals?: Omit<TerminalsOptions, "now">;
 }
 
 /** A running environment. */
@@ -358,6 +363,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     onDraining: () => void (readiness = "draining"),
     close: () => close(),
   });
+  // The terminals (#124): their output never enters the log; closed before the log is, and on a session's deletion.
+  const terminalService = createTerminalService({ log, now, ...options.terminals });
+  closers.push(() => terminalService.close());
   const table = createMethodTable({
     ...lifecycle.handlers,
     "environment.subscribe": () => lifecycle.source,
@@ -370,6 +378,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ...sessionMethods({ log, clock: now, deletion, validateRunParameters: host.validateSessionInput }),
     ...groupMethods({ log, clock: now }),
     ...runMethods({ log, host }),
+    ...terminalService.handlers,
+    ...workspaceMethods({ log }),
   });
 
   // The two exchanges and the wire are routed before the bind; all three refuse work until the gate below.

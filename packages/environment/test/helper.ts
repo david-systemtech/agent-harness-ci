@@ -72,6 +72,8 @@ export interface TestEnvironmentOptions {
   readonly containerDetector?: ContainerDetector;
   /** Preset: a test launcher that says no launcher is present. */
   readonly launcher?: TestLauncher;
+  /** How terminals start; preset the environment's own (`node-pty`, the login shell, the clean base). */
+  readonly terminals?: EnvironmentOptions["terminals"];
 }
 
 /** A machine with no Tailscale address and no tailnet name. */
@@ -213,6 +215,7 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
     ...(options.bindLan !== undefined && { bindLan: options.bindLan }),
     ...(options.lanAddress !== undefined && { lanAddress: options.lanAddress }),
     ...(options.tailnetName !== undefined && { tailnetName: options.tailnetName }),
+    ...(options.terminals !== undefined && { terminals: options.terminals }),
   };
   let env: EnvironmentHandle;
   try {
