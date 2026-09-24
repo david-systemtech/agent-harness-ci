@@ -66,7 +66,16 @@ const ESU = "\u001B[?2026l";
 describe("the Ink options", () => {
   it("are the alternate screen, no exit on Ctrl+C, incremental rendering, and Ink's own throttle out of the way", () => {
     const streams = { stdin: process.stdin, stdout: process.stdout, stderr: process.stderr };
-    expect(inkOptions(streams)).toEqual({ ...streams, alternateScreen: true, exitOnCtrlC: false, incrementalRendering: true, maxFps: INK_MAX_FPS });
+    expect(inkOptions(streams)).toEqual({
+      ...streams,
+      // Ink 7.1.1 turns itself non-interactive when `CI` is set (is-in-ci): no alternate screen, no incremental
+      // rendering, no synchronized output. The terminal UI runs only on a terminal, so it says it is interactive.
+      interactive: true,
+      alternateScreen: true,
+      exitOnCtrlC: false,
+      incrementalRendering: true,
+      maxFps: INK_MAX_FPS,
+    });
     expect(Math.ceil(1000 / INK_MAX_FPS)).toBeLessThan(FRAME_MS);
   });
 
@@ -88,7 +97,9 @@ describe("the Ink options", () => {
     };
     const code = await runTui({ dataDir: stateDir, stateDir, version: "0.0.0-test", services, stdin: keyboard, stdout: terminal, stderr: terminal, render });
     expect(code).toBe(0);
-    expect(seen).toEqual([expect.objectContaining({ alternateScreen: true, exitOnCtrlC: false, incrementalRendering: true, maxFps: INK_MAX_FPS })]);
+    expect(seen).toEqual([
+      expect.objectContaining({ interactive: true, alternateScreen: true, exitOnCtrlC: false, incrementalRendering: true, maxFps: INK_MAX_FPS }),
+    ]);
   });
 
   it("refuses to run without a terminal", async () => {

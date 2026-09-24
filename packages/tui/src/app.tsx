@@ -19,7 +19,11 @@ import { currentEnvironment, findEnvironment, localEnvironment, localIsDown, not
  * `incrementalRendering` on, and no synchronized-output escape of its own
  * (Ink 7.1.1 wraps each frame in one on a terminal). What the runtime
  * changes is drawn through the frame scheduler, one frame per 16 ms;
- * keyboard input bypasses it.
+ * keyboard input bypasses it. `interactive` is said outright: Ink 7.1.1
+ * guesses it from `stdout.isTTY` and the `CI` variable, and a shell with
+ * `CI` set would otherwise get no alternate screen, no incremental
+ * rendering and no synchronized output; `runTui` has already refused
+ * anything that is not a terminal.
  */
 
 /** Ink's own throttle, set out of the way (one millisecond) so the frame scheduler's 16 ms, which keys bypass, is the one that counts. */
@@ -28,6 +32,7 @@ export const INK_MAX_FPS = 1000;
 /** How the terminal UI asks Ink to render. */
 export const inkOptions = (streams: Pick<RenderOptions, "stdin" | "stdout" | "stderr">): RenderOptions => ({
   ...streams,
+  interactive: true,
   alternateScreen: true,
   exitOnCtrlC: false,
   incrementalRendering: true,
