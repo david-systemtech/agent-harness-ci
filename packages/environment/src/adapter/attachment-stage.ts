@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { chmodSync, closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, rmSync, writeSync } from "node:fs";
+import { chmodSync, closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { AttachmentRecord } from "@agent-harness/contracts";
 import type { AttachmentData } from "./contract.js";
@@ -15,8 +15,13 @@ import type { AttachmentData } from "./contract.js";
  *
  * A write is whole or nothing: the files go to a partial directory, each
  * synced, which is then renamed into place and the rename synced, so a
- * message's directory is there only once every byte is on disk. A write a
- * crash cut short leaves a partial directory, which `dropPartial` removes.
+ * message's directory is there only once every byte is on disk. A message's
+ * attachments never change, so staging one again whose bytes are already
+ * whole leaves them as they are; one whose bytes are not is replaced with the
+ * old directory set aside, not removed, until the new one is in, so a crash
+ * at any step leaves one of them whole. A write a crash cut short leaves a
+ * partial directory, which `dropPartial` removes, and perhaps a set-aside
+ * copy, which it puts back when nothing replaced it and removes otherwise.
  */
 
 /** The stage's directory under the data directory. */
@@ -28,6 +33,9 @@ const MESSAGE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 /** How a write in progress names its directory. */
 const PARTIAL_PREFIX = ".partial-";
 
+/** How a replaced message's old directory is named while the new one is renamed in. */
+const ASIDE_PREFIX = ".aside-";
+
 export interface AttachmentStage {
   /** Stages a message's attachments, replacing any it had; every byte is on disk when it returns. Throws when it cannot, leaving nothing. */
   write(messageId: string, attachments: readonly AttachmentData[]): void;
@@ -37,7 +45,7 @@ export interface AttachmentStage {
   remove(messageId: string): void;
   /** The messages with bytes staged. */
   list(): string[];
-  /** Removes what a write cut short by a crash left behind. */
+  /** Clears up after writes a crash cut short: their partial directories go, and a set-aside copy goes back when nothing replaced it, else goes. */
   dropPartial(): void;
 }
 
@@ -46,7 +54,6 @@ const checked = (messageId: string): string => {
   return messageId;
 };
 
-/** A directory readable by its owner alone, made if it is missing. */
 /**
  * Makes `path` a 0700 directory of the environment's own. A directory made
  * here is synced into its parent, since a new directory entry is durable
@@ -71,6 +78,16 @@ const writeSynced = (path: string, data: Uint8Array): void => {
     fsyncSync(fd);
   } finally {
     closeSync(fd);
+  }
+};
+
+/** Whether `target` holds exactly a file per attachment, each the attachment's size: what a whole write left. */
+const isWhole = (target: string, attachments: readonly AttachmentData[]): boolean => {
+  try {
+    if (readdirSync(target).length !== attachments.length) return false;
+    return attachments.every((attachment, index) => statSync(join(target, String(index))).size === attachment.data.byteLength);
+  } catch {
+    return false;
   }
 };
 
@@ -99,16 +116,27 @@ export const createAttachmentStage = (directory: string): AttachmentStage => ({
   write(messageId, attachments) {
     const target = join(directory, checked(messageId));
     ownDirectory(directory);
+    // A message's attachments never change: bytes already staged whole for it are these, and stay as they are.
+    if (isWhole(target, attachments)) return;
     const partial = join(directory, `${PARTIAL_PREFIX}${randomUUID()}`);
+    const aside = join(directory, `${ASIDE_PREFIX}${messageId}`);
     try {
       ownDirectory(partial);
       attachments.forEach((attachment, index) => writeSynced(join(partial, String(index)), attachment.data));
       syncDirectory(partial);
-      rmSync(target, { recursive: true, force: true });
+      // What was staged is set aside, not removed, until the new bytes are in place: a crash between leaves one of
+      // them whole, and `dropPartial` puts an aside copy back when nothing replaced it.
+      rmSync(aside, { recursive: true, force: true });
+      if (existsSync(target)) {
+        renameSync(target, aside);
+        syncDirectory(directory);
+      }
       renameSync(partial, target);
       syncDirectory(directory);
+      rmSync(aside, { recursive: true, force: true });
     } catch (error) {
       rmSync(partial, { recursive: true, force: true });
+      if (!existsSync(target) && existsSync(aside)) renameSync(aside, target);
       throw error;
     }
   },
@@ -132,6 +160,13 @@ export const createAttachmentStage = (directory: string): AttachmentStage => ({
   },
   list: () => entries(directory).filter((name) => MESSAGE_ID.test(name)),
   dropPartial() {
-    for (const name of entries(directory)) if (name.startsWith(PARTIAL_PREFIX)) rmSync(join(directory, name), { recursive: true, force: true });
+    for (const name of entries(directory)) {
+      if (name.startsWith(PARTIAL_PREFIX)) rmSync(join(directory, name), { recursive: true, force: true });
+      if (!name.startsWith(ASIDE_PREFIX)) continue;
+      // A replace a crash cut: the old copy goes back when the new one never arrived, and goes when it did.
+      const target = join(directory, name.slice(ASIDE_PREFIX.length));
+      if (existsSync(target)) rmSync(join(directory, name), { recursive: true, force: true });
+      else renameSync(join(directory, name), target);
+    }
   },
 });

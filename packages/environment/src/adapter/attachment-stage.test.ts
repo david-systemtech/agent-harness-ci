@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
@@ -60,6 +60,49 @@ describe("the attachment stage", () => {
     stage.write(messageId, [file]);
     expect(stage.read(messageId, [recordOf(file)])?.map((attachment) => attachment.name)).toEqual(["notes.txt"]);
     expect(stage.read(messageId, [recordOf(image), recordOf(file)])).toBeUndefined();
+  });
+
+  it("leaves bytes already staged whole for a message as they are when it is staged again, so they are never absent", () => {
+    const directory = join(tempDir(), "attachments");
+    const stage = createAttachmentStage(directory);
+    const messageId = randomUUID();
+    stage.write(messageId, [image, file]);
+    const before = statSync(join(directory, messageId)).ino;
+    // A message's attachments never change: re-staging it (a run that never received it) writes the same bytes.
+    stage.write(messageId, [image, file]);
+    expect(statSync(join(directory, messageId)).ino).toBe(before);
+    expect(stage.read(messageId, [recordOf(image), recordOf(file)])?.map((attachment) => Buffer.from(attachment.data).toString())).toEqual(["pixels", "some notes"]);
+    expect(readdirSync(directory)).toEqual([messageId]);
+  });
+
+  it("keeps the old bytes until the new ones are in place: a crash with them set aside is undone, and a set-aside copy the new bytes replaced is dropped", () => {
+    const directory = join(tempDir(), "attachments");
+    const stage = createAttachmentStage(directory);
+    const messageId = randomUUID();
+    stage.write(messageId, [image]);
+    // The crash after the old bytes were set aside and before the new ones were renamed in.
+    renameSync(join(directory, messageId), join(directory, `.aside-${messageId}`));
+    stage.dropPartial();
+    expect(stage.read(messageId, [recordOf(image)])?.map((attachment) => Buffer.from(attachment.data).toString())).toEqual(["pixels"]);
+    expect(readdirSync(directory)).toEqual([messageId]);
+
+    // The crash after the new bytes were renamed in and before the old ones were dropped.
+    mkdirSync(join(directory, `.aside-${messageId}`));
+    writeFileSync(join(directory, `.aside-${messageId}`, "0"), "old pixels");
+    stage.dropPartial();
+    expect(readdirSync(directory)).toEqual([messageId]);
+    expect(stage.read(messageId, [recordOf(image)])?.map((attachment) => Buffer.from(attachment.data).toString())).toEqual(["pixels"]);
+  });
+
+  it("replaces bytes that are not whole, through the set-aside copy, leaving no copy behind", () => {
+    const directory = join(tempDir(), "attachments");
+    const stage = createAttachmentStage(directory);
+    const messageId = randomUUID();
+    stage.write(messageId, [image]);
+    writeFileSync(join(directory, messageId, "0"), "pix");
+    stage.write(messageId, [image]);
+    expect(stage.read(messageId, [recordOf(image)])?.map((attachment) => Buffer.from(attachment.data).toString())).toEqual(["pixels"]);
+    expect(readdirSync(directory)).toEqual([messageId]);
   });
 
   it("throws, leaving nothing behind, when the bytes cannot be written", () => {
