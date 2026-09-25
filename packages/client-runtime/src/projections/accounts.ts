@@ -115,20 +115,22 @@ export const poolUsage = (environments: readonly { readonly environmentId: strin
   }
   return [...pools.values()].map(({ identity, members }) => {
     const newest = members.reduce((best, member) => (later(member.reading.readAt, best.reading.readAt) ? member : best));
-    const windows = new Map<string, UsageWindow>();
-    // The newest reading's windows first, in the provider's order, then any only an older reading has.
-    for (const member of [newest, ...members.filter((m) => m !== newest)]) {
-      for (const window of member.reading.windows) {
-        const held = windows.get(window.window);
-        if (held === undefined || later(window.observedAt, held.observedAt)) windows.set(window.window, window);
+    // Each window from the reading that observed it last; the members are in the connection list's order, so a tie stays with the earlier environment.
+    const observed = new Map<string, UsageWindow>();
+    for (const { reading } of members) {
+      for (const window of reading.windows) {
+        const held = observed.get(window.window);
+        if (held === undefined || later(window.observedAt, held.observedAt)) observed.set(window.window, window);
       }
     }
+    // In the newest reading's order, the provider's, then any window only an older reading has.
+    const order = new Set([newest, ...members.filter((m) => m !== newest)].flatMap(({ reading }) => reading.windows.map(({ window }) => window)));
     return {
       identity,
       accounts: members.map(({ environmentId, reading }) => ({ environmentId, accountId: reading.accountId })),
-      windows: [...windows.values()],
+      windows: [...order].flatMap((window) => observed.get(window) ?? []),
       readAt: newest.reading.readAt,
-      unavailableReason: windows.size === 0 ? newest.reading.unavailableReason : null,
+      unavailableReason: order.size === 0 ? newest.reading.unavailableReason : null,
     };
   });
 };

@@ -122,6 +122,20 @@ describe("plan usage", () => {
     ]);
   });
 
+  it("gives a window observed at the same instant on two environments to the earlier one, whichever read last", () => {
+    const [gauge] = poolUsage([
+      { environmentId: "desk", readings: [reading("a-1", david, "2026-09-24T00:01:00.000Z", [window("five_hour", 0.4, "2026-09-24T00:00:00.000Z")])] },
+      // The laptop read later, so its reading is the newest, but its five-hour numbers were observed at the desk's instant.
+      {
+        environmentId: "laptop",
+        readings: [reading("b-7", david, "2026-09-24T00:02:00.000Z", [window("seven_day", 0.1, "2026-09-24T00:02:00.000Z"), window("five_hour", 0.3, "2026-09-24T00:00:00.000Z")])],
+      },
+    ]);
+    // The desk's five-hour window, in the newest reading's order.
+    expect(gauge?.windows).toEqual([window("seven_day", 0.1, "2026-09-24T00:02:00.000Z"), window("five_hour", 0.4, "2026-09-24T00:00:00.000Z")]);
+    expect(gauge?.readAt).toBe("2026-09-24T00:02:00.000Z");
+  });
+
   it("keeps an account never read apart, and says why a gauge has no windows when no reading has any", () => {
     const gauges = poolUsage([
       { environmentId: "desk", readings: [reading("a-1", null, "2026-09-24T00:01:00.000Z", [], "The account is not signed in.")] },

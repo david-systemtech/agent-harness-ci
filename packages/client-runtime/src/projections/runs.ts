@@ -211,11 +211,13 @@ export const createRuns = (host: RunsHost): Runs => {
 
   const enabled = (): readonly ConnectionRecord[] => host.records.read().filter((record) => record.enabled && record.environmentId !== LOCAL_PLACEHOLDER_ID);
 
+  /** The run states as last computed, and what they were computed from: kept while only a countdown ticks or a list of prompts changes. */
   let sessionsMemo: { readonly inputs: readonly unknown[]; readonly value: RunsView["sessions"] } | undefined;
   const sessionsOf = (records: readonly ConnectionRecord[]): RunsView["sessions"] => {
     const lists = host.lists.read();
     const outbox = host.outbox.read();
-    const inputs = [records, lists, outbox, version.read()];
+    // The connection list itself, not `records`: `enabled()` filters it into a new array on every read.
+    const inputs = [host.records.read(), lists, outbox, version.read()];
     if (sessionsMemo !== undefined && sessionsMemo.inputs.every((input, i) => Object.is(input, inputs[i]))) return sessionsMemo.value;
     const sessions = new Map<string, ReadonlyMap<string, SessionRun>>();
     for (const { environmentId } of records) {

@@ -238,6 +238,23 @@ describe("a subagent", () => {
       running: true,
     });
   });
+
+  it("is a row of its own run, even when a later run's subagent has the same id", () => {
+    const later = "5a4b3c2d-1e0f-4a9b-8c7d-6e5f4a3b2c1d";
+    const { items } = reduce(
+      numbered(1, [
+        ["run.started", recorded("run.started")],
+        ["tool.started", recorded("tool.started", 1)],
+        ["run.ended", recorded("run.ended")],
+        ["run.started", recorded("run.started", 0, { runId: later })],
+        ["tool.started", recorded("tool.started", 1, { runId: later, toolCallId: "toolu_4", parentToolCallId: "toolu_3" })],
+      ]),
+    );
+    expect(items).toEqual([
+      expect.objectContaining({ kind: "subagent", sequence: 2, runId: FIXTURE_RUN, agentId: "a-1", calls: [expect.objectContaining({ toolCallId: "toolu_2" })] }),
+      expect.objectContaining({ kind: "subagent", sequence: 5, runId: later, agentId: "a-1", parentToolCallId: "toolu_3", calls: [expect.objectContaining({ toolCallId: "toolu_4" })] }),
+    ]);
+  });
 });
 
 describe("an unknown event type", () => {

@@ -1,6 +1,7 @@
 import { SESSION_STREAM_KIND, type EventEnvelope, type SessionSnapshot } from "@agent-harness/contracts";
 import { permissionSchemaFixtures } from "../../contracts/test/permission-fixtures.js";
 import { runSchemaFixtures } from "../../contracts/test/run-fixtures.js";
+import { MANUAL_CLOCK_START } from "../src/testing/in-memory-platform.js";
 
 /**
  * The recorded fixtures of #119 (the transcript vocabulary) and #130 (the
@@ -17,7 +18,7 @@ export const FIXTURE_MESSAGE = "9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d";
 export const FIXTURE_OTHER_MESSAGE = "2c4e6a8b-1d3f-4b5a-9c7e-0a2b4c6d8e0f";
 
 /** The instant the event at `sequence` occurred: a second apart, from the manual clock's start. */
-export const occurredAt = (sequence: number): string => new Date(Date.parse("2026-09-24T00:00:00.000Z") + sequence * 1000).toISOString();
+export const occurredAt = (sequence: number): string => new Date(Date.parse(MANUAL_CLOCK_START) + sequence * 1000).toISOString();
 
 /** The `index`th valid payload the contracts record for `type`, a fresh copy, with `changes` over it. */
 export const recorded = (type: string, index = 0, changes: Record<string, unknown> = {}): Record<string, unknown> => {
@@ -28,7 +29,11 @@ export const recorded = (type: string, index = 0, changes: Record<string, unknow
 };
 
 /** The recorded snapshot: two runs, one item of every kind (an opaque one and one of a kind no client knows among them) and a parked prompt. */
-export const recordedSnapshot = (): SessionSnapshot => structuredClone(runSchemaFixtures["transcript/session-snapshot.json"]?.valid[0]) as SessionSnapshot;
+export const recordedSnapshot = (): SessionSnapshot => {
+  const snapshot = runSchemaFixtures["transcript/session-snapshot.json"]?.valid[0];
+  if (snapshot === undefined) throw new Error("No recorded session snapshot.");
+  return structuredClone(snapshot) as SessionSnapshot;
+};
 
 /** An event of `type` at `sequence` on the fixtures' session stream, carrying `payload` and, when given, the list patch in its metadata. */
 export const sessionStreamEvent = (sequence: number, type: string, payload: Record<string, unknown>, metadata: Record<string, unknown> = {}): EventEnvelope => ({

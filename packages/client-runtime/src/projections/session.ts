@@ -59,9 +59,10 @@ import type { SessionLease } from "../streams/streams.js";
  *   their `prompt.answered` makes them `answered` with the answer; the
  *   parked ones are also `parkedPrompts`, oldest first;
  * - **subagent rows**: a subagent's tool calls (`tool.started` naming an
- *   `agentId`) gathered into one row at its first call, with the delegated
- *   work that started it (the run's `tasks.changed` row whose `toolCallId`
- *   is the call the subagent's calls are nested under);
+ *   `agentId`) gathered into one row at its first call, a row per run and
+ *   agent id (the contracts do not promise an agent id unique across runs),
+ *   with the delegated work that started it (the run's `tasks.changed` row
+ *   whose `toolCallId` is the call the subagent's calls are nested under);
  * - the run's delegated-work ledger (`tasks`) and slash commands (`command`)
  *   as the snapshot has them;
  * - **`session.rewound`** hides the message rewound to and every entry
@@ -199,6 +200,8 @@ const fromSnapshot = (item: TranscriptItem): Held => {
     case "tool-call":
       return { ...(item as SnapshotItem<"tool-call">), decision: null };
     case "prompt": {
+      // Its kind is one this client knows: the stream parsed the snapshot against `SessionSnapshot` (streams/kinds.ts), whose `prompt`
+      // item holds its `prompt` to `PromptOpenedPayload`. An event's payload is not parsed, so `prompt.opened` below checks its kind.
       const prompt = item as SnapshotItem<"prompt">;
       return {
         kind: PROMPT_ENTRY_KINDS[prompt.prompt.kind],
@@ -467,6 +470,7 @@ const queuedOf = (items: readonly Held[]): UserMessageEntry[] =>
 const gatherSubagents = (items: readonly Held[]): TranscriptEntry[] => {
   const ledgers = new Map<string, readonly DelegatedWorkRow[]>();
   for (const item of items) if (item.kind === "tasks") ledgers.set(item.runId, item.tasks);
+  /** By `<run> <agent id>`: a subagent is its run's, and the contracts do not promise an agent id unique across runs. */
   const rows = new Map<string, { entry: Mutable<SubagentEntry>; calls: ToolCallEntry[] }>();
   const entries: TranscriptEntry[] = [];
   for (const item of items) {
@@ -474,14 +478,15 @@ const gatherSubagents = (items: readonly Held[]): TranscriptEntry[] => {
       entries.push(item);
       continue;
     }
-    let row = rows.get(item.agentId);
+    const key = `${item.runId} ${item.agentId}`;
+    let row = rows.get(key);
     if (row === undefined) {
       const calls: ToolCallEntry[] = [];
       row = {
         calls,
         entry: { kind: "subagent", sequence: item.sequence, runId: item.runId, agentId: item.agentId, parentToolCallId: item.parentToolCallId, calls, task: null, running: false },
       };
-      rows.set(item.agentId, row);
+      rows.set(key, row);
       entries.push(row.entry);
     }
     row.calls.push(item);

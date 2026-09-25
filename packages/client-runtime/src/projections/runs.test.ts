@@ -192,4 +192,18 @@ describe("the run states", () => {
     await flush();
     expect(runtime.projections.runs.read().sessions.get(env)?.get(desk.sessionId)).toEqual({ environmentId: env, sessionId: desk.sessionId, state: "interrupted", runId, since: at(5000) });
   });
+
+  it("are the same value while only a countdown ticks", async () => {
+    const { clock, runtime, environments, prompts } = await twoEnvironments();
+    const [desk] = environments as [ScriptedEnvironment];
+    prompts[0]!.prompts = [listed(desk.sessionId, "toolu_1", at(5 * 60_000))];
+    onTestFinished(runtime.projections.runs.subscribe(() => undefined));
+    await flush();
+    const before = runtime.projections.runs.read();
+
+    clock.advance(1000);
+    const after = runtime.projections.runs.read();
+    expect(after.parkedAsks[0]?.ttl?.remainingMs).toBe(5 * 60_000 - 1000);
+    expect(after.sessions).toBe(before.sessions);
+  });
 });
