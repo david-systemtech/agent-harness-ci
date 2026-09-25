@@ -17,7 +17,7 @@ import { MANUAL_CLOCK_START } from "../../test/clock.js";
 import { end, fakeAdapter, say, signedInAs, type FakeAdapter, type FakeAdapterOptions } from "../../test/fake-adapter.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { create, refusal } from "../../test/sessions.js";
-import { scriptedSignIn } from "../../test/sign-in.js";
+import { scriptedSignIn } from "../../test/signin.js";
 import type { WireClient } from "../../test/wire-client.js";
 import type { EventEnvelope } from "../event-log/event-log.js";
 import { ACCOUNTS_DIRECTORY, STATUS_READ_INTERVAL_MS } from "./account-service.js";
@@ -250,7 +250,7 @@ describe("accounts.adopt", () => {
 });
 
 describe("accounts.add", () => {
-  it("makes an owned directory under the data directory, private to its owner, and says sign-in is not built yet until #135", async () => {
+  it("makes an owned directory under the data directory, private to its owner, and says when its provider cannot sign in from the environment", async () => {
     const t = await start();
     const client = await t.client();
     const { account, signIn } = await applied(client, "accounts.add", { label: "Work" });
@@ -266,7 +266,9 @@ describe("accounts.add", () => {
     });
     expect(statSync(directory).isDirectory()).toBe(true);
     if (process.platform !== "win32") expect(statSync(directory).mode & 0o777).toBe(0o700);
-    expect(signIn).toEqual({ started: false, message: expect.stringContaining("#135") });
+    // The fake provider has no sign-in program (the director's own tests run a Claude one): the message names the directory.
+    // This pins the director's wording for an unavailable provider (`signin-director.ts`); change both together.
+    expect(signIn).toEqual({ started: false, message: expect.stringContaining("not available for the fake provider") });
     expect(signIn.message).toContain(directory);
     expect(accountEvents(t)).toEqual([{ type: "account.added", payload: { accountId: account.id, provider: "fake", label: "Work", directory } }]);
     expect(notices(t)).toEqual([{ accountId: account.id, change: "added", warning: null }]);
