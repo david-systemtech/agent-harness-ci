@@ -2,12 +2,13 @@ import type { CapabilityFlags, Ceiling, Scope } from "@agent-harness/contracts";
 import { derived, type Observable } from "../observable.js";
 import { LOCAL_PLACEHOLDER_ID, type BlockedReason, type ConnectionKind, type ConnectionPhase, type ConnectionRecord } from "../connections/records.js";
 import type { ConnectionAction } from "../connections/state-machine.js";
+import type { OutboxView } from "../outbox/overlay.js";
 
 /**
  * `projections.environments` (docs/specs/client-runtime.md, "Projections"):
  * each known environment, in the saved sequence, with what a sidebar heading,
  * the mode picker and the Your machines step show. The first is the primary
- * environment. The pending-command count joins it with the outbox (#128).
+ * environment.
  */
 export interface EnvironmentView {
   readonly environmentId: string;
@@ -35,10 +36,12 @@ export interface EnvironmentView {
   readonly refreshFailed: string | null;
   /** What David can do about the phase: `service.start`, `re-pair`, `update-client`, `update-environment`. */
   readonly action: ConnectionAction | null;
+  /** How many commands wait in the outbox for the environment's receipt: queued, or sent and not yet answered. */
+  readonly pendingCommands: number;
 }
 
-export const environmentsProjection = (records: Observable<readonly ConnectionRecord[]>): Observable<readonly EnvironmentView[]> =>
-  derived([records], (list) =>
+export const environmentsProjection = (records: Observable<readonly ConnectionRecord[]>, outbox: Observable<OutboxView>): Observable<readonly EnvironmentView[]> =>
+  derived([records, outbox] as const, (list, waiting) =>
     list.map(
       (record, index): EnvironmentView => ({
         environmentId: record.environmentId,
@@ -58,6 +61,7 @@ export const environmentsProjection = (records: Observable<readonly ConnectionRe
         unreachableSince: record.unreachableSince,
         refreshFailed: record.refreshFailed,
         action: record.action,
+        pendingCommands: waiting.get(record.environmentId)?.entries.length ?? 0,
       }),
     ),
   );

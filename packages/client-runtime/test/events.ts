@@ -70,3 +70,13 @@ export const groupOf = (id: string, name: string, fields: Partial<Group> = {}): 
 
 /** A summary patch adding `summary`. */
 export const added = (summary: SessionSummary): SummaryPatch => ({ op: "add", summary });
+
+/** `event` as the command `commandId` produced it: the envelope names the command, as an outbox's overlay reads it. */
+export const byCommand = (event: EventEnvelope, commandId: string): EventEnvelope => ({ ...event, commandId });
+
+/** An accepted receipt at `sequence`. */
+export const accepted = (sequence: number, changed = true) => ({ status: "accepted", sequence, changed }) as const;
+
+/** A rejected receipt at `sequence` for `code`, with the error's data. */
+export const rejected = (sequence: number, code: string, data: Record<string, unknown> = {}) =>
+  ({ status: "rejected", sequence, changed: false, reason: code, error: { code, message: `Rejected: ${code}.`, data } }) as const;
