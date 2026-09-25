@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AccountChange",
+  "type": "string",
+  "enum": [
+    "adopted",
+    "added",
+    "identity-set",
+    "status-changed",
+    "relabelled",
+    "removed",
+    "identity-mismatch"
+  ],
+  "description": "What changed on an account: adopted, added, identity-set, status-changed, relabelled, removed, or identity-mismatch (a run's provider, or a status read, named a login other than the one the store holds, or one another account holds; the notice carries a warning)."
+}

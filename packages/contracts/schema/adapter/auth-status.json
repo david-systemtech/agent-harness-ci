@@ -63,6 +63,10 @@
         }
       ],
       "description": "Why the status could not be read, when it could not."
+    },
+    "expired": {
+      "description": "True when the provider says the login has lapsed and must be signed in again; absent when it cannot tell (Claude's status cannot).",
+      "type": "boolean"
     }
   },
   "required": [

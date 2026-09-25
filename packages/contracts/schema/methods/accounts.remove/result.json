@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "accounts.remove result",
+  "type": "object",
+  "properties": {
+    "accountId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "description": "An account's id on its environment: a version 4 UUID the environment mints when it adopts or adds the account; an account carried over from configuration keeps the id it was configured with."
+    },
+    "directoryDeleted": {
+      "type": "boolean",
+      "description": "Whether the account's directory was deleted."
+    }
+  },
+  "required": [
+    "accountId",
+    "directoryDeleted"
+  ]
+}

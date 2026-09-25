@@ -107,6 +107,62 @@
         "payload"
       ],
       "description": "The environment refuses new runs and lets running ones finish before a restart: since when, and what started it."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "account.updated"
+        },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "accountId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "description": "An account's id on its environment: a version 4 UUID the environment mints when it adopts or adds the account; an account carried over from configuration keeps the id it was configured with."
+            },
+            "change": {
+              "type": "string",
+              "enum": [
+                "adopted",
+                "added",
+                "identity-set",
+                "status-changed",
+                "relabelled",
+                "removed",
+                "identity-mismatch"
+              ],
+              "description": "What changed on an account: adopted, added, identity-set, status-changed, relabelled, removed, or identity-mismatch (a run's provider, or a status read, named a login other than the one the store holds, or one another account holds; the notice carries a warning)."
+            },
+            "warning": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "What a person should know, when something is wrong: a mismatched identity, a sign-in refused as a duplicate."
+            }
+          },
+          "required": [
+            "accountId",
+            "change",
+            "warning"
+          ],
+          "description": "account.updated: an account changed; a client refreshes what it caches of the accounts."
+        }
+      },
+      "required": [
+        "type",
+        "payload"
+      ],
+      "description": "An account changed: which, how, and a warning when something is wrong."
     }
   ],
   "description": "An event on the environment stream, as environment.subscribe delivers it: its type and payload, read from the event's envelope."

@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AccountIdentitySetPayload",
+  "type": "object",
+  "properties": {
+    "accountId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "description": "An account's id on its environment: a version 4 UUID the environment mints when it adopts or adds the account; an account carried over from configuration keeps the id it was configured with."
+    },
+    "identity": {
+      "type": "object",
+      "properties": {
+        "provider": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*$",
+          "description": "A provider's id, as the environment's adapter registry keys it: lowercase letters, digits and hyphens (claude)."
+        },
+        "email": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The login's email, as the provider's status reports it."
+        },
+        "organisation": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The organisation the login belongs to, when the provider reports one."
+        }
+      },
+      "required": [
+        "provider",
+        "email",
+        "organisation"
+      ],
+      "description": "Who an account signed in as: the provider, the email and the organisation when present; one account per identity per environment."
+    }
+  },
+  "required": [
+    "accountId",
+    "identity"
+  ],
+  "description": "account.identity-set: a status read said who the account is signed in as, and it was not what the store held."
+}
