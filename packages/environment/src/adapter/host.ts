@@ -28,7 +28,8 @@ import {
   nextRunText,
   openedPayload,
 } from "../permissions/broker.js";
-import { answersFor, parkedPromptsOfRun } from "../permissions/prompts-store.js";
+import { answersFor, hasKeptAnswer, parkedPromptsOfRun } from "../permissions/prompts-store.js";
+import { readRunPolicy } from "../permissions/review-store.js";
 import type { RunActor } from "../permissions/resolver.js";
 import { answerEvents, runToolCalls, type RunToolCalls } from "../permissions/tool-decisions.js";
 import { environmentQueue, latestRun, messageCeilings, providerHeld, providerSessionOf, readRun, readSessionFacts } from "../runs/run-reads.js";
@@ -239,6 +240,16 @@ export interface AdapterHost {
   stageAttachments(message: PromptMessage): void;
   /** Hands a message sent during a live run to its provider, or holds it for the next run, once its event committed. */
   queue(send: QueuedSend): void;
+  /**
+   * Starts the session's next run for an answer an automatic rule kept for
+   * it (#131: the TTL's, whose run had gone), so the session continues on
+   * its own: the run reads the answer first, then whatever is queued, for
+   * the actor of the run before it, resolved afresh. Nothing when a run is
+   * live on the session (the answer waits for the run after it), the session
+   * has never run or is deleted, the environment drains or closes, or no
+   * answer is kept any more. A person's answer starts nothing (#130).
+   */
+  continueSession(sessionId: string): void;
   /** Interrupts a live run with cancel; the messages its provider still held come back to the environment's queue. */
   interrupt(runId: string): void;
   /** Stops a piece of a live run's delegated work. */
@@ -305,6 +316,9 @@ export const requeuedEvents = (runId: string, messageIds: readonly string[]): Ev
     const payload: MessageRequeuedPayload = { runId, messageId };
     return { type: "message.requeued", payload };
   });
+
+/** What a run the environment starts itself after another is resolved from: the session, who it runs for, and the model and effort of the run before it. */
+type NextRunBasis = Pick<PlannedRun, "sessionId" | "actor" | "model" | "effort">;
 
 /**
  * Who ends a run: its adapter, whose end event is recorded; or the host,
@@ -418,6 +432,8 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
   const accounts = new Map<string, HeldAccount>();
   /** Live runs by session: at most one each. */
   const live = new Map<string, LiveRun>();
+  /** The run each session last ended here: what a run the environment starts itself for kept answers is resolved from (#131). */
+  const lastPlans = new Map<string, PlannedRun>();
   /** Runs that ended here with their end not in the log. */
   const unrecordedRuns = new Set<string>();
   /**
@@ -758,6 +774,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     }
     registry.end(entry.runId);
     if (live.get(entry.sessionId) === entry) live.delete(entry.sessionId);
+    lastPlans.set(entry.sessionId, entry.plan);
     letRunGo();
     if (closing || reason === "disposed" || reason === "drained") return;
     readProviderTitle(entry, recorded);
@@ -797,7 +814,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
           append(entry.sessionId, entry.runId, entry.actor, entry.calls.denied(event));
           continue;
         }
-        if (event.type === "tool.started" || event.type === "tool.ended") {
+        if (event.type === "tool.ended") {
           // A call that ended ok unasked is the mode's, decided in the transaction of its end (#131).
           log.atomically(() => {
             entry.append(event);
@@ -806,6 +823,8 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
           continue;
         }
         entry.append(event);
+        // A call started: the host keeps its tool and summary until it is decided (#131).
+        if (event.type === "tool.started") entry.calls.after(event);
       }
       if (!entry.ended) {
         finish(entry, { type: "end", reason: "error", error: { message: "The run's event stream stopped without an end.", code: "no_end" } }, { by: "host", stop: "failed" });
@@ -1032,6 +1051,31 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     }, prompt);
   };
 
+  /**
+   * What the session's next run is started from when the environment starts
+   * it itself (`continueSession`, #131): the run before it, as this host
+   * last ended it, else as the log records it (after a restart), for the
+   * actor its policy names, under the ceiling it was resolved under (the
+   * client session behind it is not in the log, so a ceiling lowered since
+   * is not read), in its model with the model's own effort. Null when the
+   * session has never run.
+   */
+  const basisOf = (sessionId: string): NextRunBasis | null => {
+    const held = lastPlans.get(sessionId);
+    if (held !== undefined) return held;
+    const run = latestRun(reader, sessionId);
+    const policy = run === null ? null : readRunPolicy(reader, run.runId);
+    if (run === null || policy === null) return null;
+    const ceiling = policy.mode.ceiling;
+    const actor: RunActor =
+      policy.actorKind === "completions"
+        ? { kind: "completions", attended: policy.attended, ceiling, clientSessionId: null }
+        : policy.actorKind === "client"
+          ? { kind: "client", ceiling, clientSessionId: null }
+          : { kind: policy.actorKind, name: policy.actorName, ceiling, clientSessionId: null };
+    return { sessionId, actor, model: run.model, effort: null };
+  };
+
   /** `actor` with its client session's ceiling as it is now; undefined once that client session is revoked or expired. */
   const currentActor = (actor: RunActor): RunActor | undefined => {
     if (actor.clientSessionId === null) return actor;
@@ -1244,10 +1288,16 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
    * run's alone (#129). Not while the environment drains, nor once that
    * actor's client session is revoked or expired: the messages stay queued
    * for the next start.
+   *
+   * With `forAnswers`, it starts one too when nothing is queued but an
+   * answer is kept for the session's next run and no run has taken it (#131:
+   * a TTL answer whose run had gone), so the session continues on its own:
+   * the run reads the answer first, then whatever is queued.
    */
-  const startFromQueue = (previous: PlannedRun): void => {
+  const startFromQueue = (previous: NextRunBasis, forAnswers = false): void => {
     try {
-      if (environmentQueue(reader, previous.sessionId).length === 0) return;
+      const queued = environmentQueue(reader, previous.sessionId).length > 0;
+      if (!queued && !(forAnswers && hasKeptAnswer(reader, previous.sessionId))) return;
       registry.admit();
       const actor = currentActor(previous.actor);
       if (actor === undefined) {
@@ -1260,6 +1310,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
         message: null,
         model: previous.model,
         ...(previous.effort !== null && { effort: previous.effort }),
+        ...(forAnswers && { keptAnswers: true }),
       });
       if (decision.rejected !== undefined) {
         console.error(`The queued messages of session ${previous.sessionId} could not start a run: ${decision.rejected.message}`);
@@ -1294,6 +1345,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     }
     if (event.type === "session.purged") {
       for (const [messageId, staged] of [...heldAttachments]) if (staged.sessionId === event.streamId) unstage(messageId);
+      lastPlans.delete(event.streamId);
       return;
     }
     if (event.type !== "session.deleted") return;
@@ -1408,6 +1460,20 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     liveRun: (runId) => liveFacts(byRunId(runId)),
     unrecorded: (runId) => unrecordedRuns.has(runId),
     launch,
+    continueSession(sessionId) {
+      if (closing || changingMode.has(sessionId)) return;
+      const current = live.get(sessionId);
+      if (current !== undefined && isLive(current)) return;
+      let basis: NextRunBasis | null;
+      try {
+        const session = readSessionFacts(log, reader, sessionId);
+        basis = session === null || session.deleted ? null : basisOf(sessionId);
+      } catch (error) {
+        console.error(`Reading session ${sessionId} to continue it failed:`, error);
+        return;
+      }
+      if (basis !== null) startFromQueue(basis, true);
+    },
     stageAttachments(message) {
       if (stage === undefined || message.attachments.length === 0) return;
       try {

@@ -199,7 +199,7 @@ const target = { commandId, clientSessionId: "cs-2" };
 /** Params and results for every permissions method and `access.sessions.setCeiling`. */
 export const permissionMethodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
   "permissions.review.list": {
-    params: { valid: [{}], invalid: [[], "all"] },
+    params: { valid: [{}, { limit: 1 }, { limit: 1000 }], invalid: [[], "all", { limit: 0 }, { limit: 1001 }, { limit: 2.5 }] },
     result: {
       valid: [{ watermark: 0, head: 0, runs: [] }, { watermark: 12, head: 40, runs: [reviewRun] }],
       invalid: [{ runs: [] }, { watermark: -1, head: 0, runs: [] }, { watermark: 0, head: 0, runs: [{}] }],

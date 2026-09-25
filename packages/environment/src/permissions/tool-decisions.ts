@@ -1,7 +1,8 @@
 import type { PromptAnsweredPayload, PromptOpenedPayload, ToolDecider, ToolDecisionPayload } from "@agent-harness/contracts";
 import type { ToolDenial, TranscriptEvent } from "../adapter/contract.js";
-import type { EventInput } from "../event-log/event-log.js";
+import type { EventInput, EventLog, Tx } from "../event-log/event-log.js";
 import type { Reader } from "../sessions/session-reads.js";
+import { sessionStream } from "../sessions/streams.js";
 import { CANCELLED_MESSAGE, RUN_ENDED_MESSAGE, summarise } from "./broker.js";
 import { isAsked } from "./prompts-store.js";
 import { isDecided } from "./review-store.js";
@@ -27,7 +28,9 @@ import { isDecided } from "./review-store.js";
  *   provider's end-of-turn denial report has had its say.
  *
  * The first decision a call gets is its one (the review projection refuses
- * a second): each source checks the log first.
+ * a second): each source checks the log first. A source outside the host
+ * (the gate's containment and denylist decisions, #132 and #133, made at
+ * hook time) records through `recordToolDecision`, which checks too.
  */
 
 /** Why a call was denied when the decider gave no words of its own. */
@@ -80,15 +83,20 @@ const CLOSED_BECAUSE: Partial<Readonly<Record<string, string>>> = { run_ended: R
 
 /**
  * The decision a prompt's answer makes for the call it asked about: the
- * prompt's tool, summary and id; the answer's message as the reason, else
- * what closed it, else the provider's reason for asking.
+ * prompt's tool, summary and id; the answer's message as the reason, else,
+ * for a person's, that a person denied it (never the provider's reason for
+ * asking, which is not why the person said no), else what closed it, else
+ * the provider's reason for asking.
  */
-export const answerDecision = (prompt: PromptOpenedPayload, answer: PromptAnsweredPayload): ToolDecisionPayload =>
-  decision(
-    { runId: prompt.runId, toolCallId: prompt.toolCallId, tool: prompt.toolName, summary: prompt.summary, decidedBy: deciderOf(prompt, answer), promptId: prompt.promptId },
+export const answerDecision = (prompt: PromptOpenedPayload, answer: PromptAnsweredPayload): ToolDecisionPayload => {
+  const decidedBy = deciderOf(prompt, answer);
+  const fallback = typeof answer.decidedBy === "string" ? DENIED_BECAUSE.person : (CLOSED_BECAUSE[answer.decidedBy.auto] ?? prompt.reason);
+  return decision(
+    { runId: prompt.runId, toolCallId: prompt.toolCallId, tool: prompt.toolName, summary: prompt.summary, decidedBy, promptId: prompt.promptId },
     answer.decision === "allow" ? "allowed" : "denied",
-    answer.message ?? (typeof answer.decidedBy === "string" ? undefined : CLOSED_BECAUSE[answer.decidedBy.auto]) ?? prompt.reason,
+    answer.message ?? fallback,
   );
+};
 
 /**
  * A prompt's `prompt.answered` and the `tool.decision` it makes, for the
@@ -101,6 +109,26 @@ export const answerEvents = (reader: Reader, prompt: PromptOpenedPayload, answer
     { type: "prompt.answered", payload: answer },
     ...(decided ? [] : [{ type: "tool.decision", payload: answerDecision(prompt, answer) }]),
   ];
+};
+
+/**
+ * Records a call's decision in the open transaction `tx`, on its session's
+ * stream, unless the call has one already (a prompt's answer, the
+ * provider's report, an earlier gate decision): the way a source outside
+ * the host records one, the gate's `containment` and `denylist` decisions
+ * at hook time among them (#132, #133). Whether it recorded it.
+ */
+export const recordToolDecision = (
+  log: EventLog,
+  tx: Tx,
+  sessionId: string,
+  payload: ToolDecisionPayload,
+  attribution: { readonly actor: string; readonly causationId?: string },
+): boolean => {
+  const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
+  if (payload.toolCallId !== null && isDecided(reader, payload.runId, payload.toolCallId)) return false;
+  log.append(sessionStream(sessionId), [{ type: "tool.decision", payload }], { tx, correlationId: payload.runId, ...attribution });
+  return true;
 };
 
 /** What the host needs of the tool events of one live run. */
@@ -120,14 +148,19 @@ interface StartedCall {
 
 /**
  * Tracks the tool calls of run `runId` as the host consumes its events. What
- * it keeps is only the started calls' tools and summaries; whether a call is
- * decided or asked about is read from the log each time (in the transaction
- * the host appends in), so a transaction that rolls back, and is tried
- * again, decides again.
+ * it keeps is the tool and summary of each started call not yet known to be
+ * decided, dropped once it is; whether a call is decided or asked about is
+ * read from the log (in the transaction the host appends in), so the run's
+ * end, retried after a rollback, decides again.
  */
 export const runToolCalls = (reader: Reader, runId: string): RunToolCalls => {
   const started = new Map<string, StartedCall>();
-  const open = (toolCallId: string): boolean => !isDecided(reader, runId, toolCallId) && !isAsked(reader, runId, toolCallId);
+  /** Whether the call is still to be decided here; one that is not is forgotten. */
+  const open = (toolCallId: string): boolean => {
+    const undecided = !isDecided(reader, runId, toolCallId) && !isAsked(reader, runId, toolCallId);
+    if (!undecided) started.delete(toolCallId);
+    return undecided;
+  };
   const byMode = (toolCallId: string, call: StartedCall): EventInput => ({
     type: "tool.decision",
     payload: decision({ runId, toolCallId, tool: call.tool, summary: call.summary, decidedBy: "mode", promptId: null }, "allowed", null),
@@ -140,8 +173,11 @@ export const runToolCalls = (reader: Reader, runId: string): RunToolCalls => {
         return [];
       }
       if (event.type !== "tool.ended" || event.payload.status !== "ok") return [];
-      const call = started.get(event.payload.toolCallId);
-      return call === undefined || !open(event.payload.toolCallId) ? [] : [byMode(event.payload.toolCallId, call)];
+      const id = event.payload.toolCallId;
+      const call = started.get(id);
+      if (call === undefined || !open(id)) return [];
+      started.delete(id);
+      return [byMode(id, call)];
     },
     denied(report) {
       if (!open(report.toolCallId)) return [];
@@ -149,6 +185,7 @@ export const runToolCalls = (reader: Reader, runId: string): RunToolCalls => {
       const tool = call?.tool ?? report.toolName;
       const summary = call?.summary ?? tool ?? "A tool call the provider denied";
       const payload = decision({ runId, toolCallId: report.toolCallId, tool, summary, decidedBy: report.by, promptId: null }, "denied", report.reason);
+      started.delete(report.toolCallId);
       return [{ type: "tool.decision", payload }];
     },
     settle() {

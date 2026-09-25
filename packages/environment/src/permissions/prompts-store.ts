@@ -34,6 +34,7 @@ export const PROMPTS_TABLES = {
     prompt_id TEXT NOT NULL,
     session_id TEXT NOT NULL,
     run_id TEXT NOT NULL,
+    tool_call_id TEXT,
     opened_at TEXT NOT NULL,
     prompt TEXT NOT NULL,
     answered_sequence INTEGER,
@@ -42,7 +43,8 @@ export const PROMPTS_TABLES = {
     delivered_with TEXT
   ) STRICT;
   CREATE INDEX prompts_by_id ON prompts (prompt_id, sequence);
-  CREATE INDEX prompts_by_session ON prompts (session_id, sequence)`,
+  CREATE INDEX prompts_by_session ON prompts (session_id, sequence);
+  CREATE INDEX prompts_by_call ON prompts (run_id, tool_call_id)`,
 } as const;
 
 interface PromptRow {
@@ -50,6 +52,7 @@ interface PromptRow {
   prompt_id: string;
   session_id: string;
   run_id: string;
+  tool_call_id: string | null;
   opened_at: string;
   prompt: string;
   answered_sequence: number | null;
@@ -90,11 +93,12 @@ export const projectPrompt = (event: EventEnvelope, db: ProjectionDb): void => {
       const parked = db.get("SELECT 1 FROM prompts WHERE prompt_id = ? AND session_id = ? AND answered_sequence IS NULL", payload.promptId, event.streamId);
       if (parked !== undefined) throw new Error(`Prompt ${payload.promptId} is parked already; it cannot be opened again until it is answered.`);
       db.run(
-        "INSERT INTO prompts (sequence, prompt_id, session_id, run_id, opened_at, prompt) VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT INTO prompts (sequence, prompt_id, session_id, run_id, tool_call_id, opened_at, prompt) VALUES (?, ?, ?, ?, ?, ?, ?)",
         event.sequence,
         payload.promptId,
         event.streamId,
         payload.runId,
+        payload.toolCallId,
         event.occurredAt,
         JSON.stringify(payload),
       );
@@ -184,4 +188,11 @@ export const answersFor = (reader: Reader, runId: string): PromptRecord[] =>
 
 /** Whether run `runId` asked a prompt about its tool call `toolCallId`, answered or not: that prompt's answer is the call's decision (#131). */
 export const isAsked = (reader: Reader, runId: string, toolCallId: string): boolean =>
-  reader.all("SELECT 1 FROM prompts WHERE run_id = ? AND json_extract(prompt, '$.toolCallId') = ?", runId, toolCallId).length > 0;
+  reader.all("SELECT 1 FROM prompts WHERE run_id = ? AND tool_call_id = ? LIMIT 1", runId, toolCallId).length > 0;
+
+/** Whether an answer is kept for the session's next run that no run has taken yet (#131: a TTL answer whose run had gone starts one). */
+export const hasKeptAnswer = (reader: Reader, sessionId: string): boolean =>
+  reader.all(
+    `SELECT 1 FROM prompts WHERE session_id = ? AND answer IS NOT NULL AND delivered_run_id IS NULL AND json_extract(answer, '$.delivery') = 'next-run' LIMIT 1`,
+    sessionId,
+  ).length > 0;

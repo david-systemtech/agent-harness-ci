@@ -145,13 +145,25 @@ export const permissionsPromptsAnswer = defineMethod({
  * denylist or containment (a chosen default, so a person's own bypass runs do
  * not flood it). A deleted session's runs are left out. `head` is the log's
  * position as read: what `permissions.review.seen` takes to mark exactly
- * what was listed as seen.
+ * what was listed as seen. At most `limit` runs (preset 200), the newest.
  */
+export const REVIEW_LIST_LIMIT = 200;
+
+/** The most runs one review list may ask for. */
+export const REVIEW_LIST_MAX = 1000;
+
 export const permissionsReviewList = defineMethod({
   name: "permissions.review.list",
   scope: "read",
   kind: "query",
-  params: z.object({}),
+  params: z.object({
+    limit: z
+      .int()
+      .min(1)
+      .max(REVIEW_LIST_MAX)
+      .optional()
+      .meta({ description: `The most runs to list, the newest; ${REVIEW_LIST_LIMIT} when absent.` }),
+  }),
   result: z.object({
     watermark: Sequence.meta({ description: "The position the review has been seen through; 0 when it never has." }),
     head: Sequence.meta({ description: "The log's position when the list was read." }),

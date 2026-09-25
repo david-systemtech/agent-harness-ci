@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { hostname } from "node:os";
 import { join } from "node:path";
@@ -52,10 +51,8 @@ import { permissionsProjector, readPermissionSettings } from "../permissions/per
 import { policySettings, resolvePolicy, type RunActor } from "../permissions/resolver.js";
 import { reviewMethods } from "../permissions/review-methods.js";
 import { createTtlSweeper } from "../permissions/ttl-sweeper.js";
-import { decideStart } from "../runs/run-decider.js";
-import { runMethods } from "../runs/run-methods.js";
+import { runMethods, startRunIn } from "../runs/run-methods.js";
 import { runsProjector } from "../runs/runs-projector.js";
-import { appendRunEvents } from "../sessions/activity-companions.js";
 import { createCompactionSweep } from "../sessions/compaction.js";
 import { createDeletion } from "../sessions/deletion.js";
 import { groupMethods } from "../sessions/group-methods.js";
@@ -202,16 +199,33 @@ export interface EnvironmentOptions {
   readonly terminals?: Omit<TerminalsOptions, "clock">;
 }
 
-/** A run an actor that is no client session starts: the session, who, the message it starts with, and a mode of its own if it names one. */
-export interface ActorRunRequest {
+/** Who starts a run that no client session starts: a routine, a bot, or the completions surface. */
+type ActorOfRun<K extends RunActor["kind"]> = Extract<RunActor, { readonly kind: K }>;
+
+/**
+ * A run an actor that is no client session starts: the session, who (a
+ * routine or a bot by its id, which the log names it by, since its name can
+ * change; the completions surface), the message it starts with, and a mode
+ * of its own if it names one.
+ */
+export type ActorRunRequest = {
   readonly sessionId: string;
-  readonly actor: RunActor;
   readonly text: string;
   readonly mode?: Mode;
-}
+} & (
+  | { readonly actor: ActorOfRun<"routine" | "bot">; readonly actorId: string }
+  | { readonly actor: ActorOfRun<"completions">; readonly actorId?: undefined }
+);
 
-/** Where a run an actor starts comes from: a bot's runs are its routines' (ADR 0008). */
-const originOf = (actor: RunActor): RunOrigin => (actor.kind === "client" ? "client" : actor.kind === "completions" ? "completions" : "routine");
+/** Where a run an actor starts comes from, and who the log says started it: a bot's runs are its routines' (ADR 0008). */
+const startedBy = (request: ActorRunRequest): { readonly origin: RunOrigin; readonly actor: string } => {
+  const { actor } = request;
+  if (actor.kind === "completions") return { origin: "completions", actor: formatActor({ kind: "system", id: "completions" }) };
+  const id = request.actorId ?? "";
+  return actor.kind === "routine"
+    ? { origin: "routine", actor: formatActor({ kind: "routine", id }) }
+    : { origin: "routine", actor: formatActor({ kind: "system", id: `bot:${id}` }) };
+};
 
 /** A running environment. */
 export interface EnvironmentHandle {
@@ -617,20 +631,12 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       revoke: (id) => accessLog.atomically((tx) => clientSessions.revoke(tx, id, "requested", SYSTEM.owner))?.changed === true,
     },
     startRun(request) {
-      const { actor } = request;
-      const sessionId = request.sessionId.toLowerCase();
-      const messageId = randomUUID();
-      const by = actor.kind === "routine" ? formatActor({ kind: "routine", id: actor.name || "routine" }) : formatActor({ kind: "system", id: actor.kind });
-      return log.atomically((tx) => {
-        const facts = host.startFacts(sessionId, actor);
-        if (facts.session !== null && !facts.session.deleted) host.admit();
-        const message = { messageId, text: request.text, attachments: [] };
-        const decision = decideStart(facts, { origin: originOf(actor), message, ...(request.mode !== undefined && { mode: request.mode }) });
-        if (decision.rejected !== undefined) throw new ContractError(decision.rejected);
-        appendRunEvents(log, sessionId, decision.events, { tx, actor: by, correlationId: decision.run.runId });
-        tx.afterCommit(() => host.launch(decision.run));
-        return { runId: decision.run.runId, messageId };
-      });
+      const { origin, actor } = startedBy(request);
+      const started = log.atomically((tx) =>
+        startRunIn(log, host, tx, { actor }, { sessionId: request.sessionId, actor: request.actor, origin, text: request.text, mode: request.mode }),
+      );
+      if (started.rejected !== undefined) throw new ContractError(started.rejected);
+      return { runId: started.runId, messageId: started.messageId };
     },
     sockets: () => wire.sockets(),
     subscriptions: () => wire.subscriptions(),
