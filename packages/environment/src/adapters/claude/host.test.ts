@@ -646,6 +646,35 @@ describe("a Claude run through the adapter host", () => {
       expect(query.options.sandbox).toMatchObject({ enabled: true, failIfUnavailable: true });
     });
 
+    it("answers the sandbox's ask for a host at once when the gate lets it through, and puts a denylisted host to the person as a denylist prompt", async () => {
+      const metadata = { id: "metadata", pattern: "169.254.169.254", note: "", preset: false, enabled: true };
+      const hosts = () => [denylistRule({ denylist: () => ({ ...denylistPresets("/data/agent-harness"), hosts: [metadata] }), home: "/home/test", exempt: [], resolve: (path) => path })];
+      const t = await setup(containedAt("workspace"), hosts());
+      const { runId, query } = await opened(t);
+      expect(await query.canUseTool("SandboxNetworkAccess", { host: "registry.npmjs.org" }, { toolUseID: "net_npm" })).toEqual({
+        behavior: "allow",
+        updatedInput: { host: "registry.npmjs.org" },
+        toolUseID: "net_npm",
+      });
+      expect(openedOf(t)).toEqual([]);
+      const asked = query.canUseTool("SandboxNetworkAccess", { host: "169.254.169.254" }, { toolUseID: "net_metadata" });
+      await vi.waitFor(() => expect(openedOf(t)).toHaveLength(1));
+      const [prompt] = openedOf(t);
+      expect(prompt).toMatchObject({ runId, kind: "denylist", toolName: "SandboxNetworkAccess", toolCallId: "net_metadata" });
+      expect(prompt?.denylist?.[0]?.entry.pattern).toBe("169.254.169.254");
+      t.log.atomically((tx) =>
+        t.log.append(
+          { kind: "session", id: t.sessionId },
+          answerEvents({ all: (sql, ...params) => t.log.read(sql, ...params) }, prompt!, { ...personAllows, runId, promptId: prompt!.promptId, decision: "deny", message: "Not the metadata service." }),
+          { tx, actor: "client_session:cs-1", correlationId: runId },
+        ),
+      );
+      t.host.deliverAnswer(runId, prompt!.promptId, { decision: "deny", message: "Not the metadata service." });
+      expect(await asked).toEqual({ behavior: "deny", message: "Not the metadata service.", toolUseID: "net_metadata" });
+      // Neither ask opened a turn of the provider's own.
+      expect(eventsOf(t).filter((event) => event.type === "run.started")).toHaveLength(1);
+    });
+
     it("hands an unattended run the denylist to project, and an attended one none", async () => {
       const projection: RunDenylist = { paths: ["/home/test/.ssh"], exempt: ["/data/agent-harness/containment"], commandPatterns: ["sudo *"] };
       const unattended = await setup(containedAt("workspace"), undefined, {}, { providerDenylist: () => projection });

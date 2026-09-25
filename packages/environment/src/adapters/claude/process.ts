@@ -1057,7 +1057,10 @@ export class ClaudeProcess implements TurnControl {
    * domain", so it asks the host about each new host a command reaches. No
    * hook sees it and it is no tool call: the gate rules on the host as a
    * fetch (containment's no-network level and the denylist's hosts), and
-   * its ruling is the answer, asking nobody and opening no turn. The CLI
+   * its ruling is the answer. A host the denylist matches is put to the
+   * person as a `denylist` prompt of the session's live run, as any match
+   * is (the host's broker parks that run itself, so no turn is opened here);
+   * any other is allowed at once, with no permission prompt. The CLI
    * remembers an allowed host for the session.
    */
   async #networkAsk(input: Record<string, unknown>, toolUseID: string, signal: AbortSignal): Promise<PermissionResult> {

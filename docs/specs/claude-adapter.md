@@ -391,9 +391,9 @@ Decided in building client-tool passthrough (#139):
 
 Decided in building the Claude wiring of the gate, the broker, the sandbox option and live mode changes (#140), the rest in the permissions spec's notes:
 
-- **Every call is gated first**: each run registers the tool gate's `PreToolUse` hook on every tool, waiting up to 2,147,483 seconds (24.8 days, the longest the CLI's timer can hold; its own default is ten minutes). A gate's denial is the hook's `deny` with the gate's message; an allow says nothing, so the mode, the rules and `canUseTool` still decide. `canUseTool` asks the gate only about what the hook did not let through as it is.
+- **Every call is gated first**: each run registers the tool gate's `PreToolUse` hook on every tool, waiting up to 2,147,483 seconds (24.8 days, the longest the CLI's timer can hold; its own default is ten minutes). A gate's denial is the hook's `deny` with the gate's message; an allow says nothing, so the mode, the rules and `canUseTool` still decide. `canUseTool` asks the gate only about what the hook did not let through as it is (the sandbox's ask for a host, a call another hook rewrote).
 - **The run's input** gains `denylist` (`RunDenylist`), set on an unattended run only: the sandbox's `filesystem.denyRead` and `allowRead`, and `disallowedTools` as `Bash(<pattern>)`. The containment level is the SDK's `sandbox` at both workspace levels; the descriptor declares `containment`. The process's spawn key holds the containment and the projection, so a run under another level or other rules gets a fresh process.
-- **The sandbox's ask for a host** (`SandboxNetworkAccess`) is answered by the adapter from the gate alone, with no turn and no prompt: the network is open at `workspace`, which the pinned sandbox can only express by asking.
+- **The sandbox's ask for a host** (`SandboxNetworkAccess`) is answered by the adapter from the gate alone, opening no turn: a denylisted host is put to the person as a `denylist` prompt of the live run, and any other is allowed at once with no permission prompt, since the network is open at `workspace`, which the pinned sandbox can only express by asking.
 - **An approved plan's mode** is the process's record of its mode as well as the CLI's, so a later run's move reads the mode the CLI is in.
 
 Things the build session must verify first, in this order:

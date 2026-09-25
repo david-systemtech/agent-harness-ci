@@ -455,8 +455,9 @@ export type GateDecision = { readonly decision: "allow" } | { readonly decision:
  * allow lets that one call on, denied at once on an unattended one. For
  * Claude it is asked from the SDK's `PreToolUse` hook, which the CLI runs
  * before its own evaluation of every call (#140), and from `canUseTool` for
- * what no hook saw (the sandbox's ask for a host); the fake adapter asks it
- * for every call it plays.
+ * what the hook did not let through as it is: the sandbox's ask for a host,
+ * which no hook sees, and a call another hook rewrote since; the fake
+ * adapter asks it for every call it plays.
  */
 export interface ToolGate {
   /**
