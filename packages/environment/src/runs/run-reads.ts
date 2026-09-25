@@ -122,6 +122,33 @@ export const providerHeld = (reader: Reader, sessionId: string, runId: string): 
     )
     .map((row) => row.message_id);
 
+/** Who holds a message sent to a session: the provider or the environment while it is queued, then `read` or `withdrawn` for good. */
+export type MessageHolder = "provider" | "environment" | "read" | "withdrawn";
+
+/** A message sent to a session as the runs table holds it: where it is, the run it was sent during, and its text. */
+export interface SentMessageRow {
+  readonly messageId: string;
+  readonly sessionId: string;
+  readonly runId: string;
+  readonly heldBy: MessageHolder;
+  readonly text: string;
+}
+
+/** The message `messageId`; null for one never sent, or whose session was purged. */
+export const readSentMessage = (reader: Reader, messageId: string): SentMessageRow | null => {
+  const [row] = reader.all<{ message_id: string; session_id: string; run_id: string; held_by: MessageHolder; text: string }>(
+    "SELECT message_id, session_id, run_id, held_by, text FROM run_messages WHERE message_id = ?",
+    messageId,
+  );
+  return row === undefined ? null : { messageId: row.message_id, sessionId: row.session_id, runId: row.run_id, heldBy: row.held_by, text: row.text };
+};
+
+/** The messages the session's provider holds, whichever run each was sent during, in the order they were sent. */
+export const providerQueue = (reader: Reader, sessionId: string): string[] =>
+  reader
+    .all<{ message_id: string }>("SELECT message_id FROM run_messages WHERE session_id = ? AND held_by = 'provider' ORDER BY sequence", sessionId)
+    .map((row) => row.message_id);
+
 /** The ceilings of the clients that sent `messageIds`, as `message.sent` recorded them: a run that reads them is clamped to each (#119, #129). */
 export const messageCeilings = (reader: Reader, messageIds: readonly string[]): Mode[] =>
   messageIds.length === 0

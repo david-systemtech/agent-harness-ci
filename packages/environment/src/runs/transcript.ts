@@ -6,6 +6,7 @@ import {
   type MessageDeliveredPayload,
   type MessageRequeuedPayload,
   type MessageSentPayload,
+  type MessageWithdrawnPayload,
   type ParkedPrompt,
   type PromptAnsweredPayload,
   type PromptOpenedPayload,
@@ -194,6 +195,14 @@ export const foldTranscript = (events: Iterable<EventEnvelope>, from?: Transcrip
         // Queued again, in the environment's queue: after an interrupt, or a run that never reached its adapter.
         const item = messages.get((event.payload as MessageRequeuedPayload).messageId);
         if (item !== undefined) Object.assign(item, { delivery: "queued", heldBy: "environment" });
+        break;
+      }
+      case "message.withdrawn": {
+        // Taken back before any run read it (#228): its text is the draft now, so the queued row goes; the log keeps it.
+        const { messageId } = event.payload as MessageWithdrawnPayload;
+        const item = messages.get(messageId);
+        if (item !== undefined) items = items.filter((held) => held !== item);
+        messages.delete(messageId);
         break;
       }
       case "assistant.text":
