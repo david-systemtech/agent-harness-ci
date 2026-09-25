@@ -472,7 +472,7 @@ export const createOutbox = (host: OutboxHost): Outbox => {
    */
   const ownEarlierAttempt = (entry: OutboxEntry, receipt: RejectedReceipt) => {
     if (entry.attempts < 2) return false;
-    if (entry.method === "groups.create" || entry.method === "sessions.create") return receipt.reason === "conflict" && receipt.error.data["reason"] === "exists";
+    if (entry.method === "groups.create" || entry.method === "sessions.create") return receipt.reason === "conflict" && receipt.error.data?.["reason"] === "exists";
     return (entry.method === "sessions.delete" || entry.method === "sessions.purge" || entry.method === "groups.delete") && receipt.reason === "not_found";
   };
 
