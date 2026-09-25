@@ -5,7 +5,7 @@
  * non-root user that owns the volumes' mount points, the compose file runs
  * that user on named volumes, and neither sets `IS_SANDBOX` or
  * `CLAUDE_CODE_BUBBLEWRAP`. What only a real build and run can show is the
- * manual check in the pull request.
+ * manual check listed under Owed in the pull request (#253).
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -26,11 +26,12 @@ const instructions = (text: string): string[] =>
     .map((line) => line.trim().replace(/\s+/g, " "))
     .filter((line) => line !== "");
 
-/** The instructions of the image's last stage: what the container runs. */
+/** The instructions of the image's last stage, from its `FROM`: what the container runs. */
 const finalStage = (): string[] => {
   const all = instructions(dockerfile);
-  const from = all.map((line, index) => (/^FROM /i.test(line) ? index : -1)).filter((index) => index >= 0);
-  return all.slice(from.at(-1));
+  const last = all.findLastIndex((line) => /^FROM /i.test(line));
+  if (last === -1) throw new Error("The Dockerfile has no FROM line, so it has no stage.");
+  return all.slice(last);
 };
 
 /** The compose file without its comments. */
@@ -50,6 +51,10 @@ const imageUser = (): { name: string; uid: string; gid: string } => {
 };
 
 describe("the container image", () => {
+  it("has a last stage that starts at a FROM", () => {
+    expect(finalStage()[0]).toBe("FROM node:24-bookworm-slim");
+  });
+
   it("runs its last stage as the non-root user it creates, with a fixed uid and gid", () => {
     const { name, uid, gid } = imageUser();
     expect(name).toBe("agent-harness");
