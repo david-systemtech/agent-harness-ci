@@ -1,6 +1,7 @@
 import type { CanUseTool, EffortLevel, HookCallback, HookCallbackMatcher, HookEvent, McpServerConfig, Options, PermissionMode, SandboxSettings, SessionStore, SettingSource } from "@anthropic-ai/claude-agent-sdk";
-import type { RunInput } from "../../adapter/contract.js";
+import { isInProcess, type RunInput } from "../../adapter/contract.js";
 import { composeRunEnvironment, type HostEnvironment } from "./credentials.js";
+import { hostToolServer, serverRule } from "./host-tools.js";
 
 /**
  * The options a Claude run is handed (claude-adapter spec, "The Claude
@@ -108,11 +109,23 @@ export const claudeEffort = (effort: string | null): EffortLevel | null => {
 const systemPrompt = (instructions: string): NonNullable<Options["systemPrompt"]> =>
   instructions.trim() === "" ? { type: "preset", preset: "claude_code" } : { type: "preset", preset: "claude_code", append: instructions };
 
-/** The factory's tool servers as the SDK's MCP servers, by name; their configs are the factory's (`ToolServer.config`). */
+/**
+ * The factory's tool servers as the SDK's MCP servers, by name: a configured
+ * server's config is the factory's (`ToolServer.config`); an in-process
+ * server's tools are served by an in-process MCP server (`host-tools.ts`).
+ */
 const mcpServers = (run: RunInput): Record<string, McpServerConfig> | null => {
   if (run.toolServers.length === 0) return null;
-  return Object.fromEntries(run.toolServers.map((server) => [server.name, server.config as McpServerConfig]));
+  return Object.fromEntries(run.toolServers.map((server) => [server.name, isInProcess(server) ? hostToolServer(server) : (server.config as McpServerConfig)]));
 };
+
+/**
+ * The permission rules that let an external in-process server's tools go
+ * ahead without asking (#139): a completions caller runs its own tools, so a
+ * call to one touches nothing here, and a prompt nobody present could answer
+ * would deny it on every unattended run.
+ */
+const allowedTools = (run: RunInput): string[] => run.toolServers.filter((server) => isInProcess(server) && server.external).map((server) => serverRule(server.name));
 
 /**
  * The run's hooks: the tool gate's `PreToolUse`, matching every tool (no
@@ -207,6 +220,7 @@ export const buildRunOptions = (input: RunOptionsInput): Options => {
   const mode = claudeMode(run.mode);
   const effort = claudeEffort(run.effort);
   const servers = mcpServers(run);
+  const allowed = allowedTools(run);
   const settingSources: SettingSource[] = run.trusted ? ["project"] : [];
   const sandbox = sandboxOf(run);
   const disallowedTools = disallowedShell(run.denylist);
@@ -240,6 +254,7 @@ export const buildRunOptions = (input: RunOptionsInput): Options => {
     settingSources,
     strictMcpConfig: true,
     ...(servers !== null && { mcpServers: servers }),
+    ...(allowed.length > 0 && { allowedTools: allowed }),
     ...(input.pluginDirectory !== null && { plugins: [{ type: "local", path: input.pluginDirectory }] }),
     // The flag layer, which the CLI reads before the project's (whose own value it ignores for security) and the user's.
     ...(input.autoMemoryDirectory !== null && { settings: { autoMemoryDirectory: input.autoMemoryDirectory } }),

@@ -13,6 +13,7 @@ import {
   type AdapterRun,
   type GateDecision,
   type GatedToolCall,
+  type InProcessToolServer,
   type PermissionBroker,
   type PromptDecision,
   type PromptRequest,
@@ -1799,6 +1800,35 @@ describe("a run that joins a kept process", () => {
     const fresh = await fake.made(2);
     expect(query.closed).toBe(true);
     expect(fresh.options.systemPrompt).toEqual({ type: "preset", preset: "claude_code", append: "Composed.\n\nPersona: tidy." });
+  });
+
+  it("serves a run whose in-process tools differ from the kept process's on a fresh process, and attaches one whose tools are the same (#139)", async () => {
+    const adapter = adapterWith();
+    const context = contextWith();
+    const serverOf = (description: string): InProcessToolServer => ({
+      name: "client",
+      external: true,
+      tools: [{ name: "get_weather", description, inputSchema: { type: "object", properties: { city: { type: "string" } } }, call: async () => ({ text: "Sunny", isError: false }) }],
+    });
+    const input = runInput({ toolServers: [serverOf("The weather.")] });
+    const run = adapter.createRun(input, context);
+    const query = await started();
+    expect(query.options.allowedTools).toEqual(["mcp__client"]);
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [input.prompt[0]?.messageId as string]), sdk.toolUse("toolu_cron", "CronCreate", { cron: "0 * * * *" }), sdk.toolResult("toolu_cron"), sdk.result(PROVIDER_SESSION));
+    await drain(run);
+    run.release();
+    // The same tools, built afresh for the next run of the session, attach to the kept process.
+    const same = adapter.createRun(runInput({ toolServers: [serverOf("The weather.")], target: { kind: "resume", providerSessionId: PROVIDER_SESSION } }), context);
+    await query.promptsPushed(2);
+    expect(fake.queries).toHaveLength(1);
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_2", [(await query.promptsPushed(2))[1]?.uuid as string]), sdk.result(PROVIDER_SESSION));
+    await drain(same);
+    same.release();
+    // Tools the model would see otherwise need a process started with them.
+    adapter.createRun(runInput({ toolServers: [serverOf("The weather, today.")], target: { kind: "resume", providerSessionId: PROVIDER_SESSION } }), context);
+    const fresh = await fake.made(2);
+    expect(query.closed).toBe(true);
+    expect(Object.keys(fresh.options.mcpServers ?? {})).toEqual(["client"]);
   });
 
   it("keeps serving the session from the fresh process once the one it replaced has closed twice, disposed and then its pump ended", async () => {

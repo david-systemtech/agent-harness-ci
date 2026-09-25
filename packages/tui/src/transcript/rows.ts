@@ -1,0 +1,127 @@
+import type {
+  AssistantEntry,
+  CommandEntry,
+  OpaqueEntry,
+  PromptEntry,
+  SessionProjection,
+  SubagentEntry,
+  ToolCallEntry,
+  UserMessageEntry,
+} from "@agent-harness/client-runtime";
+import type { RunSummary } from "@agent-harness/contracts";
+
+/**
+ * The transcript's rows (docs/specs/tui.md, "The transcript: a projection of
+ * one session"): `projections.session`'s entries in the order they were
+ * opened, folded as Artemis folds them, and nothing rebuilt client-side. A
+ * row is what the transcript's cursor lands on and what the pager, `/export`
+ * and `/copy` read; how it is drawn is `lines.ts`'s.
+ *
+ * - **A run's tool calls are one row**, at the place its first call was made
+ *   (Artemis's `inOrderOfStart`): its finished calls fold into one count and
+ *   what is running or went wrong stands under it in full. A subagent's calls
+ *   are the runtime's `subagent` entry, a row of their own.
+ * - **A queued message is not a row**: it is on the queued line until it is
+ *   steered or read (ADR 0022), then a row where it was sent.
+ * - **Prompts, questions and plans** stand at the sequence of their
+ *   `prompt.opened` (permissions spec), answered or parked; a plan draws its
+ *   text in place.
+ * - **Delegated work** (`tasks`) is not a row: it is the strip under the
+ *   transcript.
+ * - **Under each finished turn**, a `turn` row: how it ended, how long it
+ *   took, its tokens and dollars, and the plan windows it moved when known.
+ * - **An event this version cannot show** is one dim row naming its type
+ *   (ADR 0001): an older terminal survives a newer environment.
+ *
+ * Pure: the projection goes in, plain data comes out.
+ */
+
+export type Row =
+  | { readonly kind: "user"; readonly id: string; readonly runId: string; readonly entry: UserMessageEntry }
+  | { readonly kind: "assistant"; readonly id: string; readonly runId: string; readonly entry: AssistantEntry }
+  | { readonly kind: "calls"; readonly id: string; readonly runId: string; readonly calls: readonly ToolCallEntry[] }
+  | { readonly kind: "command"; readonly id: string; readonly runId: string; readonly entry: CommandEntry }
+  | { readonly kind: "prompt"; readonly id: string; readonly runId: string; readonly entry: PromptEntry }
+  | { readonly kind: "subagent"; readonly id: string; readonly runId: string; readonly entry: SubagentEntry }
+  | { readonly kind: "turn"; readonly id: string; readonly runId: string; readonly run: RunSummary }
+  | { readonly kind: "opaque"; readonly id: string; readonly runId: null; readonly entry: OpaqueEntry };
+
+/** The row a run's calls fold into: named for the run, so it keeps its id as the run makes more calls. */
+export const callsRowId = (runId: string): string => `calls:${runId}`;
+
+/** The rows of a session's projection, in the order they are drawn. */
+export const transcriptRows = (view: Pick<SessionProjection, "items" | "runs">): readonly Row[] => {
+  const rows: Row[] = [];
+  const groups = new Map<string, ToolCallEntry[]>();
+  for (const entry of view.items) {
+    switch (entry.kind) {
+      case "user-message":
+        // A queued message is on the queued line until a run reads it or the provider steers it.
+        if (entry.delivery !== "queued") rows.push({ kind: "user", id: `message:${entry.messageId}`, runId: entry.runId, entry });
+        break;
+      case "assistant-text":
+      case "assistant-thinking":
+        if (entry.text.length > 0 || entry.streaming) {
+          rows.push({ kind: "assistant", id: `${entry.kind === "assistant-text" ? "text" : "thinking"}:${entry.itemId}`, runId: entry.runId, entry });
+        }
+        break;
+      case "tool-call": {
+        const held = groups.get(entry.runId);
+        if (held) held.push(entry);
+        else {
+          const calls = [entry];
+          groups.set(entry.runId, calls);
+          rows.push({ kind: "calls", id: callsRowId(entry.runId), runId: entry.runId, calls });
+        }
+        break;
+      }
+      case "command":
+        rows.push({ kind: "command", id: `command:${entry.sequence}`, runId: entry.runId, entry });
+        break;
+      case "prompt":
+      case "question":
+      case "plan":
+        rows.push({ kind: "prompt", id: `prompt:${entry.promptId}`, runId: entry.runId, entry });
+        break;
+      case "subagent":
+        rows.push({ kind: "subagent", id: `subagent:${entry.runId}:${entry.agentId}`, runId: entry.runId, entry });
+        break;
+      case "tasks":
+        // Delegated work is the strip's, not a row.
+        break;
+      case "opaque":
+        rows.push({ kind: "opaque", id: `opaque:${entry.sequence}`, runId: null, entry });
+        break;
+    }
+  }
+  return withTurns(rows, view.runs);
+};
+
+/** The rows with a `turn` row after the last row of each finished run; a run with no row of its own has none. */
+const withTurns = (rows: readonly Row[], runs: readonly RunSummary[]): readonly Row[] => {
+  const ended = new Map(runs.filter((run) => run.state === "ended").map((run) => [run.runId, run]));
+  if (ended.size === 0) return rows;
+  const last = new Map<string, number>();
+  rows.forEach((row, index) => {
+    if (row.runId !== null && ended.has(row.runId)) last.set(row.runId, index);
+  });
+  const out: Row[] = [];
+  rows.forEach((row, index) => {
+    out.push(row);
+    for (const [runId, at] of last) {
+      const run = ended.get(runId);
+      if (at === index && run) out.push({ kind: "turn", id: `turn:${runId}`, runId, run });
+    }
+  });
+  return out;
+};
+
+/** Whether a call is folded into its run's count: it finished, and nothing about it went wrong. */
+export const folded = (call: ToolCallEntry): boolean => (call.status === "ok" || call.status === "cancelled") && call.decision?.decision !== "denied";
+
+/** The run live on the session, when there is one: its last run still running. */
+export const liveRun = (view: Pick<SessionProjection, "runs">): RunSummary | undefined => view.runs.findLast((run) => run.state === "running");
+
+/** The assistant's last reply: the last settled text of the last run that said anything. */
+export const lastReply = (view: Pick<SessionProjection, "items">): AssistantEntry | undefined =>
+  view.items.findLast((entry): entry is AssistantEntry => entry.kind === "assistant-text" && entry.text.length > 0);

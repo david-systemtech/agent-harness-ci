@@ -22,13 +22,13 @@
       "description": "A run's id: a version 4 UUID the environment mints when the run starts or is adopted."
     },
     "messageId": {
-      "description": "The message the turn was sent as: the prompt of a new run, or a steer.",
+      "description": "The message the turn was sent as: the prompt of a new run, or a steer. Absent on the answer to tool results, which resume a turn and send no message.",
       "type": "string",
       "format": "uuid",
       "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$"
     },
     "delivery": {
-      "description": "How the turn's message was sent, on the first chunk: prompt (it started a run), or queued (a run was live on the session; the answer follows the live run and then whichever run reads the message).",
+      "description": "How the turn's message was sent, on the first chunk: prompt (it started a run), or queued (a run was live on the session; the answer follows the live run and then whichever run reads the message). Absent on the answer to tool results.",
       "type": "string",
       "enum": [
         "prompt",

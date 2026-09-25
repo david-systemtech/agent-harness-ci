@@ -3,7 +3,7 @@ import { MessageDelivery, MessageId, RunId } from "./adapter.js";
 import { AttachmentInput } from "./methods/runs.js";
 import { ClampReason } from "./permissions.js";
 import { Mode } from "./permissions-modes.js";
-import { Sequence } from "./primitives.js";
+import { JsonObject, Sequence } from "./primitives.js";
 import { AutoDecider, PromptDecisionValue, PromptKind } from "./prompts.js";
 import { SessionId } from "./sessions.js";
 import { InterruptCause, RunEndReason, ToolStatus } from "./transcript.js";
@@ -57,10 +57,18 @@ export const REJECTED_PARAMETERS = [
 export const IGNORED_PARAMETERS = ["user", "metadata", "store", "service_tier", "parallel_tool_calls"] as const;
 
 /**
- * A caller's own tools: served by client-tool passthrough (#139). Until it
- * lands they are ignored and reported, never marked honoured.
+ * How long a caller has to answer a call to one of its own tools (#139,
+ * client-tool passthrough): the call's handler stays parked this long, then
+ * the model is handed an error result for it and the run goes on. Ten
+ * minutes, a chosen default.
  */
-export const PASSTHROUGH_PARAMETERS = ["tools", "tool_choice"] as const;
+export const CLIENT_TOOL_CALL_EXPIRY_MS = 10 * 60_000;
+
+/** The most tools a request declares, as OpenAI takes. */
+export const MAX_CLIENT_TOOLS = 128;
+
+/** What a tool's name may be, as OpenAI takes it: 1 to 64 letters, digits, underscores and hyphens. */
+export const CLIENT_TOOL_NAME_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 
 /**
  * The harness's fields on a request, under `agent-harness` (or `artemis`).
@@ -130,10 +138,49 @@ export const ChatMessage = z
   .meta({ description: "A message of the conversation: its role and its content, a string or text parts." });
 export type ChatMessage = z.infer<typeof ChatMessage>;
 
+/** A function the caller declares: the model may call it, and the call comes back to the caller to run (#139). */
+export const ChatToolFunction = z
+  .looseObject({
+    name: z.string().regex(CLIENT_TOOL_NAME_PATTERN).meta({ description: "1 to 64 letters, digits, underscores and hyphens; unique among the request's tools." }),
+    description: z.string().nullish(),
+    parameters: JsonObject.nullish().meta({
+      description: "The call's arguments as a JSON Schema object, handed to the model as written; an object with no properties when absent.",
+    }),
+    strict: z.boolean().nullish().meta({ description: "Not honoured: reported ignored when true." }),
+  })
+  .meta({ description: "A function the caller declares and runs itself." });
+export type ChatToolFunction = z.infer<typeof ChatToolFunction>;
+
+/**
+ * One of the caller's tools, as OpenAI shapes it. Only functions are served:
+ * another type is refused unless the request ignores what it cannot honour.
+ */
+export const ChatTool = z
+  .looseObject({
+    type: z.string().min(1).meta({ description: "function; another type is refused with 400, or ignored under ignoreUnsupported." }),
+    function: ChatToolFunction.optional(),
+  })
+  .meta({ description: "A tool the caller declares: the model's calls to it come back as tool_calls, and the caller sends each result as a tool message." });
+export type ChatTool = z.infer<typeof ChatTool>;
+
+/**
+ * Whether the model may call the caller's tools: `auto` (the default) or
+ * `none` (the tools are withheld from the run). `required` and a named
+ * function are refused with 400, or ignored under `ignoreUnsupported`.
+ */
+export const ChatToolChoice = z
+  .union([
+    z.string().min(1),
+    z.looseObject({ type: z.string().min(1), function: z.looseObject({ name: z.string().min(1) }).optional() }),
+  ])
+  .meta({ description: "auto or none; required and a named function are refused, or ignored under ignoreUnsupported." });
+export type ChatToolChoice = z.infer<typeof ChatToolChoice>;
+
 /**
  * `POST /v1/chat/completions`: OpenAI's request, read loosely. The trailing
- * message must be the user's: it is the turn. Parameters outside the ones
- * named here are ignored.
+ * message is the user's, the turn; or it is one or more tool messages, the
+ * results of calls to the caller's tools (#139), which resume the parked
+ * turn that made them. Parameters outside the ones named here are ignored.
  */
 export const ChatCompletionRequest = z
   .looseObject({
@@ -148,6 +195,12 @@ export const ChatCompletionRequest = z
       .nullish()
       .meta({ description: "Up to four sequences the answer stops before, finish_reason stop." }),
     reasoning_effort: z.string().min(1).nullish().meta({ description: "An alias of agent-harness.thinking, which wins when both are set." }),
+    tools: z
+      .array(ChatTool)
+      .max(MAX_CLIENT_TOOLS)
+      .nullish()
+      .meta({ description: "The caller's own tools: served to the run, each call handed back as tool_calls and answered by a follow-up's tool messages." }),
+    tool_choice: ChatToolChoice.nullish(),
     [COMPLETIONS_NAMESPACE]: CompletionsExtension.nullish(),
     [COMPLETIONS_NAMESPACE_ALIAS]: CompletionsExtension.nullish(),
   })
@@ -155,11 +208,31 @@ export const ChatCompletionRequest = z
 export type ChatCompletionRequest = z.infer<typeof ChatCompletionRequest>;
 
 /** Why an answer ended. */
-export const COMPLETION_FINISH_REASONS = ["stop", "length", "error"] as const;
+export const COMPLETION_FINISH_REASONS = ["stop", "length", "tool_calls", "error"] as const;
 export const CompletionFinishReason = z.enum(COMPLETION_FINISH_REASONS).meta({
-  description: "Why the answer ended: stop (the run completed, or a stop sequence), length (max_tokens), or error (the run ended any other way; the chunk carries error).",
+  description:
+    "Why the answer ended: stop (the run completed, or a stop sequence), length (max_tokens), tool_calls (the model called the caller's tools: send their results to resume the turn), or error (the run ended any other way; the chunk carries error).",
 });
 export type CompletionFinishReason = z.infer<typeof CompletionFinishReason>;
+
+/** A call the model made to one of the caller's tools, parked until the caller answers it with a tool message naming its id. */
+export const ChatToolCall = z
+  .object({
+    id: z.string().min(1).meta({ description: "Minted by the environment: the follow-up's tool message names it as tool_call_id." }),
+    type: z.literal("function"),
+    function: z.object({
+      name: z.string().min(1).meta({ description: "The tool's name as the request declared it." }),
+      arguments: z.string().meta({ description: "The call's arguments, as JSON text." }),
+    }),
+  })
+  .meta({ description: "A call to one of the caller's tools." });
+export type ChatToolCall = z.infer<typeof ChatToolCall>;
+
+/** A call to one of the caller's tools as a chunk's delta carries it: whole, in one chunk, at its index among the answer's calls. */
+export const ChatToolCallDelta = ChatToolCall.extend({ index: z.int().nonnegative() }).meta({
+  description: "A call to one of the caller's tools, whole, at its index among the calls of the answer.",
+});
+export type ChatToolCallDelta = z.infer<typeof ChatToolCallDelta>;
 
 /** The mode a request asked for, lowered: what it got, under which ceiling, and why. */
 export const CompletionsClamp = z
@@ -191,22 +264,25 @@ export type CompletionsRunEnd = z.infer<typeof CompletionsRunEnd>;
 
 /**
  * The harness's fields on an answer, under `agent-harness`: on every chunk
- * `seq`, the log sequence of the event the chunk renders; on the first, the
- * session, the run, the message the turn was sent as, the clamp and what was
- * ignored; on the non-streaming answer, all of them with the last event's
- * sequence.
+ * `seq`, the log sequence of the event the chunk renders (a chunk carrying
+ * a call to the caller's tools, which no event renders, the last one before
+ * it); on the first, the session, the run, the message the turn was sent as,
+ * the clamp and what was ignored; on the non-streaming answer, all of them
+ * with the last event's sequence.
  */
 export const CompletionsAnswerExtension = z
   .object({
     seq: Sequence.meta({ description: "The log sequence of the event the chunk renders; never decreasing along a stream." }),
     sessionId: SessionId.optional().meta({ description: "The session the turn ran on: continue it by sending it back as agent-harness.sessionId." }),
     runId: RunId.optional(),
-    messageId: MessageId.optional().meta({ description: "The message the turn was sent as: the prompt of a new run, or a steer." }),
+    messageId: MessageId.optional().meta({
+      description: "The message the turn was sent as: the prompt of a new run, or a steer. Absent on the answer to tool results, which resume a turn and send no message.",
+    }),
     delivery: MessageDelivery.exclude(["steered"])
       .optional()
       .meta({
         description:
-          "How the turn's message was sent, on the first chunk: prompt (it started a run), or queued (a run was live on the session; the answer follows the live run and then whichever run reads the message).",
+          "How the turn's message was sent, on the first chunk: prompt (it started a run), or queued (a run was live on the session; the answer follows the live run and then whichever run reads the message). Absent on the answer to tool results.",
       }),
     mode: Mode.optional().meta({ description: "The mode the run the answer follows is in." }),
     clamped: CompletionsClamp.nullable().optional().meta({ description: "The permissionMode asked for and lowered; null when nothing was." }),
@@ -262,7 +338,7 @@ export const ChatCompletionChunk = z
     choices: z.array(
       z.object({
         index: z.int().nonnegative(),
-        delta: z.object({ role: z.literal("assistant").optional(), content: z.string().optional() }),
+        delta: z.object({ role: z.literal("assistant").optional(), content: z.string().optional(), tool_calls: z.array(ChatToolCallDelta).optional() }),
         finish_reason: CompletionFinishReason.nullable(),
       }),
     ),
@@ -284,7 +360,7 @@ export const ChatCompletion = z
       .array(
         z.object({
           index: z.int().nonnegative(),
-          message: z.object({ role: z.literal("assistant"), content: z.string() }),
+          message: z.object({ role: z.literal("assistant"), content: z.string(), tool_calls: z.array(ChatToolCall).min(1).optional() }),
           finish_reason: CompletionFinishReason,
         }),
       )

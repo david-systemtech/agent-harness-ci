@@ -124,7 +124,7 @@ describe("the help overlay", () => {
     const row = rowsWith(app.frame(), "Open this map, from an empty composer")[0];
     expect(row).toContain("Ctrl+X");
     expect(row).toContain("(remapped)");
-    expect(rowsWith(app.frame(), "Clear the draft, or close the question or the card; else quit")[0]).not.toContain("(remapped)");
+    expect(rowsWith(app.frame(), "Clear the text or close the card; else interrupt, then quit")[0]).not.toContain("(remapped)");
   });
 });
 
