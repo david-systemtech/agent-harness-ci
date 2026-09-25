@@ -47,6 +47,8 @@ export interface AdapterCredentialSpec extends CredentialSpec {
 export interface AccountRef {
   readonly id: string;
   readonly directory: string | null;
+  /** The account's label, for what a person reads (a run's error naming the account); absent where the caller has none. */
+  readonly label?: string;
 }
 
 /**
@@ -536,6 +538,13 @@ export interface RunContext {
    * failed check is logged.
    */
   reportIdentity(identity: AccountIdentity): void;
+  /**
+   * The provider found the run's account unable to sign in (Claude: the
+   * refresh of an expired login before a cold resume failed, #229): the
+   * account store reads its status again at once, so the account pickers
+   * show what the provider says of it now. The host's never throws.
+   */
+  recheckAccount(): void;
   /**
    * The adoption hook: a turn the provider opened on its own is reported
    * here, and the host registers it as a run of the same session once the

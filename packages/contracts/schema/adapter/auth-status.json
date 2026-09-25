@@ -65,7 +65,7 @@
       "description": "Why the status could not be read, when it could not."
     },
     "expired": {
-      "description": "True when the provider says the login has lapsed and must be signed in again; absent when it cannot tell (Claude's status cannot).",
+      "description": "True when the provider says the login has lapsed and must be signed in again; absent when it cannot tell. Claude's status command cannot, so its adapter says so only once the refresh of an expired login has failed.",
       "type": "boolean"
     }
   },

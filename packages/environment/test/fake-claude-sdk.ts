@@ -26,8 +26,8 @@ export interface FakeControls {
   /** What `cancelAsyncMessage` answers per uuid, at once or when its promise settles; absent means the method is absent. */
   cancelled?: (uuid: string) => boolean | Promise<boolean>;
   accountInfo?: () => Promise<{ email?: string; organization?: string }>;
-  /** The usage method: its name on the query, and its answer. */
-  usage?: { readonly name: string; readonly answer: () => Promise<unknown> };
+  /** The usage method: its name on the query, and its answer, given the query asked (its options, its environment). */
+  usage?: { readonly name: string; readonly answer: (query: FakeQuery) => Promise<unknown> };
   supportedModels?: () => Promise<unknown[]>;
   supportedCommands?: () => Promise<{ name: string; description: string; argumentHint: string }[]>;
 }
@@ -59,7 +59,7 @@ export class FakeQuery {
     if (typeof params.prompt !== "string") this.#read(params.prompt).catch((error: unknown) => this.fail(error));
     if (controls.usage !== undefined) {
       const { name, answer } = controls.usage;
-      (this as unknown as Record<string, unknown>)[name] = async () => answer();
+      (this as unknown as Record<string, unknown>)[name] = async () => answer(this);
     }
     if (controls.plainInterrupt === true) {
       const counted = this.interrupt.bind(this);
