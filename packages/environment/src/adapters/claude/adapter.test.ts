@@ -113,7 +113,7 @@ const contextWith = (decide?: (request: PromptRequest) => Promise<PromptDecision
     },
   };
   const identities: AccountIdentity[] = [];
-  return { broker, gate: { check: async () => ({ decision: "allow" }) }, adopt: (turn) => adopted.push(turn), adopted, asked, identities, reportIdentity: (identity) => void identities.push(identity), process: {
+  return { broker, gate: { check: async () => ({ decision: "allow" }) }, adopt: (turn) => adopted.push(turn), adopted, asked, identities, reportIdentity: (identity) => void identities.push(identity), recheckAccount: () => undefined, process: {
       hold: (kind, id) => port.push(`hold ${kind}:${id}`),
       unhold: (kind, id) => port.push(`unhold ${kind}:${id}`),
       exited: () => port.push("exited"),

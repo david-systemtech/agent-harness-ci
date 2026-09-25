@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { SessionId, type AccountIdentity } from "@agent-harness/contracts";
+import { SessionId, type AccountIdentity, type AuthStatus } from "@agent-harness/contracts";
 import type { AccountRef, Adapter, AdapterDescriptor, PromptMessage, ProviderCommand, RunInput } from "../../adapter/contract.js";
 import { systemClock, type Clock } from "../../serve/clock.js";
 import { configDirQueue as processQueue, type ConfigDirQueue } from "./config-dir-queue.js";
@@ -10,6 +10,7 @@ import { withControlQuery } from "./control-query.js";
 import { CLAUDE_PROVIDER, ambientConfigDirectory, claudeCredentials, readClaudeStatus, type CommandRunner, type HostEnvironment } from "./credentials.js";
 import { bundledExecutable } from "./executable.js";
 import { mirrorUserTitle, readGeneratedTitle, readSubagentTranscript, type ClaudeSessionStore } from "./history.js";
+import { LoginLapsed, createLoginRefresher } from "./login-refresh.js";
 import { catalogueOf, staticCatalogue } from "./models.js";
 import { CLAUDE_MODES, claudeEffort, claudeMode } from "./options.js";
 import { createPlanUsageReader, readUsageMethod, type UsageOutcome } from "./plan-usage.js";
@@ -155,24 +156,61 @@ export const createClaudeAdapter = (options: ClaudeAdapterOptions = {}): ClaudeA
   const executablePath = (): string | null => (executable === undefined ? (executable = bundledExecutable()) : executable);
   /** The processes kept by conversation: at most one per harness session. */
   const processes = new Map<string, ClaudeProcess>();
+  const queue = options.configDirQueue ?? processQueue;
 
-  const status = (account: AccountRef) =>
-    readClaudeStatus({
+  const controlIn = (directory: string, cwd: string) => ({
+    clock,
+    hostEnv,
+    executablePath: executablePath(),
+    directory,
+    cwd,
+    timeoutMs: timings.controlTimeoutMs,
+  });
+  const control = (account: AccountRef, cwd: string) => controlIn(configDirectory(account), cwd);
+
+  /**
+   * An expired login refreshed before a cold resume (#229): the usage read on
+   * an unsampled query in the account's own directory, which the bundled CLI
+   * makes with its OAuth refresh on (a 401 is refreshed and retried), so the
+   * CLI refreshes the stored login in place. Whether it did is the expiry
+   * read afterwards; what the read answered is only the reason when it did not.
+   */
+  const logins = createLoginRefresher({
+    clock,
+    queue,
+    refresh: async (directory) => {
+      const outcome = await withControlQuery(controlIn(directory, tmpdir()), (query) => readUsageMethod(query));
+      if (outcome.kind === "failed") throw new Error(outcome.message);
+      if (outcome.kind === "missing") throw new Error("this SDK build has no usage read to have the CLI refresh the login with");
+    },
+  });
+
+  /**
+   * The account's sign-in state: the bundled binary's status, except that a
+   * login whose refresh failed (#229) reads expired while it is still due one:
+   * the binary says signed in whatever the token's state, and cannot run.
+   * The refresh is tried again first, so one that failed for a passing reason
+   * (no network) clears at the next read; a sign-in, or any process that
+   * refreshed the login meanwhile, clears it too.
+   */
+  const status = async (account: AccountRef): Promise<AuthStatus> => {
+    const directory = configDirectory(account);
+    const read = await readClaudeStatus({
       executable: executablePath(),
-      directory: configDirectory(account),
+      directory,
       hostEnv,
       timeoutMs: timings.statusTimeoutMs,
       ...(options.runCommand !== undefined && { run: options.runCommand }),
     });
-
-  const control = (account: AccountRef, cwd: string) => ({
-    clock,
-    hostEnv,
-    executablePath: executablePath(),
-    directory: configDirectory(account),
-    cwd,
-    timeoutMs: timings.controlTimeoutMs,
-  });
+    if (!read.signedIn || !logins.lapsed(directory)) return read;
+    try {
+      await logins.ensureFresh(directory, account.id);
+      return read;
+    } catch (error) {
+      if (!(error instanceof LoginLapsed)) throw error;
+      return { signedIn: false, authMethod: null, email: null, orgName: null, subscriptionType: null, error: null, expired: true };
+    }
+  };
 
   const usage = createPlanUsageReader({
     clock,
@@ -203,7 +241,8 @@ export const createClaudeAdapter = (options: ClaudeAdapterOptions = {}): ClaudeA
     sessionStore: options.sessionStore ?? null,
     pluginDirectory: (input) => options.pluginDirectory?.(input.account) ?? null,
     autoMemoryDirectory: (input) => (options.autoMemoryRoot === undefined ? null : autoMemoryDirectory(options.autoMemoryRoot, input)),
-    queue: options.configDirQueue ?? processQueue,
+    queue,
+    freshLogin: (account) => logins.ensureFresh(configDirectory(account), account.id),
     timings,
     diagnostic,
     onRateLimit: (verdict) => usage.fold(account, verdict),

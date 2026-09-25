@@ -935,6 +935,11 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
         () => accounts.crossCheck(entry.plan.account.id, identity, entry.runId),
         (error) => console.error(`Cross-checking the identity run ${entry.runId} reported failed:`, error),
       ),
+    recheckAccount: () =>
+      safely(
+        () => accounts.recheck(entry.plan.account.id),
+        (error) => console.error(`Reading the status of the account of run ${entry.runId} again failed:`, error),
+      ),
   });
 
   /**

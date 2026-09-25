@@ -107,6 +107,16 @@ describe("a Claude process's environment", () => {
     expect(env).not.toHaveProperty("UNSET");
   });
 
+  it("points the CLI's credential store at the account's directory, never the host's (#229)", () => {
+    // A resume through the session store runs the CLI in a temporary copy whose credentials have no refresh token: the
+    // store's own directory is where the CLI reads and refreshes the account's login, and names its keychain item on macOS.
+    const env = composeRunEnvironment({ ...host, CLAUDE_SECURESTORAGE_CONFIG_DIR: "/home/david/.claude-other" }, "/data/accounts/work");
+    expect(env["CLAUDE_SECURESTORAGE_CONFIG_DIR"]).toBe("/data/accounts/work");
+    expect(isScrubbed("CLAUDE_SECURESTORAGE_CONFIG_DIR")).toBe(true);
+    // Set from the account whoever asks, as the config directory is.
+    expect(composeRunEnvironment(host, "/data/accounts/work", { CLAUDE_SECURESTORAGE_CONFIG_DIR: "/elsewhere" })["CLAUDE_SECURESTORAGE_CONFIG_DIR"]).toBe("/data/accounts/work");
+  });
+
   it("keeps bare mode, other backends, other endpoints and model overrides out", () => {
     const env = composeRunEnvironment(host, "/data/accounts/work");
     for (const name of ["CLAUDE_CODE_SIMPLE", "CLAUDE_CODE_USE_BEDROCK", "ANTHROPIC_BASE_URL", "ANTHROPIC_DEFAULT_OPUS_MODEL", "CLAUDE_CODE_PROJECT_DIR_NAME"]) {
@@ -143,7 +153,9 @@ describe("a Claude process's environment", () => {
       },
       "/data/accounts/work",
     );
-    expect(Object.keys(env).sort()).toEqual(["CLAUDE_CODE_IDLE_TOKEN_THRESHOLD", "CLAUDE_CODE_MAX_OUTPUT_TOKENS", CLAUDE_CONFIG_DIR, "MAX_THINKING_TOKENS", "PATH"].sort());
+    expect(Object.keys(env).sort()).toEqual(
+      ["CLAUDE_CODE_IDLE_TOKEN_THRESHOLD", "CLAUDE_CODE_MAX_OUTPUT_TOKENS", CLAUDE_CONFIG_DIR, "CLAUDE_SECURESTORAGE_CONFIG_DIR", "MAX_THINKING_TOKENS", "PATH"].sort(),
+    );
   });
 
   it("keeps the numeric token limits, which carry no credential", () => {

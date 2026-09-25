@@ -544,6 +544,32 @@ describe("status", () => {
     await vi.waitFor(() => expect(readsOf(t.adapter, directory)).toBe(reads + 1));
   });
 
+  it("is read again at once when a run's provider finds the account's login lapsed, and a status that says expired is recorded and noticed (#229)", async () => {
+    let lapsed = false;
+    const t = await startTestEnvironment({
+      accounts: [{ id: "claude-max", provider: "fake" }],
+      adapter: fakeAdapter({
+        status: () => (lapsed ? { ...signedInAs(null), expired: true } : signedInAs("claude-max@example.com")),
+        script: ({ context }) => {
+          // As the Claude adapter does when the refresh of an expired login before a cold resume fails.
+          lapsed = true;
+          context.recheckAccount();
+          return [end("error", { error: { message: "The Claude account claude-max has an expired login.", code: "login_expired" } })];
+        },
+      }),
+    });
+    onCleanup(() => t.close());
+    const client = await t.client();
+    const { id } = await create(client);
+    const directory = (await list(client))[0]?.directory.path as string;
+    const reads = readsOf(t.adapter, directory);
+    await startRun(client, id);
+    await vi.waitFor(() => expect(readsOf(t.adapter, directory)).toBe(reads + 1));
+    await vi.waitFor(async () => expect((await list(client))[0]?.status.state).toBe("expired"));
+    expect(notices(t)).toEqual([{ accountId: "claude-max", change: "status-changed", warning: null }]);
+    expect(accountEvents(t, "claude-max").filter((event) => event.type === "account.status-changed").at(-1)?.payload).toMatchObject({ status: "expired", previous: "signed-in" });
+  });
+
   it("matches a run's identity on the email ignoring case when either side names no organisation, and tells two organisations apart", async () => {
     const reported: { email: string; organisation: string | null }[] = [
       { email: "CLAUDE-MAX@example.com", organisation: null },

@@ -104,6 +104,7 @@ const context = (): RunContext => ({
   gate: { check: async () => ({ decision: "allow" }) },
   adopt: () => undefined,
   reportIdentity: () => undefined,
+  recheckAccount: () => undefined,
   process: { hold: () => undefined, unhold: () => undefined, exited: () => undefined },
 });
 

@@ -1,6 +1,9 @@
 import { randomUUID } from "node:crypto";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { manualClock } from "../../../test/clock.js";
+import { MANUAL_CLOCK_START, manualClock } from "../../../test/clock.js";
 import { FakeSdk, sdk, type FakeQuery } from "../../../test/fake-claude-sdk.js";
 import type { ContainmentLevel, ContainmentReport, PromptAnsweredPayload, PromptOpenedPayload } from "@agent-harness/contracts";
 import type { PermissionUpdate } from "@anthropic-ai/claude-agent-sdk";
@@ -35,6 +38,7 @@ const { permissionsProjector } = await import("../../permissions/permissions-sto
 const { accountsProjector } = await import("../../accounts/account-store.js");
 const { storeAccounts } = await import("../../../test/accounts.js");
 const { resolvePolicy } = await import("../../permissions/resolver.js");
+const { createProviderTranscriptStore } = await import("../../provider-transcripts/store.js");
 
 /** The prompts the session's runs asked, as their `prompt.opened` recorded them. */
 const openedOf = (t: { log: { readStream: (stream: { kind: string; id: string }) => { type: string; payload: unknown }[] }; sessionId: string }): PromptOpenedPayload[] =>
@@ -86,7 +90,7 @@ const containedAt =
       enforceable: ENFORCEABLE,
     });
 
-const setup = async (policy?: PolicySeam) => {
+const setup = async (policy?: PolicySeam, account: { readonly directory?: string; readonly sessionStore?: boolean } = {}) => {
   const clock = manualClock();
   const log = openEventLog({ path: ":memory:", projectors: [sessionListProjector, runsProjector, permissionsProjector, accountsProjector], clock: () => clock.now() });
   const adapter = createClaudeAdapter({
@@ -95,9 +99,10 @@ const setup = async (policy?: PolicySeam) => {
     hostEnv: { PATH: "/usr/bin" },
     diagnostic: () => undefined,
     runCommand: async () => ({ code: 0, stdout: JSON.stringify({ loggedIn: true, authMethod: "claude.ai", email: "david@example.com" }), stderr: "" }),
+    ...(account.sessionStore === true && { sessionStore: createProviderTranscriptStore({ log, clock }) }),
   });
   // The account store holds the account, read once as startup reads it.
-  const accounts = await storeAccounts({ log, clock, adapters: [adapter], accounts: [{ id: "acct", provider: "claude", directory: "/data/accounts/work" }] });
+  const accounts = await storeAccounts({ log, clock, adapters: [adapter], accounts: [{ id: "acct", provider: "claude", directory: account.directory ?? "/data/accounts/work" }] });
   const host = createAdapterHost({
     log,
     clock,
@@ -222,6 +227,41 @@ describe("a Claude run through the adapter host", () => {
     startRun(t, "Again");
     const next = await runQuery(t, 2);
     expect(next.options.resume).toBe(PROVIDER_SESSION);
+  });
+
+  it("ends a cold resume whose account's expired login cannot be refreshed error, naming the account, and the store reads the account expired (#229)", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "claude-account-"));
+    closers.push(() => rmSync(directory, { recursive: true, force: true }));
+    // Fresh for the first run; expired by the time the idle stop has let the process go.
+    writeFileSync(join(directory, ".credentials.json"), JSON.stringify({ claudeAiOauth: { accessToken: "a", refreshToken: "r", expiresAt: Date.parse(MANUAL_CLOCK_START) + 20 * 60 * 1000 } }));
+    let refreshes = 0;
+    fake.controls = {
+      usage: {
+        name: "usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET",
+        answer: async () => {
+          refreshes += 1;
+          throw new Error("OAuth token refresh failed: invalid_grant");
+        },
+      },
+    };
+    const t = await setup(undefined, { directory, sessionStore: true });
+    const first = startRun(t);
+    const query = await runQuery(t, 1);
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [first.messageId]), sdk.result(PROVIDER_SESSION));
+    await vi.waitFor(() => expect(eventsOf(t).filter((event) => event.type === "run.ended")).toHaveLength(1));
+    t.clock.advance(30 * 60 * 1000);
+    await vi.waitFor(() => expect(query.closed).toBe(true));
+    expect(t.accounts.list()[0]?.status.state).toBe("signed-in");
+    const made = fake.queries.length;
+    const again = startRun(t, "Again");
+    await vi.waitFor(() => expect(eventsOf(t).filter((event) => event.type === "run.ended")).toHaveLength(2));
+    const ended = eventsOf(t).filter((event) => event.type === "run.ended").at(-1);
+    expect(ended?.correlationId).toBe(again.runId);
+    expect(ended?.payload).toMatchObject({ reason: "error", error: { code: "login_expired", message: expect.stringMatching(/Claude account acct .*sign in/) } });
+    // No run was started: only the refresh's unsampled queries were made, none resuming the session.
+    expect(fake.queries.slice(made).filter((made) => made.options.resume !== undefined)).toEqual([]);
+    expect(refreshes).toBeGreaterThanOrEqual(1);
+    await vi.waitFor(() => expect(t.accounts.list()[0]?.status.state).toBe("expired"));
   });
 
   it("adopts the turn the provider opens with a message it held, as the session's next run", async () => {

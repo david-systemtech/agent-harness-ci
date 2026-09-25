@@ -133,6 +133,8 @@ export interface HostAccounts {
   providerOf(id: string): string | null;
   /** A run's provider says who the run is signed in as: checked against the store's identity. */
   crossCheck(accountId: string, identity: AccountIdentity, runId: string): void;
+  /** A run's provider found the account unable to sign in: its status is read again now, and a change noticed (#229). */
+  recheck(accountId: string): void;
 }
 
 /** How an account command is refused: an account the environment does not hold, or a rule it breaks. */
@@ -740,6 +742,13 @@ export const createAccountService = (options: AccountServiceOptions): AccountSer
         "identity-mismatch",
         `Run ${runId} on ${current.label} ran as ${describeIdentity(identity)}, not ${describeIdentity(current.identity)} as the account's status said; its status is read again.`,
       );
+      readStatus(accountId, { fresh: true }).catch((error: unknown) => console.error(`Reading the status of the account ${current.label} again failed:`, error));
+    },
+
+    recheck(accountId) {
+      if (closed) return;
+      const current = liveAccount(reader, accountId);
+      if (current === null) return;
       readStatus(accountId, { fresh: true }).catch((error: unknown) => console.error(`Reading the status of the account ${current.label} again failed:`, error));
     },
 

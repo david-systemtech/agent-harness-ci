@@ -509,6 +509,13 @@ export interface RunContext {
    */
   reportIdentity(identity: AccountIdentity): void;
   /**
+   * The provider found the run's account unable to sign in (Claude: the
+   * refresh of an expired login before a cold resume failed, #229): the
+   * account store reads its status again at once, so the account pickers
+   * show what the provider says of it now. The host's never throws.
+   */
+  recheckAccount(): void;
+  /**
    * The adoption hook: a turn the provider opened on its own is reported
    * here, and the host registers it as a run of the same session once the
    * run it followed has ended.
