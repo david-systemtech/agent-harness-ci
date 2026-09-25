@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { manualClock } from "../../test/clock.js";
 import { storeAccounts } from "../../test/accounts.js";
 import { FAKE_AMBIENT_DIRECTORY, end, fakeAdapter, gate, say, type FakeAdapter } from "../../test/fake-adapter.js";
-import type { ConfiguredAccount } from "../accounts/account-service.js";
+import type { ConfiguredAccount, HostAccounts } from "../accounts/account-service.js";
 import { accountsProjector } from "../accounts/account-store.js";
 import { openEventLog, type EventEnvelope, type EventLog } from "../event-log/event-log.js";
 import { permissionsProjector } from "../permissions/permissions-store.js";
@@ -900,6 +900,42 @@ describe("the host's own bookkeeping", () => {
     expect(thrown).toBeInstanceOf(ContractError);
     expect((thrown as ContractError).data).toMatchObject({ reason: "unsupported" });
     expect(t.adapter.deletedTranscripts).toEqual([]);
+  });
+});
+
+describe("the transcript delete across providers", () => {
+  it("hands the session's adapter only the owned accounts of its own provider, never another provider's directory", async () => {
+    const clock = manualClock();
+    const log = openEventLog({ path: ":memory:", projectors: [sessionListProjector, runsProjector, permissionsProjector, accountsProjector], clock: () => clock.now() });
+    const first = fakeAdapter({ deleteTranscript: true });
+    const second = fakeAdapter({ provider: "other", deleteTranscript: true });
+    const service = await storeAccounts({ log, clock, adapters: [first, second], accounts: [{ id: "a", provider: "fake" }, { id: "b", provider: "other" }] });
+    // Both carried over as adopted; read as owned here, so the delete is handed them.
+    const accounts: HostAccounts = {
+      facts: (id) => {
+        const facts = service.facts(id);
+        return facts === null ? null : { ...facts, adopted: false };
+      },
+      defaultId: () => service.defaultId(),
+      defaults: () => service.defaults(),
+      providerOf: (id) => service.providerOf(id),
+      crossCheck: (accountId, identity, runId) => service.crossCheck(accountId, identity, runId),
+    };
+    const host = createAdapterHost({ log, clock, adapters: [first, second], accounts, ceilingOf: () => undefined });
+    closers.push(() => log.close(), () => host.close("disposed"), () => service.close());
+    const sessionId = randomUUID();
+    log.append({ kind: "session", id: sessionId }, [created], { actor: "system:test" });
+    const t: Setup = { log, host, adapter: first, sessionId };
+    await untilEnded(t, startRun(t));
+    // A later run of the session on the other provider's account, as a changed default would give it.
+    const started = eventsOf(t).find((event) => event.type === "run.started");
+    const runId = randomUUID();
+    clock.advance(1000);
+    log.append({ kind: "session", id: sessionId }, [{ type: "run.started", payload: { ...started?.payload, runId, accountId: "b" } }], { actor: "system:test", correlationId: runId });
+
+    expect(host.transcripts.deleteTranscript?.(sessionId)).toBeUndefined();
+    expect(first.deletedTranscripts).toEqual([]);
+    expect(second.deletedTranscriptAccounts).toEqual([[{ id: "b", directory: expect.any(String) }]]);
   });
 });
 

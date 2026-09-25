@@ -1122,7 +1122,8 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
         deleteTranscript: (sessionId) => {
           const adapter = adapterOfSession(sessionId, "transcriptDelete", "its transcript cannot be deleted");
           const remove = capability(adapter.descriptor, "transcriptDelete", adapter.deleteTranscript, "delete a provider transcript", "deleteTranscript");
-          const ran = accountsOfSession(sessionId);
+          // Only the accounts of this adapter's provider: another provider's CLI keeps its files its own way.
+          const ran = accountsOfSession(sessionId).filter((account) => accounts.providerOf(account.id) === adapter.descriptor.provider);
           const owned = ran.filter((account) => !account.adopted).map(({ id, directory }) => ({ id, directory }));
           const adopted = owned.length < ran.length;
           // Nothing to hand over when every account it ran under is adopted; a session that never ran is the adapter's to answer.

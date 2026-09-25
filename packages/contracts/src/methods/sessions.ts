@@ -340,7 +340,8 @@ export const sessionsFork = defineMethod({
  * message of the session's visible transcript is `not_found` (data kind
  * `message`); the session's first message is `conflict` (reason
  * `use_new_session`: the client starts a new session with its text as the
- * draft); an adapter that cannot rewind is `invalid_params` with data reason
+ * draft), unless the session is a fork that carried its source's provider
+ * session in, which does hold history before it; an adapter that cannot rewind is `invalid_params` with data reason
  * `unsupported`.
  */
 export const sessionsRewind = defineMethod({
