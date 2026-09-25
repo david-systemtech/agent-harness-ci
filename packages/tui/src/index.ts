@@ -85,6 +85,9 @@ export const runTui = async (options: TuiOptions): Promise<number> => {
     notes: keybindings.launch.problems,
     faults,
     newCommandId: randomUUID,
+    newSessionId: randomUUID,
+    stateDir,
+    cwd: process.cwd(),
   });
   const instance = mountApp(app, { stdin, stdout, stderr }, options.render);
   void host.start().catch((error: unknown) => report(`The runtime did not start: ${messageOf(error)}`));

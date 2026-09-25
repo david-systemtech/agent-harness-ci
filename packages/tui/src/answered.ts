@@ -1,5 +1,6 @@
 import type { ActionId, KeyActionId } from "@agent-harness/contracts";
 import { ANSWERED_COMMANDS } from "./commands/parse.js";
+import { COMPOSER_KEYS } from "./composer/use-composer.js";
 
 /**
  * The actions of the shared list this build answers: the keys the screen
@@ -9,30 +10,46 @@ import { ANSWERED_COMMANDS } from "./commands/parse.js";
  * draws every other action dim with "(soon)", as Artemis drew its planned
  * rows; the screens that answer them add them here as they arrive.
  */
-export const ANSWERED_KEYS = [
+export const SCREEN_KEYS = [
   "app.focus.next",
+  "app.interrupt",
   "app.interruptOrQuit",
+  "app.pager.open",
   "app.help",
-  "composer.send",
-  "composer.backspace",
+  "transcript.pageUp",
+  "transcript.pageDown",
+  "transcript.cursor",
+  "transcript.follow",
+  "row.recall",
+  "row.copy",
+  "row.unfold",
+  "row.stop",
   "rail.leave",
   "row.leave",
   "picker.move",
   "picker.moveVi",
   "picker.choose",
   "picker.leave",
+  "pager.line",
+  "pager.screenDown",
+  "pager.screenUp",
+  "pager.halfDown",
+  "pager.halfUp",
+  "pager.top",
+  "pager.bottom",
+  "pager.turn.next",
+  "pager.turn.prev",
+  "pager.search",
+  "pager.match",
+  "pager.close",
   "confirm.yes",
   "confirm.no",
 ] as const satisfies readonly KeyActionId[];
 
-/**
- * The pager's keys the help overlay borrows to scroll itself. The pager (the
- * whole transcript, `app.pager.open`) is not drawn by this build, so what
- * their rows describe does not exist yet: dispatched, but drawn "(soon)".
- */
-export const OVERLAY_KEYS = ["pager.halfDown", "pager.halfUp", "pager.top", "pager.bottom", "pager.close"] as const satisfies readonly KeyActionId[];
+/** The keys the screen answers itself, beside the composer's (`COMPOSER_KEYS`, `composer/use-composer.ts`). */
+export type ScreenKey = (typeof SCREEN_KEYS)[number];
 
-export type AnsweredKey = (typeof ANSWERED_KEYS)[number] | (typeof OVERLAY_KEYS)[number];
+export const ANSWERED_KEYS: readonly KeyActionId[] = [...SCREEN_KEYS, ...COMPOSER_KEYS];
 
 export const ANSWERED: ReadonlySet<ActionId> = new Set<ActionId>([...ANSWERED_KEYS, ...ANSWERED_COMMANDS.map((name) => `command.${name}` as const)]);
 
@@ -44,7 +61,8 @@ export const ANSWERED: ReadonlySet<ActionId> = new Set<ActionId>([...ANSWERED_KE
  */
 export const BUILD_WORDS: Readonly<Partial<Record<ActionId, string>>> = {
   "app.focus.next": "Round the composer, the rail and the transcript",
-  "app.interruptOrQuit": "Clear the draft, or close the question or the card; else quit",
+  "app.interruptOrQuit": "Clear the text or close the card; else interrupt, then quit",
+  "composer.navigate": "The text, then history",
   "rail.leave": "Back to the composer",
   "row.leave": "Back to the composer",
 };
