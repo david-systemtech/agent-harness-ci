@@ -31,8 +31,9 @@ const V4 = "(?:\\d{1,3}\\.){3}\\d{1,3}";
 
 /**
  * An IPv6 literal as RFC 4291 writes it: eight groups, or fewer around one
- * `::`, the last two groups optionally a dotted IPv4 address. `::::` and
- * nine groups are refused.
+ * `::`, the last two groups optionally a dotted IPv4 address, on either side
+ * of the `::` (RFC 3986's grammar). `::::`, nine groups, and a `:` alone
+ * before a dotted tail are refused.
  */
 const IPV6 = [
   `(?:${H16}:){7}${H16}`,
@@ -45,8 +46,9 @@ const IPV6 = [
   `(?:${H16}:){1,2}(?::${H16}){1,5}`,
   `${H16}:(?::${H16}){1,6}`,
   `:(?:(?::${H16}){1,7}|:)`,
-  `(?:${H16}:){0,5}:${V4}`,
   `::(?:${H16}:){0,5}${V4}`,
+  // One to five groups before the `::`, and up to five less that many after it, then the dotted tail.
+  ...[1, 2, 3, 4, 5].map((before) => `(?:${H16}:){${before - 1}}${H16}::(?:${H16}:){0,${5 - before}}${V4}`),
 ].join("|");
 
 /**
@@ -534,6 +536,111 @@ const OPERATOR_TOKEN = new RegExp(`^${OPERATORS.source}$`);
 /** A token with its quotes and escapes taken out, wherever they stand, and the brackets or punctuation that wrap it off. */
 const unwrap = (token: string): string => token.replace(/["'\\]/g, "").replace(/^[{[]+/, "").replace(/[}\],]+$/, "");
 
+// Shell expansions ------------------------------------------------------------
+
+/** The most words one value's brace expansion is read as, word by word, and the longest value it is read in. */
+const BRACE_WORDS = 256;
+const BRACE_TEXT = 1_024;
+
+/** A brace sequence the shell expands: integers (`{1..3}`, `{01..10}`) or letters (`{a..e}`), with an optional step. */
+const SEQUENCE = /^(?:(-?\d+)\.\.(-?\d+)|([A-Za-z])\.\.([A-Za-z]))(?:\.\.(-?\d+))?$/;
+
+/** A sequence's words, zero-padded when either end is written with a leading zero; null past BRACE_WORDS. */
+const sequenceWords = (sequence: RegExpExecArray): string[] | null => {
+  const [, fromNumber, toNumber, fromLetter, toLetter, stepText] = sequence;
+  const step = Math.abs(Number(stepText ?? "1")) || 1;
+  const numbers = fromNumber !== undefined && toNumber !== undefined;
+  const from = numbers ? Number(fromNumber) : (fromLetter as string).charCodeAt(0);
+  const to = numbers ? Number(toNumber) : (toLetter as string).charCodeAt(0);
+  if (!Number.isSafeInteger(from) || !Number.isSafeInteger(to) || Math.abs(to - from) / step >= BRACE_WORDS) return null;
+  const width = numbers && [fromNumber, toNumber].some((end) => /^-?0\d/.test(end)) ? Math.max(fromNumber.length, toNumber.length) : 0;
+  const written = (value: number): string =>
+    !numbers ? String.fromCharCode(value) : `${value < 0 ? "-" : ""}${String(Math.abs(value)).padStart(value < 0 ? width - 1 : width, "0")}`;
+  const words: string[] = [];
+  const direction = from <= to ? step : -step;
+  for (let value = from; direction > 0 ? value <= to : value >= to; value += direction) words.push(written(value));
+  return words;
+};
+
+/**
+ * The first brace group of `text` the shell expands (the leftmost `{` whose
+ * `}` holds a comma directly inside it, or a sequence) and its words: a
+ * comma list's alternatives as written, nested groups left in them for the
+ * next round, or a sequence's words (null past BRACE_WORDS). Null when there
+ * is no group. One pass over the text.
+ */
+const firstBraceGroup = (text: string): { readonly start: number; readonly end: number; readonly words: string[] | null } | null => {
+  const open: { readonly start: number; readonly commas: number[] }[] = [];
+  let first: { readonly start: number; readonly end: number; readonly words: string[] | null } | null = null;
+  for (let index = 0; index < text.length; index++) {
+    const char = text[index];
+    if (char === "{") open.push({ start: index, commas: [] });
+    else if (char === "," && open.length > 0) open[open.length - 1]?.commas.push(index);
+    else if (char === "}" && open.length > 0) {
+      const { start, commas } = open.pop() as { readonly start: number; readonly commas: number[] };
+      if (first !== null && first.start < start) continue;
+      if (commas.length > 0) {
+        const bounds = [start, ...commas, index];
+        first = { start, end: index, words: bounds.slice(1).map((bound, at) => text.slice((bounds[at] as number) + 1, bound)) };
+        continue;
+      }
+      const inside = text.slice(start + 1, index);
+      const sequence = inside.length <= 48 ? SEQUENCE.exec(inside) : null;
+      if (sequence !== null) first = { start, end: index, words: sequenceWords(sequence) };
+    }
+  }
+  return first;
+};
+
+/**
+ * The words the shell's brace expansion makes of `text`: a comma list
+ * (`~/{.ssh,.aws}`), a sequence of integers or letters (`.s{r..t}h`), nested
+ * (`.n{e,{x,y}}trc`) and several in a row, an empty word dropped as the
+ * shell drops it. `text` alone when it has no group; null when it makes
+ * more than BRACE_WORDS words, takes more than two rounds a word to read,
+ * or is longer than BRACE_TEXT, so a value's cost stays bounded. A quoted
+ * or escaped brace is expanded too: reading more is safe.
+ */
+const braceWords = (text: string): string[] | null => {
+  if (!text.includes("{")) return [text];
+  if (text.length > BRACE_TEXT) return null;
+  const done: string[] = [];
+  const pending = [text];
+  for (let rounds = 0; pending.length > 0; rounds++) {
+    if (rounds > 2 * BRACE_WORDS) return null;
+    const word = pending.pop() as string;
+    const group = firstBraceGroup(word);
+    if (group === null) {
+      if (word !== "") done.push(word);
+      continue;
+    }
+    if (group.words === null) return null;
+    const before = word.slice(0, group.start);
+    const after = word.slice(group.end + 1);
+    for (let at = group.words.length - 1; at >= 0; at--) pending.push(`${before}${group.words[at] as string}${after}`);
+    if (done.length + pending.length > BRACE_WORDS) return null;
+  }
+  return done;
+};
+
+/** A path whose braces make too many words to read one by one, read as everything under the directory before its first brace (`~/.{a..z}{a..z}{a..z}` as `~/**`). */
+const pastBraces = (path: string): string => `${path.slice(0, path.lastIndexOf("/", path.indexOf("{")) + 1)}**`;
+
+/** A bracket expression the shell reads as one character of a set (`[h]`, `[a-z]`, `[!x]`), within one path segment. */
+const BRACKET = /\[[!^]?\]?[^\]/]*\]/g;
+
+/**
+ * The paths a path value names once the shell's brace and bracket
+ * expansions are read: each brace word (past the limit, everything under the
+ * directory before the braces, beside the value as written), and each also
+ * with its bracket expressions as `?`, any one character, which reaches at
+ * least what the set does and, as the shell's own, never a leading dot.
+ */
+const expandedPaths = (value: string): string[] => {
+  const words = braceWords(value) ?? [pastBraces(value), value];
+  return [...new Set(words.flatMap((word) => [word, word.replace(BRACKET, "?")]))];
+};
+
 /**
  * A command line's tokens: split on white space, then at every operator
  * (`$(`, a backtick, `(`, `)`, a redirection, `;`, `&&`, `||`, `&`), each
@@ -557,16 +664,19 @@ const tokenMatches = (pattern: string, token: string): boolean => wildcard(patte
 const commandMatches = (pattern: string, tokens: readonly string[]): boolean => sequenceMatches(["*", ...pattern.trim().split(/\s+/), "*"], tokens, "*", tokenMatches);
 
 /**
- * The tokens with each pipe written against the word after it also split off
- * it, as the shell reads it: `|sudo` as `|` and `sudo`. The same array when
- * the line has none. A command pattern is matched against both readings, so
- * `x|sudo y` meets `sudo *` as `x | sudo y` does, and `curl x |sh` still
- * meets `curl * |*sh *`.
+ * The tokens as the shell reads them further: each token's braces expanded
+ * into its words (`{sudo,} reboot` as `sudo reboot`; past the limit, the
+ * token as written), and each pipe written against the word after it split
+ * off it (`|sudo` as `|` and `sudo`). The same array when the line has
+ * neither. A command pattern is matched against both readings, so `x|sudo y`
+ * meets `sudo *` as `x | sudo y` does, and `curl x |sh` still meets
+ * `curl * |*sh *`.
  */
-const pipesApart = (tokens: readonly string[]): readonly string[] =>
-  tokens.some((token) => token.length > 1 && token.startsWith("|") && token !== "||")
-    ? tokens.flatMap((token) => (token.length > 1 && token.startsWith("|") && token !== "||" ? ["|", token.slice(1)] : [token]))
-    : tokens;
+const shellRead = (tokens: readonly string[]): readonly string[] => {
+  const glued = (token: string): boolean => token.length > 1 && token.startsWith("|") && token !== "||";
+  if (!tokens.some((token) => token.includes("{") || glued(token))) return tokens;
+  return tokens.flatMap((token) => braceWords(token) ?? [token]).flatMap((token) => (glued(token) ? ["|", token.slice(1)] : [token]));
+};
 
 /** A URL: a scheme and `//`, or any `file:` address, which names a local path with one slash as well as with three. */
 const URL_PREFIX = /^(?:[A-Za-z][A-Za-z0-9+.-]*:\/\/|file:)/i;
@@ -604,10 +714,11 @@ const asciiHost = (text: string): string => text.normalize("NFKC").replace(/[\u3
  * (`admin@db.internal`, where a single label is a host too); before a path
  * (`169.254.169.254/latest`), a query or a fragment (`example.com?q=1`,
  * `example.com#top`, where an address's authority ends too) or scp's
- * `:path` (`git@host.example:repo.git`). The host is the one after the
- * last `@` (ssh's reading); `shellSubjects` also reads the one before a
- * `?` or `#` that comes first (curl's). An absolute, `~` or dot path, an
- * option and a URL are not hosts. The port and a trailing dot are dropped.
+ * `:path` (`git@host.example:repo.git`, `[2001:db8::1]:backup`). The host
+ * is the one after the last `@` (ssh's reading); `shellSubjects` also
+ * reads the one before a `?` or `#` that comes first (curl's). An absolute,
+ * `~` or dot path, an option and a URL are not hosts. The port and a
+ * trailing dot are dropped.
  */
 export const hostToken = (token: string): string | null => {
   const text = asciiHost(token.trim());
@@ -617,6 +728,9 @@ export const hostToken = (token: string): string | null => {
   candidate = candidate.slice(user + 1).split(/[?#]/)[0] as string;
   // A bare IPv6 literal, before its colons are read as scp's `host:path`.
   if (BARE_IPV6.test(candidate)) return candidate;
+  // scp's `:path` after a bracketed literal (`admin@[2001:db8::1]:backup`); a port is the host grammar's.
+  const bracketed = /^(\[[^\]]*\]):(.*)$/.exec(candidate);
+  if (bracketed !== null && !/^\d+$/.test(bracketed[2] as string)) candidate = bracketed[1] as string;
   const scp = /^([^:[\]]+):(.*)$/.exec(candidate);
   if (scp !== null && !/^\d+$/.test(scp[2] as string)) candidate = scp[1] as string;
   // A fully qualified name's trailing dot (`169.254.169.254.`, `example.com.`) reaches the same host.
@@ -628,7 +742,8 @@ export const hostToken = (token: string): string | null => {
 
 /**
  * The path-like tokens, URLs and hosts of a command line, as the matcher
- * reads them against the paths and the hosts: each token unwrapped (quotes
+ * reads them against the paths and the hosts: each token's braces expanded
+ * into its words (`braceWords`), each word unwrapped (quotes
  * and escapes taken out wherever they stand), `$HOME` read as `~`, a
  * redirection's target a token of its own, an option's value (`--out=x`,
  * `of=/dev/sdb`) taken on its own. A path is absolute, `~`-relative, a dot
@@ -640,15 +755,17 @@ const subjectsOf = (tokens: readonly string[]): { paths: string[]; urls: string[
   const paths: string[] = [];
   const urls: string[] = [];
   const hosts: string[] = [];
-  for (const raw of tokens) {
-    if (OPERATOR_TOKEN.test(raw)) continue;
+  const read = (raw: string): void => {
+    // Unwrapping takes a bracket off either end, which an IPv6 literal needs as written (`[::1]:8080`, `admin@[::1]`,
+    // scp's `[2001:db8::1]:backup`): a host read with its brackets stands for the token's own reading.
+    const bracketed = raw.includes("[") ? hostToken(raw.replace(/["'\\]/g, "").replace(/^[^=[]*=/, "")) : null;
+    if (bracketed !== null) hosts.push(bracketed);
     const whole = home(unwrap(raw));
     const equals = whole.indexOf("=");
     // An option's value (`--out=x`), not a query's or a fragment's `=` (`169.254.169.254?x=1`), which is the whole token's.
     const candidates = equals > 0 && !URL_PREFIX.test(whole) && !/[?#]/.test(whole.slice(0, equals)) ? [home(whole.slice(equals + 1))] : [whole];
     // An absolute path with `=` in it is a path too, beside what follows the `=`.
     if (candidates[0] !== whole && (whole.startsWith("/") || whole.startsWith("~/"))) candidates.unshift(whole);
-    let hosted = false;
     for (const token of candidates) {
       if (token === "" || token.startsWith("-")) continue;
       if (URL_PREFIX.test(token)) {
@@ -656,24 +773,27 @@ const subjectsOf = (tokens: readonly string[]): { paths: string[]; urls: string[
         continue;
       }
       if (isPathLike(token)) paths.push(token);
+      if (bracketed !== null) continue;
       const host = hostToken(token);
-      if (host !== null) {
-        hosts.push(host);
-        hosted = true;
-      }
+      if (host !== null) hosts.push(host);
       // A ? or # before the user: curl reads the host before it (`169.254.169.254?x@example.com`), ssh the one after.
       const query = token.search(/[?#]/);
       const before = query > 0 && query < token.lastIndexOf("@") ? hostToken(token.slice(0, query)) : null;
-      if (before !== null) {
-        hosts.push(before);
-        hosted = true;
-      }
+      if (before !== null) hosts.push(before);
     }
-    // Unwrapping takes a bracket off either end, which an IPv6 literal needs (`[::1]:8080`, `admin@[::1]`): read as written too.
-    if (!hosted && raw.includes("[")) {
-      const host = hostToken(raw.replace(/["'\\]/g, "").replace(/^[^=[]*=/, ""));
-      if (host !== null) hosts.push(host);
+  };
+  for (const token of tokens) {
+    if (OPERATOR_TOKEN.test(token)) continue;
+    const words = braceWords(token);
+    if (words !== null) {
+      words.forEach(read);
+      continue;
     }
+    // Too many words to read one by one: the token as written, and as a path with its braces kept, which the path
+    // reading takes as everything under the directory before them (`expandedPaths`).
+    read(token);
+    const kept = home(token.replace(/["'\\]/g, ""));
+    if (isPathLike(kept)) paths.push(kept);
   }
   return { paths, urls, hosts };
 };
@@ -903,8 +1023,8 @@ interface HostSubject extends Subject {
 }
 interface CommandSubject extends Subject {
   readonly tokens: readonly string[];
-  /** The tokens with a glued pipe split off the word after it (`pipesApart`); `tokens` itself when there is none. */
-  readonly apart: readonly string[];
+  /** The tokens with their braces expanded and a glued pipe split off the word after it (`shellRead`); `tokens` itself when there is neither. */
+  readonly read: readonly string[];
 }
 
 /** Keeps the first of each value. */
@@ -928,7 +1048,7 @@ export const matchDenylist = (denylist: Denylist, call: DenylistCall, context: D
   const commands: CommandSubject[] = unique(
     (call.commands ?? []).map((value) => {
       const tokens = tokensOf(value);
-      return { value, tokens, apart: pipesApart(tokens) };
+      return { value, tokens, read: shellRead(tokens) };
     }),
   );
   const pathValues: string[] = [...(call.paths ?? [])];
@@ -954,11 +1074,9 @@ export const matchDenylist = (denylist: Denylist, call: DenylistCall, context: D
   for (const value of hostValues) readInto(value, null);
 
   const paths = pathReader(context);
-  const pathSubjects: PathSubject[] = unique([...pathValues, ...filePaths].map((value) => ({ value }))).map(({ value }) => ({
-    value,
-    forms: paths.forms(value),
-    glob: /[*?]/.test(value),
-  }));
+  const pathSubjects: PathSubject[] = unique([...pathValues, ...filePaths].map((value) => ({ value }))).flatMap(({ value }) =>
+    expandedPaths(value).map((path) => ({ value, forms: paths.forms(path), glob: /[*?]/.test(path) })),
+  );
   const hostPatterns = new Map<string, { readonly wildcard: boolean; readonly host: string | null }>();
   const hostMatchesEntry = (entry: DenylistEntry, subject: HostSubject): boolean => {
     let pattern = hostPatterns.get(entry.pattern);
@@ -980,7 +1098,7 @@ export const matchDenylist = (denylist: Denylist, call: DenylistCall, context: D
   };
   take("browserDomains", unique(domainSubjects), hostMatchesEntry);
   take("paths", pathSubjects, (entry, subject) => paths.matches(entry.pattern, subject));
-  take("commandPatterns", commands, (entry, subject) => commandMatches(entry.pattern, subject.tokens) || (subject.apart !== subject.tokens && commandMatches(entry.pattern, subject.apart)));
+  take("commandPatterns", commands, (entry, subject) => commandMatches(entry.pattern, subject.tokens) || (subject.read !== subject.tokens && commandMatches(entry.pattern, subject.read)));
   take("hosts", unique(hostSubjects), hostMatchesEntry);
   return matches;
 };

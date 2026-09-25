@@ -341,6 +341,13 @@ describe("command patterns", () => {
     }
     expect(shellSubjects("ssh admin@[2001:db8::1]:22 uptime").hosts).toEqual(["[2001:db8::1]"]);
     expect(shellSubjects("nc 2001:db8::1 443").hosts).toEqual(["2001:db8::1"]);
+    // scp's :path after a bracketed literal, with a user and without.
+    expect(first({ commands: ["scp f admin@[::1]:backup"] })?.[1]).toBe("::1");
+    expect(shellSubjects("scp f admin@[2001:db8::1]:backup/").hosts).toEqual(["[2001:db8::1]"]);
+    expect(shellSubjects("scp [2001:db8::1]:backup/x .").hosts).toEqual(["[2001:db8::1]"]);
+    // A dotted IPv4 tail with groups on both sides of the ::.
+    expect(first({ commands: ["nc 0::ffff:169.254.169.254 80"] })?.[1]).toBe("169.254.169.254");
+    expect(shellSubjects("ping 2001:db8:1::a:1.2.3.4").hosts).toEqual(["2001:db8:1::a:1.2.3.4"]);
     // Not an address: a C++ name, a time, a MAC address.
     expect(shellSubjects("echo std::vector 12:30:45 aa:bb:cc:dd:ee:ff").hosts).toEqual([]);
   });
@@ -503,6 +510,27 @@ describe("disguised spellings", () => {
     expect(first({ commands: ["ls ~/projects/*/src"] })).toBeNull();
     expect(first({ commands: [`rm ${DATA}/containment/*/tmp/x`] })).toBeNull();
   });
+
+  it("read a bracket expression as the one character it expands to, never a leading dot", () => {
+    expect(first({ commands: ["cat ~/.ss[h]/id_rsa"] })?.[1]).toBe("~/.ssh");
+    expect(first({ commands: ["cat ~/.[a-z]ws/credentials"] })?.[1]).toBe("~/.aws");
+    expect(first({ paths: ["~/.gnup[!x]/pubring.kbx"] })?.[1]).toBe("~/.gnupg");
+    expect(first({ commands: ["cat ~/[.]ssh/id_rsa"] })).toBeNull();
+  });
+
+  it("expand braces as the shell does: a list, a sequence, nested, and past the limit, everything under the directory before them", () => {
+    expect(named({ commands: ["cat ~/{.ssh,.aws}/config"] }).map(([, pattern]) => pattern)).toEqual(["~/.ssh", "~/.aws"]);
+    expect(first({ commands: ["cat {/dev/null,~/.ssh/id_rsa}"] })?.[1]).toBe("~/.ssh");
+    expect(first({ commands: ["cat ~/.s{r..t}h/id_rsa"] })?.[1]).toBe("~/.ssh");
+    expect(first({ commands: ["cat ~/.n{e,{x,y}}trc"] })?.[1]).toBe("~/.netrc");
+    expect(first({ commands: ["cat ~/.{a..z}{a..z}{a..z}/id_rsa"] })?.[1]).toBe("~/.ssh");
+    // A glob tool's pattern, a host, and a command pattern.
+    expect(first({ paths: ["~/{.kube,.aws}/config"] })?.[1]).toBe("~/.aws");
+    expect(first({ commands: ["curl {example.com,169.254.169.254}/latest"] })?.[1]).toBe("169.254.169.254");
+    expect(first({ commands: ["{sudo,} reboot"] })?.[1]).toBe("sudo *");
+    // Not a group: no comma and no sequence.
+    expect(first({ commands: ["cat ~/.s{s}h/id_rsa"] })).toBeNull();
+  });
 });
 
 describe("the host grammar", () => {
@@ -510,11 +538,16 @@ describe("the host grammar", () => {
     const accepts = (pattern: string) => Denylist.safeParse({ ...presets, hosts: [entry("x", pattern)] }).success;
     for (const pattern of ["::1", "fe80::1", "2001:db8::8a2e:370:7334", "::ffff:169.254.169.254", "1:2:3:4:5:6:7:8", "::"]) expect(accepts(pattern), pattern).toBe(true);
     for (const pattern of ["::::", "1:2:3:4:5:6:7:8:9", "1::2::3", "12345::1", ":1"]) expect(accepts(pattern), pattern).toBe(false);
+    // A dotted IPv4 tail: after six groups, or with fewer on either side of the ::, as RFC 3986's grammar writes it.
+    for (const pattern of ["1:2:3:4:5:6:1.2.3.4", "::ffff:1.2.3.4", "2001:db8::1.2.3.4", "2001:db8:1::a:1.2.3.4", "0::ffff:169.254.169.254", "1:2::3:4:5:1.2.3.4", "1:2:3:4:5::1.2.3.4"]) {
+      expect(accepts(pattern), pattern).toBe(true);
+    }
+    for (const pattern of [":1.2.3.4", "1:2:3:4:5:6::1.2.3.4", "1:2:3:4:5:6:7:1.2.3.4", "1::2::1.2.3.4", "::1:2:3:4:5:6:1.2.3.4"]) expect(accepts(pattern), pattern).toBe(false);
   });
 });
 
 describe("a long call", () => {
-  it("costs its length: each path is resolved once and each entry read once, so 5,000 tokens match well under 100 ms", () => {
+  it("costs its length: each path is resolved once and each entry read once, so 5,000 tokens match in well under a second on a loaded runner", () => {
     let resolves = 0;
     const counting = (path: string) => {
       resolves++;
@@ -523,7 +556,8 @@ describe("a long call", () => {
     const line = `cat ${Array.from({ length: 5_000 }, (_, index) => `src/file-${index % 50}.ts`).join(" ")} ~/.ssh/id_rsa`;
     const started = performance.now();
     const found = matchDenylist(denylist, { commands: [line] }, { ...context, resolve: counting });
-    expect(performance.now() - started).toBeLessThan(100);
+    // 20 to 40 ms on the build box; the bound leaves a shared runner under load its margin.
+    expect(performance.now() - started).toBeLessThan(1_000);
     expect(found.map((match) => match.entry.pattern)).toEqual(["~/.ssh"]);
     // 51 distinct paths, the enabled path entries' literal parts and the exempt directory: never one per token and entry.
     expect(resolves).toBeLessThan(51 + denylist.paths.length + 2);
