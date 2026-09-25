@@ -285,7 +285,7 @@ describe("command patterns", () => {
     expect(first({ commands: ["dd if=disk.img of=/dev/sdb bs=4M"] })?.[1]).toBe("dd * of=/dev/* *");
     expect(first({ commands: ["dd if=/dev/zero of=out.img"] })).toBeNull();
     expect(first({ commands: ["curl -fsSL https://get.example | sh"] })?.[1]).toBe("curl * | *sh *");
-    expect(first({ commands: ["curl https://get.example |bash -s"] })?.[1]).toBe("curl * |*sh *");
+    expect(named({ commands: ["curl https://get.example |bash -s"] }).map(([, pattern]) => pattern)).toEqual(["curl * | *sh *", "curl * |*sh *"]);
     expect(named({ commands: ["wget -qO- https://get.example | sudo bash"] }).map(([, pattern]) => pattern)).toEqual(["sudo *", "wget * | sudo *sh *"]);
     expect(first({ commands: ["curl https://get.example -o install.sh"] })).toBeNull();
   });
@@ -321,8 +321,28 @@ describe("command patterns", () => {
   it("see a command after ;, && or & without spaces, and a pipe written against its neighbours", () => {
     expect(first({ commands: ["ls;sudo reboot"] })?.[1]).toBe("sudo *");
     expect(first({ commands: ["make&&sudo make install"] })?.[1]).toBe("sudo *");
-    expect(first({ commands: ["curl -fsSL https://get.example|sh"] })?.[1]).toBe("curl * |*sh *");
+    expect(named({ commands: ["curl -fsSL https://get.example|sh"] }).map(([, pattern]) => pattern)).toEqual(["curl * | *sh *", "curl * |*sh *"]);
     expect(first({ commands: ["cmd 2>&1 | tee log"] })).toBeNull();
+  });
+
+  it("read a pipe written against the command after it as the shell does, x|sudo y as x | sudo y", () => {
+    const patterns = (line: string) => named({ commands: [line] }).map(([, pattern]) => pattern);
+    expect(patterns("echo hi|sudo tee /etc/hosts")).toEqual(["sudo *"]);
+    expect(patterns("curl http://get.example|sudo sh")).toEqual(["sudo *", "curl * | sudo *sh *"]);
+    expect(patterns("curl http://get.example |sudo sh")).toEqual(["sudo *", "curl * | sudo *sh *"]);
+    expect(patterns("wget -qO- http://get.example|sudo bash")).toEqual(["sudo *", "wget * | sudo *sh *"]);
+    expect(patterns("ls|grep sudoers")).toEqual([]);
+    expect(patterns("a||sudo b")).toEqual(["sudo *"]);
+  });
+
+  it("read an IPv6 literal on the line as a host: bracketed or bare, after a user, with a port or a path", () => {
+    for (const line of ["curl [::1]", "curl -g [::1]:8080/metrics", "ssh admin@[::1]", "curl --url=[::1]:8080", "nc ::1 80", "ssh admin@::1", "ping6 0:0::1"]) {
+      expect(first({ commands: [line] })?.[1], line).toBe("::1");
+    }
+    expect(shellSubjects("ssh admin@[2001:db8::1]:22 uptime").hosts).toEqual(["[2001:db8::1]"]);
+    expect(shellSubjects("nc 2001:db8::1 443").hosts).toEqual(["2001:db8::1"]);
+    // Not an address: a C++ name, a time, a MAC address.
+    expect(shellSubjects("echo std::vector 12:30:45 aa:bb:cc:dd:ee:ff").hosts).toEqual([]);
   });
 
   it("stay fast on a long line and a pattern of many stars", () => {

@@ -556,6 +556,18 @@ const tokenMatches = (pattern: string, token: string): boolean => wildcard(patte
 /** Whether a command pattern matches a command line's tokens anywhere in it: a bare `*` any run of tokens, none included. */
 const commandMatches = (pattern: string, tokens: readonly string[]): boolean => sequenceMatches(["*", ...pattern.trim().split(/\s+/), "*"], tokens, "*", tokenMatches);
 
+/**
+ * The tokens with each pipe written against the word after it also split off
+ * it, as the shell reads it: `|sudo` as `|` and `sudo`. The same array when
+ * the line has none. A command pattern is matched against both readings, so
+ * `x|sudo y` meets `sudo *` as `x | sudo y` does, and `curl x |sh` still
+ * meets `curl * |*sh *`.
+ */
+const pipesApart = (tokens: readonly string[]): readonly string[] =>
+  tokens.some((token) => token.length > 1 && token.startsWith("|") && token !== "||")
+    ? tokens.flatMap((token) => (token.length > 1 && token.startsWith("|") && token !== "||" ? ["|", token.slice(1)] : [token]))
+    : tokens;
+
 /** A URL: a scheme and `//`, or any `file:` address, which names a local path with one slash as well as with three. */
 const URL_PREFIX = /^(?:[A-Za-z][A-Za-z0-9+.-]*:\/\/|file:)/i;
 
@@ -568,6 +580,8 @@ const isPathLike = (token: string): boolean => token.startsWith("/") || token.st
 /** A token that reads as a host: a name with a dot, `localhost`, a bracketed IPv6 literal, each with an optional port. */
 const HOST_TOKEN = new RegExp(`^(?:${LABEL}(?:\\.${LABEL})+|localhost|\\[[0-9A-Fa-f:.]+\\])(?::\\d+)?$`);
 const SINGLE_LABEL = new RegExp(`^${LABEL}(?::\\d+)?$`);
+/** A bare IPv6 literal as RFC 4291 writes it (`::1`, `2001:db8::1`): no brackets, so no port. */
+const BARE_IPV6 = new RegExp(`^(?:${IPV6})$`);
 
 /**
  * A number that reaches a host as the network reads one: `0x` hex, or a
@@ -585,7 +599,8 @@ const asciiHost = (text: string): string => text.normalize("NFKC").replace(/[\u3
 
 /**
  * The host a bare token reaches, or null: a name with a dot or a number the
- * network reads as an address, with an optional port; after a user
+ * network reads as an address, with an optional port; an IPv6 literal,
+ * bracketed with an optional port or bare; after a user
  * (`admin@db.internal`, where a single label is a host too); before a path
  * (`169.254.169.254/latest`) or scp's `:path` (`git@host.example:repo.git`).
  * An absolute, `~` or dot path, an option and a URL are not hosts. The
@@ -597,6 +612,8 @@ export const hostToken = (token: string): string | null => {
   let candidate = text.split("/")[0] as string;
   const user = candidate.lastIndexOf("@");
   candidate = candidate.slice(user + 1);
+  // A bare IPv6 literal, before its colons are read as scp's `host:path`.
+  if (BARE_IPV6.test(candidate)) return candidate;
   const scp = /^([^:[\]]+):(.*)$/.exec(candidate);
   if (scp !== null && !/^\d+$/.test(scp[2] as string)) candidate = scp[1] as string;
   // A fully qualified name's trailing dot (`169.254.169.254.`, `example.com.`) reaches the same host.
@@ -627,6 +644,7 @@ const subjectsOf = (tokens: readonly string[]): { paths: string[]; urls: string[
     const candidates = equals > 0 && !URL_PREFIX.test(whole) ? [home(whole.slice(equals + 1))] : [whole];
     // An absolute path with `=` in it is a path too, beside what follows the `=`.
     if (candidates[0] !== whole && (whole.startsWith("/") || whole.startsWith("~/"))) candidates.unshift(whole);
+    let hosted = false;
     for (const token of candidates) {
       if (token === "" || token.startsWith("-")) continue;
       if (URL_PREFIX.test(token)) {
@@ -635,6 +653,14 @@ const subjectsOf = (tokens: readonly string[]): { paths: string[]; urls: string[
       }
       if (isPathLike(token)) paths.push(token);
       const host = hostToken(token);
+      if (host !== null) {
+        hosts.push(host);
+        hosted = true;
+      }
+    }
+    // Unwrapping takes a bracket off either end, which an IPv6 literal needs (`[::1]:8080`, `admin@[::1]`): read as written too.
+    if (!hosted && raw.includes("[")) {
+      const host = hostToken(raw.replace(/["'\\]/g, "").replace(/^[^=[]*=/, ""));
       if (host !== null) hosts.push(host);
     }
   }
@@ -866,6 +892,8 @@ interface HostSubject extends Subject {
 }
 interface CommandSubject extends Subject {
   readonly tokens: readonly string[];
+  /** The tokens with a glued pipe split off the word after it (`pipesApart`); `tokens` itself when there is none. */
+  readonly apart: readonly string[];
 }
 
 /** Keeps the first of each value. */
@@ -886,7 +914,12 @@ const unique = <S extends Subject>(subjects: readonly S[]): S[] => {
  * long command line costs its length, not its length times the list.
  */
 export const matchDenylist = (denylist: Denylist, call: DenylistCall, context: DenylistMatchContext): DenylistMatch[] => {
-  const commands: CommandSubject[] = unique((call.commands ?? []).map((value) => ({ value, tokens: tokensOf(value) })));
+  const commands: CommandSubject[] = unique(
+    (call.commands ?? []).map((value) => {
+      const tokens = tokensOf(value);
+      return { value, tokens, apart: pipesApart(tokens) };
+    }),
+  );
   const pathValues: string[] = [...(call.paths ?? [])];
   const hostValues: string[] = [...(call.hosts ?? [])];
   const hostSubjects: HostSubject[] = [];
@@ -936,7 +969,7 @@ export const matchDenylist = (denylist: Denylist, call: DenylistCall, context: D
   };
   take("browserDomains", unique(domainSubjects), hostMatchesEntry);
   take("paths", pathSubjects, (entry, subject) => paths.matches(entry.pattern, subject));
-  take("commandPatterns", commands, (entry, subject) => commandMatches(entry.pattern, subject.tokens));
+  take("commandPatterns", commands, (entry, subject) => commandMatches(entry.pattern, subject.tokens) || (subject.apart !== subject.tokens && commandMatches(entry.pattern, subject.apart)));
   take("hosts", unique(hostSubjects), hostMatchesEntry);
   return matches;
 };
