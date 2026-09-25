@@ -19,14 +19,14 @@ import type { AdapterHost } from "../adapter/host.js";
 import type { ClientSessions, VerifiedClientSession } from "../auth/client-sessions.js";
 import { formatActor, type EventEnvelope, type EventLog } from "../event-log/event-log.js";
 import type { RunActor } from "../permissions/resolver.js";
-import { decideSend } from "../runs/run-decider.js";
-import { startRunIn } from "../runs/run-methods.js";
+import { readSessionFacts } from "../runs/run-reads.js";
+import { sendIn, startRunIn } from "../runs/run-methods.js";
 import type { Clock, Timer } from "../serve/clock.js";
 import { BodyTooLargeError, readBody, sendJson, type RouteHandler } from "../serve/http.js";
 import type { MethodTable } from "../serve/methods.js";
-import { appendRunEvents } from "../sessions/activity-companions.js";
 import { appendDecided } from "../sessions/companions.js";
-import { decideCreate, decideTag } from "../sessions/decider.js";
+import { decideTag } from "../sessions/decider.js";
+import { createSessionIn } from "../sessions/methods.js";
 import { readSessionState, type Reader } from "../sessions/session-reads.js";
 import { sessionStream } from "../sessions/streams.js";
 import { createDispatch } from "../wire/dispatch.js";
@@ -72,6 +72,14 @@ import { readTurnRequest, withPreamble, type TurnRequest } from "./request.js";
 
 /** The largest request body taken: 20 MiB attachments travel base64 inside it. A chosen default. */
 export const MAX_COMPLETIONS_BODY_BYTES = 64 * 1024 * 1024;
+
+/**
+ * How much of an answer may wait unsent for a client that stopped reading:
+ * past it, and still past it fifteen seconds later with nothing drained, the
+ * connection is closed (the run goes on). A chosen default: a reading client
+ * never holds more than a burst.
+ */
+export const MAX_BUFFERED_ANSWER_BYTES = 4 * 1024 * 1024;
 
 /** Where fresh sessions without a named workspace get their scratch directories, under the data directory. */
 export const SCRATCH_DIRECTORY = "scratch";
@@ -155,7 +163,11 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
     return clientSession;
   };
 
+  /** Set by `close`: the environment is stopping, and a turn that arrives before the listeners close is refused. */
+  let closed = false;
+
   const ready = (forTurn: boolean): void => {
+    if (closed) throw new CompletionsRefusal(503, "unavailable", "The environment is stopping.", { headers: { "retry-after": "30" } });
     const readiness = options.readiness();
     if (readiness === "starting") throw new CompletionsRefusal(503, "unavailable", "The environment is starting.", { headers: { "retry-after": "5" } });
     if (forTurn && readiness === "draining") throw new CompletionsRefusal(503, "unavailable", "The environment is draining for a restart; no new turn is taken.", { headers: { "retry-after": "30" } });
@@ -178,6 +190,10 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
     }
     const resolved = resolveModel(catalogue, asked);
     if (resolved === undefined) throw new CompletionsRefusal(404, "model_not_found", `No model ${id} is offered here; GET ${MODELS_PATH} lists them.`, { param: "model" });
+    // The listing holds signed-in accounts only, and so does reading one of it.
+    if (!resolved.account.signedIn) {
+      throw new CompletionsRefusal(404, "model_not_found", `The account ${resolved.account.label} is not signed in, so ${resolved.id} is not offered now.`, { param: "model" });
+    }
     sendJson(response, 200, modelObject(resolved, seconds()), { "cache-control": "no-store" });
   };
 
@@ -216,19 +232,61 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
     return { path, made: true };
   };
 
-  /** What starting or steering the turn recorded: the session, the run the answer follows, the message, and the first chunk's fields. */
+  /** The run's actor: the completions surface, attended only when the request says so, under the program's ceiling as it is now (#129, #131). */
+  const actorFor = (turn: TurnRequest, clientSession: VerifiedClientSession): RunActor => ({
+    kind: "completions",
+    attended: turn.extension.attended,
+    ceiling: options.clientSessions.ceiling(clientSession.id) ?? clientSession.ceiling,
+    clientSessionId: clientSession.id,
+  });
+
+  const sessionNotFound = (sessionId: string): CompletionsRefusal =>
+    new CompletionsRefusal(404, "session_not_found", `No session ${sessionId} is on this environment.`, { param: `${COMPLETIONS_NAMESPACE}.sessionId` });
+
+  const accountMismatch = (sessionId: string, accountId: string | null, model: ResolvedModel): CompletionsRefusal =>
+    new CompletionsRefusal(
+      409,
+      "account_mismatch",
+      `The session ${sessionId} runs on the account ${accountId ?? "(none)"}, not ${model.account.id}; name one of its models, or fork it onto the other account with ${COMPLETIONS_NAMESPACE}.forkSession.`,
+      { param: "model" },
+    );
+
+  /**
+   * The refusals a turn would meet anyway, checked before a fork or a rewind
+   * is recorded, so a refused turn leaves neither behind: the account signed
+   * in, the effort one the model takes, and the named session here and on
+   * the model's account (a fork moves it onto the model's).
+   */
+  const precheck = (turn: TurnRequest, model: ResolvedModel, clientSession: VerifiedClientSession): void => {
+    const account = host.account(model.account.id);
+    if (account === null || !account.signedIn) {
+      throw new CompletionsRefusal(409, "account_unavailable", `The account ${model.account.label} is not signed in on this environment, so no run can start on it.`, { param: "model" });
+    }
+    if (turn.effort !== null && !model.model.efforts.includes(turn.effort)) {
+      throw new CompletionsRefusal(400, "invalid_params", `The model ${model.id} does not take the effort ${turn.effort}.`, { param: turn.effortParam });
+    }
+    const { sessionId, forkSession } = turn.extension;
+    if (sessionId === null) return;
+    const facts = host.startFacts(sessionId, actorFor(turn, clientSession));
+    if (facts.session === null || facts.session.deleted) throw sessionNotFound(sessionId);
+    if (!forkSession && facts.accountId !== model.account.id) throw accountMismatch(sessionId, facts.accountId, model);
+  };
+
+  /** What the turn recorded: the session, the run the answer follows, the message, whether it was queued to a live run, and the first chunk's fields. */
   interface Begun {
     readonly sessionId: string;
     readonly runId: string;
     readonly messageId: string;
-    readonly steer: boolean;
+    readonly queued: boolean;
     readonly head: AnswerHead;
   }
 
   /**
-   * The turn, in one transaction: a fresh session made (or the named one
-   * tagged), then the run started, or, when one is live, the message queued
-   * to it as a steer. Nothing is recorded when anything refuses.
+   * The turn, in one transaction: a fresh session made as `sessions.create`
+   * makes one (`createSessionIn`), or the named one tagged; then the run
+   * started as `runs.start` starts one (`startRunIn`), or, when one is live,
+   * the message queued to it as `runs.send` queues one (`sendIn`). Nothing is
+   * recorded when anything refuses.
    */
   const begin = (turn: TurnRequest, model: ResolvedModel, clientSession: VerifiedClientSession, target: { sessionId: string; fresh: boolean }): Begun => {
     const { sessionId, fresh } = target;
@@ -236,89 +294,73 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
     const workspace = fresh ? workspaceFor(turn, sessionId) : null;
     const ignored = [...turn.ignored];
     if (!fresh && turn.extension.workspace !== null) ignored.push(`${COMPLETIONS_NAMESPACE}.workspace`);
+    const refused = (refusal: { code: string; message: string; data: Record<string, unknown> }): ContractError => new ContractError(refusal);
     try {
       return log.atomically((tx) => {
         if (workspace !== null) {
-          const created = decideCreate(
-            null,
-            { id: sessionId, title: null, tags: [COMPLETIONS_TAG], groupId: null, workspace: { kind: "directory", path: workspace.path }, account: model.account.id, model: model.model.id, mode: null },
-            { groupExists: false },
+          const created = createSessionIn(
+            log,
+            { tx, actor: clientActor },
+            { id: sessionId, tags: [COMPLETIONS_TAG], workspace: { kind: "directory", path: workspace.path }, account: model.account.id, model: model.model.id },
+            // The session is given no mode of its own: the request's permissionMode is its run's alone.
+            { validateRunParameters: host.validateSessionInput, clampMode: () => null },
           );
-          if (created.rejected !== undefined) throw new ContractError({ code: created.rejected.code, message: created.rejected.message ?? "The session could not be created.", data: created.rejected.data ?? {} });
-          appendDecided(log, sessionStream(sessionId), created, { tx, actor: clientActor });
+          if (created.rejected !== undefined) throw refused(created.rejected);
         } else {
           const tagged = decideTag(readSessionState(reader, sessionId), { sessionId, tag: COMPLETIONS_TAG });
           if (tagged.rejected === undefined) appendDecided(log, sessionStream(sessionId), tagged, { tx, actor: clientActor });
         }
-        const actor: RunActor = {
-          kind: "completions",
-          attended: turn.extension.attended,
-          ceiling: options.clientSessions.ceiling(clientSession.id) ?? clientSession.ceiling,
-          clientSessionId: clientSession.id,
-        };
+        const actor = actorFor(turn, clientSession);
         const facts = host.startFacts(sessionId, actor);
-        if (facts.session === null || facts.session.deleted) {
-          throw new CompletionsRefusal(404, "session_not_found", `No session ${sessionId} is on this environment.`, { param: `${COMPLETIONS_NAMESPACE}.sessionId` });
-        }
-        if (facts.accountId !== model.account.id) {
-          throw new CompletionsRefusal(
-            409,
-            "account_mismatch",
-            `The session ${sessionId} runs on the account ${facts.accountId ?? "(none)"}, not ${model.account.id}; name one of its models, or fork it onto the other account with ${COMPLETIONS_NAMESPACE}.forkSession.`,
-            { param: "model" },
-          );
-        }
-        const messageId = randomUUID();
-        const prompt = { messageId, text: fresh ? withPreamble(turn.earlier, turn.text) : turn.text, attachments: [...turn.extension.attachments] };
+        if (facts.session === null || facts.session.deleted) throw sessionNotFound(sessionId);
+        if (facts.accountId !== model.account.id) throw accountMismatch(sessionId, facts.accountId, model);
+        const text = fresh ? withPreamble(turn.earlier, turn.text) : turn.text;
+        const attachments = [...turn.extension.attachments];
 
         if (facts.live !== null) {
-          // A run is live: the turn is a steer, and the answer follows the run that reads it (#138).
-          const decision = decideSend(facts, prompt);
-          if (decision.rejected !== undefined) throw new ContractError({ code: decision.rejected.code, message: decision.rejected.message, data: decision.rejected.data });
-          if (decision.queued === undefined) throw new Error("A send to a live run started a run.");
-          host.stageAttachments(decision.queued.message);
-          appendRunEvents(log, sessionId, decision.events, { tx, actor: COMPLETIONS_ACTOR, correlationId: decision.result.runId });
-          const queued = decision.queued;
-          tx.afterCommit(() => host.queue(queued));
-          for (const [set, path] of [
-            [turn.extension.permissionMode, "permissionMode"],
-            [turn.appendedInstructions === "" ? null : turn.appendedInstructions, "systemPrompt"],
-            [turn.effort, "thinking"],
-          ] as const) {
-            if (set !== null) ignored.push(`${COMPLETIONS_NAMESPACE}.${path}`);
-          }
+          // A run is live: the turn is a queued message (ADR 0022), and the answer follows the run that reads it (#138).
+          const sent = sendIn(log, host, tx, { actor: COMPLETIONS_ACTOR }, { sessionId, actor, origin: "completions", text, attachments });
+          if (sent.rejected !== undefined) throw refused(sent.rejected);
+          // What a live run cannot take is said to be ignored.
+          if (turn.extension.permissionMode !== null) ignored.push(`${COMPLETIONS_NAMESPACE}.permissionMode`);
+          ignored.push(...turn.instructionSources);
+          if (turn.effortParam !== null) ignored.push(turn.effortParam);
+          if (turn.extension.attendedSet) ignored.push(`${COMPLETIONS_NAMESPACE}.attended`);
+          const { runId, messageId } = sent.result;
           return {
             sessionId,
-            runId: decision.result.runId,
+            runId,
             messageId,
-            steer: true,
-            head: { sessionId, runId: decision.result.runId, messageId, steered: true, mode: facts.live.policy.mode.effective, clamped: null, ignored },
+            queued: true,
+            head: { sessionId, runId, messageId, delivery: "queued", mode: facts.live.policy.mode.effective, clamped: null, ignored },
           };
         }
 
-        // Started as runs.start and the environment's startRun start theirs (#131's startRunIn): the run's policy resolved for the completions actor.
+        // Nothing is live to attach to: a new run starts, and `after` says nothing.
+        if (turn.extension.after !== null) ignored.push(`${COMPLETIONS_NAMESPACE}.after`);
         const started = startRunIn(log, host, tx, { actor: COMPLETIONS_ACTOR }, {
           sessionId,
           actor,
           origin: "completions",
-          text: prompt.text,
-          attachments: prompt.attachments,
+          text,
+          attachments,
           model: model.model.id,
           effort: turn.effort ?? undefined,
           mode: turn.extension.permissionMode ?? undefined,
           appendedInstructions: turn.appendedInstructions,
         });
-        if (started.rejected !== undefined) throw new ContractError({ code: started.rejected.code, message: started.rejected.message, data: started.rejected.data });
+        if (started.rejected !== undefined) throw refused(started.rejected);
         const { mode } = started.policy;
         return {
           sessionId,
           runId: started.runId,
           messageId: started.messageId,
-          steer: false,
+          queued: false,
           head: {
             sessionId,
             runId: started.runId,
             messageId: started.messageId,
+            delivery: "prompt",
             mode: mode.effective,
             clamped: mode.clamped && mode.requested !== null && mode.clampReason !== null ? { requested: mode.requested, effective: mode.effective, ceiling: mode.ceiling, reason: mode.clampReason } : null,
             ignored,
@@ -331,8 +373,8 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
     }
   };
 
-  /** Where a steered message is now: still with the provider, waiting in the environment's queue, or read. */
-  const steerHolder = (messageId: string): "wait" | "queued" | "read" => {
+  /** Where a queued message is now: still with the provider, waiting in the environment's queue, or read. */
+  const holderOf = (messageId: string): "wait" | "queued" | "read" => {
     const [row] = reader.all<{ held_by: string }>("SELECT held_by FROM run_messages WHERE message_id = ?", messageId);
     if (row?.held_by === "provider") return "wait";
     if (row?.held_by === "read") return "read";
@@ -375,7 +417,52 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
     return { sessionId, fresh: false };
   };
 
+  /** Whether the client went away before its answer was written, and what to stop when it does. */
+  interface Exchange {
+    gone: boolean;
+    onGone: (() => void) | undefined;
+  }
+
+  /**
+   * Follows a session's events from the moment it is called: those that
+   * arrive meanwhile are held, and `start` delivers what the log holds after
+   * a cursor, then the held ones, then the live ones, each once, in order.
+   */
+  const follow = (sessionId: string) => {
+    const held: EventEnvelope[] = [];
+    let deliver: ((event: EventEnvelope) => void) | undefined;
+    const stop = log.subscribe((event) => {
+      if (event.streamKind !== "session" || event.streamId !== sessionId) return;
+      if (deliver === undefined) held.push(event);
+      else deliver(event);
+    });
+    return {
+      /** The log's head when following began: nothing after it can be missed. */
+      head: log.head(),
+      start(after: number, sink: (event: EventEnvelope) => void): void {
+        let cursor = after;
+        const feed = (event: EventEnvelope): void => {
+          if (event.sequence <= cursor) return;
+          cursor = event.sequence;
+          sink(event);
+        };
+        for (const event of log.readStream(sessionStream(sessionId), after)) feed(event);
+        for (const event of held.splice(0)) feed(event);
+        deliver = feed;
+      },
+      stop,
+    };
+  };
+  type Follower = ReturnType<typeof follow>;
+
   const chat = async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
+    // A client that goes away early stops its answer, and whatever it holds, however far the request got.
+    const exchange: Exchange = { gone: false, onGone: undefined };
+    response.once("close", () => {
+      if (response.writableFinished) return;
+      exchange.gone = true;
+      exchange.onGone?.();
+    });
     const clientSession = authenticate(request, TURN_SCOPES);
     ready(true);
     let text: string;
@@ -392,60 +479,74 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
       throw new CompletionsRefusal(400, "invalid_json", "The request body is not JSON.");
     }
     const turn = readTurnRequest(body);
-    const model = resolveModel(catalogue, turn.model);
+    if (turn.extension.after !== null && turn.extension.after > log.head()) {
+      throw new CompletionsRefusal(400, "invalid_params", `after ${turn.extension.after} is past the log's head, ${log.head()}.`, { param: `${COMPLETIONS_NAMESPACE}.after` });
+    }
+    // A bare model continuing a session is the session's account's, so a change of default leaves the conversation where it was.
+    const named = turn.extension.sessionId === null ? null : readSessionFacts(log, reader, turn.extension.sessionId);
+    const model = resolveModel(catalogue, turn.model, named?.account ?? catalogue.defaultAccountId());
     if (model === undefined) throw new CompletionsRefusal(404, "model_not_found", `No model ${turn.model} is offered here; GET ${MODELS_PATH} lists them.`, { param: "model" });
+    precheck(turn, model, clientSession);
+    if (exchange.gone) return;
     const where = await target(turn, model, clientSession);
+    if (exchange.gone) return;
 
     // Listen before anything is recorded, so no event of the turn is missed; what came before `after` is read back.
-    const buffered: EventEnvelope[] = [];
-    let deliver: ((event: EventEnvelope) => void) | undefined;
-    const stop = log.subscribe((event) => {
-      if (event.streamKind !== "session" || event.streamId !== where.sessionId) return;
-      if (deliver === undefined) buffered.push(event);
-      else deliver(event);
-    });
-    const head = log.head();
+    const follower = follow(where.sessionId);
     let begun: Begun;
     try {
       begun = begin(turn, model, clientSession, where);
     } catch (error) {
-      stop();
+      follower.stop();
       // A fresh session's id names nothing once its transaction rolled back.
       throw asRefusal(error, where.fresh ? undefined : { sessionId: where.sessionId });
     }
-    answer(response, turn, model, begun, begun.steer && turn.extension.after !== null ? turn.extension.after : head, buffered, stop, (listener) => (deliver = listener));
+    answer(response, turn, model, begun, follower, exchange);
   };
 
   /** Writes the answer: a stream of chunks, or the whole completion once it is over. */
-  const answer = (
-    response: ServerResponse,
-    turn: TurnRequest,
-    model: ResolvedModel,
-    begun: Begun,
-    after: number,
-    buffered: EventEnvelope[],
-    unsubscribe: () => void,
-    listen: (listener: (event: EventEnvelope) => void) => void,
-  ): void => {
+  const answer = (response: ServerResponse, turn: TurnRequest, model: ResolvedModel, begun: Begun, follower: Follower, exchange: Exchange): void => {
     const created = seconds();
     const id = `chatcmpl-${begun.messageId}`;
     const chunks: ChatCompletionChunk[] = [];
     let heartbeat: Timer | undefined;
+    /** Armed while the answer is backed up past the cap: fires unless the client drains it first. */
+    let stalled: Timer | undefined;
     let finished = false;
-
-    const write = (text: string): void => {
-      if (response.writableEnded || response.destroyed) return;
-      response.write(text);
-      heartbeat?.cancel();
-      heartbeat = clock.setTimeout(() => write(": keep-alive\n\n"), COMPLETIONS_HEARTBEAT_MS);
-    };
 
     const done = (): void => {
       if (finished) return;
       finished = true;
       heartbeat?.cancel();
-      unsubscribe();
+      follower.stop();
       open.delete(entry);
+    };
+
+    const write = (text: string): void => {
+      if (response.writableEnded || response.destroyed) return;
+      response.write(text);
+      // A client that stopped reading is let go before its answer fills the environment's memory; the run goes on.
+      // A burst may pass the cap before the socket has had a turn to flush, so it is let go only if it is still
+      // backed up a heartbeat's time later with nothing drained.
+      if (response.writableLength > MAX_BUFFERED_ANSWER_BYTES && stalled === undefined) {
+        const armed = clock.setTimeout(() => {
+          stalled = undefined;
+          // Finished or not: an answer written whole still sits in memory until the client reads it.
+          if (response.destroyed || response.writableLength <= MAX_BUFFERED_ANSWER_BYTES) return;
+          console.error(`A completions client stopped reading session ${begun.sessionId}'s answer; ${response.writableLength} bytes wait. Its connection is closed; the run goes on.`);
+          done();
+          response.destroy();
+        }, COMPLETIONS_HEARTBEAT_MS);
+        stalled = armed;
+        const disarm = (): void => {
+          armed.cancel();
+          if (stalled === armed) stalled = undefined;
+        };
+        response.once("drain", disarm);
+        response.once("close", disarm);
+      }
+      heartbeat?.cancel();
+      heartbeat = clock.setTimeout(() => write(": keep-alive\n\n"), COMPLETIONS_HEARTBEAT_MS);
     };
 
     if (turn.stream) {
@@ -455,17 +556,11 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
         connection: "keep-alive",
         "x-accel-buffering": "no",
       });
-      // A client that goes away stops its answer, never the run (ADR 0006).
-      response.on("close", done);
-    } else {
-      response.on("close", () => {
-        if (!response.writableFinished) done();
-      });
     }
 
     const end = (ended: AnswerEnd): void => {
       if (turn.stream) {
-        if (turn.includeUsage) {
+        if (turn.includeUsage && ended.usage !== null) {
           write(`data: ${JSON.stringify({ id, object: "chat.completion.chunk", created, model: model.id, choices: [], usage: ended.usage, [COMPLETIONS_NAMESPACE]: { seq: ended.seq } })}\n\n`);
         }
         write("data: [DONE]\n\n");
@@ -481,7 +576,8 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
         ...(ended.ended !== null && { ended: { reason: ended.ended.reason, cause: ended.ended.cause } }),
       };
       if (ended.error !== null) {
-        const status = ended.ended?.reason === "interrupted" ? 409 : ended.ended?.reason === "error" ? 502 : 503;
+        const reason = ended.ended?.reason;
+        const status = reason === undefined ? (ended.error.code === "internal" ? 500 : 503) : reason === "interrupted" ? 409 : reason === "error" ? 502 : 503;
         return sendRefusal(response, new CompletionsRefusal(status, ended.error.code ?? "error", ended.error.message, { context }));
       }
       const completion: ChatCompletion = {
@@ -490,8 +586,8 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
         created,
         model: model.id,
         choices: [{ index: 0, message: { role: "assistant", content: chunks.map((chunk) => chunk.choices[0]?.delta.content ?? "").join("") }, finish_reason: ended.finishReason }],
-        usage: ended.usage,
-        [COMPLETIONS_NAMESPACE]: { ...first, seq: ended.seq, ...(ended.queued !== null && { queued: ended.queued }) },
+        ...(ended.usage !== null && { usage: ended.usage }),
+        [COMPLETIONS_NAMESPACE]: { ...first, seq: ended.seq, ...(ended.waiting !== null && { waiting: ended.waiting }) },
       };
       sendJson(response, 200, completion, { "cache-control": "no-store" });
     };
@@ -504,33 +600,36 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
       stops: turn.stop,
       maxCharacters: turn.maxCharacters,
       runId: begun.runId,
-      steer: begun.steer ? begun.messageId : null,
+      queuedMessage: begun.queued ? begun.messageId : null,
       emit: (chunk) => {
         if (turn.stream) write(`data: ${JSON.stringify(chunk)}\n\n`);
         else chunks.push(chunk);
       },
       end,
-      steerHolder,
+      holderOf,
       later: (work) => void setImmediate(work),
     });
     const entry = { abandon: () => renderer.abandon("The environment is stopping; the run goes on, or ends with it.", "closing") };
     open.add(entry);
+    exchange.onGone = done;
+    if (exchange.gone) return done();
 
-    // What the log holds after the cursor, then what arrived meanwhile, then live: each event once, in order.
-    let cursor = after;
-    const feed = (event: EventEnvelope): void => {
-      if (finished || event.sequence <= cursor) return;
-      cursor = event.sequence;
-      try {
-        renderer.event(event);
-      } catch (error) {
-        console.error(`Rendering event ${event.sequence} of session ${begun.sessionId} for a completion failed:`, error);
-        renderer.abandon("The environment failed to render the run.", "internal");
-      }
+    const failed = (what: string, error: unknown): void => {
+      console.error(`${what} for a completion of session ${begun.sessionId} failed:`, error);
+      renderer.abandon("The environment failed to follow the run.", "internal");
     };
-    for (const event of log.readStream(sessionStream(begun.sessionId), after)) feed(event);
-    for (const event of buffered.splice(0)) feed(event);
-    listen(feed);
+    try {
+      follower.start(begun.queued && turn.extension.after !== null ? turn.extension.after : follower.head, (event) => {
+        if (finished) return;
+        try {
+          renderer.event(event);
+        } catch (error) {
+          failed(`Rendering event ${event.sequence}`, error);
+        }
+      });
+    } catch (error) {
+      failed("Reading the session back", error);
+    }
   };
 
   const handle: RouteHandler = async (request, response) => {
@@ -555,6 +654,7 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
   return {
     handle,
     close() {
+      closed = true;
       for (const entry of [...open]) entry.abandon();
     },
   };

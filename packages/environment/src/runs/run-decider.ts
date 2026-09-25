@@ -117,8 +117,17 @@ export interface StartCommand {
 }
 
 /** Where a run an actor starts comes from: a client session's is `client`, the completions surface's `completions`, a routine's or a bot's `routine` (ADR 0008: bots own routines). */
-export const originOfActor = (actor: RunActor): RunOrigin =>
-  actor.kind === "client" ? "client" : actor.kind === "completions" ? "completions" : "routine";
+export const originOfActor = (actor: RunActor): RunOrigin => {
+  switch (actor.kind) {
+    case "client":
+      return "client";
+    case "completions":
+      return "completions";
+    case "routine":
+    case "bot":
+      return "routine";
+  }
+};
 
 /** A run the host is to start once its events commit. */
 export interface PlannedRun {
@@ -318,11 +327,11 @@ export type SendDecision =
  * else by the environment, which starts the next run with it when the turn
  * ends; `message.sent` records which.
  */
-export const decideSend = (facts: StartFacts, message: SentMessage): SendDecision => {
+export const decideSend = (facts: StartFacts, message: SentMessage, origin: RunOrigin = "client"): SendDecision => {
   const { session, sessionId, live } = facts;
   if (session === null || session.deleted) return { rejected: sessionNotFound(sessionId) };
   if (live === null) {
-    const started = decideStart(facts, { origin: "client", message });
+    const started = decideStart(facts, { origin, message });
     if (started.rejected !== undefined) return started;
     return { events: started.events, run: started.run, result: { runId: started.run.runId, messageId: message.messageId, delivery: "prompt", heldBy: null } };
   }

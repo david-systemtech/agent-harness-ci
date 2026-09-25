@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { MessageId, RunId } from "./adapter.js";
+import { MessageDelivery, MessageId, RunId } from "./adapter.js";
 import { AttachmentInput } from "./methods/runs.js";
 import { ClampReason } from "./permissions.js";
 import { Mode } from "./permissions-modes.js";
@@ -202,13 +202,18 @@ export const CompletionsAnswerExtension = z
     sessionId: SessionId.optional().meta({ description: "The session the turn ran on: continue it by sending it back as agent-harness.sessionId." }),
     runId: RunId.optional(),
     messageId: MessageId.optional().meta({ description: "The message the turn was sent as: the prompt of a new run, or a steer." }),
-    steered: z.boolean().optional().meta({ description: "True when the turn was sent to a run already live on the session, and the answer follows that run." }),
+    delivery: MessageDelivery.exclude(["steered"])
+      .optional()
+      .meta({
+        description:
+          "How the turn's message was sent, on the first chunk: prompt (it started a run), or queued (a run was live on the session; the answer follows the live run and then whichever run reads the message).",
+      }),
     mode: Mode.optional().meta({ description: "The mode the run the answer follows is in." }),
     clamped: CompletionsClamp.nullable().optional().meta({ description: "The permissionMode asked for and lowered; null when nothing was." }),
     ignored: z.array(z.string().min(1)).optional().meta({ description: "The parameters and fields accepted and ignored, as request paths: temperature, agent-harness.alwaysOnSkills." }),
     activity: CompletionsActivity.optional(),
     ended: CompletionsRunEnd.optional(),
-    queued: MessageId.optional().meta({ description: "The turn's message waits in the session's queue: the run it was sent to ended before reading it." }),
+    waiting: MessageId.optional().meta({ description: "The turn's queued message still waits in the session's queue: the run it was sent to ended before reading it." }),
   })
   .meta({ description: "The harness's fields on an answer or a chunk." });
 export type CompletionsAnswerExtension = z.infer<typeof CompletionsAnswerExtension>;
@@ -284,7 +289,7 @@ export const ChatCompletion = z
         }),
       )
       .length(1),
-    usage: CompletionUsage,
+    usage: CompletionUsage.optional().meta({ description: "The run's usage; absent when a stop sequence or max_tokens ended the answer before the run did." }),
     [COMPLETIONS_NAMESPACE]: CompletionsAnswerExtension,
   })
   .meta({ description: "A whole chat completion: the assistant's message and the run's usage." });

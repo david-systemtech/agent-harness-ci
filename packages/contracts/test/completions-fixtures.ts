@@ -54,7 +54,7 @@ const firstChunk = {
   created: 1790208000,
   model: "claude-max/opus",
   choices: [{ index: 0, delta: { role: "assistant", content: "" }, finish_reason: null }],
-  "agent-harness": { seq: 7, sessionId, runId, messageId, mode: "acceptEdits", clamped: clamp, ignored: ["temperature"] },
+  "agent-harness": { seq: 7, sessionId, runId, messageId, delivery: "prompt", mode: "acceptEdits", clamped: clamp, ignored: ["temperature"] },
 };
 const activityChunk = {
   ...firstChunk,
@@ -125,8 +125,8 @@ export const completionsSchemaFixtures: Record<string, Fixtures> = {
   },
   "completions/run-end.json": { valid: [{ reason: "completed", cause: null }, { reason: "interrupted", cause: "user" }], invalid: [{ reason: "stopped", cause: null }, { reason: "completed" }] },
   "completions/answer-extension.json": {
-    valid: [{ seq: 0 }, firstChunk["agent-harness"], completion["agent-harness"], { seq: 3, steered: true, queued: messageId }],
-    invalid: [{}, { seq: -1 }, { seq: 1, sessionId: "s-1" }, { seq: 1, activity: { type: "nothing" } }],
+    valid: [{ seq: 0 }, firstChunk["agent-harness"], completion["agent-harness"], { seq: 3, delivery: "queued", waiting: messageId }],
+    invalid: [{}, { seq: -1 }, { seq: 1, sessionId: "s-1" }, { seq: 1, activity: { type: "nothing" } }, { seq: 1, delivery: "steered" }],
   },
   "completions/usage.json": { valid: [usage], invalid: [{ ...usage, total_tokens: -1 }, { prompt_tokens: 1 }] },
   "completions/error-detail.json": { valid: [errorDetail, { ...errorDetail, code: null, param: null }], invalid: [{ ...errorDetail, message: "" }, { message: "m", type: "t" }] },
@@ -139,8 +139,8 @@ export const completionsSchemaFixtures: Record<string, Fixtures> = {
     invalid: [{ ...firstChunk, object: "chat.completion" }, { ...firstChunk, "agent-harness": {} }, { ...firstChunk, choices: [{ index: 0, delta: {}, finish_reason: "done" }] }],
   },
   "completions/completion.json": {
-    valid: [completion],
-    invalid: [{ ...completion, choices: [] }, { ...completion, object: "chat.completion.chunk" }, { ...completion, usage: undefined }],
+    valid: [completion, { ...completion, usage: undefined }],
+    invalid: [{ ...completion, choices: [] }, { ...completion, object: "chat.completion.chunk" }, { ...completion, usage: { prompt_tokens: 1 } }],
   },
   "completions/model.json": { valid: [model], invalid: [{ ...model, object: "list" }, { ...model, "agent-harness": {} }, { ...model, tier: 1.5 }] },
   "completions/model-list.json": { valid: [{ object: "list", data: [] }, { object: "list", data: [model] }], invalid: [{ object: "list" }, { object: "list", data: [{ id: "opus" }] }] },

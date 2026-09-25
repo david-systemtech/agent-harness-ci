@@ -26,7 +26,7 @@ import type { EventEnvelope } from "../event-log/event-log.js";
  * chunk as it comes, a whole answer is folded from them.
  *
  * - The first chunk (the assistant's role) renders the first event of the
- *   followed run the answer meets: `run.started` for a new run, the steer's
+ *   followed run the answer meets: `run.started` for a new run, the queued message's
  *   `message.sent` (or the first event after `after`) for an attached one;
  *   it carries the session, the run, the message, the mode, the clamp and
  *   what was ignored.
@@ -74,9 +74,10 @@ export class TextGate {
       candidate = candidate.slice(0, candidate.length - hold);
     }
     if (this.#max !== null && this.#emitted + candidate.length + (cut === null ? this.#pending.length : 0) > this.#max) {
+      // The budget falls before any stop sequence in the text: the answer ends for its length.
       candidate = (candidate + (cut === null ? this.#pending : "")).slice(0, Math.max(0, this.#max - this.#emitted));
       this.#pending = "";
-      cut = cut ?? "length";
+      cut = "length";
     }
     this.#emitted += candidate.length;
     return { out: candidate, cut };
@@ -110,7 +111,7 @@ export const usageOf = (models: readonly ModelUsage[] | null): CompletionUsage =
 };
 
 /** What the first chunk says of the turn, beside its sequence. */
-export type AnswerHead = Omit<CompletionsAnswerExtension, "seq" | "activity" | "ended" | "queued">;
+export type AnswerHead = Omit<CompletionsAnswerExtension, "seq" | "activity" | "ended" | "waiting">;
 
 /** How an answer ended. */
 export interface AnswerEnd {
@@ -120,9 +121,10 @@ export interface AnswerEnd {
   readonly ended: RunEndedPayload | null;
   /** Set when the run did not complete, or the environment stopped the answer. */
   readonly error: CompletionsErrorDetail | null;
-  readonly usage: CompletionUsage;
-  /** The steered message still waits in the session's queue. */
-  readonly queued: string | null;
+  /** The run's usage, when the answer ended with the run; null for one a stop sequence or the budget cut, before the run's spend is known. */
+  readonly usage: CompletionUsage | null;
+  /** The turn's queued message, still waiting in the session's queue. */
+  readonly waiting: string | null;
 }
 
 export interface RendererOptions {
@@ -132,22 +134,22 @@ export interface RendererOptions {
   readonly head: AnswerHead;
   readonly stops: readonly string[];
   readonly maxCharacters: number | null;
-  /** The run the answer follows first: the new run, or the run live when a steer was sent to it. */
+  /** The run the answer follows first: the new run, or the run live when the turn was queued to it. */
   readonly runId: string;
-  /** A steer's message: the answer follows whichever run reads it, and ends with that run. Null for a new run. */
-  readonly steer: string | null;
+  /** The turn's message, queued to a live run: the answer follows whichever run reads it, and ends with that run. Null for a new run. */
+  readonly queuedMessage: string | null;
   /** Each chunk, in order. */
   readonly emit: (chunk: ChatCompletionChunk) => void;
   /** Once, when the answer is over. */
   readonly end: (end: AnswerEnd) => void;
   /**
-   * Asked when the followed run ended without reading the steer: whether the
-   * steer is still with the provider, which will open a turn with it
+   * Asked when the followed run ended without reading the queued message:
+   * whether it is still with the provider, which will open a turn with it
    * (`wait`), or waits in the environment's queue with nothing to read it
    * (`queued`); called on a later turn of the event loop, once what the end
    * set off has been recorded.
    */
-  readonly steerHolder: (messageId: string) => "wait" | "queued" | "read";
+  readonly holderOf: (messageId: string) => "wait" | "queued" | "read";
   readonly later: (work: () => void) => void;
 }
 
@@ -169,7 +171,7 @@ const endSentence = (ended: RunEndedPayload): string => {
 /** Renders the session's events of a turn into chunks, and says when the answer is over. */
 export const createRenderer = (options: RendererOptions) => {
   let followed = options.runId;
-  let readBy: string | null = options.steer === null ? options.runId : null;
+  let readBy: string | null = options.queuedMessage === null ? options.runId : null;
   let headSent = false;
   let over = false;
   let lastSeq = 0;
@@ -211,10 +213,10 @@ export const createRenderer = (options: RendererOptions) => {
     if (end.finishReason !== "length" && tail !== "") chunk(end.seq, [{ index: 0, delta: { content: tail }, finish_reason: null }]);
     const extension = {
       ...(end.ended !== null && { ended: { reason: end.ended.reason, cause: end.ended.cause } }),
-      ...(end.queued !== null && { queued: end.queued }),
+      ...(end.waiting !== null && { waiting: end.waiting }),
     };
     chunk(end.seq, [{ index: 0, delta: {}, finish_reason: end.finishReason }], extension, end.error === null ? {} : { error: end.error });
-    options.end({ ...end, seq: lastSeq, usage: usageOf(usage ?? end.ended?.usage ?? null) });
+    options.end({ ...end, seq: lastSeq, usage: end.ended === null ? null : usageOf(usage ?? end.ended.usage ?? null) });
   };
 
   /** Sends text for an item: a blank line first when another item's text went before it. */
@@ -226,32 +228,45 @@ export const createRenderer = (options: RendererOptions) => {
     lastItem = itemId;
     const { out, cut } = gate.push(lead + value);
     if (out !== "") chunk(seq, [{ index: 0, delta: { content: out }, finish_reason: null }]);
-    if (cut !== null) finish({ finishReason: cut, seq, ended: null, error: null, queued: null });
+    if (cut !== null) finish({ finishReason: cut, seq, ended: null, error: null, waiting: null });
   };
 
   const activity = (seq: number, value: CompletionsActivity): void => chunk(seq, [{ index: 0, delta: {}, finish_reason: null }], { activity: value });
 
-  /** The followed run has ended: the answer ends with it, unless it never read the steer, when the run that does is waited for. */
+  /** The followed run has ended: the answer ends with it, unless it never read the queued message, when the run that does is waited for. */
   const runEnded = (payload: RunEndedPayload, seq: number): void => {
     lastEnded = { payload, seq };
     if (readBy === followed) return endWith(payload, seq);
     const endedRun = followed;
+    const queued = options.queuedMessage;
     options.later(() => {
-      if (over || followed !== endedRun || options.steer === null) return;
-      const holder = options.steerHolder(options.steer);
-      if (holder === "wait") return;
-      endWith(payload, seq, holder === "queued" ? options.steer : null);
+      if (over || followed !== endedRun || queued === null) return;
+      // A later turn of the event loop has no caller to catch for it: a failure ends the answer, never the process.
+      try {
+        const holder = options.holderOf(queued);
+        if (holder === "wait") return;
+        endWith(payload, seq, holder === "queued" ? queued : null);
+      } catch (error) {
+        console.error(`Finding where the queued message ${queued} waits failed:`, error);
+        abandon("The environment failed to follow the run.", "internal");
+      }
     });
   };
 
-  const endWith = (payload: RunEndedPayload, seq: number, queued: string | null = null): void => {
+  const abandon = (message: string, code: string): void => {
+    if (over) return;
+    head(lastSeq);
+    finish({ finishReason: "error", seq: lastSeq, ended: null, error: { message, type: "server_error", code, param: null }, waiting: null });
+  };
+
+  const endWith = (payload: RunEndedPayload, seq: number, waiting: string | null = null): void => {
     const completed = payload.reason === "completed";
     finish({
       finishReason: completed ? "stop" : "error",
       seq,
       ended: payload,
       error: completed ? null : { message: endSentence(payload), type: "server_error", code: payload.reason, param: null },
-      queued,
+      waiting,
     });
   };
 
@@ -259,18 +274,18 @@ export const createRenderer = (options: RendererOptions) => {
     /** One event of the session, in log order. */
     event(event: EventEnvelope): void {
       if (over) return;
-      const steer = options.steer;
-      // Which run reads the steer: the live one it is folded into, or a later one that opens with it.
-      if (steer !== null) {
-        if (event.type === "message.delivered" && event.payload["messageId"] === steer) readBy = String(event.payload["runId"]);
+      const queued = options.queuedMessage;
+      // Which run reads the queued message: the live one it is folded into, or a later one that opens with it.
+      if (queued !== null) {
+        if (event.type === "message.delivered" && event.payload["messageId"] === queued) readBy = String(event.payload["runId"]);
         if (event.type === "run.started") {
           const started = event.payload as RunStartedPayload;
-          if (started.promptMessageId === steer || started.queuedMessageIds.includes(steer)) {
+          if (started.promptMessageId === queued || started.queuedMessageIds.includes(queued)) {
             followed = started.runId;
             readBy = started.runId;
           }
         }
-        if (event.type === "message.requeued" && event.payload["messageId"] === steer && lastEnded !== null) runEnded(lastEnded.payload, lastEnded.seq);
+        if (event.type === "message.requeued" && event.payload["messageId"] === queued && lastEnded !== null) runEnded(lastEnded.payload, lastEnded.seq);
       }
       if (event.correlationId !== followed) return;
       head(event.sequence);
@@ -319,12 +334,8 @@ export const createRenderer = (options: RendererOptions) => {
           return;
       }
     },
-    /** The environment is stopping: the answer ends with an error chunk, never a bare close. */
-    abandon(message: string, code: string): void {
-      if (over) return;
-      head(lastSeq);
-      finish({ finishReason: "error", seq: lastSeq, ended: null, error: { message, type: "server_error", code, param: null }, queued: null });
-    },
+    /** The environment is stopping, or the answer cannot go on: it ends with an error chunk, never a bare close. */
+    abandon,
     isOver: (): boolean => over,
   };
 };

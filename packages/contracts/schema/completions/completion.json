@@ -66,6 +66,7 @@
       }
     },
     "usage": {
+      "description": "The run's usage; absent when a stop sequence or max_tokens ended the answer before the run did.",
       "type": "object",
       "properties": {
         "prompt_tokens": {
@@ -102,8 +103,7 @@
         "completion_tokens",
         "total_tokens",
         "prompt_tokens_details"
-      ],
-      "description": "The run's token use: input with cache reads and writes as prompt tokens, output as completion tokens."
+      ]
     },
     "agent-harness": {
       "type": "object",
@@ -132,9 +132,13 @@
           "format": "uuid",
           "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$"
         },
-        "steered": {
-          "description": "True when the turn was sent to a run already live on the session, and the answer follows that run.",
-          "type": "boolean"
+        "delivery": {
+          "description": "How the turn's message was sent, on the first chunk: prompt (it started a run), or queued (a run was live on the session; the answer follows the live run and then whichever run reads the message).",
+          "type": "string",
+          "enum": [
+            "prompt",
+            "queued"
+          ]
         },
         "mode": {
           "description": "The mode the run the answer follows is in.",
@@ -390,8 +394,8 @@
           ],
           "description": "How the run ended: its run.ended reason and, for an interrupted one, the cause."
         },
-        "queued": {
-          "description": "The turn's message waits in the session's queue: the run it was sent to ended before reading it.",
+        "waiting": {
+          "description": "The turn's queued message still waits in the session's queue: the run it was sent to ended before reading it.",
           "type": "string",
           "format": "uuid",
           "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$"
@@ -409,7 +413,6 @@
     "created",
     "model",
     "choices",
-    "usage",
     "agent-harness"
   ],
   "description": "A whole chat completion: the assistant's message and the run's usage."

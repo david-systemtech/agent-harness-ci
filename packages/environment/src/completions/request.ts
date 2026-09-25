@@ -2,6 +2,7 @@ import {
   COMPLETIONS_NAMESPACE,
   COMPLETIONS_NAMESPACE_ALIAS,
   ChatCompletionRequest,
+  CompletionsExtension as ExtensionSchema,
   IGNORED_PARAMETERS,
   MAX_SYSTEM_PROMPT_CHARS,
   PASSTHROUGH_PARAMETERS,
@@ -36,6 +37,8 @@ export interface TurnExtension {
   readonly attachments: readonly AttachmentInput[];
   readonly workspace: string | null;
   readonly attended: boolean;
+  /** Whether the request set `attended` at all, so a turn that cannot use it reports it ignored. */
+  readonly attendedSet: boolean;
   readonly after: number | null;
 }
 
@@ -48,11 +51,15 @@ export interface TurnRequest {
   readonly maxCharacters: number | null;
   readonly stop: readonly string[];
   readonly effort: string | null;
+  /** Which field named the effort: `agent-harness.thinking`, else `reasoning_effort`; null for none. */
+  readonly effortParam: string | null;
   readonly extension: TurnExtension;
   /** What was accepted and ignored, as request paths, in the order the surface reads them. */
   readonly ignored: readonly string[];
   /** The request's own instructions, after the composed ones: `systemPrompt`, then the system and developer messages in order. */
   readonly appendedInstructions: string;
+  /** Where those came from, as request paths (`agent-harness.systemPrompt`, `messages.0`), for a turn that cannot take them to report. */
+  readonly instructionSources: readonly string[];
   /** The turn: the trailing user message's text. */
   readonly text: string;
   /** The conversation before the turn, system and developer messages aside: the preamble of a fresh session. */
@@ -81,12 +88,12 @@ const textOf = (message: ChatMessage, index: number, tolerate: boolean, ignored:
   if (content === undefined || content === null) return "";
   if (typeof content === "string") return content;
   const texts: string[] = [];
-  for (const part of content) {
+  for (const [partIndex, part] of content.entries()) {
     if (part.type === "text") {
       texts.push(part.text ?? "");
       continue;
     }
-    const path = `messages.${index}.content.${part.type}`;
+    const path = `messages.${index}.content.${partIndex}`;
     if (!tolerate) {
       throw new CompletionsRefusal(400, "unsupported_content", `A ${part.type} part is not read here; send images and files as ${COMPLETIONS_NAMESPACE}.attachments.`, {
         param: `messages.${index}.content`,
@@ -119,6 +126,13 @@ export const readTurnRequest = (body: unknown): TurnRequest => {
   }
   for (const name of [...IGNORED_PARAMETERS, ...PASSTHROUGH_PARAMETERS]) if (isSet(request[name])) ignored.push(name);
   if (extension.alwaysOnSkills !== undefined && extension.alwaysOnSkills !== null) ignored.push(`${COMPLETIONS_NAMESPACE}.alwaysOnSkills`);
+  // A field neither namespace knows (a browser field, a later version's) is dropped, and said so.
+  const known = new Set(Object.keys(ExtensionSchema.shape));
+  for (const namespace of [COMPLETIONS_NAMESPACE, COMPLETIONS_NAMESPACE_ALIAS]) {
+    const raw = (body as Record<string, unknown>)[namespace];
+    if (typeof raw !== "object" || raw === null) continue;
+    for (const key of Object.keys(raw)) if (!known.has(key)) ignored.push(`${namespace}.${key}`);
+  }
 
   const { messages } = request;
   const trailingIndex = messages.length - 1;
@@ -130,12 +144,19 @@ export const readTurnRequest = (body: unknown): TurnRequest => {
   if (text.trim() === "") throw invalid("The trailing user message has no text.", "messages");
 
   const instructions: string[] = [];
-  if (isSet(extension.systemPrompt) && (extension.systemPrompt as string).trim() !== "") instructions.push(extension.systemPrompt as string);
+  const instructionSources: string[] = [];
+  if (isSet(extension.systemPrompt) && (extension.systemPrompt as string).trim() !== "") {
+    instructions.push(extension.systemPrompt as string);
+    instructionSources.push(`${COMPLETIONS_NAMESPACE}.systemPrompt`);
+  }
   const earlier: ChatMessage[] = [];
   messages.slice(0, trailingIndex).forEach((message, index) => {
     if (message.role === "system" || message.role === "developer") {
       const instruction = textOf(message, index, tolerate, ignored);
-      if (instruction.trim() !== "") instructions.push(instruction);
+      if (instruction.trim() !== "") {
+        instructions.push(instruction);
+        instructionSources.push(`messages.${index}`);
+      }
     } else {
       earlier.push({ ...message, content: textOf(message, index, tolerate, ignored) });
     }
@@ -154,6 +175,7 @@ export const readTurnRequest = (body: unknown): TurnRequest => {
     maxCharacters: maxTokens === null ? null : maxTokens * CHARACTERS_PER_TOKEN,
     stop,
     effort: extension.thinking ?? request.reasoning_effort ?? null,
+    effortParam: isSet(extension.thinking) ? `${COMPLETIONS_NAMESPACE}.thinking` : isSet(request.reasoning_effort) ? "reasoning_effort" : null,
     extension: {
       sessionId: extension.sessionId?.toLowerCase() ?? null,
       permissionMode: extension.permissionMode ?? null,
@@ -164,10 +186,12 @@ export const readTurnRequest = (body: unknown): TurnRequest => {
       attachments: extension.attachments ?? [],
       workspace: extension.workspace ?? null,
       attended: extension.attended === true,
+      attendedSet: isSet(extension.attended),
       after: extension.after ?? null,
     },
     ignored,
     appendedInstructions,
+    instructionSources,
     text,
     earlier,
   };

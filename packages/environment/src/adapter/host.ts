@@ -309,7 +309,13 @@ export const requeuedEvents = (runId: string, messageIds: readonly string[]): Ev
   });
 
 /** What a run the environment starts itself after another is resolved from: the session, who it runs for, and the model and effort of the run before it. */
-type NextRunBasis = Pick<PlannedRun, "sessionId" | "actor" | "model" | "effort">;
+/**
+ * What a run the environment starts after another takes from it: the
+ * session, the actor, the model and effort, and the run's own instructions
+ * (a completions request's, #138), which the log does not hold, so a run
+ * started after a restart carries none.
+ */
+type NextRunBasis = Pick<PlannedRun, "sessionId" | "actor" | "model" | "effort" | "appendedInstructions">;
 
 /**
  * Who ends a run: its adapter, whose end event is recorded; or the host,
@@ -1034,7 +1040,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
         : policy.actorKind === "client"
           ? { kind: "client", ceiling, clientSessionId: null }
           : { kind: policy.actorKind, name: policy.actorName, ceiling, clientSessionId: null };
-    return { sessionId, actor, model: run.model, effort: null };
+    return { sessionId, actor, model: run.model, effort: null, appendedInstructions: null };
   };
 
   /** `actor` with its client session's ceiling as it is now; undefined once that client session is revoked or expired. */
@@ -1273,6 +1279,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
         model: previous.model,
         ...(previous.effort !== null && { effort: previous.effort }),
         ...(forAnswers && { keptAnswers: true }),
+        ...(previous.appendedInstructions !== null && { appendedInstructions: previous.appendedInstructions }),
       });
       if (decision.rejected !== undefined) {
         console.error(`The queued messages of session ${previous.sessionId} could not start a run: ${decision.rejected.message}`);

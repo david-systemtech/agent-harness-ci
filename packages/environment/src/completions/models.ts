@@ -19,11 +19,7 @@ export interface CatalogueAccount {
   readonly models: readonly ModelOption[];
 }
 
-/**
- * Where the surface reads accounts from. Until the account store (#134)
- * joins this branch, the environment answers the configured accounts with
- * each id as its label; after, the store's records and labels.
- */
+/** Where the surface reads accounts from: the account store's records (#134), each with what the host would run it with. */
 export interface CompletionsCatalogue {
   /** Every account the environment holds, in its order. */
   accounts(): readonly CatalogueAccount[];
@@ -73,16 +69,17 @@ const pick = (account: CatalogueAccount, name: string): ModelOption | undefined 
 /**
  * Resolves a requested model: `<slug>/<model or family>` on the account of
  * that slug (the part after the first slash may hold slashes of its own), or
- * a bare model or family on the default account. Undefined when nothing
- * matches.
+ * a bare model or family on `bareAccountId`: the default account, or, for a
+ * request continuing a session, the session's own, so a change of default
+ * does not move an ongoing conversation. Undefined when nothing matches.
  */
-export const resolveModel = (catalogue: CompletionsCatalogue, asked: string): ResolvedModel | undefined => {
+export const resolveModel = (catalogue: CompletionsCatalogue, asked: string, bareAccountId: string | null = catalogue.defaultAccountId()): ResolvedModel | undefined => {
   const accounts = slugged(catalogue.accounts());
   const slash = asked.indexOf("/");
   const target =
     slash >= 0
       ? { entry: accounts.find((candidate) => candidate.slug === asked.slice(0, slash).toLowerCase()), name: asked.slice(slash + 1) }
-      : { entry: accounts.find((candidate) => candidate.account.id === catalogue.defaultAccountId()), name: asked };
+      : { entry: accounts.find((candidate) => candidate.account.id === bareAccountId), name: asked };
   if (target.entry === undefined || target.name === "") return undefined;
   const model = pick(target.entry.account, target.name);
   return model === undefined ? undefined : { account: target.entry.account, model, id: `${target.entry.slug}/${model.id}` };

@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync, statSync } from "node:fs";
+import { connect } from "node:net";
 import { join } from "node:path";
 import {
   COMPLETIONS_HEARTBEAT_MS,
@@ -26,6 +27,9 @@ import { z } from "zod";
 import { useCleanups } from "../../test/cleanups.js";
 import { ask, end, fakeAdapter, gate, say, toldText, type FakeAdapter, type FakeAdapterOptions, type Script } from "../../test/fake-adapter.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
+import type { StartupStep } from "../serve/start.js";
+import type { Address } from "../serve/http.js";
+import { accountSlug } from "./models.js";
 import { create, workspace } from "../../test/sessions.js";
 import type { AdapterEvent } from "../adapter/contract.js";
 import type { EventEnvelope } from "../event-log/event-log.js";
@@ -185,6 +189,84 @@ const heldScript =
     yield end();
   };
 
+const DAY = 24 * 60 * 60_000;
+
+/** Holds startup before `step`, and says where the listener is bound once it gets there. */
+const holdBefore = (step: StartupStep) => {
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => (release = resolve));
+  let reach!: (address: Address | undefined) => void;
+  const reached = new Promise<Address | undefined>((resolve) => (reach = resolve));
+  return {
+    hooks: {
+      beforeStep: async (current: StartupStep, progress: { readonly address: Address | undefined }) => {
+        if (current !== step) return;
+        reach(progress.address);
+        await held;
+      },
+    },
+    reached,
+    release,
+  };
+};
+
+/** A WebSocket upgrade that then ignores everything, its close frame included, so the wire's close waits out its grace on the manual clock. */
+const deafSocket = (t: TestEnvironment) =>
+  new Promise<() => void>((resolve, reject) => {
+    const socket = connect(t.address.port, t.address.host);
+    socket.on("error", reject);
+    socket.once("data", (data) => (String(data).startsWith("HTTP/1.1 101") ? resolve(() => socket.destroy()) : reject(new Error(String(data)))));
+    // The handshake key is RFC 6455's own example nonce, encoded here so the source holds no key-shaped literal.
+    const nonce = Buffer.from("the sample nonce").toString("base64");
+    socket.write(
+      `GET /ws HTTP/1.1\r\nHost: 127.0.0.1:${t.address.port}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: ${nonce}\r\nSec-WebSocket-Version: 13\r\n\r\n`,
+    );
+  });
+
+const signedOut = (lapsed: string): FakeAdapterOptions => ({
+  status: (account) => ({ signedIn: account.id !== lapsed, authMethod: "fake", email: `${account.id}@example.com`, orgName: null, subscriptionType: "max", error: null }),
+});
+
+/** Stand-ins for `sessions.fork` and `sessions.rewind` (#137) on the method table: each call recorded with its caller, a fork creating its session. */
+const serveForkAndRewind = (t: TestEnvironment) => {
+    const calls: { method: string; params: Record<string, unknown>; caller: string }[] = [];
+  const fork = defineMethod({
+    name: "sessions.fork",
+    scope: "sessions:write",
+    kind: "command",
+    params: commandParams({ sessionId: SessionId, id: SessionId, atMessageId: MessageId.optional(), account: z.string().optional() }),
+    result: z.object({}),
+    errors: [],
+  });
+  t.serve(fork, (params, context) => {
+    calls.push({ method: "sessions.fork", params, caller: context.clientSession.id });
+    const created = {
+      title: null,
+      tags: [],
+      groupId: null,
+      workspace: { kind: "directory", path: "/work/fork" },
+      repositoryIdentity: null,
+      account: params.account ?? null,
+      model: null,
+      mode: null,
+    };
+    return { aggregate: { kind: "session", id: params.id }, result: {}, events: [{ type: "session.created", payload: created }] };
+  });
+  const rewind = defineMethod({
+    name: "sessions.rewind",
+    scope: "runs:drive",
+    kind: "command",
+    params: commandParams({ sessionId: SessionId, messageId: MessageId }),
+    result: z.object({}),
+    errors: [],
+  });
+  t.serve(rewind, (params, context) => {
+    calls.push({ method: "sessions.rewind", params, caller: context.clientSession.id });
+    return { aggregate: { kind: "session", id: params.sessionId }, result: {} };
+  });
+  return calls;
+};
+
 describe("the routes on the wire's port", () => {
   it("lists every signed-in account's catalogue with the account, family and tier beside each id", async () => {
     const adapter = fakeAdapter({ status: (account) => ({ signedIn: account.id !== "work-lapsed", authMethod: "fake", email: `${account.id}@example.com`, orgName: null, subscriptionType: "max", error: null }) });
@@ -206,6 +288,67 @@ describe("the routes on the wire's port", () => {
     expect(bare.id).toBe("claude-max/haiku");
     const missing = await refusalOf(await get(t, "/v1/models/claude-max/gpt-9", token));
     expect(missing).toMatchObject({ status: 404, body: { error: { type: "not_found_error", code: "model_not_found" } } });
+  });
+
+  it("reads no model of a signed-out account, 404, though its id resolves", async () => {
+    const t = await start(signedOut("work-lapsed"), { accounts: [{ id: "claude-max", provider: "fake" }, { id: "work-lapsed", provider: "fake" }] });
+    const { token } = await program(t);
+    expect(await refusalOf(await get(t, "/v1/models/work-lapsed/opus", token))).toMatchObject({ status: 404, body: { error: { code: "model_not_found" } } });
+  });
+
+  it("slugs an account label for model ids: lower case, runs of other characters one hyphen, a shared slug numbered", () => {
+    expect(accountSlug("David's Max")).toBe("david-s-max");
+    expect(accountSlug("  Work / Team  ")).toBe("work-team");
+    expect(accountSlug("a.b_c-d")).toBe("a.b_c-d");
+    expect(accountSlug("///")).toBe("account");
+  });
+
+  it("names two accounts whose labels share a slug apart, the second -2", async () => {
+    // Labels are unique ignoring case; these two differ, and slug alike.
+    const t = await start({}, { accounts: [{ id: "Max One", provider: "fake" }, { id: "max-one", provider: "fake" }] });
+    const { token } = await program(t);
+    const list = CompletionsModelList.parse(await (await get(t, "/v1/models", token)).json());
+    expect(list.data.filter((model) => model.family === "opus").map((model) => [model.id, model["agent-harness"].accountId])).toEqual([
+      ["max-one/opus", "Max One"],
+      ["max-one-2/opus", "max-one"],
+    ]);
+    const second = await complete(t, token, turn("Hi", { model: "max-one-2/opus" }));
+    expect(second.model).toBe("max-one-2/opus");
+    expect(payloadsOf<RunStartedPayload>(t, second["agent-harness"].sessionId as string, "run.started")[0]?.accountId).toBe("max-one");
+  });
+
+  it("answers 503 before the startup gate", async () => {
+    const dataDir = join(tempDir(), "data");
+    const earlier = await startTestEnvironment({ dataDir });
+    const { token } = await program(earlier);
+    await earlier.close();
+    const hold = holdBefore("prepared");
+    const starting = startTestEnvironment({ dataDir, hooks: hold.hooks });
+    onCleanup(async () => {
+      hold.release();
+      await (await starting).close();
+    });
+    const address = await hold.reached;
+    if (address === undefined) throw new Error("The listener was not bound before the prepared step.");
+    const early = await fetch(`http://${address.host}:${address.port}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+      body: JSON.stringify(turn("Hi")),
+    });
+    expect(await refusalOf(early)).toMatchObject({ status: 503, body: { error: { code: "unavailable" } } });
+  });
+
+  it("answers 503 to a turn that arrives once the environment has begun to stop", async () => {
+    const t = await start();
+    const { token } = await program(t);
+    const release = await deafSocket(t);
+    const closing = t.env.close();
+    // The wire waits out its grace for the deaf socket, on the manual clock: the listeners are still up.
+    await vi.waitFor(async () => expect(await refusalOf(await post(t, token, turn("Late")))).toMatchObject({ status: 503, body: { error: { code: "unavailable", message: "The environment is stopping." } } }));
+    release();
+    t.clock.advance(1000);
+    await closing;
+    expect(t.adapter.runs).toHaveLength(0);
   });
 
   it("answers every other OpenAI path 501 with a sentence, and a wrong method 405", async () => {
@@ -238,6 +381,27 @@ describe("authentication", () => {
     expect(t.env.clientSessions.revoke(credential.clientSessionId)).toBe(true);
     expect(await refusalOf(await post(t, credential.token, turn("Hi")))).toMatchObject({ status: 401, body: { error: { code: "revoked" } } });
     expect(t.adapter.runs).toHaveLength(0);
+  });
+
+  it("refuses an expired token 401 expired", async () => {
+    const t = await start();
+    const { token } = await program(t);
+    t.clock.advance(30 * DAY);
+    expect(await refusalOf(await post(t, token, turn("Hi")))).toMatchObject({ status: 401, body: { error: { code: "expired" } } });
+  });
+
+  it("refuses a body past its cap 413 too_large", async () => {
+    const t = await start();
+    const { token } = await program(t);
+    const refused = await refusalOf(await post(t, token, JSON.stringify(turn("x".repeat(64 * 1024 * 1024 + 1)))));
+    expect(refused).toMatchObject({ status: 413, body: { error: { code: "too_large" } } });
+  });
+
+  it("refuses a model of a signed-out account 409 account_unavailable, recording nothing", async () => {
+    const t = await start(signedOut("work-lapsed"), { accounts: [{ id: "claude-max", provider: "fake" }, { id: "work-lapsed", provider: "fake" }] });
+    const { token } = await program(t);
+    expect(await refusalOf(await post(t, token, { ...turn("Hi"), model: "work-lapsed/opus" }))).toMatchObject({ status: 409, body: { error: { code: "account_unavailable" } } });
+    expect(await listed(t)).toEqual([]);
   });
 
   it("refuses a client session that is not a program's, 403, whatever its scopes", async () => {
@@ -367,10 +531,10 @@ describe("a completion, streamed", () => {
     const reading = await stream(t, token, turn("Think a while"));
     await reading.chunk();
     t.clock.advance(COMPLETIONS_HEARTBEAT_MS);
-    expect(await reading.next()).toEqual({ kind: "comment", text: expect.any(String) });
+    expect(await reading.next()).toEqual({ kind: "comment", text: "keep-alive" });
     t.clock.advance(COMPLETIONS_HEARTBEAT_MS - 1);
     t.clock.advance(1);
-    expect(await reading.next()).toMatchObject({ kind: "comment" });
+    expect(await reading.next()).toEqual({ kind: "comment", text: "keep-alive" });
     held.open();
     const rest = await reading.rest();
     expect(rest.filter((message) => message.kind === "comment")).toEqual([]);
@@ -402,6 +566,56 @@ describe("a completion, streamed", () => {
     expect(rest.at(-1)).toEqual({ kind: "done" });
     expect(chunksOf(rest).at(-1)).toMatchObject({ choices: [{ index: 0, delta: {}, finish_reason: "error" }], error: { code: "closing" } });
   });
+
+  it("ends the answer with an internal error chunk when the session cannot be read back, and a whole answer 500", async () => {
+    const t = await start();
+    const { token } = await program(t);
+    const readStream = t.env.log.readStream.bind(t.env.log);
+    let failNext = 0;
+    vi.spyOn(t.env.log, "readStream").mockImplementation((selector, afterSequence, limit) => {
+      if (failNext > 0 && limit === undefined && (afterSequence ?? 0) > 0) {
+        failNext -= 1;
+        throw new Error("The disk went away.");
+      }
+      return readStream(selector, afterSequence, limit);
+    });
+    failNext = 1;
+    const messages = await (await stream(t, token, turn("Hi"))).rest();
+    expect(messages.at(-1)).toEqual({ kind: "done" });
+    expect(chunksOf(messages).at(-1)).toMatchObject({ choices: [{ index: 0, delta: {}, finish_reason: "error" }], error: { code: "internal" } });
+    failNext = 1;
+    expect(await refusalOf(await post(t, token, turn("Hi")))).toMatchObject({ status: 500, body: { error: { code: "internal" } } });
+  });
+
+  it("closes the connection of a client that stops reading once its answer backs up, and the run goes on", async () => {
+    const block = "x".repeat(1024 * 1024);
+    const t = await start({ script: () => [...Array.from({ length: 32 }, (_, index) => delta("i1", `${index}${block}`)), end()] });
+    const { token } = await program(t);
+    // A client that sends its request and then reads nothing: its socket paused, so the kernel's buffers fill and the answer backs up.
+    const body = JSON.stringify(turn("Say a lot", { stream: true }));
+    const socket = connect(t.address.port, t.address.host);
+    await new Promise<void>((resolve) => socket.once("connect", () => resolve()));
+    socket.pause();
+    socket.write(
+      `POST /v1/chat/completions HTTP/1.1\r\nHost: 127.0.0.1:${t.address.port}\r\nAuthorization: Bearer ${token}\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`,
+    );
+    // 32 MiB through the log takes a while on a loaded runner.
+    const slow = { timeout: 30_000, interval: 50 };
+    await vi.waitFor(async () => expect(await listed(t)).toHaveLength(1), slow);
+    const sessionId = (await listed(t))[0]?.id as string;
+    await vi.waitFor(() => expect(ofType(t, sessionId, "run.ended")).toHaveLength(1), slow);
+    expect(payloadsOf<{ reason: string }>(t, sessionId, "run.ended")[0]?.reason).toBe("completed");
+    // Nothing drained for a heartbeat's time: the connection is closed.
+    t.clock.advance(COMPLETIONS_HEARTBEAT_MS);
+    let received = "";
+    socket.on("data", (data: Buffer) => (received += data.toString("utf8")));
+    socket.on("error", () => undefined);
+    const closed = new Promise<void>((resolve) => socket.once("close", () => resolve()));
+    socket.resume();
+    await closed;
+    expect(received.startsWith("HTTP/1.1 200")).toBe(true);
+    expect(received).not.toContain("[DONE]");
+  }, 60_000);
 
   it("holds back what may begin a stop sequence split across deltas", async () => {
     const t = await start({ script: () => [delta("i1", "one two ST"), delta("i1", "OP three"), text("i1", "one two STOP three"), end()] });
@@ -526,41 +740,7 @@ describe("session continuity", () => {
     const t = await start();
     const { token, clientSessionId } = await program(t);
     const sessionId = (await complete(t, token, turn("Hi")))["agent-harness"].sessionId as string;
-    const calls: { method: string; params: Record<string, unknown>; caller: string }[] = [];
-    const fork = defineMethod({
-      name: "sessions.fork",
-      scope: "sessions:write",
-      kind: "command",
-      params: commandParams({ sessionId: SessionId, id: SessionId, atMessageId: MessageId.optional(), account: z.string().optional() }),
-      result: z.object({}),
-      errors: [],
-    });
-    t.serve(fork, (params, context) => {
-      calls.push({ method: "sessions.fork", params, caller: context.clientSession.id });
-      const created = {
-        title: null,
-        tags: [],
-        groupId: null,
-        workspace: { kind: "directory", path: "/work/fork" },
-        repositoryIdentity: null,
-        account: params.account ?? null,
-        model: null,
-        mode: null,
-      };
-      return { aggregate: { kind: "session", id: params.id }, result: {}, events: [{ type: "session.created", payload: created }] };
-    });
-    const rewind = defineMethod({
-      name: "sessions.rewind",
-      scope: "runs:drive",
-      kind: "command",
-      params: commandParams({ sessionId: SessionId, messageId: MessageId }),
-      result: z.object({}),
-      errors: [],
-    });
-    t.serve(rewind, (params, context) => {
-      calls.push({ method: "sessions.rewind", params, caller: context.clientSession.id });
-      return { aggregate: { kind: "session", id: params.sessionId }, result: {} };
-    });
+    const calls = serveForkAndRewind(t);
     const anchor = randomUUID();
     const forked = await complete(t, token, turn("On the fork", { "agent-harness": { sessionId, forkSession: true, rewindToMessageId: anchor } }));
     const forkId = forked["agent-harness"].sessionId as string;
@@ -582,7 +762,7 @@ describe("session continuity", () => {
     const sessionId = (await first.chunk())["agent-harness"].sessionId as string;
     const second = await stream(t, token, turn("Then this", { "agent-harness": { sessionId } }));
     const opening = await second.chunk();
-    expect(opening["agent-harness"]).toMatchObject({ steered: true });
+    expect(opening["agent-harness"]).toMatchObject({ delivery: "queued" });
     held.open();
     expect(contentOf(chunksOf(await first.rest()))).toBe("First done");
     // Attached, the answer carries the live run from the steer on, then the run that reads the steer.
@@ -592,6 +772,20 @@ describe("session continuity", () => {
     expect(runs.map((run) => run.origin)).toEqual(["completions", "completions"]);
     expect(runs[1]?.queuedMessageIds).toEqual([opening["agent-harness"].messageId]);
     expect(chunks.at(-1)?.choices[0]?.finish_reason).toBe("stop");
+  });
+
+  it("carries a completions run's own instructions to the run started from its queue", async () => {
+    const t = await start({ capabilities: { providerQueue: false, steering: false } }, { adapterSeams: { instructions: () => "COMPOSED" } });
+    const { token } = await program(t);
+    const held = gate();
+    t.adapter.nextScripts.push(heldScript(held.opened));
+    const first = await stream(t, token, turn("First", { "agent-harness": { systemPrompt: "Persona: tidy." } }));
+    const sessionId = (await first.chunk())["agent-harness"].sessionId as string;
+    const second = await stream(t, token, turn("Then this", { "agent-harness": { sessionId } }));
+    await second.chunk();
+    held.open();
+    await second.rest();
+    expect(t.adapter.runs.map((run) => run.input.instructions)).toEqual(["COMPOSED\n\nPersona: tidy.", "COMPOSED\n\nPersona: tidy."]);
   });
 
   it("ends a steer's answer with the message still queued when the run it was sent to ends without reading it", async () => {
@@ -606,9 +800,96 @@ describe("session continuity", () => {
     const client = await t.client();
     await client.request("runs.interrupt", { commandId: randomUUID(), runId: opening["agent-harness"].runId as string });
     const last = chunksOf(await second.rest()).at(-1);
-    expect(last?.["agent-harness"]).toMatchObject({ queued: steered["agent-harness"].messageId, ended: { reason: "interrupted", cause: "user" } });
+    expect(last?.["agent-harness"]).toMatchObject({ waiting: steered["agent-harness"].messageId, ended: { reason: "interrupted", cause: "user" } });
     expect(last?.choices[0]?.finish_reason).toBe("error");
     expect(payloadsOf<RunStartedPayload>(t, sessionId, "run.started")).toHaveLength(1);
+  });
+
+  it("records no fork and no rewind for a turn refused after them: an effort the model does not take, an account not signed in", async () => {
+    const t = await start(signedOut("work-lapsed"), { accounts: [{ id: "claude-max", provider: "fake" }, { id: "work-lapsed", provider: "fake" }] });
+    const { token } = await program(t);
+    const sessionId = (await complete(t, token, turn("Hi")))["agent-harness"].sessionId as string;
+    const calls = serveForkAndRewind(t);
+    expect(await refusalOf(await post(t, token, turn("Fork", { "agent-harness": { sessionId, forkSession: true, thinking: "turbo" } })))).toMatchObject({
+      status: 400,
+      body: { error: { code: "invalid_params", param: "agent-harness.thinking" } },
+    });
+    expect(await refusalOf(await post(t, token, { ...turn("Fork"), model: "work-lapsed/opus", "agent-harness": { sessionId, forkSession: true } }))).toMatchObject({
+      status: 409,
+      body: { error: { code: "account_unavailable" } },
+    });
+    expect(await refusalOf(await post(t, token, turn("Back", { reasoning_effort: "turbo", "agent-harness": { sessionId, rewindToMessageId: randomUUID() } })))).toMatchObject({
+      status: 400,
+      body: { error: { param: "reasoning_effort" } },
+    });
+    expect(calls).toEqual([]);
+  });
+
+  it("resolves a bare model continuing a session on the session's account, not the default", async () => {
+    const t = await start({}, { accounts: [{ id: "claude-max", provider: "fake" }, { id: "work", provider: "fake" }] });
+    const { token } = await program(t);
+    const sessionId = (await complete(t, token, { ...turn("Hi"), model: "work/sonnet" }))["agent-harness"].sessionId as string;
+    const next = await complete(t, token, { ...turn("Again"), model: "opus", "agent-harness": { sessionId } });
+    expect(next.model).toBe("work/opus");
+    expect(payloadsOf<RunStartedPayload>(t, sessionId, "run.started").map((run) => run.accountId)).toEqual(["work", "work"]);
+    // A fresh session's bare model is the default account's.
+    expect((await complete(t, token, { ...turn("New"), model: "opus" })).model).toBe("claude-max/opus");
+  });
+
+  it("refuses after past the log's head, and reports it ignored when nothing live could use it", async () => {
+    const t = await start();
+    const { token } = await program(t);
+    const sessionId = (await complete(t, token, turn("Hi")))["agent-harness"].sessionId as string;
+    expect(await refusalOf(await post(t, token, turn("Hi", { "agent-harness": { sessionId, after: t.env.log.head() + 1 } })))).toMatchObject({
+      status: 400,
+      body: { error: { code: "invalid_params", param: "agent-harness.after" } },
+    });
+    const idle = await complete(t, token, turn("Again", { "agent-harness": { sessionId, after: 1 } }));
+    expect(idle["agent-harness"].ignored).toEqual(["agent-harness.after"]);
+  });
+
+  it("reports what a queued message cannot take as ignored, each by its own path", async () => {
+    const t = await start();
+    const { token } = await program(t);
+    t.adapter.nextScripts.push(async function* ({ nextSent }) {
+      yield say("Working");
+      yield say(`Also: ${(await nextSent()).text}`);
+      yield end();
+    });
+    const first = await stream(t, token, turn("Start"));
+    const sessionId = (await first.chunk())["agent-harness"].sessionId as string;
+    const queued = await stream(t, token, {
+      model: "claude-max/opus",
+      messages: [
+        { role: "system", content: "Be brief." },
+        { role: "user", content: "and tidy up" },
+      ],
+      reasoning_effort: "high",
+      "agent-harness": { sessionId, permissionMode: "plan", attended: true },
+    });
+    expect((await queued.chunk())["agent-harness"].ignored).toEqual(["agent-harness.permissionMode", "messages.0", "reasoning_effort", "agent-harness.attended"]);
+    await queued.rest();
+    await first.rest();
+  });
+
+  it("ends the answer with an internal error chunk when where the queued message waits cannot be read", async () => {
+    const t = await start({ capabilities: { providerQueue: false, steering: false } });
+    const { token } = await program(t);
+    t.adapter.nextScripts.push(heldScript(gate().opened));
+    const first = await stream(t, token, turn("First"));
+    const opening = await first.chunk();
+    const sessionId = opening["agent-harness"].sessionId as string;
+    const second = await stream(t, token, turn("Then this", { "agent-harness": { sessionId } }));
+    await second.chunk();
+    const read = t.env.log.read.bind(t.env.log);
+    vi.spyOn(t.env.log, "read").mockImplementation(((sql: string, ...params: never[]) => {
+      if (sql.startsWith("SELECT held_by FROM run_messages")) throw new Error("The disk went away.");
+      return read(sql, ...params);
+    }) as typeof t.env.log.read);
+    const client = await t.client();
+    await client.request("runs.interrupt", { commandId: randomUUID(), runId: opening["agent-harness"].runId as string });
+    const last = chunksOf(await second.rest()).at(-1);
+    expect(last).toMatchObject({ choices: [{ index: 0, delta: {}, finish_reason: "error" }], error: { code: "internal" } });
   });
 
   it("attaches a request naming a session whose run is live from after, its trailing message a steer", async () => {
@@ -629,7 +910,7 @@ describe("session continuity", () => {
     await first.cancel().catch(() => undefined);
     const attached = await stream(t, token, turn("and tidy up", { "agent-harness": { sessionId, after: working["agent-harness"].seq } }));
     const chunks = chunksOf(await attached.rest());
-    expect(chunks[0]?.["agent-harness"]).toMatchObject({ sessionId, runId: opening["agent-harness"].runId, steered: true });
+    expect(chunks[0]?.["agent-harness"]).toMatchObject({ sessionId, runId: opening["agent-harness"].runId, delivery: "queued" });
     expect(contentOf(chunks)).toBe("Also: and tidy up");
     expect(chunks.at(-1)?.choices[0]?.finish_reason).toBe("stop");
     expect(t.adapter.runs).toHaveLength(1);
@@ -742,9 +1023,31 @@ describe("the request's instructions, parameters and fields", () => {
     expect(stopped.at(-1)?.choices[0]?.finish_reason).toBe("stop");
     const whole = await complete(t, (await program(t)).token, turn("Go", { max_tokens: 2 }));
     expect(whole.choices[0]).toMatchObject({ message: { content: "alpha be" }, finish_reason: "length" });
+    // Cut before the run ended, the answer has no usage to give.
+    expect(whole.usage).toBeUndefined();
     const sessionId = whole["agent-harness"].sessionId as string;
     await untilEnded(t, sessionId);
     expect(payloadsOf<{ reason: string }>(t, sessionId, "run.ended")[0]?.reason).toBe("completed");
+  });
+
+  it("ends the answer for its length when the budget falls before a stop sequence in the same text", async () => {
+    const t = await start({ script: () => [delta("i1", "alpha STOP beta"), text("i1", "alpha STOP beta"), end()] });
+    const { token } = await program(t);
+    const whole = await complete(t, token, turn("Go", { stop: "STOP", max_tokens: 1 }));
+    expect(whole.choices[0]).toMatchObject({ message: { content: "alph" }, finish_reason: "length" });
+    expect(whole.usage).toBeUndefined();
+  });
+
+  it("reports what it ignored by path: a content part by its index, an extension field it does not know", async () => {
+    const t = await start();
+    const { token } = await program(t);
+    const answer = await complete(t, token, {
+      model: "claude-max/opus",
+      messages: [{ role: "user", content: [{ type: "text", text: "What is this?" }, { type: "image_url", image_url: { url: "data:," } }] }],
+      "agent-harness": { ignoreUnsupported: true, browser: "on" },
+      artemis: { remote: { permissions: true } },
+    });
+    expect(answer["agent-harness"].ignored).toEqual(["agent-harness.browser", "artemis.remote", "messages.0.content.1"]);
   });
 
   it("takes thinking, and reasoning_effort as its alias, as the run's effort, refusing one the model does not take", async () => {

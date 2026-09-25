@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
-import type { AttachmentInput, Mode, RunOrigin, RunPolicy } from "@agent-harness/contracts";
+import type { AttachmentInput, Mode, RunOrigin, RunPolicy, SendResponse } from "@agent-harness/contracts";
 import type { AdapterHost } from "../adapter/host.js";
-import type { EventInput, EventLog, StreamRef, Tx } from "../event-log/event-log.js";
+import type { EventLog, StreamRef, Tx } from "../event-log/event-log.js";
 import type { RunActor } from "../permissions/resolver.js";
 import type { CommandContext, MethodHandlers } from "../serve/methods.js";
 import { appendRunEvents } from "../sessions/activity-companions.js";
@@ -89,21 +89,59 @@ export const startRunIn = (
   return { runId: decision.run.runId, messageId, policy: decision.run.policy };
 };
 
+/** A message to send a session: on which session, for whom, from where a run it starts comes, and the message. */
+export interface RunSend {
+  readonly sessionId: string;
+  readonly actor: RunActor;
+  readonly origin: RunOrigin;
+  readonly text: string;
+  readonly attachments?: readonly AttachmentInput[] | undefined;
+}
+
+/** A message sent (where it went, and the policy of the run it started when it started one), or why not. */
+export type RunSendOutcome =
+  | { readonly rejected: RunRefusal }
+  | { readonly rejected?: undefined; readonly result: SendResponse; readonly startedPolicy: RunPolicy | null };
+
+/**
+ * Sends a session a message in the open transaction `tx`, as `runs.send`
+ * does for a client session and the completions surface for a steer (#138;
+ * ADR 0022): with no run live it starts one (the drain's gate first), else
+ * it queues the message, its attachment bytes staged before anything of it
+ * is recorded (#185), and hands the host its part once the transaction has
+ * committed.
+ */
+export const sendIn = (
+  log: EventLog,
+  host: AdapterHost,
+  tx: Tx,
+  attribution: { readonly actor: string; readonly commandId?: string },
+  request: RunSend,
+): RunSendOutcome => {
+  const sessionId = request.sessionId.toLowerCase();
+  const facts = host.startFacts(sessionId, request.actor);
+  // Only a send that starts a run is a new run; one queued during a live run passes a drain.
+  if (facts.session !== null && !facts.session.deleted && facts.live === null) host.admit();
+  const decision = decideSend(facts, { messageId: randomUUID(), text: request.text, attachments: request.attachments ?? [] }, request.origin);
+  if (decision.rejected !== undefined) return { rejected: decision.rejected };
+  if (decision.queued !== undefined) host.stageAttachments(decision.queued.message);
+  appendRunEvents(log, sessionId, decision.events, { tx, ...attribution, correlationId: decision.result.runId });
+  if (decision.run !== undefined) {
+    const run = decision.run;
+    tx.afterCommit(() => host.launch(run));
+    return { result: decision.result, startedPolicy: run.policy };
+  }
+  const queued = decision.queued;
+  tx.afterCommit(() => host.queue(queued));
+  return { result: decision.result, startedPolicy: null };
+};
+
 /** Where a command on a run it cannot find keeps its receipt: no session can be named, so the run's own id. */
 const runAggregate = (runId: string): StreamRef => ({ kind: "run", id: runId });
 
 export const runMethods = (options: RunMethodsOptions): MethodHandlers => {
   const { log, host } = options;
   const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
-
-  /**
-   * Appends a command's events to the session's stream, in its transaction, correlated to the run, with the
-   * companions they owe the session (`sessions/activity-companions.ts`): a run's start its unarchive, unsettle and
-   * wake, the first user message its generated title.
-   */
-  const appendIn = (context: CommandContext, sessionId: string, runId: string, events: readonly EventInput[]): void => {
-    appendRunEvents(log, sessionId, events, { tx: context.tx, actor: context.actor, commandId: context.commandId, correlationId: runId });
-  };
 
   /** The caller as a run's actor (#129): a client session, attended, under its ceiling as it is now. */
   const actorOf = (context: CommandContext): RunActor => ({
@@ -145,24 +183,16 @@ export const runMethods = (options: RunMethodsOptions): MethodHandlers => {
     },
 
     "runs.send": (params, context) => {
-      const sessionId = params.sessionId.toLowerCase();
-      const aggregate = sessionStream(sessionId);
-      const facts = host.startFacts(sessionId, actorOf(context));
-      // Only a send that starts a run is a new run; one queued during a live run passes a drain.
-      if (facts.session !== null && !facts.session.deleted && facts.live === null) host.admit();
-      const decision = decideSend(facts, { messageId: randomUUID(), text: params.text, attachments: params.attachments ?? [] });
-      if (decision.rejected !== undefined) return { aggregate, rejected: decision.rejected };
-      // A queued message's bytes are on disk before anything of it is recorded, so its receipt means a restart keeps them (#185).
-      if (decision.queued !== undefined) host.stageAttachments(decision.queued.message);
-      appendIn(context, sessionId, decision.result.runId, decision.events);
-      if (decision.run !== undefined) {
-        const run = decision.run;
-        afterCommit(context.tx, () => host.launch(run));
-      } else {
-        const queued = decision.queued;
-        afterCommit(context.tx, () => host.queue(queued));
-      }
-      return { aggregate, result: decision.result };
+      const aggregate = sessionStream(params.sessionId.toLowerCase());
+      const sent = sendIn(log, host, context.tx, { actor: context.actor, commandId: context.commandId }, {
+        sessionId: params.sessionId,
+        actor: actorOf(context),
+        origin: "client",
+        text: params.text,
+        attachments: params.attachments,
+      });
+      if (sent.rejected !== undefined) return { aggregate, rejected: sent.rejected };
+      return { aggregate, result: sent.result };
     },
 
     "runs.interrupt": (params, context) => {
