@@ -6,9 +6,11 @@ import type { AccountService } from "./account-service.js";
 /**
  * The account methods on the method table (claude-adapter spec, "Wire
  * methods"): `accounts.list`, `accounts.probe`, `accounts.refresh`,
- * `models.list` and `commands.list` at `read`; `accounts.adopt`,
- * `accounts.add`, `accounts.relabel` and `accounts.remove` at `admin`, each
- * a command on the account's stream. The rules are the account service's;
+ * `models.list`, `commands.list` and `accounts.signin.get` at `read`;
+ * `accounts.adopt`, `accounts.add`, `accounts.relabel` and `accounts.remove`
+ * at `admin`, each a command on the account's stream, and the sign-in's
+ * `accounts.signin.start`, `.code` and `.cancel`, commands on the
+ * environment's stream that the sign-in director answers (#135). The rules are the account service's;
  * a command's own events are appended in its transaction, and what it sets
  * off (a notice, a sign-in, a directory deleted) runs once it has committed.
  * `providers.list` is #120's (`adapter/processes-methods.ts`).
@@ -36,6 +38,14 @@ export const accountMethods = (options: AccountMethodsOptions): MethodHandlers =
     "accounts.relabel": (params, context) => accounts.relabel(params, context),
 
     "accounts.remove": (params, context) => accounts.remove(params, context),
+
+    "accounts.signin.get": () => ({ signIn: accounts.signIn.latest() }),
+
+    "accounts.signin.start": (params, context) => accounts.signIn.begin(params, context),
+
+    "accounts.signin.code": (params, context) => accounts.signIn.code(params, context),
+
+    "accounts.signin.cancel": (params, context) => accounts.signIn.cancel(params, context),
 
     "models.list": async (params) => ({ catalogues: await accounts.catalogues(params.accountId) }),
 

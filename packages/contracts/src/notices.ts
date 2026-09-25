@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { AccountUpdatedPayload } from "./accounts.js";
+import { AccountUpdatedPayload, SignIn, SignInExecutableChosenPayload } from "./accounts.js";
 import { ProtocolVersion } from "./flags.js";
 import { DrainStarted } from "./lifecycle.js";
 import { DecidedBy, PromptDecisionValue, PromptKind, PROMPT_SUMMARY_MAX } from "./prompts.js";
@@ -21,14 +21,25 @@ export const ENVIRONMENT_STREAM_KIND = "environment";
  * from one harness version to another (appended by the launcher ticket); it
  * began to drain (appended by the lifecycle ticket, #112); an account
  * changed (the account store, #134), appended once the change has committed;
- * a prompt parked, waiting for a person, and a parked prompt was resolved
- * (#130), so every connected client learns of it whatever else it is
- * subscribed to.
+ * the sign-in changed state, carrying the sign-in (the sign-in director,
+ * #135); the executable sign-ins run was chosen, once per environment and
+ * bundled binary (#135); a prompt parked, waiting for a person, and a parked
+ * prompt was resolved (#130), so every connected client learns of it
+ * whatever else it is subscribed to.
  */
-export const ENVIRONMENT_NOTICE_TYPES = ["environment.started", "environment.updated", "environment.draining", "account.updated", "prompt.parked", "prompt.resolved"] as const;
+export const ENVIRONMENT_NOTICE_TYPES = [
+  "environment.started",
+  "environment.updated",
+  "environment.draining",
+  "account.updated",
+  "signin.updated",
+  "signin.executable-chosen",
+  "prompt.parked",
+  "prompt.resolved",
+] as const;
 export const EnvironmentNoticeType = z.enum(ENVIRONMENT_NOTICE_TYPES).meta({
   description:
-    "An environment notice's event type: environment.started (startup finished), environment.updated (a new harness version now runs), environment.draining (new runs are refused before a restart), account.updated (an account changed; a client refreshes what it caches of the accounts), prompt.parked (a run waits for a person's answer), prompt.resolved (a parked prompt was answered).",
+    "An environment notice's event type: environment.started (startup finished), environment.updated (a new harness version now runs), environment.draining (new runs are refused before a restart), account.updated (an account changed; a client refreshes what it caches of the accounts), signin.updated (the sign-in changed state: the verification URL, the end), signin.executable-chosen (which executable sign-ins run, recorded once), prompt.parked (a run waits for a person's answer), prompt.resolved (a parked prompt was answered).",
 });
 export type EnvironmentNoticeType = z.infer<typeof EnvironmentNoticeType>;
 
@@ -66,6 +77,20 @@ const AccountUpdated = z
   })
   .meta({ description: "An account changed: which, how, and a warning when something is wrong." });
 
+const SignInUpdated = z
+  .object({
+    type: z.literal("signin.updated"),
+    payload: SignIn,
+  })
+  .meta({ description: "The sign-in changed state: the sign-in as it is now, with the verification URL once it is awaiting a code." });
+
+const SignInExecutableChosen = z
+  .object({
+    type: z.literal("signin.executable-chosen"),
+    payload: SignInExecutableChosenPayload,
+  })
+  .meta({ description: "The environment chose the executable its sign-ins for a provider run: the bundled binary, or the managed tool when the bundled one does not run a sign-in." });
+
 const PromptParked = z
   .object({
     type: z.literal("prompt.parked"),
@@ -99,7 +124,7 @@ const PromptResolved = z
  * fields aside, so a client parses the `event` of an `event` frame directly.
  */
 export const EnvironmentNotice = z
-  .discriminatedUnion("type", [EnvironmentStarted, EnvironmentUpdated, EnvironmentDraining, AccountUpdated, PromptParked, PromptResolved])
+  .discriminatedUnion("type", [EnvironmentStarted, EnvironmentUpdated, EnvironmentDraining, AccountUpdated, SignInUpdated, SignInExecutableChosen, PromptParked, PromptResolved])
   .meta({
     description:
       "An event on the environment stream, as environment.subscribe delivers it: its type and payload, read from the event's envelope.",

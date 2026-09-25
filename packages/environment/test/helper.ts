@@ -28,8 +28,9 @@ import type { ContextOf, HandlerReturn, MethodHandler } from "../src/serve/metho
 import type { SubscriptionHooks } from "../src/wire/subscriptions.js";
 import { manualClock, type ManualClock } from "./clock.js";
 import type { ConfiguredAccount } from "../src/accounts/account-service.js";
-import type { SignInDirectorFactory } from "../src/accounts/sign-in.js";
+import type { SignInDirectorFactory } from "../src/accounts/signin-seam.js";
 import { fakeAdapter, type FakeAdapter } from "./fake-adapter.js";
+import { refusingSpawn } from "./signin.js";
 import { testLauncher, type TestLauncher } from "./launcher.js";
 import {
   ByeError,
@@ -61,8 +62,15 @@ export interface TestEnvironmentOptions {
    * with none, for a test that adopts or adds its own.
    */
   readonly accounts?: readonly ConfiguredAccount[];
-  /** The sign-in director `accounts.add` hands an account to; preset: the environment's (sign-in not built yet). */
+  /** The sign-in director `accounts.add` hands an account to; preset: the environment's (#135), run as `signInProcess` says. */
   readonly signIn?: SignInDirectorFactory;
+  /**
+   * How the environment's director runs sign-ins, each part over the
+   * helper's preset: a spawn that refuses (so no test ever starts a real
+   * binary; `fakeSignInSpawner` scripts one), `TEST_BUNDLED_CLAUDE` as the
+   * bundled binary, no managed tool, and a host environment of a PATH alone.
+   */
+  readonly signInProcess?: EnvironmentOptions["signInProcess"];
   /** How long a status or model probe may take; preset: the environment's. */
   readonly probeTimeoutMs?: number;
   /** A data directory to start on, kept by `close`: a restart on the same directory. Preset: a fresh temporary one, removed by `close`. */
@@ -89,6 +97,9 @@ export interface TestEnvironmentOptions {
   /** How terminals start; preset the environment's own (`node-pty`, the login shell, the clean base). */
   readonly terminals?: EnvironmentOptions["terminals"];
 }
+
+/** The bundled binary a test environment's sign-ins name unless told otherwise: a path that is not there. */
+export const TEST_BUNDLED_CLAUDE = "/nonexistent/agent-harness-sdk/claude";
 
 /** A machine with no Tailscale address and no tailnet name. */
 export const NO_INTERFACES: InterfaceDetector = { tailscaleAddress: async () => undefined, tailnetName: async () => undefined };
@@ -234,6 +245,7 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
     ...(options.signIn !== undefined && { signIn: options.signIn }),
     ...(options.probeTimeoutMs !== undefined && { probeTimeoutMs: options.probeTimeoutMs }),
     ...(options.terminals !== undefined && { terminals: options.terminals }),
+    signInProcess: { spawn: refusingSpawn, bundled: TEST_BUNDLED_CLAUDE, managedTool: () => null, hostEnv: { PATH: "/usr/bin" }, ...options.signInProcess },
   };
   let env: EnvironmentHandle;
   try {

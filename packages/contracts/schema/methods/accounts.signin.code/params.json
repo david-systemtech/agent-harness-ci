@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "accounts.signin.code params",
+  "type": "object",
+  "properties": {
+    "commandId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+      "description": "The client-generated UUID every command takes; a retry with the same id applies once."
+    },
+    "accountId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "description": "An account's id on its environment: a version 4 UUID the environment mints when it adopts or adds the account; an account carried over from configuration keeps the id it was configured with."
+    },
+    "code": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "pattern": "^\\S+$",
+      "description": "The code the provider's page shows after signing in: one token, with no space or line break anywhere, so a client trims what a person pasted before sending it."
+    }
+  },
+  "required": [
+    "commandId",
+    "accountId",
+    "code"
+  ]
+}
