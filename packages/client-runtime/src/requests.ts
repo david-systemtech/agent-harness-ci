@@ -251,7 +251,17 @@ export const createRequestCache = (host: {
         return;
       }
       schedule(entry, REQUEST_CACHE_TTL_MS);
-    }, host.report);
+    }, (reason: unknown) => {
+      // A call that rejects (the host itself failed, not the environment answering an error) is still over: the entry
+      // is not left in flight, or every later fetch would only mark it `again` and nothing would ever be sent.
+      entry.inFlight = false;
+      entry.again = false;
+      if (!closed && entries.get(keyOf(entry)) === entry) {
+        entry.stale = true;
+        entry.value.update((value) => ({ ...value, loading: false }));
+      }
+      host.report(reason);
+    });
   };
 
   /** The answer may have changed: fetched now if followed, else by its next follower. */

@@ -2,7 +2,9 @@ import { describe, expect, it, onTestFinished } from "vitest";
 import { createRuntimeWithSeams } from "./internal.js";
 import { noticeEvent } from "../test/events.js";
 import { subscription } from "../test/scripted.js";
-import { REQUEST_CACHE_TTL_MS, REQUEST_TIMEOUT_MS } from "./requests.js";
+import { createRequestCache, REQUEST_CACHE_TTL_MS, REQUEST_TIMEOUT_MS } from "./requests.js";
+import { writable } from "./observable.js";
+import type { ConnectionRecord } from "./connections/records.js";
 import { fakeWire, flush } from "./testing/fake-wire.js";
 import { inMemoryPlatform, manualClock } from "./testing/in-memory-platform.js";
 
@@ -314,6 +316,33 @@ describe("the request cache", () => {
     await closed.runtime.close();
     await flush();
     expect(closed.cached.read().loading).toBe(false);
+  });
+
+  it("is not left in flight by a call that rejects: the failure is reported, loading ends, and the next follower fetches again", async () => {
+    const clock = manualClock();
+    const reported: unknown[] = [];
+    let calls = 0;
+    const cache = createRequestCache({
+      clock,
+      call: () => {
+        calls++;
+        return calls === 1 ? Promise.reject(new Error("the host broke")) : Promise.resolve({ ok: true, result: { groups: [] } } as never);
+      },
+      records: writable<readonly ConnectionRecord[]>([]),
+      report: (error) => reported.push(error),
+    });
+    onTestFinished(() => cache.close());
+    const cached = cache.cached("env-1", "groups.list", {});
+    const stop = cached.subscribe(() => undefined);
+    await flush();
+    expect(reported).toEqual([new Error("the host broke")]);
+    expect(cached.read().loading).toBe(false);
+    stop();
+
+    cached.subscribe(() => undefined);
+    await flush();
+    expect(calls).toBe(2);
+    expect(cached.read()).toMatchObject({ result: { groups: [] }, loading: false, error: null });
   });
 
   it("keeps one answer per params, and none for what is not a query", async () => {
