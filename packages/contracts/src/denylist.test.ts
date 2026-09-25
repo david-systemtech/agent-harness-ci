@@ -392,6 +392,12 @@ describe("domains and hosts", () => {
     expect(first({ hosts: ["http://[0:0:0:0:0:0:0:1]/"] })?.[1]).toBe("::1");
     expect(first({ hosts: ["http://[::ffff:169.254.169.254]/"] })?.[1]).toBe("169.254.169.254");
     expect(first({ hosts: ["localhost:8080"] })).toBeNull();
+    // A special scheme with no slashes still has an authority, as WHATWG reads it; a bare host's port is no scheme.
+    expect(hostOf("http:2852039166")).toBe("169.254.169.254");
+    expect(hostOf("https:8080")).toBe("0.0.31.144");
+    expect(first({ browserDomains: ["http:2852039166/latest"] })?.[1]).toBe("169.254.169.254");
+    expect(first({ commands: ["curl http:/2852039166/latest"] })?.[1]).toBe("169.254.169.254");
+    expect(hostOf("localhost:8080")).toBe("localhost");
     expect(hostOf("fe80::1")).toBe("fe80::1");
     expect(hostOf("localhost:8080/admin")).toBe("localhost");
     expect(hostOf("ssh://git@github.com:22/x")).toBe("github.com");
@@ -531,6 +537,17 @@ describe("disguised spellings", () => {
     // Not a group: no comma and no sequence.
     expect(first({ commands: ["cat ~/.s{s}h/id_rsa"] })).toBeNull();
   });
+
+  it("take a command token whose braces make too many words to read as meeting every command pattern, and leave quoted braces as the shell does", () => {
+    const many = `{sudo,${"x,".repeat(1_100)}x} reboot`;
+    expect(first({ commands: [many] })?.[1]).toBe("sudo *");
+    expect(first({ commands: ["touch file{1..1000}.txt"] })).toBeNull();
+    // Quoted or escaped braces are not expanded: a long JSON body is one word.
+    const json = JSON.stringify({ items: Array.from({ length: 200 }, (_, index) => ({ id: index, name: `item-${index}` })) });
+    expect(first({ commands: [`curl -d '${json}' https://api.example.com/items`] })).toBeNull();
+    expect(first({ commands: ["echo '{sudo,x}' \\{sudo,y\\}"] })).toBeNull();
+    expect(first({ commands: [`echo ${"a".repeat(2_000)}{`] })).toBeNull();
+  });
 });
 
 describe("the host grammar", () => {
@@ -600,5 +617,11 @@ describe("a file: URL", () => {
     expect(first({ commands: ["curl FILE:///home/david/.aws/credentials"] })?.[1]).toBe("~/.aws");
     expect(first({ hosts: ["file:/home/david/%2Essh/id_rsa"] })?.[1]).toBe("~/.ssh");
     expect(shellSubjects("curl file:/etc/hosts").urls).toEqual(["file:/etc/hosts"]);
+  });
+
+  it("names a path from the root with no slash after the scheme, as a browser reads file:etc/shadow as file:///etc/shadow", () => {
+    expect(first({ browserDomains: ["file:home/david/.ssh/id_rsa"] })?.[1]).toBe("~/.ssh");
+    expect(first({ hosts: ["file:./home/david/.aws/config"] })?.[1]).toBe("~/.aws");
+    expect(first({ commands: [`cat file:${DATA.slice(1)}/environment.db`] })?.[1]).toBe(DATA);
   });
 });

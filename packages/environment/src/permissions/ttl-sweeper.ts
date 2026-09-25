@@ -38,7 +38,6 @@ export const TTL_DENIAL = "Denied: nobody answered within the time allowed. Cont
 /** What the model reads when its question waited past the TTL. */
 export const TTL_ANSWER = "nobody answered in time; proceed with your best judgement";
 
-
 export interface TtlSweeperOptions {
   readonly log: EventLog;
   readonly host: Pick<AdapterHost, "liveRun" | "holdsPrompt" | "deliverAnswer" | "continueSession">;

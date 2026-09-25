@@ -806,6 +806,11 @@ describe("a tool server's input", () => {
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("mcp__deep__read"));
   });
 
+  it("reads a special scheme's address with fewer slashes than two as a URL, as the matcher does", () => {
+    const call = denylistCall({ toolCallId: "t", tool: "mcp__web__get", summary: "Get", access: { kind: "other" }, input: { url: "http:/2852039166/latest" } });
+    expect(call.hosts).toEqual(["http:/2852039166/latest"]);
+  });
+
   it("logs a cut only when a string or a container was left unread, never for a number, a flag or null past a limit", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     onCleanup(() => warn.mockRestore());

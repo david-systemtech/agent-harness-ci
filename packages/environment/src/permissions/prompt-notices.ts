@@ -16,7 +16,6 @@ import { PERMISSIONS_ACTOR } from "./actor.js";
  * raised, so their answer after it resolves them.
  */
 
-
 export interface PromptNoticesOptions {
   readonly log: EventLog;
   /** The environment's own stream, which `environment.subscribe` reads. */

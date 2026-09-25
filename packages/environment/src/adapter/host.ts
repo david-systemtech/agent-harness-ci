@@ -378,7 +378,6 @@ export interface AdapterHost {
 /** The host's own actor, for the run events it decides on itself: an end it appends, a run it starts from the queue. */
 export const HOST_ACTOR = formatActor({ kind: "system", id: "adapter-host" });
 
-
 /** `message.requeued` for each message of `runId`: the environment holds it now (ADR 0022). Always the host's. */
 export const requeuedEvents = (runId: string, messageIds: readonly string[]): EventInput[] =>
   messageIds.map((messageId): EventInput => {

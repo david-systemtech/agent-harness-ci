@@ -31,8 +31,8 @@ import { resolvePath } from "./gate.js";
 const INPUT_DEPTH = 8;
 const INPUT_STRINGS = 500;
 
-/** A URL: a scheme and `//`, or any `file:` address, which names a local path with one slash as well as with three. */
-const URL_PREFIX = /^(?:[A-Za-z][A-Za-z0-9+.-]*:\/\/|file:)/i;
+/** A URL: a scheme and `//`, any `file:` address, or a special scheme with fewer slashes (`http:/2852039166`), as the matcher reads one. */
+const URL_PREFIX = /^(?:[A-Za-z][A-Za-z0-9+.-]*:\/\/|file:|(?:https?|wss?|ftp):)/i;
 
 /**
  * What a call of kind `other` touches, read from its input (what the

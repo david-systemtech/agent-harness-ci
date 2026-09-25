@@ -84,7 +84,6 @@ export const sectionChange = (section: DenylistSection, before: readonly Denylis
   };
 };
 
-
 /**
  * Seeds the presets on first start, for an environment whose data directory
  * is `dataDir`: one `denylist.changed` per section with presets, in one
