@@ -37,7 +37,8 @@ const componentsOf = (path: string): string[] => path.split(sep === "\\" ? /[\\/
  * through such a path and where it leads cannot be said.
  */
 export const resolvePath = (path: string, base: string): string | null => {
-  const expanded = path === "~" ? homedir() : path.startsWith("~/") ? join(homedir(), path.slice(2)) : path;
+  // Joined as text, never normalised, as a relative path is below: a `..` after a link must reach the walk.
+  const expanded = path === "~" ? homedir() : path.startsWith("~/") ? `${homedir()}${sep}${path.slice(2)}` : path;
   // Joined as text, never normalised: `..` is applied only once the component before it has been followed.
   const absolute = isAbsolute(expanded) ? expanded : `${base}${sep}${expanded}`;
   const { root } = parse(absolute);

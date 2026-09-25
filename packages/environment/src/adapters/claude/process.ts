@@ -14,6 +14,7 @@ import {
   type SpawnedProcess,
 } from "@anthropic-ai/claude-agent-sdk";
 import type { Mode } from "@agent-harness/contracts";
+import { claudeGatedCall } from "./gate-access.js";
 import { PromptClosed, type PromptDecision, type PromptKind, type PromptMessage, type RunContext, type RunEnd, type RunInput } from "../../adapter/contract.js";
 import type { Clock, Timer } from "../../serve/clock.js";
 import { AsyncQueue } from "./async-queue.js";
@@ -912,13 +913,18 @@ export class ClaudeProcess implements TurnControl {
   }
 
   /**
-   * `canUseTool`, on the broker seam: every request is handed to the host's
-   * broker (the auto-deny placeholder until #130) and parked in the
+   * `canUseTool`, on the broker seam: every request is first put to the
+   * tool gate (`RunContext.gate`, #133), whose containment denial is final
+   * and asks nobody, then handed to the host's broker (the auto-deny
+   * placeholder until #130) and parked in the
    * permission table until the broker or `answerPrompt` settles it, or the
    * provider aborts it. A request arriving with no turn open is a
    * subagent's, parked long after its own turn ended: a turn of the
    * provider's own carries it, and the broker is asked once the host has
-   * adopted that turn and named its run.
+   * adopted that turn and named its run. Only the calls the provider asks
+   * about reach it: a call the mode approves without asking is not gated
+   * until #140's `PreToolUse` hook, so for those the SDK's sandbox option
+   * (#140) is what enforces containment.
    */
   readonly #canUseTool: CanUseTool = async (toolName, input, options) => {
     const toolUseID = options.toolUseID;
@@ -946,6 +952,9 @@ export class ClaudeProcess implements TurnControl {
         const early = await Promise.race([answered, Promise.resolve<PromptDecision>({ decision: "deny", message: DISPOSED_DENY_MESSAGE })]);
         return this.#result(early, input, toolUseID);
       }
+      // The gate before anyone is asked: a containment denial is final, and the model is told why (#133).
+      const ruling = await this.#context.gate.check(claudeGatedCall(toolName, input, promptId, options.title));
+      if (ruling.decision === "deny") return { behavior: "deny", message: ruling.message, toolUseID };
       const kind = PROMPT_KINDS[toolName] ?? "permission";
       const detail = toJson({
         promptId,

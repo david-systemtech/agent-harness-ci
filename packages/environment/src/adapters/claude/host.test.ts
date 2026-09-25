@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { manualClock } from "../../../test/clock.js";
 import { FakeSdk, sdk, type FakeQuery } from "../../../test/fake-claude-sdk.js";
 import type { PermissionBroker, PromptDecision } from "../../adapter/contract.js";
+import type { ContainmentLevel, ContainmentReport } from "@agent-harness/contracts";
+import type { PolicySeam } from "../../adapter/seams.js";
 import type { RunActor } from "../../permissions/resolver.js";
 
 /**
@@ -33,6 +35,7 @@ const { permissionsProjector } = await import("../../permissions/permissions-sto
 const { accountsProjector } = await import("../../accounts/account-store.js");
 const { storeAccounts } = await import("../../../test/accounts.js");
 const { autoDenyBroker } = await import("../../adapter/seams.js");
+const { resolvePolicy } = await import("../../permissions/resolver.js");
 
 const PROVIDER_SESSION = "5d1e9c3a-7b2f-4e8d-9a6c-3f0b1e2d4c5a";
 
@@ -55,7 +58,32 @@ const created = {
   payload: { title: null, tags: [], groupId: null, workspace: { kind: "directory", path: "/work/repo" }, repositoryIdentity: null, account: null, model: null, mode: null },
 };
 
-const setup = async (broker?: PermissionBroker) => {
+/** What an environment whose machine and adapter can enforce both workspace levels reports: as #140's Claude adapter will. */
+const ENFORCEABLE: ContainmentReport = {
+  levels: [
+    { level: "off", available: true, reason: null, cause: null },
+    { level: "workspace", available: true, reason: null, cause: null },
+    { level: "workspace-no-network", available: true, reason: null, cause: null },
+  ],
+  mechanism: "bubblewrap",
+  container: { declared: false, detected: false },
+};
+
+/** The policy resolver giving every run `level`, where the environment's would give `off` to Claude until #140 declares its flag. */
+const containedAt =
+  (level: ContainmentLevel): PolicySeam =>
+  ({ actor, requested, accountModes }) =>
+    resolvePolicy({
+      actor,
+      requested,
+      ceiling: actor.ceiling,
+      accountModes,
+      settings: { unattendedMode: "acceptEdits", containmentDefault: level },
+      containment: null,
+      enforceable: ENFORCEABLE,
+    });
+
+const setup = async (broker?: PermissionBroker, policy?: PolicySeam) => {
   const clock = manualClock();
   const log = openEventLog({ path: ":memory:", projectors: [sessionListProjector, runsProjector, permissionsProjector, accountsProjector], clock: () => clock.now() });
   const adapter = createClaudeAdapter({
@@ -74,6 +102,7 @@ const setup = async (broker?: PermissionBroker) => {
     accounts,
     ceilingOf: () => undefined,
     ...(broker !== undefined && { broker }),
+    ...(policy !== undefined && { resolvePolicy: policy }),
   });
   closers.push(() => log.close(), () => host.close("disposed"), () => accounts.close());
   const sessionId = randomUUID();
@@ -254,6 +283,47 @@ describe("a Claude run through the adapter host", () => {
       toolUseID: "toolu_ls",
     });
     expect(eventsOf(t).map((event) => event.type)).toEqual(["run.started", "run.policy.resolved", "message.sent", "session.provider-linked"]);
+  });
+
+  it("asks the tool gate before the broker: a write outside the workspace is denied with the gate's reason and recorded, and nobody is asked", async () => {
+    const requests: unknown[] = [];
+    const broker: PermissionBroker = { request: (request) => (requests.push(request), new Promise<PromptDecision>(() => undefined)) };
+    const t = await setup(broker, containedAt("workspace"));
+    const { runId, messageId } = startRun(t);
+    const query = await runQuery(t, 1);
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [messageId]));
+    await vi.waitFor(() => expect(eventsOf(t).map((event) => event.type)).toContain("session.provider-linked"));
+    const denied = await query.canUseTool("Write", { file_path: "/etc/hosts", content: "x" }, { toolUseID: "toolu_write" });
+    expect(denied).toMatchObject({ behavior: "deny", toolUseID: "toolu_write" });
+    const message = (denied as { message: string }).message;
+    expect(message).toMatch(/^Denied by containment \(workspace\)/);
+    expect(message).toContain("/etc/hosts");
+    expect(requests).toEqual([]);
+    const decisions = eventsOf(t).filter((event) => event.type === "tool.decision");
+    expect(decisions.map((event) => event.payload)).toEqual([
+      { runId, toolCallId: "toolu_write", tool: "Write", summary: "Write /etc/hosts", decision: "denied", decidedBy: "containment", promptId: null, reason: message },
+    ]);
+    // A write inside the workspace, and a shell command (the sandbox's), go on to the broker.
+    void query.canUseTool("Edit", { file_path: "/work/repo/a.ts" }, { toolUseID: "toolu_edit" });
+    void query.canUseTool("Bash", { command: "curl https://example.com/" }, { toolUseID: "toolu_bash" });
+    await vi.waitFor(() => expect(requests).toHaveLength(2));
+    expect(eventsOf(t).filter((event) => event.type === "tool.decision")).toHaveLength(1);
+  });
+
+  it("asks the tool gate for WebFetch and WebSearch at workspace-no-network, which denies both", async () => {
+    const closed = await setup({ request: () => new Promise<PromptDecision>(() => undefined) }, containedAt("workspace-no-network"));
+    const first = startRun(closed);
+    const query = await runQuery(closed, 1);
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [first.messageId]));
+    await vi.waitFor(() => expect(eventsOf(closed).map((event) => event.type)).toContain("session.provider-linked"));
+    for (const [tool, input] of [
+      ["WebFetch", { url: "https://example.com/", prompt: "?" }],
+      ["WebSearch", { query: "bubblewrap" }],
+    ] as const) {
+      const answer = await query.canUseTool(tool, input, { toolUseID: `toolu_${tool}` });
+      expect(answer, tool).toMatchObject({ behavior: "deny", message: expect.stringMatching(/no network/) as unknown as string });
+    }
+    expect(eventsOf(closed).filter((event) => event.type === "tool.decision").map((event) => event.payload["tool"])).toEqual(["WebFetch", "WebSearch"]);
   });
 
   it("parks canUseTool on the broker seam until the broker answers", async () => {

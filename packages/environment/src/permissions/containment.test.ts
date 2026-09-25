@@ -540,6 +540,23 @@ describe("the tool gate's containment", () => {
     expect(decisionsOf(t, id, runId)).toHaveLength(2);
   });
 
+  it("at workspace, keeps a .. after a link in a ~ path for the walk, so ~/workspace/link/../file through a link out of the workspace is outside it", async () => {
+    const home = realpathSync(tempDir("agent-harness-home-"));
+    vi.stubEnv("HOME", home);
+    onCleanup(() => void vi.unstubAllEnvs());
+    const t = await start({ containment: bubblewrapProbe() });
+    const client = await t.client();
+    const workspacePath = join(home, "proj");
+    mkdirSync(workspacePath);
+    const { id } = await create(client, { workspace: { kind: "directory", path: workspacePath } });
+    await setLevel(client, id, "workspace");
+    const elsewhere = join(realpathSync(tempDir()), "deep");
+    mkdirSync(elsewhere);
+    symlinkSync(elsewhere, join(workspacePath, "out"));
+    await runScript(t, client, id, calling(write("~/proj/out/../evil.txt"), write("~/proj/inside.txt")));
+    expect((t.adapter as FakeAdapter).lastRun().gated.map((entry) => entry.decision.decision)).toEqual(["deny", "allow"]);
+  });
+
   it("at workspace, reads a dangling link's target, so writing through a link to a file not there yet outside the workspace is denied", async () => {
     const { t, client, id, adapter, workspacePath } = await sessionAt("workspace");
     symlinkSync(join(realpathSync(tempDir()), "not-yet.txt"), join(workspacePath, "dangle"));

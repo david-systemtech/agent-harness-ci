@@ -82,10 +82,11 @@ export type ContainmentMechanism = z.infer<typeof ContainmentMechanism>;
 
 /**
  * Why a containment level cannot be enforced, as a cause a client can act
- * on (the Permissions step's package hint, #141): bubblewrap missing, user
- * namespaces blocked by the kernel, by AppArmor or by a seccomp profile,
- * socat missing, bubblewrap failing otherwise, no mechanism on the platform,
- * the adapter not enforcing containment, the probe failing or not run.
+ * on (the Permissions step's package hint, #141). First the seven the
+ * probe finds: bubblewrap missing, user namespaces blocked by the kernel, by
+ * AppArmor or by a seccomp profile, socat missing, the mechanism failing
+ * otherwise, no mechanism on the platform. Then the adapter not enforcing
+ * containment, the probe failing, and the probe not run.
  */
 export const CONTAINMENT_CAUSES = [
   "binary_missing",
@@ -101,7 +102,7 @@ export const CONTAINMENT_CAUSES = [
 ] as const;
 export const ContainmentCause = z.enum(CONTAINMENT_CAUSES).meta({
   description:
-    "Why a containment level cannot be enforced: binary_missing (bwrap or sandbox-exec), userns_blocked (the kernel), apparmor, seccomp, socat_missing, failed (the mechanism failed otherwise), platform (none on it), adapter (the adapter does not enforce containment), probe_failed, not_probed.",
+    "Why a containment level cannot be enforced. First the seven the probe finds: binary_missing (bwrap or sandbox-exec), userns_blocked (the kernel), apparmor, seccomp, socat_missing, failed (the mechanism failed otherwise), platform (none on it). Then adapter (the adapter does not enforce containment), probe_failed (the probe itself failed), not_probed (the probe not run).",
 });
 export type ContainmentCause = z.infer<typeof ContainmentCause>;
 

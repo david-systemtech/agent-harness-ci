@@ -118,7 +118,7 @@ The environment implements the SDK's `SessionStore`: `append`, `load`, `listSess
 
 ### The permission broker
 
-`canUseTool` hands each request to the broker, which appends `prompt.raised`, holds the deferred answer, and settles it on the first `runs.answerPrompt` from any client session with `runs:drive`, on the unattended rule, on a denylist match, or on the TTL sweep, appending `prompt.answered` with who answered (ADR 0006). Plan approvals and questions are prompts of kind `plan` and `question` on the same path. Dispose of a process denies every prompt it holds in memory but leaves a raised prompt raised in the log (ADR 0007); a later answer is `conflict` reason `already_answered` only once `prompt.answered` exists.
+`canUseTool` first asks the tool gate, whose containment denial is final and asks nobody (permissions spec, #133's note on the gate: until #140's `PreToolUse` hook only the calls the provider asks about are gated), then hands each request to the broker, which appends `prompt.raised`, holds the deferred answer, and settles it on the first `runs.answerPrompt` from any client session with `runs:drive`, on the unattended rule, on a denylist match, or on the TTL sweep, appending `prompt.answered` with who answered (ADR 0006). Plan approvals and questions are prompts of kind `plan` and `question` on the same path. Dispose of a process denies every prompt it holds in memory but leaves a raised prompt raised in the log (ADR 0007); a later answer is `conflict` reason `already_answered` only once `prompt.answered` exists.
 
 ### The completions surface
 
