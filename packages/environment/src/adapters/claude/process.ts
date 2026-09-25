@@ -86,9 +86,9 @@ export interface ProcessDeps {
   readonly autoMemoryDirectory: (input: RunInput) => string | null;
   readonly queue: ConfigDirQueue;
   /**
-   * Makes the account's stored login fresh before a cold resume through the
-   * store, whose temporary config directory holds no refresh token (#229);
-   * rejects with `LoginLapsed` when it cannot.
+   * Has the CLI refresh the account's login in its own directory before a
+   * cold resume through the store, whose temporary config directory holds no
+   * refresh token (#229); rejects with `LoginLapsed` when the login failed.
    */
   readonly freshLogin: (account: RunInput["account"]) => Promise<void>;
   readonly timings: ProcessTimings;
@@ -550,7 +550,7 @@ export class ClaudeProcess implements TurnControl {
     let options: Options;
     try {
       // A cold run that continues a provider session through the store runs the CLI in the SDK's temporary copy of the
-      // account's directory, whose credentials have no refresh token: an expired login is refreshed in the account's own first.
+      // account's directory, whose credentials have no refresh token: the login is refreshed in the account's own first.
       if (this.#deps.sessionStore !== null && input.target.kind !== "fresh") await this.#deps.freshLogin(input.account);
       const resumePoint = await this.#resumePoint(input);
       options = buildRunOptions({

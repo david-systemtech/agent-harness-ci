@@ -10,7 +10,7 @@ import { withControlQuery } from "./control-query.js";
 import { CLAUDE_PROVIDER, ambientConfigDirectory, claudeCredentials, readClaudeStatus, type CommandRunner, type HostEnvironment } from "./credentials.js";
 import { bundledExecutable } from "./executable.js";
 import { mirrorUserTitle, readGeneratedTitle, readSubagentTranscript, type ClaudeSessionStore } from "./history.js";
-import { LoginLapsed, createLoginRefresher } from "./login-refresh.js";
+import { createLoginRefresher, isLoginFailure, type RefreshOutcome } from "./login-refresh.js";
 import { catalogueOf, staticCatalogue } from "./models.js";
 import { CLAUDE_MODES, claudeEffort, claudeMode } from "./options.js";
 import { createPlanUsageReader, readUsageMethod, type UsageOutcome } from "./plan-usage.js";
@@ -169,47 +169,44 @@ export const createClaudeAdapter = (options: ClaudeAdapterOptions = {}): ClaudeA
   const control = (account: AccountRef, cwd: string) => controlIn(configDirectory(account), cwd);
 
   /**
-   * An expired login refreshed before a cold resume (#229): the usage read on
-   * an unsampled query in the account's own directory, which the bundled CLI
-   * makes with its OAuth refresh on (a 401 is refreshed and retried), so the
-   * CLI refreshes the stored login in place. Whether it did is the expiry
-   * read afterwards; what the read answered is only the reason when it did not.
+   * The refresh query before a cold resume (#229): the usage read on an
+   * unsampled query in the account's own directory, which the bundled CLI
+   * makes with its OAuth refresh on, so the CLI refreshes a login that is due
+   * in place. Its answer is the verdict: an answer is a usable login, a
+   * failure worded as an authentication failure is a lapsed one, and
+   * anything else could not tell. Not under the config-directory queue: the
+   * query is handed its environment explicitly and reads nothing of the
+   * process's, and a CLI start there would hold every account's helper calls.
    */
   const logins = createLoginRefresher({
     clock,
-    queue,
-    refresh: async (directory) => {
+    diagnostic,
+    refresh: async (directory): Promise<RefreshOutcome> => {
       const outcome = await withControlQuery(controlIn(directory, tmpdir()), (query) => readUsageMethod(query));
-      if (outcome.kind === "failed") throw new Error(outcome.message);
-      if (outcome.kind === "missing") throw new Error("this SDK build has no usage read to have the CLI refresh the login with");
+      if (outcome.kind === "read") return { kind: "usable" };
+      if (outcome.kind === "missing") return { kind: "not-run", detail: "this SDK build has no usage read to have the CLI refresh the login with" };
+      return isLoginFailure(outcome.message) ? { kind: "login-failed", detail: outcome.message } : { kind: "not-run", detail: outcome.message };
     },
   });
 
   /**
-   * The account's sign-in state: the bundled binary's status, except that a
-   * login whose refresh failed (#229) reads expired while it is still due one:
-   * the binary says signed in whatever the token's state, and cannot run.
-   * The refresh is tried again first, so one that failed for a passing reason
-   * (no network) clears at the next read; a sign-in, or any process that
-   * refreshed the login meanwhile, clears it too.
+   * The account's sign-in state: the bundled binary's status, unless a cold
+   * resume found the account's login lapsed (#229), which reads expired at
+   * once, before the binary is asked: the binary says signed in whatever the
+   * token's state, and signed out once a refused refresh token has cleared
+   * the login. A lapsed login is tried again behind the answer, at most once
+   * a minute; one that works, or a sign-in, clears it.
    */
   const status = async (account: AccountRef): Promise<AuthStatus> => {
     const directory = configDirectory(account);
-    const read = await readClaudeStatus({
+    if (logins.lapsed(directory)) return { signedIn: false, authMethod: null, email: null, orgName: null, subscriptionType: null, error: null, expired: true };
+    return readClaudeStatus({
       executable: executablePath(),
       directory,
       hostEnv,
       timeoutMs: timings.statusTimeoutMs,
       ...(options.runCommand !== undefined && { run: options.runCommand }),
     });
-    if (!read.signedIn || !logins.lapsed(directory)) return read;
-    try {
-      await logins.ensureFresh(directory, account.id);
-      return read;
-    } catch (error) {
-      if (!(error instanceof LoginLapsed)) throw error;
-      return { signedIn: false, authMethod: null, email: null, orgName: null, subscriptionType: null, error: null, expired: true };
-    }
   };
 
   const usage = createPlanUsageReader({
@@ -242,7 +239,7 @@ export const createClaudeAdapter = (options: ClaudeAdapterOptions = {}): ClaudeA
     pluginDirectory: (input) => options.pluginDirectory?.(input.account) ?? null,
     autoMemoryDirectory: (input) => (options.autoMemoryRoot === undefined ? null : autoMemoryDirectory(options.autoMemoryRoot, input)),
     queue,
-    freshLogin: (account) => logins.ensureFresh(configDirectory(account), account.id),
+    freshLogin: (account) => logins.beforeResume(configDirectory(account), account.label ?? account.id),
     timings,
     diagnostic,
     onRateLimit: (verdict) => usage.fold(account, verdict),
@@ -262,6 +259,7 @@ export const createClaudeAdapter = (options: ClaudeAdapterOptions = {}): ClaudeA
     descriptor: descriptorFor(store !== undefined),
     credentials: claudeCredentials,
     status,
+    loginReplaced: (account) => logins.forget(configDirectory(account)),
     // The machine's own directory, resolved once: what `accounts.adopt` registers in place (#134).
     ambientDirectory: () => ambient,
     async models(account) {

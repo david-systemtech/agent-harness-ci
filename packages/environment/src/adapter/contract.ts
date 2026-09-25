@@ -47,6 +47,8 @@ export interface AdapterCredentialSpec extends CredentialSpec {
 export interface AccountRef {
   readonly id: string;
   readonly directory: string | null;
+  /** The account's label, for what a person reads (a run's error naming the account); absent where the caller has none. */
+  readonly label?: string;
 }
 
 /**
@@ -541,6 +543,12 @@ export interface Adapter {
   readonly descriptor: AdapterDescriptor;
   readonly credentials: AdapterCredentialSpec;
   status(account: AccountRef): Promise<AuthStatus>;
+  /**
+   * A sign-in to the account has just finished, before the status read that
+   * checks it: whatever the adapter concluded about the login it replaced no
+   * longer holds (Claude: a login it found lapsed, #229). Optional.
+   */
+  loginReplaced?(account: AccountRef): void;
   /**
    * The machine's own config directory for this provider (Claude's
    * `CLAUDE_CONFIG_DIR`, else `~/.claude`), which `accounts.adopt` registers

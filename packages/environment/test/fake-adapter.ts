@@ -222,6 +222,8 @@ export interface FakeAdapter extends Adapter {
   exit(sessionId: string): void;
   /** Every status read, in order: the account reference it was asked with. */
   readonly statusReads: readonly AccountRef[];
+  /** Every account a finished sign-in told the fake it replaced the login of (`loginReplaced`), in order. */
+  readonly loginsReplaced: readonly AccountRef[];
   /** Replaces the status probe from now on. */
   setStatus(status: (account: AccountRef) => AuthStatus | Promise<AuthStatus>): void;
   /** Every commands listing, in order. */
@@ -439,6 +441,7 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
   /** The port each process's latest run was handed. */
   const ports = new Map<FakeProcessRecord, ProcessPort>();
   const statusReads: AccountRef[] = [];
+  const loginsReplaced: AccountRef[] = [];
   const commandListings: { account: AccountRef; workspace: string }[] = [];
   let status = options.status;
   const usageReads: AccountRef[] = [];
@@ -632,6 +635,7 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
       statusReads.push(account);
       return status?.(account) ?? signedInAs(`${account.id}@example.com`);
     },
+    loginReplaced: (account) => void loginsReplaced.push(account),
     ambientDirectory: () => (options.ambientDirectory === undefined ? FAKE_AMBIENT_DIRECTORY : options.ambientDirectory),
     ...(options.commands !== undefined && {
       commands: async (account: AccountRef, workspace: { readonly path: string }) => {
@@ -699,6 +703,7 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
     subagentReads,
     deletedTranscriptAccounts,
     statusReads,
+    loginsReplaced,
     setStatus(next) {
       status = next;
     },

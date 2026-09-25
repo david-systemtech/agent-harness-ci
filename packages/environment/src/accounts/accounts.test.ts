@@ -204,7 +204,8 @@ describe("accounts.adopt", () => {
     const { id } = await create(client, { account: account.id });
     await startRun(client, id);
     await vi.waitFor(() => expect(t.adapter.runs).toHaveLength(1));
-    expect(t.adapter.lastRun().input.account).toEqual({ id: account.id, directory: ambient });
+    // Handed its label too, for what a person reads of the run (#229: a run's error names the account by it).
+    expect(t.adapter.lastRun().input.account).toEqual({ id: account.id, directory: ambient, label: account.label });
     await applied(client, "accounts.relabel", { accountId: account.id, label: "Personal" });
     const refused = await command(client, "accounts.remove", { accountId: account.id, deleteDirectory: true });
     expect(refused.receipt).toMatchObject({ status: "rejected", reason: "conflict", error: { data: { reason: "adopted_directory", accountId: account.id } } });

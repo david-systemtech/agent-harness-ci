@@ -157,7 +157,8 @@ describe("the store on every run", () => {
     await adapter.stopProcess(SESSION);
 
     adapter.createRun(runInput({ account: { id: "other", directory: "/data/accounts/other" }, target: { kind: "resume", providerSessionId: PROVIDER } }), context());
-    const resumed = await fake.made(2);
+    // The refresh query before a cold resume through the store comes first (#229).
+    const resumed = await fake.made(3);
     expect(resumed.options).toMatchObject({ sessionStore: store, resume: PROVIDER });
     // The SDK keys the resume's load by these two (0.3.281: the project directory's name beside CLAUDE_CONFIG_DIR).
     expect(resumed.env["CLAUDE_CONFIG_DIR"]).toBe("/data/accounts/other");
@@ -194,7 +195,8 @@ describe("fork and rewind targets, placed in the stored chain through the SDK's 
     await storeConversation(FORK);
     const adapter = adapterWith();
     adapter.createRun(runInput({ sessionId: FORK, account: { id: "other", directory: "/data/accounts/other" }, target: { kind: "fork", providerSessionId: PROVIDER, atMessageId: P2 } }), context());
-    const options: Options = (await fake.made(1)).options;
+    // After the refresh query a cold resume through the store makes first (#229).
+    const options: Options = (await fake.made(2)).options;
     expect(options).toMatchObject({ resume: PROVIDER, forkSession: true, resumeSessionAt: "a1", sessionStore: store });
     expect(options).not.toHaveProperty("resumeDropsTurn");
     expect(options.env?.["CLAUDE_CODE_PROJECT_DIR_NAME"]).toBe(FORK);
@@ -205,7 +207,7 @@ describe("fork and rewind targets, placed in the stored chain through the SDK's 
     await storeConversation(SESSION);
     const adapter = adapterWith();
     adapter.createRun(runInput({ target: { kind: "rewind", providerSessionId: PROVIDER, toMessageId: P2 } }), context());
-    expect((await fake.made(1)).options).toMatchObject({ resume: PROVIDER, resumeSessionAt: "a1", resumeDropsTurn: P2 });
+    expect((await fake.made(2)).options).toMatchObject({ resume: PROVIDER, resumeSessionAt: "a1", resumeDropsTurn: P2 });
     await adapter.stopProcess(SESSION);
   });
 
@@ -215,7 +217,7 @@ describe("fork and rewind targets, placed in the stored chain through the SDK's 
     await store.append({ projectKey: SESSION, sessionId: PROVIDER }, [line("user", "r1", "a1", "Second, again")]);
     const adapter = adapterWith();
     adapter.createRun(runInput({ target: { kind: "rewind", providerSessionId: PROVIDER, toMessageId: P2 } }), context());
-    const options: Options = (await fake.made(1)).options;
+    const options: Options = (await fake.made(2)).options;
     expect(options).toMatchObject({ resume: PROVIDER, sessionStore: store });
     expect(options).not.toHaveProperty("resumeSessionAt");
     expect(options).not.toHaveProperty("resumeDropsTurn");

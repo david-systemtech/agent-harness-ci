@@ -542,7 +542,14 @@ export const createAccountService = (options: AccountServiceOptions): AccountSer
   };
 
   const finished = async (accountId: string): Promise<SignInOutcome> => {
-    if (liveAccount(reader, accountId) === null) return { signedIn: false, reason: "account_gone", message: `No account ${accountId} is on this environment.` };
+    const signed = liveAccount(reader, accountId);
+    if (signed === null) return { signedIn: false, reason: "account_gone", message: `No account ${accountId} is on this environment.` };
+    // The login is a new one: the adapter drops what it concluded about the old (a lapse, #229) before the read checks it.
+    try {
+      adapters.get(signed.provider)?.loginReplaced?.(refOf(signed));
+    } catch (error) {
+      console.error(`Telling the adapter that ${signed.label} signed in again failed:`, error);
+    }
     await readStatus(accountId, { fresh: true });
     const after = readAccount(reader, accountId);
     if (after === null || after.removed) {
@@ -715,6 +722,7 @@ export const createAccountService = (options: AccountServiceOptions): AccountSer
       return {
         id,
         directory: record.directory.path,
+        label: record.label,
         adopted: record.directory.kind === "adopted",
         signedIn: record.status.state === "signed-in",
         identity: record.identity,
