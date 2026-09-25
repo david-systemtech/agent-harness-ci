@@ -82,9 +82,15 @@ export const verbOf = (method: string): string => {
   return last.charAt(0).toUpperCase() + last.slice(1);
 };
 
-/** Why a command was refused, in words: `not_found` as the target gone, a conflict by its own reason. */
-export const reasonOf = (code: string, data: Readonly<Record<string, unknown>> | undefined): string => {
-  if (code === "not_found") return "it no longer exists";
+/**
+ * Why a command was refused, in words: `not_found` as the target gone, or as the other thing the command named gone when
+ * the error data's `kind` is not the target's (a session moved into a group deleted meanwhile); a conflict by its own reason.
+ */
+export const reasonOf = (code: string, data: Readonly<Record<string, unknown>> | undefined, target?: Target | null): string => {
+  if (code === "not_found") {
+    const kind = typeof data?.["kind"] === "string" ? (data["kind"] as string) : undefined;
+    return kind !== undefined && target != null && kind !== target.kind ? `its ${kind.replace(/_/g, " ")} no longer exists` : "it no longer exists";
+  }
   const reason = typeof data?.["reason"] === "string" ? (data["reason"] as string) : code;
   return reason.replace(/_/g, " ");
 };

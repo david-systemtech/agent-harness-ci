@@ -316,7 +316,7 @@ export const createOutbox = (host: OutboxHost): Outbox => {
     remove(entry);
     notices.raise(entry.environmentId, {
       kind: "command-rejected",
-      message: `${verbOf(entry.method)} on ${label} was rejected: ${reasonOf(error.code, error.data)}.`,
+      message: `${verbOf(entry.method)} on ${label} was rejected: ${reasonOf(error.code, error.data, entry.target)}.`,
       action: null,
     });
     answer(entry.commandId, failure(entry.commandId, error.code, error.message, error));

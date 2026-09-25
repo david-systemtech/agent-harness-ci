@@ -216,7 +216,7 @@ describe("commands.dispatch", () => {
     expect(row(runtime, sessionId)).toMatchObject({ groupName: null });
     expect(runtime.projections.notices.read().filter((n) => n.kind === "command-rejected").map((n) => n.message)).toEqual([
       "Create group on Cool-Jams was rejected: name taken.",
-      "Move on Invoices was rejected: it no longer exists.",
+      "Move on Invoices was rejected: its group no longer exists.",
     ]);
   });
 
