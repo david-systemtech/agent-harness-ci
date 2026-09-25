@@ -331,6 +331,8 @@ describe("the method registry", () => {
       | "accounts.signin.start"
       | "accounts.signin.code"
       | "accounts.signin.cancel"
+      | "accounts.usage"
+      | "accounts.handoff.recommend"
       | "models.list"
       | "commands.list"
       | "settings.get"
