@@ -11,7 +11,8 @@ import type { ToolGateOptions } from "./gate.js";
  * The gate on its own, without a host: its path walk where the file system
  * changes under it (a link seen by `lstat` and gone by the time `readlink`
  * reads it; `readlinkSync` is wrapped so a test can remove the link just
- * before the real read), and a rule that asks when no ask is wired.
+ * before the real read), and a rule that asks when no ask is wired or the
+ * ask fails.
  */
 
 const beforeReadlink = vi.hoisted(() => ({ hook: undefined as ((path: string) => void) | undefined }));
@@ -25,13 +26,13 @@ vi.mock("node:fs", async (importOriginal) => {
   return { ...fs, default: { ...fs, readlinkSync }, readlinkSync };
 });
 
-const { createToolGate, resolvePath } = await import("./gate.js");
+const { GATE_FAILED_MESSAGE, createToolGate, resolvePath } = await import("./gate.js");
 const { denylistRule } = await import("./denylist-gate.js");
 
 const { onCleanup, tempDir } = useCleanups();
 
-/** The gate handed a run at `workspace` in `workspace`, its denials appended to `append`, with `rules` after containment's and no ask wired. */
-const gateAt = (workspace: string, append: ToolGateOptions["log"]["append"], rules: readonly ToolGateRule[] = []) => {
+/** The gate handed a run at `workspace` in `workspace`, its denials appended to `append`, with `rules` after containment's and `ask` wired, if given. */
+const gateAt = (workspace: string, append: ToolGateOptions["log"]["append"], rules: readonly ToolGateRule[] = [], ask?: ToolGateOptions["ask"]) => {
   const containment: RunContainment = {
     level: "workspace",
     mechanism: "bubblewrap",
@@ -42,7 +43,7 @@ const gateAt = (workspace: string, append: ToolGateOptions["log"]["append"], rul
   };
   // A log that holds nothing: every call is undecided, and the gate's append is the one it makes.
   const log: ToolGateOptions["log"] = { append, read: () => [], atomically: (work) => work({ afterCommit: () => undefined }) };
-  return createToolGate({ log, liveRunOf: () => undefined, rules })({ runId: "run-1", sessionId: "session-1", workspace, containment });
+  return createToolGate({ log, liveRunOf: () => undefined, rules, ...(ask !== undefined && { ask }) })({ runId: "run-1", sessionId: "session-1", workspace, containment });
 };
 
 const writing = (path: string) => ({ toolCallId: "toolu_1", tool: "Write", summary: `Write ${path}`, access: { kind: "write", paths: [path] } }) as const;
@@ -83,17 +84,42 @@ describe("the gate's path walk", () => {
   });
 });
 
+const readKey = { toolCallId: "toolu_1", tool: "Read", summary: "Read ~/.ssh/id_rsa", access: { kind: "read", paths: ["~/.ssh/id_rsa"] } } as const;
+const keyRule = () => denylistRule({ denylist: () => denylistPresets("/srv/agent-harness"), home: "/home/david", exempt: [], resolve: (path) => path });
+
 describe("a rule that asks, on a gate with no ask wired", () => {
   it("is denied, nobody being there to ask, and the gate records the denial by the rule's decider, since no prompt's answer will", async () => {
     const workspace = realpathSync(tempDir());
     const append = vi.fn();
-    const rule = denylistRule({ denylist: () => denylistPresets("/srv/agent-harness"), home: "/home/david", exempt: [], resolve: (path) => path });
-    const ruling = await gateAt(workspace, append, [rule]).check({ toolCallId: "toolu_1", tool: "Read", summary: "Read ~/.ssh/id_rsa", access: { kind: "read", paths: ["~/.ssh/id_rsa"] } });
+    const ruling = await gateAt(workspace, append, [keyRule()]).check(readKey);
     if (ruling.decision !== "deny") throw new Error(`The call was let through: ${JSON.stringify(ruling)}`);
     expect(ruling.message).toMatch(/^Denied: nobody could be asked/);
     expect(append).toHaveBeenCalledTimes(1);
     expect(append.mock.calls[0]?.[1]).toEqual([
       { type: "tool.decision", payload: expect.objectContaining({ toolCallId: "toolu_1", tool: "Read", decision: "denied", decidedBy: "denylist", promptId: null, reason: ruling.message }) },
     ]);
+  });
+});
+
+describe("a rule whose ask fails", () => {
+  it("denies the call as a rule that could not rule, recorded by the rule's decider, since no prompt was opened to answer", async () => {
+    const workspace = realpathSync(tempDir());
+    const append = vi.fn();
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    onCleanup(() => error.mockRestore());
+    const failing: ToolGateOptions["ask"] = () => Promise.reject(new Error("The prompt could not be opened."));
+    expect(await gateAt(workspace, append, [keyRule()], failing).check(readKey)).toEqual({ decision: "deny", message: GATE_FAILED_MESSAGE });
+    expect(append).toHaveBeenCalledTimes(1);
+    expect(append.mock.calls[0]?.[1]).toEqual([
+      { type: "tool.decision", payload: expect.objectContaining({ toolCallId: "toolu_1", decision: "denied", decidedBy: "denylist", promptId: null, reason: GATE_FAILED_MESSAGE }) },
+    ]);
+  });
+
+  it("leaves an ask that was answered to its prompt: the gate records nothing", async () => {
+    const workspace = realpathSync(tempDir());
+    const append = vi.fn();
+    const answered: ToolGateOptions["ask"] = () => Promise.resolve({ decision: "deny", message: "A person denied it." });
+    expect(await gateAt(workspace, append, [keyRule()], answered).check(readKey)).toEqual({ decision: "deny", message: "A person denied it." });
+    expect(append).not.toHaveBeenCalled();
   });
 });

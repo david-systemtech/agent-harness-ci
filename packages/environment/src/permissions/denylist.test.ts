@@ -26,6 +26,7 @@ import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions
 import { create, refusal } from "../../test/sessions.js";
 import type { WireClient } from "../../test/wire-client.js";
 import type { GatedToolCall } from "../adapter/contract.js";
+import { denylistCall } from "./denylist-gate.js";
 import { GATE_FAILED_MESSAGE, resolvePath } from "./gate.js";
 import type { ToolGateRule } from "../adapter/seams.js";
 import type { EventEnvelope as LogEvent } from "../event-log/event-log.js";
@@ -746,6 +747,31 @@ describe("a tool server's input", () => {
       ["mcp__deep__read", "allowed", "mode"],
     ]);
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("mcp__deep__read"));
+  });
+
+  it("logs a cut only when a string or a container was left unread, never for a number, a flag or null past a limit", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    onCleanup(() => warn.mockRestore());
+    const read = (input: Record<string, unknown>) => denylistCall({ toolCallId: "toolu_1", tool: "mcp__notes__write", summary: "Write", access: { kind: "other" }, input });
+    /** `inner` at the input's 8th level, the last one read. */
+    const atLastLevel = (inner: unknown): Record<string, unknown> => {
+      let input: Record<string, unknown> = { next: inner };
+      for (let level = 1; level < 8; level++) input = { next: input };
+      return input;
+    };
+    const notes = Array.from({ length: 500 }, (_, index) => `note ${index}`);
+
+    expect(read({ notes, counts: [1, 2, 3], draft: true, parent: null })).toEqual({ paths: [], hosts: [] });
+    expect(read(atLastLevel([1, 2, 3]))).toEqual({ paths: [], hosts: [] });
+    expect(read(atLastLevel({}))).toEqual({ paths: [], hosts: [] });
+    expect(warn).not.toHaveBeenCalled();
+
+    expect(read({ notes, key: "~/.ssh/id_rsa" })).toEqual({ paths: [], hosts: [] });
+    expect(read(atLastLevel(["~/.ssh/id_rsa"]))).toEqual({ paths: [], hosts: [] });
+    expect(read(atLastLevel([[1]]))).toEqual({ paths: [], hosts: [] });
+    // A cut deep in the input leaves the rest of it read.
+    expect(read({ deep: atLastLevel(["x"]), key: "~/.ssh/id_rsa" })).toEqual({ paths: ["~/.ssh/id_rsa"], hosts: [] });
+    expect(warn).toHaveBeenCalledTimes(4);
   });
 });
 

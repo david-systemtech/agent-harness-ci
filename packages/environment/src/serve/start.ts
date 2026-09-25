@@ -353,6 +353,20 @@ const linkHost = (listening: readonly { readonly address: Address; readonly inte
 };
 
 /**
+ * The running user's name from the passwd database, which the denylist reads
+ * `~<name>` as the home directory for. None for a uid with no entry (a
+ * container's arbitrary `--user`), where `userInfo` throws on POSIX and no
+ * shell expands a `~<name>` either.
+ */
+const passwdName = (): string | undefined => {
+  try {
+    return userInfo().username;
+  } catch {
+    return undefined;
+  }
+};
+
+/**
  * Starts an environment: refuses root before anything is created, then runs
  * the startup steps in order. Discovery and health are routed before the bind,
  * so they answer `starting` from the first byte; readiness is `ready` only
@@ -442,9 +456,10 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     return { record: loaded, clientSessions: loadedClientSessions, pairings: loadedPairings, accessLog: access };
   });
 
-  // Where the denylist reads paths from (#132): the user's home for `~`, the file system's links, and the containment
-  // directories inside the data directory (#133's), which the data directory's preset leaves out.
-  const denylistContext: Omit<DenylistContext, "denylist"> = { home: homedir(), user: userInfo().username, exempt: [join(dataDir, CONTAINMENT_DIRECTORY)] };
+  // Where the denylist reads paths from (#132): the user's home for `~` (and for `~<the user's name>`), the file system's
+  // links, and the containment directories inside the data directory (#133's), which the data directory's preset leaves out.
+  const user = passwdName();
+  const denylistContext: Omit<DenylistContext, "denylist"> = { home: homedir(), exempt: [join(dataDir, CONTAINMENT_DIRECTORY)], ...(user !== undefined && { user }) };
 
   // Each session's scratch and temporary directories, under the data directory; removed once the session's purge commits, off the log's path.
   const sessionDirectories = containmentDirectories(join(dataDir, CONTAINMENT_DIRECTORY));

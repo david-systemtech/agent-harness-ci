@@ -94,7 +94,7 @@ describe("the denylist's sections", () => {
       expect(accepts("hosts", pattern), pattern).toBe(false);
     }
     for (const pattern of ["~", "~/.ssh", "/etc/shadow", "~/Library/Application Support/Bitwarden CLI", "/srv/**/key.pem"]) expect(accepts("paths", pattern), pattern).toBe(true);
-    for (const pattern of [".ssh", "relative/path", "", "~root/.ssh"]) expect(accepts("paths", pattern), pattern).toBe(false);
+    for (const pattern of [".ssh", "relative/path", "", "~root/.ssh", "*", "**"]) expect(accepts("paths", pattern), pattern).toBe(false);
     for (const pattern of ["sudo *", "git push * -f *"]) expect(accepts("commandPatterns", pattern), pattern).toBe(true);
     for (const pattern of ["", "   "]) expect(accepts("commandPatterns", pattern), pattern).toBe(false);
   });

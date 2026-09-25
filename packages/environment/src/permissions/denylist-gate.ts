@@ -41,7 +41,9 @@ const URL_PREFIX = /^(?:[A-Za-z][A-Za-z0-9+.-]*:\/\/|file:)/i;
  * one that is an absolute or `~` path is a path. Only whole values are read,
  * so a note that mentions a path in its text is not taken for one. Past
  * `INPUT_DEPTH` levels or `INPUT_STRINGS` strings the rest is not read, and
- * the call goes on as far as the denylist is concerned: that is logged.
+ * the call goes on as far as the denylist is concerned: that is logged when
+ * a string was left unread, or a container too deep to open was not empty
+ * (a number, a flag or null names nothing, within the limits or past them).
  */
 const inputSubjects = (call: GatedToolCall): DenylistCall => {
   const paths: string[] = [];
@@ -49,21 +51,26 @@ const inputSubjects = (call: GatedToolCall): DenylistCall => {
   let strings = 0;
   let cut = false;
   const walk = (value: unknown, depth: number): void => {
-    if (depth > INPUT_DEPTH || strings >= INPUT_STRINGS) {
-      cut = true;
-      return;
-    }
+    // Past the string limit, once a string was left unread, nothing more can be read or cut.
+    if (cut && strings >= INPUT_STRINGS) return;
     if (typeof value === "string") {
+      if (depth > INPUT_DEPTH || strings >= INPUT_STRINGS) {
+        cut = true;
+        return;
+      }
       strings++;
       const text = value.trim();
       if (URL_PREFIX.test(text)) hosts.push(text);
       // `~`, `~/…`, and `~name` or `~name/…`, which the matcher reads as the home directory for the environment's own user.
       else if (/^~[^\s/]*(?:\/|$)/.test(text) || text.startsWith("/")) paths.push(text);
       else if (hostToken(text) !== null && !/\s/.test(text)) hosts.push(text);
-    } else if (Array.isArray(value)) {
-      for (const item of value) walk(item, depth + 1);
     } else if (value !== null && typeof value === "object") {
-      for (const item of Object.values(value)) walk(item, depth + 1);
+      const items: readonly unknown[] = Array.isArray(value) ? value : Object.values(value);
+      if (depth > INPUT_DEPTH) {
+        if (items.length > 0) cut = true;
+        return;
+      }
+      for (const item of items) walk(item, depth + 1);
     }
   };
   walk(call.input, 0);

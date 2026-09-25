@@ -16,8 +16,10 @@ import { recordToolDecision } from "./tool-decisions.js";
  * temporary directory, or one that names no path; at `workspace-no-network`
  * that, and every fetch and search. Shell commands are the sandbox's
  * (Claude's `sandbox` option, #140), reads are free at every level (the
- * denylist's paths are #132's), and `off` denies nothing. A denial is final:
- * the model is told why, and that asking again will not widen it.
+ * denylist's paths are #132's), a browser verb and a tool server's call are
+ * not containment's (the spec's meaning of the levels), and `off` denies
+ * nothing. A denial is final: the model is told why, and that asking again
+ * will not widen it.
  *
  * A path is read as the file system will read it: relative to the
  * workspace, `~` as the home directory, one component at a time, each
@@ -183,24 +185,27 @@ const NOBODY_TO_ASK: PromptDecision = { decision: "deny", message: "Denied: nobo
  * provider's report of the call reaches the log; a denial through `ask` is
  * the prompt's answer's to record (or, when a stop denied it in memory, the
  * prompt stays open, ADR 0007), unless no `ask` is wired: then nobody was
- * asked and no prompt opened, so the gate records it. A denial whose
- * record cannot be appended is still a denial. `signal` is the provider
- * giving up on the call: an ask then closes its prompt.
+ * asked and no prompt opened, so the gate records it. An ask that fails
+ * (rejects) makes the rule one that threw. A denial whose record cannot be
+ * appended is still a denial. `signal` is the provider giving up on the
+ * call: an ask then closes its prompt.
  */
 export const createToolGate =
   (options: ToolGateOptions) =>
   (handedTo: GatedRun): ToolGate => ({
     check: async (call, signal) => {
       const gated = options.liveRunOf(handedTo.sessionId) ?? handedTo;
-      // Whether the rule being asked put the call to a person: then the prompt's answer is the call's decision.
+      // Whether the rule being asked put the call to a person and was answered: then the prompt's answer is the call's decision.
       let asked = false;
       const run: RuledRun = {
         ...gated,
-        ask: (kind, detail, askSignal) => {
-          // With no ask wired no prompt opens, so no answer records the denial: the gate does.
-          if (options.ask === undefined) return Promise.resolve(NOBODY_TO_ASK);
+        ask: async (kind, detail, askSignal) => {
+          // With no ask wired no prompt opens, so no answer records the denial: the gate does. An ask that fails
+          // answered nothing either, so the rule's failure is the gate's to record.
+          if (options.ask === undefined) return NOBODY_TO_ASK;
+          const answer = await options.ask(gated, kind, detail, askSignal ?? signal);
           asked = true;
-          return options.ask(gated, kind, detail, askSignal ?? signal);
+          return answer;
         },
       };
       const record = (decider: ToolDecider, reason: string): void => {
