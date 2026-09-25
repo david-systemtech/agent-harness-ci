@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "permissions.denylist.test params",
+  "type": "object",
+  "properties": {
+    "kind": {
+      "type": "string",
+      "enum": [
+        "browserDomain",
+        "path",
+        "command",
+        "host"
+      ],
+      "description": "What a tested value is: browserDomain (an address a browser verb opens), path (a file or directory), command (a shell command line), or host (a URL or host a call reaches)."
+    },
+    "value": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 8192,
+      "description": "The address, path, command line or host to test."
+    }
+  },
+  "required": [
+    "kind",
+    "value"
+  ]
+}

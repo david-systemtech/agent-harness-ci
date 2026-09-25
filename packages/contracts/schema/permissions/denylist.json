@@ -1,0 +1,174 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Denylist",
+  "type": "object",
+  "properties": {
+    "browserDomains": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "The entry's id, unique in its section: a preset's is the same on every environment."
+          },
+          "pattern": {
+            "type": "string",
+            "pattern": "^(?:(?:\\*\\.)?[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?(?:\\.[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?)*|[0-9A-Fa-f.]*:[0-9A-Fa-f:.]*:[0-9A-Fa-f:.]*)$",
+            "description": "A host name, IPv4 address or IPv6 literal, with an optional leading wildcard label (*.example.com): no scheme, port or path."
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 500,
+            "description": "Why the entry is there, for people; empty for none."
+          },
+          "preset": {
+            "type": "boolean",
+            "description": "Whether it came from the presets (seeded on first start, or restored); an edited preset keeps it."
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "Whether it matches: a disabled entry never does."
+          }
+        },
+        "required": [
+          "id",
+          "pattern",
+          "note",
+          "preset",
+          "enabled"
+        ]
+      },
+      "description": "Where a browser verb may not go unasked, by domain."
+    },
+    "paths": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "The entry's id, unique in its section: a preset's is the same on every environment."
+          },
+          "pattern": {
+            "type": "string",
+            "pattern": "^(?:~|~\\/[^\\0]*|\\/[^\\0]*)$",
+            "description": "An absolute or ~-relative path, with glob segments: * and ? within a segment, ** for any number of segments."
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 500,
+            "description": "Why the entry is there, for people; empty for none."
+          },
+          "preset": {
+            "type": "boolean",
+            "description": "Whether it came from the presets (seeded on first start, or restored); an edited preset keeps it."
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "Whether it matches: a disabled entry never does."
+          }
+        },
+        "required": [
+          "id",
+          "pattern",
+          "note",
+          "preset",
+          "enabled"
+        ]
+      },
+      "description": "Files and directories, and everything under a directory."
+    },
+    "commandPatterns": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "The entry's id, unique in its section: a preset's is the same on every environment."
+          },
+          "pattern": {
+            "type": "string",
+            "pattern": "\\S",
+            "description": "Tokens separated by white space: a bare * matches any run of tokens including none, a * inside a token anything within that token."
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 500,
+            "description": "Why the entry is there, for people; empty for none."
+          },
+          "preset": {
+            "type": "boolean",
+            "description": "Whether it came from the presets (seeded on first start, or restored); an edited preset keeps it."
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "Whether it matches: a disabled entry never does."
+          }
+        },
+        "required": [
+          "id",
+          "pattern",
+          "note",
+          "preset",
+          "enabled"
+        ]
+      },
+      "description": "Shell command lines."
+    },
+    "hosts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "The entry's id, unique in its section: a preset's is the same on every environment."
+          },
+          "pattern": {
+            "type": "string",
+            "pattern": "^(?:(?:\\*\\.)?[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?(?:\\.[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?)*|[0-9A-Fa-f.]*:[0-9A-Fa-f:.]*:[0-9A-Fa-f:.]*)$",
+            "description": "A host name, IPv4 address or IPv6 literal, with an optional leading wildcard label (*.example.com): no scheme, port or path."
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 500,
+            "description": "Why the entry is there, for people; empty for none."
+          },
+          "preset": {
+            "type": "boolean",
+            "description": "Whether it came from the presets (seeded on first start, or restored); an edited preset keeps it."
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "Whether it matches: a disabled entry never does."
+          }
+        },
+        "required": [
+          "id",
+          "pattern",
+          "note",
+          "preset",
+          "enabled"
+        ]
+      },
+      "description": "Hosts a command, a fetch, a search or one of the harness's own tools may not reach unasked."
+    }
+  },
+  "required": [
+    "browserDomains",
+    "paths",
+    "commandPatterns",
+    "hosts"
+  ],
+  "description": "The environment's denylist: its four sections, each an ordered list of entries in the section's grammar."
+}

@@ -10,6 +10,7 @@ import {
   type Mode,
   type ProcessStopReason,
   type PromptAnsweredPayload,
+  type PromptKind,
   type PromptOpenedPayload,
   type ProviderProcess,
   type RunEndedPayload,
@@ -58,11 +59,13 @@ import type {
   AttachmentData,
   PermissionBroker,
   PromptDecision,
+  PromptDetail,
   PromptMessage,
   ProviderCommand,
   ProviderTurn,
   RunContext,
   RunEnd,
+  ToolGate,
   UsageReading,
 } from "./contract.js";
 import type { AttachmentStage } from "./attachment-stage.js";
@@ -78,6 +81,7 @@ import {
   type InstructionComposer,
   type PolicySeam,
   type PromptAutoAnswer,
+  type ToolGateRule,
   type ToolServerFactory,
 } from "./seams.js";
 
@@ -126,6 +130,13 @@ import {
  * answer it appends to a prompt (a rule's, `run_ended`, `cancelled`) carries
  * the call's decision beside it. A prompt a rule does not answer at once has
  * its `ttlExpiresAt` fixed from the TTL setting when it opens.
+ *
+ * The tool gate (#132, `RunContext.gate`): each run is handed a gate that
+ * asks the environment's rules in order before the provider's own
+ * evaluation, under the session's run live at the time. A rule asks a
+ * person through the same broker, as a prompt of the run's; the host hands
+ * the answer to the gate that asked and never to the adapter's
+ * `answerPrompt`, since the adapter did not raise it.
  */
 
 /** An account the host serves runs through: its id, its provider, and its config directory. The account store (#134) will supply these. */
@@ -149,6 +160,8 @@ export interface AdapterHostOptions {
   readonly instructions?: InstructionComposer;
   /** The broker's automatic answers (#131); preset: none, every prompt parks. */
   readonly autoAnswer?: PromptAutoAnswer;
+  /** The tool gate's rules, asked in order for every call a run's adapter checks (#132); preset: none, every call goes on to the provider. */
+  readonly gateRules?: readonly ToolGateRule[];
   /**
    * How long a prompt may wait for a person before the TTL's sweeper denies
    * it, in milliseconds, read as each prompt opens; null for never (#131).
@@ -299,6 +312,9 @@ export interface AdapterHost {
 /** The host's own actor, for the run events it decides on itself: an end it appends, a run it starts from the queue. */
 export const HOST_ACTOR = formatActor({ kind: "system", id: "adapter-host" });
 
+/** What the model reads when the tool gate could not rule on a call (a rule failed): denied, since the gate fails closed. */
+export const GATE_FAILED_MESSAGE = "Denied: the harness could not check this call against its rules, so it was not run. Continue without it and say what you could not do.";
+
 /** `message.requeued` for each message of `runId`: the environment holds it now (ADR 0022). Always the host's. */
 export const requeuedEvents = (runId: string, messageIds: readonly string[]): EventInput[] =>
   messageIds.map((messageId): EventInput => {
@@ -408,6 +424,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
   const toolServers = options.toolServers ?? noToolServers;
   const instructions = options.instructions ?? composeInstructions();
   const autoAnswer = options.autoAnswer ?? noAutoAnswer;
+  const gateRules = options.gateRules ?? [];
   const promptTtlMs = options.promptTtlMs ?? (() => null);
   const resolvePolicy = options.resolvePolicy ?? presetPolicy;
   const configs = options.accounts ?? [];
@@ -448,6 +465,8 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
    */
   const waiters = new Map<string, { readonly runId: string; settle(decision: PromptDecision): void }>();
   const waiterKey = (runId: string, promptId: string): string => `${runId}\u0000${promptId}`;
+  /** The open requests the tool gate made rather than the adapter (`waiterKey`): their answers go to the gate alone. */
+  const gateRequests = new Set<string>();
   const stage = options.attachmentStage;
   let closing = false;
 
@@ -851,7 +870,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
    * is live, cancelled before it was made, or that the log would not take, is
    * denied at once and parks nothing.
    */
-  const brokerFor = (sessionId: string): PermissionBroker => ({
+  const brokerFor = (sessionId: string, from: "adapter" | "gate" = "adapter"): PermissionBroker => ({
     request: async (request) => {
       const entry = live.get(sessionId);
       if (entry === undefined || entry.ended) return { decision: "deny", message: RUN_ENDED_MESSAGE };
@@ -898,6 +917,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
           if (!open) return;
           open = false;
           if (waiters.get(key) === waiter) waiters.delete(key);
+          gateRequests.delete(key);
           request.signal?.removeEventListener("abort", cancel);
           answered(entry, promptId);
           resolve(decision);
@@ -919,13 +939,46 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
         const key = waiterKey(entry.runId, promptId);
         const waiter = { runId: entry.runId, settle };
         waiters.set(key, waiter);
+        if (from === "gate") gateRequests.add(key);
         request.signal?.addEventListener("abort", cancel, { once: true });
       });
     },
   });
 
+  /**
+   * The gate a run is handed: the rules in order, under the session's run
+   * live when it is asked, else the run it was handed to (whose broker then
+   * denies at once: a call of a run that has gone is moot). A deny is final;
+   * a rule that throws denies the call, so the gate never lets through what
+   * it could not rule on.
+   */
+  const gateFor = (handedTo: LiveRun): ToolGate => ({
+    check: async (call) => {
+      const current = live.get(handedTo.sessionId);
+      const entry = current !== undefined && !current.ended ? current : handedTo;
+      const broker = brokerFor(entry.sessionId, "gate");
+      const run = {
+        runId: entry.runId,
+        sessionId: entry.sessionId,
+        workspace: entry.plan.workspace.path,
+        ask: (kind: PromptKind, detail: PromptDetail) => broker.request({ sessionId: entry.sessionId, runId: entry.runId, kind, detail }),
+      };
+      for (const rule of gateRules) {
+        try {
+          const ruling = await rule(call, run);
+          if (ruling?.decision === "deny") return ruling;
+        } catch (error) {
+          console.error(`The tool gate could not rule on ${call.tool} (${call.toolCallId}) in run ${entry.runId}; it is denied:`, error);
+          return { decision: "deny", message: GATE_FAILED_MESSAGE };
+        }
+      }
+      return { decision: "allow" };
+    },
+  });
+
   const contextFor = (entry: LiveRun): RunContext => ({
     broker: brokerFor(entry.sessionId),
+    gate: gateFor(entry),
     process: pool.port(entry.sessionId),
     adopt: (turn) => adopt(entry, turn),
   });
@@ -1467,7 +1520,9 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     deliverAnswer(runId, promptId, decision) {
       const entry = byRunId(runId);
       try {
-        if (entry !== undefined && entry.descriptor.interactivePrompts && entry.run?.answerPrompt !== undefined) {
+        // A prompt the gate raised is the gate's to hear, never the adapter's.
+        const raisedByGate = gateRequests.has(waiterKey(runId, promptId));
+        if (!raisedByGate && entry !== undefined && entry.descriptor.interactivePrompts && entry.run?.answerPrompt !== undefined) {
           return answerPrompt(runId, promptId, decision);
         }
         return undefined;

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { hostname } from "node:os";
+import { homedir, hostname } from "node:os";
 import { join } from "node:path";
 import {
   BOOTSTRAP_PATH,
@@ -45,6 +45,9 @@ import { ATTACHMENTS_DIRECTORY, createAttachmentStage } from "../adapter/attachm
 import { recoverCutRuns, recoverStagedAttachments } from "../adapter/recovery.js";
 import type { InstructionComposer, PolicySeam, PromptAutoAnswer, ToolServerFactory } from "../adapter/seams.js";
 import { autoAnswer } from "../permissions/auto-answer.js";
+import { denylistRule, type DenylistContext } from "../permissions/denylist-gate.js";
+import { denylistMethods } from "../permissions/denylist-methods.js";
+import { readDenylist, seedDenylist } from "../permissions/denylist-store.js";
 import { permissionMethods, sessionModeClamp } from "../permissions/methods.js";
 import { promptMethods } from "../permissions/prompt-methods.js";
 import { startPromptNotices } from "../permissions/prompt-notices.js";
@@ -100,6 +103,13 @@ export const AUTO_MEMORY_DIRECTORY = "auto-memory";
 
 /** The database file in the data directory. */
 export const DATABASE_FILE = "environment.db";
+
+/**
+ * The directory in the data directory where contained runs write (#133's
+ * session scratch and temporary directories): the data directory's denylist
+ * preset leaves it out (#132).
+ */
+export const CONTAINMENT_DIRECTORY = "containment";
 
 /**
  * The startup order the env spec fixes ("Lifecycle"), after the root refusal
@@ -370,8 +380,14 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     return { record: loaded, clientSessions: loadedClientSessions, pairings: loadedPairings, accessLog: access };
   });
 
+  // Where the denylist reads paths from (#132): the user's home for `~`, the file system's links, and the containment
+  // directories inside the data directory (#133's), which the data directory's preset leaves out.
+  const denylistContext: Omit<DenylistContext, "denylist"> = { home: homedir(), exempt: [join(dataDir, CONTAINMENT_DIRECTORY)] };
+
   // The adapter host: the adapters, the accounts' sign-in states read through their probes, the run registry.
   const host: AdapterHost = await step("adapter-host", async () => {
+    // The denylist's presets on first start (#132), before any run can be gated.
+    seedDenylist({ log, stream: accessLog.stream, dataDir });
     // First the recovery sweep: a run the log left without an end was cut by the last stop, and is ended before anything can read it.
     const recovered = recoverCutRuns({ log, clock });
     if (recovered.length > 0) console.error(`The recovery sweep ended ${recovered.length} run(s) a restart cut: ${recovered.join(", ")}.`);
@@ -399,6 +415,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       ceilingOf: (id) => clientSessions.ceiling(id),
       // The unattended and bypass rules, and the TTL a prompt that parks is fixed with (#131).
       autoAnswer,
+      // The tool gate's rules (#132): the denylist, read as it is when each call is made.
+      gateRules: [denylistRule({ ...denylistContext, denylist: () => readDenylist({ all: (sql, ...params) => log.read(sql, ...params) }) })],
       promptTtlMs: () => parkedPromptTtlMs(permissionSettings()["permissions.parkedPrompt.ttl"]),
       processIdleMinutes:
         options.processIdleMinutes ?? (() => readSettings({ all: (sql, ...params) => log.read(sql, ...params) })["providers.processIdleMinutes"]),
@@ -486,6 +504,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ...permissionMethods({ log, host, accessLog, clock, environmentId: record.id, ceilingOf: (id) => clientSessions.ceiling(id) }),
     ...promptMethods({ log, host, environmentId: record.id }),
     ...reviewMethods({ log, environmentId: record.id }),
+    ...denylistMethods({ log, accessLog, dataDir, context: denylistContext }),
     ...processMethods({ log, host }),
     ...terminalService.handlers,
     ...workspaceMethods({ log }),

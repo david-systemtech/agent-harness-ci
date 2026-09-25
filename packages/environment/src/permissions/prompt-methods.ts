@@ -98,6 +98,8 @@ export const promptMethods = ({ log, host, environmentId }: PromptMethodsOptions
       if (params.remember !== undefined && params.decision !== "allow") refuse("remember", "Only an allow can be remembered for the session.");
       if (params.answers !== undefined && prompt.kind !== "question") refuse("answers", "Only a question prompt takes answers.");
       if (params.mode !== undefined && prompt.kind !== "plan") refuse("mode", "Only a plan prompt takes a mode to continue in.");
+      // A denylisted call is allowed once as the model gave it (#132): the gate hands the provider no other input.
+      if (params.updatedInput !== undefined && prompt.kind === "denylist") refuse("updatedInput", "A denylist prompt allows or denies the call as the model gave it; its input cannot be edited.");
       if (issues.length > 0) throw new ContractError(invalidParams(issues, "The answer does not fit the prompt's kind."));
 
       // An approved plan continues in the mode asked for, acceptEdits when none was, clamped to the run's ceiling and its account's modes.

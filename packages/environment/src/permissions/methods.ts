@@ -25,6 +25,7 @@ import type { SessionModeClamp } from "../sessions/run-parameters.js";
 import type { Reader } from "../sessions/session-reads.js";
 import { sessionStream } from "../sessions/streams.js";
 import { containmentAvailability } from "./containment.js";
+import { denylistCounts, readDenylist } from "./denylist-store.js";
 import { readPermissionSettings } from "./permissions-store.js";
 import { clampMode, noModeAvailable } from "./resolver.js";
 
@@ -53,9 +54,6 @@ type PermissionMethodName = "permissions.mode.set" | "permissions.settings.get" 
 
 /** Every mode, available: what a session with no account on this environment is clamped against, its ceiling alone. */
 const EVERY_MODE: readonly ModeAvailability[] = MODES.map((mode) => ({ mode, available: true, reason: null }));
-
-/** Denylist entries per section: none until the denylist (#132). */
-const DENYLIST_COUNTS = { browserDomains: 0, paths: 0, commandPatterns: 0, hosts: 0 } as const;
 
 /** A client session's ceiling as it is now, else the one its socket authenticated with. */
 const currentCeiling = (ceilingOf: PermissionMethodsOptions["ceilingOf"], clientSession: VerifiedClientSession): Mode =>
@@ -117,7 +115,7 @@ export const permissionMethods = (options: PermissionMethodsOptions): Required<P
       containment: { levels: containmentAvailability() },
       // `serve` refuses root before anything starts (ADR 0006), so this is never true while the environment answers.
       isRoot: false,
-      denylist: { ...DENYLIST_COUNTS },
+      denylist: denylistCounts(readDenylist(reader)),
     }),
 
     /**

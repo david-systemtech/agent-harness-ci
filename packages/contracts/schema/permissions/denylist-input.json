@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DenylistInput",
+  "type": "object",
+  "properties": {
+    "browserDomains": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "description": "The entry's id: an existing entry's to keep or edit it, a preset's to put a preset back; minted when absent.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "pattern": {
+            "type": "string",
+            "pattern": "^(?:(?:\\*\\.)?[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?(?:\\.[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?)*|[0-9A-Fa-f.]*:[0-9A-Fa-f:.]*:[0-9A-Fa-f:.]*)$",
+            "description": "A host name, IPv4 address or IPv6 literal, with an optional leading wildcard label (*.example.com): no scheme, port or path."
+          },
+          "note": {
+            "description": "Why the entry is there; empty when absent.",
+            "type": "string",
+            "maxLength": 500
+          },
+          "enabled": {
+            "description": "Whether it matches; true when absent.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "pattern"
+        ]
+      }
+    },
+    "paths": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "description": "The entry's id: an existing entry's to keep or edit it, a preset's to put a preset back; minted when absent.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "pattern": {
+            "type": "string",
+            "pattern": "^(?:~|~\\/[^\\0]*|\\/[^\\0]*)$",
+            "description": "An absolute or ~-relative path, with glob segments: * and ? within a segment, ** for any number of segments."
+          },
+          "note": {
+            "description": "Why the entry is there; empty when absent.",
+            "type": "string",
+            "maxLength": 500
+          },
+          "enabled": {
+            "description": "Whether it matches; true when absent.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "pattern"
+        ]
+      }
+    },
+    "commandPatterns": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "description": "The entry's id: an existing entry's to keep or edit it, a preset's to put a preset back; minted when absent.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "pattern": {
+            "type": "string",
+            "pattern": "\\S",
+            "description": "Tokens separated by white space: a bare * matches any run of tokens including none, a * inside a token anything within that token."
+          },
+          "note": {
+            "description": "Why the entry is there; empty when absent.",
+            "type": "string",
+            "maxLength": 500
+          },
+          "enabled": {
+            "description": "Whether it matches; true when absent.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "pattern"
+        ]
+      }
+    },
+    "hosts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "description": "The entry's id: an existing entry's to keep or edit it, a preset's to put a preset back; minted when absent.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "pattern": {
+            "type": "string",
+            "pattern": "^(?:(?:\\*\\.)?[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?(?:\\.[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?)*|[0-9A-Fa-f.]*:[0-9A-Fa-f:.]*:[0-9A-Fa-f:.]*)$",
+            "description": "A host name, IPv4 address or IPv6 literal, with an optional leading wildcard label (*.example.com): no scheme, port or path."
+          },
+          "note": {
+            "description": "Why the entry is there; empty when absent.",
+            "type": "string",
+            "maxLength": 500
+          },
+          "enabled": {
+            "description": "Whether it matches; true when absent.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "pattern"
+        ]
+      }
+    }
+  },
+  "description": "Some sections of the denylist, each replaced by the entries given: one section, or all four."
+}

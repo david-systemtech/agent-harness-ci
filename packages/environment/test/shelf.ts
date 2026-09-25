@@ -85,6 +85,7 @@ export const runPayload = (sessionId: string, type: string, payload: JsonObject 
       plan: null,
       suggestions: [],
       agentId: null,
+      denylist: null,
       mode: "acceptEdits",
       ceiling: "bypassPermissions",
       ttlExpiresAt: null,

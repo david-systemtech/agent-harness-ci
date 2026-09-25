@@ -1,6 +1,6 @@
 import { presetPermissionSettings, type AutoDecider, type Mode, type ModeAvailability, type PromptKind, type Workspace } from "@agent-harness/contracts";
 import { policySettings, resolvePolicy, type PolicyOutcome, type RunActor } from "../permissions/resolver.js";
-import type { PromptDecision, ToolServer } from "./contract.js";
+import type { GateDecision, GatedToolCall, PromptDecision, PromptDetail, ToolServer } from "./contract.js";
 
 /**
  * The host's seams other workstreams fill (claude-adapter spec, "The adapter
@@ -111,3 +111,29 @@ export const presetPolicy: PolicySeam = ({ actor, requested, accountModes }) =>
     accountModes,
     settings: policySettings(presetPermissionSettings()),
   });
+
+/** A run as the tool gate's rules see it: its ids, the directory its relative paths are read against, and its person. */
+export interface RuledRun {
+  readonly runId: string;
+  readonly sessionId: string;
+  /** The run's workspace: a relative path in a call is read against it. */
+  readonly workspace: string;
+  /**
+   * Asks through the broker, as the run's own prompt: recorded as
+   * `prompt.opened`, parked for a person on an attended run, answered at once
+   * by the broker's automatic rules otherwise (#131); the answer, whoever
+   * gives it, settles the ask. The host hands the answer to the gate and
+   * never to the adapter, which did not raise the prompt.
+   */
+  ask(kind: PromptKind, detail: PromptDetail): Promise<PromptDecision>;
+}
+
+/**
+ * One rule of the tool gate (`RunContext.gate`): a deny is final and ends
+ * the ruling; an allow or null passes the call on to the next rule, and past
+ * the last to the provider's own evaluation. A rule that throws denies the
+ * call (the gate fails closed). The environment's are the denylist's (#132,
+ * `permissions/denylist-gate.ts`); containment's hard denials come first
+ * (#133). Preset: none, every call goes on to the provider.
+ */
+export type ToolGateRule = (call: GatedToolCall, run: RuledRun) => GateDecision | null | Promise<GateDecision | null>;

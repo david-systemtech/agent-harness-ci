@@ -181,6 +181,8 @@ describe("the method registry", () => {
       "permissions.settings.set",
       "permissions.prompts.answer",
       "permissions.review.seen",
+      "permissions.denylist.set",
+      "permissions.denylist.restorePresets",
       "terminals.open",
       "terminals.write",
       "terminals.resize",
@@ -314,6 +316,10 @@ describe("the method registry", () => {
       | "permissions.prompts.answer"
       | "permissions.review.list"
       | "permissions.review.seen"
+      | "permissions.denylist.get"
+      | "permissions.denylist.set"
+      | "permissions.denylist.restorePresets"
+      | "permissions.denylist.test"
       | "terminals.open"
       | "terminals.write"
       | "terminals.resize"

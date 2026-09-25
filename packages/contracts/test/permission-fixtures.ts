@@ -46,10 +46,29 @@ export const openedPrompt = {
   plan: null,
   suggestions: [],
   agentId: null,
+  denylist: null,
   mode: "acceptEdits",
   ceiling: "bypassPermissions",
   ttlExpiresAt: null,
 };
+/** Denylist entries and a match (#132). */
+const sshEntry = { id: "preset:~/.ssh", pattern: "~/.ssh", note: "SSH keys and known hosts.", preset: true, enabled: true };
+const sudoEntry = { id: "preset:sudo *", pattern: "sudo *", note: "Runs a command as another user.", preset: true, enabled: true };
+const domainEntry = { id: "preset:*.paypal.com", pattern: "*.paypal.com", note: "Payments.", preset: true, enabled: true };
+const hostEntry = { id: "metadata", pattern: "169.254.169.254", note: "", preset: false, enabled: false };
+const denylist = { browserDomains: [domainEntry], paths: [sshEntry], commandPatterns: [sudoEntry], hosts: [hostEntry] };
+const sshMatch = { section: "paths", entry: sshEntry, matched: "~/.ssh/id_rsa" };
+const denylistPrompt = {
+  ...openedPrompt,
+  promptId: "p-denylist",
+  kind: "denylist",
+  toolName: "Read",
+  input: { file_path: "~/.ssh/id_rsa" },
+  summary: "Read: ~/.ssh/id_rsa is on the denylist (paths: ~/.ssh)",
+  reason: "~/.ssh/id_rsa is on the denylist (paths: ~/.ssh)",
+  denylist: [sshMatch],
+};
+
 const question = { header: "Library", question: "Which library?", options: [{ label: "date-fns", description: "Small" }], multiSelect: true };
 const questionPrompt = { ...openedPrompt, promptId: "toolu_2", kind: "question", toolName: "AskUserQuestion", summary: "Which library?", questions: [question] };
 export const answeredPrompt = {
@@ -181,13 +200,45 @@ export const permissionSchemaFixtures: Record<string, Fixtures> = {
   },
   "permissions/listed-prompt.json": { valid: [listed], invalid: [{ ...listed, sessionId: "s-1" }, { ...listed, prompt: {} }] },
   "sessions/events/prompt.opened.json": {
-    valid: [openedPrompt, questionPrompt, { ...openedPrompt, kind: "plan", toolName: "ExitPlanMode", plan: "1. Read", ttlExpiresAt: at }],
-    invalid: [{ ...openedPrompt, kind: "tool" }, { ...openedPrompt, summary: "" }, { ...openedPrompt, runId: "r-1" }, { promptId: "p-1", kind: "permission" }],
+    valid: [openedPrompt, questionPrompt, { ...openedPrompt, kind: "plan", toolName: "ExitPlanMode", plan: "1. Read", ttlExpiresAt: at }, denylistPrompt],
+    invalid: [
+      { ...openedPrompt, kind: "tool" },
+      { ...openedPrompt, summary: "" },
+      { ...openedPrompt, runId: "r-1" },
+      { promptId: "p-1", kind: "permission" },
+      { ...denylistPrompt, denylist: [{ section: "files", entry: sshEntry, matched: "x" }] },
+      { ...openedPrompt, denylist: undefined },
+    ],
   },
   "sessions/events/prompt.answered.json": {
     valid: [answeredPrompt, planAnswer, autoAnswer, { ...answeredPrompt, answers: { "Which library?": "date-fns, luxon" }, updatedInput: { command: "ls" } }],
     invalid: [{ ...answeredPrompt, decidedBy: null }, { ...answeredPrompt, delivery: "later" }, { ...answeredPrompt, remember: "always" }, { promptId: "p-1", decision: "allow" }],
   },
+  "permissions/denylist-section.json": { valid: ["browserDomains", "paths", "commandPatterns", "hosts"], invalid: ["files", "domains", ""] },
+  "permissions/denylist-entry.json": {
+    valid: [sshEntry, hostEntry, { ...sudoEntry, note: "" }],
+    invalid: [{ ...sshEntry, id: "" }, { ...sshEntry, pattern: "" }, { ...sshEntry, enabled: "yes" }, { id: "x", pattern: "~/.ssh" }],
+  },
+  "permissions/denylist.json": {
+    valid: [denylist, { browserDomains: [], paths: [], commandPatterns: [], hosts: [] }, { ...denylist, hosts: [{ ...hostEntry, pattern: "*.internal.example" }, { ...hostEntry, pattern: "::1" }] }],
+    invalid: [
+      { ...denylist, hosts: undefined },
+      { ...denylist, paths: [{ ...sshEntry, pattern: ".ssh" }] },
+      { ...denylist, paths: [{ ...sshEntry, pattern: "~root/.ssh" }] },
+      { ...denylist, browserDomains: [{ ...domainEntry, pattern: "https://paypal.com" }] },
+      { ...denylist, hosts: [{ ...hostEntry, pattern: "pay*.com" }] },
+      { ...denylist, commandPatterns: [{ ...sudoEntry, pattern: "   " }] },
+    ],
+  },
+  "permissions/denylist-input.json": {
+    valid: [{}, { paths: [{ pattern: "/etc/shadow" }, { id: "preset:~/.ssh", pattern: "~/.ssh", note: "Keys", enabled: false }] }, { hosts: [] }, denylist],
+    invalid: [{ paths: [{ id: "x" }] }, { paths: [{ pattern: "relative" }] }, { hosts: [{ pattern: "*" }] }, { commandPatterns: [{ pattern: "" }] }],
+  },
+  "permissions/denylist-match.json": {
+    valid: [sshMatch, { section: "commandPatterns", entry: sudoEntry, matched: "sudo apt install jq" }],
+    invalid: [{ ...sshMatch, section: "files" }, { section: "paths", matched: "x" }, { ...sshMatch, entry: {} }],
+  },
+  "permissions/denylist-test-kind.json": { valid: ["browserDomain", "path", "command", "host"], invalid: ["domain", "paths", ""] },
   "errors/containment_unavailable.json": {
     valid: [{ code: "containment_unavailable", message: "m", data: { level: "workspace", reason: "No containment prober yet (#133)." } }],
     invalid: [{ code: "containment_unavailable", message: "m", data: { level: "jail", reason: "r" } }, { code: "containment_unavailable", message: "m", data: {} }],
@@ -245,6 +296,28 @@ export const permissionMethodFixtures: Record<string, { params: Fixtures; result
       ],
       invalid: [{ sessionId, mode: unclamped, live: null }, { sessionId, mode: clamped }, { sessionId, mode: clamped, live: { runId } }],
     },
+  },
+  "permissions.denylist.get": {
+    params: { valid: [{}], invalid: [[], "all"] },
+    result: { valid: [{ denylist }], invalid: [{}, { denylist: { paths: [] } }] },
+  },
+  "permissions.denylist.set": {
+    params: {
+      valid: [{ commandId, sections: { paths: [{ pattern: "/etc/shadow" }] } }, { commandId, sections: { ...denylist } }, { commandId, sections: {} }],
+      invalid: [{ sections: { paths: [] } }, { commandId }, { commandId, sections: { paths: [{ pattern: "etc" }] } }],
+    },
+    result: { valid: [{ denylist }], invalid: [{}, { denylist: {} }] },
+  },
+  "permissions.denylist.restorePresets": {
+    params: { valid: [{ commandId }], invalid: [{}, { commandId: "c" }] },
+    result: {
+      valid: [{ restored: [], denylist }, { restored: [{ section: "paths", entry: sshEntry }], denylist }],
+      invalid: [{ denylist }, { restored: [{ section: "files", entry: sshEntry }], denylist }],
+    },
+  },
+  "permissions.denylist.test": {
+    params: { valid: [{ kind: "path", value: "~/.ssh/id_rsa" }, { kind: "command", value: "sudo ls" }], invalid: [{ kind: "path" }, { kind: "file", value: "x" }, { kind: "path", value: "" }] },
+    result: { valid: [{ matches: [] }, { matches: [sshMatch] }], invalid: [{}, { matches: [{}] }] },
   },
   "permissions.settings.get": {
     params: { valid: [{}], invalid: [[], "all"] },

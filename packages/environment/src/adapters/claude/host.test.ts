@@ -245,6 +245,7 @@ describe("a Claude run through the adapter host", () => {
       plan: null,
       suggestions: [suggestion],
       agentId: null,
+      denylist: null,
       mode: "acceptEdits",
       ceiling: "bypassPermissions",
       ttlExpiresAt: null,

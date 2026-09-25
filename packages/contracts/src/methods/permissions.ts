@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { Denylist, DenylistEntry, DenylistInput, DenylistMatch, DenylistSection, DenylistTestKind } from "../denylist.js";
 import { errorSchema } from "../errors.js";
 import { commandParams, defineMethod } from "../method.js";
 import { ContainmentAvailability, ContainmentLevel, ReviewRun, SessionModeSetPayload } from "../permissions.js";
@@ -13,8 +14,8 @@ import { SessionId } from "../sessions.js";
  * session's mode and the permission settings (#129), the parked prompts and
  * their answer (#130), the Unattended review (#131). The ceiling's method,
  * `access.sessions.setCeiling`, is in the `access` family
- * (`methods/access.ts`). The denylist and containment methods are #132's
- * and #133's.
+ * (`methods/access.ts`). The denylist (#132): its get, set, restorePresets
+ * and test. Containment's methods are #133's.
  */
 
 /**
@@ -56,7 +57,7 @@ export const permissionsSettingsGet = defineMethod({
         commandPatterns: z.int().nonnegative(),
         hosts: z.int().nonnegative(),
       })
-      .meta({ description: "How many entries each section of the denylist holds (#132 fills it)." }),
+      .meta({ description: "How many entries each section of the denylist holds, enabled or not." }),
   }),
   errors: [],
 });
@@ -176,5 +177,73 @@ export const permissionsReviewSeen = defineMethod({
     through: Sequence.optional().meta({ description: "The position to mark seen through: a list's head. The log's head when absent." }),
   }),
   result: z.object({ watermark: Sequence.meta({ description: "The watermark after the command." }) }),
+  errors: [],
+});
+
+/** The denylist as the environment holds it: its four sections, presets and a person's entries, enabled and disabled. */
+export const permissionsDenylistGet = defineMethod({
+  name: "permissions.denylist.get",
+  scope: "read",
+  kind: "query",
+  params: z.object({}),
+  result: z.object({ denylist: Denylist }),
+  errors: [],
+});
+
+/**
+ * Replaces one section of the denylist, or several, or all four, with the
+ * entries given, in their order: an entry with an id the section holds is
+ * that entry, edited or not; one with a preset's id is that preset, put
+ * back or edited; any other is new, its id minted when it has none. Two
+ * entries of a section under one id, or a call naming no section, are
+ * `invalid_params`. Each section that changed is one `denylist.changed` on
+ * the access stream (added, removed, edited, and the section after); a
+ * section given as it is changes nothing. Answered with the whole denylist
+ * after. A tool call is gated by the denylist as it is when the call is made.
+ */
+export const permissionsDenylistSet = defineMethod({
+  name: "permissions.denylist.set",
+  scope: "admin",
+  kind: "command",
+  params: commandParams({ sections: DenylistInput }),
+  result: z.object({ denylist: Denylist }),
+  errors: [],
+});
+
+/**
+ * Re-adds every preset the denylist no longer holds, by its id, at the end
+ * of its section, enabled: a preset that was edited or disabled is left as
+ * it is. Each section that changed is one `denylist.changed`. Answered with
+ * the presets restored and the whole denylist after.
+ */
+export const permissionsDenylistRestorePresets = defineMethod({
+  name: "permissions.denylist.restorePresets",
+  scope: "admin",
+  kind: "command",
+  params: commandParams({}),
+  result: z.object({
+    restored: z.array(z.object({ section: DenylistSection, entry: DenylistEntry })).meta({
+      description: "The presets put back, by section, in the order they were added.",
+    }),
+    denylist: Denylist,
+  }),
+  errors: [],
+});
+
+/**
+ * Previews a match: a kind and a value in, every enabled entry it matches
+ * out, in section order, with the pure matcher the tool gate rules with,
+ * on this environment's file system (its home directory for `~` and for a
+ * relative path, its symbolic links followed). No match is an empty list.
+ */
+export const permissionsDenylistTest = defineMethod({
+  name: "permissions.denylist.test",
+  scope: "read",
+  kind: "query",
+  params: z.object({
+    kind: DenylistTestKind,
+    value: z.string().min(1).max(8_192).meta({ description: "The address, path, command line or host to test." }),
+  }),
+  result: z.object({ matches: z.array(DenylistMatch).meta({ description: "Every enabled entry the value matches, in section order; empty for none." }) }),
   errors: [],
 });

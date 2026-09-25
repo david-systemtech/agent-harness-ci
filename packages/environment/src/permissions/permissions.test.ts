@@ -670,7 +670,8 @@ describe("permissions.settings.get", () => {
         ],
       },
       isRoot: false,
-      denylist: { browserDomains: 0, paths: 0, commandPatterns: 0, hosts: 0 },
+      // The presets seeded on first start (#132).
+      denylist: { browserDomains: 29, paths: 15, commandPatterns: 15, hosts: 0 },
     });
   });
 });

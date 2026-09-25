@@ -98,6 +98,7 @@ export const openedPayload = (request: {
     plan: detail.plan ?? null,
     suggestions: [...(detail.suggestions ?? [])],
     agentId: text(detail.agentId),
+    denylist: detail.denylist === undefined || detail.denylist === null ? null : [...detail.denylist],
     mode: request.mode,
     ceiling: request.ceiling,
     ttlExpiresAt: request.ttlExpiresAt,
