@@ -14,6 +14,7 @@ import { runMethodFixtures, runSchemaFixtures } from "./run-fixtures.js";
 import { sessionMethodFixtures, sessionSchemaFixtures } from "./session-fixtures.js";
 import { settingsMethodFixtures, settingsSchemaFixtures } from "./settings-fixtures.js";
 import { terminalMethodFixtures, terminalSchemaFixtures } from "./terminal-fixtures.js";
+import { usageMethodFixtures, usageSchemaFixtures } from "./usage-fixtures.js";
 
 const uuid = "0f8fad5b-d9cb-469f-a165-70867728950e";
 const otherUuid = "7c9e6679-7425-40de-944b-e07fc1f90ae7";
@@ -463,6 +464,7 @@ const methodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
   ...settingsMethodFixtures,
   ...permissionMethodFixtures,
   ...accountMethodFixtures,
+  ...usageMethodFixtures,
   ...terminalMethodFixtures,
 };
 
@@ -664,7 +666,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
     invalid: [envelopeWithoutCommandId, { ...validEnvelope, sequence: 0 }, { ...validEnvelope, payload: [] }],
   },
   "notices/environment-notice-type.json": {
-    valid: ["environment.started", "environment.updated", "environment.draining", "account.updated"],
+    valid: ["environment.started", "environment.updated", "environment.draining", "account.updated", "usage.updated"],
     invalid: ["environment.stopped", "session.created", ""],
   },
   "notices/environment-notice.json": {
@@ -673,6 +675,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
       { type: "environment.updated", payload: { fromVersion: "0.1.0", toVersion: "0.2.0" } },
       { type: "environment.draining", payload: { drainingSince: at, trigger: "launcher" } },
       { type: "account.updated", payload: { accountId: "claude-max", change: "status-changed", warning: null } },
+      { type: "usage.updated", payload: { accountId: "claude-max", identity: { provider: "claude", email: "david@example.com", organisation: null } } },
       validEnvironmentStartedEvent,
     ],
     invalid: [
@@ -683,6 +686,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
       { type: "environment.draining", payload: { drainingSince: at } },
       { type: "environment.stopped", payload: {} },
       { type: "account.updated", payload: { accountId: "claude-max", change: "status-changed" } },
+      { type: "usage.updated", payload: { accountId: "claude-max" } },
       validEnvelope,
     ],
   },
@@ -718,6 +722,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
   ...settingsSchemaFixtures,
   ...permissionSchemaFixtures,
   ...accountSchemaFixtures,
+  ...usageSchemaFixtures,
   ...terminalSchemaFixtures,
   ...methodSchemaFixtures,
 };

@@ -57,6 +57,7 @@ import {
   ProtocolMismatchError,
 } from "./pairing.js";
 import { EnvironmentNotice, EnvironmentNoticeType } from "./notices.js";
+import { AccountUsage, HandoffBasis, HandoffReason, HandoffRecommendation, HandoffTrigger, UsageUpdatedPayload, UsageVerdict, UsageWindow } from "./usage.js";
 import {
   AutoSettleAfterIdle,
   AutoSettleOnMerge,
@@ -323,6 +324,14 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "accounts/catalogue.json", title: "AccountCatalogue", schema: AccountCatalogue },
   { path: "accounts/command-entry.json", title: "CommandEntry", schema: CommandEntry },
   { path: "accounts/sign-in-start.json", title: "SignInStart", schema: SignInStart },
+  { path: "usage/verdict.json", title: "UsageVerdict", schema: UsageVerdict },
+  { path: "usage/window.json", title: "UsageWindow", schema: UsageWindow },
+  { path: "usage/account-usage.json", title: "AccountUsage", schema: AccountUsage },
+  { path: "usage/usage-updated.json", title: "UsageUpdatedPayload", schema: UsageUpdatedPayload },
+  { path: "usage/handoff-reason.json", title: "HandoffReason", schema: HandoffReason },
+  { path: "usage/handoff-basis.json", title: "HandoffBasis", schema: HandoffBasis },
+  { path: "usage/handoff-trigger.json", title: "HandoffTrigger", schema: HandoffTrigger },
+  { path: "usage/handoff-recommendation.json", title: "HandoffRecommendation", schema: HandoffRecommendation },
   { path: "transcript/run-origin.json", title: "RunOrigin", schema: RunOrigin },
   { path: "transcript/run-end-reason.json", title: "RunEndReason", schema: RunEndReason },
   { path: "transcript/interrupt-cause.json", title: "InterruptCause", schema: InterruptCause },

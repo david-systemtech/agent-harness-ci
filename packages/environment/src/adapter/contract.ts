@@ -77,6 +77,7 @@ export interface UsageWindow {
 export interface UsageReading {
   readonly identity: AccountIdentity;
   readonly windows: readonly UsageWindow[];
+  /** When the provider was read, as an ISO 8601 instant: what the environment's pool ages the reading by. */
   readonly readAt: string;
   /**
    * Why there are no windows, when the provider reported none: an API-key
@@ -406,7 +407,15 @@ export interface Adapter {
    * process is killed at once, and the answer is not waited for.
    */
   stopProcess(sessionId: string, options?: { readonly kill?: boolean }): void | Promise<void>;
-  /** Plan usage per window, with the account's identity (`planUsage`). */
+  /**
+   * Plan usage per window, with the account's identity (`planUsage`). The
+   * environment's pool (`accounts/usage-pool.ts`, #136) is its one caller:
+   * at most one read of an account in flight, and none while the pool holds
+   * a reading under six minutes old by its `readAt` (a read that threw is
+   * asked again at the next ask). An adapter may keep
+   * readings of its own, but `readAt` must stay when the provider was read,
+   * not when the reading was handed over, since the pool ages by it.
+   */
   usage?(account: AccountRef): Promise<UsageReading>;
   /**
    * The slash commands for an account and workspace, spending no tokens

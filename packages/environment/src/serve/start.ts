@@ -39,6 +39,8 @@ import { ACCOUNTS_DIRECTORY, createAccountService, type AccountService, type Con
 import { accountsProjector } from "../accounts/account-store.js";
 import { accountMethods } from "../accounts/methods.js";
 import type { SignInDirectorFactory } from "../accounts/sign-in.js";
+import { usageMethods } from "../accounts/usage-methods.js";
+import { createUsagePool } from "../accounts/usage-pool.js";
 import { processMethods } from "../adapter/processes-methods.js";
 import { ATTACHMENTS_DIRECTORY, createAttachmentStage } from "../adapter/attachment-stage.js";
 import { recoverCutRuns, recoverStagedAttachments } from "../adapter/recovery.js";
@@ -406,6 +408,11 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     return { host: created, accounts: store };
   });
 
+  // Plan usage (#136): one reading per account, read through the host and kept six minutes, a run's plan.limit folded in
+  // from the log, usage.updated on a change; heard from here on, before the wire opens.
+  const usagePool = createUsagePool({ log, clock, environmentId: record.id, accounts, host });
+  closers.push(() => usagePool.close());
+
   const surface = createHttpSurface({ tailnetName: () => tailnetName });
   const noStore = { "cache-control": "no-store" };
   surface.route("GET", DISCOVERY_PATH, (_request, response) => {
@@ -478,6 +485,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ...permissionMethods({ log, host, accessLog, clock, environmentId: record.id, ceilingOf: (id) => clientSessions.ceiling(id) }),
     ...processMethods({ log, host }),
     ...accountMethods({ accounts, host }),
+    ...usageMethods({ pool: usagePool, accounts, clock }),
     ...terminalService.handlers,
     ...workspaceMethods({ log }),
   });

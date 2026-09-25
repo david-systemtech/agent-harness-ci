@@ -1,0 +1,168 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "HandoffRecommendation",
+  "type": "object",
+  "properties": {
+    "accountId": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "description": "An account's id on its environment: a version 4 UUID the environment mints when it adopts or adds the account; an account carried over from configuration keeps the id it was configured with."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The account to hand the work to: the one with the most room; null when none can take it."
+    },
+    "reason": {
+      "type": "string",
+      "enum": [
+        "limit-reached",
+        "limit-near",
+        "most-room",
+        "no-target"
+      ],
+      "description": "Why the recommendation is what it is: limit-reached (the account handed from has a window the provider is refusing, and accountId has room), limit-near (it has met a hand-off threshold, and accountId has room), most-room (accountId has the most room, and the account handed from, if any, has met no threshold), or no-target (no account with a fresh reading can take the work; accountId is null)."
+    },
+    "message": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The recommendation in a sentence, the same in every client."
+    },
+    "fromAccountId": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "description": "An account's id on its environment: a version 4 UUID the environment mints when it adopts or adds the account; an account carried over from configuration keeps the id it was configured with."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The account the work is handed from, as asked; null when the question was only which account has the most room."
+    },
+    "trigger": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "threshold": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The threshold's key: five_hour, seven_day, fable."
+            },
+            "label": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The window as a sentence names it: 5-hour, weekly, Fable."
+            },
+            "at": {
+              "type": "number",
+              "minimum": 0,
+              "description": "The utilisation, 0 to 1, at or above which the work should be handed on."
+            },
+            "window": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The account's window that met it."
+            },
+            "utilisation": {
+              "type": "number",
+              "minimum": 0,
+              "description": "The window's utilisation, rounded to a whole percent; 1 for a refused window that reported none."
+            },
+            "verdict": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "allowed",
+                    "warning",
+                    "rejected"
+                  ],
+                  "description": "The latest rate-limit verdict a run of the account reported for the window (plan.limit): allowed, warning (near the limit) or rejected (refused until the reset, whatever the utilisation reads)."
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The window's verdict: rejected when the provider is refusing, whatever the threshold."
+            }
+          },
+          "required": [
+            "threshold",
+            "label",
+            "at",
+            "window",
+            "utilisation",
+            "verdict"
+          ],
+          "description": "The hand-off threshold the account handed from has met: which, on what window, and how full it reads."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The threshold the account handed from has met; null when it has met none, or none was named."
+    },
+    "headroom": {
+      "description": "The recommended account's room, 0 to 1, in its tightest window; null with no recommendation.",
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "binding": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The recommended account's tightest window, the one that sets its room; null with no recommendation."
+    },
+    "candidates": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991,
+      "description": "How many accounts the recommendation was chosen from."
+    },
+    "basis": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "same-plan",
+            "weighted",
+            "percentage"
+          ],
+          "description": "What the ranking compared: same-plan (every candidate is on one plan, so the shares describe one ceiling), weighted (the plans differ and each publishes its size against its provider's baseline), or percentage (shares of plans that cannot be compared by size; a client says so rather than claim capacity)."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "What the ranking compared; null with no recommendation."
+    }
+  },
+  "required": [
+    "accountId",
+    "reason",
+    "message",
+    "fromAccountId",
+    "trigger",
+    "headroom",
+    "binding",
+    "candidates",
+    "basis"
+  ],
+  "description": "The hand-off recommendation, answered from the environment's cached readings so every client asking shows the same offer: the account with the most room, or none, why, and the threshold the account handed from has met."
+}

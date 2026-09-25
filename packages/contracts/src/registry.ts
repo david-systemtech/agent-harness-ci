@@ -51,11 +51,13 @@ import { settingsGet, settingsUpdate } from "./methods/settings.js";
 import {
   accountsAdd,
   accountsAdopt,
+  accountsHandoffRecommend,
   accountsList,
   accountsProbe,
   accountsRefresh,
   accountsRelabel,
   accountsRemove,
+  accountsUsage,
   commandsList,
   modelsList,
 } from "./methods/accounts.js";
@@ -128,6 +130,8 @@ export const methods = [
   accountsAdd,
   accountsRelabel,
   accountsRemove,
+  accountsUsage,
+  accountsHandoffRecommend,
   modelsList,
   commandsList,
   settingsGet,

@@ -314,6 +314,8 @@ describe("the method registry", () => {
       | "accounts.add"
       | "accounts.relabel"
       | "accounts.remove"
+      | "accounts.usage"
+      | "accounts.handoff.recommend"
       | "models.list"
       | "commands.list"
       | "settings.get"

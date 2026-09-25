@@ -1,0 +1,162 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "accounts.usage result",
+  "type": "object",
+  "properties": {
+    "readings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "An account's id on its environment: a version 4 UUID the environment mints when it adopts or adds the account; an account carried over from configuration keeps the id it was configured with."
+          },
+          "identity": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "provider": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9-]*$",
+                    "description": "A provider's id, as the environment's adapter registry keys it: lowercase letters, digits and hyphens (claude)."
+                  },
+                  "email": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "The login's email, as the provider's status reports it."
+                  },
+                  "organisation": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The organisation the login belongs to, when the provider reports one."
+                  }
+                },
+                "required": [
+                  "provider",
+                  "email",
+                  "organisation"
+                ],
+                "description": "Who an account signed in as: the provider, the email and the organisation when present; one account per identity per environment."
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Who the account is signed in as, which a client pools readings by across environments; null when it has never been read."
+          },
+          "windows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "window": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The window, in the provider's words: five_hour, seven_day, model_scoped:<model>, extra_usage."
+                },
+                "utilisation": {
+                  "anyOf": [
+                    {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "How much of the window is used, 0 to 1 and beyond; null when the provider does not say."
+                },
+                "resetsAt": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                      "description": "An instant as an ISO 8601 UTC timestamp."
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "When the window rolls over; null when the provider does not say."
+                },
+                "verdict": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "allowed",
+                        "warning",
+                        "rejected"
+                      ],
+                      "description": "The latest rate-limit verdict a run of the account reported for the window (plan.limit): allowed, warning (near the limit) or rejected (refused until the reset, whatever the utilisation reads)."
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The latest verdict a run reported for the window, folded in after the read; null when none has been heard since."
+                },
+                "observedAt": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                  "description": "When this window's numbers were observed: the read's instant, or the instant of the run's report folded into it, which may be newer than the reading's readAt. What a client pooling two readings of one identity compares per window."
+                }
+              },
+              "required": [
+                "window",
+                "utilisation",
+                "resetsAt",
+                "verdict",
+                "observedAt"
+              ],
+              "description": "One plan window of an account's reading: how much is used, when it resets, and the latest verdict a run reported for it."
+            },
+            "description": "The plan's windows, in the provider's order; empty when the reading is unavailable."
+          },
+          "readAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+            "description": "When the provider was read for this reading. A reading is read again once it is six minutes old."
+          },
+          "unavailableReason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why the reading has no windows, when it has none: the adapter reports no plan usage, the account is not signed in, the read failed, or the provider reported no limits (an API-key login). A client shows the reason in place of a gauge. Null on a reading with windows."
+          }
+        },
+        "required": [
+          "accountId",
+          "identity",
+          "windows",
+          "readAt",
+          "unavailableReason"
+        ],
+        "description": "One account's plan usage: its identity, its windows, when it was read, and why it has no windows when it has none."
+      }
+    }
+  },
+  "required": [
+    "readings"
+  ]
+}

@@ -95,6 +95,8 @@ describe("the account, model and command methods", () => {
       "accounts.add": ["command", "admin"],
       "accounts.relabel": ["command", "admin"],
       "accounts.remove": ["command", "admin"],
+      "accounts.usage": ["query", "read"],
+      "accounts.handoff.recommend": ["query", "read"],
       "models.list": ["query", "read"],
       "commands.list": ["query", "read"],
     });

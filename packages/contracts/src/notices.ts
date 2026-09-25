@@ -2,6 +2,7 @@ import { z } from "zod";
 import { AccountUpdatedPayload } from "./accounts.js";
 import { ProtocolVersion } from "./flags.js";
 import { DrainStarted } from "./lifecycle.js";
+import { UsageUpdatedPayload } from "./usage.js";
 
 /**
  * The environment's own notices: the events on its `environment` stream,
@@ -17,12 +18,13 @@ export const ENVIRONMENT_STREAM_KIND = "environment";
  * The notices there are: the environment finished starting; it was updated
  * from one harness version to another (appended by the launcher ticket); it
  * began to drain (appended by the lifecycle ticket, #112); an account
- * changed (the account store, #134), appended once the change has committed.
+ * changed (the account store, #134), appended once the change has committed;
+ * an account's plan-usage reading changed (#136).
  */
-export const ENVIRONMENT_NOTICE_TYPES = ["environment.started", "environment.updated", "environment.draining", "account.updated"] as const;
+export const ENVIRONMENT_NOTICE_TYPES = ["environment.started", "environment.updated", "environment.draining", "account.updated", "usage.updated"] as const;
 export const EnvironmentNoticeType = z.enum(ENVIRONMENT_NOTICE_TYPES).meta({
   description:
-    "An environment notice's event type: environment.started (startup finished), environment.updated (a new harness version now runs), environment.draining (new runs are refused before a restart), account.updated (an account changed; a client refreshes what it caches of the accounts).",
+    "An environment notice's event type: environment.started (startup finished), environment.updated (a new harness version now runs), environment.draining (new runs are refused before a restart), account.updated (an account changed; a client refreshes what it caches of the accounts), usage.updated (an account's plan-usage reading changed; a client refreshes what it caches of the readings).",
 });
 export type EnvironmentNoticeType = z.infer<typeof EnvironmentNoticeType>;
 
@@ -60,13 +62,20 @@ const AccountUpdated = z
   })
   .meta({ description: "An account changed: which, how, and a warning when something is wrong." });
 
+const UsageUpdated = z
+  .object({
+    type: z.literal("usage.updated"),
+    payload: UsageUpdatedPayload,
+  })
+  .meta({ description: "An account's plan-usage reading changed: which account, and the identity whose gauge it is." });
+
 /**
  * One environment notice, as an event's `type` and `payload`. Parsing an
  * event envelope with it reads the notice and leaves the envelope's other
  * fields aside, so a client parses the `event` of an `event` frame directly.
  */
 export const EnvironmentNotice = z
-  .discriminatedUnion("type", [EnvironmentStarted, EnvironmentUpdated, EnvironmentDraining, AccountUpdated])
+  .discriminatedUnion("type", [EnvironmentStarted, EnvironmentUpdated, EnvironmentDraining, AccountUpdated, UsageUpdated])
   .meta({
     description:
       "An event on the environment stream, as environment.subscribe delivers it: its type and payload, read from the event's envelope.",
