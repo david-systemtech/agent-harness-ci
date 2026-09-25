@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { Denylist, DenylistEntry, DenylistInput, DenylistMatch, DenylistSection, DenylistTestKind } from "../denylist.js";
 import { errorSchema } from "../errors.js";
 import { commandParams, defineMethod } from "../method.js";
 import { ContainmentCause, ContainmentLevel, ContainmentReport, ReviewRun, SessionContainmentSetPayload, SessionModeSetPayload } from "../permissions.js";
@@ -13,8 +14,8 @@ import { SessionId } from "../sessions.js";
  * session's mode and the permission settings (#129), the parked prompts and
  * their answer (#130), a session's containment level (#133), the
  * Unattended review (#131). The ceiling's method, `access.sessions.setCeiling`,
- * is in the `access` family (`methods/access.ts`). The denylist methods are
- * #132's.
+ * is in the `access` family (`methods/access.ts`). The denylist (#132): its
+ * get, set, restorePresets and test.
  */
 
 /**
@@ -85,7 +86,7 @@ export const permissionsSettingsGet = defineMethod({
         commandPatterns: z.int().nonnegative(),
         hosts: z.int().nonnegative(),
       })
-      .meta({ description: "How many entries each section of the denylist holds (#132 fills it)." }),
+      .meta({ description: "How many entries each section of the denylist holds, enabled or not." }),
   }),
   errors: [],
 });
@@ -214,5 +215,88 @@ export const permissionsReviewSeen = defineMethod({
     through: Sequence.optional().meta({ description: "The position to mark seen through: a list's head. The log's head when absent." }),
   }),
   result: z.object({ watermark: Sequence.meta({ description: "The watermark after the command." }) }),
+  errors: [],
+});
+
+/** The denylist as the environment holds it: its four sections, presets and a person's entries, enabled and disabled. */
+export const permissionsDenylistGet = defineMethod({
+  name: "permissions.denylist.get",
+  scope: "read",
+  kind: "query",
+  params: z.object({}),
+  result: z.object({ denylist: Denylist }),
+  errors: [],
+});
+
+/**
+ * Replaces one section of the denylist, or several, or all four: each
+ * section named becomes exactly the entries given, in the order given, and
+ * an entry it held that is not given is removed. An entry is read by its id
+ * within its section: an id the section holds is that entry, kept or edited
+ * to the fields given (a note or enabled flag left out is empty or true, as
+ * for a new entry); the id of one of the section's presets is that preset,
+ * put back or edited; any other id, one another section holds among them,
+ * is a new entry under it, and an entry with no id is new under a minted
+ * one. `preset` comes from the id alone. Two entries of a section under one
+ * id are `invalid_params`, and so is a call naming no section, which the
+ * params' schema refuses. Each section that changed is one
+ * `denylist.changed` on the access stream (added, removed, edited, and the
+ * section after); a section given as it is changes nothing, and one given
+ * in another order is recorded with nothing added, removed or edited.
+ * Answered with the whole denylist after. A tool call is gated by the
+ * denylist as it is when the call is made.
+ */
+export const permissionsDenylistSet = defineMethod({
+  name: "permissions.denylist.set",
+  scope: "admin",
+  kind: "command",
+  params: commandParams({ sections: DenylistInput }),
+  result: z.object({ denylist: Denylist }),
+  errors: [],
+});
+
+/**
+ * Re-adds every preset the denylist no longer holds, by its id, at the end
+ * of its section, enabled: a preset that was edited or disabled is left as
+ * it is. Each section that changed is one `denylist.changed`. Answered with
+ * the presets restored and the whole denylist after.
+ */
+export const permissionsDenylistRestorePresets = defineMethod({
+  name: "permissions.denylist.restorePresets",
+  scope: "admin",
+  kind: "command",
+  params: commandParams({}),
+  result: z.object({
+    restored: z.array(z.object({ section: DenylistSection, entry: DenylistEntry })).meta({
+      description: "The presets put back, by section, in the order they were added.",
+    }),
+    denylist: Denylist,
+  }),
+  errors: [],
+});
+
+/**
+ * Previews a match: a kind and a value in, every enabled entry it matches
+ * out, in section order, with the pure matcher the tool gate rules with,
+ * on this environment's file system (its home directory for `~` and for a
+ * relative path, its symbolic links followed). No match is an empty list.
+ * A path whose links loop or change while they are read is answered in
+ * `unresolvable`: the gate denies a call naming one outright, asking nobody,
+ * whatever it matches.
+ */
+export const permissionsDenylistTest = defineMethod({
+  name: "permissions.denylist.test",
+  scope: "read",
+  kind: "query",
+  params: z.object({
+    kind: DenylistTestKind,
+    value: z.string().min(1).meta({ description: "The address, path, command line or host to test, of any length: an address is read from its front." }),
+  }),
+  result: z.object({
+    matches: z.array(DenylistMatch).meta({ description: "Every enabled entry the value matches, in section order; empty for none." }),
+    unresolvable: z.array(z.string()).meta({
+      description: "The paths whose symbolic links loop or changed while they were read, so where they lead cannot be said: the gate denies a call naming one outright. Empty for none.",
+    }),
+  }),
   errors: [],
 });

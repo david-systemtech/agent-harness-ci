@@ -44,6 +44,8 @@ export type RunRefusal =
 export interface AccountFacts {
   readonly id: string;
   readonly directory: string | null;
+  /** The account's label, handed to the adapter for what a person reads; absent where the caller has none. */
+  readonly label?: string;
   /** Whether the directory is the machine's own, adopted in place (ADR 0018): only the provider's own CLI reads and writes it. */
   readonly adopted: boolean;
   readonly signedIn: boolean;
@@ -112,12 +114,32 @@ export interface StartCommand {
   readonly effort?: string | undefined;
   readonly mode?: Mode | undefined;
   /**
+   * Text the run's instructions carry after the environment's composed ones,
+   * never in their place: a completions request's `systemPrompt` and its
+   * system and developer messages (#138). The run's alone: a run the
+   * environment starts after it carries none.
+   */
+  readonly appendedInstructions?: string | undefined;
+  /**
    * The run starts for the answers kept for the session's next run (#131: a
    * TTL answer whose run had gone), which it reads first: with no message
    * and nothing queued it still has something to read.
    */
   readonly keptAnswers?: boolean;
 }
+
+/** Where a run an actor starts comes from: a client session's is `client`, the completions surface's `completions`, a routine's or a bot's `routine` (ADR 0008: bots own routines). */
+export const originOfActor = (actor: RunActor): RunOrigin => {
+  switch (actor.kind) {
+    case "client":
+      return "client";
+    case "completions":
+      return "completions";
+    case "routine":
+    case "bot":
+      return "routine";
+  }
+};
 
 /** A run the host is to start once its events commit. */
 export interface PlannedRun {
@@ -136,6 +158,8 @@ export interface PlannedRun {
   readonly actor: RunActor;
   /** The run's policy as resolved at its start, recorded as `run.policy.resolved`: fixed for the run, whatever changes after. */
   readonly policy: RunPolicy;
+  /** What the run's instructions carry after the composed ones (`StartCommand.appendedInstructions`); null for nothing. */
+  readonly appendedInstructions: string | null;
   /**
    * The messages the run starts with, in order: the queued ones, whose
    * attachments' bytes the host holds, then the one sent, with its bytes.
@@ -168,13 +192,25 @@ export const runNotFound = (runId: string): RunRefusal => ({
 /** A request the schema let through that this environment cannot take: `invalid_params` at `path`. */
 const invalid = (path: string, message: string): ContractError => new ContractError(invalidParams([{ code: "custom", path: [path], message }], message));
 
-/** The bytes of an attachment, and what the log records of it; an attachment the adapter does not take is refused. */
-const attachmentsOf = (descriptor: AdapterDescriptor, attachments: readonly AttachmentInput[]): { data: AttachmentData[]; records: AttachmentRecord[] } => {
-  const data: AttachmentData[] = [];
-  const records: AttachmentRecord[] = [];
+/**
+ * Refuses the first attachment of a kind the adapter does not take,
+ * `unsupported` at `attachments.<index>.kind` under `at`: the path a request
+ * that carries them elsewhere names them by (the completions surface's
+ * `agent-harness`).
+ */
+export const requireAttachmentKinds = (descriptor: AdapterDescriptor, attachments: readonly AttachmentInput[], at: readonly string[] = []): void => {
   attachments.forEach((attachment, index) => {
     const flag = attachment.kind === "image" ? "imageInput" : "fileInput";
-    requireCapability(descriptor, flag, ["attachments", index, "kind"], `take ${attachment.kind} attachments`);
+    requireCapability(descriptor, flag, [...at, "attachments", index, "kind"], `take ${attachment.kind} attachments`);
+  });
+};
+
+/** The bytes of an attachment, and what the log records of it; an attachment the adapter does not take is refused. */
+const attachmentsOf = (descriptor: AdapterDescriptor, attachments: readonly AttachmentInput[]): { data: AttachmentData[]; records: AttachmentRecord[] } => {
+  requireAttachmentKinds(descriptor, attachments);
+  const data: AttachmentData[] = [];
+  const records: AttachmentRecord[] = [];
+  attachments.forEach((attachment) => {
     const bytes = new Uint8Array(Buffer.from(attachment.data, "base64"));
     data.push({ kind: attachment.kind, name: attachment.name, mediaType: attachment.mediaType, data: bytes });
     records.push({ kind: attachment.kind, name: attachment.name, mediaType: attachment.mediaType, size: bytes.byteLength });
@@ -288,6 +324,7 @@ export const decideStart = (facts: StartFacts, command: StartCommand): StartDeci
       target: facts.target,
       actor: facts.actor,
       policy,
+      appendedInstructions: command.appendedInstructions === undefined || command.appendedInstructions.trim() === "" ? null : command.appendedInstructions,
       prompt: [
         ...facts.queued.map((queued) => ({ messageId: queued.messageId, text: queued.text, attachments: [] })),
         ...(command.message === null ? [] : [{ messageId: command.message.messageId, text: command.message.text, attachments: attachments.data }]),
@@ -315,11 +352,11 @@ export type SendDecision =
  * else by the environment, which starts the next run with it when the turn
  * ends; `message.sent` records which.
  */
-export const decideSend = (facts: StartFacts, message: SentMessage): SendDecision => {
+export const decideSend = (facts: StartFacts, message: SentMessage, origin: RunOrigin = "client"): SendDecision => {
   const { session, sessionId, live } = facts;
   if (session === null || session.deleted) return { rejected: sessionNotFound(sessionId) };
   if (live === null) {
-    const started = decideStart(facts, { origin: "client", message });
+    const started = decideStart(facts, { origin, message });
     if (started.rejected !== undefined) return started;
     return { events: started.events, run: started.run, result: { runId: started.run.runId, messageId: message.messageId, delivery: "prompt", heldBy: null } };
   }
@@ -396,8 +433,12 @@ export interface ReadNowFacts {
    * queue on, under the runs they were sent during).
    */
   readonly providerHeld: readonly string[];
-  /** The run before, whose model and effort the run of the queue takes, as the queue's run after it would; null before the session's first run. */
-  readonly basis: { readonly model: string; readonly effort: string | null } | null;
+  /**
+   * The run before, whose model and effort the run of the queue takes, and
+   * its own instructions (a completions request's, #138), as the queue's run
+   * after it would; null before the session's first run.
+   */
+  readonly basis: { readonly model: string; readonly effort: string | null; readonly appendedInstructions: string | null } | null;
 }
 
 export type ReadNowDecision =
@@ -415,9 +456,9 @@ export type ReadNowDecision =
  * environment, nothing happens. With a run live, it is to be interrupted
  * (the host re-owns what its provider held and starts the next run after
  * the end); with none, the run of the environment's queue starts now, as
- * the environment's queue would start it after the run before (its model
- * and effort), for the caller, clamped to the lowest ceiling among the
- * caller and the queued senders.
+ * the environment's queue would start it after the run before (its model,
+ * effort and own instructions), for the caller, clamped to the lowest
+ * ceiling among the caller and the queued senders.
  */
 export const decideReadNow = (facts: ReadNowFacts): ReadNowDecision => {
   const { start, basis } = facts;
@@ -431,6 +472,7 @@ export const decideReadNow = (facts: ReadNowFacts): ReadNowDecision => {
     message: null,
     ...(basis !== null && { model: basis.model }),
     ...(basis?.effort !== null && basis?.effort !== undefined && { effort: basis.effort }),
+    ...(basis !== null && basis.appendedInstructions !== null && { appendedInstructions: basis.appendedInstructions }),
   });
   if (decision.rejected !== undefined) return { rejected: decision.rejected };
   return { events: decision.events, run: decision.run };

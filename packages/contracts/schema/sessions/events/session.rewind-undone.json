@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SessionRewindUndonePayload",
+  "type": "object",
+  "properties": {
+    "toMessageId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "The user message the undone rewind went back to; it and the items the rewind hid are shown again."
+    },
+    "rewindSequence": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991,
+      "description": "The sequence of the session.rewound this undoes: the session's latest rewind not already undone."
+    }
+  },
+  "required": [
+    "toMessageId",
+    "rewindSequence"
+  ],
+  "description": "session.rewind-undone: a rewind was taken back (sessions.undoRewind, ADR 0022) before any run started on the session after it; the items it hid are shown again, and the next run continues the provider session as it was before the rewind, or from an earlier rewind still standing."
+}

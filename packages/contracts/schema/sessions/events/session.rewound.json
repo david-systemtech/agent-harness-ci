@@ -13,5 +13,5 @@
   "required": [
     "toMessageId"
   ],
-  "description": "session.rewound: the session was rewound; later items stay in the log and the snapshot hides them."
+  "description": "session.rewound: the session was rewound; later items stay in the log and the snapshot hides them until a session.rewind-undone names this rewind."
 }

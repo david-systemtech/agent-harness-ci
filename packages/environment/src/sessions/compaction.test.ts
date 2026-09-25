@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
-import { SessionSnapshot, type EventFrame, type Frame, type SnapshotFrame } from "@agent-harness/contracts";
+import { SessionSnapshot, registry, type EventFrame, type Frame, type ParamsOf, type SnapshotFrame } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { MANUAL_CLOCK_START, manualClock } from "../../test/clock.js";
+import { fakeAdapter } from "../../test/fake-adapter.js";
 import { startTestEnvironment, type TestEnvironment } from "../../test/helper.js";
 import { create, deleteSession, rename } from "../../test/sessions.js";
 import { DAY, MINUTE, updateSettings } from "../../test/shelf.js";
@@ -30,22 +31,27 @@ const at = (ms: number): string => new Date(Date.parse(MANUAL_CLOCK_START) + ms)
 /** A session untouched for longer than the window. */
 const WINDOW = 90 * DAY;
 
-/** An environment on `dataDir` whose clock starts `ms` after the manual clock's start. */
+/** An environment on `dataDir` whose clock starts `ms` after the manual clock's start, on the fake adapter able to rewind. */
 const start = async (dataDir: string, ms = 0): Promise<TestEnvironment> => {
-  const t = await startTestEnvironment({ dataDir, clock: manualClock(at(ms)) });
+  const t = await startTestEnvironment({ dataDir, clock: manualClock(at(ms)), adapter: fakeAdapter({ capabilities: { rewind: true } }) });
   onCleanup(() => t.close());
   return t;
 };
 
-/** Runs `text` on the session with the fake adapter's reply script and resolves once the run has ended. */
-const runOnce = async (t: TestEnvironment, client: WireClient, sessionId: string, text = "Fix the receipts"): Promise<void> => {
+/** Runs `text` on the session with the fake adapter's reply script and resolves with its message's id once the run has ended. */
+const runOnce = async (t: TestEnvironment, client: WireClient, sessionId: string, text = "Fix the receipts"): Promise<string> => {
   const { subscription } = await client.subscribe("sessions.subscribeSession", { sessionId, afterSequence: t.env.log.head() });
   await client.next((f) => f.type === "synchronized" && "subscription" in f && f.subscription === subscription);
   const answer = await client.request("runs.start", { commandId: randomUUID(), sessionId, text });
   const runId = answer.result?.runId;
   await client.next((f) => f.type === "event" && f.subscription === subscription && f.event.type === "run.ended" && f.event.payload["runId"] === runId);
   client.send({ type: "unsubscribe", subscription });
+  return answer.result?.messageId as string;
 };
+
+/** Sends a command about one session and answers its receipt. */
+const sessionCommand = async (client: WireClient, method: "sessions.rewind" | "sessions.undoRewind", params: { sessionId: string; messageId?: string }) =>
+  registry[method].response.parse(await client.request(method, { commandId: randomUUID(), ...params } as ParamsOf<typeof method>)).receipt;
 
 /** What a client's catch-up of one session was: the snapshot first, if one was sent, then the events, up to `synchronized`. */
 interface CatchUp {
@@ -231,5 +237,90 @@ describe("replay of a compacted session", () => {
       summary: expect.anything(),
     });
     expect(restored.events.map((event) => event.type)).toEqual(["session.deleted", "session.restored"]);
+  });
+});
+
+describe("a rewound session", () => {
+  /** A snapshot's items as their text. */
+  const texts = (snapshot: SessionSnapshot | undefined): string[] => (snapshot?.items ?? []).map((item) => ("text" in item ? String(item.text) : item.kind));
+  const ALL = ["One", "Done: One", "Two", "Done: Two", "Three", "Done: Three"];
+
+  it("is left out while its rewind can still be undone, so the undo shows every item after the window; once a run has started after the rewind it is compacted as any other", async () => {
+    const dataDir = join(tempDir(), "data");
+    const first = await start(dataDir);
+    let client = await first.client();
+    await updateSettings(client, { "sessions.autoSettleAfterIdle": null });
+    const pending = await create(client);
+    const continued = await create(client);
+    const twos: Record<string, string> = {};
+    for (const { id } of [pending, continued]) {
+      await runOnce(first, client, id, "One");
+      twos[id] = await runOnce(first, client, id, "Two");
+      await runOnce(first, client, id, "Three");
+      expect(await sessionCommand(client, "sessions.rewind", { sessionId: id, messageId: twos[id] })).toMatchObject({ status: "accepted" });
+    }
+    await runOnce(first, client, continued.id, "Two, again");
+    await first.close();
+
+    const later = await start(dataDir, WINDOW + MINUTE);
+    client = await later.client();
+    expect((await catchUp(client, pending.id, 0)).snapshot).toBeUndefined();
+    const compacted = await catchUp(client, continued.id, 0);
+    expect(compacted.snapshot?.sequence).toBe(later.env.log.readStream({ kind: "session", id: continued.id }).at(-1)?.sequence);
+    expect(texts(compacted.snapshot?.payload)).toEqual(["One", "Done: One", "Two, again", "Done: Two, again"]);
+
+    expect(await sessionCommand(client, "sessions.undoRewind", { sessionId: pending.id })).toMatchObject({ status: "accepted" });
+    expect(texts((await catchUp(client, pending.id, later.env.log.head() + 1000)).snapshot?.payload)).toEqual(ALL);
+    expect(await sessionCommand(client, "sessions.undoRewind", { sessionId: continued.id })).toMatchObject({ status: "rejected", error: { data: { reason: "run_started" } } });
+  });
+
+  it("is left out while its latest rewind can be undone though an earlier one cannot, and compacted once the undo leaves only that earlier one", async () => {
+    const dataDir = join(tempDir(), "data");
+    const first = await start(dataDir);
+    let client = await first.client();
+    await updateSettings(client, { "sessions.autoSettleAfterIdle": null });
+    const { id } = await create(client);
+    await runOnce(first, client, id, "One");
+    const two = await runOnce(first, client, id, "Two");
+    const three = await runOnce(first, client, id, "Three");
+    await sessionCommand(client, "sessions.rewind", { sessionId: id, messageId: three });
+    await runOnce(first, client, id, "Three, again");
+    await sessionCommand(client, "sessions.rewind", { sessionId: id, messageId: two });
+    await first.close();
+
+    const later = await start(dataDir, WINDOW + MINUTE);
+    client = await later.client();
+    expect((await catchUp(client, id, 0)).snapshot).toBeUndefined();
+    expect(await sessionCommand(client, "sessions.undoRewind", { sessionId: id })).toMatchObject({ status: "accepted" });
+    const shown = ["One", "Done: One", "Two", "Done: Two", "Three, again", "Done: Three, again"];
+    expect(texts((await catchUp(client, id, later.env.log.head() + 1000)).snapshot?.payload)).toEqual(shown);
+    await later.close();
+
+    // The earlier rewind had a run after it, so nothing is left to undo, and the next pass after the window compacts the session.
+    const last = await start(dataDir, 2 * WINDOW + 2 * MINUTE);
+    client = await last.client();
+    const compacted = await catchUp(client, id, 0);
+    expect(compacted.snapshot?.sequence).toBe(last.env.log.readStream({ kind: "session", id }).at(-1)?.sequence);
+    expect(texts(compacted.snapshot?.payload)).toEqual(shown);
+  });
+
+  it("undoes a rewind taken after a compaction, bringing back the items the compaction's fold holds", async () => {
+    const { dataDir, id, stream, before } = await untouchedSession();
+    const t = await start(dataDir, WINDOW + MINUTE);
+    const client = await t.client();
+    const last = stream.at(-1)?.sequence as number;
+    expect((await catchUp(client, id, 0)).snapshot?.sequence).toBe(last);
+    const [, second] = stream.filter((event) => event.type === "message.sent").map((event) => event.payload["messageId"] as string);
+
+    expect(await sessionCommand(client, "sessions.rewind", { sessionId: id, messageId: second as string })).toMatchObject({ status: "accepted" });
+    expect(texts((await catchUp(client, id, t.env.log.head() + 1000)).snapshot?.payload)).toEqual(["Fix the receipts", "Done: Fix the receipts"]);
+    expect(await sessionCommand(client, "sessions.undoRewind", { sessionId: id })).toMatchObject({ status: "accepted" });
+
+    const head = (await catchUp(client, id, t.env.log.head() + 1000)).snapshot?.payload as SessionSnapshot;
+    expect(head.items).toEqual(before.items);
+    // A fresh client builds the same from the compaction's fold and the events after it.
+    const fresh = await catchUp(client, id, 0);
+    expect(fresh.snapshot?.sequence).toBe(last);
+    expect(fresh.events.map((event) => event.type)).toEqual(["session.rewound", "session.draft-set", "session.rewind-undone", "session.draft-set"]);
   });
 });

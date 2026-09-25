@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ChatRole",
+  "type": "string",
+  "enum": [
+    "system",
+    "developer",
+    "user",
+    "assistant",
+    "tool"
+  ],
+  "description": "Who wrote a message: system or developer (instructions, appended after the composed ones), user, assistant, or tool (a tool's result)."
+}

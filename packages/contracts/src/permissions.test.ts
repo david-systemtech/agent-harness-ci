@@ -179,6 +179,10 @@ describe("the permissions methods", () => {
       "permissions.prompts.answer": ["command", "runs:drive"],
       "permissions.review.list": ["query", "read"],
       "permissions.review.seen": ["command", "sessions:write"],
+      "permissions.denylist.get": ["query", "read"],
+      "permissions.denylist.set": ["command", "admin"],
+      "permissions.denylist.restorePresets": ["command", "admin"],
+      "permissions.denylist.test": ["query", "read"],
       "access.sessions.setCeiling": ["command", "admin"],
     });
     for (const name of ["permissions.mode.set", "permissions.containment.set", "permissions.settings.set", "permissions.prompts.answer", "permissions.review.seen", "access.sessions.setCeiling"] as const) {

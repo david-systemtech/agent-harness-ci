@@ -31,6 +31,7 @@ import { AsyncQueue } from "./async-queue.js";
 import type { ConfigDirQueue } from "./config-dir-queue.js";
 import { CLAUDE_PROVIDER, type HostEnvironment } from "./credentials.js";
 import { readStoredSession, resolveForkPoint, resolveRewindPoint, storedHolds, type ClaudeSessionStore } from "./history.js";
+import { LOGIN_EXPIRED_CODE, LoginLapsed } from "./login-refresh.js";
 import { readRateLimit, toJson } from "./mapper.js";
 import { buildRunOptions, claudeEffort, claudeMode, type ClaudeMode, type ResumePoint } from "./options.js";
 import type { PlanLimitVerdict } from "./plan-usage.js";
@@ -85,6 +86,12 @@ export interface ProcessDeps {
   readonly pluginDirectory: (input: RunInput) => string | null;
   readonly autoMemoryDirectory: (input: RunInput) => string | null;
   readonly queue: ConfigDirQueue;
+  /**
+   * Has the CLI refresh the account's login in its own directory before a
+   * cold resume through the store, whose temporary config directory holds no
+   * refresh token (#229); rejects with `LoginLapsed` when the login failed.
+   */
+  readonly freshLogin: (account: RunInput["account"]) => Promise<void>;
   readonly timings: ProcessTimings;
   readonly diagnostic: (message: string, detail?: unknown) => void;
   /** A run reported a rate-limit verdict for the account: the plan-usage read folds it in. */
@@ -265,6 +272,8 @@ interface SpawnKey {
   readonly trusted: boolean;
   readonly toolServers: string;
   readonly bypassAllowed: boolean;
+  /** The instruction text the spawn appended to the preset: a run with other text (a completions request's own, #138) needs a spawn of its own. */
+  readonly instructions: string;
 }
 
 /** What the process last applied, so an attached run sends only what differs. */
@@ -387,6 +396,7 @@ export class ClaudeProcess implements TurnControl {
       toolServers: input.toolServers.map((server) => server.name).join("\n"),
       // The SDK's opt-in follows the run's ceiling, so a run under a bypass ceiling may later be changed to bypass.
       bypassAllowed: input.ceiling === "bypassPermissions",
+      instructions: input.instructions,
     };
   }
 
@@ -409,6 +419,8 @@ export class ClaudeProcess implements TurnControl {
     if (input.target.kind !== "resume" || input.target.providerSessionId !== this.#providerSessionId) return false;
     const key = this.#spawnKeyOf(input);
     if (key.directory !== this.#spawn.directory || key.trusted !== this.#spawn.trusted || key.toolServers !== this.#spawn.toolServers) return false;
+    // The instructions are fixed at spawn (the preset's append): other text is a fresh process's.
+    if (key.instructions !== this.#spawn.instructions) return false;
     // A bypass ceiling needs the SDK's opt-in at spawn; a process started without it cannot enter bypass.
     return !key.bypassAllowed || this.#spawn.bypassAllowed;
   }
@@ -547,6 +559,9 @@ export class ClaudeProcess implements TurnControl {
   async #start(input: RunInput, turn: ClaudeTurn, carried: readonly PromptMessage[]): Promise<void> {
     let options: Options;
     try {
+      // A cold run that continues a provider session through the store runs the CLI in the SDK's temporary copy of the
+      // account's directory, whose credentials have no refresh token: the login is refreshed in the account's own first.
+      if (this.#deps.sessionStore !== null && input.target.kind !== "fresh") await this.#deps.freshLogin(input.account);
       const resumePoint = await this.#resumePoint(input);
       options = buildRunOptions({
         // In the mode it has now, read after the wait: a change made while it was being prepared applies to the spawn.
@@ -579,8 +594,11 @@ export class ClaudeProcess implements TurnControl {
       }
       this.#query = sdkQuery({ prompt: this.#prompts, options });
     } catch (error) {
-      this.#waitingEnds(turn, { reason: "error", error: { message: describe(error), code: "launch" } });
+      const lapsed = error instanceof LoginLapsed;
+      this.#waitingEnds(turn, { reason: "error", error: { message: describe(error), code: lapsed ? LOGIN_EXPIRED_CODE : "launch" } });
       this.#neverRan();
+      // Nothing started signed out: the store reads the account again, and finds it expired while its login cannot be refreshed.
+      if (lapsed) this.#context.recheckAccount();
       return;
     }
     this.#armOpenWatch();
@@ -1025,8 +1043,10 @@ export class ClaudeProcess implements TurnControl {
         const early = await Promise.race([answered, Promise.resolve<PromptDecision>({ decision: "deny", message: DISPOSED_DENY_MESSAGE })]);
         return this.#result(early, toolName, input, options.suggestions ?? [], toolUseID);
       }
-      // The gate before anyone is asked: a containment denial is final, and the model is told why (#133).
-      const ruling = await this.#context.gate.check(claudeGatedCall(toolName, input, promptId, options.title));
+      // The gate before anyone is asked: a containment denial is final, and the model is told why (#133); a denylist match
+      // is put to the person first, and only an allowed call comes on to the provider's own prompt (#132).
+      // The SDK's signal goes with it: a request the CLI withdraws closes a prompt the gate parked for it (#132).
+      const ruling = await this.#context.gate.check(claudeGatedCall(toolName, input, promptId, options.title), options.signal);
       if (ruling.decision === "deny") return { behavior: "deny", message: ruling.message, toolUseID };
       const kind = PROMPT_KINDS[toolName] ?? "permission";
       // The CLI's request on the harness's fields: its title is the one-line summary, its reason the provider's.

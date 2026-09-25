@@ -145,6 +145,7 @@ describe("a prompt", () => {
       plan: null,
       suggestions: permission.suggestions,
       agentId: null,
+      denylist: null,
       // The run's mode when it asked, and the ceiling it was resolved under (a local bootstrap session's: the top one).
       mode: "acceptEdits",
       ceiling: "bypassPermissions",

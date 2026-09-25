@@ -359,6 +359,33 @@ export const sessionsRewind = defineMethod({
 });
 
 /**
+ * Undo a session's rewind (ADR 0022): `session.rewind-undone` is recorded
+ * naming the session's latest rewind not already undone, the items it hid
+ * are shown again, and the next run continues the provider session as it
+ * was before that rewind (or from an earlier rewind still standing, which a
+ * further undo takes back in turn). When the draft still holds the text
+ * the rewind wrote into it, the draft it replaced is put back
+ * (`session.draft-set`, in the same append); a draft changed since stays.
+ * Offered until a run starts on the session after the rewind: then it is
+ * `conflict` (reason `run_started`, naming that run), and the rewound
+ * branch stays in the log, hidden. While a run is live it is `conflict`
+ * (reason `run_active`); a session with no rewind to undo is `not_found`
+ * (data kind `rewind`).
+ */
+export const sessionsUndoRewind = defineMethod({
+  name: "sessions.undoRewind",
+  scope: "runs:drive",
+  kind: "command",
+  params: commandParams(sessionTarget),
+  result: z.object({
+    sessionId: SessionId,
+    messageId: MessageId.meta({ description: "The user message the undone rewind went back to." }),
+    rewindSequence: Sequence.meta({ description: "The sequence of the session.rewound undone." }),
+  }),
+  errors: [],
+});
+
+/**
  * A subagent's own transcript, read from the provider session's stored
  * transcript on demand and never logged (chosen default): its messages as
  * the provider keeps them, oldest first, empty when none is stored for it.

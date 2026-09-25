@@ -1,12 +1,12 @@
-import { ContractError } from "@agent-harness/contracts";
+import { ContractError, compareModes, type Ceiling } from "@agent-harness/contracts";
 import type { MethodHandlers } from "../serve/methods.js";
 import { DEFAULT_LOG_PAGE, byClientSession, type AccessLog } from "./access-log.js";
 import type { ClientSessions } from "./client-sessions.js";
 import type { Pairings } from "./pairings.js";
 
 export interface AccessMethodsOptions {
-  readonly pairings: Pick<Pairings, "create">;
-  readonly clientSessions: Pick<ClientSessions, "list" | "refresh" | "revoke" | "setCeiling">;
+  readonly pairings: Pick<Pairings, "ceilingOf" | "create">;
+  readonly clientSessions: Pick<ClientSessions, "list" | "refresh" | "revoke" | "setCeiling" | "heldCeiling">;
   readonly accessLog: Pick<AccessLog, "list" | "stream">;
 }
 
@@ -25,14 +25,27 @@ type AccessMethodName =
  * and its aggregate is the `access` stream; the events name the calling
  * client session and carry the command's id.
  */
+/**
+ * The refusal of a call that would grant a ceiling above the caller's own
+ * (#180): a pairing never gives more than its minter holds, and no one
+ * raises another client session above their own, so a token that leaks
+ * from a phone paired at acceptEdits cannot mint or make a bypass session.
+ */
+const aboveOwn = (granted: Ceiling, own: Ceiling, what: string) => ({
+  code: "forbidden" as const,
+  message: `${what} ${granted} is above this client session's own ceiling, ${own}; a client session grants at most its own.`,
+  data: { scope: "admin" as const, reason: "ceiling" as const, ceiling: own },
+});
+
 export const accessMethods = (options: AccessMethodsOptions): Required<Pick<MethodHandlers, AccessMethodName>> => {
   const { pairings, clientSessions, accessLog } = options;
   const aggregate = accessLog.stream;
   return {
-    "access.pairings.create": (params, { clientSession, commandId, tx }) => ({
-      aggregate,
-      result: pairings.create(tx, { scopes: params.scopes, ceiling: params.ceiling }, byClientSession(clientSession.id, commandId)),
-    }),
+    "access.pairings.create": (params, { clientSession, commandId, tx }) => {
+      const ceiling = pairings.ceilingOf(params.ceiling);
+      if (compareModes(ceiling, clientSession.ceiling) > 0) return { aggregate, rejected: aboveOwn(ceiling, clientSession.ceiling, "A pairing at") };
+      return { aggregate, result: pairings.create(tx, { scopes: params.scopes, ceiling }, byClientSession(clientSession.id, commandId)) };
+    },
 
     "access.sessions.list": (params) => ({ sessions: clientSessions.list({ live: params.live ?? false }) }),
 
@@ -59,6 +72,11 @@ export const accessMethods = (options: AccessMethodsOptions): Required<Pick<Meth
           aggregate,
           rejected: { code: "conflict", message: "A client session cannot change its own ceiling; another admin session can.", data: { reason: "own_session" } },
         };
+      }
+      // Raising above the caller's own ceiling is refused; lowering never is, even to a ceiling still above it (#180).
+      const current = clientSessions.heldCeiling(target);
+      if (current !== undefined && compareModes(params.ceiling, current) > 0 && compareModes(params.ceiling, clientSession.ceiling) > 0) {
+        return { aggregate, rejected: aboveOwn(params.ceiling, clientSession.ceiling, "Raising a client session to") };
       }
       const changed = clientSessions.setCeiling(tx, target, params.ceiling, byClientSession(clientSession.id, commandId));
       if (changed === undefined) return { aggregate, rejected: { code: "not_found", message: `No client session is named ${target}.` } };

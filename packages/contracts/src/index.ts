@@ -5,6 +5,8 @@ export * from "./accounts.js";
 export * from "./actions.js";
 export * from "./adapter.js";
 export * from "./bootstrap.js";
+export * from "./completions.js";
+export * from "./denylist.js";
 export * from "./discovery.js";
 export * from "./envelope.js";
 export * from "./event-types.js";

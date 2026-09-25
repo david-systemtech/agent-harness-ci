@@ -129,6 +129,25 @@ import {
   SendResponse,
 } from "./adapter.js";
 import { AttachmentInput } from "./methods/runs.js";
+import {
+  ChatCompletion,
+  ChatCompletionChunk,
+  ChatCompletionRequest,
+  ChatContentPart,
+  ChatMessage,
+  ChatRole,
+  CompletionFinishReason,
+  CompletionUsage,
+  CompletionsActivity,
+  CompletionsAnswerExtension,
+  CompletionsClamp,
+  CompletionsErrorBody,
+  CompletionsErrorDetail,
+  CompletionsExtension,
+  CompletionsModel,
+  CompletionsModelList,
+  CompletionsRunEnd,
+} from "./completions.js";
 import { ProcessHold, ProcessHoldKind, ProcessIdleMinutes, ProcessState, ProcessStopReason, ProviderProcess } from "./methods/providers.js";
 import {
   AttachmentKind,
@@ -187,6 +206,7 @@ import {
   ToolDecider,
 } from "./permissions.js";
 import { Mode, ModeAvailability } from "./permissions-modes.js";
+import { Denylist, DenylistEntry, DenylistInput, DenylistMatch, DenylistSection, DenylistTestKind } from "./denylist.js";
 import {
   AutoDecider,
   DecidedBy,
@@ -373,6 +393,23 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "transcript/attachment-kind.json", title: "AttachmentKind", schema: AttachmentKind },
   { path: "transcript/attachment-record.json", title: "AttachmentRecord", schema: AttachmentRecord },
   { path: "transcript/attachment-input.json", title: "AttachmentInput", schema: AttachmentInput },
+  { path: "completions/extension.json", title: "CompletionsExtension", schema: CompletionsExtension },
+  { path: "completions/chat-role.json", title: "ChatRole", schema: ChatRole },
+  { path: "completions/content-part.json", title: "ChatContentPart", schema: ChatContentPart },
+  { path: "completions/message.json", title: "ChatMessage", schema: ChatMessage },
+  { path: "completions/request.json", title: "ChatCompletionRequest", schema: ChatCompletionRequest },
+  { path: "completions/finish-reason.json", title: "CompletionFinishReason", schema: CompletionFinishReason },
+  { path: "completions/clamp.json", title: "CompletionsClamp", schema: CompletionsClamp },
+  { path: "completions/activity.json", title: "CompletionsActivity", schema: CompletionsActivity },
+  { path: "completions/run-end.json", title: "CompletionsRunEnd", schema: CompletionsRunEnd },
+  { path: "completions/answer-extension.json", title: "CompletionsAnswerExtension", schema: CompletionsAnswerExtension },
+  { path: "completions/usage.json", title: "CompletionUsage", schema: CompletionUsage },
+  { path: "completions/error-detail.json", title: "CompletionsErrorDetail", schema: CompletionsErrorDetail },
+  { path: "completions/error-body.json", title: "CompletionsErrorBody", schema: CompletionsErrorBody },
+  { path: "completions/chunk.json", title: "ChatCompletionChunk", schema: ChatCompletionChunk },
+  { path: "completions/completion.json", title: "ChatCompletion", schema: ChatCompletion },
+  { path: "completions/model.json", title: "CompletionsModel", schema: CompletionsModel },
+  { path: "completions/model-list.json", title: "CompletionsModelList", schema: CompletionsModelList },
   { path: "transcript/run-mode.json", title: "RunMode", schema: RunMode },
   { path: "transcript/model-usage.json", title: "ModelUsage", schema: ModelUsage },
   { path: "transcript/run-error.json", title: "RunError", schema: RunError },
@@ -410,6 +447,12 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "permissions/prompt-delivery.json", title: "PromptDelivery", schema: PromptDelivery },
   { path: "permissions/prompt-decision.json", title: "PromptDecisionValue", schema: PromptDecisionValue },
   { path: "permissions/prompt-answer-input.json", title: "PromptAnswerInput", schema: PromptAnswerInput },
+  { path: "permissions/denylist-section.json", title: "DenylistSection", schema: DenylistSection },
+  { path: "permissions/denylist-entry.json", title: "DenylistEntry", schema: DenylistEntry },
+  { path: "permissions/denylist.json", title: "Denylist", schema: Denylist },
+  { path: "permissions/denylist-input.json", title: "DenylistInput", schema: DenylistInput },
+  { path: "permissions/denylist-match.json", title: "DenylistMatch", schema: DenylistMatch },
+  { path: "permissions/denylist-test-kind.json", title: "DenylistTestKind", schema: DenylistTestKind },
   { path: "permissions/listed-prompt.json", title: "ListedPrompt", schema: ListedPrompt },
   { path: "permissions/review-actor.json", title: "ReviewActor", schema: ReviewActor },
   { path: "permissions/review-counts.json", title: "ReviewCounts", schema: ReviewCounts },

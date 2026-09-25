@@ -45,7 +45,11 @@ export interface StreamKind<D> {
    * gone).
    */
   readonly emptyIsState: boolean;
-  /** Whether the state has outgrown what the kind keeps between snapshots: the stream is then resubscribed for one. */
+  /**
+   * Whether the state has outgrown what the kind keeps between snapshots, or
+   * holds what only a fresh snapshot can show (a session's undo of a rewind
+   * its snapshot left out, #218): the stream is then resubscribed for one.
+   */
   outgrown?(data: D): boolean;
   /** The state a `snapshot` payload is; throws on a payload it cannot read. */
   fromSnapshot(payload: Record<string, unknown>): D;

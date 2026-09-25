@@ -195,6 +195,10 @@
       "title": "SettingsChangedPayload"
     },
     {
+      "path": "access/events/denylist.changed.json",
+      "title": "DenylistChangedPayload"
+    },
+    {
       "path": "sessions/session-id.json",
       "title": "SessionId"
     },
@@ -477,6 +481,10 @@
     {
       "path": "sessions/events/session.rewound.json",
       "title": "SessionRewoundPayload"
+    },
+    {
+      "path": "sessions/events/session.rewind-undone.json",
+      "title": "SessionRewindUndonePayload"
     },
     {
       "path": "sessions/events/run.ended.json",
@@ -771,6 +779,74 @@
       "title": "AttachmentInput"
     },
     {
+      "path": "completions/extension.json",
+      "title": "CompletionsExtension"
+    },
+    {
+      "path": "completions/chat-role.json",
+      "title": "ChatRole"
+    },
+    {
+      "path": "completions/content-part.json",
+      "title": "ChatContentPart"
+    },
+    {
+      "path": "completions/message.json",
+      "title": "ChatMessage"
+    },
+    {
+      "path": "completions/request.json",
+      "title": "ChatCompletionRequest"
+    },
+    {
+      "path": "completions/finish-reason.json",
+      "title": "CompletionFinishReason"
+    },
+    {
+      "path": "completions/clamp.json",
+      "title": "CompletionsClamp"
+    },
+    {
+      "path": "completions/activity.json",
+      "title": "CompletionsActivity"
+    },
+    {
+      "path": "completions/run-end.json",
+      "title": "CompletionsRunEnd"
+    },
+    {
+      "path": "completions/answer-extension.json",
+      "title": "CompletionsAnswerExtension"
+    },
+    {
+      "path": "completions/usage.json",
+      "title": "CompletionUsage"
+    },
+    {
+      "path": "completions/error-detail.json",
+      "title": "CompletionsErrorDetail"
+    },
+    {
+      "path": "completions/error-body.json",
+      "title": "CompletionsErrorBody"
+    },
+    {
+      "path": "completions/chunk.json",
+      "title": "ChatCompletionChunk"
+    },
+    {
+      "path": "completions/completion.json",
+      "title": "ChatCompletion"
+    },
+    {
+      "path": "completions/model.json",
+      "title": "CompletionsModel"
+    },
+    {
+      "path": "completions/model-list.json",
+      "title": "CompletionsModelList"
+    },
+    {
       "path": "transcript/run-mode.json",
       "title": "RunMode"
     },
@@ -917,6 +993,30 @@
     {
       "path": "permissions/prompt-answer-input.json",
       "title": "PromptAnswerInput"
+    },
+    {
+      "path": "permissions/denylist-section.json",
+      "title": "DenylistSection"
+    },
+    {
+      "path": "permissions/denylist-entry.json",
+      "title": "DenylistEntry"
+    },
+    {
+      "path": "permissions/denylist.json",
+      "title": "Denylist"
+    },
+    {
+      "path": "permissions/denylist-input.json",
+      "title": "DenylistInput"
+    },
+    {
+      "path": "permissions/denylist-match.json",
+      "title": "DenylistMatch"
+    },
+    {
+      "path": "permissions/denylist-test-kind.json",
+      "title": "DenylistTestKind"
     },
     {
       "path": "permissions/listed-prompt.json",
@@ -1687,6 +1787,22 @@
       "title": "sessions.rewind error"
     },
     {
+      "path": "methods/sessions.undoRewind/params.json",
+      "title": "sessions.undoRewind params"
+    },
+    {
+      "path": "methods/sessions.undoRewind/result.json",
+      "title": "sessions.undoRewind result"
+    },
+    {
+      "path": "methods/sessions.undoRewind/response.json",
+      "title": "sessions.undoRewind response"
+    },
+    {
+      "path": "methods/sessions.undoRewind/error.json",
+      "title": "sessions.undoRewind error"
+    },
+    {
       "path": "methods/groups.create/params.json",
       "title": "groups.create params"
     },
@@ -2323,6 +2439,62 @@
       "title": "permissions.review.seen error"
     },
     {
+      "path": "methods/permissions.denylist.get/params.json",
+      "title": "permissions.denylist.get params"
+    },
+    {
+      "path": "methods/permissions.denylist.get/result.json",
+      "title": "permissions.denylist.get result"
+    },
+    {
+      "path": "methods/permissions.denylist.get/error.json",
+      "title": "permissions.denylist.get error"
+    },
+    {
+      "path": "methods/permissions.denylist.set/params.json",
+      "title": "permissions.denylist.set params"
+    },
+    {
+      "path": "methods/permissions.denylist.set/result.json",
+      "title": "permissions.denylist.set result"
+    },
+    {
+      "path": "methods/permissions.denylist.set/response.json",
+      "title": "permissions.denylist.set response"
+    },
+    {
+      "path": "methods/permissions.denylist.set/error.json",
+      "title": "permissions.denylist.set error"
+    },
+    {
+      "path": "methods/permissions.denylist.restorePresets/params.json",
+      "title": "permissions.denylist.restorePresets params"
+    },
+    {
+      "path": "methods/permissions.denylist.restorePresets/result.json",
+      "title": "permissions.denylist.restorePresets result"
+    },
+    {
+      "path": "methods/permissions.denylist.restorePresets/response.json",
+      "title": "permissions.denylist.restorePresets response"
+    },
+    {
+      "path": "methods/permissions.denylist.restorePresets/error.json",
+      "title": "permissions.denylist.restorePresets error"
+    },
+    {
+      "path": "methods/permissions.denylist.test/params.json",
+      "title": "permissions.denylist.test params"
+    },
+    {
+      "path": "methods/permissions.denylist.test/result.json",
+      "title": "permissions.denylist.test result"
+    },
+    {
+      "path": "methods/permissions.denylist.test/error.json",
+      "title": "permissions.denylist.test error"
+    },
+    {
       "path": "methods/terminals.open/params.json",
       "title": "terminals.open params"
     },
@@ -2767,6 +2939,16 @@
       "error": "methods/sessions.rewind/error.json"
     },
     {
+      "name": "sessions.undoRewind",
+      "scope": "runs:drive",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/sessions.undoRewind/params.json",
+      "result": "methods/sessions.undoRewind/result.json",
+      "response": "methods/sessions.undoRewind/response.json",
+      "error": "methods/sessions.undoRewind/error.json"
+    },
+    {
       "name": "groups.create",
       "scope": "sessions:write",
       "kind": "command",
@@ -3194,6 +3376,44 @@
       "result": "methods/permissions.review.seen/result.json",
       "response": "methods/permissions.review.seen/response.json",
       "error": "methods/permissions.review.seen/error.json"
+    },
+    {
+      "name": "permissions.denylist.get",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/permissions.denylist.get/params.json",
+      "result": "methods/permissions.denylist.get/result.json",
+      "error": "methods/permissions.denylist.get/error.json"
+    },
+    {
+      "name": "permissions.denylist.set",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/permissions.denylist.set/params.json",
+      "result": "methods/permissions.denylist.set/result.json",
+      "response": "methods/permissions.denylist.set/response.json",
+      "error": "methods/permissions.denylist.set/error.json"
+    },
+    {
+      "name": "permissions.denylist.restorePresets",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/permissions.denylist.restorePresets/params.json",
+      "result": "methods/permissions.denylist.restorePresets/result.json",
+      "response": "methods/permissions.denylist.restorePresets/response.json",
+      "error": "methods/permissions.denylist.restorePresets/error.json"
+    },
+    {
+      "name": "permissions.denylist.test",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/permissions.denylist.test/params.json",
+      "result": "methods/permissions.denylist.test/result.json",
+      "error": "methods/permissions.denylist.test/error.json"
     },
     {
       "name": "terminals.open",

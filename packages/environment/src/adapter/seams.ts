@@ -1,7 +1,8 @@
 import { presetPermissionSettings, type AutoDecider, type ContainmentLevel, type Mode, type ModeAvailability, type PromptKind, type Workspace } from "@agent-harness/contracts";
 import { UNPROBED_REPORT } from "../permissions/containment.js";
 import { policySettings, resolvePolicy, type PolicyOutcome, type RunActor } from "../permissions/resolver.js";
-import type { PromptDecision, ToolServer } from "./contract.js";
+import type { GateDecision, GatedToolCall, PromptDecision, PromptDetail, RunContainment, ToolServer } from "./contract.js";
+import type { ToolDecider } from "@agent-harness/contracts";
 
 /**
  * The host's seams other workstreams fill (claude-adapter spec, "The adapter
@@ -118,3 +119,46 @@ export const presetPolicy: PolicySeam = ({ actor, requested, accountModes, conta
     containment,
     enforceable: UNPROBED_REPORT,
   });
+
+/** A run as the tool gate's rules see it: its ids, the directory its relative paths are read against, and its person. */
+export interface RuledRun {
+  readonly runId: string;
+  readonly sessionId: string;
+  /** The run's workspace: a relative path in a call is read against it. */
+  readonly workspace: string;
+  /** The run's containment, as its adapter was handed it (#133). */
+  readonly containment: RunContainment;
+  /**
+   * Asks through the broker, as the run's own prompt: recorded as
+   * `prompt.opened`, parked for a person on an attended run, answered at once
+   * by the broker's automatic rules otherwise (#131); the answer, whoever
+   * gives it, settles the ask. The host hands the answer to the gate and
+   * never to the adapter, which did not raise the prompt. A request the
+   * broker denies at once (the run has ended, the provider has given up on
+   * the call, the log refuses the prompt) opens none, and is answered deny
+   * with what the model is told.
+   */
+  ask(kind: PromptKind, detail: PromptDetail, signal?: AbortSignal): Promise<PromptDecision>;
+}
+
+/**
+ * One rule of the tool gate (`RunContext.gate`): a deny is final and ends
+ * the ruling, and the rules after it are not asked; an allow or null passes
+ * the call on to the next rule, and past the last to the provider's own
+ * evaluation. A rule that throws denies the call (the gate fails closed).
+ * A rule records nothing itself: the gate records a denial the rule made
+ * without asking anyone as the call's `tool.decision` by the rule's
+ * `decider` (a throw's too), through #131's `recordToolDecision`, which
+ * leaves a call decided already as it is; a denial through `ask` is the
+ * prompt's answer's to record (or, when a stop denied it in memory, the
+ * prompt stays open for a later answer, ADR 0007), and one the broker gave
+ * before any prompt opened is the gate's (`createToolGate`). The
+ * environment's rule is the denylist's (#132, `permissions/denylist-gate.ts`);
+ * containment's hard denials come first (#133). Preset: none, every call
+ * goes on to the provider.
+ */
+export interface ToolGateRule {
+  /** What decided a call this rule denied, or could not rule on. */
+  readonly decider: ToolDecider;
+  check(call: GatedToolCall, run: RuledRun, signal?: AbortSignal): GateDecision | null | Promise<GateDecision | null>;
+}

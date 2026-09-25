@@ -90,6 +90,8 @@ describe("the method registry", () => {
       "sessions.fork": ["command", "sessions:write"],
       // Rewinding changes what the next run does rather than a summary field (claude-adapter spec, a chosen default).
       "sessions.rewind": ["command", "runs:drive"],
+      // Undoing one, beside it (ADR 0022, #218).
+      "sessions.undoRewind": ["command", "runs:drive"],
       "groups.create": ["command", "sessions:write"],
       "groups.rename": ["command", "sessions:write"],
       "groups.reorder": ["command", "sessions:write"],
@@ -198,6 +200,8 @@ describe("the method registry", () => {
       "permissions.settings.set",
       "permissions.prompts.answer",
       "permissions.review.seen",
+      "permissions.denylist.set",
+      "permissions.denylist.restorePresets",
       "terminals.open",
       "terminals.write",
       "terminals.resize",
@@ -307,6 +311,7 @@ describe("the method registry", () => {
       | "sessions.purge"
       | "sessions.fork"
       | "sessions.rewind"
+      | "sessions.undoRewind"
       | "groups.create"
       | "groups.rename"
       | "groups.reorder"
@@ -352,6 +357,10 @@ describe("the method registry", () => {
       | "permissions.prompts.answer"
       | "permissions.review.list"
       | "permissions.review.seen"
+      | "permissions.denylist.get"
+      | "permissions.denylist.set"
+      | "permissions.denylist.restorePresets"
+      | "permissions.denylist.test"
       | "terminals.open"
       | "terminals.write"
       | "terminals.resize"

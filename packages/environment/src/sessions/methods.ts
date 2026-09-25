@@ -4,9 +4,11 @@ import {
   SESSION_STREAM_KIND,
   invalidParams,
   listEventTypes,
+  type Mode,
   type SessionSummary,
+  type Workspace,
 } from "@agent-harness/contracts";
-import type { EventEnvelope, EventLog } from "../event-log/event-log.js";
+import type { AppendOptions, EventEnvelope, EventLog, Tx } from "../event-log/event-log.js";
 import type { CommandAnswer, CommandContext, MethodHandlers } from "../serve/methods.js";
 import { appendDecided } from "./companions.js";
 import { decideSettle, decideSnooze, decideUnsettle, decideUnsnooze } from "./shelf-decider.js";
@@ -77,6 +79,60 @@ export const SESSION_LIST_SELECTOR = {
   types: listEventTypes([SESSION_STREAM_KIND, GROUP_STREAM_KIND]),
 } as const;
 
+/** A session to create, as `sessions.create` and the completions surface (#138) ask for one. */
+export interface SessionCreation {
+  readonly id: string;
+  readonly title?: string | null | undefined;
+  readonly tags?: readonly string[] | undefined;
+  readonly groupId?: string | null | undefined;
+  readonly workspace: Workspace;
+  readonly account?: string | null | undefined;
+  readonly model?: string | null | undefined;
+  readonly mode?: Mode | null | undefined;
+}
+
+/** The checks a creation runs: the account, model and mode against the host, and the mode's clamp to the caller's ceiling. */
+export interface SessionCreationChecks {
+  readonly validateRunParameters: RunParametersCheck;
+  readonly clampMode: (mode: Mode, account: string | null) => Mode | null;
+}
+
+/**
+ * Creates a session in the open transaction `tx`, as `sessions.create`
+ * does: the run parameters checked (`invalid_params` thrown for one this
+ * environment does not offer; an account that cannot run is the refusal
+ * `conflict` `account_unavailable`), the mode clamped (#129), then the
+ * decider over the session's state (an id in use, a purged one's included,
+ * is `conflict` `exists`; a group not here is `not_found`), its events
+ * appended under `attribution`. Answers the refusal, or nothing.
+ */
+export const createSessionIn = (
+  log: EventLog,
+  attribution: AppendOptions & { readonly tx: Tx },
+  creation: SessionCreation,
+  checks: SessionCreationChecks,
+): { readonly rejected: Refusal | { readonly code: "conflict"; readonly message: string; readonly data: { reason: string; accountId: string } } } | { readonly rejected?: undefined } => {
+  const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
+  const id = creation.id.toLowerCase();
+  const asked = { account: creation.account ?? null, model: creation.model ?? null, mode: creation.mode ?? null };
+  const verdict = checks.validateRunParameters(asked);
+  // An account that cannot run is the session's state, not a malformed request: refused with a receipt (#134).
+  if (verdict.unavailable !== undefined) {
+    const { accountId, message } = verdict.unavailable;
+    return { rejected: { code: "conflict", message, data: { reason: "account_unavailable", accountId } } };
+  }
+  if (verdict.issues.length > 0) throw new ContractError(invalidParams(verdict.issues, "The account, model or mode is not one this environment offers."));
+  // The mode is stored as the caller's ceiling allows it (#129).
+  const mode = asked.mode === null ? null : checks.clampMode(asked.mode, asked.account);
+  const groupId = creation.groupId?.toLowerCase() ?? null;
+  const state = readSessionState(reader, id) ?? (log.readStream(sessionStream(id), 0, 1).length > 0 ? PURGED_STATE : null);
+  const command = { id, title: creation.title ?? null, tags: [...(creation.tags ?? [])], groupId, workspace: creation.workspace, account: asked.account, model: asked.model, mode };
+  const decision = decideCreate(state, command, { groupExists: groupId !== null && groupExists(reader, groupId) });
+  if (decision.rejected !== undefined) return { rejected: decision.rejected };
+  appendDecided(log, sessionStream(id), decision, attribution);
+  return {};
+};
+
 export const sessionMethods = (options: SessionMethodsOptions): MethodHandlers => {
   const { log } = options;
   const validateRunParameters = options.validateRunParameters ?? acceptAnyRunParameters;
@@ -143,19 +199,14 @@ export const sessionMethods = (options: SessionMethodsOptions): MethodHandlers =
   return {
     "sessions.create": (params, context) => {
       const id = params.id.toLowerCase();
-      const asked = { account: params.account ?? null, model: params.model ?? null, mode: params.mode ?? null };
-      const verdict = validateRunParameters(asked);
-      // An account that cannot run is the session's state, not a malformed request: refused with a receipt (#134).
-      if (verdict.unavailable !== undefined) {
-        const { accountId, message } = verdict.unavailable;
-        return { aggregate: sessionStream(id), rejected: { code: "conflict", message, data: { reason: "account_unavailable", accountId } } };
-      }
-      if (verdict.issues.length > 0) throw new ContractError(invalidParams(verdict.issues, "The account, model or mode is not one this environment offers."));
-      // The mode is stored as the caller's ceiling allows it (#129).
-      const run = { ...asked, mode: asked.mode === null ? null : clampSessionMode(asked.mode, asked.account, context.clientSession) };
-      const groupId = params.groupId?.toLowerCase() ?? null;
-      const command = { id, title: params.title ?? null, tags: params.tags ?? [], groupId, workspace: params.workspace, ...run };
-      return carryOut(id, decideCreate(stateOf(id), command, { groupExists: groupId !== null && groupExists(reader, groupId) }), context);
+      const created = createSessionIn(
+        log,
+        { tx: context.tx, actor: context.actor, commandId: context.commandId },
+        { ...params, id },
+        { validateRunParameters, clampMode: (mode, account) => clampSessionMode(mode, account, context.clientSession) },
+      );
+      if (created.rejected !== undefined) return { aggregate: sessionStream(id), rejected: created.rejected };
+      return { aggregate: sessionStream(id), result: { summary: summaryAfter(id) } };
     },
 
     "sessions.rename": (params, context) => {

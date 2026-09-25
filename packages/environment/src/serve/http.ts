@@ -118,6 +118,13 @@ export const refuseUpgrade = (socket: Duplex, status: number, body: unknown): vo
 };
 
 export interface HttpSurface extends HttpRoutes {
+  /**
+   * Routes every request whose path starts with `prefix` and has no route of
+   * its own to `handler`, whatever its method, behind the same Host check:
+   * the completions surface's `/v1/` (#138), which answers its own 404, 405
+   * and 501.
+   */
+  prefix(prefix: string, handler: RouteHandler): void;
   /** Routes an upgrade request at `path` to `handler`, behind the same Host check as every route. */
   upgrade(path: string, handler: UpgradeHandler): void;
   /** Starts one more listener on `host`, with the same routes: loopback first, then the tailnet or LAN address. */
@@ -140,6 +147,7 @@ export interface HttpSurfaceOptions {
  */
 export const createHttpSurface = (options: HttpSurfaceOptions = {}): HttpSurface => {
   const routes = new Map<string, Map<string, RouteHandler>>();
+  const prefixes: { readonly prefix: string; readonly handler: RouteHandler }[] = [];
   const upgrades = new Map<string, UpgradeHandler>();
   const servers: { readonly server: Server; readonly host: string }[] = [];
 
@@ -149,6 +157,17 @@ export const createHttpSurface = (options: HttpSurfaceOptions = {}): HttpSurface
       options.tailnetName?.(),
       servers.map((entry) => entry.host),
     );
+
+  /** Runs a route's handler; a throw is a 500 when nothing has been sent yet, else the connection is cut. */
+  const run = (handler: RouteHandler, request: IncomingMessage, response: ServerResponse, what: string): void => {
+    Promise.resolve()
+      .then(() => handler(request, response))
+      .catch((error: unknown) => {
+        console.error(`The handler for ${what} failed:`, error);
+        if (!response.headersSent) sendJson(response, 500, { error: "internal", message: "The environment failed." });
+        else response.destroy();
+      });
+  };
 
   const onRequest = (request: IncomingMessage, response: ServerResponse): void => {
     if (!allowed(request.headers.host)) {
@@ -167,6 +186,11 @@ export const createHttpSurface = (options: HttpSurfaceOptions = {}): HttpSurface
       return;
     }
     const byMethod = routes.get(path);
+    const prefixed = byMethod ? undefined : prefixes.find((entry) => path.startsWith(entry.prefix));
+    if (prefixed) {
+      run(prefixed.handler, request, response, `${request.method ?? ""} ${path}`);
+      return;
+    }
     if (!byMethod && upgrades.has(path)) {
       sendJson(response, 426, { error: "upgrade_required", message: `${path} is a WebSocket.` }, { upgrade: "websocket" });
       return;
@@ -182,13 +206,7 @@ export const createHttpSurface = (options: HttpSurfaceOptions = {}): HttpSurface
       sendJson(response, 405, { error: "method_not_allowed", message: `${path} takes ${allow}.` }, { allow });
       return;
     }
-    Promise.resolve()
-      .then(() => handler(request, response))
-      .catch((error: unknown) => {
-        console.error(`The handler for ${method} ${path} failed:`, error);
-        if (!response.headersSent) sendJson(response, 500, { error: "internal", message: "The environment failed." });
-        else response.destroy();
-      });
+    run(handler, request, response, `${method} ${path}`);
   };
 
   const onUpgrade = (request: IncomingMessage, socket: Duplex, head: Buffer): void => {
@@ -217,6 +235,10 @@ export const createHttpSurface = (options: HttpSurfaceOptions = {}): HttpSurface
     upgrade(path, handler) {
       if (upgrades.has(path)) throw new Error(`Upgrades at ${path} are already routed.`);
       upgrades.set(path, handler);
+    },
+    prefix(prefix, handler) {
+      if (prefixes.some((entry) => entry.prefix === prefix)) throw new Error(`${prefix} is already routed.`);
+      prefixes.push({ prefix, handler });
     },
     route(method, path, handler) {
       const byMethod = routes.get(path) ?? new Map<string, RouteHandler>();

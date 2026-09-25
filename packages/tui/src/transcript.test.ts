@@ -237,6 +237,7 @@ describe("prompts and plans", () => {
     plan: kind === "plan" ? "1. Read the parser\n2. Fix the off-by-one" : null,
     suggestions: [],
     agentId: null,
+    denylist: null,
     mode: "acceptEdits",
     ceiling: "bypassPermissions",
     ttlExpiresAt: null,
