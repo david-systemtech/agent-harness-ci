@@ -36,7 +36,9 @@ const gateAt = (workspace: string, append: ToolGateOptions["log"]["append"]) => 
     writable: [workspace],
     network: true,
   };
-  return createToolGate({ log: { append }, liveRunOf: () => undefined })({ runId: "run-1", sessionId: "session-1", workspace, containment });
+  // A log that holds nothing: every call is undecided, and the gate's append is the one it makes.
+  const log: ToolGateOptions["log"] = { append, read: () => [], atomically: (work) => work({ afterCommit: () => undefined }) };
+  return createToolGate({ log, liveRunOf: () => undefined })({ runId: "run-1", sessionId: "session-1", workspace, containment });
 };
 
 const writing = (path: string) => ({ toolCallId: "toolu_1", tool: "Write", summary: `Write ${path}`, access: { kind: "write", paths: [path] } }) as const;

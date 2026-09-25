@@ -129,6 +129,7 @@ describe("the clamp on every run", () => {
     expect(policyOf(t, id, runId)).toEqual({
       runId,
       actorKind: "client",
+      actorName: null,
       attended: true,
       mode: { requested: "bypassPermissions", effective: "acceptEdits", ceiling: "acceptEdits", clamped: true, clampReason: "ceiling" },
       // The helper's probe finds no bubblewrap, so the preset's workspace is lowered to off, saying why (containment.test.ts has the rest).

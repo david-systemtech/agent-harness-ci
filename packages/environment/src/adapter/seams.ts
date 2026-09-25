@@ -79,9 +79,10 @@ export interface AutoAnswer {
  * machine): a rule that answers a prompt at once, recorded as its
  * `prompt.answered` in the transaction of its `prompt.opened`, so it never
  * parks and no notice is raised; null parks the prompt for a person. The
- * unattended, bypass and reviewer rules are #131's, which fills this seam;
- * the TTL's sweeper answers parked prompts later, and `run_ended` is the
- * host's own. Preset: no rule, every prompt parks.
+ * environment fills it with the unattended and bypass rules
+ * (`permissions/auto-answer.ts`, #131; a reviewer's is milestone 2's); the
+ * TTL's sweeper answers parked prompts later, and `run_ended` is the host's
+ * own. Preset: no rule, every prompt parks.
  */
 export type PromptAutoAnswer = (request: AutoAnswerRequest) => AutoAnswer | null;
 

@@ -34,8 +34,10 @@ import {
   openedPayload,
   ruledAnswer,
 } from "../permissions/broker.js";
-import { answersFor, parkedPromptsOfRun } from "../permissions/prompts-store.js";
+import { answersFor, hasKeptAnswer, parkedPromptsOfRun } from "../permissions/prompts-store.js";
+import { readRunPolicy } from "../permissions/review-store.js";
 import type { RunActor } from "../permissions/resolver.js";
+import { answerEvents, runToolCalls, type RunToolCalls } from "../permissions/tool-decisions.js";
 import { environmentQueue, latestRun, messageCeilings, providerHeld, readRun, readSessionFacts } from "../runs/run-reads.js";
 import {
   decideStart,
@@ -123,6 +125,16 @@ import {
  * closing) and the recovery sweep's `restart` leave them open in the log
  * (ADR 0007), denied in memory only, and an answer given later is kept for
  * the session's next run, which reads it as its first message.
+ *
+ * The tool decisions (#131, `permissions/tool-decisions.ts`): the host is
+ * the one place that sees every event a run reports, so it records each
+ * tool call's one `tool.decision` that no prompt's answer makes: the
+ * provider's denial report as it comes, a call that ended `ok` unasked as
+ * the mode's in the transaction of its `tool.ended`, and every call still
+ * undecided as the mode's in the transaction of the run's `run.ended`. Every
+ * answer it appends to a prompt (a rule's, `run_ended`, `cancelled`) carries
+ * the call's decision beside it. A prompt a rule does not answer at once has
+ * its `ttlExpiresAt` fixed from the TTL setting when it opens.
  */
 
 export interface AdapterHostOptions {
@@ -141,6 +153,12 @@ export interface AdapterHostOptions {
   readonly instructions?: InstructionComposer;
   /** The broker's automatic answers (#131); preset: none, every prompt parks. */
   readonly autoAnswer?: PromptAutoAnswer;
+  /**
+   * How long a prompt may wait for a person before the TTL's sweeper denies
+   * it, in milliseconds, read as each prompt opens; null for never (#131).
+   * Preset: never; the environment passes `permissions.parkedPrompt.ttl`.
+   */
+  readonly promptTtlMs?: () => number | null;
   /** The policy resolver runs start through; preset: the resolver on the settings' presets. */
   readonly resolvePolicy?: PolicySeam;
   /**
@@ -231,6 +249,16 @@ export interface AdapterHost {
   stageAttachments(message: PromptMessage): void;
   /** Hands a message sent during a live run to its provider, or holds it for the next run, once its event committed. */
   queue(send: QueuedSend): void;
+  /**
+   * Starts the session's next run for an answer an automatic rule kept for
+   * it (#131: the TTL's, whose run had gone), so the session continues on
+   * its own: the run reads the answer first, then whatever is queued, for
+   * the actor of the run before it, resolved afresh. Nothing when a run is
+   * live on the session (the answer waits for the run after it), the session
+   * has never run or is deleted, the environment drains or closes, or no
+   * answer is kept any more. A person's answer starts nothing (#130).
+   */
+  continueSession(sessionId: string): void;
   /** Interrupts a live run with cancel; the messages its provider still held come back to the environment's queue. */
   interrupt(runId: string): void;
   /** Stops a piece of a live run's delegated work. */
@@ -298,6 +326,9 @@ export const requeuedEvents = (runId: string, messageIds: readonly string[]): Ev
     return { type: "message.requeued", payload };
   });
 
+/** What a run the environment starts itself after another is resolved from: the session, who it runs for, and the model and effort of the run before it. */
+type NextRunBasis = Pick<PlannedRun, "sessionId" | "actor" | "model" | "effort">;
+
 /**
  * Who ends a run: its adapter, whose end event is recorded; or the host,
  * which disposes the run and stops its process for `stop`'s reason, and
@@ -345,6 +376,8 @@ interface LiveRun {
   received: boolean;
   /** The messages the run was launched with, bytes included. */
   readonly launchedWith: readonly PromptMessage[];
+  /** Its tool calls, for the decisions no prompt's answer makes (#131). */
+  readonly calls: RunToolCalls;
 }
 
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
@@ -374,6 +407,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
   const toolServers = options.toolServers ?? noToolServers;
   const instructions = options.instructions ?? composeInstructions();
   const autoAnswer = options.autoAnswer ?? noAutoAnswer;
+  const promptTtlMs = options.promptTtlMs ?? (() => null);
   const resolvePolicy = options.resolvePolicy ?? presetPolicy;
   const directories = options.containmentDirectories ?? temporaryContainmentDirectories();
   const { accounts } = options;
@@ -381,6 +415,8 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
 
   /** Live runs by session: at most one each. */
   const live = new Map<string, LiveRun>();
+  /** The run each session last ended here: what a run the environment starts itself for kept answers is resolved from (#131). */
+  const lastPlans = new Map<string, PlannedRun>();
   /** Runs that ended here with their end not in the log. */
   const unrecordedRuns = new Set<string>();
   /**
@@ -660,9 +696,11 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
         if (closesPrompts) {
           for (const open of parkedPromptsOfRun(reader, entry.runId)) {
             const closed: PromptAnsweredPayload = autoDenial(open.prompt, "run_ended");
-            log.append(sessionStream(entry.sessionId), [{ type: "prompt.answered", payload: closed }], { tx, actor: HOST_ACTOR, correlationId: entry.runId });
+            log.append(sessionStream(entry.sessionId), answerEvents(reader, open.prompt, closed), { tx, actor: HOST_ACTOR, correlationId: entry.runId });
           }
         }
+        // Every call it made that nobody was asked about and the provider did not deny: the mode let it through (#131).
+        append(entry.sessionId, entry.runId, HOST_ACTOR, entry.calls.settle());
         const actor = ended.by === "adapter" ? entry.actor : (ended.actor ?? HOST_ACTOR);
         const commandId = ended.by === "host" ? ended.commandId : undefined;
         const attribution = { tx, actor, correlationId: entry.runId, ...(commandId !== undefined && { commandId }) };
@@ -694,6 +732,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     }
     registry.end(entry.runId);
     if (live.get(entry.sessionId) === entry) live.delete(entry.sessionId);
+    lastPlans.set(entry.sessionId, entry.plan);
     letRunGo();
     if (closing || reason === "disposed" || reason === "drained") return;
     readProviderTitle(entry, recorded);
@@ -728,7 +767,22 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
           if (entry.prompts.size === 0) registry.running(entry.runId);
           pool.answered(entry.sessionId, entry.runId);
         }
+        if (event.type === "denial") {
+          // The provider's own denial report: the call's decision, the adapter's (#131).
+          log.atomically((tx) => append(entry.sessionId, entry.runId, entry.actor, entry.calls.denied(event, tx)));
+          continue;
+        }
+        if (event.type === "tool.ended") {
+          // A call that ended ok unasked is the mode's, decided in the transaction of its end (#131).
+          log.atomically((tx) => {
+            entry.append(event);
+            append(entry.sessionId, entry.runId, HOST_ACTOR, entry.calls.after(event, tx));
+          });
+          continue;
+        }
         entry.append(event);
+        // A call started: the host keeps its tool and summary until it is decided (#131).
+        if (event.type === "tool.started") entry.calls.started(event);
       }
       if (!entry.ended) {
         finish(entry, { type: "end", reason: "error", error: { message: "The run's event stream stopped without an end.", code: "no_end" } }, { by: "host", stop: "failed" });
@@ -788,21 +842,24 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
         return { decision: "deny", message: DUPLICATE_PROMPT_MESSAGE };
       }
       const stream = sessionStream(sessionId);
-      const opened: PromptOpenedPayload = openedPayload({
-        runId: entry.runId,
-        promptId,
-        kind: request.kind,
-        detail: request.detail,
-        mode: entry.mode,
-        ceiling: entry.plan.policy.mode.ceiling,
-        // The TTL is fixed here once its sweeper exists (#131); until then nothing expires.
-        ttlExpiresAt: null,
-      });
       const rule = autoAnswer({ kind: request.kind, attended: entry.plan.policy.attended, mode: entry.mode });
-      // A rule's mode is clamped as a person's is, to the run's ceiling and its account's modes (none left: no mode is
-      // given); what is recorded is what the run is handed, every part of it.
-      const ruled = rule === null ? null : ruledAnswer(rule.decision, opened.ceiling, entry.descriptor.modes);
+      let opened: PromptOpenedPayload;
+      let ruled: ReturnType<typeof ruledAnswer> | null;
       try {
+        // The TTL is fixed as it opens (#131); a prompt a rule answers at once never waits, so never expires.
+        const ttlMs = rule === null ? promptTtlMs() : null;
+        opened = openedPayload({
+          runId: entry.runId,
+          promptId,
+          kind: request.kind,
+          detail: request.detail,
+          mode: entry.mode,
+          ceiling: entry.plan.policy.mode.ceiling,
+          ttlExpiresAt: ttlMs === null ? null : new Date(clock.now().getTime() + ttlMs).toISOString(),
+        });
+        // A rule's mode is clamped as a person's is, to the run's ceiling and its account's modes (none left: no mode is
+        // given); what is recorded is what the run is handed, every part of it.
+        ruled = rule === null ? null : ruledAnswer(rule.decision, opened.ceiling, entry.descriptor.modes);
         log.atomically((tx) => {
           log.append(stream, [{ type: "prompt.opened", payload: opened }], { tx, actor: entry.actor, correlationId: entry.runId });
           if (rule !== null && ruled !== null) {
@@ -816,7 +873,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
               remember: decision.remember ?? null,
               delivery: "live",
             };
-            log.append(stream, [{ type: "prompt.answered", payload }], { tx, actor: HOST_ACTOR, correlationId: entry.runId });
+            log.append(stream, answerEvents(reader, opened, payload), { tx, actor: HOST_ACTOR, correlationId: entry.runId });
           }
         });
       } catch (error) {
@@ -843,9 +900,11 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
         const cancel = (): void => {
           if (!open) return;
           try {
-            if (parkedPromptsOfRun(reader, entry.runId).some((prompt) => prompt.promptId === promptId)) {
-              log.append(stream, [{ type: "prompt.answered", payload: autoDenial(opened, "cancelled") }], { actor: entry.actor, correlationId: entry.runId });
-            }
+            log.atomically((tx) => {
+              if (parkedPromptsOfRun(reader, entry.runId).some((prompt) => prompt.promptId === promptId)) {
+                log.append(stream, answerEvents(reader, opened, autoDenial(opened, "cancelled")), { tx, actor: entry.actor, correlationId: entry.runId });
+              }
+            });
           } catch (error) {
             console.error(`Recording the cancelling of prompt ${promptId} of run ${entry.runId} failed:`, error);
           }
@@ -911,6 +970,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       prompts: new Set(),
       received: false,
       launchedWith,
+      calls: runToolCalls(reader, plan.runId),
     };
     // Admitted first: a drain that refuses it leaves no live entry behind.
     registry.start(plan.runId);
@@ -986,6 +1046,31 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       for (const message of prompt) unstage(message.messageId);
       return run;
     }, prompt);
+  };
+
+  /**
+   * What the session's next run is started from when the environment starts
+   * it itself (`continueSession`, #131): the run before it, as this host
+   * last ended it, else as the log records it (after a restart), for the
+   * actor its policy names, under the ceiling it was resolved under (the
+   * client session behind it is not in the log, so a ceiling lowered since
+   * is not read), in its model with the model's own effort. Null when the
+   * session has never run.
+   */
+  const basisOf = (sessionId: string): NextRunBasis | null => {
+    const held = lastPlans.get(sessionId);
+    if (held !== undefined) return held;
+    const run = latestRun(reader, sessionId);
+    const policy = run === null ? null : readRunPolicy(reader, run.runId);
+    if (run === null || policy === null) return null;
+    const ceiling = policy.mode.ceiling;
+    const actor: RunActor =
+      policy.actorKind === "completions"
+        ? { kind: "completions", attended: policy.attended, ceiling, clientSessionId: null }
+        : policy.actorKind === "client"
+          ? { kind: "client", ceiling, clientSessionId: null }
+          : { kind: policy.actorKind, name: policy.actorName, ceiling, clientSessionId: null };
+    return { sessionId, actor, model: run.model, effort: null };
   };
 
   /** `actor` with its client session's ceiling as it is now; undefined once that client session is revoked or expired. */
@@ -1209,10 +1294,16 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
    * run's alone (#129). Not while the environment drains, nor once that
    * actor's client session is revoked or expired: the messages stay queued
    * for the next start.
+   *
+   * With `forAnswers`, it starts one too when nothing is queued but an
+   * answer is kept for the session's next run and no run has taken it (#131:
+   * a TTL answer whose run had gone), so the session continues on its own:
+   * the run reads the answer first, then whatever is queued.
    */
-  const startFromQueue = (previous: PlannedRun): void => {
+  const startFromQueue = (previous: NextRunBasis, forAnswers = false): void => {
     try {
-      if (environmentQueue(reader, previous.sessionId).length === 0) return;
+      const queued = environmentQueue(reader, previous.sessionId).length > 0;
+      if (!queued && !(forAnswers && hasKeptAnswer(reader, previous.sessionId))) return;
       registry.admit();
       const actor = currentActor(previous.actor);
       if (actor === undefined) {
@@ -1225,6 +1316,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
         message: null,
         model: previous.model,
         ...(previous.effort !== null && { effort: previous.effort }),
+        ...(forAnswers && { keptAnswers: true }),
       });
       if (decision.rejected !== undefined) {
         console.error(`The queued messages of session ${previous.sessionId} could not start a run: ${decision.rejected.message}`);
@@ -1259,6 +1351,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     }
     if (event.type === "session.purged") {
       for (const [messageId, staged] of [...heldAttachments]) if (staged.sessionId === event.streamId) unstage(messageId);
+      lastPlans.delete(event.streamId);
       return;
     }
     if (event.type === "session.rewound") {
@@ -1415,6 +1508,20 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     liveRun: (runId) => liveFacts(byRunId(runId)),
     unrecorded: (runId) => unrecordedRuns.has(runId),
     launch,
+    continueSession(sessionId) {
+      if (closing || changingMode.has(sessionId)) return;
+      const current = live.get(sessionId);
+      if (current !== undefined && isLive(current)) return;
+      let basis: NextRunBasis | null;
+      try {
+        const session = readSessionFacts(log, reader, sessionId);
+        basis = session === null || session.deleted ? null : basisOf(sessionId);
+      } catch (error) {
+        console.error(`Reading session ${sessionId} to continue it failed:`, error);
+        return;
+      }
+      if (basis !== null) startFromQueue(basis, true);
+    },
     stageAttachments(message) {
       if (stage === undefined || message.attachments.length === 0) return;
       try {

@@ -52,6 +52,8 @@ import {
   permissionsModeSet,
   permissionsPromptsAnswer,
   permissionsPromptsList,
+  permissionsReviewList,
+  permissionsReviewSeen,
   permissionsSettingsGet,
   permissionsSettingsSet,
 } from "./methods/permissions.js";
@@ -159,6 +161,8 @@ export const methods = [
   permissionsSettingsSet,
   permissionsPromptsList,
   permissionsPromptsAnswer,
+  permissionsReviewList,
+  permissionsReviewSeen,
   terminalsOpen,
   terminalsWrite,
   terminalsResize,

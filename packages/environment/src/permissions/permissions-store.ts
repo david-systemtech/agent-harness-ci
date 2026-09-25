@@ -14,6 +14,7 @@ import type { Projector } from "../event-log/event-log.js";
 import type { Reader } from "../sessions/session-reads.js";
 import { readSettings, readStoredSettings } from "../settings/settings-store.js";
 import { PROMPTS_TABLES, projectPrompt } from "./prompts-store.js";
+import { REVIEW_TABLES, projectReview } from "./review-store.js";
 
 /**
  * The permissions read model, kept in the transaction of the events it
@@ -39,6 +40,7 @@ export const PERMISSIONS_TABLES = {
     level TEXT NOT NULL
   ) STRICT`,
   ...PROMPTS_TABLES,
+  ...REVIEW_TABLES,
 } as const;
 
 export const permissionsProjector: Projector = {
@@ -49,6 +51,7 @@ export const permissionsProjector: Projector = {
       SettingsChangedPayload.parse(event.payload);
       return;
     }
+    projectReview(event, db);
     if (event.streamKind !== SESSION_STREAM_KIND) return;
     projectPrompt(event, db);
     if (event.type === "session.mode.set") {

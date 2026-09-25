@@ -3,7 +3,8 @@
   "title": "SettingsEventType",
   "type": "string",
   "enum": [
-    "settings.updated"
+    "settings.updated",
+    "review.seen"
   ],
-  "description": "The event types of the settings stream: settings.updated."
+  "description": "The event types of the settings stream: settings.updated, and review.seen, the Unattended review's watermark."
 }

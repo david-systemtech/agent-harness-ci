@@ -14,5 +14,5 @@
     "bypass",
     "provider"
   ],
-  "description": "Who or what decided a tool call: person, mode, rule, classifier, denylist, containment, ttl, unattended, bypass or provider."
+  "description": "What decided a tool call: person (a person answered its prompt), mode (the mode let it through without asking), rule (one of the provider's own rules), classifier (the provider's classifier or reviewer), denylist, containment, ttl (its prompt waited past the TTL), unattended (nobody was present), bypass (a residual prompt in bypassPermissions), or provider (the provider decided otherwise: it cancelled the request, the run ended under the prompt, or it reported a denial for another reason)."
 }

@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ReviewCounts",
+  "type": "object",
+  "properties": {
+    "toolCalls": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991,
+      "description": "Tool calls decided in the run (one tool.decision each); a prompt that named no call is counted by how it was decided, not here."
+    },
+    "autoApproved": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991,
+      "description": "Calls allowed with no person answering: by the mode, a rule or a classifier."
+    },
+    "denied": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991,
+      "description": "Calls denied, by anyone."
+    },
+    "answeredByPerson": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991,
+      "description": "Calls a person decided through a prompt, allowed or denied."
+    },
+    "expired": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991,
+      "description": "Calls whose prompt was denied past its TTL."
+    }
+  },
+  "required": [
+    "toolCalls",
+    "autoApproved",
+    "denied",
+    "answeredByPerson",
+    "expired"
+  ],
+  "description": "A reviewed run's tool calls: how many, auto-approved, denied, answered by a person, expired."
+}

@@ -3,6 +3,7 @@ import { hostname } from "node:os";
 import { join } from "node:path";
 import {
   BOOTSTRAP_PATH,
+  ContractError,
   DISCOVERY_PATH,
   ENVIRONMENT_STREAM_KIND,
   HEALTH_PATH,
@@ -12,6 +13,7 @@ import {
   WIRE_PATH,
   formatHostPort,
   pairingLink,
+  parkedPromptTtlMs,
   type AuthPolicy,
   type CapabilityFlags,
   type ContainmentReport,
@@ -20,6 +22,8 @@ import {
   type EnvironmentReadiness,
   type EnvironmentStatus,
   type HealthDocument,
+  type Mode,
+  type RunOrigin,
 } from "@agent-harness/contracts";
 import { SYSTEM, createAccessLog } from "../auth/access-log.js";
 import { accessMethods } from "../auth/access-methods.js";
@@ -50,6 +54,7 @@ import { processMethods } from "../adapter/processes-methods.js";
 import { ATTACHMENTS_DIRECTORY, createAttachmentStage } from "../adapter/attachment-stage.js";
 import { recoverCutRuns, recoverStagedAttachments } from "../adapter/recovery.js";
 import type { InstructionComposer, PolicySeam, PromptAutoAnswer, ToolServerFactory } from "../adapter/seams.js";
+import { autoAnswer } from "../permissions/auto-answer.js";
 import { UNPROBED_REPORT, containmentFlags, containmentReport, failedProbeReport, presetContainmentDefault, withAdapters } from "../permissions/containment.js";
 import { CONTAINMENT_DIRECTORY, containmentDirectories } from "../permissions/containment-directories.js";
 import { probeContainment, type ContainmentProbe } from "../permissions/containment-probe.js";
@@ -57,9 +62,11 @@ import { permissionMethods, sessionModeClamp } from "../permissions/methods.js";
 import { promptMethods } from "../permissions/prompt-methods.js";
 import { startPromptNotices } from "../permissions/prompt-notices.js";
 import { permissionsProjector, readPermissionSettings, readStoredContainmentDefault } from "../permissions/permissions-store.js";
-import { policySettings, resolvePolicy } from "../permissions/resolver.js";
+import { policySettings, resolvePolicy, type RunActor } from "../permissions/resolver.js";
+import { reviewMethods } from "../permissions/review-methods.js";
+import { createTtlSweeper } from "../permissions/ttl-sweeper.js";
 import { createProviderTranscriptStore, type ProviderTranscriptStore } from "../provider-transcripts/store.js";
-import { runMethods } from "../runs/run-methods.js";
+import { runMethods, startRunIn } from "../runs/run-methods.js";
 import { runsProjector } from "../runs/runs-projector.js";
 import { createCompactionSweep } from "../sessions/compaction.js";
 import { createDeletion } from "../sessions/deletion.js";
@@ -224,7 +231,7 @@ export interface EnvironmentOptions {
   readonly adapterSeams?: {
     readonly toolServers?: ToolServerFactory;
     readonly instructions?: InstructionComposer;
-    /** The broker's automatic answers (#131); preset: none, every prompt parks for a person. */
+    /** The broker's automatic answers; preset: the unattended and bypass rules (#131, `permissions/auto-answer.ts`). */
     readonly autoAnswer?: PromptAutoAnswer;
     /** Preset: the policy resolver on the environment's permission settings (#129) and its containment probe (#133). */
     readonly resolvePolicy?: PolicySeam;
@@ -239,6 +246,34 @@ export interface EnvironmentOptions {
   /** How terminals start: the pty, the shell, the base environment. Preset: `node-pty`, the user's login shell, the clean base (`terminals/`). */
   readonly terminals?: Omit<TerminalsOptions, "clock">;
 }
+
+/** Who starts a run that no client session starts: a routine, a bot, or the completions surface. */
+type ActorOfRun<K extends RunActor["kind"]> = Extract<RunActor, { readonly kind: K }>;
+
+/**
+ * A run an actor that is no client session starts: the session, who (a
+ * routine or a bot by its id, which the log names it by, since its name can
+ * change; the completions surface), the message it starts with, and a mode
+ * of its own if it names one.
+ */
+export type ActorRunRequest = {
+  readonly sessionId: string;
+  readonly text: string;
+  readonly mode?: Mode;
+} & (
+  | { readonly actor: ActorOfRun<"routine" | "bot">; readonly actorId: string }
+  | { readonly actor: ActorOfRun<"completions">; readonly actorId?: undefined }
+);
+
+/** Where a run an actor starts comes from, and who the log says started it: a bot's runs are its routines' (ADR 0008). */
+const startedBy = (request: ActorRunRequest): { readonly origin: RunOrigin; readonly actor: string } => {
+  const { actor } = request;
+  if (actor.kind === "completions") return { origin: "completions", actor: formatActor({ kind: "system", id: "completions" }) };
+  const id = request.actorId ?? "";
+  return actor.kind === "routine"
+    ? { origin: "routine", actor: formatActor({ kind: "routine", id }) }
+    : { origin: "routine", actor: formatActor({ kind: "system", id: `bot:${id}` }) };
+};
 
 /** A running environment. */
 export interface EnvironmentHandle {
@@ -273,6 +308,16 @@ export interface EnvironmentHandle {
   readonly http: HttpRoutes;
   /** Issuing (by an in-process pairing) and revoking client sessions from the embedding process. */
   readonly clientSessions: ClientSessionIssuer;
+  /**
+   * Starts a run on a session for an actor that is no client session (a
+   * routine, a bot, the completions surface), as `runs.start` does for a
+   * client session: its policy resolved for that actor (#129; attended or
+   * not, the unattended default), recorded, then launched once it has
+   * committed. The seam the routines (#92) and the completions surface
+   * (#139) start their runs through, and the tests of unattended runs
+   * (#131). Throws the refusal `runs.start` would answer.
+   */
+  startRun(request: ActorRunRequest): { readonly runId: string; readonly messageId: string };
   /** How many WebSocket sockets are open on the wire. */
   sockets(): number;
   /** How many subscriptions are open on the wire, across every socket: a count for tests and diagnostics. */
@@ -488,6 +533,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
         }),
       containmentDirectories: sessionDirectories,
       ceilingOf: (id) => clientSessions.ceiling(id),
+      // The unattended and bypass rules, and the TTL a prompt that parks is fixed with (#131).
+      autoAnswer,
+      promptTtlMs: () => parkedPromptTtlMs(permissionSettings()["permissions.parkedPrompt.ttl"]),
       processIdleMinutes: options.processIdleMinutes ?? (() => settings()["providers.processIdleMinutes"]),
       ...options.adapterSeams,
     });
@@ -579,6 +627,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ...runMethods({ log, host, ceilingOf: (id) => clientSessions.ceiling(id) }),
     ...permissionMethods({ log, host, accessLog, clock, environmentId: record.id, ceilingOf: (id) => clientSessions.ceiling(id), containment }),
     ...promptMethods({ log, host, environmentId: record.id }),
+    ...reviewMethods({ log, environmentId: record.id }),
     ...processMethods({ log, host }),
     ...accountMethods({ accounts, host }),
     ...terminalService.handlers,
@@ -665,6 +714,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     .catch((error: unknown) => console.error("Sweeping the containment directories of sessions that are gone failed:", error));
   // The shelf's sweep (#117): a pass now, before the wire opens, then every five minutes.
   closers.push(settleSweep.start());
+  // The TTL's sweeper (#131): the prompts that expired while the environment was down now, before the wire opens, then every minute.
+  closers.push(createTtlSweeper({ log, host, clock }).start());
   // Transcript compaction (#123): a pass now, before the wire opens, then once a day.
   closers.push(createCompactionSweep({ log, clock }).start());
   wire.open();
@@ -717,6 +768,14 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
         return exchanged.credential;
       },
       revoke: (id) => accessLog.atomically((tx) => clientSessions.revoke(tx, id, "requested", SYSTEM.owner))?.changed === true,
+    },
+    startRun(request) {
+      const { origin, actor } = startedBy(request);
+      const started = log.atomically((tx) =>
+        startRunIn(log, host, tx, { actor }, { sessionId: request.sessionId, actor: request.actor, origin, text: request.text, mode: request.mode }),
+      );
+      if (started.rejected !== undefined) throw new ContractError(started.rejected);
+      return { runId: started.runId, messageId: started.messageId };
     },
     sockets: () => wire.sockets(),
     subscriptions: () => wire.subscriptions(),

@@ -32,7 +32,8 @@ export const MAX_TTL_AMOUNT = 1000;
 /**
  * How long a parked prompt waits before it is denied and the run continues:
  * a duration, or `never` (permissions spec, "Prompts, parked prompts and the
- * TTL"). #131 applies it.
+ * TTL"): fixed on each prompt that parks as its `ttlExpiresAt`, which the
+ * environment's sweeper denies it past (#131).
  */
 export const ParkedPromptTtl = z
   .union([

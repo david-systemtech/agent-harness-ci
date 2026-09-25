@@ -2,7 +2,8 @@ import { z } from "zod";
 import { RunId } from "./adapter.js";
 import type { EventTypeEntry } from "./event-types.js";
 import { Mode } from "./permissions-modes.js";
-import { SummaryPatch } from "./sessions.js";
+import { Sequence, Timestamp } from "./primitives.js";
+import { SessionId, SummaryPatch } from "./sessions.js";
 
 /**
  * The permissions vocabulary (permissions spec, "Modes and the Claude
@@ -178,6 +179,9 @@ export type ContainmentResolution = z.infer<typeof ContainmentResolution>;
 export const RunPolicy = z
   .object({
     actorKind: RunActorKind,
+    actorName: z.string().min(1).nullable().meta({
+      description: "The routine's or bot's name, which the Unattended review shows; null for a client session and the completions surface, and for a routine or bot that gave none.",
+    }),
     attended: z.boolean().meta({ description: "Whether a person started the run (a client session), fixed at its start." }),
     mode: ModeResolution,
     containment: ContainmentResolution,
@@ -229,53 +233,50 @@ export const SessionContainmentSetPayload = z
 export type SessionContainmentSetPayload = z.infer<typeof SessionContainmentSetPayload>;
 
 /**
- * Who or what decided a tool call (permissions spec, "Events"): a person
- * answering a prompt, the mode, a rule, the provider's classifier, the
- * denylist, containment, a prompt's TTL, the unattended rule, bypass, or
- * the provider itself.
+ * What decided a tool call (permissions spec, "Events": `tool.decision`): a
+ * person's answer to its prompt; the mode, which let it through without
+ * asking; one of the provider's own rules, its classifier (or reviewer), or
+ * the provider otherwise (a request it cancelled, a run that ended under
+ * the prompt, a denial it reports for another reason); the denylist or
+ * containment (the gate); the TTL; the unattended rule; or the bypass rule.
  */
 export const TOOL_DECIDERS = ["person", "mode", "rule", "classifier", "denylist", "containment", "ttl", "unattended", "bypass", "provider"] as const;
 export const ToolDecider = z.enum(TOOL_DECIDERS).meta({
-  description: "Who or what decided a tool call: person, mode, rule, classifier, denylist, containment, ttl, unattended, bypass or provider.",
+  description:
+    "What decided a tool call: person (a person answered its prompt), mode (the mode let it through without asking), rule (one of the provider's own rules), classifier (the provider's classifier or reviewer), denylist, containment, ttl (its prompt waited past the TTL), unattended (nobody was present), bypass (a residual prompt in bypassPermissions), or provider (the provider decided otherwise: it cancelled the request, the run ended under the prompt, or it reported a denial for another reason).",
 });
 export type ToolDecider = z.infer<typeof ToolDecider>;
 
-const toolDecisionPart = {
+const toolDecisionShape = {
   runId: RunId,
-  toolCallId: z.string().min(1).meta({ description: "The provider's id for the tool call, as its tool.started names it." }),
-  tool: z.string().min(1).meta({ description: "The tool's name, as the provider names it." }),
-  summary: z.string().min(1).meta({ description: "A one-line summary of the call, for people." }),
+  toolCallId: z.string().min(1).nullable().meta({ description: "The provider's id for the tool call; null for a prompt that named no call." }),
+  tool: z.string().min(1).nullable().meta({ description: "The tool the call is for; null for a prompt that named no tool." }),
+  summary: z.string().min(1).meta({ description: "One line saying what the call does: its prompt's summary, else the tool with what its input names." }),
   decidedBy: ToolDecider,
-  promptId: z.string().min(1).nullable().meta({ description: "The prompt that decided it; null when none was opened." }),
+  promptId: z.string().min(1).nullable().meta({ description: "The prompt the call was decided through, when there was one." }),
 };
 
-/**
- * `tool.decision`: how one tool call was decided (permissions spec,
- * "Events"). The gate appends one for every call it rules on itself: a
- * containment denial (#133), a denylist match (#132); calls the provider
- * approved without asking are derived from the transcript's tool events.
- */
 export const ToolDecisionPayload = z
   .discriminatedUnion("decision", [
     z.object({
-      ...toolDecisionPart,
+      ...toolDecisionShape,
       decision: z.literal("allowed"),
-      reason: z.null().meta({ description: "Null: the call was allowed." }),
+      reason: z.null().meta({ description: "Null: only a denial carries a reason." }),
     }),
     z.object({
-      ...toolDecisionPart,
+      ...toolDecisionShape,
       decision: z.literal("denied"),
-      reason: z.string().min(1).meta({ description: "Why it was denied: what the model was told." }),
+      reason: z.string().min(1).meta({ description: "Why it was denied: the message the model read, or the provider's reason." }),
     }),
   ])
-  .meta({ description: "tool.decision: how a tool call was decided, allowed or denied, by whom or what, with the prompt and, when denied, the reason." });
+  .meta({ description: "tool.decision: how one tool call was decided, allowed or denied, and by what; exactly one per tool call." });
 export type ToolDecisionPayload = z.infer<typeof ToolDecisionPayload>;
 
 /**
  * The permission events on a session's stream: `session.mode.set` changes
  * the summary's `mode` (#179), so it is `list`-flagged with a patch; the
- * policy record, a session's containment level and a tool call's decision
- * change nothing listed (the summary has no field for them).
+ * policy record, a session's containment level and the tool decisions
+ * (#131, #133) change nothing listed (the summary has no field for them).
  */
 export const PERMISSION_SESSION_EVENT_TYPES = {
   "run.policy.resolved": { list: false, payload: RunPolicyResolvedPayload },
@@ -283,6 +284,71 @@ export const PERMISSION_SESSION_EVENT_TYPES = {
   "session.containment.set": { list: false, payload: SessionContainmentSetPayload },
   "tool.decision": { list: false, payload: ToolDecisionPayload },
 } as const satisfies Record<string, EventTypeEntry>;
+
+/**
+ * The Unattended review (permissions spec, "The Unattended review view";
+ * #131): the runs with nobody present that made a tool call or had a
+ * denial, and the
+ * attended runs a TTL, the denylist or containment decided something in,
+ * since the environment-wide watermark `review.seen` moves.
+ */
+export const ReviewSeenPayload = z
+  .object({
+    through: Sequence.meta({ description: "The log position the review has been seen through: a run whose latest decision is at or below it is left out." }),
+  })
+  .meta({ description: "review.seen: the Unattended review was seen through a log position; the environment-wide watermark (#131)." });
+export type ReviewSeenPayload = z.infer<typeof ReviewSeenPayload>;
+
+/** Who started a reviewed run: the kind, and a routine's or bot's name. */
+export const ReviewActor = z
+  .object({
+    kind: RunActorKind,
+    name: z.string().min(1).nullable().meta({ description: "The routine's or bot's name; null for a client session and the completions surface." }),
+  })
+  .meta({ description: "Who started the run: client, routine (with its name), bot (with its name) or completions." });
+export type ReviewActor = z.infer<typeof ReviewActor>;
+
+const count = z.int().nonnegative();
+
+/** A reviewed run's tool calls, counted by how they were decided. */
+export const ReviewCounts = z
+  .object({
+    toolCalls: count.meta({ description: "Tool calls decided in the run (one tool.decision each); a prompt that named no call is counted by how it was decided, not here." }),
+    autoApproved: count.meta({ description: "Calls allowed with no person answering: by the mode, a rule or a classifier." }),
+    denied: count.meta({ description: "Calls denied, by anyone." }),
+    answeredByPerson: count.meta({ description: "Calls a person decided through a prompt, allowed or denied." }),
+    expired: count.meta({ description: "Calls whose prompt was denied past its TTL." }),
+  })
+  .meta({ description: "A reviewed run's tool calls: how many, auto-approved, denied, answered by a person, expired." });
+export type ReviewCounts = z.infer<typeof ReviewCounts>;
+
+/** One denied tool call of a reviewed run. */
+export const ReviewDenial = z
+  .object({
+    toolCallId: z.string().min(1).nullable(),
+    tool: z.string().min(1).nullable(),
+    summary: z.string().min(1),
+    decidedBy: ToolDecider,
+    reason: z.string().min(1),
+  })
+  .meta({ description: "A denied tool call: the tool, what it would have done, what denied it and why." });
+export type ReviewDenial = z.infer<typeof ReviewDenial>;
+
+/** One run in the Unattended review. */
+export const ReviewRun = z
+  .object({
+    sessionId: SessionId,
+    runId: RunId,
+    ranAt: Timestamp.meta({ description: "When the run started." }),
+    actor: ReviewActor,
+    attended: z.boolean(),
+    mode: ModeResolution.meta({ description: "The run's mode as resolved at its start: effective, and the clamp." }),
+    containment: ContainmentResolution,
+    counts: ReviewCounts,
+    denials: z.array(ReviewDenial).meta({ description: "Each denied call, in the order decided." }),
+  })
+  .meta({ description: "A run in the Unattended review: who ran it and when, its mode and containment, its calls counted, and each denial." });
+export type ReviewRun = z.infer<typeof ReviewRun>;
 
 export const BypassAcknowledgedPayload = z
   .object({
