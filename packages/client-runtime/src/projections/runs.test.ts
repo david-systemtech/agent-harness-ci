@@ -142,6 +142,44 @@ describe("the parked asks", () => {
     expect(runtime.projections.runs.read().parkedAsks).toEqual([]);
   });
 
+  it("keep a prompt heard parking while a list of prompts asked for before it is on its way, and trust the next list", async () => {
+    const { clock, runtime, environments } = await scriptedEnvironments({ onCleanup: onTestFinished, environments: [{ name: "desk" }] });
+    const [desk] = environments as [ScriptedEnvironment];
+    const answers: ((prompts: unknown[]) => void)[] = [];
+    desk.wire.answer("permissions.prompts.list", () => new Promise((resolve) => answers.push((prompts) => resolve({ result: { prompts } }))));
+    const promptIds = () => runtime.projections.runs.read().parkedAsks.map((ask) => ask.promptId);
+    onTestFinished(runtime.projections.runs.subscribe(() => undefined));
+    await flush();
+    expect(answers).toHaveLength(1);
+
+    // The list of prompts is on its way when a prompt parks: its list carries the event, and the notice asks for the list again.
+    clock.advance(10);
+    const opened = recorded("prompt.opened");
+    desk.list.event(listEvent(2, desk.sessionId, "prompt.opened", opened, { parkedPromptCount: 1 }));
+    const parked = { sessionId: desk.sessionId, runId: opened["runId"], promptId: opened["promptId"], kind: opened["kind"], title: "Session 1", summary: opened["summary"] };
+    desk.notices.event(noticeEvent(1, desk.wire.environmentId, "prompt.parked", parked));
+    await flush();
+    expect(promptIds()).toEqual(["toolu_1"]);
+
+    // The first answer was read before the prompt parked, and comes after it was heard: the prompt stays.
+    clock.advance(10);
+    answers[0]!([]);
+    await flush();
+    expect(promptIds()).toEqual(["toolu_1"]);
+
+    // The list asked for since lists it; one asked for after the prompt was answered, where nothing here heard the answer, does not.
+    expect(answers).toHaveLength(2);
+    answers[1]!([listed(desk.sessionId, "toolu_1", null)]);
+    await flush();
+    expect(promptIds()).toEqual(["toolu_1"]);
+    clock.advance(10);
+    desk.notices.event(noticeEvent(2, desk.wire.environmentId, "environment.updated", { fromVersion: "0.1.0", toVersion: "0.1.1" }));
+    await flush();
+    answers[2]!([]);
+    await flush();
+    expect(promptIds()).toEqual([]);
+  });
+
   it("leave out a disabled environment's", async () => {
     const { runtime, environments, prompts } = await twoEnvironments();
     const [desk, laptop] = environments as [ScriptedEnvironment, ScriptedEnvironment];

@@ -171,6 +171,13 @@ export interface RequestCache {
   cached: Requests["cached"];
   /** The last result held for a query, if any: never fetches, and makes no entry. */
   peek<N extends QueryMethodName>(environmentId: string, method: N, params: ParamsOf<N>): ResultOf<N> | null;
+  /**
+   * When the fetch whose result is held was sent, in milliseconds on this
+   * client's clock; null while no result is held. The result is what the
+   * environment held at some instant after it: an answer that came after an
+   * event was heard may still have been read before that event.
+   */
+  askedAt<N extends QueryMethodName>(environmentId: string, method: N, params: ParamsOf<N>): number | null;
   /** An event applied to the environment's own stream, which this client had not seen: a matching notice fetches again. */
   noticed(environmentId: string, type: string): void;
   /** Lets go of an environment's answers: it was removed. */
@@ -189,6 +196,8 @@ interface Cached {
   readonly observable: Observable<CachedAnswer<QueryMethodName>>;
   /** When the last result came, in milliseconds on this client's clock. */
   fetchedAt: number | null;
+  /** When the fetch that brought that result was sent, in milliseconds on this client's clock. */
+  askedAt: number | null;
   /** A ready or a notice said the answer may have changed while nobody followed it: the next follower fetches it. */
   stale: boolean;
   inFlight: boolean;
@@ -248,6 +257,7 @@ export const createRequestCache = (host: {
     entry.timer?.cancel();
     entry.timer = undefined;
     entry.value.update((value) => ({ ...value, loading: true }));
+    const asked = clock.now().getTime();
     const called = host.call(entry.environmentId, entry.method, entry.params as ParamsOf<QueryMethodName>).catch((reason: unknown): RequestAnswer<QueryMethodName> => {
       // A call that rejects (the host itself failed, not the environment answering an error) is a failed attempt like any
       // other: reported, kept beside the last result as `internal`, and tried again as a failed one is.
@@ -260,6 +270,7 @@ export const createRequestCache = (host: {
       if (answer.ok) {
         const now = clock.now();
         entry.fetchedAt = now.getTime();
+        entry.askedAt = asked;
         entry.stale = false;
         entry.value.set({ result: answer.result as ResultOf<QueryMethodName>, fetchedAt: now.toISOString(), error: null, loading: false });
       } else {
@@ -302,6 +313,7 @@ export const createRequestCache = (host: {
       key,
       value,
       fetchedAt: null,
+      askedAt: null,
       stale: false,
       inFlight: false,
       again: false,
@@ -354,6 +366,9 @@ export const createRequestCache = (host: {
       let entry = entries.get(key);
       if (!entry) entries.set(key, (entry = make(environmentId, method, draft.params, key)));
       return entry.observable as never;
+    },
+    askedAt(environmentId, method, params) {
+      return entries.get(keyOf({ environmentId, method, params: params as Record<string, unknown> }))?.askedAt ?? null;
     },
     peek(environmentId, method, params) {
       return (entries.get(keyOf({ environmentId, method, params: params as Record<string, unknown> }))?.value.read().result ?? null) as never;

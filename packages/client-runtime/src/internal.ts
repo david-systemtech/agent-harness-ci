@@ -137,6 +137,7 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
     lists,
     outbox: outbox.view,
     prompts: (environmentId) => requestCache.cached(environmentId, "permissions.prompts.list", {}),
+    promptsAskedAt: (environmentId) => requestCache.askedAt(environmentId, "permissions.prompts.list", {}),
     now: (environmentId) => made.now(environmentId),
   });
   registry.seams.onForget((environmentId) => runs.forget(environmentId));

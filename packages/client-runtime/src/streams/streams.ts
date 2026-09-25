@@ -328,6 +328,7 @@ export const createStreams = (options: StreamsOptions): Streams => {
       const session = held(environmentId, handle.sessionId) as HeldSession;
       return { state: session.stream.value, release: () => handle.release() };
     },
+    // Held sessions are keyed by the lowercased id `handles.open` holds them under, which also names their streams (`session.<id>`).
     peek: (environmentId, sessionId) => held(environmentId, sessionId.toLowerCase())?.stream.value.read() ?? null,
     now: (environmentId) => skew.now(environmentId),
     async close() {

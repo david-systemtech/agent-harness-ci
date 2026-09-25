@@ -1,4 +1,4 @@
-import { LIST_PATCH_KEY, type EventEnvelope, type SessionSummary } from "@agent-harness/contracts";
+import { LIST_PATCH_KEY, SESSION_STREAM_KIND, type EventEnvelope, type SessionSummary } from "@agent-harness/contracts";
 import { uuidv4 } from "../src/ids.js";
 import { createRuntimeWithSeams } from "../src/internal.js";
 import { fakeWire, type FakeWire } from "../src/testing/fake-wire.js";
@@ -35,7 +35,7 @@ export const after = (ms: number): string => new Date(Date.parse(MANUAL_CLOCK_ST
 export const listEvent = (sequence: number, sessionId: string, type: string, payload: Record<string, unknown>, fields?: Partial<SessionSummary>): EventEnvelope => ({
   sequence,
   eventId: uuidv4(),
-  streamKind: "session",
+  streamKind: SESSION_STREAM_KIND,
   streamId: sessionId,
   streamVersion: sequence,
   type,

@@ -43,8 +43,9 @@ import type { StreamState } from "../streams/stream.js";
  * **The parked asks** are read per enabled environment from the request
  * cache's `permissions.prompts.list` (refreshed on `prompt.parked` and
  * `prompt.resolved`, and on every ready), with what the list stream carried
- * since laid over it: a `prompt.opened` heard after the list of prompts was
- * read joins at once, and a prompt answered (its `prompt.answered` on the
+ * since laid over it: a `prompt.opened` heard since the list of prompts held
+ * was asked for joins at once (an answer that came after it may have been
+ * read before it), and a prompt answered (its `prompt.answered` on the
  * list, or the `prompt.resolved` notice) leaves at once and for good, since
  * an answered prompt never parks again. Oldest first, across environments.
  *
@@ -152,6 +153,8 @@ export interface RunsHost {
   readonly outbox: Observable<OutboxView>;
   /** The request cache's `permissions.prompts.list` for the environment: the same observable for each. */
   readonly prompts: (environmentId: string) => Observable<PromptsAnswer>;
+  /** When the list of prompts held for the environment was asked for, in milliseconds on the platform clock; null while none is held. */
+  readonly promptsAskedAt: (environmentId: string) => number | null;
   /** The environment's time now, as this client reckons it. */
   readonly now: (environmentId: string) => Date;
 }
@@ -197,16 +200,17 @@ export const createRuns = (host: RunsHost): Runs => {
 
   /**
    * Lets go of what the list of prompts has caught up with: a prompt heard
-   * opening before it was read (it lists it, or it was answered meanwhile),
-   * and one heard answered before it was read that it no longer lists.
+   * opening before it was asked for (it lists it, or it was answered
+   * meanwhile), and one heard answered before it was asked for that it no
+   * longer lists.
    */
   const prune = (environmentId: string, known: Heard) => {
     const answer = host.prompts(environmentId).read();
-    if (answer.fetchedAt === null || answer.result === null) return;
-    const fetchedAt = Date.parse(answer.fetchedAt);
+    const asked = host.promptsAskedAt(environmentId);
+    if (asked === null || answer.result === null) return;
     const listed = new Set(answer.result.prompts.map((prompt) => keyOf(prompt.sessionId, prompt.promptId)));
-    for (const [key, { at }] of known.opened) if (at < fetchedAt) known.opened.delete(key);
-    for (const [key, at] of known.answered) if (at < fetchedAt && !listed.has(key)) known.answered.delete(key);
+    for (const [key, { at }] of known.opened) if (at < asked) known.opened.delete(key);
+    for (const [key, at] of known.answered) if (at < asked && !listed.has(key)) known.answered.delete(key);
   };
 
   const enabled = (): readonly ConnectionRecord[] => host.records.read().filter((record) => record.enabled && record.environmentId !== LOCAL_PLACEHOLDER_ID);
@@ -243,11 +247,12 @@ export const createRuns = (host: RunsHost): Runs => {
     records.forEach(({ environmentId }, place) => {
       const answer = host.prompts(environmentId).read();
       const known = heard.get(environmentId);
-      const fetchedAt = answer.fetchedAt === null ? null : Date.parse(answer.fetchedAt);
+      const asked = host.promptsAskedAt(environmentId);
       const prompts = new Map<string, ListedPrompt>();
       for (const prompt of answer.result?.prompts ?? []) prompts.set(keyOf(prompt.sessionId, prompt.promptId), prompt);
-      // A prompt opened since the list of prompts was read joins it; one heard before, the list has read already.
-      for (const [key, { prompt, at }] of known?.opened ?? []) if (fetchedAt === null || at >= fetchedAt) prompts.set(key, prompt);
+      // A prompt heard opening since the list of prompts was asked for joins it, since an answer on its way then may have been
+      // read before it; one heard before, the list has read already.
+      for (const [key, { prompt, at }] of known?.opened ?? []) if (asked === null || at >= asked) prompts.set(key, prompt);
       for (const key of known?.answered.keys() ?? []) prompts.delete(key);
       const now = host.now(environmentId);
       const sessions = lists.get(environmentId)?.data?.sessions;
