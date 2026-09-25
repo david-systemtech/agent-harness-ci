@@ -1,4 +1,4 @@
-import { copyFile, mkdir, mkdtemp, rm } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, rm, stat, utimes } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, normalize, relative, resolve, sep } from "node:path";
 import { ContractError, DIFF_CAP, type SessionDiffChange, type SessionDiffFile, type TranscriptItem } from "@agent-harness/contracts";
@@ -85,7 +85,17 @@ export const workingTreeDiff = async (root: string): Promise<WorkingTreeDiff> =>
     const gitPath = async (name: string): Promise<string> =>
       resolve(root, (await runGit(root, ["rev-parse", "--git-path", name], small)).stdout.toString("utf8").trim());
     // No index yet (a repository with nothing added): git starts an empty one at the scratch path.
-    await copyFile(await gitPath("index"), indexFile).catch(() => undefined);
+    const index = await gitPath("index");
+    const indexStat = await stat(index).catch(() => undefined);
+    const copied = await copyFile(index, indexFile).then(() => true, () => false);
+    // Racy git: git trusts an entry whose recorded stat matches the file without reading the file, unless
+    // the entry is no older than the index file (to the second, as git is commonly built); then it reads
+    // the file, through its clean filter, to be sure. A plain copy is written now, so a tracked file
+    // rewritten at the same size in the index's own second would look unchanged: its change left out of
+    // the diff, a failing filter never run. So the copy keeps the index's time, a millisecond early so
+    // rounding never makes it later; the index is stat'ed before it is copied, so one rewritten in
+    // between is only checked more.
+    if (copied && indexStat !== undefined) await utimes(indexFile, indexStat.atime, new Date(Math.floor(indexStat.mtimeMs) - 1));
     // Intent-to-add still writes the empty blob: objects go to a scratch store that reads the repository's as an alternate.
     const objects = join(scratch, "objects");
     await mkdir(objects);
