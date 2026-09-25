@@ -144,8 +144,13 @@ export const sessionMethods = (options: SessionMethodsOptions): MethodHandlers =
     "sessions.create": (params, context) => {
       const id = params.id.toLowerCase();
       const asked = { account: params.account ?? null, model: params.model ?? null, mode: params.mode ?? null };
-      const issues = validateRunParameters(asked);
-      if (issues.length > 0) throw new ContractError(invalidParams(issues, "The account, model or mode is not one this environment offers."));
+      const verdict = validateRunParameters(asked);
+      // An account that cannot run is the session's state, not a malformed request: refused with a receipt (#134).
+      if (verdict.unavailable !== undefined) {
+        const { accountId, message } = verdict.unavailable;
+        return { aggregate: sessionStream(id), rejected: { code: "conflict", message, data: { reason: "account_unavailable", accountId } } };
+      }
+      if (verdict.issues.length > 0) throw new ContractError(invalidParams(verdict.issues, "The account, model or mode is not one this environment offers."));
       // The mode is stored as the caller's ceiling allows it (#129).
       const run = { ...asked, mode: asked.mode === null ? null : clampSessionMode(asked.mode, asked.account, context.clientSession) };
       const groupId = params.groupId?.toLowerCase() ?? null;

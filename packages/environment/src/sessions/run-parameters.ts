@@ -15,14 +15,22 @@ export interface RunParameters {
 }
 
 /**
- * Checks the run parameters `sessions.create` was given: the schema issues
- * that make it `invalid_params`, with paths naming the param (`["account"]`),
- * or none.
+ * What the check says of the run parameters `sessions.create` was given:
+ * the schema issues that make it `invalid_params`, with paths naming the
+ * param (`["model"]`), or none; or that the account named cannot run (the
+ * environment does not hold it, or it is not signed in), which refuses the
+ * command `conflict` with reason `account_unavailable`, as `runs.start`
+ * refuses it (#134).
  */
-export type RunParametersCheck = (parameters: RunParameters) => readonly IssueInput[];
+export type RunParametersVerdict =
+  | { readonly issues: readonly IssueInput[]; readonly unavailable?: undefined }
+  | { readonly unavailable: { readonly accountId: string; readonly message: string }; readonly issues?: undefined };
+
+/** Checks the run parameters `sessions.create` was given against the account store (the adapter host's `validateSessionInput`). */
+export type RunParametersCheck = (parameters: RunParameters) => RunParametersVerdict;
 
 /** Accepts every account, model and mode: the preset for a `sessionMethods` built without the adapter host (lower-seam tests). */
-export const acceptAnyRunParameters: RunParametersCheck = () => [];
+export const acceptAnyRunParameters: RunParametersCheck = () => ({ issues: [] });
 
 /**
  * The mode `sessions.create` stores for a session given one (#129): clamped

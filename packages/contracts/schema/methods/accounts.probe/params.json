@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "accounts.probe params",
+  "type": "object",
+  "properties": {
+    "provider": {
+      "description": "The provider; the environment's first when absent.",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$"
+    }
+  }
+}

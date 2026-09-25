@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AccountStatusState",
+  "type": "string",
+  "enum": [
+    "signed-in",
+    "signed-out",
+    "expired",
+    "unreadable"
+  ],
+  "description": "What an account's status read found: signed-in (it can run), signed-out, expired (the provider says its login has lapsed), or unreadable (the read failed or timed out). Only a signed-in account runs."
+}

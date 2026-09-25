@@ -24,6 +24,9 @@ const presets = {
   "sessions.autoSettleAfterIdle": { amount: 14, unit: "days" },
   "sessions.autoSettleOnMerge": false,
   "sessions.transcriptCompactAfterDays": 90,
+  "accounts.defaultAccount": null,
+  "accounts.defaultModelFamily": null,
+  "accounts.defaultEffort": null,
   "providers.processIdleMinutes": 30,
   ...permissionPresets,
 };
@@ -31,6 +34,9 @@ const changed = {
   "sessions.autoSettleAfterIdle": null,
   "sessions.autoSettleOnMerge": true,
   "sessions.transcriptCompactAfterDays": 30,
+  "accounts.defaultAccount": "claude-max",
+  "accounts.defaultModelFamily": "opus",
+  "accounts.defaultEffort": "high",
   "providers.processIdleMinutes": 5,
 };
 
@@ -50,6 +56,7 @@ const patches: Fixtures = {
     { "sessions.autoSettleAfterIdle": 14 },
     { "sessions.transcriptCompactAfterDays": null },
     { "providers.processIdleMinutes": 0 },
+    { "accounts.defaultEffort": "" },
     { theme: "artemis" },
     [],
   ],
@@ -57,7 +64,16 @@ const patches: Fixtures = {
 
 export const settingsSchemaFixtures: Record<string, Fixtures> = {
   "settings/settings-key.json": {
-    valid: ["sessions.autoSettleAfterIdle", "sessions.autoSettleOnMerge", "sessions.transcriptCompactAfterDays", "providers.processIdleMinutes", "permissions.defaultCeiling"],
+    valid: [
+      "sessions.autoSettleAfterIdle",
+      "sessions.autoSettleOnMerge",
+      "sessions.transcriptCompactAfterDays",
+      "accounts.defaultAccount",
+      "accounts.defaultModelFamily",
+      "accounts.defaultEffort",
+      "providers.processIdleMinutes",
+      "permissions.defaultCeiling",
+    ],
     invalid: ["theme", ""],
   },
   "settings/idle-span-unit.json": { valid: ["days", "weeks", "months"], invalid: ["years", "Days"] },

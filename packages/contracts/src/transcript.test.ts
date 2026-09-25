@@ -195,7 +195,9 @@ describe("the adapter's transport-neutral schemas", () => {
 
   it("describe the credential spec and the status it parses, the run suggestion, the send response and the delegated-work row", () => {
     expect(Object.keys(CredentialSpec.shape)).toEqual(["configDirVariable", "strippedVariables", "signIn", "status", "logout"]);
-    expect(Object.keys(AuthStatus.shape)).toEqual(["signedIn", "authMethod", "email", "orgName", "subscriptionType", "error"]);
+    expect(Object.keys(AuthStatus.shape)).toEqual(["signedIn", "authMethod", "email", "orgName", "subscriptionType", "error", "expired"]);
+    // Only a provider that can tell says the login lapsed (#134); absent, the account store reads signed out.
+    expect(AuthStatus.shape.expired.safeParse(undefined).success).toBe(true);
     expect(RunSuggestion.safeParse({ runId, suggestion: "Now run the tests" }).success).toBe(true);
     expect(SendResponse.safeParse({ runId, messageId, delivery: "queued", heldBy: "environment" }).success).toBe(true);
     expect(registry["runs.send"].result).toBe(SendResponse);
