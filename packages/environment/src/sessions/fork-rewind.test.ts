@@ -516,6 +516,58 @@ describe("sessions.undoRewind", () => {
     expect(t.adapter.lastRun().input.target).toEqual({ kind: "rewind", providerSessionId: "provider-1", toMessageId: other.third.messageId });
   });
 
+  it("undoes a later rewind while an earlier one has had a run since, then refuses that earlier one naming the run, and the next run resumes", async () => {
+    const t = await start();
+    const client = await t.client();
+    const { id, second, third } = await threeRuns(t, client);
+    await rewind(client, id, third.messageId);
+    const after = await runTo(t, client, id, "Third, again");
+    await rewind(client, id, second.messageId);
+
+    expect((await undoRewind(client, id)).result).toMatchObject({ messageId: second.messageId });
+    expect((await undoRewind(client, id)).receipt).toMatchObject({
+      status: "rejected",
+      reason: "conflict",
+      error: { data: { reason: "run_started", sessionId: id, runId: after.runId } },
+    });
+    expect(texts(await snapshotOf(t, client, id))).toEqual(["First", "Done: First", "Second", "Done: Second", "Third, again", "Done: Third, again"]);
+    // The earlier rewind was continued from by the run after it: the next run resumes.
+    await runTo(t, client, id, "Fourth");
+    expect(t.adapter.lastRun().input.target).toEqual({ kind: "resume", providerSessionId: "provider-1" });
+  });
+
+  it("undoes a rewind after the session is deleted and restored", async () => {
+    const t = await start();
+    const client = await t.client();
+    const { id, second } = await threeRuns(t, client);
+    await rewind(client, id, second.messageId);
+    await deleteSession(client, id);
+    expect((await undoRewind(client, id)).receipt).toMatchObject({ status: "rejected", reason: "not_found", error: { data: { kind: "session" } } });
+    await command(client, "sessions.restore", { sessionId: id });
+
+    expect((await undoRewind(client, id)).receipt.status).toBe("accepted");
+    expect(texts(await snapshotOf(t, client, id))).toEqual(ALL);
+  });
+
+  it("keeps the draft on the undo of a rewind to a message with no text, which wrote no draft", async () => {
+    const t = await start();
+    const client = await t.client();
+    const { id, third } = await threeRuns(t, client);
+    // A message whose text is empty, as message.sent allows: the rewind to it has no text to write into the draft.
+    const blank = randomUUID();
+    t.env.log.append({ kind: "session", id }, [{ type: "message.sent", payload: { runId: third.runId, messageId: blank, text: "", attachments: [], delivery: "prompt", heldBy: null, ceiling: "bypassPermissions" } }], {
+      actor: "system:adapter-host",
+      correlationId: third.runId,
+    });
+    await command(client, "sessions.setDraft", { sessionId: id, draft: "Typed meanwhile" });
+    await rewind(client, id, blank);
+    expect(events(t, id).at(-1)?.type).toBe("session.rewound");
+
+    await undoRewind(client, id);
+    expect(events(t, id).at(-1)?.type).toBe("session.rewind-undone");
+    expect((await get(client, id)).draft).toBe("Typed meanwhile");
+  });
+
   it("reads the same after the projections are rebuilt: the items shown, the draft, and the next run's target", async () => {
     const t = await start();
     const client = await t.client();

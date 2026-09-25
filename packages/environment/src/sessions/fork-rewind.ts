@@ -75,7 +75,7 @@ const forkRecord = (log: Pick<EventLog, "read">, sessionId: string): SessionFork
 };
 
 /** A rewind as the log holds it: its `session.rewound`'s sequence and command, and its payload. */
-export interface RewindRecord {
+interface RewindRecord {
   readonly sequence: number;
   readonly commandId: string | null;
   readonly payload: SessionRewoundPayload;
@@ -87,7 +87,7 @@ export interface RewindRecord {
  * that is not undone too, as the latest, so rewinds are undone one at a
  * time, the latest first. Both events survive a compaction (#123).
  */
-export const latestRewind = (log: Pick<EventLog, "read">, sessionId: string): RewindRecord | null => {
+const latestRewind = (log: Pick<EventLog, "read">, sessionId: string): RewindRecord | null => {
   const [row] = log.read<{ sequence: number; command_id: string | null; payload: string }>(
     `SELECT r.sequence, r.command_id, r.payload FROM events r
      WHERE r.stream_kind = '${SESSION_STREAM_KIND}' AND r.stream_id = ? AND r.type = 'session.rewound'

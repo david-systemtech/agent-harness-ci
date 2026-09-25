@@ -274,6 +274,36 @@ describe("a rewound session", () => {
     expect(await sessionCommand(client, "sessions.undoRewind", { sessionId: continued.id })).toMatchObject({ status: "rejected", error: { data: { reason: "run_started" } } });
   });
 
+  it("is left out while its latest rewind can be undone though an earlier one cannot, and compacted once the undo leaves only that earlier one", async () => {
+    const dataDir = join(tempDir(), "data");
+    const first = await start(dataDir);
+    let client = await first.client();
+    await updateSettings(client, { "sessions.autoSettleAfterIdle": null });
+    const { id } = await create(client);
+    await runOnce(first, client, id, "One");
+    const two = await runOnce(first, client, id, "Two");
+    const three = await runOnce(first, client, id, "Three");
+    await sessionCommand(client, "sessions.rewind", { sessionId: id, messageId: three });
+    await runOnce(first, client, id, "Three, again");
+    await sessionCommand(client, "sessions.rewind", { sessionId: id, messageId: two });
+    await first.close();
+
+    const later = await start(dataDir, WINDOW + MINUTE);
+    client = await later.client();
+    expect((await catchUp(client, id, 0)).snapshot).toBeUndefined();
+    expect(await sessionCommand(client, "sessions.undoRewind", { sessionId: id })).toMatchObject({ status: "accepted" });
+    const shown = ["One", "Done: One", "Two", "Done: Two", "Three, again", "Done: Three, again"];
+    expect(texts((await catchUp(client, id, later.env.log.head() + 1000)).snapshot?.payload)).toEqual(shown);
+    await later.close();
+
+    // The earlier rewind had a run after it, so nothing is left to undo, and the next pass after the window compacts the session.
+    const last = await start(dataDir, 2 * WINDOW + 2 * MINUTE);
+    client = await last.client();
+    const compacted = await catchUp(client, id, 0);
+    expect(compacted.snapshot?.sequence).toBe(last.env.log.readStream({ kind: "session", id }).at(-1)?.sequence);
+    expect(texts(compacted.snapshot?.payload)).toEqual(shown);
+  });
+
   it("undoes a rewind taken after a compaction, bringing back the items the compaction's fold holds", async () => {
     const { dataDir, id, stream, before } = await untouchedSession();
     const t = await start(dataDir, WINDOW + MINUTE);
