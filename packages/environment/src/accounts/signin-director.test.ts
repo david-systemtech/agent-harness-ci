@@ -49,14 +49,35 @@ afterEach(() => {
   for (const log of opened.splice(0)) log.close();
 });
 
-const setup = (): Setup => {
+/**
+ * The director's log: the real one, except that `refuse` may make an
+ * append of the director's own `signin.updated` notice throw, as a log
+ * whose write fails does.
+ */
+const directorLog = (log: EventLog, refuse: (state: SignIn["state"]) => boolean): EventLog =>
+  new Proxy(log, {
+    get(target, key) {
+      if (key === "append") {
+        return (...args: Parameters<EventLog["append"]>) => {
+          const [, events] = args;
+          const notice = events.find((event) => event.type === "signin.updated");
+          if (notice !== undefined && refuse((notice.payload as unknown as SignIn).state)) throw new Error("The log refused the write.");
+          return target.append(...args);
+        };
+      }
+      const value: unknown = Reflect.get(target, key, target);
+      return typeof value === "function" ? (value as (...args: unknown[]) => unknown).bind(target) : value;
+    },
+  });
+
+const setup = (refuse: (state: SignIn["state"]) => boolean = () => false): Setup => {
   const clock = manualClock();
   const log = openEventLog({ path: ":memory:", clock: () => clock.now() });
   opened.push(log);
   const spawner = fakeSignInSpawner();
   const reads: ((outcome: SignInOutcome) => void)[] = [];
   const director = createSignInDirector({
-    log,
+    log: directorLog(log, refuse),
     clock,
     environmentId: ENVIRONMENT,
     programs: { claude: claudeSignInProgram({ bundled: "/opt/sdk/claude", hostEnv: { PATH: "/usr/bin" }, managedTool: () => null }) },
@@ -198,5 +219,51 @@ describe("a command's callback run late", () => {
     expect(second.killed).toBe(false);
     s.finish({ signedIn: true, account });
     await until(() => s.director.latest()?.state === "done", "done");
+  });
+});
+
+describe("a completing sign-in whose terminal notice cannot be appended (#223)", () => {
+  /** Refuses the first `done` notice only: one failed write. */
+  const onceDone = (): ((state: SignIn["state"]) => boolean) => {
+    let refused = false;
+    return (state) => {
+      if (state !== "done" || refused) return false;
+      refused = true;
+      return true;
+    };
+  };
+
+  /** Submits a code, lets the CLI exit 0 and the status read answer signed in, whose `done` the log refuses. */
+  const refusedDone = async (s: Setup): Promise<void> => {
+    const login = await awaitingCode(s);
+    asCommand(s.log, (context) => s.director.code({ accountId: "work", code: "abc" }, context));
+    login.exit(0);
+    await until(() => s.clock.pending() === 0, "completing");
+    s.finish({ signedIn: true, account });
+    // The notice was refused: the sign-in is still submitting in the log and here, and no longer completing.
+    await until(() => s.clock.pending() === 1, "the expiry armed again");
+    expect(s.director.latest()?.state).toBe("submitting");
+    expect(notices(s.log)).toEqual(["starting", "awaiting-code", "submitting"]);
+  };
+
+  it("arms its expiry again, which records the outcome the status read reached and frees the floor for the next start", async () => {
+    const s = setup(onceDone());
+    await refusedDone(s);
+    expect(s.director.ready(account)).toMatchObject({ started: false });
+    s.clock.advance(10 * 60 * 1000);
+    expect(s.director.latest()?.state).toBe("done");
+    expect(notices(s.log)).toEqual(["starting", "awaiting-code", "submitting", "done"]);
+    // The next start is accepted: nothing holds the one-sign-in slot.
+    asCommand(s.log, (context) => s.director.begin({ accountId: "work" }, context));
+    expect(s.director.latest()?.state).toBe("starting");
+  });
+
+  it("can be cancelled meanwhile, which frees the floor at once", async () => {
+    const s = setup(onceDone());
+    await refusedDone(s);
+    asCommand(s.log, (context) => s.director.cancel({ accountId: "work" }, context));
+    expect(s.director.latest()?.state).toBe("cancelled");
+    expect(s.clock.pending()).toBe(0);
+    expect(s.director.ready(account)).toEqual({ started: true, message: null });
   });
 });

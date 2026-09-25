@@ -423,6 +423,10 @@
       "title": "MessageRequeuedPayload"
     },
     {
+      "path": "sessions/events/message.withdrawn.json",
+      "title": "MessageWithdrawnPayload"
+    },
+    {
       "path": "sessions/events/assistant.delta.json",
       "title": "AssistantDeltaPayload"
     },
@@ -1963,6 +1967,38 @@
       "title": "runs.stopTask error"
     },
     {
+      "path": "methods/runs.readNow/params.json",
+      "title": "runs.readNow params"
+    },
+    {
+      "path": "methods/runs.readNow/result.json",
+      "title": "runs.readNow result"
+    },
+    {
+      "path": "methods/runs.readNow/response.json",
+      "title": "runs.readNow response"
+    },
+    {
+      "path": "methods/runs.readNow/error.json",
+      "title": "runs.readNow error"
+    },
+    {
+      "path": "methods/runs.withdraw/params.json",
+      "title": "runs.withdraw params"
+    },
+    {
+      "path": "methods/runs.withdraw/result.json",
+      "title": "runs.withdraw result"
+    },
+    {
+      "path": "methods/runs.withdraw/response.json",
+      "title": "runs.withdraw response"
+    },
+    {
+      "path": "methods/runs.withdraw/error.json",
+      "title": "runs.withdraw error"
+    },
+    {
       "path": "methods/providers.list/params.json",
       "title": "providers.list params"
     },
@@ -2940,6 +2976,26 @@
       "result": "methods/runs.stopTask/result.json",
       "response": "methods/runs.stopTask/response.json",
       "error": "methods/runs.stopTask/error.json"
+    },
+    {
+      "name": "runs.readNow",
+      "scope": "runs:drive",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/runs.readNow/params.json",
+      "result": "methods/runs.readNow/result.json",
+      "response": "methods/runs.readNow/response.json",
+      "error": "methods/runs.readNow/error.json"
+    },
+    {
+      "name": "runs.withdraw",
+      "scope": "runs:drive",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/runs.withdraw/params.json",
+      "result": "methods/runs.withdraw/result.json",
+      "response": "methods/runs.withdraw/response.json",
+      "error": "methods/runs.withdraw/error.json"
     },
     {
       "name": "providers.list",
