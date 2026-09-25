@@ -57,7 +57,7 @@ import {
   permissionsSettingsGet,
   permissionsSettingsSet,
 } from "./methods/permissions.js";
-import { runsInterrupt, runsSend, runsStart, runsStopTask } from "./methods/runs.js";
+import { runsInterrupt, runsReadNow, runsSend, runsStart, runsStopTask, runsWithdraw } from "./methods/runs.js";
 import { providersList, providersProcessesList, providersProcessesStop } from "./methods/providers.js";
 import { settingsGet, settingsUpdate } from "./methods/settings.js";
 import {
@@ -139,6 +139,8 @@ export const methods = [
   runsSend,
   runsInterrupt,
   runsStopTask,
+  runsReadNow,
+  runsWithdraw,
   providersList,
   providersProcessesList,
   providersProcessesStop,

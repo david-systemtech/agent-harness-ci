@@ -191,6 +191,51 @@ describe("dispatch", () => {
     quiet.mockRestore();
   });
 
+  it("runs a prepared command's prepare before the transaction, then the handler it answers inside it; a stored receipt answers a repeat without preparing, and a prepare that throws stores nothing", async () => {
+    const quiet = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const log = memoryLog();
+    const stream = { kind: "environment", id: "e" };
+    const commandId = "0f8fad5b-d9cb-469f-a165-70867728950e";
+    const order: string[] = [];
+    const handler = vi.fn(() => {
+      order.push(`handle:${String(log.receipt("client_session:cs-1", commandId) === null)}`);
+      return { aggregate: stream, result: { drainingSince: "2026-09-24T00:00:00.000Z", trigger: "command" as const } };
+    });
+    const prepare = vi.fn(async () => {
+      order.push("prepare");
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      return handler;
+    });
+    const dispatch = createDispatch(createMethodTable({ "environment.drain": { prepare } }), log);
+    const answers: Answer[] = [];
+    const respond = (given: Answer): void => void answers.push(given);
+    await dispatch(request("environment.drain", { commandId }), caller(["admin"]), respond, vi.fn());
+    expect(order).toEqual(["prepare", "handle:true"]);
+    expect(prepare).toHaveBeenCalledWith({ commandId }, { clientSession: caller(["admin"]) });
+    expect(answers[0]).toMatchObject({ result: { receipt: { status: "accepted" }, result: { trigger: "command" } } });
+
+    await dispatch(request("environment.drain", { commandId }), caller(["admin"]), respond, vi.fn());
+    expect(prepare).toHaveBeenCalledTimes(1);
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(answers[1]).toEqual({ result: { receipt: { status: "accepted", sequence: 0, changed: false } } });
+
+    const other = "7c9e6679-7425-40de-944b-e07fc1f90ae7";
+    const failing = createDispatch(
+      createMethodTable({
+        "environment.drain": {
+          prepare: async () => {
+            throw new ContractError({ code: "internal", message: "The provider did not answer.", data: {} });
+          },
+        },
+      }),
+      log,
+    );
+    await failing(request("environment.drain", { commandId: other }), caller(["admin"]), respond, vi.fn());
+    expect(answers[2]).toEqual({ error: { code: "internal", message: "The provider did not answer.", data: {} } });
+    expect(log.receipt("client_session:cs-1", other)).toBeNull();
+    quiet.mockRestore();
+  });
+
   it("answers invalid_params with the issues", async () => {
     expect(await answer({}, request("access.log.list", { limit: 0 }), ["admin"])).toMatchObject({
       error: { code: "invalid_params", data: { issues: [expect.objectContaining({ path: ["limit"] })] } },
