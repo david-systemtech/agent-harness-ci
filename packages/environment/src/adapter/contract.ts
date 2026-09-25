@@ -3,12 +3,16 @@ import type {
   AdapterCapabilities,
   AttachmentKind,
   AuthStatus,
+  ContainmentLevel,
+  ContainmentMechanism,
   CredentialSpec,
   InterruptCause,
   JsonObject,
   Mode,
   ModelUsage,
   ProcessHoldKind,
+  PromptKind,
+  PromptQuestion,
   RunError,
   TranscriptPayload,
   Workspace,
@@ -132,6 +136,34 @@ export interface ToolServer {
 }
 
 /**
+ * A run's containment as its adapter enforces it (permissions spec,
+ * "Containment": what each level means, and the enforcement for Claude):
+ * the level `run.policy.resolved` recorded, never one the probe cannot
+ * enforce, the mechanism the probe found, and the directories a run may
+ * write in at a workspace level. The shell side is the provider's sandbox
+ * (Claude's `sandbox` option, #140), set from these values; file tools,
+ * fetch and search do not pass through it, so the tool gate
+ * (`RunContext.gate`) denies them. At `off` nothing applies, and the
+ * directories are named but not made. A session's runs share its provider
+ * process, whose sandbox is fixed when it starts: an adapter whose process
+ * was started under another level or mechanism stops it and starts one for
+ * the run.
+ */
+export interface RunContainment {
+  readonly level: ContainmentLevel;
+  /** What enforces it: null at `off`. */
+  readonly mechanism: ContainmentMechanism | null;
+  /** The session's scratch directory: it lives with the session, removed when the session is purged. */
+  readonly scratchDirectory: string;
+  /** The temporary directory of the session's runs, the provider's `TMPDIR`: the session's, since its runs share one provider process. */
+  readonly temporaryDirectory: string;
+  /** Where a run may write at a workspace level: its workspace, the scratch directory and its temporary directory, as absolute paths. */
+  readonly writable: readonly string[];
+  /** Whether the model's commands and the provider's fetch and search tools may reach any host: false only at `workspace-no-network`. */
+  readonly network: boolean;
+}
+
+/**
  * Everything a run needs, resolved by the host: the session and run, the
  * account's directory, the workspace and repository, model, effort and the
  * mode the policy resolver gave it, the composed instruction text, what it continues from, the
@@ -155,11 +187,42 @@ export interface RunInput {
   readonly toolServers: readonly ToolServer[];
   /** Whether the repository passed the trust gate (ADR 0009); false until the skills workstream records it. */
   readonly trusted: boolean;
+  /** The run's containment (`run.policy.resolved`): the adapter maps it onto its provider's sandbox. */
+  readonly containment: RunContainment;
   readonly prompt: readonly PromptMessage[];
 }
 
 /** The kinds of prompt a run parks on (conflict X1: the permissions workstream's names). */
-export type PromptKind = "permission" | "denylist" | "question" | "plan";
+export type { PromptKind };
+
+/**
+ * What a provider asks, mapped by its adapter onto the harness's fields
+ * (permissions spec, "Prompts": Artemis's `PermissionRequest`), which the
+ * broker records on `prompt.opened`. Every field is optional: the broker
+ * records what is absent as null (a summary it derives from the rest).
+ */
+export interface PromptDetail {
+  /** The tool the call is for. */
+  readonly toolName?: string | null;
+  /** The provider's id for the tool call. */
+  readonly toolCallId?: string | null;
+  /** The tool's input as the model gave it. */
+  readonly input?: JsonObject | null;
+  /** One line saying what is asked (Claude's permission title); derived from the rest when absent. */
+  readonly summary?: string | null;
+  /** The path that made the provider ask. */
+  readonly blockedPath?: string | null;
+  /** Why the provider asked, in its own words. */
+  readonly reason?: string | null;
+  /** A question prompt's questions. */
+  readonly questions?: readonly PromptQuestion[] | null;
+  /** A plan prompt's plan text. */
+  readonly plan?: string | null;
+  /** The provider's remember-suggestions, in its own terms: what an answer with `remember: 'session'` applies. */
+  readonly suggestions?: readonly JsonObject[];
+  /** The subagent that asked. */
+  readonly agentId?: string | null;
+}
 
 /** A permission prompt or question a run asks through the broker. */
 export interface PromptRequest {
@@ -173,13 +236,14 @@ export interface PromptRequest {
    */
   readonly promptId?: string;
   readonly kind: PromptKind;
-  /** What the provider asks, in its terms; the broker (#130) fixes the shape it records. */
-  readonly detail: JsonObject;
+  /** What the provider asks, on the harness's fields; the broker records it on `prompt.opened`. */
+  readonly detail: PromptDetail;
   /**
-   * Aborted when the provider withdraws the request (the tool call became
+   * Aborted when the provider cancels the request (the tool call became
    * moot, the turn was interrupted): the adapter has answered it itself, so
    * the host counts the prompt answered, once, and at once when it had
-   * aborted before the request was made, and the broker may close it.
+   * aborted before the request was made, and the broker closes it
+   * (`cancelled`) unless its run's end closes it first.
    */
   readonly signal?: AbortSignal;
 }
@@ -201,26 +265,81 @@ export class PromptClosed extends Error {
   }
 }
 
-/** The answer to a prompt: allowed or denied, with a message for the model. */
+/**
+ * The answer to a prompt: allowed or denied, with a message for the model,
+ * and what a person's answer may carry beside (`permissions.prompts.answer`):
+ * a question's answers keyed by the question's text, the tool's input as
+ * edited, an approved plan's mode to continue in (already clamped to the
+ * run's ceiling), and `remember: 'session'` on an allowed permission prompt,
+ * which the adapter applies through the provider's own session rules.
+ */
 export interface PromptDecision {
   readonly decision: "allow" | "deny";
   readonly message?: string;
+  readonly answers?: Readonly<Record<string, string>>;
+  readonly updatedInput?: JsonObject;
+  readonly mode?: Mode;
+  readonly remember?: "session";
 }
 
 /**
- * Where a run's prompts go (claude-adapter spec, "The permission broker"):
- * the one place a provider's prompt or question lands. #130 replaces the
- * auto-deny placeholder (`seams.ts`) with the broker that parks prompts.
+ * Where a run's prompts go (claude-adapter spec, "The permission broker";
+ * permissions spec, the broker): the one place a provider's prompt or
+ * question lands. The host hands each run the environment's broker
+ * (`host.ts`), which records the prompt as `prompt.opened`, parks the run,
+ * and settles the request with the answer a person gives
+ * (`permissions.prompts.answer`), or, when the run ends, with a denial.
  *
  * The host counts a run parked from a request until that prompt is
  * answered: when the request settles, or when the host answers it through
- * `AdapterHost.answerPrompt`, whichever comes first. An answer given any
- * other way must settle the request, or the run stays parked and is ended
- * `interrupted`, cause `parked`, once its process has been parked for the
- * idle time.
+ * `AdapterHost.answerPrompt`, whichever comes first.
  */
 export interface PermissionBroker {
   request(request: PromptRequest): Promise<PromptDecision>;
+}
+
+/**
+ * What a tool call does, as its adapter describes it to the tool gate, in
+ * the provider's terms mapped onto the harness's: reading or writing files
+ * (their paths, absolute or relative to the workspace, `~` for the home
+ * directory), a shell command, fetching URLs, a web search, or anything
+ * else (a tool server's call, a question). The gate rules on this, never on
+ * the provider's tool names.
+ */
+export type ToolAccess =
+  | { readonly kind: "read"; readonly paths: readonly string[] }
+  | { readonly kind: "write"; readonly paths: readonly string[] }
+  | { readonly kind: "shell"; readonly command: string }
+  | { readonly kind: "fetch"; readonly urls: readonly string[] }
+  | { readonly kind: "search"; readonly query: string }
+  | { readonly kind: "other" };
+
+/** One tool call the gate is asked about: the provider's id and name for it, a one-line summary for people, and what it does. */
+export interface GatedToolCall {
+  readonly toolCallId: string;
+  readonly tool: string;
+  readonly summary: string;
+  readonly access: ToolAccess;
+}
+
+/**
+ * The gate's ruling. `allow` hands the call on to the provider's own
+ * evaluation (its mode, its rules, its prompts), which the gate never
+ * replaces; `deny` is final, and `message` is what the model is told.
+ */
+export type GateDecision = { readonly decision: "allow" } | { readonly decision: "deny"; readonly message: string };
+
+/**
+ * The tool gate (permissions spec, "Modules": the tool gate): consulted by
+ * every adapter before the provider's own evaluation, for every tool call in
+ * every mode, bypass included. It applies containment as a hard deny: no
+ * prompt, the model told why, the decision recorded as `tool.decision` with
+ * `decidedBy: containment`; widening containment is a settings change,
+ * never an answer to a prompt. The denylist's matches (#132) join it. For
+ * Claude it is the `PreToolUse` hook (#140).
+ */
+export interface ToolGate {
+  check(call: GatedToolCall): Promise<GateDecision>;
 }
 
 /** The types a run's events may be: the transcript types an adapter produces. The run's start and end, and the messages sent to it, are the host's. */
@@ -350,11 +469,17 @@ export interface ProcessPort {
 /** What the host hands a run beside its input. */
 export interface RunContext {
   /**
-   * Where the run's prompts go: the auto-deny placeholder until #130. The
-   * host hands the run the broker wrapped, so the run counts as parked
-   * while a request is unanswered.
+   * Where the run's prompts go: the environment's broker, which records
+   * each as `prompt.opened` on the session's stream and parks the run while
+   * it is unanswered.
    */
   readonly broker: PermissionBroker;
+  /**
+   * The tool gate, asked before the provider's own evaluation for every tool
+   * call; a turn the provider opened on its own asks through the gate of the
+   * run it followed, which rules under the policy of the run live then.
+   */
+  readonly gate: ToolGate;
   /** Held work on the session's provider process (the pool's port). */
   readonly process: ProcessPort;
   /**

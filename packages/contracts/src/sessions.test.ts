@@ -208,14 +208,13 @@ describe("the event-type table", () => {
     expect(isListEvent("session", "toString")).toBe(false);
   });
 
-  it("reserves the prompt names for the permissions workstream with payloads left to it, flagged list; the run and message types are the transcript vocabulary's", () => {
+  it("reserves nothing now that #130 fixed the prompt payloads, flagged list; the run and message types are the transcript vocabulary's", () => {
     const reserved = Object.entries(EVENT_TYPES.session).flatMap(([type, entry]) =>
       "reservedFor" in entry ? [[type, entry.reservedFor, entry.list]] : [],
     );
-    expect(reserved).toEqual([
-      ["prompt.opened", "the permissions workstream (#130)", true],
-      ["prompt.answered", "the permissions workstream (#130)", true],
-    ]);
+    expect(reserved).toEqual([]);
+    expect(isListEvent("session", "prompt.opened")).toBe(true);
+    expect(isListEvent("session", "prompt.answered")).toBe(true);
     expect(isListEvent("session", "message.sent")).toBe(false);
     expect(isListEvent("session", "run.started")).toBe(true);
   });

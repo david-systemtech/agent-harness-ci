@@ -1,12 +1,14 @@
-import { presetPermissionSettings, type Mode, type ModeAvailability, type Workspace } from "@agent-harness/contracts";
+import { presetPermissionSettings, type AutoDecider, type ContainmentLevel, type Mode, type ModeAvailability, type PromptKind, type Workspace } from "@agent-harness/contracts";
+import { UNPROBED_REPORT } from "../permissions/containment.js";
 import { policySettings, resolvePolicy, type PolicyOutcome, type RunActor } from "../permissions/resolver.js";
-import type { PermissionBroker, ToolServer } from "./contract.js";
+import type { PromptDecision, ToolServer } from "./contract.js";
 
 /**
  * The host's seams other workstreams fill (claude-adapter spec, "The adapter
  * contract", the paragraph on what the host supplies): the tool-server
- * factory, the instruction composer, the permission broker and the policy
- * resolver. Each has a preset that keeps a run going without its workstream.
+ * factory, the instruction composer, the broker's automatic answers and the
+ * policy resolver. Each has a preset that keeps a run going without its
+ * workstream.
  */
 
 /** What a run's tool servers close over: the account, the workspace and the session. */
@@ -59,39 +61,59 @@ export const composeInstructions =
       .filter((part): part is string => part !== null && part.trim() !== "")
       .join("\n\n");
 
-/**
- * The broker's placeholder: every prompt is denied at once, with a message
- * the model reads, and nothing is parked or recorded. #130's broker, which
- * parks prompts as events any client answers, replaces it.
- */
-export const autoDenyBroker: PermissionBroker = {
-  request: async () => ({
-    decision: "deny",
-    message: "This environment cannot ask anyone yet, so the request was denied; carry on without it.",
-  }),
-};
+/** A prompt as the broker's automatic rules read it: its kind, and the run's attendance and mode when it asked. */
+export interface AutoAnswerRequest {
+  readonly kind: PromptKind;
+  readonly attended: boolean;
+  readonly mode: Mode;
+}
 
-/** What a run's policy is resolved from, beside the settings: who started it, the mode asked for, and the account's modes. */
+/** An answer a rule gives at once: which rule, and the decision the run is handed. */
+export interface AutoAnswer {
+  readonly auto: AutoDecider;
+  readonly decision: PromptDecision;
+}
+
+/**
+ * The broker's automatic branches (permissions spec, the prompt state
+ * machine): a rule that answers a prompt at once, recorded as its
+ * `prompt.answered` in the transaction of its `prompt.opened`, so it never
+ * parks and no notice is raised; null parks the prompt for a person. The
+ * unattended, bypass and reviewer rules are #131's, which fills this seam;
+ * the TTL's sweeper answers parked prompts later, and `run_ended` is the
+ * host's own. Preset: no rule, every prompt parks.
+ */
+export type PromptAutoAnswer = (request: AutoAnswerRequest) => AutoAnswer | null;
+
+export const noAutoAnswer: PromptAutoAnswer = () => null;
+
+/** What a run's policy is resolved from, beside the settings: who started it, the mode asked for, the account's modes, and the session's own containment level. */
 export interface PolicyRequest {
   readonly actor: RunActor;
   /** The mode the run or its session asks for; null when neither names one. */
   readonly requested: Mode | null;
   readonly accountModes: readonly ModeAvailability[];
+  /** The containment level the session set for itself; null when it set none, and the default applies. */
+  readonly containment: ContainmentLevel | null;
 }
 
 /**
  * Resolves a run's policy at its start (#129, `permissions/resolver.ts`):
  * the mode clamped to the ceiling and the account's modes, never refused
- * for being above them. The environment's reads the permission settings;
- * preset: the resolver on the settings' presets.
+ * for being above them, and the containment level lowered to what can be
+ * enforced (#133). The environment's reads the permission settings and its
+ * probe's findings; preset: the resolver on the settings' presets, with
+ * nothing probed, so every run is at `off`.
  */
 export type PolicySeam = (request: PolicyRequest) => PolicyOutcome;
 
-export const presetPolicy: PolicySeam = ({ actor, requested, accountModes }) =>
+export const presetPolicy: PolicySeam = ({ actor, requested, accountModes, containment }) =>
   resolvePolicy({
     actor,
     requested,
     ceiling: actor.ceiling,
     accountModes,
     settings: policySettings(presetPermissionSettings()),
+    containment,
+    enforceable: UNPROBED_REPORT,
   });

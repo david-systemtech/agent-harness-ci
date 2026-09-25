@@ -44,7 +44,7 @@ export interface CliContext {
   readonly fetch?: typeof globalThis.fetch;
   /** Seams into the service verbs for tests, under the same rule as `environment`. */
   readonly service?: ServiceSeams;
-  readonly environment?: Pick<EnvironmentOptions, "user" | "launcher" | "runs" | "interfaces">;
+  readonly environment?: Pick<EnvironmentOptions, "user" | "launcher" | "runs" | "interfaces" | "probeContainment">;
   /** The network `pair` uses; preset: the platform's `fetch` and `WebSocket`. */
   readonly net?: Net;
   /** The terminal UI `tui` runs; a seam for tests. Preset: the terminal UI package's `runTui`. */

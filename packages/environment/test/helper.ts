@@ -27,6 +27,8 @@ import { createRunRegistry, type MemoryRunRegistry } from "../src/serve/run-regi
 import type { ContextOf, HandlerReturn, MethodHandler } from "../src/serve/methods.js";
 import type { SubscriptionHooks } from "../src/wire/subscriptions.js";
 import { manualClock, type ManualClock } from "./clock.js";
+import type { ContainmentProbe } from "../src/permissions/containment-probe.js";
+import { absentProbe } from "./containment.js";
 import type { ConfiguredAccount } from "../src/accounts/account-service.js";
 import type { SignInDirectorFactory } from "../src/accounts/signin-seam.js";
 import { fakeAdapter, type FakeAdapter } from "./fake-adapter.js";
@@ -90,12 +92,18 @@ export interface TestEnvironmentOptions {
   readonly containerDetector?: ContainerDetector;
   /** Preset: a test launcher that says no launcher is present. */
   readonly launcher?: TestLauncher;
-  /** The adapter host's seams (the broker, the clamp, ...); preset: each seam's own. */
+  /** The adapter host's seams (the broker's automatic answers, the policy resolver, ...); preset: each seam's own. */
   readonly adapterSeams?: EnvironmentOptions["adapterSeams"];
   /** The idle time of a provider process, in minutes; preset: the setting's preset. */
   readonly processIdleMinutes?: () => number;
   /** How terminals start; preset the environment's own (`node-pty`, the login shell, the clean base). */
   readonly terminals?: EnvironmentOptions["terminals"];
+  /**
+   * What the containment probe finds (`test/containment.ts` scripts the
+   * outcomes). Preset: bubblewrap missing, so only `off` is offered and the
+   * real machine is never probed.
+   */
+  readonly containment?: ContainmentProbe | Promise<ContainmentProbe>;
 }
 
 /** The bundled binary a test environment's sign-ins name unless told otherwise: a path that is not there. */
@@ -261,6 +269,7 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
       interfaces: options.interfaces ?? NO_INTERFACES,
       adapters: [adapter],
       accounts,
+      probeContainment: async () => (await options.containment) ?? absentProbe(),
       ...passed,
       ...(options.subscriptionHooks !== undefined && { subscriptionHooks: options.subscriptionHooks }),
     });

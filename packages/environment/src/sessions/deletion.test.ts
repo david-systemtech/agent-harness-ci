@@ -220,6 +220,8 @@ describe("a deleted session", () => {
     "runs.start": { sessionId, text: "Back to work" },
     "runs.send": { sessionId, text: "Anyone there?" },
     "permissions.mode.set": { sessionId, mode: "plan" },
+    "permissions.containment.set": { sessionId, level: "off" },
+    "permissions.prompts.answer": { sessionId, promptId: "p-1", decision: "deny" },
     "runs.interrupt": { runId },
     "runs.stopTask": { runId, taskId: "t-1" },
     "providers.processes.stop": { sessionId },
@@ -237,6 +239,7 @@ describe("a deleted session", () => {
     "files.read": { sessionId, path: "README.md" },
     "diffs.workingTree": { sessionId },
     "diffs.session": { sessionId },
+    "permissions.prompts.list": { sessionId },
   });
 
   /** Whether a command's params name a session or a run. */

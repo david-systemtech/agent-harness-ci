@@ -40,6 +40,10 @@ export interface SessionRow {
   repository_identity: string | null;
   activity: string;
   parked_prompt_count: number;
+  /** The session's run live now, from its `run.started` to its `run.ended`: what a prompt's last answer goes back to. Not a summary field. */
+  live_run_id: string | null;
+  /** How many of the parked prompts are the live run's own: while any is, the session is `parked`; not a summary field. */
+  live_run_prompts: number;
   account_id: string | null;
   model: string | null;
   mode: string | null;
@@ -85,6 +89,8 @@ export const SESSION_LIST_TABLES = {
     repository_identity TEXT,
     activity TEXT NOT NULL,
     parked_prompt_count INTEGER NOT NULL DEFAULT 0,
+    live_run_id TEXT,
+    live_run_prompts INTEGER NOT NULL DEFAULT 0,
     account_id TEXT,
     model TEXT,
     mode TEXT,

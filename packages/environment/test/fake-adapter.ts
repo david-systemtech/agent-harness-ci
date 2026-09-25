@@ -4,10 +4,14 @@ import type {
   AccountRef,
   Adapter,
   AdapterEvent,
+  GateDecision,
+  GatedToolCall,
   ModelOption,
   ProcessPort,
   ProviderCommand,
   PromptDecision,
+  PromptDetail,
+  PromptKind,
   PromptMessage,
   ProviderTurn,
   RunContext,
@@ -99,6 +103,10 @@ export interface FakeRunRecord {
   readonly stoppedTasks: string[];
   /** The modes `setMode` changed the live run to, in order. */
   readonly modeChanges: Mode[];
+  /** Every tool call the run asked the gate about, with its ruling, in order. */
+  readonly gated: { readonly call: GatedToolCall; readonly decision: GateDecision }[];
+  /** The answers the host handed it through `answerPrompt`, in order. */
+  readonly answers: { readonly promptId: string; readonly decision: PromptDecision }[];
 }
 
 export interface FakeAdapterOptions {
@@ -199,6 +207,63 @@ export const say = (text: string, itemId: string = randomUUID()): TranscriptEven
 
 /** The end of a run: completed unless told otherwise. */
 export const end = (reason: RunEnd["reason"] = "completed", extra: Omit<RunEnd, "type" | "reason"> = {}): RunEnd => ({ type: "end", reason, ...extra });
+
+/**
+ * A tool call played as a provider plays one under the gate: `tool.started`,
+ * then the gate's ruling, before the provider's own evaluation; then
+ * `tool.ended`, `ok` when the gate allowed it and `error` carrying what the
+ * model is told when it denied it. The run's record keeps the ruling.
+ */
+export async function* toolCall(controls: ScriptControls, call: Omit<GatedToolCall, "toolCallId"> & { readonly toolCallId?: string }): AsyncGenerator<AdapterEvent> {
+  const toolCallId = call.toolCallId ?? `toolu_${randomUUID()}`;
+  yield {
+    type: "tool.started",
+    payload: { toolCallId, name: call.tool, input: { access: call.access.kind }, title: call.summary, agentId: null, parentToolCallId: null },
+  };
+  const decision = await controls.context.gate.check({ ...call, toolCallId });
+  yield {
+    type: "tool.ended",
+    payload: decision.decision === "allow" ? { toolCallId, status: "ok", output: "done", durationMs: 1 } : { toolCallId, status: "error", output: decision.message, durationMs: 1 },
+  };
+}
+
+/** What an asking script says once it is answered: the decision it got, as JSON, so a test reads what reached the run. */
+export const toldText = (decision: PromptDecision): string => `Told ${JSON.stringify(decision)}`;
+
+export interface AskOptions {
+  /** The prompt's id, as an adapter with its own permission table names it; the host mints one when absent. */
+  readonly promptId?: string;
+  /** Waited on before asking; preset: asks at once. */
+  readonly before?: Promise<unknown>;
+  /** Cancels the request when it aborts, as a provider cancelling the tool call does. */
+  readonly signal?: AbortSignal;
+  /** How the run ends once answered; preset: completed. */
+  readonly then?: RunEnd;
+}
+
+/**
+ * A run that asks through the broker (permissions spec, "Prompts"): it says
+ * it is working, asks a prompt of `kind` with `detail`, says what it was told
+ * (`toldText`) and ends. An answer a person gives reaches it through the
+ * broker's request, which the host settles, and through `answerPrompt`,
+ * which the fake records in the run record's `answers` and hands out through `nextAnswer()`.
+ */
+export const ask =
+  (kind: PromptKind, detail: PromptDetail = {}, options: AskOptions = {}): Script =>
+  async function* ({ context, input }) {
+    yield say("Working");
+    await options.before;
+    const decision = await context.broker.request({
+      sessionId: input.sessionId,
+      runId: input.runId,
+      kind,
+      detail,
+      ...(options.promptId !== undefined && { promptId: options.promptId }),
+      ...(options.signal !== undefined && { signal: options.signal }),
+    });
+    yield say(toldText(decision));
+    yield options.then ?? end();
+  };
 
 /** The preset script: one reply naming the prompt, then completed. */
 export const replyScript: Script = ({ input }) => [say(`Done: ${input.prompt.map((message) => message.text).join(" / ")}`), end()];
@@ -306,6 +371,8 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
     imageInput: true,
     fileInput: false,
     modeChange: true,
+    // The fake stands in for an adapter that enforces containment (#140's Claude adapter), so the gate's rules can be driven.
+    containment: true,
     instructionChannel: { kind: "system-prompt-append", maxCharacters: null },
     modes: [...(options.modes ?? MODES.map((mode): ModeAvailability => ({ mode, available: true, reason: null })))],
     ...options.capabilities,
@@ -352,8 +419,21 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
       released: false,
       stoppedTasks: [],
       modeChanges: [],
+      gated: [],
+      answers: [],
     };
     runs.push(record);
+    // The gate as this run's script asks it, recording each ruling on the run; an adopted turn is handed the context it followed with.
+    const gated: RunContext = {
+      ...context,
+      gate: {
+        check: async (call) => {
+          const decision = await context.gate.check(call);
+          record.gated.push({ call, decision });
+          return decision;
+        },
+      },
+    };
     const events = channel();
     const abort = new AbortController();
     /** Sent messages a steering provider has not folded yet, or a non-steering queue holds. */
@@ -392,7 +472,7 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
 
     const controls: ScriptControls = {
       input,
-      context,
+      context: gated,
       signal: abort.signal,
       adopted,
       nextSent: () =>
@@ -455,6 +535,7 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
       },
       answerPrompt(promptId, decision) {
         const answer = { promptId, decision };
+        record.answers.push(answer);
         const taker = answerTakers.shift();
         if (taker !== undefined) taker(answer);
         else answers.push(answer);

@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DecidedBy",
+  "anyOf": [
+    {
+      "type": "string",
+      "minLength": 1,
+      "description": "A client session's id, as hello names it and the access methods list and revoke it."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "auto": {
+          "type": "string",
+          "enum": [
+            "unattended",
+            "bypass",
+            "ttl",
+            "run_ended",
+            "reviewer",
+            "cancelled"
+          ],
+          "description": "What answered a prompt when no person did: unattended (nobody is present for the run), bypass (a residual prompt in bypassPermissions), ttl (it waited past its TTL), run_ended (its run ended on its own first), reviewer (a provider's automatic reviewer), cancelled (the provider cancelled the request, its tool call moot, while the run went on)."
+        }
+      },
+      "required": [
+        "auto"
+      ],
+      "description": "An automatic rule answered it."
+    }
+  ],
+  "description": "Who answered a prompt: the id of the client session a person answered from, or {auto} naming the rule."
+}

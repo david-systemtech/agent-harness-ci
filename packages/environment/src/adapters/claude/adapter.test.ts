@@ -83,6 +83,14 @@ const runInput = (overrides: Partial<RunInput> = {}): RunInput => ({
   target: { kind: "fresh" },
   toolServers: [],
   trusted: false,
+  containment: {
+    level: "off",
+    mechanism: null,
+    scratchDirectory: "/data/containment/session/scratch",
+    temporaryDirectory: "/data/containment/session/tmp",
+    writable: ["/work/repo", "/data/containment/session/scratch", "/data/containment/session/tmp"],
+    network: true,
+  },
   prompt: [message("Go")],
   ...overrides,
 });
@@ -105,7 +113,7 @@ const contextWith = (decide?: (request: PromptRequest) => Promise<PromptDecision
     },
   };
   const identities: AccountIdentity[] = [];
-  return { broker, adopt: (turn) => adopted.push(turn), adopted, asked, identities, reportIdentity: (identity) => void identities.push(identity), process: {
+  return { broker, gate: { check: async () => ({ decision: "allow" }) }, adopt: (turn) => adopted.push(turn), adopted, asked, identities, reportIdentity: (identity) => void identities.push(identity), process: {
       hold: (kind, id) => port.push(`hold ${kind}:${id}`),
       unhold: (kind, id) => port.push(`unhold ${kind}:${id}`),
       exited: () => port.push("exited"),
@@ -369,7 +377,18 @@ describe("canUseTool on the broker seam", () => {
       // The permission table's id: an answer through the host's answerPrompt names the same prompt.
       promptId: "toolu_rm",
       signal: expect.any(AbortSignal),
-      detail: expect.objectContaining({ promptId: "toolu_rm", toolName: "Bash", input: { command: "rm -rf build" }, title: "Claude wants to run rm -rf build" }),
+      detail: {
+        toolName: "Bash",
+        toolCallId: "toolu_rm",
+        input: { command: "rm -rf build" },
+        summary: "Claude wants to run rm -rf build",
+        blockedPath: null,
+        reason: null,
+        questions: null,
+        plan: null,
+        suggestions: [],
+        agentId: null,
+      },
     });
     let settled = false;
     void asked.then(() => (settled = true));

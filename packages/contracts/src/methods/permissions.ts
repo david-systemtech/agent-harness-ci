@@ -1,17 +1,19 @@
 import { z } from "zod";
 import { errorSchema } from "../errors.js";
 import { commandParams, defineMethod } from "../method.js";
-import { ContainmentAvailability, ContainmentLevel, SessionModeSetPayload } from "../permissions.js";
+import { ContainmentCause, ContainmentLevel, ContainmentReport, SessionContainmentSetPayload, SessionModeSetPayload } from "../permissions.js";
 import { Mode } from "../permissions-modes.js";
 import { PermissionSettingsPatch, PermissionSettingsValues } from "../permissions-settings.js";
+import { ListedPrompt, PromptAnsweredPayload, PromptAnswerInput } from "../prompts.js";
 import { SessionId } from "../sessions.js";
 
 /**
- * The permissions methods of #129 (permissions spec, "Methods on the
- * wire"): a session's mode, and the permission settings. The ceiling's
+ * The permissions methods (permissions spec, "Methods on the wire"): a
+ * session's mode and the permission settings (#129), the parked prompts and
+ * their answer (#130), a session's containment level (#133). The ceiling's
  * method, `access.sessions.setCeiling`, is in the `access` family
- * (`methods/access.ts`). The denylist, prompts, containment and review
- * methods are #130 to #133's.
+ * (`methods/access.ts`). The denylist and review methods are #131 and
+ * #132's.
  */
 
 /**
@@ -34,6 +36,37 @@ export const permissionsModeSet = defineMethod({
   errors: [],
 });
 
+/** A containment level this environment cannot enforce was chosen: as the default, or as a session's own. */
+export const ContainmentUnavailableError = errorSchema(
+  "containment_unavailable",
+  z.object({
+    level: ContainmentLevel,
+    reason: z.string().min(1).meta({ description: "Why the level cannot be enforced here." }),
+    cause: ContainmentCause,
+  }),
+).meta({ description: "The containment level cannot be enforced on this environment; data says which and why." });
+export type ContainmentUnavailableError = z.infer<typeof ContainmentUnavailableError>;
+
+/**
+ * Set a session's containment level (permissions spec, "Containment"):
+ * one of the three, under `runs:drive`, with no own-session rule, since
+ * containment is the person's choice of boundary and not a grant. A level
+ * this environment cannot enforce is rejected `containment_unavailable`
+ * with the probe's reason. Recorded as `session.containment.set`; the
+ * session's next runs ask for it, while a live run keeps the level it was
+ * resolved with. The level the session has already appends nothing (the
+ * receipt says `changed: false`). The result is the event's payload with
+ * the session.
+ */
+export const permissionsContainmentSet = defineMethod({
+  name: "permissions.containment.set",
+  scope: "runs:drive",
+  kind: "command",
+  params: commandParams({ sessionId: SessionId, level: ContainmentLevel }),
+  result: z.object({ sessionId: SessionId, ...SessionContainmentSetPayload.shape }),
+  errors: [ContainmentUnavailableError],
+});
+
 /** The permission settings' values, and what the environment can enforce. */
 export const permissionsSettingsGet = defineMethod({
   name: "permissions.settings.get",
@@ -42,9 +75,7 @@ export const permissionsSettingsGet = defineMethod({
   params: z.object({}),
   result: z.object({
     values: PermissionSettingsValues,
-    containment: z
-      .object({ levels: z.array(ContainmentAvailability) })
-      .meta({ description: "Each containment level and whether this environment can enforce it, with the reason when it cannot (#133 probes it)." }),
+    containment: ContainmentReport,
     isRoot: z.boolean().meta({ description: "Whether the environment runs as root: always false, since it refuses to (ADR 0006); present so an exception would be loud." }),
     denylist: z
       .object({
@@ -57,16 +88,6 @@ export const permissionsSettingsGet = defineMethod({
   }),
   errors: [],
 });
-
-/** A containment level this environment cannot enforce was chosen as the default. */
-export const ContainmentUnavailableError = errorSchema(
-  "containment_unavailable",
-  z.object({
-    level: ContainmentLevel,
-    reason: z.string().min(1).meta({ description: "Why the level cannot be enforced here." }),
-  }),
-).meta({ description: "The containment level cannot be enforced on this environment; data says which and why." });
-export type ContainmentUnavailableError = z.infer<typeof ContainmentUnavailableError>;
 
 /**
  * Set any subset of the permission settings. The first time the unattended
@@ -87,4 +108,56 @@ export const permissionsSettingsSet = defineMethod({
   }),
   result: z.object({ values: PermissionSettingsValues }),
   errors: [ContainmentUnavailableError],
+});
+
+/**
+ * Every parked prompt of the environment, or of one session: opened and not
+ * yet answered, oldest first, a deleted session's left out. After a restart
+ * the prompts parked before it are listed where they were (ADR 0007). A
+ * session named that is not on the environment, or is deleted, is
+ * `not_found` (kind `session`), as every query naming a session is.
+ */
+export const permissionsPromptsList = defineMethod({
+  name: "permissions.prompts.list",
+  scope: "read",
+  kind: "query",
+  params: z.object({
+    sessionId: SessionId.optional().meta({ description: "One session's parked prompts; every session's when absent." }),
+  }),
+  result: z.object({ prompts: z.array(ListedPrompt).meta({ description: "The parked prompts, oldest first." }) }),
+  errors: [],
+});
+
+/**
+ * Answers a parked prompt, from any client session with `runs:drive`: its
+ * own ceiling does not bound the answer (an environment belongs to one
+ * person, ADR 0001). A plan's mode to continue in is clamped to the ceiling
+ * of the run that asked (acceptEdits when absent); `remember` is taken on
+ * `permission` prompts only, with an allow; `answers` on questions only;
+ * `updatedInput` on `permission` prompts only; `mode` on approved plans
+ * only; anything else is `invalid_params`. Recorded as
+ * `prompt.answered` with the caller as `decidedBy`, and handed to the run
+ * once it has committed when the run still waits on it (`live`), or kept for
+ * the session's next run, whose first message it becomes (`next-run`), when
+ * a restart or a parked stop took the run. An answered prompt is `conflict`
+ * with reason `already_answered`; an unknown one `not_found` (kind
+ * `prompt`); one the live run no longer holds, `conflict` with reason
+ * `prompt_not_open`. A prompt's id is the adapter's, unique within its
+ * session: an id parked in more than one session is `conflict` with reason
+ * `ambiguous_prompt` (and the sessions) unless `sessionId` names one. The
+ * result is the event's payload with the session.
+ */
+export const permissionsPromptsAnswer = defineMethod({
+  name: "permissions.prompts.answer",
+  scope: "runs:drive",
+  kind: "command",
+  params: commandParams({
+    promptId: z.string().min(1).meta({ description: "The prompt to answer." }),
+    sessionId: SessionId.optional().meta({
+      description: "The session the prompt is in: needed only when its id is parked in more than one session (conflict ambiguous_prompt).",
+    }),
+    ...PromptAnswerInput.shape,
+  }),
+  result: z.object({ sessionId: SessionId, ...PromptAnsweredPayload.shape }),
+  errors: [],
 });

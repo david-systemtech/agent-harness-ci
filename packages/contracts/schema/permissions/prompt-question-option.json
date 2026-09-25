@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PromptQuestionOption",
+  "type": "object",
+  "properties": {
+    "label": {
+      "type": "string",
+      "minLength": 1,
+      "description": "What the option says, as the person picks it."
+    },
+    "description": {
+      "type": "string",
+      "description": "What choosing it means; empty when the provider gives none."
+    }
+  },
+  "required": [
+    "label",
+    "description"
+  ],
+  "description": "One option of a question: its label and what it means."
+}

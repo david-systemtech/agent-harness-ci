@@ -399,6 +399,14 @@
       "title": "SessionPullRequestSyncedPayload"
     },
     {
+      "path": "sessions/events/prompt.opened.json",
+      "title": "PromptOpenedPayload"
+    },
+    {
+      "path": "sessions/events/prompt.answered.json",
+      "title": "PromptAnsweredPayload"
+    },
+    {
       "path": "sessions/events/run.started.json",
       "title": "RunStartedPayload"
     },
@@ -477,6 +485,14 @@
     {
       "path": "sessions/events/session.mode.set.json",
       "title": "SessionModeSetPayload"
+    },
+    {
+      "path": "sessions/events/session.containment.set.json",
+      "title": "SessionContainmentSetPayload"
+    },
+    {
+      "path": "sessions/events/tool.decision.json",
+      "title": "ToolDecisionPayload"
     },
     {
       "path": "sessions/events/group.created.json",
@@ -779,12 +795,32 @@
       "title": "ContainmentLevel"
     },
     {
+      "path": "permissions/containment-cause.json",
+      "title": "ContainmentCause"
+    },
+    {
       "path": "permissions/containment-availability.json",
       "title": "ContainmentAvailability"
     },
     {
+      "path": "permissions/containment-mechanism.json",
+      "title": "ContainmentMechanism"
+    },
+    {
+      "path": "permissions/containment-container.json",
+      "title": "ContainmentContainer"
+    },
+    {
+      "path": "permissions/containment-report.json",
+      "title": "ContainmentReport"
+    },
+    {
       "path": "permissions/containment-resolution.json",
       "title": "ContainmentResolution"
+    },
+    {
+      "path": "permissions/tool-decider.json",
+      "title": "ToolDecider"
     },
     {
       "path": "permissions/run-policy.json",
@@ -813,6 +849,42 @@
     {
       "path": "permissions/settings-patch.json",
       "title": "PermissionSettingsPatch"
+    },
+    {
+      "path": "permissions/prompt-kind.json",
+      "title": "PromptKind"
+    },
+    {
+      "path": "permissions/prompt-question-option.json",
+      "title": "PromptQuestionOption"
+    },
+    {
+      "path": "permissions/prompt-question.json",
+      "title": "PromptQuestion"
+    },
+    {
+      "path": "permissions/auto-decider.json",
+      "title": "AutoDecider"
+    },
+    {
+      "path": "permissions/decided-by.json",
+      "title": "DecidedBy"
+    },
+    {
+      "path": "permissions/prompt-delivery.json",
+      "title": "PromptDelivery"
+    },
+    {
+      "path": "permissions/prompt-decision.json",
+      "title": "PromptDecisionValue"
+    },
+    {
+      "path": "permissions/prompt-answer-input.json",
+      "title": "PromptAnswerInput"
+    },
+    {
+      "path": "permissions/listed-prompt.json",
+      "title": "ListedPrompt"
     },
     {
       "path": "terminals/terminal-id.json",
@@ -1995,6 +2067,22 @@
       "title": "permissions.mode.set error"
     },
     {
+      "path": "methods/permissions.containment.set/params.json",
+      "title": "permissions.containment.set params"
+    },
+    {
+      "path": "methods/permissions.containment.set/result.json",
+      "title": "permissions.containment.set result"
+    },
+    {
+      "path": "methods/permissions.containment.set/response.json",
+      "title": "permissions.containment.set response"
+    },
+    {
+      "path": "methods/permissions.containment.set/error.json",
+      "title": "permissions.containment.set error"
+    },
+    {
       "path": "methods/permissions.settings.get/params.json",
       "title": "permissions.settings.get params"
     },
@@ -2021,6 +2109,34 @@
     {
       "path": "methods/permissions.settings.set/error.json",
       "title": "permissions.settings.set error"
+    },
+    {
+      "path": "methods/permissions.prompts.list/params.json",
+      "title": "permissions.prompts.list params"
+    },
+    {
+      "path": "methods/permissions.prompts.list/result.json",
+      "title": "permissions.prompts.list result"
+    },
+    {
+      "path": "methods/permissions.prompts.list/error.json",
+      "title": "permissions.prompts.list error"
+    },
+    {
+      "path": "methods/permissions.prompts.answer/params.json",
+      "title": "permissions.prompts.answer params"
+    },
+    {
+      "path": "methods/permissions.prompts.answer/result.json",
+      "title": "permissions.prompts.answer result"
+    },
+    {
+      "path": "methods/permissions.prompts.answer/response.json",
+      "title": "permissions.prompts.answer response"
+    },
+    {
+      "path": "methods/permissions.prompts.answer/error.json",
+      "title": "permissions.prompts.answer error"
     },
     {
       "path": "methods/terminals.open/params.json",
@@ -2762,6 +2878,16 @@
       "error": "methods/permissions.mode.set/error.json"
     },
     {
+      "name": "permissions.containment.set",
+      "scope": "runs:drive",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/permissions.containment.set/params.json",
+      "result": "methods/permissions.containment.set/result.json",
+      "response": "methods/permissions.containment.set/response.json",
+      "error": "methods/permissions.containment.set/error.json"
+    },
+    {
       "name": "permissions.settings.get",
       "scope": "read",
       "kind": "query",
@@ -2779,6 +2905,25 @@
       "result": "methods/permissions.settings.set/result.json",
       "response": "methods/permissions.settings.set/response.json",
       "error": "methods/permissions.settings.set/error.json"
+    },
+    {
+      "name": "permissions.prompts.list",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/permissions.prompts.list/params.json",
+      "result": "methods/permissions.prompts.list/result.json",
+      "error": "methods/permissions.prompts.list/error.json"
+    },
+    {
+      "name": "permissions.prompts.answer",
+      "scope": "runs:drive",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/permissions.prompts.answer/params.json",
+      "result": "methods/permissions.prompts.answer/result.json",
+      "response": "methods/permissions.prompts.answer/response.json",
+      "error": "methods/permissions.prompts.answer/error.json"
     },
     {
       "name": "terminals.open",
