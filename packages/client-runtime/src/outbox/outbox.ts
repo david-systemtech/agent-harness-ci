@@ -60,8 +60,9 @@ export { DRAFT_DEBOUNCE_MS } from "./drafts.js";
  *   again on the next ready.
  * - A `queued` setter (`SESSION_WRITE_COMMANDS`) of the same method and
  *   target as a later one is replaced by it: dropped with its overlay, its
- *   answer the later one's; but not a group's rename with a create or
- *   another group's rename behind it, which may take the name it gives up.
+ *   answer the later one's. A command that may be refused for what its
+ *   params name (a group's rename, a move to a group, a snooze) is ordered,
+ *   never replaced: the later may fail where the earlier would not.
  * - An entry dispatched more than seven days ago is dropped with a notice.
  */
 
@@ -190,15 +191,6 @@ const EMPTY: EnvironmentOutbox = { entries: [], overlays: [] };
 type Answer = DispatchAnswer<CommandMethodName>;
 
 const sameTarget = (a: Target | null, b: Target | null) => a !== null && b !== null && a.kind === b.kind && a.id === b.id;
-
-/**
- * Whether an entry queued behind `earlier` may rely on what `earlier` sets,
- * so a later setter may not stand in for it at the end of the queue: a
- * group's name is unique on its environment, so a rename gives up a name
- * that a create, or another group's rename, queued behind it may take.
- */
-const reliedOn = (earlier: OutboxEntry, behind: readonly OutboxEntry[]): boolean =>
-  earlier.method === "groups.rename" && behind.some((e) => (e.method === "groups.create" || e.method === "groups.rename") && !sameTarget(e.target, earlier.target));
 
 /** Whether the scope's commands go through the outbox. */
 const queuedScope = (scope: string): scope is "sessions:write" | "runs:drive" => scope === "sessions:write" || scope === "runs:drive";
@@ -618,7 +610,7 @@ export const createOutbox = (host: OutboxHost): Outbox => {
       const queue = outboxOf(environmentId).entries;
       const replaced =
         kind !== undefined && "setter" in kind
-          ? queue.filter((e, at) => e.state === "queued" && e.method === method && sameTarget(e.target, target) && !reliedOn(e, queue.slice(at + 1)))
+          ? queue.filter((e) => e.state === "queued" && e.method === method && sameTarget(e.target, target))
           : [];
       const gone = new Set(replaced.map((e) => e.commandId));
       change(environmentId, (current) => ({

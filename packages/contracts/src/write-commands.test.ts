@@ -58,9 +58,9 @@ describe("the sessions:write commands", () => {
     const broken = {
       ...SESSION_WRITE_COMMANDS,
       "sessions.rename": { setter: { target: "session", fields: ["heading"] } },
-      "groups.rename": { setter: { target: "group", fields: [] } },
+      "groups.reorder": { setter: { target: "group", fields: [] } },
     };
-    expect(writeCommandProblems(broken, registry)).toEqual(["sessions.rename: heading is not a session field", "groups.rename: a setter of no field"]);
+    expect(writeCommandProblems(broken, registry)).toEqual(["sessions.rename: heading is not a session field", "groups.reorder: a setter of no field"]);
   });
 
   it("fail the check for a method that is not a sessions:write command", () => {
@@ -75,6 +75,12 @@ describe("the sessions:write commands", () => {
 
   it("keep a command whose effect depends on what the session held ordered: a pin's companions, a tag added to the set", () => {
     for (const name of ["sessions.pin", "sessions.settle", "sessions.tag", "sessions.untag", "groups.create", "sessions.delete"] as const) {
+      expect(SESSION_WRITE_COMMANDS[name]).toHaveProperty("ordered");
+    }
+  });
+
+  it("keep a command that may be refused for what its params name ordered: a group's new name, the group a session moves to, a snooze's time", () => {
+    for (const name of ["groups.rename", "sessions.setGroup", "sessions.snooze"] as const) {
       expect(SESSION_WRITE_COMMANDS[name]).toHaveProperty("ordered");
     }
   });

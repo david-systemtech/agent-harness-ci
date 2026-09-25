@@ -192,6 +192,33 @@ describe("commands.dispatch", () => {
     ]);
   });
 
+  it("never counts a retried create refused for a name another group holds as its own earlier attempt: the move after it is refused, and the heading goes", async () => {
+    const { runtime, wire, clock, id, list } = await paired({ list: true });
+    const [sessionId, holder] = [randomUUID(), randomUUID()];
+    listed(list, 10, [summaryOf(sessionId, { title: "Invoices" })]);
+    await flush();
+    wire.answer("groups.create", () => undefined);
+    const moved = runtime.commands.moveToGroup(id, sessionId, "Cool-Jams");
+    // The create is sent and its answer lost with the socket; meanwhile another client took the name.
+    await wire.server.request("groups.create");
+    wire.server.drop();
+    await flush();
+    expect(runtime.projections.sessionList.read().groups.map((h) => h.name)).toEqual(["Cool-Jams"]);
+
+    wire.answer("groups.create", () => answering(rejected(11, "conflict", { reason: "name_taken", name: "Cool-Jams", heldName: "Cool-Jams", groupId: holder })));
+    wire.answer("sessions.setGroup", (params) => answering(rejected(12, "not_found", { kind: "group", groupId: params["groupId"] })));
+    clock.advance(1250);
+    await wire.server.accept();
+    expect(await moved).toMatchObject({ ok: false, error: { code: "not_found" } });
+    expect(requests(wire, "groups.create")).toHaveLength(1);
+    expect(runtime.projections.sessionList.read().groups).toEqual([]);
+    expect(row(runtime, sessionId)).toMatchObject({ groupName: null });
+    expect(runtime.projections.notices.read().filter((n) => n.kind === "command-rejected").map((n) => n.message)).toEqual([
+      "Create group on Cool-Jams was rejected: name taken.",
+      "Move on Invoices was rejected: it no longer exists.",
+    ]);
+  });
+
   it("re-sends a runs:drive command in flight when the socket drops, but fails one still waiting its turn with unreachable", async () => {
     const { runtime, wire, clock, id } = await paired();
     wire.answer("runs.interrupt", () => undefined);
@@ -616,23 +643,44 @@ describe("coalescing", () => {
     await flush();
     expect(pendingCount(runtime)).toBe(4);
   });
-  it("keeps a queued group rename that a create or another group's rename behind it may rely on, since it gives up a name they may take", async () => {
-    const { runtime, wire, id, list } = await paired({ list: true });
-    const [renamed, created] = [randomUUID(), randomUUID()];
-    listed(list, 10, [], [groupOf(renamed, "Brandsolidate")]);
+  it("never replaces a setter whose refusal depends on what it names: a group rename, a move, a snooze are all sent in order", async () => {
+    const { runtime, wire, clock, id, list } = await paired({ list: true });
+    const [renamed, sessionId, first, second] = [randomUUID(), randomUUID(), randomUUID(), randomUUID()];
+    listed(list, 10, [summaryOf(sessionId, { title: "Invoices" })], [groupOf(renamed, "Brandsolidate"), groupOf(first, "One"), groupOf(second, "Two")]);
     await flush();
     await cut(wire);
-    void runtime.commands.dispatch(id, "groups.rename", { groupId: renamed, name: "Cool-Jams" });
-    void runtime.commands.dispatch(id, "groups.rename", { groupId: renamed, name: "Bluebeards" });
+    const soon = new Date(clock.now().getTime() + DAY).toISOString();
+    const later = new Date(clock.now().getTime() + 2 * DAY).toISOString();
+    // The later of each pair may be refused where the earlier is not (a name another group took, a group deleted, a time out of
+    // its window): sent alone, it would leave the target as it was rather than as the earlier command set it.
+    const renames = [
+      runtime.commands.dispatch(id, "groups.rename", { groupId: renamed, name: "Cool-Jams" }),
+      runtime.commands.dispatch(id, "groups.rename", { groupId: renamed, name: "Bluebeards" }),
+    ];
+    void runtime.commands.dispatch(id, "sessions.setGroup", { sessionId, groupId: first });
+    void runtime.commands.dispatch(id, "sessions.setGroup", { sessionId, groupId: second });
+    void runtime.commands.dispatch(id, "sessions.snooze", { sessionId, until: soon });
+    void runtime.commands.dispatch(id, "sessions.snooze", { sessionId, until: later });
     await flush();
-    expect(pendingCount(runtime)).toBe(1);
+    expect(pendingCount(runtime)).toBe(6);
 
-    // The create takes the name the first rename gives up: sent without that rename, the environment would refuse it name_taken.
-    void runtime.commands.dispatch(id, "groups.create", { id: created, name: "Brandsolidate" });
-    void runtime.commands.dispatch(id, "groups.rename", { groupId: renamed, name: "Sir Waggingtons" });
+    let sequence = 11;
+    wire.answer("groups.rename", (params) =>
+      params["name"] === "Bluebeards"
+        ? answering(rejected(sequence++, "conflict", { reason: "name_taken", name: "Bluebeards", heldName: "Bluebeards", groupId: randomUUID() }))
+        : answering(accepted(sequence++)),
+    );
+    for (const method of ["sessions.setGroup", "sessions.snooze"]) wire.answer(method, () => answering(accepted(sequence++)));
+    await mend(wire, clock, runtime);
+    await subscription(wire, "sessions.subscribe");
+    expect(await renames[0]).toMatchObject({ ok: true });
+    expect(await renames[1]).toMatchObject({ ok: false, error: { code: "conflict" } });
     await flush();
-    expect(pendingCount(runtime)).toBe(3);
-    expect(runtime.projections.sessionList.read().groups.map((h) => h.name).sort()).toEqual(["Brandsolidate", "Sir Waggingtons"]);
+    expect(requests(wire, "groups.rename").map((f) => f.params["name"])).toEqual(["Cool-Jams", "Bluebeards"]);
+    expect(requests(wire, "sessions.setGroup").map((f) => f.params["groupId"])).toEqual([first, second]);
+    expect(requests(wire, "sessions.snooze").map((f) => f.params["until"])).toEqual([soon, later]);
+    // The group has the name the first rename gave it, as it would have had the two been sent one by one.
+    expect(runtime.projections.sessionList.read().groups.map((h) => h.name)).toContain("Cool-Jams");
   });
 });
 
