@@ -40,6 +40,14 @@ export const WAIT_MS = 3000;
  */
 export const CONNECT_MS = 15_000;
 
+/**
+ * How long a test waits for the environment to close the socket after its
+ * `bye`, in real time. Longer than `WAIT_MS`: on a loaded runner the close
+ * came after three seconds (issue #226, a completions test on 2026-09-25),
+ * and nothing is waiting on the test in the meantime.
+ */
+export const CLOSE_AFTER_BYE_MS = 15_000;
+
 /** The URL of the wire at `address`: no query, no token, ever. */
 export const wireUrl = (address: Address): string => `ws://${address.host}:${address.port}${WIRE_PATH}`;
 
@@ -69,9 +77,9 @@ export interface ClientSocket {
   close(): Promise<void>;
 }
 
-const withTimeout = <T>(promise: Promise<T>, what: string): Promise<T> =>
+const withTimeout = <T>(promise: Promise<T>, what: string, ms: number = WAIT_MS): Promise<T> =>
   new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`Timed out after ${WAIT_MS} ms waiting for ${what}.`)), WAIT_MS);
+    const timer = setTimeout(() => reject(new Error(`Timed out after ${ms} ms waiting for ${what}.`)), ms);
     promise.then(
       (value) => {
         clearTimeout(timer);
@@ -89,23 +97,45 @@ export interface OpenOptions {
   readonly autoPong?: boolean;
 }
 
-/** One connect attempt: the socket once open, or the error the attempt ended with. */
-const attemptOpen = (url: string): Promise<WebSocket> =>
+/** How long `connect` waits between a failed attempt and the next. */
+const RETRY_MS = 100;
+
+/**
+ * One connect attempt: the socket once open, or the error the attempt ended
+ * with. An attempt that neither opens nor fails within `ms` (a listener that
+ * took the connection and never answered the upgrade) is given up and its
+ * socket closed.
+ */
+const attemptOpen = (url: string, ms: number): Promise<WebSocket> =>
   new Promise((resolve, reject) => {
     const ws = new WebSocket(url);
-    ws.addEventListener("open", () => resolve(ws));
-    ws.addEventListener("error", () => reject(new Error(`Could not open ${url}.`)));
+    const timer = setTimeout(() => {
+      reject(new Error(`Timed out after ${CONNECT_MS} ms opening ${url}.`));
+      ws.close();
+    }, ms);
+    ws.addEventListener("open", () => {
+      clearTimeout(timer);
+      resolve(ws);
+    });
+    ws.addEventListener("error", () => {
+      clearTimeout(timer);
+      reject(new Error(`Could not open ${url}.`));
+    });
   });
 
-/** Opens the wire's socket, trying again on a refused or reset connect until `CONNECT_MS` runs out. */
+/**
+ * Opens the wire's socket, trying again on a refused or reset connect.
+ * `CONNECT_MS` is a cap on the whole: each attempt gets only what is left of
+ * it, and no attempt starts once too little is left for the pause before it.
+ */
 const connect = async (url: string): Promise<WebSocket> => {
   const until = Date.now() + CONNECT_MS;
   for (;;) {
     try {
-      return await attemptOpen(url);
+      return await attemptOpen(url, until - Date.now());
     } catch (error) {
-      if (Date.now() >= until) throw error;
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      if (until - Date.now() <= RETRY_MS) throw error;
+      await new Promise((resolve) => setTimeout(resolve, RETRY_MS));
     }
   }
 };
@@ -301,5 +331,5 @@ export const connectClient = async (address: Address, options: AuthOptions): Pro
     socket.closed.then(() => undefined),
   ]).catch(() => undefined);
   if (first?.type === "hello") return asClient(socket, first, options.methods);
-  throw new ByeError(await withTimeout(socket.closed, "the socket to close after bye"));
+  throw new ByeError(await withTimeout(socket.closed, "the socket to close after bye", CLOSE_AFTER_BYE_MS));
 };
