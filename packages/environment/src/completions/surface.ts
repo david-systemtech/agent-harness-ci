@@ -20,6 +20,7 @@ import type { ClientSessions, VerifiedClientSession } from "../auth/client-sessi
 import { formatActor, type EventEnvelope, type EventLog } from "../event-log/event-log.js";
 import type { RunActor } from "../permissions/resolver.js";
 import { readRun, readSessionFacts } from "../runs/run-reads.js";
+import { requireAttachmentKinds } from "../runs/run-decider.js";
 import { sendIn, startRunIn } from "../runs/run-methods.js";
 import type { Clock, Timer } from "../serve/clock.js";
 import { BodyTooLargeError, readBody, sendJson, type RouteHandler } from "../serve/http.js";
@@ -259,9 +260,14 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
 
   /**
    * The refusals a turn would meet anyway, checked before a fork or a rewind
-   * is recorded, so a refused turn leaves neither behind: the account signed
-   * in, the effort one the model takes, and the named session here and on
-   * the model's account (a fork moves it onto the model's).
+   * is recorded, so a turn refused for its own request leaves neither behind:
+   * the account signed in, the effort one the model takes, each attachment a
+   * kind the model's adapter takes, and the named session here and on the
+   * model's account (a fork moves it onto the model's). Each commits in a
+   * transaction of its own, so a refusal these do not foresee still leaves
+   * it: a race (the environment beginning to stop or drain, the account
+   * signed out or the session deleted meanwhile), or no mode at or below the
+   * ceiling available to the account, which no Claude account meets.
    */
   const precheck = (turn: TurnRequest, model: ResolvedModel, clientSession: VerifiedClientSession): void => {
     const account = host.account(model.account.id);
@@ -271,6 +277,7 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
     if (turn.effort !== null && !model.model.efforts.includes(turn.effort)) {
       throw new CompletionsRefusal(400, "invalid_params", `The model ${model.id} does not take the effort ${turn.effort}.`, { param: turn.effortParam });
     }
+    requireAttachmentKinds(account.descriptor, turn.extension.attachments, [COMPLETIONS_NAMESPACE]);
     const { sessionId, forkSession } = turn.extension;
     if (sessionId === null) return;
     const facts = host.startFacts(sessionId, actorFor(turn, clientSession));

@@ -179,13 +179,25 @@ export const runNotFound = (runId: string): RunRefusal => ({
 /** A request the schema let through that this environment cannot take: `invalid_params` at `path`. */
 const invalid = (path: string, message: string): ContractError => new ContractError(invalidParams([{ code: "custom", path: [path], message }], message));
 
-/** The bytes of an attachment, and what the log records of it; an attachment the adapter does not take is refused. */
-const attachmentsOf = (descriptor: AdapterDescriptor, attachments: readonly AttachmentInput[]): { data: AttachmentData[]; records: AttachmentRecord[] } => {
-  const data: AttachmentData[] = [];
-  const records: AttachmentRecord[] = [];
+/**
+ * Refuses the first attachment of a kind the adapter does not take,
+ * `unsupported` at `attachments.<index>.kind` under `at`: the path a request
+ * that carries them elsewhere names them by (the completions surface's
+ * `agent-harness`).
+ */
+export const requireAttachmentKinds = (descriptor: AdapterDescriptor, attachments: readonly AttachmentInput[], at: readonly string[] = []): void => {
   attachments.forEach((attachment, index) => {
     const flag = attachment.kind === "image" ? "imageInput" : "fileInput";
-    requireCapability(descriptor, flag, ["attachments", index, "kind"], `take ${attachment.kind} attachments`);
+    requireCapability(descriptor, flag, [...at, "attachments", index, "kind"], `take ${attachment.kind} attachments`);
+  });
+};
+
+/** The bytes of an attachment, and what the log records of it; an attachment the adapter does not take is refused. */
+const attachmentsOf = (descriptor: AdapterDescriptor, attachments: readonly AttachmentInput[]): { data: AttachmentData[]; records: AttachmentRecord[] } => {
+  requireAttachmentKinds(descriptor, attachments);
+  const data: AttachmentData[] = [];
+  const records: AttachmentRecord[] = [];
+  attachments.forEach((attachment) => {
     const bytes = new Uint8Array(Buffer.from(attachment.data, "base64"));
     data.push({ kind: attachment.kind, name: attachment.name, mediaType: attachment.mediaType, data: bytes });
     records.push({ kind: attachment.kind, name: attachment.name, mediaType: attachment.mediaType, size: bytes.byteLength });

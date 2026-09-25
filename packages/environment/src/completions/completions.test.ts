@@ -900,7 +900,7 @@ describe("session continuity", () => {
     expect(payloadsOf<RunStartedPayload>(t, sessionId, "run.started")).toHaveLength(1);
   });
 
-  it("records no fork and no rewind for a turn refused after them: an effort the model does not take, an account not signed in", async () => {
+  it("records no fork and no rewind for a turn refused after them: an effort the model does not take, an account not signed in, an attachment kind the adapter does not take", async () => {
     const t = await start(signedOut("work-lapsed"), { accounts: [{ id: "claude-max", provider: "fake" }, { id: "work-lapsed", provider: "fake" }] });
     const { token } = await program(t);
     const sessionId = (await complete(t, token, turn("Hi")))["agent-harness"].sessionId as string;
@@ -917,6 +917,15 @@ describe("session continuity", () => {
       status: 400,
       body: { error: { param: "reasoning_effort" } },
     });
+    // The fake adapter, like Claude's, takes images and no files.
+    const png = { kind: "image", name: "shot.png", mediaType: "image/png", data: Buffer.from("png").toString("base64") };
+    const notes = { kind: "file", name: "notes.txt", mediaType: "text/plain", data: Buffer.from("notes").toString("base64") };
+    for (const asked of [{ forkSession: true }, { rewindToMessageId: randomUUID() }]) {
+      expect(await refusalOf(await post(t, token, turn("With notes", { "agent-harness": { sessionId, ...asked, attachments: [png, notes] } })))).toMatchObject({
+        status: 400,
+        body: { error: { code: "unsupported", param: "agent-harness.attachments.1.kind" } },
+      });
+    }
     expect(calls).toEqual([]);
   });
 
