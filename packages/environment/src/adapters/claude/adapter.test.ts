@@ -113,7 +113,7 @@ const contextWith = (decide?: (request: PromptRequest) => Promise<PromptDecision
     },
   };
   const identities: AccountIdentity[] = [];
-  return { broker, gate: { check: async () => ({ decision: "allow" }) }, adopt: (turn) => adopted.push(turn), adopted, asked, identities, reportIdentity: (identity) => void identities.push(identity), process: {
+  return { broker, gate: { check: async () => ({ decision: "allow" }) }, adopt: (turn) => adopted.push(turn), adopted, asked, identities, reportIdentity: (identity) => void identities.push(identity), recheckAccount: () => undefined, process: {
       hold: (kind, id) => port.push(`hold ${kind}:${id}`),
       unhold: (kind, id) => port.push(`unhold ${kind}:${id}`),
       exited: () => port.push("exited"),
@@ -269,7 +269,8 @@ describe("a run", () => {
     const store = { append: async () => undefined, load: async () => null, listUnrenamedSummaries: async () => [] };
     const adapter = adapterWith({ sessionStore: store, pluginDirectory: () => "/data/skills/work", autoMemoryRoot: "/data/auto-memory" });
     adapter.createRun(runInput({ trusted: true, instructions: "Be brief.", repositoryIdentity: "git.example/david/repo", target: { kind: "resume", providerSessionId: PROVIDER_SESSION } }), contextWith());
-    const options: Options = (await started()).options;
+    // A cold resume through the store has the CLI refresh the login on an unsampled query first (#229): the run's is the second.
+    const options: Options = (await started(2)).options;
     expect(options).toMatchObject({
       cwd: "/work/repo",
       model: "opus",

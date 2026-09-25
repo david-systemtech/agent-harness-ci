@@ -22,6 +22,20 @@ export type HostEnvironment = Readonly<Record<string, string | undefined>>;
 export const CLAUDE_CONFIG_DIR = "CLAUDE_CONFIG_DIR";
 
 /**
+ * The variable naming the CLI's credential store (#229): the directory whose
+ * `.credentials.json` it reads, refreshes and writes back (Linux, Windows),
+ * whose name its macOS keychain item is keyed by, and where its refresh lock
+ * (`.oauth_refresh.lock`) lives; read by the bundled 2.1.281 before its
+ * config directory. Set to the account's directory on every process, as
+ * `CLAUDE_CONFIG_DIR` is, so a resume through the session store, which the
+ * pinned SDK runs in a temporary config directory whose credentials copy has
+ * no refresh token, still reads and refreshes the account's own login, under
+ * the same lock as every other process of the account. The SDK sets it
+ * itself on Windows only, and only when the run's environment has none.
+ */
+export const CLAUDE_SECURESTORAGE_CONFIG_DIR = "CLAUDE_SECURESTORAGE_CONFIG_DIR";
+
+/**
  * The bundled binary's auth commands (claude-adapter spec, "Sign-in and
  * status through the bundled binary"), run with `CLAUDE_CONFIG_DIR` at the
  * account's directory and the stripped variables absent, as every Claude
@@ -79,14 +93,16 @@ export const CLAUDE_STRIPPED_VARIABLES = [
  *   `CLAUDE_CODE_IDLE_TOKEN_THRESHOLD`, `CLAUDE_CODE_RESUME_TOKEN_THRESHOLD`,
  *   `CLAUDE_CODE_ENABLE_TOKEN_USAGE_ATTACHMENT`, the total-tokens reminders),
  *   which the CLI reads as tuning and which carry no credential;
- * - `CLAUDE_CODE_API_BASE_URL`, `CLAUDE_CODE_CUSTOM_OAUTH_URL`, the secure
- *   storage directory, and `CLAUDE_CODE_SIMPLE`: bare mode (`--bare`) turns
+ * - `CLAUDE_CODE_API_BASE_URL`, `CLAUDE_CODE_CUSTOM_OAUTH_URL`, and
+ *   `CLAUDE_CODE_SIMPLE`: bare mode (`--bare`) turns
  *   off OAuth, auto memory, plugins and every configured MCP server; the
  *   pinned SDK never passes `--bare` and has no option that opts out, but the
  *   CLI inherits the variable (verified on the bundled 2.1.281), so leaving
  *   it out is the opt-out;
- * - `CLAUDE_CONFIG_DIR` and `CLAUDE_CODE_PROJECT_DIR_NAME`, set again from
- *   the run, never inherited;
+ * - `CLAUDE_CONFIG_DIR`, the secure-storage directory
+ *   (`CLAUDE_SECURESTORAGE_CONFIG_DIR`) and `CLAUDE_CODE_PROJECT_DIR_NAME`,
+ *   set again from the run, never inherited (the first two to the account's
+ *   directory, #229);
  * - `CLAUDE_COWORK_MEMORY_PATH_OVERRIDE`, which the bundled CLI reads before
  *   any setting for where auto memory lives (2.1.281's resolver: this, then
  *   the settings layers from policy down, then the project directory's
@@ -101,7 +117,7 @@ export const CLAUDE_SCRUBBED_VARIABLES: readonly string[] = [
   "CLAUDE_CODE_API_BASE_URL",
   "CLAUDE_CODE_CUSTOM_OAUTH_URL",
   CLAUDE_CONFIG_DIR,
-  "CLAUDE_SECURESTORAGE_CONFIG_DIR",
+  CLAUDE_SECURESTORAGE_CONFIG_DIR,
   "CLAUDE_CODE_SIMPLE",
   "CLAUDE_CODE_PROJECT_DIR_NAME",
   "CLAUDE_COWORK_MEMORY_PATH_OVERRIDE",
@@ -142,8 +158,9 @@ export const ambientConfigDirectory = (host: HostEnvironment): string => {
 
 /**
  * A Claude process's environment: the host's, with every scrubbed variable
- * removed, then the account's directory and `extra` layered on top. The
- * directory is always given and always set. Answers a fresh object: the
+ * removed, then `extra`, then the account's directory, as the config
+ * directory and as the credential store, on top. The directory is always
+ * given and always set, whoever asks otherwise. Answers a fresh object: the
  * SDK's `env` option replaces the child's environment wholesale, so nothing
  * here is merged later.
  */
@@ -153,12 +170,13 @@ export const composeRunEnvironment = (host: HostEnvironment, directory: string, 
     if (value === undefined || isScrubbed(key)) continue;
     env[key] = value;
   }
-  env[CLAUDE_CONFIG_DIR] = directory;
   for (const [key, value] of Object.entries(extra)) {
     // The stripped variables are never set, whoever asks.
     if ((CLAUDE_STRIPPED_VARIABLES as readonly string[]).includes(key)) continue;
     env[key] = value;
   }
+  env[CLAUDE_CONFIG_DIR] = directory;
+  env[CLAUDE_SECURESTORAGE_CONFIG_DIR] = directory;
   return env;
 };
 
