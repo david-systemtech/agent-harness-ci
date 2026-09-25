@@ -75,9 +75,10 @@ import type { SessionLease } from "../streams/streams.js";
  *   which a run starting ends as it ends the latest. The reducer keeps what
  *   a rewind hid only for a rewind it heard: the snapshot leaves out what a
  *   rewind hid, so an undo of one that stood when the snapshot was taken has
- *   nothing to show again here, and the client subscribes again for a fresh
- *   snapshot to see it (session-state spec). For the same reason a snapshot
- *   taken after a rewind gives no `rewound`;
+ *   nothing to show again here; the session's stream kind sees the same
+ *   undo and resubscribes for a fresh snapshot, folded past it, which does
+ *   (`undoesUnheardRewind`, `streams/kinds.ts`). For the same reason a
+ *   snapshot taken after a rewind gives no `rewound`;
  * - an event of a type the contracts do not know, and one of a known type
  *   whose payload cannot be folded, is kept as an `opaque` entry naming its
  *   type, and the fold goes on (ADR 0001): an older client survives a newer
@@ -446,7 +447,7 @@ export const reduceSession = (snapshot: SessionSnapshotParts, events: readonly E
       case "session.rewind-undone": {
         const { rewindSequence } = event.payload as SessionRewindUndonePayload;
         const undone = rewinds.find((rewind) => rewind.at.sequence === rewindSequence);
-        // One it did not hear (it stood when the snapshot was taken) has nothing to show again: a fresh snapshot does.
+        // One it did not hear (it stood when the snapshot was taken) has nothing to show again: the stream resubscribes for a fresh snapshot, which does.
         if (undone === undefined) return;
         rewinds = rewinds.filter((rewind) => rewind !== undone);
         items = [...items, ...undone.hidden].sort((a, b) => a.sequence - b.sequence);

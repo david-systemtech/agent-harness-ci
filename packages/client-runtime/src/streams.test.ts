@@ -494,6 +494,35 @@ describe("session handles", () => {
     handle.release();
   });
 
+  it("resubscribe a held session for a snapshot when a rewind is undone that its events since the snapshot do not hold, and not for one they do (#218)", async () => {
+    const { runtime, wire, list, adding } = await paired();
+    const a = randomUUID();
+    const message = randomUUID();
+    list.synchronized(0);
+    await adding;
+    const handle = runtime.subscriptions.session(wire.environmentId, a);
+    const first = await subscription(wire, "sessions.subscribeSession");
+    // The snapshot at 8 was taken while the rewind at 5 stood: it left out what that rewind hid.
+    first.snapshot(8, { sequence: 8, summary: summaryOf(a), runs: [], items: [], parkedPrompts: [] });
+    first.synchronized(8);
+    const asked = () => wire.server.received().filter((f) => f.type === "request" && f.method === "sessions.subscribeSession");
+    // A rewind heard and its undo: the events hold what it hid, so nothing is asked for.
+    first.event({ ...unpatchedEvent(9, a, "session.rewound"), payload: { toMessageId: message } });
+    first.event({ ...unpatchedEvent(10, a, "session.rewind-undone"), payload: { toMessageId: message, rewindSequence: 9 } });
+    await flush();
+    expect(asked()).toHaveLength(1);
+
+    first.event({ ...unpatchedEvent(11, a, "session.rewind-undone"), payload: { toMessageId: message, rewindSequence: 5 } });
+    const fresh = await subscription(wire, "sessions.subscribeSession");
+    expect(fresh.params["afterSequence"]).toBeGreaterThan(1_000_000);
+    fresh.snapshot(11, { sequence: 11, summary: summaryOf(a, { title: "Shown again" }), runs: [], items: [], parkedPrompts: [] });
+    fresh.synchronized(11);
+    await flush();
+    expect(handle.state.read()).toMatchObject({ freshness: "live", summary: { title: "Shown again" } });
+    expect(asked()).toHaveLength(2);
+    handle.release();
+  });
+
   it("arm no linger once the runtime has closed", async () => {
     const { runtime, wire, clock, list, adding } = await paired();
     list.synchronized(0);

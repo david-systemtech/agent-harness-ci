@@ -63,6 +63,20 @@ export interface SessionData {
 export const SESSION_EVENTS_BOUND = 1000;
 export const SESSION_EVENT_BYTES_BOUND = 1024 * 1024;
 
+/**
+ * Whether an undo among `events` names a rewind they do not hold (#218): one
+ * that stood when the snapshot was taken, which left out what it hid, so the
+ * events cannot show it again and a fresh snapshot, folded past the undo, does.
+ */
+export const undoesUnheardRewind = (events: readonly EventEnvelope[]): boolean => {
+  const heard = new Set<number>();
+  for (const event of events) {
+    if (event.type === "session.rewound") heard.add(event.sequence);
+    else if (event.type === "session.rewind-undone" && !heard.has((event.payload as { rewindSequence?: unknown }).rewindSequence as number)) return true;
+  }
+  return false;
+};
+
 const sizeOf = (events: readonly EventEnvelope[]): number => events.reduce((sum, event) => sum + utf8Length(JSON.stringify(event)), 0);
 
 /** The environment's own stream: its status as the snapshot gave it and the notices since changed it. */
@@ -132,7 +146,8 @@ export const sessionKind = (): StreamKind<SessionData> => ({
   empty: () => ({ summary: null, snapshot: NO_SNAPSHOT_PARTS, events: [], eventBytes: 0 }),
   // Nothing sent is no session yet, not one that is gone.
   emptyIsState: false,
-  outgrown: (data) => data.events.length > SESSION_EVENTS_BOUND || data.eventBytes > SESSION_EVENT_BYTES_BOUND,
+  // Past the bound, or holding an undo of a rewind the snapshot left what it hid out of (#218): a fresh snapshot folds either.
+  outgrown: (data) => data.events.length > SESSION_EVENTS_BOUND || data.eventBytes > SESSION_EVENT_BYTES_BOUND || undoesUnheardRewind(data.events),
   fromSnapshot(payload) {
     const { summary, runs, items, parkedPrompts } = SessionSnapshot.parse(payload);
     return { summary, snapshot: { runs, items, parkedPrompts }, events: [], eventBytes: 0 };
