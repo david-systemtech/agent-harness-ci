@@ -545,6 +545,30 @@ describe("a completion, streamed", () => {
     expect(contentOf(chunksOf(rest))).toBe("Late reply");
   });
 
+  it("opens a turn queued onto a live run with its first chunk at once, and keeps it alive while the run is silent", async () => {
+    const t = await start();
+    const { token } = await program(t);
+    const held = gate();
+    t.adapter.nextScripts.push(async function* ({ nextSent }) {
+      yield say("Working");
+      await held.opened;
+      yield say(`Also: ${(await nextSent()).text}`);
+      yield end();
+    });
+    const first = await stream(t, token, turn("Start"));
+    const sessionId = (await first.chunk())["agent-harness"].sessionId as string;
+    await first.chunk();
+    // Queued onto the live run mid-turn: its message.sent renders the first chunk at once, which arms the heartbeat;
+    // nothing else of the run follows until the provider reads the message.
+    const queued = sse(await post(t, token, turn("and tidy up", { stream: true, "agent-harness": { sessionId } })));
+    expect(await queued.next()).toMatchObject({ kind: "chunk", chunk: { "agent-harness": { delivery: "queued" } } });
+    t.clock.advance(COMPLETIONS_HEARTBEAT_MS);
+    expect(await queued.next()).toEqual({ kind: "comment", text: "keep-alive" });
+    held.open();
+    await queued.rest();
+    await first.rest();
+  });
+
   it("ends a run that failed mid-stream with a final chunk carrying the error, then [DONE]", async () => {
     const t = await start({ script: () => [delta("i1", "Starting"), end("error", { error: { message: "The provider fell over.", code: null } })] });
     const { token } = await program(t);
@@ -1163,6 +1187,22 @@ describe("the request's instructions, parameters and fields", () => {
     });
     mkdirSync(join(named, "relative"));
     expect((await refusalOf(await post(t, token, turn("Hi", { "agent-harness": { workspace: "relative" } })))).status).toBe(400);
+  });
+
+  it("names the field whose text passes the 200,000-character cap on the request's own instructions", async () => {
+    const t = await start();
+    const { token } = await program(t);
+    const long = "x".repeat(200_001);
+    // systemPrompt alone is bounded by the extension schema.
+    expect(await refusalOf(await post(t, token, turn("Hi", { "agent-harness": { systemPrompt: long } })))).toMatchObject({
+      status: 400,
+      body: { error: { param: "agent-harness.systemPrompt" } },
+    });
+    const oneMessage = { model: "claude-max/opus", messages: [{ role: "system", content: long }, { role: "user", content: "Hi" }] };
+    expect(await refusalOf(await post(t, token, oneMessage))).toMatchObject({ status: 400, body: { error: { code: "invalid_params", param: "messages.0" } } });
+    const together = { ...oneMessage, messages: [{ role: "system", content: "x".repeat(150_000) }, { role: "user", content: "Hi" }], "agent-harness": { systemPrompt: "y".repeat(60_000) } };
+    expect(await refusalOf(await post(t, token, together))).toMatchObject({ status: 400, body: { error: { code: "invalid_params", param: "messages" } } });
+    expect(t.adapter.runs).toHaveLength(0);
   });
 
   it("maps a malformed request to 400 in OpenAI's shape", async () => {

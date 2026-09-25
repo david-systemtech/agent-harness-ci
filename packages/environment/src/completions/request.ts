@@ -163,7 +163,12 @@ export const readTurnRequest = (body: unknown): TurnRequest => {
   });
   const appendedInstructions = instructions.join("\n\n");
   if (appendedInstructions.length > MAX_SYSTEM_PROMPT_CHARS) {
-    throw invalid(`The request's own instructions come to ${appendedInstructions.length} characters; at most ${MAX_SYSTEM_PROMPT_CHARS} are appended.`, "messages");
+    // The field at fault: the one source when there is one (systemPrompt alone never gets here, its schema bounds it), else the messages.
+    const [only, ...more] = instructionSources;
+    throw invalid(
+      `The request's own instructions come to ${appendedInstructions.length} characters; at most ${MAX_SYSTEM_PROMPT_CHARS} are appended.`,
+      only !== undefined && more.length === 0 ? only : "messages",
+    );
   }
 
   const maxTokens = request.max_tokens ?? request.max_completion_tokens ?? null;
