@@ -169,7 +169,10 @@ export interface RequestCache {
 interface Cached {
   readonly environmentId: string;
   readonly method: QueryMethodName;
+  /** A copy of the caller's params: what is sent, whatever the caller does to its own object afterwards. */
   readonly params: Record<string, unknown>;
+  /** The key the entry is held under, fixed when it is made. */
+  readonly key: string;
   readonly value: Writable<CachedAnswer<QueryMethodName>>;
   readonly observable: Observable<CachedAnswer<QueryMethodName>>;
   /** When the last result came, in milliseconds on this client's clock. */
@@ -223,7 +226,7 @@ export const createRequestCache = (host: {
   };
 
   const fetch = (entry: Cached): void => {
-    if (closed || entries.get(keyOf(entry)) !== entry) return;
+    if (closed || entries.get(entry.key) !== entry) return;
     if (entry.inFlight) {
       entry.again = true;
       return;
@@ -241,7 +244,7 @@ export const createRequestCache = (host: {
     });
     void called.then((answer) => {
       entry.inFlight = false;
-      if (closed || entries.get(keyOf(entry)) !== entry) return;
+      if (closed || entries.get(entry.key) !== entry) return;
       if (answer.ok) {
         const now = clock.now();
         entry.fetchedAt = now.getTime();
@@ -277,12 +280,13 @@ export const createRequestCache = (host: {
 
   const keyOf = (entry: Pick<Cached, "environmentId" | "method" | "params">) => `${entry.environmentId} ${entry.method} ${canonical(entry.params)}`;
 
-  const make = (environmentId: string, method: QueryMethodName, params: Record<string, unknown>): Cached => {
+  const make = (environmentId: string, method: QueryMethodName, params: Record<string, unknown>, key: string): Cached => {
     const value = writable<CachedAnswer<QueryMethodName>>(NOTHING_YET, host.report);
     const entry: Cached = {
       environmentId,
       method,
-      params,
+      params: { ...params },
+      key,
       value,
       fetchedAt: null,
       stale: false,
@@ -328,12 +332,14 @@ export const createRequestCache = (host: {
   return {
     cached(environmentId, method, params) {
       if (!isMethodName(method) || registry[method].kind !== "query") {
-        return writable<CachedAnswer<QueryMethodName>>({ ...NOTHING_YET, error: { code: "unsupported", message: `${method} is not a query, so it is not cached.` } }) as never;
+        // The same read-only shape as a cached answer's: one that never fetches and never changes.
+        const { read, subscribe } = writable<CachedAnswer<QueryMethodName>>({ ...NOTHING_YET, error: { code: "unsupported", message: `${method} is not a query, so it is not cached.` } });
+        return { read, subscribe } as never;
       }
       const draft = { environmentId, method, params: params as Record<string, unknown> };
       const key = keyOf(draft);
       let entry = entries.get(key);
-      if (!entry) entries.set(key, (entry = make(environmentId, method, draft.params)));
+      if (!entry) entries.set(key, (entry = make(environmentId, method, draft.params, key)));
       return entry.observable as never;
     },
     noticed(environmentId, type) {

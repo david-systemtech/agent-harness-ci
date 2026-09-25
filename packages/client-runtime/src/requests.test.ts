@@ -374,6 +374,21 @@ describe("the request cache", () => {
     expect(cached.read()).toMatchObject({ result: { groups: [] }, loading: false, error: null });
   });
 
+  it("is not moved by a caller changing its params object after the call: the entry keeps sending what it was given", async () => {
+    const { runtime, wire, id, asked, environment } = await counting({ environmentStream: true });
+    const params: Record<string, unknown> = {};
+    const cached = runtime.requests.cached(id, "groups.list", params as never);
+    cached.subscribe(() => undefined);
+    await flush();
+    expect(asked()).toBe(1);
+    params["changed"] = "later";
+    environment?.event(noticeEvent(1, wire.environmentId, "environment.updated", { fromVersion: "0.1.0", toVersion: "0.2.0" }));
+    await flush();
+    expect(asked()).toBe(2);
+    expect(cached.read().loading).toBe(false);
+    expect(wire.server.received().flatMap((f) => (f.type === "request" && f.method === "groups.list" ? [f.params] : []))).toEqual([{}, {}]);
+  });
+
   it("keeps one answer per params, and none for what is not a query", async () => {
     const { runtime, id } = await counting();
     expect(runtime.requests.cached(id, "settings.get", { keys: ["sessions.autoSettleOnMerge"] })).not.toBe(
