@@ -55,7 +55,7 @@
       "type": "string",
       "format": "date-time",
       "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
-      "description": "When this window's numbers were observed: the read's instant, or the instant of the run's report folded into it, which may be newer than the reading's readAt. What a client pooling two readings of one identity compares per window."
+      "description": "When this window's numbers were observed: the reading's readAt, or the instant of a run's report folded into it since, which is never before readAt. What a client pooling two readings of one identity compares per window."
     }
   },
   "required": [

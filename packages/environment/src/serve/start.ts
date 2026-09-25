@@ -184,6 +184,8 @@ export interface EnvironmentOptions {
   readonly signIn?: SignInDirectorFactory;
   /** How long an account's status or model probe may take. Preset: `PROBE_TIMEOUT_MS`. */
   readonly probeTimeoutMs?: number;
+  /** How long a plan-usage read may take before the reading answers unavailable. Preset: `USAGE_READ_TIMEOUT_MS`. */
+  readonly usageReadTimeoutMs?: number;
   /**
    * The idle time of a provider process, in minutes, read each time a wait
    * begins. Preset: the `providers.processIdleMinutes` setting as the
@@ -410,7 +412,14 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
 
   // Plan usage (#136): one reading per account, read through the host and kept six minutes, a run's plan.limit folded in
   // from the log, usage.updated on a change; heard from here on, before the wire opens.
-  const usagePool = createUsagePool({ log, clock, environmentId: record.id, accounts, host });
+  const usagePool = createUsagePool({
+    log,
+    clock,
+    environmentId: record.id,
+    accounts,
+    host,
+    ...(options.usageReadTimeoutMs !== undefined && { readTimeoutMs: options.usageReadTimeoutMs }),
+  });
   closers.push(() => usagePool.close());
 
   const surface = createHttpSurface({ tailnetName: () => tailnetName });

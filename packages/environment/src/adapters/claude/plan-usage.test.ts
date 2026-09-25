@@ -174,6 +174,18 @@ describe("the reader", () => {
     expect((await reader.read(account)).windows).toContainEqual(expected);
   });
 
+  it("does not fold a verdict heard during a read into it when the provider answered the read after the verdict: the read is newer (#136)", async () => {
+    const clock = manualClock();
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    const reader = createPlanUsageReader({ clock, probe: probing([async () => (await held, { identity, outcome: { kind: "read", response: RESPONSE } })]).probe });
+    const reading = reader.read(account);
+    reader.fold(account, { window: "five_hour", status: "rejected", utilisation: 1, resetsAt: null });
+    clock.advance(1_000);
+    release();
+    expect((await reading).windows[0]).toEqual({ window: "five_hour", utilisation: 0.42, resetsAt: "2026-09-24T05:00:00.000Z" });
+  });
+
   it("lets a read that begins after a verdict replace it, the reading it was folded into having aged out: the read is newer", async () => {
     const clock = manualClock();
     const reader = createPlanUsageReader({ clock, probe: probing().probe });

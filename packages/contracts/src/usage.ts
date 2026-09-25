@@ -31,7 +31,7 @@ export const UsageWindow = z
     verdict: UsageVerdict.nullable().meta({ description: "The latest verdict a run reported for the window, folded in after the read; null when none has been heard since." }),
     observedAt: Timestamp.meta({
       description:
-        "When this window's numbers were observed: the read's instant, or the instant of the run's report folded into it, which may be newer than the reading's readAt. What a client pooling two readings of one identity compares per window.",
+        "When this window's numbers were observed: the reading's readAt, or the instant of a run's report folded into it since, which is never before readAt. What a client pooling two readings of one identity compares per window.",
     }),
   })
   .meta({ description: "One plan window of an account's reading: how much is used, when it resets, and the latest verdict a run reported for it." });
@@ -45,7 +45,10 @@ export const AccountUsage = z
       description: "Who the account is signed in as, which a client pools readings by across environments; null when it has never been read.",
     }),
     windows: z.array(UsageWindow).meta({ description: "The plan's windows, in the provider's order; empty when the reading is unavailable." }),
-    readAt: Timestamp.meta({ description: "When the provider was read for this reading. A reading is read again once it is six minutes old." }),
+    readAt: Timestamp.meta({
+      description:
+        "When the provider was read for this reading; when the provider's own stamp was in the future or already six minutes old, when the environment was handed it. A reading is read again once it is six minutes old.",
+    }),
     unavailableReason: z
       .string()
       .min(1)
@@ -74,7 +77,7 @@ export type UsageUpdatedPayload = z.infer<typeof UsageUpdatedPayload>;
 export const HANDOFF_REASONS = ["limit-reached", "limit-near", "most-room", "no-target"] as const;
 export const HandoffReason = z.enum(HANDOFF_REASONS).meta({
   description:
-    "Why the recommendation is what it is: limit-reached (the account handed from has a window the provider is refusing, and accountId has room), limit-near (it has met a hand-off threshold, and accountId has room), most-room (accountId has the most room, and the account handed from, if any, has met no threshold), or no-target (no account with a fresh reading can take the work; accountId is null).",
+    "Why the recommendation is what it is: limit-reached (the account handed from has a window the provider is refusing, and accountId has room), limit-near (it has met a hand-off threshold, and accountId has room), most-room (accountId has the most room, and the account handed from, if any, has met no threshold), or no-target (no account with a fresh reading has room to take the work, since a full or refused account is never named; accountId is null).",
 });
 export type HandoffReason = z.infer<typeof HandoffReason>;
 
@@ -107,7 +110,10 @@ export const HandoffRecommendation = z
     message: z.string().min(1).meta({ description: "The recommendation in a sentence, the same in every client." }),
     fromAccountId: AccountId.nullable().meta({ description: "The account the work is handed from, as asked; null when the question was only which account has the most room." }),
     trigger: HandoffTrigger.nullable().meta({ description: "The threshold the account handed from has met; null when it has met none, or none was named." }),
-    headroom: z.number().nullable().meta({ description: "The recommended account's room, 0 to 1, in its tightest window; null with no recommendation." }),
+    headroom: z.number().nullable().meta({
+      description:
+        "The recommended account's room in its tightest window: 1 less that window's utilisation, so at most 1, and above 0 for any account recommended (a provider may report utilisation beyond 1, which leaves an account below 0 and never recommended); null with no recommendation.",
+    }),
     binding: z.string().min(1).nullable().meta({ description: "The recommended account's tightest window, the one that sets its room; null with no recommendation." }),
     candidates: z.int().nonnegative().meta({ description: "How many accounts the recommendation was chosen from." }),
     basis: HandoffBasis.nullable().meta({ description: "What the ranking compared; null with no recommendation." }),

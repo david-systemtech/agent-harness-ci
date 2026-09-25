@@ -17,10 +17,11 @@ import {
   type FakeAdapterOptions,
   type UsageScript,
 } from "../../test/fake-adapter.js";
-import { startTestEnvironment, type TestEnvironment } from "../../test/helper.js";
+import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { create, refusal } from "../../test/sessions.js";
 import type { WireClient } from "../../test/wire-client.js";
 import { USAGE_MAX_AGE_MS } from "./handoff.js";
+import { USAGE_READ_TIMEOUT_MS } from "./usage-pool.js";
 
 /**
  * Plan usage and the hand-off recommendation through the primary seam
@@ -57,10 +58,10 @@ interface Started {
   readonly client: WireClient;
 }
 
-const start = async (fake: FakeAdapterOptions = {}, accounts = ACCOUNTS): Promise<Started> => {
+const start = async (fake: FakeAdapterOptions = {}, accounts = ACCOUNTS, environment: Omit<TestEnvironmentOptions, "clock" | "adapter" | "accounts"> = {}): Promise<Started> => {
   const clock = manualClock();
   const adapter = fakeAdapter({ clock, ...fake });
-  const t = await startTestEnvironment({ clock, adapter, accounts });
+  const t = await startTestEnvironment({ clock, adapter, accounts, ...environment });
   onCleanup(() => t.close());
   return { t, clock, adapter, client: await t.client() };
 };
@@ -167,6 +168,23 @@ describe("accounts.usage", () => {
     expect(readsOf(adapter, "work")).toBe(2);
   });
 
+  it("dates a reading stamped seven minutes ago, or ten minutes ahead, by when it was handed over, on the wire too", async () => {
+    const { adapter, client, clock } = await start();
+    const handedAt = clock.now().toISOString();
+    adapter.setUsage((account, now) => presetUsage(account, new Date(now.getTime() - 7 * 60_000)));
+    const old = await reading(client, "work");
+    expect(old.readAt).toBe(handedAt);
+    expect(old.windows.map((window) => window.observedAt)).toEqual([handedAt]);
+    // Kept for six minutes from the hand-over, not read again on every ask.
+    clock.advance(USAGE_MAX_AGE_MS - 1);
+    await reading(client, "work");
+    expect(readsOf(adapter, "work")).toBe(1);
+    adapter.setUsage((account, now) => presetUsage(account, new Date(now.getTime() + 10 * 60_000)));
+    const ahead = await reading(client, "personal");
+    expect(ahead.readAt).toBe(clock.now().toISOString());
+    expect(ahead.windows[0]?.observedAt).toBe(clock.now().toISOString());
+  });
+
   it("folds a run's plan.limit into the reading of that run's account, keeping what the verdict does not say", async () => {
     const { adapter, client, t } = await start({
       script: () => [planLimit("five_hour", "rejected", { resetsAt: "2026-09-24T04:00:00.000Z" }), say("Out of plan"), end()],
@@ -202,6 +220,43 @@ describe("accounts.usage", () => {
     expect((await reading(client, "work")).windows[0]).toMatchObject({ utilisation: 0.85, verdict: "warning" });
   });
 
+  it("does not let a verdict heard during a read overwrite the read's newer numbers, when the provider answered after it", async () => {
+    const held = gate();
+    const { adapter, client, clock, t } = await start({ script: () => [planLimit("five_hour", "warning", { utilisation: 0.85 }), end()] });
+    // The fake stamps its reading when it answers: after the gate opens, a second after the verdict.
+    adapter.setUsage(async (account) => {
+      await held.opened;
+      return presetUsage(account, clock.now());
+    });
+    const pending = client.request("accounts.usage", { accountId: "work" });
+    await vi.waitFor(() => expect(readsOf(adapter, "work")).toBe(1));
+    await runOn(t, await t.client(), "work");
+    clock.advance(1_000);
+    held.open();
+    const answered = registry["accounts.usage"].result.parse(await pending).readings[0];
+    expect(answered?.windows).toEqual([{ window: "five_hour", utilisation: 0.25, resetsAt: RESETS, verdict: null, observedAt: answered?.readAt }]);
+  });
+
+  it("does not keep a read that finishes after the store gave the account another identity", async () => {
+    const held = gate();
+    const { adapter, client, t } = await start({
+      usage: async (account, now) => {
+        await held.opened;
+        return presetUsage(account, now);
+      },
+    });
+    const pending = client.request("accounts.usage", { accountId: "work" });
+    await vi.waitFor(() => expect(readsOf(adapter, "work")).toBe(1));
+    adapter.setStatus((account) => signedInAs(account.id === "work" ? "someone-else@example.com" : `${account.id}@example.com`));
+    await client.request("accounts.refresh", { accountId: "work" });
+    held.open();
+    await pending;
+    adapter.setUsage((account, now) => usageOf("someone-else@example.com", [usageWindow("five_hour", 0.6, RESETS)], now));
+    expect(await reading(client, "work")).toMatchObject({ identity: { email: "someone-else@example.com" }, windows: [{ utilisation: 0.6 }] });
+    expect(readsOf(adapter, "work")).toBe(2);
+    expect(notices(t).at(-1)).toMatchObject({ accountId: "work", identity: { email: "someone-else@example.com" } });
+  });
+
   it("drops a verdict for an account with no reading to fold into, since the next read is newer", async () => {
     const { adapter, client, t } = await start({ script: () => [planLimit("five_hour", "rejected"), end()] });
     await runOn(t, client, "work");
@@ -227,6 +282,17 @@ describe("accounts.usage", () => {
       adapter.setUsage(presetUsage);
       expect((await reading(client, "work")).windows).toHaveLength(1);
       expect(readsOf(adapter, "work")).toBe(2);
+    });
+
+    it("answers a read that never returns as unavailable once the read timeout passes, well inside a client's thirty-second request timeout", async () => {
+      expect(USAGE_READ_TIMEOUT_MS).toBeLessThanOrEqual(10_000);
+      const { adapter, client } = await start({ usage: () => new Promise(() => undefined) }, ACCOUNTS, { usageReadTimeoutMs: 50 });
+      const began = Date.now();
+      expect(await reading(client, "work")).toMatchObject({ windows: [], unavailableReason: expect.stringContaining("gave no answer within 50 ms") });
+      expect(Date.now() - began).toBeLessThan(5_000);
+      // Read again at the next ask, not kept as the answer.
+      adapter.setUsage(presetUsage);
+      expect((await reading(client, "work")).windows).toHaveLength(1);
     });
 
     it("passes on the provider's own reason for reporting no windows", async () => {
@@ -312,6 +378,15 @@ describe("accounts.handoff.recommend", () => {
     expect(await recommend(other)).toEqual(after);
   });
 
+  it("never names a refused account as having the most room, even when the store's order would break a tie at zero for it", async () => {
+    const { client, t } = await start({ usage: fiveHour({ work: 0.4, personal: 1 }), script: () => [planLimit("five_hour", "rejected"), end()] });
+    await usage(client);
+    await runOn(t, client, "work");
+    expect(await recommend(client)).toMatchObject({ accountId: null, reason: "no-target", candidates: 2 });
+    await runOn(t, client, "personal");
+    expect(await recommend(client)).toMatchObject({ accountId: null, reason: "no-target", candidates: 2 });
+  });
+
   it("from an account near its limit, names the threshold it met and the other account to hand to", async () => {
     const { client } = await start({ usage: fiveHour({ work: 0.94, personal: 0.3 }) });
     await usage(client);
@@ -339,15 +414,30 @@ describe("accounts.handoff.recommend", () => {
   it("from an account with room, still names the other account with the most room, with no threshold met", async () => {
     const { client } = await start({ usage: fiveHour({ work: 0.2, personal: 0.3 }) });
     await usage(client);
-    expect(await recommend(client, "work")).toMatchObject({ accountId: "personal", reason: "most-room", trigger: null, candidates: 1 });
+    const answer = await recommend(client, "work");
+    expect(answer).toMatchObject({ accountId: "personal", reason: "most-room", trigger: null, candidates: 1 });
+    expect(answer.message).toBe("personal has the most room of the others, 70% free in its 5-hour window.");
     expect(await refusal(client.request("accounts.handoff.recommend", { fromAccountId: "nobody" }))).toMatchObject({ code: "not_found", data: { kind: "account" } });
+  });
+
+  it("judges the threshold by the window's own observation: a reading seven minutes old with a 93% warning a run reported since triggers", async () => {
+    const { client, clock, t } = await start({ usage: fiveHour({ work: 0.25, personal: 0.3 }), script: () => [planLimit("five_hour", "warning", { utilisation: 0.93 }), end()] });
+    await reading(client, "work");
+    clock.advance(7 * 60_000);
+    await reading(client, "personal");
+    await runOn(t, client, "work");
+    expect(await recommend(client, "work")).toMatchObject({
+      accountId: "personal",
+      reason: "limit-near",
+      trigger: { threshold: "five_hour", window: "five_hour", utilisation: 0.93, verdict: "warning" },
+    });
   });
 
   it("does not recommend on readings older than six minutes", async () => {
     const { client, clock } = await start({ usage: fiveHour({ work: 0.5, personal: 0.3 }) });
     await usage(client);
-    clock.advance(USAGE_MAX_AGE_MS + 1);
-    expect(await recommend(client)).toMatchObject({ accountId: null, reason: "no-target" });
+    clock.advance(USAGE_MAX_AGE_MS);
+    expect(await recommend(client)).toMatchObject({ accountId: null, reason: "no-target", candidates: 0 });
   });
 
   it("counts the runs live on an account against its room", async () => {
@@ -376,12 +466,12 @@ describe("one identity on two environments", () => {
   it("reads as an equal identity on each, so a client pools the two readings into one gauge", async () => {
     const david = (account: { readonly id: string }, now: Date) => usageOf(account.id === "laptop-max" ? "David@Example.com" : "david@example.com", [usageWindow("five_hour", 0.3, RESETS)], now);
     const laptop = await start({ status: () => signedInAs("david@example.com", "Acme"), usage: david }, [{ id: "laptop-max", provider: "fake", directory: "/nonexistent/laptop" }]);
-    const server = await start({ status: () => signedInAs("david@example.com", "Acme"), usage: david }, [{ id: "server-max", provider: "fake", directory: "/nonexistent/server" }]);
+    const environment = await start({ status: () => signedInAs("david@example.com", "Acme"), usage: david }, [{ id: "box-max", provider: "fake", directory: "/nonexistent/box" }]);
     const [onLaptop] = await usage(laptop.client);
-    const [onServer] = await usage(server.client);
-    expect(onLaptop?.accountId).not.toBe(onServer?.accountId);
+    const [onBox] = await usage(environment.client);
+    expect(onLaptop?.accountId).not.toBe(onBox?.accountId);
     expect(onLaptop?.identity).toEqual({ provider: "fake", email: "david@example.com", organisation: "Acme" });
-    expect(onServer?.identity).toEqual(onLaptop?.identity);
-    expect(laptop.t.env.id).not.toBe(server.t.env.id);
+    expect(onBox?.identity).toEqual(onLaptop?.identity);
+    expect(laptop.t.env.id).not.toBe(environment.t.env.id);
   });
 });

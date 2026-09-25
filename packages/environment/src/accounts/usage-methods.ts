@@ -3,12 +3,11 @@ import type { Clock } from "../serve/clock.js";
 import type { MethodHandlers } from "../serve/methods.js";
 import {
   DEFAULT_HANDOFF_THRESHOLDS,
-  USAGE_MAX_AGE_MS,
   bindingWindow,
   handoffTrigger,
-  isAvailable,
-  isModelScoped,
-  recommendAccount,
+  isFresh,
+  rankAccounts,
+  windowFor,
   type AccountPlanUsage,
   type HandoffTriggerMatch,
 } from "./handoff.js";
@@ -26,11 +25,12 @@ import type { UsagePool } from "./usage-pool.js";
  * pool's reading and the runs live on it. Asked with no account, it names
  * the account with the most room of two or more (Artemis's
  * `recommendProfile`). Asked from an account, it says which threshold that
- * account has met (`handoffTrigger`, on a reading under six minutes old, or
- * a window the provider is refusing on a reading of any age: a percentage
- * goes stale, a refusal does not) and names the other account with the most
+ * account has met (`handoffTrigger`, on a window observed under six minutes
+ * ago, or one the provider is refusing whatever its age: a percentage goes
+ * stale, a refusal does not) and names the other account with the most
  * room, one being a choice, never one whose tightest window the provider is
- * refusing. No plan weights are known yet, so the basis is `percentage`.
+ * refusing. No account with no room is ever named. No plan weights are known
+ * yet, so the basis is `percentage`.
  */
 
 export interface UsageMethodsOptions {
@@ -41,13 +41,9 @@ export interface UsageMethodsOptions {
 
 const percent = (fraction: number): string => `${Math.round(fraction * 100)}%`;
 
-/** A window as a sentence names it: the threshold's label when a shipped rule is about it, else the provider's name. */
-const windowInWords = (window: string): string => {
-  const rule = DEFAULT_HANDOFF_THRESHOLDS.find(({ match }) =>
-    match.kind === "window" ? match.window === window : isModelScoped(window) && window.toLowerCase().includes(match.name),
-  );
-  return rule?.label ?? window;
-};
+/** A window as a sentence names it: the label of the shipped rule `windowFor` finds it by, else the provider's name. */
+const windowInWords = (reading: AccountUsage | null | undefined, window: string, now: number): string =>
+  DEFAULT_HANDOFF_THRESHOLDS.find((threshold) => windowFor(reading, threshold, now)?.window === window)?.label ?? window;
 
 const triggerOf = (match: HandoffTriggerMatch): HandoffTrigger => ({
   threshold: match.threshold.id,
@@ -58,15 +54,16 @@ const triggerOf = (match: HandoffTriggerMatch): HandoffTrigger => ({
   verdict: match.window.verdict,
 });
 
-/** Whether a reading is young enough to forecast from. */
-const fresh = (reading: AccountUsage, now: number): boolean => Math.max(0, now - Date.parse(reading.readAt)) <= USAGE_MAX_AGE_MS;
-
-/** The threshold `reading` has met: any, on a fresh reading; only a refused window, on a stale one. */
+/**
+ * The threshold `reading` has met: on a window observed under six minutes
+ * ago (its `observedAt`, so a verdict a run reported since the read counts,
+ * as the ranking counts it), or on a refused window of any age: a
+ * percentage goes stale, a refusal does not.
+ */
 const metThreshold = (reading: AccountUsage | null, now: number): HandoffTriggerMatch | null => {
-  if (!isAvailable(reading)) return null;
   const match = handoffTrigger(reading, DEFAULT_HANDOFF_THRESHOLDS, now);
   if (match === null) return null;
-  return fresh(reading, now) || match.window.verdict === "rejected" ? match : null;
+  return match.window.verdict === "rejected" || isFresh(Date.parse(match.window.observedAt), now) ? match : null;
 };
 
 export const recommendHandoff = (options: UsageMethodsOptions, fromAccountId: string | undefined): HandoffRecommendation => {
@@ -82,11 +79,12 @@ export const recommendHandoff = (options: UsageMethodsOptions, fromAccountId: st
     .map((record) => ({ accountId: record.id, provider: record.provider, reading: pool.cached(record.id), liveRuns: pool.liveRuns(record.id) }));
 
   const trigger = fromAccountId === undefined ? null : metThreshold(pool.cached(fromAccountId), now);
+  // Handing off, the others are the targets, one being a choice; a refused one is not one.
   const targets =
     fromAccountId === undefined
       ? entries
       : entries.filter((entry) => entry.accountId !== fromAccountId && bindingWindow(entry.reading, now)?.verdict !== "rejected");
-  const chosen = recommendAccount(targets, { now, minCandidates: fromAccountId === undefined ? 2 : 1 });
+  const { candidates, best } = rankAccounts(targets, { now, minCandidates: fromAccountId === undefined ? 2 : 1 });
 
   const from = fromAccountId === undefined ? null : labelOf(fromAccountId);
   const said =
@@ -95,9 +93,9 @@ export const recommendHandoff = (options: UsageMethodsOptions, fromAccountId: st
       : trigger.window.verdict === "rejected"
         ? `${from}'s ${trigger.threshold.label} window has run out`
         : `${from}'s ${trigger.threshold.label} window is at ${percent(trigger.utilisation)}`;
-  if (chosen === null) {
+  if (best === null) {
     const none =
-      fromAccountId === undefined ? "Fewer than two accounts have a fresh plan reading to compare." : "No other account has a fresh plan reading with room to hand the work to.";
+      fromAccountId === undefined ? "No two accounts have a fresh plan reading to compare, or none has room." : "No other account has a fresh plan reading with room to hand the work to.";
     return {
       accountId: null,
       reason: "no-target",
@@ -106,22 +104,23 @@ export const recommendHandoff = (options: UsageMethodsOptions, fromAccountId: st
       trigger: trigger === null ? null : triggerOf(trigger),
       headroom: null,
       binding: null,
-      // The accounts that could be ranked, too few to choose between.
-      candidates: recommendAccount(targets, { now, minCandidates: 0 })?.candidates ?? 0,
+      candidates,
       basis: null,
     };
   }
-  const room = `${labelOf(chosen.accountId)} has the most room, ${percent(chosen.headroom)} free in its ${windowInWords(chosen.binding.window)} window.`;
+  const reading = targets.find((entry) => entry.accountId === best.accountId)?.reading;
+  const most = fromAccountId === undefined ? "the most room" : "the most room of the others";
+  const room = `${labelOf(best.accountId)} has ${most}, ${percent(best.headroom)} free in its ${windowInWords(reading, best.binding.window, now)} window.`;
   return {
-    accountId: chosen.accountId,
+    accountId: best.accountId,
     reason: trigger === null ? "most-room" : trigger.window.verdict === "rejected" ? "limit-reached" : "limit-near",
     message: said === null ? room : `${said}; ${room}`,
     fromAccountId: fromAccountId ?? null,
     trigger: trigger === null ? null : triggerOf(trigger),
-    headroom: chosen.headroom,
-    binding: chosen.binding.window,
-    candidates: chosen.candidates,
-    basis: chosen.basis,
+    headroom: best.headroom,
+    binding: best.binding.window,
+    candidates,
+    basis: best.basis,
   };
 };
 

@@ -410,11 +410,13 @@ export interface Adapter {
   /**
    * Plan usage per window, with the account's identity (`planUsage`). The
    * environment's pool (`accounts/usage-pool.ts`, #136) is its one caller:
-   * at most one read of an account in flight, and none while the pool holds
-   * a reading under six minutes old by its `readAt` (a read that threw is
-   * asked again at the next ask). An adapter may keep
-   * readings of its own, but `readAt` must stay when the provider was read,
-   * not when the reading was handed over, since the pool ages by it.
+   * concurrent asks for an account share one read, and none is made while
+   * the pool holds a reading under six minutes old by its `readAt` (a read
+   * that threw is asked again at the next ask). A read the pool gave up on
+   * at its timeout may still be running when the next ask starts another,
+   * so two can overlap. An adapter may keep readings of its own, but
+   * `readAt` must stay when the provider was read, not when the reading was
+   * handed over, since the pool ages by it.
    */
   usage?(account: AccountRef): Promise<UsageReading>;
   /**

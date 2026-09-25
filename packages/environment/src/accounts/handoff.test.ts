@@ -10,8 +10,10 @@ import {
   effortLoadFactor,
   handoffThresholdsWith,
   handoffTrigger,
+  isFresh,
   modelLoadFactor,
   planHeadroom,
+  rankAccounts,
   recommendAccount,
   reservationFor,
   runLoadFactor,
@@ -318,9 +320,19 @@ describe("recommendAccount", () => {
     expect(recommendAccount(tied, { now: NOW })?.accountId).toBe("first");
   });
 
-  it("recommends a full account when it is the least full one, and answers null for no accounts", () => {
-    expect(recommendAccount([entry("a", five(1)), entry("b", five(1))], { now: NOW })?.headroom).toBe(0);
+  it("never names an account with no room, even the least full of full ones (a change from Artemis), and answers null for no accounts", () => {
+    expect(rankAccounts([entry("a", five(1)), entry("b", five(1))], { now: NOW })).toEqual({ candidates: 2, best: null });
+    expect(recommendAccount([entry("a", five(1.2)), entry("b", five(1))], { now: NOW })).toBeNull();
     expect(recommendAccount([], { now: NOW })).toBeNull();
+  });
+
+  it("ages a reading out at six minutes exactly, the pool's boundary", () => {
+    const at = (age: number) => five(0.1, { readAt: iso(NOW - age), windows: [w("five_hour", 0.1, { observedAt: iso(NOW - age) })] });
+    expect(recommendAccount([entry("young", at(USAGE_MAX_AGE_MS - 1)), entry("other", five(0.5))], { now: NOW })?.accountId).toBe("young");
+    expect(recommendAccount([entry("aged", at(USAGE_MAX_AGE_MS)), entry("other", five(0.5)), entry("third", five(0.6))], { now: NOW })?.accountId).toBe("other");
+    expect(isFresh(NOW - USAGE_MAX_AGE_MS + 1, NOW)).toBe(true);
+    expect(isFresh(NOW - USAGE_MAX_AGE_MS, NOW)).toBe(false);
+    expect(isFresh(NOW + 60_000, NOW)).toBe(true);
   });
 
   describe("across plans", () => {
@@ -444,6 +456,15 @@ describe("a refused window", () => {
     const result = recommendAccount([entry("spent", reading([rejected("seven_day", 0.6)])), entry("ok", reading([w("seven_day", 0.9)]))], { now: NOW });
     expect(result?.accountId).toBe("ok");
     expect(result?.candidates).toBe(2);
+  });
+
+  it("is never named, not on a tie at zero that falls to list order, nor when every account is refused", () => {
+    const spent = entry("spent", reading([rejected("five_hour", 0.3)]));
+    expect(rankAccounts([spent, entry("full", five(1))], { now: NOW })).toEqual({ candidates: 2, best: null });
+    expect(rankAccounts([spent, entry("also-spent", reading([rejected("seven_day", null)]))], { now: NOW })).toEqual({ candidates: 2, best: null });
+    // Loaded past zero, an account with room still beats a refused one whose score reads higher.
+    const heavy = { model: "fable", effort: "max", ultracode: true };
+    expect(recommendAccount([spent, entry("busy", five(0.95), { liveRuns: [heavy, heavy] })], { now: NOW })?.accountId).toBe("busy");
   });
 });
 

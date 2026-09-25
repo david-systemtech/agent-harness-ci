@@ -7,6 +7,7 @@ import {
   type PlanLimitPayload,
   type RunStartedPayload,
   type UsageUpdatedPayload,
+  type UsageVerdict,
   type UsageWindow,
 } from "@agent-harness/contracts";
 import type { UsageReading } from "../adapter/contract.js";
@@ -17,7 +18,7 @@ import type { Clock } from "../serve/clock.js";
 import type { Reader } from "../sessions/session-tables.js";
 import { withTimeout } from "./account-service.js";
 import { sameLogin } from "./account-store.js";
-import { USAGE_MAX_AGE_MS, currentWindow, type LiveRunLoad } from "./handoff.js";
+import { currentWindow, isFresh, type LiveRunLoad } from "./handoff.js";
 
 /**
  * The environment's plan-usage pool (claude-adapter spec, "Plan usage";
@@ -25,8 +26,11 @@ import { USAGE_MAX_AGE_MS, currentWindow, type LiveRunLoad } from "./handoff.js"
  * reads through `accounts.usage` and the hand-off recommendation answers
  * from.
  *
- * - **Read through the adapter host** (`AdapterHost.usage`), under a timeout.
- *   Concurrent asks for one account share the read in flight.
+ * - **Read through the adapter host** (`AdapterHost.usage`), under a
+ *   timeout well inside a client's request timeout, so a hung read answers
+ *   unavailable rather than failing the call. Concurrent asks for one
+ *   account share the read in flight; once a read has timed out the next
+ *   ask reads again, though the adapter's may still be running.
  * - **Kept for six minutes from when the provider was read** (the reading's
  *   `readAt`), on the environment's clock, then read again at the next ask.
  *   Ageing from the provider's own stamp rather than from when the pool was
@@ -36,7 +40,8 @@ import { USAGE_MAX_AGE_MS, currentWindow, type LiveRunLoad } from "./handoff.js"
  *   adapter's has aged out by the time the pool asks again. A stamp in the
  *   future, unreadable, or already six minutes old is replaced by the time
  *   it was handed over, so a clock the adapter disagrees with cannot make the
- *   pool read on every ask.
+ *   pool read on every ask; the reading then says so, its `readAt` and each
+ *   window's `observedAt` rewritten to the hand-over.
  * - **Unavailable, never failing**: an account whose adapter lacks
  *   `planUsage`, one not signed in (not read at all), a read that throws or
  *   times out, and a provider reporting no limits each answer a reading with
@@ -49,23 +54,33 @@ import { USAGE_MAX_AGE_MS, currentWindow, type LiveRunLoad } from "./handoff.js"
  *   utilisation and reset it names, the rest kept unless the window has
  *   rolled over since. A verdict is folded only when it is news, a verdict
  *   changing or a utilisation moving, since a provider reports on every
- *   response. One for an account with no reading is dropped (the next read
- *   is newer); one that arrives while a read is in flight is folded into
- *   that read's reading. The fold does not make a reading younger: its
- *   window's `observedAt` moves, its `readAt` does not.
+ *   response. A verdict older than the reading's `readAt` is not folded: the
+ *   provider answered the read after it, so the read's numbers are newer
+ *   (which is also what keeps a window's `observedAt` never before the
+ *   reading's `readAt`). One for an account with no reading is dropped (the
+ *   next read is newer); one heard while a read is in flight is folded into
+ *   that read's reading on the same rule. The fold does not make a reading
+ *   younger: its window's `observedAt` moves, its `readAt` does not.
  * - **`usage.updated`** goes on the environment's stream when a reading
  *   changes: its identity, why it is unavailable, or a window's name,
- *   utilisation, reset or verdict. The times alone are not a change.
+ *   utilisation (to a whole percent, what a gauge shows), reset or verdict.
+ *   The times alone are not a change.
  * - **The identity** is the one the store records for the account when the
  *   provider's read names the same login (the email ignoring case, the
  *   organisation only when both name one), so one login reads as one
- *   identity on every environment; else the one the read gave.
+ *   identity on every environment; else the one the read gave. A read that
+ *   finishes after the store gave the account another identity is answered
+ *   but not held.
  * - **Live runs**: the runs started and not yet ended, with their account,
  *   model and effort, from the same log, for the hand-off's load.
  */
 
-/** How long a plan-usage read may take before it counts as failed; the Claude read spawns a control query. */
-export const USAGE_READ_TIMEOUT_MS = 30_000;
+/**
+ * How long a plan-usage read may take before it counts as failed and the
+ * reading answers unavailable: the Claude read spawns a control query, and
+ * a client gives up on a request after thirty seconds (client-runtime spec).
+ */
+export const USAGE_READ_TIMEOUT_MS = 10_000;
 
 /** The pool's own actor, for the `usage.updated` notices. */
 export const USAGE_POOL_ACTOR = formatActor({ kind: "system", id: "plan-usage" });
@@ -73,9 +88,10 @@ export const USAGE_POOL_ACTOR = formatActor({ kind: "system", id: "plan-usage" }
 /** A verdict as it folds into a window: what a run's `plan.limit` said, and when. */
 export interface PlanVerdict {
   readonly window: string;
-  readonly status: "allowed" | "warning" | "rejected";
+  readonly status: UsageVerdict;
   readonly utilisation: number | null;
   readonly resetsAt: string | null;
+  /** When the run reported it: the `plan.limit` event's time. */
   readonly at: string;
 }
 
@@ -125,7 +141,10 @@ const isoOrNull = (value: unknown): string | null => {
 const sameIdentity = (a: AccountIdentity | null, b: AccountIdentity | null): boolean =>
   a === null || b === null ? a === b : a.provider === b.provider && a.email === b.email && a.organisation === b.organisation;
 
-/** Whether two readings say the same: identity, reason, and each window's name, utilisation, reset and verdict; the times aside. */
+/** A utilisation to the whole percent a gauge shows, so a read that moves it by less is no news. */
+const shown = (utilisation: number | null): number | null => (utilisation === null ? null : Math.round(utilisation * 100));
+
+/** Whether two readings say the same: identity, reason, and each window's name, utilisation to a whole percent, reset and verdict; the times aside. */
 export const sameReading = (a: AccountUsage, b: AccountUsage): boolean =>
   sameIdentity(a.identity, b.identity) &&
   a.unavailableReason === b.unavailableReason &&
@@ -135,7 +154,7 @@ export const sameReading = (a: AccountUsage, b: AccountUsage): boolean =>
     return (
       other !== undefined &&
       window.window === other.window &&
-      window.utilisation === other.utilisation &&
+      shown(window.utilisation) === shown(other.utilisation) &&
       window.resetsAt === other.resetsAt &&
       window.verdict === other.verdict
     );
@@ -143,7 +162,8 @@ export const sameReading = (a: AccountUsage, b: AccountUsage): boolean =>
 
 /**
  * A run's verdict folded into a reading (Artemis's `applyPlanLimit`), or
- * null when it is not news: neither the verdict nor the utilisation moved.
+ * null when it is not news: neither the verdict nor the utilisation moved,
+ * or it is older than the reading, whose read the provider answered after it.
  * The folded window takes the verdict, and the utilisation and reset it
  * names; what it does not name is kept from the window, unless the window
  * rolled over before the verdict, whose numbers describe a period that is
@@ -151,6 +171,7 @@ export const sameReading = (a: AccountUsage, b: AccountUsage): boolean =>
  * window: the provider has just said it limits the account.
  */
 export const foldVerdict = (reading: AccountUsage, verdict: PlanVerdict): AccountUsage | null => {
+  if (Date.parse(verdict.at) < Date.parse(reading.readAt)) return null;
   const base = reading.unavailableReason === null ? reading.windows : [];
   const current = base.find((window) => window.window === verdict.window) ?? null;
   const statusChanged = verdict.status !== (current?.verdict ?? "allowed");
@@ -207,8 +228,9 @@ export const createUsagePool = (options: UsagePoolOptions): UsagePool => {
   /** The adapter's reading as the wire carries it, with the identity the store records for the same login, and the age it is kept by. */
   const fromAdapter = (record: AccountRecord, raw: UsageReading, handedAt: number): { reading: AccountUsage; at: number } => {
     const stamped = Date.parse(raw.readAt);
-    const at = Number.isNaN(stamped) || stamped > handedAt || handedAt - stamped >= USAGE_MAX_AGE_MS ? handedAt : stamped;
-    const readAt = new Date(Number.isNaN(stamped) ? handedAt : stamped).toISOString();
+    // A stamp that cannot be aged by is replaced by the hand-over, on the wire too, so the reading says how old it is taken to be.
+    const at = Number.isNaN(stamped) || stamped > handedAt || !isFresh(stamped, handedAt) ? handedAt : stamped;
+    const readAt = new Date(at).toISOString();
     const identity = record.identity !== null && sameLogin(raw.identity, record.identity) ? record.identity : raw.identity;
     const windows: UsageWindow[] = raw.windows
       .filter((window) => typeof window.window === "string" && window.window !== "")
@@ -227,7 +249,7 @@ export const createUsagePool = (options: UsagePoolOptions): UsagePool => {
     const accountId = record.id;
     const cached = held.get(accountId);
     const now = clock.now().getTime();
-    if (cached !== undefined && !cached.retry && now - cached.at < USAGE_MAX_AGE_MS) return Promise.resolve(cached.reading);
+    if (cached !== undefined && !cached.retry && isFresh(cached.at, now)) return Promise.resolve(cached.reading);
     const pending = inFlight.get(accountId);
     if (pending !== undefined) return pending;
     const reading = (async (): Promise<AccountUsage> => {
@@ -255,7 +277,9 @@ export const createUsagePool = (options: UsagePoolOptions): UsagePool => {
       let folded = next.reading;
       for (const verdict of arrivedDuring.get(accountId) ?? []) folded = foldVerdict(folded, verdict) ?? folded;
       next = { ...next, reading: folded };
-      if (!closed && accounts.list().some((account) => account.id === accountId)) hold(accountId, next);
+      // Held only for the account as it is now: not one removed, nor one the store has since given another identity.
+      const current = accounts.list().find((account) => account.id === accountId);
+      if (!closed && current !== undefined && sameIdentity(current.identity, record.identity)) hold(accountId, next);
       return next.reading;
     })().finally(() => {
       inFlight.delete(accountId);
