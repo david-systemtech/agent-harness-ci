@@ -24,7 +24,7 @@ import { meterCells } from "../status/line.js";
 import type { RunChoice } from "../status/use-status.js";
 import { wrap, type Line, type Span } from "../transcript/lines.js";
 import { findEnvironment, isPlaceholder, knownEnvironments, nameOf } from "../view.js";
-import { ListCard, LinesPanel, TypedLine } from "./cards.js";
+import { ListCard, LinesPanel, TypedLine, wrappedRows } from "./cards.js";
 import type { PickerCommand } from "./commands.js";
 import {
   BETWEEN_ENVIRONMENTS,
@@ -679,6 +679,7 @@ export const usePickers = (host: PickersHost): Pickers => {
           const loaded = accounts?.read();
           return (
             <ListCard
+              width={size.width}
               title={card.purpose === "handoff" ? `Hand off ${sessionName()} on ${nameFor(card.environmentId)}` : `Accounts on ${nameFor(card.environmentId)}`}
               hint={hint}
               rows={loaded?.value === null && loaded.error === null ? [] : rows}
@@ -723,6 +724,7 @@ export const usePickers = (host: PickersHost): Pickers => {
           const loaded = models?.read();
           return (
             <ListCard
+              width={size.width}
               title={card.model !== null ? `Effort for ${card.model.label ?? card.model.id}` : `Models${label !== undefined ? ` for ${label}` : ""} on ${nameFor(card.environmentId)}`}
               hint={hint}
               rows={rows}
@@ -735,13 +737,14 @@ export const usePickers = (host: PickersHost): Pickers => {
         case "modes": {
           const sentence = modeFooter(MODES[cursor]);
           return (
-            <ListCard title={`Mode of ${sessionName()}`} hint={hint} rows={rows} cursor={cursor} height={size.height} footer={sentence !== undefined ? [[{ text: sentence, color: "red" }]] : []} />
+            <ListCard width={size.width} title={`Mode of ${sessionName()}`} hint={hint} rows={rows} cursor={cursor} height={size.height} footer={sentence !== undefined ? [[{ text: sentence, color: "red" }]] : []} />
           );
         }
         case "containment": {
           const read = permissions?.read();
           return (
             <ListCard
+              width={size.width}
               title={`Containment of ${sessionName()}`}
               hint={hint}
               rows={rows}
@@ -767,6 +770,7 @@ export const usePickers = (host: PickersHost): Pickers => {
         case "settings": {
           const key = EDITOR_KEYS[card.cursor] as SettingsKey;
           const absent = lacking(card.environmentId, "settings.update");
+          const typedPrompt = (edited: SettingsKey) => `New value for ${edited} (now ${valueWords(card.values?.[edited])}), as JSON or a bare word:`;
           const footer: (readonly Span[])[] =
             card.edit?.kind === "text"
               ? [...(card.edit.error !== null ? [[{ text: card.edit.error, color: "red" }]] : [])]
@@ -775,16 +779,18 @@ export const usePickers = (host: PickersHost): Pickers => {
                 : [];
           return (
             <ListCard
+              width={size.width}
               title={card.edit?.kind === "choice" ? `${key}:` : `Settings on ${nameFor(card.environmentId)}`}
               {...(absent !== undefined && card.edit === null && { lead: [{ text: `read-only: ${absent}`, color: "yellow" }] })}
               hint={hint}
               rows={card.edit?.kind === "text" ? rows.filter((_, at) => at === card.cursor) : rows}
               cursor={card.edit?.kind === "text" ? 0 : cursor}
-              height={size.height - (card.edit?.kind === "text" ? 1 : 0)}
+              height={size.height}
+              {...(card.edit?.kind === "text" && { childRows: wrappedRows(`${typedPrompt(key)} ${card.edit.text} `, size.width) })}
               empty={card.failed !== null ? `The settings could not be read: ${card.failed}` : "Reading the settings…"}
               footer={footer}
             >
-              {card.edit?.kind === "text" && <TypedLine prompt={`New value for ${key} (now ${valueWords(card.values?.[key])}), as JSON or a bare word:`} text={card.edit.text} />}
+              {card.edit?.kind === "text" && <TypedLine prompt={typedPrompt(key)} text={card.edit.text} />}
             </ListCard>
           );
         }

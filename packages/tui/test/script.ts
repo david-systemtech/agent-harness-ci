@@ -461,19 +461,23 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     attachments.map((a) => ({ kind: a.kind, name: a.name, mediaType: a.mediaType, size: Math.floor((a.data.length * 3) / 4) }));
   let runs = 0;
   const minted = (prefix: string) => `${prefix}-0000-4000-8000-${String(++runs).padStart(12, "0")}`;
+  // The account each session created or forked here runs on, as `sessions.create` and `sessions.fork` name it: a summary names it only once a run has used it.
+  const sessionAccounts = new Map<string, string>();
   const startRun: EnvironmentHandle["startRun"] = (sessionId, text, attachments, choice = {}) => {
     const runId = minted("0199a100");
     const messageId = minted("0199a200");
     const summary = summaryNow(sessionId);
+    const accountId = sessionAccounts.get(sessionId) ?? summary.accountId ?? "account-1";
+    const model = choice.model ?? summary.model ?? "claude-fake";
     emit(sessionId, "message.sent", { runId, messageId, text, attachments: records(attachments), delivery: "prompt", heldBy: null, ceiling: "bypassPermissions" });
     emit(
       sessionId,
       "run.started",
       {
         runId,
-        accountId: summary.accountId ?? "account-1",
+        accountId,
         identity: null,
-        model: choice.model ?? summary.model ?? "claude-fake",
+        model,
         effort: choice.effort ?? null,
         mode: { requested: null, effective: "acceptEdits", clamped: false },
         workspace: summary.workspace,
@@ -483,7 +487,8 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
         resumedFrom: null,
         forkedFrom: null,
       },
-      { fields: { activity: { state: "running", since: clock.now().toISOString() } } },
+      // As the environment's run.started does, the summary takes the run's account and model.
+      { fields: { activity: { state: "running", since: clock.now().toISOString() }, accountId, model } },
     );
     live.set(sessionId, runId);
     return { runId, messageId };
@@ -563,10 +568,12 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     if (refused) return refused;
     const at = clock.now().toISOString();
     const summary = summaryOf(clock, { id: String(params["id"]), workspace: params["workspace"] as SessionSummary["workspace"], createdAt: at, updatedAt: at }, sessions.length);
+    const account = typeof params["account"] === "string" ? params["account"] : null;
+    if (account !== null) sessionAccounts.set(summary.id, account);
     emit(
       summary.id,
       "session.created",
-      { title: null, tags: [], groupId: null, workspace: summary.workspace, repositoryIdentity: null, account: null, model: null, mode: null },
+      { title: null, tags: [], groupId: null, workspace: summary.workspace, repositoryIdentity: null, account, model: null, mode: null },
       { patch: { op: "add", summary } },
     );
     return acceptedWith({ summary });
@@ -576,11 +583,14 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     if (refused) return refused;
     const source = summaryNow(String(params["sessionId"]));
     const at = clock.now().toISOString();
+    // On the account named, else the source's (sessions.fork).
+    const account = typeof params["account"] === "string" ? params["account"] : (sessionAccounts.get(source.id) ?? source.accountId);
+    if (account !== null) sessionAccounts.set(String(params["id"]), account);
     const summary = summaryOf(clock, { id: String(params["id"]), title: source.title, titleSource: "generated", workspace: source.workspace, createdAt: at, updatedAt: at }, sessions.length);
     emit(
       summary.id,
       "session.created",
-      { title: null, tags: [], groupId: null, workspace: summary.workspace, repositoryIdentity: null, account: (params["account"] as string | undefined) ?? null, model: null, mode: null },
+      { title: null, tags: [], groupId: null, workspace: summary.workspace, repositoryIdentity: null, account, model: null, mode: null },
       { patch: { op: "add", summary } },
     );
     return acceptedWith({ summary });
@@ -630,7 +640,9 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
       fallback: { posix: `CLAUDE_CONFIG_DIR='${directory}' claude auth login`, powershell: `$env:CLAUDE_CONFIG_DIR = '${directory}'; & 'claude' auth login` },
       error: null,
     });
-    later(() => notice("signin.updated", { ...signIn }));
+    // Announced as it started, whatever the handle moves it to before the announcement goes.
+    const started = signIn;
+    later(() => notice("signin.updated", { ...started }));
     return signIn;
   };
   wire.answer("accounts.signin.get", () => ({ result: { signIn } }));

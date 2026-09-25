@@ -340,6 +340,13 @@ describe("/handoff", () => {
     await app.press(KEY.enter);
     await app.waitFor("Handed off to personal: a new session forked from Receipts runs on it; Receipts stays as it is.");
     expect(env.requests("sessions.fork").map((r) => r.params)).toEqual([expect.objectContaining({ sessionId: SESSION, account: "account-2" })]);
+    // The fork is open, and its first run is the chosen account's.
+    const fork = String(env.requests("sessions.fork")[0]?.params?.["id"]);
+    await app.waitFor("Nothing said yet.");
+    await app.type("carry on");
+    await app.press(KEY.enter);
+    await app.waitUntil(() => env.summary(fork).accountId === "account-2", "the fork's run on personal");
+    expect(env.liveRun(SESSION)).toBeUndefined();
   });
 
   it("answers absent with the reason for another environment", async () => {

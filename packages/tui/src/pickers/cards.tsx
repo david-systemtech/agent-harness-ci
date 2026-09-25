@@ -41,15 +41,24 @@ export interface ListCardProps {
   readonly empty?: string;
   /** A line under the title about the whole list: why it is read-only. */
   readonly lead?: readonly Span[];
-  /** Lines under the list: what the row at the cursor means, a line being typed, a failure. */
+  /** Lines under the list: what the row at the cursor means, a failure. */
   readonly footer?: readonly (readonly Span[])[];
+  /** The columns the card has: a footer line is counted by the rows it wraps to. */
+  readonly width?: number;
+  /** What follows the footer (a line being typed), and the rows it takes. */
   readonly children?: React.ReactNode;
+  readonly childRows?: number;
 }
+
+/** The rows `text` wraps to in `width` columns less the card's padding; one without a width. */
+export const wrappedRows = (text: string, width: number | undefined): number =>
+  width === undefined ? 1 : Math.max(1, Math.ceil([...text].length / Math.max(1, width - 2)));
 
 /** A list: its title and hint, the rows around the cursor (a row's line under it counted), the footer. */
 export const ListCard = (props: ListCardProps) => {
   const footer = props.footer ?? [];
-  const room = Math.max(1, props.height - footer.length - 1 - (props.lead !== undefined ? 1 : 0));
+  const footerRows = footer.reduce((sum, line) => sum + wrappedRows(line.map((span) => span.text).join(""), props.width), 0);
+  const room = Math.max(1, props.height - 1 - (props.lead !== undefined ? 1 : 0) - footerRows - (props.childRows ?? 0));
   const span = (row: PanelRow) => (row.under !== undefined ? 2 : 1);
   // The first row shown: enough before the cursor that it and the rows after it fit.
   let top = 0;
