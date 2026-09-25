@@ -5,7 +5,7 @@ import { inMemoryPlatform, manualClock, runtimeSpeaking, type InMemoryPlatform, 
 import { flush } from "@agent-harness/client-runtime/testing/fake-wire";
 import { App, type ScreenFlags } from "../src/app.js";
 import { FRAME_MS } from "../src/frames.js";
-import { DEFAULT_KEYMAP, type Keymap } from "../src/keys.js";
+import { DEFAULT_KEYMAP, loadKeybindings, type Keymap } from "../src/keys.js";
 import type { LocalService, ServiceOutcome } from "../src/platform/services.js";
 import { createRuntimeHost, type RuntimeHost } from "../src/runtime-host.js";
 import type { Fault } from "../src/view.js";
@@ -30,7 +30,11 @@ export const KEY = {
   tab: "\t",
   shiftTab: "\u001B[Z",
   backspace: "\u007F",
+  pageUp: "\u001B[5~",
+  pageDown: "\u001B[6~",
+  ctrlB: "\u0002",
   ctrlC: "\u0003",
+  ctrlX: "\u0018",
 } as const;
 
 /** The frame size every test renders at: `ink-testing-library` draws 100 columns. */
@@ -93,6 +97,12 @@ export interface RenderOptions {
   readonly service?: ServiceScript;
   readonly flags?: Partial<ScreenFlags>;
   readonly keymap?: Keymap;
+  /**
+   * A keybindings file, read as the terminal UI reads its own: at launch (its
+   * problems the launch notes, before `notes`) and again on `/reload`.
+   * `required` as when `--keybindings` names it; preset true.
+   */
+  readonly keybindings?: { readonly path: string; readonly required?: boolean };
   /** The grant reader the screen asks for the service-down offer, when it should differ from the runtime's (a reader that fails). */
   readonly screenGrant?: GrantReader;
   readonly notes?: readonly string[];
@@ -181,14 +191,18 @@ export const appUnderTest = async (options: RenderOptions): Promise<AppUnderTest
 
   let commandIds = 0;
   const faults = writable<readonly Fault[]>([]);
+  const file = options.keybindings;
+  const read = file && { required: file.required ?? true };
+  const launched = file && read ? loadKeybindings(file.path, read) : undefined;
   const element = createElement(App, {
     host,
     clock,
     services: service,
     grant: options.screenGrant ?? grant,
-    keymap: options.keymap ?? DEFAULT_KEYMAP,
+    keymap: launched?.keymap ?? options.keymap ?? DEFAULT_KEYMAP,
+    ...(file && read && { keybindings: { path: file.path, reload: (previous: Keymap) => loadKeybindings(file.path, read, previous) } }),
     flags: { workspace: "~/code/harness", ...options.flags },
-    notes: options.notes ?? [],
+    notes: [...(launched?.problems ?? []), ...(options.notes ?? [])],
     faults,
     size: options.size ?? SIZE,
     newCommandId: () => `0199ee00-0000-7000-8000-${String(++commandIds).padStart(12, "0")}`,

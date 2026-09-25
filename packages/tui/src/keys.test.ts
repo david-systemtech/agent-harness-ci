@@ -2,7 +2,20 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { DEFAULT_KEYS, contextOf, eventName, loadKeybindings, parseKeyName, resolveKeymap, type InkKey } from "./keys.js";
+import { ACTIONS, isCommandId } from "@agent-harness/contracts";
+import {
+  DEFAULT_KEYMAP,
+  DEFAULT_KEYS,
+  contextOf,
+  direction,
+  dispatch,
+  eventName,
+  keysText,
+  loadKeybindings,
+  parseKeyName,
+  resolveKeymap,
+  type InkKey,
+} from "./keys.js";
 
 /**
  * The keys this build wires (docs/specs/tui.md, "Shortcuts"): named actions
@@ -172,5 +185,127 @@ describe("the keybindings file", () => {
 
   it("resolves a keymap in memory the same way", () => {
     expect(resolveKeymap({ "picker.leave": ["q"] }).keymap.keys["picker.leave"]).toEqual(["q"]);
+  });
+});
+
+describe("the default keys as a projection of the shared action list", () => {
+  it("are every pressed action's keys in the list, and no slash command's", () => {
+    const pressed = ACTIONS.filter((a) => !isCommandId(a.id));
+    expect(Object.keys(DEFAULT_KEYS).sort()).toEqual(pressed.map((a) => a.id).sort());
+    for (const action of pressed) expect(DEFAULT_KEYS[action.id as keyof typeof DEFAULT_KEYS], action.id).toEqual(action.keys);
+  });
+
+  it("take an action's context from the list: row is the transcript's, rail the sidebar's, app is anywhere", () => {
+    expect(contextOf("row.open")).toBe("transcript");
+    expect(contextOf("rail.pin")).toBe("sidebar");
+    expect(contextOf("app.help")).toBe("anywhere");
+    expect(contextOf("confirm.yes")).toBe("confirm");
+  });
+
+  it("read every key the table writes as itself: a key name as written in the table is a key name", () => {
+    const written = [...new Set(ACTIONS.flatMap((a) => a.keys))];
+    expect(written.length).toBeGreaterThan(60);
+    for (const k of written) expect(parseKeyName(k), k).toBe(k);
+  });
+});
+
+describe("key names the table writes for more than one press", () => {
+  it.each([
+    ["esc esc", "Esc Esc"],
+    ["\\ enter", "\\ Enter"],
+    [";;", ";;"],
+    ["1-4", "1–4"],
+    ["letters", "Letters"],
+    ["Ctrl+X Ctrl+E", "Ctrl+X Ctrl+E"],
+  ])("reads %j as %j", (written, name) => {
+    expect(parseKeyName(written)).toBe(name);
+  });
+
+  it.each(["Esc Escc", "Ctrl+ Esc"])("refuses %j", (written) => {
+    expect(parseKeyName(written)).toBeUndefined();
+  });
+});
+
+describe("the keybindings file over the whole list", () => {
+  it("reports a slash command's id and ignores it: a command is typed, not pressed", () => {
+    const loaded = resolveKeymap({ "command.help": ["F"], "app.help": ["Ctrl+X"] });
+    expect(loaded.problems).toEqual([expect.stringContaining("command.help is a slash command")]);
+    expect(loaded.keymap.keys["app.help"]).toEqual(["Ctrl+X"]);
+  });
+
+  it("checks a clash in the list's context, whatever the id's first word: row and transcript are one context", () => {
+    const loaded = resolveKeymap({ "transcript.follow": ["o"] });
+    expect(loaded.problems).toEqual([expect.stringMatching(/refused: o is both transcript\.follow and row\.open in transcript|refused: o is both row\.open and transcript\.follow in transcript/)]);
+    expect(loaded.keymap).toBe(DEFAULT_KEYMAP);
+  });
+
+  it("counts an absent action's keys: they are kept, so a key cannot be given to another action there", () => {
+    const loaded = resolveKeymap({ "permission.tick": ["e"] });
+    expect(loaded.problems).toEqual([expect.stringContaining("permission.rule.edit")]);
+  });
+
+  it("names every clash of a refused file in its one line", () => {
+    const loaded = resolveKeymap({ "confirm.yes": ["n"], "pager.top": ["q"] });
+    expect(loaded.problems).toHaveLength(1);
+    expect(loaded.problems[0]).toContain("n is both confirm.yes and confirm.no in confirm");
+    expect(loaded.problems[0]).toContain("q is both pager.top and pager.close in pager");
+  });
+
+  it("keeps the map in force, not the defaults, when a file is refused on a later read", () => {
+    const first = resolveKeymap({ "app.help": ["Ctrl+X"] }).keymap;
+    const refused = resolveKeymap({ "app.help": ["Ctrl+B"], "confirm.yes": ["n"] }, "keybindings.json", first);
+    expect(refused.keymap).toBe(first);
+    expect(refused.problems).toEqual([expect.stringContaining("the keys in force stand")]);
+    expect(resolveKeymap([], "keybindings.json", first).keymap).toBe(first);
+  });
+
+  it("reads a file again against the defaults: what the new file leaves out is back to its default", () => {
+    const first = resolveKeymap({ "app.help": ["Ctrl+X"] }).keymap;
+    const second = resolveKeymap({ "confirm.yes": ["Y"] }, "keybindings.json", first).keymap;
+    expect(second.keys["app.help"]).toEqual(["?"]);
+    expect(second.keys["confirm.yes"]).toEqual(["Y"]);
+  });
+
+  it("keeps the map in force when the file cannot be read or is not JSON on a later read, and falls back to the defaults when it is gone", () => {
+    const first = resolveKeymap({ "app.help": ["Ctrl+X"] }).keymap;
+    expect(loadKeybindings(file("{"), { required: true }, first).keymap).toBe(first);
+    expect(loadKeybindings(join(tmpdir(), "no-such-dir-agent-harness", "k.json"), { required: true }, first).keymap).toBe(first);
+    expect(loadKeybindings(join(tmpdir(), "no-such-dir-agent-harness", "keybindings.json"), { required: false }, first).keymap).toBe(DEFAULT_KEYMAP);
+  });
+});
+
+describe("dispatch through the action list", () => {
+  it("finds the action a key is in each context in turn, and runs the first handler that takes it", () => {
+    const ran: string[] = [];
+    const handlers = { "app.interrupt": () => false as const, "picker.leave": () => void ran.push("picker.leave"), "pager.close": () => void ran.push("pager.close") };
+    expect(dispatch(DEFAULT_KEYMAP, ["anywhere", "picker", "pager"], handlers, "", key({ escape: true }))).toBe(true);
+    expect(ran).toEqual(["picker.leave"]);
+  });
+
+  it("answers nothing for a key no handler takes", () => {
+    expect(dispatch(DEFAULT_KEYMAP, ["anywhere", "composer"], {}, "", key({ tab: true }))).toBe(false);
+    expect(dispatch(DEFAULT_KEYMAP, ["confirm"], { "confirm.yes": () => undefined }, "x", key())).toBe(false);
+  });
+
+  it("follows the keymap in force: a remapped key runs its action and the old default no longer does", () => {
+    const { keymap } = resolveKeymap({ "app.help": ["Ctrl+X"] });
+    let opened = 0;
+    const handlers = { "app.help": () => void opened++ };
+    expect(dispatch(keymap, ["anywhere"], handlers, "?", key())).toBe(false);
+    expect(dispatch(keymap, ["anywhere"], handlers, "x", key({ ctrl: true }))).toBe(true);
+    expect(opened).toBe(1);
+  });
+
+  it("reads a move action's first key as up and its second as down", () => {
+    const { keymap } = resolveKeymap({ "picker.moveVi": ["i", "m"] });
+    expect(direction(keymap, "picker.moveVi", "i")).toBe(-1);
+    expect(direction(keymap, "picker.moveVi", "m")).toBe(1);
+    expect(direction(keymap, "picker.moveVi", "k")).toBe(0);
+  });
+
+  it("writes an action's keys for a hint line: a move pair together, alternatives with a slash", () => {
+    expect(keysText(DEFAULT_KEYMAP, "picker.move")).toBe("↑↓");
+    expect(keysText(DEFAULT_KEYMAP, "pager.close")).toBe("q/Esc");
+    expect(keysText(resolveKeymap({ "picker.leave": ["q"] }).keymap, "picker.leave")).toBe("q");
   });
 });

@@ -1,54 +1,60 @@
 import { readFileSync } from "node:fs";
+import { ACTIONS, actionById, isActionId, isCommandId, type ActionContext, type KeyActionId } from "@agent-harness/contracts";
 
 /**
  * Keys as named actions (docs/specs/tui.md, "Shortcuts: the shared action
- * list, the defaults, the keybindings file"). This build wires the actions
- * below, each with Artemis's default key from the specification's table; the
- * shared action list in the contracts package and its contract test are the
- * keymap ticket's, which this map joins. `keybindings.json` in the state
- * directory, or the file `--keybindings` names, remaps them: an object from
- * action id to a list of key names as the table writes them.
+ * list, the defaults, the keybindings file"). Every key is an action of the
+ * shared list in the contracts package; the default keys here are its
+ * projection, the actions pressed rather than typed (a slash command is
+ * typed). `keybindings.json` in the state directory, or the file
+ * `--keybindings` names, remaps them: an object from action id to a list of
+ * key names as the table writes them, read at launch and on `/reload`.
+ * Components dispatch through the keymap in force (`dispatch`): a key is
+ * looked up as an action in each context in play, never matched by hand.
  */
 
-export type ActionId =
-  | "app.interruptOrQuit"
-  | "composer.send"
-  | "composer.backspace"
-  | "picker.move"
-  | "picker.moveVi"
-  | "picker.choose"
-  | "picker.leave"
-  | "confirm.yes"
-  | "confirm.no";
+/** The list's default keys for every action pressed rather than typed. A move action's keys are up, then down. */
+export const DEFAULT_KEYS: Readonly<Record<KeyActionId, readonly string[]>> = Object.fromEntries(
+  ACTIONS.filter((action) => !isCommandId(action.id)).map((action) => [action.id, action.keys]),
+) as unknown as Record<KeyActionId, readonly string[]>;
 
-/** Artemis's keys for the actions this build wires. A move action's keys are up, then down. */
-export const DEFAULT_KEYS: Readonly<Record<ActionId, readonly string[]>> = {
-  "app.interruptOrQuit": ["Ctrl+C"],
-  "composer.send": ["Enter"],
-  "composer.backspace": ["Backspace"],
-  "picker.move": ["↑", "↓"],
-  "picker.moveVi": ["k", "j"],
-  "picker.choose": ["Enter"],
-  "picker.leave": ["Esc"],
-  "confirm.yes": ["y"],
-  "confirm.no": ["n", "Esc"],
-};
+const KEY_ACTION_IDS = Object.keys(DEFAULT_KEYS) as KeyActionId[];
+/**
+ * The actions whose keys this build reads as a pair, up then down (`direction`):
+ * the file must give such an action exactly two different keys. A ticket that
+ * wires another direction-keyed action adds it here.
+ */
+const MOVE_ACTIONS: ReadonlySet<KeyActionId> = new Set<KeyActionId>(["picker.move", "picker.moveVi"]);
 
-const ACTION_IDS = Object.keys(DEFAULT_KEYS) as ActionId[];
-/** The actions whose keys are a pair, up then down (`moveOf`). */
-const MOVE_ACTIONS: ReadonlySet<ActionId> = new Set<ActionId>(["picker.move", "picker.moveVi"]);
-const isActionId = (id: string): id is ActionId => Object.hasOwn(DEFAULT_KEYS, id);
-
-/** An action's context: the part of its id before the first dot. */
-export const contextOf = (id: string): string => id.slice(0, id.indexOf("."));
+/** An action's context as the shared list gives it; for an id it does not list, the part before the first dot. */
+export const contextOf = (id: string): string => actionById(id)?.context ?? id.slice(0, id.indexOf("."));
 
 export interface Keymap {
-  readonly keys: Readonly<Record<ActionId, readonly string[]>>;
+  readonly keys: Readonly<Record<KeyActionId, readonly string[]>>;
   /** The actions the file changed, which `/help` marks. */
-  readonly remapped: ReadonlySet<ActionId>;
+  readonly remapped: ReadonlySet<KeyActionId>;
+  /** Which action holds each key in each context (`holderKey`): what `dispatch` looks a key up in. */
+  readonly holders: ReadonlyMap<string, KeyActionId>;
 }
 
-export const DEFAULT_KEYMAP: Keymap = { keys: DEFAULT_KEYS, remapped: new Set() };
+const holderKey = (context: string, name: string) => `${context} ${name}`;
+
+/** Who holds each key in each context, and each clash: a key a second action claims in the same context. */
+const holdersOf = (keys: Readonly<Record<KeyActionId, readonly string[]>>) => {
+  const holders = new Map<string, KeyActionId>();
+  const clashes: string[] = [];
+  for (const id of KEY_ACTION_IDS) {
+    const context = contextOf(id);
+    for (const name of keys[id]) {
+      const other = holders.get(holderKey(context, name));
+      if (other !== undefined && other !== id) clashes.push(`${name} is both ${other} and ${id} in ${context}`);
+      else holders.set(holderKey(context, name), id);
+    }
+  }
+  return { holders, clashes };
+};
+
+export const DEFAULT_KEYMAP: Keymap = { keys: DEFAULT_KEYS, remapped: new Set(), holders: holdersOf(DEFAULT_KEYS).holders };
 
 const NAMED: Readonly<Record<string, string>> = {
   enter: "Enter",
@@ -76,13 +82,33 @@ const NAMED: Readonly<Record<string, string>> = {
 const MODIFIERS = ["Ctrl", "Alt", "Shift"] as const;
 
 /**
+ * The names the table writes for more than one key, taken as written: the
+ * snippet sigil's doubled `;`, the four digits that take a follow-up, and any
+ * letter typed at a list.
+ */
+const WRITTEN_FORMS: Readonly<Record<string, string>> = { ";;": ";;", "1–4": "1–4", "1-4": "1–4", letters: "Letters" };
+
+/**
  * A key name as written in the table or a keybindings file, in its one
  * canonical form (`Ctrl+C`, `Esc`, `↑`, `y`), the form `eventName` gives the
  * key Ink hears; undefined for none. `Shift+a` is `A`; Shift on a character
  * that is not a letter is refused, since the layout decides what it sends.
+ * Keys pressed in turn are written apart (`Esc Esc`, `\ Enter`), and the
+ * table's `;;`, `1–4` and `Letters` are taken as written: every key the table
+ * writes reads as itself.
  */
 export const parseKeyName = (written: string): string | undefined => {
-  const parts = written.trim().split("+");
+  const trimmed = written.trim();
+  const form = WRITTEN_FORMS[trimmed.toLowerCase()];
+  if (form !== undefined) return form;
+  const presses = trimmed.split(/\s+/);
+  if (presses.length === 1) return parseOneKey(trimmed);
+  const names = presses.map(parseOneKey);
+  return names.every((name): name is string => name !== undefined) ? names.join(" ") : undefined;
+};
+
+const parseOneKey = (written: string): string | undefined => {
+  const parts = written.split("+");
   const base = parts.pop();
   if (base === undefined || base === "") return undefined;
   const modifiers = new Set<string>();
@@ -167,18 +193,37 @@ export const eventName = (input: string, key: InkKey): string | undefined => {
   return [...modifiers, printable && modifiers.length > 0 ? base.toUpperCase() : base].join("+");
 };
 
-/** Whether the key Ink heard is one of `action`'s keys. */
-export const isAction = (keymap: Keymap, action: ActionId, input: string, key: InkKey): boolean => {
+/**
+ * What a component does for an action it answers, handed the key's name:
+ * `false` when the key is not its to take just now, so a later context may.
+ */
+export type Handler = (name: string) => void | false;
+export type Handlers = Partial<Record<KeyActionId, Handler>>;
+
+/**
+ * Dispatches the key Ink heard through the action list: in each of
+ * `contexts` in turn, the action the keymap in force gives that key there,
+ * run when `handlers` answers it. True when a handler took the key.
+ */
+export const dispatch = (keymap: Keymap, contexts: readonly ActionContext[], handlers: Handlers, input: string, key: InkKey): boolean => {
   const name = eventName(input, key);
-  return name !== undefined && keymap.keys[action].includes(name);
+  if (name === undefined) return false;
+  for (const context of contexts) {
+    const id = keymap.holders.get(holderKey(context, name));
+    const handler = id === undefined ? undefined : handlers[id];
+    if (handler !== undefined && handler(name) !== false) return true;
+  }
+  return false;
 };
 
 /** For a move action (`picker.move`, `picker.moveVi`): -1 for its up key, 1 for its down key, 0 for neither. */
-export const moveOf = (keymap: Keymap, action: ActionId, input: string, key: InkKey): -1 | 0 | 1 => {
-  const name = eventName(input, key);
+export const direction = (keymap: Keymap, action: KeyActionId, name: string): -1 | 0 | 1 => {
   const [up, down] = keymap.keys[action];
-  return name === undefined ? 0 : name === up ? -1 : name === down ? 1 : 0;
+  return name === up ? -1 : name === down ? 1 : 0;
 };
+
+/** An action's keys for a hint line: a move pair together (`↑↓`), alternatives with a slash (`q/Esc`). */
+export const keysText = (keymap: Keymap, action: KeyActionId): string => keymap.keys[action].join(MOVE_ACTIONS.has(action) ? "" : "/");
 
 export interface LoadedKeymap {
   readonly keymap: Keymap;
@@ -186,22 +231,32 @@ export interface LoadedKeymap {
   readonly problems: readonly string[];
 }
 
+/** What stands when a file is refused whole: the defaults at launch, the map in force on a later read. */
+const standing = (previous: Keymap) => (previous === DEFAULT_KEYMAP ? "the default keys stand" : "the keys in force stand");
+
 /**
- * The keymap from a parsed keybindings object: unknown ids and key names
- * reported and ignored, an action left with no key, or a move action given
- * other than two different keys (up, then down), keeping its defaults, a
- * clash refusing the whole mapping.
+ * The keymap from a parsed keybindings object, read against the defaults:
+ * unknown ids and key names reported and ignored, a slash command's id
+ * reported (a command is typed, not pressed), an action left with no key or
+ * a move action given other than two different keys (up, then down) keeping
+ * its defaults, and a clash, one key given to two actions in one context of
+ * the shared list, refusing the whole mapping with every clash named; then
+ * `previous`, the map in force, stays (the defaults at launch).
  */
-export const resolveKeymap = (mapping: unknown, source = "keybindings.json"): LoadedKeymap => {
+export const resolveKeymap = (mapping: unknown, source = "keybindings.json", previous: Keymap = DEFAULT_KEYMAP): LoadedKeymap => {
   if (typeof mapping !== "object" || mapping === null || Array.isArray(mapping)) {
-    return { keymap: DEFAULT_KEYMAP, problems: [`${source} is not a JSON object of action ids to key lists; the default keys stand.`] };
+    return { keymap: previous, problems: [`${source} is not a JSON object of action ids to key lists; ${standing(previous)}.`] };
   }
   const problems: string[] = [];
-  const keys: Record<ActionId, readonly string[]> = { ...DEFAULT_KEYS };
-  const remapped = new Set<ActionId>();
+  const keys: Record<KeyActionId, readonly string[]> = { ...DEFAULT_KEYS };
+  const remapped = new Set<KeyActionId>();
   for (const [id, written] of Object.entries(mapping)) {
     if (!isActionId(id)) {
       problems.push(`${source}: there is no action ${id}; ignored.`);
+      continue;
+    }
+    if (isCommandId(id)) {
+      problems.push(`${source}: ${id} is a slash command, typed rather than pressed; ignored.`);
       continue;
     }
     if (!Array.isArray(written) || !written.every((k): k is string => typeof k === "string")) {
@@ -215,7 +270,7 @@ export const resolveKeymap = (mapping: unknown, source = "keybindings.json"): Lo
       else names.push(name);
     }
     if (MOVE_ACTIONS.has(id) && (names.length !== 2 || names[0] === names[1])) {
-      // `moveOf` reads a move action's first key as up and its second as down, so they must be two and differ.
+      // `direction` reads a move action's first key as up and its second as down, so they must be two and differ.
       problems.push(`${source}: ${id} takes two different keys, up then down; its default keys stand.`);
       continue;
     }
@@ -227,37 +282,30 @@ export const resolveKeymap = (mapping: unknown, source = "keybindings.json"): Lo
     keys[id] = names;
     remapped.add(id);
   }
-  const holders = new Map<string, ActionId>();
-  for (const id of ACTION_IDS) {
-    for (const name of keys[id]) {
-      const slot = `${contextOf(id)} ${name}`;
-      const other = holders.get(slot);
-      if (other && other !== id) {
-        return {
-          keymap: DEFAULT_KEYMAP,
-          problems: [...problems, `${source} was refused: ${name} is both ${other} and ${id} in ${contextOf(id)}; the default keys stand.`],
-        };
-      }
-      holders.set(slot, id);
-    }
-  }
-  return { keymap: { keys, remapped }, problems };
+  const { holders, clashes } = holdersOf(keys);
+  if (clashes.length > 0) return { keymap: previous, problems: [...problems, `${source} was refused: ${clashes.join("; ")}; ${standing(previous)}.`] };
+  return { keymap: { keys, remapped, holders }, problems };
 };
 
-/** Reads the keybindings file at `path`: a missing file is the defaults unless it was named on the command line. */
-export const loadKeybindings = (path: string, options: { readonly required: boolean }): LoadedKeymap => {
+/**
+ * Reads the keybindings file at `path` against the defaults, at launch or on
+ * `/reload`: a missing file is the defaults unless it was named on the
+ * command line; a file that cannot be read or is not JSON leaves `previous`,
+ * the map in force (the defaults at launch).
+ */
+export const loadKeybindings = (path: string, options: { readonly required: boolean }, previous: Keymap = DEFAULT_KEYMAP): LoadedKeymap => {
   let text: string;
   try {
     text = readFileSync(path, "utf8");
   } catch (error) {
     if (!options.required && (error as NodeJS.ErrnoException).code === "ENOENT") return { keymap: DEFAULT_KEYMAP, problems: [] };
-    return { keymap: DEFAULT_KEYMAP, problems: [`${path} could not be read (${(error as Error).message}); the default keys stand.`] };
+    return { keymap: previous, problems: [`${path} could not be read (${(error as Error).message}); ${standing(previous)}.`] };
   }
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
   } catch {
-    return { keymap: DEFAULT_KEYMAP, problems: [`${path} is not JSON; the default keys stand.`] };
+    return { keymap: previous, problems: [`${path} is not JSON; ${standing(previous)}.`] };
   }
-  return resolveKeymap(parsed, path);
+  return resolveKeymap(parsed, path, previous);
 };
