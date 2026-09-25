@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { EventTypeEntry } from "./event-types.js";
 import { Mode } from "./permissions-modes.js";
 import { OrderKey } from "./ordering.js";
-import { JsonObject, Sequence, Timestamp } from "./primitives.js";
+import { Sequence, Timestamp } from "./primitives.js";
 
 /**
  * Session organisation state (session-state spec; ADR 0003): the session
@@ -469,28 +469,15 @@ export const GroupDeletedPayload = z
   .object({})
   .meta({ description: "group.deleted: the group is gone; each member was ungrouped by a session.group-set in the same transaction." });
 
-/**
- * An event type reserved by name for another workstream, which fixes its
- * payload: the prompt events are the permissions workstream's (#130). Its
- * payload is any object until then, and the export leaves it out. The prompt
- * types are `list`-flagged here, so `parkedPromptCount` has an owner from
- * phase A. The run and message types are the transcript vocabulary's
- * (`transcript.ts`), joined to these in the event-type table.
- */
-const reservedPayload = (type: string, reservedFor: string) =>
-  JsonObject.meta({ description: `${type}: reserved; its payload is ${reservedFor}'s.` });
-const reserved = (type: string, reservedFor: string) =>
-  ({ list: true, payload: reservedPayload(type, reservedFor), patch: SummaryPatch, reservedFor }) as const;
-
 const listed = <const P extends z.ZodType, const Patch extends z.ZodType>(payload: P, patch: Patch) =>
   ({ list: true, payload, patch }) as const;
 
 /**
- * The organisation and prompt types of the `session` stream, every one
- * `list`-flagged with a `SummaryPatch`. The prompt types are reserved by name
- * for the permissions workstream (#130) and change `parkedPromptCount`. The
- * stream's transcript types (`TRANSCRIPT_EVENT_TYPES`) join these in the
- * event-type table, and `SessionEventType` names them all.
+ * The organisation types of the `session` stream, every one `list`-flagged
+ * with a `SummaryPatch`. The stream's transcript types
+ * (`TRANSCRIPT_EVENT_TYPES`), its prompt types (`PROMPT_EVENT_TYPES`, #130)
+ * and its permission types join these in the event-type table, and
+ * `SessionEventType` names them all.
  */
 export const SESSION_EVENT_TYPES = {
   "session.created": listed(SessionCreatedPayload, SummaryPatch),
@@ -516,8 +503,6 @@ export const SESSION_EVENT_TYPES = {
   "session.pull-request-linked": listed(SessionPullRequestLinkedPayload, SummaryPatch),
   "session.pull-request-unlinked": listed(SessionPullRequestUnlinkedPayload, SummaryPatch),
   "session.pull-request-synced": listed(SessionPullRequestSyncedPayload, SummaryPatch),
-  "prompt.opened": reserved("prompt.opened", "the permissions workstream (#130)"),
-  "prompt.answered": reserved("prompt.answered", "the permissions workstream (#130)"),
 } as const satisfies Record<string, EventTypeEntry>;
 
 /** The event types of the `group` stream, every one `list`-flagged with a `GroupPatch`. */

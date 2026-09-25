@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { manualClock } from "../../../test/clock.js";
 import { FakeSdk, sdk, type FakeQuery } from "../../../test/fake-claude-sdk.js";
-import type { PermissionBroker, PromptDecision } from "../../adapter/contract.js";
+import type { PromptAnsweredPayload, PromptOpenedPayload } from "@agent-harness/contracts";
+import type { PermissionUpdate } from "@anthropic-ai/claude-agent-sdk";
 import type { RunActor } from "../../permissions/resolver.js";
 
 /**
@@ -32,7 +33,10 @@ const { sessionListProjector } = await import("../../sessions/session-list.js");
 const { permissionsProjector } = await import("../../permissions/permissions-store.js");
 const { accountsProjector } = await import("../../accounts/account-store.js");
 const { storeAccounts } = await import("../../../test/accounts.js");
-const { autoDenyBroker } = await import("../../adapter/seams.js");
+
+/** The prompts the session's runs asked, as their `prompt.opened` recorded them. */
+const openedOf = (t: { log: { readStream: (stream: { kind: string; id: string }) => { type: string; payload: unknown }[] }; sessionId: string }): PromptOpenedPayload[] =>
+  t.log.readStream({ kind: "session", id: t.sessionId }).flatMap((event) => (event.type === "prompt.opened" ? [event.payload as PromptOpenedPayload] : []));
 
 const PROVIDER_SESSION = "5d1e9c3a-7b2f-4e8d-9a6c-3f0b1e2d4c5a";
 
@@ -55,7 +59,7 @@ const created = {
   payload: { title: null, tags: [], groupId: null, workspace: { kind: "directory", path: "/work/repo" }, repositoryIdentity: null, account: null, model: null, mode: null },
 };
 
-const setup = async (broker?: PermissionBroker) => {
+const setup = async () => {
   const clock = manualClock();
   const log = openEventLog({ path: ":memory:", projectors: [sessionListProjector, runsProjector, permissionsProjector, accountsProjector], clock: () => clock.now() });
   const adapter = createClaudeAdapter({
@@ -73,7 +77,6 @@ const setup = async (broker?: PermissionBroker) => {
     adapters: [adapter],
     accounts,
     ceilingOf: () => undefined,
-    ...(broker !== undefined && { broker }),
   });
   closers.push(() => log.close(), () => host.close("disposed"), () => accounts.close());
   const sessionId = randomUUID();
@@ -242,46 +245,106 @@ describe("a Claude run through the adapter host", () => {
     await vi.waitFor(() => expect(query.modes).toEqual(["plan"]));
   });
 
-  it("hands canUseTool to the auto-deny placeholder, which denies at once and records nothing", async () => {
-    const t = await setup(autoDenyBroker);
-    const { messageId } = startRun(t);
-    const query = await runQuery(t, 1);
-    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [messageId]));
-    await vi.waitFor(() => expect(eventsOf(t).map((event) => event.type)).toContain("session.provider-linked"));
-    expect(await query.canUseTool("Bash", { command: "ls" }, { toolUseID: "toolu_ls" })).toEqual({
-      behavior: "deny",
-      message: "This environment cannot ask anyone yet, so the request was denied; carry on without it.",
-      toolUseID: "toolu_ls",
-    });
-    expect(eventsOf(t).map((event) => event.type)).toEqual(["run.started", "run.policy.resolved", "message.sent", "session.provider-linked"]);
-  });
-
-  it("parks canUseTool on the broker seam until the broker answers", async () => {
-    let answer!: (decision: PromptDecision) => void;
-    const requests: unknown[] = [];
-    const broker: PermissionBroker = {
-      request: (request) => {
-        requests.push(request);
-        return new Promise((resolve) => (answer = resolve));
-      },
-    };
-    const t = await setup(broker);
+  it("records canUseTool's request as prompt.opened on the harness's fields, the permission table's id its prompt id, and parks the tool until a person's answer is delivered", async () => {
+    const t = await setup();
     const { runId, messageId } = startRun(t);
     const query = await runQuery(t, 1);
     query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [messageId]));
     await vi.waitFor(() => expect(eventsOf(t).map((event) => event.type)).toContain("session.provider-linked"));
+    const suggestion: PermissionUpdate = { type: "addRules", rules: [{ toolName: "Bash", ruleContent: "rm -rf build" }], behavior: "allow", destination: "localSettings" };
     let settled = false;
-    const asked = query.canUseTool("Edit", { file_path: "/work/repo/a.ts" }, { toolUseID: "toolu_edit" }).then((result) => ((settled = true), result));
-    await vi.waitFor(() => expect(requests).toHaveLength(1));
-    expect(requests[0]).toMatchObject({ sessionId: t.sessionId, runId, kind: "permission" });
+    const asked = query
+      .canUseTool("Bash", { command: "rm -rf build" }, {
+        toolUseID: "toolu_rm",
+        title: "Claude wants to run rm -rf build",
+        decisionReason: "rm needs approval",
+        blockedPath: "/work/repo/build",
+        suggestions: [suggestion],
+      })
+      .then((result) => ((settled = true), result));
+    await vi.waitFor(() => expect(openedOf(t)).toHaveLength(1));
+    expect(openedOf(t)[0]).toEqual({
+      runId,
+      promptId: "toolu_rm",
+      kind: "permission",
+      toolName: "Bash",
+      toolCallId: "toolu_rm",
+      input: { command: "rm -rf build" },
+      summary: "Claude wants to run rm -rf build",
+      blockedPath: "/work/repo/build",
+      reason: "rm needs approval",
+      questions: null,
+      plan: null,
+      suggestions: [suggestion],
+      agentId: null,
+      mode: "acceptEdits",
+      ceiling: "bypassPermissions",
+      ttlExpiresAt: null,
+    });
     await new Promise((resolve) => setTimeout(resolve, 5));
     expect(settled).toBe(false);
-    answer({ decision: "allow" });
-    expect(await asked).toEqual({ behavior: "allow", updatedInput: { file_path: "/work/repo/a.ts" }, toolUseID: "toolu_edit" });
+    // Remembered for the session: the CLI's own suggestions, for the session only, never a settings file.
+    t.host.deliverAnswer(runId, "toolu_rm", { decision: "allow", updatedInput: { command: "rm -rf build/cache" }, remember: "session" });
+    expect(await asked).toEqual({
+      behavior: "allow",
+      updatedInput: { command: "rm -rf build/cache" },
+      updatedPermissions: [{ ...suggestion, destination: "session" }],
+      toolUseID: "toolu_rm",
+    });
+    expect([...t.host.runs.runs()].find((run) => run.id === runId)?.state).toBe("running");
+  });
+
+  it("asks a question with its question set and a plan with its text, and hands back a question's answers and a plan's mode", async () => {
+    const t = await setup();
+    const { runId, messageId } = startRun(t);
+    const query = await runQuery(t, 1);
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [messageId]));
+    await vi.waitFor(() => expect(eventsOf(t).map((event) => event.type)).toContain("session.provider-linked"));
+    const questions = [{ header: "Library", question: "Which date library?", options: [{ label: "date-fns", description: "Small" }, { label: "luxon" }], multiSelect: false }];
+    const question = query.canUseTool("AskUserQuestion", { questions }, { toolUseID: "toolu_q" });
+    await vi.waitFor(() => expect(openedOf(t)).toHaveLength(1));
+    expect(openedOf(t)[0]).toMatchObject({
+      kind: "question",
+      summary: "Which date library?",
+      questions: [{ header: "Library", question: "Which date library?", options: [{ label: "date-fns", description: "Small" }, { label: "luxon", description: "" }], multiSelect: false }],
+    });
+    t.host.deliverAnswer(runId, "toolu_q", { decision: "allow", answers: { "Which date library?": "luxon" } });
+    expect(await question).toEqual({ behavior: "allow", updatedInput: { questions, answers: { "Which date library?": "luxon" } }, toolUseID: "toolu_q" });
+
+    const plan = query.canUseTool("ExitPlanMode", { plan: "1. Read\n2. Write" }, { toolUseID: "toolu_plan" });
+    await vi.waitFor(() => expect(openedOf(t)).toHaveLength(2));
+    expect(openedOf(t)[1]).toMatchObject({ kind: "plan", plan: "1. Read\n2. Write", summary: "1. Read" });
+    t.host.deliverAnswer(runId, "toolu_plan", { decision: "allow", mode: "acceptEdits" });
+    expect(await plan).toEqual({
+      behavior: "allow",
+      updatedInput: { plan: "1. Read\n2. Write" },
+      updatedPermissions: [{ type: "setMode", mode: "acceptEdits", destination: "session" }],
+      toolUseID: "toolu_plan",
+    });
+  });
+
+  it("closes the run's open prompts run_ended when its turn ends on its own, and denies the tool call", async () => {
+    const t = await setup();
+    const { runId, messageId } = startRun(t);
+    const query = await runQuery(t, 1);
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [messageId]));
+    await vi.waitFor(() => expect(eventsOf(t).map((event) => event.type)).toContain("session.provider-linked"));
+    const asked = query.canUseTool("Edit", { file_path: "/work/repo/a.ts" }, { toolUseID: "toolu_edit" });
+    await vi.waitFor(() => expect(openedOf(t)).toHaveLength(1));
+    query.emit(sdk.result(PROVIDER_SESSION));
+    await vi.waitFor(() => expect(eventsOf(t).map((event) => event.type)).toContain("run.ended"));
+    expect(await asked).toMatchObject({ behavior: "deny" });
+    expect(eventsOf(t).map((event) => event.type).slice(-2)).toEqual(["prompt.answered", "run.ended"]);
+    expect(eventsOf(t).find((event) => event.type === "prompt.answered")?.payload as PromptAnsweredPayload).toMatchObject({
+      runId,
+      promptId: "toolu_edit",
+      decision: "deny",
+      decidedBy: { auto: "run_ended" },
+    });
   });
 
   it("parks the run under the permission table's id, and an answer through the host's answerPrompt settles the tool call and unparks it", async () => {
-    const t = await setup({ request: () => new Promise<PromptDecision>(() => undefined) });
+    const t = await setup();
     const { runId, messageId } = startRun(t);
     const query = await runQuery(t, 1);
     query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [messageId]));
@@ -295,7 +358,7 @@ describe("a Claude run through the adapter host", () => {
   });
 
   it("refuses an answer conflict when the prompt is not open, or its run has ended, so the caller can say so", async () => {
-    const t = await setup({ request: () => new Promise<PromptDecision>(() => undefined) });
+    const t = await setup();
     const { runId, messageId } = startRun(t);
     const query = await runQuery(t, 1);
     query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [messageId]));
@@ -307,7 +370,7 @@ describe("a Claude run through the adapter host", () => {
   });
 
   it("unparks the run when the provider aborts the request it parked on", async () => {
-    const t = await setup({ request: () => new Promise<PromptDecision>(() => undefined) });
+    const t = await setup();
     const { runId, messageId } = startRun(t);
     const query = await runQuery(t, 1);
     query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [messageId]));

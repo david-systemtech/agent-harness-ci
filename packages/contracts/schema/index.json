@@ -399,6 +399,14 @@
       "title": "SessionPullRequestSyncedPayload"
     },
     {
+      "path": "sessions/events/prompt.opened.json",
+      "title": "PromptOpenedPayload"
+    },
+    {
+      "path": "sessions/events/prompt.answered.json",
+      "title": "PromptAnsweredPayload"
+    },
+    {
       "path": "sessions/events/run.started.json",
       "title": "RunStartedPayload"
     },
@@ -813,6 +821,42 @@
     {
       "path": "permissions/settings-patch.json",
       "title": "PermissionSettingsPatch"
+    },
+    {
+      "path": "permissions/prompt-kind.json",
+      "title": "PromptKind"
+    },
+    {
+      "path": "permissions/prompt-question-option.json",
+      "title": "PromptQuestionOption"
+    },
+    {
+      "path": "permissions/prompt-question.json",
+      "title": "PromptQuestion"
+    },
+    {
+      "path": "permissions/auto-decider.json",
+      "title": "AutoDecider"
+    },
+    {
+      "path": "permissions/decided-by.json",
+      "title": "DecidedBy"
+    },
+    {
+      "path": "permissions/prompt-delivery.json",
+      "title": "PromptDelivery"
+    },
+    {
+      "path": "permissions/prompt-decision.json",
+      "title": "PromptDecisionValue"
+    },
+    {
+      "path": "permissions/prompt-answer-input.json",
+      "title": "PromptAnswerInput"
+    },
+    {
+      "path": "permissions/listed-prompt.json",
+      "title": "ListedPrompt"
     },
     {
       "path": "terminals/terminal-id.json",
@@ -2067,6 +2111,34 @@
       "title": "permissions.settings.set error"
     },
     {
+      "path": "methods/permissions.prompts.list/params.json",
+      "title": "permissions.prompts.list params"
+    },
+    {
+      "path": "methods/permissions.prompts.list/result.json",
+      "title": "permissions.prompts.list result"
+    },
+    {
+      "path": "methods/permissions.prompts.list/error.json",
+      "title": "permissions.prompts.list error"
+    },
+    {
+      "path": "methods/permissions.prompts.answer/params.json",
+      "title": "permissions.prompts.answer params"
+    },
+    {
+      "path": "methods/permissions.prompts.answer/result.json",
+      "title": "permissions.prompts.answer result"
+    },
+    {
+      "path": "methods/permissions.prompts.answer/response.json",
+      "title": "permissions.prompts.answer response"
+    },
+    {
+      "path": "methods/permissions.prompts.answer/error.json",
+      "title": "permissions.prompts.answer error"
+    },
+    {
       "path": "methods/terminals.open/params.json",
       "title": "terminals.open params"
     },
@@ -2852,6 +2924,25 @@
       "result": "methods/permissions.settings.set/result.json",
       "response": "methods/permissions.settings.set/response.json",
       "error": "methods/permissions.settings.set/error.json"
+    },
+    {
+      "name": "permissions.prompts.list",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/permissions.prompts.list/params.json",
+      "result": "methods/permissions.prompts.list/result.json",
+      "error": "methods/permissions.prompts.list/error.json"
+    },
+    {
+      "name": "permissions.prompts.answer",
+      "scope": "runs:drive",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/permissions.prompts.answer/params.json",
+      "result": "methods/permissions.prompts.answer/result.json",
+      "response": "methods/permissions.prompts.answer/response.json",
+      "error": "methods/permissions.prompts.answer/error.json"
     },
     {
       "name": "terminals.open",

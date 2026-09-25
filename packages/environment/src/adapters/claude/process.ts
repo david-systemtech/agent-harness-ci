@@ -7,13 +7,23 @@ import {
   type HookCallback,
   type Options,
   type PermissionResult,
+  type PermissionUpdate,
   type Query,
   type SDKUserMessage,
   type SpawnOptions,
   type SpawnedProcess,
 } from "@anthropic-ai/claude-agent-sdk";
-import type { Mode } from "@agent-harness/contracts";
-import { PromptClosed, type PromptDecision, type PromptKind, type PromptMessage, type RunContext, type RunEnd, type RunInput } from "../../adapter/contract.js";
+import type { JsonObject, Mode, PromptQuestion } from "@agent-harness/contracts";
+import {
+  PromptClosed,
+  type PromptDecision,
+  type PromptDetail,
+  type PromptKind,
+  type PromptMessage,
+  type RunContext,
+  type RunEnd,
+  type RunInput,
+} from "../../adapter/contract.js";
 import type { Clock, Timer } from "../../serve/clock.js";
 import { AsyncQueue } from "./async-queue.js";
 import type { ConfigDirQueue } from "./config-dir-queue.js";
@@ -124,6 +134,58 @@ const DEFAULT_DENY_MESSAGE = "The request was denied.";
 type Record_ = Record<string, unknown>;
 const isRecord = (value: unknown): value is Record_ => value !== null && typeof value === "object" && !Array.isArray(value);
 const describe = (error: unknown): string => (error instanceof Error ? error.message : String(error));
+
+const textOf = (value: unknown): string | null => (typeof value === "string" && value.trim() !== "" ? value : null);
+
+/**
+ * `AskUserQuestion`'s questions (the pinned SDK's `AskUserQuestionInput`) as
+ * the harness records them, read tolerantly: a question without its text is
+ * left out, and a missing header, description or flag is empty or false.
+ */
+export const questionsOf = (input: Record<string, unknown>): PromptQuestion[] => {
+  const questions = Array.isArray(input["questions"]) ? (input["questions"] as unknown[]) : [];
+  return questions.flatMap((entry): PromptQuestion[] => {
+    if (typeof entry !== "object" || entry === null) return [];
+    const raw = entry as Record<string, unknown>;
+    const question = textOf(raw["question"]);
+    if (question === null) return [];
+    const options = (Array.isArray(raw["options"]) ? (raw["options"] as unknown[]) : []).flatMap((option) => {
+      const fields = typeof option === "object" && option !== null ? (option as Record<string, unknown>) : {};
+      const label = textOf(fields["label"]);
+      return label === null ? [] : [{ label, description: typeof fields["description"] === "string" ? fields["description"] : "" }];
+    });
+    return [{ header: typeof raw["header"] === "string" ? raw["header"] : "", question, options, multiSelect: raw["multiSelect"] === true }];
+  });
+};
+
+/**
+ * What an allowed prompt hands the CLI (permissions spec, the Claude
+ * mapping): the input as edited, with a question's answers under `answers`
+ * as `AskUserQuestion` reads them; an approved plan's mode through a
+ * `setMode` for the session; and `remember: 'session'` as the CLI's own
+ * suggestions for the session (or, with none, an allow rule for the tool),
+ * never written to a settings file.
+ */
+export const allowedResult = (
+  toolName: string,
+  input: Record<string, unknown>,
+  decision: PromptDecision,
+  suggestions: readonly PermissionUpdate[],
+  toolUseID: string,
+): PermissionResult => {
+  const edited = decision.updatedInput ?? input;
+  const updatedInput = decision.answers === undefined ? edited : { ...edited, answers: { ...decision.answers } };
+  const updatedPermissions: PermissionUpdate[] = [];
+  if (decision.mode !== undefined) updatedPermissions.push({ type: "setMode", mode: decision.mode, destination: "session" });
+  if (decision.remember === "session") {
+    updatedPermissions.push(
+      ...(suggestions.length > 0
+        ? suggestions.map((suggestion): PermissionUpdate => ({ ...suggestion, destination: "session" }))
+        : [{ type: "addRules", rules: [{ toolName }], behavior: "allow", destination: "session" } satisfies PermissionUpdate]),
+    );
+  }
+  return { behavior: "allow", updatedInput, ...(updatedPermissions.length > 0 && { updatedPermissions }), toolUseID };
+};
 
 /** The user messages a provider message says it answers: the prompts its turn consumed, a narrated command starting, an echoed prompt. */
 const ownersOf = (message: unknown): string[] => {
@@ -917,7 +979,7 @@ export class ClaudeProcess implements TurnControl {
 
   /**
    * `canUseTool`, on the broker seam: every request is handed to the host's
-   * broker (the auto-deny placeholder until #130) and parked in the
+   * broker (#130: recorded as `prompt.opened`, the run parked) and parked in the
    * permission table until the broker or `answerPrompt` settles it, or the
    * provider aborts it. A request arriving with no turn open is a
    * subagent's, parked long after its own turn ended: a turn of the
@@ -948,23 +1010,25 @@ export class ClaudeProcess implements TurnControl {
       if (runId === null) {
         // Settled before the host named a run for it (aborted, answered, the process let go): the broker is never asked.
         const early = await Promise.race([answered, Promise.resolve<PromptDecision>({ decision: "deny", message: DISPOSED_DENY_MESSAGE })]);
-        return this.#result(early, input, toolUseID);
+        return this.#result(early, toolName, input, options.suggestions ?? [], toolUseID);
       }
       const kind = PROMPT_KINDS[toolName] ?? "permission";
-      const detail = toJson({
-        promptId,
+      // The CLI's request on the harness's fields: its title is the one-line summary, its reason the provider's.
+      const detail: PromptDetail = {
         toolName,
-        input,
-        toolUseId: toolUseID,
-        title: options.title ?? null,
-        description: options.description ?? null,
-        decisionReason: options.decisionReason ?? null,
+        toolCallId: toolUseID === "" ? null : toolUseID,
+        input: toJson(input) as JsonObject,
+        summary: options.title ?? options.description ?? null,
         blockedPath: options.blockedPath ?? null,
+        reason: options.decisionReason ?? null,
+        questions: kind === "question" ? questionsOf(input) : null,
+        plan: kind === "plan" ? textOf(input["plan"]) : null,
+        suggestions: (options.suggestions ?? []).map((suggestion) => toJson(suggestion) as JsonObject),
         agentId: options.agentID ?? null,
-      }) as Record<string, unknown>;
+      };
       // The permission table's id is the prompt's: an answer through the host's `answerPrompt` names the same prompt.
       const asked = this.#context.broker.request({ sessionId: this.sessionId, runId, kind, detail, promptId, signal: options.signal });
-      return this.#result(await Promise.race([answered, asked]), input, toolUseID);
+      return this.#result(await Promise.race([answered, asked]), toolName, input, options.suggestions ?? [], toolUseID);
     } catch (error) {
       return { behavior: "deny", message: `The request could not be asked: ${describe(error)}`, toolUseID };
     } finally {
@@ -974,9 +1038,9 @@ export class ClaudeProcess implements TurnControl {
     }
   };
 
-  #result(decision: PromptDecision, input: Record<string, unknown>, toolUseID: string): PermissionResult {
+  #result(decision: PromptDecision, toolName: string, input: Record<string, unknown>, suggestions: readonly PermissionUpdate[], toolUseID: string): PermissionResult {
     return decision.decision === "allow"
-      ? { behavior: "allow", updatedInput: input, toolUseID }
+      ? allowedResult(toolName, input, decision, suggestions, toolUseID)
       : { behavior: "deny", message: decision.message ?? DEFAULT_DENY_MESSAGE, toolUseID };
   }
 

@@ -195,6 +195,10 @@ export const environmentKind = (): StreamKind<EnvironmentData> => ({
       case "signin.updated":
       case "signin.executable-chosen":
         return data;
+      // A prompt's notices change no status: the parked asks and the notices queue are projections of their own (#142).
+      case "prompt.parked":
+      case "prompt.resolved":
+        return data;
     }
   },
   encode: (data) => data,

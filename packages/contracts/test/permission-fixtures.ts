@@ -31,6 +31,43 @@ const values = {
 };
 const acknowledged = { ...values, "permissions.unattended.mode": "bypassPermissions", "permissions.unattended.bypassAcknowledgedAt": at, "permissions.parkedPrompt.ttl": "never" };
 
+/** A prompt as its prompt.opened records it, and its answer. */
+export const openedPrompt = {
+  runId,
+  promptId: "toolu_1",
+  kind: "permission",
+  toolName: "Bash",
+  toolCallId: "toolu_1",
+  input: { command: "rm -rf build" },
+  summary: "Bash: rm -rf build",
+  blockedPath: null,
+  reason: null,
+  questions: null,
+  plan: null,
+  suggestions: [],
+  agentId: null,
+  mode: "acceptEdits",
+  ceiling: "bypassPermissions",
+  ttlExpiresAt: null,
+};
+const question = { header: "Library", question: "Which library?", options: [{ label: "date-fns", description: "Small" }], multiSelect: true };
+const questionPrompt = { ...openedPrompt, promptId: "toolu_2", kind: "question", toolName: "AskUserQuestion", summary: "Which library?", questions: [question] };
+export const answeredPrompt = {
+  runId,
+  promptId: "toolu_1",
+  decision: "allow",
+  message: null,
+  answers: null,
+  updatedInput: null,
+  mode: null,
+  remember: null,
+  decidedBy: "cs-1",
+  delivery: "live",
+};
+const planAnswer = { ...answeredPrompt, mode: { requested: null, effective: "acceptEdits", ceiling: "bypassPermissions", clamped: false, clampReason: null }, delivery: "next-run" };
+const autoAnswer = { ...answeredPrompt, decision: "deny", decidedBy: { auto: "run_ended" }, delivery: null };
+const listed = { sessionId, promptId: "toolu_1", sequence: 11, openedAt: at, prompt: openedPrompt };
+
 const levels = [
   { level: "off", available: true, reason: null },
   { level: "workspace", available: false, reason: "No containment prober yet (#133)." },
@@ -84,6 +121,26 @@ export const permissionSchemaFixtures: Record<string, Fixtures> = {
     ],
     invalid: [{ mode: unclamped, live: null }, { mode: { ...clamped, requested: "dontAsk" }, live: null }, clamped, { mode: clamped }],
   },
+  "permissions/prompt-kind.json": { valid: ["permission", "denylist", "question", "plan"], invalid: ["tool", ""] },
+  "permissions/prompt-question-option.json": { valid: [{ label: "date-fns", description: "" }], invalid: [{ label: "", description: "" }, { label: "a" }] },
+  "permissions/prompt-question.json": { valid: [question, { ...question, header: "", options: [] }], invalid: [{ ...question, question: "" }, { ...question, multiSelect: "yes" }] },
+  "permissions/auto-decider.json": { valid: ["unattended", "bypass", "ttl", "run_ended", "reviewer", "cancelled"], invalid: ["person", "withdrawn", ""] },
+  "permissions/decided-by.json": { valid: ["cs-1", { auto: "ttl" }], invalid: ["", { auto: "person" }, { clientSessionId: "cs-1" }] },
+  "permissions/prompt-delivery.json": { valid: ["live", "next-run"], invalid: ["later", ""] },
+  "permissions/prompt-decision.json": { valid: ["allow", "deny"], invalid: ["maybe", ""] },
+  "permissions/prompt-answer-input.json": {
+    valid: [{ decision: "deny" }, { decision: "allow", message: "Go", answers: { "Which library?": "date-fns" }, updatedInput: { command: "ls" }, mode: "plan", remember: "session" }],
+    invalid: [{}, { decision: "allow", mode: "default" }, { decision: "allow", remember: "forever" }, { decision: "allow", message: "" }],
+  },
+  "permissions/listed-prompt.json": { valid: [listed], invalid: [{ ...listed, sessionId: "s-1" }, { ...listed, prompt: {} }] },
+  "sessions/events/prompt.opened.json": {
+    valid: [openedPrompt, questionPrompt, { ...openedPrompt, kind: "plan", toolName: "ExitPlanMode", plan: "1. Read", ttlExpiresAt: at }],
+    invalid: [{ ...openedPrompt, kind: "tool" }, { ...openedPrompt, summary: "" }, { ...openedPrompt, runId: "r-1" }, { promptId: "p-1", kind: "permission" }],
+  },
+  "sessions/events/prompt.answered.json": {
+    valid: [answeredPrompt, planAnswer, autoAnswer, { ...answeredPrompt, answers: { "Which library?": "date-fns, luxon" }, updatedInput: { command: "ls" } }],
+    invalid: [{ ...answeredPrompt, decidedBy: null }, { ...answeredPrompt, delivery: "later" }, { ...answeredPrompt, remember: "always" }, { promptId: "p-1", decision: "allow" }],
+  },
   "errors/containment_unavailable.json": {
     valid: [{ code: "containment_unavailable", message: "m", data: { level: "workspace", reason: "No containment prober yet (#133)." } }],
     invalid: [{ code: "containment_unavailable", message: "m", data: { level: "jail", reason: "r" } }, { code: "containment_unavailable", message: "m", data: {} }],
@@ -94,6 +151,20 @@ const target = { commandId, clientSessionId: "cs-2" };
 
 /** Params and results for every permissions method and `access.sessions.setCeiling`. */
 export const permissionMethodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
+  "permissions.prompts.list": {
+    params: { valid: [{}, { sessionId }], invalid: [{ sessionId: "s-1" }, []] },
+    result: { valid: [{ prompts: [] }, { prompts: [listed] }], invalid: [{}, { prompts: [{ ...listed, sessionId: undefined }] }] },
+  },
+  "permissions.prompts.answer": {
+    params: {
+      valid: [
+        { commandId, promptId: "toolu_1", decision: "deny" },
+        { commandId, promptId: "toolu_1", decision: "allow", message: "Go", answers: { "Which library?": "date-fns" }, updatedInput: { command: "ls" }, mode: "auto", remember: "session" },
+      ],
+      invalid: [{ promptId: "toolu_1", decision: "allow" }, { commandId, decision: "allow" }, { commandId, promptId: "", decision: "allow" }, { commandId, promptId: "p", decision: "yes" }],
+    },
+    result: { valid: [{ sessionId, ...answeredPrompt }, { sessionId, ...planAnswer }], invalid: [answeredPrompt, { sessionId, ...answeredPrompt, decidedBy: undefined }] },
+  },
   "access.sessions.setCeiling": {
     params: {
       valid: [{ ...target, ceiling: "plan" }, { ...target, ceiling: "bypassPermissions" }],

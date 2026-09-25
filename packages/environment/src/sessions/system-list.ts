@@ -1,4 +1,4 @@
-import type { PullRequest, RunStartedPayload, SessionActivity } from "@agent-harness/contracts";
+import type { PromptAnsweredPayload, PromptOpenedPayload, PullRequest, RunEndedPayload, RunStartedPayload, SessionActivity } from "@agent-harness/contracts";
 import type { ProjectionDb } from "../event-log/event-log.js";
 import type { ColumnWriter, Projection } from "./shelf-list.js";
 import type { SessionRow } from "./session-tables.js";
@@ -9,40 +9,44 @@ import type { SessionRow } from "./session-tables.js";
  * read. The session list owns the fields and these projections; the
  * workstreams own the events and their payloads.
  *
- * - Runs (the adapter's vocabulary, #119): a run started is `running`,
- *   and sets the account and model it runs on from its payload; a run
- *   ended is `idle`; both are activity (`lastActivityAt`). The summary has
- *   no `starting` in phase A: no list-flagged event marks a run's first
- *   event, so `running` holds from the start's commit (the run registry
- *   tells the two apart). These projections write only the system's
- *   fields: what a run's start and end owe the organisation fields
- *   (unarchive, unsettle, wake, the override cleared) are events of their
- *   own, appended with the run event (`activity-companions.ts`).
- * - Prompts, provisional until #130 (payloads theirs): read from the
- *   event's type and time alone, never its payload. A prompt opened parks
- *   the run and counts; a prompt answered is activity and, the last one
- *   answered, runs a parked run again. A run's end zeroes the count, which
- *   #130's `prompt.answered` (auto `run_ended`) replaces.
+ * - Runs (the adapter's vocabulary, #119): a run started is `running`, and
+ *   sets the account and model it runs on from its payload; a run ended is
+ *   `idle`, or `parked` while a prompt is still open (one a stop left open,
+ *   ADR 0007: a run that ends on its own closes its prompts before its end);
+ *   both are activity (`lastActivityAt`). The summary has no `starting` in
+ *   phase A: no list-flagged event marks a run's first event, so `running`
+ *   holds from the start's commit (the run registry tells the two apart).
+ *   These projections write only the system's fields: what a run's start and
+ *   end owe the organisation fields (unarchive, unsettle, wake, the override
+ *   cleared) are events of their own, appended with the run event
+ *   (`activity-companions.ts`). The session's live run and how many of the
+ *   parked prompts are its own are kept beside the fields (`live_run_id`,
+ *   `live_run_prompts`, no summary fields), for the prompts' rule.
+ * - Prompts (the permissions workstream's, #130): a prompt opened counts and
+ *   parks the session; answered, it counts down and is activity. While a run
+ *   is live the session is `parked` exactly while one of that run's own
+ *   prompts waits, else `running`: a run started while an older prompt is
+ *   open (one a stop or a restart kept) is `running`, the count kept, and so
+ *   is a run whose own prompts are all answered. With no run live, the last
+ *   prompt answered leaves the session `idle`.
  *
  * One module writes the fields the system owns: `activity` from the run and
- * prompt events together, `parkedPromptCount` from the prompt events (and
- * the run's end, until #130), `accountId` and `model` from `run.started`
- * alone, `lastActivityAt` from a run's start and end and a prompt's answer.
+ * prompt events together, `parkedPromptCount` from the prompt events alone,
+ * `accountId` and `model` from `run.started` alone, `lastActivityAt` from a
+ * run's start and end and a prompt's answer.
  * - Pull requests (the forge's to append; payload fixed here): each kept by
  *   its url, linked, synced (added when not yet linked) or unlinked.
  *
  * None of them is an organisation change, so none moves `updatedAt`.
- *
- * Provisional until #130: replacing the prompt projections needs no
- * migration, since the columns they write are summary fields the tables
- * already have and a rebuild replays the log through whatever projections
- * the environment then has.
  */
 
-type ActivityRow = Pick<SessionRow, "activity" | "parked_prompt_count" | "pull_requests">;
+type ActivityRow = Pick<SessionRow, "activity" | "parked_prompt_count" | "live_run_id" | "live_run_prompts" | "pull_requests">;
 
 const rowOf = (db: ProjectionDb, id: string): ActivityRow | undefined =>
-  db.all<ActivityRow>("SELECT activity, parked_prompt_count, pull_requests FROM sessions WHERE id = ?", id)[0];
+  db.all<ActivityRow>("SELECT activity, parked_prompt_count, live_run_id, live_run_prompts, pull_requests FROM sessions WHERE id = ?", id)[0];
+
+const stateOf = (row: ActivityRow | undefined): SessionActivity["state"] | undefined =>
+  row === undefined ? undefined : (JSON.parse(row.activity) as SessionActivity).state;
 
 const activity = (state: SessionActivity["state"], since: string): string => JSON.stringify({ state, since } satisfies SessionActivity);
 
@@ -60,32 +64,46 @@ export const systemProjections = (setColumns: ColumnWriter): Readonly<Record<str
     const payload = event.payload as RunStartedPayload;
     setColumns(event, db, {
       activity: activity("running", event.occurredAt),
+      live_run_id: payload.runId,
+      live_run_prompts: 0,
       last_activity_at: event.occurredAt,
       account_id: payload.accountId,
       model: payload.model,
     });
   },
-  // A run that ended waits on nothing. Zeroing the count may drop a question still open after the run; #130 owns the real rule.
-  "run.ended": (event, db) =>
-    setColumns(event, db, { activity: activity("idle", event.occurredAt), parked_prompt_count: 0, last_activity_at: event.occurredAt }),
-  "prompt.opened": (event, db) => {
+  // A run that ended waits on nothing, unless a prompt a stop left open still waits on a person.
+  "run.ended": (event, db) => {
     const row = rowOf(db, event.streamId);
-    const held = row === undefined ? undefined : (JSON.parse(row.activity) as SessionActivity);
+    const { runId } = event.payload as RunEndedPayload;
+    const waiting = (row?.parked_prompt_count ?? 0) > 0;
     setColumns(event, db, {
-      parked_prompt_count: (row?.parked_prompt_count ?? 0) + 1,
-      activity: held?.state === "parked" ? row?.activity ?? null : activity("parked", event.occurredAt),
+      ...(row?.live_run_id === runId && { live_run_id: null, live_run_prompts: 0 }),
+      activity: waiting && stateOf(row) === "parked" ? (row?.activity ?? null) : activity(waiting ? "parked" : "idle", event.occurredAt),
+      last_activity_at: event.occurredAt,
     });
   },
-  // The last prompt answered, a parked run goes on; a run that has ended stays idle.
+  "prompt.opened": (event, db) => {
+    const row = rowOf(db, event.streamId);
+    const { runId } = event.payload as PromptOpenedPayload;
+    setColumns(event, db, {
+      parked_prompt_count: (row?.parked_prompt_count ?? 0) + 1,
+      ...(row?.live_run_id === runId && { live_run_prompts: (row?.live_run_prompts ?? 0) + 1 }),
+      activity: stateOf(row) === "parked" ? (row?.activity ?? null) : activity("parked", event.occurredAt),
+    });
+  },
+  // A live run goes on once its own last prompt is answered; with no run live, the last prompt answered leaves the session idle.
   "prompt.answered": (event, db) => {
     const row = rowOf(db, event.streamId);
+    const { runId } = event.payload as PromptAnsweredPayload;
     const count = Math.max(0, (row?.parked_prompt_count ?? 0) - 1);
-    const held = row === undefined ? undefined : (JSON.parse(row.activity) as SessionActivity);
-    const parked = held?.state === "parked";
+    const live = row?.live_run_id ?? null;
+    const own = live === runId ? Math.max(0, (row?.live_run_prompts ?? 0) - 1) : (row?.live_run_prompts ?? 0);
+    const goesOn = live === null ? count === 0 : own === 0;
     setColumns(event, db, {
       parked_prompt_count: count,
+      ...(live === runId && { live_run_prompts: own }),
       last_activity_at: event.occurredAt,
-      ...(count === 0 && parked && { activity: activity("running", event.occurredAt) }),
+      ...(goesOn && stateOf(row) === "parked" && { activity: activity(live === null ? "idle" : "running", event.occurredAt) }),
     });
   },
   "session.pull-request-linked": (event, db) =>

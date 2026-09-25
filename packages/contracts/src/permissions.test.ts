@@ -168,9 +168,11 @@ describe("the permissions methods", () => {
       "permissions.mode.set": ["command", "runs:drive"],
       "permissions.settings.get": ["query", "read"],
       "permissions.settings.set": ["command", "admin"],
+      "permissions.prompts.list": ["query", "read"],
+      "permissions.prompts.answer": ["command", "runs:drive"],
       "access.sessions.setCeiling": ["command", "admin"],
     });
-    for (const name of ["permissions.mode.set", "permissions.settings.set", "access.sessions.setCeiling"] as const) {
+    for (const name of ["permissions.mode.set", "permissions.settings.set", "permissions.prompts.answer", "access.sessions.setCeiling"] as const) {
       expect(Object.keys(registry[name].params.shape), name).toContain("commandId");
     }
   });
