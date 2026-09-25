@@ -56,7 +56,8 @@ export type ModeResolution = z.infer<typeof ModeResolution>;
  * The containment levels (permissions spec, "Containment"): where a run may
  * reach on its environment, independent of its mode, in their order: `off`
  * applies nothing; `workspace` lets a run write only inside its workspace,
- * the session's scratch directory and a temporary directory of its own;
+ * the session's scratch directory and the temporary directory of the
+ * session's runs (one per session, since its runs share one provider process);
  * `workspace-no-network` adds that the model's commands and the provider's
  * fetch and search tools reach no host.
  */

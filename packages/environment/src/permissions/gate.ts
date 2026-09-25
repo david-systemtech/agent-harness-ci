@@ -33,8 +33,9 @@ const componentsOf = (path: string): string[] => path.split(sep === "\\" ? /[\\/
 /**
  * `path` as the file system resolves it: absolute, `~` expanded, every
  * symbolic link followed where it stands, a component that is not there
- * taken as written. Null when the links loop, since nothing can be written
- * through such a path and where it leads cannot be said.
+ * taken as written. Null when the links loop or a link cannot be read (gone
+ * between the look and the read, say), since nothing can be written through
+ * such a path and where it leads cannot be said.
  */
 export const resolvePath = (path: string, base: string): string | null => {
   // Joined as text, never normalised, as a relative path is below: a `..` after a link must reach the walk.
@@ -64,7 +65,13 @@ export const resolvePath = (path: string, base: string): string | null => {
       continue;
     }
     if (++links > MAX_LINKS) return null;
-    const target = readlinkSync(next);
+    let target: string;
+    try {
+      target = readlinkSync(next);
+    } catch {
+      // Gone since the look, or unreadable: where it leads cannot be said, so, as a loop, nothing is written through it.
+      return null;
+    }
     const targetRoot = parse(target).root;
     if (isAbsolute(target)) current = targetRoot;
     pending.unshift(...componentsOf(isAbsolute(target) ? target.slice(targetRoot.length) : target));
