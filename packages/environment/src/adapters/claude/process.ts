@@ -272,6 +272,8 @@ interface SpawnKey {
   readonly trusted: boolean;
   readonly toolServers: string;
   readonly bypassAllowed: boolean;
+  /** The instruction text the spawn appended to the preset: a run with other text (a completions request's own, #138) needs a spawn of its own. */
+  readonly instructions: string;
 }
 
 /** What the process last applied, so an attached run sends only what differs. */
@@ -394,6 +396,7 @@ export class ClaudeProcess implements TurnControl {
       toolServers: input.toolServers.map((server) => server.name).join("\n"),
       // The SDK's opt-in follows the run's ceiling, so a run under a bypass ceiling may later be changed to bypass.
       bypassAllowed: input.ceiling === "bypassPermissions",
+      instructions: input.instructions,
     };
   }
 
@@ -416,6 +419,8 @@ export class ClaudeProcess implements TurnControl {
     if (input.target.kind !== "resume" || input.target.providerSessionId !== this.#providerSessionId) return false;
     const key = this.#spawnKeyOf(input);
     if (key.directory !== this.#spawn.directory || key.trusted !== this.#spawn.trusted || key.toolServers !== this.#spawn.toolServers) return false;
+    // The instructions are fixed at spawn (the preset's append): other text is a fresh process's.
+    if (key.instructions !== this.#spawn.instructions) return false;
     // A bypass ceiling needs the SDK's opt-in at spawn; a process started without it cannot enter bypass.
     return !key.bypassAllowed || this.#spawn.bypassAllowed;
   }

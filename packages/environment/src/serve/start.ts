@@ -7,6 +7,7 @@ import {
   DISCOVERY_PATH,
   ENVIRONMENT_STREAM_KIND,
   HEALTH_PATH,
+  OPENAI_PATH_PREFIX,
   PAIR_PATH,
   PROTOCOL_VERSION,
   SESSION_STREAM_KIND,
@@ -40,6 +41,7 @@ import { createRateLimiter } from "../auth/rate-limit.js";
 import { formatActor, openEventLog, type EventLog, type Projector } from "../event-log/event-log.js";
 import type { Adapter } from "../adapter/contract.js";
 import { createClaudeAdapter } from "../adapters/claude/index.js";
+import { SCRATCH_DIRECTORY, createCompletionsSurface } from "../completions/surface.js";
 import { createAdapterHost } from "../adapter/host.js";
 import { ACCOUNTS_DIRECTORY, createAccountService, type AccountService, type ConfiguredAccount } from "../accounts/account-service.js";
 import { accountsProjector } from "../accounts/account-store.js";
@@ -695,6 +697,26 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     PAIR_PATH,
     pairRoute({ pairings, atomically: accessLog.atomically, rateLimiter: createRateLimiter({ clock }), readiness: () => readiness }),
   );
+  // The completions surface (#138): OpenAI's routes under /v1/ on the wire's port, for programs' client sessions.
+  const completions = createCompletionsSurface({
+    log,
+    host,
+    clock,
+    clientSessions,
+    readiness: () => readiness,
+    // The account store (#134): every account it holds, by its label, with what the host would run it with.
+    catalogue: {
+      accounts: () =>
+        accounts.list().flatMap((record) => {
+          const facts = accounts.facts(record.id);
+          return facts === null ? [] : [{ id: record.id, label: record.label, provider: record.provider, signedIn: facts.signedIn, models: facts.models }];
+        }),
+      defaultAccountId: () => accounts.defaultId(),
+    },
+    methods: table,
+    scratchRoot: join(dataDir, SCRATCH_DIRECTORY),
+  });
+  surface.prefix(OPENAI_PATH_PREFIX, completions.handle);
   const wire = createWire({
     environment: record,
     capabilities,
@@ -729,6 +751,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     grant.issue(loopback.address);
     return { address: loopback.address, addresses: listening.map((entry) => entry.address) };
   });
+
+  // Closed before the wire and the listeners: an answer still open ends with a final chunk, never a bare close.
+  closers.push(() => completions.close());
 
   await step("prepared", () => launcher.prepared());
   readiness = "ready";

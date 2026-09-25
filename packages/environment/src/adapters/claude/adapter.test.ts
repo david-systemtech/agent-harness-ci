@@ -1545,6 +1545,30 @@ describe("a run that joins a kept process", () => {
     expect(prompts.map((prompt) => prompt.uuid)).toEqual([bypass.prompt[0]?.messageId, queued.messageId]);
   });
 
+  it("serves a run whose instructions differ from the kept process's on a fresh process spawned with them, and attaches one whose instructions match", async () => {
+    const adapter = adapterWith();
+    const context = contextWith();
+    const input = runInput({ instructions: "Composed." });
+    const run = adapter.createRun(input, context);
+    const query = await started();
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [input.prompt[0]?.messageId as string]), sdk.toolUse("toolu_cron", "CronCreate", { cron: "0 * * * *" }), sdk.toolResult("toolu_cron"), sdk.result(PROVIDER_SESSION));
+    await drain(run);
+    run.release();
+    // The same instructions attach to the kept process.
+    const same = adapter.createRun(runInput({ instructions: "Composed.", target: { kind: "resume", providerSessionId: PROVIDER_SESSION } }), context);
+    await query.promptsPushed(2);
+    expect(fake.queries).toHaveLength(1);
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_2", [(await query.promptsPushed(2))[1]?.uuid as string]), sdk.result(PROVIDER_SESSION));
+    await drain(same);
+    same.release();
+    // A run with its own instructions after the composed ones needs a process that was given them.
+    const own = runInput({ instructions: "Composed.\n\nPersona: tidy.", target: { kind: "resume", providerSessionId: PROVIDER_SESSION } });
+    adapter.createRun(own, context);
+    const fresh = await fake.made(2);
+    expect(query.closed).toBe(true);
+    expect(fresh.options.systemPrompt).toEqual({ type: "preset", preset: "claude_code", append: "Composed.\n\nPersona: tidy." });
+  });
+
   it("keeps serving the session from the fresh process once the one it replaced has closed twice, disposed and then its pump ended", async () => {
     const adapter = adapterWith();
     const context = contextWith();

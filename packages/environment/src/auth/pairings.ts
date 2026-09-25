@@ -31,6 +31,8 @@ export type PairingRefusal = Extract<PairError["code"], "pairing_invalid" | "pai
  * `atomically` its caller opened; memory follows only once it commits.
  */
 export interface Pairings {
+  /** The ceiling a pairing gives for `chosen`: it, else the setting `permissions.defaultCeiling`, read now. */
+  ceilingOf(chosen: Ceiling | undefined): Ceiling;
   /** Mints a code, valid for ten minutes and one exchange, for a client session with `scopes` and `ceiling`. */
   create(tx: Tx, choice: { readonly scopes?: readonly Scope[] | undefined; readonly ceiling?: Ceiling | undefined }, attribution: Attribution): MintedPairing;
   /**
@@ -95,7 +97,10 @@ export const createPairings = (options: PairingsOptions): Pairings => {
     tx.afterCommit(() => (pairing.expired = true));
   };
 
+  const ceilingOf = (chosen: Ceiling | undefined): Ceiling => chosen ?? options.defaultCeiling?.() ?? DEFAULT_CEILING;
+
   return {
+    ceilingOf,
     create(tx, choice, attribution) {
       const now = clock.now().getTime();
       let code = mint();
@@ -105,7 +110,7 @@ export const createPairings = (options: PairingsOptions): Pairings => {
         id: randomUUID(),
         codeHash: hash(code),
         scopes: [...(choice.scopes ?? SCOPES)],
-        ceiling: choice.ceiling ?? options.defaultCeiling?.() ?? DEFAULT_CEILING,
+        ceiling: ceilingOf(choice.ceiling),
         createdAt: new Date(now).toISOString(),
         expiresAt: new Date(now + PAIRING_TTL_MS).toISOString(),
         exchangedAt: null,

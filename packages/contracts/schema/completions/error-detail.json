@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CompletionsErrorDetail",
+  "type": "object",
+  "properties": {
+    "message": {
+      "type": "string",
+      "minLength": 1
+    },
+    "type": {
+      "type": "string",
+      "minLength": 1,
+      "description": "OpenAI's error family: invalid_request_error, authentication_error, permission_error, not_found_error, conflict_error, server_error."
+    },
+    "code": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The harness's reason: unauthorized, forbidden, model_not_found, run_active, unavailable."
+    },
+    "param": {
+      "description": "The request field at fault, when one is.",
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "message",
+    "type",
+    "code",
+    "param"
+  ],
+  "description": "What went wrong, as OpenAI shapes it."
+}

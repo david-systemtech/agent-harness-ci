@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CompletionsModel",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "<account label slug>/<model>: send it as model, or read it at /v1/models/<id>."
+    },
+    "object": {
+      "type": "string",
+      "const": "model"
+    },
+    "created": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "owned_by": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The provider."
+    },
+    "family": {
+      "type": "string",
+      "minLength": 1
+    },
+    "tier": {
+      "type": "integer",
+      "minimum": -9007199254740991,
+      "maximum": 9007199254740991,
+      "description": "The adapter's ordinal tier: higher is stronger."
+    },
+    "agent-harness": {
+      "type": "object",
+      "properties": {
+        "account": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The account's label."
+        },
+        "accountId": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "account",
+        "accountId"
+      ]
+    }
+  },
+  "required": [
+    "id",
+    "object",
+    "created",
+    "owned_by",
+    "family",
+    "tier",
+    "agent-harness"
+  ],
+  "description": "A model a signed-in account offers, with its family, tier and account."
+}

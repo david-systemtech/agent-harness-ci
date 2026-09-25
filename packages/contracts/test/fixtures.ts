@@ -8,6 +8,7 @@
  */
 import { BYPASS_SENTENCE, FRAME_TYPES, SHARED_ERROR_CODES, methodPath, methods, type FrameType } from "../src/index.js";
 import { accountMethodFixtures, accountSchemaFixtures } from "./account-fixtures.js";
+import { completionsSchemaFixtures } from "./completions-fixtures.js";
 import { permissionMethodFixtures, permissionSchemaFixtures } from "./permission-fixtures.js";
 import { providerMethodFixtures, providerSchemaFixtures } from "./provider-fixtures.js";
 import { runMethodFixtures, runSchemaFixtures } from "./run-fixtures.js";
@@ -323,10 +324,16 @@ const frameFixtures = Object.fromEntries(
 );
 
 const methodErrorFixtures: Fixtures = {
-  valid: Object.values(sharedErrors),
+  valid: [
+    ...Object.values(sharedErrors),
+    // #180: the scope is held, but the call would grant a ceiling above the caller's own.
+    { code: "forbidden", message: "A pairing at bypassPermissions is above this client session's own ceiling.", data: { scope: "admin", reason: "ceiling", ceiling: "acceptEdits" } },
+  ],
   invalid: [
     { code: "no_such_error", message: "m", data: {} },
     { code: "forbidden", message: "m", data: { scope: "everything" } },
+    { code: "forbidden", message: "m", data: { scope: "admin", reason: "mode", ceiling: "acceptEdits" } },
+    { code: "forbidden", message: "m", data: { scope: "admin", reason: "ceiling", ceiling: "dontAsk" } },
     { code: "internal", message: "m" },
   ],
 };
@@ -788,5 +795,6 @@ export const schemaFixtures: Record<string, Fixtures> = {
   ...accountSchemaFixtures,
   ...usageSchemaFixtures,
   ...terminalSchemaFixtures,
+  ...completionsSchemaFixtures,
   ...methodSchemaFixtures,
 };

@@ -52,6 +52,7 @@ import {
 } from "../runs/run-reads.js";
 import {
   decideStart,
+  originOfActor,
   policyResolvedEvent,
   type AccountFacts,
   type LiveRunFacts,
@@ -385,8 +386,13 @@ export const requeuedEvents = (runId: string, messageIds: readonly string[]): Ev
     return { type: "message.requeued", payload };
   });
 
-/** What a run the environment starts itself after another is resolved from: the session, who it runs for, and the model and effort of the run before it. */
-export type NextRunBasis = Pick<PlannedRun, "sessionId" | "actor" | "model" | "effort">;
+/**
+ * What a run the environment starts after another takes from it: the
+ * session, the actor, the model and effort, and the run's own instructions
+ * (a completions request's, #138), which the log does not hold, so a run
+ * started after a restart carries none.
+ */
+export type NextRunBasis = Pick<PlannedRun, "sessionId" | "actor" | "model" | "effort" | "appendedInstructions">;
 
 /**
  * Who ends a run: its adapter, whose end event is recorded; or the host,
@@ -1203,7 +1209,8 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
           effort: plan.effort,
           mode: plan.mode,
           ceiling: plan.policy.mode.ceiling,
-          instructions: instructions(scope),
+          // The composed instructions, then what the run appends after them (a completions request's, #138), never in their place.
+          instructions: [instructions(scope), plan.appendedInstructions].filter((part): part is string => part !== null && part.trim() !== "").join("\n\n"),
           target: plan.target,
           toolServers: toolServers({ ...scope, runId: plan.runId }),
           trusted: false,
@@ -1240,7 +1247,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
         : policy.actorKind === "client"
           ? { kind: "client", ceiling, clientSessionId: null }
           : { kind: policy.actorKind, name: policy.actorName, ceiling, clientSessionId: null };
-    return { sessionId, actor, model: run.model, effort: null };
+    return { sessionId, actor, model: run.model, effort: null, appendedInstructions: null };
   };
 
   /** `actor` with its client session's ceiling as it is now; undefined once that client session is revoked or expired. */
@@ -1482,11 +1489,13 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       }
       const facts = startFacts(previous.sessionId, actor);
       const decision = decideStart(facts, {
-        origin: "client",
+        // The run is the actor's: a completions request's queue runs as completions, a routine's as routine (#138).
+        origin: originOfActor(actor),
         message: null,
         model: previous.model,
         ...(previous.effort !== null && { effort: previous.effort }),
         ...(forAnswers && { keptAnswers: true }),
+        ...(previous.appendedInstructions !== null && { appendedInstructions: previous.appendedInstructions }),
       });
       if (decision.rejected !== undefined) {
         console.error(`The queued messages of session ${previous.sessionId} could not start a run: ${decision.rejected.message}`);

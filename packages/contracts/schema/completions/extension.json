@@ -1,0 +1,188 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CompletionsExtension",
+  "type": "object",
+  "properties": {
+    "sessionId": {
+      "description": "The session to continue; a fresh session when absent. The answer carries the session's id.",
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+          "description": "A session's id: a version 4 UUID the creating client mints (never the provider's resume id), kept in lowercase."
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "permissionMode": {
+      "description": "The mode the turn asks for: clamped to the client session's ceiling, and the clamp reported as agent-harness.clamped on the first chunk; the unattended default when absent.",
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "plan",
+            "acceptEdits",
+            "auto",
+            "bypassPermissions"
+          ],
+          "description": "What an agent may do without asking during a run, in the order ceilings use: plan < acceptEdits < auto < bypassPermissions. Claude's default and dontAsk are never used."
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "systemPrompt": {
+      "description": "Text appended after the environment's composed instructions, never replacing them; at most 200,000 characters.",
+      "anyOf": [
+        {
+          "type": "string",
+          "maxLength": 200000
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "alwaysOnSkills": {
+      "description": "Accepted and reported as ignored on the first chunk until the skill set (ticket 89) honours it.",
+      "anyOf": [
+        {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "forkSession": {
+      "description": "Run the turn on a fork of sessionId rather than on sessionId itself.",
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "rewindToMessageId": {
+      "description": "Rewind sessionId to this user message before the turn runs.",
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+          "description": "A user message's id: a version 4 UUID the environment mints when a client sends it, and the id the provider is handed."
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "attachments": {
+      "description": "Images or files sent with the trailing user message.",
+      "anyOf": [
+        {
+          "maxItems": 20,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "image",
+                  "file"
+                ],
+                "description": "What an attachment is: an image (the adapter needs imageInput) or a file (fileInput)."
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 255
+              },
+              "mediaType": {
+                "type": "string",
+                "pattern": "^[a-z]+\\/[a-z0-9.+-]+$",
+                "description": "Its media type: image/png."
+              },
+              "data": {
+                "type": "string",
+                "maxLength": 27962028,
+                "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+                "description": "Its bytes, in standard padded base64, at most 20971520 bytes decoded (the maxLength bounds it within two bytes; the environment checks the decoded size); the log never holds them."
+              }
+            },
+            "required": [
+              "kind",
+              "name",
+              "mediaType",
+              "data"
+            ],
+            "description": "An attachment as a client sends it: kind, name, media type and its bytes in base64."
+          }
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "thinking": {
+      "description": "The reasoning effort; the top-level reasoning_effort is its alias.",
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "workspace": {
+      "description": "An absolute path to a directory the environment has, for a fresh session; with none the session gets a scratch directory of its own.",
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "attended": {
+      "description": "A person is present to answer prompts: they park until a client answers. False when absent: the unattended rule answers them.",
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "after": {
+      "description": "On a session whose run is live, the log sequence to attach from: the events of the run after it are sent first.",
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "description": "A position in the event log's global sequence; 0 is the cursor before the first event."
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "ignoreUnsupported": {
+      "description": "Ignore, and report, the OpenAI parameters the surface would otherwise refuse with 400.",
+      "type": [
+        "boolean",
+        "null"
+      ]
+    }
+  },
+  "description": "The harness's fields on a completions request, under agent-harness (or its alias artemis)."
+}

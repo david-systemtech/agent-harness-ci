@@ -779,6 +779,74 @@
       "title": "AttachmentInput"
     },
     {
+      "path": "completions/extension.json",
+      "title": "CompletionsExtension"
+    },
+    {
+      "path": "completions/chat-role.json",
+      "title": "ChatRole"
+    },
+    {
+      "path": "completions/content-part.json",
+      "title": "ChatContentPart"
+    },
+    {
+      "path": "completions/message.json",
+      "title": "ChatMessage"
+    },
+    {
+      "path": "completions/request.json",
+      "title": "ChatCompletionRequest"
+    },
+    {
+      "path": "completions/finish-reason.json",
+      "title": "CompletionFinishReason"
+    },
+    {
+      "path": "completions/clamp.json",
+      "title": "CompletionsClamp"
+    },
+    {
+      "path": "completions/activity.json",
+      "title": "CompletionsActivity"
+    },
+    {
+      "path": "completions/run-end.json",
+      "title": "CompletionsRunEnd"
+    },
+    {
+      "path": "completions/answer-extension.json",
+      "title": "CompletionsAnswerExtension"
+    },
+    {
+      "path": "completions/usage.json",
+      "title": "CompletionUsage"
+    },
+    {
+      "path": "completions/error-detail.json",
+      "title": "CompletionsErrorDetail"
+    },
+    {
+      "path": "completions/error-body.json",
+      "title": "CompletionsErrorBody"
+    },
+    {
+      "path": "completions/chunk.json",
+      "title": "ChatCompletionChunk"
+    },
+    {
+      "path": "completions/completion.json",
+      "title": "ChatCompletion"
+    },
+    {
+      "path": "completions/model.json",
+      "title": "CompletionsModel"
+    },
+    {
+      "path": "completions/model-list.json",
+      "title": "CompletionsModelList"
+    },
+    {
       "path": "transcript/run-mode.json",
       "title": "RunMode"
     },
