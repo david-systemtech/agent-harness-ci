@@ -16,8 +16,17 @@ import type { ConnectionAction, ConnectionNoticeKind } from "./connections/state
 /** How many notices are kept; the oldest goes first. A chosen default. */
 export const NOTICE_LIMIT = 100;
 
-/** What a notice is about: the connection's own kinds, and `updated` (the environment now runs another harness version, from `environment.subscribe`). */
-export type NoticeKind = ConnectionNoticeKind | "updated";
+/**
+ * What a notice is about: the connection's own kinds; `updated` (the
+ * environment now runs another harness version, from `environment.subscribe`);
+ * and the outbox's (#128): `command-rejected` (the environment refused a
+ * command, by its receipt or an error) and `command-dropped` (a command left
+ * the outbox unsent, whatever dropped it: seven days without reaching its
+ * environment, a run command under a changed client session or never sent
+ * before the runtime ended, a request that failed for another reason than
+ * its socket).
+ */
+export type NoticeKind = ConnectionNoticeKind | "updated" | "command-rejected" | "command-dropped";
 export type NoticeAction = ConnectionAction;
 
 /** A notice before it is raised: what it says and what it offers. */
