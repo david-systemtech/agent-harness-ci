@@ -480,7 +480,9 @@ export const draftWithWithdrawn = (draft: string | null, text: string): string |
  * provider says it no longer holds (it read it) are `not_found`, kind
  * `message`; a message of a session not here is `not_found`, kind
  * `session`, before its state is looked at; a draft with no room for the
- * text is `conflict`, reason `draft_full`, and the message stays queued.
+ * text is `conflict`, reason `draft_full`, and the message stays queued,
+ * checked after the provider's word, so a message it read is `not_found`
+ * whatever the draft holds.
  */
 export const decideWithdraw = (facts: WithdrawFacts): WithdrawDecision => {
   const { message, messageId } = facts;
@@ -491,6 +493,8 @@ export const decideWithdraw = (facts: WithdrawFacts): WithdrawDecision => {
   if (facts.session === null || facts.session.deleted) return { rejected: sessionNotFound(message.sessionId) };
   if (message.heldBy === "read") return gone("a run has read it");
   if (message.heldBy === "withdrawn") return gone("it was withdrawn already");
+  // Read by the provider while the withdraw waited on its answer: gone whatever the draft holds, so no refusal promises a retry.
+  if (message.heldBy === "provider" && facts.provider?.withdrawn === false) return gone("the provider has read it");
   const draft = draftWithWithdrawn(facts.draft, message.text);
   if (draft === null) {
     return conflict(message.sessionId, "draft_full", `The session's draft has no room for the text of message ${messageId}; clear or shorten the draft, then withdraw it again.`, {
@@ -498,12 +502,9 @@ export const decideWithdraw = (facts: WithdrawFacts): WithdrawDecision => {
       limit: MAX_DRAFT_LENGTH,
     });
   }
-  if (message.heldBy === "provider") {
-    // Still the provider's: it said it no longer holds it (read), or was not asked, which no transition allows.
-    if (facts.provider === null) {
-      throw new ContractError({ code: "internal", message: `The message ${messageId} changed hands while it was being withdrawn; withdraw it again.`, data: {} });
-    }
-    if (!facts.provider.withdrawn) return gone("the provider has read it");
+  // Still the provider's and it was not asked, which no transition allows (a draft with no room was refused above, unasked).
+  if (message.heldBy === "provider" && facts.provider === null) {
+    throw new ContractError({ code: "internal", message: `The message ${messageId} changed hands while it was being withdrawn; withdraw it again.`, data: {} });
   }
   const heldBy: QueueHolder = facts.provider?.withdrawn === true ? "provider" : message.heldBy;
   const withdrawn: MessageWithdrawnPayload = { runId: message.runId, messageId, heldBy };

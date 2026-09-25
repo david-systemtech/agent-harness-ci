@@ -853,6 +853,31 @@ describe("a withdraw racing the provider's read", () => {
     expect(aboutMessage(t, id, "message.withdrawn", messageId)).toEqual([]);
   });
 
+  it("answers not_found, not draft_full, when the provider read the message while its slow answer waited and the draft filled meanwhile", async () => {
+    const read = gate();
+    const held = gate();
+    const answered = gate();
+    const t = await start({ capabilities: PROVIDER, holdWithdrawAnswers: answered });
+    const client = await t.client();
+    const { id } = await create(client);
+    t.adapter.nextScripts.push(readingScript(read, held));
+    const session = await watch(client, id, t.env.log.head());
+    const first = await startRun(client, id);
+    await session.until("assistant.text", first.runId);
+    const { messageId } = await queue(client, id, "Also the tests");
+    // The provider reads it in a turn of its own; the log hears of that only once the run beside it ends.
+    read.open();
+    await vi.waitFor(() => expect(t.adapter.runs).toHaveLength(2));
+    const withdrawing = command(client, "runs.withdraw", { messageId });
+    await vi.waitFor(() => expect(t.adapter.runs[0]?.withdrawals).toEqual([messageId]));
+    // Another client fills the draft while the provider's answer is slow.
+    await sessionCommand(await t.client(), "sessions.setDraft", { sessionId: id, draft: "x".repeat(MAX_DRAFT_LENGTH - 1) });
+    answered.open();
+    expect((await withdrawing).receipt).toMatchObject({ status: "rejected", reason: "not_found", error: { data: { kind: "message", messageId } } });
+    held.open();
+    await vi.waitFor(() => expect(aboutMessage(t, id, "message.delivered", messageId)).toHaveLength(1));
+  });
+
   it("wins when it reaches the provider first: message.withdrawn, and the turn the provider opens on the run's end does not read it", async () => {
     const answered = gate();
     const held = gate();
