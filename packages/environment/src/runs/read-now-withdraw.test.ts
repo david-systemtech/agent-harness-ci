@@ -176,9 +176,9 @@ describe("runs.readNow", () => {
     ["the caller's", "bypassPermissions", "plan", "plan"],
   ] as const;
 
-  it.each(VARIANTS.flatMap(([what, capabilities]) => CLAMPS.map((clamp) => [what, capabilities, ...clamp] as const)))(
+  it.each(VARIANTS.flatMap(([what, capabilities]) => CLAMPS.map(([whose, ...ceilings]) => [what, whose, capabilities, ...ceilings] as const)))(
     "on a live run, with %s, clamps the next run's mode to the lowest ceiling among the queued senders and the caller: here %s",
-    async (_what, capabilities, _whose, senderCeiling, callerCeiling, effective) => {
+    async (_what, _whose, capabilities, senderCeiling, callerCeiling, effective) => {
       const held = gate();
       const t = await start({ capabilities });
       const { id } = await create(await t.client(), { mode: "bypassPermissions" });
@@ -692,6 +692,9 @@ describe("runs.withdraw", () => {
     expect(second.receipt).toMatchObject({ status: "rejected", reason: "not_found" });
     slow.open();
     expect((await first).receipt).toEqual(second.receipt);
+    // A retry of that command id is answered from its receipt, the provider not asked again: its answer is final.
+    expect(await command(client, "runs.withdraw", { messageId }, commandId)).toEqual({ receipt: second.receipt });
+    expect(t.adapter.runs[0]?.withdrawals).toEqual([messageId, messageId]);
     // The provider no longer holds it, and the log says so: the environment does, where a client sees it and can take it back.
     expect(aboutMessage(t, id, "message.requeued", messageId)).toHaveLength(1);
     const again = await command(client, "runs.withdraw", { messageId });
@@ -938,6 +941,28 @@ describe("a withdraw racing the provider's read", () => {
     await untilEnded(t, id, 2);
     expect(aboutMessage(t, id, "message.delivered", messageId)).toHaveLength(1);
     expect(aboutMessage(t, id, "message.withdrawn", messageId)).toEqual([]);
+  });
+
+  it("answers a retry of a not_found under the same command id from its receipt, asking the provider nothing more", async () => {
+    const read = gate();
+    const held = gate();
+    const t = await start({ capabilities: PROVIDER });
+    const client = await t.client();
+    const { id } = await create(client);
+    t.adapter.nextScripts.push(readingScript(read, held));
+    const session = await watch(client, id, t.env.log.head());
+    const first = await startRun(client, id);
+    await session.until("assistant.text", first.runId);
+    const { messageId } = await queue(client, id, "Also the tests");
+    read.open();
+    await vi.waitFor(() => expect(t.adapter.runs).toHaveLength(2));
+    const commandId = randomUUID();
+    const refused = await command(client, "runs.withdraw", { messageId }, commandId);
+    expect(refused.receipt).toMatchObject({ status: "rejected", reason: "not_found", error: { data: { kind: "message", messageId } } });
+    expect(await command(client, "runs.withdraw", { messageId }, commandId)).toEqual({ receipt: refused.receipt });
+    expect(t.adapter.runs[0]?.withdrawals).toEqual([messageId]);
+    held.open();
+    await vi.waitFor(() => expect(aboutMessage(t, id, "message.delivered", messageId)).toHaveLength(1));
   });
 
   it("answers not_found, not draft_full, when the provider read the message while its slow answer waited and the draft filled meanwhile", async () => {

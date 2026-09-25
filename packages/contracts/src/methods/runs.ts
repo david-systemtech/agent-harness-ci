@@ -171,7 +171,8 @@ export const runsReadNow = defineMethod({
       description: "The live run interrupted to read the queue; its end and the next run.started follow on the session's stream. Null when no run was live.",
     }),
     runId: RunId.nullable().meta({
-      description: "The run of the queue this command started, when no run was live; null when it starts after the interrupted run's end, or when nothing was queued.",
+      description:
+        "Null when a run was live (the run of the queue starts after the interrupted run's end; its run.started names it) and when nothing was queued; when no run was live, the run of the queue this command started in its own transaction.",
     }),
   }),
   errors: [],
