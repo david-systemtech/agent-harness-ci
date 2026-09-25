@@ -13,7 +13,10 @@ import { AttachmentKind } from "../transcript.js";
  * `not_found` (data `kind`: `session` or `run`, and `message` for a
  * withdraw of a message this environment does not hold queued). What the session's adapter
  * cannot do is `invalid_params` with data `reason: unsupported` and the
- * capability flag it lacks (the spec's `invalid_request`).
+ * capability flag it lacks (the spec's `invalid_request`). Each method's
+ * `errors` lists its own codes only (`method.ts`), and these have none: every
+ * code they answer (`not_found`, `conflict`, `unavailable`, `invalid_params`,
+ * `internal`) is shared, its `data` documented on the method.
  */
 
 /** The largest attachment a message carries, in bytes before encoding. */
@@ -154,7 +157,8 @@ export const runsStopTask = defineMethod({
  * the queue starts. With no live run, the run of the queue starts in this
  * command's own transaction, on the model and effort of the run before it. With nothing queued the command is
  * accepted with no event, and a live run is left alone. It starts a run, so
- * while the environment drains it is `unavailable` when anything is queued.
+ * while the environment drains it is `unavailable` when anything is queued;
+ * with nothing queued it is the same no-op, accepted, draining or not.
  */
 export const runsReadNow = defineMethod({
   name: "runs.readNow",

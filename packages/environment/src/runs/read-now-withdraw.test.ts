@@ -448,6 +448,18 @@ describe("runs.readNow", () => {
     expect(t.env.log.receipt(`client_session:${client.hello.clientSessionId}`, commandId)).toBeNull();
     held.open();
   });
+
+  it("with nothing queued is the same accepted no-op while the environment drains", async () => {
+    const t = await start({ capabilities: ENVIRONMENT });
+    const client = await t.client();
+    const { id } = await create(client);
+    await client.request("environment.drain", { commandId: randomUUID() });
+    const head = t.env.log.head();
+    expect(await command(client, "runs.readNow", { sessionId: id })).toEqual({
+      receipt: { status: "accepted", sequence: head, changed: false },
+      result: { sessionId: id, interruptedRunId: null, runId: null },
+    });
+  });
 });
 
 describe("runs.withdraw", () => {
@@ -699,6 +711,33 @@ describe("runs.withdraw", () => {
     await vi.waitFor(() => expect(eventsOf(t, id).filter((event) => event.type === "run.started")).toHaveLength(2));
     expect(startedOf(t, id, 1)?.payload).toMatchObject({ queuedMessageIds: [kept] });
     expect(aboutMessage(t, id, "message.delivered", withdrawn as string)).toEqual([]);
+    held.open();
+  });
+
+  it("lets go of a message whose withdraw failed at the provider, so the next run reads it", async () => {
+    const held = gate();
+    const t = await start(
+      wrapped({ capabilities: PROVIDER }, (run, index) => ({
+        withdraw: async (messageId: string) => {
+          if (index === 0) throw new Error("The control channel did not answer.");
+          return (await run.withdraw?.(messageId)) ?? { withdrawn: false };
+        },
+      })),
+    );
+    const quiet = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    onCleanup(() => quiet.mockRestore());
+    const client = await t.client();
+    const { id } = await create(client);
+    const { session, first, queued } = await liveWithQueue(t, client, id, ["Also the tests"], held);
+    const messageId = queued[0]?.messageId as string;
+    await expect(client.request("runs.withdraw", { commandId: randomUUID(), messageId })).rejects.toMatchObject({ code: "internal" });
+    // The interrupt hands it back; nothing holds it out of the queue, so the read-now's run reads it.
+    await command(client, "runs.interrupt", { runId: first.runId });
+    await session.until("run.ended", first.runId);
+    const answer = await command(client, "runs.readNow", { sessionId: id });
+    expect(answer.result?.runId).not.toBeNull();
+    const [started] = await session.until("run.started");
+    expect(started?.payload).toMatchObject({ queuedMessageIds: [messageId] });
     held.open();
   });
 
