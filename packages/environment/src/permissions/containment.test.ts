@@ -21,7 +21,7 @@ import { end, fakeAdapter, gate, say, toolCall, type FakeAdapter, type Gate, typ
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { create, deleteSession, purgeSession, refusal } from "../../test/sessions.js";
 import type { WireClient } from "../../test/wire-client.js";
-import type { PermissionBroker, PromptRequest, ToolAccess } from "../adapter/contract.js";
+import type { ToolAccess } from "../adapter/contract.js";
 import { toWireEnvelope } from "../wire/envelope.js";
 
 /**
@@ -79,13 +79,6 @@ const discovery = async (t: TestEnvironment): Promise<DiscoveryDocument> =>
 
 /** A client of a client session paired with `ceiling` and `scopes`. */
 const pairedClient = async (t: TestEnvironment, ceiling: Mode, scopes: readonly Scope[] = SCOPES) => t.client({ token: (await t.pair({ ceiling, scopes })).token });
-
-/** A broker that records every request it is handed and never answers. */
-const recordingBroker = () => {
-  const requests: PromptRequest[] = [];
-  const broker: PermissionBroker = { request: (request) => (requests.push(request), new Promise(() => undefined)) };
-  return { broker, requests };
-};
 
 /** A script that makes each call through the gate, in order, then completes. */
 const calling =
@@ -476,8 +469,7 @@ describe("run.policy.resolved's containment", () => {
 
 describe("the tool gate's containment", () => {
   it("at workspace, denies a write outside the workspace, the scratch directory and the run's temporary directory: no prompt, the model told why, recorded", async () => {
-    const recorded = recordingBroker();
-    const { t, client, id, adapter } = await sessionAt("workspace", { adapterSeams: { broker: recorded.broker } });
+    const { t, client, id, adapter } = await sessionAt("workspace");
     const outside = join(realpathSync(tempDir()), "notes.txt");
     const runId = await runScript(t, client, id, calling(write(outside)));
     const [ruling] = adapter.lastRun().gated;
@@ -500,7 +492,6 @@ describe("the tool gate's containment", () => {
       },
     ]);
     // No prompt opens: widening containment is a settings change, never an answer to a prompt.
-    expect(recorded.requests).toEqual([]);
     expect(sessionEvents(t, id).map((event) => event.type)).not.toContain("prompt.opened");
     expect(runEvents(t, id, runId).find((event) => event.type === "run.ended")?.payload).toMatchObject({ reason: "completed" });
   });
@@ -576,8 +567,7 @@ describe("the tool gate's containment", () => {
   });
 
   it("at workspace-no-network, denies a fetch or a search the same way, while shell commands and reads go on to the provider", async () => {
-    const recorded = recordingBroker();
-    const { t, client, id, adapter } = await sessionAt("workspace-no-network", { adapterSeams: { broker: recorded.broker } });
+    const { t, client, id, adapter } = await sessionAt("workspace-no-network");
     const runId = await runScript(
       t,
       client,
@@ -594,7 +584,7 @@ describe("the tool gate's containment", () => {
       ["WebSearch", "denied", "containment"],
     ]);
     for (const payload of denials) expect(payload["reason"]).toMatch(/no network/);
-    expect(recorded.requests).toEqual([]);
+    expect(sessionEvents(t, id).map((event) => event.type)).not.toContain("prompt.opened");
   });
 
   it("at workspace, lets a fetch and a search through", async () => {

@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PromptDecisionValue",
+  "type": "string",
+  "enum": [
+    "allow",
+    "deny"
+  ],
+  "description": "Whether the call may go ahead: allow, or deny."
+}

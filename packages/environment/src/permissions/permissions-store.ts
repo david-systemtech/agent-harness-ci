@@ -13,12 +13,14 @@ import {
 import type { Projector } from "../event-log/event-log.js";
 import type { Reader } from "../sessions/session-reads.js";
 import { readSettings, readStoredSettings } from "../settings/settings-store.js";
+import { PROMPTS_TABLES, projectPrompt } from "./prompts-store.js";
 
 /**
  * The permissions read model, kept in the transaction of the events it
  * follows and rebuilt from the log: each session's mode, from its latest
  * `session.mode.set`, and its own containment level, from its latest
- * `session.containment.set`, their rows gone with the session's tombstone. The
+ * `session.containment.set`, their rows gone with the session's tombstone;
+ * and the prompts, parked and answered (`prompts-store.ts`, #130). The
  * permission settings' values are the settings stream's (`settings.updated`,
  * the settings store, #117); the access log's `settings.changed` beside them
  * is checked against its schema here, so a malformed one fails its append
@@ -36,6 +38,7 @@ export const PERMISSIONS_TABLES = {
     session_id TEXT PRIMARY KEY,
     level TEXT NOT NULL
   ) STRICT`,
+  ...PROMPTS_TABLES,
 } as const;
 
 export const permissionsProjector: Projector = {
@@ -47,6 +50,7 @@ export const permissionsProjector: Projector = {
       return;
     }
     if (event.streamKind !== SESSION_STREAM_KIND) return;
+    projectPrompt(event, db);
     if (event.type === "session.mode.set") {
       const { mode } = event.payload as SessionModeSetPayload;
       db.run("INSERT INTO session_modes (session_id, mode) VALUES (?, ?) ON CONFLICT (session_id) DO UPDATE SET mode = excluded.mode", event.streamId, mode.effective);

@@ -93,16 +93,19 @@ export type { AccountFacts, LiveRunFacts, PlannedRun, QueuedSend, StartFacts } f
 export { createAdapterRegistry, type AdapterRegistry } from "./adapter/registry.js";
 export { createScopedAppend, type ScopedAppend } from "./adapter/scoped-append.js";
 export {
-  autoDenyBroker,
   composeInstructions,
+  noAutoAnswer,
   noToolServers,
   orientationPlaceholder,
   presetPolicy,
+  type AutoAnswer,
+  type AutoAnswerRequest,
   type InstructionComposer,
   type InstructionLayers,
   type InstructionScope,
   type PolicyRequest,
   type PolicySeam,
+  type PromptAutoAnswer,
   type ToolServerFactory,
   type ToolServerScope,
 } from "./adapter/seams.js";

@@ -664,8 +664,8 @@ export const schemaFixtures: Record<string, Fixtures> = {
     invalid: [envelopeWithoutCommandId, { ...validEnvelope, sequence: 0 }, { ...validEnvelope, payload: [] }],
   },
   "notices/environment-notice-type.json": {
-    valid: ["environment.started", "environment.updated", "environment.draining", "account.updated", "signin.updated", "signin.executable-chosen"],
-    invalid: ["environment.stopped", "session.created", "signin.started", ""],
+    valid: ["environment.started", "environment.updated", "environment.draining", "account.updated", "signin.updated", "signin.executable-chosen", "prompt.parked", "prompt.resolved"],
+    invalid: ["environment.stopped", "session.created", "signin.started", "prompt.opened", ""],
   },
   "notices/environment-notice.json": {
     valid: [
@@ -686,6 +686,11 @@ export const schemaFixtures: Record<string, Fixtures> = {
         },
       },
       { type: "signin.executable-chosen", payload: { provider: "claude", source: "bundled", executable: "/opt/claude", bundled: "/opt/claude", detail: null } },
+      {
+        type: "prompt.parked",
+        payload: { sessionId: otherUuid, runId: thirdUuid, promptId: "toolu_1", kind: "question", title: "Fix the receipts", summary: "Which library?" },
+      },
+      { type: "prompt.resolved", payload: { sessionId: otherUuid, runId: thirdUuid, promptId: "toolu_1", decision: "allow", decidedBy: "cs-1" } },
       validEnvironmentStartedEvent,
     ],
     invalid: [
@@ -698,6 +703,8 @@ export const schemaFixtures: Record<string, Fixtures> = {
       { type: "account.updated", payload: { accountId: "claude-max", change: "status-changed" } },
       { type: "signin.updated", payload: { accountId: "claude-max", state: "waiting" } },
       { type: "signin.executable-chosen", payload: { provider: "claude", source: "bundled" } },
+      { type: "prompt.parked", payload: { sessionId: otherUuid, runId: thirdUuid, promptId: "toolu_1", kind: "tool", title: "t", summary: "s" } },
+      { type: "prompt.resolved", payload: { sessionId: otherUuid, runId: thirdUuid, promptId: "toolu_1", decision: "allow" } },
       validEnvelope,
     ],
   },

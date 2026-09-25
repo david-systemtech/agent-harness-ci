@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PromptQuestion",
+  "type": "object",
+  "properties": {
+    "header": {
+      "type": "string",
+      "description": "A short label for the question, shown as a chip; empty when the provider gives none."
+    },
+    "question": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The question as the model asks it; an answer is keyed by it."
+    },
+    "options": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "description": "What the option says, as the person picks it."
+          },
+          "description": {
+            "type": "string",
+            "description": "What choosing it means; empty when the provider gives none."
+          }
+        },
+        "required": [
+          "label",
+          "description"
+        ],
+        "description": "One option of a question: its label and what it means."
+      },
+      "description": "The choices offered; a person may also answer in their own words."
+    },
+    "multiSelect": {
+      "type": "boolean",
+      "description": "Whether several options may be chosen."
+    }
+  },
+  "required": [
+    "header",
+    "question",
+    "options",
+    "multiSelect"
+  ],
+  "description": "One question the model asks: header, question, options and whether several may be chosen."
+}

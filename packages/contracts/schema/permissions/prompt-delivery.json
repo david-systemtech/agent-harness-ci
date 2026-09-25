@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PromptDelivery",
+  "type": "string",
+  "enum": [
+    "live",
+    "next-run"
+  ],
+  "description": "Where an answer went: live (handed to the run that asked, still waiting on it), or next-run (the run had gone, a restart or a parked stop taking it, so the answer is the first message of the session's next run)."
+}
