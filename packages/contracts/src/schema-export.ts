@@ -134,7 +134,6 @@ import {
   AttachmentRecord,
   InterruptCause,
   ModelUsage,
-  ParkedPrompt,
   RunEndReason,
   RunError,
   RunMode,
@@ -178,6 +177,19 @@ import {
   RunPolicy,
 } from "./permissions.js";
 import { Mode, ModeAvailability } from "./permissions-modes.js";
+import {
+  AutoDecider,
+  DecidedBy,
+  ListedPrompt,
+  ParkedPrompt,
+  PROMPT_EVENT_TYPES,
+  PromptAnswerInput,
+  PromptDecisionValue,
+  PromptDelivery,
+  PromptKind,
+  PromptQuestion,
+  PromptQuestionOption,
+} from "./prompts.js";
 import { ParkedPromptTtl, PermissionSettingsPatch, PermissionSettingsValues, SettingsArea, TtlUnit, UnattendedMode } from "./permissions-settings.js";
 
 /**
@@ -204,11 +216,12 @@ const pascal = (words: string): string =>
 
 /**
  * The session and group event types whose payloads are fixed, each with its
- * payload, the transcript vocabulary and the permission types among them:
- * the reserved prompt types are left out until #130 fixes them.
+ * payload, the prompt types, the transcript vocabulary and the permission
+ * types among them; a type reserved by name for a workstream that has not
+ * fixed its payload yet would be left out.
  */
 export const publishedEventPayloads = (): [string, z.ZodType][] =>
-  Object.entries({ ...SESSION_EVENT_TYPES, ...TRANSCRIPT_EVENT_TYPES, ...PERMISSION_SESSION_EVENT_TYPES, ...GROUP_EVENT_TYPES } as Record<string, EventTypeEntry>).flatMap(([type, entry]) =>
+  Object.entries({ ...SESSION_EVENT_TYPES, ...PROMPT_EVENT_TYPES, ...TRANSCRIPT_EVENT_TYPES, ...PERMISSION_SESSION_EVENT_TYPES, ...GROUP_EVENT_TYPES } as Record<string, EventTypeEntry>).flatMap(([type, entry]) =>
     entry.reservedFor === undefined ? [[type, entry.payload] as [string, z.ZodType]] : [],
   );
 
@@ -366,6 +379,15 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "permissions/parked-prompt-ttl.json", title: "ParkedPromptTtl", schema: ParkedPromptTtl },
   { path: "permissions/settings-values.json", title: "PermissionSettingsValues", schema: PermissionSettingsValues },
   { path: "permissions/settings-patch.json", title: "PermissionSettingsPatch", schema: PermissionSettingsPatch },
+  { path: "permissions/prompt-kind.json", title: "PromptKind", schema: PromptKind },
+  { path: "permissions/prompt-question-option.json", title: "PromptQuestionOption", schema: PromptQuestionOption },
+  { path: "permissions/prompt-question.json", title: "PromptQuestion", schema: PromptQuestion },
+  { path: "permissions/auto-decider.json", title: "AutoDecider", schema: AutoDecider },
+  { path: "permissions/decided-by.json", title: "DecidedBy", schema: DecidedBy },
+  { path: "permissions/prompt-delivery.json", title: "PromptDelivery", schema: PromptDelivery },
+  { path: "permissions/prompt-decision.json", title: "PromptDecisionValue", schema: PromptDecisionValue },
+  { path: "permissions/prompt-answer-input.json", title: "PromptAnswerInput", schema: PromptAnswerInput },
+  { path: "permissions/listed-prompt.json", title: "ListedPrompt", schema: ListedPrompt },
   { path: "terminals/terminal-id.json", title: "TerminalId", schema: TerminalId },
   { path: "terminals/terminal-columns.json", title: "TerminalColumns", schema: TerminalColumns },
   { path: "terminals/terminal-rows.json", title: "TerminalRows", schema: TerminalRows },

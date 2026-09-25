@@ -1,4 +1,4 @@
-import { TRANSCRIPT_EVENT_TYPES, type JsonObject, type PullRequest, type SettingsPatch } from "@agent-harness/contracts";
+import { PROMPT_EVENT_TYPES, TRANSCRIPT_EVENT_TYPES, type JsonObject, type PullRequest, type SettingsPatch } from "@agent-harness/contracts";
 import { randomUUID } from "node:crypto";
 import type { EventEnvelope } from "../src/event-log/event-log.js";
 import type { TestEnvironment } from "./helper.js";
@@ -6,10 +6,10 @@ import type { WireClient } from "./wire-client.js";
 
 /**
  * What the shelf's suites share: time in days, the events other
- * workstreams append (runs, #119, with the payloads the adapter host gives
- * them; prompts, #130, and pull requests, the forge's, until they append
- * them) seeded straight onto the log, and the settings the auto-settle
- * rules read.
+ * workstreams append (runs, #119, and prompts, #130, with the payloads the
+ * adapter host and the broker give them; pull requests, the forge's, until it
+ * appends them) seeded straight onto the log, and the settings the
+ * auto-settle rules read.
  */
 
 export const MINUTE = 60_000;
@@ -23,18 +23,23 @@ export const SYNTHETIC_ACTOR = "adapter:synthetic";
 /** The run each session's seeded `run.started` opened, which its seeded `run.ended` closes. */
 const openRuns = new Map<string, string>();
 
+/** The prompts each session's seeded `prompt.opened` opened, oldest first, which its seeded `prompt.answered` answers in turn. */
+const openPrompts = new Map<string, { runId: string; promptId: string }[]>();
+
 /**
  * The payload of a run's start or end as the adapter host appends it
  * (checked against the transcript vocabulary): a start on the account
  * `claude-max` and the model `opus`, an end `completed`, the two paired by
- * the session's open run. Any other type is given `payload` as it is.
+ * the session's open run; a prompt's opening and answer as the broker and a
+ * person's answer append them, paired oldest first. A run or a prompt is
+ * remembered by the ids its payload ends with, `payload`'s over the seeded
+ * ones, and an answer naming a prompt answers that one. Any other type is
+ * given `payload` as it is.
  */
 export const runPayload = (sessionId: string, type: string, payload: JsonObject = {}): JsonObject => {
   if (type === "run.started") {
-    const runId = randomUUID();
-    openRuns.set(sessionId, runId);
-    return TRANSCRIPT_EVENT_TYPES["run.started"].payload.parse({
-      runId,
+    const started = TRANSCRIPT_EVENT_TYPES["run.started"].payload.parse({
+      runId: randomUUID(),
       accountId: "claude-max",
       identity: null,
       model: "opus",
@@ -48,6 +53,8 @@ export const runPayload = (sessionId: string, type: string, payload: JsonObject 
       forkedFrom: null,
       ...payload,
     });
+    openRuns.set(sessionId, started.runId);
+    return started;
   }
   if (type === "run.ended") {
     const runId = openRuns.get(sessionId) ?? randomUUID();
@@ -64,13 +71,57 @@ export const runPayload = (sessionId: string, type: string, payload: JsonObject 
       ...payload,
     });
   }
+  if (type === "prompt.opened") {
+    const opened = PROMPT_EVENT_TYPES["prompt.opened"].payload.parse({
+      runId: openRuns.get(sessionId) ?? randomUUID(),
+      promptId: randomUUID(),
+      kind: "permission",
+      toolName: "Bash",
+      toolCallId: null,
+      input: { command: "ls" },
+      summary: "Bash: ls",
+      blockedPath: null,
+      reason: null,
+      questions: null,
+      plan: null,
+      suggestions: [],
+      agentId: null,
+      mode: "acceptEdits",
+      ceiling: "bypassPermissions",
+      ttlExpiresAt: null,
+      ...payload,
+    });
+    openPrompts.set(sessionId, [...(openPrompts.get(sessionId) ?? []), { runId: opened.runId, promptId: opened.promptId }]);
+    return opened;
+  }
+  if (type === "prompt.answered") {
+    const queued = openPrompts.get(sessionId) ?? [];
+    // An answer naming its prompt answers that one; else the oldest open.
+    const index = typeof payload["promptId"] === "string" ? queued.findIndex((open) => open.promptId === payload["promptId"]) : 0;
+    const prompt = queued[index];
+    openPrompts.set(sessionId, queued.filter((_, at) => at !== index));
+    return PROMPT_EVENT_TYPES["prompt.answered"].payload.parse({
+      runId: prompt?.runId ?? randomUUID(),
+      promptId: prompt?.promptId ?? randomUUID(),
+      decision: "allow",
+      message: null,
+      answers: null,
+      updatedInput: null,
+      mode: null,
+      remember: null,
+      decidedBy: "cs-synthetic",
+      delivery: "live",
+      ...payload,
+    });
+  }
   return payload;
 };
 
 /**
- * Appends `type` to the session's stream as the adapter or the forge would:
- * a run's start and end with the adapter host's payloads, a prompt's and a
- * pull request's as given, until #130 and the forge append them.
+ * Appends `type` to the session's stream as the adapter, the broker or the
+ * forge would: a run's start and end with the adapter host's payloads, a
+ * prompt's with the broker's, a pull request's as given, until the forge
+ * appends them.
  */
 export const seed = (t: TestEnvironment, sessionId: string, type: string, payload: JsonObject = {}): EventEnvelope[] => [
   ...t.env.log.append({ kind: "session", id: sessionId }, [{ type, payload: runPayload(sessionId, type, payload) }], { actor: SYNTHETIC_ACTOR }).events,

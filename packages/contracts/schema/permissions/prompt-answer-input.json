@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PromptAnswerInput",
+  "type": "object",
+  "properties": {
+    "decision": {
+      "type": "string",
+      "enum": [
+        "allow",
+        "deny"
+      ],
+      "description": "Whether the call may go ahead: allow, or deny."
+    },
+    "message": {
+      "description": "A message for the model.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 10000
+    },
+    "answers": {
+      "description": "A question prompt's answers, keyed by the question's text.",
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "updatedInput": {
+      "description": "A permission prompt's tool input as edited; the model's own when absent.",
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {}
+    },
+    "mode": {
+      "description": "An approved plan's mode to continue in, clamped to the run's ceiling; acceptEdits when absent.",
+      "type": "string",
+      "enum": [
+        "plan",
+        "acceptEdits",
+        "auto",
+        "bypassPermissions"
+      ]
+    },
+    "remember": {
+      "description": "Ask no more for this tool in this session: permission prompts only, with an allow.",
+      "type": "string",
+      "const": "session"
+    }
+  },
+  "required": [
+    "decision"
+  ],
+  "description": "A person's answer to a prompt: allow or deny, a message, a question's answers, edited input, a plan's mode, remember."
+}

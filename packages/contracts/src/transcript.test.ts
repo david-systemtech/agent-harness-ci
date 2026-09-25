@@ -10,6 +10,8 @@ import {
   EVENT_TYPES,
   KNOWN_ITEM_KINDS,
   MAX_ATTACHMENT_BYTES,
+  PromptAnsweredPayload,
+  PromptOpenedPayload,
   RunSuggestion,
   SendResponse,
   SessionEventType,
@@ -77,7 +79,7 @@ describe("the transcript vocabulary", () => {
     expect(listEventTypes(["session"])).toEqual(expect.arrayContaining(["run.started", "run.ended", "prompt.opened", "prompt.answered"]));
   });
 
-  it("gives every list-flagged session type a patch schema, the reserved prompt types included", () => {
+  it("gives every list-flagged session type a patch schema, the prompt types included", () => {
     for (const [type, entry] of Object.entries(EVENT_TYPES.session)) {
       if (entry.list) expect(entry.patch, type).toBeInstanceOf(z.ZodType);
     }
@@ -232,7 +234,8 @@ describe("the adapter's transport-neutral schemas", () => {
     }
     const published = new Map(publishedEventPayloads());
     for (const [type, entry] of Object.entries(TRANSCRIPT_EVENT_TYPES)) expect(published.get(type), type).toBe(entry.payload);
-    // The reserved prompt types are not published until #130 fixes their payloads.
-    expect(published.has("prompt.opened")).toBe(false);
+    // The prompt types are published with the payloads #130 fixed.
+    expect(published.get("prompt.opened")).toBe(PromptOpenedPayload);
+    expect(published.get("prompt.answered")).toBe(PromptAnsweredPayload);
   });
 });
