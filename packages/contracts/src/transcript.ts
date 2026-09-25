@@ -188,7 +188,7 @@ export const MessageWithdrawnPayload = z
     messageId: MessageId,
     heldBy: QueueHolder.meta({
       description:
-        "Who held it when the withdraw began: the provider, which cancelled it by id (the environment took it back into its queue at once, message.requeued, and it left that queue here), or the environment, whose queue it left.",
+        "Who held it when the withdraw began: the provider, which cancelled it by id (the environment then took it back into its queue at once, message.requeued, before this event), or the environment.",
     }),
   })
   .meta({

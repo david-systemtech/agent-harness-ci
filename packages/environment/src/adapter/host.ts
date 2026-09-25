@@ -416,8 +416,9 @@ interface LiveRun {
   interrupting: boolean;
   /**
    * The interrupt under way, settled once what the provider reported still
-   * queued is back in the environment's queue (or the interrupt failed and
-   * the host ended the run): what a read-now and a withdraw wait on (#228).
+   * queued is back in the environment's queue, or, when the interrupt failed,
+   * once the host's end of the run has taken back what the provider held:
+   * what a read-now and a withdraw wait on (#228).
    */
   interruption: Promise<void> | null;
   /**
@@ -644,20 +645,22 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     entry.interruption = new Promise<void>((resolve) => (settle = resolve));
     safely(
       async () => {
+        const { stillQueued } = await run.interrupt();
+        // What the provider no longer holds comes back to the environment's queue, in its order (ADR 0022), this run's
+        // and any an earlier run left with the provider, even when the run's end came first: the end took back this
+        // run's only, and a message it took back is the environment's already, so nothing is taken back twice.
+        if (!closing) requeueReported(entry.sessionId, stillQueued);
+        settle();
+      },
+      (error) => {
+        // The adapter could not interrupt: the host ends the run itself, interrupted as asked, and disposes it; its end
+        // takes back what the provider held, and only then is the interrupt settled, so what waits on it reads a whole queue.
+        console.error(`Interrupting run ${entry.runId} failed; the host ends it:`, error);
         try {
-          const { stillQueued } = await run.interrupt();
-          // What the provider no longer holds comes back to the environment's queue, in its order (ADR 0022), this run's
-          // and any an earlier run left with the provider, even when the run's end came first: the end took back this
-          // run's only, and a message it took back is the environment's already, so nothing is taken back twice.
-          if (!closing) requeueReported(entry.sessionId, stillQueued);
+          finish(entry, { type: "end", reason: "interrupted", cause: "user" }, { by: "host", stop: "failed" });
         } finally {
           settle();
         }
-      },
-      (error) => {
-        // The adapter could not interrupt: the host ends the run itself, interrupted as asked, and disposes it.
-        console.error(`Interrupting run ${entry.runId} failed; the host ends it:`, error);
-        finish(entry, { type: "end", reason: "interrupted", cause: "user" }, { by: "host", stop: "failed" });
       },
     );
     return entry.interruption;

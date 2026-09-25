@@ -179,20 +179,20 @@ describe("runs.readNow", () => {
   it.each(VARIANTS.flatMap(([what, capabilities]) => CLAMPS.map((clamp) => [what, capabilities, ...clamp] as const)))(
     "on a live run, with %s, clamps the next run's mode to the lowest ceiling among the queued senders and the caller: here %s",
     async (_what, capabilities, _whose, senderCeiling, callerCeiling, effective) => {
-    const held = gate();
-    const t = await start({ capabilities });
-    const { id } = await create(await t.client(), { mode: "bypassPermissions" });
-    const sender = await pairedClient(t, senderCeiling);
-    const { session } = await liveWithQueue(t, sender, id, ["Queued"], held);
-    const caller = await pairedClient(t, callerCeiling);
-    await command(caller, "runs.readNow", { sessionId: id });
-    await session.until("run.ended");
-    const next = await session.until("run.ended");
-    const policy = next.find((event) => event.type === "run.policy.resolved");
-    expect(policy?.payload).toMatchObject({ mode: { requested: "bypassPermissions", effective, ceiling: effective, clamped: true } });
-    expect(t.adapter.lastRun().input.mode).toBe(effective);
-    held.open();
-  },
+      const held = gate();
+      const t = await start({ capabilities });
+      const { id } = await create(await t.client(), { mode: "bypassPermissions" });
+      const sender = await pairedClient(t, senderCeiling);
+      const { session } = await liveWithQueue(t, sender, id, ["Queued"], held);
+      const caller = await pairedClient(t, callerCeiling);
+      await command(caller, "runs.readNow", { sessionId: id });
+      await session.until("run.ended");
+      const next = await session.until("run.ended");
+      const policy = next.find((event) => event.type === "run.policy.resolved");
+      expect(policy?.payload).toMatchObject({ mode: { requested: "bypassPermissions", effective, ceiling: effective, clamped: true } });
+      expect(t.adapter.lastRun().input.mode).toBe(effective);
+      held.open();
+    },
   );
 
   it.each(CLAMPS)("with no live run, clamps the run of the queue it starts to the lowest ceiling among the queued senders and the caller: here %s", async (_whose, senderCeiling, callerCeiling, effective) => {
@@ -359,6 +359,54 @@ describe("runs.readNow", () => {
     await settle();
     expect(interrupts).toBe(1);
     expect(eventsOf(t, id).filter((event) => event.type === "run.started")).toHaveLength(2);
+    held.open();
+  });
+
+  it("names every queued message in the run of the queue when a person's interrupt that throws is followed at once by a read-now", async () => {
+    const held = gate();
+    const t = await start(
+      wrapped({ capabilities: PROVIDER }, () => ({
+        interrupt: async () => {
+          throw new Error("The control channel is closed.");
+        },
+      })),
+    );
+    const quiet = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    onCleanup(() => quiet.mockRestore());
+    const client = await t.client();
+    const { id } = await create(client);
+    const { session, first, queued } = await liveWithQueue(t, client, id, ["Second", "Third"], held);
+    await Promise.all([command(client, "runs.interrupt", { runId: first.runId }), command(client, "runs.readNow", { sessionId: id })]);
+    await session.until("run.ended", first.runId);
+    const [started] = await session.until("run.started");
+    expect(started?.payload).toMatchObject({ queuedMessageIds: queued.map((sent) => sent.messageId) });
+    expect(t.adapter.lastRun().input.prompt.map((message) => message.text)).toEqual(["Second", "Third"]);
+    held.open();
+  });
+
+  it("starts the run of the queue only once its interrupt has answered, when the run's end is recorded first", async () => {
+    const held = gate();
+    const answered = gate();
+    const t = await start(
+      wrapped({ capabilities: PROVIDER }, (run) => ({
+        interrupt: async () => {
+          const receipt = await run.interrupt();
+          await answered.opened;
+          return receipt;
+        },
+      })),
+    );
+    const client = await t.client();
+    const { id } = await create(client);
+    const { session, first, queued } = await liveWithQueue(t, client, id, ["Second", "Third"], held);
+    await command(client, "runs.readNow", { sessionId: id });
+    const ending = await session.until("run.ended", first.runId);
+    expect(ending.at(-1)?.payload).toMatchObject({ cause: "read-now" });
+    await settle();
+    expect(eventsOf(t, id).filter((event) => event.type === "run.started")).toHaveLength(1);
+    answered.open();
+    const [started] = await session.until("run.started");
+    expect(started?.payload).toMatchObject({ queuedMessageIds: queued.map((sent) => sent.messageId) });
     held.open();
   });
 
