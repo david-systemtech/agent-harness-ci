@@ -163,6 +163,8 @@ export interface FakeAdapterOptions {
   readonly holdStops?: Gate;
   /** A gate every `withdraw` waits on, once recorded, before it looks at what the provider holds (#228). Preset: none. */
   readonly holdWithdraws?: Gate;
+  /** A gate every `withdraw` waits on after it has cancelled (or failed to find) the message, before it answers: a slow answer (#228). Preset: none. */
+  readonly holdWithdrawAnswers?: Gate;
   /** What stamps the preset usage reading's `readAt`; give it the test's manual clock. Preset: `MANUAL_CLOCK_START`, always. */
   readonly clock?: Pick<Clock, "now">;
   /** The plan-usage read, per account: answers at once, when its promise settles, or throws. Preset: `presetUsage`. */
@@ -586,9 +588,9 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
         await options.holdWithdraws?.opened;
         // Held until a turn takes it: a steering provider's taker, or the turn it opens with its queue.
         const at = untaken.findIndex((message) => message.messageId === messageId);
-        if (at === -1) return { withdrawn: false };
-        untaken.splice(at, 1);
-        return { withdrawn: true };
+        if (at !== -1) untaken.splice(at, 1);
+        await options.holdWithdrawAnswers?.opened;
+        return { withdrawn: at !== -1 };
       },
       async interrupt() {
         record.interrupted = true;

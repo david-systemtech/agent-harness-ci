@@ -1,14 +1,15 @@
 import { randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { registry, type EventEnvelope, type EventFrame, type Mode, type ParamsOf, type ResponseOf } from "@agent-harness/contracts";
+import { MAX_DRAFT_LENGTH, SessionSnapshot, registry, type EventEnvelope, type EventFrame, type Mode, type ParamsOf, type ResponseOf } from "@agent-harness/contracts";
 import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { end, fakeAdapter, gate, say, type FakeAdapter, type FakeAdapterOptions, type Gate, type Script } from "../../test/fake-adapter.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
-import { command as sessionCommand, create, get, listStream, patchOf } from "../../test/sessions.js";
+import { command as sessionCommand, create, deleteSession, get, listStream, patchOf } from "../../test/sessions.js";
 import type { WireClient } from "../../test/wire-client.js";
 import { ATTACHMENTS_DIRECTORY } from "../adapter/attachment-stage.js";
+import { WithdrawUnsupported, type AdapterRun } from "../adapter/contract.js";
 
 /**
  * Read now and withdraw (#228; ADR 0022; claude-adapter spec, "Wire
@@ -20,7 +21,7 @@ import { ATTACHMENTS_DIRECTORY } from "../adapter/attachment-stage.js";
  * subscription and the summary's draft, and what the next run is handed.
  */
 
-const { onCleanup } = useCleanups();
+const { onCleanup, tempDir } = useCleanups();
 
 const start = async (adapter: FakeAdapterOptions | FakeAdapter = {}, options: Omit<TestEnvironmentOptions, "adapter"> = {}): Promise<TestEnvironment> => {
   const t = await startTestEnvironment({ ...options, adapter: "descriptor" in adapter ? adapter : fakeAdapter(adapter) });
@@ -96,6 +97,35 @@ const untilEnded = (t: TestEnvironment, sessionId: string, count: number) =>
 /** The run.started of the session's `index`th run. */
 const startedOf = (t: TestEnvironment, sessionId: string, index: number) => eventsOf(t, sessionId).filter((event) => event.type === "run.started")[index];
 
+/**
+ * A fake adapter whose runs take `override`'s methods in place of their
+ * own, each handed the run it wraps and its index among the runs created:
+ * a slow or failing interrupt, a slow or failing withdraw.
+ */
+const wrapped = (options: FakeAdapterOptions, override: (run: AdapterRun, index: number) => Partial<AdapterRun>): FakeAdapter => {
+  const adapter = fakeAdapter(options);
+  const createRun = adapter.createRun;
+  let index = 0;
+  return {
+    ...adapter,
+    createRun: (input, context) => {
+      const run = createRun(input, context);
+      return { ...run, ...override(run, index++) };
+    },
+  };
+};
+
+/** An interrupt that waits for `before` before it reaches the provider. */
+const slowInterrupt = (before: Gate) => (run: AdapterRun): Partial<AdapterRun> => ({
+  interrupt: async () => {
+    await before.opened;
+    return run.interrupt();
+  },
+});
+
+/** Resolves after `ms` of real time: long enough for anything already set off to have happened. */
+const settle = (ms = 30) => new Promise((resolve) => setTimeout(resolve, ms));
+
 /** A client of a client session paired with `ceiling`. */
 const pairedClient = async (t: TestEnvironment, ceiling: Mode) => t.client({ token: (await t.pair({ ceiling })).token });
 
@@ -141,12 +171,16 @@ describe("runs.readNow", () => {
     },
   );
 
-  it.each([
+  const CLAMPS = [
     ["a queued sender's", "acceptEdits", "bypassPermissions", "acceptEdits"],
     ["the caller's", "bypassPermissions", "plan", "plan"],
-  ] as const)("clamps the next run's mode to the lowest ceiling among the queued senders and the caller: here %s", async (_whose, senderCeiling, callerCeiling, effective) => {
+  ] as const;
+
+  it.each(VARIANTS.flatMap(([what, capabilities]) => CLAMPS.map((clamp) => [what, capabilities, ...clamp] as const)))(
+    "on a live run, with %s, clamps the next run's mode to the lowest ceiling among the queued senders and the caller: here %s",
+    async (_what, capabilities, _whose, senderCeiling, callerCeiling, effective) => {
     const held = gate();
-    const t = await start({ capabilities: PROVIDER });
+    const t = await start({ capabilities });
     const { id } = await create(await t.client(), { mode: "bypassPermissions" });
     const sender = await pairedClient(t, senderCeiling);
     const { session } = await liveWithQueue(t, sender, id, ["Queued"], held);
@@ -157,6 +191,42 @@ describe("runs.readNow", () => {
     const policy = next.find((event) => event.type === "run.policy.resolved");
     expect(policy?.payload).toMatchObject({ mode: { requested: "bypassPermissions", effective, ceiling: effective, clamped: true } });
     expect(t.adapter.lastRun().input.mode).toBe(effective);
+    held.open();
+  },
+  );
+
+  it.each(CLAMPS)("with no live run, clamps the run of the queue it starts to the lowest ceiling among the queued senders and the caller: here %s", async (_whose, senderCeiling, callerCeiling, effective) => {
+    const held = gate();
+    const t = await start({ capabilities: ENVIRONMENT });
+    const { id } = await create(await t.client(), { mode: "bypassPermissions" });
+    const sender = await pairedClient(t, senderCeiling);
+    const { session, first } = await liveWithQueue(t, sender, id, ["Queued"], held);
+    await command(sender, "runs.interrupt", { runId: first.runId });
+    await session.until("run.ended", first.runId);
+    const answer = await command(await pairedClient(t, callerCeiling), "runs.readNow", { sessionId: id });
+    const runId = answer.result?.runId as string;
+    const next = await session.until("run.ended", runId);
+    expect(next.find((event) => event.type === "run.policy.resolved")?.payload).toMatchObject({ mode: { effective, ceiling: effective, clamped: true } });
+    held.open();
+  });
+
+  it("with no live run, starts the run of the queue on the model and effort of the run before it, as the queue would", async () => {
+    const held = gate();
+    const t = await start({ capabilities: ENVIRONMENT });
+    const client = await t.client();
+    const { id } = await create(client);
+    t.adapter.nextScripts.push(heldScript(held));
+    const session = await watch(client, id, t.env.log.head());
+    const first = await command(client, "runs.start", { sessionId: id, text: "Go", model: "sonnet", effort: "high" });
+    const firstRunId = first.result?.runId as string;
+    await session.until("assistant.text", firstRunId);
+    await queue(client, id, "Queued");
+    await command(client, "runs.interrupt", { runId: firstRunId });
+    await session.until("run.ended", firstRunId);
+    const answer = await command(client, "runs.readNow", { sessionId: id });
+    const [started] = await session.until("run.ended", answer.result?.runId as string);
+    expect(started?.payload).toMatchObject({ model: "sonnet", effort: "high" });
+    expect(t.adapter.lastRun().input).toMatchObject({ model: "sonnet", effort: "high" });
     held.open();
   });
 
@@ -200,6 +270,157 @@ describe("runs.readNow", () => {
     held.open();
     await untilEnded(t, id, 1);
     expect(eventsOf(t, id).find((event) => event.type === "run.ended")?.payload).toMatchObject({ runId: first.runId, reason: "completed" });
+  });
+
+  it("counts a message the provider has read as nothing queued: the live run is left alone", async () => {
+    const held = gate();
+    const t = await start({ capabilities: { providerQueue: true, steering: true } });
+    const client = await t.client();
+    const { id } = await create(client);
+    const { queued } = await liveWithQueue(t, client, id, ["Steered in"], held);
+    await vi.waitFor(() => expect(aboutMessage(t, id, "message.delivered", queued[0]?.messageId as string)).toHaveLength(1));
+    const head = t.env.log.head();
+    expect((await command(client, "runs.readNow", { sessionId: id })).receipt).toEqual({ status: "accepted", sequence: head, changed: false });
+    await settle();
+    expect(t.env.log.head()).toBe(head);
+    expect(t.adapter.lastRun().interrupted).toBe(false);
+    held.open();
+  });
+
+  it("waits on an interrupt already under way: the run of the queue starts only once that interrupt has answered", async () => {
+    const held = gate();
+    const reach = gate();
+    const answered = gate();
+    const t = await start(
+      wrapped({ capabilities: PROVIDER }, (run) => ({
+        interrupt: async () => {
+          await reach.opened;
+          const receipt = await run.interrupt();
+          await answered.opened;
+          return receipt;
+        },
+      })),
+    );
+    const client = await t.client();
+    const { id } = await create(client);
+    const { session, first, queued } = await liveWithQueue(t, client, id, ["Queued"], held);
+    // A person's interrupt is under way when the read-now lands; the run's end comes before the interrupt's answer.
+    await command(client, "runs.interrupt", { runId: first.runId });
+    expect((await command(client, "runs.readNow", { sessionId: id })).result?.interruptedRunId).toBe(first.runId);
+    reach.open();
+    const ending = await session.until("run.ended", first.runId);
+    expect(ending.at(-1)?.payload).toMatchObject({ reason: "interrupted", cause: "read-now" });
+    await settle();
+    expect(eventsOf(t, id).filter((event) => event.type === "run.started")).toHaveLength(1);
+    answered.open();
+    const [started] = await session.until("run.started");
+    expect(started?.payload).toMatchObject({ queuedMessageIds: [queued[0]?.messageId] });
+    held.open();
+  });
+
+  it("gives way to a person's interrupt made after it: the run ends interrupted with cause user, and no run of the queue starts", async () => {
+    const held = gate();
+    const reach = gate();
+    const t = await start(wrapped({ capabilities: PROVIDER }, slowInterrupt(reach)));
+    const client = await t.client();
+    const { id } = await create(client);
+    const { session, first } = await liveWithQueue(t, client, id, ["Queued"], held);
+    expect((await command(client, "runs.readNow", { sessionId: id })).result?.interruptedRunId).toBe(first.runId);
+    await command(client, "runs.interrupt", { runId: first.runId });
+    reach.open();
+    const ending = await session.until("run.ended", first.runId);
+    expect(ending.at(-1)?.payload).toMatchObject({ reason: "interrupted", cause: "user" });
+    await settle();
+    expect(eventsOf(t, id).filter((event) => event.type === "run.started")).toHaveLength(1);
+    held.open();
+  });
+
+  it("interrupts once for a second read-now on the same run, and one run of the queue starts", async () => {
+    const held = gate();
+    const reach = gate();
+    let interrupts = 0;
+    const t = await start(
+      wrapped({ capabilities: PROVIDER }, (run) => ({
+        interrupt: async () => {
+          interrupts += 1;
+          await reach.opened;
+          return run.interrupt();
+        },
+      })),
+    );
+    const client = await t.client();
+    const { id } = await create(client);
+    const { session, first } = await liveWithQueue(t, client, id, ["Queued"], held);
+    const answers = [await command(client, "runs.readNow", { sessionId: id }), await command(client, "runs.readNow", { sessionId: id })];
+    expect(answers.map((answer) => answer.result?.interruptedRunId)).toEqual([first.runId, first.runId]);
+    reach.open();
+    await session.until("run.ended", first.runId);
+    await session.until("run.ended");
+    await settle();
+    expect(interrupts).toBe(1);
+    expect(eventsOf(t, id).filter((event) => event.type === "run.started")).toHaveLength(2);
+    held.open();
+  });
+
+  it("starts the run of the queue after an interrupt the adapter could not make, which the host ends with cause read-now", async () => {
+    const held = gate();
+    const t = await start(
+      wrapped({ capabilities: PROVIDER }, () => ({
+        interrupt: async () => {
+          throw new Error("The control channel is closed.");
+        },
+      })),
+    );
+    const quiet = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    onCleanup(() => quiet.mockRestore());
+    const client = await t.client();
+    const { id } = await create(client);
+    const { session, first, queued } = await liveWithQueue(t, client, id, ["Queued"], held);
+    await command(client, "runs.readNow", { sessionId: id });
+    const ending = await session.until("run.ended", first.runId);
+    expect(ending.at(-1)).toMatchObject({ actor: HOST, payload: { reason: "interrupted", cause: "read-now" } });
+    const [started] = await session.until("run.started");
+    expect(started?.payload).toMatchObject({ queuedMessageIds: [queued[0]?.messageId] });
+    held.open();
+  });
+
+  it("lets a turn the provider opened with the queue meanwhile read it, once: no run of the queue follows it", async () => {
+    const read = gate();
+    const held = gate();
+    const t = await start({ capabilities: PROVIDER });
+    const client = await t.client();
+    const { id } = await create(client);
+    t.adapter.nextScripts.push(async function* ({ openTurn }) {
+      yield say("Working");
+      await read.opened;
+      openTurn();
+      await held.opened;
+      yield end();
+    });
+    const session = await watch(client, id, t.env.log.head());
+    const first = await startRun(client, id);
+    await session.until("assistant.text", first.runId);
+    const { messageId } = await queue(client, id, "Queued");
+    read.open();
+    await vi.waitFor(() => expect(t.adapter.runs).toHaveLength(2));
+    await command(client, "runs.readNow", { sessionId: id });
+    await session.until("run.ended", first.runId);
+    await session.until("run.ended");
+    await settle();
+    const sent = aboutMessage(t, id, "message.sent", messageId)[0]?.sequence ?? 0;
+    const seen = eventsOf(t, id)
+      .filter((event) => event.sequence > sent && ["message.requeued", "run.ended", "run.started", "message.delivered"].includes(event.type))
+      .map((event) => [event.type, event.payload["messageId"] ?? event.payload["cause"] ?? event.payload["origin"] ?? null]);
+    expect(seen.slice(0, 4)).toEqual([
+      ["message.requeued", messageId],
+      ["run.ended", "read-now"],
+      ["run.started", "provider"],
+      ["message.delivered", messageId],
+    ]);
+    expect(startedOf(t, id, 1)?.payload).toMatchObject({ origin: "provider", queuedMessageIds: [messageId] });
+    expect(eventsOf(t, id).filter((event) => event.type === "run.started")).toHaveLength(2);
+    expect(aboutMessage(t, id, "message.delivered", messageId)).toHaveLength(1);
+    held.open();
   });
 
   it("refuses an unknown session not_found, kind session, in a receipt", async () => {
@@ -344,22 +565,15 @@ describe("runs.withdraw", () => {
 
   it("answers internal and keeps no receipt when the provider cannot say whether it holds the message, so the same command succeeds once it can", async () => {
     const held = gate();
-    const adapter = fakeAdapter({ capabilities: PROVIDER });
     let failing = true;
-    const createRun = adapter.createRun;
-    const t = await start({
-      ...adapter,
-      createRun: (input, context) => {
-        const run = createRun(input, context);
-        return {
-          ...run,
-          withdraw: async (messageId: string) => {
-            if (failing) throw new Error("The control channel did not answer.");
-            return (await run.withdraw?.(messageId)) ?? { withdrawn: false };
-          },
-        };
-      },
-    });
+    const t = await start(
+      wrapped({ capabilities: PROVIDER }, (run) => ({
+        withdraw: async (messageId: string) => {
+          if (failing) throw new Error("The control channel did not answer.");
+          return (await run.withdraw?.(messageId)) ?? { withdrawn: false };
+        },
+      })),
+    );
     const client = await t.client();
     const { id } = await create(client);
     const { queued } = await liveWithQueue(t, client, id, ["Also the tests"], held);
@@ -374,9 +588,9 @@ describe("runs.withdraw", () => {
     held.open();
   });
 
-  it("releases a withdrawn message's staged attachment bytes, as a read message's are", async () => {
+  it.each(VARIANTS)("releases a withdrawn message's staged attachment bytes on %s, as a read message's are", async (_what, capabilities) => {
     const held = gate();
-    const t = await start({ capabilities: ENVIRONMENT });
+    const t = await start({ capabilities });
     const client = await t.client();
     const { id } = await create(client);
     const { queued } = await liveWithQueue(t, client, id, [], held);
@@ -388,6 +602,199 @@ describe("runs.withdraw", () => {
     await command(client, "runs.withdraw", { messageId });
     await vi.waitFor(() => expect(existsSync(staged)).toBe(false));
     held.open();
+  });
+
+  it("never loses a message the provider gave up when a second request under the same command id answers first: it is back in the environment's queue", async () => {
+    const held = gate();
+    const slow = gate();
+    const t = await start(
+      wrapped({ capabilities: PROVIDER }, (run) => {
+        let calls = 0;
+        return {
+          withdraw: async (messageId: string) => {
+            calls += 1;
+            const answer = (await run.withdraw?.(messageId)) ?? { withdrawn: false };
+            // The first cancel lands at once and its answer is slow; the second finds nothing to cancel.
+            if (calls === 1) await slow.opened;
+            return answer;
+          },
+        };
+      }),
+    );
+    const client = await t.client();
+    const { id } = await create(client);
+    const { queued } = await liveWithQueue(t, client, id, ["Also the tests"], held);
+    const messageId = queued[0]?.messageId as string;
+    const commandId = randomUUID();
+    const first = command(client, "runs.withdraw", { messageId }, commandId);
+    await vi.waitFor(() => expect(t.adapter.runs[0]?.withdrawals).toEqual([messageId]));
+    const second = await command(client, "runs.withdraw", { messageId }, commandId);
+    expect(second.receipt).toMatchObject({ status: "rejected", reason: "not_found" });
+    slow.open();
+    expect((await first).receipt).toEqual(second.receipt);
+    // The provider no longer holds it, and the log says so: the environment does, where a client sees it and can take it back.
+    expect(aboutMessage(t, id, "message.requeued", messageId)).toHaveLength(1);
+    const again = await command(client, "runs.withdraw", { messageId });
+    expect(again.result).toEqual({ messageId, sessionId: id, heldBy: "environment" });
+    expect((await get(client, id)).draft).toBe("Also the tests");
+    held.open();
+  });
+
+  it("keeps a message the provider gave up in the environment's queue when the transaction then fails, so the retry withdraws it without asking again", async () => {
+    const held = gate();
+    const t = await start({ capabilities: PROVIDER });
+    const client = await t.client();
+    const { id } = await create(client);
+    const { queued } = await liveWithQueue(t, client, id, ["Also the tests"], held);
+    const messageId = queued[0]?.messageId as string;
+    const log = t.env.log;
+    const append = log.append.bind(log);
+    let failed = false;
+    const quiet = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const spy = vi.spyOn(log, "append").mockImplementation((stream, events, options) => {
+      if (!failed && events.some((event) => event.type === "message.withdrawn")) {
+        failed = true;
+        throw new Error("The disk is full.");
+      }
+      return append(stream, events, options);
+    });
+    const commandId = randomUUID();
+    await expect(client.request("runs.withdraw", { commandId, messageId })).rejects.toMatchObject({ code: "internal" });
+    spy.mockRestore();
+    quiet.mockRestore();
+    expect(aboutMessage(t, id, "message.requeued", messageId)).toHaveLength(1);
+    expect(aboutMessage(t, id, "message.withdrawn", messageId)).toEqual([]);
+    expect((await command(client, "runs.withdraw", { messageId }, commandId)).result).toEqual({ messageId, sessionId: id, heldBy: "environment" });
+    expect(t.adapter.runs[0]?.withdrawals).toEqual([messageId]);
+    held.open();
+  });
+
+  it("waits for a read-now's interrupt that took the message first, and then withdraws it: the run of the queue does not read it", async () => {
+    const held = gate();
+    const reach = gate();
+    let taken: string[] = [];
+    const t = await start(
+      wrapped({ capabilities: PROVIDER }, (run) => ({
+        // As Claude's does: the interrupt cancels the whole queue first, and answers what it cancelled once it is through.
+        interrupt: async () => {
+          for (const messageId of taken) await run.withdraw?.(messageId);
+          await reach.opened;
+          const { stillQueued } = await run.interrupt();
+          return { stillQueued: [...taken, ...stillQueued] };
+        },
+      })),
+    );
+    const client = await t.client();
+    const { id } = await create(client);
+    const { session, first, queued } = await liveWithQueue(t, client, id, ["Withdrawn", "Kept"], held);
+    const [withdrawn, kept] = queued.map((sent) => sent.messageId as string);
+    taken = [withdrawn as string, kept as string];
+    await command(client, "runs.readNow", { sessionId: id });
+    await vi.waitFor(() => expect(t.adapter.runs[0]?.withdrawals).toEqual(taken));
+    const withdrawing = command(client, "runs.withdraw", { messageId: withdrawn as string });
+    await vi.waitFor(() => expect(t.adapter.runs[0]?.withdrawals).toEqual([...taken, withdrawn]));
+    reach.open();
+    expect((await withdrawing).result).toEqual({ messageId: withdrawn, sessionId: id, heldBy: "environment" });
+    await session.until("run.ended", first.runId);
+    await vi.waitFor(() => expect(eventsOf(t, id).filter((event) => event.type === "run.started")).toHaveLength(2));
+    expect(startedOf(t, id, 1)?.payload).toMatchObject({ queuedMessageIds: [kept] });
+    expect(aboutMessage(t, id, "message.delivered", withdrawn as string)).toEqual([]);
+    held.open();
+  });
+
+  it("refuses an adapter whose provider cannot take a message back invalid_params, reason unsupported, rather than as read", async () => {
+    const held = gate();
+    const t = await start(
+      wrapped({ capabilities: PROVIDER }, () => ({
+        withdraw: async () => {
+          throw new WithdrawUnsupported("This provider has no cancel-by-id control.");
+        },
+      })),
+    );
+    const client = await t.client();
+    const { id } = await create(client);
+    const { queued } = await liveWithQueue(t, client, id, ["Also the tests"], held);
+    const commandId = randomUUID();
+    await expect(client.request("runs.withdraw", { commandId, messageId: queued[0]?.messageId as string })).rejects.toMatchObject({
+      code: "invalid_params",
+      data: { reason: "unsupported", capability: "providerQueue" },
+    });
+    expect(t.env.log.receipt(`client_session:${client.hello.clientSessionId}`, commandId)).toBeNull();
+    held.open();
+  });
+
+  it("refuses conflict draft_full when the draft has no room for the text, asking the provider nothing, and the message stays queued", async () => {
+    const held = gate();
+    const t = await start({ capabilities: PROVIDER });
+    const client = await t.client();
+    const { id } = await create(client);
+    const { queued } = await liveWithQueue(t, client, id, ["Also the tests"], held);
+    const messageId = queued[0]?.messageId as string;
+    await sessionCommand(client, "sessions.setDraft", { sessionId: id, draft: "x".repeat(MAX_DRAFT_LENGTH - 1) });
+    const head = t.env.log.head();
+    const answer = await command(client, "runs.withdraw", { messageId });
+    expect(answer.receipt).toMatchObject({ status: "rejected", reason: "conflict", error: { data: { reason: "draft_full", messageId, limit: MAX_DRAFT_LENGTH } } });
+    expect(t.env.log.head()).toBe(head);
+    expect(t.adapter.runs[0]?.withdrawals).toEqual([]);
+    expect((await get(client, id)).draft).toHaveLength(MAX_DRAFT_LENGTH - 1);
+    held.open();
+    // Still the provider's, which reads it.
+    await vi.waitFor(() => expect(aboutMessage(t, id, "message.delivered", messageId)).toHaveLength(1));
+  });
+
+  it.each(VARIANTS)("refuses a still-queued message of a session deleted since not_found, kind session, on %s", async (_what, capabilities) => {
+    const held = gate();
+    const t = await start({ capabilities });
+    const client = await t.client();
+    const { id } = await create(client);
+    const { queued } = await liveWithQueue(t, client, id, ["Also the tests"], held);
+    await deleteSession(client, id);
+    const messageId = queued[0]?.messageId as string;
+    expect((await command(client, "runs.withdraw", { messageId })).receipt).toMatchObject({
+      status: "rejected",
+      reason: "not_found",
+      error: { data: { kind: "session", sessionId: id } },
+    });
+    expect(t.adapter.runs[0]?.withdrawals).toEqual([]);
+    held.open();
+  });
+
+  it("leaves a withdrawn message out of the snapshot a late subscriber is sent, and keeps the rest of the queue", async () => {
+    const held = gate();
+    const t = await start({ capabilities: ENVIRONMENT });
+    const client = await t.client();
+    const { id } = await create(client);
+    const { queued } = await liveWithQueue(t, client, id, ["Withdrawn", "Kept"], held);
+    await command(client, "runs.withdraw", { messageId: queued[0]?.messageId as string });
+    const { subscription } = await client.subscribe("sessions.subscribeSession", { sessionId: id, afterSequence: t.env.log.head() + 1000 });
+    const frame = await client.next((f) => f.type === "snapshot" && f.subscription === subscription);
+    const snapshot = SessionSnapshot.parse(frame.type === "snapshot" && frame.payload);
+    const messages = snapshot.items.filter((item) => item.kind === "user-message");
+    expect(messages.map((item) => (item.kind === "user-message" ? item.text : null))).toEqual(["Fix the receipts", "Kept"]);
+    expect(snapshot.summary.draft).toBe("Withdrawn");
+    held.open();
+  });
+
+  it("drops a withdrawn message's bytes a restart finds on disk: the recovery sweep reads back only what is still queued", async () => {
+    const dataDir = join(tempDir(), "data");
+    const held = gate();
+    const t = await start({ capabilities: ENVIRONMENT }, { dataDir });
+    const client = await t.client();
+    const { id } = await create(client);
+    await liveWithQueue(t, client, id, [], held);
+    const image = { kind: "image" as const, name: "screen.png", mediaType: "image/png", data: Buffer.from("pixels").toString("base64") };
+    const { messageId } = await queue(client, id, "Look at this", [image]);
+    await command(client, "runs.withdraw", { messageId });
+    const staged = join(dataDir, ATTACHMENTS_DIRECTORY, messageId);
+    await vi.waitFor(() => expect(existsSync(staged)).toBe(false));
+    await client.close();
+    await t.close();
+    held.open();
+    // As a removal that failed would leave them: whole, and of the recorded size.
+    mkdirSync(staged, { recursive: true });
+    writeFileSync(join(staged, "0"), "pixels");
+    await start({ capabilities: ENVIRONMENT }, { dataDir });
+    expect(existsSync(staged)).toBe(false);
   });
 
   it("keeps a withdrawal across a projection rebuild: the message stays out of the queue and cannot be withdrawn again", async () => {
@@ -446,24 +853,26 @@ describe("a withdraw racing the provider's read", () => {
     expect(aboutMessage(t, id, "message.withdrawn", messageId)).toEqual([]);
   });
 
-  it("wins when it reaches the provider first: message.withdrawn, and the provider never reads it", async () => {
+  it("wins when it reaches the provider first: message.withdrawn, and the turn the provider opens on the run's end does not read it", async () => {
     const answered = gate();
     const held = gate();
-    const t = await start({ capabilities: PROVIDER, holdWithdraws: answered });
+    const t = await start({ capabilities: PROVIDER, holdWithdrawAnswers: answered });
     const client = await t.client();
     const { id } = await create(client);
-    const { queued } = await liveWithQueue(t, client, id, ["Also the tests"], held);
-    const messageId = queued[0]?.messageId as string;
-    const withdrawing = command(client, "runs.withdraw", { messageId });
+    const { first, queued } = await liveWithQueue(t, client, id, ["Also the tests", "And the docs"], held);
+    const [messageId, kept] = queued.map((sent) => sent.messageId as string);
+    // The cancel lands; its answer is held while the run ends and the provider opens a turn with what it still holds.
+    const withdrawing = command(client, "runs.withdraw", { messageId: messageId as string });
     await vi.waitFor(() => expect(t.adapter.runs[0]?.withdrawals).toEqual([messageId]));
-    answered.open();
-    expect((await withdrawing).receipt.status).toBe("accepted");
-    // The turn ends with nothing left in the provider's queue: no turn of its own opens to read it.
     held.open();
-    await untilEnded(t, id, 1);
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(t.adapter.runs).toHaveLength(1);
-    expect(aboutMessage(t, id, "message.withdrawn", messageId)).toHaveLength(1);
-    expect(aboutMessage(t, id, "message.delivered", messageId)).toEqual([]);
+    await vi.waitFor(() => expect(eventsOf(t, id).filter((event) => event.type === "run.ended")).toHaveLength(2));
+    expect(startedOf(t, id, 1)?.payload).toMatchObject({ origin: "provider", queuedMessageIds: [kept] });
+    answered.open();
+    expect((await withdrawing).result).toEqual({ messageId, sessionId: id, heldBy: "provider" });
+    await settle();
+    expect(t.adapter.runs).toHaveLength(2);
+    expect(eventsOf(t, id).find((event) => event.type === "run.ended")?.payload).toMatchObject({ runId: first.runId, reason: "completed" });
+    expect(aboutMessage(t, id, "message.withdrawn", messageId as string)).toHaveLength(1);
+    expect(aboutMessage(t, id, "message.delivered", messageId as string)).toEqual([]);
   });
 });

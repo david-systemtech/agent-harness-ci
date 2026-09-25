@@ -7,7 +7,7 @@ import type { Options, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { manualClock, type ManualClock } from "../../../test/clock.js";
 import { FakeSdk, sdk, type FakeQuery } from "../../../test/fake-claude-sdk.js";
-import type { AdapterEvent, AdapterRun, PermissionBroker, PromptDecision, PromptRequest, ProviderTurn, RunContext, RunInput } from "../../adapter/contract.js";
+import { WithdrawUnsupported, type AdapterEvent, type AdapterRun, type PermissionBroker, type PromptDecision, type PromptRequest, type ProviderTurn, type RunContext, type RunInput } from "../../adapter/contract.js";
 
 /**
  * The Claude adapter with the SDK transport scripted (claude-adapter spec,
@@ -723,7 +723,45 @@ describe("a withdraw", () => {
     await flush();
     await run.send(steer);
     await query.promptsPushed(2);
-    await expect(run.withdraw?.(steer.messageId)).rejects.toThrow(/cancel-by-id/);
+    await expect(run.withdraw?.(steer.messageId)).rejects.toThrow(WithdrawUnsupported);
+    expect(query.cancelRequests).toEqual([]);
+  });
+
+  it("remembers a cancel it sent that timed out: the withdraw throws, and asked again it answers withdrawn without asking the CLI twice", async () => {
+    const steer = message("Wait, do this instead");
+    fake.controls = { cancelled: () => new Promise<boolean>(() => undefined) };
+    const adapter = adapterWith();
+    const run = adapter.createRun(runInput(), contextWith());
+    const query = await started();
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [query.prompts[0]?.uuid as string]));
+    await flush();
+    await run.send(steer);
+    await query.promptsPushed(2);
+    const first = run.withdraw?.(steer.messageId);
+    await vi.waitFor(() => expect(query.cancelRequests).toEqual([steer.messageId]));
+    clock.advance(DEFAULT_TIMINGS.controlTimeoutMs);
+    await expect(first).rejects.toThrow(/did not answer the withdraw/);
+    // The CLI may have cancelled it all the same: asked again, it is withdrawn, and no second cancel is sent.
+    expect(await run.withdraw?.(steer.messageId)).toEqual({ withdrawn: true });
+    expect(query.cancelRequests).toEqual([steer.messageId]);
+    // And no interrupt hands it back.
+    fake.controls = { ...fake.controls, interruptReceipt: async () => ({ still_queued: [], cancelled: [] }) };
+    expect(await run.interrupt()).toEqual({ stillQueued: [] });
+  });
+
+  it("answers withdrawn again for a message it cancelled, where the CLI would now say it holds nothing", async () => {
+    const steer = message("Wait, do this instead");
+    let asked = 0;
+    fake.controls = { cancelled: () => ++asked === 1 };
+    const adapter = adapterWith();
+    const run = adapter.createRun(runInput(), contextWith());
+    const query = await started();
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [query.prompts[0]?.uuid as string]));
+    await flush();
+    await run.send(steer);
+    expect(await run.withdraw?.(steer.messageId)).toEqual({ withdrawn: true });
+    expect(await run.withdraw?.(steer.messageId)).toEqual({ withdrawn: true });
+    expect(query.cancelRequests).toEqual([steer.messageId]);
   });
 });
 

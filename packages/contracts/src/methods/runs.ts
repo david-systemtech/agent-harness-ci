@@ -149,8 +149,10 @@ export const runsStopTask = defineMethod({
  * is recorded the next run starts with the environment's whole queue in the
  * order it was sent, its `run.started` naming the message ids it carries
  * and its mode clamped to the lowest ceiling among the queued messages'
- * senders and the caller. With no live run, the run of the queue starts in
- * this command's own transaction. With nothing queued the command is
+ * senders and the caller. A read-now while an interrupt is under way waits
+ * on it; a `runs.interrupt` after a read-now is the last word, and no run of
+ * the queue starts. With no live run, the run of the queue starts in this
+ * command's own transaction, on the model and effort of the run before it. With nothing queued the command is
  * accepted with no event, and a live run is left alone. It starts a run, so
  * while the environment drains it is `unavailable` when anything is queued.
  */
@@ -173,10 +175,15 @@ export const runsReadNow = defineMethod({
 
 /**
  * Takes one queued message back before any run reads it (ADR 0022): the
- * provider cancels it by id where it holds it, else it leaves the
- * environment's queue. `message.withdrawn` is recorded and its text goes to
- * the session's draft (`session.draft-set`) in the same transaction: in
- * place of an empty draft, else after the draft, on a paragraph of its own.
+ * provider cancels it by id where it holds it, and the environment takes it
+ * back into its queue at once (`message.requeued`), so no failure after the
+ * cancel can lose it; then it leaves the environment's queue.
+ * `message.withdrawn` is recorded and its text goes to the session's draft
+ * (`session.draft-set`) in the same transaction: in place of an empty
+ * draft, else after the draft, on a paragraph of its own; a draft with no
+ * room for it (past 65,536 characters) is `conflict`, reason `draft_full`,
+ * and the message stays queued. A provider with no way to take a message
+ * back is `invalid_params`, reason `unsupported`.
  * Any client session with `runs:drive` may withdraw any queued message of a
  * session: the queue is the session's. A message steered, delivered or read
  * by a run, one withdrawn already, one the provider reports it has read,
@@ -190,7 +197,7 @@ export const runsWithdraw = defineMethod({
   result: z.object({
     messageId: MessageId,
     sessionId: SessionId,
-    heldBy: QueueHolder.meta({ description: "Who held the message when it was taken back: the provider or the environment." }),
+    heldBy: QueueHolder.meta({ description: "Who held the message when the withdraw began: the provider, which cancelled it, or the environment." }),
   }),
   errors: [],
 });

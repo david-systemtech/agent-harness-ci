@@ -53,7 +53,7 @@ A queued message the provider folded into the running turn at its next boundary;
 _Avoid_: nudge, mid-turn message, interject
 
 **Read now**:
-The verb that interrupts a live run and starts the next one with the whole queue in order, so a queued message is read at once.
+The verb that reads the whole queue at once, in order: it interrupts a live run and starts the next one with the queue, or, with no run live, starts one with the queue the environment holds.
 _Avoid_: interrupt (which alone re-owns the queue and starts nothing), send now, force
 
 **Withdraw**:

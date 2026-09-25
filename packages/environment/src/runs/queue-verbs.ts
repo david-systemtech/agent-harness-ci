@@ -5,7 +5,7 @@ import type { CommandContext, MethodHandlers } from "../serve/methods.js";
 import { appendRunEvents } from "../sessions/activity-companions.js";
 import { readSessionState, type Reader } from "../sessions/session-reads.js";
 import { sessionStream } from "../sessions/streams.js";
-import { decideReadNow, decideWithdraw } from "./run-decider.js";
+import { decideReadNow, decideWithdraw, draftWithWithdrawn } from "./run-decider.js";
 import { providerQueue, readSentMessage, readSessionFacts } from "./run-reads.js";
 
 /**
@@ -25,10 +25,14 @@ import { providerQueue, readSentMessage, readSessionFacts } from "./run-reads.js
  * (Claude's cancel-by-id control). So it is a prepared command
  * (`serve/methods.ts`): the provider is asked before the command's
  * transaction, and the transaction then decides on the log as it stands
- * and on what the provider answered. A message the provider gave back
- * before the transaction (an interrupt's requeue meanwhile) is withdrawn
- * from the environment's queue; one it had read is `not_found`, and the log
- * says so with the `message.delivered` its read brings.
+ * and on what the provider answered. A message the provider gives up comes
+ * back to the environment's queue at once, in a transaction of its own (the
+ * host's `withdraw`), so the command withdraws an environment-held message,
+ * and a command that fails, or is answered from another's receipt, leaves
+ * it queued and visible rather than lost; one the provider had read is
+ * `not_found`, and the log says so with the `message.delivered` its read
+ * brings. While the command decides, the message is kept out of any run
+ * that starts (`settleWithdraw` lets it go).
  */
 
 export interface QueueVerbOptions {
@@ -52,7 +56,13 @@ export const queueVerbMethods = (options: QueueVerbOptions): MethodHandlers => {
       const actor = actorOf(context);
       const start = host.startFacts(sessionId, actor);
       const live = host.live(sessionId);
-      const decision = decideReadNow({ start, liveRunId: live?.runId ?? null, providerHeld: start.session === null ? [] : providerQueue(reader, sessionId) });
+      const present = start.session !== null && !start.session.deleted;
+      const decision = decideReadNow({
+        start,
+        liveRunId: live?.runId ?? null,
+        providerHeld: present ? providerQueue(reader, sessionId) : [],
+        basis: present ? host.nextRunBasis(sessionId) : null,
+      });
       if (decision.rejected !== undefined) return { aggregate, rejected: decision.rejected };
       const result = { sessionId, interruptedRunId: null, runId: null };
       if (decision.nothing === true) return { aggregate, result };
@@ -74,28 +84,28 @@ export const queueVerbMethods = (options: QueueVerbOptions): MethodHandlers => {
         const messageId = params.messageId.toLowerCase();
         const before = readSentMessage(reader, messageId);
         const session = before === null ? null : readSessionFacts(log, reader, before.sessionId);
-        // Only a message the provider holds, of a session still here, is the provider's to give back.
-        const asked = before?.heldBy === "provider" && session !== null && !session.deleted ? await host.withdraw(before.sessionId, messageId) : null;
+        const room = before !== null && draftWithWithdrawn(readSessionState(reader, before.sessionId)?.draft ?? null, before.text) !== null;
+        // Only a message the provider holds, of a session still here, with room in the draft for its text, is the provider's to give back.
+        const ask = before?.heldBy === "provider" && session !== null && !session.deleted && room;
+        const asked = ask ? await host.withdraw(before.sessionId, messageId) : null;
+        // Let go of the message once the command has decided, or, answered from another's receipt, has not run at all.
+        if (ask) setTimeout(() => host.settleWithdraw(messageId), 0);
         return (_params, context) => {
-          const message = readSentMessage(reader, messageId);
-          const aggregate = message === null ? messageAggregate(messageId) : sessionStream(message.sessionId);
-          const facts = message === null ? null : readSessionFacts(log, reader, message.sessionId);
-          const draft = message === null ? null : (readSessionState(reader, message.sessionId)?.draft ?? null);
-          const decision = decideWithdraw({ messageId, message, session: facts, draft, provider: asked });
-          if (decision.rejected !== undefined) {
-            if (asked?.withdrawn === true) {
-              // The provider gave it back, and the log will not record it withdrawn (its session went meanwhile): a deleted
-              // session's live run was disposed with what its provider held taken back, so the environment holds it already.
-              console.error(`Message ${messageId} was withdrawn at the provider but not recorded: ${decision.rejected.message}`);
-            }
-            return { aggregate, rejected: decision.rejected };
+          try {
+            const message = readSentMessage(reader, messageId);
+            const aggregate = message === null ? messageAggregate(messageId) : sessionStream(message.sessionId);
+            const facts = message === null ? null : readSessionFacts(log, reader, message.sessionId);
+            const draft = message === null ? null : (readSessionState(reader, message.sessionId)?.draft ?? null);
+            const decision = decideWithdraw({ messageId, message, session: facts, draft, provider: asked });
+            if (decision.rejected !== undefined) return { aggregate, rejected: decision.rejected };
+            const attribution = { tx: context.tx, actor: context.actor, commandId: context.commandId };
+            // The withdrawal is the run's, correlated to it; the draft is the session's own field, as a rewind's is.
+            log.append(aggregate, [decision.withdrawn], { ...attribution, correlationId: decision.runId });
+            log.append(aggregate, [decision.draft], attribution);
+            return { aggregate, result: decision.result };
+          } finally {
+            if (ask) host.settleWithdraw(messageId);
           }
-          // The withdrawal is the run's, correlated to it; the draft is the session's own field, as a rewind's is.
-          const [withdrawn, ...drafted] = decision.events;
-          const attribution = { tx: context.tx, actor: context.actor, commandId: context.commandId };
-          if (withdrawn !== undefined) log.append(aggregate, [withdrawn], { ...attribution, correlationId: decision.runId });
-          if (drafted.length > 0) log.append(aggregate, drafted, attribution);
-          return { aggregate, result: decision.result };
         };
       },
     },

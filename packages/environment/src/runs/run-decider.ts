@@ -379,8 +379,16 @@ export interface ReadNowFacts {
   readonly start: StartFacts;
   /** The session's live run as the host runs it; null when none is (a turn waiting on a mode change is not one). */
   readonly liveRunId: string | null;
-  /** The messages the session's provider holds, in the order sent. */
+  /**
+   * The messages the session's provider holds, in the order sent: the log's
+   * record, which is the provider's queue, since every message leaving it is
+   * logged (read, taken back at an end or an interrupt, withdrawn), and the
+   * queue is the session's, not the live run's (a replaced process hands its
+   * queue on, under the runs they were sent during).
+   */
   readonly providerHeld: readonly string[];
+  /** The run before, whose model and effort the run of the queue takes, as the queue's run after it would; null before the session's first run. */
+  readonly basis: { readonly model: string; readonly effort: string | null } | null;
 }
 
 export type ReadNowDecision =
@@ -398,17 +406,23 @@ export type ReadNowDecision =
  * environment, nothing happens. With a run live, it is to be interrupted
  * (the host re-owns what its provider held and starts the next run after
  * the end); with none, the run of the environment's queue starts now, as
- * `decideStart` starts one with no message of its own, clamped to the
- * lowest ceiling among the caller and the queued senders.
+ * the environment's queue would start it after the run before (its model
+ * and effort), for the caller, clamped to the lowest ceiling among the
+ * caller and the queued senders.
  */
 export const decideReadNow = (facts: ReadNowFacts): ReadNowDecision => {
-  const { start } = facts;
+  const { start, basis } = facts;
   if (start.session === null || start.session.deleted) return { rejected: sessionNotFound(start.sessionId) };
   if (start.queued.length === 0 && facts.providerHeld.length === 0) return { nothing: true };
   if (facts.liveRunId !== null) return { interrupt: facts.liveRunId };
   // The provider holds messages with no run live to interrupt (a turn it opened waits to be adopted): that turn reads them.
   if (start.queued.length === 0) return { nothing: true };
-  const decision = decideStart(start, { origin: "client", message: null });
+  const decision = decideStart(start, {
+    origin: "client",
+    message: null,
+    ...(basis !== null && { model: basis.model }),
+    ...(basis?.effort !== null && basis?.effort !== undefined && { effort: basis.effort }),
+  });
   if (decision.rejected !== undefined) return { rejected: decision.rejected };
   return { events: decision.events, run: decision.run };
 };
@@ -424,16 +438,21 @@ export interface WithdrawFacts {
   /**
    * What the provider answered when it was asked to take the message back,
    * before the command's transaction; null when it was not asked, since the
-   * message was not the provider's when the command began.
+   * message was not the provider's when the command began. A message it gave
+   * up is the environment's by the time the command decides (the host takes
+   * it back at once).
    */
   readonly provider: { readonly withdrawn: boolean } | null;
 }
 
 export type WithdrawDecision =
-  | { readonly rejected: RunRefusal; readonly events?: undefined }
+  | { readonly rejected: RunRefusal }
   | {
       readonly rejected?: undefined;
-      readonly events: readonly EventInput[];
+      /** `message.withdrawn`, correlated to the run the message was sent during. */
+      readonly withdrawn: EventInput;
+      /** `session.draft-set` with the text written in: the session's own field, correlated to no run. */
+      readonly draft: EventInput;
       readonly runId: string;
       readonly result: { readonly messageId: string; readonly sessionId: string; readonly heldBy: QueueHolder };
     };
@@ -443,19 +462,25 @@ export type WithdrawDecision =
  * the text in place of an empty draft, else after the draft on a paragraph
  * of its own, so nothing typed is lost (#228; Artemis takes a queued message
  * back only into an empty composer, which a draft every client shares cannot
- * promise); cut at the draft's limit.
+ * promise). Null when the result would pass the draft's limit: nothing is
+ * cut, and the withdraw is refused `draft_full`.
  */
-export const draftWithWithdrawn = (draft: string | null, text: string): string => (draft === null ? text : `${draft}\n\n${text}`).slice(0, MAX_DRAFT_LENGTH);
+export const draftWithWithdrawn = (draft: string | null, text: string): string | null => {
+  const written = draft === null ? text : `${draft}\n\n${text}`;
+  return written.length > MAX_DRAFT_LENGTH ? null : written;
+};
 
 /**
  * Withdraws a queued message: `message.withdrawn`, under the run it was
- * sent during, then `session.draft-set` with its text written into the
- * draft, in one append. A message the environment holds leaves its queue; one the
- * provider holds is withdrawn only when the provider said it cancelled it.
- * An unknown message, one read (steered, delivered or a prompt), one
- * withdrawn already, and one the provider says it has read are `not_found`,
- * kind `message`; a message of a session not here is `not_found`, kind
- * `session`, before its state is looked at.
+ * sent during, and `session.draft-set` with its text written into the
+ * draft, in one transaction. An environment-held message leaves the queue:
+ * one the environment held all along, or one the provider gave up for this
+ * withdraw (`heldBy` then says `provider`). An unknown message, one read
+ * (steered, delivered or a prompt), one withdrawn already, and one the
+ * provider says it no longer holds (it read it) are `not_found`, kind
+ * `message`; a message of a session not here is `not_found`, kind
+ * `session`, before its state is looked at; a draft with no room for the
+ * text is `conflict`, reason `draft_full`, and the message stays queued.
  */
 export const decideWithdraw = (facts: WithdrawFacts): WithdrawDecision => {
   const { message, messageId } = facts;
@@ -466,17 +491,26 @@ export const decideWithdraw = (facts: WithdrawFacts): WithdrawDecision => {
   if (facts.session === null || facts.session.deleted) return { rejected: sessionNotFound(message.sessionId) };
   if (message.heldBy === "read") return gone("a run has read it");
   if (message.heldBy === "withdrawn") return gone("it was withdrawn already");
+  const draft = draftWithWithdrawn(facts.draft, message.text);
+  if (draft === null) {
+    return conflict(message.sessionId, "draft_full", `The session's draft has no room for the text of message ${messageId}; clear or shorten the draft, then withdraw it again.`, {
+      messageId,
+      limit: MAX_DRAFT_LENGTH,
+    });
+  }
   if (message.heldBy === "provider") {
-    // Provider-held from the send on; the provider was asked before the transaction began, unless it was not the provider's then, which no transition allows.
+    // Still the provider's: it said it no longer holds it (read), or was not asked, which no transition allows.
     if (facts.provider === null) {
       throw new ContractError({ code: "internal", message: `The message ${messageId} changed hands while it was being withdrawn; withdraw it again.`, data: {} });
     }
     if (!facts.provider.withdrawn) return gone("the provider has read it");
   }
-  const heldBy: QueueHolder = message.heldBy;
+  const heldBy: QueueHolder = facts.provider?.withdrawn === true ? "provider" : message.heldBy;
   const withdrawn: MessageWithdrawnPayload = { runId: message.runId, messageId, heldBy };
-  const events: EventInput[] = [{ type: "message.withdrawn", payload: withdrawn }];
-  const draft = draftWithWithdrawn(facts.draft, message.text);
-  if (draft !== facts.draft) events.push({ type: "session.draft-set", payload: { draft } });
-  return { events, runId: message.runId, result: { messageId, sessionId: message.sessionId, heldBy } };
+  return {
+    withdrawn: { type: "message.withdrawn", payload: withdrawn },
+    draft: { type: "session.draft-set", payload: { draft } },
+    runId: message.runId,
+    result: { messageId, sessionId: message.sessionId, heldBy },
+  };
 };
