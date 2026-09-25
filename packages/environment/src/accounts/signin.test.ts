@@ -157,7 +157,8 @@ describe("accounts.signin.start", () => {
     expect(login.argv).toEqual(["auth", "login"]);
     expect(login.argv).not.toContain("--console");
     expect(login.cwd).toBe("/home/david");
-    expect(login.env).toEqual({ PATH: HOST_ENV.PATH, HOME: HOST_ENV.HOME, CLAUDE_CONFIG_DIR: setup.workDirectory });
+    // The credential store is the account's directory too, as on every Claude process (#229).
+    expect(login.env).toEqual({ PATH: HOST_ENV.PATH, HOME: HOST_ENV.HOME, CLAUDE_CONFIG_DIR: setup.workDirectory, CLAUDE_SECURESTORAGE_CONFIG_DIR: setup.workDirectory });
     for (const name of [...CLAUDE_STRIPPED_VARIABLES, "ANTHROPIC_BASE_URL"]) expect(login.env).not.toHaveProperty(name);
     // The bundled binary was probed first, under the same environment, and the choice recorded.
     expect(setup.spawner.probes().map((probe) => [probe.command, probe.argv])).toEqual([[TEST_BUNDLED_CLAUDE, ["auth", "login", "--help"]]]);

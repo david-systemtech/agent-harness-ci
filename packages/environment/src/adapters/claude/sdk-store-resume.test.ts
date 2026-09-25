@@ -6,6 +6,7 @@ import { useCleanups } from "../../../test/cleanups.js";
 import { manualClock } from "../../../test/clock.js";
 import { openEventLog } from "../../event-log/event-log.js";
 import { createProviderTranscriptStore } from "../../provider-transcripts/store.js";
+import { composeRunEnvironment } from "./credentials.js";
 
 /**
  * The pinned SDK's resume from the environment's store, on a real `query()`
@@ -18,8 +19,11 @@ import { createProviderTranscriptStore } from "../../provider-transcripts/store.
  * with the credentials of the account the run names (the refresh token
  * left out), subagent transcripts and all; the CLI is spawned there with
  * `--resume`; and the SDK deletes that directory once the CLI has exited.
- * Whether the real CLI then resumes the transcript whole and bills that
- * account needs a signed-in account (the spec's Further Notes).
+ * And (#229) that the environment the adapter composes reaches the resumed
+ * CLI with its credential store at the account's own directory, where the
+ * refresh token the temporary copy lacks still is. Whether the real CLI
+ * then resumes the transcript whole, bills that account and refreshes from
+ * that store needs a signed-in account (the spec's Further Notes, #217).
  */
 
 const { onCleanup, tempDir } = useCleanups();
@@ -33,6 +37,9 @@ interface Spawned {
   readonly configDir: string;
   readonly files: string[];
   readonly credentials: unknown;
+  /** The CLI's credential store, when the environment names one, and the login it holds. */
+  readonly secureStorage: string | null;
+  readonly storedCredentials: unknown;
 }
 
 const RECORDER = `
@@ -40,12 +47,13 @@ import { writeFileSync, readdirSync, readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 const dir = process.env.CLAUDE_CONFIG_DIR;
 const walk = (d, p = "") => existsSync(d) ? readdirSync(d, { withFileTypes: true }).flatMap((e) => e.isDirectory() ? walk(join(d, e.name), join(p, e.name)) : [join(p, e.name)]) : [];
-const credentials = join(dir, ".credentials.json");
-writeFileSync(process.env.RECORD_TO, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd(), configDir: dir, files: walk(dir).sort(), credentials: existsSync(credentials) ? JSON.parse(readFileSync(credentials, "utf8")) : null }));
+const read = (path) => existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) : null;
+const secureStorage = process.env.CLAUDE_SECURESTORAGE_CONFIG_DIR ?? null;
+writeFileSync(process.env.RECORD_TO, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd(), configDir: dir, files: walk(dir).sort(), credentials: read(join(dir, ".credentials.json")), secureStorage, storedCredentials: secureStorage === null ? null : read(join(secureStorage, ".credentials.json")) }));
 process.exit(0);
 `;
 
-const resumeUnder = async (options: { readonly projectDirName: string | null }): Promise<{ spawned: Spawned; accountB: string }> => {
+const resumeUnder = async (options: { readonly projectDirName: string | null; readonly composed?: boolean }): Promise<{ spawned: Spawned; accountB: string }> => {
   const root = tempDir("claude-store-resume-");
   const accountB = join(root, "account-b");
   mkdirSync(accountB);
@@ -70,12 +78,16 @@ const resumeUnder = async (options: { readonly projectDirName: string | null }):
       resume: PROVIDER,
       pathToClaudeCodeExecutable: recorder,
       executable: "node",
-      env: {
-        PATH: process.env["PATH"] ?? "",
-        CLAUDE_CONFIG_DIR: accountB,
-        RECORD_TO: record,
-        ...(options.projectDirName !== null && { CLAUDE_CODE_PROJECT_DIR_NAME: options.projectDirName }),
-      },
+      env:
+        options.composed === true
+          ? // As the adapter composes a run's environment (`options.ts`), with the recorder's own variable beside it.
+            composeRunEnvironment({ PATH: process.env["PATH"] ?? "", RECORD_TO: record }, accountB, { CLAUDE_CODE_PROJECT_DIR_NAME: options.projectDirName ?? "" })
+          : {
+              PATH: process.env["PATH"] ?? "",
+              CLAUDE_CONFIG_DIR: accountB,
+              RECORD_TO: record,
+              ...(options.projectDirName !== null && { CLAUDE_CODE_PROJECT_DIR_NAME: options.projectDirName }),
+            },
     },
   });
   let failure: unknown;
@@ -99,6 +111,16 @@ describe("the pinned SDK resuming from the store", () => {
     // The account the run names is the one billed; the SDK withholds the refresh token from the temporary copy.
     expect(spawned.credentials).toEqual({ claudeAiOauth: { accessToken: "b-access", expiresAt: 1 } });
     await expect.poll(() => existsSync(spawned.configDir), { timeout: 10_000 }).toBe(false);
+  });
+
+  it("hands the resumed CLI the account's own directory as its credential store, where the refresh token the copy lacks still is (#229)", async () => {
+    const { spawned, accountB } = await resumeUnder({ projectDirName: HARNESS, composed: true });
+    expect(spawned.argv).toContain(`--resume=${PROVIDER}`);
+    expect(spawned.configDir).not.toBe(accountB);
+    expect(spawned.credentials).toEqual({ claudeAiOauth: { accessToken: "b-access", expiresAt: 1 } });
+    // Passed through as the run sets it, not replaced: the pinned SDK sets the variable itself on Windows only, and only when the run has none.
+    expect(spawned.secureStorage).toBe(accountB);
+    expect(spawned.storedCredentials).toEqual({ claudeAiOauth: { accessToken: "b-access", refreshToken: "b-refresh", expiresAt: 1 } });
   });
 
   it("finds nothing without the project directory's name, and runs in the account's own directory", async () => {

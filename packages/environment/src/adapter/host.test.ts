@@ -927,6 +927,7 @@ describe("the transcript delete across providers", () => {
       defaults: () => service.defaults(),
       providerOf: (id) => service.providerOf(id),
       crossCheck: (accountId, identity, runId) => service.crossCheck(accountId, identity, runId),
+      recheck: (accountId) => service.recheck(accountId),
     };
     const host = createAdapterHost({ log, clock, adapters: [first, second], accounts, ceilingOf: () => undefined });
     closers.push(() => log.close(), () => host.close("disposed"), () => service.close());
