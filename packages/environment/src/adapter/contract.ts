@@ -269,6 +269,20 @@ export class PromptClosed extends Error {
 }
 
 /**
+ * What an adapter's `withdraw` throws when its provider has no way to take a
+ * queued message back (Claude's CLI without the cancel-by-id control): the
+ * host refuses the withdraw `invalid_params`, reason `unsupported`, so a
+ * client draws the verb dim with the reason (ADR 0022), rather than
+ * answering as if the provider had read the message (#228).
+ */
+export class WithdrawUnsupported extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "WithdrawUnsupported";
+  }
+}
+
+/**
  * The answer to a prompt: allowed or denied, with a message for the model,
  * and what a person's answer may carry beside (`permissions.prompts.answer`):
  * a question's answers keyed by the question's text, the tool's input as
@@ -423,6 +437,20 @@ export interface AdapterRun {
    * takes back into the environment's queue (ADR 0022).
    */
   interrupt(): Promise<{ readonly stillQueued: readonly string[] }>;
+  /**
+   * Takes back one message the provider holds in its queue, by the id it was
+   * handed under (`providerQueue`; Claude's cancel-by-id control, ADR 0022):
+   * `withdrawn` when the provider cancelled it, so no turn will read it;
+   * false when the provider no longer holds it, having read it (or never
+   * had it). The host calls it only for a message the log says the provider
+   * holds, on the session's live run, since a provider's queue is the
+   * session's, and takes a withdrawn message back into the environment's
+   * queue at once. Asked again for a message it cancelled, or whose cancel it
+   * sent without hearing back, it answers withdrawn, unless a turn has since
+   * been seen reading it. It throws `WithdrawUnsupported` when the provider
+   * has no way to take a message back, and anything else when it cannot say.
+   */
+  withdraw?(messageId: string): Promise<{ readonly withdrawn: boolean }>;
   /**
    * Answers a parked prompt (`interactivePrompts`); throws `PromptClosed`
    * when the answer can reach no tool call. An adapter denies its run's

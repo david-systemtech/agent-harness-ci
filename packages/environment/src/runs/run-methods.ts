@@ -7,12 +7,14 @@ import type { CommandContext, MethodHandlers } from "../serve/methods.js";
 import { appendRunEvents } from "../sessions/activity-companions.js";
 import type { Reader } from "../sessions/session-reads.js";
 import { sessionStream } from "../sessions/streams.js";
+import { queueVerbMethods } from "./queue-verbs.js";
 import { decideInterrupt, decideSend, decideStart, decideStopTask, type RunFacts, type RunRefusal } from "./run-decider.js";
 import { readRun, readSessionFacts, taskStatus } from "./run-reads.js";
 
 /**
  * The run methods on the method table (claude-adapter spec, "Wire
- * methods"): `runs.start`, `runs.send`, `runs.interrupt` and `runs.stopTask`.
+ * methods"): `runs.start`, `runs.send`, `runs.interrupt` and `runs.stopTask`,
+ * with `runs.readNow` and `runs.withdraw` from `queue-verbs.ts`.
  * Each is a command: it reads the facts in its transaction, runs the
  * decider, appends what it decides to the session's stream with the run's
  * id as the correlation, and hands the adapter host its part to do once the
@@ -180,5 +182,8 @@ export const runMethods = (options: RunMethodsOptions): MethodHandlers => {
       if (!decision.ended) afterCommit(context.tx, () => host.stopTask(runId, params.taskId));
       return { aggregate, result: { runId, taskId: params.taskId, ended: decision.ended } };
     },
+
+    // Read now and withdraw, on the provider's queue and the environment's (#228).
+    ...queueVerbMethods({ log, host, actorOf }),
   };
 };

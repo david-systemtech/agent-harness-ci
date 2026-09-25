@@ -87,6 +87,8 @@ interface Running {
   timer: Timer | null;
   /** Set once the CLI exited 0 and the status read is under way: nothing but its outcome ends the sign-in then. */
   completing: boolean;
+  /** The outcome a completing sign-in reached whose notice the log refused: its re-armed expiry records it (#223). */
+  unrecorded: Partial<SignIn> | null;
   stdout: string;
   stderr: string;
 }
@@ -173,7 +175,8 @@ export const createSignInDirector =
      * that has ended, or been replaced, changes no more. The state held
      * changes only once its notice is in the log, so the two never differ;
      * an end whose notice could not be appended still stops the process,
-     * whose exit then tries to notice the sign-in's failure.
+     * whose exit then tries to notice the sign-in's failure. A completing
+     * sign-in has no process left to exit: `complete` releases it instead.
      */
     const update = (sign: Running, change: Partial<SignIn>): void => {
       if (closed || current !== sign || ended(sign.state)) return;
@@ -205,7 +208,7 @@ export const createSignInDirector =
           sign.state.state === "submitting"
             ? "The provider's CLI did not finish within ten minutes of the code."
             : "No code came within ten minutes; start the sign-in again.";
-        update(sign, { state: "expired", error });
+        update(sign, sign.unrecorded ?? { state: "expired", error });
       }, due);
     };
 
@@ -288,10 +291,26 @@ export const createSignInDirector =
       try {
         outcome = await port.finished(sign.accountId);
       } catch (thrown) {
-        update(sign, { state: "failed", error: `Reading the account's status after its sign-in failed: ${messageOf(thrown)}` });
+        complete(sign, { state: "failed", error: `Reading the account's status after its sign-in failed: ${messageOf(thrown)}` });
         return;
       }
-      update(sign, outcome.signedIn ? { state: "done", error: null } : { state: "failed", error: outcome.message });
+      complete(sign, outcome.signedIn ? { state: "done", error: null } : { state: "failed", error: outcome.message });
+    };
+
+    /**
+     * Ends a completing sign-in as its status read says. When the log refuses
+     * that notice the sign-in is still running, in the log and so here, but
+     * nothing is completing any more and no process is left to exit: the
+     * outcome is kept, the expiry is armed again and records it when it
+     * fires, and a cancel or a removal can end the sign-in before then, so
+     * it never holds the one-sign-in slot until a restart (#223).
+     */
+    const complete = (sign: Running, outcome: Partial<SignIn>): void => {
+      update(sign, outcome);
+      if (closed || current !== sign || ended(sign.state)) return;
+      sign.completing = false;
+      sign.unrecorded = outcome;
+      arm(sign);
     };
 
     /** Chooses the executable and starts the process: what a start sets off once it has committed. */
@@ -347,6 +366,7 @@ export const createSignInDirector =
         child: null,
         timer: null,
         completing: false,
+        unrecorded: null,
         stdout: "",
         stderr: "",
       };

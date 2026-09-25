@@ -17,6 +17,7 @@ import type { JsonObject, Mode, PromptQuestion } from "@agent-harness/contracts"
 import { claudeGatedCall } from "./gate-access.js";
 import {
   PromptClosed,
+  WithdrawUnsupported,
   type PromptDecision,
   type PromptDetail,
   type PromptKind,
@@ -348,6 +349,10 @@ export class ClaudeProcess implements TurnControl {
 
   /** Queued messages: sent during a turn, by id, and not yet seen read by any turn. */
   readonly #queuedSends = new Map<string, PromptMessage>();
+  /** Queued messages this process cancelled by id, or sent a cancel for without hearing back (#228). */
+  readonly #cancelled = new Set<string>();
+  /** Queued messages a turn has been seen reading. */
+  readonly #seenRead = new Set<string>();
   /** The permission table: prompts parked on the broker, by prompt id, answerable here too, with the turn that asked. */
   readonly #permissions = new Map<string, { readonly answer: (decision: PromptDecision) => void; readonly turn: ClaudeTurn }>();
 
@@ -780,6 +785,7 @@ export class ClaudeProcess implements TurnControl {
   #serve(turn: ClaudeTurn, message: unknown): void {
     for (const owner of ownersOf(message)) {
       if (!this.#queuedSends.delete(owner)) continue;
+      this.#seenRead.add(owner);
       turn.emit({ type: "message.delivered", payload: { messageId: owner, delivery: "steered" } });
     }
     for (const event of turn.map(message)) {
@@ -825,6 +831,7 @@ export class ClaudeProcess implements TurnControl {
     const named = owners === "first-waiting" ? [] : owners;
     const at = owners === "first-waiting" ? (this.#waiting.length > 0 ? 0 : -1) : this.#waiting.findIndex((turn) => turn.promptIds.some((id) => named.includes(id)));
     const opened = named.filter((id) => this.#queuedSends.delete(id));
+    for (const id of opened) this.#seenRead.add(id);
     if (at !== -1) {
       const turn = this.#waiting.splice(at, 1)[0] as ClaudeTurn;
       this.#current = turn;
@@ -1133,6 +1140,53 @@ export class ClaudeProcess implements TurnControl {
     }
     if (query === undefined) return { stillQueued: [] };
     return this.#interruptOpen(query);
+  }
+
+  /**
+   * Takes back one queued message this process sent (ADR 0022's withdraw,
+   * #228). One still in the prompt pump, which the SDK has not read, is
+   * taken out of it at once. Otherwise, once whose turn the CLI opened is
+   * known: one a turn has been seen reading, or never sent here, is not
+   * withdrawn and the CLI is not asked; one this process cancelled before, or
+   * whose cancel it sent without hearing back, is withdrawn again without
+   * asking (a second `cancelAsyncMessage` would answer false, as for a read
+   * one); any other goes to the cancel-by-id control under the control
+   * timeout, whose `true` means the CLI dropped it and `false` that a turn
+   * read it. A cancel that times out is remembered as sent and throws, so the
+   * host's retry asks again and hears it withdrawn. Without the control the
+   * message cannot be taken back: `WithdrawUnsupported`.
+   */
+  async withdraw(messageId: string): Promise<{ readonly withdrawn: boolean }> {
+    // Still in the pump, so the SDK has not read it and the CLI cannot have it: taken out here, nobody asked.
+    if (this.#queuedSends.has(messageId) && this.#prompts.remove((prompt) => prompt.uuid === messageId)) {
+      this.#queuedSends.delete(messageId);
+      this.#cancelled.add(messageId);
+      return { withdrawn: true };
+    }
+    await this.#decided();
+    if (this.#cancelled.has(messageId)) {
+      // Cancelled already, or its cancel sent and never answered: withdrawn, unless a turn has been seen reading it since.
+      if (this.#seenRead.has(messageId)) return { withdrawn: false };
+      this.#queuedSends.delete(messageId);
+      return { withdrawn: true };
+    }
+    if (!this.#queuedSends.has(messageId)) return { withdrawn: false };
+    const query = this.#query;
+    const cancel = query === undefined ? undefined : (query as unknown as QueryControls).cancelAsyncMessage;
+    if (query === undefined || !this.#featuresOf(query).cancelById || cancel === undefined) {
+      throw new WithdrawUnsupported("This Claude SDK has no cancel-by-id control, so a queued message cannot be taken back; it runs as the CLI's next turn.");
+    }
+    // Remembered before it is sent: an answer that never comes may still be a cancel the CLI made.
+    this.#cancelled.add(messageId);
+    let withdrawn: boolean;
+    try {
+      withdrawn = (await this.#within(cancel.call(query, messageId), this.#deps.timings.controlTimeoutMs)) === true;
+    } catch (error) {
+      throw new Error(`The CLI did not answer the withdraw of message ${messageId}: ${describe(error)}`, { cause: error });
+    }
+    if (withdrawn) this.#queuedSends.delete(messageId);
+    else this.#cancelled.delete(messageId);
+    return { withdrawn };
   }
 
   /**

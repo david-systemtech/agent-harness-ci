@@ -29,6 +29,18 @@ export class AsyncQueue<T> implements AsyncIterable<T> {
     } else this.#buffered.push(item);
   }
 
+  /**
+   * Takes out the first buffered item `matches` picks, one its reader has
+   * not read yet; true when there was one (#228: a queued message withdrawn
+   * before the SDK read it from the prompt pump).
+   */
+  remove(matches: (item: T) => boolean): boolean {
+    const at = this.#buffered.findIndex(matches);
+    if (at === -1) return false;
+    this.#buffered.splice(at, 1);
+    return true;
+  }
+
   close(): void {
     this.#closed = true;
     if (this.#buffered.length > 0) return;

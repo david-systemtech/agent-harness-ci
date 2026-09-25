@@ -92,8 +92,23 @@ export type MethodHandler<N extends MethodName> = (
   context: ContextOf<Registry[N]["kind"]>,
 ) => HandlerReturn<Registry[N]["kind"], ResultOf<N>, ErrorOf<N>["code"]>;
 
-/** Handlers by contracts method name, as the environment starts with them. */
-export type MethodHandlers = { readonly [N in MethodName]?: MethodHandler<N> };
+/**
+ * A command that must hear from outside the log before it can decide (#228:
+ * whether a provider still held the queued message it was asked to take
+ * back). Its `prepare` runs first, outside any transaction, and answers the
+ * handler the command then runs inside its transaction, answering at once
+ * like any command's. A command id with a stored receipt is answered from
+ * the receipt and `prepare` is not run; what `prepare` throws is answered as
+ * a handler's throw is, storing no receipt.
+ */
+export interface PreparedCommand<N extends MethodName> {
+  readonly prepare: (params: ParamsOf<N>, context: MethodContext) => Promise<MethodHandler<N>>;
+}
+
+/** Handlers by contracts method name, as the environment starts with them; a command's may be prepared first. */
+export type MethodHandlers = {
+  readonly [N in MethodName]?: MethodHandler<N> | (Registry[N]["kind"] extends "command" ? PreparedCommand<N> : never);
+};
 
 /** A stream's handler as dispatch calls it: its params were checked against its method's schema just before. */
 type StreamHandler = (params: unknown, context: MethodContext) => StreamSource | Promise<StreamSource>;
@@ -101,6 +116,10 @@ type StreamHandler = (params: unknown, context: MethodContext) => StreamSource |
 type QueryHandler = (params: unknown, context: MethodContext) => unknown;
 /** A command's handler as dispatch calls it, inside the command's transaction. */
 type CommandHandler = (params: unknown, context: CommandContext) => CommandAnswer<unknown>;
+/** A prepared command as dispatch calls it: `prepare`, then the handler it answers, inside the command's transaction. */
+export interface PreparedCommandHandler {
+  readonly prepare: (params: unknown, context: MethodContext) => Promise<CommandHandler>;
+}
 
 /**
  * One method as dispatch serves it: its registry entry and its handler, if
@@ -109,7 +128,7 @@ type CommandHandler = (params: unknown, context: CommandContext) => CommandAnswe
  */
 export type ServedMethod =
   | { readonly kind: "stream"; readonly method: Method; readonly handler: StreamHandler | undefined }
-  | { readonly kind: "command"; readonly method: Method; readonly handler: CommandHandler | undefined }
+  | { readonly kind: "command"; readonly method: Method; readonly handler: CommandHandler | PreparedCommandHandler | undefined }
   | { readonly kind: "query"; readonly method: Method; readonly handler: QueryHandler | undefined };
 
 /**
