@@ -303,10 +303,16 @@ const frameFixtures = Object.fromEntries(
 );
 
 const methodErrorFixtures: Fixtures = {
-  valid: Object.values(sharedErrors),
+  valid: [
+    ...Object.values(sharedErrors),
+    // #180: the scope is held, but the call would grant a ceiling above the caller's own.
+    { code: "forbidden", message: "A pairing at bypassPermissions is above this client session's own ceiling.", data: { scope: "admin", reason: "ceiling", ceiling: "acceptEdits" } },
+  ],
   invalid: [
     { code: "no_such_error", message: "m", data: {} },
     { code: "forbidden", message: "m", data: { scope: "everything" } },
+    { code: "forbidden", message: "m", data: { scope: "admin", reason: "mode", ceiling: "acceptEdits" } },
+    { code: "forbidden", message: "m", data: { scope: "admin", reason: "ceiling", ceiling: "dontAsk" } },
     { code: "internal", message: "m" },
   ],
 };
