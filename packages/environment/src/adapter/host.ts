@@ -322,7 +322,6 @@ export const requeuedEvents = (runId: string, messageIds: readonly string[]): Ev
     return { type: "message.requeued", payload };
   });
 
-/** What a run the environment starts itself after another is resolved from: the session, who it runs for, and the model and effort of the run before it. */
 /**
  * What a run the environment starts after another takes from it: the
  * session, the actor, the model and effort, and the run's own instructions

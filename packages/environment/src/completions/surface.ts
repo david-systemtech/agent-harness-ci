@@ -32,7 +32,7 @@ import { readSessionState, type Reader } from "../sessions/session-reads.js";
 import { sessionStream } from "../sessions/streams.js";
 import { createDispatch } from "../wire/dispatch.js";
 import { createRenderer, type AnswerEnd, type AnswerHead } from "./answer.js";
-import { CompletionsRefusal, asRefusal, sendRefusal, type RefusalContext } from "./errors.js";
+import { CompletionsRefusal, asRefusal, fromContractError, sendRefusal, type RefusalContext } from "./errors.js";
 import { listModels, listingId, modelObject, resolveModel, type CompletionsCatalogue, type ResolvedModel } from "./models.js";
 import { readTurnRequest, withPreamble, type TurnRequest } from "./request.js";
 
@@ -62,8 +62,9 @@ import { readTurnRequest, withPreamble, type TurnRequest } from "./request.js";
  * - **Continuity**: no `sessionId` is a fresh session, and the earlier
  *   messages ride as a preamble; a session named is continued, and they are
  *   dropped. `forkSession` and `rewindToMessageId` go through
- *   `sessions.fork` and `sessions.rewind` as the program's client session,
- *   answered 501 while the environment does not serve them (#137).
+ *   `sessions.fork` and `sessions.rewind` (#137) as the program's client
+ *   session; the turn then runs on the fork, or on the rewound session, as
+ *   a continued session.
  * - **The answer** (`answer.ts`) follows the session's events: live ones
  *   from the log's subscription, earlier ones read back, deduplicated by
  *   sequence. A stream sends each chunk as an SSE `data:` line and an SSE
@@ -76,10 +77,12 @@ import { readTurnRequest, withPreamble, type TurnRequest } from "./request.js";
 export const MAX_COMPLETIONS_BODY_BYTES = 64 * 1024 * 1024;
 
 /**
- * How much of an answer may wait unsent for a client that stopped reading:
- * past it, and still past it fifteen seconds later with nothing drained, the
- * connection is closed (the run goes on). A chosen default: a reading client
- * never holds more than a burst.
+ * How much of a streamed answer may wait unsent for a client that stopped
+ * reading: past it, and still past it fifteen seconds later with nothing
+ * drained, the connection is closed (the run goes on). A chosen default: a
+ * reading client never holds more than a burst. A whole answer has no such
+ * cutoff: it is one write, of a body the surface already held whole while
+ * the run went on, so nothing grows after it.
  */
 export const MAX_BUFFERED_ANSWER_BYTES = 4 * 1024 * 1024;
 
@@ -206,9 +209,14 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
 
   // ---- commands run as the program's client session ----
 
-  /** Runs a method of the table as the program's client session; undefined when the environment does not serve it. */
-  const command = async (clientSession: VerifiedClientSession, method: string, params: Record<string, unknown>): Promise<Record<string, unknown> | undefined> => {
-    if (options.methods.get(method)?.handler === undefined) return undefined;
+  /**
+   * Runs a fork or a rewind (#137) as the program's client session, through
+   * the method table, so its scope is checked where every client's is. Its
+   * refusal names the request's field that asked for it (`field`), a message
+   * not in the session's visible transcript `rewindToMessageId` and a
+   * session not here `sessionId`; the environment's own failure names none.
+   */
+  const command = async (clientSession: VerifiedClientSession, method: "sessions.fork" | "sessions.rewind", params: Record<string, unknown>, field: string): Promise<void> => {
     const answer = await new Promise<{ result?: Record<string, unknown>; error?: WireError }>((resolve) => {
       void dispatch(
         { type: "request", id: randomUUID(), method, params: { commandId: randomUUID(), ...params } },
@@ -217,10 +225,14 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
         () => resolve({ error: { code: "internal", message: `${method} is a stream.`, data: {} } }),
       );
     });
-    if (answer.error !== undefined) throw new ContractError(answer.error);
     const receipt = answer.result?.["receipt"] as { status: string; error?: WireError } | undefined;
-    if (receipt?.status === "rejected" && receipt.error !== undefined) throw new ContractError(receipt.error);
-    return (answer.result?.["result"] as Record<string, unknown> | undefined) ?? {};
+    const error = answer.error ?? (receipt?.status === "rejected" ? receipt.error : undefined);
+    if (error === undefined) return;
+    const refusal = fromContractError(new ContractError(error));
+    const kind = error.code === "not_found" ? error.data["kind"] : undefined;
+    const param = kind === "message" ? `${COMPLETIONS_NAMESPACE}.rewindToMessageId` : kind === "session" ? `${COMPLETIONS_NAMESPACE}.sessionId` : field;
+    // The environment's own failure is about no field.
+    throw new CompletionsRefusal(refusal.status, refusal.code, refusal.message, { param: refusal.status >= 500 ? null : param });
   };
 
   // ---- a turn ----
@@ -419,24 +431,16 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
     }
     if (forkSession) {
       const forkId = randomUUID();
-      const forked = await command(clientSession, "sessions.fork", {
-        sessionId,
-        id: forkId,
-        ...(rewindToMessageId !== null && { atMessageId: rewindToMessageId }),
-        account: model.account.id,
-      });
-      if (forked === undefined) {
-        throw new CompletionsRefusal(501, "not_implemented", "Forking a session needs sessions.fork, which this environment does not serve yet.", { param: `${COMPLETIONS_NAMESPACE}.forkSession` });
-      }
+      await command(
+        clientSession,
+        "sessions.fork",
+        { sessionId, id: forkId, ...(rewindToMessageId !== null && { atMessageId: rewindToMessageId }), account: model.account.id },
+        `${COMPLETIONS_NAMESPACE}.forkSession`,
+      );
       return { sessionId: forkId, fresh: false };
     }
     if (rewindToMessageId !== null) {
-      const rewound = await command(clientSession, "sessions.rewind", { sessionId, messageId: rewindToMessageId });
-      if (rewound === undefined) {
-        throw new CompletionsRefusal(501, "not_implemented", "Rewinding a session needs sessions.rewind, which this environment does not serve yet.", {
-          param: `${COMPLETIONS_NAMESPACE}.rewindToMessageId`,
-        });
-      }
+      await command(clientSession, "sessions.rewind", { sessionId, messageId: rewindToMessageId }, `${COMPLETIONS_NAMESPACE}.rewindToMessageId`);
     }
     return { sessionId, fresh: false };
   };

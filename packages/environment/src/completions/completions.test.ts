@@ -5,10 +5,6 @@ import { join } from "node:path";
 import {
   COMPLETIONS_HEARTBEAT_MS,
   ChatCompletion,
-  commandParams,
-  defineMethod,
-  MessageId,
-  SessionId,
   ChatCompletionChunk,
   CompletionsErrorBody,
   CompletionsModel,
@@ -23,7 +19,6 @@ import {
   type SessionSummary,
 } from "@agent-harness/contracts";
 import { describe, expect, it, vi } from "vitest";
-import { z } from "zod";
 import { useCleanups } from "../../test/cleanups.js";
 import { ask, end, fakeAdapter, gate, say, toldText, type FakeAdapter, type FakeAdapterOptions, type Script } from "../../test/fake-adapter.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
@@ -227,45 +222,28 @@ const signedOut = (lapsed: string): FakeAdapterOptions => ({
   status: (account) => ({ signedIn: account.id !== lapsed, authMethod: "fake", email: `${account.id}@example.com`, orgName: null, subscriptionType: "max", error: null }),
 });
 
-/** Stand-ins for `sessions.fork` and `sessions.rewind` (#137) on the method table: each call recorded with its caller, a fork creating its session. */
-const serveForkAndRewind = (t: TestEnvironment) => {
-    const calls: { method: string; params: Record<string, unknown>; caller: string }[] = [];
-  const fork = defineMethod({
-    name: "sessions.fork",
-    scope: "sessions:write",
-    kind: "command",
-    params: commandParams({ sessionId: SessionId, id: SessionId, atMessageId: MessageId.optional(), account: z.string().optional() }),
-    result: z.object({}),
-    errors: [],
-  });
-  t.serve(fork, (params, context) => {
-    calls.push({ method: "sessions.fork", params, caller: context.clientSession.id });
-    const created = {
-      title: null,
-      tags: [],
-      groupId: null,
-      workspace: { kind: "directory", path: "/work/fork" },
-      repositoryIdentity: null,
-      account: params.account ?? null,
-      model: null,
-      mode: null,
-    };
-    return { aggregate: { kind: "session", id: params.id }, result: {}, events: [{ type: "session.created", payload: created }] };
-  });
-  const rewind = defineMethod({
-    name: "sessions.rewind",
-    scope: "runs:drive",
-    kind: "command",
-    params: commandParams({ sessionId: SessionId, messageId: MessageId }),
-    result: z.object({}),
-    errors: [],
-  });
-  t.serve(rewind, (params, context) => {
-    calls.push({ method: "sessions.rewind", params, caller: context.clientSession.id });
-    return { aggregate: { kind: "session", id: params.sessionId }, result: {} };
-  });
-  return calls;
-};
+/** A run that links the provider conversation `providerSessionId`, as a Claude run's first init does, then replies. */
+const linking =
+  (providerSessionId: string): Script =>
+  ({ input }) => [{ type: "session.provider-linked", payload: { providerSessionId } }, say(`Done: ${input.prompt.map((message) => message.text).join(" / ")}`), end()];
+
+/** An adapter that forks and rewinds (#137), as Claude's does, whose runs link the provider conversation `provider-1`. */
+const forking: FakeAdapterOptions = { capabilities: { fork: true, rewind: true }, script: linking("provider-1") };
+
+/** A request whose trailing message follows the earlier ones of a conversation a program replays. */
+const replayed = (text: string, extension: Record<string, unknown>): Record<string, unknown> => ({
+  model: "claude-max/opus",
+  messages: [
+    { role: "user", content: "First" },
+    { role: "assistant", content: "Done: First" },
+    { role: "user", content: text },
+  ],
+  "agent-harness": extension,
+});
+
+/** Every fork and rewind the log holds: its type and the session whose stream it is on. */
+const forksAndRewinds = (t: TestEnvironment): { type: string; streamId: string }[] =>
+  t.env.log.read<{ type: string; streamId: string }>("SELECT type, stream_id AS streamId FROM events WHERE type IN ('session.forked', 'session.rewound') ORDER BY sequence");
 
 describe("the routes on the wire's port", () => {
   it("lists every signed-in account's catalogue with the account, family and tier beside each id", async () => {
@@ -781,20 +759,6 @@ describe("session continuity", () => {
     });
   });
 
-  it("refuses forkSession and rewindToMessageId 501 until the environment serves sessions.fork and sessions.rewind", async () => {
-    const t = await start();
-    const { token } = await program(t);
-    const sessionId = (await complete(t, token, turn("Hi")))["agent-harness"].sessionId as string;
-    expect(await refusalOf(await post(t, token, turn("Fork", { "agent-harness": { sessionId, forkSession: true } })))).toMatchObject({
-      status: 501,
-      body: { error: { code: "not_implemented", param: "agent-harness.forkSession" } },
-    });
-    expect(await refusalOf(await post(t, token, turn("Back", { "agent-harness": { sessionId, rewindToMessageId: randomUUID() } })))).toMatchObject({
-      status: 501,
-      body: { error: { code: "not_implemented", param: "agent-harness.rewindToMessageId" } },
-    });
-  });
-
   it("continues a session a client created, tagging it completions", async () => {
     const t = await start();
     const { token } = await program(t);
@@ -809,21 +773,85 @@ describe("session continuity", () => {
     expect(payloadsOf<RunStartedPayload>(t, sessionId, "run.started")[0]?.origin).toBe("completions");
   });
 
-  it("runs the turn on a fork through sessions.fork, and rewinds through sessions.rewind, as the program's client session", async () => {
-    const t = await start();
+  it("forks through sessions.fork as the program's client session, and runs the turn on the fork as a continued session, the earlier messages dropped", async () => {
+    const t = await start(forking);
     const { token, clientSessionId } = await program(t);
-    const sessionId = (await complete(t, token, turn("Hi")))["agent-harness"].sessionId as string;
-    const calls = serveForkAndRewind(t);
-    const anchor = randomUUID();
-    const forked = await complete(t, token, turn("On the fork", { "agent-harness": { sessionId, forkSession: true, rewindToMessageId: anchor } }));
+    const sessionId = (await complete(t, token, turn("First")))["agent-harness"].sessionId as string;
+    const anchor = (await complete(t, token, turn("Second", { "agent-harness": { sessionId } })))["agent-harness"].messageId as string;
+
+    const forked = await complete(t, token, replayed("Second, the other way", { sessionId, forkSession: true, rewindToMessageId: anchor.toUpperCase() }));
     const forkId = forked["agent-harness"].sessionId as string;
     expect(forkId).not.toBe(sessionId);
-    expect(calls).toEqual([{ method: "sessions.fork", params: expect.objectContaining({ sessionId, id: forkId, atMessageId: anchor, account: "claude-max" }), caller: clientSessionId }]);
-    expect(t.adapter.lastRun().input).toMatchObject({ sessionId: forkId, workspace: { kind: "directory", path: "/work/fork" } });
-    expect(t.adapter.lastRun().input.prompt.map((message) => message.text)).toEqual(["On the fork"]);
-    await complete(t, token, turn("Again", { "agent-harness": { sessionId, rewindToMessageId: anchor } }));
-    expect(calls.at(-1)).toEqual({ method: "sessions.rewind", params: expect.objectContaining({ sessionId, messageId: anchor }), caller: clientSessionId });
-    expect(t.adapter.lastRun().input.sessionId).toBe(sessionId);
+    const [record] = ofType(t, forkId, "session.forked");
+    expect(record?.payload).toEqual({ fromSessionId: sessionId, atMessageId: anchor, fromProviderSessionId: "provider-1" });
+    expect(record?.actor).toBe(`client_session:${clientSessionId}`);
+    // The fork's first run continues the source's conversation up to the anchor: the request's earlier messages are not replayed.
+    expect(t.adapter.lastRun().input).toMatchObject({ sessionId: forkId, target: { kind: "fork", providerSessionId: "provider-1", atMessageId: anchor } });
+    expect(t.adapter.lastRun().input.prompt.map((message) => message.text)).toEqual(["Second, the other way"]);
+    expect(payloadsOf<RunStartedPayload>(t, forkId, "run.started")).toEqual([expect.objectContaining({ origin: "completions", forkedFrom: sessionId, resumedFrom: "provider-1" })]);
+    expect((await listed(t)).find((session) => session.id === forkId)?.tags).toEqual(["completions"]);
+    expect(forksAndRewinds(t)).toEqual([{ type: "session.forked", streamId: forkId }]);
+  });
+
+  it("rewinds through sessions.rewind as the program's client session before the turn, which continues from before the message, the earlier messages dropped", async () => {
+    const t = await start(forking);
+    const { token, clientSessionId } = await program(t);
+    const sessionId = (await complete(t, token, turn("First")))["agent-harness"].sessionId as string;
+    const anchor = (await complete(t, token, turn("Second", { "agent-harness": { sessionId } })))["agent-harness"].messageId as string;
+
+    const again = await complete(t, token, replayed("Second, differently", { sessionId, rewindToMessageId: anchor }));
+    expect(again["agent-harness"].sessionId).toBe(sessionId);
+    expect(ofType(t, sessionId, "session.rewound").map((event) => [event.payload, event.actor])).toEqual([[{ toMessageId: anchor }, `client_session:${clientSessionId}`]]);
+    expect(t.adapter.lastRun().input).toMatchObject({ sessionId, target: { kind: "rewind", providerSessionId: "provider-1", toMessageId: anchor } });
+    expect(t.adapter.lastRun().input.prompt.map((message) => message.text)).toEqual(["Second, differently"]);
+  });
+
+  it("answers a fork's or a rewind's own refusal at the request's field that asked for it, and records nothing", async () => {
+    const t = await start(forking);
+    const { token } = await program(t);
+    const first = await complete(t, token, turn("First"));
+    const sessionId = first["agent-harness"].sessionId as string;
+    const anchor = (await complete(t, token, turn("Second", { "agent-harness": { sessionId } })))["agent-harness"].messageId as string;
+    // A message the session's visible transcript does not hold, for a fork and for a rewind.
+    for (const fork of [true, false]) {
+      expect(await refusalOf(await post(t, token, turn("Again", { "agent-harness": { sessionId, forkSession: fork, rewindToMessageId: randomUUID() } })))).toMatchObject({
+        status: 404,
+        body: { error: { code: "message_not_found", param: "agent-harness.rewindToMessageId" } },
+      });
+    }
+    // The session's first message: nothing comes before it to continue from.
+    expect(await refusalOf(await post(t, token, turn("Again", { "agent-harness": { sessionId, rewindToMessageId: first["agent-harness"].messageId } })))).toMatchObject({
+      status: 409,
+      body: { error: { type: "conflict_error", code: "use_new_session", param: "agent-harness.rewindToMessageId" } },
+    });
+    // A run is live: a rewind waits for it, where a turn alone would be queued to it.
+    const held = gate();
+    t.adapter.nextScripts.push(heldScript(held.opened));
+    const live = await stream(t, token, turn("Third", { "agent-harness": { sessionId } }));
+    await live.chunk();
+    expect(await refusalOf(await post(t, token, turn("Again", { "agent-harness": { sessionId, rewindToMessageId: anchor } })))).toMatchObject({
+      status: 409,
+      body: { error: { code: "run_active", param: "agent-harness.rewindToMessageId" } },
+    });
+    held.open();
+    await live.rest();
+    expect(forksAndRewinds(t)).toEqual([]);
+    expect((await listed(t)).map((session) => session.id)).toEqual([sessionId]);
+
+    // An adapter that neither forks nor rewinds.
+    const plain = await start({ script: linking("provider-1") });
+    const plainToken = (await program(plain)).token;
+    const plainId = (await complete(plain, plainToken, turn("First")))["agent-harness"].sessionId as string;
+    const plainAnchor = (await complete(plain, plainToken, turn("Second", { "agent-harness": { sessionId: plainId } })))["agent-harness"].messageId as string;
+    expect(await refusalOf(await post(plain, plainToken, turn("Again", { "agent-harness": { sessionId: plainId, forkSession: true } })))).toMatchObject({
+      status: 400,
+      body: { error: { code: "unsupported", param: "agent-harness.forkSession" } },
+    });
+    expect(await refusalOf(await post(plain, plainToken, turn("Again", { "agent-harness": { sessionId: plainId, rewindToMessageId: plainAnchor } })))).toMatchObject({
+      status: 400,
+      body: { error: { code: "unsupported", param: "agent-harness.rewindToMessageId" } },
+    });
+    expect(forksAndRewinds(plain)).toEqual([]);
   });
 
   it("follows a steer the environment holds into the run that reads it, which is the program's too", async () => {
@@ -900,33 +928,48 @@ describe("session continuity", () => {
     expect(payloadsOf<RunStartedPayload>(t, sessionId, "run.started")).toHaveLength(1);
   });
 
-  it("records no fork and no rewind for a turn refused after them: an effort the model does not take, an account not signed in, an attachment kind the adapter does not take", async () => {
-    const t = await start(signedOut("work-lapsed"), { accounts: [{ id: "claude-max", provider: "fake" }, { id: "work-lapsed", provider: "fake" }] });
+  it("records no fork and no rewind for a turn refused after them: an effort the model does not take, an account not signed in, an attachment kind the adapter does not take, a session on another account", async () => {
+    const t = await start(
+      { ...forking, ...signedOut("work-lapsed") },
+      { accounts: [{ id: "claude-max", provider: "fake" }, { id: "work", provider: "fake" }, { id: "work-lapsed", provider: "fake" }] },
+    );
     const { token } = await program(t);
-    const sessionId = (await complete(t, token, turn("Hi")))["agent-harness"].sessionId as string;
-    const calls = serveForkAndRewind(t);
-    expect(await refusalOf(await post(t, token, turn("Fork", { "agent-harness": { sessionId, forkSession: true, thinking: "turbo" } })))).toMatchObject({
+    const sessionId = (await complete(t, token, turn("First")))["agent-harness"].sessionId as string;
+    // A message a fork can be taken at and a rewind can go back to: every refusal below is the turn's, not theirs.
+    const anchor = (await complete(t, token, turn("Second", { "agent-harness": { sessionId } })))["agent-harness"].messageId as string;
+    const fork = { sessionId, forkSession: true, rewindToMessageId: anchor };
+    const rewind = { sessionId, rewindToMessageId: anchor };
+    expect(await refusalOf(await post(t, token, turn("Fork", { "agent-harness": { ...fork, thinking: "turbo" } })))).toMatchObject({
       status: 400,
       body: { error: { code: "invalid_params", param: "agent-harness.thinking" } },
     });
-    expect(await refusalOf(await post(t, token, { ...turn("Fork"), model: "work-lapsed/opus", "agent-harness": { sessionId, forkSession: true } }))).toMatchObject({
+    expect(await refusalOf(await post(t, token, { ...turn("Fork"), model: "work-lapsed/opus", "agent-harness": fork }))).toMatchObject({
       status: 409,
       body: { error: { code: "account_unavailable" } },
     });
-    expect(await refusalOf(await post(t, token, turn("Back", { reasoning_effort: "turbo", "agent-harness": { sessionId, rewindToMessageId: randomUUID() } })))).toMatchObject({
+    expect(await refusalOf(await post(t, token, turn("Back", { reasoning_effort: "turbo", "agent-harness": rewind })))).toMatchObject({
       status: 400,
       body: { error: { param: "reasoning_effort" } },
+    });
+    expect(await refusalOf(await post(t, token, { ...turn("Back"), model: "work/opus", "agent-harness": rewind }))).toMatchObject({
+      status: 409,
+      body: { error: { code: "account_mismatch" } },
     });
     // The fake adapter, like Claude's, takes images and no files.
     const png = { kind: "image", name: "shot.png", mediaType: "image/png", data: Buffer.from("png").toString("base64") };
     const notes = { kind: "file", name: "notes.txt", mediaType: "text/plain", data: Buffer.from("notes").toString("base64") };
-    for (const asked of [{ forkSession: true }, { rewindToMessageId: randomUUID() }]) {
-      expect(await refusalOf(await post(t, token, turn("With notes", { "agent-harness": { sessionId, ...asked, attachments: [png, notes] } })))).toMatchObject({
+    for (const asked of [fork, rewind]) {
+      expect(await refusalOf(await post(t, token, turn("With notes", { "agent-harness": { ...asked, attachments: [png, notes] } })))).toMatchObject({
         status: 400,
         body: { error: { code: "unsupported", param: "agent-harness.attachments.1.kind" } },
       });
     }
-    expect(calls).toEqual([]);
+    expect(forksAndRewinds(t)).toEqual([]);
+    expect((await listed(t)).map((session) => session.id)).toEqual([sessionId]);
+    // The same turns without the fault fork and rewind.
+    await complete(t, token, turn("Fork", { "agent-harness": fork }));
+    await complete(t, token, turn("Back", { "agent-harness": rewind }));
+    expect(forksAndRewinds(t).map((event) => event.type)).toEqual(["session.forked", "session.rewound"]);
   });
 
   it("resolves a bare model continuing a session on the session's account, not the default", async () => {
