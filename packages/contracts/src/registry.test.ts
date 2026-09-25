@@ -90,6 +90,8 @@ describe("the method registry", () => {
       "sessions.fork": ["command", "sessions:write"],
       // Rewinding changes what the next run does rather than a summary field (claude-adapter spec, a chosen default).
       "sessions.rewind": ["command", "runs:drive"],
+      // Undoing one, beside it (ADR 0022, #218).
+      "sessions.undoRewind": ["command", "runs:drive"],
       "groups.create": ["command", "sessions:write"],
       "groups.rename": ["command", "sessions:write"],
       "groups.reorder": ["command", "sessions:write"],
@@ -307,6 +309,7 @@ describe("the method registry", () => {
       | "sessions.purge"
       | "sessions.fork"
       | "sessions.rewind"
+      | "sessions.undoRewind"
       | "groups.create"
       | "groups.rename"
       | "groups.reorder"

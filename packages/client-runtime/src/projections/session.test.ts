@@ -324,6 +324,75 @@ describe("session.rewound", () => {
   });
 });
 
+describe("session.rewind-undone", () => {
+  const conversation = numbered(1, [
+    ["run.started", recorded("run.started")],
+    ["message.sent", recorded("message.sent")],
+    ["assistant.text", recorded("assistant.text")],
+    ["run.ended", recorded("run.ended")],
+    ["message.sent", recorded("message.sent", 0, { messageId: FIXTURE_OTHER_MESSAGE, text: "Then the tests" })],
+    ["tool.started", recorded("tool.started")],
+    ["assistant.text", recorded("assistant.text", 0, { itemId: "i-9", text: "Tested." })],
+  ]);
+  const LATER_RUN = "5a4b3c2d-1e0f-4a9b-8c7d-6e5f4a3b2c1d";
+  const LATER_MESSAGE = "0d7e8f9a-1b2c-4d3e-8f4a-5b6c7d8e9f0b";
+  const sequences = (items: readonly TranscriptEntry[]) => items.map((item) => item.sequence);
+
+  it("shows again what the rewind it names hid, in sequence order before what came after the rewind, and the rewind is gone", () => {
+    const { items, rewound, queued } = reduce([
+      ...conversation,
+      ...numbered(8, [
+        ["session.rewound", { toMessageId: FIXTURE_OTHER_MESSAGE }],
+        // A message the environment took back after the run's end, recorded after the rewind.
+        ["message.sent", recorded("message.sent", 0, { messageId: LATER_MESSAGE, text: "Late", delivery: "queued", heldBy: "environment" })],
+        ["session.rewind-undone", { toMessageId: FIXTURE_OTHER_MESSAGE, rewindSequence: 8 }],
+      ]),
+    ]);
+    expect(sequences(items)).toEqual([2, 3, 5, 6, 7, 9]);
+    expect(items[2]).toMatchObject({ kind: "user-message", messageId: FIXTURE_OTHER_MESSAGE, text: "Then the tests" });
+    expect(rewound).toBeNull();
+    expect(queued.map((message) => message.messageId)).toEqual([LATER_MESSAGE]);
+  });
+
+  it("undoes rewinds the latest first, the earlier one standing again as the rewind until it is undone too", () => {
+    const rewinds = numbered(8, [
+      ["session.rewound", { toMessageId: FIXTURE_OTHER_MESSAGE }],
+      ["session.rewound", { toMessageId: FIXTURE_MESSAGE }],
+      ["session.rewind-undone", { toMessageId: FIXTURE_MESSAGE, rewindSequence: 9 }],
+    ]);
+    const once = reduce([...conversation, ...rewinds]);
+    expect(sequences(once.items)).toEqual([2, 3]);
+    expect(once.rewound).toEqual({ toMessageId: FIXTURE_OTHER_MESSAGE, sequence: 8 });
+
+    const twice = reduce([...conversation, ...rewinds, sessionStreamEvent(11, "session.rewind-undone", { toMessageId: FIXTURE_OTHER_MESSAGE, rewindSequence: 8 })]);
+    expect(sequences(twice.items)).toEqual([2, 3, 5, 6, 7]);
+    expect(twice.rewound).toBeNull();
+  });
+
+  it("does not stand an earlier rewind up again when a run has started since it, whose undo the environment refuses", () => {
+    const { items, rewound } = reduce([
+      ...conversation,
+      ...numbered(8, [
+        ["session.rewound", { toMessageId: FIXTURE_OTHER_MESSAGE }],
+        ["run.started", recorded("run.started", 0, { runId: LATER_RUN })],
+        ["message.sent", recorded("message.sent", 0, { runId: LATER_RUN, messageId: LATER_MESSAGE, text: "Try again" })],
+        ["run.ended", recorded("run.ended", 0, { runId: LATER_RUN })],
+        ["session.rewound", { toMessageId: LATER_MESSAGE }],
+        ["session.rewind-undone", { toMessageId: LATER_MESSAGE, rewindSequence: 12 }],
+      ]),
+    ]);
+    expect(items.map((item) => (item.kind === "user-message" ? item.text : item.kind))).toEqual(["Fix the receipts", "assistant-text", "Try again"]);
+    expect(rewound).toBeNull();
+  });
+
+  it("has nothing to show again for a rewind it did not hear, as when its snapshot was taken while the rewind stood", () => {
+    // The snapshot left out what the rewind at 8 hid; the client subscribes again for a fresh one to see it.
+    const { items, rewound } = reduce([...conversation.slice(0, 4), sessionStreamEvent(9, "session.rewind-undone", { toMessageId: FIXTURE_OTHER_MESSAGE, rewindSequence: 8 })]);
+    expect(sequences(items)).toEqual([2, 3]);
+    expect(rewound).toBeNull();
+  });
+});
+
 describe("the snapshot", () => {
   it("is folded on: its runs, its items (an opaque one and one of an unknown kind kept opaque) and its parked prompts", () => {
     const recordedOnce = recordedSnapshot();

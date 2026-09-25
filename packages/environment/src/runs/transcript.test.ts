@@ -142,6 +142,51 @@ describe("the transcript fold", () => {
     ]);
   });
 
+  it("shows again what an undone rewind hid, in order before what came after the rewind, and updates it as ever", () => {
+    sequence = 0;
+    const events = [
+      started(runId),
+      event("message.sent", { runId, messageId: first, text: "One", attachments: [], delivery: "prompt", heldBy: null }),
+      event("assistant.text", { runId, itemId: "i-1", text: "Reply one", aborted: false }),
+      event("run.ended", { runId, reason: "completed", cause: null, error: null, usage: null, durationMs: 1, turnCount: null, resultText: null }),
+      started(secondRun, { promptMessageId: queued }),
+      event("message.sent", { runId: secondRun, messageId: queued, text: "Two", attachments: [], delivery: "prompt", heldBy: null }),
+      event("tool.started", { runId: secondRun, toolCallId: "t-1", name: "Read", input: {}, title: null, agentId: null, parentToolCallId: null }),
+      event("run.ended", { runId: secondRun, reason: "completed", cause: null, error: null, usage: null, durationMs: 1, turnCount: null, resultText: null }),
+      event("session.rewound", { toMessageId: queued }),
+      event("command.ran", { runId, name: "compact", args: "", output: null }),
+      event("tool.ended", { runId: secondRun, toolCallId: "t-1", status: "completed", output: "read", durationMs: 2 }),
+    ];
+    const rewound = foldTranscript(events);
+    expect(rewound.items.map((item) => item.kind)).toEqual(["user-message", "assistant-text", "command"]);
+
+    const undone = foldTranscript([...events, event("session.rewind-undone", { toMessageId: queued, rewindSequence: 9 })]);
+    expect(undone.items.map((item) => item.sequence)).toEqual([2, 3, 6, 7, 10]);
+    expect(undone.items[3]).toMatchObject({ kind: "tool-call", status: "completed", output: "read" });
+    // Folding on from a fold taken while the rewind stood gives the same.
+    expect(foldTranscript([event("session.rewind-undone", { toMessageId: queued, rewindSequence: 9 })], foldTranscript(events)).items).toEqual(rewound.items);
+  });
+
+  it("undoes rewinds one at a time by the sequence each undo names, and an undo naming no rewind it holds changes nothing", () => {
+    sequence = 0;
+    const second = "6e1f2a3b-4c5d-4e6f-8a7b-9c0d1e2f3a4b";
+    const events = [
+      started(runId),
+      event("message.sent", { runId, messageId: first, text: "One", attachments: [], delivery: "prompt", heldBy: null }),
+      event("message.sent", { runId, messageId: queued, text: "Two", attachments: [], delivery: "prompt", heldBy: null }),
+      event("message.sent", { runId, messageId: second, text: "Three", attachments: [], delivery: "prompt", heldBy: null }),
+      event("session.rewound", { toMessageId: second }),
+      event("session.rewound", { toMessageId: queued }),
+    ];
+    const text = (folded: ReturnType<typeof foldTranscript>) => folded.items.map((item) => (item.kind === "user-message" ? item.text : item.kind));
+    expect(text(foldTranscript(events))).toEqual(["One"]);
+    const later = [...events, event("session.rewind-undone", { toMessageId: queued, rewindSequence: 6 })];
+    expect(text(foldTranscript(later))).toEqual(["One", "Two"]);
+    const both = [...later, event("session.rewind-undone", { toMessageId: second, rewindSequence: 5 })];
+    expect(text(foldTranscript(both))).toEqual(["One", "Two", "Three"]);
+    expect(text(foldTranscript([...both, event("session.rewind-undone", { toMessageId: second, rewindSequence: 5 })]))).toEqual(["One", "Two", "Three"]);
+  });
+
   it("drops a withdrawn message's item, whose text went to the draft, and keeps the rest of the queue (#228)", () => {
     sequence = 0;
     const kept = "4d6f8a0c-2e4a-4c6e-8a0c-2e4a6c8e0a2c";

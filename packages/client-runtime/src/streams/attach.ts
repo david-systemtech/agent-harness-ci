@@ -29,8 +29,10 @@ import { emptyStream, step, type StreamInput, type StreamKind, type StreamState,
  *   past any head, which the environment answers with its snapshot: the
  *   "snapshot please" convention);
  * - a stream whose state has outgrown its kind's bound (a session holding
- *   every event since its snapshot) is resubscribed the same way, once per
- *   `ready`, so the snapshot folds what it held;
+ *   every event since its snapshot), or holds what only a fresh snapshot
+ *   can show (a session's undo of a rewind its snapshot was taken under,
+ *   #218), is resubscribed the same way, once per `ready`, so the snapshot
+ *   folds what it held;
  * - while the session list is catching up the connection is `syncing`.
  */
 

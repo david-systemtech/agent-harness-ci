@@ -479,6 +479,10 @@
       "title": "SessionRewoundPayload"
     },
     {
+      "path": "sessions/events/session.rewind-undone.json",
+      "title": "SessionRewindUndonePayload"
+    },
+    {
       "path": "sessions/events/run.ended.json",
       "title": "RunEndedPayload"
     },
@@ -1687,6 +1691,22 @@
       "title": "sessions.rewind error"
     },
     {
+      "path": "methods/sessions.undoRewind/params.json",
+      "title": "sessions.undoRewind params"
+    },
+    {
+      "path": "methods/sessions.undoRewind/result.json",
+      "title": "sessions.undoRewind result"
+    },
+    {
+      "path": "methods/sessions.undoRewind/response.json",
+      "title": "sessions.undoRewind response"
+    },
+    {
+      "path": "methods/sessions.undoRewind/error.json",
+      "title": "sessions.undoRewind error"
+    },
+    {
       "path": "methods/groups.create/params.json",
       "title": "groups.create params"
     },
@@ -2765,6 +2785,16 @@
       "result": "methods/sessions.rewind/result.json",
       "response": "methods/sessions.rewind/response.json",
       "error": "methods/sessions.rewind/error.json"
+    },
+    {
+      "name": "sessions.undoRewind",
+      "scope": "runs:drive",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/sessions.undoRewind/params.json",
+      "result": "methods/sessions.undoRewind/result.json",
+      "response": "methods/sessions.undoRewind/response.json",
+      "error": "methods/sessions.undoRewind/error.json"
     },
     {
       "name": "groups.create",
