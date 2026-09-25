@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { errorSchema } from "../errors.js";
 import { commandParams, defineMethod } from "../method.js";
-import { ContainmentAvailability, ContainmentLevel, SessionModeSetPayload } from "../permissions.js";
+import { ContainmentCause, ContainmentLevel, ContainmentReport, SessionContainmentSetPayload, SessionModeSetPayload } from "../permissions.js";
 import { Mode } from "../permissions-modes.js";
 import { PermissionSettingsPatch, PermissionSettingsValues } from "../permissions-settings.js";
 import { ListedPrompt, PromptAnsweredPayload, PromptAnswerInput } from "../prompts.js";
@@ -10,9 +10,10 @@ import { SessionId } from "../sessions.js";
 /**
  * The permissions methods (permissions spec, "Methods on the wire"): a
  * session's mode and the permission settings (#129), the parked prompts and
- * their answer (#130). The ceiling's method, `access.sessions.setCeiling`,
- * is in the `access` family (`methods/access.ts`). The denylist,
- * containment and review methods are #131 to #133's.
+ * their answer (#130), a session's containment level (#133). The ceiling's
+ * method, `access.sessions.setCeiling`, is in the `access` family
+ * (`methods/access.ts`). The denylist and review methods are #131 and
+ * #132's.
  */
 
 /**
@@ -35,6 +36,37 @@ export const permissionsModeSet = defineMethod({
   errors: [],
 });
 
+/** A containment level this environment cannot enforce was chosen: as the default, or as a session's own. */
+export const ContainmentUnavailableError = errorSchema(
+  "containment_unavailable",
+  z.object({
+    level: ContainmentLevel,
+    reason: z.string().min(1).meta({ description: "Why the level cannot be enforced here." }),
+    cause: ContainmentCause,
+  }),
+).meta({ description: "The containment level cannot be enforced on this environment; data says which and why." });
+export type ContainmentUnavailableError = z.infer<typeof ContainmentUnavailableError>;
+
+/**
+ * Set a session's containment level (permissions spec, "Containment"):
+ * one of the three, under `runs:drive`, with no own-session rule, since
+ * containment is the person's choice of boundary and not a grant. A level
+ * this environment cannot enforce is rejected `containment_unavailable`
+ * with the probe's reason. Recorded as `session.containment.set`; the
+ * session's next runs ask for it, while a live run keeps the level it was
+ * resolved with. The level the session has already appends nothing (the
+ * receipt says `changed: false`). The result is the event's payload with
+ * the session.
+ */
+export const permissionsContainmentSet = defineMethod({
+  name: "permissions.containment.set",
+  scope: "runs:drive",
+  kind: "command",
+  params: commandParams({ sessionId: SessionId, level: ContainmentLevel }),
+  result: z.object({ sessionId: SessionId, ...SessionContainmentSetPayload.shape }),
+  errors: [ContainmentUnavailableError],
+});
+
 /** The permission settings' values, and what the environment can enforce. */
 export const permissionsSettingsGet = defineMethod({
   name: "permissions.settings.get",
@@ -43,9 +75,7 @@ export const permissionsSettingsGet = defineMethod({
   params: z.object({}),
   result: z.object({
     values: PermissionSettingsValues,
-    containment: z
-      .object({ levels: z.array(ContainmentAvailability) })
-      .meta({ description: "Each containment level and whether this environment can enforce it, with the reason when it cannot (#133 probes it)." }),
+    containment: ContainmentReport,
     isRoot: z.boolean().meta({ description: "Whether the environment runs as root: always false, since it refuses to (ADR 0006); present so an exception would be loud." }),
     denylist: z
       .object({
@@ -58,16 +88,6 @@ export const permissionsSettingsGet = defineMethod({
   }),
   errors: [],
 });
-
-/** A containment level this environment cannot enforce was chosen as the default. */
-export const ContainmentUnavailableError = errorSchema(
-  "containment_unavailable",
-  z.object({
-    level: ContainmentLevel,
-    reason: z.string().min(1).meta({ description: "Why the level cannot be enforced here." }),
-  }),
-).meta({ description: "The containment level cannot be enforced on this environment; data says which and why." });
-export type ContainmentUnavailableError = z.infer<typeof ContainmentUnavailableError>;
 
 /**
  * Set any subset of the permission settings. The first time the unattended

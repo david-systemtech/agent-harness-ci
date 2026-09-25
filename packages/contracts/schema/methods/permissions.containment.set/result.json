@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "permissions.containment.set result",
+  "type": "object",
+  "properties": {
+    "sessionId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "A session's id: a version 4 UUID the creating client mints (never the provider's resume id), kept in lowercase."
+    },
+    "containment": {
+      "type": "object",
+      "properties": {
+        "requested": {
+          "type": "string",
+          "enum": [
+            "off",
+            "workspace",
+            "workspace-no-network"
+          ],
+          "description": "The level asked for."
+        },
+        "effective": {
+          "type": "string",
+          "enum": [
+            "off",
+            "workspace",
+            "workspace-no-network"
+          ],
+          "description": "The level the session got: the one asked for, since a level this environment cannot enforce is refused."
+        },
+        "clamped": {
+          "type": "boolean",
+          "description": "Whether the level got is not the one asked for: false, since an unenforceable level is refused (containment_unavailable) rather than lowered; the shape is session.mode.set's."
+        }
+      },
+      "required": [
+        "requested",
+        "effective",
+        "clamped"
+      ],
+      "description": "The level asked for, the one the session got, and whether it was lowered."
+    }
+  },
+  "required": [
+    "sessionId",
+    "containment"
+  ]
+}

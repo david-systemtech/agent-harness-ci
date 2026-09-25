@@ -229,7 +229,7 @@ export const decideStart = (facts: StartFacts, command: StartCommand): StartDeci
   const requested = command.mode ?? session.mode;
   // The lowest of the asker's ceiling and each queued sender's (#119), which the policy resolves under (#129).
   const ceiling = [facts.actor.ceiling, ...facts.queued.map((queued) => queued.ceiling)].reduce(lowerMode);
-  const policy = facts.resolvePolicy({ actor: { ...facts.actor, ceiling }, requested, accountModes: descriptor.modes });
+  const policy = facts.resolvePolicy({ actor: { ...facts.actor, ceiling }, requested, accountModes: descriptor.modes, containment: session.containment });
   if ("refused" in policy) return conflict(sessionId, "mode_unavailable", policy.refused, { accountId: account.id, ceiling });
 
   const queuedIds = facts.queued.map((message) => message.messageId);

@@ -44,7 +44,14 @@ import {
   sessionsUnsnooze,
   sessionsUntag,
 } from "./methods/sessions.js";
-import { permissionsModeSet, permissionsPromptsAnswer, permissionsPromptsList, permissionsSettingsGet, permissionsSettingsSet } from "./methods/permissions.js";
+import {
+  permissionsContainmentSet,
+  permissionsModeSet,
+  permissionsPromptsAnswer,
+  permissionsPromptsList,
+  permissionsSettingsGet,
+  permissionsSettingsSet,
+} from "./methods/permissions.js";
 import { runsInterrupt, runsSend, runsStart, runsStopTask } from "./methods/runs.js";
 import { providersList, providersProcessesList, providersProcessesStop } from "./methods/providers.js";
 import { settingsGet, settingsUpdate } from "./methods/settings.js";
@@ -141,6 +148,7 @@ export const methods = [
   settingsGet,
   settingsUpdate,
   permissionsModeSet,
+  permissionsContainmentSet,
   permissionsSettingsGet,
   permissionsSettingsSet,
   permissionsPromptsList,

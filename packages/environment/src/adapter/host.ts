@@ -19,6 +19,8 @@ import {
 } from "@agent-harness/contracts";
 import type { HostAccounts } from "../accounts/account-service.js";
 import { formatActor, type EventEnvelope, type EventLog, type EventInput } from "../event-log/event-log.js";
+import { runContainment, temporaryContainmentDirectories, type ContainmentDirectories } from "../permissions/containment-directories.js";
+import { createToolGate, type GatedRun } from "../permissions/gate.js";
 import {
   DUPLICATE_PROMPT_MESSAGE,
   RUN_ENDED_MESSAGE,
@@ -62,6 +64,7 @@ import type {
   PromptMessage,
   ProviderCommand,
   ProviderTurn,
+  RunContainment,
   RunContext,
   RunEnd,
   UsageReading,
@@ -137,6 +140,13 @@ export interface AdapterHostOptions {
   readonly autoAnswer?: PromptAutoAnswer;
   /** The policy resolver runs start through; preset: the resolver on the settings' presets. */
   readonly resolvePolicy?: PolicySeam;
+  /**
+   * Where a contained run may write beside its workspace: each session's
+   * scratch and temporary directories (#133). Preset: a root of the host's
+   * own, made with `mkdtemp` on first use and removed when the host closes;
+   * the environment keeps them under its data directory.
+   */
+  readonly containmentDirectories?: ContainmentDirectories;
   /**
    * A client session's ceiling as it is now, which a run the environment
    * starts after another (from its queue, or a turn the provider opened) is
@@ -300,6 +310,8 @@ interface LiveRun {
   readonly startedAt: number;
   /** The mode the provider runs it in now: its policy's, until a live change (`setMode`) takes. */
   mode: Mode;
+  /** Its containment, as its adapter was handed it and the gate rules under it: its policy's, fixed for the run. */
+  readonly containment: RunContainment;
   run: AdapterRun | undefined;
   /**
    * Set once the host ends it, synchronously and first thing in `finish`,
@@ -354,6 +366,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
   const instructions = options.instructions ?? composeInstructions();
   const autoAnswer = options.autoAnswer ?? noAutoAnswer;
   const resolvePolicy = options.resolvePolicy ?? presetPolicy;
+  const directories = options.containmentDirectories ?? temporaryContainmentDirectories();
   const { accounts } = options;
   const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
 
@@ -836,8 +849,19 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     },
   });
 
+  /** A live run as the tool gate rules under it. */
+  const gatedRun = (entry: LiveRun): GatedRun => ({ runId: entry.runId, sessionId: entry.sessionId, workspace: entry.plan.workspace.path, containment: entry.containment });
+  const gateFor = createToolGate({
+    log,
+    liveRunOf: (sessionId) => {
+      const current = live.get(sessionId);
+      return current !== undefined && !current.ended ? gatedRun(current) : undefined;
+    },
+  });
+
   const contextFor = (entry: LiveRun): RunContext => ({
     broker: brokerFor(entry.sessionId),
+    gate: gateFor(gatedRun(entry)),
     process: pool.port(entry.sessionId),
     adopt: (turn) => adopt(entry, turn),
     // Checked against the account store's identity for the run's account (#134). The check appends and may run as the
@@ -868,6 +892,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       append: createScopedAppend({ log, sessionId: plan.sessionId, runId: plan.runId, actor }),
       startedAt: clock.now().getTime(),
       mode: plan.mode,
+      containment: runContainment(plan.policy.containment, plan.workspace.path, directories.of(plan.sessionId)),
       run: undefined,
       ended: false,
       unrecorded: false,
@@ -925,6 +950,8 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     ];
     const scope = { sessionId: plan.sessionId, accountId: plan.account.id, workspace: plan.workspace };
     begin(plan, (entry) => {
+      // At a workspace level the directories it may write in are there before the provider is.
+      if (entry.containment.level !== "off") directories.make(plan.sessionId);
       const run = adapterOf(plan.account).createRun(
         {
           sessionId: plan.sessionId,
@@ -940,6 +967,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
           target: plan.resumeFrom === null ? { kind: "fresh" } : { kind: "resume", providerSessionId: plan.resumeFrom },
           toolServers: toolServers({ ...scope, runId: plan.runId }),
           trusted: false,
+          containment: entry.containment,
           prompt,
         },
         contextFor(entry),
@@ -1008,8 +1036,17 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     if (actor === undefined) return refuse("the client session its run was started for has been revoked or has expired.");
     const { descriptor } = previous.account;
     const ceiling = [actor.ceiling, ...messageCeilings(reader, turn.messageIds)].reduce(lowerMode);
-    const policy = resolvePolicy({ actor: { ...actor, ceiling }, requested: session.mode, accountModes: descriptor.modes });
+    const policy = resolvePolicy({ actor: { ...actor, ceiling }, requested: session.mode, accountModes: descriptor.modes, containment: session.containment });
     if ("refused" in policy) return refuse(policy.refused);
+    // The provider process runs the turn in the sandbox the run it followed started it with, which no adapter changes on a live process.
+    const followedContainment = previous.policy.containment;
+    if (policy.containment.effective !== followedContainment.effective || policy.containment.mechanism !== followedContainment.mechanism) {
+      const levelOf = (containment: { effective: string; mechanism: string | null }): string =>
+        containment.mechanism === null ? containment.effective : `${containment.effective} (${containment.mechanism})`;
+      return refuse(
+        `it runs at containment ${levelOf(followedContainment)} and the policy now resolves ${levelOf(policy.containment)}, which its process cannot take on, so a run from the queue reads its messages at the new level.`,
+      );
+    }
     const mode = policy.mode.effective;
     const adoptIn = (running: Mode): void => adoptTurn(previous, turn, actor, policy, running);
     if (mode !== followed.mode) {
@@ -1453,6 +1490,8 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       for (const entry of [...live.values()]) finish(entry, { type: "end", reason }, { by: "host", stop });
       for (const sessionId of [...adoptions.keys()]) dropAdoptions(sessionId);
       await pool.close(stop);
+      // The preset's own root, if it made one; the environment's directories stay with its data directory.
+      await directories.close().catch((error: unknown) => console.error("Removing the host's containment directories failed:", error));
     },
   };
 };

@@ -7,10 +7,13 @@ import {
   PERMISSION_SETTINGS_KEYS,
   SETTINGS_STREAM_KIND,
   invalidParams,
+  type ContainmentReport,
   type Mode,
   type ModeAvailability,
   type PermissionSettingsKey,
   type PermissionSettingsValues,
+  type ContainmentLevel,
+  type SessionContainmentSetPayload,
   type SessionModeSetPayload,
   type SettingsUpdatedPayload,
 } from "@agent-harness/contracts";
@@ -24,14 +27,15 @@ import type { CommandContext, MethodHandlers } from "../serve/methods.js";
 import type { SessionModeClamp } from "../sessions/run-parameters.js";
 import type { Reader } from "../sessions/session-reads.js";
 import { sessionStream } from "../sessions/streams.js";
-import { containmentAvailability } from "./containment.js";
-import { readPermissionSettings } from "./permissions-store.js";
+import { presetContainmentDefault, unenforceable } from "./containment.js";
+import { readPermissionSettings, readSessionContainment, readStoredContainmentDefault } from "./permissions-store.js";
 import { clampMode, noModeAvailable } from "./resolver.js";
 
 /**
- * The permissions methods of #129 (permissions spec, "Methods on the
- * wire"): `permissions.mode.set`, on the session's stream, and
- * `permissions.settings.get` and `permissions.settings.set`, whose changes
+ * The permissions methods of #129 and #133 (permissions spec, "Methods on
+ * the wire"): `permissions.mode.set` and `permissions.containment.set`, on
+ * the session's stream, and `permissions.settings.get` and
+ * `permissions.settings.set`, whose changes
  * are recorded in the access log (`settings.changed`, and
  * `bypass.acknowledged` the first time the unattended mode is bypass). Each
  * command appends in its transaction, with its receipt; a live mode change
@@ -47,9 +51,11 @@ export interface PermissionMethodsOptions {
   readonly environmentId: string;
   /** A client session's ceiling as it is now; undefined once it is revoked or expired. */
   readonly ceilingOf: (clientSessionId: string) => Mode | undefined;
+  /** What this environment can enforce (#133): its probe's findings, as its adapters allow them. */
+  readonly containment: ContainmentReport;
 }
 
-type PermissionMethodName = "permissions.mode.set" | "permissions.settings.get" | "permissions.settings.set";
+type PermissionMethodName = "permissions.mode.set" | "permissions.containment.set" | "permissions.settings.get" | "permissions.settings.set";
 
 /** Every mode, available: what a session with no account on this environment is clamped against, its ceiling alone. */
 const EVERY_MODE: readonly ModeAvailability[] = MODES.map((mode) => ({ mode, available: true, reason: null }));
@@ -74,9 +80,20 @@ export const sessionModeClamp =
     clampMode(mode, mode, currentCeiling(options.ceilingOf, clientSession), options.host.account(account)?.descriptor.modes ?? EVERY_MODE)?.effective ?? null;
 
 export const permissionMethods = (options: PermissionMethodsOptions): Required<Pick<MethodHandlers, PermissionMethodName>> => {
-  const { log, host, accessLog, clock } = options;
+  const { log, host, accessLog, clock, containment: report } = options;
   // The log's query-only read: inside a command it reads that command's own transaction.
   const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
+  // The environment's own preset for the containment default: workspace where the probe says it can be enforced.
+  const presets = { "permissions.containment.default": presetContainmentDefault(report) } as const;
+  const settings = (): PermissionSettingsValues => readPermissionSettings(reader, presets);
+
+  /** A refusal of a containment level this environment cannot enforce, with the reason and its cause; null when it can. */
+  const unavailable = (level: ContainmentLevel) => {
+    const why = unenforceable(report, level);
+    return why === null
+      ? null
+      : ({ code: "containment_unavailable", message: `The containment level ${level} cannot be enforced here: ${why.reason}`, data: { level, ...why } } as const);
+  };
 
   const ceilingOf = (context: CommandContext): Mode => currentCeiling(options.ceilingOf, context.clientSession);
 
@@ -112,9 +129,34 @@ export const permissionMethods = (options: PermissionMethodsOptions): Required<P
       return { aggregate, result: { sessionId, ...payload }, events };
     },
 
+    /**
+     * The session's own containment level (permissions spec, "Containment"),
+     * under `runs:drive` with no own-session rule: containment is the
+     * person's choice of boundary, not a grant. A level this environment
+     * cannot enforce is refused `containment_unavailable` with the probe's
+     * reason, so what is recorded is never lowered (`clamped` is false; the
+     * shape is `session.mode.set`'s). Recorded as `session.containment.set`;
+     * the session's next runs ask for it, and a live run keeps the level it
+     * was resolved with, since its provider's sandbox was fixed when it
+     * started. The level the session has already appends nothing.
+     */
+    "permissions.containment.set": (params) => {
+      const sessionId = params.sessionId.toLowerCase();
+      const aggregate = sessionStream(sessionId);
+      const session = readSessionFacts(log, reader, sessionId);
+      if (session === null || session.deleted) {
+        return { aggregate, rejected: { code: "not_found", message: `No session ${sessionId} is on this environment.`, data: { kind: "session", sessionId } } };
+      }
+      const refused = unavailable(params.level);
+      if (refused !== null) return { aggregate, rejected: refused };
+      const payload: SessionContainmentSetPayload = { containment: { requested: params.level, effective: params.level, clamped: false } };
+      const events = readSessionContainment(reader, sessionId) === params.level ? [] : [{ type: "session.containment.set", payload }];
+      return { aggregate, result: { sessionId, ...payload }, events };
+    },
+
     "permissions.settings.get": () => ({
-      values: readPermissionSettings(reader),
-      containment: { levels: containmentAvailability() },
+      values: settings(),
+      containment: report,
       // `serve` refuses root before anything starts (ADR 0006), so this is never true while the environment answers.
       isRoot: false,
       denylist: { ...DENYLIST_COUNTS },
@@ -125,25 +167,23 @@ export const permissionMethods = (options: PermissionMethodsOptions): Required<P
      * bypassPermissions it needs `acknowledgeBypass: true`, or it is
      * `invalid_params` and nothing changes; then the time is recorded and
      * `bypass.acknowledged` appended. A containment default this environment
-     * cannot enforce is rejected `containment_unavailable`. The values that
+     * cannot enforce is rejected `containment_unavailable`, but only when it
+     * changes what was stored: a stored default a restart found unenforceable
+     * does not block saving the rest. A containment default given when none
+     * was stored is stored even when it equals the preset, so an explicit
+     * choice does not follow the probe afterwards. The values that
      * change are the settings stream's `settings.updated` (the command's
      * aggregate), and the access log's `settings.changed` in the same
      * transaction.
      */
     "permissions.settings.set": (params, context) => {
       const aggregate = { kind: SETTINGS_STREAM_KIND, id: options.environmentId };
-      const held = readPermissionSettings(reader);
+      const held = settings();
       const asked = params.values;
       const containment = asked["permissions.containment.default"];
-      if (containment !== undefined) {
-        const level = containmentAvailability().find((entry) => entry.level === containment);
-        if (level?.available === false) {
-          return {
-            aggregate,
-            rejected: { code: "containment_unavailable", message: `The containment level ${containment} cannot be enforced here.`, data: { level: containment, reason: level.reason } },
-          };
-        }
-      }
+      const containmentChanged = containment !== undefined && containment !== readStoredContainmentDefault(reader);
+      const refused = containmentChanged ? unavailable(containment) : null;
+      if (refused !== null) return { aggregate, rejected: refused };
       const firstBypass = asked["permissions.unattended.mode"] === "bypassPermissions" && held[BYPASS_ACKNOWLEDGED_KEY] === null;
       if (firstBypass && params.acknowledgeBypass !== true) {
         const message = `Choosing bypassPermissions as the unattended mode for the first time needs acknowledgeBypass: true, once this has been shown: "${BYPASS_SENTENCE}"`;
@@ -152,7 +192,9 @@ export const permissionMethods = (options: PermissionMethodsOptions): Required<P
       const next: Record<string, unknown> = { ...held, ...asked };
       if (firstBypass) next[BYPASS_ACKNOWLEDGED_KEY] = clock.now().toISOString();
       // Compared by structure: a TTL given with its fields in another order is the same TTL.
-      const keys = PERMISSION_SETTINGS_KEYS.filter((key: PermissionSettingsKey) => !isDeepStrictEqual(held[key], next[key]));
+      const keys = PERMISSION_SETTINGS_KEYS.filter(
+        (key: PermissionSettingsKey) => !isDeepStrictEqual(held[key], next[key]) || (key === "permissions.containment.default" && containmentChanged),
+      );
       const values = next as PermissionSettingsValues;
       if (keys.length === 0) return { aggregate, result: { values } };
       const attribution = byClientSession(context.clientSession.id, context.commandId);
