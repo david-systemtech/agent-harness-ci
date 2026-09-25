@@ -31,7 +31,7 @@ const input = (lists: Record<string, StreamState<ListData>>, records = Object.ke
   records,
   lists: new Map(Object.entries(lists)),
   now: () => new Date(MANUAL_CLOCK_START),
-  pending: () => false,
+  pending: new Map(),
 });
 
 const named = (rows: readonly SessionRow[]) => rows.map((r) => r.summary.title);
@@ -52,10 +52,17 @@ describe("the session list", () => {
     ]);
   });
 
-  it("marks a row pending when the outbox says so (#128's seam)", () => {
+  it("marks a row, and a heading over a group, pending when the outbox says a command about it waits", () => {
     const a = summaryOf(randomUUID());
-    const view = sessionListView({ ...input({ [DESK]: list([a]) }), pending: (environmentId, sessionId) => environmentId === DESK && sessionId === a.id });
-    expect(view.rows[0]?.pending).toBe(true);
+    const b = summaryOf(randomUUID());
+    const groupId = randomUUID();
+    const pending = new Map([[DESK, { sessions: new Set([a.id]), groups: new Set([groupId]) }]]);
+    const view = sessionListView({ ...input({ [DESK]: list([a, b], [groupOf(groupId, "Brand")]) }), pending });
+    expect(view.rows.map((r) => [r.summary.id, r.pending])).toEqual([
+      [a.id, true],
+      [b.id, false],
+    ]);
+    expect(view.groups.map((h) => [h.name, h.pending])).toEqual([["Brand", true]]);
   });
 
   it("shows an environment with nothing cached as empty", () => {
@@ -101,7 +108,7 @@ describe("the session list", () => {
       lists: writable(new Map([[DESK, list([due])]])),
       now: () => clock.now(),
       clock: recorded,
-      pending: () => false,
+      pending: writable(new Map()),
     });
     const snoozed = () => named(projection.view.read().snoozed);
     expect(snoozed()).toEqual(["in a month"]);
