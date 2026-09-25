@@ -85,6 +85,12 @@ export const resolveModel = (catalogue: CompletionsCatalogue, asked: string, bar
   return model === undefined ? undefined : { account: target.entry.account, model, id: `${target.entry.slug}/${model.id}` };
 };
 
+/** The id the listing names the model `modelId` of the account `accountId` by, whether or not its catalogue still offers it; undefined when the account is not here. */
+export const listingId = (catalogue: CompletionsCatalogue, accountId: string, modelId: string): string | undefined => {
+  const entry = slugged(catalogue.accounts()).find(({ account }) => account.id === accountId);
+  return entry === undefined ? undefined : `${entry.slug}/${modelId}`;
+};
+
 /** A model as the listing shows it. */
 export const modelObject = (resolved: ResolvedModel, created: number): CompletionsModel => ({
   id: resolved.id,

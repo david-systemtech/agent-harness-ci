@@ -19,7 +19,7 @@ import type { AdapterHost } from "../adapter/host.js";
 import type { ClientSessions, VerifiedClientSession } from "../auth/client-sessions.js";
 import { formatActor, type EventEnvelope, type EventLog } from "../event-log/event-log.js";
 import type { RunActor } from "../permissions/resolver.js";
-import { readSessionFacts } from "../runs/run-reads.js";
+import { readRun, readSessionFacts } from "../runs/run-reads.js";
 import { sendIn, startRunIn } from "../runs/run-methods.js";
 import type { Clock, Timer } from "../serve/clock.js";
 import { BodyTooLargeError, readBody, sendJson, type RouteHandler } from "../serve/http.js";
@@ -32,7 +32,7 @@ import { sessionStream } from "../sessions/streams.js";
 import { createDispatch } from "../wire/dispatch.js";
 import { createRenderer, type AnswerEnd, type AnswerHead } from "./answer.js";
 import { CompletionsRefusal, asRefusal, sendRefusal, type RefusalContext } from "./errors.js";
-import { listModels, modelObject, resolveModel, type CompletionsCatalogue, type ResolvedModel } from "./models.js";
+import { listModels, listingId, modelObject, resolveModel, type CompletionsCatalogue, type ResolvedModel } from "./models.js";
 import { readTurnRequest, withPreamble, type TurnRequest } from "./request.js";
 
 /**
@@ -56,7 +56,8 @@ import { readTurnRequest, withPreamble, type TurnRequest } from "./request.js";
  *   has origin `completions` and actor kind `completions`, attended only when
  *   the request says so, under the program's ceiling as it is now (#129,
  *   #131). On a session whose run is live, the turn is a steer
- *   (`runs.send`'s queue path) and the answer follows the run that reads it.
+ *   (`runs.send`'s queue path) and the answer follows the run that reads it,
+ *   naming the live run's model.
  * - **Continuity**: no `sessionId` is a fresh session, and the earlier
  *   messages ride as a preamble; a session named is continued, and they are
  *   dropped. `forkSession` and `rewindToMessageId` go through
@@ -277,12 +278,14 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
     if (!forkSession && facts.accountId !== model.account.id) throw accountMismatch(sessionId, facts.accountId, model);
   };
 
-  /** What the turn recorded: the session, the run the answer follows, the message, whether it was queued to a live run, and the first chunk's fields. */
+  /** What the turn recorded: the session, the run the answer follows, the message, whether it was queued to a live run, the model the answer names, and the first chunk's fields. */
   interface Begun {
     readonly sessionId: string;
     readonly runId: string;
     readonly messageId: string;
     readonly queued: boolean;
+    /** The listing id of the model the message is read in: the requested one for a new run, the live run's for a queued message. */
+    readonly model: string;
     readonly head: AnswerHead;
   }
 
@@ -326,7 +329,12 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
           // A run is live: the turn is a queued message (ADR 0022), and the answer follows the run that reads it (#138).
           const sent = sendIn(log, host, tx, { actor: COMPLETIONS_ACTOR }, { sessionId, actor, origin: "completions", text, attachments });
           if (sent.rejected !== undefined) throw refused(sent.rejected);
-          // What a live run cannot take is said to be ignored.
+          // What a live run cannot take is said to be ignored. Its model first: whichever run reads the message runs on the
+          // live run's (the live run, a run of its queue, which takes the model of the run before it, or a turn its provider
+          // opens), so the answer names that one, and a request naming another is told so.
+          const running = readRun(reader, facts.live.runId);
+          const answeredIn = running === null ? model.id : (listingId(catalogue, running.accountId, running.model) ?? model.id);
+          if (answeredIn !== model.id) ignored.push("model");
           if (turn.extension.permissionMode !== null) ignored.push(`${COMPLETIONS_NAMESPACE}.permissionMode`);
           ignored.push(...turn.instructionSources);
           if (turn.effortParam !== null) ignored.push(turn.effortParam);
@@ -337,6 +345,7 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
             runId,
             messageId,
             queued: true,
+            model: answeredIn,
             head: { sessionId, runId, messageId, delivery: "queued", mode: facts.live.policy.mode.effective, clamped: null, ignored },
           };
         }
@@ -361,6 +370,7 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
           runId: started.runId,
           messageId: started.messageId,
           queued: false,
+          model: model.id,
           head: {
             sessionId,
             runId: started.runId,
@@ -510,11 +520,11 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
       // A fresh session's id names nothing once its transaction rolled back.
       throw asRefusal(error, where.fresh ? undefined : { sessionId: where.sessionId });
     }
-    answer(response, turn, model, begun, follower, exchange);
+    answer(response, turn, begun, follower, exchange);
   };
 
   /** Writes the answer: a stream of chunks, or the whole completion once it is over. */
-  const answer = (response: ServerResponse, turn: TurnRequest, model: ResolvedModel, begun: Begun, follower: Follower, exchange: Exchange): void => {
+  const answer = (response: ServerResponse, turn: TurnRequest, begun: Begun, follower: Follower, exchange: Exchange): void => {
     const created = seconds();
     const id = `chatcmpl-${begun.messageId}`;
     const chunks: ChatCompletionChunk[] = [];
@@ -570,7 +580,7 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
     const end = (ended: AnswerEnd): void => {
       if (turn.stream) {
         if (turn.includeUsage && ended.usage !== null) {
-          write(`data: ${JSON.stringify({ id, object: "chat.completion.chunk", created, model: model.id, choices: [], usage: ended.usage, [COMPLETIONS_NAMESPACE]: { seq: ended.seq } })}\n\n`);
+          write(`data: ${JSON.stringify({ id, object: "chat.completion.chunk", created, model: begun.model, choices: [], usage: ended.usage, [COMPLETIONS_NAMESPACE]: { seq: ended.seq } })}\n\n`);
         }
         write("data: [DONE]\n\n");
         done();
@@ -593,7 +603,7 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
         id,
         object: "chat.completion",
         created,
-        model: model.id,
+        model: begun.model,
         choices: [{ index: 0, message: { role: "assistant", content: chunks.map((chunk) => chunk.choices[0]?.delta.content ?? "").join("") }, finish_reason: ended.finishReason }],
         ...(ended.usage !== null && { usage: ended.usage }),
         [COMPLETIONS_NAMESPACE]: { ...first, seq: ended.seq, ...(ended.waiting !== null && { waiting: ended.waiting }) },
@@ -604,7 +614,7 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
     const renderer = createRenderer({
       id,
       created,
-      model: model.id,
+      model: begun.model,
       head: begun.head,
       stops: turn.stop,
       maxCharacters: turn.maxCharacters,

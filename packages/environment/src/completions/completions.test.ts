@@ -967,6 +967,34 @@ describe("session continuity", () => {
     await first.rest();
   });
 
+  it("reports a model other than the live run's ignored on a queued message, and names the live run's model on every chunk", async () => {
+    const t = await start();
+    const { token } = await program(t);
+    t.adapter.nextScripts.push(async function* ({ nextSent }) {
+      yield say("Working");
+      yield say(`Also: ${(await nextSent()).text}`);
+      yield say(`And: ${(await nextSent()).text}`);
+      yield end();
+    });
+    const first = await stream(t, token, { ...turn("Start"), model: "claude-max/sonnet" });
+    const sessionId = (await first.chunk())["agent-harness"].sessionId as string;
+    // The live run reads the message in its own model, so the answer names that one, the usage chunk too.
+    const other = await stream(t, token, {
+      ...turn("and tidy up", { reasoning_effort: "high", stream_options: { include_usage: true } }),
+      model: "claude-max/opus",
+      "agent-harness": { sessionId },
+    });
+    const opening = await other.chunk();
+    expect(opening["agent-harness"].ignored).toEqual(["model", "reasoning_effort"]);
+    // The live run's own model, named bare: nothing is ignored.
+    const same = await complete(t, token, { ...turn("and sweep"), model: "sonnet", "agent-harness": { sessionId } });
+    expect(same).toMatchObject({ model: "claude-max/sonnet", "agent-harness": { delivery: "queued", ignored: [] } });
+    const chunks = [opening, ...chunksOf(await other.rest())];
+    expect(chunks.at(-1)?.usage).toBeDefined();
+    expect(new Set(chunks.map((chunk) => chunk.model))).toEqual(new Set(["claude-max/sonnet"]));
+    await first.rest();
+  });
+
   it("ends the answer with an internal error chunk when where the queued message waits cannot be read", async () => {
     const t = await start({ capabilities: { providerQueue: false, steering: false } });
     const { token } = await program(t);
