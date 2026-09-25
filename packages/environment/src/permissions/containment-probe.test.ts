@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CONTAINER_MARKER_VARIABLE, probeContainment, type ContainmentProbe, type ProbeSystem } from "./containment-probe.js";
+import { CONTAINER_MARKER_VARIABLE, probeContainment, processProbeSystem, type ContainmentProbe, type ProbeSystem } from "./containment-probe.js";
 
 /**
  * The containment prober (permissions spec, "Mechanisms and the probe"),
@@ -155,17 +155,18 @@ describe("the containment probe on Linux and WSL2", () => {
     expect(probe.levels.workspace.reason).toMatch(/socat/);
   });
 
-  it("offers workspace without no-network when bubblewrap cannot unshare the network namespace", async () => {
+  it("offers neither level when bubblewrap cannot unshare the network namespace, which the provider's sandbox needs at either level", async () => {
     const { system } = machine({
       path: LINUX_TOOLS,
       answers: { bwrap: (args) => (args.includes("--unshare-net") ? { code: 1, output: "bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted\n" } : OK) },
     });
     const probe = await probeContainment(system);
-    expect(probe.mechanism).toBe("bubblewrap");
-    expect(probe.levels.workspace).toEqual({ available: true, reason: null, cause: null });
-    expect(probe.levels["workspace-no-network"]).toMatchObject({ available: false, cause: "failed" });
-    expect(probe.levels["workspace-no-network"].reason).toMatch(/network/);
-    expect(probe.levels["workspace-no-network"].reason).toMatch(/RTM_NEWADDR/);
+    expect(probe.mechanism).toBeNull();
+    for (const level of both(probe)) {
+      expect(level).toMatchObject({ available: false, cause: "failed" });
+      expect(level.reason).toMatch(/network namespace/);
+      expect(level.reason).toMatch(/RTM_NEWADDR/);
+    }
   });
 
   it("offers a level inside a container when bubblewrap works there: the container enforces nothing, and prevents nothing", async () => {
@@ -226,5 +227,19 @@ describe("the containment probe elsewhere", () => {
     expect(probe.mechanism).toBeNull();
     expect(probe.levels.workspace).toMatchObject({ available: false, cause: "platform" });
     expect(probe.levels.workspace.reason).toMatch(/freebsd/);
+  });
+});
+
+describe("the probe's own machine", () => {
+  it("says a command that runs past the timeout timed out, with the timeout, rather than how it was killed", async () => {
+    const answer = await processProbeSystem({ timeoutMs: 100 }).run(process.execPath, ["-e", "setTimeout(() => {}, 10000)"]);
+    expect(answer.code).toBeNull();
+    expect(answer.output).toBe(`${process.execPath} timed out after 0.1 s`);
+  });
+
+  it("answers a command that cannot start with a null code and the error, never rejecting", async () => {
+    const answer = await processProbeSystem().run("/nonexistent/bwrap", ["--version"]);
+    expect(answer.code).toBeNull();
+    expect(answer.output).toMatch(/ENOENT/);
   });
 });

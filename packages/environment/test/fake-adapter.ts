@@ -303,6 +303,8 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
     imageInput: true,
     fileInput: false,
     modeChange: true,
+    // The fake stands in for an adapter that enforces containment (#140's Claude adapter), so the gate's rules can be driven.
+    containment: true,
     instructionChannel: { kind: "system-prompt-append", maxCharacters: null },
     modes: [...(options.modes ?? MODES.map((mode): ModeAvailability => ({ mode, available: true, reason: null })))],
     ...options.capabilities,

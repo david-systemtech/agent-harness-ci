@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { errorSchema } from "../errors.js";
 import { commandParams, defineMethod } from "../method.js";
-import { ContainmentLevel, ContainmentReport, SessionContainmentSetPayload, SessionModeSetPayload } from "../permissions.js";
+import { ContainmentCause, ContainmentLevel, ContainmentReport, SessionContainmentSetPayload, SessionModeSetPayload } from "../permissions.js";
 import { Mode } from "../permissions-modes.js";
 import { PermissionSettingsPatch, PermissionSettingsValues } from "../permissions-settings.js";
 import { SessionId } from "../sessions.js";
@@ -40,6 +40,7 @@ export const ContainmentUnavailableError = errorSchema(
   z.object({
     level: ContainmentLevel,
     reason: z.string().min(1).meta({ description: "Why the level cannot be enforced here." }),
+    cause: ContainmentCause,
   }),
 ).meta({ description: "The containment level cannot be enforced on this environment; data says which and why." });
 export type ContainmentUnavailableError = z.infer<typeof ContainmentUnavailableError>;

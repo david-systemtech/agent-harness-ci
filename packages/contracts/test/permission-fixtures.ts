@@ -32,15 +32,15 @@ const values = {
 const acknowledged = { ...values, "permissions.unattended.mode": "bypassPermissions", "permissions.unattended.bypassAcknowledgedAt": at, "permissions.parkedPrompt.ttl": "never" };
 
 const levels = [
-  { level: "off", available: true, reason: null },
-  { level: "workspace", available: false, reason: "bubblewrap (bwrap) is not on the PATH." },
+  { level: "off", available: true, reason: null, cause: null },
+  { level: "workspace", available: false, reason: "bubblewrap (bwrap) is not on the PATH.", cause: "binary_missing" },
 ];
 const report = { levels, mechanism: null, container: { declared: false, detected: true } };
 const bubblewrap = {
   levels: [
-    { level: "off", available: true, reason: null },
-    { level: "workspace", available: true, reason: null },
-    { level: "workspace-no-network", available: true, reason: null },
+    { level: "off", available: true, reason: null, cause: null },
+    { level: "workspace", available: true, reason: null, cause: null },
+    { level: "workspace-no-network", available: true, reason: null, cause: null },
   ],
   mechanism: "bubblewrap",
   container: { declared: false, detected: false },
@@ -73,7 +73,19 @@ export const permissionSchemaFixtures: Record<string, Fixtures> = {
   "permissions/containment-level.json": { valid: ["off", "workspace", "workspace-no-network"], invalid: ["sandbox", ""] },
   "permissions/containment-availability.json": {
     valid: levels,
-    invalid: [{ level: "jail", available: true, reason: null }, { level: "off" }, { level: "workspace", available: false, reason: "" }, { level: "workspace", available: false, reason: null }],
+    invalid: [
+      { level: "jail", available: true, reason: null, cause: null },
+      { level: "off" },
+      { level: "workspace", available: false, reason: "", cause: "seccomp" },
+      { level: "workspace", available: false, reason: null, cause: "seccomp" },
+      { level: "workspace", available: false, reason: "No bwrap.", cause: null },
+      { level: "workspace", available: false, reason: "No bwrap.", cause: "missing" },
+      { level: "workspace", available: true, reason: null },
+    ],
+  },
+  "permissions/containment-cause.json": {
+    valid: ["binary_missing", "userns_blocked", "apparmor", "seccomp", "socat_missing", "failed", "platform", "adapter", "probe_failed", "not_probed"],
+    invalid: ["missing", ""],
   },
   "permissions/containment-mechanism.json": { valid: ["seatbelt", "bubblewrap"], invalid: ["none", "docker", ""] },
   "permissions/containment-container.json": {
@@ -132,8 +144,12 @@ export const permissionSchemaFixtures: Record<string, Fixtures> = {
     invalid: [{ ...denied, reason: null }, { ...allowed, reason: "r" }, { ...denied, decidedBy: "sandbox" }, { ...denied, decision: "refused" }, { ...denied, runId: "r-1" }],
   },
   "errors/containment_unavailable.json": {
-    valid: [{ code: "containment_unavailable", message: "m", data: { level: "workspace", reason: "bubblewrap (bwrap) is not on the PATH." } }],
-    invalid: [{ code: "containment_unavailable", message: "m", data: { level: "jail", reason: "r" } }, { code: "containment_unavailable", message: "m", data: {} }],
+    valid: [{ code: "containment_unavailable", message: "m", data: { level: "workspace", reason: "bubblewrap (bwrap) is not on the PATH.", cause: "binary_missing" } }],
+    invalid: [
+      { code: "containment_unavailable", message: "m", data: { level: "jail", reason: "r", cause: "seccomp" } },
+      { code: "containment_unavailable", message: "m", data: { level: "workspace", reason: "r" } },
+      { code: "containment_unavailable", message: "m", data: {} },
+    ],
   },
 };
 

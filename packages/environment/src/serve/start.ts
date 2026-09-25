@@ -42,11 +42,11 @@ import { ATTACHMENTS_DIRECTORY, createAttachmentStage } from "../adapter/attachm
 import { recoverCutRuns, recoverStagedAttachments } from "../adapter/recovery.js";
 import type { InstructionComposer, PolicySeam, ToolServerFactory } from "../adapter/seams.js";
 import type { PermissionBroker } from "../adapter/contract.js";
-import { UNPROBED_REPORT, containmentFlags, containmentReport, presetContainmentDefault } from "../permissions/containment.js";
+import { UNPROBED_REPORT, containmentFlags, containmentReport, failedProbeReport, presetContainmentDefault, withAdapters } from "../permissions/containment.js";
 import { CONTAINMENT_DIRECTORY, containmentDirectories } from "../permissions/containment-directories.js";
 import { probeContainment, type ContainmentProbe } from "../permissions/containment-probe.js";
 import { permissionMethods, sessionModeClamp } from "../permissions/methods.js";
-import { permissionsProjector, readPermissionSettings } from "../permissions/permissions-store.js";
+import { permissionsProjector, readPermissionSettings, readStoredContainmentDefault } from "../permissions/permissions-store.js";
 import { policySettings, resolvePolicy } from "../permissions/resolver.js";
 import { runMethods } from "../runs/run-methods.js";
 import { runsProjector } from "../runs/runs-projector.js";
@@ -352,29 +352,34 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     return { record: loaded, clientSessions: loadedClientSessions, pairings: loadedPairings, accessLog: access };
   });
 
-  // Each session's scratch and temporary directories, under the data directory; removed as the session's purge commits.
+  // Each session's scratch and temporary directories, under the data directory; removed once the session's purge commits, off the log's path.
   const sessionDirectories = containmentDirectories(join(dataDir, CONTAINMENT_DIRECTORY));
   closers.push(
     log.subscribe((event) => {
       if (event.streamKind !== SESSION_STREAM_KIND || event.type !== "session.purged") return;
-      try {
-        sessionDirectories.remove(event.streamId);
-      } catch (error) {
-        console.error(`Removing the containment directories of the purged session ${event.streamId} failed:`, error);
-      }
+      const sessionId = event.streamId;
+      setImmediate(() => {
+        sessionDirectories.remove(sessionId).catch((error: unknown) => console.error(`Removing the containment directories of the purged session ${sessionId} failed:`, error));
+      });
     }),
   );
 
   // The adapter host: the adapters, the accounts' sign-in states read through their probes, the run registry.
   const host: AdapterHost = await step("adapter-host", async () => {
+    const adapters = options.adapters ?? [createClaudeAdapter({ clock, autoMemoryRoot: join(dataDir, AUTO_MEMORY_DIRECTORY) })];
     // The probe never fails a start: a probe that throws leaves nothing but off, and says why.
+    let probed: ContainmentReport;
     try {
-      containment = containmentReport(await (options.probeContainment ?? (() => probeContainment()))());
+      probed = containmentReport(await (options.probeContainment ?? (() => probeContainment()))());
     } catch (error) {
       console.error("The containment probe failed; only off is offered:", error);
-      const reason = `The containment probe failed: ${error instanceof Error ? error.message : String(error)}`;
-      containment = { ...UNPROBED_REPORT, levels: UNPROBED_REPORT.levels.map((level) => (level.available ? level : { ...level, reason })) };
+      probed = failedProbeReport(error);
     }
+    // A workspace level needs an adapter that hands it to its provider's sandbox, as well as the machine (#133).
+    containment = withAdapters(
+      probed,
+      adapters.map((adapter) => adapter.descriptor),
+    );
     capabilities.push(...containmentFlags(containment));
     // First the recovery sweep: a run the log left without an end was cut by the last stop, and is ended before anything can read it.
     const recovered = recoverCutRuns({ log, clock });
@@ -388,7 +393,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       attachmentStage,
       stagedAttachments,
       ...(options.runs !== undefined && { runs: options.runs }),
-      adapters: options.adapters ?? [createClaudeAdapter({ clock, autoMemoryRoot: join(dataDir, AUTO_MEMORY_DIRECTORY) })],
+      adapters,
       ...(options.accounts !== undefined && { accounts: options.accounts }),
       ...(options.defaultAccountId !== undefined && { defaultAccountId: options.defaultAccountId }),
       // The policy resolver on the permission settings, and each client session's ceiling as it is now (#129).
@@ -398,7 +403,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
           requested,
           ceiling: actor.ceiling,
           accountModes,
-          settings: policySettings(permissionSettings()),
+          settings: policySettings(permissionSettings(), readStoredContainmentDefault({ all: (sql, ...params) => log.read(sql, ...params) })),
           containment: level,
           enforceable: containment,
         }),
@@ -559,6 +564,10 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   } catch (error) {
     console.error("The startup purge failed; the minute sweep will try again:", error);
   }
+  // The containment directories of sessions that are gone (purged while a removal failed, or before a crash), in the background.
+  sessionDirectories
+    .sweep((sessionId) => log.read("SELECT 1 FROM sessions WHERE id = ?", sessionId).length > 0)
+    .catch((error: unknown) => console.error("Sweeping the containment directories of sessions that are gone failed:", error));
   // The shelf's sweep (#117): a pass now, before the wire opens, then every five minutes.
   closers.push(settleSweep.start());
   // Transcript compaction (#123): a pass now, before the wire opens, then once a day.

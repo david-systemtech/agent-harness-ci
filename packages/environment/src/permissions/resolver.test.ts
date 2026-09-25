@@ -120,11 +120,11 @@ describe("the policy resolver", () => {
 /** What a probe that found bubblewrap reports: both workspace levels, or only `workspace` when no network cannot be enforced. */
 const bubblewrap = (noNetwork = true): ContainmentReport => ({
   levels: [
-    { level: "off", available: true, reason: null },
-    { level: "workspace", available: true, reason: null },
+    { level: "off", available: true, reason: null, cause: null },
+    { level: "workspace", available: true, reason: null, cause: null },
     noNetwork
-      ? { level: "workspace-no-network", available: true, reason: null }
-      : { level: "workspace-no-network", available: false, reason: "bubblewrap cannot give a run a network namespace of its own here." },
+      ? { level: "workspace-no-network", available: true, reason: null, cause: null }
+      : { level: "workspace-no-network", available: false, reason: "bubblewrap cannot give a run a network namespace of its own here.", cause: "failed" },
   ],
   mechanism: "bubblewrap",
   container: { declared: false, detected: false },
@@ -178,6 +178,14 @@ describe("the policy resolver's containment", () => {
       effective: "off",
       reason: expect.stringMatching(/workspace cannot be enforced/) as unknown as string,
     });
+  });
+
+  it("asks for the preset's workspace when no default was set, and says why when it cannot be enforced", () => {
+    expect(containmentOf({ settings: settings(null), enforceable: bubblewrap() })).toEqual({ requested: null, effective: "workspace", mechanism: "bubblewrap", reason: null });
+    const lowered = containmentOf({ settings: settings(null), enforceable: UNPROBED_REPORT });
+    expect(lowered).toMatchObject({ requested: null, effective: "off", mechanism: null });
+    expect(lowered.reason).toMatch(/preset default is workspace/);
+    expect(lowered.reason).toMatch(/not probed/);
   });
 
   it("lets a routine or a bot inherit the default unless it names its own level, as any run does", () => {

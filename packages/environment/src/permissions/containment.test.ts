@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, realpathSync, symlinkSync } from "node:fs";
+import { randomUUID as uuid } from "node:crypto";
 import { join } from "node:path";
 import {
   DISCOVERY_PATH,
@@ -15,7 +16,7 @@ import {
 } from "@agent-harness/contracts";
 import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
-import { absentProbe, brokenProbe, bubblewrapProbe, workspaceOnlyProbe } from "../../test/containment.js";
+import { absentProbe, brokenProbe, bubblewrapProbe, noNetworkNamespaceProbe } from "../../test/containment.js";
 import { end, fakeAdapter, gate, say, toolCall, type FakeAdapter, type Gate, type Script } from "../../test/fake-adapter.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { create, deleteSession, purgeSession, refusal } from "../../test/sessions.js";
@@ -120,13 +121,13 @@ const runScript = async (t: TestEnvironment, client: WireClient, id: string, scr
 const decisionsOf = (t: TestEnvironment, id: string, runId: string) => runEvents(t, id, runId).filter((event) => event.type === "tool.decision");
 
 describe("what this environment can enforce", () => {
-  it("is answered by permissions.settings.get: each level with its reason, the mechanism, and the container as the outer boundary", async () => {
+  it("is answered by permissions.settings.get: each level with its reason and cause, the mechanism, and the container as the outer boundary", async () => {
     const present = await start({ containment: bubblewrapProbe() });
     expect((await (await present.client()).request("permissions.settings.get", {})).containment).toEqual({
       levels: [
-        { level: "off", available: true, reason: null },
-        { level: "workspace", available: true, reason: null },
-        { level: "workspace-no-network", available: true, reason: null },
+        { level: "off", available: true, reason: null, cause: null },
+        { level: "workspace", available: true, reason: null, cause: null },
+        { level: "workspace-no-network", available: true, reason: null, cause: null },
       ],
       mechanism: "bubblewrap",
       container: { declared: false, detected: false },
@@ -135,18 +136,61 @@ describe("what this environment can enforce", () => {
     const report = (await (await broken.client()).request("permissions.settings.get", {})).containment;
     expect(report.mechanism).toBeNull();
     expect(report.container).toEqual({ declared: false, detected: true });
-    expect(report.levels[0]).toEqual({ level: "off", available: true, reason: null });
+    expect(report.levels[0]).toEqual({ level: "off", available: true, reason: null, cause: null });
     for (const level of report.levels.slice(1)) {
-      expect(level.available, level.level).toBe(false);
+      expect(level, level.level).toMatchObject({ available: false, cause: "seccomp" });
       expect(level.reason, level.level).toMatch(/seccomp/);
       expect(level.reason, level.level).toMatch(/outer boundary/);
     }
   });
 
-  it("puts containment:workspace and containment:no-network on the discovery URL and in hello, each only when the probe allows it", async () => {
+  it("carries the probe's cause for each unavailable level, for the Permissions step's package hint", async () => {
+    for (const [probe, cause] of [
+      [absentProbe(), "binary_missing"],
+      [brokenProbe(), "seccomp"],
+      [noNetworkNamespaceProbe(), "failed"],
+    ] as const) {
+      const t = await start({ containment: probe });
+      const { levels } = (await (await t.client()).request("permissions.settings.get", {})).containment;
+      expect(levels.map((level) => level.cause)).toEqual([null, cause, cause]);
+      await t.close();
+    }
+  });
+
+  it("offers only off, the error as the reason, when the probe itself throws, and still starts", async () => {
+    const t = await start({ containment: Promise.reject(new Error("the probe fell over")) });
+    const { levels, mechanism } = (await (await t.client()).request("permissions.settings.get", {})).containment;
+    expect(mechanism).toBeNull();
+    for (const level of levels.slice(1)) {
+      expect(level).toMatchObject({ available: false, cause: "probe_failed" });
+      expect(level.reason).toMatch(/the probe fell over/);
+    }
+    expect((await t.client()).hello.capabilities.filter((flag) => flag.startsWith("containment:"))).toEqual([]);
+  });
+
+  it("offers no workspace level when the adapter does not enforce containment, whatever the machine could, and says so", async () => {
+    const t = await start({ containment: bubblewrapProbe(), adapter: fakeAdapter({ capabilities: { containment: false } }) });
+    const client = await t.client();
+    const settings = await client.request("permissions.settings.get", {});
+    expect(settings.containment.mechanism).toBeNull();
+    for (const level of settings.containment.levels.slice(1)) {
+      expect(level).toMatchObject({ available: false, cause: "adapter" });
+      expect(level.reason).toMatch(/adapter does not enforce containment/);
+    }
+    expect(settings.values["permissions.containment.default"]).toBe("off");
+    expect((await discovery(t)).capabilities.filter((flag) => flag.startsWith("containment:"))).toEqual([]);
+    expect(client.hello.capabilities.filter((flag) => flag.startsWith("containment:"))).toEqual([]);
+    const { id } = await create(client);
+    expect((await setLevel(client, id, "workspace")).receipt).toMatchObject({ status: "rejected", reason: "containment_unavailable", error: { data: { cause: "adapter" } } });
+    const runId = await runScript(t, client, id, calling(write("/etc/hosts")));
+    expect(containmentOf(t, id, runId)).toMatchObject({ effective: "off", mechanism: null, reason: expect.stringMatching(/adapter does not enforce/) as unknown as string });
+    expect((t.adapter as FakeAdapter).lastRun().gated.map((entry) => entry.decision.decision)).toEqual(["allow"]);
+  });
+
+  it("puts containment:workspace and containment:no-network on the discovery URL and in hello only when the probe allows them", async () => {
     const cases = [
       [bubblewrapProbe(), ["containment:workspace", "containment:no-network"]],
-      [workspaceOnlyProbe(), ["containment:workspace"]],
+      [noNetworkNamespaceProbe(), []],
       [absentProbe(), []],
       [brokenProbe(), []],
     ] as const;
@@ -161,7 +205,7 @@ describe("what this environment can enforce", () => {
   it("presets permissions.containment.default to workspace where it can be enforced, else off, in both settings reads", async () => {
     for (const [probe, preset] of [
       [bubblewrapProbe(), "workspace"],
-      [workspaceOnlyProbe(), "workspace"],
+      [noNetworkNamespaceProbe(), "off"],
       [absentProbe(), "off"],
       [brokenProbe(), "off"],
     ] as const) {
@@ -173,24 +217,54 @@ describe("what this environment can enforce", () => {
     }
   });
 
-  it("refuses an unenforceable default in permissions.settings.set, containment_unavailable with the probe's reason, and changes nothing", async () => {
+  it("refuses an unenforceable default in permissions.settings.set, containment_unavailable with the reason and cause, and changes nothing", async () => {
     const absent = await start();
     const admin = await absent.client();
-    const answer = await send(admin, "permissions.settings.set", { values: { "permissions.containment.default": "workspace" } });
-    expect(answer.receipt).toMatchObject({
-      status: "rejected",
-      reason: "containment_unavailable",
-      error: { data: { level: "workspace", reason: expect.stringMatching(/bwrap/) as unknown as string } },
-    });
+    for (const level of ["workspace", "workspace-no-network"] as const) {
+      const answer = await send(admin, "permissions.settings.set", { values: { "permissions.containment.default": level } });
+      expect(answer.receipt).toMatchObject({
+        status: "rejected",
+        reason: "containment_unavailable",
+        error: { data: { level, reason: expect.stringMatching(/bwrap/) as unknown as string, cause: "binary_missing" } },
+      });
+    }
     expect((await admin.request("permissions.settings.get", {})).values["permissions.containment.default"]).toBe("off");
-    const partial = await start({ containment: workspaceOnlyProbe() });
-    const other = await partial.client();
-    expect((await send(other, "permissions.settings.set", { values: { "permissions.containment.default": "workspace-no-network" } })).receipt).toMatchObject({
+  });
+
+  it("stores a default given when none was, even one equal to the preset, so it no longer follows the probe", async () => {
+    const t = await start({ containment: bubblewrapProbe() });
+    const admin = await t.client();
+    const answer = await send(admin, "permissions.settings.set", { values: { "permissions.containment.default": "workspace" } });
+    expect(answer.receipt).toMatchObject({ status: "accepted", changed: true });
+    const [changed] = (await admin.request("access.log.list", { limit: 100 })).events.filter((event) => event.type === "settings.changed");
+    expect(changed?.payload).toMatchObject({ keys: ["permissions.containment.default"], values: { "permissions.containment.default": "workspace" } });
+    // Now stored, the same value again changes nothing.
+    expect((await send(admin, "permissions.settings.set", { values: { "permissions.containment.default": "workspace" } })).receipt).toMatchObject({ changed: false });
+  });
+
+  it("checks the default only when it changes: a stored default a restart found unenforceable does not block saving the rest", async () => {
+    const dataDir = join(tempDir(), "data");
+    const before = await start({ dataDir, containment: bubblewrapProbe() });
+    expect((await send(await before.client(), "permissions.settings.set", { values: { "permissions.containment.default": "workspace" } })).receipt).toMatchObject({
+      status: "accepted",
+    });
+    await before.close();
+    const after = await start({ dataDir });
+    const admin = await after.client();
+    const values = (await admin.request("permissions.settings.get", {})).values;
+    expect(values["permissions.containment.default"]).toBe("workspace");
+    // A client that sends every value back, the stored default among them, saves the TTL.
+    // Every value but the acknowledgement time, which only the environment writes.
+    const settable = Object.fromEntries(Object.entries(values).filter(([key]) => key !== "permissions.unattended.bypassAcknowledgedAt"));
+    const answer = await send(admin, "permissions.settings.set", { values: { ...settable, "permissions.parkedPrompt.ttl": "never" } });
+    expect(answer.receipt).toMatchObject({ status: "accepted", changed: true });
+    expect((await admin.request("permissions.settings.get", {})).values["permissions.parkedPrompt.ttl"]).toBe("never");
+    // Choosing it again when it differs is checked.
+    await send(admin, "permissions.settings.set", { values: { "permissions.containment.default": "off" } });
+    expect((await send(admin, "permissions.settings.set", { values: { "permissions.containment.default": "workspace" } })).receipt).toMatchObject({
       status: "rejected",
       reason: "containment_unavailable",
-      error: { data: { level: "workspace-no-network" } },
     });
-    expect((await send(other, "permissions.settings.set", { values: { "permissions.containment.default": "off" } })).receipt).toMatchObject({ status: "accepted", changed: true });
   });
 });
 
@@ -214,13 +288,13 @@ describe("permissions.containment.set", () => {
     expect(sessionEvents(t, id).filter((event) => event.type === "session.containment.set")).toHaveLength(1);
   });
 
-  it("refuses a level this environment cannot enforce, containment_unavailable with the probe's reason, and records nothing", async () => {
-    const { t, client, id } = await sessionAt(null, { containment: workspaceOnlyProbe() });
+  it("refuses a level this environment cannot enforce, containment_unavailable with the reason and cause, and records nothing", async () => {
+    const { t, client, id } = await sessionAt(null, { containment: noNetworkNamespaceProbe() });
     const answer = await setLevel(client, id, "workspace-no-network");
     expect(answer.receipt).toMatchObject({
       status: "rejected",
       reason: "containment_unavailable",
-      error: { data: { level: "workspace-no-network", reason: expect.stringMatching(/network namespace/) as unknown as string } },
+      error: { data: { level: "workspace-no-network", reason: expect.stringMatching(/network namespace/) as unknown as string, cause: "failed" } },
     });
     expect(sessionEvents(t, id).filter((event) => event.type === "session.containment.set")).toHaveLength(0);
   });
@@ -314,6 +388,22 @@ describe("a turn the provider opened on its own", () => {
 });
 
 describe("the session's directories", () => {
+  it("are swept at startup for sessions that are gone, leaving those of sessions still here and anything not named by a session", async () => {
+    const dataDir = join(tempDir(), "data");
+    const before = await start({ dataDir, containment: bubblewrapProbe() });
+    const client = await before.client();
+    const { id } = await create(client);
+    await before.close();
+    const gone = join(dataDir, "containment", uuid());
+    const kept = join(dataDir, "containment", id);
+    const other = join(dataDir, "containment", "notes");
+    for (const directory of [gone, kept, other]) mkdirSync(join(directory, "scratch"), { recursive: true });
+    await start({ dataDir, containment: bubblewrapProbe() });
+    await vi.waitFor(() => expect(existsSync(gone)).toBe(false));
+    expect(existsSync(kept)).toBe(true);
+    expect(existsSync(other)).toBe(true);
+  });
+
   it("are made at a workspace level and removed when the session is purged", async () => {
     const { t, client, id, adapter } = await sessionAt("workspace");
     await runScript(t, client, id, calling());
@@ -354,15 +444,33 @@ describe("run.policy.resolved's containment", () => {
     });
     const { id } = await create(admin);
     await before.close();
-    const after = await start({ dataDir, containment: workspaceOnlyProbe() });
+    const after = await start({ dataDir, containment: brokenProbe() });
     const client = await after.client();
     // A value that was set keeps its value; only the run is lowered.
     expect((await client.request("permissions.settings.get", {})).values["permissions.containment.default"]).toBe("workspace-no-network");
     const runId = await runScript(after, client, id, calling());
     const resolved = containmentOf(after, id, runId) as Record<string, unknown>;
-    expect(resolved).toMatchObject({ requested: null, effective: "workspace", mechanism: "bubblewrap" });
-    expect(resolved["reason"]).toMatch(/workspace-no-network cannot be enforced/);
-    expect((after.adapter as FakeAdapter).lastRun().input.containment.level).toBe("workspace");
+    expect(resolved).toMatchObject({ requested: null, effective: "off", mechanism: null });
+    expect(resolved["reason"]).toMatch(/^workspace-no-network cannot be enforced/);
+    expect(resolved["reason"]).toMatch(/seccomp/);
+    expect((after.adapter as FakeAdapter).lastRun().input.containment.level).toBe("off");
+  });
+
+  it("records the reason when the preset's workspace is lowered after a restart, as for a default that was set", async () => {
+    const dataDir = join(tempDir(), "data");
+    const before = await start({ dataDir, containment: bubblewrapProbe() });
+    const admin = await before.client();
+    const { id } = await create(admin);
+    const first = await runScript(before, admin, id, calling());
+    expect(containmentOf(before, id, first)).toEqual({ requested: null, effective: "workspace", mechanism: "bubblewrap", reason: null });
+    await before.close();
+    const after = await start({ dataDir, containment: absentProbe() });
+    const client = await after.client();
+    const runId = await runScript(after, client, id, calling());
+    const resolved = containmentOf(after, id, runId) as Record<string, unknown>;
+    expect(resolved).toMatchObject({ requested: null, effective: "off", mechanism: null });
+    expect(resolved["reason"]).toMatch(/preset default is workspace/);
+    expect(resolved["reason"]).toMatch(/bubblewrap is not installed/);
   });
 });
 
@@ -422,6 +530,34 @@ describe("the tool gate's containment", () => {
     expect(decisionsOf(t, id, runId).map((event) => event.payload["decidedBy"])).toEqual(["containment", "containment", "containment"]);
   });
 
+  it("at workspace, follows a link before the .. after it, so climbing back out of a link that leaves the workspace is still outside it", async () => {
+    const { t, client, id, adapter, workspacePath } = await sessionAt("workspace");
+    const elsewhere = join(realpathSync(tempDir()), "deep");
+    mkdirSync(elsewhere);
+    symlinkSync(elsewhere, join(workspacePath, "escape"));
+    const runId = await runScript(t, client, id, calling(write("escape/../pwned.txt"), write(`${workspacePath}/escape/../pwned.txt`)));
+    expect(adapter.lastRun().gated.map((entry) => entry.decision.decision)).toEqual(["deny", "deny"]);
+    expect(decisionsOf(t, id, runId)).toHaveLength(2);
+  });
+
+  it("at workspace, reads a dangling link's target, so writing through a link to a file not there yet outside the workspace is denied", async () => {
+    const { t, client, id, adapter, workspacePath } = await sessionAt("workspace");
+    symlinkSync(join(realpathSync(tempDir()), "not-yet.txt"), join(workspacePath, "dangle"));
+    symlinkSync(join(workspacePath, "inside.txt"), join(workspacePath, "dangle-inside"));
+    await runScript(t, client, id, calling(write("dangle"), write("dangle-inside")));
+    expect(adapter.lastRun().gated.map((entry) => entry.decision.decision)).toEqual(["deny", "allow"]);
+  });
+
+  it("at workspace, denies a write that names no path, and a path through a loop of links", async () => {
+    const { t, client, id, adapter, workspacePath } = await sessionAt("workspace");
+    symlinkSync(join(workspacePath, "b"), join(workspacePath, "a"));
+    symlinkSync(join(workspacePath, "a"), join(workspacePath, "b"));
+    await runScript(t, client, id, calling(write(), write("a/file.txt")));
+    const [none, loop] = adapter.lastRun().gated;
+    expect(none?.decision).toMatchObject({ decision: "deny", message: expect.stringMatching(/names no path/) as unknown as string });
+    expect(loop?.decision.decision).toBe("deny");
+  });
+
   it("at workspace-no-network, denies a fetch or a search the same way, while shell commands and reads go on to the provider", async () => {
     const recorded = recordingBroker();
     const { t, client, id, adapter } = await sessionAt("workspace-no-network", { adapterSeams: { broker: recorded.broker } });
@@ -459,12 +595,12 @@ describe("the tool gate's containment", () => {
     expect(decisionsOf(t, id, runId)).toEqual([]);
   });
 
-  it("at off where nothing can be enforced (the preset probe), denies nothing", async () => {
+  it("at off where nothing can be enforced (the preset probe), denies nothing, and says why the preset's workspace was not had", async () => {
     const t = await start();
     const client = await t.client();
     const { id } = await create(client);
     const runId = await runScript(t, client, id, calling(write("/etc/hosts"), fetchUrl("https://example.com/")));
-    expect(containmentOf(t, id, runId)).toEqual({ requested: null, effective: "off", mechanism: null, reason: null });
+    expect(containmentOf(t, id, runId)).toMatchObject({ requested: null, effective: "off", mechanism: null, reason: expect.stringMatching(/preset default is workspace/) as unknown as string });
     expect((t.adapter as FakeAdapter).lastRun().gated.map((entry) => entry.decision.decision)).toEqual(["allow", "allow"]);
   });
 });

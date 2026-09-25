@@ -141,6 +141,7 @@ import { ContainmentUnavailableError } from "./methods/permissions.js";
 import {
   ClampReason,
   ContainmentAvailability,
+  ContainmentCause,
   ContainmentContainer,
   ContainmentLevel,
   ContainmentMechanism,
@@ -305,6 +306,7 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "permissions/clamp-reason.json", title: "ClampReason", schema: ClampReason },
   { path: "permissions/mode-resolution.json", title: "ModeResolution", schema: ModeResolution },
   { path: "permissions/containment-level.json", title: "ContainmentLevel", schema: ContainmentLevel },
+  { path: "permissions/containment-cause.json", title: "ContainmentCause", schema: ContainmentCause },
   { path: "permissions/containment-availability.json", title: "ContainmentAvailability", schema: ContainmentAvailability },
   { path: "permissions/containment-mechanism.json", title: "ContainmentMechanism", schema: ContainmentMechanism },
   { path: "permissions/containment-container.json", title: "ContainmentContainer", schema: ContainmentContainer },

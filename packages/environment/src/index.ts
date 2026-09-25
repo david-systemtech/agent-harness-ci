@@ -131,13 +131,17 @@ export {
 } from "./permissions/resolver.js";
 export { PERMISSIONS_PROJECTOR, permissionsProjector } from "./permissions/permissions-store.js";
 export {
+  ADAPTER_REASON,
+  PRESET_CONTAINMENT,
   UNPROBED_REPORT,
   containmentFlags,
   containmentReport,
+  failedProbeReport,
   isEnforceable,
   presetContainmentDefault,
   resolveContainment,
-  unenforceableReason,
+  unenforceable,
+  withAdapters,
 } from "./permissions/containment.js";
 export {
   CONTAINER_MARKER_VARIABLE,
@@ -150,8 +154,15 @@ export {
   type ProbeCause,
   type ProbeSystem,
 } from "./permissions/containment-probe.js";
-export { CONTAINMENT_DIRECTORY, containmentDirectories, runContainment, type ContainmentDirectories, type SessionDirectories } from "./permissions/containment-directories.js";
-export { containmentDenial, resolvePath } from "./permissions/gate.js";
+export {
+  CONTAINMENT_DIRECTORY,
+  containmentDirectories,
+  runContainment,
+  temporaryContainmentDirectories,
+  type ContainmentDirectories,
+  type SessionDirectories,
+} from "./permissions/containment-directories.js";
+export { GATE_ACTOR, containmentDenial, createToolGate, resolvePath, type GatedRun, type ToolGateOptions } from "./permissions/gate.js";
 export { runMethods, type RunMethodsOptions } from "./runs/run-methods.js";
 export { foldTranscript, type TranscriptParts } from "./runs/transcript.js";
 export { SETTLE_SWEEP_ACTOR, SETTLE_SWEEP_INTERVAL_MS, createSettleSweep, type SettleSweep, type SweepOutcome } from "./sessions/settle-sweep.js";
@@ -192,7 +203,13 @@ export {
   type LauncherQuery,
   type LauncherReply,
 } from "./serve/launcher.js";
-export { processContainerDetector, type ContainerDetector, type ContainerProbe } from "./serve/container.js";
+export {
+  isDeclaredContainer,
+  isDetectedContainer,
+  processContainerDetector,
+  type ContainerDetector,
+  type ContainerProbe,
+} from "./serve/container.js";
 export { DRAIN_CAP_MS, type DrainOutcome } from "./serve/lifecycle.js";
 export {
   IDLE_WINDOW_MS,

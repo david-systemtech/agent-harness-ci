@@ -58,13 +58,18 @@ export type RunActor = PolicyActor & {
 /** The settings the resolver reads. */
 export interface PolicySettings {
   readonly unattendedMode: UnattendedMode;
-  readonly containmentDefault: ContainmentLevel;
+  /** The containment default as it was set; null when it never was, and the preset's `workspace` is asked for (`containment.ts`). */
+  readonly containmentDefault: ContainmentLevel | null;
 }
 
-/** The resolver's settings, from the permission settings' values. */
-export const policySettings = (values: PermissionSettingsValues): PolicySettings => ({
+/**
+ * The resolver's settings, from the permission settings' values and the
+ * containment default as it was stored (null when it never was; preset: the
+ * value, for a caller with no store behind it).
+ */
+export const policySettings = (values: PermissionSettingsValues, storedContainmentDefault: ContainmentLevel | null = values["permissions.containment.default"]): PolicySettings => ({
   unattendedMode: values["permissions.unattended.mode"],
-  containmentDefault: values["permissions.containment.default"],
+  containmentDefault: storedContainmentDefault,
 });
 
 export interface PolicyInput {

@@ -217,9 +217,9 @@ describe("containment", () => {
   it("is reported by permissions.settings.get: each level with its reason, the mechanism, and the container as the operator's outer boundary", () => {
     const report = {
       levels: [
-        { level: "off", available: true, reason: null },
-        { level: "workspace", available: true, reason: null },
-        { level: "workspace-no-network", available: false, reason: "socat is not installed." },
+        { level: "off", available: true, reason: null, cause: null },
+        { level: "workspace", available: true, reason: null, cause: null },
+        { level: "workspace-no-network", available: false, reason: "socat is not installed.", cause: "socat_missing" },
       ],
       mechanism: "bubblewrap",
       container: { declared: true, detected: true },

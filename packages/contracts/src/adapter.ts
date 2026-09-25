@@ -89,11 +89,12 @@ export const CAPABILITY_FLAGS = [
   "imageInput",
   "fileInput",
   "modeChange",
+  "containment",
 ] as const;
 export type AdapterCapabilityFlag = (typeof CAPABILITY_FLAGS)[number];
 export const AdapterCapabilityFlag = z.enum(CAPABILITY_FLAGS).meta({
   description:
-    "One optional power of the adapter contract: interactivePrompts, partialMessages, providerQueue (the provider holds messages sent during a turn), steering (it folds one into the running turn), resume, fork, rewind, sessionListing, subagents (delegated work it can stop), subagentTranscripts, titleRead, titleWrite, transcriptDelete, planUsage, liveModels, commands, imageInput, fileInput, modeChange (a live run's mode can be changed).",
+    "One optional power of the adapter contract: interactivePrompts, partialMessages, providerQueue (the provider holds messages sent during a turn), steering (it folds one into the running turn), resume, fork, rewind, sessionListing, subagents (delegated work it can stop), subagentTranscripts, titleRead, titleWrite, transcriptDelete, planUsage, liveModels, commands, imageInput, fileInput, modeChange (a live run's mode can be changed), containment (the adapter enforces a run's containment level through its provider's sandbox).",
 });
 
 const flag = (description: string) => z.boolean().meta({ description });
@@ -129,6 +130,9 @@ export const AdapterCapabilities = z
     imageInput: flag("A message can carry image attachments."),
     fileInput: flag("A message can carry file attachments."),
     modeChange: flag("A live run's mode can be changed (permissions.mode.set); without it a new mode applies at the session's next run."),
+    containment: flag(
+      "The adapter enforces a run's containment level through its provider's sandbox (#133, #140); without it only off is available to the runs of its accounts.",
+    ),
     instructionChannel: InstructionChannel,
     modes: z.array(ModeAvailability).meta({
       description:

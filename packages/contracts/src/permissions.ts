@@ -80,21 +80,48 @@ export const ContainmentMechanism = z.enum(CONTAINMENT_MECHANISMS).meta({
 });
 export type ContainmentMechanism = z.infer<typeof ContainmentMechanism>;
 
-/** Whether this environment can enforce a containment level, and, when it cannot, why. */
+/**
+ * Why a containment level cannot be enforced, as a cause a client can act
+ * on (the Permissions step's package hint, #141): bubblewrap missing, user
+ * namespaces blocked by the kernel, by AppArmor or by a seccomp profile,
+ * socat missing, bubblewrap failing otherwise, no mechanism on the platform,
+ * the adapter not enforcing containment, the probe failing or not run.
+ */
+export const CONTAINMENT_CAUSES = [
+  "binary_missing",
+  "userns_blocked",
+  "apparmor",
+  "seccomp",
+  "socat_missing",
+  "failed",
+  "platform",
+  "adapter",
+  "probe_failed",
+  "not_probed",
+] as const;
+export const ContainmentCause = z.enum(CONTAINMENT_CAUSES).meta({
+  description:
+    "Why a containment level cannot be enforced: binary_missing (bwrap or sandbox-exec), userns_blocked (the kernel), apparmor, seccomp, socat_missing, failed (the mechanism failed otherwise), platform (none on it), adapter (the adapter does not enforce containment), probe_failed, not_probed.",
+});
+export type ContainmentCause = z.infer<typeof ContainmentCause>;
+
+/** Whether this environment can enforce a containment level, and, when it cannot, why: for people and as a cause. */
 export const ContainmentAvailability = z
   .discriminatedUnion("available", [
     z.object({
       level: ContainmentLevel,
       available: z.literal(true),
       reason: z.null().meta({ description: "Null: the level can be enforced here." }),
+      cause: z.null().meta({ description: "Null: the level can be enforced here." }),
     }),
     z.object({
       level: ContainmentLevel,
       available: z.literal(false),
       reason: z.string().min(1).meta({ description: "Why the level cannot be enforced here, for people." }),
+      cause: ContainmentCause,
     }),
   ])
-  .meta({ description: "Whether this environment can enforce a containment level and, when it cannot, why." });
+  .meta({ description: "Whether this environment can enforce a containment level and, when it cannot, why, for people and as a cause." });
 export type ContainmentAvailability = z.infer<typeof ContainmentAvailability>;
 
 /**

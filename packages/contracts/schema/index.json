@@ -671,6 +671,10 @@
       "title": "ContainmentLevel"
     },
     {
+      "path": "permissions/containment-cause.json",
+      "title": "ContainmentCause"
+    },
+    {
       "path": "permissions/containment-availability.json",
       "title": "ContainmentAvailability"
     },

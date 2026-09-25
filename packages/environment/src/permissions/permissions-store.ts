@@ -12,7 +12,7 @@ import {
 } from "@agent-harness/contracts";
 import type { Projector } from "../event-log/event-log.js";
 import type { Reader } from "../sessions/session-reads.js";
-import { readSettings } from "../settings/settings-store.js";
+import { readSettings, readStoredSettings } from "../settings/settings-store.js";
 
 /**
  * The permissions read model, kept in the transaction of the events it
@@ -87,3 +87,6 @@ export const readSessionContainment = (reader: Reader, sessionId: string): Conta
   const parsed = ContainmentLevel.safeParse(row?.level);
   return parsed.success ? parsed.data : null;
 };
+
+/** The containment default as it was set (`permissions.settings.set`); null when it never was, and the environment's preset stands. */
+export const readStoredContainmentDefault = (reader: Reader): ContainmentLevel | null => readStoredSettings(reader)["permissions.containment.default"] ?? null;

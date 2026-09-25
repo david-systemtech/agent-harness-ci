@@ -131,7 +131,8 @@ describe("the clamp on every run", () => {
       actorKind: "client",
       attended: true,
       mode: { requested: "bypassPermissions", effective: "acceptEdits", ceiling: "acceptEdits", clamped: true, clampReason: "ceiling" },
-      containment: { requested: null, effective: "off", mechanism: null, reason: null },
+      // The helper's probe finds no bubblewrap, so the preset's workspace is lowered to off, saying why (containment.test.ts has the rest).
+      containment: { requested: null, effective: "off", mechanism: null, reason: expect.stringMatching(/preset default is workspace/) as unknown as string },
       unattendedDefaultApplied: false,
     });
     expect(runEvents(t, id, runId).find((event) => event.type === "run.started")?.payload["mode"]).toEqual({
@@ -664,9 +665,9 @@ describe("permissions.settings.get", () => {
       // The helper's probe finds no bubblewrap: only off can be enforced (containment.test.ts has the rest).
       containment: {
         levels: [
-          { level: "off", available: true, reason: null },
-          { level: "workspace", available: false, reason: expect.stringContaining("bubblewrap is not installed") as unknown as string },
-          { level: "workspace-no-network", available: false, reason: expect.stringContaining("bubblewrap is not installed") as unknown as string },
+          { level: "off", available: true, reason: null, cause: null },
+          { level: "workspace", available: false, reason: expect.stringContaining("bubblewrap is not installed") as unknown as string, cause: "binary_missing" },
+          { level: "workspace-no-network", available: false, reason: expect.stringContaining("bubblewrap is not installed") as unknown as string, cause: "binary_missing" },
         ],
         mechanism: null,
         container: { declared: false, detected: false },

@@ -28,8 +28,8 @@ const probe = (machine: Machine): Promise<ContainmentProbe> => probeContainment(
 /** bubblewrap and socat present and working: both workspace levels. */
 export const bubblewrapProbe = (): Promise<ContainmentProbe> => probe({ path: ["bwrap", "socat"] });
 
-/** bubblewrap works but cannot unshare the network: `workspace` only. */
-export const workspaceOnlyProbe = (): Promise<ContainmentProbe> =>
+/** bubblewrap works but cannot unshare the network, which either workspace level needs: nothing above `off`. */
+export const noNetworkNamespaceProbe = (): Promise<ContainmentProbe> =>
   probe({
     path: ["bwrap", "socat"],
     answer: (_file, args) => (args.includes("--unshare-net") ? { code: 1, output: "bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted" } : { code: 0, output: "" }),

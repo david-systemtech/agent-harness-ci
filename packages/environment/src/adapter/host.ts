@@ -1,6 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import {
   ContractError,
   SESSION_STREAM_KIND,
@@ -16,12 +14,11 @@ import {
   type RunPolicy,
   type RunStartedPayload,
   type SessionTitleSetPayload,
-  type ToolDecisionPayload,
   type Workspace,
 } from "@agent-harness/contracts";
 import { formatActor, type EventEnvelope, type EventLog, type EventInput } from "../event-log/event-log.js";
-import { containmentDirectories, runContainment, type ContainmentDirectories } from "../permissions/containment-directories.js";
-import { containmentDenial } from "../permissions/gate.js";
+import { runContainment, temporaryContainmentDirectories, type ContainmentDirectories } from "../permissions/containment-directories.js";
+import { createToolGate, type GatedRun } from "../permissions/gate.js";
 import type { RunActor } from "../permissions/resolver.js";
 import { environmentQueue, latestRun, messageCeilings, providerHeld, providerSessionOf, readRun, readSessionFacts } from "../runs/run-reads.js";
 import {
@@ -55,7 +52,6 @@ import type {
   RunContainment,
   RunContext,
   RunEnd,
-  ToolGate,
   UsageReading,
 } from "./contract.js";
 import type { AttachmentStage } from "./attachment-stage.js";
@@ -119,8 +115,9 @@ export interface AdapterHostOptions {
   readonly resolvePolicy?: PolicySeam;
   /**
    * Where a contained run may write beside its workspace: each session's
-   * scratch and temporary directories (#133). Preset: under the system's
-   * temporary directory; the environment keeps them under its data directory.
+   * scratch and temporary directories (#133). Preset: a root of the host's
+   * own, made with `mkdtemp` on first use and removed when the host closes;
+   * the environment keeps them under its data directory.
    */
   readonly containmentDirectories?: ContainmentDirectories;
   /**
@@ -253,9 +250,6 @@ export interface AdapterHost {
 /** The host's own actor, for the run events it decides on itself: an end it appends, a run it starts from the queue. */
 export const HOST_ACTOR = formatActor({ kind: "system", id: "adapter-host" });
 
-/** The tool gate's actor, for the decisions it records (`tool.decision`). */
-export const GATE_ACTOR = formatActor({ kind: "system", id: "tool-gate" });
-
 /** `message.requeued` for each message of `runId`: the environment holds it now (ADR 0022). Always the host's. */
 export const requeuedEvents = (runId: string, messageIds: readonly string[]): EventInput[] =>
   messageIds.map((messageId): EventInput => {
@@ -366,7 +360,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
   const instructions = options.instructions ?? composeInstructions();
   const broker = options.broker ?? autoDenyBroker;
   const resolvePolicy = options.resolvePolicy ?? presetPolicy;
-  const directories = options.containmentDirectories ?? containmentDirectories(join(tmpdir(), "agent-harness-containment"));
+  const directories = options.containmentDirectories ?? temporaryContainmentDirectories();
   const configs = options.accounts ?? [];
   const defaultAccountId = options.defaultAccountId ?? configs[0]?.id ?? null;
   const probeTimeoutMs = options.probeTimeoutMs ?? PROBE_TIMEOUT_MS;
@@ -791,45 +785,19 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     },
   });
 
-  /**
-   * The tool gate as a session's runs are handed it (permissions spec,
-   * "Modules": the tool gate). It rules under the containment of the
-   * session's run live when it is asked (a turn the provider opened on its
-   * own asks through the gate of the run it followed), else of the run it
-   * was handed to. A containment denial is final and asks nobody: the
-   * broker is not consulted, and the decision is recorded as `tool.decision`
-   * with `decidedBy: containment`, appended when the gate rules, which may
-   * be before the provider's report of the call reaches the log. A denial
-   * whose record cannot be appended is still a denial.
-   */
-  const gateFor = (entry: LiveRun): ToolGate => ({
-    check: async (call) => {
-      const current = live.get(entry.sessionId);
-      const rules = current !== undefined && !current.ended ? current : entry;
-      const denial = containmentDenial(rules.containment, rules.plan.workspace.path, call.access);
-      if (denial === null) return { decision: "allow" };
-      const payload: ToolDecisionPayload = {
-        runId: rules.runId,
-        toolCallId: call.toolCallId,
-        tool: call.tool,
-        summary: call.summary,
-        decision: "denied",
-        decidedBy: "containment",
-        promptId: null,
-        reason: denial,
-      };
-      try {
-        log.append(sessionStream(rules.sessionId), [{ type: "tool.decision", payload }], { actor: GATE_ACTOR, correlationId: rules.runId });
-      } catch (error) {
-        console.error(`Recording the gate's denial of ${call.tool} (${call.toolCallId}) in run ${rules.runId} failed; it is denied all the same:`, error);
-      }
-      return { decision: "deny", message: denial };
+  /** A live run as the tool gate rules under it. */
+  const gatedRun = (entry: LiveRun): GatedRun => ({ runId: entry.runId, sessionId: entry.sessionId, workspace: entry.plan.workspace.path, containment: entry.containment });
+  const gateFor = createToolGate({
+    log,
+    liveRunOf: (sessionId) => {
+      const current = live.get(sessionId);
+      return current !== undefined && !current.ended ? gatedRun(current) : undefined;
     },
   });
 
   const contextFor = (entry: LiveRun): RunContext => ({
     broker: brokerFor(entry.sessionId),
-    gate: gateFor(entry),
+    gate: gateFor(gatedRun(entry)),
     process: pool.port(entry.sessionId),
     adopt: (turn) => adopt(entry, turn),
   });
@@ -1398,6 +1366,8 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       for (const entry of [...live.values()]) finish(entry, { type: "end", reason }, { by: "host", stop });
       for (const sessionId of [...adoptions.keys()]) dropAdoptions(sessionId);
       await pool.close(stop);
+      // The preset's own root, if it made one; the environment's directories stay with its data directory.
+      await directories.close().catch((error: unknown) => console.error("Removing the host's containment directories failed:", error));
     },
   };
 };

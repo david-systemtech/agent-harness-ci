@@ -1,8 +1,8 @@
 import { execFile } from "node:child_process";
 import { accessSync, constants, existsSync, readFileSync } from "node:fs";
 import { delimiter, isAbsolute, join } from "node:path";
-import type { ContainmentContainer, ContainmentMechanism } from "@agent-harness/contracts";
-import { processContainerDetector } from "../serve/container.js";
+import type { ContainmentCause, ContainmentContainer, ContainmentMechanism } from "@agent-harness/contracts";
+import { CONTAINER_MARKER_VARIABLE, isDeclaredContainer, isDetectedContainer } from "../serve/container.js";
 
 /**
  * The containment prober (permissions spec, "Mechanisms and the probe";
@@ -12,6 +12,11 @@ import { processContainerDetector } from "../serve/container.js";
  * PATH runs a trivial command in an unshared user namespace with a read-only
  * root, and again with the network unshared, and `socat` is on the PATH,
  * which Claude's sandbox needs beside it on Linux for its network proxy.
+ * Both workspace levels need all three: the pinned sandbox runtime unshares
+ * the network whenever it restricts it (`needsNetworkRestriction`, set by
+ * any `allowedDomains`), and whether #140 can leave it unrestricted at
+ * `workspace` is its own verify-first, so until then a bubblewrap that
+ * cannot unshare the network offers neither level.
  * Native Windows, and any other platform, has none.
  *
  * When bubblewrap cannot work, the probe says why, for people and as a
@@ -25,11 +30,10 @@ import { processContainerDetector } from "../serve/container.js";
  * test and the real machine is probed only by the running environment.
  */
 
-/** The variable the install's compose sets to declare the environment runs in a container. */
-export const CONTAINER_MARKER_VARIABLE = "AGENT_HARNESS_CONTAINER";
+export { CONTAINER_MARKER_VARIABLE };
 
-/** Why a workspace level cannot be enforced. */
-export type ProbeCause = "platform" | "binary_missing" | "userns_blocked" | "apparmor" | "seccomp" | "socat_missing" | "failed";
+/** Why a workspace level cannot be enforced, as the probe finds it: the contracts' causes but the adapter's and a failed or missing probe's. */
+export type ProbeCause = Exclude<ContainmentCause, "adapter" | "probe_failed" | "not_probed">;
 
 /** One workspace level as the probe found it. */
 export type LevelProbe =
@@ -81,8 +85,8 @@ const said = (answer: CommandAnswer): string => {
   return line === undefined ? `it exited with ${answer.code === null ? "no code" : `code ${answer.code}`}` : `it said: ${line}`;
 };
 
-/** The preset: the running process's machine. */
-export const processProbeSystem = (): ProbeSystem => ({
+/** The preset: the running process's machine, each command given `timeoutMs` (preset `PROBE_COMMAND_TIMEOUT_MS`). */
+export const processProbeSystem = ({ timeoutMs = PROBE_COMMAND_TIMEOUT_MS }: { readonly timeoutMs?: number } = {}): ProbeSystem => ({
   platform: process.platform,
   env: process.env,
   which: (command) => {
@@ -100,9 +104,11 @@ export const processProbeSystem = (): ProbeSystem => ({
   },
   run: (file, args) =>
     new Promise((resolve) => {
-      execFile(file, [...args], { timeout: PROBE_COMMAND_TIMEOUT_MS, windowsHide: true }, (error, stdout, stderr) => {
+      execFile(file, [...args], { timeout: timeoutMs, windowsHide: true }, (error, stdout, stderr) => {
         const output = `${stderr}${stdout}`;
         if (error === null) return resolve({ code: 0, output });
+        // Killed for running past the timeout: say so, not which signal ended it.
+        if (error.killed === true) return resolve({ code: null, output: `${file} timed out after ${timeoutMs / 1000} s` });
         const code = typeof error.code === "number" ? error.code : null;
         resolve({ code, output: output.trim() === "" ? error.message : output });
       });
@@ -118,8 +124,8 @@ export const processProbeSystem = (): ProbeSystem => ({
 });
 
 const containerOf = (system: ProbeSystem): ContainmentContainer => ({
-  declared: (system.env[CONTAINER_MARKER_VARIABLE] ?? "").trim() !== "",
-  detected: processContainerDetector({ exists: (path) => system.exists(path), read: (path) => system.read(path) }).inContainer(),
+  declared: isDeclaredContainer(system.env),
+  detected: isDetectedContainer({ exists: (path) => system.exists(path), read: (path) => system.read(path) }),
 });
 
 const inContainer = (container: ContainmentContainer): boolean => container.declared || container.detected;
@@ -185,14 +191,14 @@ const probeLinux = async (system: ProbeSystem, container: ContainmentContainer):
     return { mechanism: null, levels: { workspace: level, "workspace-no-network": level } };
   }
   const network = await system.run(bwrap, BWRAP_NO_NETWORK);
-  const noNetwork =
-    network.code === 0
-      ? AVAILABLE
-      : unavailable(
-          "failed",
-          `bubblewrap cannot give a run a network namespace of its own here, so no network cannot be enforced: ${said(network)}.`,
-        );
-  return { mechanism: "bubblewrap", levels: { workspace: AVAILABLE, "workspace-no-network": noNetwork } };
+  if (network.code !== 0) {
+    const level = unavailable(
+      "failed",
+      `bubblewrap cannot give a run a network namespace of its own here, which the provider's sandbox uses to restrict or close a run's network, so neither workspace level is offered: ${said(network)}.`,
+    );
+    return { mechanism: null, levels: { workspace: level, "workspace-no-network": level } };
+  }
+  return { mechanism: "bubblewrap", levels: { workspace: AVAILABLE, "workspace-no-network": AVAILABLE } };
 };
 
 const SEATBELT_PROFILE = "(version 1)(allow default)(deny network*)";

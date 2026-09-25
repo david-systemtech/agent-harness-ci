@@ -27,8 +27,8 @@ import type { CommandContext, MethodHandlers } from "../serve/methods.js";
 import type { SessionModeClamp } from "../sessions/run-parameters.js";
 import type { Reader } from "../sessions/session-reads.js";
 import { sessionStream } from "../sessions/streams.js";
-import { presetContainmentDefault, unenforceableReason } from "./containment.js";
-import { readPermissionSettings, readSessionContainment } from "./permissions-store.js";
+import { presetContainmentDefault, unenforceable } from "./containment.js";
+import { readPermissionSettings, readSessionContainment, readStoredContainmentDefault } from "./permissions-store.js";
 import { clampMode, noModeAvailable } from "./resolver.js";
 
 /**
@@ -51,7 +51,7 @@ export interface PermissionMethodsOptions {
   readonly environmentId: string;
   /** A client session's ceiling as it is now; undefined once it is revoked or expired. */
   readonly ceilingOf: (clientSessionId: string) => Mode | undefined;
-  /** What this environment's containment probe found it can enforce (#133). */
+  /** What this environment can enforce (#133): its probe's findings, as its adapters allow them. */
   readonly containment: ContainmentReport;
 }
 
@@ -87,12 +87,12 @@ export const permissionMethods = (options: PermissionMethodsOptions): Required<P
   const presets = { "permissions.containment.default": presetContainmentDefault(report) } as const;
   const settings = (): PermissionSettingsValues => readPermissionSettings(reader, presets);
 
-  /** A refusal of a containment level this environment cannot enforce, with the probe's reason; null when it can. */
+  /** A refusal of a containment level this environment cannot enforce, with the reason and its cause; null when it can. */
   const unavailable = (level: ContainmentLevel) => {
-    const reason = unenforceableReason(report, level);
-    return reason === null
+    const why = unenforceable(report, level);
+    return why === null
       ? null
-      : ({ code: "containment_unavailable", message: `The containment level ${level} cannot be enforced here: ${reason}`, data: { level, reason } } as const);
+      : ({ code: "containment_unavailable", message: `The containment level ${level} cannot be enforced here: ${why.reason}`, data: { level, ...why } } as const);
   };
 
   const ceilingOf = (context: CommandContext): Mode => currentCeiling(options.ceilingOf, context.clientSession);
@@ -167,7 +167,11 @@ export const permissionMethods = (options: PermissionMethodsOptions): Required<P
      * bypassPermissions it needs `acknowledgeBypass: true`, or it is
      * `invalid_params` and nothing changes; then the time is recorded and
      * `bypass.acknowledged` appended. A containment default this environment
-     * cannot enforce is rejected `containment_unavailable`. The values that
+     * cannot enforce is rejected `containment_unavailable`, but only when it
+     * changes what was stored: a stored default a restart found unenforceable
+     * does not block saving the rest. A containment default given when none
+     * was stored is stored even when it equals the preset, so an explicit
+     * choice does not follow the probe afterwards. The values that
      * change are the settings stream's `settings.updated` (the command's
      * aggregate), and the access log's `settings.changed` in the same
      * transaction.
@@ -177,7 +181,8 @@ export const permissionMethods = (options: PermissionMethodsOptions): Required<P
       const held = settings();
       const asked = params.values;
       const containment = asked["permissions.containment.default"];
-      const refused = containment === undefined ? null : unavailable(containment);
+      const containmentChanged = containment !== undefined && containment !== readStoredContainmentDefault(reader);
+      const refused = containmentChanged ? unavailable(containment) : null;
       if (refused !== null) return { aggregate, rejected: refused };
       const firstBypass = asked["permissions.unattended.mode"] === "bypassPermissions" && held[BYPASS_ACKNOWLEDGED_KEY] === null;
       if (firstBypass && params.acknowledgeBypass !== true) {
@@ -187,7 +192,9 @@ export const permissionMethods = (options: PermissionMethodsOptions): Required<P
       const next: Record<string, unknown> = { ...held, ...asked };
       if (firstBypass) next[BYPASS_ACKNOWLEDGED_KEY] = clock.now().toISOString();
       // Compared by structure: a TTL given with its fields in another order is the same TTL.
-      const keys = PERMISSION_SETTINGS_KEYS.filter((key: PermissionSettingsKey) => !isDeepStrictEqual(held[key], next[key]));
+      const keys = PERMISSION_SETTINGS_KEYS.filter(
+        (key: PermissionSettingsKey) => !isDeepStrictEqual(held[key], next[key]) || (key === "permissions.containment.default" && containmentChanged),
+      );
       const values = next as PermissionSettingsValues;
       if (keys.length === 0) return { aggregate, result: { values } };
       const attribution = byClientSession(context.clientSession.id, context.commandId);
