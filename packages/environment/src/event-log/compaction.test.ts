@@ -167,9 +167,11 @@ describe("compacting a stream", () => {
     append(old, s1, [kept("one"), kept("two"), kept("three")]);
     compact(old, s1, 3, [], { older: true });
     old.close();
-    // Back to the schema before the columns, the row still in it.
+    // Back to the schema before the columns, the row still in it, and without the tables later migrations add.
     const raw = new (loadSqlite().DatabaseSync)(path);
-    raw.exec("ALTER TABLE snapshots DROP COLUMN stream_version; ALTER TABLE snapshots DROP COLUMN removed; PRAGMA user_version = 4;");
+    raw.exec(
+      "ALTER TABLE snapshots DROP COLUMN stream_version; ALTER TABLE snapshots DROP COLUMN removed; DROP TABLE provider_transcripts; DROP TABLE provider_transcript_summaries; PRAGMA user_version = 4;",
+    );
     raw.close();
 
     expect(track(openEventLog({ path })).readSnapshot(s1)).toMatchObject({ sequence: 3, streamVersion: 0, removed: 0, payload: { older: true } });

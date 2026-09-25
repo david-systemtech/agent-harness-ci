@@ -3,7 +3,9 @@ import {
   ContractError,
   SESSION_STREAM_KIND,
   lowerMode,
+  type AdapterCapabilityFlag,
   type IssueInput,
+  type JsonObject,
   type MessageDeliveredPayload,
   type MessageRequeuedPayload,
   type Mode,
@@ -36,7 +38,7 @@ import { answersFor, hasKeptAnswer, parkedPromptsOfRun } from "../permissions/pr
 import { readRunPolicy } from "../permissions/review-store.js";
 import type { RunActor } from "../permissions/resolver.js";
 import { answerEvents, runToolCalls, type RunToolCalls } from "../permissions/tool-decisions.js";
-import { environmentQueue, latestRun, messageCeilings, providerHeld, providerSessionOf, readRun, readSessionFacts } from "../runs/run-reads.js";
+import { environmentQueue, latestRun, messageCeilings, providerHeld, readRun, readSessionFacts } from "../runs/run-reads.js";
 import {
   decideStart,
   policyResolvedEvent,
@@ -49,10 +51,11 @@ import {
 import type { Clock } from "../serve/clock.js";
 import { createRunRegistry, type MemoryRunRegistry } from "../serve/run-registry.js";
 import { appendRunEvents } from "../sessions/activity-companions.js";
-import type { ProviderTranscripts } from "../sessions/deletion.js";
+import type { ProviderTranscripts, TranscriptDeleteAnswer } from "../sessions/deletion.js";
 import type { RunParameters, RunParametersCheck, RunParametersVerdict } from "../sessions/run-parameters.js";
 import type { Reader } from "../sessions/session-reads.js";
 import { sessionStream } from "../sessions/streams.js";
+import { runContinuation } from "../sessions/fork-rewind.js";
 import { recordProviderTitle } from "../sessions/titles.js";
 import { capability } from "./capabilities.js";
 import type {
@@ -219,6 +222,12 @@ export interface AdapterHost {
   readonly validateSessionInput: RunParametersCheck;
   /** The transcript delete a purge calls (#118), routed to the session's adapter; absent when no adapter declares it. */
   readonly transcripts: ProviderTranscripts;
+  /**
+   * A subagent's transcript, read on demand from the session's adapter
+   * (`subagentTranscripts`, #137) and never logged; refused `invalid_params`,
+   * reason `unsupported`, when the adapter cannot.
+   */
+  subagentTranscript(sessionId: string, agentId: string): Promise<readonly JsonObject[]>;
   /** Throws `unavailable` while the environment drains: the gate every new run passes. */
   admit(): void;
   /** What starting a run on the session for `actor` depends on, read now (inside a command, in its transaction). */
@@ -561,7 +570,8 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       accountId,
       account: facts,
       queued: environmentQueue(reader, sessionId),
-      resumeFrom: facts?.descriptor.resume === true ? providerSessionOf(reader, sessionId) : null,
+      // What the run continues from: the linked conversation, a rewind of it, or a fork's source's (#137).
+      ...runContinuation(log, reader, sessionId, facts?.descriptor ?? null),
       actor,
       resolvePolicy,
       defaults: { modelFamily, effort },
@@ -1019,7 +1029,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
           mode: plan.mode,
           ceiling: plan.policy.mode.ceiling,
           instructions: instructions(scope),
-          target: plan.resumeFrom === null ? { kind: "fresh" } : { kind: "resume", providerSessionId: plan.resumeFrom },
+          target: plan.target,
           toolServers: toolServers({ ...scope, runId: plan.runId }),
           trusted: false,
           containment: entry.containment,
@@ -1184,7 +1194,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
   const adoptTurn = (previous: PlannedRun, turn: ProviderTurn, actor: RunActor, policy: RunPolicy, mode: Mode): void => {
     const runId = randomUUID();
     const { descriptor } = previous.account;
-    const plan: PlannedRun = { ...previous, runId, prompt: [], resumeFrom: null, mode, actor, policy };
+    const plan: PlannedRun = { ...previous, runId, prompt: [], target: { kind: "fresh" }, mode, actor, policy };
     const started: RunStartedPayload = {
       runId,
       accountId: plan.account.id,
@@ -1339,6 +1349,11 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       lastPlans.delete(event.streamId);
       return;
     }
+    if (event.type === "session.rewound") {
+      // The kept process holds the conversation the rewind cut: the next run starts cold from the rewind's point (#137).
+      void pool.stop(event.streamId, "rewound");
+      return;
+    }
     if (event.type !== "session.deleted") return;
     dropAdoptions(event.streamId);
     const entry = live.get(event.streamId);
@@ -1349,30 +1364,58 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
   /**
    * The adapter that holds a session's provider transcript: its latest run's
    * account's, else the default account's. When neither names an account on
-   * this environment the session's provider is unknown, and the purge records
-   * `unsupported` (`sessions/deletion.ts` reads the refusal's reason).
+   * this environment the session's provider is unknown, and what asked is
+   * refused `unsupported` (the purge records it so: `sessions/deletion.ts`
+   * reads the refusal's reason).
    */
-  const adapterOfSession = (sessionId: string): Adapter => {
+  const adapterOfSession = (sessionId: string, flag: AdapterCapabilityFlag, what: string): Adapter => {
     const adapter = adapterOfAccount(latestRun(reader, sessionId)?.accountId ?? accounts.defaultId());
     if (adapter === undefined) {
       throw new ContractError({
         code: "invalid_params",
-        message: `The provider of session ${sessionId} is not known here, so its transcript cannot be deleted.`,
-        data: { reason: "unsupported", capability: "transcriptDelete" },
+        message: `The provider of session ${sessionId} is not known here, so ${what}.`,
+        data: { reason: "unsupported", capability: flag },
       });
     }
     return adapter;
   };
 
+  /** The accounts the session's runs went through, as the environment still holds them: where its provider may have left a transcript. */
+  const accountsOfSession = (sessionId: string): (AccountRef & { readonly adopted: boolean })[] =>
+    reader.all<{ account_id: string }>("SELECT DISTINCT account_id FROM runs WHERE session_id = ? ORDER BY account_id", sessionId).flatMap((row) => {
+      const facts = accounts.facts(row.account_id);
+      return facts === null ? [] : [{ id: facts.id, directory: facts.directory, adopted: facts.adopted }];
+    });
+
+  /**
+   * The purge's transcript delete (#118), handed only the owned accounts the
+   * session ran under: an adopted directory is read and written only by the
+   * provider's own CLI (ADR 0018, user story 5), so a copy there is kept and
+   * the answer says so, whatever the adapter deleted elsewhere (#137).
+   */
   const transcripts: ProviderTranscripts = adapters.list().some((adapter) => adapter.descriptor.transcriptDelete)
     ? {
         deleteTranscript: (sessionId) => {
-          const adapter = adapterOfSession(sessionId);
+          const adapter = adapterOfSession(sessionId, "transcriptDelete", "its transcript cannot be deleted");
           const remove = capability(adapter.descriptor, "transcriptDelete", adapter.deleteTranscript, "delete a provider transcript", "deleteTranscript");
-          return remove.call(adapter, sessionId);
+          // Only the accounts of this adapter's provider: another provider's CLI keeps its files its own way.
+          const ran = accountsOfSession(sessionId).filter((account) => accounts.providerOf(account.id) === adapter.descriptor.provider);
+          const owned = ran.filter((account) => !account.adopted).map(({ id, directory }) => ({ id, directory }));
+          const adopted = owned.length < ran.length;
+          // Nothing to hand over when every account it ran under is adopted; a session that never ran is the adapter's to answer.
+          const answered: unknown = adopted && owned.length === 0 ? undefined : remove.call(adapter, sessionId, owned);
+          // An answer that is not synchronous is the purge's to refuse (`sessions/deletion.ts`), so it is passed on as it is.
+          if (answered !== undefined) return answered as TranscriptDeleteAnswer;
+          return adopted ? { kept: "adopted-directory" } : undefined;
         },
       }
     : {};
+
+  const subagentTranscript = async (sessionId: string, agentId: string): Promise<readonly JsonObject[]> => {
+    const adapter = adapterOfSession(sessionId, "subagentTranscripts", "its subagents' transcripts cannot be read");
+    const read = capability(adapter.descriptor, "subagentTranscripts", adapter.subagentTranscript, "read a subagent's transcript", "subagentTranscript");
+    return read.call(adapter, sessionId, agentId);
+  };
 
   /**
    * `sessions.create`'s check against the account store (#134): an account
@@ -1452,6 +1495,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     account,
     validateSessionInput,
     transcripts,
+    subagentTranscript,
     admit: () => registry.admit(),
     startFacts,
     live: (sessionId) => liveFacts(live.get(sessionId)),
