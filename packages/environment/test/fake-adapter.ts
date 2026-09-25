@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { MODES, type AdapterCapabilities, type AuthStatus, type Mode, type ModeAvailability, type ProcessHoldKind } from "@agent-harness/contracts";
+import { MODES, type AdapterCapabilities, type AuthStatus, type JsonObject, type Mode, type ModeAvailability, type ProcessHoldKind } from "@agent-harness/contracts";
 import type {
   AccountRef,
   Adapter,
@@ -156,6 +156,12 @@ export interface FakeAdapterOptions {
   readonly titleWrite?: true | { readonly fails: string };
   /** A gate every process stop waits on before it finishes, so a test sees a process `stopping`. Preset: none. */
   readonly holdStops?: Gate;
+  /**
+   * Declares `subagentTranscripts`: each subagent's transcript by agent id, the
+   * same for every session (none for an id not listed); every read is
+   * recorded. Preset: not declared.
+   */
+  readonly subagentTranscripts?: Readonly<Record<string, readonly JsonObject[]>>;
   /** What stamps the preset usage reading's `readAt`; give it the test's manual clock. Preset: `MANUAL_CLOCK_START`, always. */
   readonly clock?: Pick<Clock, "now">;
   /** The plan-usage read, per account: answers at once, when its promise settles, or throws. Preset: `presetUsage`. */
@@ -202,6 +208,10 @@ export interface FakeAdapter extends Adapter {
   readonly titleReads: readonly string[];
   /** The user titles the environment mirrored (`writeTitle`), in order, whether or not the write failed. */
   readonly mirroredTitles: readonly MirroredTitle[];
+  /** The subagent transcripts the environment read (`subagentTranscript`), in order. */
+  readonly subagentReads: readonly { readonly sessionId: string; readonly agentId: string }[];
+  /** The accounts each transcript delete was handed, in the order of `deletedTranscripts`. */
+  readonly deletedTranscriptAccounts: readonly (readonly AccountRef[])[];
   /** The most recent run. */
   lastRun(): FakeRunRecord;
   /** Every provider process started, in order. */
@@ -402,7 +412,7 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
     rewind: false,
     sessionListing: false,
     subagents: true,
-    subagentTranscripts: false,
+    subagentTranscripts: options.subagentTranscripts !== undefined,
     titleRead: declaredTitle !== undefined,
     titleWrite: declaredWrite !== undefined,
     transcriptDelete: declaredDelete !== undefined,
@@ -423,6 +433,8 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
   const nextScripts: Script[] = [];
   const titleReads: string[] = [];
   const mirroredTitles: MirroredTitle[] = [];
+  const subagentReads: { sessionId: string; agentId: string }[] = [];
+  const deletedTranscriptAccounts: (readonly AccountRef[])[] = [];
   const processes: FakeProcessRecord[] = [];
   /** The port each process's latest run was handed. */
   const ports = new Map<FakeProcessRecord, ProcessPort>();
@@ -654,8 +666,9 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
       return usage(account, options.clock?.now() ?? new Date(MANUAL_CLOCK_START));
     },
     ...(declaredDelete !== undefined && {
-      deleteTranscript: (sessionId: string) => {
+      deleteTranscript: (sessionId: string, accounts: readonly AccountRef[]) => {
         deletedTranscripts.push(sessionId);
+        deletedTranscriptAccounts.push(accounts);
         // The one cast: what the type refuses, an adapter could still do at run time.
         if (declaredDelete === "async") return Promise.resolve() as unknown as undefined;
         if (declaredDelete !== true) throw new Error(declaredDelete.fails);
@@ -676,7 +689,15 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
         if (declaredWrite !== true) throw new Error(declaredWrite.fails);
       },
     }),
+    ...(options.subagentTranscripts !== undefined && {
+      subagentTranscript: async (sessionId: string, agentId: string) => {
+        subagentReads.push({ sessionId, agentId });
+        return options.subagentTranscripts?.[agentId] ?? [];
+      },
+    }),
     runs,
+    subagentReads,
+    deletedTranscriptAccounts,
     statusReads,
     setStatus(next) {
       status = next;

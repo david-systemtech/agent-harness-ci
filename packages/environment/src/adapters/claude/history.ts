@@ -1,4 +1,13 @@
-import type { GetSessionMessagesOptions, SessionMessage, SessionStore } from "@anthropic-ai/claude-agent-sdk";
+import {
+  getSubagentMessages as sdkGetSubagentMessages,
+  listSessions as sdkListSessions,
+  renameSession as sdkRenameSession,
+  type GetSessionMessagesOptions,
+  type SessionMessage,
+  type SessionStore,
+  type SessionSummaryEntry,
+} from "@anthropic-ai/claude-agent-sdk";
+import type { JsonObject } from "@agent-harness/contracts";
 import type { ConfigDirQueue } from "./config-dir-queue.js";
 import type { ResumePoint } from "./options.js";
 
@@ -9,8 +18,124 @@ import type { ResumePoint } from "./options.js";
  * at a user message by the id the harness minted, which is the uuid the
  * prompt was stamped with; a truncating resume re-enters at the entry
  * before it, and only the stored chain knows which entry that is.
- * Replaying history into the transcript and subagent transcripts are #137's.
+ *
+ * And the session store read through the SDK's own helpers (#137): the
+ * provider's generated title from the store-backed listing, a user title
+ * mirrored through the SDK's rename, and a subagent's transcript read on
+ * demand. Those helpers take no environment and key a store by the process's
+ * `CLAUDE_CONFIG_DIR` and `CLAUDE_CODE_PROJECT_DIR_NAME` (0.3.281's
+ * `projectKey` resolution), which name no harness session here, so each is
+ * handed the store scoped to the session (`scopedStore`) rather than the
+ * process's environment being set under the queue.
  */
+
+/**
+ * The environment's store as the Claude adapter takes it: the SDK's
+ * interface, and the summaries folded without the user's renames
+ * (`provider-transcripts/store.ts`), which the title read lists.
+ */
+export interface ClaudeSessionStore extends SessionStore {
+  listUnrenamedSummaries(projectKey: string): Promise<SessionSummaryEntry[]>;
+}
+
+/**
+ * The store as the SDK's helpers see it for one harness session: whatever
+ * project key a helper asks with, the session's own. A run's query needs no
+ * such view: its environment names the project directory, and the SDK keys
+ * its loads and the mirror by that.
+ */
+export const scopedStore = (store: SessionStore, projectKey: string): SessionStore => ({
+  append: (key, entries) => store.append({ ...key, projectKey }, entries),
+  load: (key) => store.load({ ...key, projectKey }),
+  ...(store.listSessions !== undefined && { listSessions: () => (store.listSessions as NonNullable<SessionStore["listSessions"]>).call(store, projectKey) }),
+  ...(store.listSessionSummaries !== undefined && {
+    listSessionSummaries: () => (store.listSessionSummaries as NonNullable<SessionStore["listSessionSummaries"]>).call(store, projectKey),
+  }),
+  ...(store.delete !== undefined && { delete: (key) => (store.delete as NonNullable<SessionStore["delete"]>).call(store, { ...key, projectKey }) }),
+  ...(store.listSubkeys !== undefined && {
+    listSubkeys: (key) => (store.listSubkeys as NonNullable<SessionStore["listSubkeys"]>).call(store, { ...key, projectKey }),
+  }),
+});
+
+/** The provider conversations stored under a harness session, the latest written first. */
+const storedConversations = async (store: SessionStore, sessionId: string): Promise<string[]> =>
+  ((await store.listSessions?.(sessionId)) ?? [])
+    .slice()
+    .sort((a, b) => b.mtime - a.mtime)
+    .map((listed) => listed.sessionId);
+
+/**
+ * The title the provider generated for a harness session, from the SDK's
+ * store-backed listing over the summaries folded without the user's renames:
+ * the listing's `customTitle` is the provider's own title there (0.3.281
+ * folds the CLI's `ai-title` entries into it, and a user's rename only into
+ * the summaries the view leaves out), so a title the harness mirrored in is
+ * never read back. The latest conversation that has one; null when none has.
+ */
+export const readGeneratedTitle = async (store: ClaudeSessionStore, sessionId: string): Promise<string | null> => {
+  const view: SessionStore = { ...scopedStore(store, sessionId), listSessionSummaries: () => store.listUnrenamedSummaries(sessionId) };
+  const listed = await sdkListSessions({ sessionStore: view });
+  return listed.find((info) => info.customTitle !== undefined && info.customTitle.trim() !== "")?.customTitle ?? null;
+};
+
+/**
+ * Mirrors a user title into the provider's own title field through the
+ * SDK's rename, on the harness session's latest stored conversation;
+ * false when the store holds none yet.
+ */
+export const mirrorUserTitle = async (store: SessionStore, sessionId: string, title: string): Promise<boolean> => {
+  const [latest] = await storedConversations(store, sessionId);
+  if (latest === undefined) return false;
+  await sdkRenameSession(latest, title, { sessionStore: scopedStore(store, sessionId) });
+  return true;
+};
+
+/** The subagent transcripts' subpaths, `subagents/.../agent-<agent id>`, as the SDK's helper names them. */
+const AGENT_PREFIX = "agent-";
+
+/**
+ * The CLI's own id of the subagent that ran under the tool call `toolCallId`
+ * in one stored conversation: the one whose transcript's latest
+ * `agent_metadata` entry names that call as its `toolUseId` (the sidecar the
+ * SDK mirrors beside a subagent's transcript); null when none does.
+ */
+const agentOfToolCall = async (store: SessionStore, sessionId: string, conversation: string, toolCallId: string): Promise<string | null> => {
+  for (const subpath of (await store.listSubkeys?.({ projectKey: sessionId, sessionId: conversation })) ?? []) {
+    const name = subpath.split("/").at(-1) ?? "";
+    if (!subpath.startsWith("subagents/") || !name.startsWith(AGENT_PREFIX)) continue;
+    const entries = (await store.load({ projectKey: sessionId, sessionId: conversation, subpath })) ?? [];
+    const metadata = entries.findLast((entry) => entry.type === "agent_metadata");
+    if (metadata?.["toolUseId"] === toolCallId) return name.slice(AGENT_PREFIX.length);
+  }
+  return null;
+};
+
+/**
+ * A subagent's transcript as the store holds it, through the SDK's helper:
+ * from the latest conversation of the harness session that has one, its
+ * messages as JSON, oldest first; empty when none does. `agentId` is the id
+ * `tool.started` names a subagent by, the Agent tool call's id (the mapper
+ * has only the stream's `parent_tool_use_id`), which the SDK's helper does
+ * not know: it looks a transcript up by the CLI's own agent id, so the call
+ * is resolved to it through the stored `agent_metadata`. The CLI's own id is
+ * taken as it is.
+ */
+export const readSubagentTranscript = async (store: SessionStore, sessionId: string, agentId: string): Promise<JsonObject[]> => {
+  const view = scopedStore(store, sessionId);
+  for (const conversation of await storedConversations(store, sessionId)) {
+    let messages = await sdkGetSubagentMessages(conversation, agentId, { sessionStore: view });
+    if (messages.length === 0) {
+      const resolved = await agentOfToolCall(store, sessionId, conversation, agentId);
+      if (resolved !== null) messages = await sdkGetSubagentMessages(conversation, resolved, { sessionStore: view });
+    }
+    if (messages.length > 0) return messages.map((message) => JSON.parse(JSON.stringify(message)) as JsonObject);
+  }
+  return [];
+};
+
+/** Whether the stored session holds the entry `uuid` on any branch, not only on the chain its latest entry ends. */
+export const storedHolds = async (store: SessionStore, harnessSessionId: string, providerSessionId: string, uuid: string): Promise<boolean> =>
+  ((await store.load({ projectKey: harnessSessionId, sessionId: providerSessionId })) ?? []).some((entry) => entry.uuid === uuid);
 
 /** One entry of the stored chain, as the SDK's session helper reads it. */
 export interface StoredMessage {
@@ -72,6 +197,8 @@ export const resolveForkPoint = (messages: readonly StoredMessage[], promptUuid:
 
 export interface StoredSessionRead {
   readonly queue: ConfigDirQueue;
+  /** The harness session the conversation is stored under: the store's project key. */
+  readonly harnessSessionId: string;
   /** The account's config directory, resolved. */
   readonly directory: string;
   readonly providerSessionId: string;
@@ -83,10 +210,12 @@ export interface StoredSessionRead {
 /**
  * The stored chain of a provider session: the SDK's standalone helper, which
  * reads the config directory from the process environment, so under the
- * config-directory queue; from the environment's store when there is one.
+ * config-directory queue; from the environment's store when there is one,
+ * scoped to the harness session the conversation is stored under (a fork's
+ * own copy of its source's, #137).
  */
 export const readStoredSession = async (read: StoredSessionRead): Promise<StoredMessage[]> => {
-  const options: GetSessionMessagesOptions = read.sessionStore === null ? {} : { sessionStore: read.sessionStore };
+  const options: GetSessionMessagesOptions = read.sessionStore === null ? {} : { sessionStore: scopedStore(read.sessionStore, read.harnessSessionId) };
   const messages = await read.queue.run(read.directory, () => read.getSessionMessages(read.providerSessionId, options));
   return messages.map(({ type, uuid, message }) => ({ type, uuid, message }));
 };

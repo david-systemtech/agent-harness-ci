@@ -10,7 +10,9 @@ import { sessionStream } from "./streams.js";
  * title a session shows while the user has set none. It is set once from
  * the first user message (`session.title-generated`, source `prompt`), in
  * the transaction of that message's `message.sent` and naming it as its
- * causation (`activity-companions.ts` appends it); a title the provider
+ * causation (`activity-companions.ts` appends it); a fork not given a title
+ * is created with its source's title instead, under the same source
+ * (`fork-rewind.ts`), so its first message sets none. A title the provider
  * generates replaces it (source `provider`) unless the user has set a title,
  * which always wins. Which title a session shows is the session list's
  * projection (`titleOf`): the user's, else the generated one, else "New

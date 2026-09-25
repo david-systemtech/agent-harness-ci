@@ -2,7 +2,7 @@ import { copyFile, mkdir, mkdtemp, rm, stat, utimes } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, normalize, relative, resolve, sep } from "node:path";
 import { ContractError, DIFF_CAP, type SessionDiffChange, type SessionDiffFile, type TranscriptItem } from "@agent-harness/contracts";
-import { runGit } from "./git.js";
+import { repositoryFilters, runGit } from "./git.js";
 
 /**
  * `diffs.workingTree` and `diffs.session` (tui spec, "Terminals, files and
@@ -17,9 +17,12 @@ import { runGit } from "./git.js";
  * repository's as an alternate: the user's index and object store are never
  * written. A handful of git calls however many files, so it is cheap enough to
  * be the rule. Where there is no git the answer is `conflict`, reason
- * `git_unavailable`; where git runs and fails (a clean filter that fails, a
- * corrupt object store) it is `conflict`, reason `git_failed`, with the first
- * line git wrote to its standard error, never an empty diff.
+ * `git_unavailable`; where the repository's own config names a clean, smudge
+ * or process filter it is `conflict`, reason `git_filters_refused`, naming
+ * them, before any git call that could run one (`git.ts`, #212); where git
+ * runs and fails (a filter of the machine's config that fails, a corrupt
+ * object store) it is `conflict`, reason `git_failed`, with the first line
+ * git wrote to its standard error, never an empty diff.
  *
  * The session's diff is folded from its transcript's tool calls: every
  * file-editing call (Claude's `Edit`, `MultiEdit`, `Write`, `NotebookEdit`)
@@ -43,8 +46,26 @@ export const capAtLine = (text: string, cap: number): { text: string; truncated:
 /** The most of git's untracked listing read for the scratch index; past it the diff leaves the untracked files out. */
 const UNTRACKED_BYTES = 32 * 1024 * 1024;
 
-/** Arguments that keep a repository's configuration from running anything or reshaping the output. */
-const DIFF_FLAGS = ["--no-color", "--no-ext-diff", "--no-textconv", "--relative", "--src-prefix=a/", "--dst-prefix=b/"];
+/**
+ * Arguments that keep a repository's configuration from running anything or
+ * reshaping the output. A nested repository (a committed gitlink, with or
+ * without `.gitmodules`) is diffed by its commit alone: git does not look
+ * inside it for dirt (`--ignore-submodules=dirty`), which would run a
+ * `git status` there under the nested repository's own config and its
+ * filters, and shows its change as the two commits (`--submodule=short`),
+ * never through a `diff.submodule=diff` that would run a diff, and its
+ * external diff, inside it (#212's review).
+ */
+const DIFF_FLAGS = [
+  "--no-color",
+  "--no-ext-diff",
+  "--no-textconv",
+  "--ignore-submodules=dirty",
+  "--submodule=short",
+  "--relative",
+  "--src-prefix=a/",
+  "--dst-prefix=b/",
+];
 
 /**
  * Git ran and failed (a filter that fails, a corrupt object store):
@@ -56,6 +77,21 @@ const gitFailed = (stderr: string): ContractError => {
   const lines = stderr.split("\n").map((text) => text.trim()).filter((text) => text !== "");
   const line = lines.find((text) => text.startsWith("fatal:")) ?? lines[0] ?? "git exited without saying why";
   return new ContractError({ code: "conflict", message: `git could not diff the workspace: ${line}`, data: { reason: "git_failed" } });
+};
+
+/**
+ * The repository's own config names filters, which this git would run
+ * outside any containment: `conflict`, reason `git_filters_refused`, with
+ * their names (permissions spec, #212).
+ */
+const filtersRefused = (filters: readonly string[]): ContractError => {
+  const named = filters.map((name) => `"${name}"`).join(", ");
+  const which = filters.length === 1 ? `a clean, smudge or process filter, ${named}, which` : `clean, smudge or process filters, ${named}, which`;
+  return new ContractError({
+    code: "conflict",
+    message: `The workspace's repository configures ${which} the environment will not run for a diff: its own git runs outside the session's containment. The session's diff (diffs.session) still answers.`,
+    data: { reason: "git_filters_refused", filters: [...filters] },
+  });
 };
 
 export interface WorkingTreeDiff {
@@ -74,6 +110,10 @@ export const workingTreeDiff = async (root: string): Promise<WorkingTreeDiff> =>
   // Not a repository is an answer; git failing for another reason (a broken repository) is not.
   if (!inside.ok && !/not a git repository/i.test(inside.stderr)) throw gitFailed(inside.stderr);
   if (!inside.ok || inside.stdout.toString("utf8").trim() !== "true") return { diff: "", truncated: false, repository: false };
+  // Before any call that could run a filter: the repository's own are refused, not run.
+  const configured = await repositoryFilters(root);
+  if ("failed" in configured) throw gitFailed(configured.failed);
+  if (configured.filters.length > 0) throw filtersRefused(configured.filters);
 
   const head = await runGit(root, ["rev-parse", "--verify", "--quiet", "HEAD^{commit}"], small);
   const base = head.ok ? "HEAD" : (await runGit(root, ["hash-object", "-t", "tree", "--stdin"], small)).stdout.toString("utf8").trim();

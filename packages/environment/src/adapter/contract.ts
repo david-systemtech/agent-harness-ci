@@ -292,8 +292,9 @@ export interface PromptDecision {
  * (`permissions.prompts.answer`), or, when the run ends, with a denial.
  *
  * The host counts a run parked from a request until that prompt is
- * answered: when the request settles, or when the host answers it through
- * `AdapterHost.answerPrompt`, whichever comes first.
+ * answered: when the request settles, or when the host hands a person's
+ * answer to the run's `answerPrompt` (`AdapterHost.deliverAnswer`, which
+ * settles the request too), whichever comes first.
  */
 export interface PermissionBroker {
   request(request: PromptRequest): Promise<PromptDecision>;
@@ -590,6 +591,10 @@ export interface Adapter {
    * Deletes the provider's transcript of a session (`transcriptDelete`):
    * synchronous, irreversible and idempotent, since it runs inside the
    * purge's transaction (`sessions/deletion.ts`, `ProviderTranscripts`).
+   * `accounts` are the accounts the session's runs went through that the
+   * environment still holds and owns: where the provider may have kept it.
+   * An adopted account's directory is never handed over (ADR 0018: only the
+   * provider's own CLI touches it); the purge records the copy there kept.
    */
-  deleteTranscript?(sessionId: string): undefined;
+  deleteTranscript?(sessionId: string, accounts: readonly AccountRef[]): undefined;
 }
