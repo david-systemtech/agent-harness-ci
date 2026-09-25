@@ -79,6 +79,8 @@ describe("the rows", () => {
     ]);
     expect(rows[1]?.badge.colour).toBe("green");
     expect(rows[0]?.key).toBe("env-a s-1 p-1");
+    // An environment not listed wears no other environment's badge.
+    expect(askRows([ask({ environmentId: "env-gone", sessionId: "s-9", promptId: "p-9" })], views, null)[0]?.badge).toEqual({ abbreviation: "??", colour: "gray" });
   });
 
   it("answer a permission or a denylist prompt in place, bulk only permissions, and open the rest", () => {

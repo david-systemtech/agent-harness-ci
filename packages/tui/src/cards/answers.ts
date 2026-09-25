@@ -11,9 +11,14 @@ import { promptKey } from "./asks.js";
  * says why; one in flight when the socket drops is sent again with its
  * command id on the next ready, and the environment answers that from its
  * stored receipt, so the answer applies once. A refusal the runtime raised a
- * notice for (the environment's rejection, `conflict` `already_answered`
- * among them, or a drop) is that notice's one line on the activity line, and
- * nothing more is said here.
+ * notice for is that notice's one line on the activity line, and nothing
+ * more is said here: the environment's rejection (`conflict`
+ * `already_answered` among them) and the outbox's drops (`expired`,
+ * `unconfirmed`, a send that failed). Every other failure raises no notice,
+ * so it is said here in one line: one refused at dispatch (no command id),
+ * one still waiting its turn when the socket went (`unreachable`), and one
+ * the runtime closed on or whose environment was removed (`closed`,
+ * `forgotten`).
  *
  * A prompt this terminal answered leaves the permission card and the asks
  * card at once, before the environment says it is answered, so it can never
@@ -27,9 +32,12 @@ export interface PromptTarget {
   readonly promptId: string;
 }
 
-/** A failure the runtime has already said as a notice: a command kept and then refused, dropped or left unconfirmed. */
+/** The failures of a command already kept that the runtime's outbox answers without raising a notice. */
+const UNNOTICED: ReadonlySet<string> = new Set(["unreachable", "closed", "forgotten"]);
+
+/** A failure the runtime has already said as a notice: a command kept, then refused by the environment or dropped by the outbox. */
 const noticed = (answer: Extract<DispatchAnswer<"permissions.prompts.answer">, { readonly ok: false }>): boolean =>
-  answer.commandId !== null && !["unreachable", "closed", "forgotten"].includes(answer.error.code);
+  answer.commandId !== null && !UNNOTICED.has(answer.error.code);
 
 /** Sends one answer; the line to say when it failed and no notice says so. */
 export const answerPrompt = async (runtime: Runtime, target: PromptTarget, answer: PromptAnswerInput): Promise<{ readonly ok: true } | { readonly ok: false; readonly line: string | undefined }> => {

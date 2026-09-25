@@ -41,10 +41,12 @@ export const abbreviationOf = (name: string | null): string => {
   return second !== undefined ? `${letters(first)[0] ?? ""}${letters(second)[0] ?? ""}` : letters(first).slice(0, 2).join("");
 };
 
+/** An environment's badge; one not listed (never so for a parked ask, whose environment is always a listed connection) wears none of another's. */
 export const badgeOf = (views: readonly EnvironmentView[], environmentId: string): Badge => {
-  const at = Math.max(0, views.findIndex((view) => view.environmentId === environmentId));
+  const at = views.findIndex((view) => view.environmentId === environmentId);
   const view = views[at];
-  return { abbreviation: abbreviationOf(view?.name ?? null) || "??", colour: view?.colour ?? BADGE_COLOURS[at % BADGE_COLOURS.length] ?? "cyan" };
+  if (view === undefined) return { abbreviation: "??", colour: "gray" };
+  return { abbreviation: abbreviationOf(view.name) || "??", colour: view.colour ?? BADGE_COLOURS[at % BADGE_COLOURS.length] ?? "cyan" };
 };
 
 /** How long a TTL has left, in words: hours and minutes, then minutes and seconds, then seconds; "expiring" at zero. */
