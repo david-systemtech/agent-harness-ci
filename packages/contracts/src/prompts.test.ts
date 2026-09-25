@@ -39,6 +39,7 @@ const opened = {
   plan: null,
   suggestions: [{ type: "addRules", rules: [{ toolName: "Bash" }], behavior: "allow", destination: "session" }],
   agentId: null,
+  denylist: null,
   mode: "acceptEdits",
   ceiling: "bypassPermissions",
   ttlExpiresAt: null,

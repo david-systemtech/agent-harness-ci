@@ -711,6 +711,79 @@
               ],
               "description": "The subagent that asked; null for the run's own agent."
             },
+            "denylist": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "section": {
+                        "type": "string",
+                        "enum": [
+                          "browserDomains",
+                          "paths",
+                          "commandPatterns",
+                          "hosts"
+                        ],
+                        "description": "A section of the denylist: browserDomains (where a browser verb may not go unasked), paths (files and directories), commandPatterns (shell command lines), or hosts (what a command, a fetch, a search or one of the harness's own tools may not reach unasked)."
+                      },
+                      "entry": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 200,
+                            "description": "The entry's id, unique in its section: a preset's is the same on every environment."
+                          },
+                          "pattern": {
+                            "type": "string",
+                            "minLength": 1,
+                            "description": "The pattern, in its section's grammar."
+                          },
+                          "note": {
+                            "type": "string",
+                            "maxLength": 500,
+                            "description": "Why the entry is there, for people; empty for none."
+                          },
+                          "preset": {
+                            "type": "boolean",
+                            "description": "Whether it came from the presets (seeded on first start, or restored); an edited preset keeps it."
+                          },
+                          "enabled": {
+                            "type": "boolean",
+                            "description": "Whether it matches: a disabled entry never does."
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "pattern",
+                          "note",
+                          "preset",
+                          "enabled"
+                        ],
+                        "description": "One entry of the denylist: its id, pattern, note, whether it is a preset, and whether it is enabled."
+                      },
+                      "matched": {
+                        "type": "string",
+                        "description": "What the call gave that matched it: a path, a command line, an address."
+                      }
+                    },
+                    "required": [
+                      "section",
+                      "entry",
+                      "matched"
+                    ],
+                    "description": "One denylist entry a call matched: the section, the entry, and what matched it."
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A denylist prompt's matches: each entry the call matched, with its section and what matched it, the first the one the summary names. Null for the other kinds."
+            },
             "mode": {
               "type": "string",
               "enum": [
@@ -760,6 +833,7 @@
             "plan",
             "suggestions",
             "agentId",
+            "denylist",
             "mode",
             "ceiling",
             "ttlExpiresAt"

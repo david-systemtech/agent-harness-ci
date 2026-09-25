@@ -1,0 +1,236 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DenylistChangedPayload",
+  "type": "object",
+  "properties": {
+    "section": {
+      "type": "string",
+      "enum": [
+        "browserDomains",
+        "paths",
+        "commandPatterns",
+        "hosts"
+      ],
+      "description": "A section of the denylist: browserDomains (where a browser verb may not go unasked), paths (files and directories), commandPatterns (shell command lines), or hosts (what a command, a fetch, a search or one of the harness's own tools may not reach unasked)."
+    },
+    "added": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "The entry's id, unique in its section: a preset's is the same on every environment."
+          },
+          "pattern": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The pattern, in its section's grammar."
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 500,
+            "description": "Why the entry is there, for people; empty for none."
+          },
+          "preset": {
+            "type": "boolean",
+            "description": "Whether it came from the presets (seeded on first start, or restored); an edited preset keeps it."
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "Whether it matches: a disabled entry never does."
+          }
+        },
+        "required": [
+          "id",
+          "pattern",
+          "note",
+          "preset",
+          "enabled"
+        ],
+        "description": "One entry of the denylist: its id, pattern, note, whether it is a preset, and whether it is enabled."
+      },
+      "description": "Entries the section did not hold before."
+    },
+    "removed": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "The entry's id, unique in its section: a preset's is the same on every environment."
+          },
+          "pattern": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The pattern, in its section's grammar."
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 500,
+            "description": "Why the entry is there, for people; empty for none."
+          },
+          "preset": {
+            "type": "boolean",
+            "description": "Whether it came from the presets (seeded on first start, or restored); an edited preset keeps it."
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "Whether it matches: a disabled entry never does."
+          }
+        },
+        "required": [
+          "id",
+          "pattern",
+          "note",
+          "preset",
+          "enabled"
+        ],
+        "description": "One entry of the denylist: its id, pattern, note, whether it is a preset, and whether it is enabled."
+      },
+      "description": "Entries the section no longer holds."
+    },
+    "edited": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "before": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "description": "The entry's id, unique in its section: a preset's is the same on every environment."
+              },
+              "pattern": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The pattern, in its section's grammar."
+              },
+              "note": {
+                "type": "string",
+                "maxLength": 500,
+                "description": "Why the entry is there, for people; empty for none."
+              },
+              "preset": {
+                "type": "boolean",
+                "description": "Whether it came from the presets (seeded on first start, or restored); an edited preset keeps it."
+              },
+              "enabled": {
+                "type": "boolean",
+                "description": "Whether it matches: a disabled entry never does."
+              }
+            },
+            "required": [
+              "id",
+              "pattern",
+              "note",
+              "preset",
+              "enabled"
+            ],
+            "description": "One entry of the denylist: its id, pattern, note, whether it is a preset, and whether it is enabled."
+          },
+          "after": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "description": "The entry's id, unique in its section: a preset's is the same on every environment."
+              },
+              "pattern": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The pattern, in its section's grammar."
+              },
+              "note": {
+                "type": "string",
+                "maxLength": 500,
+                "description": "Why the entry is there, for people; empty for none."
+              },
+              "preset": {
+                "type": "boolean",
+                "description": "Whether it came from the presets (seeded on first start, or restored); an edited preset keeps it."
+              },
+              "enabled": {
+                "type": "boolean",
+                "description": "Whether it matches: a disabled entry never does."
+              }
+            },
+            "required": [
+              "id",
+              "pattern",
+              "note",
+              "preset",
+              "enabled"
+            ],
+            "description": "One entry of the denylist: its id, pattern, note, whether it is a preset, and whether it is enabled."
+          }
+        },
+        "required": [
+          "before",
+          "after"
+        ],
+        "description": "An entry kept under its id with its pattern, note or enabled flag changed."
+      },
+      "description": "Entries kept under their ids with something changed."
+    },
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "The entry's id, unique in its section: a preset's is the same on every environment."
+          },
+          "pattern": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The pattern, in its section's grammar."
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 500,
+            "description": "Why the entry is there, for people; empty for none."
+          },
+          "preset": {
+            "type": "boolean",
+            "description": "Whether it came from the presets (seeded on first start, or restored); an edited preset keeps it."
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "Whether it matches: a disabled entry never does."
+          }
+        },
+        "required": [
+          "id",
+          "pattern",
+          "note",
+          "preset",
+          "enabled"
+        ],
+        "description": "One entry of the denylist: its id, pattern, note, whether it is a preset, and whether it is enabled."
+      },
+      "description": "The section after the change, in order."
+    }
+  },
+  "required": [
+    "section",
+    "added",
+    "removed",
+    "edited",
+    "entries"
+  ],
+  "description": "denylist.changed: a section of the denylist changed; the entries added, removed and edited, and the section after."
+}

@@ -63,6 +63,10 @@ import { MANUAL_CLOCK_START } from "./clock.js";
  * `accounts.adopt` (`ambientDirectory`), one that is not there unless a
  * test gives it one. It lists commands when a test gives it some.
  *
+ * The tool gate (#132, #133): a script plays a tool call as a provider
+ * does under the gate (`toolCall`), asking the run context's gate before its
+ * own evaluation; each run records every ruling (`gated`).
+ *
  * Plan usage (#136): the reading is scripted per account and can be changed
  * mid-test (`setUsage`), may wait on a gate or throw, and every read is
  * recorded (`usageReads`), so a test counts the reads concurrent asks
@@ -272,25 +276,6 @@ export const say = (text: string, itemId: string = randomUUID()): TranscriptEven
 /** The end of a run: completed unless told otherwise. */
 export const end = (reason: RunEnd["reason"] = "completed", extra: Omit<RunEnd, "type" | "reason"> = {}): RunEnd => ({ type: "end", reason, ...extra });
 
-/**
- * A tool call played as a provider plays one under the gate: `tool.started`,
- * then the gate's ruling, before the provider's own evaluation; then
- * `tool.ended`, `ok` when the gate allowed it and `error` carrying what the
- * model is told when it denied it. The run's record keeps the ruling.
- */
-export async function* toolCall(controls: ScriptControls, call: Omit<GatedToolCall, "toolCallId"> & { readonly toolCallId?: string }): AsyncGenerator<AdapterEvent> {
-  const toolCallId = call.toolCallId ?? `toolu_${randomUUID()}`;
-  yield {
-    type: "tool.started",
-    payload: { toolCallId, name: call.tool, input: { access: call.access.kind }, title: call.summary, agentId: null, parentToolCallId: null },
-  };
-  const decision = await controls.context.gate.check({ ...call, toolCallId });
-  yield {
-    type: "tool.ended",
-    payload: decision.decision === "allow" ? { toolCallId, status: "ok", output: "done", durationMs: 1 } : { toolCallId, status: "error", output: decision.message, durationMs: 1 },
-  };
-}
-
 /** A call a script makes to one of the tools a completions request declared (#139). */
 export interface ClientToolCallScript {
   readonly name: string;
@@ -377,6 +362,36 @@ export const ask =
     yield say(toldText(decision));
     yield options.then ?? end();
   };
+
+/**
+ * A tool call played as a provider plays one under the gate: `tool.started`,
+ * then the gate's ruling, before the provider's own evaluation; then
+ * `tool.ended`, `ok` when the gate allowed it and `error` carrying what the
+ * model is told when it denied it. The run's record keeps the ruling.
+ * `signal` is the provider giving up on the call while the gate rules (a
+ * hook's timeout): the gate is handed it, and the call ends `cancelled`
+ * when it has aborted by the ruling.
+ */
+export async function* toolCall(
+  controls: ScriptControls,
+  call: Omit<GatedToolCall, "toolCallId"> & { readonly toolCallId?: string },
+  signal?: AbortSignal,
+): AsyncGenerator<AdapterEvent> {
+  const toolCallId = call.toolCallId ?? `toolu_${randomUUID()}`;
+  yield {
+    type: "tool.started",
+    payload: { toolCallId, name: call.tool, input: call.input ?? { access: call.access.kind }, title: call.summary, agentId: null, parentToolCallId: null },
+  };
+  const decision = await controls.context.gate.check({ ...call, toolCallId }, signal);
+  if (signal?.aborted === true) {
+    yield { type: "tool.ended", payload: { toolCallId, status: "cancelled", output: "cancelled", durationMs: 1 } };
+    return;
+  }
+  yield {
+    type: "tool.ended",
+    payload: decision.decision === "allow" ? { toolCallId, status: "ok", output: "done", durationMs: 1 } : { toolCallId, status: "error", output: decision.message, durationMs: 1 },
+  };
+}
 
 /** The preset script: one reply naming the prompt, then completed. */
 export const replyScript: Script = ({ input }) => [say(`Done: ${input.prompt.map((message) => message.text).join(" / ")}`), end()];
@@ -549,8 +564,8 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
     const gated: RunContext = {
       ...context,
       gate: {
-        check: async (call) => {
-          const decision = await context.gate.check(call);
+        check: async (call, signal) => {
+          const decision = await context.gate.check(call, signal);
           record.gated.push({ call, decision });
           return decision;
         },

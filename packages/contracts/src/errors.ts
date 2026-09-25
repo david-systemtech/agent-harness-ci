@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { JsonObject } from "./primitives.js";
-import { Scope } from "./scopes.js";
+import { Ceiling, Scope } from "./scopes.js";
 
 /** A stable, machine-readable error code in snake case: `not_found`, `ceiling_exceeded`. */
 export const ErrorCode = z
@@ -40,9 +40,23 @@ export const errorSchema = <const Code extends string, Data extends z.ZodObject>
 export const UnauthorizedError = errorSchema("unauthorized", z.object({})).meta({
   description: "The client session's token is missing, invalid, foreign or expired.",
 });
-/** The client session lacks the scope the method requires, named in `data`. */
-export const ForbiddenError = errorSchema("forbidden", z.object({ scope: Scope })).meta({
-  description: "The client session lacks the scope the method requires, named in data.scope.",
+/**
+ * The client session lacks the scope the method requires, named in `data`;
+ * or, with `reason: "ceiling"`, it holds the scope but the call would grant
+ * a ceiling above its own (#180: a pairing, or raising another client
+ * session), and `data.ceiling` is the caller's.
+ */
+export const ForbiddenError = errorSchema(
+  "forbidden",
+  z.object({
+    scope: Scope.meta({ description: "The scope the method requires." }),
+    reason: z.literal("ceiling").optional().meta({
+      description: "Present when the scope is held but the call would grant a ceiling above the caller's own: a pairing, or raising another client session.",
+    }),
+    ceiling: Ceiling.optional().meta({ description: "With reason ceiling: the caller's own ceiling, the highest it may grant." }),
+  }),
+).meta({
+  description: "The client session lacks the scope the method requires, named in data.scope; or, with data.reason ceiling, the call would grant a ceiling above the caller's own, named in data.ceiling.",
 });
 /** The environment is not ready yet, or is draining. */
 export const UnavailableError = errorSchema(

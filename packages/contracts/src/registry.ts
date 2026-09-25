@@ -50,6 +50,10 @@ import {
 } from "./methods/sessions.js";
 import {
   permissionsContainmentSet,
+  permissionsDenylistGet,
+  permissionsDenylistRestorePresets,
+  permissionsDenylistSet,
+  permissionsDenylistTest,
   permissionsModeSet,
   permissionsPromptsAnswer,
   permissionsPromptsList,
@@ -171,6 +175,10 @@ export const methods = [
   permissionsPromptsAnswer,
   permissionsReviewList,
   permissionsReviewSeen,
+  permissionsDenylistGet,
+  permissionsDenylistSet,
+  permissionsDenylistRestorePresets,
+  permissionsDenylistTest,
   terminalsOpen,
   terminalsWrite,
   terminalsResize,

@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "permissions.denylist.test result",
+  "type": "object",
+  "properties": {
+    "matches": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "section": {
+            "type": "string",
+            "enum": [
+              "browserDomains",
+              "paths",
+              "commandPatterns",
+              "hosts"
+            ],
+            "description": "A section of the denylist: browserDomains (where a browser verb may not go unasked), paths (files and directories), commandPatterns (shell command lines), or hosts (what a command, a fetch, a search or one of the harness's own tools may not reach unasked)."
+          },
+          "entry": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "description": "The entry's id, unique in its section: a preset's is the same on every environment."
+              },
+              "pattern": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The pattern, in its section's grammar."
+              },
+              "note": {
+                "type": "string",
+                "maxLength": 500,
+                "description": "Why the entry is there, for people; empty for none."
+              },
+              "preset": {
+                "type": "boolean",
+                "description": "Whether it came from the presets (seeded on first start, or restored); an edited preset keeps it."
+              },
+              "enabled": {
+                "type": "boolean",
+                "description": "Whether it matches: a disabled entry never does."
+              }
+            },
+            "required": [
+              "id",
+              "pattern",
+              "note",
+              "preset",
+              "enabled"
+            ],
+            "description": "One entry of the denylist: its id, pattern, note, whether it is a preset, and whether it is enabled."
+          },
+          "matched": {
+            "type": "string",
+            "description": "What the call gave that matched it: a path, a command line, an address."
+          }
+        },
+        "required": [
+          "section",
+          "entry",
+          "matched"
+        ],
+        "description": "One denylist entry a call matched: the section, the entry, and what matched it."
+      },
+      "description": "Every enabled entry the value matches, in section order; empty for none."
+    },
+    "unresolvable": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "The paths whose symbolic links loop or changed while they were read, so where they lead cannot be said: the gate denies a call naming one outright. Empty for none."
+    }
+  },
+  "required": [
+    "matches",
+    "unresolvable"
+  ]
+}

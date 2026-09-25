@@ -93,6 +93,7 @@ describe("the access log", () => {
       "ceiling.changed",
       "bypass.acknowledged",
       "settings.changed",
+      "denylist.changed",
     ]);
     expect(Object.keys(ACCESS_EVENT_PAYLOADS)).toEqual([...ACCESS_EVENT_TYPES]);
   });

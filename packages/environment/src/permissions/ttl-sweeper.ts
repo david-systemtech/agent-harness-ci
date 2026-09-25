@@ -1,13 +1,14 @@
 import type { PromptAnsweredPayload } from "@agent-harness/contracts";
 import type { PromptDecision } from "../adapter/contract.js";
 import type { AdapterHost } from "../adapter/host.js";
-import { formatActor, type EventLog } from "../event-log/event-log.js";
+import { type EventLog } from "../event-log/event-log.js";
 import type { Clock } from "../serve/clock.js";
 import type { Reader } from "../sessions/session-reads.js";
 import { sessionStream } from "../sessions/streams.js";
 import { autoDenial } from "./broker.js";
 import { parkedPrompts, readPromptAt } from "./prompts-store.js";
 import { answerEvents } from "./tool-decisions.js";
+import { PERMISSIONS_ACTOR } from "./actor.js";
 
 /**
  * The TTL's sweeper (#131; permissions spec, "Prompts, parked prompts and
@@ -37,8 +38,6 @@ export const TTL_DENIAL = "Denied: nobody answered within the time allowed. Cont
 /** What the model reads when its question waited past the TTL. */
 export const TTL_ANSWER = "nobody answered in time; proceed with your best judgement";
 
-const SWEEPER_ACTOR = formatActor({ kind: "system", id: "permissions" });
-
 export interface TtlSweeperOptions {
   readonly log: EventLog;
   readonly host: Pick<AdapterHost, "liveRun" | "holdsPrompt" | "deliverAnswer" | "continueSession">;
@@ -65,7 +64,7 @@ export const createTtlSweeper = ({ log, host, clock }: TtlSweeperOptions): TtlSw
       // The run that asked still waits on it, or has gone: then the session's next run reads it first (ADR 0007).
       const live = host.liveRun(runId) !== null && host.holdsPrompt(runId, promptId);
       const payload: PromptAnsweredPayload = { ...autoDenial(prompt, "ttl", message), delivery: live ? "live" : "next-run" };
-      log.append(sessionStream(sessionId), answerEvents(reader, prompt, payload), { tx, actor: SWEEPER_ACTOR, correlationId: runId });
+      log.append(sessionStream(sessionId), answerEvents(reader, prompt, payload), { tx, actor: PERMISSIONS_ACTOR, correlationId: runId });
       if (live) {
         const decision: PromptDecision = { decision: "deny", message };
         tx.afterCommit(() => {
