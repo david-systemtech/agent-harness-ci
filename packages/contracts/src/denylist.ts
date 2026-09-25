@@ -602,16 +602,19 @@ const asciiHost = (text: string): string => text.normalize("NFKC").replace(/[\u3
  * network reads as an address, with an optional port; an IPv6 literal,
  * bracketed with an optional port or bare; after a user
  * (`admin@db.internal`, where a single label is a host too); before a path
- * (`169.254.169.254/latest`) or scp's `:path` (`git@host.example:repo.git`).
- * An absolute, `~` or dot path, an option and a URL are not hosts. The
- * port and a trailing dot are dropped.
+ * (`169.254.169.254/latest`), a query or a fragment (`example.com?q=1`,
+ * `example.com#top`, where an address's authority ends too) or scp's
+ * `:path` (`git@host.example:repo.git`). The host is the one after the
+ * last `@` (ssh's reading); `shellSubjects` also reads the one before a
+ * `?` or `#` that comes first (curl's). An absolute, `~` or dot path, an
+ * option and a URL are not hosts. The port and a trailing dot are dropped.
  */
 export const hostToken = (token: string): string | null => {
   const text = asciiHost(token.trim());
   if (text === "" || /^[-/~.]/.test(text) || URL_PREFIX.test(text)) return null;
   let candidate = text.split("/")[0] as string;
   const user = candidate.lastIndexOf("@");
-  candidate = candidate.slice(user + 1);
+  candidate = candidate.slice(user + 1).split(/[?#]/)[0] as string;
   // A bare IPv6 literal, before its colons are read as scp's `host:path`.
   if (BARE_IPV6.test(candidate)) return candidate;
   const scp = /^([^:[\]]+):(.*)$/.exec(candidate);
@@ -641,7 +644,8 @@ const subjectsOf = (tokens: readonly string[]): { paths: string[]; urls: string[
     if (OPERATOR_TOKEN.test(raw)) continue;
     const whole = home(unwrap(raw));
     const equals = whole.indexOf("=");
-    const candidates = equals > 0 && !URL_PREFIX.test(whole) ? [home(whole.slice(equals + 1))] : [whole];
+    // An option's value (`--out=x`), not a query's or a fragment's `=` (`169.254.169.254?x=1`), which is the whole token's.
+    const candidates = equals > 0 && !URL_PREFIX.test(whole) && !/[?#]/.test(whole.slice(0, equals)) ? [home(whole.slice(equals + 1))] : [whole];
     // An absolute path with `=` in it is a path too, beside what follows the `=`.
     if (candidates[0] !== whole && (whole.startsWith("/") || whole.startsWith("~/"))) candidates.unshift(whole);
     let hosted = false;
@@ -655,6 +659,13 @@ const subjectsOf = (tokens: readonly string[]): { paths: string[]; urls: string[
       const host = hostToken(token);
       if (host !== null) {
         hosts.push(host);
+        hosted = true;
+      }
+      // A ? or # before the user: curl reads the host before it (`169.254.169.254?x@example.com`), ssh the one after.
+      const query = token.search(/[?#]/);
+      const before = query > 0 && query < token.lastIndexOf("@") ? hostToken(token.slice(0, query)) : null;
+      if (before !== null) {
+        hosts.push(before);
         hosted = true;
       }
     }

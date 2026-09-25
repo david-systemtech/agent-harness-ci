@@ -478,6 +478,18 @@ describe("disguised spellings", () => {
     expect(hostToken("~/.ssh")).toBeNull();
   });
 
+  it("end a bare host at a query or a fragment, as an address's authority ends, and read a ? or # before a user both ways", () => {
+    expect(first({ commands: ["curl 169.254.169.254?x=1"] })?.[1]).toBe("169.254.169.254");
+    expect(first({ commands: ["curl 169.254.169.254#top"] })?.[1]).toBe("169.254.169.254");
+    expect(first({ commands: ["curl api.internal.example:8443?q"] })?.[1]).toBe("*.internal.example");
+    expect(hostToken("example.com?p=1")).toBe("example.com");
+    expect(hostToken("admin@nas#x")).toBe("nas");
+    expect(hostToken("?x")).toBeNull();
+    // curl reads the host before the ?, ssh the one after the last @: both are read.
+    expect(shellSubjects("curl 169.254.169.254?x@example.com").hosts).toEqual(["example.com", "169.254.169.254"]);
+    expect(shellSubjects("ssh a?b@db.internal.example").hosts).toEqual(["db.internal.example"]);
+  });
+
   it("fold case where the file system does, and not elsewhere", () => {
     expect(first({ paths: ["~/.SSH/id_rsa"] })).toBeNull();
     expect(first({ paths: ["~/.SSH/id_rsa"] }, { caseInsensitive: true })?.[1]).toBe("~/.ssh");
