@@ -224,6 +224,47 @@ describe("permissions.denylist.set", () => {
     expect(all.result?.denylist).toEqual(held);
   });
 
+  it("gives a section the entries in the order given, each read by its id in that section: one held is edited to the fields given, a preset's is the preset put back, any other is new under it", async () => {
+    const t = await start();
+    const client = await t.client();
+    const held = await getDenylist(client);
+    const [sudoPreset, ...otherCommands] = held.commandPatterns;
+    const set = async (sections: ParamsOf<"permissions.denylist.set">["sections"]): Promise<Denylist> =>
+      (await send(client, "permissions.denylist.set", { sections })).result?.denylist as Denylist;
+    const lastChange = async () => (await accessEvents(client, "denylist.changed")).at(-1)?.payload as DenylistChangedPayload;
+
+    // The section holds a and b; the call sends c under a's id, d under b's and e with none: c, d, e, in that order.
+    const [a, b] = (await set({ hosts: [{ id: "a", pattern: "a.example", note: "A" }, { id: "b", pattern: "b.example", enabled: false }] })).hosts;
+    const hosts = (await set({ hosts: [{ id: "a", pattern: "c.example" }, { id: "b", pattern: "d.example", enabled: false }, { pattern: "e.example" }] })).hosts;
+    expect(hosts.map((entry) => [entry.id, entry.pattern])).toEqual([
+      ["a", "c.example"],
+      ["b", "d.example"],
+      [expect.stringMatching(/\S/), "e.example"],
+    ]);
+    // A field left out takes its default, as for a new entry: a's note is gone.
+    expect(hosts[0]).toEqual({ id: "a", pattern: "c.example", note: "", preset: false, enabled: true });
+    expect(await lastChange()).toEqual({ section: "hosts", added: [hosts[2]], removed: [], edited: [{ before: a, after: hosts[0] }, { before: b, after: hosts[1] }], entries: hosts });
+
+    // The same entries in another order: that order, recorded with nothing added, removed or edited.
+    const reordered = (await set({ hosts: [hosts[2]!, hosts[0]!, hosts[1]!] })).hosts;
+    expect(reordered).toEqual([hosts[2], hosts[0], hosts[1]]);
+    expect(await lastChange()).toEqual({ section: "hosts", added: [], removed: [], edited: [], entries: reordered });
+
+    // A preset removed, then sent back under its id with preset false: the preset again, flag and all.
+    await set({ commandPatterns: otherCommands });
+    const unflagged = { ...sudoPreset!, preset: false };
+    expect((await set({ commandPatterns: [unflagged, ...otherCommands] })).commandPatterns).toEqual(held.commandPatterns);
+    expect(await lastChange()).toEqual({ section: "commandPatterns", added: [sudoPreset], removed: [], edited: [], entries: held.commandPatterns });
+
+    // Ids are the section's own: another section's preset id, or another section's entry's, is a new entry here.
+    const paths = (await set({ paths: [...held.paths, { id: sudoPreset!.id, pattern: "/etc/sudoers" }, { id: "a", pattern: "/etc/shadow" }] })).paths;
+    expect(paths.slice(-2)).toEqual([
+      { id: sudoPreset!.id, pattern: "/etc/sudoers", note: "", preset: false, enabled: true },
+      { id: "a", pattern: "/etc/shadow", note: "", preset: false, enabled: true },
+    ]);
+    expect(await getDenylist(client)).toMatchObject({ hosts: reordered, commandPatterns: held.commandPatterns });
+  });
+
   it("refuses a pattern outside its section's grammar, two entries under one id, and a call naming no section: invalid_params, nothing changed", async () => {
     const t = await start();
     const client = await t.client();

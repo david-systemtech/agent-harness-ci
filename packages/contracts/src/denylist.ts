@@ -104,17 +104,25 @@ export const Denylist = z
 export type Denylist = z.infer<typeof Denylist>;
 
 const inputShape = <P extends z.ZodString>(pattern: P) => ({
-  id: EntryId.optional().meta({ description: "The entry's id: an existing entry's to keep or edit it, a preset's to put a preset back; minted when absent." }),
+  id: EntryId.optional().meta({
+    description:
+      "The entry's id, read within its section: the id of an entry the section holds keeps or edits that entry; the id of one of the section's presets puts it back or edits it; any other names a new entry. Minted when absent.",
+  }),
   pattern,
   note: EntryNote.optional().meta({ description: "Why the entry is there; empty when absent." }),
   enabled: z.boolean().optional().meta({ description: "Whether it matches; true when absent." }),
 });
 
 /**
- * A section's entries as `permissions.denylist.set` takes them: an entry
- * named by an id the section holds keeps it (edited or not), a preset's id
- * is a preset, anything else a new entry. `preset` is the environment's to
- * say, and ignored when sent.
+ * The sections `permissions.denylist.set` replaces, at least one, each the
+ * entries it is to hold, in order. An entry is read by its id within its
+ * section: an id the section holds is that entry, kept or edited; the id of
+ * one of the section's presets is that preset, put back or edited; any
+ * other id, one another section holds among them, is a new entry under it,
+ * and an entry with none is new under a minted one. `preset` is the
+ * environment's to say, from the id, and ignored when sent. At least one
+ * section: the refinement is zod's half, the `anyOf` the same rule in the
+ * export.
  */
 export const DenylistInput = z
   .object({
@@ -124,7 +132,14 @@ export const DenylistInput = z
     hosts: z.array(z.object(inputShape(HostPattern))),
   })
   .partial()
-  .meta({ description: "Some sections of the denylist, each replaced by the entries given: one section, or all four." });
+  .refine((sections) => DENYLIST_SECTIONS.some((section) => sections[section] !== undefined), {
+    message: "Name at least one section: browserDomains, paths, commandPatterns or hosts.",
+  })
+  .meta({
+    description: "The sections of the denylist to replace, at least one, each with the entries given, in their order: one section, several, or all four.",
+    // Each branch names its property too, as a strict validator (Ajv's `strictRequired`) asks of `required`.
+    anyOf: DENYLIST_SECTIONS.map((section) => ({ required: [section], properties: { [section]: true } })),
+  });
 export type DenylistInput = z.infer<typeof DenylistInput>;
 
 /** An entry that matched a call: its section, the entry, and the value it matched (a path, a command line, an address) as the call gave it. */

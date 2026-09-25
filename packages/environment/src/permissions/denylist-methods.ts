@@ -40,9 +40,10 @@ export interface DenylistMethodsOptions {
 type DenylistMethodName = "permissions.denylist.get" | "permissions.denylist.set" | "permissions.denylist.restorePresets" | "permissions.denylist.test";
 
 /**
- * A section as given, made entries: an entry named by an id the section
- * holds is that entry as given; a preset's id is a preset; any other entry
- * is new, its id minted when absent. `preset` is never taken from a client.
+ * A section as given, made entries, in the order given: an entry named by
+ * an id the section holds is that entry as given; the id of one of the
+ * section's presets is that preset; any other entry is new, under its id or
+ * a minted one. `preset` is never taken from a client.
  */
 const entriesOf = (given: NonNullable<DenylistInput[DenylistSection]>, presetIds: ReadonlySet<string>): DenylistEntry[] =>
   given.map((entry) => {
@@ -68,14 +69,13 @@ export const denylistMethods = (options: DenylistMethodsOptions): Required<Pick<
 
     /**
      * The sections given replace the ones held, in the order given. Two
-     * entries of one section under one id, or no section at all, are
-     * `invalid_params`; each section's grammar is the params' schema's.
+     * entries of one section under one id are `invalid_params`; a call naming
+     * no section, and each section's grammar, are the params' schema's.
      */
     "permissions.denylist.set": (params) => {
       const given = params.sections;
       const sections = DENYLIST_SECTIONS.filter((section) => given[section] !== undefined);
       const issues: IssueInput[] = [];
-      if (sections.length === 0) issues.push({ code: "custom", path: ["sections"], message: "Name at least one section: browserDomains, paths, commandPatterns or hosts." });
       for (const section of sections) {
         const seen = new Set<string>();
         (given[section] ?? []).forEach((entry, index) => {

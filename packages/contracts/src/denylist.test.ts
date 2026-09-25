@@ -235,6 +235,13 @@ describe("paths", () => {
     expect(matchDenylist(questioned, { paths: ["/var/log/app12.log"] }, context)).toHaveLength(0);
   });
 
+  it("match an entry whose last segment is the path's last, when a segment before it matches it too", () => {
+    expect(first({ paths: ["~/projects/secrets/secrets"] })?.[1]).toBe("~/projects/*/secrets");
+    expect(first({ paths: ["~/projects/secrets"] })).toBeNull();
+    expect(first({ paths: ["/srv/key.pem/key.pem"] })?.[1]).toBe("/srv/**/key.pem");
+    expect(first({ paths: ["/srv/key.pem/a/key.pem"] })?.[1]).toBe("/srv/**/key.pem");
+  });
+
   it("match the data directory, but not the run directories containment writes in under it, unless a link there leads out", () => {
     expect(first({ paths: [`${DATA}/environment.db`] })).toEqual(["paths", DATA, `${DATA}/environment.db`]);
     expect(first({ paths: [`${DATA}/containment/s-1/tmp/build.log`] })).toBeNull();
@@ -259,6 +266,18 @@ describe("command patterns", () => {
     expect(first({ commands: ["git push --force-with-lease origin main"] })?.[1]).toBe("git push * --force* *");
     expect(first({ commands: ["git push -f"] })?.[1]).toBe("git push * -f *");
     expect(first({ commands: ["git push origin main"] })).toBeNull();
+  });
+
+  it("match a pattern whose last token is the line's last, when tokens before it match it too, and not one whose tokens come apart or out of order", () => {
+    const owned: Denylist = { ...denylist, commandPatterns: [entry("root", "chown root")] };
+    const ids = (line: string) => matchDenylist(owned, { commands: [line] }, context).map((found) => found.entry.id);
+    expect(ids("chown root")).toEqual(["root"]);
+    expect(ids("chown root root")).toEqual(["root"]);
+    expect(ids("root chown root")).toEqual(["root"]);
+    expect(ids("chown x root")).toEqual([]);
+    expect(ids("root chown")).toEqual([]);
+    expect(first({ commands: ["git push -f -f"] })?.[1]).toBe("git push * -f *");
+    expect(first({ commands: ["-f git push"] })).toBeNull();
   });
 
   it("match a * inside a token within that token", () => {

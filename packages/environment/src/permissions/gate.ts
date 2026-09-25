@@ -163,7 +163,7 @@ export interface ToolGateOptions {
   readonly liveRunOf: (sessionId: string) => GatedRun | undefined;
   /** The rules after containment's, in order (#132: the denylist's). Preset: none. */
   readonly rules?: readonly ToolGateRule[];
-  /** How a rule asks the run's person: the broker, as a prompt of that run's (the host's). Preset: nobody can be asked, so the ask is denied. */
+  /** How a rule asks the run's person: the broker, as a prompt of that run's (the host's). Preset: nobody can be asked, so the ask is denied and the rule's denial is recorded as one made without asking anyone. */
   readonly ask?: (run: GatedRun, kind: PromptKind, detail: PromptDetail, signal?: AbortSignal) => Promise<PromptDecision>;
 }
 
@@ -182,9 +182,10 @@ const NOBODY_TO_ASK: PromptDecision = { decision: "deny", message: "Denied: nobo
  * `system:tool-gate`, when the gate rules, which may be before the
  * provider's report of the call reaches the log; a denial through `ask` is
  * the prompt's answer's to record (or, when a stop denied it in memory, the
- * prompt stays open, ADR 0007). A denial whose record cannot be appended is
- * still a denial. `signal` is the provider giving up on the call: an ask
- * then closes its prompt.
+ * prompt stays open, ADR 0007), unless no `ask` is wired: then nobody was
+ * asked and no prompt opened, so the gate records it. A denial whose
+ * record cannot be appended is still a denial. `signal` is the provider
+ * giving up on the call: an ask then closes its prompt.
  */
 export const createToolGate =
   (options: ToolGateOptions) =>
@@ -196,9 +197,10 @@ export const createToolGate =
       const run: RuledRun = {
         ...gated,
         ask: (kind, detail, askSignal) => {
+          // With no ask wired no prompt opens, so no answer records the denial: the gate does.
+          if (options.ask === undefined) return Promise.resolve(NOBODY_TO_ASK);
           asked = true;
-          const cancel = askSignal ?? signal;
-          return options.ask === undefined ? Promise.resolve(NOBODY_TO_ASK) : options.ask(gated, kind, detail, cancel);
+          return options.ask(gated, kind, detail, askSignal ?? signal);
         },
       };
       const record = (decider: ToolDecider, reason: string): void => {

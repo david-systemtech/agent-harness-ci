@@ -291,8 +291,8 @@ export const permissionSchemaFixtures: Record<string, Fixtures> = {
     ],
   },
   "permissions/denylist-input.json": {
-    valid: [{}, { paths: [{ pattern: "/etc/shadow" }, { id: "preset:~/.ssh", pattern: "~/.ssh", note: "Keys", enabled: false }] }, { hosts: [] }, denylist],
-    invalid: [{ paths: [{ id: "x" }] }, { paths: [{ pattern: "relative" }] }, { hosts: [{ pattern: "*" }] }, { commandPatterns: [{ pattern: "" }] }],
+    valid: [{ paths: [{ pattern: "/etc/shadow" }, { id: "preset:~/.ssh", pattern: "~/.ssh", note: "Keys", enabled: false }] }, { hosts: [] }, denylist],
+    invalid: [{}, { paths: [{ id: "x" }] }, { paths: [{ pattern: "relative" }] }, { hosts: [{ pattern: "*" }] }, { commandPatterns: [{ pattern: "" }] }],
   },
   "permissions/denylist-match.json": {
     valid: [sshMatch, { section: "commandPatterns", entry: sudoEntry, matched: "sudo apt install jq" }],
@@ -377,8 +377,8 @@ export const permissionMethodFixtures: Record<string, { params: Fixtures; result
   },
   "permissions.denylist.set": {
     params: {
-      valid: [{ commandId, sections: { paths: [{ pattern: "/etc/shadow" }] } }, { commandId, sections: { ...denylist } }, { commandId, sections: {} }],
-      invalid: [{ sections: { paths: [] } }, { commandId }, { commandId, sections: { paths: [{ pattern: "etc" }] } }],
+      valid: [{ commandId, sections: { paths: [{ pattern: "/etc/shadow" }] } }, { commandId, sections: { ...denylist } }, { commandId, sections: { hosts: [] } }],
+      invalid: [{ sections: { paths: [] } }, { commandId }, { commandId, sections: { paths: [{ pattern: "etc" }] } }, { commandId, sections: {} }],
     },
     result: { valid: [{ denylist }], invalid: [{}, { denylist: {} }] },
   },

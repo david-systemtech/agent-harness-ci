@@ -9,7 +9,7 @@
         "type": "object",
         "properties": {
           "id": {
-            "description": "The entry's id: an existing entry's to keep or edit it, a preset's to put a preset back; minted when absent.",
+            "description": "The entry's id, read within its section: the id of an entry the section holds keeps or edits that entry; the id of one of the section's presets puts it back or edits it; any other names a new entry. Minted when absent.",
             "type": "string",
             "minLength": 1,
             "maxLength": 200
@@ -40,7 +40,7 @@
         "type": "object",
         "properties": {
           "id": {
-            "description": "The entry's id: an existing entry's to keep or edit it, a preset's to put a preset back; minted when absent.",
+            "description": "The entry's id, read within its section: the id of an entry the section holds keeps or edits that entry; the id of one of the section's presets puts it back or edits it; any other names a new entry. Minted when absent.",
             "type": "string",
             "minLength": 1,
             "maxLength": 200
@@ -71,7 +71,7 @@
         "type": "object",
         "properties": {
           "id": {
-            "description": "The entry's id: an existing entry's to keep or edit it, a preset's to put a preset back; minted when absent.",
+            "description": "The entry's id, read within its section: the id of an entry the section holds keeps or edits that entry; the id of one of the section's presets puts it back or edits it; any other names a new entry. Minted when absent.",
             "type": "string",
             "minLength": 1,
             "maxLength": 200
@@ -102,7 +102,7 @@
         "type": "object",
         "properties": {
           "id": {
-            "description": "The entry's id: an existing entry's to keep or edit it, a preset's to put a preset back; minted when absent.",
+            "description": "The entry's id, read within its section: the id of an entry the section holds keeps or edits that entry; the id of one of the section's presets puts it back or edits it; any other names a new entry. Minted when absent.",
             "type": "string",
             "minLength": 1,
             "maxLength": 200
@@ -128,5 +128,39 @@
       }
     }
   },
-  "description": "Some sections of the denylist, each replaced by the entries given: one section, or all four."
+  "description": "The sections of the denylist to replace, at least one, each with the entries given, in their order: one section, several, or all four.",
+  "anyOf": [
+    {
+      "required": [
+        "browserDomains"
+      ],
+      "properties": {
+        "browserDomains": true
+      }
+    },
+    {
+      "required": [
+        "paths"
+      ],
+      "properties": {
+        "paths": true
+      }
+    },
+    {
+      "required": [
+        "commandPatterns"
+      ],
+      "properties": {
+        "commandPatterns": true
+      }
+    },
+    {
+      "required": [
+        "hosts"
+      ],
+      "properties": {
+        "hosts": true
+      }
+    }
+  ]
 }

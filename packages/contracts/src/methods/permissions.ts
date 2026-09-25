@@ -229,15 +229,22 @@ export const permissionsDenylistGet = defineMethod({
 });
 
 /**
- * Replaces one section of the denylist, or several, or all four, with the
- * entries given, in their order: an entry with an id the section holds is
- * that entry, edited or not; one with a preset's id is that preset, put
- * back or edited; any other is new, its id minted when it has none. Two
- * entries of a section under one id, or a call naming no section, are
- * `invalid_params`. Each section that changed is one `denylist.changed` on
- * the access stream (added, removed, edited, and the section after); a
- * section given as it is changes nothing. Answered with the whole denylist
- * after. A tool call is gated by the denylist as it is when the call is made.
+ * Replaces one section of the denylist, or several, or all four: each
+ * section named becomes exactly the entries given, in the order given, and
+ * an entry it held that is not given is removed. An entry is read by its id
+ * within its section: an id the section holds is that entry, kept or edited
+ * to the fields given (a note or enabled flag left out is empty or true, as
+ * for a new entry); the id of one of the section's presets is that preset,
+ * put back or edited; any other id, one another section holds among them,
+ * is a new entry under it, and an entry with no id is new under a minted
+ * one. `preset` comes from the id alone. Two entries of a section under one
+ * id are `invalid_params`, and so is a call naming no section, which the
+ * params' schema refuses. Each section that changed is one
+ * `denylist.changed` on the access stream (added, removed, edited, and the
+ * section after); a section given as it is changes nothing, and one given
+ * in another order is recorded with nothing added, removed or edited.
+ * Answered with the whole denylist after. A tool call is gated by the
+ * denylist as it is when the call is made.
  */
 export const permissionsDenylistSet = defineMethod({
   name: "permissions.denylist.set",
