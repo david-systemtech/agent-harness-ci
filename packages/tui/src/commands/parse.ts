@@ -1,5 +1,6 @@
 import type { PairingInput } from "@agent-harness/client-runtime";
 import { actionById, isCommandId } from "@agent-harness/contracts";
+import { PICKER_COMMANDS, TAKES_ENVIRONMENT, isPickerCommand, type PickerCommand } from "../pickers/commands.js";
 
 /**
  * The slash commands this build answers (docs/specs/tui.md, "First launch",
@@ -7,7 +8,9 @@ import { actionById, isCommandId } from "@agent-harness/contracts";
  * `/pair create`, `/environment`, `/help`, `/reload`; and, carried from
  * Artemis with the transcript and the composer, `/resume`, `/new`,
  * `/attach <path>`, `/snip`, `/tasks`, `/copy`, `/export [file]`,
- * `/timeline` and `/quit`. A command of the shared list this build does not
+ * `/timeline` and `/quit`; and the accounts, models, permissions, settings
+ * and Set up commands (`pickers/commands.ts`, #147). A command of the shared
+ * list this build does not
  * answer yet says so in one line, and one the list keeps absent gives its
  * reason; `/profile` is a hidden alias of `/account`. Anything else that
  * begins with a slash is not the terminal's: it goes to the agent as typed,
@@ -30,6 +33,7 @@ export const ANSWERED_COMMANDS = [
   "export",
   "timeline",
   "quit",
+  ...PICKER_COMMANDS,
 ] as const;
 
 export type Command =
@@ -51,6 +55,7 @@ export type Command =
   | { readonly kind: "export"; readonly file: string | null }
   | { readonly kind: "timeline" }
   | { readonly kind: "quit" }
+  | { readonly kind: "picker"; readonly command: PickerCommand }
   /** A command of the shared list this build does not answer: `line` says why. */
   | { readonly kind: "not-here"; readonly name: string; readonly line: string }
   | { readonly kind: "usage"; readonly line: string }
@@ -79,6 +84,10 @@ export const parseCommand = (typed: string): Command => {
   const name = ALIASES[lowered] ?? lowered;
   // Everything after the command word, as typed: a snippet's body keeps its lines.
   const tail = text.slice(1 + word.length).trim();
+  if (isPickerCommand(name)) {
+    const command: Command = { kind: "picker", command: { name, argument: tail } };
+    return TAKES_ENVIRONMENT.has(name) ? command : bare(rest, command, `/${name}`);
+  }
   switch (name) {
     case "pair": {
       if (rest.length === 1 && rest[0] === "create") return { kind: "pair-create" };

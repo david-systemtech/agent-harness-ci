@@ -388,12 +388,13 @@ describe("the hint line", () => {
     await app.waitFor("The card has the keys · Esc goes back");
   });
 
-  it("keeps what has the keys in sight beside a notice, where the composer's own hint gives way to it", async () => {
+  it("keeps what has the keys in sight beside a notice, the composer's own keys on the status line above it (#147)", async () => {
     const app = await launch(DESK);
     await app.waitFor("● desk ready");
     app.fault("The disk is full");
     await app.waitFor("The disk is full");
-    expect(app.frame()).not.toContain(COMPOSER_HINT);
+    expect(app.rows().at(-1)).toContain("The disk is full");
+    expect(app.rows().at(-2)).toContain(COMPOSER_HINT);
     await app.press(KEY.tab);
     await app.waitFor(RAIL_HINT);
     expect(app.frame()).toContain("The disk is full");

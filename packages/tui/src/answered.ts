@@ -12,6 +12,8 @@ import { COMPOSER_KEYS } from "./composer/use-composer.js";
  */
 export const SCREEN_KEYS = [
   "app.focus.next",
+  "app.mode.step",
+  "app.handoff",
   "app.interrupt",
   "app.interruptOrQuit",
   "app.pager.open",

@@ -55,7 +55,8 @@ describe("the help lines", () => {
     expect(rowOf(lines, "app.help")?.state).toBe("answered");
     expect(rowOf(lines, "command.reload")?.state).toBe("answered");
     expect(rowOf(lines, "rail.pin")?.state).toBe("soon");
-    expect(rowOf(lines, "command.model")?.state).toBe("soon");
+    expect(rowOf(lines, "command.model")?.state).toBe("answered");
+    expect(rowOf(lines, "command.terminal")?.state).toBe("soon");
   });
 
   it("show the effective map: a remapped row with its new keys, marked", () => {

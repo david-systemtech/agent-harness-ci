@@ -50,14 +50,27 @@ export const attachmentRefusal = (message: Message, provider: AdapterCapabilitie
 };
 
 /**
- * Sends `message` to the session: `runs.start` with no run live, `runs.send`
- * during one. A start refused because a run went live meanwhile (`conflict`,
+ * Sends `message` to the session: `runs.start` with no run live, with the
+ * model and effort `choice` names (`/model`), `runs.send` during one. A
+ * start refused because a run went live meanwhile (`conflict`,
  * `run_active`) is sent again as `runs.send`, a new command.
  */
-export const sendMessage = async (runtime: Runtime, environmentId: string, sessionId: string, message: Message, live: boolean): Promise<SendOutcome> => {
+export const sendMessage = async (
+  runtime: Runtime,
+  environmentId: string,
+  sessionId: string,
+  message: Message,
+  live: boolean,
+  choice?: { readonly model: string; readonly effort: string | null },
+): Promise<SendOutcome> => {
   const params = { sessionId, text: message.text, ...(message.attachments.length > 0 && { attachments: [...message.attachments] }) };
   if (!live) {
-    const started = await runtime.commands.dispatch(environmentId, "runs.start", params);
+    // A run started here takes the model and effort `/model` chose for the session; a message queued behind a live run takes the run's.
+    const started = await runtime.commands.dispatch(environmentId, "runs.start", {
+      ...params,
+      ...(choice && { model: choice.model }),
+      ...(choice?.effort != null && { effort: choice.effort }),
+    });
     if (started.ok) return { ok: true, messageId: started.result?.messageId ?? "", delivery: "prompt", heldBy: null };
     if (!(started.error.code === "conflict" && started.error.data?.["reason"] === "run_active")) return { ok: false, line: `Not sent: ${started.error.message}` };
   }
