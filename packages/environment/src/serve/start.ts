@@ -38,15 +38,21 @@ import { createAdapterHost } from "../adapter/host.js";
 import { ACCOUNTS_DIRECTORY, createAccountService, type AccountService, type ConfiguredAccount } from "../accounts/account-service.js";
 import { accountsProjector } from "../accounts/account-store.js";
 import { accountMethods } from "../accounts/methods.js";
-import type { SignInDirectorFactory } from "../accounts/sign-in.js";
+import type { SignInDirectorFactory } from "../accounts/signin-seam.js";
+import { createSignInDirector } from "../accounts/signin-director.js";
+import type { SignInSpawn } from "../accounts/signin-process.js";
+import { CLAUDE_PROVIDER, type HostEnvironment } from "../adapters/claude/credentials.js";
+import { bundledExecutable } from "../adapters/claude/executable.js";
+import { claudeSignInProgram } from "../adapters/claude/signin.js";
 import { usageMethods } from "../accounts/usage-methods.js";
 import { createUsagePool } from "../accounts/usage-pool.js";
 import { processMethods } from "../adapter/processes-methods.js";
 import { ATTACHMENTS_DIRECTORY, createAttachmentStage } from "../adapter/attachment-stage.js";
 import { recoverCutRuns, recoverStagedAttachments } from "../adapter/recovery.js";
-import type { InstructionComposer, PolicySeam, ToolServerFactory } from "../adapter/seams.js";
-import type { PermissionBroker } from "../adapter/contract.js";
+import type { InstructionComposer, PolicySeam, PromptAutoAnswer, ToolServerFactory } from "../adapter/seams.js";
 import { permissionMethods, sessionModeClamp } from "../permissions/methods.js";
+import { promptMethods } from "../permissions/prompt-methods.js";
+import { startPromptNotices } from "../permissions/prompt-notices.js";
 import { permissionsProjector, readPermissionSettings } from "../permissions/permissions-store.js";
 import { policySettings, resolvePolicy } from "../permissions/resolver.js";
 import { runMethods } from "../runs/run-methods.js";
@@ -180,8 +186,26 @@ export interface EnvironmentOptions {
    * store is what runs go through. Preset: none.
    */
   readonly accounts?: readonly ConfiguredAccount[];
-  /** The sign-in director `accounts.add` hands a new account to. Preset: the one that says sign-in is not built yet, until #135. */
+  /**
+   * The sign-in director `accounts.add` hands a new account to and the
+   * `accounts.signin.*` methods drive. Preset: the director (#135) over
+   * Claude's sign-in program, run as `signInProcess` says.
+   */
   readonly signIn?: SignInDirectorFactory;
+  /**
+   * How the preset director's sign-ins run (#135): the process spawner, the
+   * environment a sign-in inherits before the scrub, the bundled binary, the
+   * managed tool and the working directory. Preset: `node:child_process`,
+   * this process's environment, the SDK's bundled binary, `claude` on the
+   * PATH, the home directory.
+   */
+  readonly signInProcess?: {
+    readonly spawn?: SignInSpawn;
+    readonly hostEnv?: HostEnvironment;
+    readonly bundled?: string | null;
+    readonly managedTool?: () => string | null;
+    readonly cwd?: string;
+  };
   /** How long an account's status or model probe may take. Preset: `PROBE_TIMEOUT_MS`. */
   readonly probeTimeoutMs?: number;
   /** How long a plan-usage read may take before the reading answers unavailable. Preset: `USAGE_READ_TIMEOUT_MS`. */
@@ -197,7 +221,8 @@ export interface EnvironmentOptions {
   readonly adapterSeams?: {
     readonly toolServers?: ToolServerFactory;
     readonly instructions?: InstructionComposer;
-    readonly broker?: PermissionBroker;
+    /** The broker's automatic answers (#131); preset: none, every prompt parks for a person. */
+    readonly autoAnswer?: PromptAutoAnswer;
     /** Preset: the policy resolver on the environment's permission settings (#129). */
     readonly resolvePolicy?: PolicySeam;
   };
@@ -364,6 +389,24 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     const stagedAttachments = recoverStagedAttachments({ log, stage: attachmentStage });
     const adapters = options.adapters ?? [createClaudeAdapter({ clock, autoMemoryRoot: join(dataDir, AUTO_MEMORY_DIRECTORY) })];
     const settings = () => readSettings({ all: (sql, ...params) => log.read(sql, ...params) });
+    // The sign-in director (#135): Claude accounts sign in through the bundled binary, else the managed tool `claude`.
+    const signInProcess = options.signInProcess ?? {};
+    const signIn =
+      options.signIn ??
+      createSignInDirector({
+        log,
+        clock,
+        environmentId: record.id,
+        programs: {
+          [CLAUDE_PROVIDER]: claudeSignInProgram({
+            bundled: signInProcess.bundled !== undefined ? signInProcess.bundled : bundledExecutable(),
+            ...(signInProcess.hostEnv !== undefined && { hostEnv: signInProcess.hostEnv }),
+            ...(signInProcess.managedTool !== undefined && { managedTool: signInProcess.managedTool }),
+          }),
+        },
+        ...(signInProcess.spawn !== undefined && { spawn: signInProcess.spawn }),
+        ...(signInProcess.cwd !== undefined && { cwd: signInProcess.cwd }),
+      });
     // The account store (#134): the configured accounts carried over once, then every account's status read, and read
     // again at most every fifteen minutes; its reads before the wire opens notice nothing.
     const store: AccountService = createAccountService({
@@ -377,7 +420,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
         const values = settings();
         return { account: values["accounts.defaultAccount"], modelFamily: values["accounts.defaultModelFamily"], effort: values["accounts.defaultEffort"] };
       },
-      ...(options.signIn !== undefined && { signIn: options.signIn }),
+      signIn,
       ...(options.probeTimeoutMs !== undefined && { probeTimeoutMs: options.probeTimeoutMs }),
     });
     closers.push(() => store.close());
@@ -443,6 +486,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
 
   // The environment's own notices: environment.subscribe's stream, whose snapshot is the status.
   const environmentStream = { kind: ENVIRONMENT_STREAM_KIND, id: record.id };
+  // A prompt that parks, and its answer, are told to every client there (#130); stopped before the event log closes.
+  closers.push(startPromptNotices({ log, stream: environmentStream }));
   const detector = options.containerDetector ?? processContainerDetector();
   // The purge: `sessions.purge` runs it at once, the minute sweep for every session past its grace period.
   const deletion = createDeletion({ log, transcripts: host.transcripts });
@@ -492,6 +537,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ...groupMethods({ log, clock: now }),
     ...runMethods({ log, host, ceilingOf: (id) => clientSessions.ceiling(id) }),
     ...permissionMethods({ log, host, accessLog, clock, environmentId: record.id, ceilingOf: (id) => clientSessions.ceiling(id) }),
+    ...promptMethods({ log, host, environmentId: record.id }),
     ...processMethods({ log, host }),
     ...accountMethods({ accounts, host }),
     ...usageMethods({ pool: usagePool, accounts, clock }),

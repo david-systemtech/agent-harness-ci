@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  SIGN_IN_ENDED_STATES,
+  SIGN_IN_STATES,
+  SignIn,
+  SignInCode,
   ACCOUNT_EVENT_TYPES,
   ACCOUNT_STREAM_KIND,
   AccountLabel,
@@ -85,7 +89,7 @@ describe("the account.updated notice", () => {
 });
 
 describe("the account, model and command methods", () => {
-  it("have the claude-adapter spec's scopes: the reads at read, adopt, add, relabel and remove at admin", () => {
+  it("have the claude-adapter spec's scopes: the reads at read, adopt, add, relabel, remove and the sign-in's commands at admin", () => {
     const owned = methods.filter((m) => m.name.startsWith("accounts.") || m.name.startsWith("models.") || m.name.startsWith("commands."));
     expect(Object.fromEntries(owned.map((m) => [m.name, [m.kind, m.scope]]))).toEqual({
       "accounts.list": ["query", "read"],
@@ -95,6 +99,10 @@ describe("the account, model and command methods", () => {
       "accounts.add": ["command", "admin"],
       "accounts.relabel": ["command", "admin"],
       "accounts.remove": ["command", "admin"],
+      "accounts.signin.get": ["query", "read"],
+      "accounts.signin.start": ["command", "admin"],
+      "accounts.signin.code": ["command", "admin"],
+      "accounts.signin.cancel": ["command", "admin"],
       "accounts.usage": ["query", "read"],
       "accounts.handoff.recommend": ["query", "read"],
       "models.list": ["query", "read"],
@@ -119,5 +127,43 @@ describe("the account, model and command methods", () => {
     expect(registry["models.list"].result.safeParse({ catalogues: [{ ...catalogue, models: [{ id: "opus", family: "opus", tier: 2.5, efforts: [], label: null }] }] }).success).toBe(false);
     expect(registry["commands.list"].params.safeParse({ workspace: { kind: "directory", path: "/work" } }).success).toBe(true);
     expect(registry["commands.list"].params.safeParse({ accountId: record.id }).success).toBe(false);
+  });
+});
+
+describe("the sign-in (#135)", () => {
+  const signIn = {
+    accountId: record.id,
+    state: "awaiting-code",
+    url: "https://claude.com/cai/oauth/authorize?code=true&state=abc",
+    startedAt: "2026-09-24T00:00:00.000Z",
+    expiresAt: "2026-09-24T00:10:00.000Z",
+    fallback: { posix: "CLAUDE_CONFIG_DIR='/x' claude auth login", powershell: "$env:CLAUDE_CONFIG_DIR = '/x'; & 'claude' auth login" },
+    error: null,
+  };
+
+  it("passes starting, awaiting-code and submitting, and ends done, failed, expired or cancelled", () => {
+    expect(SIGN_IN_STATES).toEqual(["starting", "awaiting-code", "submitting", "done", "failed", "expired", "cancelled"]);
+    expect(SIGN_IN_ENDED_STATES).toEqual(["done", "failed", "expired", "cancelled"]);
+  });
+
+  it("carries the account, the state, the URL, when it started and expires, the fallback command in both shells, and why it ended", () => {
+    expect(Object.keys(SignIn.shape)).toEqual(["accountId", "state", "url", "startedAt", "expiresAt", "fallback", "error"]);
+    expect(SignIn.parse(signIn)).toEqual(signIn);
+    expect(SignIn.safeParse({ ...signIn, fallback: { posix: signIn.fallback.posix } }).success).toBe(false);
+  });
+
+  it("goes out as signin.updated on environment.subscribe, carrying the sign-in, and never lists", () => {
+    const notice = { type: "signin.updated", payload: signIn };
+    expect(EnvironmentNotice.parse(notice)).toEqual(notice);
+    expect(eventTypeEntry("environment", "signin.updated")?.list).toBe(false);
+    expect(eventTypeEntry("environment", "signin.executable-chosen")?.list).toBe(false);
+  });
+
+  it("takes a code as one token from any client, which is never part of the sign-in", () => {
+    expect(SignInCode.safeParse("abc#def").success).toBe(true);
+    expect(SignInCode.safeParse("abc def").success).toBe(false);
+    expect(SignInCode.safeParse("abc\n").success).toBe(false);
+    expect(registry["accounts.signin.code"].params.safeParse({ commandId: "0f8fad5b-d9cb-469f-a165-70867728950e", accountId: record.id, code: "abc" }).success).toBe(true);
+    expect(Object.keys(SignIn.shape)).not.toContain("code");
   });
 });

@@ -10,6 +10,7 @@ import {
 import type { EventTypeEntry } from "./event-types.js";
 import { Mode } from "./permissions-modes.js";
 import { JsonObject, Sequence, Timestamp } from "./primitives.js";
+import { ParkedPrompt, PromptAnsweredPayload, PromptOpenedPayload } from "./prompts.js";
 import { Ceiling } from "./scopes.js";
 import { SessionId, SessionSummary, SummaryPatch, Workspace } from "./sessions.js";
 
@@ -416,8 +417,19 @@ const TasksItem = z
   .object({ kind: z.literal("tasks"), ...itemPart, runId: RunId, tasks: z.array(DelegatedWorkRow) })
   .meta({ description: "A run's delegated-work ledger as it stands, at the place its first tasks.changed came." });
 
+const PromptItem = z
+  .object({
+    kind: z.literal("prompt"),
+    ...itemPart,
+    runId: RunId,
+    promptId: z.string().min(1),
+    prompt: PromptOpenedPayload,
+    answer: PromptAnsweredPayload.nullable().meta({ description: "Its prompt.answered once it has one; null while it is parked." }),
+  })
+  .meta({ description: "A prompt, where it was asked: what it asked and, once answered, its answer and who gave it." });
+
 /** The item kinds this version of the contracts knows; an item of one of them is held to its schema, never kept opaque. */
-export const KNOWN_ITEM_KINDS = ["user-message", "assistant-text", "assistant-thinking", "tool-call", "command", "tasks"] as const;
+export const KNOWN_ITEM_KINDS = ["user-message", "assistant-text", "assistant-thinking", "tool-call", "command", "tasks", "prompt"] as const;
 
 /**
  * An item of a kind this version of the contracts does not know (ADR 0001):
@@ -444,28 +456,14 @@ export const TranscriptItem = z
     ToolCallItem,
     CommandItem,
     TasksItem,
+    PromptItem,
     OpaqueItem,
   ])
   .meta({
     description:
-      "One settled item of a transcript: a user message, assistant text or thinking, a tool call, a command, a run's delegated work, or an item of a kind the reader does not know, kept opaque.",
+      "One settled item of a transcript: a user message, assistant text or thinking, a tool call, a command, a run's delegated work, a prompt with its answer, or an item of a kind the reader does not know, kept opaque.",
   });
 export type TranscriptItem = z.infer<typeof TranscriptItem>;
-
-/**
- * A prompt a run is parked on, nobody having answered it: its id, where and
- * when it was opened, and the `prompt.opened` payload as it is, whose shape
- * is the permissions workstream's (#130).
- */
-export const ParkedPrompt = z
-  .object({
-    promptId: z.string().min(1),
-    sequence: Sequence.min(1).meta({ description: "The sequence of its prompt.opened." }),
-    openedAt: Timestamp,
-    prompt: JsonObject.meta({ description: "The prompt.opened payload as it is; its shape is the permissions workstream's (#130)." }),
-  })
-  .meta({ description: "A prompt a run is parked on, unanswered: its id, when it was opened, and what it asks." });
-export type ParkedPrompt = z.infer<typeof ParkedPrompt>;
 
 /**
  * What `sessions.subscribeSession` sends when replay from the cursor is out

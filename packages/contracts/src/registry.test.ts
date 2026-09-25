@@ -180,9 +180,13 @@ describe("the method registry", () => {
       "accounts.add",
       "accounts.relabel",
       "accounts.remove",
+      "accounts.signin.start",
+      "accounts.signin.code",
+      "accounts.signin.cancel",
       "settings.update",
       "permissions.mode.set",
       "permissions.settings.set",
+      "permissions.prompts.answer",
       "terminals.open",
       "terminals.write",
       "terminals.resize",
@@ -314,6 +318,10 @@ describe("the method registry", () => {
       | "accounts.add"
       | "accounts.relabel"
       | "accounts.remove"
+      | "accounts.signin.get"
+      | "accounts.signin.start"
+      | "accounts.signin.code"
+      | "accounts.signin.cancel"
       | "accounts.usage"
       | "accounts.handoff.recommend"
       | "models.list"
@@ -323,6 +331,8 @@ describe("the method registry", () => {
       | "permissions.mode.set"
       | "permissions.settings.get"
       | "permissions.settings.set"
+      | "permissions.prompts.list"
+      | "permissions.prompts.answer"
       | "terminals.open"
       | "terminals.write"
       | "terminals.resize"

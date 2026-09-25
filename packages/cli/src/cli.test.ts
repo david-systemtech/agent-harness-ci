@@ -6,6 +6,9 @@ import { createRunRegistry, systemClock, type LauncherQuery, type LauncherReply 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runCli, type CliContext } from "./cli.js";
 
+/** How long a spawned serve may take to print or drain under a loaded runner: vi.waitFor presets one second, which the full suite exceeds. */
+const SERVE_WAIT = { timeout: 15_000 };
+
 let cleanups: (() => void)[] = [];
 afterEach(() => {
   for (const cleanup of cleanups.reverse()) cleanup();
@@ -51,7 +54,7 @@ describe("agent-harness serve", () => {
   it("prints the discovery address once ready, serves until stopped, then exits 0", async () => {
     const cli = harness();
     const exit = runCli(["serve", "--data-dir", join(tempDir(), "data"), "--port", "0", "--name", "cli"], cli.context);
-    await vi.waitFor(() => expect(cli.out()).toMatch(/\n$/));
+    await vi.waitFor(() => expect(cli.out()).toMatch(/\n$/), SERVE_WAIT);
 
     const address = cli.out().trim();
     expect(address).toMatch(new RegExp(`^http://127\\.0\\.0\\.1:\\d+${DISCOVERY_PATH.replaceAll(".", "\\.")}$`));
@@ -73,11 +76,11 @@ describe("agent-harness serve", () => {
     cli.runs.running("r1");
     let exited = false;
     const exit = runCli(["serve", "--data-dir", join(tempDir(), "data"), "--port", "0"], cli.context).finally(() => (exited = true));
-    await vi.waitFor(() => expect(cli.out()).toMatch(/\n$/));
+    await vi.waitFor(() => expect(cli.out()).toMatch(/\n$/), SERVE_WAIT);
     const address = cli.out().trim();
 
     cli.stop();
-    await vi.waitFor(async () => expect(await (await fetch(address)).json()).toMatchObject({ readiness: "draining" }));
+    await vi.waitFor(async () => expect(await (await fetch(address)).json()).toMatchObject({ readiness: "draining" }), SERVE_WAIT);
     expect(exited).toBe(false);
     expect(cli.close).not.toHaveBeenCalled();
     cli.runs.end("r1");
@@ -89,7 +92,7 @@ describe("agent-harness serve", () => {
   it("drains and exits 0 when the launcher's channel asks it to, having answered that it is idle", async () => {
     const cli = harness();
     const exit = runCli(["serve", "--data-dir", join(tempDir(), "data"), "--port", "0"], cli.context);
-    await vi.waitFor(() => expect(cli.out()).toMatch(/\n$/));
+    await vi.waitFor(() => expect(cli.out()).toMatch(/\n$/), SERVE_WAIT);
     expect(cli.ask({ type: "idle?" })).toEqual({
       type: "idle",
       readiness: "ready",
@@ -121,7 +124,7 @@ describe("agent-harness serve", () => {
   it("prints the failed step and exits 1 when startup fails", async () => {
     const first = harness();
     const running = runCli(["serve", "--data-dir", join(tempDir(), "one"), "--port", "0"], first.context);
-    await vi.waitFor(() => expect(first.out()).toMatch(/\n$/));
+    await vi.waitFor(() => expect(first.out()).toMatch(/\n$/), SERVE_WAIT);
     const port = new URL(first.out().trim()).port;
 
     const second = harness();

@@ -369,7 +369,18 @@ describe("canUseTool on the broker seam", () => {
       // The permission table's id: an answer through the host's answerPrompt names the same prompt.
       promptId: "toolu_rm",
       signal: expect.any(AbortSignal),
-      detail: expect.objectContaining({ promptId: "toolu_rm", toolName: "Bash", input: { command: "rm -rf build" }, title: "Claude wants to run rm -rf build" }),
+      detail: {
+        toolName: "Bash",
+        toolCallId: "toolu_rm",
+        input: { command: "rm -rf build" },
+        summary: "Claude wants to run rm -rf build",
+        blockedPath: null,
+        reason: null,
+        questions: null,
+        plan: null,
+        suggestions: [],
+        agentId: null,
+      },
     });
     let settled = false;
     void asked.then(() => (settled = true));

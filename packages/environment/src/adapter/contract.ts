@@ -9,6 +9,8 @@ import type {
   Mode,
   ModelUsage,
   ProcessHoldKind,
+  PromptKind,
+  PromptQuestion,
   RunError,
   TranscriptPayload,
   Workspace,
@@ -160,7 +162,36 @@ export interface RunInput {
 }
 
 /** The kinds of prompt a run parks on (conflict X1: the permissions workstream's names). */
-export type PromptKind = "permission" | "denylist" | "question" | "plan";
+export type { PromptKind };
+
+/**
+ * What a provider asks, mapped by its adapter onto the harness's fields
+ * (permissions spec, "Prompts": Artemis's `PermissionRequest`), which the
+ * broker records on `prompt.opened`. Every field is optional: the broker
+ * records what is absent as null (a summary it derives from the rest).
+ */
+export interface PromptDetail {
+  /** The tool the call is for. */
+  readonly toolName?: string | null;
+  /** The provider's id for the tool call. */
+  readonly toolCallId?: string | null;
+  /** The tool's input as the model gave it. */
+  readonly input?: JsonObject | null;
+  /** One line saying what is asked (Claude's permission title); derived from the rest when absent. */
+  readonly summary?: string | null;
+  /** The path that made the provider ask. */
+  readonly blockedPath?: string | null;
+  /** Why the provider asked, in its own words. */
+  readonly reason?: string | null;
+  /** A question prompt's questions. */
+  readonly questions?: readonly PromptQuestion[] | null;
+  /** A plan prompt's plan text. */
+  readonly plan?: string | null;
+  /** The provider's remember-suggestions, in its own terms: what an answer with `remember: 'session'` applies. */
+  readonly suggestions?: readonly JsonObject[];
+  /** The subagent that asked. */
+  readonly agentId?: string | null;
+}
 
 /** A permission prompt or question a run asks through the broker. */
 export interface PromptRequest {
@@ -174,13 +205,14 @@ export interface PromptRequest {
    */
   readonly promptId?: string;
   readonly kind: PromptKind;
-  /** What the provider asks, in its terms; the broker (#130) fixes the shape it records. */
-  readonly detail: JsonObject;
+  /** What the provider asks, on the harness's fields; the broker records it on `prompt.opened`. */
+  readonly detail: PromptDetail;
   /**
-   * Aborted when the provider withdraws the request (the tool call became
+   * Aborted when the provider cancels the request (the tool call became
    * moot, the turn was interrupted): the adapter has answered it itself, so
    * the host counts the prompt answered, once, and at once when it had
-   * aborted before the request was made, and the broker may close it.
+   * aborted before the request was made, and the broker closes it
+   * (`cancelled`) unless its run's end closes it first.
    */
   readonly signal?: AbortSignal;
 }
@@ -202,23 +234,34 @@ export class PromptClosed extends Error {
   }
 }
 
-/** The answer to a prompt: allowed or denied, with a message for the model. */
+/**
+ * The answer to a prompt: allowed or denied, with a message for the model,
+ * and what a person's answer may carry beside (`permissions.prompts.answer`):
+ * a question's answers keyed by the question's text, the tool's input as
+ * edited, an approved plan's mode to continue in (already clamped to the
+ * run's ceiling), and `remember: 'session'` on an allowed permission prompt,
+ * which the adapter applies through the provider's own session rules.
+ */
 export interface PromptDecision {
   readonly decision: "allow" | "deny";
   readonly message?: string;
+  readonly answers?: Readonly<Record<string, string>>;
+  readonly updatedInput?: JsonObject;
+  readonly mode?: Mode;
+  readonly remember?: "session";
 }
 
 /**
- * Where a run's prompts go (claude-adapter spec, "The permission broker"):
- * the one place a provider's prompt or question lands. #130 replaces the
- * auto-deny placeholder (`seams.ts`) with the broker that parks prompts.
+ * Where a run's prompts go (claude-adapter spec, "The permission broker";
+ * permissions spec, the broker): the one place a provider's prompt or
+ * question lands. The host hands each run the environment's broker
+ * (`host.ts`), which records the prompt as `prompt.opened`, parks the run,
+ * and settles the request with the answer a person gives
+ * (`permissions.prompts.answer`), or, when the run ends, with a denial.
  *
  * The host counts a run parked from a request until that prompt is
  * answered: when the request settles, or when the host answers it through
- * `AdapterHost.answerPrompt`, whichever comes first. An answer given any
- * other way must settle the request, or the run stays parked and is ended
- * `interrupted`, cause `parked`, once its process has been parked for the
- * idle time.
+ * `AdapterHost.answerPrompt`, whichever comes first.
  */
 export interface PermissionBroker {
   request(request: PromptRequest): Promise<PromptDecision>;
@@ -351,9 +394,9 @@ export interface ProcessPort {
 /** What the host hands a run beside its input. */
 export interface RunContext {
   /**
-   * Where the run's prompts go: the auto-deny placeholder until #130. The
-   * host hands the run the broker wrapped, so the run counts as parked
-   * while a request is unanswered.
+   * Where the run's prompts go: the environment's broker, which records
+   * each as `prompt.opened` on the session's stream and parks the run while
+   * it is unanswered.
    */
   readonly broker: PermissionBroker;
   /** Held work on the session's provider process (the pool's port). */

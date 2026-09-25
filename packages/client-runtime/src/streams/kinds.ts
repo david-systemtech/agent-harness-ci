@@ -165,8 +165,9 @@ export const sessionKind = (): StreamKind<SessionData> => ({
  * (ADR 0005), from `environment.status` and an environment-updated notice.
  * As built neither carries them: the notices are `environment.started`,
  * `environment.updated` (harness versions), `environment.draining`,
- * `account.updated` (the account store, #134) and `usage.updated` (plan
- * usage, #136), and
+ * `account.updated` (the account store, #134), `signin.updated` and
+ * `signin.executable-chosen` (the sign-in director, #135), `usage.updated`
+ * (plan usage, #136), and
  * the status is readiness, activity and `updatesManagedOutside`; so the name
  * comes from discovery and `hello`, and icon and colour stay null until the
  * workspace-picker workstream adds the notice this `apply` then reads.
@@ -188,10 +189,18 @@ export const environmentKind = (): StreamKind<EnvironmentData> => ({
         return { status: { ...data.status, readiness: "draining", activity: { state: "draining", drainingSince: notice.data.payload.drainingSince } } };
       case "environment.started":
         return { status: { ...data.status, readiness: "ready", activity: { state: "idle" } } };
-      // A new version, an account changed (#134) or its plan usage (#136): the status holds none; a request cache refreshes on the last two.
+      // A new version, an account changed (#134), the sign-in moved (#135), or an account's plan usage (#136): the status
+      // holds none of them. A request cache refreshes on usage.updated; refreshing it on the account and sign-in notices is
+      // owed to the clients.
       case "environment.updated":
       case "account.updated":
+      case "signin.updated":
+      case "signin.executable-chosen":
       case "usage.updated":
+        return data;
+      // A prompt's notices change no status: the parked asks and the notices queue are projections of their own (#142).
+      case "prompt.parked":
+      case "prompt.resolved":
         return data;
     }
   },

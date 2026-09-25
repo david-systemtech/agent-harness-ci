@@ -2,6 +2,7 @@ export { PRODUCT_NAME } from "./product.js";
 
 export * from "./access-log.js";
 export * from "./accounts.js";
+export * from "./actions.js";
 export * from "./adapter.js";
 export * from "./bootstrap.js";
 export * from "./discovery.js";
@@ -17,6 +18,7 @@ export * from "./pairing.js";
 export * from "./permissions.js";
 export * from "./permissions-modes.js";
 export * from "./permissions-settings.js";
+export * from "./prompts.js";
 export {
   METHOD_KINDS,
   commandParams,

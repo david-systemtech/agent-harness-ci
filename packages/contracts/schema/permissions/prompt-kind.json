@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PromptKind",
+  "type": "string",
+  "enum": [
+    "permission",
+    "denylist",
+    "question",
+    "plan"
+  ],
+  "description": "What a prompt asks: permission (a tool call the mode does not allow without asking), denylist (a call that touches the denylist), question (the model asks its user), or plan (a plan to approve, with the mode to continue in)."
+}

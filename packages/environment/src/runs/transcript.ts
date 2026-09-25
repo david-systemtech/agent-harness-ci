@@ -3,11 +3,12 @@ import {
   eventTypeEntry,
   type AssistantTextPayload,
   type CommandRanPayload,
-  type JsonObject,
   type MessageDeliveredPayload,
   type MessageRequeuedPayload,
   type MessageSentPayload,
   type ParkedPrompt,
+  type PromptAnsweredPayload,
+  type PromptOpenedPayload,
   type RunEndedPayload,
   type RunStartedPayload,
   type RunSummary,
@@ -97,6 +98,8 @@ export const foldTranscript = (events: Iterable<EventEnvelope>, from?: Transcrip
   const messages = new Map<string, ItemOf<"user-message">>();
   const toolCalls = new Map<string, ItemOf<"tool-call">>();
   const ledgers = new Map<string, ItemOf<"tasks">>();
+  /** Prompt items not yet answered, by prompt id. */
+  const prompts = new Map<string, ItemOf<"prompt">>();
   // The items of the fold it goes on from that later events update, by the ids those carry.
   for (const item of items) {
     if (item.kind === "user-message") {
@@ -108,6 +111,9 @@ export const foldTranscript = (events: Iterable<EventEnvelope>, from?: Transcrip
     } else if (item.kind === "tasks") {
       const ledger = item as unknown as ItemOf<"tasks">;
       ledgers.set(ledger.runId, ledger);
+    } else if (item.kind === "prompt") {
+      const prompt = item as unknown as ItemOf<"prompt">;
+      if (prompt.answer === null) prompts.set(prompt.promptId, prompt);
     }
   }
 
@@ -255,15 +261,18 @@ export const foldTranscript = (events: Iterable<EventEnvelope>, from?: Transcrip
         break;
       }
       case "prompt.opened": {
-        const promptId = (event.payload as JsonObject)["promptId"];
-        if (typeof promptId === "string" && promptId !== "") {
-          parked.set(promptId, { promptId, sequence, openedAt: event.occurredAt, prompt: event.payload });
-        }
+        // Parked until answered, and an item where it was asked, which its answer completes.
+        const prompt = event.payload as PromptOpenedPayload;
+        parked.set(prompt.promptId, { promptId: prompt.promptId, sequence, openedAt: event.occurredAt, prompt });
+        prompts.set(prompt.promptId, push<ItemOf<"prompt">>({ kind: "prompt", sequence, runId: prompt.runId, promptId: prompt.promptId, prompt, answer: null }));
         break;
       }
       case "prompt.answered": {
-        const promptId = (event.payload as JsonObject)["promptId"];
-        if (typeof promptId === "string") parked.delete(promptId);
+        const answer = event.payload as PromptAnsweredPayload;
+        parked.delete(answer.promptId);
+        const item = prompts.get(answer.promptId);
+        if (item !== undefined) item.answer = answer;
+        prompts.delete(answer.promptId);
         break;
       }
       default:

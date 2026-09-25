@@ -7,7 +7,11 @@
     "environment.updated",
     "environment.draining",
     "account.updated",
+    "signin.updated",
+    "signin.executable-chosen",
+    "prompt.parked",
+    "prompt.resolved",
     "usage.updated"
   ],
-  "description": "An environment notice's event type: environment.started (startup finished), environment.updated (a new harness version now runs), environment.draining (new runs are refused before a restart), account.updated (an account changed; a client refreshes what it caches of the accounts), usage.updated (an account's plan-usage reading changed; a client refreshes what it caches of the readings)."
+  "description": "An environment notice's event type: environment.started (startup finished), environment.updated (a new harness version now runs), environment.draining (new runs are refused before a restart), account.updated (an account changed; a client refreshes what it caches of the accounts), signin.updated (the sign-in changed state: the verification URL, the end), signin.executable-chosen (which executable sign-ins run, recorded once), prompt.parked (a run waits for a person's answer), prompt.resolved (a parked prompt was answered), usage.updated (an account's plan-usage reading changed; a client refreshes what it caches of the readings)."
 }

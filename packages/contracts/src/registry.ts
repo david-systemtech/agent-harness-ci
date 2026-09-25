@@ -44,7 +44,7 @@ import {
   sessionsUnsnooze,
   sessionsUntag,
 } from "./methods/sessions.js";
-import { permissionsModeSet, permissionsSettingsGet, permissionsSettingsSet } from "./methods/permissions.js";
+import { permissionsModeSet, permissionsPromptsAnswer, permissionsPromptsList, permissionsSettingsGet, permissionsSettingsSet } from "./methods/permissions.js";
 import { runsInterrupt, runsSend, runsStart, runsStopTask } from "./methods/runs.js";
 import { providersList, providersProcessesList, providersProcessesStop } from "./methods/providers.js";
 import { settingsGet, settingsUpdate } from "./methods/settings.js";
@@ -57,6 +57,10 @@ import {
   accountsRefresh,
   accountsRelabel,
   accountsRemove,
+  accountsSigninCancel,
+  accountsSigninCode,
+  accountsSigninGet,
+  accountsSigninStart,
   accountsUsage,
   commandsList,
   modelsList,
@@ -130,6 +134,10 @@ export const methods = [
   accountsAdd,
   accountsRelabel,
   accountsRemove,
+  accountsSigninGet,
+  accountsSigninStart,
+  accountsSigninCode,
+  accountsSigninCancel,
   accountsUsage,
   accountsHandoffRecommend,
   modelsList,
@@ -139,6 +147,8 @@ export const methods = [
   permissionsModeSet,
   permissionsSettingsGet,
   permissionsSettingsSet,
+  permissionsPromptsList,
+  permissionsPromptsAnswer,
   terminalsOpen,
   terminalsWrite,
   terminalsResize,

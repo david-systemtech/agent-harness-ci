@@ -399,6 +399,14 @@
       "title": "SessionPullRequestSyncedPayload"
     },
     {
+      "path": "sessions/events/prompt.opened.json",
+      "title": "PromptOpenedPayload"
+    },
+    {
+      "path": "sessions/events/prompt.answered.json",
+      "title": "PromptAnsweredPayload"
+    },
+    {
       "path": "sessions/events/run.started.json",
       "title": "RunStartedPayload"
     },
@@ -671,6 +679,30 @@
       "title": "SignInStart"
     },
     {
+      "path": "accounts/sign-in-state.json",
+      "title": "SignInState"
+    },
+    {
+      "path": "accounts/sign-in-fallback.json",
+      "title": "SignInFallback"
+    },
+    {
+      "path": "accounts/sign-in.json",
+      "title": "SignIn"
+    },
+    {
+      "path": "accounts/sign-in-code.json",
+      "title": "SignInCode"
+    },
+    {
+      "path": "accounts/sign-in-executable-source.json",
+      "title": "SignInExecutableSource"
+    },
+    {
+      "path": "accounts/sign-in-executable-chosen.json",
+      "title": "SignInExecutableChosenPayload"
+    },
+    {
       "path": "usage/verdict.json",
       "title": "UsageVerdict"
     },
@@ -823,6 +855,42 @@
       "title": "PermissionSettingsPatch"
     },
     {
+      "path": "permissions/prompt-kind.json",
+      "title": "PromptKind"
+    },
+    {
+      "path": "permissions/prompt-question-option.json",
+      "title": "PromptQuestionOption"
+    },
+    {
+      "path": "permissions/prompt-question.json",
+      "title": "PromptQuestion"
+    },
+    {
+      "path": "permissions/auto-decider.json",
+      "title": "AutoDecider"
+    },
+    {
+      "path": "permissions/decided-by.json",
+      "title": "DecidedBy"
+    },
+    {
+      "path": "permissions/prompt-delivery.json",
+      "title": "PromptDelivery"
+    },
+    {
+      "path": "permissions/prompt-decision.json",
+      "title": "PromptDecisionValue"
+    },
+    {
+      "path": "permissions/prompt-answer-input.json",
+      "title": "PromptAnswerInput"
+    },
+    {
+      "path": "permissions/listed-prompt.json",
+      "title": "ListedPrompt"
+    },
+    {
       "path": "terminals/terminal-id.json",
       "title": "TerminalId"
     },
@@ -873,6 +941,14 @@
     {
       "path": "diffs/session-diff-file.json",
       "title": "SessionDiffFile"
+    },
+    {
+      "path": "actions/action-context.json",
+      "title": "ActionContext"
+    },
+    {
+      "path": "actions/action.json",
+      "title": "Action"
     },
     {
       "path": "actor.json",
@@ -1867,6 +1943,66 @@
       "title": "accounts.remove error"
     },
     {
+      "path": "methods/accounts.signin.get/params.json",
+      "title": "accounts.signin.get params"
+    },
+    {
+      "path": "methods/accounts.signin.get/result.json",
+      "title": "accounts.signin.get result"
+    },
+    {
+      "path": "methods/accounts.signin.get/error.json",
+      "title": "accounts.signin.get error"
+    },
+    {
+      "path": "methods/accounts.signin.start/params.json",
+      "title": "accounts.signin.start params"
+    },
+    {
+      "path": "methods/accounts.signin.start/result.json",
+      "title": "accounts.signin.start result"
+    },
+    {
+      "path": "methods/accounts.signin.start/response.json",
+      "title": "accounts.signin.start response"
+    },
+    {
+      "path": "methods/accounts.signin.start/error.json",
+      "title": "accounts.signin.start error"
+    },
+    {
+      "path": "methods/accounts.signin.code/params.json",
+      "title": "accounts.signin.code params"
+    },
+    {
+      "path": "methods/accounts.signin.code/result.json",
+      "title": "accounts.signin.code result"
+    },
+    {
+      "path": "methods/accounts.signin.code/response.json",
+      "title": "accounts.signin.code response"
+    },
+    {
+      "path": "methods/accounts.signin.code/error.json",
+      "title": "accounts.signin.code error"
+    },
+    {
+      "path": "methods/accounts.signin.cancel/params.json",
+      "title": "accounts.signin.cancel params"
+    },
+    {
+      "path": "methods/accounts.signin.cancel/result.json",
+      "title": "accounts.signin.cancel result"
+    },
+    {
+      "path": "methods/accounts.signin.cancel/response.json",
+      "title": "accounts.signin.cancel response"
+    },
+    {
+      "path": "methods/accounts.signin.cancel/error.json",
+      "title": "accounts.signin.cancel error"
+    },
+    {
       "path": "methods/accounts.usage/params.json",
       "title": "accounts.usage params"
     },
@@ -1985,6 +2121,34 @@
     {
       "path": "methods/permissions.settings.set/error.json",
       "title": "permissions.settings.set error"
+    },
+    {
+      "path": "methods/permissions.prompts.list/params.json",
+      "title": "permissions.prompts.list params"
+    },
+    {
+      "path": "methods/permissions.prompts.list/result.json",
+      "title": "permissions.prompts.list result"
+    },
+    {
+      "path": "methods/permissions.prompts.list/error.json",
+      "title": "permissions.prompts.list error"
+    },
+    {
+      "path": "methods/permissions.prompts.answer/params.json",
+      "title": "permissions.prompts.answer params"
+    },
+    {
+      "path": "methods/permissions.prompts.answer/result.json",
+      "title": "permissions.prompts.answer result"
+    },
+    {
+      "path": "methods/permissions.prompts.answer/response.json",
+      "title": "permissions.prompts.answer response"
+    },
+    {
+      "path": "methods/permissions.prompts.answer/error.json",
+      "title": "permissions.prompts.answer error"
     },
     {
       "path": "methods/terminals.open/params.json",
@@ -2640,6 +2804,45 @@
       "error": "methods/accounts.remove/error.json"
     },
     {
+      "name": "accounts.signin.get",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/accounts.signin.get/params.json",
+      "result": "methods/accounts.signin.get/result.json",
+      "error": "methods/accounts.signin.get/error.json"
+    },
+    {
+      "name": "accounts.signin.start",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/accounts.signin.start/params.json",
+      "result": "methods/accounts.signin.start/result.json",
+      "response": "methods/accounts.signin.start/response.json",
+      "error": "methods/accounts.signin.start/error.json"
+    },
+    {
+      "name": "accounts.signin.code",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/accounts.signin.code/params.json",
+      "result": "methods/accounts.signin.code/result.json",
+      "response": "methods/accounts.signin.code/response.json",
+      "error": "methods/accounts.signin.code/error.json"
+    },
+    {
+      "name": "accounts.signin.cancel",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/accounts.signin.cancel/params.json",
+      "result": "methods/accounts.signin.cancel/result.json",
+      "response": "methods/accounts.signin.cancel/response.json",
+      "error": "methods/accounts.signin.cancel/error.json"
+    },
+    {
       "name": "accounts.usage",
       "scope": "read",
       "kind": "query",
@@ -2722,6 +2925,25 @@
       "result": "methods/permissions.settings.set/result.json",
       "response": "methods/permissions.settings.set/response.json",
       "error": "methods/permissions.settings.set/error.json"
+    },
+    {
+      "name": "permissions.prompts.list",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/permissions.prompts.list/params.json",
+      "result": "methods/permissions.prompts.list/result.json",
+      "error": "methods/permissions.prompts.list/error.json"
+    },
+    {
+      "name": "permissions.prompts.answer",
+      "scope": "runs:drive",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/permissions.prompts.answer/params.json",
+      "result": "methods/permissions.prompts.answer/result.json",
+      "response": "methods/permissions.prompts.answer/response.json",
+      "error": "methods/permissions.prompts.answer/error.json"
     },
     {
       "name": "terminals.open",
