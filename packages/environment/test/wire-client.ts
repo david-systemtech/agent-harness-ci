@@ -31,6 +31,15 @@ import type { Address } from "../src/serve/http.js";
 /** How long a test waits for a frame or a close before failing, in real time. */
 export const WAIT_MS = 3000;
 
+/**
+ * How long a test keeps trying to open the wire's socket, in real time: on a
+ * loaded runner the listener can refuse or reset a connect it would take a
+ * moment later (issue #226: the same tests failed with "Could not open" at
+ * eight to twelve seconds on 2026-09-25 and pass alone), so a failed connect
+ * is tried again until this runs out, not given up on at once.
+ */
+export const CONNECT_MS = 15_000;
+
 /** The URL of the wire at `address`: no query, no token, ever. */
 export const wireUrl = (address: Address): string => `ws://${address.host}:${address.port}${WIRE_PATH}`;
 
@@ -80,14 +89,35 @@ export interface OpenOptions {
   readonly autoPong?: boolean;
 }
 
+/** One connect attempt: the socket once open, or the error the attempt ended with. */
+const attemptOpen = (url: string): Promise<WebSocket> =>
+  new Promise((resolve, reject) => {
+    const ws = new WebSocket(url);
+    ws.addEventListener("open", () => resolve(ws));
+    ws.addEventListener("error", () => reject(new Error(`Could not open ${url}.`)));
+  });
+
+/** Opens the wire's socket, trying again on a refused or reset connect until `CONNECT_MS` runs out. */
+const connect = async (url: string): Promise<WebSocket> => {
+  const until = Date.now() + CONNECT_MS;
+  for (;;) {
+    try {
+      return await attemptOpen(url);
+    } catch (error) {
+      if (Date.now() >= until) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  }
+};
+
 /** Opens a WebSocket to the wire at `address` and resolves once it is open. */
 export const openSocket = async (address: Address, options: OpenOptions = {}): Promise<ClientSocket> => {
-  const ws = new WebSocket(wireUrl(address));
+  const ws = await connect(wireUrl(address));
   const received: Frame[] = [];
   const returned = new Set<number>();
   const waiters = new Set<() => void>();
   let failure: Error | undefined;
-  let open = false;
+  let open = true;
 
   const wake = () => {
     for (const waiter of [...waiters]) waiter();
@@ -118,17 +148,6 @@ export const openSocket = async (address: Address, options: OpenOptions = {}): P
     }
     wake();
   });
-
-  await withTimeout(
-    new Promise<void>((resolve, reject) => {
-      ws.addEventListener("open", () => {
-        open = true;
-        resolve();
-      });
-      ws.addEventListener("error", () => reject(new Error(`Could not open ${wireUrl(address)}.`)));
-    }),
-    "the WebSocket to open",
-  );
 
   const next = (predicate: (frame: Frame) => boolean = () => true): Promise<Frame> =>
     withTimeout(
