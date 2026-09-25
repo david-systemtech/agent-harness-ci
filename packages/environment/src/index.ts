@@ -65,6 +65,7 @@ export {
   type ProviderTurn,
   type RunContext,
   type RunEnd,
+  type ToolDenial,
   type RunInput,
   type RunTarget,
   type ToolServer,
@@ -128,6 +129,8 @@ export {
   type RunActor,
 } from "./permissions/resolver.js";
 export { PERMISSIONS_PROJECTOR, permissionsProjector } from "./permissions/permissions-store.js";
+export { BYPASS_DENIAL, UNATTENDED_ANSWER, UNATTENDED_DENIAL, autoAnswer } from "./permissions/auto-answer.js";
+export { TTL_ANSWER, TTL_DENIAL, TTL_SWEEP_INTERVAL_MS, createTtlSweeper, type TtlSweeper, type TtlSweeperOptions } from "./permissions/ttl-sweeper.js";
 export { runMethods, type RunMethodsOptions } from "./runs/run-methods.js";
 export { foldTranscript, type TranscriptParts } from "./runs/transcript.js";
 export { SETTLE_SWEEP_ACTOR, SETTLE_SWEEP_INTERVAL_MS, createSettleSweep, type SettleSweep, type SweepOutcome } from "./sessions/settle-sweep.js";
@@ -187,6 +190,7 @@ export {
   STARTUP_STEPS,
   StartupError,
   startEnvironment,
+  type ActorRunRequest,
   type EnvironmentHandle,
   type EnvironmentOptions,
   type StartupHooks,

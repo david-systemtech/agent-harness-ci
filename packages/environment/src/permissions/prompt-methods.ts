@@ -19,6 +19,7 @@ import type { Reader } from "../sessions/session-reads.js";
 import { sessionStream } from "../sessions/streams.js";
 import { parkedPrompts, readPrompt } from "./prompts-store.js";
 import { clampMode, noModeAvailable } from "./resolver.js";
+import { answerEvents } from "./tool-decisions.js";
 
 /**
  * The parked prompts' methods (#130; permissions spec, "Prompts, parked
@@ -127,7 +128,8 @@ export const promptMethods = ({ log, host, environmentId }: PromptMethodsOptions
         delivery: live ? "live" : "next-run",
       };
       const attribution = { tx: context.tx, actor: context.actor, commandId: context.commandId, correlationId: runId };
-      log.append(aggregate, [{ type: "prompt.answered", payload }], attribution);
+      // The call's decision beside it (#131): the person's.
+      log.append(aggregate, answerEvents(reader, prompt, payload), attribution);
       if (mode !== null && mode.effective !== session.mode) {
         const modeSet: SessionModeSetPayload = {
           mode: { ...mode, requested: mode.requested ?? PLAN_CONTINUE_DEFAULT },

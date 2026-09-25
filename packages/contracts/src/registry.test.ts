@@ -180,6 +180,7 @@ describe("the method registry", () => {
       "permissions.mode.set",
       "permissions.settings.set",
       "permissions.prompts.answer",
+      "permissions.review.seen",
       "terminals.open",
       "terminals.write",
       "terminals.resize",
@@ -311,6 +312,8 @@ describe("the method registry", () => {
       | "permissions.settings.set"
       | "permissions.prompts.list"
       | "permissions.prompts.answer"
+      | "permissions.review.list"
+      | "permissions.review.seen"
       | "terminals.open"
       | "terminals.write"
       | "terminals.resize"

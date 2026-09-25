@@ -127,6 +127,8 @@ describe("a run's event stream", () => {
       "tool.started",
       "tool.updated",
       "tool.ended",
+      // The call nobody was asked about ended ok: the mode let it through, and the host says so beside its end (#131).
+      "tool.decision",
       "usage.reported",
       "run.ended",
     ]);
@@ -134,7 +136,9 @@ describe("a run's event stream", () => {
       expect(event.payload["runId"], event.type).toBe(runId);
       expect(event.correlationId, event.type).toBe(runId);
     }
-    expect(events.slice(3, -1).map((event) => event.actor)).toEqual(Array(7).fill("adapter:fake"));
+    const reported = events.slice(3, -1);
+    expect(reported.filter((event) => event.type !== "tool.decision").map((event) => event.actor)).toEqual(Array(7).fill("adapter:fake"));
+    expect(reported.find((event) => event.type === "tool.decision")).toMatchObject({ actor: "system:adapter-host", payload: { toolCallId: "t-1", decision: "allowed", decidedBy: "mode" } });
     expect(events.at(-1)).toMatchObject({ actor: "adapter:fake", payload: { reason: "completed", resultText: "Hello.", turnCount: 1, error: null } });
     expect(t.adapter.lastRun()).toMatchObject({ iterations: 1, released: true, disposed: false });
   });

@@ -1,5 +1,5 @@
 import type { JsonObject, ModelUsage, RunError } from "@agent-harness/contracts";
-import type { AdapterEvent, RunEnd, TranscriptEvent } from "../../adapter/contract.js";
+import type { AdapterEvent, RunEnd, ToolDenial, TranscriptEvent } from "../../adapter/contract.js";
 import type { TaskLedger } from "./tasks.js";
 
 /**
@@ -48,6 +48,8 @@ export interface MapperState {
   interruptRequested: boolean;
   readonly openTools: Map<string, OpenTool>;
   readonly closedTools: Set<string>;
+  /** The calls whose denial the turn has reported, from a frame or the result (#131). */
+  readonly deniedTools: Set<string>;
   readonly streams: Map<string, Stream>;
   readonly openItems: Map<string, OpenItem>;
   /** The provider's last in-band error, for an ending that names none. */
@@ -64,6 +66,7 @@ export const createMapperState = (options: { readonly ledger: TaskLedger; readon
   interruptRequested: false,
   openTools: new Map(),
   closedTools: new Set(),
+  deniedTools: new Set(),
   streams: new Map(),
   openItems: new Map(),
   lastError: null,
@@ -120,6 +123,44 @@ const endTool = (state: MapperState, id: string, status: "ok" | "error" | "cance
   state.openTools.delete(id);
   state.closedTools.add(id);
   return [event("tool.ended", { toolCallId: id, status, output: toJson(output) as never, durationMs: Math.max(0, state.now() - open.startedAt) })];
+};
+
+/** The kind of reason a denial report names (`decision_reason_type`), as the harness's deciders read it: anything else is the provider's own. */
+const DENIED_BY: Readonly<Record<string, ToolDenial["by"]>> = { rule: "rule", classifier: "classifier", mode: "mode" };
+
+/** The provider's denial of a call the turn saw start, once per call. */
+const denial = (state: MapperState, id: string, toolName: string | null, by: ToolDenial["by"], reason: string | null): ToolDenial[] => {
+  if (state.deniedTools.has(id) || !(state.openTools.has(id) || state.closedTools.has(id))) return [];
+  state.deniedTools.add(id);
+  return [{ type: "denial", toolCallId: id, toolName, by, reason }];
+};
+
+/**
+ * A `permission_denied` frame: the CLI denied a call without asking the
+ * broker (a deny rule, its classifier, its mode). Reported as the call's
+ * denial, by the reason's kind, then its end.
+ */
+const mapPermissionDenied = (message: Record_, state: MapperState): AdapterEvent[] => {
+  const id = text(message["tool_use_id"]);
+  if (id === null || !state.openTools.has(id)) return [];
+  const kind = text(message["decision_reason_type"]);
+  const by = (kind === null ? undefined : DENIED_BY[kind]) ?? "provider";
+  const said = text(message["message"]);
+  return [...denial(state, id, text(message["tool_name"]), by, text(message["decision_reason"]) ?? said), ...endTool(state, id, "error", said ?? "The tool call was denied.")];
+};
+
+/**
+ * The result's `permission_denials`, the CLI's authoritative record: a
+ * denial no frame reported (a path-scoped deny rule on a file tool, a race)
+ * is reported here as a rule's, for a call the turn saw; one the broker was
+ * asked about is the prompt's, and the host keeps the prompt's answer.
+ */
+const resultDenials = (message: Record_, state: MapperState): ToolDenial[] => {
+  const denials = Array.isArray(message["permission_denials"]) ? message["permission_denials"] : [];
+  return denials.flatMap((entry: unknown) => {
+    const id = isRecord(entry) ? text(entry["tool_use_id"]) : null;
+    return id === null || !isRecord(entry) ? [] : denial(state, id, text(entry["tool_name"]), "rule", null);
+  });
 };
 
 const mapInit = (message: Record_, state: MapperState): TranscriptEvent[] => {
@@ -322,7 +363,8 @@ const mapResult = (message: Record_, state: MapperState): AdapterEvent[] => {
         message: errors.join("; ") || text(message["result"]) || state.lastError?.message || "The run failed.",
         code: state.lastError?.code ?? text(message["terminal_reason"]) ?? text(message["subtype"]),
       };
-  const reported: AdapterEvent[] = usage.length > 0 ? [event("usage.reported", { models: usage })] : [];
+  // The denials no frame reported come before the ending, so the host has every call's before it settles the rest.
+  const reported: AdapterEvent[] = [...(usage.length > 0 ? [event("usage.reported", { models: usage })] : []), ...resultDenials(message, state)];
   const end = endTurn(state, {
     reason: succeeded ? "completed" : "error",
     error,
@@ -330,7 +372,7 @@ const mapResult = (message: Record_, state: MapperState): AdapterEvent[] => {
     turnCount: count(message["num_turns"]),
     resultText: succeeded ? text(message["result"]) : null,
   });
-  // The usage comes first, then whatever the ending cancels and settles, then the end.
+  // The usage and the denials come first, then whatever the ending cancels and settles, then the end.
   return [...reported, ...end];
 };
 
@@ -352,10 +394,8 @@ export const mapSdkMessage = (message: unknown, state: MapperState): AdapterEven
       switch (message["subtype"]) {
         case "init":
           return mapInit(message, state);
-        case "permission_denied": {
-          const id = text(message["tool_use_id"]);
-          return id === null ? [] : endTool(state, id, "error", text(message["message"]) ?? "The tool call was denied.");
-        }
+        case "permission_denied":
+          return mapPermissionDenied(message, state);
         case "background_tasks_changed":
         case "task_started":
         case "task_progress":

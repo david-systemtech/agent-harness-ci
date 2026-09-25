@@ -36,8 +36,16 @@ export const ATTENDED_DEFAULT_MODE: Mode = "acceptEdits";
  * routine attended.
  */
 export type PolicyActor =
-  | { readonly kind: Exclude<RunActorKind, "completions"> }
+  | { readonly kind: "client" }
+  | {
+      readonly kind: Extract<RunActorKind, "routine" | "bot">;
+      /** The routine's or bot's name, recorded on the run's policy for the Unattended review (#131). */
+      readonly name?: string | null;
+    }
   | { readonly kind: "completions"; readonly attended: boolean };
+
+/** The routine's or bot's name a run's policy records; null for anyone else, or a routine or bot that gave none. */
+const actorName = (actor: PolicyActor): string | null => (actor.kind === "routine" || actor.kind === "bot" ? actor.name || null : null);
 
 /** Whether a person is present for a run `actor` started. */
 export const isAttended = (actor: PolicyActor): boolean => (actor.kind === "completions" ? actor.attended : actor.kind === "client");
@@ -116,6 +124,7 @@ export const resolvePolicy = (input: PolicyInput): PolicyOutcome => {
   if (mode === null) return { refused: noModeAvailable(input.ceiling) };
   return {
     actorKind: input.actor.kind,
+    actorName: actorName(input.actor),
     attended,
     mode,
     // A session's own level and the mechanism are #133's; the default is all there is.

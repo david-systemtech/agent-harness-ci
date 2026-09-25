@@ -129,6 +129,7 @@ describe("the clamp on every run", () => {
     expect(policyOf(t, id, runId)).toEqual({
       runId,
       actorKind: "client",
+      actorName: null,
       attended: true,
       mode: { requested: "bypassPermissions", effective: "acceptEdits", ceiling: "acceptEdits", clamped: true, clampReason: "ceiling" },
       containment: { requested: null, effective: "off", mechanism: null, reason: null },

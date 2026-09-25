@@ -19,8 +19,8 @@ const at = "2026-09-24T01:02:03.456Z";
 const clamped = { requested: "bypassPermissions", effective: "acceptEdits", ceiling: "acceptEdits", clamped: true, clampReason: "ceiling" };
 const unclamped = { requested: null, effective: "acceptEdits", ceiling: "bypassPermissions", clamped: false, clampReason: null };
 const containment = { requested: null, effective: "off", mechanism: null, reason: null };
-const policy = { actorKind: "client", attended: true, mode: clamped, containment, unattendedDefaultApplied: false };
-const unattendedPolicy = { actorKind: "routine", attended: false, mode: unclamped, containment, unattendedDefaultApplied: true };
+const policy = { actorKind: "client", actorName: null, attended: true, mode: clamped, containment, unattendedDefaultApplied: false };
+const unattendedPolicy = { actorKind: "routine", actorName: "nightly-backup", attended: false, mode: unclamped, containment, unattendedDefaultApplied: true };
 
 const values = {
   "permissions.defaultCeiling": "acceptEdits",
@@ -68,6 +68,34 @@ const planAnswer = { ...answeredPrompt, mode: { requested: null, effective: "acc
 const autoAnswer = { ...answeredPrompt, decision: "deny", decidedBy: { auto: "run_ended" }, delivery: null };
 const listed = { sessionId, promptId: "toolu_1", sequence: 11, openedAt: at, prompt: openedPrompt };
 
+/** A tool call's decision (#131): denied by the unattended rule through its prompt, and one the mode let through. */
+const deniedCall = {
+  runId,
+  toolCallId: "toolu_1",
+  tool: "Bash",
+  summary: "Bash: rm -rf build",
+  decision: "denied",
+  decidedBy: "unattended",
+  promptId: "toolu_1",
+  reason: "Denied: nobody is present to approve this. Continue without it and say what you could not do.",
+};
+const allowedCall = { ...deniedCall, toolCallId: "toolu_2", summary: "Bash: ls", decision: "allowed", decidedBy: "mode", promptId: null, reason: null };
+
+/** A run in the Unattended review (#131). */
+const reviewDenial = { toolCallId: "toolu_1", tool: "Bash", summary: "Bash: rm -rf build", decidedBy: "unattended", reason: "Denied." };
+const reviewCounts = { toolCalls: 2, autoApproved: 1, denied: 1, answeredByPerson: 0, expired: 0 };
+const reviewRun = {
+  sessionId,
+  runId,
+  ranAt: at,
+  actor: { kind: "routine", name: "nightly-backup" },
+  attended: false,
+  mode: unclamped,
+  containment,
+  counts: reviewCounts,
+  denials: [reviewDenial],
+};
+
 const levels = [
   { level: "off", available: true, reason: null },
   { level: "workspace", available: false, reason: "No containment prober yet (#133)." },
@@ -94,7 +122,26 @@ export const permissionSchemaFixtures: Record<string, Fixtures> = {
     valid: [containment, { requested: "workspace", effective: "workspace", mechanism: "bubblewrap", reason: null }],
     invalid: [{ ...containment, effective: null }, { requested: null, effective: "off" }],
   },
-  "permissions/run-policy.json": { valid: [policy, unattendedPolicy], invalid: [{ ...policy, attended: "yes" }, { ...policy, mode: "plan" }] },
+  "permissions/run-policy.json": {
+    valid: [policy, unattendedPolicy],
+    invalid: [{ ...policy, attended: "yes" }, { ...policy, mode: "plan" }, { ...unattendedPolicy, actorName: "" }, { ...policy, actorName: undefined }],
+  },
+  "permissions/tool-decider.json": {
+    valid: ["person", "mode", "rule", "classifier", "denylist", "containment", "ttl", "unattended", "bypass", "provider"],
+    invalid: ["run_ended", "auto", ""],
+  },
+  "sessions/events/tool.decision.json": {
+    valid: [deniedCall, allowedCall, { ...deniedCall, toolCallId: null, tool: null, decidedBy: "ttl" }],
+    invalid: [{ ...deniedCall, reason: null }, { ...allowedCall, reason: "Allowed." }, { ...deniedCall, decision: "deny" }, { ...deniedCall, decidedBy: { auto: "ttl" } }, { ...deniedCall, summary: "" }],
+  },
+  "settings/events/review.seen.json": { valid: [{ through: 0 }, { through: 42 }], invalid: [{}, { through: -1 }, { through: 1.5 }] },
+  "permissions/review-actor.json": { valid: [{ kind: "routine", name: "nightly-backup" }, { kind: "client", name: null }], invalid: [{ kind: "provider", name: null }, { kind: "bot", name: "" }] },
+  "permissions/review-counts.json": { valid: [reviewCounts], invalid: [{ ...reviewCounts, denied: -1 }, { toolCalls: 1 }] },
+  "permissions/review-denial.json": { valid: [reviewDenial, { ...reviewDenial, toolCallId: null, tool: null }], invalid: [{ ...reviewDenial, reason: "" }, { ...reviewDenial, decidedBy: "auto" }] },
+  "permissions/review-run.json": {
+    valid: [reviewRun, { ...reviewRun, actor: { kind: "client", name: null }, attended: true, denials: [] }],
+    invalid: [{ ...reviewRun, runId: "r-1" }, { ...reviewRun, counts: {} }, { ...reviewRun, denials: [{}] }],
+  },
   "permissions/settings-area.json": { valid: ["permissions"], invalid: ["sessions", ""] },
   "permissions/unattended-mode.json": { valid: ["acceptEdits", "bypassPermissions"], invalid: ["plan", "auto", "default"] },
   "permissions/ttl-unit.json": { valid: ["minutes", "hours", "days"], invalid: ["weeks", ""] },
@@ -151,6 +198,17 @@ const target = { commandId, clientSessionId: "cs-2" };
 
 /** Params and results for every permissions method and `access.sessions.setCeiling`. */
 export const permissionMethodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
+  "permissions.review.list": {
+    params: { valid: [{}], invalid: [[], "all"] },
+    result: {
+      valid: [{ watermark: 0, head: 0, runs: [] }, { watermark: 12, head: 40, runs: [reviewRun] }],
+      invalid: [{ runs: [] }, { watermark: -1, head: 0, runs: [] }, { watermark: 0, head: 0, runs: [{}] }],
+    },
+  },
+  "permissions.review.seen": {
+    params: { valid: [{ commandId }, { commandId, through: 40 }], invalid: [{}, { through: 40 }, { commandId, through: -1 }] },
+    result: { valid: [{ watermark: 40 }], invalid: [{}, { watermark: -1 }] },
+  },
   "permissions.prompts.list": {
     params: { valid: [{}, { sessionId }], invalid: [{ sessionId: "s-1" }, []] },
     result: { valid: [{ prompts: [] }, { prompts: [listed] }], invalid: [{}, { prompts: [{ ...listed, sessionId: undefined }] }] },

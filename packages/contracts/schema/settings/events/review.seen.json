@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ReviewSeenPayload",
+  "type": "object",
+  "properties": {
+    "through": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991,
+      "description": "The log position the review has been seen through: a run whose latest decision is at or below it is left out."
+    }
+  },
+  "required": [
+    "through"
+  ],
+  "description": "review.seen: the Unattended review was seen through a log position; the environment-wide watermark (#131)."
+}

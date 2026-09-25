@@ -85,6 +85,7 @@ describe("the policy resolver", () => {
     const bypass = { unattendedMode: "bypassPermissions", containmentDefault: "off" } as const;
     expect(resolvePolicy(input({ ...unattended, settings: bypass }))).toEqual({
       actorKind: "routine",
+      actorName: null,
       attended: false,
       mode: { requested: null, effective: "bypassPermissions", ceiling: "bypassPermissions", clamped: false, clampReason: null },
       containment: { requested: null, effective: "off", mechanism: null, reason: null },
@@ -110,6 +111,10 @@ describe("the policy resolver", () => {
     expect(resolvePolicy(input({ actor: { kind: "client" } }))).toMatchObject({ attended: true });
     expect(resolvePolicy(input({ actor: { kind: "routine" } }))).toMatchObject({ attended: false });
     expect(resolvePolicy(input({ actor: { kind: "bot" } }))).toMatchObject({ attended: false });
+    // A routine's or bot's name is recorded for the Unattended review (#131); nobody else has one.
+    expect(resolvePolicy(input({ actor: { kind: "routine", name: "nightly-receipts" } }))).toMatchObject({ actorKind: "routine", actorName: "nightly-receipts" });
+    expect(resolvePolicy(input({ actor: { kind: "bot", name: "triage" } }))).toMatchObject({ actorKind: "bot", actorName: "triage" });
+    expect(resolvePolicy(input({ actor: { kind: "client" } }))).toMatchObject({ actorName: null });
     expect(resolvePolicy(input({ actor: { kind: "completions", attended: false } }))).toMatchObject({ attended: false, unattendedDefaultApplied: true });
   });
 });

@@ -1,8 +1,10 @@
+import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { hostname } from "node:os";
 import { join } from "node:path";
 import {
   BOOTSTRAP_PATH,
+  ContractError,
   DISCOVERY_PATH,
   ENVIRONMENT_STREAM_KIND,
   HEALTH_PATH,
@@ -11,6 +13,7 @@ import {
   WIRE_PATH,
   formatHostPort,
   pairingLink,
+  parkedPromptTtlMs,
   type AuthPolicy,
   type CapabilityFlags,
   type DiscoveryDocument,
@@ -18,6 +21,8 @@ import {
   type EnvironmentReadiness,
   type EnvironmentStatus,
   type HealthDocument,
+  type Mode,
+  type RunOrigin,
 } from "@agent-harness/contracts";
 import { SYSTEM, createAccessLog } from "../auth/access-log.js";
 import { accessMethods } from "../auth/access-methods.js";
@@ -39,13 +44,18 @@ import { processMethods } from "../adapter/processes-methods.js";
 import { ATTACHMENTS_DIRECTORY, createAttachmentStage } from "../adapter/attachment-stage.js";
 import { recoverCutRuns, recoverStagedAttachments } from "../adapter/recovery.js";
 import type { InstructionComposer, PolicySeam, PromptAutoAnswer, ToolServerFactory } from "../adapter/seams.js";
+import { autoAnswer } from "../permissions/auto-answer.js";
 import { permissionMethods, sessionModeClamp } from "../permissions/methods.js";
 import { promptMethods } from "../permissions/prompt-methods.js";
 import { startPromptNotices } from "../permissions/prompt-notices.js";
 import { permissionsProjector, readPermissionSettings } from "../permissions/permissions-store.js";
-import { policySettings, resolvePolicy } from "../permissions/resolver.js";
+import { policySettings, resolvePolicy, type RunActor } from "../permissions/resolver.js";
+import { reviewMethods } from "../permissions/review-methods.js";
+import { createTtlSweeper } from "../permissions/ttl-sweeper.js";
+import { decideStart } from "../runs/run-decider.js";
 import { runMethods } from "../runs/run-methods.js";
 import { runsProjector } from "../runs/runs-projector.js";
+import { appendRunEvents } from "../sessions/activity-companions.js";
 import { createCompactionSweep } from "../sessions/compaction.js";
 import { createDeletion } from "../sessions/deletion.js";
 import { groupMethods } from "../sessions/group-methods.js";
@@ -183,7 +193,7 @@ export interface EnvironmentOptions {
   readonly adapterSeams?: {
     readonly toolServers?: ToolServerFactory;
     readonly instructions?: InstructionComposer;
-    /** The broker's automatic answers (#131); preset: none, every prompt parks for a person. */
+    /** The broker's automatic answers; preset: the unattended and bypass rules (#131, `permissions/auto-answer.ts`). */
     readonly autoAnswer?: PromptAutoAnswer;
     /** Preset: the policy resolver on the environment's permission settings (#129). */
     readonly resolvePolicy?: PolicySeam;
@@ -191,6 +201,17 @@ export interface EnvironmentOptions {
   /** How terminals start: the pty, the shell, the base environment. Preset: `node-pty`, the user's login shell, the clean base (`terminals/`). */
   readonly terminals?: Omit<TerminalsOptions, "clock">;
 }
+
+/** A run an actor that is no client session starts: the session, who, the message it starts with, and a mode of its own if it names one. */
+export interface ActorRunRequest {
+  readonly sessionId: string;
+  readonly actor: RunActor;
+  readonly text: string;
+  readonly mode?: Mode;
+}
+
+/** Where a run an actor starts comes from: a bot's runs are its routines' (ADR 0008). */
+const originOf = (actor: RunActor): RunOrigin => (actor.kind === "client" ? "client" : actor.kind === "completions" ? "completions" : "routine");
 
 /** A running environment. */
 export interface EnvironmentHandle {
@@ -225,6 +246,16 @@ export interface EnvironmentHandle {
   readonly http: HttpRoutes;
   /** Issuing (by an in-process pairing) and revoking client sessions from the embedding process. */
   readonly clientSessions: ClientSessionIssuer;
+  /**
+   * Starts a run on a session for an actor that is no client session (a
+   * routine, a bot, the completions surface), as `runs.start` does for a
+   * client session: its policy resolved for that actor (#129; attended or
+   * not, the unattended default), recorded, then launched once it has
+   * committed. The seam the routines (#92) and the completions surface
+   * (#139) start their runs through, and the tests of unattended runs
+   * (#131). Throws the refusal `runs.start` would answer.
+   */
+  startRun(request: ActorRunRequest): { readonly runId: string; readonly messageId: string };
   /** How many WebSocket sockets are open on the wire. */
   sockets(): number;
   /** How many subscriptions are open on the wire, across every socket: a count for tests and diagnostics. */
@@ -366,6 +397,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
           settings: policySettings(permissionSettings()),
         }),
       ceilingOf: (id) => clientSessions.ceiling(id),
+      // The unattended and bypass rules, and the TTL a prompt that parks is fixed with (#131).
+      autoAnswer,
+      promptTtlMs: () => parkedPromptTtlMs(permissionSettings()["permissions.parkedPrompt.ttl"]),
       processIdleMinutes:
         options.processIdleMinutes ?? (() => readSettings({ all: (sql, ...params) => log.read(sql, ...params) })["providers.processIdleMinutes"]),
       ...options.adapterSeams,
@@ -451,6 +485,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ...runMethods({ log, host, ceilingOf: (id) => clientSessions.ceiling(id) }),
     ...permissionMethods({ log, host, accessLog, clock, environmentId: record.id, ceilingOf: (id) => clientSessions.ceiling(id) }),
     ...promptMethods({ log, host, environmentId: record.id }),
+    ...reviewMethods({ log, environmentId: record.id }),
     ...processMethods({ log, host }),
     ...terminalService.handlers,
     ...workspaceMethods({ log }),
@@ -526,6 +561,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   }
   // The shelf's sweep (#117): a pass now, before the wire opens, then every five minutes.
   closers.push(settleSweep.start());
+  // The TTL's sweeper (#131): the prompts that expired while the environment was down now, before the wire opens, then every minute.
+  closers.push(createTtlSweeper({ log, host, clock }).start());
   // Transcript compaction (#123): a pass now, before the wire opens, then once a day.
   closers.push(createCompactionSweep({ log, clock }).start());
   wire.open();
@@ -578,6 +615,22 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
         return exchanged.credential;
       },
       revoke: (id) => accessLog.atomically((tx) => clientSessions.revoke(tx, id, "requested", SYSTEM.owner))?.changed === true,
+    },
+    startRun(request) {
+      const { actor } = request;
+      const sessionId = request.sessionId.toLowerCase();
+      const messageId = randomUUID();
+      const by = actor.kind === "routine" ? formatActor({ kind: "routine", id: actor.name || "routine" }) : formatActor({ kind: "system", id: actor.kind });
+      return log.atomically((tx) => {
+        const facts = host.startFacts(sessionId, actor);
+        if (facts.session !== null && !facts.session.deleted) host.admit();
+        const message = { messageId, text: request.text, attachments: [] };
+        const decision = decideStart(facts, { origin: originOf(actor), message, ...(request.mode !== undefined && { mode: request.mode }) });
+        if (decision.rejected !== undefined) throw new ContractError(decision.rejected);
+        appendRunEvents(log, sessionId, decision.events, { tx, actor: by, correlationId: decision.run.runId });
+        tx.afterCommit(() => host.launch(decision.run));
+        return { runId: decision.run.runId, messageId };
+      });
     },
     sockets: () => wire.sockets(),
     subscriptions: () => wire.subscriptions(),

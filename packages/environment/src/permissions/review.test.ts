@@ -1,0 +1,213 @@
+import { randomUUID } from "node:crypto";
+import { SCOPES, registry, type Mode, type ParamsOf, type ResponseOf, type Scope } from "@agent-harness/contracts";
+import { describe, expect, it, vi } from "vitest";
+import { useCleanups } from "../../test/cleanups.js";
+import { MANUAL_CLOCK_START } from "../../test/clock.js";
+import { end, fakeAdapter, say, toldText, type Script } from "../../test/fake-adapter.js";
+import { startTestEnvironment, type TestEnvironment } from "../../test/helper.js";
+import { create, deleteSession, refusal } from "../../test/sessions.js";
+import type { WireClient } from "../../test/wire-client.js";
+import type { AdapterEvent, PromptDetail } from "../adapter/contract.js";
+import type { RunActor } from "./resolver.js";
+
+/**
+ * The Unattended review (#131; permissions spec, "The Unattended review
+ * view"): `permissions.review.list` and `permissions.review.seen` through the
+ * primary seam, with runs started by a client session and by routines, bots
+ * and the completions surface, each making tool calls the fake provider
+ * scripts.
+ */
+
+const { onCleanup } = useCleanups();
+
+const MINUTE = 60_000;
+const at = (ms: number): string => new Date(Date.parse(MANUAL_CLOCK_START) + ms).toISOString();
+const UNATTENDED_DENIAL = "Denied: nobody is present to approve this. Continue without it and say what you could not do.";
+
+const start = async (): Promise<TestEnvironment> => {
+  const t = await startTestEnvironment({ adapter: fakeAdapter() });
+  onCleanup(() => t.close());
+  return t;
+};
+
+type Command = "runs.start" | "permissions.prompts.answer" | "permissions.settings.set" | "permissions.review.seen";
+
+const send = async <N extends Command>(client: WireClient, method: N, params: Omit<ParamsOf<N>, "commandId"> & { commandId?: string }): Promise<ResponseOf<N>> =>
+  registry[method].response.parse(await client.request(method, { commandId: randomUUID(), ...params } as ParamsOf<N>)) as ResponseOf<N>;
+
+const list = async (client: WireClient) => registry["permissions.review.list"].result.parse(await client.request("permissions.review.list", {}));
+
+const routine = (name = "nightly-receipts", ceiling: Mode = "acceptEdits"): RunActor => ({ kind: "routine", name, ceiling, clientSessionId: null });
+
+const untilEnded = (t: TestEnvironment, sessionId: string, runId: string) =>
+  vi.waitFor(() => expect(t.env.log.readStream({ kind: "session", id: sessionId }).some((event) => event.type === "run.ended" && event.payload["runId"] === runId)).toBe(true));
+
+const untilOpened = (t: TestEnvironment, sessionId: string) =>
+  vi.waitFor(() => expect(t.env.log.readStream({ kind: "session", id: sessionId }).some((event) => event.type === "prompt.opened")).toBe(true));
+
+const started = (toolCallId: string, name = "Bash", input: Record<string, string> = { command: "ls" }): AdapterEvent => ({
+  type: "tool.started",
+  payload: { toolCallId, name, input, title: null, agentId: null, parentToolCallId: null },
+});
+const ended = (toolCallId: string, status: "ok" | "error" = "ok"): AdapterEvent => ({ type: "tool.ended", payload: { toolCallId, status, output: null, durationMs: 1 } });
+
+const permission: PromptDetail = { toolName: "Bash", toolCallId: "toolu_1", input: { command: "sudo apt install jq" }, summary: "Claude wants to run sudo apt install jq" };
+
+/** A run that lists a directory without asking, then asks to install a package, and ends. */
+const listThenInstall: Script = async function* ({ context, input }) {
+  yield started("t-ls");
+  yield ended("t-ls");
+  yield started("toolu_1", "Bash", { command: "sudo apt install jq" });
+  const decision = await context.broker.request({ sessionId: input.sessionId, runId: input.runId, kind: "permission", detail: permission, promptId: "toolu_1" });
+  yield say(toldText(decision));
+  yield ended("toolu_1", decision.decision === "allow" ? "ok" : "error");
+  yield end();
+};
+
+/** A run that only lists a directory, without asking. */
+const listOnly: Script = () => [started("t-ls"), ended("t-ls"), end()];
+
+/** A run that makes no tool call. */
+const talkOnly: Script = () => [say("Nothing to do."), end()];
+
+describe("permissions.review.list", () => {
+  it("returns an unattended run that made a tool call: its ids, when, actor, mode and clamp, containment, counts and each denial", async () => {
+    const t = await start();
+    const client = await t.client();
+    const { id } = await create(client);
+    t.adapter.nextScripts.push(listThenInstall);
+    t.clock.advance(MINUTE);
+    const { runId } = t.env.startRun({ sessionId: id, actor: routine(), text: "Tidy the receipts" });
+    await untilEnded(t, id, runId);
+
+    const review = await list(client);
+    expect(review.watermark).toBe(0);
+    expect(review.head).toBe(t.env.log.head());
+    expect(review.runs).toEqual([
+      {
+        sessionId: id,
+        runId,
+        ranAt: at(MINUTE),
+        actor: { kind: "routine", name: "nightly-receipts" },
+        attended: false,
+        mode: { requested: null, effective: "acceptEdits", ceiling: "acceptEdits", clamped: false, clampReason: null },
+        containment: { requested: null, effective: "off", mechanism: null, reason: null },
+        counts: { toolCalls: 2, autoApproved: 1, denied: 1, answeredByPerson: 0, expired: 0 },
+        denials: [{ toolCallId: "toolu_1", tool: "Bash", summary: "Claude wants to run sudo apt install jq", decidedBy: "unattended", reason: UNATTENDED_DENIAL }],
+      },
+    ]);
+  });
+
+  it("qualifies unattended runs with a tool call and attended runs with a decision by the TTL; newest first", async () => {
+    const t = await start();
+    const client = await t.client();
+    await send(client, "permissions.settings.set", { values: { "permissions.parkedPrompt.ttl": { amount: 1, unit: "minutes" } } });
+    const { id } = await create(client);
+    const run = async (script: Script, how: RunActor | "client") => {
+      t.adapter.nextScripts.push(script);
+      t.clock.advance(MINUTE);
+      const { runId } =
+        how === "client"
+          ? ((await send(client, "runs.start", { sessionId: id, text: "Go" })).result as { runId: string })
+          : t.env.startRun({ sessionId: id, actor: how, text: "Go" });
+      return runId;
+    };
+
+    const quiet = await run(talkOnly, routine());
+    await untilEnded(t, id, quiet);
+    const botRun = await run(listOnly, { kind: "bot", name: "triage", ceiling: "acceptEdits", clientSessionId: null });
+    await untilEnded(t, id, botRun);
+    const program = await run(listOnly, { kind: "completions", attended: false, ceiling: "acceptEdits", clientSessionId: null });
+    await untilEnded(t, id, program);
+    // An attended run whose calls a person or the mode decided does not qualify.
+    const mine = await run(listThenInstall, "client");
+    await untilOpened(t, id);
+    await send(client, "permissions.prompts.answer", { promptId: "toolu_1", decision: "allow" });
+    await untilEnded(t, id, mine);
+    // One whose prompt waited past its TTL does.
+    const expired = await run(listThenInstall, "client");
+    await vi.waitFor(() => expect(t.env.log.readStream({ kind: "session", id }).filter((event) => event.type === "prompt.opened")).toHaveLength(2));
+    t.clock.advance(MINUTE);
+    await untilEnded(t, id, expired);
+
+    const review = await list(client);
+    expect(review.runs.map((row) => row.runId)).toEqual([expired, program, botRun]);
+    expect(review.runs.map((row) => row.actor)).toEqual([
+      { kind: "client", name: null },
+      { kind: "completions", name: null },
+      { kind: "bot", name: "triage" },
+    ]);
+    expect(review.runs[0]).toMatchObject({
+      attended: true,
+      counts: { toolCalls: 2, autoApproved: 1, denied: 1, answeredByPerson: 0, expired: 1 },
+      denials: [{ toolCallId: "toolu_1", decidedBy: "ttl", reason: expect.stringMatching(/^Denied: /) }],
+    });
+  });
+
+  it("counts a person's answers and leaves out a deleted session's runs", async () => {
+    const t = await start();
+    const client = await t.client();
+    const { id } = await create(client);
+    t.adapter.nextScripts.push(listThenInstall);
+    // A completions request that says a person is present: its prompt parks and a person answers it.
+    const { runId } = t.env.startRun({ sessionId: id, actor: { kind: "completions", attended: true, ceiling: "acceptEdits", clientSessionId: null }, text: "Go" });
+    await untilOpened(t, id);
+    await send(client, "permissions.prompts.answer", { promptId: "toolu_1", decision: "deny", message: "Not here" });
+    await untilEnded(t, id, runId);
+    // Attended and decided by a person only: it does not qualify.
+    expect((await list(client)).runs).toEqual([]);
+
+    const other = await create(client);
+    t.adapter.nextScripts.push(listOnly);
+    const unattended = t.env.startRun({ sessionId: other.id, actor: routine(), text: "Go" });
+    await untilEnded(t, other.id, unattended.runId);
+    expect((await list(client)).runs.map((row) => row.runId)).toEqual([unattended.runId]);
+    await deleteSession(client, other.id);
+    expect((await list(client)).runs).toEqual([]);
+  });
+});
+
+describe("permissions.review.seen", () => {
+  it("moves the environment-wide watermark: a later list leaves out the runs before it, and a run decided after it comes back", async () => {
+    const t = await start();
+    const client = await t.client();
+    const { id } = await create(client);
+    t.adapter.nextScripts.push(listOnly);
+    const first = t.env.startRun({ sessionId: id, actor: routine(), text: "Go" });
+    await untilEnded(t, id, first.runId);
+    const before = await list(client);
+    expect(before.runs.map((row) => row.runId)).toEqual([first.runId]);
+
+    const seen = await send(client, "permissions.review.seen", { through: before.head });
+    expect(seen.result).toEqual({ watermark: before.head });
+    const settings = t.env.log.readStream({ kind: "settings", id: t.env.id });
+    expect(settings.filter((event) => event.type === "review.seen").map((event) => event.payload)).toEqual([{ through: before.head }]);
+    // Another client, another socket: the watermark is the environment's.
+    const other = await t.client({ token: (await t.pair({ scopes: ["read"] })).token });
+    expect(await list(other)).toMatchObject({ watermark: before.head, runs: [] });
+
+    t.adapter.nextScripts.push(listOnly);
+    const second = t.env.startRun({ sessionId: id, actor: routine(), text: "Again" });
+    await untilEnded(t, id, second.runId);
+    expect((await list(client)).runs.map((row) => row.runId)).toEqual([second.runId]);
+
+    // Named nothing, it marks everything to the head seen; it never moves back.
+    const all = await send(client, "permissions.review.seen", {});
+    expect(all.result?.watermark).toBe(t.env.log.head() - 1);
+    expect((await list(client)).runs).toEqual([]);
+    const back = await send(client, "permissions.review.seen", { through: before.head });
+    expect(back.result?.watermark).toBe(all.result?.watermark);
+    expect(back.receipt.changed).toBe(false);
+  });
+
+  it("refuses a position past the log's head, invalid_params, and needs sessions:write", async () => {
+    const t = await start();
+    const client = await t.client();
+    const refused = await refusal(client.request("permissions.review.seen", { commandId: randomUUID(), through: t.env.log.head() + 100 }));
+    expect(refused.code).toBe("invalid_params");
+    const reader = await t.client({ token: (await t.pair({ scopes: ["read"] satisfies Scope[] })).token });
+    expect((await refusal(reader.request("permissions.review.seen", { commandId: randomUUID() }))).code).toBe("forbidden");
+    const writer = await t.client({ token: (await t.pair({ scopes: SCOPES.filter((scope) => scope !== "admin") })).token });
+    expect((await send(writer, "permissions.review.seen", {})).result).toBeDefined();
+  });
+});

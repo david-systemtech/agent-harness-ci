@@ -30,6 +30,7 @@ import {
 } from "../permissions/broker.js";
 import { answersFor, parkedPromptsOfRun } from "../permissions/prompts-store.js";
 import type { RunActor } from "../permissions/resolver.js";
+import { answerEvents, runToolCalls, type RunToolCalls } from "../permissions/tool-decisions.js";
 import { environmentQueue, latestRun, messageCeilings, providerHeld, providerSessionOf, readRun, readSessionFacts } from "../runs/run-reads.js";
 import {
   decideStart,
@@ -115,6 +116,16 @@ import {
  * closing) and the recovery sweep's `restart` leave them open in the log
  * (ADR 0007), denied in memory only, and an answer given later is kept for
  * the session's next run, which reads it as its first message.
+ *
+ * The tool decisions (#131, `permissions/tool-decisions.ts`): the host is
+ * the one place that sees every event a run reports, so it records each
+ * tool call's one `tool.decision` that no prompt's answer makes: the
+ * provider's denial report as it comes, a call that ended `ok` unasked as
+ * the mode's in the transaction of its `tool.ended`, and every call still
+ * undecided as the mode's in the transaction of the run's `run.ended`. Every
+ * answer it appends to a prompt (a rule's, `run_ended`, `cancelled`) carries
+ * the call's decision beside it. A prompt a rule does not answer at once has
+ * its `ttlExpiresAt` fixed from the TTL setting when it opens.
  */
 
 /** An account the host serves runs through: its id, its provider, and its config directory. The account store (#134) will supply these. */
@@ -138,6 +149,12 @@ export interface AdapterHostOptions {
   readonly instructions?: InstructionComposer;
   /** The broker's automatic answers (#131); preset: none, every prompt parks. */
   readonly autoAnswer?: PromptAutoAnswer;
+  /**
+   * How long a prompt may wait for a person before the TTL's sweeper denies
+   * it, in milliseconds, read as each prompt opens; null for never (#131).
+   * Preset: never; the environment passes `permissions.parkedPrompt.ttl`.
+   */
+  readonly promptTtlMs?: () => number | null;
   /** The policy resolver runs start through; preset: the resolver on the settings' presets. */
   readonly resolvePolicy?: PolicySeam;
   /**
@@ -341,6 +358,8 @@ interface LiveRun {
   received: boolean;
   /** The messages the run was launched with, bytes included. */
   readonly launchedWith: readonly PromptMessage[];
+  /** Its tool calls, for the decisions no prompt's answer makes (#131). */
+  readonly calls: RunToolCalls;
 }
 
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
@@ -389,6 +408,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
   const toolServers = options.toolServers ?? noToolServers;
   const instructions = options.instructions ?? composeInstructions();
   const autoAnswer = options.autoAnswer ?? noAutoAnswer;
+  const promptTtlMs = options.promptTtlMs ?? (() => null);
   const resolvePolicy = options.resolvePolicy ?? presetPolicy;
   const configs = options.accounts ?? [];
   const defaultAccountId = options.defaultAccountId ?? configs[0]?.id ?? null;
@@ -702,9 +722,11 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
         if (closesPrompts) {
           for (const open of parkedPromptsOfRun(reader, entry.runId)) {
             const closed: PromptAnsweredPayload = autoDenial(open.prompt, "run_ended");
-            log.append(sessionStream(entry.sessionId), [{ type: "prompt.answered", payload: closed }], { tx, actor: HOST_ACTOR, correlationId: entry.runId });
+            log.append(sessionStream(entry.sessionId), answerEvents(reader, open.prompt, closed), { tx, actor: HOST_ACTOR, correlationId: entry.runId });
           }
         }
+        // Every call it made that nobody was asked about and the provider did not deny: the mode let it through (#131).
+        append(entry.sessionId, entry.runId, HOST_ACTOR, entry.calls.settle());
         const actor = ended.by === "adapter" ? entry.actor : (ended.actor ?? HOST_ACTOR);
         const commandId = ended.by === "host" ? ended.commandId : undefined;
         const attribution = { tx, actor, correlationId: entry.runId, ...(commandId !== undefined && { commandId }) };
@@ -770,6 +792,19 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
           if (entry.prompts.size === 0) registry.running(entry.runId);
           pool.answered(entry.sessionId, entry.runId);
         }
+        if (event.type === "denial") {
+          // The provider's own denial report: the call's decision, the adapter's (#131).
+          append(entry.sessionId, entry.runId, entry.actor, entry.calls.denied(event));
+          continue;
+        }
+        if (event.type === "tool.started" || event.type === "tool.ended") {
+          // A call that ended ok unasked is the mode's, decided in the transaction of its end (#131).
+          log.atomically(() => {
+            entry.append(event);
+            append(entry.sessionId, entry.runId, HOST_ACTOR, entry.calls.after(event));
+          });
+          continue;
+        }
         entry.append(event);
       }
       if (!entry.ended) {
@@ -823,18 +858,20 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       if (request.signal?.aborted === true) return { decision: "deny", message: CANCELLED_MESSAGE };
       const promptId = request.promptId ?? randomUUID();
       const stream = sessionStream(sessionId);
-      const opened: PromptOpenedPayload = openedPayload({
-        runId: entry.runId,
-        promptId,
-        kind: request.kind,
-        detail: request.detail,
-        mode: entry.mode,
-        ceiling: entry.plan.policy.mode.ceiling,
-        // The TTL is fixed here once its sweeper exists (#131); until then nothing expires.
-        ttlExpiresAt: null,
-      });
       const automatic = autoAnswer({ kind: request.kind, attended: entry.plan.policy.attended, mode: entry.mode });
+      let opened: PromptOpenedPayload;
       try {
+        // The TTL is fixed as it opens (#131); a prompt a rule answers at once never waits, so never expires.
+        const ttlMs = automatic === null ? promptTtlMs() : null;
+        opened = openedPayload({
+          runId: entry.runId,
+          promptId,
+          kind: request.kind,
+          detail: request.detail,
+          mode: entry.mode,
+          ceiling: entry.plan.policy.mode.ceiling,
+          ttlExpiresAt: ttlMs === null ? null : new Date(clock.now().getTime() + ttlMs).toISOString(),
+        });
         log.atomically((tx) => {
           log.append(stream, [{ type: "prompt.opened", payload: opened }], { tx, actor: entry.actor, correlationId: entry.runId });
           if (automatic !== null) {
@@ -846,7 +883,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
               updatedInput: decision.updatedInput ?? null,
               delivery: "live",
             };
-            log.append(stream, [{ type: "prompt.answered", payload }], { tx, actor: HOST_ACTOR, correlationId: entry.runId });
+            log.append(stream, answerEvents(reader, opened, payload), { tx, actor: HOST_ACTOR, correlationId: entry.runId });
           }
         });
       } catch (error) {
@@ -869,9 +906,11 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
         const cancel = (): void => {
           if (!open) return;
           try {
-            if (parkedPromptsOfRun(reader, entry.runId).some((prompt) => prompt.promptId === promptId)) {
-              log.append(stream, [{ type: "prompt.answered", payload: autoDenial(opened, "cancelled") }], { actor: entry.actor, correlationId: entry.runId });
-            }
+            log.atomically((tx) => {
+              if (parkedPromptsOfRun(reader, entry.runId).some((prompt) => prompt.promptId === promptId)) {
+                log.append(stream, answerEvents(reader, opened, autoDenial(opened, "cancelled")), { tx, actor: entry.actor, correlationId: entry.runId });
+              }
+            });
           } catch (error) {
             console.error(`Recording the cancelling of prompt ${promptId} of run ${entry.runId} failed:`, error);
           }
@@ -918,6 +957,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       prompts: new Set(),
       received: false,
       launchedWith,
+      calls: runToolCalls(reader, plan.runId),
     };
     // Admitted first: a drain that refuses it leaves no live entry behind.
     registry.start(plan.runId);

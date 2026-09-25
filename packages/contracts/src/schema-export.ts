@@ -144,8 +144,13 @@ import {
   ContainmentResolution,
   ModeResolution,
   PERMISSION_SESSION_EVENT_TYPES,
+  ReviewActor,
+  ReviewCounts,
+  ReviewDenial,
+  ReviewRun,
   RunActorKind,
   RunPolicy,
+  ToolDecider,
 } from "./permissions.js";
 import { Mode, ModeAvailability } from "./permissions-modes.js";
 import {
@@ -332,6 +337,11 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "permissions/prompt-decision.json", title: "PromptDecisionValue", schema: PromptDecisionValue },
   { path: "permissions/prompt-answer-input.json", title: "PromptAnswerInput", schema: PromptAnswerInput },
   { path: "permissions/listed-prompt.json", title: "ListedPrompt", schema: ListedPrompt },
+  { path: "permissions/tool-decider.json", title: "ToolDecider", schema: ToolDecider },
+  { path: "permissions/review-actor.json", title: "ReviewActor", schema: ReviewActor },
+  { path: "permissions/review-counts.json", title: "ReviewCounts", schema: ReviewCounts },
+  { path: "permissions/review-denial.json", title: "ReviewDenial", schema: ReviewDenial },
+  { path: "permissions/review-run.json", title: "ReviewRun", schema: ReviewRun },
   { path: "terminals/terminal-id.json", title: "TerminalId", schema: TerminalId },
   { path: "terminals/terminal-columns.json", title: "TerminalColumns", schema: TerminalColumns },
   { path: "terminals/terminal-rows.json", title: "TerminalRows", schema: TerminalRows },
