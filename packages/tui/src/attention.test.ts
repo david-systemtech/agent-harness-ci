@@ -109,6 +109,24 @@ describe("the bell", () => {
     await app.jump(1_000);
     expect(app.chrome.notices).toEqual([{ kind: "finished", title: "Receipts", body: "Fixed the rounding." }]);
   });
+
+  it("names the session whose turn finished, and its reply, even when another session is open when it rings", async () => {
+    const { app, desk } = await launch();
+    const notes = desk.startRun(NOTES, "Tidy the notes");
+    desk.emit(NOTES, "assistant.text", { runId: notes.runId, itemId: "n-1", text: "Tidied an hour ago.", aborted: false });
+    desk.endRun(NOTES, notes.runId);
+    const { runId } = desk.startRun(RECEIPTS, "Fix the receipts");
+    desk.emit(RECEIPTS, "assistant.text", { runId, itemId: "i-1", text: "Fixed the rounding.", aborted: false });
+    desk.endRun(RECEIPTS, runId);
+    await app.waitFor("Fixed the rounding.");
+    await app.type("/resume");
+    await app.press(KEY.enter);
+    await app.type("Notes");
+    await app.press(KEY.enter);
+    await app.waitFor("Tidied an hour ago.");
+    await app.jump(60_000);
+    expect(app.chrome.notices).toEqual([{ kind: "finished", title: "Receipts", body: "Fixed the rounding." }]);
+  });
 });
 
 describe("the away summary", () => {

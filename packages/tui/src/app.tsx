@@ -525,8 +525,6 @@ export const App = (props: AppProps) => {
   };
 
   // Attention: the title, the bell and the away summary, from the runtime's attention events.
-  const shownProjection = useRef(projection);
-  shownProjection.current = projection;
   const chrome = useMemo(() => props.chrome ?? quietChrome(), [props.chrome]);
   const attention = useAttention({
     runtime,
@@ -537,7 +535,6 @@ export const App = (props: AppProps) => {
     title: projection?.summary?.title,
     folder: projection?.summary?.workspace.path ?? props.flags.workspace,
     live,
-    lastReply: () => (shownProjection.current ? lastReply(shownProjection.current)?.text : undefined),
   });
   /** A line that goes by itself after `ms`, unless another has replaced it. */
   const flash = (line: string, ms: number) => {

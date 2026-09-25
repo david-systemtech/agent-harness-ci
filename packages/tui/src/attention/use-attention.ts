@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef } from "react";
 import type { Clock, ParkedAsk, RunsView, Runtime, SessionListView } from "@agent-harness/client-runtime";
 import { askKey } from "../cards/asks.js";
 import { useFollow, type Opened } from "../session/use-session.js";
+import { lastReply } from "../transcript/rows.js";
 import { AttentionTimer, titleFor, type TerminalChrome } from "./chrome.js";
 import { AWAY_MS, awayRecap, noticeFor, titleStateOf, type RecapSubject, type RunEnded } from "./policy.js";
 
@@ -19,8 +20,11 @@ import { AWAY_MS, awayRecap, noticeFor, titleStateOf, type RecapSubject, type Ru
  *   waits; once none is, it is disarmed. A prompt parked before this
  *   terminal started is not news and rings nothing.
  * - **The bell** for a finished turn: a `run-ended` event for the open
- *   session arms the sixty-second bell, with the first line of its reply; a
- *   run starting on it disarms it.
+ *   session arms the sixty-second bell; a run starting on the open session
+ *   disarms it. It names the session whose run ended and the first line of
+ *   that session's last reply, read when it rings (the runtime still holds a
+ *   session it has let go for five minutes), whichever session is open by
+ *   then.
  * - **A key** (`touch`) pushes both back; the key that ends three minutes of
  *   stillness is answered with the away summary: the sessions whose prompt
  *   parked or whose run ended meanwhile, in the rail's order.
@@ -42,8 +46,6 @@ export interface AttentionOptions {
   readonly folder: string;
   /** Whether a run is live on the open session. */
   readonly live: boolean;
-  /** The open session's last reply, read when the finished bell rings. */
-  readonly lastReply: () => string | undefined;
 }
 
 export interface AttentionState {
@@ -109,9 +111,11 @@ export const useAttention = (options: AttentionOptions): AttentionState => {
         heard.current.ends.set(key, { opened: { environmentId: event.environmentId, sessionId: event.sessionId }, end: { at: now, failed: event.reason === "error" } });
         const open = latest.current.options.opened;
         if (open === null || sessionKey(open.environmentId, open.sessionId) !== key) return;
+        const { environmentId, sessionId } = event;
         timer.arm("finished", () => {
-          const reply = latest.current.options.lastReply();
-          const session = latest.current.options.title;
+          const listed = runtime.projections.sessionList.read().rows.find((row) => row.environmentId === environmentId && row.summary.id === sessionId.toLowerCase());
+          const reply = lastReply(runtime.projections.session(environmentId, sessionId).read())?.text;
+          const session = listed?.summary.title;
           latest.current.options.chrome.notify(noticeFor("finished", { ...(session !== undefined && { session }), ...(reply !== undefined && { reply }) }));
         });
       }),
