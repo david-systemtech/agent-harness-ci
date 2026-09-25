@@ -327,8 +327,19 @@ export type SessionForkedPayload = z.infer<typeof SessionForkedPayload>;
 
 export const SessionRewoundPayload = z
   .object({ toMessageId: MessageId.meta({ description: "The user message the session was rewound to; it and every item after it are hidden." }) })
-  .meta({ description: "session.rewound: the session was rewound; later items stay in the log and the snapshot hides them." });
+  .meta({ description: "session.rewound: the session was rewound; later items stay in the log and the snapshot hides them until a session.rewind-undone names this rewind." });
 export type SessionRewoundPayload = z.infer<typeof SessionRewoundPayload>;
+
+export const SessionRewindUndonePayload = z
+  .object({
+    toMessageId: MessageId.meta({ description: "The user message the undone rewind went back to; it and the items the rewind hid are shown again." }),
+    rewindSequence: Sequence.meta({ description: "The sequence of the session.rewound this undoes: the session's latest rewind not already undone." }),
+  })
+  .meta({
+    description:
+      "session.rewind-undone: a rewind was taken back (sessions.undoRewind, ADR 0022) before any run started on the session after it; the items it hid are shown again, and the next run continues the provider session as it was before the rewind, or from an earlier rewind still standing.",
+  });
+export type SessionRewindUndonePayload = z.infer<typeof SessionRewindUndonePayload>;
 
 const unlisted = <const P extends z.ZodType>(payload: P) => ({ list: false, payload }) as const;
 
@@ -357,6 +368,7 @@ export const TRANSCRIPT_EVENT_TYPES = {
   "session.provider-linked": unlisted(SessionProviderLinkedPayload),
   "session.forked": unlisted(SessionForkedPayload),
   "session.rewound": unlisted(SessionRewoundPayload),
+  "session.rewind-undone": unlisted(SessionRewindUndonePayload),
   "run.ended": { list: true, payload: RunEndedPayload, patch: SummaryPatch },
 } as const satisfies Record<string, EventTypeEntry>;
 
@@ -507,7 +519,7 @@ export const SessionSnapshot = z
     }),
     summary: SessionSummary,
     runs: z.array(RunSummary).meta({ description: "Every run of the session, oldest first." }),
-    items: z.array(TranscriptItem).meta({ description: "The settled items of the transcript, in order; items a rewind hid are left out." }),
+    items: z.array(TranscriptItem).meta({ description: "The settled items of the transcript, in order; items a rewind hid are left out until it is undone." }),
     parkedPrompts: z.array(ParkedPrompt).meta({ description: "The prompts parked on the session, oldest first." }),
   })
   .meta({ description: "One session at a sequence: its summary, its runs, the settled items of its transcript and its parked prompts." });
