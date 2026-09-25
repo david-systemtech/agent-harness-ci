@@ -374,7 +374,7 @@ describe("canUseTool on the broker seam", () => {
       sessionId: SESSION,
       runId: input.runId,
       kind: "permission",
-      // The permission table's id: an answer through the host's answerPrompt names the same prompt.
+      // The permission table's id: an answer through the host's deliverAnswer names the same prompt.
       promptId: "toolu_rm",
       signal: expect.any(AbortSignal),
       detail: {
