@@ -136,6 +136,15 @@ describe("the provider's live verdict", () => {
     expect(handoffTrigger(reading([rejected("five_hour", null)]))?.utilisation).toBe(1);
   });
 
+  it("fires on a refused model bucket with no number, and on a refused bucket before a fuller one that is not refused", () => {
+    const noNumber = handoffTrigger(reading([rejected("model_scoped:Fable", null)]));
+    expect(noNumber?.threshold.id).toBe("fable");
+    expect(noNumber?.utilisation).toBe(1);
+    const refusedFirst = handoffTrigger(reading([w("model_scoped:Fable", 0.99), rejected("model_scoped:fable-weekly", 0.6)]));
+    expect(refusedFirst?.window.window).toBe("model_scoped:fable-weekly");
+    expect(refusedFirst?.utilisation).toBe(0.6);
+  });
+
   it("does not fire early on a warning: the thresholds still govern below a refusal", () => {
     expect(handoffTrigger(reading([w("five_hour", 0.8, { verdict: "warning" })]))).toBeNull();
   });

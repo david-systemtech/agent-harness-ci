@@ -104,8 +104,9 @@ const windowsAt = (reading: AccountUsage, now: number | undefined): UsageWindow[
 /**
  * The window a rule is about, or null when this plan reports none; within a
  * model family the most used bucket, since the one closest to full is the
- * one that will stop you. With `now`, a window that has rolled over since it
- * was read is not one.
+ * one that will stop you, and a bucket the provider is refusing before any
+ * other, whether or not it carries a number (as `bindingWindow` reads it).
+ * With `now`, a window that has rolled over since it was read is not one.
  */
 export const windowFor = (reading: AccountUsage | null | undefined, threshold: HandoffThreshold, now?: number): UsageWindow | null => {
   if (!isAvailable(reading)) return null;
@@ -113,13 +114,18 @@ export const windowFor = (reading: AccountUsage | null | undefined, threshold: H
   const { match } = threshold;
   if (match.kind === "window") return windows.find((window) => window.window === match.window) ?? null;
   const name = match.name.toLowerCase();
+  let refused: UsageWindow | null = null;
   let worst: UsageWindow | null = null;
   for (const window of windows) {
-    if (!isModelScoped(window.window) || window.utilisation === null) continue;
-    if (!window.window.toLowerCase().includes(name)) continue;
+    if (!isModelScoped(window.window) || !window.window.toLowerCase().includes(name)) continue;
+    if (window.verdict === "rejected") {
+      if (refused === null || (window.utilisation ?? -1) > (refused.utilisation ?? -1)) refused = window;
+      continue;
+    }
+    if (window.utilisation === null) continue;
     if (worst === null || window.utilisation > (worst.utilisation ?? -1)) worst = window;
   }
-  return worst;
+  return refused ?? worst;
 };
 
 /**
