@@ -299,7 +299,7 @@ export const SessionForkedPayload = z
       .string()
       .min(1)
       .nullable()
-      .meta({ description: "The provider session the fork's first run continues, as the source had linked it when forked (or, for a source that was itself a fork no run of which had linked one, as its own session.forked named it); null when there was none, so the fork starts fresh." }),
+      .meta({ description: "The provider session the fork's first run continues, as the source had linked it when forked (or, for a source that was itself a fork no run of which had linked one, as its own session.forked named it); null when there was none, or when the fork was taken before the source's first message, which nothing of the provider's precedes; the fork then starts fresh." }),
   })
   .meta({ description: "session.forked: the session was forked from another; on the new session's stream." });
 export type SessionForkedPayload = z.infer<typeof SessionForkedPayload>;

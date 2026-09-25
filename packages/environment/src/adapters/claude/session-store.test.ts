@@ -7,7 +7,7 @@ import { useCleanups } from "../../../test/cleanups.js";
 import { manualClock } from "../../../test/clock.js";
 import { FakeSdk, sdk, type FakeQuery } from "../../../test/fake-claude-sdk.js";
 import type { AdapterEvent, AdapterRun, RunContext, RunInput } from "../../adapter/contract.js";
-import { openEventLog } from "../../event-log/event-log.js";
+import { openEventLog, type EventLog } from "../../event-log/event-log.js";
 import { createProviderTranscriptStore, type ProviderTranscriptStore } from "../../provider-transcripts/store.js";
 
 /**
@@ -45,12 +45,13 @@ const P2 = "2c4e6a8b-1d3f-4b5a-9c7e-0a2b4c6d8e0f";
 
 let fake: FakeSdk;
 let store: ProviderTranscriptStore;
+let log: EventLog;
 let diagnostics: string[];
 
 beforeEach(() => {
   fake = new FakeSdk();
   hooks.sdk = fake;
-  const log = openEventLog({ path: ":memory:" });
+  log = openEventLog({ path: ":memory:" });
   onCleanup(() => log.close());
   store = createProviderTranscriptStore({ log, clock: manualClock() });
   diagnostics = [];
@@ -242,6 +243,18 @@ describe("provider titles", () => {
     const view = { load: () => Promise.resolve(null), append: () => Promise.resolve(), listSessions: () => store.listSessions(SESSION), listSessionSummaries: () => store.listSessionSummaries(SESSION) };
     expect((await listSessions({ sessionStore: view }))[0]).toMatchObject({ sessionId: PROVIDER, customTitle: "My name for it" });
     expect((await store.load({ projectKey: SESSION, sessionId: PROVIDER }))?.at(-1)).toMatchObject({ type: "custom-title", customTitle: "My name for it" });
+    expect(await adapter.readTitle?.(SESSION)).toBe("Fixing the receipt sweep");
+  });
+
+  it("reads a fork's generated title as the provider's own, never a user title mirrored into the source before the fork", async () => {
+    const adapter = adapterWith();
+    await storeConversation(SESSION);
+    await store.append({ projectKey: SESSION, sessionId: PROVIDER }, [{ type: "ai-title", aiTitle: "Fixing the receipt sweep", sessionId: PROVIDER }]);
+    await adapter.writeTitle?.(SESSION, "My name for it");
+    // The source goes on after the rename, so its summaries are folded again over what they held.
+    await store.append({ projectKey: SESSION, sessionId: PROVIDER }, [line("user", "p3", "a2", "Third")]);
+    log.atomically((tx) => store.copySession(tx, SESSION, FORK));
+    expect(await adapter.readTitle?.(FORK)).toBe("Fixing the receipt sweep");
     expect(await adapter.readTitle?.(SESSION)).toBe("Fixing the receipt sweep");
   });
 
