@@ -295,6 +295,23 @@ describe("commands.dispatch", () => {
     ]);
   });
 
+  it("reads the client session a command is sent on from the socket's own hello, so one the environment renewed at reconnect drops the run command sent on the old", async () => {
+    const { runtime, wire, clock, id } = await paired();
+    wire.answer("runs.interrupt", () => undefined);
+    const answer = runtime.commands.dispatch(id, "runs.interrupt", { runId: randomUUID() });
+    await wire.server.request("runs.interrupt");
+    wire.server.drop();
+    await flush();
+    // The environment answers the reconnect with a client session of its own naming: the record still holds the old id when the socket is ready.
+    clock.advance(1250);
+    await wire.server.accept({ clientSessionId: "renewed-by-the-environment" });
+    expect(await answer).toMatchObject({ ok: false, error: { code: "unconfirmed" } });
+    await flush();
+    // Nothing was sent again on the new socket, and one notice says so.
+    expect(requests(wire, "runs.interrupt")).toHaveLength(0);
+    expect(runtime.projections.notices.read().filter((n) => n.kind === "command-dropped")).toHaveLength(1);
+  });
+
   it("holds a sessions:write command the environment answered unavailable, and sends it again with its command id on the next ready", async () => {
     const { runtime, wire, clock, id } = await paired();
     wire.answer("sessions.archive", () => ({ error: { code: "unavailable", message: "Starting.", data: {} } }));

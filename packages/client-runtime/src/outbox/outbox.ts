@@ -180,6 +180,8 @@ interface Sender {
   unreadable: boolean;
   /** The environment was removed: nothing more is kept, sent or written for this sender. */
   forgotten: boolean;
+  /** The client session of the ready socket, from its hello: what an entry sent on it is stamped with. */
+  session: string | null;
   /** The command ids of dispatches waiting on the read to be kept: a removal first answers them `forgotten`. */
   keeping: Set<string>;
   /** The document's writes, one after another. */
@@ -227,6 +229,7 @@ export const createOutbox = (host: OutboxHost): Outbox => {
         isLoaded: false,
         unreadable: false,
         forgotten: false,
+        session: null,
         keeping: new Set(),
         writes: Promise.resolve(),
       };
@@ -402,7 +405,8 @@ export const createOutbox = (host: OutboxHost): Outbox => {
     if (!sender || closed || !sender.ready || !sender.isLoaded || sender.sending !== null || sender.stalled) return;
     const next = outboxOf(environmentId).entries.find((entry) => entry.state === "queued" || entry.state === "in-flight");
     if (!next) return;
-    const session = host.record(environmentId)?.clientSessionId ?? null;
+    // The socket's own client session, from its hello: the record is written from the same hello, but after the ready seam fires.
+    const session = sender.session;
     if (next.state === "in-flight" && next.sentOn !== session && registry[next.method].scope === "runs:drive") {
       unconfirmed(next);
       void persist(environmentId);
@@ -650,10 +654,11 @@ export const createOutbox = (host: OutboxHost): Outbox => {
     return ("refused" in prepared ? Promise.resolve(prepared.refused) : prepared.enqueue()) as Promise<DispatchAnswer<N>>;
   };
 
-  const stopReady = host.seams.onReady((environmentId) => {
+  const stopReady = host.seams.onReady((environmentId, hello) => {
     const sender = senderOf(environmentId);
     // A new socket: whatever was under way went with the old one, and stays in flight to be sent again.
     sender.ready = true;
+    sender.session = hello.clientSessionId;
     sender.sending = null;
     sender.stalled = false;
     void load(environmentId).then(() => kick(environmentId));
