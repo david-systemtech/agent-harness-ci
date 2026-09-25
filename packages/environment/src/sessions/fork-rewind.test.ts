@@ -172,6 +172,50 @@ describe("sessions.fork", () => {
     expect(events(t, grandchild).find((event) => event.type === "run.started")?.payload).toMatchObject({ forkedFrom: child, resumedFrom: "provider-1" });
   });
 
+  it("forks a fork before its own first message from the provider session it carried in: what its own record names while none of its runs has linked one, else the one linked", async () => {
+    const t = await start();
+    const client = await t.client();
+    const source = await create(client);
+    await runTo(t, client, source.id, "First");
+    const second = await runTo(t, client, source.id, "Second");
+
+    // Its one run failed before linking: nothing it was sent reached the provider, so its record's cut stands, and the message asked for is the draft.
+    const unlinked = randomUUID();
+    await fork(client, { sessionId: source.id, id: unlinked, atMessageId: second.messageId });
+    t.adapter.nextScripts.push(() => [end("error", { error: { message: "Overloaded", code: "overloaded" } })]);
+    const failed = await runTo(t, client, unlinked, "Unlinked first");
+    const fromUnlinked = randomUUID();
+    const answer = await fork(client, { sessionId: unlinked, id: fromUnlinked, atMessageId: failed.messageId });
+    expect(answer.result?.summary.draft).toBe("Unlinked first");
+    expect(events(t, fromUnlinked).at(-1)?.payload).toEqual({ fromSessionId: unlinked, atMessageId: second.messageId, fromProviderSessionId: "provider-1" });
+    await runTo(t, client, fromUnlinked, "Onwards");
+    expect(t.adapter.lastRun().input.target).toEqual({ kind: "fork", providerSessionId: "provider-1", atMessageId: second.messageId });
+
+    // Its run linked a provider session of its own, which holds the source's history before its first message.
+    const linked = randomUUID();
+    await fork(client, { sessionId: source.id, id: linked, atMessageId: second.messageId });
+    t.adapter.nextScripts.push(linking("provider-linked"));
+    const own = await runTo(t, client, linked, "Linked first");
+    const fromLinked = randomUUID();
+    await fork(client, { sessionId: linked, id: fromLinked, atMessageId: own.messageId });
+    expect(events(t, fromLinked).at(-1)?.payload).toEqual({ fromSessionId: linked, atMessageId: own.messageId, fromProviderSessionId: "provider-linked" });
+  });
+
+  it("forks the whole of a source with a rewind not yet continued from at the rewind's message, since its provider session still holds what the rewind hid", async () => {
+    const t = await start();
+    const client = await t.client();
+    const source = await create(client);
+    await runTo(t, client, source.id, "First");
+    const second = await runTo(t, client, source.id, "Second");
+    await rewind(client, source.id, second.messageId);
+    const id = randomUUID();
+
+    await fork(client, { sessionId: source.id, id });
+    expect(events(t, id).at(-1)?.payload).toEqual({ fromSessionId: source.id, atMessageId: second.messageId, fromProviderSessionId: "provider-1" });
+    await runTo(t, client, id, "Elsewhere");
+    expect(t.adapter.lastRun().input.target).toEqual({ kind: "fork", providerSessionId: "provider-1", atMessageId: second.messageId });
+  });
+
   it("is allowed while the source runs", async () => {
     const held = gate();
     const t = await start();

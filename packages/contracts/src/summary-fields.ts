@@ -25,8 +25,8 @@ export type SummaryFieldOwner = { readonly command: CommandMethodName } | { read
  * `settledOverride` through the companion events, a run's start moves the
  * filing fields through its own (unarchive, unsettle, wake, the `active`
  * override cleared) and a run's end wakes, a sync moves `pullRequests`, a
- * generated title (`session.title-generated`, from the first user message
- * or the provider) moves `title` and `titleSource`.
+ * generated title (`session.title-generated`, from the first user message,
+ * a fork's source or the provider) moves `title` and `titleSource`.
  */
 export const SUMMARY_FIELD_OWNERS = {
   // Identity: born with the session; updatedAt then moves with every organisation command.

@@ -346,10 +346,11 @@ export const SessionTitleSetPayload = z
   })
   .meta({ description: "session.title-set: the user set the session's title, or cleared it (null)." });
 
-/** Where a generated title came from: the first user message, or the provider's own summary. */
+/** Where a generated title came from: the first user message (or, on a fork, the source's title carried over), or the provider's own summary. */
 export const GENERATED_TITLE_SOURCES = ["prompt", "provider"] as const;
 export const GeneratedTitleSource = z.enum(GENERATED_TITLE_SOURCES).meta({
-  description: "Where a generated title came from: prompt (the first user message's first line) or provider (the provider's summary).",
+  description:
+    "Where a generated title came from: prompt (the first user message's first line, or, on a fork, the source's title carried over at the fork's creation) or provider (the provider's summary).",
 });
 
 export const SessionTitleGeneratedPayload = z
