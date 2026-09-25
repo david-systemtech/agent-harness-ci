@@ -711,6 +711,38 @@
       "title": "SignInExecutableChosenPayload"
     },
     {
+      "path": "usage/verdict.json",
+      "title": "UsageVerdict"
+    },
+    {
+      "path": "usage/window.json",
+      "title": "UsageWindow"
+    },
+    {
+      "path": "usage/account-usage.json",
+      "title": "AccountUsage"
+    },
+    {
+      "path": "usage/usage-updated.json",
+      "title": "UsageUpdatedPayload"
+    },
+    {
+      "path": "usage/handoff-reason.json",
+      "title": "HandoffReason"
+    },
+    {
+      "path": "usage/handoff-basis.json",
+      "title": "HandoffBasis"
+    },
+    {
+      "path": "usage/handoff-trigger.json",
+      "title": "HandoffTrigger"
+    },
+    {
+      "path": "usage/handoff-recommendation.json",
+      "title": "HandoffRecommendation"
+    },
+    {
       "path": "transcript/run-origin.json",
       "title": "RunOrigin"
     },
@@ -2019,6 +2051,30 @@
       "title": "accounts.signin.cancel error"
     },
     {
+      "path": "methods/accounts.usage/params.json",
+      "title": "accounts.usage params"
+    },
+    {
+      "path": "methods/accounts.usage/result.json",
+      "title": "accounts.usage result"
+    },
+    {
+      "path": "methods/accounts.usage/error.json",
+      "title": "accounts.usage error"
+    },
+    {
+      "path": "methods/accounts.handoff.recommend/params.json",
+      "title": "accounts.handoff.recommend params"
+    },
+    {
+      "path": "methods/accounts.handoff.recommend/result.json",
+      "title": "accounts.handoff.recommend result"
+    },
+    {
+      "path": "methods/accounts.handoff.recommend/error.json",
+      "title": "accounts.handoff.recommend error"
+    },
+    {
       "path": "methods/models.list/params.json",
       "title": "models.list params"
     },
@@ -2877,6 +2933,24 @@
       "result": "methods/accounts.signin.cancel/result.json",
       "response": "methods/accounts.signin.cancel/response.json",
       "error": "methods/accounts.signin.cancel/error.json"
+    },
+    {
+      "name": "accounts.usage",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/accounts.usage/params.json",
+      "result": "methods/accounts.usage/result.json",
+      "error": "methods/accounts.usage/error.json"
+    },
+    {
+      "name": "accounts.handoff.recommend",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/accounts.handoff.recommend/params.json",
+      "result": "methods/accounts.handoff.recommend/result.json",
+      "error": "methods/accounts.handoff.recommend/error.json"
     },
     {
       "name": "models.list",
