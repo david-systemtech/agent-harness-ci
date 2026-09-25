@@ -62,11 +62,11 @@ describe("a TTL countdown", () => {
 // A runtime on two scripted environments.
 
 /** A parked prompt as `permissions.prompts.list` lists it. */
-const listed = (sessionId: string, promptId: string, ttlExpiresAt: string | null, sequence = 3) => ({
+const listed = (sessionId: string, promptId: string, ttlExpiresAt: string | null, sequence = 3, openedAt = at(0)) => ({
   sessionId,
   promptId,
   sequence,
-  openedAt: at(0),
+  openedAt,
   prompt: recorded("prompt.opened", 0, { promptId, toolCallId: promptId, ttlExpiresAt, summary: `Bash: ${promptId}` }),
 });
 
@@ -110,6 +110,21 @@ describe("the parked asks", () => {
 
     clock.advance(1000);
     expect(runtime.projections.runs.read().parkedAsks[0]?.ttl).toEqual({ expiresAt: at(tenMinutes + 5 * 60_000), remainingMs: 5 * 60_000 - 1000 });
+  });
+
+  it("sort by when each prompt opened on this client's clock, each environment's opened-at moved back by how far its clock runs ahead", async () => {
+    // The desk's clock is ten minutes ahead. Its prompt opened a minute ago, and says nine minutes from now on this
+    // client's clock; the laptop's opened thirty seconds ago. Compared as written, the laptop's would come first.
+    const tenMinutes = 10 * 60_000;
+    const { runtime, environments, prompts } = await twoEnvironments(tenMinutes);
+    const [desk, laptop] = environments as [ScriptedEnvironment, ScriptedEnvironment];
+    prompts[0]!.prompts = [listed(desk.sessionId, "toolu_1", null, 3, at(tenMinutes - 60_000))];
+    prompts[1]!.prompts = [listed(laptop.sessionId, "toolu_2", null, 3, at(-30_000))];
+
+    const stop = runtime.projections.runs.subscribe(() => undefined);
+    onTestFinished(stop);
+    await flush();
+    expect(runtime.projections.runs.read().parkedAsks.map((ask) => ask.promptId)).toEqual(["toolu_1", "toolu_2"]);
   });
 
   it("take a prompt parked since the list was read at once, and let an entry go when its prompt.answered arrives", async () => {

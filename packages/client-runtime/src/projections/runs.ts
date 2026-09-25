@@ -243,7 +243,7 @@ export const createRuns = (host: RunsHost): Runs => {
 
   const asksOf = (records: readonly ConnectionRecord[]): ParkedAsk[] => {
     const lists = host.lists.read();
-    const asks: { readonly ask: ParkedAsk; readonly place: number }[] = [];
+    const asks: { readonly ask: ParkedAsk; readonly place: number; readonly openedLocally: number }[] = [];
     records.forEach(({ environmentId }, place) => {
       const answer = host.prompts(environmentId).read();
       const known = heard.get(environmentId);
@@ -255,10 +255,14 @@ export const createRuns = (host: RunsHost): Runs => {
       for (const [key, { prompt, at }] of known?.opened ?? []) if (asked === null || at >= asked) prompts.set(key, prompt);
       for (const key of known?.answered.keys() ?? []) prompts.delete(key);
       const now = host.now(environmentId);
+      // How far this environment's clock runs ahead of the client's: its times are moved back by it, so asks from two
+      // environments sort by when they opened on one clock, as their countdowns are already reckoned.
+      const skew = now.getTime() - clock.now().getTime();
       const sessions = lists.get(environmentId)?.data?.sessions;
       for (const prompt of prompts.values()) {
         asks.push({
           place,
+          openedLocally: Date.parse(prompt.openedAt) - skew,
           ask: {
             environmentId,
             sessionId: prompt.sessionId,
@@ -275,7 +279,7 @@ export const createRuns = (host: RunsHost): Runs => {
         });
       }
     });
-    asks.sort((a, b) => Date.parse(a.ask.openedAt) - Date.parse(b.ask.openedAt) || a.place - b.place || a.ask.sequence - b.ask.sequence);
+    asks.sort((a, b) => a.openedLocally - b.openedLocally || a.place - b.place || a.ask.sequence - b.ask.sequence);
     return asks.map(({ ask }) => ask);
   };
 
