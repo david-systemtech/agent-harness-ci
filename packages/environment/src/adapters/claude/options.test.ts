@@ -1,8 +1,8 @@
-import type { CanUseTool, SessionStore } from "@anthropic-ai/claude-agent-sdk";
+import type { CanUseTool, HookCallback, SessionStore } from "@anthropic-ai/claude-agent-sdk";
 import { describe, expect, it } from "vitest";
 import type { RunInput, RunTarget } from "../../adapter/contract.js";
 import { CLAUDE_STRIPPED_VARIABLES } from "./credentials.js";
-import { CLAUDE_MODES, buildRunOptions, type RunOptionsInput } from "./options.js";
+import { CLAUDE_MODES, GATE_HOOK_TIMEOUT_SECONDS, buildRunOptions, type RunOptionsInput } from "./options.js";
 
 /**
  * The options table (claude-adapter spec, "The Claude adapter, ported after
@@ -20,6 +20,7 @@ const store: SessionStore = {
 };
 
 const canUseTool: CanUseTool = async () => ({ behavior: "deny", message: "no" });
+const preToolUse: HookCallback = async () => ({});
 
 const run = (overrides: Partial<RunInput> = {}): RunInput => ({
   sessionId: SESSION_ID,
@@ -43,6 +44,7 @@ const run = (overrides: Partial<RunInput> = {}): RunInput => ({
     writable: ["/work/repo", "/data/containment/session/scratch", "/data/containment/session/tmp"],
     network: true,
   },
+  denylist: null,
   prompt: [{ messageId: "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d", text: "Go", attachments: [] }],
   ...overrides,
 });
@@ -58,6 +60,7 @@ const input = (overrides: Partial<RunInput> = {}, extra: Partial<RunOptionsInput
   sessionStore: store,
   resumePoint: null,
   canUseTool,
+  preToolUse,
   abortController: new AbortController(),
   ...extra,
 });
@@ -106,10 +109,32 @@ describe("the options a run is handed", () => {
     expect(buildRunOptions(input({ mode: null as never })).permissionMode).toBe("acceptEdits");
   });
 
-  it("hands the process's Stop hook to the SDK when it has one, and sets no hooks otherwise", async () => {
+  it("hands the process's Stop hook to the SDK when it has one, beside the gate's", async () => {
     const onStop = async () => ({});
-    expect(buildRunOptions(input({}, { onStop })).hooks).toEqual({ Stop: [{ hooks: [onStop] }] });
-    expect(buildRunOptions(input())).not.toHaveProperty("hooks");
+    expect(buildRunOptions(input({}, { onStop })).hooks).toEqual({ PreToolUse: [{ hooks: [preToolUse], timeout: GATE_HOOK_TIMEOUT_SECONDS }], Stop: [{ hooks: [onStop] }] });
+    expect(buildRunOptions(input()).hooks).not.toHaveProperty("Stop");
+  });
+
+  it.each(CLAUDE_MODES)("asks the tool gate first for every tool call in %s: a PreToolUse hook matching every tool, waiting as long as the CLI's timer can", (mode) => {
+    const options = buildRunOptions(input({ mode, ceiling: mode }));
+    expect(options.hooks?.PreToolUse).toEqual([{ hooks: [preToolUse], timeout: GATE_HOOK_TIMEOUT_SECONDS }]);
+    expect(options.hooks?.PreToolUse?.[0]).not.toHaveProperty("matcher");
+    // The CLI arms a timer of the timeout's seconds in milliseconds: past 2^31 - 1 ms a JavaScript timer fires at once.
+    expect(GATE_HOOK_TIMEOUT_SECONDS * 1000).toBeLessThanOrEqual(2 ** 31 - 1);
+    expect((GATE_HOOK_TIMEOUT_SECONDS + 1) * 1000).toBeGreaterThan(2 ** 31 - 1);
+    // A day's TTL, the preset, fits under it.
+    expect(GATE_HOOK_TIMEOUT_SECONDS).toBeGreaterThan(24 * 60 * 60);
+  });
+
+  it("never asks the SDK for dontAsk or default, and never answers prompts anywhere but the host", () => {
+    for (const mode of CLAUDE_MODES) {
+      for (const ceiling of CLAUDE_MODES) {
+        const options = buildRunOptions(input({ mode, ceiling }));
+        expect(options.permissionMode, `${mode} under ${ceiling}`).toBe(mode);
+        expect(options.permissionPrompts).toBe("host");
+        expect(options.canUseTool).toBe(canUseTool);
+      }
+    }
   });
 
   it("keeps the claude_code preset and appends the composed instructions", () => {
@@ -233,5 +258,103 @@ describe("the options a run is handed", () => {
 
   it("never enables file checkpointing, which cannot be combined with the store", () => {
     expect(buildRunOptions(input())).not.toHaveProperty("enableFileCheckpointing");
+  });
+
+  describe("containment as the SDK's sandbox (permissions spec, the enforcement for Claude)", () => {
+    const at = (level: "off" | "workspace" | "workspace-no-network", denylist: RunInput["denylist"] = null) =>
+      buildRunOptions(
+        input({
+          containment: {
+            level,
+            mechanism: level === "off" ? null : "bubblewrap",
+            scratchDirectory: "/data/containment/session/scratch",
+            temporaryDirectory: "/data/containment/session/tmp",
+            writable: ["/work/repo", "/data/containment/session/scratch", "/data/containment/session/tmp"],
+            network: level !== "workspace-no-network",
+          },
+          denylist,
+        }),
+      );
+
+    it("sets no sandbox at off", () => {
+      expect(at("off")).not.toHaveProperty("sandbox");
+    });
+
+    it.each(["workspace", "workspace-no-network"] as const)("enables it at %s, failing rather than running unsandboxed, with no way to ask out of it and no approval by being sandboxed", (level) => {
+      expect(at(level).sandbox).toMatchObject({ enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false, autoAllowBashIfSandboxed: false });
+    });
+
+    it.each(["workspace", "workspace-no-network"] as const)("lets a command at %s write in the workspace, the session's scratch directory and its temporary directory", (level) => {
+      expect(at(level).sandbox?.filesystem?.allowWrite).toEqual(["/work/repo", "/data/containment/session/scratch", "/data/containment/session/tmp"]);
+    });
+
+    it("leaves the network open at workspace, local binding included, and names no domain", () => {
+      const network = at("workspace").sandbox?.network;
+      expect(network).toEqual({ allowLocalBinding: true });
+      expect(network).not.toHaveProperty("allowedDomains");
+      expect(network).not.toHaveProperty("strictAllowlist");
+    });
+
+    it("closes the network at workspace-no-network: no domain, no unix socket, no local binding, and nothing asked about", () => {
+      expect(at("workspace-no-network").sandbox?.network).toEqual({
+        allowedDomains: [],
+        strictAllowlist: true,
+        allowUnixSockets: [],
+        allowAllUnixSockets: false,
+        allowLocalBinding: false,
+      });
+    });
+  });
+
+  describe("the denylist projected onto the provider's own rules, on unattended runs only", () => {
+    const projected: NonNullable<RunInput["denylist"]> = {
+      paths: ["/home/david/.ssh", "/home/david/.docker/config.json", "/data/agent-harness"],
+      exempt: ["/data/agent-harness/containment", "/data/agent-harness/scratch"],
+      commandPatterns: ["sudo *", "curl * |  *sh *", "rm -rf (x)\\y"],
+    };
+    const contained = (denylist: RunInput["denylist"], level: "off" | "workspace" = "workspace") =>
+      buildRunOptions(
+        input({
+          containment: {
+            level,
+            mechanism: level === "off" ? null : "seatbelt",
+            scratchDirectory: "/data/containment/session/scratch",
+            temporaryDirectory: "/data/containment/session/tmp",
+            writable: ["/work/repo", "/data/containment/session/scratch", "/data/containment/session/tmp"],
+            network: true,
+          },
+          denylist,
+        }),
+      );
+
+    it("puts the path section into the sandbox's denyRead, the directories the denylist leaves out read again", () => {
+      const filesystem = contained(projected).sandbox?.filesystem;
+      expect(filesystem?.denyRead).toEqual(projected.paths);
+      expect(filesystem?.allowRead).toEqual(projected.exempt);
+    });
+
+    it("makes each command pattern a disallowed shell rule, its brackets and backslashes escaped as the CLI reads a rule", () => {
+      expect(contained(projected).disallowedTools).toEqual(["Bash(sudo *)", "Bash(curl * | *sh *)", "Bash(rm -rf \\(x\\)\\\\y)"]);
+    });
+
+    it("keeps the disallowed shell rules at off, where no sandbox carries the paths", () => {
+      const options = contained(projected, "off");
+      expect(options).not.toHaveProperty("sandbox");
+      expect(options.disallowedTools).toEqual(["Bash(sudo *)", "Bash(curl * | *sh *)", "Bash(rm -rf \\(x\\)\\\\y)"]);
+    });
+
+    it("projects neither on an attended run, so a person's explicit allow is never blocked by a rule", () => {
+      const options = contained(null);
+      expect(options).not.toHaveProperty("disallowedTools");
+      expect(options.sandbox?.filesystem).not.toHaveProperty("denyRead");
+      expect(options.sandbox?.filesystem).not.toHaveProperty("allowRead");
+    });
+
+    it("adds nothing for empty sections", () => {
+      const options = contained({ paths: [], exempt: ["/data/agent-harness/containment"], commandPatterns: [] });
+      expect(options).not.toHaveProperty("disallowedTools");
+      expect(options.sandbox?.filesystem).not.toHaveProperty("denyRead");
+      expect(options.sandbox?.filesystem).not.toHaveProperty("allowRead");
+    });
   });
 });

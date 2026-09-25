@@ -84,6 +84,7 @@ import type {
   ProviderTurn,
   RunContainment,
   RunContext,
+  RunDenylist,
   RunEnd,
   UsageReading,
 } from "./contract.js";
@@ -158,6 +159,9 @@ import {
  * `answerPrompt`, since the adapter did not raise it.
  */
 
+/** An unattended run's projection when the host has no denylist to read. */
+const NOTHING_TO_PROJECT: RunDenylist = { paths: [], exempt: [], commandPatterns: [] };
+
 export interface AdapterHostOptions {
   readonly log: EventLog;
   readonly clock: Clock;
@@ -176,6 +180,12 @@ export interface AdapterHostOptions {
   readonly autoAnswer?: PromptAutoAnswer;
   /** The tool gate's rules, asked in order for every call a run's adapter checks (#132); preset: none, every call goes on to the provider. */
   readonly gateRules?: readonly ToolGateRule[];
+  /**
+   * The denylist as a provider projects it onto its own deny rules, read as
+   * each unattended run starts (#140; an attended run is handed none).
+   * Preset: nothing to project; the environment reads its denylist.
+   */
+  readonly providerDenylist?: () => RunDenylist;
   /**
    * How long a prompt may wait for a person before the TTL's sweeper denies
    * it, in milliseconds, read as each prompt opens; null for never (#131).
@@ -494,6 +504,21 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
   const instructions = options.instructions ?? composeInstructions();
   const autoAnswer = options.autoAnswer ?? noAutoAnswer;
   const gateRules = options.gateRules ?? [];
+  /**
+   * What an unattended run projects onto its provider's own rules, read as
+   * it starts; an attended run gets none, so a person's explicit allow is
+   * never blocked by a rule. A read that fails projects nothing, logged:
+   * the gate still asks about every call.
+   */
+  const runDenylist = (attended: boolean): RunDenylist | null => {
+    if (attended) return null;
+    try {
+      return options.providerDenylist?.() ?? NOTHING_TO_PROJECT;
+    } catch (error) {
+      console.error("Reading the denylist for a run's provider rules failed; the run projects none, and the gate still asks about every call:", error);
+      return NOTHING_TO_PROJECT;
+    }
+  };
   const promptTtlMs = options.promptTtlMs ?? (() => null);
   const resolvePolicy = options.resolvePolicy ?? presetPolicy;
   const directories = options.containmentDirectories ?? temporaryContainmentDirectories();
@@ -1215,6 +1240,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
           toolServers: toolServers({ ...scope, runId: plan.runId }),
           trusted: false,
           containment: entry.containment,
+          denylist: runDenylist(plan.policy.attended),
           prompt,
         },
         contextFor(entry),

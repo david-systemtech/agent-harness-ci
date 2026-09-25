@@ -5,6 +5,7 @@ import {
   query as sdkQuery,
   type CanUseTool,
   type HookCallback,
+  type HookJSONOutput,
   type Options,
   type PermissionResult,
   type PermissionUpdate,
@@ -14,7 +15,7 @@ import {
   type SpawnedProcess,
 } from "@anthropic-ai/claude-agent-sdk";
 import type { JsonObject, Mode, PromptQuestion } from "@agent-harness/contracts";
-import { claudeGatedCall } from "./gate-access.js";
+import { SANDBOX_NETWORK_TOOL, claudeGatedCall } from "./gate-access.js";
 import {
   PromptClosed,
   WithdrawUnsupported,
@@ -143,6 +144,18 @@ const DEFAULT_DENY_MESSAGE = "The request was denied.";
 type Record_ = Record<string, unknown>;
 const isRecord = (value: unknown): value is Record_ => value !== null && typeof value === "object" && !Array.isArray(value);
 const describe = (error: unknown): string => (error instanceof Error ? error.message : String(error));
+
+/** How many tool calls the hook let through the process remembers, so the provider's prompt about one is not gated again. */
+const HOOK_GATED_KEPT = 1024;
+
+/** The hook's answer for a call the gate denied: the CLI does not run it, and the model reads `message`. */
+const gateDenial = (message: string): HookJSONOutput => ({
+  hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: message },
+});
+
+/** What the model reads when the gate could not rule on a call: the call is denied, since a hook that fails lets the CLI run it. */
+const gateFailed = (error: unknown): string =>
+  `Denied: this call could not be checked against the harness's rules (${describe(error)}), so it was not run. Continue without it and say what you could not do.`;
 
 const textOf = (value: unknown): string | null => (typeof value === "string" && value.trim() !== "" ? value : null);
 
@@ -274,7 +287,26 @@ interface SpawnKey {
   readonly bypassAllowed: boolean;
   /** The instruction text the spawn appended to the preset: a run with other text (a completions request's own, #138) needs a spawn of its own. */
   readonly instructions: string;
+  /**
+   * What the spawn's sandbox and deny rules were made from (#140): the run's
+   * containment (level, mechanism, network, writable set) and the denylist it
+   * projects, both fixed when the CLI starts. A run with another needs a
+   * spawn of its own.
+   */
+  readonly confinement: string;
 }
+
+/** A run's containment and projected denylist as one comparable value: the parts the options read, in a fixed order. */
+const confinementOf = (input: RunInput): string => {
+  const { containment, denylist } = input;
+  return JSON.stringify([
+    containment.level,
+    containment.mechanism,
+    containment.network,
+    containment.writable,
+    denylist === null ? null : [denylist.paths, denylist.exempt, denylist.commandPatterns],
+  ]);
+};
 
 /** What the process last applied, so an attached run sends only what differs. */
 interface Applied {
@@ -355,6 +387,13 @@ export class ClaudeProcess implements TurnControl {
   readonly #cancelled = new Set<string>();
   /** Queued messages a turn has been seen reading. */
   readonly #seenRead = new Set<string>();
+  /**
+   * The tool calls the hook let through, by tool use id, with the input it
+   * ruled on: the provider's prompt about one is not put to the gate again,
+   * unless its input changed since (another hook rewrote it). Oldest first,
+   * at most `HOOK_GATED_KEPT`: a prompt follows its hook at once.
+   */
+  readonly #hookGated = new Map<string, string>();
   /** The permission table: prompts parked on the broker, by prompt id, answerable here too, with the turn that asked. */
   readonly #permissions = new Map<string, { readonly answer: (decision: PromptDecision) => void; readonly turn: ClaudeTurn }>();
 
@@ -397,6 +436,7 @@ export class ClaudeProcess implements TurnControl {
       // The SDK's opt-in follows the run's ceiling, so a run under a bypass ceiling may later be changed to bypass.
       bypassAllowed: input.ceiling === "bypassPermissions",
       instructions: input.instructions,
+      confinement: confinementOf(input),
     };
   }
 
@@ -421,6 +461,8 @@ export class ClaudeProcess implements TurnControl {
     if (key.directory !== this.#spawn.directory || key.trusted !== this.#spawn.trusted || key.toolServers !== this.#spawn.toolServers) return false;
     // The instructions are fixed at spawn (the preset's append): other text is a fresh process's.
     if (key.instructions !== this.#spawn.instructions) return false;
+    // So are the sandbox and the deny rules: another level, mechanism or projected denylist is a fresh process's (#140).
+    if (key.confinement !== this.#spawn.confinement) return false;
     // A bypass ceiling needs the SDK's opt-in at spawn; a process started without it cannot enter bypass.
     return !key.bypassAllowed || this.#spawn.bypassAllowed;
   }
@@ -575,6 +617,7 @@ export class ClaudeProcess implements TurnControl {
         sessionStore: this.#deps.sessionStore,
         resumePoint,
         canUseTool: this.#canUseTool,
+        preToolUse: this.#preToolUse,
         onStop: this.#onStop,
         spawnProcess: this.#spawnProcess,
         abortController: this.#abort,
@@ -960,6 +1003,69 @@ export class ClaudeProcess implements TurnControl {
     return {};
   };
 
+  /**
+   * The tool gate's hook (#140; permissions spec, "Provider deny rules where
+   * they must apply"): the SDK's in-process `PreToolUse` callback, which the
+   * CLI runs before its own evaluation of every tool call, in every mode,
+   * bypass included, a subagent's calls and a call between the CLI's turns
+   * too. A denial is the hook's `deny`, with the gate's message for the
+   * model. An allow says nothing, so the call goes on to the mode, the rules
+   * and the provider's own prompt: the hook never allows on their behalf.
+   * A denylist match is put to the person inside the gate and waited on
+   * here (the verify-first fallback #132 chose, which holds in bypass): the
+   * CLI waits for as long as `GATE_HOOK_TIMEOUT_SECONDS` allows, and when it
+   * gives up it cancels the hook's request, which aborts `signal`, and the
+   * gate closes the prompt and denies. A call let through is remembered, so
+   * the provider's prompt about it is not gated again (`#canUseTool`). The
+   * hook never throws: the CLI reads a hook that failed as one with no
+   * opinion and runs the call, so a gate that could not rule denies.
+   */
+  readonly #preToolUse: HookCallback = async (input, _toolUseID, { signal }) => {
+    if (input.hook_event_name !== "PreToolUse") return {};
+    try {
+      if (this.closed) return gateDenial(DISPOSED_DENY_MESSAGE);
+      await this.#decided();
+      if (this.closed) return gateDenial(DISPOSED_DENY_MESSAGE);
+      const callId = input.tool_use_id === "" ? randomUUID() : input.tool_use_id;
+      const toolInput = isRecord(input.tool_input) ? input.tool_input : {};
+      const ruling = await this.#context.gate.check(claudeGatedCall(input.tool_name, toolInput, callId), signal);
+      if (ruling.decision === "deny") return gateDenial(ruling.message);
+      this.#hookGated.set(callId, JSON.stringify(toolInput));
+      for (const oldest of this.#hookGated.keys()) {
+        if (this.#hookGated.size <= HOOK_GATED_KEPT) break;
+        this.#hookGated.delete(oldest);
+      }
+      return {};
+    } catch (error) {
+      return gateDenial(gateFailed(error));
+    }
+  };
+
+  /** Whether the hook let this call through as it is now, so the gate need not be asked again; forgets it either way. */
+  #gatedByHook(toolUseID: string, input: Record<string, unknown>): boolean {
+    const ruledOn = this.#hookGated.get(toolUseID);
+    this.#hookGated.delete(toolUseID);
+    return ruledOn !== undefined && ruledOn === JSON.stringify(input);
+  }
+
+  /**
+   * The sandbox's ask for a host (`SandboxNetworkAccess`, #140): at
+   * `workspace` the network is open, but the pinned sandbox cannot say "any
+   * domain", so it asks the host about each new host a command reaches. No
+   * hook sees it and it is no tool call: the gate rules on the host as a
+   * fetch (containment's no-network level and the denylist's hosts), and
+   * its ruling is the answer, asking nobody and opening no turn. The CLI
+   * remembers an allowed host for the session.
+   */
+  async #networkAsk(input: Record<string, unknown>, toolUseID: string, signal: AbortSignal): Promise<PermissionResult> {
+    try {
+      const ruling = await this.#context.gate.check(claudeGatedCall(SANDBOX_NETWORK_TOOL, input, toolUseID === "" ? randomUUID() : toolUseID), signal);
+      return ruling.decision === "deny" ? { behavior: "deny", message: ruling.message, toolUseID } : { behavior: "allow", updatedInput: input, toolUseID };
+    } catch (error) {
+      return { behavior: "deny", message: gateFailed(error), toolUseID };
+    }
+  }
+
   /** Lets go of every hold this process took: it is being replaced or stopped. */
   #unholdAll(): void {
     for (const id of this.#liveTasks) this.#context.process.unhold("task", id);
@@ -1012,10 +1118,12 @@ export class ClaudeProcess implements TurnControl {
    * provider aborts it. A request arriving with no turn open is a
    * subagent's, parked long after its own turn ended: a turn of the
    * provider's own carries it, and the broker is asked once the host has
-   * adopted that turn and named its run. Only the calls the provider asks
-   * about reach it: a call the mode approves without asking is not gated
-   * until #140's `PreToolUse` hook, so for those the SDK's sandbox option
-   * (#140) is what enforces containment.
+   * adopted that turn and named its run. The gate has ruled on a tool call
+   * already in the `PreToolUse` hook (#140), which runs first, so it is
+   * asked here only about a call the hook did not let through as it is now
+   * (one another hook rewrote, or one no hook saw). The sandbox's ask for a
+   * host is no tool call: it is answered from the gate alone
+   * (`#networkAsk`).
    */
   readonly #canUseTool: CanUseTool = async (toolName, input, options) => {
     const toolUseID = options.toolUseID;
@@ -1025,6 +1133,7 @@ export class ClaudeProcess implements TurnControl {
     if (this.closed) return { behavior: "deny", message: DISPOSED_DENY_MESSAGE, toolUseID };
     // Withdrawn before it was taken (while a decision settled, say): an aborted signal fires no more, so nobody is asked.
     if (options.signal.aborted) return { behavior: "deny", message: ABORTED_DENY_MESSAGE, toolUseID };
+    if (toolName === SANDBOX_NETWORK_TOOL) return this.#networkAsk(input, toolUseID, options.signal);
     let turn = this.#current;
     if (turn === undefined) {
       turn = this.#promptTurn !== undefined && !this.#promptTurn.ended ? this.#promptTurn : this.#providerTurn([], true);
@@ -1043,11 +1152,13 @@ export class ClaudeProcess implements TurnControl {
         const early = await Promise.race([answered, Promise.resolve<PromptDecision>({ decision: "deny", message: DISPOSED_DENY_MESSAGE })]);
         return this.#result(early, toolName, input, options.suggestions ?? [], toolUseID);
       }
-      // The gate before anyone is asked: a containment denial is final, and the model is told why (#133); a denylist match
-      // is put to the person first, and only an allowed call comes on to the provider's own prompt (#132).
-      // The SDK's signal goes with it: a request the CLI withdraws closes a prompt the gate parked for it (#132).
-      const ruling = await this.#context.gate.check(claudeGatedCall(toolName, input, promptId, options.title), options.signal);
-      if (ruling.decision === "deny") return { behavior: "deny", message: ruling.message, toolUseID };
+      // The gate before anyone is asked, unless the hook ruled on the call as it is: a containment denial is final, and the
+      // model is told why (#133); a denylist match is put to the person first, and only an allowed call comes on to the
+      // provider's own prompt (#132). The SDK's signal goes with it: a request the CLI withdraws closes a prompt the gate parked.
+      if (!this.#gatedByHook(toolUseID, input)) {
+        const ruling = await this.#context.gate.check(claudeGatedCall(toolName, input, promptId, options.title), options.signal);
+        if (ruling.decision === "deny") return { behavior: "deny", message: ruling.message, toolUseID };
+      }
       const kind = PROMPT_KINDS[toolName] ?? "permission";
       // The CLI's request on the harness's fields: its title is the one-line summary, its reason the provider's.
       const detail: PromptDetail = {
@@ -1075,9 +1186,11 @@ export class ClaudeProcess implements TurnControl {
   };
 
   #result(decision: PromptDecision, toolName: string, input: Record<string, unknown>, suggestions: readonly PermissionUpdate[], toolUseID: string): PermissionResult {
-    return decision.decision === "allow"
-      ? allowedResult(toolName, input, decision, suggestions, toolUseID)
-      : { behavior: "deny", message: decision.message ?? DEFAULT_DENY_MESSAGE, toolUseID };
+    if (decision.decision !== "allow") return { behavior: "deny", message: decision.message ?? DEFAULT_DENY_MESSAGE, toolUseID };
+    // An approved plan's mode (clamped by the host) is set on the CLI by the result's `setMode`: the record follows it, so a
+    // later run's move and a live change read the mode the CLI is in (#140).
+    if (decision.mode !== undefined) this.#applied = { ...this.#applied, mode: claudeMode(decision.mode) };
+    return allowedResult(toolName, input, decision, suggestions, toolUseID);
   }
 
   /** A turn carrying only a subagent's prompts ends once none of them is parked: no result of the CLI's will end it. */

@@ -37,9 +37,10 @@ import type { ActorRunRequest } from "../serve/start.js";
  * The denylist and the tool gate (#132; permissions spec, "The denylist",
  * "Prompts, parked prompts and the TTL", "Events"; ADR 0006) through the
  * primary seam: an in-process environment whose fake provider plays tool
- * calls under the run context's gate, as #140's Claude hook will. What is
- * asserted is what a client sees (the methods, the session's and the
- * environment's streams, the access log) and what the provider was told.
+ * calls under the run context's gate, as Claude's PreToolUse hook does
+ * (#140). What is asserted is what a client sees (the methods, the
+ * session's and the environment's streams, the access log) and what the
+ * provider was told.
  */
 
 const { onCleanup, tempDir } = useCleanups();
@@ -546,6 +547,58 @@ describe("the tool gate on an unattended run", () => {
       [false, "denied", "denylist"],
     ]);
     expect(opened(t, id)[0]?.denylist?.[0]?.entry.id).toBe(DATA_DIRECTORY_PRESET_ID);
+  });
+});
+
+describe("the denylist a provider projects onto its own rules (#140)", () => {
+  it("is handed to an unattended run: the enabled paths with ~ expanded, the directories the denylist leaves out, and the enabled command patterns", async () => {
+    const t = await start();
+    const client = await t.client();
+    const held = await getDenylist(client);
+    await send(client, "permissions.denylist.set", {
+      sections: {
+        paths: held.paths.map((entry) => (entry.pattern === "~/.aws" ? { ...entry, enabled: false } : entry)),
+        commandPatterns: [...held.commandPatterns.map((entry) => (entry.pattern === "reboot *" ? { ...entry, enabled: false } : entry)), { pattern: "terraform destroy *" }],
+      },
+    });
+    const { id } = await create(client);
+    const { runId } = startAsRoutine(t, id);
+    await untilEnded(t, id, runId);
+    const projected = t.adapter.runs.at(-1)?.input.denylist;
+    const home = homedir();
+    expect(projected?.paths).toContain(join(home, ".ssh"));
+    expect(projected?.paths).toContain(join(home, ".docker", "config.json"));
+    expect(projected?.paths).toContain(t.env.dataDir);
+    expect(projected?.paths).not.toContain(join(home, ".aws"));
+    expect(projected?.paths.every((path) => path.startsWith("/"))).toBe(true);
+    expect(projected?.exempt).toEqual([join(t.env.dataDir, "containment"), join(t.env.dataDir, "scratch")]);
+    expect(projected?.commandPatterns).toContain("sudo *");
+    expect(projected?.commandPatterns).toContain("terraform destroy *");
+    expect(projected?.commandPatterns).not.toContain("reboot *");
+  });
+
+  it("is not handed to an attended run, whose person's explicit allow no provider rule may block", async () => {
+    const t = await start();
+    const client = await t.client();
+    const { id } = await create(client);
+    const { runId } = await startRun(client, id, "bypassPermissions");
+    await untilEnded(t, id, runId);
+    expect(t.adapter.runs.at(-1)?.input.denylist).toBeNull();
+  });
+});
+
+describe("the harness's scratch workspaces", () => {
+  it("are left out of the data directory's preset, as the containment directories are, so a completions run works in its own", async () => {
+    const t = await start();
+    const client = await t.client();
+    expect(await test(client, "path", join(t.env.dataDir, "scratch", randomUUID(), "notes.md"))).toEqual([]);
+    const { id } = await create(client);
+    const inside = join(t.env.dataDir, "scratch", id, "notes.md");
+    mkdirSync(join(t.env.dataDir, "scratch", id), { recursive: true });
+    t.adapter.nextScripts.push(calls({ tool: "Write", summary: "Write notes.md", access: { kind: "write", paths: [inside] } }));
+    const { runId } = startAsRoutine(t, id);
+    await untilEnded(t, id, runId);
+    expect(decisions(t, id).map((decision) => [decision.decision, decision.decidedBy])).toEqual([["allowed", "mode"]]);
   });
 });
 

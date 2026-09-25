@@ -33,14 +33,19 @@ export const MAX_TTL_AMOUNT = 1000;
  * How long a parked prompt waits before it is denied and the run continues:
  * a duration, or `never` (permissions spec, "Prompts, parked prompts and the
  * TTL"): fixed on each prompt that parks as its `ttlExpiresAt`, which the
- * environment's sweeper denies it past (#131).
+ * environment's sweeper denies it past (#131). A denylist prompt a Claude
+ * run waits on inside its tool hook is closed, and its call denied, after
+ * 24.8 days whatever the TTL: the longest the provider's hook can wait
+ * (#140), so `never` and a longer duration mean that there.
  */
 export const ParkedPromptTtl = z
   .union([
     z
       .object({ amount: z.int().min(1).max(MAX_TTL_AMOUNT), unit: TtlUnit })
       .meta({ description: `A duration: 1 to ${MAX_TTL_AMOUNT} minutes, hours or days.` }),
-    z.literal("never").meta({ description: "A parked prompt waits until it is answered." }),
+    z.literal("never").meta({
+      description: "A parked prompt waits until it is answered; a denylist prompt a Claude run waits on is closed, and its call denied, after 24.8 days, the longest its tool hook can wait.",
+    }),
   ])
   .meta({ description: "How long a parked prompt waits before it is denied and its run continues: a duration, or never." });
 export type ParkedPromptTtl = z.infer<typeof ParkedPromptTtl>;

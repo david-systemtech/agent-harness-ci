@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import {
   describeDenylistMatch,
   hostOf,
@@ -8,7 +9,7 @@ import {
   type DenylistCall,
   type DenylistMatch,
 } from "@agent-harness/contracts";
-import type { GatedToolCall } from "../adapter/contract.js";
+import type { GatedToolCall, RunDenylist } from "../adapter/contract.js";
 import type { ToolGateRule } from "../adapter/seams.js";
 import { resolvePath } from "./gate.js";
 
@@ -140,7 +141,7 @@ export interface DenylistContext {
   readonly denylist: () => Denylist;
   /** The home directory `~` stands for. */
   readonly home: string;
-  /** The directories the data directory's preset leaves out: the containment directories the runs write in (#133). */
+  /** The directories the data directory's preset leaves out: where runs work, the containment directories (#133) and the scratch workspaces (#140). */
   readonly exempt: readonly string[];
   /** Follows symbolic links, null where it cannot say; preset: the file system's (`resolvePath`, the walk containment's rule shares). */
   readonly resolve?: (path: string) => string | null;
@@ -179,6 +180,23 @@ export const readDenylistCall = (context: DenylistContext, call: DenylistCall, c
     },
   });
   return { matches, unresolvable };
+};
+
+/**
+ * The denylist as a provider projects it onto its own deny rules on an
+ * unattended run (#140; permissions spec, "Provider deny rules where they
+ * must apply"): the enabled paths, `~` read as the home directory, since a
+ * provider's sandbox reads its paths with no home of the environment's; the
+ * directories the matcher leaves out, which the sandbox reads again; and
+ * the enabled command patterns as written.
+ */
+export const providerDenylist = (denylist: Denylist, context: Pick<DenylistContext, "home" | "exempt">): RunDenylist => {
+  const absolute = (pattern: string): string => (pattern === "~" ? context.home : pattern.startsWith("~/") ? join(context.home, pattern.slice(2)) : pattern);
+  return {
+    paths: denylist.paths.filter((entry) => entry.enabled).map(({ pattern }) => absolute(pattern)),
+    exempt: [...context.exempt],
+    commandPatterns: denylist.commandPatterns.filter((entry) => entry.enabled).map(({ pattern }) => pattern),
+  };
 };
 
 /** What the model reads when a person denies a denylisted call and gives no message of their own. */
