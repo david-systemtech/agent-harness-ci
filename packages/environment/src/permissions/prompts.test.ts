@@ -16,12 +16,13 @@ import {
 import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { MANUAL_CLOCK_START } from "../../test/clock.js";
-import { ask, end, fakeAdapter, gate, say, toldText, type FakeAdapter, type FakeAdapterOptions } from "../../test/fake-adapter.js";
+import { ask, end, fakeAdapter, gate, say, toldText, type FakeAdapter, type FakeAdapterOptions, type Script } from "../../test/fake-adapter.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { create, get, listStream, patchOf, refusal } from "../../test/sessions.js";
 import type { WireClient } from "../../test/wire-client.js";
 import type { PromptDecision } from "../adapter/contract.js";
 import type { EventEnvelope as LogEvent } from "../event-log/event-log.js";
+import { DUPLICATE_PROMPT_MESSAGE, openedPayload } from "./broker.js";
 
 /**
  * The permission broker and parked prompts through the primary seam
@@ -284,6 +285,41 @@ describe("the notices of a prompt a rule answers at once", () => {
   });
 });
 
+describe("a prompt a rule answers at once", () => {
+  it("records the mode and the remember the rule gives, the mode clamped to the run's ceiling as a person's is, and hands the run the same", async () => {
+    const adapter = fakeAdapter();
+    adapter.nextScripts.push(ask("plan", plan, { promptId: "plan-auto" }), ask("permission", permission, { promptId: "perm-auto" }));
+    const t = await start(adapter, {
+      adapterSeams: {
+        autoAnswer: ({ kind }) =>
+          kind === "plan"
+            ? { auto: "unattended", decision: { decision: "allow", mode: "bypassPermissions" } }
+            : { auto: "unattended", decision: { decision: "allow", remember: "session" } },
+      },
+    });
+    const low = await pairedClient(t, "acceptEdits");
+    const one = await create(low);
+    const first = await startRun(low, one.id);
+    await untilEnded(t, one.id, first.runId);
+    expect(answeredEvents(t, one.id)).toEqual([
+      expect.objectContaining({
+        promptId: "plan-auto",
+        decision: "allow",
+        decidedBy: { auto: "unattended" },
+        mode: { requested: "bypassPermissions", effective: "acceptEdits", ceiling: "acceptEdits", clamped: true, clampReason: "ceiling" },
+        remember: null,
+      }),
+    ]);
+    expect(told(t, one.id)).toEqual([toldText({ decision: "allow", mode: "acceptEdits" })]);
+
+    const two = await create(low);
+    const second = await startRun(low, two.id);
+    await untilEnded(t, two.id, second.runId);
+    expect(answeredEvents(t, two.id)).toEqual([expect.objectContaining({ promptId: "perm-auto", decision: "allow", mode: null, remember: "session" })]);
+    expect(told(t, two.id)).toEqual([toldText({ decision: "allow", remember: "session" })]);
+  });
+});
+
 describe("permissions.prompts.list", () => {
   it("returns every parked prompt of the environment, or of one session, oldest first; an answered one leaves it", async () => {
     const adapter = fakeAdapter();
@@ -400,6 +436,53 @@ describe("permissions.prompts.answer", () => {
         });
       }
     }
+  });
+
+  it("refuses edited input on anything but a permission prompt, and a mode on a denied plan, invalid_params; the prompts stay parked", async () => {
+    const adapter = fakeAdapter();
+    const t = await start(adapter);
+    const client = await t.client();
+    for (const [kind, detail] of [["question", question], ["plan", plan], ["denylist", permission]] as const) {
+      adapter.nextScripts.push(ask(kind, detail, { promptId: `p-${kind}` }));
+      const session = await create(client);
+      await startRun(client, session.id);
+      await untilOpened(t, session.id);
+      const edited = client.request("permissions.prompts.answer", { commandId: randomUUID(), promptId: `p-${kind}`, decision: "allow", updatedInput: { command: "ls" } });
+      expect(await refusal(edited), kind).toMatchObject({ code: "invalid_params" });
+    }
+    const deniedWithMode = client.request("permissions.prompts.answer", { commandId: randomUUID(), promptId: "p-plan", decision: "deny", mode: "acceptEdits" });
+    expect(await refusal(deniedWithMode)).toMatchObject({ code: "invalid_params" });
+    expect((await client.request("permissions.prompts.list", {})).prompts.map((prompt) => prompt.promptId)).toEqual(["p-question", "p-plan", "p-denylist"]);
+  });
+
+  it("refuses an id parked in two sessions conflict ambiguous_prompt unless the session is named, and answers an id parked in one session only whichever session answered it last", async () => {
+    const t = await start();
+    const client = await t.client();
+    const one = await create(client);
+    const two = await create(client);
+    // Seeded below the adapter: the Claude adapter's ids are unique per call, so only another adapter could ask one id in two sessions.
+    for (const session of [one, two]) {
+      const opened = openedPayload({ runId: randomUUID(), promptId: "dup", kind: "permission", detail: permission, mode: "acceptEdits", ceiling: "acceptEdits", ttlExpiresAt: null });
+      t.env.log.append({ kind: "session", id: session.id }, [{ type: "prompt.opened", payload: opened }], { actor: "adapter:fake", correlationId: opened.runId });
+    }
+
+    expect((await answer(client, "dup", { decision: "allow" })).receipt).toMatchObject({
+      status: "rejected",
+      reason: "conflict",
+      error: { data: { reason: "ambiguous_prompt", promptId: "dup", sessionIds: [one.id, two.id] } },
+    });
+    expect((await answer(client, "dup", { decision: "deny", sessionId: two.id })).result).toMatchObject({ sessionId: two.id, decision: "deny", delivery: "next-run" });
+    // The older one, in the other session, is the one still parked: it is answered without naming its session.
+    expect((await answer(client, "dup", { decision: "allow" })).result).toMatchObject({ sessionId: one.id, decision: "allow", delivery: "next-run" });
+    expect((await answer(client, "dup", { decision: "allow", sessionId: one.id })).receipt).toMatchObject({ status: "rejected", reason: "conflict", error: { data: { reason: "already_answered" } } });
+    const other = await create(client);
+    expect((await answer(client, "dup", { decision: "allow", sessionId: other.id })).receipt).toMatchObject({
+      status: "rejected",
+      reason: "not_found",
+      error: { data: { kind: "prompt", promptId: "dup" } },
+    });
+    expect(ofType(t, one.id, "prompt.answered")).toHaveLength(1);
+    expect(ofType(t, two.id, "prompt.answered")).toHaveLength(1);
   });
 
   it("continues an approved plan in acceptEdits when no mode is given, and in the mode given clamped to the run's ceiling, not the answering client's", async () => {
@@ -597,6 +680,28 @@ describe("a prompt whose run ends", () => {
     await untilEnded(t, id, runId);
     expect(answeredEvents(t, id)).toEqual([expect.objectContaining({ promptId: "p-1", decision: "deny", decidedBy: { auto: "cancelled" }, delivery: null })]);
     expect(await get(client, id)).toMatchObject({ parkedPromptCount: 0 });
+  });
+
+  it("denies at once a second request under the id of one its run holds open, recording nothing, and the first is still answered", async () => {
+    const twice: Script = async function* ({ context, input }) {
+      yield say("Working");
+      const request = { sessionId: input.sessionId, runId: input.runId, promptId: "dup-1", kind: "permission" as const, detail: permission };
+      const first = context.broker.request(request);
+      yield say(toldText(await context.broker.request(request)));
+      yield say(toldText(await first));
+      yield end();
+    };
+    const t = await start({ script: twice });
+    const client = await t.client();
+    const { id } = await create(client);
+    const { runId } = await startRun(client, id);
+    await vi.waitFor(() => expect(told(t, id)).toHaveLength(1));
+    expect(told(t, id)).toEqual([toldText({ decision: "deny", message: DUPLICATE_PROMPT_MESSAGE })]);
+    expect(ofType(t, id, "prompt.opened")).toHaveLength(1);
+    expect((await answer(client, "dup-1", { decision: "allow" })).result).toMatchObject({ delivery: "live" });
+    await untilEnded(t, id, runId);
+    expect(told(t, id)).toEqual([toldText({ decision: "deny", message: DUPLICATE_PROMPT_MESSAGE }), toldText({ decision: "allow" })]);
+    expect(answeredEvents(t, id)).toEqual([expect.objectContaining({ promptId: "dup-1", decision: "allow", delivery: "live" })]);
   });
 });
 

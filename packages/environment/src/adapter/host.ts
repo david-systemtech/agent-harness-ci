@@ -20,6 +20,7 @@ import {
 } from "@agent-harness/contracts";
 import { formatActor, type EventEnvelope, type EventLog, type EventInput } from "../event-log/event-log.js";
 import {
+  DUPLICATE_PROMPT_MESSAGE,
   RUN_ENDED_MESSAGE,
   STOPPED_MESSAGE,
   UNRECORDED_MESSAGE,
@@ -27,6 +28,7 @@ import {
   autoDenial,
   nextRunText,
   openedPayload,
+  ruledAnswer,
 } from "../permissions/broker.js";
 import { answersFor, parkedPromptsOfRun } from "../permissions/prompts-store.js";
 import type { RunActor } from "../permissions/resolver.js";
@@ -813,8 +815,9 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
    * parked until the request is answered: by a person (`deliverAnswer`), by
    * the provider cancelling it (its signal aborts: closed `cancelled`), or
    * by the run's end, which denies it in memory. A request made when no run
-   * is live, cancelled before it was made, or that the log would not take, is
-   * denied at once and parks nothing.
+   * is live, cancelled before it was made, under the id of a request the run
+   * holds open, or that the log would not take, is denied at once and parks
+   * nothing.
    */
   const brokerFor = (sessionId: string): PermissionBroker => ({
     request: async (request) => {
@@ -822,6 +825,12 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       if (entry === undefined || entry.ended) return { decision: "deny", message: RUN_ENDED_MESSAGE };
       if (request.signal?.aborted === true) return { decision: "deny", message: CANCELLED_MESSAGE };
       const promptId = request.promptId ?? randomUUID();
+      // A second request under the id of one this run holds open is refused before it is recorded: the open one stands
+      // and stays answerable (the prompts projection would refuse its prompt.opened anyway, as a failed record).
+      if (waiters.has(waiterKey(entry.runId, promptId))) {
+        console.error(`Run ${entry.runId} asked again under prompt ${promptId}, which it holds open; the second request is denied.`);
+        return { decision: "deny", message: DUPLICATE_PROMPT_MESSAGE };
+      }
       const stream = sessionStream(sessionId);
       const opened: PromptOpenedPayload = openedPayload({
         runId: entry.runId,
@@ -833,17 +842,22 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
         // The TTL is fixed here once its sweeper exists (#131); until then nothing expires.
         ttlExpiresAt: null,
       });
-      const automatic = autoAnswer({ kind: request.kind, attended: entry.plan.policy.attended, mode: entry.mode });
+      const rule = autoAnswer({ kind: request.kind, attended: entry.plan.policy.attended, mode: entry.mode });
+      // A rule's mode is clamped as a person's is, to the run's ceiling and its account's modes (none left: no mode is
+      // given); what is recorded is what the run is handed, every part of it.
+      const ruled = rule === null ? null : ruledAnswer(rule.decision, opened.ceiling, entry.descriptor.modes);
       try {
         log.atomically((tx) => {
           log.append(stream, [{ type: "prompt.opened", payload: opened }], { tx, actor: entry.actor, correlationId: entry.runId });
-          if (automatic !== null) {
-            const { decision } = automatic;
+          if (rule !== null && ruled !== null) {
+            const { decision, mode } = ruled;
             const payload: PromptAnsweredPayload = {
-              ...autoDenial(opened, automatic.auto, decision.message ?? null),
+              ...autoDenial(opened, rule.auto, decision.message ?? null),
               decision: decision.decision,
               answers: decision.answers === undefined ? null : { ...decision.answers },
               updatedInput: decision.updatedInput ?? null,
+              mode,
+              remember: decision.remember ?? null,
               delivery: "live",
             };
             log.append(stream, [{ type: "prompt.answered", payload }], { tx, actor: HOST_ACTOR, correlationId: entry.runId });
@@ -853,7 +867,11 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
         console.error(`Recording prompt ${promptId} of run ${entry.runId} failed; it is denied, and nobody was asked:`, error);
         return { decision: "deny", message: UNRECORDED_MESSAGE };
       }
-      if (automatic !== null) return automatic.decision;
+      if (ruled !== null) {
+        // The run continues in the mode the rule gave it, as it does after a person's answer (`deliverAnswer`).
+        if (ruled.mode !== null && !entry.ended) entry.mode = ruled.mode.effective;
+        return ruled.decision;
+      }
       raised(entry, promptId);
       return new Promise<PromptDecision>((resolve) => {
         let open = true;

@@ -21,7 +21,7 @@ import type { Reader } from "../sessions/session-reads.js";
  * input (its creation failed) hands its start's messages back to the
  * environment's queue (`message.requeued`, ADR 0022), and the answers it
  * took with them: the session's next run takes them again. The session's
- * tombstone removes its rows.
+ * purge (its tombstone) removes its rows; a delete only hides them.
  *
  * The projection holds the rule "exactly one answer per prompt": a
  * `prompt.answered` for a prompt that is not parked, or a `prompt.opened`
@@ -143,10 +143,28 @@ export const projectPrompt = (event: EventEnvelope, db: ProjectionDb): void => {
   }
 };
 
-/** The latest prompt `promptId` names, parked or answered; null when there is none. */
-export const readPrompt = (reader: Reader, promptId: string): PromptRecord | null => {
-  const [row] = reader.all<PromptRow>("SELECT * FROM prompts WHERE prompt_id = ? ORDER BY sequence DESC LIMIT 1", promptId);
-  return row === undefined ? null : toRecord(row);
+/** What an answer's prompt id names: one prompt, or several sessions each holding one parked under it. */
+export type PromptLookup = { readonly record: PromptRecord } | { readonly ambiguous: readonly string[] };
+
+/**
+ * The prompt an answer names, since ids are scoped per session (another
+ * adapter's may repeat across sessions): with a session, that session's
+ * latest under the id; without, the one parked under it, and when none is,
+ * the latest under it, answered; null when there is none. Parked under the
+ * id in more than one session, without a session named, it is ambiguous:
+ * the sessions, oldest prompt first.
+ */
+export const readPrompt = (reader: Reader, promptId: string, sessionId?: string): PromptLookup | null => {
+  if (sessionId !== undefined) {
+    const [row] = reader.all<PromptRow>("SELECT * FROM prompts WHERE prompt_id = ? AND session_id = ? ORDER BY sequence DESC LIMIT 1", promptId, sessionId);
+    return row === undefined ? null : { record: toRecord(row) };
+  }
+  const parked = reader.all<PromptRow>("SELECT * FROM prompts WHERE prompt_id = ? AND answered_sequence IS NULL ORDER BY sequence", promptId);
+  const [only] = parked;
+  if (parked.length > 1) return { ambiguous: parked.map((row) => row.session_id) };
+  if (only !== undefined) return { record: toRecord(only) };
+  const [latest] = reader.all<PromptRow>("SELECT * FROM prompts WHERE prompt_id = ? ORDER BY sequence DESC LIMIT 1", promptId);
+  return latest === undefined ? null : { record: toRecord(latest) };
 };
 
 /** The prompt its `prompt.opened` or its `prompt.answered` sequence names; null when neither does. */

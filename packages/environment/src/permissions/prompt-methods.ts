@@ -68,16 +68,40 @@ export const promptMethods = ({ log, host, environmentId }: PromptMethodsOptions
      * ceiling of the run that asked, and an approved plan's mode becomes the
      * session's, as `permissions.mode.set` would record it, so its next runs
      * continue in it. The parts that do not fit the prompt's kind are
-     * `invalid_params`.
+     * `invalid_params`: `remember` on anything but an allowed permission
+     * prompt, `updatedInput` on anything but a permission prompt, `answers`
+     * on anything but a question, and `mode` on anything but an approved
+     * plan. The prompt is looked up by id, in the session named when one is;
+     * an id parked in more than one session needs it (`ambiguous_prompt`).
      */
     "permissions.prompts.answer": (params, context) => {
-      const record = readPrompt(reader, params.promptId);
-      if (record === null) {
+      const environment = { kind: ENVIRONMENT_STREAM_KIND, id: environmentId };
+      const named = params.sessionId?.toLowerCase();
+      if (named !== undefined) {
+        // A session named that is not on this environment, or is deleted, is not_found, as every command naming one is.
+        const facts = readSessionFacts(log, reader, named);
+        if (facts === null || facts.deleted) return { aggregate: sessionStream(named), rejected: sessionNotFound(named) };
+      }
+      const lookup = readPrompt(reader, params.promptId, named);
+      if (lookup === null) {
+        const where = named === undefined ? "on this environment" : `in session ${named}`;
         return {
-          aggregate: { kind: ENVIRONMENT_STREAM_KIND, id: environmentId },
-          rejected: { code: "not_found", message: `No prompt ${params.promptId} is on this environment.`, data: { kind: "prompt", promptId: params.promptId } },
+          aggregate: environment,
+          rejected: { code: "not_found", message: `No prompt ${params.promptId} is ${where}.`, data: { kind: "prompt", promptId: params.promptId } },
         };
       }
+      // One id parked in two sessions (ids are the adapter's, scoped per session): the caller names the session.
+      if ("ambiguous" in lookup) {
+        return {
+          aggregate: environment,
+          rejected: {
+            code: "conflict",
+            message: `Prompt ${params.promptId} is parked in more than one session; name the session to answer it in.`,
+            data: { reason: "ambiguous_prompt", promptId: params.promptId, sessionIds: [...lookup.ambiguous] },
+          },
+        };
+      }
+      const { record } = lookup;
       const { sessionId, runId, promptId, prompt } = record;
       const aggregate = sessionStream(sessionId);
       const session = readSessionFacts(log, reader, sessionId);
@@ -96,7 +120,9 @@ export const promptMethods = ({ log, host, environmentId }: PromptMethodsOptions
       if (params.remember !== undefined && prompt.kind !== "permission") refuse("remember", "Only a permission prompt's answer can be remembered for the session.");
       if (params.remember !== undefined && params.decision !== "allow") refuse("remember", "Only an allow can be remembered for the session.");
       if (params.answers !== undefined && prompt.kind !== "question") refuse("answers", "Only a question prompt takes answers.");
+      if (params.updatedInput !== undefined && prompt.kind !== "permission") refuse("updatedInput", "Only a permission prompt's input can be edited.");
       if (params.mode !== undefined && prompt.kind !== "plan") refuse("mode", "Only a plan prompt takes a mode to continue in.");
+      if (params.mode !== undefined && prompt.kind === "plan" && params.decision !== "allow") refuse("mode", "Only an approved plan continues in a mode.");
       if (issues.length > 0) throw new ContractError(invalidParams(issues, "The answer does not fit the prompt's kind."));
 
       // An approved plan continues in the mode asked for, acceptEdits when none was, clamped to the run's ceiling and its account's modes.

@@ -114,14 +114,18 @@ export const permissionsPromptsList = defineMethod({
  * person, ADR 0001). A plan's mode to continue in is clamped to the ceiling
  * of the run that asked (acceptEdits when absent); `remember` is taken on
  * `permission` prompts only, with an allow; `answers` on questions only;
- * `mode` on plans only; anything else is `invalid_params`. Recorded as
+ * `updatedInput` on `permission` prompts only; `mode` on approved plans
+ * only; anything else is `invalid_params`. Recorded as
  * `prompt.answered` with the caller as `decidedBy`, and handed to the run
  * once it has committed when the run still waits on it (`live`), or kept for
  * the session's next run, whose first message it becomes (`next-run`), when
  * a restart or a parked stop took the run. An answered prompt is `conflict`
  * with reason `already_answered`; an unknown one `not_found` (kind
  * `prompt`); one the live run no longer holds, `conflict` with reason
- * `prompt_not_open`. The result is the event's payload with the session.
+ * `prompt_not_open`. A prompt's id is the adapter's, unique within its
+ * session: an id parked in more than one session is `conflict` with reason
+ * `ambiguous_prompt` (and the sessions) unless `sessionId` names one. The
+ * result is the event's payload with the session.
  */
 export const permissionsPromptsAnswer = defineMethod({
   name: "permissions.prompts.answer",
@@ -129,6 +133,9 @@ export const permissionsPromptsAnswer = defineMethod({
   kind: "command",
   params: commandParams({
     promptId: z.string().min(1).meta({ description: "The prompt to answer." }),
+    sessionId: SessionId.optional().meta({
+      description: "The session the prompt is in: needed only when its id is parked in more than one session (conflict ambiguous_prompt).",
+    }),
     ...PromptAnswerInput.shape,
   }),
   result: z.object({ sessionId: SessionId, ...PromptAnsweredPayload.shape }),

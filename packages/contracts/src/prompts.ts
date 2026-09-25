@@ -163,8 +163,8 @@ export const PromptAnswerInput = z
     decision: PromptDecisionValue,
     message: z.string().min(1).max(10_000).optional().meta({ description: "A message for the model." }),
     answers: z.record(z.string().min(1), z.string()).optional().meta({ description: "A question prompt's answers, keyed by the question's text." }),
-    updatedInput: JsonObject.optional().meta({ description: "The tool's input as edited; the model's own when absent." }),
-    mode: Mode.optional().meta({ description: "A plan prompt's mode to continue in, clamped to the run's ceiling; acceptEdits when absent." }),
+    updatedInput: JsonObject.optional().meta({ description: "A permission prompt's tool input as edited; the model's own when absent." }),
+    mode: Mode.optional().meta({ description: "An approved plan's mode to continue in, clamped to the run's ceiling; acceptEdits when absent." }),
     remember: z.literal("session").optional().meta({ description: "Ask no more for this tool in this session: permission prompts only, with an allow." }),
   })
   .meta({ description: "A person's answer to a prompt: allow or deny, a message, a question's answers, edited input, a plan's mode, remember." });

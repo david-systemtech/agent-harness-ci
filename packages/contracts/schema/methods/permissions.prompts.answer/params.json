@@ -14,6 +14,12 @@
       "minLength": 1,
       "description": "The prompt to answer."
     },
+    "sessionId": {
+      "description": "The session the prompt is in: needed only when its id is parked in more than one session (conflict ambiguous_prompt).",
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$"
+    },
     "decision": {
       "type": "string",
       "enum": [
@@ -40,7 +46,7 @@
       }
     },
     "updatedInput": {
-      "description": "The tool's input as edited; the model's own when absent.",
+      "description": "A permission prompt's tool input as edited; the model's own when absent.",
       "type": "object",
       "propertyNames": {
         "type": "string"
@@ -48,7 +54,7 @@
       "additionalProperties": {}
     },
     "mode": {
-      "description": "A plan prompt's mode to continue in, clamped to the run's ceiling; acceptEdits when absent.",
+      "description": "An approved plan's mode to continue in, clamped to the run's ceiling; acceptEdits when absent.",
       "type": "string",
       "enum": [
         "plan",
