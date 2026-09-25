@@ -250,6 +250,9 @@ export const createRenderer = (options: RendererOptions) => {
       try {
         const holder = options.holderOf(queued);
         if (holder === "wait") return;
+        // A read-now's interrupt ended it (#228): its run of the queue starts once the interrupt has answered too, which
+        // may be a later turn of the event loop, and reads the message, so the answer waits for that run.
+        if (holder === "queued" && payload.reason === "interrupted" && payload.cause === "read-now") return;
         endWith(payload, seq, holder === "queued" ? queued : null);
       } catch (error) {
         console.error(`Finding where the queued message ${queued} waits failed:`, error);

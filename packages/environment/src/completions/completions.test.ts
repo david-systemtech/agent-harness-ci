@@ -961,6 +961,44 @@ describe("session continuity", () => {
     ]);
   });
 
+  it("follows a queued turn into a read-now's run that starts only once the interrupt has answered, a later turn than the run's end", async () => {
+    // The provider answers the interrupt after the run's end, as a real one may: the run of the queue waits for both.
+    const answered = gate();
+    const adapter = fakeAdapter({ capabilities: { providerQueue: false, steering: false } });
+    const createRun = adapter.createRun;
+    const t = await start({
+      ...adapter,
+      createRun: (input, context) => {
+        const run = createRun(input, context);
+        return {
+          ...run,
+          interrupt: async () => {
+            const receipt = await run.interrupt();
+            await answered.opened;
+            return receipt;
+          },
+        };
+      },
+    });
+    const { token } = await program(t);
+    t.adapter.nextScripts.push(heldScript(gate().opened));
+    const first = await stream(t, token, turn("First"));
+    const sessionId = (await first.chunk())["agent-harness"].sessionId as string;
+    const queued = await stream(t, token, turn("Then this", { "agent-harness": { sessionId } }));
+    await queued.chunk();
+    const client = await t.client();
+    await client.request("runs.readNow", { commandId: randomUUID(), sessionId });
+    await untilEnded(t, sessionId);
+    expect(payloadsOf<{ cause: string | null }>(t, sessionId, "run.ended")[0]?.cause).toBe("read-now");
+    // Well past the end's own turn of the event loop: the answer still waits for the run that reads its message.
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    answered.open();
+    const chunks = chunksOf(await queued.rest());
+    expect(contentOf(chunks)).toBe("Done: Then this");
+    expect(chunks.at(-1)?.choices[0]?.finish_reason).toBe("stop");
+    expect(chunks.at(-1)?.["agent-harness"].waiting).toBeUndefined();
+  });
+
   it("ends a queued turn's answer when its message is withdrawn, which no run will read: an error chunk, withdrawn, and 409 for a whole answer", async () => {
     const t = await start({ capabilities: { providerQueue: false, steering: false } });
     const { token } = await program(t);
