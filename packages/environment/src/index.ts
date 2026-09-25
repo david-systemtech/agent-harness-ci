@@ -118,6 +118,7 @@ export {
   type ClaudeAdapter,
   type ClaudeAdapterOptions,
 } from "./adapters/claude/index.js";
+export { claudeFallback, claudeSignInProgram, claudeVerificationUrl, findManagedClaude, type ClaudeSignInOptions } from "./adapters/claude/signin.js";
 export { RUNS_PROJECTOR, runsProjector } from "./runs/runs-projector.js";
 export {
   ATTENDED_DEFAULT_MODE,
@@ -180,7 +181,17 @@ export {
 } from "./accounts/account-service.js";
 export { ACCOUNTS_PROJECTOR, accountsProjector, listAccounts, readAccount, type StoredAccount } from "./accounts/account-store.js";
 export { accountMethods, type AccountMethodsOptions } from "./accounts/methods.js";
-export { signInNotBuilt, type SignInDirector, type SignInDirectorFactory, type SignInOutcome, type SignInPort } from "./accounts/sign-in.js";
+export {
+  signInUnavailable,
+  type ProbeResult,
+  type SignInDirector,
+  type SignInDirectorFactory,
+  type SignInOutcome,
+  type SignInPort,
+  type SignInProgram,
+} from "./accounts/signin-seam.js";
+export { EXECUTABLE_PROBE_TIMEOUT_MS, SIGN_IN_ACTOR, SIGN_IN_EXPIRY_MS, createSignInDirector, type SignInDirectorOptions } from "./accounts/signin-director.js";
+export { createSpawnSignInProcess, spawnSignInProcess, type SignInChild, type SignInProcessOptions, type SignInSpawn } from "./accounts/signin-process.js";
 export { SETTINGS_PROJECTOR, readSettings, settingsProjector } from "./settings/settings-store.js";
 
 export { DEFAULT_LOG_PAGE } from "./auth/access-log.js";

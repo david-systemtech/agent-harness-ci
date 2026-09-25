@@ -6,6 +6,8 @@ import {
   AccountRecord,
   AmbientProbe,
   CommandEntry,
+  SignIn,
+  SignInCode,
   SignInStart,
 } from "../accounts.js";
 import { ProviderId } from "../adapter.js";
@@ -22,7 +24,8 @@ import { Workspace } from "../sessions.js";
  * rejected `conflict` (reason `label_taken`, naming the account). The
  * harness performs no login and holds no credential: adopting registers a
  * directory the provider's own CLI signed in, and adding hands a directory
- * of the environment's own to the sign-in (#135).
+ * of the environment's own to the sign-in director (#135), which runs the
+ * provider's own CLI there: the harness never sees a credential.
  */
 
 const provider = ProviderId.optional().meta({ description: "The provider; the environment's first when absent." });
@@ -90,7 +93,9 @@ export const accountsAdopt = defineMethod({
 
 /**
  * Adds an account with a directory of the environment's own under its data
- * directory, and hands it to the sign-in (#135). A sign-in that yields an
+ * directory, and starts its sign-in, as `accounts.signin.start` does, unless
+ * another sign-in holds the environment or the provider cannot sign in from
+ * the environment, which `signIn` then says. A sign-in that yields an
  * identity another account holds is refused, "already added as <label>":
  * the new account is removed and its directory deleted
  * (`account.removed`, reason `duplicate-identity`, then
@@ -166,5 +171,80 @@ export const commandsList = defineMethod({
     workspace: Workspace,
   }),
   result: z.object({ accountId: AccountId, commands: z.array(CommandEntry) }),
+  errors: [],
+});
+
+/**
+ * The sign-in methods (claude-adapter spec, "Sign-in and status through the
+ * bundled binary"; ADR 0018): one sign-in at a time per environment. Each
+ * change of its state is a `signin.updated` notice on
+ * `environment.subscribe`, carrying the sign-in; the command's own change is
+ * appended with its receipt. An account the environment does not hold is
+ * rejected `not_found` (data `kind: account`).
+ */
+
+const signInResult = z.object({ signIn: SignIn });
+
+/**
+ * Starts signing an account's directory in: the provider's CLI (Claude's
+ * bundled binary, `auth login`) runs with the account's directory, and the
+ * verification URL it prints is published (`awaiting-code`). Any account
+ * the environment holds, adopted or owned, signed in or not. While another
+ * sign-in runs, rejected `conflict` (reason `signin_running`, data
+ * `accountId` naming the account that holds it); a provider that cannot
+ * sign in from the environment is `conflict` (reason `signin_unavailable`),
+ * whose message names the account's directory to sign in by hand.
+ */
+export const accountsSigninStart = defineMethod({
+  name: "accounts.signin.start",
+  scope: "admin",
+  kind: "command",
+  params: commandParams({ accountId: AccountId }),
+  result: signInResult,
+  errors: [],
+});
+
+/**
+ * Writes the code a person copied from the provider's page to the running
+ * sign-in: from any client, not only the one that started it. Accepted in
+ * `awaiting-code`, which becomes `submitting`; otherwise, or for another
+ * account's sign-in, or while it is completing (its CLI exited and its
+ * status is being read), rejected `conflict` (reason `not_awaiting_code`).
+ * The code is never recorded; it is refused with any white space, so a
+ * client trims it.
+ */
+export const accountsSigninCode = defineMethod({
+  name: "accounts.signin.code",
+  scope: "admin",
+  kind: "command",
+  params: commandParams({ accountId: AccountId, code: SignInCode }),
+  result: signInResult,
+  errors: [],
+});
+
+/**
+ * Cancels the account's running sign-in and stops the provider's CLI; the
+ * state becomes `cancelled`. A sign-in of the account that has already ended
+ * is answered as it ended, changing nothing; one that is completing (its
+ * CLI exited 0 and its status is being read) is rejected `conflict` (reason
+ * `signin_completing`), since it ends as that read says; when no sign-in of
+ * the account is the environment's latest, `conflict` (reason `no_signin`).
+ */
+export const accountsSigninCancel = defineMethod({
+  name: "accounts.signin.cancel",
+  scope: "admin",
+  kind: "command",
+  params: commandParams({ accountId: AccountId }),
+  result: signInResult,
+  errors: [],
+});
+
+/** The environment's latest sign-in, running or ended, as the notices carried it; null when none has run since the environment started. */
+export const accountsSigninGet = defineMethod({
+  name: "accounts.signin.get",
+  scope: "read",
+  kind: "query",
+  params: z.object({}),
+  result: z.object({ signIn: SignIn.nullable() }),
   errors: [],
 });
