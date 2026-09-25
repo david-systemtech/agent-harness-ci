@@ -113,7 +113,8 @@ export const recoverStagedAttachments = (options: { readonly log: EventLog; read
       "SELECT m.session_id, m.held_by, e.payload FROM run_messages m JOIN events e ON e.sequence = m.sequence WHERE m.message_id = ?",
       messageId,
     );
-    if (row === undefined || row.held_by === "read") {
+    // Read by a run, or withdrawn (#228): nothing will read its bytes again.
+    if (row === undefined || row.held_by === "read" || row.held_by === "withdrawn") {
       drop(messageId);
       continue;
     }

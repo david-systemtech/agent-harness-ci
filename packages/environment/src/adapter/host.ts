@@ -8,6 +8,7 @@ import {
   type JsonObject,
   type MessageDeliveredPayload,
   type MessageRequeuedPayload,
+  type MessageWithdrawnPayload,
   type Mode,
   type ProcessStopReason,
   type PromptAnsweredPayload,
@@ -40,7 +41,15 @@ import { answersFor, hasKeptAnswer, parkedPromptsOfRun } from "../permissions/pr
 import { readRunPolicy } from "../permissions/review-store.js";
 import type { RunActor } from "../permissions/resolver.js";
 import { answerEvents, runToolCalls, type RunToolCalls } from "../permissions/tool-decisions.js";
-import { environmentQueue, latestRun, messageCeilings, providerHeld, readRun, readSessionFacts } from "../runs/run-reads.js";
+import {
+  environmentQueue,
+  latestRun,
+  messageCeilings,
+  providerHeld,
+  readRun,
+  readSessionFacts,
+  type QueuedMessage,
+} from "../runs/run-reads.js";
 import {
   decideStart,
   policyResolvedEvent,
@@ -59,7 +68,7 @@ import type { Reader } from "../sessions/session-reads.js";
 import { sessionStream } from "../sessions/streams.js";
 import { runContinuation } from "../sessions/fork-rewind.js";
 import { recordProviderTitle } from "../sessions/titles.js";
-import { capability } from "./capabilities.js";
+import { capability, unsupported } from "./capabilities.js";
 import type {
   AccountRef,
   Adapter,
@@ -79,7 +88,7 @@ import type {
 } from "./contract.js";
 import type { AttachmentStage } from "./attachment-stage.js";
 import { createProcessPool } from "./pool.js";
-import { PromptClosed } from "./contract.js";
+import { PromptClosed, WithdrawUnsupported } from "./contract.js";
 import { createAdapterRegistry, type AdapterRegistry } from "./registry.js";
 import { createScopedAppend, type ScopedAppend } from "./scoped-append.js";
 import {
@@ -272,8 +281,48 @@ export interface AdapterHost {
    * answer is kept any more. A person's answer starts nothing (#130).
    */
   continueSession(sessionId: string): void;
-  /** Interrupts a live run with cancel; the messages its provider still held come back to the environment's queue. */
+  /**
+   * Interrupts a live run with cancel; the messages its provider still held
+   * come back to the environment's queue. After a read-now on the run it is
+   * the last word: the run ends with cause `user`, and no run of the queue starts.
+   */
   interrupt(runId: string): void;
+  /**
+   * Reads the session's queue now (ADR 0022, #228), once the command that
+   * asked has committed: interrupts its live run with cause `read-now`, takes
+   * back what the provider still held, and once the run's end is recorded
+   * starts the next run with the environment's whole queue, for `actor`
+   * under its ceiling as it is then and each queued sender's. An interrupt
+   * already under way is waited on rather than made again; a second read-now
+   * on the run changes nothing; a later `interrupt` cancels the read-now.
+   */
+  readNow(sessionId: string, actor: RunActor): void;
+  /**
+   * Asks the provider holding the session's queue to take message
+   * `messageId` back (`withdraw`, ADR 0022, #228), through the session's live
+   * run. When it did, the message comes back to the environment's queue at
+   * once (`message.requeued`, in a transaction of its own, as an
+   * interrupt's return does), so the command that asked withdraws an
+   * environment-held message, and a command that fails or is answered from
+   * another's receipt leaves it queued and visible, never lost. When the
+   * provider no longer holds it while the run's interrupt is under way, the
+   * interrupt may have taken it: the answer waits for the interrupt, and the
+   * message is kept out of any run the interrupt's end starts until the
+   * command has decided. False when it read it, or with no run live to ask
+   * (a turn the provider opened with it is being adopted). Refused
+   * `invalid_params`, reason `unsupported`, when the run's adapter cannot
+   * take a message back, and `internal` when it cannot say.
+   */
+  withdraw(sessionId: string, messageId: string): Promise<{ readonly withdrawn: boolean }>;
+  /**
+   * What the session's next run is started from when the environment
+   * starts it after another (a run of the queue, a read-now with no run
+   * live, #228): the run before it, as this host last ended it, else as the
+   * log records it; null when the session has never run.
+   */
+  nextRunBasis(sessionId: string): NextRunBasis | null;
+  /** The withdraw of `messageId` has decided: a run may read the message again if it is still queued (#228). */
+  settleWithdraw(messageId: string): void;
   /** Stops a piece of a live run's delegated work. */
   stopTask(runId: string, taskId: string): void;
   /** Changes a live run's mode through its adapter (`modeChange`), once the command that asked has committed; its resolved policy stays. */
@@ -338,7 +387,7 @@ export const requeuedEvents = (runId: string, messageIds: readonly string[]): Ev
   });
 
 /** What a run the environment starts itself after another is resolved from: the session, who it runs for, and the model and effort of the run before it. */
-type NextRunBasis = Pick<PlannedRun, "sessionId" | "actor" | "model" | "effort">;
+export type NextRunBasis = Pick<PlannedRun, "sessionId" | "actor" | "model" | "effort">;
 
 /**
  * Who ends a run: its adapter, whose end event is recorded; or the host,
@@ -381,6 +430,19 @@ interface LiveRun {
   unrecorded: boolean;
   running: boolean;
   interrupting: boolean;
+  /**
+   * The interrupt under way, settled once what the provider reported still
+   * queued is back in the environment's queue, or, when the interrupt failed,
+   * once the host's end of the run has taken back what the provider held:
+   * what a read-now and a withdraw wait on (#228).
+   */
+  interruption: Promise<void> | null;
+  /**
+   * Set by `runs.readNow` (#228): whose run of the queue starts once both the
+   * interrupt has taken back what the provider held and the end is
+   * recorded, and whether each has happened; its end's cause is `read-now`.
+   */
+  readNow: ReadNow | null;
   /** The prompts it raised that are not answered yet, by id: while any is, the run is parked. */
   readonly prompts: Set<string>;
   /** Whether its adapter was handed the run's input; until then the messages it was launched with are still the environment's. */
@@ -389,6 +451,14 @@ interface LiveRun {
   readonly launchedWith: readonly PromptMessage[];
   /** Its tool calls, for the decisions no prompt's answer makes (#131). */
   readonly calls: RunToolCalls;
+}
+
+/** A read-now waiting on its run's interrupt and end (#228). */
+interface ReadNow {
+  readonly actor: RunActor;
+  interrupted: boolean;
+  ended: boolean;
+  started: boolean;
 }
 
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
@@ -577,6 +647,64 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     });
   };
 
+  /**
+   * Interrupts a live run with cancel, for `runs.interrupt` or a read-now:
+   * what its provider reports it no longer holds comes back to the
+   * environment's queue, and the interrupt's promise (`LiveRun.interruption`)
+   * settles once it has, which a read-now and a withdraw wait on (#228). An
+   * interrupt the adapter cannot make ends the run as the host's,
+   * `interrupted`, and disposes it, and settles the promise after.
+   */
+  const interruptRun = (entry: LiveRun): Promise<void> => {
+    const run = entry.run;
+    if (entry.interruption !== null) return entry.interruption;
+    if (run === undefined) return Promise.resolve();
+    entry.interrupting = true;
+    let settle!: () => void;
+    entry.interruption = new Promise<void>((resolve) => (settle = resolve));
+    safely(
+      async () => {
+        const { stillQueued } = await run.interrupt();
+        // What the provider no longer holds comes back to the environment's queue, in its order (ADR 0022), this run's
+        // and any an earlier run left with the provider, even when the run's end came first: the end took back this
+        // run's only, and a message it took back is the environment's already, so nothing is taken back twice.
+        if (!closing) requeueReported(entry.sessionId, stillQueued);
+        settle();
+      },
+      (error) => {
+        // The adapter could not interrupt: the host ends the run itself, interrupted as asked, and disposes it; its end
+        // takes back what the provider held, and only then is the interrupt settled, so what waits on it reads a whole queue.
+        console.error(`Interrupting run ${entry.runId} failed; the host ends it:`, error);
+        try {
+          finish(entry, { type: "end", reason: "interrupted", cause: "user" }, { by: "host", stop: "failed" });
+        } finally {
+          settle();
+        }
+      },
+    );
+    return entry.interruption;
+  };
+
+  /**
+   * Messages a withdraw is deciding on while the interrupt that may have
+   * taken them settles (#228): kept out of any run that starts meanwhile, so
+   * a run the interrupt's end starts cannot read a message being withdrawn.
+   * Each is let go once the command has decided.
+   */
+  const withdrawing = new Set<string>();
+
+  /** The messages the environment holds for the session, those a withdraw is deciding on left out. */
+  const queuedFor = (sessionId: string): QueuedMessage[] => environmentQueue(reader, sessionId).filter((message) => !withdrawing.has(message.messageId));
+
+  /** Starts a read-now's run of the queue once its run's interrupt and end are both done, once (#228). */
+  const startReadNow = (entry: LiveRun): void => {
+    const pending = entry.readNow;
+    if (pending === null || !pending.interrupted || !pending.ended || pending.started || closing) return;
+    pending.started = true;
+    // The run the queue would have had after this one, for the caller: its model and effort, the caller's ceiling and each sender's.
+    startFromQueue({ ...entry.plan, actor: pending.actor });
+  };
+
   const startFacts = (sessionId: string, actor: RunActor): StartFacts => {
     const session = readSessionFacts(log, reader, sessionId);
     const accountId = session?.account ?? accounts.defaultId();
@@ -588,7 +716,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       live: liveFacts(live.get(sessionId)) ?? changingMode.get(sessionId) ?? null,
       accountId,
       account: facts,
-      queued: environmentQueue(reader, sessionId),
+      queued: queuedFor(sessionId),
       // What the run continues from: the linked conversation, a rewind of it, or a fork's source's (#137).
       ...runContinuation(log, reader, sessionId, facts?.descriptor ?? null),
       actor,
@@ -679,7 +807,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       runId: entry.runId,
       reason,
       // The host knows it interrupted; an adapter that ends interrupted on its own names its cause, or none.
-      cause: reason === "interrupted" ? (entry.interrupting ? "user" : (full.cause ?? null)) : null,
+      cause: reason === "interrupted" ? (entry.interrupting ? (entry.readNow !== null ? "read-now" : "user") : (full.cause ?? null)) : null,
       error: reason === "error" ? (full.error ?? { message: "The run failed.", code: null }) : null,
       usage: full.usage === undefined || full.usage === null ? null : [...full.usage],
       durationMs: Math.max(0, clock.now().getTime() - entry.startedAt),
@@ -755,6 +883,12 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       if (rest.length > 0) adoptions.set(entry.sessionId, rest);
       else adoptions.delete(entry.sessionId);
       adoptNow(adopted.followed, adopted.turn);
+      return;
+    }
+    // A read-now's run of the queue, once its interrupt has taken back what the provider held too (#228).
+    if (entry.readNow !== null) {
+      entry.readNow.ended = true;
+      startReadNow(entry);
       return;
     }
     // Not after a run that never reached its adapter: the next start, not a loop of failing ones, reads the queue it left.
@@ -997,6 +1131,8 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       unrecorded: false,
       running: false,
       interrupting: false,
+      interruption: null,
+      readNow: null,
       prompts: new Set(),
       received: false,
       launchedWith,
@@ -1332,7 +1468,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
    */
   const startFromQueue = (previous: NextRunBasis, forAnswers = false): void => {
     try {
-      const queued = environmentQueue(reader, previous.sessionId).length > 0;
+      const queued = queuedFor(previous.sessionId).length > 0;
       if (!queued && !(forAnswers && hasKeptAnswer(reader, previous.sessionId))) return;
       registry.admit();
       const actor = currentActor(previous.actor);
@@ -1377,6 +1513,11 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     if (event.type === "message.delivered") {
       const delivered = event.payload as MessageDeliveredPayload;
       if (delivered.delivery === "steered") unstage(delivered.messageId);
+      return;
+    }
+    // Withdrawn (#228): no run will read its bytes, which go as a read message's do.
+    if (event.type === "message.withdrawn") {
+      unstage((event.payload as MessageWithdrawnPayload).messageId);
       return;
     }
     if (event.type === "session.purged") {
@@ -1588,24 +1729,56 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     },
     interrupt(runId) {
       const entry = byRunId(runId);
-      if (entry === undefined || entry.ended || entry.interrupting || entry.run === undefined) return;
-      entry.interrupting = true;
-      const run = entry.run;
-      safely(
-        async () => {
-          const { stillQueued } = await run.interrupt();
-          // What the provider no longer holds comes back to the environment's queue, in its order (ADR 0022), this run's
-          // and any an earlier run left with the provider, even when the run's end came first: the end took back this
-          // run's only, and a message it took back is the environment's already, so nothing is taken back twice.
-          if (!closing) requeueReported(entry.sessionId, stillQueued);
-        },
-        (error) => {
-          // The adapter could not interrupt: the host ends the run itself, interrupted as asked, and disposes it.
-          console.error(`Interrupting run ${runId} failed; the host ends it:`, error);
-          finish(entry, { type: "end", reason: "interrupted", cause: "user" }, { by: "host", stop: "failed" });
-        },
-      );
+      if (entry === undefined || entry.ended || entry.run === undefined) return;
+      // A person's interrupt after a read-now is the last word: the run ends interrupted by them, and no run of the queue starts.
+      entry.readNow = null;
+      if (!entry.interrupting) void interruptRun(entry);
     },
+    readNow(sessionId, actor) {
+      const entry = live.get(sessionId);
+      if (closing || entry === undefined || entry.ended || entry.readNow !== null) return;
+      const pending: ReadNow = { actor, interrupted: false, ended: false, started: false };
+      entry.readNow = pending;
+      // An interrupt already under way is waited on: once what it took back is queued, the run of the queue can start.
+      void interruptRun(entry).then(() => {
+        pending.interrupted = true;
+        if (entry.readNow === pending) startReadNow(entry);
+      });
+    },
+    async withdraw(sessionId, messageId) {
+      const entry = live.get(sessionId);
+      const run = entry?.run;
+      // No run is live to ask: the provider's queue is read by a turn it opened, waiting to be adopted.
+      if (entry === undefined || entry.ended || run === undefined) return { withdrawn: false };
+      const withdraw = capability(entry.descriptor, "providerQueue", run.withdraw, "withdraw a queued message", "withdraw");
+      const interruption = entry.interruption;
+      // Kept out of any run that starts before the command has decided on it (let go by `settleWithdraw`): one an end
+      // starts from the queue once the message is back in it, or the run of a read-now whose interrupt took it.
+      withdrawing.add(messageId);
+      let answer: { readonly withdrawn: boolean };
+      try {
+        answer = await withdraw.call(run, messageId);
+      } catch (error) {
+        withdrawing.delete(messageId);
+        if (error instanceof WithdrawUnsupported) {
+          throw unsupported(entry.descriptor, "providerQueue", ["messageId"], "withdraw a queued message", error.message);
+        }
+        console.error(`Withdrawing message ${messageId} from the provider of run ${entry.runId} failed:`, error);
+        throw new ContractError({ code: "internal", message: `The provider could not say whether it still held message ${messageId}: ${messageOf(error)}`, data: {} });
+      }
+      if (answer.withdrawn) {
+        // The provider gave it up: the environment holds it now, in a transaction of its own, so nothing that fails after this loses it.
+        if (!closing) requeueReported(sessionId, [messageId]);
+        return answer;
+      }
+      // Not held any more while the run's interrupt is under way: the interrupt may have taken it back. Decided again on the log once it has.
+      if (interruption !== null) await interruption;
+      return answer;
+    },
+    settleWithdraw(messageId) {
+      withdrawing.delete(messageId);
+    },
+    nextRunBasis: (sessionId) => basisOf(sessionId),
     holdsPrompt: (runId, promptId) => byRunId(runId)?.prompts.has(promptId) === true,
     deliverAnswer(runId, promptId, decision) {
       const entry = byRunId(runId);

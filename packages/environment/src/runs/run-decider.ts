@@ -1,5 +1,6 @@
 import {
   ContractError,
+  MAX_DRAFT_LENGTH,
   invalidParams,
   lowerMode,
   type AccountIdentity,
@@ -7,6 +8,7 @@ import {
   type AttachmentRecord,
   type MessageDeliveredPayload,
   type MessageSentPayload,
+  type MessageWithdrawnPayload,
   type Mode,
   type QueueHolder,
   type RunOrigin,
@@ -21,7 +23,7 @@ import type { AdapterDescriptor, AttachmentData, ModelOption, PromptMessage, Run
 import type { PolicySeam } from "../adapter/seams.js";
 import type { EventInput, JsonObject } from "../event-log/event-log.js";
 import type { RunActor } from "../permissions/resolver.js";
-import type { QueuedMessage, RunRow, SessionFacts } from "./run-reads.js";
+import type { QueuedMessage, RunRow, SentMessageRow, SessionFacts } from "./run-reads.js";
 
 /**
  * The run methods' decider (claude-adapter spec, "Wire methods"; ADR 0022):
@@ -35,7 +37,7 @@ import type { QueuedMessage, RunRow, SessionFacts } from "./run-reads.js";
 
 /** Why a run command is refused: its target is not here, or the session's state does not allow it now. */
 export type RunRefusal =
-  | { readonly code: "not_found"; readonly message: string; readonly data: JsonObject & { readonly kind: "session" | "run" } }
+  | { readonly code: "not_found"; readonly message: string; readonly data: JsonObject & { readonly kind: "session" | "run" | "message" } }
   | { readonly code: "conflict"; readonly message: string; readonly data: JsonObject & { readonly reason: string } };
 
 /** An account as a run needs it: whether it is signed in, as whom, and what its adapter offers. */
@@ -379,4 +381,146 @@ export const decideStopTask = (facts: RunFacts, taskStatus: string | null): RunC
   if (descriptor !== null) requireCapability(descriptor, "subagents", ["taskId"], "stop delegated work");
   if (facts.live === null) return { ended: true };
   return { ended: taskStatus !== null && ["completed", "failed", "stopped"].includes(taskStatus) };
+};
+
+/** What reading a session's queue now depends on (ADR 0022, #228): the start's facts, and what the provider holds for the session. */
+export interface ReadNowFacts {
+  readonly start: StartFacts;
+  /** The session's live run as the host runs it; null when none is (a turn waiting on a mode change is not one). */
+  readonly liveRunId: string | null;
+  /**
+   * The messages the session's provider holds, in the order sent: the log's
+   * record, which is the provider's queue, since every message leaving it is
+   * logged (read, taken back at an end or an interrupt, withdrawn), and the
+   * queue is the session's, not the live run's (a replaced process hands its
+   * queue on, under the runs they were sent during).
+   */
+  readonly providerHeld: readonly string[];
+  /** The run before, whose model and effort the run of the queue takes, as the queue's run after it would; null before the session's first run. */
+  readonly basis: { readonly model: string; readonly effort: string | null } | null;
+}
+
+export type ReadNowDecision =
+  | { readonly rejected: RunRefusal }
+  /** Nothing is queued: accepted with no event, and a live run is left alone (the chosen default, #228). */
+  | { readonly rejected?: undefined; readonly nothing: true }
+  /** A run is live: the host interrupts it with cause `read-now` once the command commits, and starts the queue's run after its end. */
+  | { readonly rejected?: undefined; readonly nothing?: undefined; readonly interrupt: string }
+  /** No run is live: the queue's run starts in the command's transaction. */
+  | { readonly rejected?: undefined; readonly nothing?: undefined; readonly interrupt?: undefined; readonly events: readonly EventInput[]; readonly run: PlannedRun };
+
+/**
+ * Reads the session's queue now (ADR 0022: `runs.readNow`). A session not
+ * here is not found. With nothing queued, by the provider or the
+ * environment, nothing happens. With a run live, it is to be interrupted
+ * (the host re-owns what its provider held and starts the next run after
+ * the end); with none, the run of the environment's queue starts now, as
+ * the environment's queue would start it after the run before (its model
+ * and effort), for the caller, clamped to the lowest ceiling among the
+ * caller and the queued senders.
+ */
+export const decideReadNow = (facts: ReadNowFacts): ReadNowDecision => {
+  const { start, basis } = facts;
+  if (start.session === null || start.session.deleted) return { rejected: sessionNotFound(start.sessionId) };
+  if (start.queued.length === 0 && facts.providerHeld.length === 0) return { nothing: true };
+  if (facts.liveRunId !== null) return { interrupt: facts.liveRunId };
+  // The provider holds messages with no run live to interrupt (a turn it opened waits to be adopted): that turn reads them.
+  if (start.queued.length === 0) return { nothing: true };
+  const decision = decideStart(start, {
+    origin: "client",
+    message: null,
+    ...(basis !== null && { model: basis.model }),
+    ...(basis?.effort !== null && basis?.effort !== undefined && { effort: basis.effort }),
+  });
+  if (decision.rejected !== undefined) return { rejected: decision.rejected };
+  return { events: decision.events, run: decision.run };
+};
+
+/** What withdrawing a queued message depends on (ADR 0022: `runs.withdraw`, #228). */
+export interface WithdrawFacts {
+  readonly messageId: string;
+  readonly message: SentMessageRow | null;
+  /** The message's session; null when it has none here. */
+  readonly session: SessionFacts | null;
+  /** The session's draft as it stands. */
+  readonly draft: string | null;
+  /**
+   * What the provider answered when it was asked to take the message back,
+   * before the command's transaction; null when it was not asked, since the
+   * message was not the provider's when the command began. A message it gave
+   * up is the environment's by the time the command decides (the host takes
+   * it back at once).
+   */
+  readonly provider: { readonly withdrawn: boolean } | null;
+}
+
+export type WithdrawDecision =
+  | { readonly rejected: RunRefusal }
+  | {
+      readonly rejected?: undefined;
+      /** `message.withdrawn`, correlated to the run the message was sent during. */
+      readonly withdrawn: EventInput;
+      /** `session.draft-set` with the text written in: the session's own field, correlated to no run. */
+      readonly draft: EventInput;
+      readonly runId: string;
+      readonly result: { readonly messageId: string; readonly sessionId: string; readonly heldBy: QueueHolder };
+    };
+
+/**
+ * The session's draft once a withdrawn message's text is written into it:
+ * the text in place of an empty draft, else after the draft on a paragraph
+ * of its own, so nothing typed is lost (#228; Artemis takes a queued message
+ * back only into an empty composer, which a draft every client shares cannot
+ * promise). Null when the result would pass the draft's limit: nothing is
+ * cut, and the withdraw is refused `draft_full`.
+ */
+export const draftWithWithdrawn = (draft: string | null, text: string): string | null => {
+  const written = draft === null ? text : `${draft}\n\n${text}`;
+  return written.length > MAX_DRAFT_LENGTH ? null : written;
+};
+
+/**
+ * Withdraws a queued message: `message.withdrawn`, under the run it was
+ * sent during, and `session.draft-set` with its text written into the
+ * draft, in one transaction. An environment-held message leaves the queue:
+ * one the environment held all along, or one the provider gave up for this
+ * withdraw (`heldBy` then says `provider`). An unknown message, one read
+ * (steered, delivered or a prompt), one withdrawn already, and one the
+ * provider says it no longer holds (it read it) are `not_found`, kind
+ * `message`; a message of a session not here is `not_found`, kind
+ * `session`, before its state is looked at; a draft with no room for the
+ * text is `conflict`, reason `draft_full`, and the message stays queued,
+ * checked after the provider's word, so a message it read is `not_found`
+ * whatever the draft holds.
+ */
+export const decideWithdraw = (facts: WithdrawFacts): WithdrawDecision => {
+  const { message, messageId } = facts;
+  const gone = (why: string): { readonly rejected: RunRefusal } => ({
+    rejected: { code: "not_found", message: `No queued message ${messageId} is on this environment: ${why}.`, data: { kind: "message", messageId } },
+  });
+  if (message === null) return gone("it was never sent here, or its session was purged");
+  if (facts.session === null || facts.session.deleted) return { rejected: sessionNotFound(message.sessionId) };
+  if (message.heldBy === "read") return gone("a run has read it");
+  if (message.heldBy === "withdrawn") return gone("it was withdrawn already");
+  // Read by the provider while the withdraw waited on its answer: gone whatever the draft holds, so no refusal promises a retry.
+  if (message.heldBy === "provider" && facts.provider?.withdrawn === false) return gone("the provider has read it");
+  const draft = draftWithWithdrawn(facts.draft, message.text);
+  if (draft === null) {
+    return conflict(message.sessionId, "draft_full", `The session's draft has no room for the text of message ${messageId}; clear or shorten the draft, then withdraw it again.`, {
+      messageId,
+      limit: MAX_DRAFT_LENGTH,
+    });
+  }
+  // Still the provider's and it was not asked, which no transition allows (a draft with no room was refused above, unasked).
+  if (message.heldBy === "provider" && facts.provider === null) {
+    throw new ContractError({ code: "internal", message: `The message ${messageId} changed hands while it was being withdrawn; withdraw it again.`, data: {} });
+  }
+  const heldBy: QueueHolder = facts.provider?.withdrawn === true ? "provider" : message.heldBy;
+  const withdrawn: MessageWithdrawnPayload = { runId: message.runId, messageId, heldBy };
+  return {
+    withdrawn: { type: "message.withdrawn", payload: withdrawn },
+    draft: { type: "session.draft-set", payload: { draft } },
+    runId: message.runId,
+    result: { messageId, sessionId: message.sessionId, heldBy },
+  };
 };

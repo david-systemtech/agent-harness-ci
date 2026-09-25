@@ -74,13 +74,15 @@ const toOutcome = (method: string, result: Parser, answer: CommandAnswer<unknown
  * lowercase, so a UUID in either case is one key, a repeat is answered from
  * the stored receipt and its handler never runs;
  * otherwise the handler runs inside the command's transaction and the
- * receipt is written with its events. The answer is `{receipt, result}`, the
+ * receipt is written with its events. A prepared command (#228) runs its
+ * `prepare` first, outside the transaction and only when no receipt is
+ * stored, and then the handler it answers. The answer is `{receipt, result}`, the
  * result only when this request applied the command; a rejection is a
  * receipt too, not an error, since the receipt is what the client's outbox
  * retires a command on.
  */
 export const createDispatch =
-  (methods: MethodTable, log: Pick<EventLog, "command">) =>
+  (methods: MethodTable, log: Pick<EventLog, "command" | "receipt">) =>
   async (request: RequestFrame, clientSession: VerifiedClientSession, respond: Respond, open: Open): Promise<void> => {
     const { method, params } = request;
     const served = methods.get(method);
@@ -108,11 +110,20 @@ export const createDispatch =
         return await open({ requestId: request.id, source, afterSequence, payloadSchema: entry.result });
       }
       if (isCommand(served)) {
-        const handler = served.handler;
         // A command's params hold its id, a UUID: the registry refuses a command without one.
         const commandId = (parsed.data as { commandId: string }).commandId.toLowerCase();
         const commandParams = { ...(parsed.data as object), commandId };
         const actor = formatActor({ kind: "client_session", id: clientSession.id });
+        // A prepared command hears from outside the log first, unless its receipt answers it (#228).
+        const registered = served.handler;
+        const handler =
+          typeof registered === "function"
+            ? registered
+            : log.receipt(actor, commandId) === null
+              ? await registered.prepare(commandParams, context)
+              : () => {
+                  throw new Error(`${method} was answered from its receipt; its handler does not run.`);
+                };
         const run = log.command({ actor, commandId }, (tx) => {
           const answer: unknown = handler(commandParams, { ...context, commandId, actor, tx });
           if (answer instanceof Promise) {

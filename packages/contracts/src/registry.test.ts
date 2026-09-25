@@ -111,6 +111,9 @@ describe("the method registry", () => {
       "runs.send": ["command", "runs:drive"],
       "runs.interrupt": ["command", "runs:drive"],
       "runs.stopTask": ["command", "runs:drive"],
+      // ADR 0022's queue verbs (#228).
+      "runs.readNow": ["command", "runs:drive"],
+      "runs.withdraw": ["command", "runs:drive"],
     });
     // Conflict X1: the prompt's answer is the permissions workstream's `permissions.prompts.answer` (#130), never `runs.answerPrompt`.
     expect(isMethodName("runs.answerPrompt")).toBe(false);
@@ -179,6 +182,8 @@ describe("the method registry", () => {
       "runs.send",
       "runs.interrupt",
       "runs.stopTask",
+      "runs.readNow",
+      "runs.withdraw",
       "providers.processes.stop",
       "accounts.adopt",
       "accounts.add",
@@ -319,6 +324,8 @@ describe("the method registry", () => {
       | "runs.send"
       | "runs.interrupt"
       | "runs.stopTask"
+      | "runs.readNow"
+      | "runs.withdraw"
       | "providers.list"
       | "providers.processes.list"
       | "providers.processes.stop"
