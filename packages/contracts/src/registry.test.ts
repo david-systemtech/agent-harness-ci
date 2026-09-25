@@ -87,6 +87,9 @@ describe("the method registry", () => {
       "sessions.delete": ["command", "sessions:write"],
       "sessions.restore": ["command", "sessions:write"],
       "sessions.purge": ["command", "sessions:write"],
+      "sessions.fork": ["command", "sessions:write"],
+      // Rewinding changes what the next run does rather than a summary field (claude-adapter spec, a chosen default).
+      "sessions.rewind": ["command", "runs:drive"],
       "groups.create": ["command", "sessions:write"],
       "groups.rename": ["command", "sessions:write"],
       "groups.reorder": ["command", "sessions:write"],
@@ -97,6 +100,7 @@ describe("the method registry", () => {
       "groups.list": ["query", "read"],
       "sessions.subscribe": ["stream", "read"],
       "sessions.subscribeSession": ["stream", "read"],
+      "sessions.subagentTranscript": ["query", "read"],
     });
   });
 
@@ -301,6 +305,8 @@ describe("the method registry", () => {
       | "sessions.delete"
       | "sessions.restore"
       | "sessions.purge"
+      | "sessions.fork"
+      | "sessions.rewind"
       | "groups.create"
       | "groups.rename"
       | "groups.reorder"
@@ -311,6 +317,7 @@ describe("the method registry", () => {
       | "groups.list"
       | "sessions.subscribe"
       | "sessions.subscribeSession"
+      | "sessions.subagentTranscript"
       | "runs.start"
       | "runs.send"
       | "runs.interrupt"

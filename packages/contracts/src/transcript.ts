@@ -302,14 +302,25 @@ export const PlanLimitPayload = z
 export type PlanLimitPayload = z.infer<typeof PlanLimitPayload>;
 
 export const SessionProviderLinkedPayload = z
-  .object({ ...runPart, providerSessionId: z.string().min(1).meta({ description: "The provider's own id for the conversation, which a resume hands back." }) })
+  .object({ ...runPart, providerSessionId: z.string().min(1).meta({ description: "The provider session's own id, which a resume hands back." }) })
   .meta({ description: "session.provider-linked: the provider named its session for this one, on the run's first init." });
 export type SessionProviderLinkedPayload = z.infer<typeof SessionProviderLinkedPayload>;
 
 export const SessionForkedPayload = z
   .object({
     fromSessionId: SessionId,
-    atMessageId: MessageId.nullable().meta({ description: "The user message the fork was taken before; null for a fork of the whole session." }),
+    atMessageId: MessageId.nullable().meta({
+      description:
+        "The user message the fork was taken before, or null for a fork of the whole session, except in two cases. A source no run of which had linked a provider session but which carried one in as a fork itself: what its own session.forked named (a message, or null), whichever message the fork was taken before, since nothing the source was sent reached the provider; the text of the message it was taken before is still the fork's draft. A fork of the whole of a source that had linked one and holds a rewind not yet continued from: the rewind's message, since that provider session still holds what the rewind hid.",
+    }),
+    fromProviderSessionId: z
+      .string()
+      .min(1)
+      .nullable()
+      .meta({
+        description:
+          "The provider session the fork's first run continues: the one the source had linked when forked; or, for a source no run of which had linked one, the one its own session.forked named when it was itself a fork, whichever message the fork was taken before, since nothing the source was sent reached the provider. Null when the source had neither, or when the fork was taken before the first message of a source that had linked one but carried none in as a fork itself, since nothing of the provider's precedes that message; the fork then starts fresh.",
+      }),
   })
   .meta({ description: "session.forked: the session was forked from another; on the new session's stream." });
 export type SessionForkedPayload = z.infer<typeof SessionForkedPayload>;

@@ -67,10 +67,12 @@ import { permissionsProjector, readPermissionSettings, readStoredContainmentDefa
 import { policySettings, resolvePolicy, type RunActor } from "../permissions/resolver.js";
 import { reviewMethods } from "../permissions/review-methods.js";
 import { createTtlSweeper } from "../permissions/ttl-sweeper.js";
+import { createProviderTranscriptStore, type ProviderTranscriptStore } from "../provider-transcripts/store.js";
 import { runMethods, startRunIn } from "../runs/run-methods.js";
 import { runsProjector } from "../runs/runs-projector.js";
 import { createCompactionSweep } from "../sessions/compaction.js";
 import { createDeletion } from "../sessions/deletion.js";
+import { forkRewindMethods } from "../sessions/fork-rewind.js";
 import { groupMethods } from "../sessions/group-methods.js";
 import { sessionMethods } from "../sessions/methods.js";
 import { sessionListProjector } from "../sessions/session-list.js";
@@ -439,6 +441,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     return { record: loaded, clientSessions: loadedClientSessions, pairings: loadedPairings, accessLog: access };
   });
 
+  // The SDK session store (#137): the provider's transcripts beside the log, which every Claude run passes and resumes from.
+  const providerStore: ProviderTranscriptStore = createProviderTranscriptStore({ log, clock });
+
   // Each session's scratch and temporary directories, under the data directory; removed once the session's purge commits, off the log's path.
   const sessionDirectories = containmentDirectories(join(dataDir, CONTAINMENT_DIRECTORY));
   closers.push(
@@ -459,7 +464,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     // Then the queued messages' attachment bytes, read back from the stage, so a message the sweep handed back keeps them (#185).
     const attachmentStage = createAttachmentStage(join(dataDir, ATTACHMENTS_DIRECTORY));
     const stagedAttachments = recoverStagedAttachments({ log, stage: attachmentStage });
-    const adapters = options.adapters ?? [createClaudeAdapter({ clock, autoMemoryRoot: join(dataDir, AUTO_MEMORY_DIRECTORY) })];
+    const adapters = options.adapters ?? [createClaudeAdapter({ clock, autoMemoryRoot: join(dataDir, AUTO_MEMORY_DIRECTORY), sessionStore: providerStore })];
     // The probe never fails a start: a probe that throws leaves nothing but off, and says why.
     let probed: ContainmentReport;
     try {
@@ -582,7 +587,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   closers.push(startPromptNotices({ log, stream: environmentStream }));
   const detector = options.containerDetector ?? processContainerDetector();
   // The purge: `sessions.purge` runs it at once, the minute sweep for every session past its grace period.
-  const deletion = createDeletion({ log, transcripts: host.transcripts });
+  const deletion = createDeletion({ log, transcripts: host.transcripts, providerStore });
   const lifecycle = createLifecycle({
     clock,
     runs: host.runs,
@@ -627,6 +632,14 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       clampSessionMode: sessionModeClamp({ host, ceilingOf: (id) => clientSessions.ceiling(id) }),
     }),
     ...groupMethods({ log, clock: now }),
+    // Fork, rewind and the subagent transcript (#137), beside the session commands.
+    ...forkRewindMethods({
+      log,
+      host,
+      store: providerStore,
+      validateRunParameters: host.validateSessionInput,
+      clampSessionMode: sessionModeClamp({ host, ceilingOf: (id) => clientSessions.ceiling(id) }),
+    }),
     ...runMethods({ log, host, ceilingOf: (id) => clientSessions.ceiling(id) }),
     ...permissionMethods({ log, host, accessLog, clock, environmentId: record.id, ceilingOf: (id) => clientSessions.ceiling(id), containment }),
     ...promptMethods({ log, host, environmentId: record.id }),
@@ -705,6 +718,12 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     deletion.purgeDue(clock.now());
   } catch (error) {
     console.error("The startup purge failed; the minute sweep will try again:", error);
+  }
+  // Then the SDK session store's rows under a purged session's key: a mirror write that raced its purge (#137).
+  try {
+    providerStore.sweepOrphans();
+  } catch (error) {
+    console.error("The session store's orphan sweep failed; the next start will try again:", error);
   }
   // The containment directories of sessions that are gone (purged while a removal failed, or before a crash), in the background.
   sessionDirectories

@@ -346,10 +346,11 @@ export const SessionTitleSetPayload = z
   })
   .meta({ description: "session.title-set: the user set the session's title, or cleared it (null)." });
 
-/** Where a generated title came from: the first user message, or the provider's own summary. */
+/** Where a generated title came from: the first user message (or, on a fork, the source's title carried over), or the provider's own summary. */
 export const GENERATED_TITLE_SOURCES = ["prompt", "provider"] as const;
 export const GeneratedTitleSource = z.enum(GENERATED_TITLE_SOURCES).meta({
-  description: "Where a generated title came from: prompt (the first user message's first line) or provider (the provider's summary).",
+  description:
+    "Where a generated title came from: prompt (the first user message's first line, or, on a fork, the source's title carried over at the fork's creation) or provider (the provider's summary).",
 });
 
 export const SessionTitleGeneratedPayload = z
@@ -416,14 +417,23 @@ export const SessionDeletedPayload = z
 export const SessionRestoredPayload = z.object({}).meta({ description: "session.restored: a deleted session came back unchanged." });
 /**
  * What a purge did with the provider's own transcript of the session: kept,
- * since the delete did not ask for it to go; deleted by the adapter;
+ * since the delete did not ask for it to go, or (reason `adopted-directory`)
+ * since it asked but a copy lies in an adopted account's directory, which
+ * only the provider's own CLI reads and writes (ADR 0018; any copy in a
+ * directory the environment owns was deleted); deleted by the adapter;
  * unsupported, since the delete asked but the adapter does not offer the
  * capability, so it is kept; or failed, with the adapter's message, and
  * the session purged all the same.
  */
+const ProviderTranscriptKeptReason = z.enum(["adopted-directory"]).meta({
+  description:
+    "Why a transcript the delete asked for was kept: adopted-directory, a copy lies in an adopted account's directory, which only the provider's own CLI reads and writes; any copy in an owned directory was deleted.",
+});
 export const ProviderTranscriptOutcome = z
   .discriminatedUnion("outcome", [
-    z.object({ outcome: z.literal("kept") }).meta({ description: "The delete did not ask for it to go: the provider's transcript is untouched." }),
+    z
+      .object({ outcome: z.literal("kept"), reason: ProviderTranscriptKeptReason.optional() })
+      .meta({ description: "Untouched: the delete did not ask for it to go; or, with a reason, it asked and the provider's transcript was kept for that reason." }),
     z.object({ outcome: z.literal("deleted") }).meta({ description: "The adapter deleted the provider's transcript." }),
     z
       .object({ outcome: z.literal("unsupported") })

@@ -7,7 +7,8 @@ import { sessionStream } from "./streams.js";
  * The purge (session-state spec, "Deletion, grace and purge"; env spec,
  * "Deletion"): what `sessions.purge` runs at once and the sweep runs for
  * every deleted session whose grace period has passed. In one transaction it
- * deletes the session's events and snapshot from the log, has the adapter
+ * deletes the session's events and snapshot from the log and the SDK
+ * session store's entries for it (#137), has the adapter
  * delete the provider's transcript when the delete asked for it and the
  * adapter offers it, and appends `session.purged`, whose projection removes
  * the session's rows and tags: the tombstone is then the only event on the
@@ -33,11 +34,17 @@ import { sessionStream } from "./streams.js";
  *   must succeed (or throw, which is recorded as `failed`).
  *
  * A throw is recorded in the tombstone as `failed` with its message, and the
- * session is purged all the same.
+ * session is purged all the same. It answers nothing when the transcript is
+ * gone, or why a copy was kept (`kept`: a copy lies in an adopted account's
+ * directory, which only the provider's own CLI touches, ADR 0018, #137),
+ * recorded as `kept` with that reason.
  */
 export interface ProviderTranscripts {
-  readonly deleteTranscript?: (sessionId: string) => undefined;
+  readonly deleteTranscript?: (sessionId: string) => TranscriptDeleteAnswer;
 }
+
+/** What a transcript delete answers: nothing once the transcript is gone, or why a copy of it was kept. */
+export type TranscriptDeleteAnswer = undefined | { readonly kept: NonNullable<Extract<ProviderTranscriptOutcome, { outcome: "kept" }>["reason"]> };
 
 /** Who a purge is appended as, and in which transaction: a command's, or the sweep's own. */
 export interface PurgeContext {
@@ -63,10 +70,21 @@ export interface Deletion {
   purgeDue(now: Date): string[];
 }
 
+/**
+ * The environment's SDK session store as the purge needs it (#137): the
+ * rows it keeps for a session, deleted inside the purge's transaction on the
+ * log's own connection, so they go exactly when the tombstone commits.
+ */
+export interface ProviderStorePurge {
+  purgeSession(tx: Tx, sessionId: string): void;
+}
+
 export interface DeletionOptions {
   readonly log: EventLog;
   /** Preset: an adapter that cannot delete a transcript. */
   readonly transcripts?: ProviderTranscripts;
+  /** The SDK session store (`provider-transcripts/store.ts`); preset: none. */
+  readonly providerStore?: ProviderStorePurge;
 }
 
 /** The actor the sweep's purges are appended as. */
@@ -103,7 +121,8 @@ export const createDeletion = (options: DeletionOptions): Deletion => {
       Promise.resolve(answered).catch(() => undefined);
       throw new Error(`The adapter's transcript delete for session ${sessionId} answered with a promise; it must answer at once.`);
     }
-    return { outcome: "deleted" };
+    const kept = (answered as TranscriptDeleteAnswer)?.kept;
+    return kept === undefined ? { outcome: "deleted" } : { outcome: "kept", reason: kept };
   };
 
   const purgeSession = (sessionId: string, context: PurgeContext): EventEnvelope => {
@@ -114,6 +133,9 @@ export const createDeletion = (options: DeletionOptions): Deletion => {
     if (row === undefined) throw new Error(`The session ${sessionId} is not deleted, so it cannot be purged.`);
     const stream = sessionStream(sessionId);
     log.purgeStream(stream, { tx: context.tx });
+    // The store's entries are the environment's own record of the provider's conversation, not a file another tool
+    // made: they go with every purge, whatever the delete asked of the provider's transcript (#137).
+    options.providerStore?.purgeSession(context.tx, sessionId);
     // The adapter last, since what it does cannot be undone: after it only the tombstone's append and its projection.
     const payload: SessionPurgedPayload = { providerTranscript: providerTranscript(sessionId, row.delete_provider_transcript === 1) };
     const { events } = log.append(stream, [{ type: "session.purged", payload }], {

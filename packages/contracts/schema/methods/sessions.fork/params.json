@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "sessions.fork params",
+  "type": "object",
+  "properties": {
+    "commandId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+      "description": "The client-generated UUID every command takes; a retry with the same id applies once."
+    },
+    "sessionId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "The session to fork: the source."
+    },
+    "id": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "The fork's id, minted by the client as sessions.create's is."
+    },
+    "atMessageId": {
+      "description": "A user message of the source: the fork holds the history before it, and its text becomes the fork's draft; the whole history when absent.",
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$"
+    },
+    "account": {
+      "description": "The account the fork's runs use, one this environment holds and is signed in; the source's when absent.",
+      "type": "string",
+      "minLength": 1
+    },
+    "title": {
+      "description": "The fork's user title; the source's title is carried as its generated title when absent.",
+      "type": "string",
+      "pattern": "^\\s*\\S(?:[\\s\\S]{0,198}\\S)?\\s*$"
+    }
+  },
+  "required": [
+    "commandId",
+    "sessionId",
+    "id"
+  ]
+}

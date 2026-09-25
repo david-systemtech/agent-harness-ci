@@ -172,7 +172,7 @@ describe("a fault around one account's read", () => {
       createdAt: clock.now().toISOString(),
     });
     const { descriptor } = fakeAdapter({ clock });
-    const facts = (id: string): AccountFacts => ({ id, directory: `/nonexistent/${id}`, signedIn: true, identity: null, descriptor, models: [] });
+    const facts = (id: string): AccountFacts => ({ id, directory: `/nonexistent/${id}`, adopted: true, signedIn: true, identity: null, descriptor, models: [] });
     const pool = createUsagePool({
       log,
       clock,

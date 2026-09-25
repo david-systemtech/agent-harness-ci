@@ -1655,6 +1655,38 @@
       "title": "sessions.purge error"
     },
     {
+      "path": "methods/sessions.fork/params.json",
+      "title": "sessions.fork params"
+    },
+    {
+      "path": "methods/sessions.fork/result.json",
+      "title": "sessions.fork result"
+    },
+    {
+      "path": "methods/sessions.fork/response.json",
+      "title": "sessions.fork response"
+    },
+    {
+      "path": "methods/sessions.fork/error.json",
+      "title": "sessions.fork error"
+    },
+    {
+      "path": "methods/sessions.rewind/params.json",
+      "title": "sessions.rewind params"
+    },
+    {
+      "path": "methods/sessions.rewind/result.json",
+      "title": "sessions.rewind result"
+    },
+    {
+      "path": "methods/sessions.rewind/response.json",
+      "title": "sessions.rewind response"
+    },
+    {
+      "path": "methods/sessions.rewind/error.json",
+      "title": "sessions.rewind error"
+    },
+    {
       "path": "methods/groups.create/params.json",
       "title": "groups.create params"
     },
@@ -1789,6 +1821,18 @@
     {
       "path": "methods/sessions.subscribeSession/error.json",
       "title": "sessions.subscribeSession error"
+    },
+    {
+      "path": "methods/sessions.subagentTranscript/params.json",
+      "title": "sessions.subagentTranscript params"
+    },
+    {
+      "path": "methods/sessions.subagentTranscript/result.json",
+      "title": "sessions.subagentTranscript result"
+    },
+    {
+      "path": "methods/sessions.subagentTranscript/error.json",
+      "title": "sessions.subagentTranscript error"
     },
     {
       "path": "methods/runs.start/params.json",
@@ -2703,6 +2747,26 @@
       "error": "methods/sessions.purge/error.json"
     },
     {
+      "name": "sessions.fork",
+      "scope": "sessions:write",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/sessions.fork/params.json",
+      "result": "methods/sessions.fork/result.json",
+      "response": "methods/sessions.fork/response.json",
+      "error": "methods/sessions.fork/error.json"
+    },
+    {
+      "name": "sessions.rewind",
+      "scope": "runs:drive",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/sessions.rewind/params.json",
+      "result": "methods/sessions.rewind/result.json",
+      "response": "methods/sessions.rewind/response.json",
+      "error": "methods/sessions.rewind/error.json"
+    },
+    {
       "name": "groups.create",
       "scope": "sessions:write",
       "kind": "command",
@@ -2795,6 +2859,15 @@
       "params": "methods/sessions.subscribeSession/params.json",
       "result": "methods/sessions.subscribeSession/result.json",
       "error": "methods/sessions.subscribeSession/error.json"
+    },
+    {
+      "name": "sessions.subagentTranscript",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/sessions.subagentTranscript/params.json",
+      "result": "methods/sessions.subagentTranscript/result.json",
+      "error": "methods/sessions.subagentTranscript/error.json"
     },
     {
       "name": "runs.start",

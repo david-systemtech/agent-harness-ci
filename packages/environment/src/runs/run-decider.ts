@@ -19,7 +19,7 @@ import {
   type Workspace,
 } from "@agent-harness/contracts";
 import { requireCapability } from "../adapter/capabilities.js";
-import type { AdapterDescriptor, AttachmentData, ModelOption, PromptMessage } from "../adapter/contract.js";
+import type { AdapterDescriptor, AttachmentData, ModelOption, PromptMessage, RunTarget } from "../adapter/contract.js";
 import type { PolicySeam } from "../adapter/seams.js";
 import type { EventInput, JsonObject } from "../event-log/event-log.js";
 import type { RunActor } from "../permissions/resolver.js";
@@ -44,6 +44,8 @@ export type RunRefusal =
 export interface AccountFacts {
   readonly id: string;
   readonly directory: string | null;
+  /** Whether the directory is the machine's own, adopted in place (ADR 0018): only the provider's own CLI reads and writes it. */
+  readonly adopted: boolean;
   readonly signedIn: boolean;
   readonly identity: AccountIdentity | null;
   readonly descriptor: AdapterDescriptor;
@@ -68,8 +70,14 @@ export interface StartFacts {
   readonly account: AccountFacts | null;
   /** The messages the environment holds for the session, which the run reads first. */
   readonly queued: readonly QueuedMessage[];
-  /** The provider's session the run resumes, when the adapter can resume and a run linked one. */
-  readonly resumeFrom: string | null;
+  /**
+   * What the run continues from (`sessions/fork-rewind.ts`, `runContinuation`):
+   * the provider conversation a run linked, a rewind of it, a fork's source's,
+   * or nothing.
+   */
+  readonly target: RunTarget;
+  /** The session the run's session was forked from, on a fork's first run; else null. */
+  readonly forkedFrom: string | null;
   /**
    * Who asked (ADR 0006): its kind and its ceiling. The mode is clamped to
    * that ceiling and to the ceiling of every queued message the run reads,
@@ -122,7 +130,8 @@ export interface PlannedRun {
   readonly mode: Mode;
   readonly workspace: Workspace;
   readonly repositoryIdentity: string | null;
-  readonly resumeFrom: string | null;
+  /** What the run continues from, handed to its adapter as it is. */
+  readonly target: RunTarget;
   /** Who asked: a run started from the queue after this one is resolved for the same actor, under its ceiling as it is then. */
   readonly actor: RunActor;
   /** The run's policy as resolved at its start, recorded as `run.policy.resolved`: fixed for the run, whatever changes after. */
@@ -253,8 +262,8 @@ export const decideStart = (facts: StartFacts, command: StartCommand): StartDeci
     origin: command.origin,
     promptMessageId: command.message?.messageId ?? null,
     queuedMessageIds: queuedIds,
-    resumedFrom: facts.resumeFrom,
-    forkedFrom: null,
+    resumedFrom: facts.target.kind === "fresh" ? null : facts.target.providerSessionId,
+    forkedFrom: facts.forkedFrom,
   };
   const events: EventInput[] = [{ type: "run.started", payload: started }, policyResolvedEvent(runId, policy)];
   for (const messageId of queuedIds) {
@@ -276,7 +285,7 @@ export const decideStart = (facts: StartFacts, command: StartCommand): StartDeci
       mode: policy.mode.effective,
       workspace: session.workspace,
       repositoryIdentity: session.repositoryIdentity,
-      resumeFrom: facts.resumeFrom,
+      target: facts.target,
       actor: facts.actor,
       policy,
       prompt: [
