@@ -29,7 +29,8 @@ import type { SubscriptionHooks } from "../src/wire/subscriptions.js";
 import { manualClock, type ManualClock } from "./clock.js";
 import type { ContainmentProbe } from "../src/permissions/containment-probe.js";
 import { absentProbe } from "./containment.js";
-import type { HostAccount } from "../src/adapter/host.js";
+import type { ConfiguredAccount } from "../src/accounts/account-service.js";
+import type { SignInDirectorFactory } from "../src/accounts/sign-in.js";
 import { fakeAdapter, type FakeAdapter } from "./fake-adapter.js";
 import { testLauncher, type TestLauncher } from "./launcher.js";
 import {
@@ -55,8 +56,17 @@ export interface TestEnvironmentOptions {
   readonly clock?: ManualClock;
   /** Preset: the scripted fake adapter with its preset script (`fake-adapter.ts`). */
   readonly adapter?: FakeAdapter;
-  /** The accounts runs go through. Preset: one, `claude-max`, on the fake adapter's provider. */
-  readonly accounts?: readonly HostAccount[];
+  /**
+   * The accounts carried over from configuration into the account store on
+   * the first start (#119's path, kept for this). Preset: one, `claude-max`,
+   * on the fake adapter's provider, in the fake's own directory; `[]` starts
+   * with none, for a test that adopts or adds its own.
+   */
+  readonly accounts?: readonly ConfiguredAccount[];
+  /** The sign-in director `accounts.add` hands an account to; preset: the environment's (sign-in not built yet). */
+  readonly signIn?: SignInDirectorFactory;
+  /** How long a status or model probe may take; preset: the environment's. */
+  readonly probeTimeoutMs?: number;
   /** A data directory to start on, kept by `close`: a restart on the same directory. Preset: a fresh temporary one, removed by `close`. */
   readonly dataDir?: string;
   readonly name?: string;
@@ -229,6 +239,8 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
     ...(options.tailnetName !== undefined && { tailnetName: options.tailnetName }),
     ...(options.adapterSeams !== undefined && { adapterSeams: options.adapterSeams }),
     ...(options.processIdleMinutes !== undefined && { processIdleMinutes: options.processIdleMinutes }),
+    ...(options.signIn !== undefined && { signIn: options.signIn }),
+    ...(options.probeTimeoutMs !== undefined && { probeTimeoutMs: options.probeTimeoutMs }),
     ...(options.terminals !== undefined && { terminals: options.terminals }),
   };
   let env: EnvironmentHandle;

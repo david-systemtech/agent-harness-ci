@@ -294,8 +294,12 @@ export const runSchemaFixtures: Record<string, Fixtures> = {
     invalid: [{ ...credentialSpec, signIn: "claude auth login" }, { ...credentialSpec, configDirVariable: "" }],
   },
   "adapter/auth-status.json": {
-    valid: [signedIn, { signedIn: false, authMethod: null, email: null, orgName: null, subscriptionType: null, error: "Not signed in." }],
-    invalid: [{ ...signedIn, signedIn: "yes" }, { signedIn: true }],
+    valid: [
+      signedIn,
+      { signedIn: false, authMethod: null, email: null, orgName: null, subscriptionType: null, error: "Not signed in." },
+      { signedIn: false, authMethod: null, email: null, orgName: null, subscriptionType: null, error: null, expired: true },
+    ],
+    invalid: [{ ...signedIn, signedIn: "yes" }, { signedIn: true }, { ...signedIn, expired: "yes" }],
   },
   "adapter/message-delivery.json": { valid: ["prompt", "steered", "queued"], invalid: ["delivered", ""] },
   "adapter/queue-holder.json": { valid: ["provider", "environment"], invalid: ["client", ""] },

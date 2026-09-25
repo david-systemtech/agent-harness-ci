@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ModelEntry",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The model's id, as a run or a session names it."
+    },
+    "family": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The model's family (opus, sonnet), which accounts.defaultModelFamily names."
+    },
+    "tier": {
+      "type": "integer",
+      "minimum": -9007199254740991,
+      "maximum": 9007199254740991,
+      "description": "An ordinal the adapter supplies: higher is stronger; a family it cannot place ranks below every known one."
+    },
+    "efforts": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "The reasoning efforts the model takes, weakest first; empty when it takes none."
+    },
+    "label": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The model's name as a client shows it, when the adapter gives one."
+    }
+  },
+  "required": [
+    "id",
+    "family",
+    "tier",
+    "efforts",
+    "label"
+  ],
+  "description": "One model of an account's catalogue: its id, family, ordinal tier and efforts."
+}

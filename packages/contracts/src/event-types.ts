@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { ACCESS_EVENT_PAYLOADS, ACCESS_EVENT_TYPES, ACCESS_STREAM_KIND } from "./access-log.js";
+import { ACCOUNT_EVENT_TYPES, ACCOUNT_STREAM_KIND } from "./accounts.js";
 import { ENVIRONMENT_NOTICE_TYPES, ENVIRONMENT_STREAM_KIND, EnvironmentNotice } from "./notices.js";
 import { PERMISSION_SESSION_EVENT_TYPES } from "./permissions.js";
 import { GROUP_EVENT_TYPES, GROUP_STREAM_KIND, SESSION_EVENT_TYPES, SESSION_STREAM_KIND } from "./sessions.js";
@@ -62,6 +63,7 @@ export const EVENT_TYPES = {
   [SESSION_STREAM_KIND]: sessionEventTypes,
   [GROUP_STREAM_KIND]: GROUP_EVENT_TYPES,
   [SETTINGS_STREAM_KIND]: SETTINGS_EVENT_TYPES,
+  [ACCOUNT_STREAM_KIND]: ACCOUNT_EVENT_TYPES,
 } as const satisfies Readonly<Record<string, EventTypeTable>>;
 
 export type SessionEventType = keyof typeof sessionEventTypes;

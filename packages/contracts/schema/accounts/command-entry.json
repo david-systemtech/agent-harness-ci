@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CommandEntry",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The command's name, without its slash."
+    },
+    "description": {
+      "type": "string",
+      "description": "The provider's one-line description of it."
+    }
+  },
+  "required": [
+    "name",
+    "description"
+  ],
+  "description": "A slash command the provider offers an account in a workspace."
+}

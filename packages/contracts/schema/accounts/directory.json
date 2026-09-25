@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AccountDirectory",
+  "type": "object",
+  "properties": {
+    "kind": {
+      "type": "string",
+      "enum": [
+        "adopted",
+        "owned"
+      ],
+      "description": "Whose config directory an account's is: adopted (the machine's own provider directory, registered in place and never moved, linked or deleted by the environment) or owned (made by the environment under its data directory for a fresh sign-in)."
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The directory's absolute path on the environment's machine."
+    }
+  },
+  "required": [
+    "kind",
+    "path"
+  ],
+  "description": "An account's config directory: whose it is, and where."
+}

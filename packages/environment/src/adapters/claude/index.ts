@@ -7,7 +7,7 @@ import type { AccountRef, Adapter, AdapterDescriptor, PromptMessage, ProviderCom
 import { systemClock, type Clock } from "../../serve/clock.js";
 import { configDirQueue as processQueue, type ConfigDirQueue } from "./config-dir-queue.js";
 import { withControlQuery } from "./control-query.js";
-import { ambientConfigDirectory, claudeCredentials, readClaudeStatus, type CommandRunner, type HostEnvironment } from "./credentials.js";
+import { CLAUDE_PROVIDER, ambientConfigDirectory, claudeCredentials, readClaudeStatus, type CommandRunner, type HostEnvironment } from "./credentials.js";
 import { bundledExecutable } from "./executable.js";
 import { catalogueOf, staticCatalogue } from "./models.js";
 import { CLAUDE_MODES, claudeEffort, claudeMode } from "./options.js";
@@ -25,7 +25,7 @@ import { ClaudeProcess, checkImages, type ProcessDeps, type ProcessTimings } fro
  * its provider id, `claude`.
  */
 
-export const CLAUDE_PROVIDER = "claude";
+export { CLAUDE_PROVIDER };
 
 /**
  * What Claude can do. `providerQueue` and `steering` rest on the pinned
@@ -100,6 +100,8 @@ export interface ClaudeAdapter extends Adapter {
   readonly commands: NonNullable<Adapter["commands"]>;
   readonly usage: NonNullable<Adapter["usage"]>;
   readonly stopProcess: (sessionId: string, options?: { readonly kill?: boolean }) => Promise<void>;
+  /** The machine's own Claude directory, which `accounts.adopt` registers in place. */
+  readonly ambientDirectory: () => string;
 }
 
 /**
@@ -194,6 +196,8 @@ export const createClaudeAdapter = (options: ClaudeAdapterOptions = {}): ClaudeA
     descriptor: CLAUDE_DESCRIPTOR,
     credentials: claudeCredentials,
     status,
+    // The machine's own directory, resolved once: what `accounts.adopt` registers in place (#134).
+    ambientDirectory: () => ambient,
     async models(account) {
       try {
         return catalogueOf(await withControlQuery(control(account, tmpdir()), (query) => query.supportedModels()));

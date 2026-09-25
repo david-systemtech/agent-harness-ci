@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "commands.list result",
+  "type": "object",
+  "properties": {
+    "accountId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "description": "An account's id on its environment: a version 4 UUID the environment mints when it adopts or adds the account; an account carried over from configuration keeps the id it was configured with."
+    },
+    "commands": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The command's name, without its slash."
+          },
+          "description": {
+            "type": "string",
+            "description": "The provider's one-line description of it."
+          }
+        },
+        "required": [
+          "name",
+          "description"
+        ],
+        "description": "A slash command the provider offers an account in a workspace."
+      }
+    }
+  },
+  "required": [
+    "accountId",
+    "commands"
+  ]
+}

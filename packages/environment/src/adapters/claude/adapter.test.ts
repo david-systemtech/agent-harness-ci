@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import type { AccountIdentity } from "@agent-harness/contracts";
 import type { Options, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { manualClock, type ManualClock } from "../../../test/clock.js";
@@ -97,6 +98,8 @@ const runInput = (overrides: Partial<RunInput> = {}): RunInput => ({
 interface Context extends RunContext {
   readonly adopted: ProviderTurn[];
   readonly asked: PromptRequest[];
+  /** The identities the run reported through `reportIdentity`. */
+  readonly identities: AccountIdentity[];
 }
 
 /** A context whose broker answers what `decide` says, when it says (never, by default: the prompt parks). */
@@ -109,7 +112,8 @@ const contextWith = (decide?: (request: PromptRequest) => Promise<PromptDecision
       return decide?.(request) ?? new Promise<PromptDecision>(() => undefined);
     },
   };
-  return { broker, gate: { check: async () => ({ decision: "allow" }) }, adopt: (turn) => adopted.push(turn), adopted, asked, process: {
+  const identities: AccountIdentity[] = [];
+  return { broker, gate: { check: async () => ({ decision: "allow" }) }, adopt: (turn) => adopted.push(turn), adopted, asked, identities, reportIdentity: (identity) => void identities.push(identity), process: {
       hold: (kind, id) => port.push(`hold ${kind}:${id}`),
       unhold: (kind, id) => port.push(`unhold ${kind}:${id}`),
       exited: () => port.push("exited"),
@@ -158,6 +162,47 @@ describe("a run", () => {
     expect(events.map((event) => event.type)).toEqual(["session.provider-linked", "assistant.delta", "assistant.text", "end"]);
     expect(events[1]).toEqual({ type: "assistant.delta", payload: { itemId: "msg_1:0", fragments: [{ kind: "text", text: "Hello." }] } });
     expect(ends(events)).toEqual([{ type: "end", reason: "completed", cause: null, error: null, usage: null, turnCount: 1, resultText: "Done." }]);
+  });
+
+  it("reports who the CLI says it is signed in as, from accountInfo once its first init shows it is up, once per process", async () => {
+    fake.controls = { accountInfo: async () => ({ email: "other@example.com", organization: "" }) };
+    const adapter = adapterWith();
+    const context = contextWith();
+    const input = runInput();
+    const run = adapter.createRun(input, context);
+    const query = await started();
+    expect(context.identities).toEqual([]);
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [input.prompt[0]?.messageId as string]), sdk.text("msg_1", "Hi."), sdk.result(PROVIDER_SESSION));
+    await drain(run);
+    await vi.waitFor(() => expect(context.identities).toEqual([{ provider: "claude", email: "other@example.com", organisation: null }]));
+    query.emit(sdk.init(PROVIDER_SESSION));
+    await flush();
+    expect(context.identities).toHaveLength(1);
+  });
+
+  it("logs a report of who the CLI is signed in as that the host fails to take, and the run goes on to its end", async () => {
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown): void => void unhandled.push(reason);
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      const adapter = adapterWith();
+      const context: Context = {
+        ...contextWith(),
+        reportIdentity: () => {
+          throw new Error("The event log is closed.");
+        },
+      };
+      const input = runInput();
+      const run = adapter.createRun(input, context);
+      const query = await started();
+      query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [input.prompt[0]?.messageId as string]), sdk.text("msg_1", "Hi."), sdk.result(PROVIDER_SESSION));
+      expect(ends(await drain(run))).toEqual([expect.objectContaining({ reason: "completed" })]);
+      await vi.waitFor(() => expect(diagnostics.some((line) => /reporting who the CLI is signed in as failed/.test(line))).toBe(true));
+      await flush();
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
   });
 
   it("buffers what the provider says before anyone reads, and is read once", async () => {
@@ -1529,6 +1574,12 @@ describe("the environment the adapter was made with", () => {
       if (saved.key === undefined) delete process.env["ANTHROPIC_API_KEY"];
       else process.env["ANTHROPIC_API_KEY"] = saved.key;
     }
+  });
+
+  it("names the machine's own directory for accounts.adopt: the host's CLAUDE_CONFIG_DIR, else ~/.claude, resolved once", () => {
+    expect(adapterWith().ambientDirectory()).toBe("/home/david/.claude");
+    const configured = adapterWith({ hostEnv: { PATH: "/usr/bin", HOME: "/home/david", CLAUDE_CONFIG_DIR: "/srv/claude" } });
+    expect(configured.ambientDirectory()).toBe("/srv/claude");
   });
 
   it("reads an account with no directory's status under the ambient default, set explicitly", async () => {
