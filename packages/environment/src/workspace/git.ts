@@ -11,14 +11,15 @@ import { baseEnvironment } from "../terminals/shell.js";
  * pointed at nothing, never an external diff or text conversion (the diff's
  * own flags), and in a scrubbed environment: a terminal's clean base, none of
  * the environment's own variables (a provider's config directory, a key
- * manager's token) and no `GIT_*` but the ones asked for. A clean, smudge or
- * process filter cannot be turned off from the command line, and this git
- * runs outside any containment (the session's level binds the provider's
- * process, not the environment's), so the diff asks `repositoryFilters`
- * first and refuses a repository whose own config names one (permissions
- * spec, #212); a filter the machine's config names (system or global, the
- * owner's, as `git lfs install` writes) runs, seeing only the scrubbed
- * environment. What git answers is bytes; the caller decodes.
+ * manager's token) and no `GIT_*` but the ones asked for. The command line
+ * can blank a filter only by a name it already knows, and this git runs
+ * outside any containment (the session's level binds the provider's commands
+ * and tool calls, not the environment's own), so the diff asks
+ * `repositoryFilters` first and refuses a repository whose own config names a
+ * clean, smudge or process filter (permissions spec, #212); a filter the
+ * machine's config names (system or global, the owner's, as `git lfs install`
+ * writes) runs, seeing only the scrubbed environment. What git answers is
+ * bytes; the caller decodes.
  */
 
 /** How long git gets before it is stopped, and what it wrote kept. */
@@ -138,8 +139,8 @@ const FILTER_COMMANDS = String.raw`^filter\..+\.(clean|smudge|process)$`;
  */
 export const repositoryFilters = async (cwd: string): Promise<{ readonly filters: readonly string[] } | { readonly failed: string }> => {
   const answer = await runGit(cwd, ["config", "--show-scope", "--name-only", "-z", "--get-regexp", FILTER_COMMANDS], { maxBytes: 1024 * 1024 });
-  // Exit 1 with nothing said is git config's "no such key".
-  if (answer.code === 1 && answer.stdout.length === 0) return { filters: [] };
+  // Exit 1 with nothing listed and nothing said is git config's "no such key".
+  if (answer.code === 1 && answer.stdout.length === 0 && answer.stderr.trim() === "") return { filters: [] };
   if (answer.truncated) return { failed: "git config listed more than 1 MiB of filters" };
   if (!answer.ok) return { failed: answer.stderr };
   // Scope and name, each ended by a NUL.

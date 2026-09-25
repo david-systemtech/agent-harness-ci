@@ -239,6 +239,38 @@ describe("git on a workspace", () => {
     expect([error.code, error.data]).toEqual(["conflict", { reason: "git_filters_refused", filters: ["Pretty", "lfs"] }]);
   });
 
+  it("never runs the filter a committed nested repository's own config names: its dirt is not looked at, and its commit change still shows (#212)", async () => {
+    const { client, root, sessionId } = await setUp();
+    const nested = join(root, "nested");
+    mkdirSync(nested);
+    git(nested, "init", "-q");
+    write(nested, { "n.txt": "n\n" });
+    git(nested, "add", ".");
+    git(nested, "commit", "-qm", "nested first");
+    const first = git(nested, "rev-parse", "HEAD").trim();
+    git(root, "init", "-q");
+    write(root, { "a.txt": "a\n" });
+    // A gitlink, no .gitmodules: git records the nested repository's commit.
+    git(root, "add", ".");
+    git(root, "commit", "-qm", "first");
+    write(nested, { ".gitattributes": "* filter=spy\n" });
+    git(nested, "add", ".gitattributes");
+    git(nested, "commit", "-qm", "nested second");
+    const second = git(nested, "rev-parse", "HEAD").trim();
+    // Planted after the nested commits, so only the diff could run them; the nested file is left dirty.
+    const marker = join(tempDir("agent-harness-marker-"), "ran");
+    git(nested, "config", "filter.spy.clean", `sh -c 'echo ran >> ${marker}; cat'`);
+    git(nested, "config", "diff.external", `sh -c 'echo ran >> ${marker}'`);
+    // The outer repository asks for the nested diff in full, which would run a diff, and its external diff, inside it.
+    git(root, "config", "diff.submodule", "diff");
+    write(nested, { "n.txt": "dirty\n" });
+
+    const answer = await client.request("diffs.workingTree", { sessionId });
+
+    expect(existsSync(marker)).toBe(false);
+    expect(answer.diff).toContain(`-Subproject commit ${first}\n+Subproject commit ${second}\n`);
+  });
+
   it("runs a filter the machine's own git config names, and gives git none of the environment's own variables", async () => {
     const secret = "AGENT_HARNESS_TEST_GIT_SECRET";
     process.env[secret] = "the environment's own";

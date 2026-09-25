@@ -46,8 +46,26 @@ export const capAtLine = (text: string, cap: number): { text: string; truncated:
 /** The most of git's untracked listing read for the scratch index; past it the diff leaves the untracked files out. */
 const UNTRACKED_BYTES = 32 * 1024 * 1024;
 
-/** Arguments that keep a repository's configuration from running anything or reshaping the output. */
-const DIFF_FLAGS = ["--no-color", "--no-ext-diff", "--no-textconv", "--relative", "--src-prefix=a/", "--dst-prefix=b/"];
+/**
+ * Arguments that keep a repository's configuration from running anything or
+ * reshaping the output. A nested repository (a committed gitlink, with or
+ * without `.gitmodules`) is diffed by its commit alone: git does not look
+ * inside it for dirt (`--ignore-submodules=dirty`), which would run a
+ * `git status` there under the nested repository's own config and its
+ * filters, and shows its change as the two commits (`--submodule=short`),
+ * never through a `diff.submodule=diff` that would run a diff, and its
+ * external diff, inside it (#212's review).
+ */
+const DIFF_FLAGS = [
+  "--no-color",
+  "--no-ext-diff",
+  "--no-textconv",
+  "--ignore-submodules=dirty",
+  "--submodule=short",
+  "--relative",
+  "--src-prefix=a/",
+  "--dst-prefix=b/",
+];
 
 /**
  * Git ran and failed (a filter that fails, a corrupt object store):
@@ -68,7 +86,7 @@ const gitFailed = (stderr: string): ContractError => {
  */
 const filtersRefused = (filters: readonly string[]): ContractError => {
   const named = filters.map((name) => `"${name}"`).join(", ");
-  const which = filters.length === 1 ? `a clean or smudge filter, ${named}, which` : `clean or smudge filters, ${named}, which`;
+  const which = filters.length === 1 ? `a clean, smudge or process filter, ${named}, which` : `clean, smudge or process filters, ${named}, which`;
   return new ContractError({
     code: "conflict",
     message: `The workspace's repository configures ${which} the environment will not run for a diff: its own git runs outside the session's containment. The session's diff (diffs.session) still answers.`,
