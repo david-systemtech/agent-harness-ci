@@ -664,8 +664,8 @@ export const schemaFixtures: Record<string, Fixtures> = {
     invalid: [envelopeWithoutCommandId, { ...validEnvelope, sequence: 0 }, { ...validEnvelope, payload: [] }],
   },
   "notices/environment-notice-type.json": {
-    valid: ["environment.started", "environment.updated", "environment.draining", "account.updated"],
-    invalid: ["environment.stopped", "session.created", ""],
+    valid: ["environment.started", "environment.updated", "environment.draining", "account.updated", "signin.updated", "signin.executable-chosen"],
+    invalid: ["environment.stopped", "session.created", "signin.started", ""],
   },
   "notices/environment-notice.json": {
     valid: [
@@ -673,6 +673,19 @@ export const schemaFixtures: Record<string, Fixtures> = {
       { type: "environment.updated", payload: { fromVersion: "0.1.0", toVersion: "0.2.0" } },
       { type: "environment.draining", payload: { drainingSince: at, trigger: "launcher" } },
       { type: "account.updated", payload: { accountId: "claude-max", change: "status-changed", warning: null } },
+      {
+        type: "signin.updated",
+        payload: {
+          accountId: "claude-max",
+          state: "awaiting-code",
+          url: "https://claude.com/cai/oauth/authorize?code=true",
+          startedAt: at,
+          expiresAt: at,
+          fallback: { posix: "CLAUDE_CONFIG_DIR='/x' claude auth login", powershell: "$env:CLAUDE_CONFIG_DIR = '/x'; & 'claude' auth login" },
+          error: null,
+        },
+      },
+      { type: "signin.executable-chosen", payload: { provider: "claude", source: "bundled", executable: "/opt/claude", bundled: "/opt/claude", detail: null } },
       validEnvironmentStartedEvent,
     ],
     invalid: [
@@ -683,6 +696,8 @@ export const schemaFixtures: Record<string, Fixtures> = {
       { type: "environment.draining", payload: { drainingSince: at } },
       { type: "environment.stopped", payload: {} },
       { type: "account.updated", payload: { accountId: "claude-max", change: "status-changed" } },
+      { type: "signin.updated", payload: { accountId: "claude-max", state: "waiting" } },
+      { type: "signin.executable-chosen", payload: { provider: "claude", source: "bundled" } },
       validEnvelope,
     ],
   },

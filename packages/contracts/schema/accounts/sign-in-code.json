@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SignInCode",
+  "type": "string",
+  "minLength": 1,
+  "maxLength": 4096,
+  "pattern": "^\\S+$",
+  "description": "The code the provider's page shows after signing in, as it was copied: one token, with no space or line break."
+}
