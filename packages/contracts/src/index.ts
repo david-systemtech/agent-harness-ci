@@ -1,6 +1,8 @@
 export { PRODUCT_NAME } from "./product.js";
 
 export * from "./access-log.js";
+export * from "./accounts.js";
+export * from "./actions.js";
 export * from "./adapter.js";
 export * from "./bootstrap.js";
 export * from "./denylist.js";
@@ -45,7 +47,7 @@ export {
   Timestamp,
 } from "./primitives.js";
 export type { MintedPairing } from "./methods/access.js";
-export { ContainmentUnavailableError } from "./methods/permissions.js";
+export { ContainmentUnavailableError, REVIEW_LIST_LIMIT, REVIEW_LIST_MAX } from "./methods/permissions.js";
 export { AttachmentInput, MAX_ATTACHMENT_BYTES } from "./methods/runs.js";
 export {
   MAX_PROCESS_IDLE_MINUTES,

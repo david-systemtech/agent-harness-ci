@@ -3,7 +3,6 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { AuthStatus } from "@agent-harness/contracts";
 import type { AdapterCredentialSpec } from "../../adapter/contract.js";
-import { CLAUDE_LOGIN_ARGV, CLAUDE_LOGOUT_ARGV, CLAUDE_STATUS_ARGV } from "./sign-in.js";
 
 /**
  * How a Claude account's credential is scoped (claude-adapter spec, "The
@@ -13,11 +12,36 @@ import { CLAUDE_LOGIN_ARGV, CLAUDE_LOGOUT_ARGV, CLAUDE_STATUS_ARGV } from "./sig
  * login; it strips them from every process it starts.
  */
 
+/** Claude's provider id: what the host registers the adapter by, and an account identity's provider. */
+export const CLAUDE_PROVIDER = "claude";
+
 /** A process environment as it is inherited: some variables unset. */
 export type HostEnvironment = Readonly<Record<string, string | undefined>>;
 
 /** The variable naming an account's config directory: its login, history and settings. */
 export const CLAUDE_CONFIG_DIR = "CLAUDE_CONFIG_DIR";
+
+/**
+ * The bundled binary's auth commands (claude-adapter spec, "Sign-in and
+ * status through the bundled binary"), run with `CLAUDE_CONFIG_DIR` at the
+ * account's directory and the stripped variables absent, as every Claude
+ * process runs. Here rather than in `signin.ts`, which re-exports them, so
+ * the sign-in program can compose its environment from this module without
+ * an import cycle.
+ *
+ * Subscription only: `--console` is never passed. A Console user runs the
+ * fallback command with it (ADR 0018). `--claudeai` is not passed either: it
+ * restates the binary's default in a line a person may read and paste.
+ */
+
+/** Starts a sign-in: the binary prints a verification URL and reads the code on stdin. */
+export const CLAUDE_LOGIN_ARGV = ["auth", "login"] as const;
+
+/** Prints the account's sign-in state as JSON; exits 1 when signed out, still printing it. */
+export const CLAUDE_STATUS_ARGV = ["auth", "status", "--json"] as const;
+
+/** Clears the credential from the account's directory. */
+export const CLAUDE_LOGOUT_ARGV = ["auth", "logout"] as const;
 
 /**
  * The variables stripped from every Claude process and never set (ADR 0018,

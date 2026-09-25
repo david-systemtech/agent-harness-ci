@@ -8,6 +8,7 @@ import type {
   GatedToolCall,
   ModelOption,
   ProcessPort,
+  ProviderCommand,
   PromptDecision,
   PromptDetail,
   PromptKind,
@@ -45,6 +46,12 @@ import type {
  * `stopProcess` stops it; the records say which process each run went to.
  * A script holds the process with background work through the run
  * context's port (`backgroundTask`).
+ *
+ * Accounts (#134): the status probe answers per account directory and can
+ * be changed mid-test (`setStatus`), every read is recorded
+ * (`statusReads`), and the fake names a directory of its own for
+ * `accounts.adopt` (`ambientDirectory`), one that is not there unless a
+ * test gives it one. It lists commands when a test gives it some.
  *
  * The tool gate (#132, #133): a script plays a tool call as a provider
  * does under the gate (`toolCall`), asking the run context's gate before its
@@ -113,8 +120,12 @@ export interface FakeAdapterOptions {
   readonly capabilities?: Partial<Omit<AdapterCapabilities, "provider" | "displayName">>;
   /** Every run's script, unless a run is given its own through `nextScripts`. Preset: one reply, then completed. */
   readonly script?: Script;
-  /** The stub status probe. Preset: signed in as `<account id>@example.com`. */
-  readonly status?: (account: AccountRef) => AuthStatus;
+  /** The stub status probe, answering at once or when its promise settles. Preset: signed in as `<account id>@example.com`. */
+  readonly status?: (account: AccountRef) => AuthStatus | Promise<AuthStatus>;
+  /** The machine's own directory for the fake provider (`accounts.adopt`). Preset: a path that is not there. */
+  readonly ambientDirectory?: string | null;
+  /** Declares `commands` with these commands, recording each listing. Preset: not declared. */
+  readonly commands?: readonly ProviderCommand[];
   /** The static catalogue. Preset: opus, sonnet and haiku with tiers 3, 2 and 1. */
   readonly models?: readonly ModelOption[];
   /** The modes the descriptor lists, available or not. Preset: the four, every one available. */
@@ -166,7 +177,22 @@ export interface FakeAdapter extends Adapter {
   processesOf(sessionId: string): readonly FakeProcessRecord[];
   /** The session's live process exits on its own, and says so through the port its last run was handed. */
   exit(sessionId: string): void;
+  /** Every status read, in order: the account reference it was asked with. */
+  readonly statusReads: readonly AccountRef[];
+  /** Replaces the status probe from now on. */
+  setStatus(status: (account: AccountRef) => AuthStatus | Promise<AuthStatus>): void;
+  /** Every commands listing, in order. */
+  readonly commandListings: readonly { readonly account: AccountRef; readonly workspace: string }[];
 }
+
+/** The fake's own directory unless a test gives it one: a path that is not there, so nothing adopts it by chance. */
+export const FAKE_AMBIENT_DIRECTORY = "/nonexistent/agent-harness-fake-ambient";
+
+/** A status a test scripts: signed in as `email`, or signed out when it is null. */
+export const signedInAs = (email: string | null, orgName: string | null = null): AuthStatus =>
+  email === null
+    ? { signedIn: false, authMethod: null, email: null, orgName: null, subscriptionType: null, error: null }
+    : { signedIn: true, authMethod: "fake", email, orgName, subscriptionType: "max", error: null };
 
 /** A gate a script waits on until a test opens it. */
 export interface Gate {
@@ -205,7 +231,7 @@ export interface AskOptions {
  * it is working, asks a prompt of `kind` with `detail`, says what it was told
  * (`toldText`) and ends. An answer a person gives reaches it through the
  * broker's request, which the host settles, and through `answerPrompt`,
- * which the fake records (`nextAnswer`).
+ * which the fake records in the run record's `answers` and hands out through `nextAnswer()`.
  */
 export const ask =
   (kind: PromptKind, detail: PromptDetail = {}, options: AskOptions = {}): Script =>
@@ -345,7 +371,7 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
     transcriptDelete: declaredDelete !== undefined,
     planUsage: true,
     liveModels: false,
-    commands: false,
+    commands: options.commands !== undefined,
     imageInput: true,
     fileInput: false,
     modeChange: true,
@@ -361,6 +387,9 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
   const processes: FakeProcessRecord[] = [];
   /** The port each process's latest run was handed. */
   const ports = new Map<FakeProcessRecord, ProcessPort>();
+  const statusReads: AccountRef[] = [];
+  const commandListings: { account: AccountRef; workspace: string }[] = [];
+  let status = options.status;
 
   /** The session's process as it is now: its latest, unless that one has been told to stop or has exited. */
   const liveProcess = (sessionId: string): FakeProcessRecord | undefined => {
@@ -542,15 +571,17 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
       logout: ["auth", "logout"],
       parseStatus: (output) => JSON.parse(output) as AuthStatus,
     },
-    status: async (account) =>
-      options.status?.(account) ?? {
-        signedIn: true,
-        authMethod: "fake",
-        email: `${account.id}@example.com`,
-        orgName: null,
-        subscriptionType: "max",
-        error: null,
+    status: async (account) => {
+      statusReads.push(account);
+      return status?.(account) ?? signedInAs(`${account.id}@example.com`);
+    },
+    ambientDirectory: () => (options.ambientDirectory === undefined ? FAKE_AMBIENT_DIRECTORY : options.ambientDirectory),
+    ...(options.commands !== undefined && {
+      commands: async (account: AccountRef, workspace: { readonly path: string }) => {
+        commandListings.push({ account, workspace: workspace.path });
+        return options.commands ?? [];
       },
+    }),
     models: async () => ({ live: false, models: options.models ?? PRESET_MODELS }),
     createRun: (input, context) => {
       const process = processFor(input.sessionId);
@@ -602,6 +633,11 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
       },
     }),
     runs,
+    statusReads,
+    setStatus(next) {
+      status = next;
+    },
+    commandListings,
     deletedTranscripts,
     nextScripts,
     titleReads,

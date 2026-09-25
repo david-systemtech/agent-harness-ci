@@ -7,6 +7,7 @@
  * less than the whole package.
  */
 import { BYPASS_SENTENCE, FRAME_TYPES, SHARED_ERROR_CODES, methodPath, methods, type FrameType } from "../src/index.js";
+import { accountMethodFixtures, accountSchemaFixtures } from "./account-fixtures.js";
 import { permissionMethodFixtures, permissionSchemaFixtures } from "./permission-fixtures.js";
 import { providerMethodFixtures, providerSchemaFixtures } from "./provider-fixtures.js";
 import { runMethodFixtures, runSchemaFixtures } from "./run-fixtures.js";
@@ -482,6 +483,7 @@ const methodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
   ...providerMethodFixtures,
   ...settingsMethodFixtures,
   ...permissionMethodFixtures,
+  ...accountMethodFixtures,
   ...terminalMethodFixtures,
 };
 
@@ -683,14 +685,28 @@ export const schemaFixtures: Record<string, Fixtures> = {
     invalid: [envelopeWithoutCommandId, { ...validEnvelope, sequence: 0 }, { ...validEnvelope, payload: [] }],
   },
   "notices/environment-notice-type.json": {
-    valid: ["environment.started", "environment.updated", "environment.draining", "prompt.parked", "prompt.resolved"],
-    invalid: ["environment.stopped", "session.created", "prompt.opened", ""],
+    valid: ["environment.started", "environment.updated", "environment.draining", "account.updated", "signin.updated", "signin.executable-chosen", "prompt.parked", "prompt.resolved"],
+    invalid: ["environment.stopped", "session.created", "signin.started", "prompt.opened", ""],
   },
   "notices/environment-notice.json": {
     valid: [
       { type: "environment.started", payload: { harnessVersion: "0.1.0", protocolVersion: 1 } },
       { type: "environment.updated", payload: { fromVersion: "0.1.0", toVersion: "0.2.0" } },
       { type: "environment.draining", payload: { drainingSince: at, trigger: "launcher" } },
+      { type: "account.updated", payload: { accountId: "claude-max", change: "status-changed", warning: null } },
+      {
+        type: "signin.updated",
+        payload: {
+          accountId: "claude-max",
+          state: "awaiting-code",
+          url: "https://claude.com/cai/oauth/authorize?code=true",
+          startedAt: at,
+          expiresAt: at,
+          fallback: { posix: "CLAUDE_CONFIG_DIR='/x' claude auth login", powershell: "$env:CLAUDE_CONFIG_DIR = '/x'; & 'claude' auth login" },
+          error: null,
+        },
+      },
+      { type: "signin.executable-chosen", payload: { provider: "claude", source: "bundled", executable: "/opt/claude", bundled: "/opt/claude", detail: null } },
       {
         type: "prompt.parked",
         payload: { sessionId: otherUuid, runId: thirdUuid, promptId: "toolu_1", kind: "question", title: "Fix the receipts", summary: "Which library?" },
@@ -705,6 +721,9 @@ export const schemaFixtures: Record<string, Fixtures> = {
       { type: "environment.draining", payload: { drainingSince: "soon", trigger: "signal" } },
       { type: "environment.draining", payload: { drainingSince: at } },
       { type: "environment.stopped", payload: {} },
+      { type: "account.updated", payload: { accountId: "claude-max", change: "status-changed" } },
+      { type: "signin.updated", payload: { accountId: "claude-max", state: "waiting" } },
+      { type: "signin.executable-chosen", payload: { provider: "claude", source: "bundled" } },
       { type: "prompt.parked", payload: { sessionId: otherUuid, runId: thirdUuid, promptId: "toolu_1", kind: "tool", title: "t", summary: "s" } },
       { type: "prompt.resolved", payload: { sessionId: otherUuid, runId: thirdUuid, promptId: "toolu_1", decision: "allow" } },
       validEnvelope,
@@ -736,11 +755,33 @@ export const schemaFixtures: Record<string, Fixtures> = {
     valid: FRAME_TYPES.flatMap((kind) => validFrames[kind]),
     invalid: [...FRAME_TYPES.flatMap(malformedJson), { type: "nonsense" }, {}],
   },
+  "actions/action-context.json": {
+    valid: ["anywhere", "sidebar", "terminal", "asks", "confirm"],
+    invalid: ["rail", "Anywhere", "", 1],
+  },
+  "actions/action.json": {
+    valid: [
+      { id: "rail.pin", context: "sidebar", keys: ["p"], description: "Pin it to the top of its folder", status: "wired" },
+      { id: "permission.rule.edit", context: "permission", keys: ["e"], description: "Edit the rule", status: "absent", reason: "Rules are per session." },
+      { id: "command.profile", context: "composer", keys: [], description: "Switch the account", usage: "/profile", aliasOf: "command.account", status: "wired" },
+    ],
+    invalid: [
+      { id: "rail.pin", context: "sidebar", keys: ["p"], description: "Pin it", status: "absent" },
+      { id: "sidebar.pin", context: "sidebar", keys: ["p"], description: "Pin it", status: "wired" },
+      { id: "rail", context: "sidebar", keys: ["p"], description: "Pin it", status: "wired" },
+      { id: "rail.pin", context: "rail", keys: ["p"], description: "Pin it", status: "wired" },
+      { id: "rail.pin", context: "sidebar", keys: [""], description: "Pin it", status: "wired" },
+      { id: "rail.pin", context: "sidebar", keys: ["p"], description: "", status: "wired" },
+      { id: "command.help", context: "composer", keys: [], description: "Help", usage: "help", status: "wired" },
+      { id: "rail.pin", context: "sidebar", keys: ["p"], description: "Pin it", status: "planned" },
+    ],
+  },
   ...sessionSchemaFixtures,
   ...runSchemaFixtures,
   ...providerSchemaFixtures,
   ...settingsSchemaFixtures,
   ...permissionSchemaFixtures,
+  ...accountSchemaFixtures,
   ...terminalSchemaFixtures,
   ...methodSchemaFixtures,
 };

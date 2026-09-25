@@ -176,6 +176,13 @@ describe("the method registry", () => {
       "runs.interrupt",
       "runs.stopTask",
       "providers.processes.stop",
+      "accounts.adopt",
+      "accounts.add",
+      "accounts.relabel",
+      "accounts.remove",
+      "accounts.signin.start",
+      "accounts.signin.code",
+      "accounts.signin.cancel",
       "settings.update",
       "permissions.mode.set",
       "permissions.settings.set",
@@ -307,6 +314,19 @@ describe("the method registry", () => {
       | "providers.list"
       | "providers.processes.list"
       | "providers.processes.stop"
+      | "accounts.list"
+      | "accounts.probe"
+      | "accounts.refresh"
+      | "accounts.adopt"
+      | "accounts.add"
+      | "accounts.relabel"
+      | "accounts.remove"
+      | "accounts.signin.get"
+      | "accounts.signin.start"
+      | "accounts.signin.code"
+      | "accounts.signin.cancel"
+      | "models.list"
+      | "commands.list"
       | "settings.get"
       | "settings.update"
       | "permissions.mode.set"

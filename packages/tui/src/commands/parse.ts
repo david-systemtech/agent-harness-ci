@@ -1,15 +1,21 @@
 import type { PairingInput } from "@agent-harness/client-runtime";
 
 /**
- * The slash commands this build answers (docs/specs/tui.md, "First launch"):
- * `/pair <link>`, `/pair <address> <code>`, `/pair create`, `/environment`.
- * Text that is not one goes to a session, which the transcript ticket
- * opens; until then it is answered with one line.
+ * The slash commands this build answers (docs/specs/tui.md, "First launch"
+ * and "Shortcuts"): `/pair <link>`, `/pair <address> <code>`, `/pair create`,
+ * `/environment`, `/help`, `/reload`. Text that is not one goes to a session,
+ * which the transcript ticket opens; until then it is answered with one line.
+ * What follows a `/` is syntax, whatever key opens the command menu.
  */
+
+/** The slash commands `parseCommand` knows, by their names in the shared action list (`command.<name>`). */
+export const ANSWERED_COMMANDS = ["pair", "environment", "help", "reload"] as const;
 export type Command =
   | { readonly kind: "pair"; readonly input: PairingInput }
   | { readonly kind: "pair-create" }
   | { readonly kind: "environment" }
+  | { readonly kind: "help" }
+  | { readonly kind: "reload" }
   | { readonly kind: "usage"; readonly line: string }
   | { readonly kind: "unknown"; readonly name: string }
   | { readonly kind: "text"; readonly text: string };
@@ -35,6 +41,10 @@ export const parseCommand = (typed: string): Command => {
     case "environment":
     case "environments":
       return rest.length === 0 ? { kind: "environment" } : { kind: "usage", line: "Usage: /environment" };
+    case "help":
+      return rest.length === 0 ? { kind: "help" } : { kind: "usage", line: "Usage: /help" };
+    case "reload":
+      return rest.length === 0 ? { kind: "reload" } : { kind: "usage", line: "Usage: /reload" };
     default:
       return { kind: "unknown", name };
   }

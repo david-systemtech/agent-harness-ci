@@ -3,11 +3,14 @@ import {
   type AutoDecider,
   type JsonObject,
   type Mode,
+  type ModeAvailability,
+  type ModeResolution,
   type PromptAnsweredPayload,
   type PromptKind,
   type PromptOpenedPayload,
 } from "@agent-harness/contracts";
-import type { PromptDetail } from "../adapter/contract.js";
+import type { PromptDecision, PromptDetail } from "../adapter/contract.js";
+import { clampMode } from "./resolver.js";
 
 /**
  * The permission broker's vocabulary (permissions spec, "Modules": the
@@ -34,6 +37,9 @@ export const CANCELLED_MESSAGE = "The request was cancelled before anyone answer
 
 /** What the model reads when its prompt could not be recorded, so nobody could be asked. */
 export const UNRECORDED_MESSAGE = "The request could not be recorded, so nobody could be asked; it was denied. Carry on without it.";
+
+/** What the model reads when it asks under the id of a request its run holds open: the open one stands, this one is not recorded. */
+export const DUPLICATE_PROMPT_MESSAGE = "A request with this prompt id is open already, so this one was denied and nobody was asked; wait for the answer to the open one.";
 
 /** One line: the first line with anything on it, white space collapsed, cut to the summary's length. */
 const oneLine = (text: string | null | undefined): string | null => {
@@ -118,6 +124,24 @@ export const autoDenial = (prompt: Pick<PromptOpenedPayload, "runId" | "promptId
   decidedBy: { auto },
   delivery: null,
 });
+
+/**
+ * An automatic rule's decision as the run is handed it and the log records
+ * it: a mode the rule gives is clamped to the run's ceiling and its
+ * account's modes, as a person's plan answer is, and the run is handed the
+ * clamped mode (none at all when no mode at or below the ceiling is
+ * available); every other part is the rule's.
+ */
+export const ruledAnswer = (
+  decision: PromptDecision,
+  ceiling: Mode,
+  accountModes: readonly ModeAvailability[],
+): { readonly decision: PromptDecision; readonly mode: ModeResolution | null } => {
+  const { mode: asked, ...rest } = decision;
+  if (asked === undefined) return { decision, mode: null };
+  const mode = clampMode(asked, asked, ceiling, accountModes);
+  return { decision: mode === null ? rest : { ...rest, mode: mode.effective }, mode };
+};
 
 const quoted = (message: string | null): string => (message === null ? "" : `\nTheir message: ${message}`);
 

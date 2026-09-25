@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SignInFallback",
+  "type": "object",
+  "properties": {
+    "posix": {
+      "type": "string",
+      "minLength": 1,
+      "description": "For sh, bash or zsh: the directory variable set on the command, the directory single-quoted."
+    },
+    "powershell": {
+      "type": "string",
+      "minLength": 1,
+      "description": "For PowerShell: the directory variable set, then the executable called, each path single-quoted."
+    }
+  },
+  "required": [
+    "posix",
+    "powershell"
+  ],
+  "description": "The exact command that signs the account's directory in from a terminal on the environment's machine, in POSIX and PowerShell renderings."
+}

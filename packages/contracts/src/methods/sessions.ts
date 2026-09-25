@@ -41,7 +41,11 @@ const sessionCommand = <const N extends `sessions.${string}`>(name: N) =>
 /**
  * Create a session: its client-minted id, an optional title, tags and
  * group, and its workspace. The account, model and mode are recorded for
- * the adapter and permissions workstreams, which validate them. A new
+ * the adapter and permissions workstreams, which validate them: an account
+ * the environment does not hold, or that is not signed in, is rejected
+ * `conflict` (data reason `account_unavailable`), as `runs.start` rejects
+ * it; a model the account does not offer, or a mode its adapter lacks, is
+ * `invalid_params`. A new
  * session has no repository identity yet and, with no title, shows "New
  * session". A group that is not on this environment is rejected
  * `not_found` (data kind `group`); an id already used is rejected `conflict`
@@ -57,7 +61,7 @@ export const sessionsCreate = defineMethod({
     tags: z.array(Tag).max(MAX_TAGS).optional().meta({ description: "Tags to start with; duplicates ignoring case keep the latest casing." }),
     groupId: GroupId.nullable().optional().meta({ description: "A group on this environment to put the session in; none when absent or null." }),
     workspace: Workspace,
-    account: z.string().min(1).optional().meta({ description: "The account the session's runs use; the adapter workstream's to validate." }),
+    account: z.string().min(1).optional().meta({ description: "The account the session's runs use, one the environment holds and is signed in; the environment's default account at each run when absent." }),
     model: z.string().min(1).optional().meta({ description: "The model the session's runs use; the adapter workstream's to validate." }),
     mode: Mode.optional().meta({ description: "The mode the session's runs start in, clamped at each run; permissions.mode.set changes it." }),
   }),

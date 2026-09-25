@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import {
+  SCOPES,
   registry,
   type Mode,
   type ParamsOf,
@@ -19,7 +20,7 @@ import { create, get } from "../../test/sessions.js";
 import type { WireClient } from "../../test/wire-client.js";
 import type { AdapterEvent, PromptDetail, PromptKind } from "../adapter/contract.js";
 import type { EventEnvelope as LogEvent } from "../event-log/event-log.js";
-import type { RunActor } from "./resolver.js";
+import type { ActorRunRequest } from "../serve/start.js";
 
 /**
  * Unattended runs and the automatic decisions (#131; permissions spec,
@@ -61,13 +62,16 @@ const startRun = async (client: WireClient, sessionId: string, text = "Fix the r
   return answer.result;
 };
 
-const routine = (name = "nightly-receipts", ceiling: Mode = "bypassPermissions"): RunActor => ({ kind: "routine", name, ceiling, clientSessionId: null });
-const bot = (name = "triage", ceiling: Mode = "bypassPermissions"): RunActor => ({ kind: "bot", name, ceiling, clientSessionId: null });
-const program = (ceiling: Mode = "bypassPermissions", attended = false): RunActor => ({ kind: "completions", attended, ceiling, clientSessionId: null });
+/** Who starts a run that no client session starts: a routine or a bot by its id, or the completions surface. */
+type Who = Omit<ActorRunRequest, "sessionId" | "text" | "mode">;
+
+const routine = (name = "nightly-receipts", ceiling: Mode = "bypassPermissions"): Who => ({ actor: { kind: "routine", name, ceiling, clientSessionId: null }, actorId: `routine-${name}` });
+const bot = (name = "triage", ceiling: Mode = "bypassPermissions"): Who => ({ actor: { kind: "bot", name, ceiling, clientSessionId: null }, actorId: `bot-${name}` });
+const program = (ceiling: Mode = "bypassPermissions", attended = false): Who => ({ actor: { kind: "completions", attended, ceiling, clientSessionId: null } });
 
 /** A run an actor that is no client session starts, through the environment's own start. */
-const startAs = (t: TestEnvironment, sessionId: string, actor: RunActor, text = "Fix the receipts", mode?: Mode) =>
-  t.env.startRun({ sessionId, actor, text, ...(mode !== undefined && { mode }) });
+const startAs = (t: TestEnvironment, sessionId: string, who: Who, text = "Fix the receipts", mode?: Mode) =>
+  t.env.startRun({ sessionId, text, ...who, ...(mode !== undefined && { mode }) } as ActorRunRequest);
 
 const setSettings = (client: WireClient, values: ParamsOf<"permissions.settings.set">["values"], acknowledgeBypass?: true) =>
   send(client, "permissions.settings.set", { values, ...(acknowledgeBypass !== undefined && { acknowledgeBypass }) });
@@ -144,14 +148,16 @@ describe("attendance", () => {
     await untilEnded(t, id, attended.runId);
     expect(policyOf(t, id, attended.runId)).toMatchObject({ actorKind: "client", actorName: null, attended: true });
 
-    for (const [actor, kind, name] of [
-      [routine("nightly-receipts"), "routine", "nightly-receipts"],
-      [bot("triage"), "bot", "triage"],
-      [program(), "completions", null],
+    for (const [who, kind, name, by] of [
+      [routine("nightly-receipts"), "routine", "nightly-receipts", "routine:routine-nightly-receipts"],
+      [bot("triage"), "bot", "triage", "system:bot:bot-triage"],
+      [program(), "completions", null, "system:completions"],
     ] as const) {
-      const { runId } = startAs(t, id, actor);
+      const { runId } = startAs(t, id, who);
       await untilEnded(t, id, runId);
       expect(policyOf(t, id, runId), kind).toMatchObject({ actorKind: kind, actorName: name, attended: false });
+      // The log names a routine or a bot by its id, which does not change as its name may.
+      expect(ofType(t, id, "run.started").find((event) => event.payload["runId"] === runId)?.actor, kind).toBe(by);
     }
     // Only a completions request says a person is present, for itself.
     const { runId } = startAs(t, id, program("bypassPermissions", true));
@@ -397,13 +403,45 @@ describe("the TTL", () => {
     const again = await start({}, { dataDir, clock: manualClock(at(2 * HOUR)) });
     expect(answered(again, id)).toEqual([expect.objectContaining({ promptId: "toolu_1", decision: "deny", decidedBy: { auto: "ttl" }, delivery: "next-run" })]);
     expect(decisions(again, id)).toEqual([expect.objectContaining({ toolCallId: "toolu_1", decision: "denied", decidedBy: "ttl", promptId: "toolu_1" })]);
-    const later = await again.client();
-    const next = await startRun(later, id, "Carry on");
-    await untilEnded(again, id, next.runId);
-    const [kept, message] = again.adapter.lastRun().input.prompt;
+    // Its run has gone: the session continues on its own, resolved as the log records the run before it.
+    await vi.waitFor(() => expect(ofType(again, id, "run.started")).toHaveLength(2));
+    const next = payloadsOf<{ runId: string }>(again, id, "run.started")[1];
+    await untilEnded(again, id, next?.runId as string);
+    expect(policyOf(again, id, next?.runId as string)).toMatchObject({ actorKind: "client", attended: true });
+    const [kept, ...rest] = again.adapter.lastRun().input.prompt;
+    expect(rest).toEqual([]);
     expect(kept?.text).toContain("sudo apt install jq");
     expect(kept?.text).toContain("Nobody answered");
-    expect(message).toMatchObject({ text: "Carry on" });
+  });
+
+  it("continues a session whose run the parked stop took: with the presets, stopped at 30 minutes, denied at 24 hours, and a run starts with the deny first", async () => {
+    const adapter = fakeAdapter();
+    adapter.nextScripts.push(prompted("permission"));
+    const t = await start(adapter);
+    // A paired client, whose client session a day's idleness does not revoke (a local tui's would be, and its run then waits).
+    const client = await t.client({ token: (await t.pair({ scopes: SCOPES })).token });
+    const { id } = await create(client);
+    const { runId } = await startRun(client, id);
+    await untilOpened(t, id);
+    await client.close();
+
+    // providers.processIdleMinutes, preset 30: the parked stop takes the run and leaves its prompt parked.
+    t.clock.advance(30 * MINUTE);
+    expect((await untilEnded(t, id, runId)).payload).toMatchObject({ reason: "interrupted", cause: "parked" });
+    expect(answered(t, id)).toEqual([]);
+
+    // permissions.parkedPrompt.ttl, preset 24 hours: the TTL denies it, and the session continues on its own.
+    t.clock.advance(24 * HOUR - 30 * MINUTE);
+    expect(answered(t, id)).toEqual([expect.objectContaining({ promptId: "toolu_1", decidedBy: { auto: "ttl" }, delivery: "next-run" })]);
+    await vi.waitFor(() => expect(ofType(t, id, "run.started")).toHaveLength(2));
+    const next = payloadsOf<{ runId: string; promptMessageId: string | null; queuedMessageIds: string[] }>(t, id, "run.started")[1];
+    expect(next).toMatchObject({ promptMessageId: null, queuedMessageIds: [] });
+    expect(policyOf(t, id, next?.runId as string)).toMatchObject({ actorKind: "client", attended: true });
+    await untilEnded(t, id, next?.runId as string);
+    const [deny, ...rest] = t.adapter.lastRun().input.prompt;
+    expect(rest).toEqual([]);
+    expect(deny?.text).toContain("sudo apt install jq");
+    expect(deny?.text).toContain("Nobody answered in time, so it was denied");
   });
 
   it("set to never leaves a parked prompt parked however long it waits", async () => {
@@ -445,6 +483,17 @@ describe("tool.decision", () => {
     expect(decisions(t, id)).toEqual([
       { runId, toolCallId: "toolu_1", tool: "Bash", summary: "Claude wants to run sudo apt install jq", decision: "denied", decidedBy: "person", promptId: "toolu_1", reason: "Not on this machine" },
     ]);
+  });
+
+  it("gives a person's deny with no message a person's reason, never the provider's reason for asking", async () => {
+    const t = await start({ script: prompted("permission", { ...permission, reason: "rm is not allowed without asking" }) });
+    const client = await t.client();
+    const { id } = await create(client);
+    const { runId } = await startRun(client, id);
+    await untilOpened(t, id);
+    await send(client, "permissions.prompts.answer", { promptId: "toolu_1", decision: "deny" });
+    await untilEnded(t, id, runId);
+    expect(decisions(t, id)).toEqual([expect.objectContaining({ decision: "denied", decidedBy: "person", reason: "A person denied it." })]);
   });
 
   it("records the unattended, bypass and denylist decisions of the automatic rules", async () => {

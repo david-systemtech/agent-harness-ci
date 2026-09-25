@@ -169,6 +169,10 @@ export const AuthStatus = z
     orgName: z.string().min(1).nullable(),
     subscriptionType: z.string().min(1).nullable().meta({ description: "The plan the login is on, in the provider's words." }),
     error: z.string().min(1).nullable().meta({ description: "Why the status could not be read, when it could not." }),
+    expired: z
+      .boolean()
+      .optional()
+      .meta({ description: "True when the provider says the login has lapsed and must be signed in again; absent when it cannot tell (Claude's status cannot)." }),
   })
   .meta({ description: "An account's sign-in state: signed in or not, how, as whom, on which plan, or why it could not be read." });
 export type AuthStatus = z.infer<typeof AuthStatus>;

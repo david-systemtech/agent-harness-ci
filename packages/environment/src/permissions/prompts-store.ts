@@ -1,6 +1,7 @@
 import {
   PromptAnsweredPayload,
   PromptOpenedPayload,
+  promptAnswerMisfits,
   type ListedPrompt,
   type MessageRequeuedPayload,
   type RunStartedPayload,
@@ -21,11 +22,14 @@ import type { Reader } from "../sessions/session-reads.js";
  * input (its creation failed) hands its start's messages back to the
  * environment's queue (`message.requeued`, ADR 0022), and the answers it
  * took with them: the session's next run takes them again. The session's
- * tombstone removes its rows.
+ * purge (its tombstone) removes its rows; a delete only hides them.
  *
  * The projection holds the rule "exactly one answer per prompt": a
  * `prompt.answered` for a prompt that is not parked, or a `prompt.opened`
- * for an id parked already, fails its append.
+ * for an id parked already, fails its append. It holds an answer to its
+ * prompt's kind too (`promptAnswerMisfits`), which the answer's own payload
+ * does not carry: one that does not fit, whether a person's or a rule's,
+ * fails its append.
  */
 
 export const PROMPTS_TABLES = {
@@ -34,6 +38,7 @@ export const PROMPTS_TABLES = {
     prompt_id TEXT NOT NULL,
     session_id TEXT NOT NULL,
     run_id TEXT NOT NULL,
+    tool_call_id TEXT,
     opened_at TEXT NOT NULL,
     prompt TEXT NOT NULL,
     answered_sequence INTEGER,
@@ -42,7 +47,8 @@ export const PROMPTS_TABLES = {
     delivered_with TEXT
   ) STRICT;
   CREATE INDEX prompts_by_id ON prompts (prompt_id, sequence);
-  CREATE INDEX prompts_by_session ON prompts (session_id, sequence)`,
+  CREATE INDEX prompts_by_session ON prompts (session_id, sequence);
+  CREATE INDEX prompts_by_call ON prompts (run_id, tool_call_id)`,
 } as const;
 
 interface PromptRow {
@@ -50,6 +56,7 @@ interface PromptRow {
   prompt_id: string;
   session_id: string;
   run_id: string;
+  tool_call_id: string | null;
   opened_at: string;
   prompt: string;
   answered_sequence: number | null;
@@ -90,11 +97,12 @@ export const projectPrompt = (event: EventEnvelope, db: ProjectionDb): void => {
       const parked = db.get("SELECT 1 FROM prompts WHERE prompt_id = ? AND session_id = ? AND answered_sequence IS NULL", payload.promptId, event.streamId);
       if (parked !== undefined) throw new Error(`Prompt ${payload.promptId} is parked already; it cannot be opened again until it is answered.`);
       db.run(
-        "INSERT INTO prompts (sequence, prompt_id, session_id, run_id, opened_at, prompt) VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT INTO prompts (sequence, prompt_id, session_id, run_id, tool_call_id, opened_at, prompt) VALUES (?, ?, ?, ?, ?, ?, ?)",
         event.sequence,
         payload.promptId,
         event.streamId,
         payload.runId,
+        payload.toolCallId,
         event.occurredAt,
         JSON.stringify(payload),
       );
@@ -102,12 +110,17 @@ export const projectPrompt = (event: EventEnvelope, db: ProjectionDb): void => {
     }
     case "prompt.answered": {
       const payload = PromptAnsweredPayload.parse(event.payload);
-      const row = db.get<{ sequence: number }>(
-        "SELECT sequence FROM prompts WHERE prompt_id = ? AND session_id = ? AND answered_sequence IS NULL ORDER BY sequence DESC LIMIT 1",
+      const row = db.get<{ sequence: number; prompt: string }>(
+        "SELECT sequence, prompt FROM prompts WHERE prompt_id = ? AND session_id = ? AND answered_sequence IS NULL ORDER BY sequence DESC LIMIT 1",
         payload.promptId,
         event.streamId,
       );
       if (row === undefined) throw new Error(`Prompt ${payload.promptId} is not parked, so it cannot be answered: a prompt has exactly one answer.`);
+      const { kind } = JSON.parse(row.prompt) as PromptOpenedPayload;
+      const misfits = promptAnswerMisfits(kind, payload);
+      if (misfits.length > 0) {
+        throw new Error(`The answer to ${kind} prompt ${payload.promptId} does not fit it: ${misfits.map(({ path, message }) => `${path}: ${message}`).join(" ")}`);
+      }
       db.run("UPDATE prompts SET answered_sequence = ?, answer = ? WHERE sequence = ?", event.sequence, JSON.stringify(payload), row.sequence);
       return;
     }
@@ -143,10 +156,34 @@ export const projectPrompt = (event: EventEnvelope, db: ProjectionDb): void => {
   }
 };
 
-/** The latest prompt `promptId` names, parked or answered; null when there is none. */
-export const readPrompt = (reader: Reader, promptId: string): PromptRecord | null => {
-  const [row] = reader.all<PromptRow>("SELECT * FROM prompts WHERE prompt_id = ? ORDER BY sequence DESC LIMIT 1", promptId);
-  return row === undefined ? null : toRecord(row);
+/** What an answer's prompt id names: one prompt, or several sessions each holding one parked under it. */
+export type PromptLookup = { readonly record: PromptRecord } | { readonly ambiguous: readonly string[] };
+
+/**
+ * The prompt an answer names, since ids are scoped per session (another
+ * adapter's may repeat across sessions): with a session, that session's
+ * latest under the id; without, the one parked under it, and when none is,
+ * the latest under it, answered; null when there is none. Parked under the
+ * id in more than one session, without a session named, it is ambiguous:
+ * the sessions, oldest prompt first. Without a session named, a deleted
+ * session's prompts are left out, as the list leaves them out: they neither
+ * make an id ambiguous nor are named among its sessions.
+ */
+export const readPrompt = (reader: Reader, promptId: string, sessionId?: string): PromptLookup | null => {
+  if (sessionId !== undefined) {
+    const [row] = reader.all<PromptRow>("SELECT * FROM prompts WHERE prompt_id = ? AND session_id = ? ORDER BY sequence DESC LIMIT 1", promptId, sessionId);
+    return row === undefined ? null : { record: toRecord(row) };
+  }
+  const parked = reader.all<PromptRow>(
+    `SELECT prompts.* FROM prompts JOIN sessions ON sessions.id = prompts.session_id
+     WHERE prompts.prompt_id = ? AND prompts.answered_sequence IS NULL AND sessions.deleted_at IS NULL ORDER BY prompts.sequence`,
+    promptId,
+  );
+  const [only] = parked;
+  if (parked.length > 1) return { ambiguous: parked.map((row) => row.session_id) };
+  if (only !== undefined) return { record: toRecord(only) };
+  const [latest] = reader.all<PromptRow>("SELECT * FROM prompts WHERE prompt_id = ? ORDER BY sequence DESC LIMIT 1", promptId);
+  return latest === undefined ? null : { record: toRecord(latest) };
 };
 
 /** The prompt its `prompt.opened` or its `prompt.answered` sequence names; null when neither does. */
@@ -184,4 +221,11 @@ export const answersFor = (reader: Reader, runId: string): PromptRecord[] =>
 
 /** Whether run `runId` asked a prompt about its tool call `toolCallId`, answered or not: that prompt's answer is the call's decision (#131). */
 export const isAsked = (reader: Reader, runId: string, toolCallId: string): boolean =>
-  reader.all("SELECT 1 FROM prompts WHERE run_id = ? AND json_extract(prompt, '$.toolCallId') = ?", runId, toolCallId).length > 0;
+  reader.all("SELECT 1 FROM prompts WHERE run_id = ? AND tool_call_id = ? LIMIT 1", runId, toolCallId).length > 0;
+
+/** Whether an answer is kept for the session's next run that no run has taken yet (#131: a TTL answer whose run had gone starts one). */
+export const hasKeptAnswer = (reader: Reader, sessionId: string): boolean =>
+  reader.all(
+    `SELECT 1 FROM prompts WHERE session_id = ? AND answer IS NOT NULL AND delivered_run_id IS NULL AND json_extract(answer, '$.delivery') = 'next-run' LIMIT 1`,
+    sessionId,
+  ).length > 0;

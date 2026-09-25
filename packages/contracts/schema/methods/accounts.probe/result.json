@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "accounts.probe result",
+  "type": "object",
+  "properties": {
+    "provider": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$",
+      "description": "A provider's id, as the environment's adapter registry keys it: lowercase letters, digits and hyphens (claude)."
+    },
+    "directory": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The machine's own provider directory; null when the provider has none on this environment."
+    },
+    "present": {
+      "type": "boolean",
+      "description": "Whether the directory exists."
+    },
+    "signedIn": {
+      "type": "boolean",
+      "description": "Whether its status read says it is signed in."
+    },
+    "identity": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "provider": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9-]*$",
+              "description": "A provider's id, as the environment's adapter registry keys it: lowercase letters, digits and hyphens (claude)."
+            },
+            "email": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The login's email, as the provider's status reports it."
+            },
+            "organisation": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The organisation the login belongs to, when the provider reports one."
+            }
+          },
+          "required": [
+            "provider",
+            "email",
+            "organisation"
+          ],
+          "description": "Who an account signed in as: the provider, the email and the organisation when present; one account per identity per environment."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Who it is signed in as; null when signed out or not read."
+    },
+    "accountId": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "description": "An account's id on its environment: a version 4 UUID the environment mints when it adopts or adds the account; an account carried over from configuration keeps the id it was configured with."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The account that already holds the directory, adopted; null when none does."
+    },
+    "detail": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Why the status could not be read, when it could not."
+    },
+    "checkedAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+      "description": "When the directory was read."
+    }
+  },
+  "required": [
+    "provider",
+    "directory",
+    "present",
+    "signedIn",
+    "identity",
+    "accountId",
+    "detail",
+    "checkedAt"
+  ],
+  "description": "The machine's own provider directory as accounts.probe read it: present or not, signed in as whom, and the account adopting it holds, if any."
+}

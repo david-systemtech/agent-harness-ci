@@ -1,4 +1,5 @@
 import type { JsonObject } from "@agent-harness/contracts";
+import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
 import { runPayload } from "../../test/shelf.js";
 import { openEventLog, type EventLog } from "../event-log/event-log.js";
@@ -91,5 +92,21 @@ describe("the activity projections", () => {
     const { seed } = withSession();
     seed("run.started", "prompt.opened");
     expect(seed("prompt.answered", "run.ended")).toMatchObject({ activity: { state: "idle", since: "2026-09-24T00:04:00.000Z" }, parkedPromptCount: 0 });
+  });
+});
+
+describe("the seeded payloads", () => {
+  it("pair a run's prompts and their answers by the ids the payloads end with, a given id over a seeded one", () => {
+    const session = randomUUID();
+    const runId = "3f2a1c4e-8b7d-4e6f-9a0b-1c2d3e4f5a6b";
+    runPayload(session, "run.started", { runId });
+    runPayload(session, "prompt.opened", { promptId: "p-given" });
+    expect(runPayload(session, "prompt.answered")).toMatchObject({ runId, promptId: "p-given" });
+    const other = randomUUID();
+    const first = runPayload(session, "prompt.opened", { runId: other });
+    runPayload(session, "prompt.opened", { promptId: "p-later" });
+    // An answer naming a later prompt answers that one; the next plain answer takes the older.
+    expect(runPayload(session, "prompt.answered", { promptId: "p-later" })).toMatchObject({ runId, promptId: "p-later" });
+    expect(runPayload(session, "prompt.answered")).toMatchObject({ runId: other, promptId: first["promptId"] });
   });
 });

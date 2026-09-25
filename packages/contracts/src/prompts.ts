@@ -167,9 +167,46 @@ export const PromptAnswerInput = z
     decision: PromptDecisionValue,
     message: z.string().min(1).max(10_000).optional().meta({ description: "A message for the model." }),
     answers: z.record(z.string().min(1), z.string()).optional().meta({ description: "A question prompt's answers, keyed by the question's text." }),
-    updatedInput: JsonObject.optional().meta({ description: "The tool's input as edited; the model's own when absent." }),
-    mode: Mode.optional().meta({ description: "A plan prompt's mode to continue in, clamped to the run's ceiling; acceptEdits when absent." }),
+    updatedInput: JsonObject.optional().meta({ description: "A permission prompt's tool input as edited; the model's own when absent." }),
+    mode: Mode.optional().meta({ description: "An approved plan's mode to continue in, clamped to the run's ceiling; acceptEdits when absent." }),
     remember: z.literal("session").optional().meta({ description: "Ask no more for this tool in this session: permission prompts only, with an allow." }),
   })
   .meta({ description: "A person's answer to a prompt: allow or deny, a message, a question's answers, edited input, a plan's mode, remember." });
 export type PromptAnswerInput = z.infer<typeof PromptAnswerInput>;
+
+/** An answer's parts as the fit rules read them: the decision, and each other part present (neither null nor undefined) or not. */
+export interface PromptAnswerParts {
+  readonly decision: PromptDecisionValue;
+  readonly answers?: unknown;
+  readonly updatedInput?: unknown;
+  readonly mode?: unknown;
+  readonly remember?: unknown;
+}
+
+/** A part of an answer that does not fit its prompt, and why. */
+export interface PromptAnswerMisfit {
+  readonly path: "answers" | "updatedInput" | "mode" | "remember";
+  readonly message: string;
+}
+
+/**
+ * The parts of an answer that do not fit its prompt's kind or its decision
+ * (permissions spec, "Prompts, parked prompts and the TTL"): `remember` on
+ * anything but an allowed permission prompt, `updatedInput` on anything but
+ * a permission prompt, `answers` on anything but a question, and `mode` on
+ * anything but an approved plan; empty when it fits. `prompt.answered` does
+ * not carry its prompt's kind, so its schema cannot hold these:
+ * `permissions.prompts.answer` refuses a misfit `invalid_params`, and the
+ * prompts projection refuses to record one, whoever answered.
+ */
+export const promptAnswerMisfits = (kind: PromptKind, answer: PromptAnswerParts): PromptAnswerMisfit[] => {
+  const present = (part: unknown): boolean => part !== null && part !== undefined;
+  const misfits: PromptAnswerMisfit[] = [];
+  if (present(answer.remember) && kind !== "permission") misfits.push({ path: "remember", message: "Only a permission prompt's answer can be remembered for the session." });
+  if (present(answer.remember) && answer.decision !== "allow") misfits.push({ path: "remember", message: "Only an allow can be remembered for the session." });
+  if (present(answer.answers) && kind !== "question") misfits.push({ path: "answers", message: "Only a question prompt takes answers." });
+  if (present(answer.updatedInput) && kind !== "permission") misfits.push({ path: "updatedInput", message: "Only a permission prompt's input can be edited." });
+  if (present(answer.mode) && kind !== "plan") misfits.push({ path: "mode", message: "Only a plan prompt takes a mode to continue in." });
+  if (present(answer.mode) && kind === "plan" && answer.decision !== "allow") misfits.push({ path: "mode", message: "Only an approved plan continues in a mode." });
+  return misfits;
+};

@@ -26,7 +26,7 @@ import { create, refusal } from "../../test/sessions.js";
 import type { WireClient } from "../../test/wire-client.js";
 import type { GatedToolCall } from "../adapter/contract.js";
 import type { EventEnvelope as LogEvent } from "../event-log/event-log.js";
-import type { RunActor } from "./resolver.js";
+import type { ActorRunRequest } from "../serve/start.js";
 
 /**
  * The denylist and the tool gate (#132; permissions spec, "The denylist",
@@ -66,7 +66,17 @@ const startRun = async (client: WireClient, sessionId: string, mode?: Mode) => {
   return answer.result;
 };
 
-const routine = (ceiling: Mode = "bypassPermissions"): RunActor => ({ kind: "routine", name: "nightly-keys", ceiling, clientSessionId: null });
+/** A run a routine starts, through the environment's own start: unattended. */
+const startAsRoutine = (t: TestEnvironment, sessionId: string, mode?: Mode) => {
+  const request: ActorRunRequest = {
+    sessionId,
+    text: "Rotate the keys",
+    actor: { kind: "routine", name: "nightly-keys", ceiling: "bypassPermissions", clientSessionId: null },
+    actorId: "routine-nightly-keys",
+    ...(mode !== undefined && { mode }),
+  };
+  return t.env.startRun(request);
+};
 
 const accessEvents = async (client: WireClient, type: string): Promise<EventEnvelope[]> =>
   (await client.request("access.log.list", { limit: 1000 }) as { events: EventEnvelope[] }).events.filter((event) => event.type === type);
@@ -411,7 +421,7 @@ describe("the tool gate on an unattended run", () => {
     const t = await start({ script: calls(readKey, harmless) });
     const client = await t.client();
     const { id } = await create(client);
-    const { runId } = t.env.startRun({ sessionId: id, actor: routine(), text: "Rotate the keys", mode });
+    const { runId } = startAsRoutine(t, id, mode);
     const ended = await untilEnded(t, id, runId);
     expect(ended.payload).toMatchObject({ reason: "completed" });
     const [prompt] = opened(t, id);
@@ -447,7 +457,7 @@ describe("the tool gate on an unattended run", () => {
     for (const [call, section, pattern] of cases) {
       const { id } = await create(client);
       t.adapter.nextScripts.push(calls(call));
-      const { runId } = t.env.startRun({ sessionId: id, actor: routine(), text: "Go", mode: "bypassPermissions" });
+      const { runId } = startAsRoutine(t, id, "bypassPermissions");
       await untilEnded(t, id, runId);
       expect(opened(t, id).map((prompt) => prompt.denylist?.[0]).map((match) => [match?.section, match?.entry.pattern]), call.tool).toEqual([[section, pattern]]);
       expect(decisions(t, id), call.tool).toEqual([expect.objectContaining({ decision: "denied", decidedBy: "denylist" })]);
@@ -463,7 +473,7 @@ describe("the tool gate on an unattended run", () => {
     });
     const { id } = await create(client);
     t.adapter.nextScripts.push(calls(readKey, { tool: "WebFetch", summary: "Fetch", access: { kind: "fetch", urls: ["https://api.internal.example/v1"] } }));
-    const { runId } = t.env.startRun({ sessionId: id, actor: routine(), text: "Go" });
+    const { runId } = startAsRoutine(t, id);
     await untilEnded(t, id, runId);
     expect(decisions(t, id).map((decision) => [decision.tool, decision.decision, decision.decidedBy])).toEqual([
       ["Read", "allowed", "mode"],
@@ -483,7 +493,7 @@ describe("the tool gate on an unattended run", () => {
         { tool: "Write", summary: "Write the log", access: { kind: "write", paths: [join(t.env.dataDir, "environment.db")] } },
       ),
     );
-    const { runId } = t.env.startRun({ sessionId: id, actor: routine(), text: "Go" });
+    const { runId } = startAsRoutine(t, id);
     await untilEnded(t, id, runId);
     expect(decisions(t, id).map((decision) => [decision.summary.includes("build.log"), decision.decision, decision.decidedBy])).toEqual([
       [true, "allowed", "mode"],

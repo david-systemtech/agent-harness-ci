@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AccountLabel",
+  "type": "string",
+  "minLength": 1,
+  "maxLength": 200,
+  "pattern": "^\\S(?:.*\\S)?$",
+  "description": "An account's label: 1 to 200 characters on one line, with no space at either end; unique on its environment ignoring case, preset to the email the account signed in as."
+}
