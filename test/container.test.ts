@@ -5,7 +5,7 @@
  * non-root user that owns the volumes' mount points, the compose file runs
  * that user on named volumes, and neither sets `IS_SANDBOX` or
  * `CLAUDE_CODE_BUBBLEWRAP`. What only a real build and run can show is the
- * manual check listed under Owed in the pull request (#253).
+ * Container section of `docs/agents/service-install-checklist.md`.
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
