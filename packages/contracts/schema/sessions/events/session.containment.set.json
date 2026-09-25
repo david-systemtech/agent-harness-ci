@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SessionContainmentSetPayload",
+  "type": "object",
+  "properties": {
+    "containment": {
+      "type": "object",
+      "properties": {
+        "requested": {
+          "type": "string",
+          "enum": [
+            "off",
+            "workspace",
+            "workspace-no-network"
+          ],
+          "description": "The level asked for."
+        },
+        "effective": {
+          "type": "string",
+          "enum": [
+            "off",
+            "workspace",
+            "workspace-no-network"
+          ],
+          "description": "The level the session got: the one asked for, since a level this environment cannot enforce is refused."
+        },
+        "clamped": {
+          "type": "boolean",
+          "description": "Whether the level got is not the one asked for: false, since an unenforceable level is refused (containment_unavailable) rather than lowered; the shape is session.mode.set's."
+        }
+      },
+      "required": [
+        "requested",
+        "effective",
+        "clamped"
+      ],
+      "description": "The level asked for, the one the session got, and whether it was lowered."
+    }
+  },
+  "required": [
+    "containment"
+  ],
+  "description": "session.containment.set: the session's containment level was set (permissions.containment.set). Its next runs ask for it; a live run keeps the level it was resolved with."
+}

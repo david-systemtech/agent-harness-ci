@@ -1,5 +1,5 @@
 /**
- * Fixtures for the permissions schemas (#129) and the permissions methods,
+ * Fixtures for the permissions schemas (#129, #133) and the permissions methods,
  * `access.sessions.setCeiling` among them: a valid and an invalid instance of
  * every schema of theirs the export writes, the session-stream payloads
  * among them, and params and results for every method. `fixtures.ts` folds
@@ -97,9 +97,31 @@ const reviewRun = {
 };
 
 const levels = [
-  { level: "off", available: true, reason: null },
-  { level: "workspace", available: false, reason: "No containment prober yet (#133)." },
+  { level: "off", available: true, reason: null, cause: null },
+  { level: "workspace", available: false, reason: "bubblewrap (bwrap) is not on the PATH.", cause: "binary_missing" },
 ];
+const report = { levels, mechanism: null, container: { declared: false, detected: true } };
+const bubblewrap = {
+  levels: [
+    { level: "off", available: true, reason: null, cause: null },
+    { level: "workspace", available: true, reason: null, cause: null },
+    { level: "workspace-no-network", available: true, reason: null, cause: null },
+  ],
+  mechanism: "bubblewrap",
+  container: { declared: false, detected: false },
+};
+const containmentSet = { containment: { requested: "workspace", effective: "workspace", clamped: false } };
+const denied = {
+  runId,
+  toolCallId: "toolu_01",
+  tool: "Write",
+  summary: "Write /etc/hosts",
+  decision: "denied",
+  decidedBy: "containment",
+  promptId: null,
+  reason: "Outside the workspace.",
+};
+const allowed = { ...denied, decision: "allowed", decidedBy: "person", promptId: "p-1", reason: null };
 
 export const permissionSchemaFixtures: Record<string, Fixtures> = {
   "permissions/mode.json": { valid: ["plan", "acceptEdits", "auto", "bypassPermissions"], invalid: ["default", "dontAsk", "", "Plan", 1] },
@@ -116,11 +138,36 @@ export const permissionSchemaFixtures: Record<string, Fixtures> = {
   "permissions/containment-level.json": { valid: ["off", "workspace", "workspace-no-network"], invalid: ["sandbox", ""] },
   "permissions/containment-availability.json": {
     valid: levels,
-    invalid: [{ level: "jail", available: true, reason: null }, { level: "off" }, { level: "workspace", available: false, reason: "" }, { level: "workspace", available: false, reason: null }],
+    invalid: [
+      { level: "jail", available: true, reason: null, cause: null },
+      { level: "off" },
+      { level: "workspace", available: false, reason: "", cause: "seccomp" },
+      { level: "workspace", available: false, reason: null, cause: "seccomp" },
+      { level: "workspace", available: false, reason: "No bwrap.", cause: null },
+      { level: "workspace", available: false, reason: "No bwrap.", cause: "missing" },
+      { level: "workspace", available: true, reason: null },
+    ],
+  },
+  "permissions/containment-cause.json": {
+    valid: ["binary_missing", "userns_blocked", "apparmor", "seccomp", "socat_missing", "failed", "platform", "adapter", "probe_failed", "not_probed"],
+    invalid: ["missing", ""],
+  },
+  "permissions/containment-mechanism.json": { valid: ["seatbelt", "bubblewrap"], invalid: ["none", "docker", ""] },
+  "permissions/containment-container.json": {
+    valid: [{ declared: false, detected: false }, { declared: true, detected: true }],
+    invalid: [{ declared: true }, { declared: "yes", detected: false }],
+  },
+  "permissions/containment-report.json": {
+    valid: [report, bubblewrap],
+    invalid: [{ ...report, mechanism: "none" }, { levels, mechanism: null }, { ...report, levels: [{ level: "off" }] }],
   },
   "permissions/containment-resolution.json": {
-    valid: [containment, { requested: "workspace", effective: "workspace", mechanism: "bubblewrap", reason: null }],
-    invalid: [{ ...containment, effective: null }, { requested: null, effective: "off" }],
+    valid: [
+      containment,
+      { requested: "workspace", effective: "workspace", mechanism: "bubblewrap", reason: null },
+      { requested: "workspace-no-network", effective: "off", mechanism: null, reason: "socat is not installed." },
+    ],
+    invalid: [{ ...containment, effective: null }, { requested: null, effective: "off" }, { ...containment, mechanism: "docker" }],
   },
   "permissions/run-policy.json": {
     valid: [policy, unattendedPolicy],
@@ -128,11 +175,20 @@ export const permissionSchemaFixtures: Record<string, Fixtures> = {
   },
   "permissions/tool-decider.json": {
     valid: ["person", "mode", "rule", "classifier", "denylist", "containment", "ttl", "unattended", "bypass", "provider"],
-    invalid: ["run_ended", "auto", ""],
+    invalid: ["sandbox", "run_ended", "auto", ""],
   },
   "sessions/events/tool.decision.json": {
-    valid: [deniedCall, allowedCall, { ...deniedCall, toolCallId: null, tool: null, decidedBy: "ttl" }],
-    invalid: [{ ...deniedCall, reason: null }, { ...allowedCall, reason: "Allowed." }, { ...deniedCall, decision: "deny" }, { ...deniedCall, decidedBy: { auto: "ttl" } }, { ...deniedCall, summary: "" }],
+    valid: [deniedCall, allowedCall, { ...deniedCall, toolCallId: null, tool: null, decidedBy: "ttl" }, denied, allowed],
+    invalid: [
+      { ...deniedCall, reason: null },
+      { ...allowedCall, reason: "Allowed." },
+      { ...deniedCall, decision: "deny" },
+      { ...deniedCall, decidedBy: { auto: "ttl" } },
+      { ...deniedCall, summary: "" },
+      { ...denied, decidedBy: "sandbox" },
+      { ...denied, decision: "refused" },
+      { ...denied, runId: "r-1" },
+    ],
   },
   "settings/events/review.seen.json": { valid: [{ through: 0 }, { through: 42 }], invalid: [{}, { through: -1 }, { through: 1.5 }] },
   "permissions/review-actor.json": { valid: [{ kind: "routine", name: "nightly-backup" }, { kind: "client", name: null }], invalid: [{ kind: "provider", name: null }, { kind: "bot", name: "" }] },
@@ -168,6 +224,10 @@ export const permissionSchemaFixtures: Record<string, Fixtures> = {
     ],
     invalid: [{ mode: unclamped, live: null }, { mode: { ...clamped, requested: "dontAsk" }, live: null }, clamped, { mode: clamped }],
   },
+  "sessions/events/session.containment.set.json": {
+    valid: [containmentSet, { containment: { requested: "off", effective: "off", clamped: false } }],
+    invalid: [{ containment: { requested: "workspace", effective: "workspace" } }, { containment: { requested: "jail", effective: "off", clamped: false } }, {}],
+  },
   "permissions/prompt-kind.json": { valid: ["permission", "denylist", "question", "plan"], invalid: ["tool", ""] },
   "permissions/prompt-question-option.json": { valid: [{ label: "date-fns", description: "" }], invalid: [{ label: "", description: "" }, { label: "a" }] },
   "permissions/prompt-question.json": { valid: [question, { ...question, header: "", options: [] }], invalid: [{ ...question, question: "" }, { ...question, multiSelect: "yes" }] },
@@ -189,8 +249,12 @@ export const permissionSchemaFixtures: Record<string, Fixtures> = {
     invalid: [{ ...answeredPrompt, decidedBy: null }, { ...answeredPrompt, delivery: "later" }, { ...answeredPrompt, remember: "always" }, { promptId: "p-1", decision: "allow" }],
   },
   "errors/containment_unavailable.json": {
-    valid: [{ code: "containment_unavailable", message: "m", data: { level: "workspace", reason: "No containment prober yet (#133)." } }],
-    invalid: [{ code: "containment_unavailable", message: "m", data: { level: "jail", reason: "r" } }, { code: "containment_unavailable", message: "m", data: {} }],
+    valid: [{ code: "containment_unavailable", message: "m", data: { level: "workspace", reason: "bubblewrap (bwrap) is not on the PATH.", cause: "binary_missing" } }],
+    invalid: [
+      { code: "containment_unavailable", message: "m", data: { level: "jail", reason: "r", cause: "seccomp" } },
+      { code: "containment_unavailable", message: "m", data: { level: "workspace", reason: "r" } },
+      { code: "containment_unavailable", message: "m", data: {} },
+    ],
   },
 };
 
@@ -246,14 +310,28 @@ export const permissionMethodFixtures: Record<string, { params: Fixtures; result
       invalid: [{ sessionId, mode: unclamped, live: null }, { sessionId, mode: clamped }, { sessionId, mode: clamped, live: { runId } }],
     },
   },
+  "permissions.containment.set": {
+    params: {
+      valid: [{ commandId, sessionId, level: "workspace" }, { commandId, sessionId, level: "off" }],
+      invalid: [{ commandId, sessionId }, { commandId, sessionId, level: "sandbox" }, { sessionId, level: "off" }, { commandId, sessionId: "s-1", level: "off" }],
+    },
+    result: {
+      valid: [{ sessionId, ...containmentSet }],
+      invalid: [containmentSet, { sessionId, containment: { requested: "workspace" } }],
+    },
+  },
   "permissions.settings.get": {
     params: { valid: [{}], invalid: [[], "all"] },
     result: {
-      valid: [{ values, containment: { levels }, isRoot: false, denylist: { browserDomains: 12, paths: 10, commandPatterns: 14, hosts: 0 } }],
+      valid: [
+        { values, containment: report, isRoot: false, denylist: { browserDomains: 12, paths: 10, commandPatterns: 14, hosts: 0 } },
+        { values, containment: bubblewrap, isRoot: false, denylist: { browserDomains: 0, paths: 0, commandPatterns: 0, hosts: 0 } },
+      ],
       invalid: [
-        { values, containment: { levels }, isRoot: false },
-        { values, containment: { levels }, isRoot: "no", denylist: { browserDomains: 0, paths: 0, commandPatterns: 0, hosts: 0 } },
-        { values, containment: { levels }, isRoot: false, denylist: { browserDomains: -1, paths: 0, commandPatterns: 0, hosts: 0 } },
+        { values, containment: report, isRoot: false },
+        { values, containment: { levels }, isRoot: false, denylist: { browserDomains: 0, paths: 0, commandPatterns: 0, hosts: 0 } },
+        { values, containment: report, isRoot: "no", denylist: { browserDomains: 0, paths: 0, commandPatterns: 0, hosts: 0 } },
+        { values, containment: report, isRoot: false, denylist: { browserDomains: -1, paths: 0, commandPatterns: 0, hosts: 0 } },
       ],
     },
   },

@@ -21,6 +21,8 @@ export interface SettingsMethodsOptions {
   readonly environmentId: string;
   /** Called once an update that changed `keys` has committed, before it is answered; preset: nothing. */
   readonly onChange?: (keys: readonly SettingsKey[]) => void;
+  /** The environment's own presets, where they differ from the key table's (the containment default, #133); preset: none. */
+  readonly presets?: Partial<SettingsValues>;
 }
 
 /** Two values of one key, compared by structure: a client may list an object's fields in any order. */
@@ -44,12 +46,12 @@ export const settingsMethods = (options: SettingsMethodsOptions): MethodHandlers
 
   return {
     "settings.get": ({ keys }) => {
-      const values = readSettings(reader);
+      const values = readSettings(reader, options.presets);
       return { values: Object.fromEntries((keys ?? SETTINGS_KEYS).map((key) => [key, values[key]])) as SettingsPatch };
     },
 
     "settings.update": ({ values }, context) => {
-      const held = readSettings(reader);
+      const held = readSettings(reader, options.presets);
       const changed = Object.fromEntries(
         (Object.entries(values) as [SettingsKey, SettingsValues[SettingsKey]][]).filter(([key, value]) => !same(held[key], value)),
       ) as SettingsPatch;

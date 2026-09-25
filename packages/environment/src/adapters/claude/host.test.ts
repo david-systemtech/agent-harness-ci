@@ -2,8 +2,9 @@ import { randomUUID } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { manualClock } from "../../../test/clock.js";
 import { FakeSdk, sdk, type FakeQuery } from "../../../test/fake-claude-sdk.js";
-import type { PromptAnsweredPayload, PromptOpenedPayload } from "@agent-harness/contracts";
+import type { ContainmentLevel, ContainmentReport, PromptAnsweredPayload, PromptOpenedPayload } from "@agent-harness/contracts";
 import type { PermissionUpdate } from "@anthropic-ai/claude-agent-sdk";
+import type { PolicySeam } from "../../adapter/seams.js";
 import type { RunActor } from "../../permissions/resolver.js";
 
 /**
@@ -33,6 +34,7 @@ const { sessionListProjector } = await import("../../sessions/session-list.js");
 const { permissionsProjector } = await import("../../permissions/permissions-store.js");
 const { accountsProjector } = await import("../../accounts/account-store.js");
 const { storeAccounts } = await import("../../../test/accounts.js");
+const { resolvePolicy } = await import("../../permissions/resolver.js");
 
 /** The prompts the session's runs asked, as their `prompt.opened` recorded them. */
 const openedOf = (t: { log: { readStream: (stream: { kind: string; id: string }) => { type: string; payload: unknown }[] }; sessionId: string }): PromptOpenedPayload[] =>
@@ -59,7 +61,32 @@ const created = {
   payload: { title: null, tags: [], groupId: null, workspace: { kind: "directory", path: "/work/repo" }, repositoryIdentity: null, account: null, model: null, mode: null },
 };
 
-const setup = async () => {
+/** What an environment whose machine and adapter can enforce both workspace levels reports: as #140's Claude adapter will. */
+const ENFORCEABLE: ContainmentReport = {
+  levels: [
+    { level: "off", available: true, reason: null, cause: null },
+    { level: "workspace", available: true, reason: null, cause: null },
+    { level: "workspace-no-network", available: true, reason: null, cause: null },
+  ],
+  mechanism: "bubblewrap",
+  container: { declared: false, detected: false },
+};
+
+/** The policy resolver giving every run `level`, where the environment's would give `off` to Claude until #140 declares its flag. */
+const containedAt =
+  (level: ContainmentLevel): PolicySeam =>
+  ({ actor, requested, accountModes }) =>
+    resolvePolicy({
+      actor,
+      requested,
+      ceiling: actor.ceiling,
+      accountModes,
+      settings: { unattendedMode: "acceptEdits", containmentDefault: level },
+      containment: null,
+      enforceable: ENFORCEABLE,
+    });
+
+const setup = async (policy?: PolicySeam) => {
   const clock = manualClock();
   const log = openEventLog({ path: ":memory:", projectors: [sessionListProjector, runsProjector, permissionsProjector, accountsProjector], clock: () => clock.now() });
   const adapter = createClaudeAdapter({
@@ -77,6 +104,7 @@ const setup = async () => {
     adapters: [adapter],
     accounts,
     ceilingOf: () => undefined,
+    ...(policy !== undefined && { resolvePolicy: policy }),
   });
   closers.push(() => log.close(), () => host.close("disposed"), () => accounts.close());
   const sessionId = randomUUID();
@@ -292,6 +320,47 @@ describe("a Claude run through the adapter host", () => {
       toolUseID: "toolu_rm",
     });
     expect([...t.host.runs.runs()].find((run) => run.id === runId)?.state).toBe("running");
+  });
+
+  it("asks the tool gate before the broker: a write outside the workspace is denied with the gate's reason and recorded, and no prompt is opened", async () => {
+    const t = await setup(containedAt("workspace"));
+    const { runId, messageId } = startRun(t);
+    const query = await runQuery(t, 1);
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [messageId]));
+    await vi.waitFor(() => expect(eventsOf(t).map((event) => event.type)).toContain("session.provider-linked"));
+    const denied = await query.canUseTool("Write", { file_path: "/etc/hosts", content: "x" }, { toolUseID: "toolu_write" });
+    expect(denied).toMatchObject({ behavior: "deny", toolUseID: "toolu_write" });
+    const message = (denied as { message: string }).message;
+    expect(message).toMatch(/^Denied by containment \(workspace\)/);
+    expect(message).toContain("/etc/hosts");
+    expect(openedOf(t)).toEqual([]);
+    const decisions = eventsOf(t).filter((event) => event.type === "tool.decision");
+    expect(decisions.map((event) => event.payload)).toEqual([
+      { runId, toolCallId: "toolu_write", tool: "Write", summary: "Write /etc/hosts", decision: "denied", decidedBy: "containment", promptId: null, reason: message },
+    ]);
+    // A write inside the workspace, and a shell command (the sandbox's), go on to the broker, which opens a prompt for each.
+    void query.canUseTool("Edit", { file_path: "/work/repo/a.ts" }, { toolUseID: "toolu_edit" });
+    void query.canUseTool("Bash", { command: "curl https://example.com/" }, { toolUseID: "toolu_bash" });
+    await vi.waitFor(() => expect(openedOf(t)).toHaveLength(2));
+    expect(openedOf(t).map((opened) => opened.toolCallId)).toEqual(["toolu_edit", "toolu_bash"]);
+    expect(eventsOf(t).filter((event) => event.type === "tool.decision")).toHaveLength(1);
+  });
+
+  it("asks the tool gate for WebFetch and WebSearch at workspace-no-network, which denies both", async () => {
+    const closed = await setup(containedAt("workspace-no-network"));
+    const first = startRun(closed);
+    const query = await runQuery(closed, 1);
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [first.messageId]));
+    await vi.waitFor(() => expect(eventsOf(closed).map((event) => event.type)).toContain("session.provider-linked"));
+    for (const [tool, input] of [
+      ["WebFetch", { url: "https://example.com/", prompt: "?" }],
+      ["WebSearch", { query: "bubblewrap" }],
+    ] as const) {
+      const answer = await query.canUseTool(tool, input, { toolUseID: `toolu_${tool}` });
+      expect(answer, tool).toMatchObject({ behavior: "deny", message: expect.stringMatching(/no network/) as unknown as string });
+    }
+    expect(openedOf(closed)).toEqual([]);
+    expect(eventsOf(closed).filter((event) => event.type === "tool.decision").map((event) => event.payload["tool"])).toEqual(["WebFetch", "WebSearch"]);
   });
 
   it("asks a question with its question set and a plan with its text, and hands back a question's answers and a plan's mode", async () => {

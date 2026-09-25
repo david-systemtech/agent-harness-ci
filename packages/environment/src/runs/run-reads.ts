@@ -1,6 +1,6 @@
-import { Mode, type SessionCreatedPayload, type Workspace } from "@agent-harness/contracts";
+import { Mode, type ContainmentLevel, type SessionCreatedPayload, type Workspace } from "@agent-harness/contracts";
 import type { EventLog } from "../event-log/event-log.js";
-import { readSessionMode } from "../permissions/permissions-store.js";
+import { readSessionContainment, readSessionMode } from "../permissions/permissions-store.js";
 import type { Reader } from "../sessions/session-reads.js";
 import { sessionStream } from "../sessions/streams.js";
 
@@ -10,7 +10,7 @@ import { sessionStream } from "../sessions/streams.js";
  * Inside a command they read that command's own transaction.
  */
 
-/** A session as a run needs it: whether it is there, its place, the account and model it was created with, and its mode. */
+/** A session as a run needs it: whether it is there, its place, the account and model it was created with, its mode and its own containment level. */
 export interface SessionFacts {
   readonly deleted: boolean;
   readonly workspace: Workspace;
@@ -18,6 +18,8 @@ export interface SessionFacts {
   readonly account: string | null;
   readonly model: string | null;
   readonly mode: Mode | null;
+  /** The containment level the session set for itself (`permissions.containment.set`); null when it set none, and the default applies. */
+  readonly containment: ContainmentLevel | null;
 }
 
 /**
@@ -41,6 +43,7 @@ export const readSessionFacts = (log: Pick<EventLog, "readStream">, reader: Read
     account: payload?.account ?? null,
     model: payload?.model ?? null,
     mode: readSessionMode(reader, sessionId) ?? payload?.mode ?? null,
+    containment: readSessionContainment(reader, sessionId),
   };
 };
 

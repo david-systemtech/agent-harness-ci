@@ -185,6 +185,7 @@ describe("the method registry", () => {
       "accounts.signin.cancel",
       "settings.update",
       "permissions.mode.set",
+      "permissions.containment.set",
       "permissions.settings.set",
       "permissions.prompts.answer",
       "permissions.review.seen",
@@ -328,6 +329,7 @@ describe("the method registry", () => {
       | "settings.get"
       | "settings.update"
       | "permissions.mode.set"
+      | "permissions.containment.set"
       | "permissions.settings.get"
       | "permissions.settings.set"
       | "permissions.prompts.list"
