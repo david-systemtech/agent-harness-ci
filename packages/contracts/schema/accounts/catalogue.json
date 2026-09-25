@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AccountCatalogue",
+  "type": "object",
+  "properties": {
+    "accountId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "description": "An account's id on its environment: a version 4 UUID the environment mints when it adopts or adds the account; an account carried over from configuration keeps the id it was configured with."
+    },
+    "live": {
+      "type": "boolean",
+      "description": "True when the provider enumerated the models; false for the adapter's static list."
+    },
+    "models": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The model's id, as a run or a session names it."
+          },
+          "family": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The model's family (opus, sonnet), which accounts.defaultModelFamily names."
+          },
+          "tier": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "description": "An ordinal the adapter supplies: higher is stronger; a family it cannot place ranks below every known one."
+          },
+          "efforts": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "The reasoning efforts the model takes, weakest first; empty when it takes none."
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The model's name as a client shows it, when the adapter gives one."
+          }
+        },
+        "required": [
+          "id",
+          "family",
+          "tier",
+          "efforts",
+          "label"
+        ],
+        "description": "One model of an account's catalogue: its id, family, ordinal tier and efforts."
+      }
+    }
+  },
+  "required": [
+    "accountId",
+    "live",
+    "models"
+  ],
+  "description": "The models an account can use: enumerated live from its provider, or the adapter's static list."
+}

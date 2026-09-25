@@ -29,7 +29,7 @@
       }
     },
     "updatedInput": {
-      "description": "The tool's input as edited; the model's own when absent.",
+      "description": "A permission prompt's tool input as edited; the model's own when absent.",
       "type": "object",
       "propertyNames": {
         "type": "string"
@@ -37,7 +37,7 @@
       "additionalProperties": {}
     },
     "mode": {
-      "description": "A plan prompt's mode to continue in, clamped to the run's ceiling; acceptEdits when absent.",
+      "description": "An approved plan's mode to continue in, clamped to the run's ceiling; acceptEdits when absent.",
       "type": "string",
       "enum": [
         "plan",

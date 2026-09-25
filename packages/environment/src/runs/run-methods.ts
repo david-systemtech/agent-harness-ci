@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { Mode } from "@agent-harness/contracts";
+import type { AttachmentInput, Mode, RunOrigin, RunPolicy } from "@agent-harness/contracts";
 import type { AdapterHost } from "../adapter/host.js";
 import type { EventInput, EventLog, StreamRef, Tx } from "../event-log/event-log.js";
 import type { RunActor } from "../permissions/resolver.js";
@@ -7,7 +7,7 @@ import type { CommandContext, MethodHandlers } from "../serve/methods.js";
 import { appendRunEvents } from "../sessions/activity-companions.js";
 import type { Reader } from "../sessions/session-reads.js";
 import { sessionStream } from "../sessions/streams.js";
-import { decideInterrupt, decideSend, decideStart, decideStopTask, type RunFacts } from "./run-decider.js";
+import { decideInterrupt, decideSend, decideStart, decideStopTask, type RunFacts, type RunRefusal } from "./run-decider.js";
 import { readRun, readSessionFacts, taskStatus } from "./run-reads.js";
 
 /**
@@ -36,6 +36,58 @@ export interface RunMethodsOptions {
    */
   readonly ceilingOf: (clientSessionId: string) => Mode | undefined;
 }
+
+/** A run to start with a message: on which session, for whom, from where, and what it asks for. */
+export interface RunStart {
+  readonly sessionId: string;
+  readonly actor: RunActor;
+  readonly origin: RunOrigin;
+  readonly text: string;
+  readonly attachments?: readonly AttachmentInput[] | undefined;
+  readonly model?: string | undefined;
+  readonly effort?: string | undefined;
+  readonly mode?: Mode | undefined;
+  /** What the run's instructions carry after the composed ones: a completions request's own (#138). */
+  readonly appendedInstructions?: string | undefined;
+}
+
+/** A run started (its ids and the policy it was resolved with), or why not. */
+export type RunStartOutcome =
+  | { readonly rejected: RunRefusal }
+  | { readonly rejected?: undefined; readonly runId: string; readonly messageId: string; readonly policy: RunPolicy };
+
+/**
+ * Starts a run in the open transaction `tx`, as `runs.start` does for a
+ * client session and the environment's `startRun` for a routine, a bot or
+ * the completions surface (#131): the facts read for the actor, the drain's
+ * gate, the decider (the policy resolved for that actor, #129), its events
+ * appended with the companions they owe the session under `attribution`,
+ * and the launch once the transaction has committed.
+ */
+export const startRunIn = (
+  log: EventLog,
+  host: AdapterHost,
+  tx: Tx,
+  attribution: { readonly actor: string; readonly commandId?: string },
+  request: RunStart,
+): RunStartOutcome => {
+  const sessionId = request.sessionId.toLowerCase();
+  const facts = host.startFacts(sessionId, request.actor);
+  if (facts.session !== null && !facts.session.deleted) host.admit();
+  const messageId = randomUUID();
+  const decision = decideStart(facts, {
+    origin: request.origin,
+    message: { messageId, text: request.text, attachments: request.attachments ?? [] },
+    model: request.model,
+    effort: request.effort,
+    mode: request.mode,
+    appendedInstructions: request.appendedInstructions,
+  });
+  if (decision.rejected !== undefined) return { rejected: decision.rejected };
+  appendRunEvents(log, sessionId, decision.events, { tx, ...attribution, correlationId: decision.run.runId });
+  tx.afterCommit(() => host.launch(decision.run));
+  return { runId: decision.run.runId, messageId, policy: decision.run.policy };
+};
 
 /** Where a command on a run it cannot find keeps its receipt: no session can be named, so the run's own id. */
 const runAggregate = (runId: string): StreamRef => ({ kind: "run", id: runId });
@@ -77,22 +129,19 @@ export const runMethods = (options: RunMethodsOptions): MethodHandlers => {
 
   return {
     "runs.start": (params, context) => {
-      const sessionId = params.sessionId.toLowerCase();
-      const aggregate = sessionStream(sessionId);
-      const facts = host.startFacts(sessionId, actorOf(context));
-      if (facts.session !== null && !facts.session.deleted) host.admit();
-      const messageId = randomUUID();
-      const decision = decideStart(facts, {
+      const aggregate = sessionStream(params.sessionId.toLowerCase());
+      const started = startRunIn(log, host, context.tx, { actor: context.actor, commandId: context.commandId }, {
+        sessionId: params.sessionId,
+        actor: actorOf(context),
         origin: "client",
-        message: { messageId, text: params.text, attachments: params.attachments ?? [] },
+        text: params.text,
+        attachments: params.attachments,
         model: params.model,
         effort: params.effort,
         mode: params.mode,
       });
-      if (decision.rejected !== undefined) return { aggregate, rejected: decision.rejected };
-      appendIn(context, sessionId, decision.run.runId, decision.events);
-      afterCommit(context.tx, () => host.launch(decision.run));
-      return { aggregate, result: { runId: decision.run.runId, messageId } };
+      if (started.rejected !== undefined) return { aggregate, rejected: started.rejected };
+      return { aggregate, result: { runId: started.runId, messageId: started.messageId } };
     },
 
     "runs.send": (params, context) => {

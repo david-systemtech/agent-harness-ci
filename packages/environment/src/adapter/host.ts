@@ -3,7 +3,6 @@ import {
   ContractError,
   SESSION_STREAM_KIND,
   lowerMode,
-  type AccountIdentity,
   type IssueInput,
   type MessageDeliveredPayload,
   type MessageRequeuedPayload,
@@ -18,8 +17,10 @@ import {
   type SessionTitleSetPayload,
   type Workspace,
 } from "@agent-harness/contracts";
+import type { HostAccounts } from "../accounts/account-service.js";
 import { formatActor, type EventEnvelope, type EventLog, type EventInput } from "../event-log/event-log.js";
 import {
+  DUPLICATE_PROMPT_MESSAGE,
   RUN_ENDED_MESSAGE,
   STOPPED_MESSAGE,
   UNRECORDED_MESSAGE,
@@ -27,8 +28,10 @@ import {
   autoDenial,
   nextRunText,
   openedPayload,
+  ruledAnswer,
 } from "../permissions/broker.js";
-import { answersFor, parkedPromptsOfRun } from "../permissions/prompts-store.js";
+import { answersFor, hasKeptAnswer, parkedPromptsOfRun } from "../permissions/prompts-store.js";
+import { readRunPolicy } from "../permissions/review-store.js";
 import type { RunActor } from "../permissions/resolver.js";
 import { answerEvents, runToolCalls, type RunToolCalls } from "../permissions/tool-decisions.js";
 import { environmentQueue, latestRun, messageCeilings, providerHeld, providerSessionOf, readRun, readSessionFacts } from "../runs/run-reads.js";
@@ -46,7 +49,7 @@ import type { Clock } from "../serve/clock.js";
 import { createRunRegistry, type MemoryRunRegistry } from "../serve/run-registry.js";
 import { appendRunEvents } from "../sessions/activity-companions.js";
 import type { ProviderTranscripts } from "../sessions/deletion.js";
-import type { RunParameters, RunParametersCheck } from "../sessions/run-parameters.js";
+import type { RunParameters, RunParametersCheck, RunParametersVerdict } from "../sessions/run-parameters.js";
 import type { Reader } from "../sessions/session-reads.js";
 import { sessionStream } from "../sessions/streams.js";
 import { recordProviderTitle } from "../sessions/titles.js";
@@ -85,8 +88,8 @@ import {
 /**
  * The adapter host (claude-adapter spec, "Modules and ownership" and "The
  * adapter contract"; ADR 0015): what stands between the adapters and the
- * rest of the environment. It holds the adapter registry and the accounts'
- * sign-in states and catalogues, fills the run registry the lifecycle reads
+ * rest of the environment. It holds the adapter registry, reads each run's
+ * account through the account store (#134), fills the run registry the lifecycle reads
  * for idle and drain (#112), and supplies each run with its seams (tool
  * servers, composed instructions, the policy resolver) and the permission
  * broker (#130). It starts a
@@ -129,23 +132,18 @@ import {
  * its `ttlExpiresAt` fixed from the TTL setting when it opens.
  */
 
-/** An account the host serves runs through: its id, its provider, and its config directory. The account store (#134) will supply these. */
-export interface HostAccount {
-  readonly id: string;
-  readonly provider: string;
-  /** The account's config directory; null for the provider's own default. */
-  readonly directory?: string | null;
-}
-
 export interface AdapterHostOptions {
   readonly log: EventLog;
   readonly clock: Clock;
   /** The run registry the lifecycle reads; preset: a fresh one on `clock`. */
   readonly runs?: MemoryRunRegistry;
   readonly adapters?: readonly Adapter[];
-  readonly accounts?: readonly HostAccount[];
-  /** The account a session with none of its own runs on; preset: the first account. */
-  readonly defaultAccountId?: string;
+  /**
+   * The accounts runs go through: the account store (`accounts/`), which
+   * says whether an account is signed in, as whom, with what models, and
+   * which is the environment's default.
+   */
+  readonly accounts: HostAccounts;
   readonly toolServers?: ToolServerFactory;
   readonly instructions?: InstructionComposer;
   /** The broker's automatic answers (#131); preset: none, every prompt parks. */
@@ -165,8 +163,6 @@ export interface AdapterHostOptions {
    * client session is revoked or expired, and such a run is not started.
    */
   readonly ceilingOf: (clientSessionId: string) => Mode | undefined;
-  /** How long an account's status or model probe may take before it counts as failed, so a hung probe cannot hang startup. Preset: `PROBE_TIMEOUT_MS`. */
-  readonly probeTimeoutMs?: number;
   /**
    * The idle time of a provider process, in minutes (`providers.processIdleMinutes`),
    * read each time a wait begins. Preset: the setting's preset; the
@@ -196,9 +192,6 @@ export interface StagedAttachments {
   readonly attachments: readonly AttachmentData[];
 }
 
-/** How long an account's status or model probe may take before the host gives up on it. */
-export const PROBE_TIMEOUT_MS = 5_000;
-
 /** A live run as the host reports it. */
 export interface ActiveRun {
   readonly runId: string;
@@ -211,9 +204,7 @@ export interface AdapterHost {
   readonly runs: MemoryRunRegistry;
   /** The runs live now, one per session at most. */
   activeRuns(): readonly ActiveRun[];
-  /** Reads every account's sign-in state and catalogue through its adapter's probe; startup runs it once. */
-  refresh(): Promise<void>;
-  /** The account `id` names, or the default account for null; null when it is not on this environment. */
+  /** The account `id` names, or the default account for null; null when the environment does not hold it. */
   account(id: string | null): AccountFacts | null;
   /** The check `sessions.create` delegates its account, model and mode to. */
   readonly validateSessionInput: RunParametersCheck;
@@ -240,6 +231,16 @@ export interface AdapterHost {
   stageAttachments(message: PromptMessage): void;
   /** Hands a message sent during a live run to its provider, or holds it for the next run, once its event committed. */
   queue(send: QueuedSend): void;
+  /**
+   * Starts the session's next run for an answer an automatic rule kept for
+   * it (#131: the TTL's, whose run had gone), so the session continues on
+   * its own: the run reads the answer first, then whatever is queued, for
+   * the actor of the run before it, resolved afresh. Nothing when a run is
+   * live on the session (the answer waits for the run after it), the session
+   * has never run or is deleted, the environment drains or closes, or no
+   * answer is kept any more. A person's answer starts nothing (#130).
+   */
+  continueSession(sessionId: string): void;
   /** Interrupts a live run with cancel; the messages its provider still held come back to the environment's queue. */
   interrupt(runId: string): void;
   /** Stops a piece of a live run's delegated work. */
@@ -307,6 +308,9 @@ export const requeuedEvents = (runId: string, messageIds: readonly string[]): Ev
     return { type: "message.requeued", payload };
   });
 
+/** What a run the environment starts itself after another is resolved from: the session, who it runs for, and the model and effort of the run before it. */
+type NextRunBasis = Pick<PlannedRun, "sessionId" | "actor" | "model" | "effort">;
+
 /**
  * Who ends a run: its adapter, whose end event is recorded; or the host,
  * which disposes the run and stops its process for `stop`'s reason, and
@@ -316,13 +320,6 @@ export const requeuedEvents = (runId: string, messageIds: readonly string[]): Ev
 type EndedBy =
   | { readonly by: "adapter" }
   | { readonly by: "host"; readonly stop: ProcessStopReason; readonly actor?: string; readonly commandId?: string };
-
-/** An account as the host holds it once its probe has answered. */
-interface HeldAccount {
-  readonly config: HostAccount;
-  readonly adapter: Adapter;
-  facts: AccountFacts;
-}
 
 /** One live run. */
 interface LiveRun {
@@ -365,25 +362,6 @@ interface LiveRun {
 
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
-/** Settles as `work` does, or rejects once `ms` have passed on the wall clock (never the environment's, which a test may hold still). */
-const withTimeout = <T>(work: () => Promise<T>, ms: number, what: string): Promise<T> =>
-  new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`${what} gave no answer within ${ms} ms.`)), ms);
-    timer.unref();
-    Promise.resolve()
-      .then(work)
-      .then(
-        (value) => {
-          clearTimeout(timer);
-          resolve(value);
-        },
-        (error: unknown) => {
-          clearTimeout(timer);
-          reject(error);
-        },
-      );
-  });
-
 /** Runs `work` and hands a promise it answers, or a throw, to `onError`; never an unhandled rejection. */
 const safely = (work: () => unknown, onError: (error: unknown) => void): void => {
   // `onError` may throw too (a requeue whose append fails, an end whose adoption fails): that is logged, never left unhandled.
@@ -411,14 +389,13 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
   const autoAnswer = options.autoAnswer ?? noAutoAnswer;
   const promptTtlMs = options.promptTtlMs ?? (() => null);
   const resolvePolicy = options.resolvePolicy ?? presetPolicy;
-  const configs = options.accounts ?? [];
-  const defaultAccountId = options.defaultAccountId ?? configs[0]?.id ?? null;
-  const probeTimeoutMs = options.probeTimeoutMs ?? PROBE_TIMEOUT_MS;
+  const { accounts } = options;
   const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
 
-  const accounts = new Map<string, HeldAccount>();
   /** Live runs by session: at most one each. */
   const live = new Map<string, LiveRun>();
+  /** The run each session last ended here: what a run the environment starts itself for kept answers is resolved from (#131). */
+  const lastPlans = new Map<string, PlannedRun>();
   /** Runs that ended here with their end not in the log. */
   const unrecordedRuns = new Set<string>();
   /**
@@ -483,52 +460,24 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     },
   });
 
-  const refOf = (account: HostAccount): AccountRef => ({ id: account.id, directory: account.directory ?? null });
-
-  // An account is known from the start, signed out until its probe says otherwise.
-  for (const config of configs) {
-    const adapter = adapters.get(config.provider);
-    if (adapter === undefined) {
-      console.error(`The account ${config.id} names the provider ${config.provider}, which no adapter serves; it is left out.`);
-      continue;
-    }
-    accounts.set(config.id, {
-      config,
-      adapter,
-      facts: { id: config.id, directory: config.directory ?? null, signedIn: false, identity: null, descriptor: adapter.descriptor, models: [] },
-    });
-  }
-
-  const probe = async (held: HeldAccount): Promise<void> => {
-    const ref = refOf(held.config);
-    const { provider } = held.adapter.descriptor;
-    let signedIn = false;
-    let identity: AccountIdentity | null = null;
-    try {
-      const status = await withTimeout(() => held.adapter.status(ref), probeTimeoutMs, `The status probe of the account ${held.config.id}`);
-      signedIn = status.signedIn;
-      if (status.signedIn && status.email !== null) identity = { provider, email: status.email, organisation: status.orgName };
-    } catch (error) {
-      console.error(`Reading the status of the account ${held.config.id} failed:`, error);
-    }
-    let models = held.facts.models;
-    try {
-      models = (await withTimeout(() => held.adapter.models(ref), probeTimeoutMs, `The model listing of the account ${held.config.id}`)).models;
-    } catch (error) {
-      console.error(`Reading the models of the account ${held.config.id} failed:`, error);
-    }
-    held.facts = { ...held.facts, signedIn, identity, models };
-  };
-
-  const heldAccount = (id: string): HeldAccount => {
-    const held = accounts.get(id);
-    if (held === undefined) throw new Error(`No account ${id} is on this environment.`);
-    return held;
-  };
-
+  /** The account `id` names as the account store holds it, or the default account for null. */
   const account = (id: string | null): AccountFacts | null => {
-    const which = id ?? defaultAccountId;
-    return which === null ? null : (accounts.get(which)?.facts ?? null);
+    const which = id ?? accounts.defaultId();
+    return which === null ? null : accounts.facts(which);
+  };
+
+  /** An account a provider method is asked of by id: its adapter and the reference it is handed. */
+  const heldAccount = (id: string): { readonly adapter: Adapter; readonly ref: AccountRef } => {
+    const facts = accounts.facts(id);
+    const adapter = facts === null ? undefined : adapters.get(facts.descriptor.provider);
+    if (facts === null || adapter === undefined) throw new Error(`No account ${id} is on this environment.`);
+    return { adapter, ref: { id, directory: facts.directory } };
+  };
+
+  /** The adapter of an account the store holds or held, by its provider. */
+  const adapterOfAccount = (accountId: string | null | undefined): Adapter | undefined => {
+    const provider = accountId === null || accountId === undefined ? null : accounts.providerOf(accountId);
+    return provider === null ? undefined : adapters.get(provider);
   };
 
   /** Whether a run is still live: not ended by the host. */
@@ -595,8 +544,9 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
 
   const startFacts = (sessionId: string, actor: RunActor): StartFacts => {
     const session = readSessionFacts(log, reader, sessionId);
-    const accountId = session?.account ?? defaultAccountId;
-    const facts = account(accountId);
+    const accountId = session?.account ?? accounts.defaultId();
+    const facts = accountId === null ? null : accounts.facts(accountId);
+    const { modelFamily, effort } = accounts.defaults();
     return {
       sessionId,
       session,
@@ -607,6 +557,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       resumeFrom: facts?.descriptor.resume === true ? providerSessionOf(reader, sessionId) : null,
       actor,
       resolvePolicy,
+      defaults: { modelFamily, effort },
       runId: randomUUID(),
     };
   };
@@ -642,7 +593,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
    */
   const mirrorTitle = (sessionId: string, title: string): void => {
     const accountId = closing ? undefined : latestRun(reader, sessionId)?.accountId;
-    const adapter = accountId === undefined ? undefined : accounts.get(accountId)?.adapter;
+    const adapter = adapterOfAccount(accountId);
     if (adapter === undefined || !adapter.descriptor.titleWrite) return;
     safely(
       () => capability(adapter.descriptor, "titleWrite", adapter.writeTitle, "mirror a user title", "writeTitle").call(adapter, sessionId, title),
@@ -759,6 +710,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     }
     registry.end(entry.runId);
     if (live.get(entry.sessionId) === entry) live.delete(entry.sessionId);
+    lastPlans.set(entry.sessionId, entry.plan);
     letRunGo();
     if (closing || reason === "disposed" || reason === "drained") return;
     readProviderTitle(entry, recorded);
@@ -798,7 +750,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
           append(entry.sessionId, entry.runId, entry.actor, entry.calls.denied(event));
           continue;
         }
-        if (event.type === "tool.started" || event.type === "tool.ended") {
+        if (event.type === "tool.ended") {
           // A call that ended ok unasked is the mode's, decided in the transaction of its end (#131).
           log.atomically(() => {
             entry.append(event);
@@ -807,6 +759,8 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
           continue;
         }
         entry.append(event);
+        // A call started: the host keeps its tool and summary until it is decided (#131).
+        if (event.type === "tool.started") entry.calls.after(event);
       }
       if (!entry.ended) {
         finish(entry, { type: "end", reason: "error", error: { message: "The run's event stream stopped without an end.", code: "no_end" } }, { by: "host", stop: "failed" });
@@ -849,8 +803,9 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
    * parked until the request is answered: by a person (`deliverAnswer`), by
    * the provider cancelling it (its signal aborts: closed `cancelled`), or
    * by the run's end, which denies it in memory. A request made when no run
-   * is live, cancelled before it was made, or that the log would not take, is
-   * denied at once and parks nothing.
+   * is live, cancelled before it was made, under the id of a request the run
+   * holds open, or that the log would not take, is denied at once and parks
+   * nothing.
    */
   const brokerFor = (sessionId: string): PermissionBroker => ({
     request: async (request) => {
@@ -858,12 +813,19 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       if (entry === undefined || entry.ended) return { decision: "deny", message: RUN_ENDED_MESSAGE };
       if (request.signal?.aborted === true) return { decision: "deny", message: CANCELLED_MESSAGE };
       const promptId = request.promptId ?? randomUUID();
+      // A second request under the id of one this run holds open is refused before it is recorded: the open one stands
+      // and stays answerable (the prompts projection would refuse its prompt.opened anyway, as a failed record).
+      if (waiters.has(waiterKey(entry.runId, promptId))) {
+        console.error(`Run ${entry.runId} asked again under prompt ${promptId}, which it holds open; the second request is denied.`);
+        return { decision: "deny", message: DUPLICATE_PROMPT_MESSAGE };
+      }
       const stream = sessionStream(sessionId);
-      const automatic = autoAnswer({ kind: request.kind, attended: entry.plan.policy.attended, mode: entry.mode });
+      const rule = autoAnswer({ kind: request.kind, attended: entry.plan.policy.attended, mode: entry.mode });
       let opened: PromptOpenedPayload;
+      let ruled: ReturnType<typeof ruledAnswer> | null;
       try {
         // The TTL is fixed as it opens (#131); a prompt a rule answers at once never waits, so never expires.
-        const ttlMs = automatic === null ? promptTtlMs() : null;
+        const ttlMs = rule === null ? promptTtlMs() : null;
         opened = openedPayload({
           runId: entry.runId,
           promptId,
@@ -873,15 +835,20 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
           ceiling: entry.plan.policy.mode.ceiling,
           ttlExpiresAt: ttlMs === null ? null : new Date(clock.now().getTime() + ttlMs).toISOString(),
         });
+        // A rule's mode is clamped as a person's is, to the run's ceiling and its account's modes (none left: no mode is
+        // given); what is recorded is what the run is handed, every part of it.
+        ruled = rule === null ? null : ruledAnswer(rule.decision, opened.ceiling, entry.descriptor.modes);
         log.atomically((tx) => {
           log.append(stream, [{ type: "prompt.opened", payload: opened }], { tx, actor: entry.actor, correlationId: entry.runId });
-          if (automatic !== null) {
-            const { decision } = automatic;
+          if (rule !== null && ruled !== null) {
+            const { decision, mode } = ruled;
             const payload: PromptAnsweredPayload = {
-              ...autoDenial(opened, automatic.auto, decision.message ?? null),
+              ...autoDenial(opened, rule.auto, decision.message ?? null),
               decision: decision.decision,
               answers: decision.answers === undefined ? null : { ...decision.answers },
               updatedInput: decision.updatedInput ?? null,
+              mode,
+              remember: decision.remember ?? null,
               delivery: "live",
             };
             log.append(stream, answerEvents(reader, opened, payload), { tx, actor: HOST_ACTOR, correlationId: entry.runId });
@@ -891,7 +858,11 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
         console.error(`Recording prompt ${promptId} of run ${entry.runId} failed; it is denied, and nobody was asked:`, error);
         return { decision: "deny", message: UNRECORDED_MESSAGE };
       }
-      if (automatic !== null) return automatic.decision;
+      if (ruled !== null) {
+        // The run continues in the mode the rule gave it, as it does after a person's answer (`deliverAnswer`).
+        if (ruled.mode !== null && !entry.ended) entry.mode = ruled.mode.effective;
+        return ruled.decision;
+      }
       raised(entry, promptId);
       return new Promise<PromptDecision>((resolve) => {
         let open = true;
@@ -929,6 +900,13 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     broker: brokerFor(entry.sessionId),
     process: pool.port(entry.sessionId),
     adopt: (turn) => adopt(entry, turn),
+    // Checked against the account store's identity for the run's account (#134). The check appends and may run as the
+    // environment closes: a throw is logged, never handed back to the adapter or left an unhandled rejection.
+    reportIdentity: (identity) =>
+      safely(
+        () => accounts.crossCheck(entry.plan.account.id, identity, entry.runId),
+        (error) => console.error(`Cross-checking the identity run ${entry.runId} reported failed:`, error),
+      ),
   });
 
   /**
@@ -976,7 +954,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
 
   /** The adapter that serves an account's runs. */
   const adapterOf = (account: AccountFacts): Adapter => {
-    const adapter = accounts.get(account.id)?.adapter ?? adapters.get(account.descriptor.provider);
+    const adapter = adapters.get(account.descriptor.provider);
     if (adapter === undefined) throw new Error(`No adapter serves the provider ${account.descriptor.provider} of the account ${account.id}.`);
     return adapter;
   };
@@ -1032,6 +1010,31 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       for (const message of prompt) unstage(message.messageId);
       return run;
     }, prompt);
+  };
+
+  /**
+   * What the session's next run is started from when the environment starts
+   * it itself (`continueSession`, #131): the run before it, as this host
+   * last ended it, else as the log records it (after a restart), for the
+   * actor its policy names, under the ceiling it was resolved under (the
+   * client session behind it is not in the log, so a ceiling lowered since
+   * is not read), in its model with the model's own effort. Null when the
+   * session has never run.
+   */
+  const basisOf = (sessionId: string): NextRunBasis | null => {
+    const held = lastPlans.get(sessionId);
+    if (held !== undefined) return held;
+    const run = latestRun(reader, sessionId);
+    const policy = run === null ? null : readRunPolicy(reader, run.runId);
+    if (run === null || policy === null) return null;
+    const ceiling = policy.mode.ceiling;
+    const actor: RunActor =
+      policy.actorKind === "completions"
+        ? { kind: "completions", attended: policy.attended, ceiling, clientSessionId: null }
+        : policy.actorKind === "client"
+          ? { kind: "client", ceiling, clientSessionId: null }
+          : { kind: policy.actorKind, name: policy.actorName, ceiling, clientSessionId: null };
+    return { sessionId, actor, model: run.model, effort: null };
   };
 
   /** `actor` with its client session's ceiling as it is now; undefined once that client session is revoked or expired. */
@@ -1155,7 +1158,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     const started: RunStartedPayload = {
       runId,
       accountId: plan.account.id,
-      identity: accounts.get(plan.account.id)?.facts.identity ?? null,
+      identity: accounts.facts(plan.account.id)?.identity ?? null,
       model: plan.model,
       effort: plan.effort,
       mode: { requested: policy.mode.requested, effective: mode, clamped: policy.mode.clamped },
@@ -1246,10 +1249,16 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
    * run's alone (#129). Not while the environment drains, nor once that
    * actor's client session is revoked or expired: the messages stay queued
    * for the next start.
+   *
+   * With `forAnswers`, it starts one too when nothing is queued but an
+   * answer is kept for the session's next run and no run has taken it (#131:
+   * a TTL answer whose run had gone), so the session continues on its own:
+   * the run reads the answer first, then whatever is queued.
    */
-  const startFromQueue = (previous: PlannedRun): void => {
+  const startFromQueue = (previous: NextRunBasis, forAnswers = false): void => {
     try {
-      if (environmentQueue(reader, previous.sessionId).length === 0) return;
+      const queued = environmentQueue(reader, previous.sessionId).length > 0;
+      if (!queued && !(forAnswers && hasKeptAnswer(reader, previous.sessionId))) return;
       registry.admit();
       const actor = currentActor(previous.actor);
       if (actor === undefined) {
@@ -1263,6 +1272,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
         message: null,
         model: previous.model,
         ...(previous.effort !== null && { effort: previous.effort }),
+        ...(forAnswers && { keptAnswers: true }),
       });
       if (decision.rejected !== undefined) {
         console.error(`The queued messages of session ${previous.sessionId} could not start a run: ${decision.rejected.message}`);
@@ -1297,6 +1307,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     }
     if (event.type === "session.purged") {
       for (const [messageId, staged] of [...heldAttachments]) if (staged.sessionId === event.streamId) unstage(messageId);
+      lastPlans.delete(event.streamId);
       return;
     }
     if (event.type !== "session.deleted") return;
@@ -1313,8 +1324,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
    * `unsupported` (`sessions/deletion.ts` reads the refusal's reason).
    */
   const adapterOfSession = (sessionId: string): Adapter => {
-    const accountId = latestRun(reader, sessionId)?.accountId ?? defaultAccountId;
-    const adapter = accountId === null ? undefined : accounts.get(accountId)?.adapter;
+    const adapter = adapterOfAccount(latestRun(reader, sessionId)?.accountId ?? accounts.defaultId());
     if (adapter === undefined) {
       throw new ContractError({
         code: "invalid_params",
@@ -1335,10 +1345,22 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       }
     : {};
 
-  const validateSessionInput: RunParametersCheck = (parameters: RunParameters) => {
+  /**
+   * `sessions.create`'s check against the account store (#134): an account
+   * named that the environment does not hold, or that is not signed in,
+   * cannot run, and is refused `account_unavailable` as `runs.start` refuses
+   * it; a session that names none takes the default at each run. The model
+   * is checked against that account's catalogue (the default's, when it
+   * names none), and the mode against its adapter's.
+   */
+  const validateSessionInput: RunParametersCheck = (parameters: RunParameters): RunParametersVerdict => {
     const issues: IssueInput[] = [];
-    if (parameters.account !== null && !accounts.has(parameters.account)) {
-      issues.push({ code: "custom", path: ["account"], message: `No account ${parameters.account} is on this environment.` });
+    if (parameters.account !== null) {
+      const named = accounts.facts(parameters.account);
+      if (named === null || !named.signedIn) {
+        const why = named === null ? "is not on this environment" : "is not signed in on this environment";
+        return { unavailable: { accountId: parameters.account, message: `The account ${parameters.account} ${why}, so no run can start on it.` } };
+      }
     }
     const facts = account(parameters.account);
     if (parameters.model !== null) {
@@ -1353,7 +1375,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
         issues.push({ code: "custom", path: ["mode"], message: `The ${facts.descriptor.displayName} adapter has no mode ${parameters.mode}.` });
       }
     }
-    return issues;
+    return { issues };
   };
 
   /**
@@ -1399,9 +1421,6 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     adapters,
     runs: registry,
     activeRuns: () => [...live.values()].filter(isLive).map(({ runId, sessionId }) => ({ runId, sessionId })),
-    refresh: async () => {
-      await Promise.all([...accounts.values()].map(probe));
-    },
     account,
     validateSessionInput,
     transcripts,
@@ -1411,6 +1430,20 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     liveRun: (runId) => liveFacts(byRunId(runId)),
     unrecorded: (runId) => unrecordedRuns.has(runId),
     launch,
+    continueSession(sessionId) {
+      if (closing || changingMode.has(sessionId)) return;
+      const current = live.get(sessionId);
+      if (current !== undefined && isLive(current)) return;
+      let basis: NextRunBasis | null;
+      try {
+        const session = readSessionFacts(log, reader, sessionId);
+        basis = session === null || session.deleted ? null : basisOf(sessionId);
+      } catch (error) {
+        console.error(`Reading session ${sessionId} to continue it failed:`, error);
+        return;
+      }
+      if (basis !== null) startFromQueue(basis, true);
+    },
     stageAttachments(message) {
       if (stage === undefined || message.attachments.length === 0) return;
       try {
@@ -1503,12 +1536,12 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     async usage(accountId) {
       const held = heldAccount(accountId);
       const read = capability(held.adapter.descriptor, "planUsage", held.adapter.usage, "read plan usage", "usage");
-      return read.call(held.adapter, refOf(held.config));
+      return read.call(held.adapter, held.ref);
     },
     async commands(accountId, workspace) {
       const held = heldAccount(accountId);
       const list = capability(held.adapter.descriptor, "commands", held.adapter.commands, "list commands", "commands");
-      return list.call(held.adapter, refOf(held.config), workspace);
+      return list.call(held.adapter, held.ref, workspace);
     },
     providers: () => adapters.list().map((adapter) => adapter.descriptor),
     processes: {

@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AccountDirectoryDeletedPayload",
+  "type": "object",
+  "properties": {
+    "accountId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "description": "An account's id on its environment: a version 4 UUID the environment mints when it adopts or adds the account; an account carried over from configuration keeps the id it was configured with."
+    },
+    "directory": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The owned directory deleted, with the sign-in and history it held."
+    }
+  },
+  "required": [
+    "accountId",
+    "directory"
+  ],
+  "description": "account.directory-deleted: a removed owned account's directory was deleted, on the explicit second choice or a duplicate identity's refusal."
+}

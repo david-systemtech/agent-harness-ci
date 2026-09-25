@@ -26,11 +26,14 @@ import {
  */
 
 describe("the settings keys", () => {
-  it("are the two auto-settle keys, preset to 14 days idle and no settle on merge, the transcript compaction window, preset to 90 days, the process idle time, preset to 30 minutes, then the permission keys (#129)", () => {
+  it("are the two auto-settle keys, preset to 14 days idle and no settle on merge, the transcript compaction window, preset to 90 days, the Account step's default account, model family and effort, preset to none, the process idle time, preset to 30 minutes, then the permission keys (#129)", () => {
     expect(SETTINGS_KEYS).toEqual([
       "sessions.autoSettleAfterIdle",
       "sessions.autoSettleOnMerge",
       "sessions.transcriptCompactAfterDays",
+      "accounts.defaultAccount",
+      "accounts.defaultModelFamily",
+      "accounts.defaultEffort",
       "providers.processIdleMinutes",
       ...PERMISSION_SETTINGS_KEYS,
     ]);
@@ -39,6 +42,9 @@ describe("the settings keys", () => {
       "sessions.autoSettleAfterIdle": { amount: 14, unit: "days" },
       "sessions.autoSettleOnMerge": false,
       "sessions.transcriptCompactAfterDays": 90,
+      "accounts.defaultAccount": null,
+      "accounts.defaultModelFamily": null,
+      "accounts.defaultEffort": null,
       "providers.processIdleMinutes": 30,
       ...presetPermissionSettings(),
     });
@@ -46,7 +52,15 @@ describe("the settings keys", () => {
   });
 
   it("leave the permission keys to permissions.settings.set: settings.update refuses them, settings.get reads them", () => {
-    expect(GENERIC_SETTINGS_KEYS).toEqual(["sessions.autoSettleAfterIdle", "sessions.autoSettleOnMerge", "sessions.transcriptCompactAfterDays", "providers.processIdleMinutes"]);
+    expect(GENERIC_SETTINGS_KEYS).toEqual([
+      "sessions.autoSettleAfterIdle",
+      "sessions.autoSettleOnMerge",
+      "sessions.transcriptCompactAfterDays",
+      "accounts.defaultAccount",
+      "accounts.defaultModelFamily",
+      "accounts.defaultEffort",
+      "providers.processIdleMinutes",
+    ]);
     for (const key of PERMISSION_SETTINGS_KEYS) {
       expect(SETTINGS[key].writtenBy, key).toBe("permissions.settings.set");
       expect(isGenericSettingsKey(key), key).toBe(false);
@@ -75,6 +89,17 @@ describe("the settings keys", () => {
       expect(idle.safeParse(value).success, JSON.stringify(value)).toBe(false);
     }
     expect(IdleSpan.safeParse({ amount: 3, unit: "months", extra: true }).data).toEqual({ amount: 3, unit: "months" });
+  });
+
+  it("take an account id, a model family and an effort for the Account step's defaults, or null for none", () => {
+    for (const key of ["accounts.defaultAccount", "accounts.defaultModelFamily", "accounts.defaultEffort"] as const) {
+      const schema = SETTINGS[key].schema;
+      expect(schema.safeParse(null).success, key).toBe(true);
+      expect(schema.safeParse("high").success, key).toBe(true);
+      for (const value of ["", 3, true]) expect(schema.safeParse(value).success, `${key} ${JSON.stringify(value)}`).toBe(false);
+    }
+    const commandId = "0f8fad5b-d9cb-469f-a165-70867728950e";
+    expect(registry["settings.update"].params.safeParse({ commandId, values: { "accounts.defaultModelFamily": "opus", "accounts.defaultEffort": "high" } }).success).toBe(true);
   });
 
   it("take a boolean for settle on merge, never null", () => {

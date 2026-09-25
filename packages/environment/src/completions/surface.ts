@@ -19,7 +19,8 @@ import type { AdapterHost } from "../adapter/host.js";
 import type { ClientSessions, VerifiedClientSession } from "../auth/client-sessions.js";
 import { formatActor, type EventEnvelope, type EventLog } from "../event-log/event-log.js";
 import type { RunActor } from "../permissions/resolver.js";
-import { decideSend, decideStart } from "../runs/run-decider.js";
+import { decideSend } from "../runs/run-decider.js";
+import { startRunIn } from "../runs/run-methods.js";
 import type { Clock, Timer } from "../serve/clock.js";
 import { BodyTooLargeError, readBody, sendJson, type RouteHandler } from "../serve/http.js";
 import type { MethodTable } from "../serve/methods.js";
@@ -295,29 +296,29 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
           };
         }
 
-        host.admit();
-        const decision = decideStart(facts, {
+        // Started as runs.start and the environment's startRun start theirs (#131's startRunIn): the run's policy resolved for the completions actor.
+        const started = startRunIn(log, host, tx, { actor: COMPLETIONS_ACTOR }, {
+          sessionId,
+          actor,
           origin: "completions",
-          message: prompt,
+          text: prompt.text,
+          attachments: prompt.attachments,
           model: model.model.id,
           effort: turn.effort ?? undefined,
           mode: turn.extension.permissionMode ?? undefined,
           appendedInstructions: turn.appendedInstructions,
         });
-        if (decision.rejected !== undefined) throw new ContractError({ code: decision.rejected.code, message: decision.rejected.message, data: decision.rejected.data });
-        appendRunEvents(log, sessionId, decision.events, { tx, actor: COMPLETIONS_ACTOR, correlationId: decision.run.runId });
-        const run = decision.run;
-        tx.afterCommit(() => host.launch(run));
-        const { mode } = run.policy;
+        if (started.rejected !== undefined) throw new ContractError({ code: started.rejected.code, message: started.rejected.message, data: started.rejected.data });
+        const { mode } = started.policy;
         return {
           sessionId,
-          runId: run.runId,
-          messageId,
+          runId: started.runId,
+          messageId: started.messageId,
           steer: false,
           head: {
             sessionId,
-            runId: run.runId,
-            messageId,
+            runId: started.runId,
+            messageId: started.messageId,
             mode: mode.effective,
             clamped: mode.clamped && mode.requested !== null && mode.clampReason !== null ? { requested: mode.requested, effective: mode.effective, ceiling: mode.ceiling, reason: mode.clampReason } : null,
             ignored,

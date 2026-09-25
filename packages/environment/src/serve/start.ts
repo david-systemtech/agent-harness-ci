@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { hostname } from "node:os";
 import { join } from "node:path";
@@ -23,6 +22,7 @@ import {
   type EnvironmentStatus,
   type HealthDocument,
   type Mode,
+  type RunOrigin,
 } from "@agent-harness/contracts";
 import { SYSTEM, createAccessLog } from "../auth/access-log.js";
 import { accessMethods } from "../auth/access-methods.js";
@@ -40,7 +40,16 @@ import { formatActor, openEventLog, type EventLog, type Projector } from "../eve
 import type { Adapter } from "../adapter/contract.js";
 import { createClaudeAdapter } from "../adapters/claude/index.js";
 import { SCRATCH_DIRECTORY, createCompletionsSurface } from "../completions/surface.js";
-import { createAdapterHost, type AdapterHost, type HostAccount } from "../adapter/host.js";
+import { createAdapterHost } from "../adapter/host.js";
+import { ACCOUNTS_DIRECTORY, createAccountService, type AccountService, type ConfiguredAccount } from "../accounts/account-service.js";
+import { accountsProjector } from "../accounts/account-store.js";
+import { accountMethods } from "../accounts/methods.js";
+import type { SignInDirectorFactory } from "../accounts/signin-seam.js";
+import { createSignInDirector } from "../accounts/signin-director.js";
+import type { SignInSpawn } from "../accounts/signin-process.js";
+import { CLAUDE_PROVIDER, type HostEnvironment } from "../adapters/claude/credentials.js";
+import { bundledExecutable } from "../adapters/claude/executable.js";
+import { claudeSignInProgram } from "../adapters/claude/signin.js";
 import { processMethods } from "../adapter/processes-methods.js";
 import { ATTACHMENTS_DIRECTORY, createAttachmentStage } from "../adapter/attachment-stage.js";
 import { recoverCutRuns, recoverStagedAttachments } from "../adapter/recovery.js";
@@ -53,10 +62,8 @@ import { permissionsProjector, readPermissionSettings } from "../permissions/per
 import { policySettings, resolvePolicy, type RunActor } from "../permissions/resolver.js";
 import { reviewMethods } from "../permissions/review-methods.js";
 import { createTtlSweeper } from "../permissions/ttl-sweeper.js";
-import { decideStart, originOfActor } from "../runs/run-decider.js";
-import { runMethods } from "../runs/run-methods.js";
+import { runMethods, startRunIn } from "../runs/run-methods.js";
 import { runsProjector } from "../runs/runs-projector.js";
-import { appendRunEvents } from "../sessions/activity-companions.js";
 import { createCompactionSweep } from "../sessions/compaction.js";
 import { createDeletion } from "../sessions/deletion.js";
 import { groupMethods } from "../sessions/group-methods.js";
@@ -179,10 +186,35 @@ export interface EnvironmentOptions {
   readonly containerDetector?: ContainerDetector;
   /** The adapters the adapter host holds, one per provider. Preset: the Claude adapter, with auto memory under the data directory. */
   readonly adapters?: readonly Adapter[];
-  /** The accounts runs go through. Preset: none, until the account store (#134) supplies them. */
-  readonly accounts?: readonly HostAccount[];
-  /** The account a session with none of its own runs on. Preset: the first account. */
-  readonly defaultAccountId?: string;
+  /**
+   * Accounts carried over from configuration (#119): adopted in place into
+   * the account store, under their own ids, the first time the environment
+   * starts with a store that has never held an account; ignored after. The
+   * store is what runs go through. Preset: none.
+   */
+  readonly accounts?: readonly ConfiguredAccount[];
+  /**
+   * The sign-in director `accounts.add` hands a new account to and the
+   * `accounts.signin.*` methods drive. Preset: the director (#135) over
+   * Claude's sign-in program, run as `signInProcess` says.
+   */
+  readonly signIn?: SignInDirectorFactory;
+  /**
+   * How the preset director's sign-ins run (#135): the process spawner, the
+   * environment a sign-in inherits before the scrub, the bundled binary, the
+   * managed tool and the working directory. Preset: `node:child_process`,
+   * this process's environment, the SDK's bundled binary, `claude` on the
+   * PATH, the home directory.
+   */
+  readonly signInProcess?: {
+    readonly spawn?: SignInSpawn;
+    readonly hostEnv?: HostEnvironment;
+    readonly bundled?: string | null;
+    readonly managedTool?: () => string | null;
+    readonly cwd?: string;
+  };
+  /** How long an account's status or model probe may take. Preset: `PROBE_TIMEOUT_MS`. */
+  readonly probeTimeoutMs?: number;
   /**
    * The idle time of a provider process, in minutes, read each time a wait
    * begins. Preset: the `providers.processIdleMinutes` setting as the
@@ -203,13 +235,33 @@ export interface EnvironmentOptions {
   readonly terminals?: Omit<TerminalsOptions, "clock">;
 }
 
-/** A run an actor that is no client session starts: the session, who, the message it starts with, and a mode of its own if it names one. */
-export interface ActorRunRequest {
+/** Who starts a run that no client session starts: a routine, a bot, or the completions surface. */
+type ActorOfRun<K extends RunActor["kind"]> = Extract<RunActor, { readonly kind: K }>;
+
+/**
+ * A run an actor that is no client session starts: the session, who (a
+ * routine or a bot by its id, which the log names it by, since its name can
+ * change; the completions surface), the message it starts with, and a mode
+ * of its own if it names one.
+ */
+export type ActorRunRequest = {
   readonly sessionId: string;
-  readonly actor: RunActor;
   readonly text: string;
   readonly mode?: Mode;
-}
+} & (
+  | { readonly actor: ActorOfRun<"routine" | "bot">; readonly actorId: string }
+  | { readonly actor: ActorOfRun<"completions">; readonly actorId?: undefined }
+);
+
+/** Where a run an actor starts comes from, and who the log says started it: a bot's runs are its routines' (ADR 0008). */
+const startedBy = (request: ActorRunRequest): { readonly origin: RunOrigin; readonly actor: string } => {
+  const { actor } = request;
+  if (actor.kind === "completions") return { origin: "completions", actor: formatActor({ kind: "system", id: "completions" }) };
+  const id = request.actorId ?? "";
+  return actor.kind === "routine"
+    ? { origin: "routine", actor: formatActor({ kind: "routine", id }) }
+    : { origin: "routine", actor: formatActor({ kind: "system", id: `bot:${id}` }) };
+};
 
 /** A running environment. */
 export interface EnvironmentHandle {
@@ -332,7 +384,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   });
 
   await step("projectors", () => {
-    for (const projector of [sessionListProjector, runsProjector, settingsProjector, permissionsProjector, ...(options.projectors ?? [])]) log.registerProjector(projector);
+    for (const projector of [sessionListProjector, runsProjector, settingsProjector, permissionsProjector, accountsProjector, ...(options.projectors ?? [])]) {
+      log.registerProjector(projector);
+    }
   });
 
   // Where pairing links point: set when the listeners are bound, before any request is served.
@@ -368,23 +422,60 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     return { record: loaded, clientSessions: loadedClientSessions, pairings: loadedPairings, accessLog: access };
   });
 
-  // The adapter host: the adapters, the accounts' sign-in states read through their probes, the run registry.
-  const host: AdapterHost = await step("adapter-host", async () => {
+  // The account store and the adapter host: the adapters, the accounts' sign-in states read through their probes, the run registry.
+  const { host, accounts } = await step("adapter-host", async () => {
     // First the recovery sweep: a run the log left without an end was cut by the last stop, and is ended before anything can read it.
     const recovered = recoverCutRuns({ log, clock });
     if (recovered.length > 0) console.error(`The recovery sweep ended ${recovered.length} run(s) a restart cut: ${recovered.join(", ")}.`);
     // Then the queued messages' attachment bytes, read back from the stage, so a message the sweep handed back keeps them (#185).
     const attachmentStage = createAttachmentStage(join(dataDir, ATTACHMENTS_DIRECTORY));
     const stagedAttachments = recoverStagedAttachments({ log, stage: attachmentStage });
+    const adapters = options.adapters ?? [createClaudeAdapter({ clock, autoMemoryRoot: join(dataDir, AUTO_MEMORY_DIRECTORY) })];
+    const settings = () => readSettings({ all: (sql, ...params) => log.read(sql, ...params) });
+    // The sign-in director (#135): Claude accounts sign in through the bundled binary, else the managed tool `claude`.
+    const signInProcess = options.signInProcess ?? {};
+    const signIn =
+      options.signIn ??
+      createSignInDirector({
+        log,
+        clock,
+        environmentId: record.id,
+        programs: {
+          [CLAUDE_PROVIDER]: claudeSignInProgram({
+            bundled: signInProcess.bundled !== undefined ? signInProcess.bundled : bundledExecutable(),
+            ...(signInProcess.hostEnv !== undefined && { hostEnv: signInProcess.hostEnv }),
+            ...(signInProcess.managedTool !== undefined && { managedTool: signInProcess.managedTool }),
+          }),
+        },
+        ...(signInProcess.spawn !== undefined && { spawn: signInProcess.spawn }),
+        ...(signInProcess.cwd !== undefined && { cwd: signInProcess.cwd }),
+      });
+    // The account store (#134): the configured accounts carried over once, then every account's status read, and read
+    // again at most every fifteen minutes; its reads before the wire opens notice nothing.
+    const store: AccountService = createAccountService({
+      log,
+      clock,
+      adapters,
+      environmentId: record.id,
+      ownedRoot: join(dataDir, ACCOUNTS_DIRECTORY),
+      configured: options.accounts ?? [],
+      defaults: () => {
+        const values = settings();
+        return { account: values["accounts.defaultAccount"], modelFamily: values["accounts.defaultModelFamily"], effort: values["accounts.defaultEffort"] };
+      },
+      signIn,
+      ...(options.probeTimeoutMs !== undefined && { probeTimeoutMs: options.probeTimeoutMs }),
+    });
+    closers.push(() => store.close());
+    await store.start();
     const created = createAdapterHost({
       log,
       clock,
       attachmentStage,
       stagedAttachments,
       ...(options.runs !== undefined && { runs: options.runs }),
-      adapters: options.adapters ?? [createClaudeAdapter({ clock, autoMemoryRoot: join(dataDir, AUTO_MEMORY_DIRECTORY) })],
-      ...(options.accounts !== undefined && { accounts: options.accounts }),
-      ...(options.defaultAccountId !== undefined && { defaultAccountId: options.defaultAccountId }),
+      adapters,
+      accounts: store,
       // The policy resolver on the permission settings, and each client session's ceiling as it is now (#129).
       resolvePolicy: ({ actor, requested, accountModes }) =>
         resolvePolicy({
@@ -398,16 +489,14 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       // The unattended and bypass rules, and the TTL a prompt that parks is fixed with (#131).
       autoAnswer,
       promptTtlMs: () => parkedPromptTtlMs(permissionSettings()["permissions.parkedPrompt.ttl"]),
-      processIdleMinutes:
-        options.processIdleMinutes ?? (() => readSettings({ all: (sql, ...params) => log.read(sql, ...params) })["providers.processIdleMinutes"]),
+      processIdleMinutes: options.processIdleMinutes ?? (() => settings()["providers.processIdleMinutes"]),
       ...options.adapterSeams,
     });
     // Closed before the event log, so a run the close ends has its end appended (drained when a drain's cap cut it), and
     // before the launcher's channel, so the launcher hears the environment go only once every provider process has
     // stopped, or has been killed after the stop timeout.
     closers.push(() => created.close(readiness === "draining" ? "drained" : "disposed"));
-    await created.refresh();
-    return created;
+    return { host: created, accounts: store };
   });
 
   const surface = createHttpSurface({ tailnetName: () => tailnetName });
@@ -485,6 +574,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ...promptMethods({ log, host, environmentId: record.id }),
     ...reviewMethods({ log, environmentId: record.id }),
     ...processMethods({ log, host }),
+    ...accountMethods({ accounts, host }),
     ...terminalService.handlers,
     ...workspaceMethods({ log }),
   });
@@ -510,14 +600,14 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     clock,
     clientSessions,
     readiness: () => readiness,
-    // Until the account store (#134) joins, the configured accounts, each labelled by its id.
+    // The account store (#134): every account it holds, by its label, with what the host would run it with.
     catalogue: {
       accounts: () =>
-        (options.accounts ?? []).flatMap((config) => {
-          const facts = host.account(config.id);
-          return facts === null ? [] : [{ id: config.id, label: config.id, provider: config.provider, signedIn: facts.signedIn, models: facts.models }];
+        accounts.list().flatMap((record) => {
+          const facts = accounts.facts(record.id);
+          return facts === null ? [] : [{ id: record.id, label: record.label, provider: record.provider, signedIn: facts.signedIn, models: facts.models }];
         }),
-      defaultAccountId: () => host.account(null)?.id ?? null,
+      defaultAccountId: () => accounts.defaultId(),
     },
     methods: table,
     scratchRoot: join(dataDir, SCRATCH_DIRECTORY),
@@ -638,20 +728,12 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       revoke: (id) => accessLog.atomically((tx) => clientSessions.revoke(tx, id, "requested", SYSTEM.owner))?.changed === true,
     },
     startRun(request) {
-      const { actor } = request;
-      const sessionId = request.sessionId.toLowerCase();
-      const messageId = randomUUID();
-      const by = actor.kind === "routine" ? formatActor({ kind: "routine", id: actor.name || "routine" }) : formatActor({ kind: "system", id: actor.kind });
-      return log.atomically((tx) => {
-        const facts = host.startFacts(sessionId, actor);
-        if (facts.session !== null && !facts.session.deleted) host.admit();
-        const message = { messageId, text: request.text, attachments: [] };
-        const decision = decideStart(facts, { origin: originOfActor(actor), message, ...(request.mode !== undefined && { mode: request.mode }) });
-        if (decision.rejected !== undefined) throw new ContractError(decision.rejected);
-        appendRunEvents(log, sessionId, decision.events, { tx, actor: by, correlationId: decision.run.runId });
-        tx.afterCommit(() => host.launch(decision.run));
-        return { runId: decision.run.runId, messageId };
-      });
+      const { origin, actor } = startedBy(request);
+      const started = log.atomically((tx) =>
+        startRunIn(log, host, tx, { actor }, { sessionId: request.sessionId, actor: request.actor, origin, text: request.text, mode: request.mode }),
+      );
+      if (started.rejected !== undefined) throw new ContractError(started.rejected);
+      return { runId: started.runId, messageId: started.messageId };
     },
     sockets: () => wire.sockets(),
     subscriptions: () => wire.subscriptions(),

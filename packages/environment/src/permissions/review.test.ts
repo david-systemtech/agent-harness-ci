@@ -8,7 +8,14 @@ import { startTestEnvironment, type TestEnvironment } from "../../test/helper.js
 import { create, deleteSession, refusal } from "../../test/sessions.js";
 import type { WireClient } from "../../test/wire-client.js";
 import type { AdapterEvent, PromptDetail } from "../adapter/contract.js";
-import type { RunActor } from "./resolver.js";
+import { openEventLog } from "../event-log/event-log.js";
+import { runsProjector } from "../runs/runs-projector.js";
+import { sessionListProjector } from "../sessions/session-list.js";
+import type { Reader } from "../sessions/session-reads.js";
+import { permissionsProjector } from "./permissions-store.js";
+import { readRunPolicy } from "./review-store.js";
+import { recordToolDecision } from "./tool-decisions.js";
+import type { ActorRunRequest } from "../serve/start.js";
 
 /**
  * The Unattended review (#131; permissions spec, "The Unattended review
@@ -37,7 +44,13 @@ const send = async <N extends Command>(client: WireClient, method: N, params: Om
 
 const list = async (client: WireClient) => registry["permissions.review.list"].result.parse(await client.request("permissions.review.list", {}));
 
-const routine = (name = "nightly-receipts", ceiling: Mode = "acceptEdits"): RunActor => ({ kind: "routine", name, ceiling, clientSessionId: null });
+/** Who starts a run that no client session starts: a routine or a bot by its id, or the completions surface. */
+type Who = Omit<ActorRunRequest, "sessionId" | "text" | "mode">;
+
+const routine = (name = "nightly-receipts", ceiling: Mode = "acceptEdits"): Who => ({ actor: { kind: "routine", name, ceiling, clientSessionId: null }, actorId: `routine-${name}` });
+
+/** A run `who` starts on the session, through the environment's own start. */
+const startAs = (t: TestEnvironment, sessionId: string, who: Who, text = "Go") => t.env.startRun({ sessionId, text, ...who } as ActorRunRequest);
 
 const untilEnded = (t: TestEnvironment, sessionId: string, runId: string) =>
   vi.waitFor(() => expect(t.env.log.readStream({ kind: "session", id: sessionId }).some((event) => event.type === "run.ended" && event.payload["runId"] === runId)).toBe(true));
@@ -77,7 +90,7 @@ describe("permissions.review.list", () => {
     const { id } = await create(client);
     t.adapter.nextScripts.push(listThenInstall);
     t.clock.advance(MINUTE);
-    const { runId } = t.env.startRun({ sessionId: id, actor: routine(), text: "Tidy the receipts" });
+    const { runId } = startAs(t, id, routine(), "Tidy the receipts");
     await untilEnded(t, id, runId);
 
     const review = await list(client);
@@ -103,21 +116,21 @@ describe("permissions.review.list", () => {
     const client = await t.client();
     await send(client, "permissions.settings.set", { values: { "permissions.parkedPrompt.ttl": { amount: 1, unit: "minutes" } } });
     const { id } = await create(client);
-    const run = async (script: Script, how: RunActor | "client") => {
+    const run = async (script: Script, how: Who | "client") => {
       t.adapter.nextScripts.push(script);
       t.clock.advance(MINUTE);
       const { runId } =
         how === "client"
           ? ((await send(client, "runs.start", { sessionId: id, text: "Go" })).result as { runId: string })
-          : t.env.startRun({ sessionId: id, actor: how, text: "Go" });
+          : startAs(t, id, how);
       return runId;
     };
 
     const quiet = await run(talkOnly, routine());
     await untilEnded(t, id, quiet);
-    const botRun = await run(listOnly, { kind: "bot", name: "triage", ceiling: "acceptEdits", clientSessionId: null });
+    const botRun = await run(listOnly, { actor: { kind: "bot", name: "triage", ceiling: "acceptEdits", clientSessionId: null }, actorId: "bot-triage" });
     await untilEnded(t, id, botRun);
-    const program = await run(listOnly, { kind: "completions", attended: false, ceiling: "acceptEdits", clientSessionId: null });
+    const program = await run(listOnly, { actor: { kind: "completions", attended: false, ceiling: "acceptEdits", clientSessionId: null } });
     await untilEnded(t, id, program);
     // An attended run whose calls a person or the mode decided does not qualify.
     const mine = await run(listThenInstall, "client");
@@ -132,6 +145,9 @@ describe("permissions.review.list", () => {
 
     const review = await list(client);
     expect(review.runs.map((row) => row.runId)).toEqual([expired, program, botRun]);
+    // At most `limit`, the newest.
+    const limited = registry["permissions.review.list"].result.parse(await client.request("permissions.review.list", { limit: 2 }));
+    expect(limited.runs.map((row) => row.runId)).toEqual([expired, program]);
     expect(review.runs.map((row) => row.actor)).toEqual([
       { kind: "client", name: null },
       { kind: "completions", name: null },
@@ -150,7 +166,7 @@ describe("permissions.review.list", () => {
     const { id } = await create(client);
     t.adapter.nextScripts.push(listThenInstall);
     // A completions request that says a person is present: its prompt parks and a person answers it.
-    const { runId } = t.env.startRun({ sessionId: id, actor: { kind: "completions", attended: true, ceiling: "acceptEdits", clientSessionId: null }, text: "Go" });
+    const { runId } = startAs(t, id, { actor: { kind: "completions", attended: true, ceiling: "acceptEdits", clientSessionId: null } });
     await untilOpened(t, id);
     await send(client, "permissions.prompts.answer", { promptId: "toolu_1", decision: "deny", message: "Not here" });
     await untilEnded(t, id, runId);
@@ -159,7 +175,7 @@ describe("permissions.review.list", () => {
 
     const other = await create(client);
     t.adapter.nextScripts.push(listOnly);
-    const unattended = t.env.startRun({ sessionId: other.id, actor: routine(), text: "Go" });
+    const unattended = startAs(t, other.id, routine());
     await untilEnded(t, other.id, unattended.runId);
     expect((await list(client)).runs.map((row) => row.runId)).toEqual([unattended.runId]);
     await deleteSession(client, other.id);
@@ -173,7 +189,7 @@ describe("permissions.review.seen", () => {
     const client = await t.client();
     const { id } = await create(client);
     t.adapter.nextScripts.push(listOnly);
-    const first = t.env.startRun({ sessionId: id, actor: routine(), text: "Go" });
+    const first = startAs(t, id, routine());
     await untilEnded(t, id, first.runId);
     const before = await list(client);
     expect(before.runs.map((row) => row.runId)).toEqual([first.runId]);
@@ -187,7 +203,7 @@ describe("permissions.review.seen", () => {
     expect(await list(other)).toMatchObject({ watermark: before.head, runs: [] });
 
     t.adapter.nextScripts.push(listOnly);
-    const second = t.env.startRun({ sessionId: id, actor: routine(), text: "Again" });
+    const second = startAs(t, id, routine(), "Again");
     await untilEnded(t, id, second.runId);
     expect((await list(client)).runs.map((row) => row.runId)).toEqual([second.runId]);
 
@@ -209,5 +225,44 @@ describe("permissions.review.seen", () => {
     expect((await refusal(reader.request("permissions.review.seen", { commandId: randomUUID() }))).code).toBe("forbidden");
     const writer = await t.client({ token: (await t.pair({ scopes: SCOPES.filter((scope) => scope !== "admin") })).token });
     expect((await send(writer, "permissions.review.seen", {})).result).toBeDefined();
+  });
+});
+
+describe("the review projection", () => {
+  const sessionId = "7c9e6679-7425-40de-944b-e07fc1f90ae7";
+  const runId = "3f2a1c4e-8b7d-4e6f-9a0b-1c2d3e4f5a6b";
+  const openLog = () => {
+    const log = openEventLog({ path: ":memory:", projectors: [sessionListProjector, runsProjector, permissionsProjector] });
+    onCleanup(() => log.close());
+    const created = { title: null, tags: [], groupId: null, workspace: { kind: "directory", path: "/work" }, repositoryIdentity: null, account: null, model: null, mode: null };
+    log.append({ kind: "session", id: sessionId }, [{ type: "session.created", payload: created }], { actor: "system:test" });
+    return log;
+  };
+  const policy = {
+    runId,
+    actorKind: "client",
+    attended: true,
+    mode: { requested: null, effective: "acceptEdits", ceiling: "acceptEdits", clamped: false, clampReason: null },
+    containment: { requested: null, effective: "off", mechanism: null, reason: null },
+    unattendedDefaultApplied: false,
+  };
+
+  it("reads a run.policy.resolved from before #131, with no actorName, as naming no one, and rebuilds over it", () => {
+    const log = openLog();
+    log.append({ kind: "session", id: sessionId }, [{ type: "run.policy.resolved", payload: policy }], { actor: "system:test", correlationId: runId });
+    const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
+    expect(readRunPolicy(reader, runId)).toMatchObject({ actorKind: "client", actorName: null });
+    expect(log.rebuildProjections()).toContain("permissions");
+    expect(readRunPolicy(reader, runId)).toMatchObject({ actorName: null });
+  });
+
+  it("records a decision through recordToolDecision once per call: a call decided already is left as it was", () => {
+    const log = openLog();
+    const decision = { runId, toolCallId: "toolu_9", tool: "Bash", summary: "Bash: ls", decidedBy: "containment", promptId: null } as const;
+    const denied = { ...decision, decision: "denied", reason: "Outside the workspace." } as const;
+    expect(log.atomically((tx) => recordToolDecision(log, tx, sessionId, denied, { actor: "system:gate" }))).toBe(true);
+    expect(log.atomically((tx) => recordToolDecision(log, tx, sessionId, { ...decision, decidedBy: "rule", decision: "denied", reason: "Again." }, { actor: "system:gate" }))).toBe(false);
+    const types = log.readStream({ kind: "session", id: sessionId }).map((event) => event.type);
+    expect(types.filter((type) => type === "tool.decision")).toHaveLength(1);
   });
 });

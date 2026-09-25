@@ -1,4 +1,4 @@
-import { ContractError, SETTINGS_STREAM_KIND, invalidParams, type ReviewSeenPayload } from "@agent-harness/contracts";
+import { ContractError, REVIEW_LIST_LIMIT, SETTINGS_STREAM_KIND, invalidParams, type ReviewSeenPayload } from "@agent-harness/contracts";
 import type { EventLog } from "../event-log/event-log.js";
 import type { MethodHandlers } from "../serve/methods.js";
 import type { Reader } from "../sessions/session-reads.js";
@@ -28,10 +28,10 @@ export const reviewMethods = ({ log, environmentId }: ReviewMethodsOptions): Req
 
   return {
     // The head is read first: a run decided after it is listed and not marked seen by a `seen` through it.
-    "permissions.review.list": () => {
+    "permissions.review.list": (params) => {
       const head = log.head();
       const watermark = reviewWatermark(reader);
-      return { watermark, head, runs: reviewRuns(reader, watermark) };
+      return { watermark, head, runs: reviewRuns(reader, watermark, params.limit ?? REVIEW_LIST_LIMIT) };
     },
 
     /** Moves the watermark forward to `through`, the head when absent; never back, and never past the head. */

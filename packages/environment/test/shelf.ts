@@ -31,15 +31,15 @@ const openPrompts = new Map<string, { runId: string; promptId: string }[]>();
  * (checked against the transcript vocabulary): a start on the account
  * `claude-max` and the model `opus`, an end `completed`, the two paired by
  * the session's open run; a prompt's opening and answer as the broker and a
- * person's answer append them, paired oldest first. Any other type is given
- * `payload` as it is.
+ * person's answer append them, paired oldest first. A run or a prompt is
+ * remembered by the ids its payload ends with, `payload`'s over the seeded
+ * ones, and an answer naming a prompt answers that one. Any other type is
+ * given `payload` as it is.
  */
 export const runPayload = (sessionId: string, type: string, payload: JsonObject = {}): JsonObject => {
   if (type === "run.started") {
-    const runId = randomUUID();
-    openRuns.set(sessionId, runId);
-    return TRANSCRIPT_EVENT_TYPES["run.started"].payload.parse({
-      runId,
+    const started = TRANSCRIPT_EVENT_TYPES["run.started"].payload.parse({
+      runId: randomUUID(),
       accountId: "claude-max",
       identity: null,
       model: "opus",
@@ -53,6 +53,8 @@ export const runPayload = (sessionId: string, type: string, payload: JsonObject 
       forkedFrom: null,
       ...payload,
     });
+    openRuns.set(sessionId, started.runId);
+    return started;
   }
   if (type === "run.ended") {
     const runId = openRuns.get(sessionId) ?? randomUUID();
@@ -70,10 +72,9 @@ export const runPayload = (sessionId: string, type: string, payload: JsonObject 
     });
   }
   if (type === "prompt.opened") {
-    const prompt = { runId: openRuns.get(sessionId) ?? randomUUID(), promptId: randomUUID() };
-    openPrompts.set(sessionId, [...(openPrompts.get(sessionId) ?? []), prompt]);
-    return PROMPT_EVENT_TYPES["prompt.opened"].payload.parse({
-      ...prompt,
+    const opened = PROMPT_EVENT_TYPES["prompt.opened"].payload.parse({
+      runId: openRuns.get(sessionId) ?? randomUUID(),
+      promptId: randomUUID(),
       kind: "permission",
       toolName: "Bash",
       toolCallId: null,
@@ -90,10 +91,15 @@ export const runPayload = (sessionId: string, type: string, payload: JsonObject 
       ttlExpiresAt: null,
       ...payload,
     });
+    openPrompts.set(sessionId, [...(openPrompts.get(sessionId) ?? []), { runId: opened.runId, promptId: opened.promptId }]);
+    return opened;
   }
   if (type === "prompt.answered") {
-    const [prompt, ...rest] = openPrompts.get(sessionId) ?? [];
-    openPrompts.set(sessionId, rest);
+    const queued = openPrompts.get(sessionId) ?? [];
+    // An answer naming its prompt answers that one; else the oldest open.
+    const index = typeof payload["promptId"] === "string" ? queued.findIndex((open) => open.promptId === payload["promptId"]) : 0;
+    const prompt = queued[index];
+    openPrompts.set(sessionId, queued.filter((_, at) => at !== index));
     return PROMPT_EVENT_TYPES["prompt.answered"].payload.parse({
       runId: prompt?.runId ?? randomUUID(),
       promptId: prompt?.promptId ?? randomUUID(),

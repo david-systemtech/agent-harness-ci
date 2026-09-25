@@ -56,6 +56,21 @@ import {
 import { runsInterrupt, runsSend, runsStart, runsStopTask } from "./methods/runs.js";
 import { providersList, providersProcessesList, providersProcessesStop } from "./methods/providers.js";
 import { settingsGet, settingsUpdate } from "./methods/settings.js";
+import {
+  accountsAdd,
+  accountsAdopt,
+  accountsList,
+  accountsProbe,
+  accountsRefresh,
+  accountsRelabel,
+  accountsRemove,
+  accountsSigninCancel,
+  accountsSigninCode,
+  accountsSigninGet,
+  accountsSigninStart,
+  commandsList,
+  modelsList,
+} from "./methods/accounts.js";
 import { diffsSession, diffsWorkingTree } from "./methods/diffs.js";
 import { filesList, filesRead } from "./methods/files.js";
 import {
@@ -118,6 +133,19 @@ export const methods = [
   providersList,
   providersProcessesList,
   providersProcessesStop,
+  accountsList,
+  accountsProbe,
+  accountsRefresh,
+  accountsAdopt,
+  accountsAdd,
+  accountsRelabel,
+  accountsRemove,
+  accountsSigninGet,
+  accountsSigninStart,
+  accountsSigninCode,
+  accountsSigninCancel,
+  modelsList,
+  commandsList,
   settingsGet,
   settingsUpdate,
   permissionsModeSet,

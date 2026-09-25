@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AccountEventType",
+  "type": "string",
+  "enum": [
+    "account.adopted",
+    "account.added",
+    "account.identity-set",
+    "account.status-changed",
+    "account.relabelled",
+    "account.removed",
+    "account.directory-deleted"
+  ],
+  "description": "The event types of an account's stream: account.adopted, account.added, account.identity-set, account.status-changed, account.relabelled, account.removed, account.directory-deleted."
+}

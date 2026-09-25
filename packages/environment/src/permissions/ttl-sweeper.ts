@@ -20,8 +20,12 @@ import { answerEvents } from "./tool-decisions.js";
  * (`live`), through the host once the answer has committed, and the run
  * continues (the deny-and-continue rule, never an interrupt); else kept for
  * the session's next run (`next-run`), whose first message says nobody
- * answered in time. A deleted session's prompts wait: a restore brings them
- * back, and the next sweep answers them.
+ * answered in time, and that run is started at once
+ * (`AdapterHost.continueSession`): deny-and-continue means the run
+ * continues, and a run whose parked stop took it (half an hour, against a
+ * TTL of a day) would otherwise never finish on its own (user story 12). A
+ * person's late answer still starts nothing (#130). A deleted session's
+ * prompts wait: a restore brings them back, and the next sweep answers them.
  */
 
 /** How often the sweeper looks, in milliseconds. */
@@ -37,7 +41,7 @@ const SWEEPER_ACTOR = formatActor({ kind: "system", id: "permissions" });
 
 export interface TtlSweeperOptions {
   readonly log: EventLog;
-  readonly host: Pick<AdapterHost, "liveRun" | "holdsPrompt" | "deliverAnswer">;
+  readonly host: Pick<AdapterHost, "liveRun" | "holdsPrompt" | "deliverAnswer" | "continueSession">;
   readonly clock: Clock;
 }
 
@@ -71,6 +75,15 @@ export const createTtlSweeper = ({ log, host, clock }: TtlSweeperOptions): TtlSw
             if (answering instanceof Promise) answering.catch(failed);
           } catch (error) {
             failed(error);
+          }
+        });
+      } else {
+        // Its run has gone: the session's next run starts now, with the answer as its first message.
+        tx.afterCommit(() => {
+          try {
+            host.continueSession(sessionId);
+          } catch (error) {
+            console.error(`Continuing session ${sessionId} after the TTL answered prompt ${promptId} failed; its next run reads the answer:`, error);
           }
         });
       }
