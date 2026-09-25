@@ -14,7 +14,7 @@ import { sessionListProjector } from "../sessions/session-list.js";
 import type { Reader } from "../sessions/session-reads.js";
 import { permissionsProjector } from "./permissions-store.js";
 import { readRunPolicy } from "./review-store.js";
-import { recordToolDecision } from "./tool-decisions.js";
+import { recordToolDecision, runToolCalls } from "./tool-decisions.js";
 import type { ActorRunRequest } from "../serve/start.js";
 
 /**
@@ -183,6 +183,32 @@ describe("permissions.review.list", () => {
   });
 });
 
+describe("a call-less prompt in the review", () => {
+  it("counts a question that named no tool call as a denial, not a tool call, and lists an unattended run whose only decision it is", async () => {
+    const t = await start();
+    const client = await t.client();
+    const { id } = await create(client);
+    const question: PromptDetail = {
+      toolName: null,
+      toolCallId: null,
+      summary: "Which date library?",
+      questions: [{ header: "Library", question: "Which date library?", options: [{ label: "date-fns", description: "" }], multiSelect: false }],
+    };
+    t.adapter.nextScripts.push(async function* ({ context, input }) {
+      const decision = await context.broker.request({ sessionId: input.sessionId, runId: input.runId, kind: "question", detail: question });
+      yield say(toldText(decision));
+      yield end();
+    });
+    const { runId } = startAs(t, id, routine());
+    await untilEnded(t, id, runId);
+
+    const [row] = (await list(client)).runs;
+    expect(row?.runId).toBe(runId);
+    expect(row?.counts).toEqual({ toolCalls: 0, autoApproved: 0, denied: 1, answeredByPerson: 0, expired: 0 });
+    expect(row?.denials).toEqual([{ toolCallId: null, tool: null, summary: "Which date library?", decidedBy: "unattended", reason: expect.stringContaining("nobody is present") }]);
+  });
+});
+
 describe("permissions.review.seen", () => {
   it("moves the environment-wide watermark: a later list leaves out the runs before it, and a run decided after it comes back", async () => {
     const t = await start();
@@ -254,6 +280,32 @@ describe("the review projection", () => {
     expect(readRunPolicy(reader, runId)).toMatchObject({ actorKind: "client", actorName: null });
     expect(log.rebuildProjections()).toContain("permissions");
     expect(readRunPolicy(reader, runId)).toMatchObject({ actorName: null });
+  });
+
+  it("keeps a call whose decision's transaction rolled back, so the run's end still decides it, once (runToolCalls)", () => {
+    const log = openLog();
+    const stream = { kind: "session", id: sessionId } as const;
+    const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
+    const calls = runToolCalls(reader, runId);
+    calls.started({ type: "tool.started", payload: { toolCallId: "toolu_5", name: "Bash", input: { command: "ls" }, title: null, agentId: null, parentToolCallId: null } });
+    calls.started({ type: "tool.started", payload: { toolCallId: "toolu_6", name: "Read", input: { file_path: "/etc/shadow" }, title: null, agentId: null, parentToolCallId: null } });
+    const decide = (work: (tx: Parameters<Parameters<typeof log.atomically>[0]>[0]) => ReturnType<typeof calls.settle>, fail: boolean) =>
+      log.atomically((tx) => {
+        log.append(stream, work(tx), { tx, actor: "system:test", correlationId: runId });
+        if (fail) throw new Error("rolled back");
+      });
+    // The mode's decision at an ok end, and the provider's denial, each rolled back with the transaction that carried it.
+    expect(() => decide((tx) => calls.after({ type: "tool.ended", payload: { toolCallId: "toolu_5", status: "ok", output: "done", durationMs: 1 } }, tx), true)).toThrow("rolled back");
+    expect(() => decide((tx) => calls.denied({ type: "denial", toolCallId: "toolu_6", toolName: "Read", by: "rule", reason: "Denied by a rule" }, tx), true)).toThrow("rolled back");
+    expect(log.readStream(stream).filter((event) => event.type === "tool.decision")).toEqual([]);
+    // The run's end still has both calls, and decides each once.
+    decide(() => calls.settle(), false);
+    decide(() => calls.settle(), false);
+    const decided = log.readStream(stream).filter((event) => event.type === "tool.decision").map((event) => [event.payload["toolCallId"], event.payload["decidedBy"]]);
+    expect(decided).toEqual([
+      ["toolu_5", "mode"],
+      ["toolu_6", "mode"],
+    ]);
   });
 
   it("records a decision through recordToolDecision once per call: a call decided already is left as it was", () => {

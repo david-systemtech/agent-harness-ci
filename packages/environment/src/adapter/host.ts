@@ -771,20 +771,20 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
         }
         if (event.type === "denial") {
           // The provider's own denial report: the call's decision, the adapter's (#131).
-          append(entry.sessionId, entry.runId, entry.actor, entry.calls.denied(event));
+          log.atomically((tx) => append(entry.sessionId, entry.runId, entry.actor, entry.calls.denied(event, tx)));
           continue;
         }
         if (event.type === "tool.ended") {
           // A call that ended ok unasked is the mode's, decided in the transaction of its end (#131).
-          log.atomically(() => {
+          log.atomically((tx) => {
             entry.append(event);
-            append(entry.sessionId, entry.runId, HOST_ACTOR, entry.calls.after(event));
+            append(entry.sessionId, entry.runId, HOST_ACTOR, entry.calls.after(event, tx));
           });
           continue;
         }
         entry.append(event);
         // A call started: the host keeps its tool and summary until it is decided (#131).
-        if (event.type === "tool.started") entry.calls.after(event);
+        if (event.type === "tool.started") entry.calls.started(event);
       }
       if (!entry.ended) {
         finish(entry, { type: "end", reason: "error", error: { message: "The run's event stream stopped without an end.", code: "no_end" } }, { by: "host", stop: "failed" });
