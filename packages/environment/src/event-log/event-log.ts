@@ -7,6 +7,7 @@ import { selection, type StreamSelector } from "./stream-selector.js";
 import { applyMigrations } from "./migrations.js";
 import { createProjections, type Projector } from "./projectors.js";
 import { createPairingTable, type PairingTable } from "./pairings.js";
+import { createProviderTranscriptTable, type ProviderTranscriptTable } from "../provider-transcripts/table.js";
 import { createReceipts, type StoredError, type StoredReceipt } from "./receipts.js";
 import { createSnapshots, type Compaction, type Snapshot } from "./snapshots.js";
 import { loadSqlite } from "./sqlite.js";
@@ -218,6 +219,8 @@ export interface EventLog {
   readonly clientSessions: ClientSessionTable;
   /** The auth table of pairing codes, loaded once on start and then only written. */
   readonly pairings: PairingTable;
+  /** The SDK session store's tables (#137, `provider-transcripts/`): opaque provider state beside the log, written only in an `atomically`. */
+  readonly providerTranscripts: ProviderTranscriptTable;
   close(): void;
 }
 
@@ -311,6 +314,7 @@ export const openEventLog = (options: EventLogOptions): EventLog => {
   const snapshots = createSnapshots(sql, clock);
   const clientSessions = createClientSessionTable(sql, requireTx);
   const pairings = createPairingTable(sql, requireTx);
+  const providerTranscripts = createProviderTranscriptTable(sql, requireTx);
 
   // The stream's next version: above its last event, and above the last one its snapshot folds, which a compaction may have removed.
   const insertEvent = `
@@ -539,6 +543,7 @@ export const openEventLog = (options: EventLogOptions): EventLog => {
     readSnapshot: (stream) => snapshots.read(stream),
     clientSessions,
     pairings,
+    providerTranscripts,
 
     close() {
       if (closed) return;

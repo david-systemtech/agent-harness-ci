@@ -294,6 +294,11 @@ export const SessionForkedPayload = z
   .object({
     fromSessionId: SessionId,
     atMessageId: MessageId.nullable().meta({ description: "The user message the fork was taken before; null for a fork of the whole session." }),
+    fromProviderSessionId: z
+      .string()
+      .min(1)
+      .nullable()
+      .meta({ description: "The provider's conversation the fork's first run continues, as the source had linked it when forked; null when the source had none, so the fork starts fresh." }),
   })
   .meta({ description: "session.forked: the session was forked from another; on the new session's stream." });
 export type SessionForkedPayload = z.infer<typeof SessionForkedPayload>;

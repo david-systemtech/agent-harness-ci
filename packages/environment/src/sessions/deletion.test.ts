@@ -224,6 +224,9 @@ describe("a deleted session", () => {
     "runs.stopTask": { runId, taskId: "t-1" },
     "providers.processes.stop": { sessionId },
     "terminals.open": { id: randomUUID(), sessionId },
+    // A deleted session is no source to fork, and has nothing to rewind (#137).
+    "sessions.fork": { sessionId, id: randomUUID() },
+    "sessions.rewind": { sessionId, messageId: randomUUID() },
   });
 
   /**
@@ -237,6 +240,7 @@ describe("a deleted session", () => {
     "files.read": { sessionId, path: "README.md" },
     "diffs.workingTree": { sessionId },
     "diffs.session": { sessionId },
+    "sessions.subagentTranscript": { sessionId, agentId: "a1b2c3" },
   });
 
   /** Whether a command's params name a session or a run. */

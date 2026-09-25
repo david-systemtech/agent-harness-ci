@@ -28,6 +28,15 @@ export const DEFAULT_CLAUDE_MODE: ClaudeMode = "acceptEdits";
 /** The reasoning efforts the SDK takes; a model the provider cannot run at one degrades it itself. */
 export const CLAUDE_EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const satisfies readonly EffortLevel[];
 
+/**
+ * The variable the bundled CLI reads before any setting for where auto
+ * memory lives (2.1.281's resolver: this, then the settings layers from
+ * policy down, then the project directory's default). A run given the
+ * environment's directory has it removed, so a stray one in the host's
+ * environment cannot move memory out of the directory every account shares.
+ */
+export const MEMORY_PATH_OVERRIDE_VARIABLE = "CLAUDE_COWORK_MEMORY_PATH_OVERRIDE";
+
 /** Who the provider's User-Agent names. */
 export const CLIENT_APP = "agent-harness";
 
@@ -127,15 +136,18 @@ export const buildRunOptions = (input: RunOptionsInput): Options => {
   const effort = claudeEffort(run.effort);
   const servers = mcpServers(run);
   const settingSources: SettingSource[] = run.trusted ? ["project"] : [];
+  const env = composeRunEnvironment(input.hostEnv, input.configDirectory, {
+    // The harness session names the project directory, so the transcript is found whatever the working directory, and
+    // the session store keys every entry by it (the SDK takes it as the project key beside CLAUDE_CONFIG_DIR, #137).
+    CLAUDE_CODE_PROJECT_DIR_NAME: run.sessionId,
+    CLAUDE_AGENT_SDK_CLIENT_APP: CLIENT_APP,
+  });
+  if (input.autoMemoryDirectory !== null) delete env[MEMORY_PATH_OVERRIDE_VARIABLE];
   return {
     cwd: run.workspace.path,
     // Only for a trusted repository: an untrusted one loads nothing of its project, from the branch or from its checkout.
     ...(run.trusted && input.checkoutRoot !== null && { projectConfigRoot: input.checkoutRoot }),
-    env: composeRunEnvironment(input.hostEnv, input.configDirectory, {
-      // The harness session names the project directory, so the transcript is found whatever the working directory.
-      CLAUDE_CODE_PROJECT_DIR_NAME: run.sessionId,
-      CLAUDE_AGENT_SDK_CLIENT_APP: CLIENT_APP,
-    }),
+    env,
     ...(input.executablePath !== null && { pathToClaudeCodeExecutable: input.executablePath }),
     abortController: input.abortController,
     ...(input.stderr !== undefined && { stderr: input.stderr }),
@@ -154,6 +166,7 @@ export const buildRunOptions = (input: RunOptionsInput): Options => {
     strictMcpConfig: true,
     ...(servers !== null && { mcpServers: servers }),
     ...(input.pluginDirectory !== null && { plugins: [{ type: "local", path: input.pluginDirectory }] }),
+    // The flag layer, which the CLI reads before the project's (whose own value it ignores for security) and the user's.
     ...(input.autoMemoryDirectory !== null && { settings: { autoMemoryDirectory: input.autoMemoryDirectory } }),
     ...(input.sessionStore !== null && { sessionStore: input.sessionStore }),
     ...continuation(run, input.resumePoint),

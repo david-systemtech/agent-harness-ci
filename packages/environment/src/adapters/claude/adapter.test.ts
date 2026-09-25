@@ -258,7 +258,7 @@ describe("a run", () => {
   });
 
   it("hands query() the options table: store, trust, instructions, bundled binary, broker", async () => {
-    const store = { append: async () => undefined, load: async () => null };
+    const store = { append: async () => undefined, load: async () => null, listUnrenamedSummaries: async () => [] };
     const adapter = adapterWith({ sessionStore: store, pluginDirectory: () => "/data/skills/work", autoMemoryRoot: "/data/auto-memory" });
     adapter.createRun(runInput({ trusted: true, instructions: "Be brief.", repositoryIdentity: "git.example/david/repo", target: { kind: "resume", providerSessionId: PROVIDER_SESSION } }), contextWith());
     const options: Options = (await started()).options;

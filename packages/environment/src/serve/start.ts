@@ -51,6 +51,8 @@ import { runMethods } from "../runs/run-methods.js";
 import { runsProjector } from "../runs/runs-projector.js";
 import { createCompactionSweep } from "../sessions/compaction.js";
 import { createDeletion } from "../sessions/deletion.js";
+import { forkRewindMethods } from "../sessions/fork-rewind.js";
+import { createProviderTranscriptStore, type ProviderTranscriptStore } from "../provider-transcripts/store.js";
 import { groupMethods } from "../sessions/group-methods.js";
 import { sessionMethods } from "../sessions/methods.js";
 import { sessionListProjector } from "../sessions/session-list.js";
@@ -350,6 +352,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     return { record: loaded, clientSessions: loadedClientSessions, pairings: loadedPairings, accessLog: access };
   });
 
+  // The SDK session store (#137): the provider's transcripts beside the log, which every Claude run passes and resumes from.
+  const providerStore: ProviderTranscriptStore = createProviderTranscriptStore({ log, clock });
+
   // The account store and the adapter host: the adapters, the accounts' sign-in states read through their probes, the run registry.
   const { host, accounts } = await step("adapter-host", async () => {
     // First the recovery sweep: a run the log left without an end was cut by the last stop, and is ended before anything can read it.
@@ -358,7 +363,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     // Then the queued messages' attachment bytes, read back from the stage, so a message the sweep handed back keeps them (#185).
     const attachmentStage = createAttachmentStage(join(dataDir, ATTACHMENTS_DIRECTORY));
     const stagedAttachments = recoverStagedAttachments({ log, stage: attachmentStage });
-    const adapters = options.adapters ?? [createClaudeAdapter({ clock, autoMemoryRoot: join(dataDir, AUTO_MEMORY_DIRECTORY) })];
+    const adapters = options.adapters ?? [createClaudeAdapter({ clock, autoMemoryRoot: join(dataDir, AUTO_MEMORY_DIRECTORY), sessionStore: providerStore })];
     const settings = () => readSettings({ all: (sql, ...params) => log.read(sql, ...params) });
     // The account store (#134): the configured accounts carried over once, then every account's status read, and read
     // again at most every fifteen minutes; its reads before the wire opens notice nothing.
@@ -429,7 +434,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   const environmentStream = { kind: ENVIRONMENT_STREAM_KIND, id: record.id };
   const detector = options.containerDetector ?? processContainerDetector();
   // The purge: `sessions.purge` runs it at once, the minute sweep for every session past its grace period.
-  const deletion = createDeletion({ log, transcripts: host.transcripts });
+  const deletion = createDeletion({ log, transcripts: host.transcripts, providerStore });
   const lifecycle = createLifecycle({
     clock,
     runs: host.runs,
@@ -474,6 +479,14 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       clampSessionMode: sessionModeClamp({ host, ceilingOf: (id) => clientSessions.ceiling(id) }),
     }),
     ...groupMethods({ log, clock: now }),
+    // Fork, rewind and the subagent transcript (#137), beside the session commands.
+    ...forkRewindMethods({
+      log,
+      host,
+      store: providerStore,
+      validateRunParameters: host.validateSessionInput,
+      clampSessionMode: sessionModeClamp({ host, ceilingOf: (id) => clientSessions.ceiling(id) }),
+    }),
     ...runMethods({ log, host, ceilingOf: (id) => clientSessions.ceiling(id) }),
     ...permissionMethods({ log, host, accessLog, clock, environmentId: record.id, ceilingOf: (id) => clientSessions.ceiling(id) }),
     ...processMethods({ log, host }),

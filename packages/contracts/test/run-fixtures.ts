@@ -196,8 +196,16 @@ const payloads: Record<string, Fixtures> = {
   },
   "session.provider-linked": { valid: [{ runId, providerSessionId: "provider-session-1" }], invalid: [{ runId, providerSessionId: "" }, { providerSessionId: "p" }] },
   "session.forked": {
-    valid: [{ fromSessionId: sessionId, atMessageId: null }, { fromSessionId: sessionId, atMessageId: messageId }],
-    invalid: [{ fromSessionId: "s-1", atMessageId: null }, { atMessageId: null }],
+    valid: [
+      { fromSessionId: sessionId, atMessageId: null, fromProviderSessionId: null },
+      { fromSessionId: sessionId, atMessageId: messageId, fromProviderSessionId: "provider-session-1" },
+    ],
+    invalid: [
+      { fromSessionId: "s-1", atMessageId: null, fromProviderSessionId: null },
+      { atMessageId: null, fromProviderSessionId: null },
+      { fromSessionId: sessionId, atMessageId: null },
+      { fromSessionId: sessionId, atMessageId: null, fromProviderSessionId: "" },
+    ],
   },
   "session.rewound": { valid: [{ toMessageId: messageId }], invalid: [{}, { toMessageId: "m-1" }] },
 };

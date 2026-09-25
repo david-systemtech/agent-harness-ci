@@ -123,6 +123,33 @@ export const MIGRATIONS: readonly Migration[] = [
       ALTER TABLE snapshots ADD COLUMN removed INTEGER NOT NULL DEFAULT 0;
     `,
   },
+  {
+    version: 6,
+    name: "provider transcripts: the SDK session store's entries and summaries (#137)",
+    // Opaque provider state beside the log, not events: keyed by the SDK's project key, which the harness sets to its
+    // session id, so a purge removes a session's rows by that key. An entry's uuid, when it has one, is its idempotency key.
+    sql: `
+      CREATE TABLE provider_transcripts (
+        id INTEGER PRIMARY KEY,
+        project_key TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        subpath TEXT NOT NULL,
+        uuid TEXT,
+        entry TEXT NOT NULL
+      ) STRICT;
+      CREATE INDEX provider_transcripts_by_key ON provider_transcripts (project_key, session_id, subpath, id);
+      CREATE UNIQUE INDEX provider_transcripts_by_uuid ON provider_transcripts (project_key, session_id, subpath, uuid) WHERE uuid IS NOT NULL;
+
+      CREATE TABLE provider_transcript_summaries (
+        project_key TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        mtime INTEGER NOT NULL,
+        data TEXT NOT NULL,
+        unrenamed TEXT NOT NULL,
+        PRIMARY KEY (project_key, session_id)
+      ) STRICT;
+    `,
+  },
 ];
 
 const userVersion = (db: DatabaseSync): number => {

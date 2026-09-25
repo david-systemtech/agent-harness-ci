@@ -438,6 +438,8 @@ export interface Adapter {
    * Deletes the provider's transcript of a session (`transcriptDelete`):
    * synchronous, irreversible and idempotent, since it runs inside the
    * purge's transaction (`sessions/deletion.ts`, `ProviderTranscripts`).
+   * `accounts` are the accounts the session's runs went through that the
+   * environment still holds: where the provider may have kept it.
    */
-  deleteTranscript?(sessionId: string): undefined;
+  deleteTranscript?(sessionId: string, accounts: readonly AccountRef[]): undefined;
 }

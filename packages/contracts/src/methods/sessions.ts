@@ -2,7 +2,8 @@ import { z } from "zod";
 import { errorSchema } from "../errors.js";
 import { commandParams, defineMethod, subscriptionParams } from "../method.js";
 import { Mode } from "../permissions-modes.js";
-import { Sequence, Timestamp } from "../primitives.js";
+import { JsonObject, Sequence, Timestamp } from "../primitives.js";
+import { MessageId } from "../adapter.js";
 import { OrderKey } from "../ordering.js";
 import {
   DeletedSessionSummary,
@@ -289,6 +290,84 @@ export const groupsDelete = defineMethod({
   kind: "command",
   params: commandParams({ groupId: GroupId }),
   result: z.object({ groupId: GroupId }),
+  errors: [],
+});
+
+/**
+ * Fork a session (claude-adapter spec, "Wire methods"; ADR 0022): a new
+ * session under the client-minted `id`, created as `sessions.create` creates
+ * one, in the source's workspace, carrying its tags and group (never its
+ * archive, pins or settle) and its title as the generated title until the
+ * provider's summary replaces it, unless a `title` is given; on the source's
+ * account unless `account` names another of this environment, which is the
+ * hand-off onto another account (across environments is milestone 2). With
+ * `atMessageId` (a user message of the source's visible transcript) the fork
+ * holds the conversation up to but excluding it, and its text becomes the
+ * fork's draft; without it, the whole conversation. Its first run continues
+ * the source's provider conversation as a fork; `session.forked` on the new
+ * session's stream records where it came from. Allowed while the source
+ * runs. A source that is not here, or a message not in its visible
+ * transcript, is `not_found` (data kind `session` or `message`); an id
+ * already used is `conflict` (reason `exists`); an account that cannot run is
+ * `conflict` (reason `account_unavailable`).
+ */
+export const sessionsFork = defineMethod({
+  name: "sessions.fork",
+  scope: "sessions:write",
+  kind: "command",
+  params: commandParams({
+    sessionId: SessionId.meta({ description: "The session to fork: the source." }),
+    id: SessionId.meta({ description: "The fork's id, minted by the client as sessions.create's is." }),
+    atMessageId: MessageId.optional().meta({ description: "A user message of the source: the fork holds the conversation before it, and its text becomes the fork's draft; the whole conversation when absent." }),
+    account: z.string().min(1).optional().meta({ description: "The account the fork's runs use, one this environment holds and is signed in; the source's when absent." }),
+    title: UserTitle.optional().meta({ description: "The fork's user title; the source's title is carried as its generated title when absent." }),
+  }),
+  result: summaryResult,
+  errors: [],
+});
+
+/**
+ * Rewind a session to one of its user messages (ADR 0022): `session.rewound`
+ * is recorded, the message and every item after it stay in the log and the
+ * snapshot hides them, and the session's next run continues the provider's
+ * conversation from just before it. Files are never restored. While a run is
+ * live it is `conflict` (reason `run_active`); a message that is not a user
+ * message of the session's visible transcript is `not_found` (data kind
+ * `message`); the session's first message is `conflict` (reason
+ * `use_new_session`: the client starts a new session with its text as the
+ * draft); an adapter that cannot rewind is `invalid_params` with data reason
+ * `unsupported`.
+ */
+export const sessionsRewind = defineMethod({
+  name: "sessions.rewind",
+  scope: "runs:drive",
+  kind: "command",
+  params: commandParams({
+    ...sessionTarget,
+    messageId: MessageId.meta({ description: "The user message to rewind to: it and everything after it are hidden." }),
+  }),
+  result: z.object({ sessionId: SessionId, messageId: MessageId }),
+  errors: [],
+});
+
+/**
+ * A subagent's own transcript, read from the provider's stored conversation
+ * on demand and never logged (chosen default): its messages as the provider
+ * keeps them, oldest first, empty when none is stored for it. `agentId` is
+ * the id a `tool.started` names the subagent by. Needs the adapter's
+ * `subagentTranscripts` (`invalid_params`, data reason `unsupported`,
+ * without it); a session that is not here is `not_found`.
+ */
+export const sessionsSubagentTranscript = defineMethod({
+  name: "sessions.subagentTranscript",
+  scope: "read",
+  kind: "query",
+  params: z.object({ ...sessionTarget, agentId: z.string().min(1).max(200) }),
+  result: z.object({
+    sessionId: SessionId,
+    agentId: z.string().min(1),
+    messages: z.array(JsonObject).meta({ description: "The subagent's messages as the provider stores them, oldest first; their shape is the provider's." }),
+  }),
   errors: [],
 });
 
