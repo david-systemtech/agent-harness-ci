@@ -38,7 +38,12 @@ import { createAdapterHost } from "../adapter/host.js";
 import { ACCOUNTS_DIRECTORY, createAccountService, type AccountService, type ConfiguredAccount } from "../accounts/account-service.js";
 import { accountsProjector } from "../accounts/account-store.js";
 import { accountMethods } from "../accounts/methods.js";
-import type { SignInDirectorFactory } from "../accounts/sign-in.js";
+import type { SignInDirectorFactory } from "../accounts/signin-seam.js";
+import { createSignInDirector } from "../accounts/signin-director.js";
+import type { SignInSpawn } from "../accounts/signin-process.js";
+import { CLAUDE_PROVIDER, type HostEnvironment } from "../adapters/claude/credentials.js";
+import { bundledExecutable } from "../adapters/claude/executable.js";
+import { claudeSignInProgram } from "../adapters/claude/signin.js";
 import { processMethods } from "../adapter/processes-methods.js";
 import { ATTACHMENTS_DIRECTORY, createAttachmentStage } from "../adapter/attachment-stage.js";
 import { recoverCutRuns, recoverStagedAttachments } from "../adapter/recovery.js";
@@ -178,8 +183,26 @@ export interface EnvironmentOptions {
    * store is what runs go through. Preset: none.
    */
   readonly accounts?: readonly ConfiguredAccount[];
-  /** The sign-in director `accounts.add` hands a new account to. Preset: the one that says sign-in is not built yet, until #135. */
+  /**
+   * The sign-in director `accounts.add` hands a new account to and the
+   * `accounts.signin.*` methods drive. Preset: the director (#135) over
+   * Claude's sign-in program, run as `signInProcess` says.
+   */
   readonly signIn?: SignInDirectorFactory;
+  /**
+   * How the preset director's sign-ins run (#135): the process spawner, the
+   * environment a sign-in inherits before the scrub, the bundled binary, the
+   * managed tool and the working directory. Preset: `node:child_process`,
+   * this process's environment, the SDK's bundled binary, `claude` on the
+   * PATH, the home directory.
+   */
+  readonly signInProcess?: {
+    readonly spawn?: SignInSpawn;
+    readonly hostEnv?: HostEnvironment;
+    readonly bundled?: string | null;
+    readonly managedTool?: () => string | null;
+    readonly cwd?: string;
+  };
   /** How long an account's status or model probe may take. Preset: `PROBE_TIMEOUT_MS`. */
   readonly probeTimeoutMs?: number;
   /**
@@ -360,6 +383,24 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     const stagedAttachments = recoverStagedAttachments({ log, stage: attachmentStage });
     const adapters = options.adapters ?? [createClaudeAdapter({ clock, autoMemoryRoot: join(dataDir, AUTO_MEMORY_DIRECTORY) })];
     const settings = () => readSettings({ all: (sql, ...params) => log.read(sql, ...params) });
+    // The sign-in director (#135): Claude accounts sign in through the bundled binary, else the managed tool `claude`.
+    const signInProcess = options.signInProcess ?? {};
+    const signIn =
+      options.signIn ??
+      createSignInDirector({
+        log,
+        clock,
+        environmentId: record.id,
+        programs: {
+          [CLAUDE_PROVIDER]: claudeSignInProgram({
+            bundled: signInProcess.bundled !== undefined ? signInProcess.bundled : bundledExecutable(),
+            ...(signInProcess.hostEnv !== undefined && { hostEnv: signInProcess.hostEnv }),
+            ...(signInProcess.managedTool !== undefined && { managedTool: signInProcess.managedTool }),
+          }),
+        },
+        ...(signInProcess.spawn !== undefined && { spawn: signInProcess.spawn }),
+        ...(signInProcess.cwd !== undefined && { cwd: signInProcess.cwd }),
+      });
     // The account store (#134): the configured accounts carried over once, then every account's status read, and read
     // again at most every fifteen minutes; its reads before the wire opens notice nothing.
     const store: AccountService = createAccountService({
@@ -373,7 +414,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
         const values = settings();
         return { account: values["accounts.defaultAccount"], modelFamily: values["accounts.defaultModelFamily"], effort: values["accounts.defaultEffort"] };
       },
-      ...(options.signIn !== undefined && { signIn: options.signIn }),
+      signIn,
       ...(options.probeTimeoutMs !== undefined && { probeTimeoutMs: options.probeTimeoutMs }),
     });
     closers.push(() => store.close());

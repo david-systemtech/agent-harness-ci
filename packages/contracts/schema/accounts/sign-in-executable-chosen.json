@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SignInExecutableChosenPayload",
+  "type": "object",
+  "properties": {
+    "provider": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$",
+      "description": "A provider's id, as the environment's adapter registry keys it: lowercase letters, digits and hyphens (claude)."
+    },
+    "source": {
+      "type": "string",
+      "enum": [
+        "bundled",
+        "managed-tool"
+      ],
+      "description": "Which executable sign-ins run: bundled (the provider's binary the SDK ships, which runs use too) or managed-tool (the provider's CLI on the environment's PATH, when the bundled binary does not run a sign-in)."
+    },
+    "executable": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The executable chosen, as it was found."
+    },
+    "bundled": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The bundled binary the choice was made against; null when this platform has none. A different one is probed again."
+    },
+    "detail": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Why the bundled binary was passed over, when it was."
+    }
+  },
+  "required": [
+    "provider",
+    "source",
+    "executable",
+    "bundled",
+    "detail"
+  ],
+  "description": "signin.executable-chosen: which executable the environment's sign-ins for a provider run, chosen once and recorded."
+}
