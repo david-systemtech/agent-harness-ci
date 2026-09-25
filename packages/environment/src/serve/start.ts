@@ -8,11 +8,13 @@ import {
   HEALTH_PATH,
   PAIR_PATH,
   PROTOCOL_VERSION,
+  SESSION_STREAM_KIND,
   WIRE_PATH,
   formatHostPort,
   pairingLink,
   type AuthPolicy,
   type CapabilityFlags,
+  type ContainmentReport,
   type DiscoveryDocument,
   type DrainTrigger,
   type EnvironmentReadiness,
@@ -48,10 +50,13 @@ import { processMethods } from "../adapter/processes-methods.js";
 import { ATTACHMENTS_DIRECTORY, createAttachmentStage } from "../adapter/attachment-stage.js";
 import { recoverCutRuns, recoverStagedAttachments } from "../adapter/recovery.js";
 import type { InstructionComposer, PolicySeam, PromptAutoAnswer, ToolServerFactory } from "../adapter/seams.js";
+import { UNPROBED_REPORT, containmentFlags, containmentReport, failedProbeReport, presetContainmentDefault, withAdapters } from "../permissions/containment.js";
+import { CONTAINMENT_DIRECTORY, containmentDirectories } from "../permissions/containment-directories.js";
+import { probeContainment, type ContainmentProbe } from "../permissions/containment-probe.js";
 import { permissionMethods, sessionModeClamp } from "../permissions/methods.js";
 import { promptMethods } from "../permissions/prompt-methods.js";
 import { startPromptNotices } from "../permissions/prompt-notices.js";
-import { permissionsProjector, readPermissionSettings } from "../permissions/permissions-store.js";
+import { permissionsProjector, readPermissionSettings, readStoredContainmentDefault } from "../permissions/permissions-store.js";
 import { policySettings, resolvePolicy } from "../permissions/resolver.js";
 import { createProviderTranscriptStore, type ProviderTranscriptStore } from "../provider-transcripts/store.js";
 import { runMethods } from "../runs/run-methods.js";
@@ -221,9 +226,16 @@ export interface EnvironmentOptions {
     readonly instructions?: InstructionComposer;
     /** The broker's automatic answers (#131); preset: none, every prompt parks for a person. */
     readonly autoAnswer?: PromptAutoAnswer;
-    /** Preset: the policy resolver on the environment's permission settings (#129). */
+    /** Preset: the policy resolver on the environment's permission settings (#129) and its containment probe (#133). */
     readonly resolvePolicy?: PolicySeam;
   };
+  /**
+   * What this environment can enforce (#133), probed once as the adapter
+   * host starts: its capability flags, the containment default's preset and
+   * every run's containment follow from it. Preset: the probe of the running
+   * machine (`containment-probe.ts`); tests script it.
+   */
+  readonly probeContainment?: () => Promise<ContainmentProbe>;
   /** How terminals start: the pty, the shell, the base environment. Preset: `node-pty`, the user's login shell, the clean base (`terminals/`). */
   readonly terminals?: Omit<TerminalsOptions, "clock">;
 }
@@ -347,7 +359,10 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // Where pairing links point: set when the listeners are bound, before any request is served.
   let linkOrigin: string | undefined;
   // The permission settings (#129), read where they are used: inside a command, in its transaction.
-  const permissionSettings = () => readPermissionSettings({ all: (sql, ...params) => log.read(sql, ...params) });
+  // What containment can enforce here: probed as the adapter host starts, before any client can ask (#133).
+  let containment: ContainmentReport = UNPROBED_REPORT;
+  const settingsPresets = () => ({ "permissions.containment.default": presetContainmentDefault(containment) }) as const;
+  const permissionSettings = () => readPermissionSettings({ all: (sql, ...params) => log.read(sql, ...params) }, settingsPresets());
 
   // The record, the signing key and the auth tables: client sessions and pairings are read once, here, into memory.
   const { record, clientSessions, pairings, accessLog } = await step("identity", async () => {
@@ -380,6 +395,18 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // The SDK session store (#137): the provider's transcripts beside the log, which every Claude run passes and resumes from.
   const providerStore: ProviderTranscriptStore = createProviderTranscriptStore({ log, clock });
 
+  // Each session's scratch and temporary directories, under the data directory; removed once the session's purge commits, off the log's path.
+  const sessionDirectories = containmentDirectories(join(dataDir, CONTAINMENT_DIRECTORY));
+  closers.push(
+    log.subscribe((event) => {
+      if (event.streamKind !== SESSION_STREAM_KIND || event.type !== "session.purged") return;
+      const sessionId = event.streamId;
+      setImmediate(() => {
+        sessionDirectories.remove(sessionId).catch((error: unknown) => console.error(`Removing the containment directories of the purged session ${sessionId} failed:`, error));
+      });
+    }),
+  );
+
   // The account store and the adapter host: the adapters, the accounts' sign-in states read through their probes, the run registry.
   const { host, accounts } = await step("adapter-host", async () => {
     // First the recovery sweep: a run the log left without an end was cut by the last stop, and is ended before anything can read it.
@@ -389,6 +416,20 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     const attachmentStage = createAttachmentStage(join(dataDir, ATTACHMENTS_DIRECTORY));
     const stagedAttachments = recoverStagedAttachments({ log, stage: attachmentStage });
     const adapters = options.adapters ?? [createClaudeAdapter({ clock, autoMemoryRoot: join(dataDir, AUTO_MEMORY_DIRECTORY), sessionStore: providerStore })];
+    // The probe never fails a start: a probe that throws leaves nothing but off, and says why.
+    let probed: ContainmentReport;
+    try {
+      probed = containmentReport(await (options.probeContainment ?? (() => probeContainment()))());
+    } catch (error) {
+      console.error("The containment probe failed; only off is offered:", error);
+      probed = failedProbeReport(error);
+    }
+    // A workspace level needs an adapter that hands it to its provider's sandbox, as well as the machine (#133).
+    containment = withAdapters(
+      probed,
+      adapters.map((adapter) => adapter.descriptor),
+    );
+    capabilities.push(...containmentFlags(containment));
     const settings = () => readSettings({ all: (sql, ...params) => log.read(sql, ...params) });
     // The sign-in director (#135): Claude accounts sign in through the bundled binary, else the managed tool `claude`.
     const signInProcess = options.signInProcess ?? {};
@@ -435,14 +476,17 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       adapters,
       accounts: store,
       // The policy resolver on the permission settings, and each client session's ceiling as it is now (#129).
-      resolvePolicy: ({ actor, requested, accountModes }) =>
+      resolvePolicy: ({ actor, requested, accountModes, containment: level }) =>
         resolvePolicy({
           actor,
           requested,
           ceiling: actor.ceiling,
           accountModes,
-          settings: policySettings(permissionSettings()),
+          settings: policySettings(permissionSettings(), readStoredContainmentDefault({ all: (sql, ...params) => log.read(sql, ...params) })),
+          containment: level,
+          enforceable: containment,
         }),
+      containmentDirectories: sessionDirectories,
       ceilingOf: (id) => clientSessions.ceiling(id),
       processIdleMinutes: options.processIdleMinutes ?? (() => settings()["providers.processIdleMinutes"]),
       ...options.adapterSeams,
@@ -514,7 +558,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       result: { projectors: [...log.rebuildProjections()], sequence: log.head() },
     }),
     // The generic settings (#117), on the environment's settings stream.
-    ...settingsMethods({ log, environmentId: record.id, onChange: (keys) => settleSweep.settingsChanged(keys) }),
+    ...settingsMethods({ log, environmentId: record.id, onChange: (keys) => settleSweep.settingsChanged(keys), presets: settingsPresets() }),
     ...accessMethods({ pairings, clientSessions, accessLog }),
     ...sessionMethods({
       log,
@@ -533,7 +577,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       clampSessionMode: sessionModeClamp({ host, ceilingOf: (id) => clientSessions.ceiling(id) }),
     }),
     ...runMethods({ log, host, ceilingOf: (id) => clientSessions.ceiling(id) }),
-    ...permissionMethods({ log, host, accessLog, clock, environmentId: record.id, ceilingOf: (id) => clientSessions.ceiling(id) }),
+    ...permissionMethods({ log, host, accessLog, clock, environmentId: record.id, ceilingOf: (id) => clientSessions.ceiling(id), containment }),
     ...promptMethods({ log, host, environmentId: record.id }),
     ...processMethods({ log, host }),
     ...accountMethods({ accounts, host }),
@@ -615,6 +659,10 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   } catch (error) {
     console.error("The session store's orphan sweep failed; the next start will try again:", error);
   }
+  // The containment directories of sessions that are gone (purged while a removal failed, or before a crash), in the background.
+  sessionDirectories
+    .sweep((sessionId) => log.read("SELECT 1 FROM sessions WHERE id = ?", sessionId).length > 0)
+    .catch((error: unknown) => console.error("Sweeping the containment directories of sessions that are gone failed:", error));
   // The shelf's sweep (#117): a pass now, before the wire opens, then every five minutes.
   closers.push(settleSweep.start());
   // Transcript compaction (#123): a pass now, before the wire opens, then once a day.

@@ -3,6 +3,8 @@ import type {
   AdapterCapabilities,
   AttachmentKind,
   AuthStatus,
+  ContainmentLevel,
+  ContainmentMechanism,
   CredentialSpec,
   InterruptCause,
   JsonObject,
@@ -134,6 +136,34 @@ export interface ToolServer {
 }
 
 /**
+ * A run's containment as its adapter enforces it (permissions spec,
+ * "Containment": what each level means, and the enforcement for Claude):
+ * the level `run.policy.resolved` recorded, never one the probe cannot
+ * enforce, the mechanism the probe found, and the directories a run may
+ * write in at a workspace level. The shell side is the provider's sandbox
+ * (Claude's `sandbox` option, #140), set from these values; file tools,
+ * fetch and search do not pass through it, so the tool gate
+ * (`RunContext.gate`) denies them. At `off` nothing applies, and the
+ * directories are named but not made. A session's runs share its provider
+ * process, whose sandbox is fixed when it starts: an adapter whose process
+ * was started under another level or mechanism stops it and starts one for
+ * the run.
+ */
+export interface RunContainment {
+  readonly level: ContainmentLevel;
+  /** What enforces it: null at `off`. */
+  readonly mechanism: ContainmentMechanism | null;
+  /** The session's scratch directory: it lives with the session, removed when the session is purged. */
+  readonly scratchDirectory: string;
+  /** The temporary directory of the session's runs, the provider's `TMPDIR`: the session's, since its runs share one provider process. */
+  readonly temporaryDirectory: string;
+  /** Where a run may write at a workspace level: its workspace, the scratch directory and its temporary directory, as absolute paths. */
+  readonly writable: readonly string[];
+  /** Whether the model's commands and the provider's fetch and search tools may reach any host: false only at `workspace-no-network`. */
+  readonly network: boolean;
+}
+
+/**
  * Everything a run needs, resolved by the host: the session and run, the
  * account's directory, the workspace and repository, model, effort and the
  * mode the policy resolver gave it, the composed instruction text, what it continues from, the
@@ -157,6 +187,8 @@ export interface RunInput {
   readonly toolServers: readonly ToolServer[];
   /** Whether the repository passed the trust gate (ADR 0009); false until the skills workstream records it. */
   readonly trusted: boolean;
+  /** The run's containment (`run.policy.resolved`): the adapter maps it onto its provider's sandbox. */
+  readonly containment: RunContainment;
   readonly prompt: readonly PromptMessage[];
 }
 
@@ -264,6 +296,50 @@ export interface PromptDecision {
  */
 export interface PermissionBroker {
   request(request: PromptRequest): Promise<PromptDecision>;
+}
+
+/**
+ * What a tool call does, as its adapter describes it to the tool gate, in
+ * the provider's terms mapped onto the harness's: reading or writing files
+ * (their paths, absolute or relative to the workspace, `~` for the home
+ * directory), a shell command, fetching URLs, a web search, or anything
+ * else (a tool server's call, a question). The gate rules on this, never on
+ * the provider's tool names.
+ */
+export type ToolAccess =
+  | { readonly kind: "read"; readonly paths: readonly string[] }
+  | { readonly kind: "write"; readonly paths: readonly string[] }
+  | { readonly kind: "shell"; readonly command: string }
+  | { readonly kind: "fetch"; readonly urls: readonly string[] }
+  | { readonly kind: "search"; readonly query: string }
+  | { readonly kind: "other" };
+
+/** One tool call the gate is asked about: the provider's id and name for it, a one-line summary for people, and what it does. */
+export interface GatedToolCall {
+  readonly toolCallId: string;
+  readonly tool: string;
+  readonly summary: string;
+  readonly access: ToolAccess;
+}
+
+/**
+ * The gate's ruling. `allow` hands the call on to the provider's own
+ * evaluation (its mode, its rules, its prompts), which the gate never
+ * replaces; `deny` is final, and `message` is what the model is told.
+ */
+export type GateDecision = { readonly decision: "allow" } | { readonly decision: "deny"; readonly message: string };
+
+/**
+ * The tool gate (permissions spec, "Modules": the tool gate): consulted by
+ * every adapter before the provider's own evaluation, for every tool call in
+ * every mode, bypass included. It applies containment as a hard deny: no
+ * prompt, the model told why, the decision recorded as `tool.decision` with
+ * `decidedBy: containment`; widening containment is a settings change,
+ * never an answer to a prompt. The denylist's matches (#132) join it. For
+ * Claude it is the `PreToolUse` hook (#140).
+ */
+export interface ToolGate {
+  check(call: GatedToolCall): Promise<GateDecision>;
 }
 
 /** The types a run's events may be: the transcript types an adapter produces. The run's start and end, and the messages sent to it, are the host's. */
@@ -398,6 +474,12 @@ export interface RunContext {
    * it is unanswered.
    */
   readonly broker: PermissionBroker;
+  /**
+   * The tool gate, asked before the provider's own evaluation for every tool
+   * call; a turn the provider opened on its own asks through the gate of the
+   * run it followed, which rules under the policy of the run live then.
+   */
+  readonly gate: ToolGate;
   /** Held work on the session's provider process (the pool's port). */
   readonly process: ProcessPort;
   /**

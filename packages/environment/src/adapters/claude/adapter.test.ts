@@ -83,6 +83,14 @@ const runInput = (overrides: Partial<RunInput> = {}): RunInput => ({
   target: { kind: "fresh" },
   toolServers: [],
   trusted: false,
+  containment: {
+    level: "off",
+    mechanism: null,
+    scratchDirectory: "/data/containment/session/scratch",
+    temporaryDirectory: "/data/containment/session/tmp",
+    writable: ["/work/repo", "/data/containment/session/scratch", "/data/containment/session/tmp"],
+    network: true,
+  },
   prompt: [message("Go")],
   ...overrides,
 });
@@ -105,7 +113,7 @@ const contextWith = (decide?: (request: PromptRequest) => Promise<PromptDecision
     },
   };
   const identities: AccountIdentity[] = [];
-  return { broker, adopt: (turn) => adopted.push(turn), adopted, asked, identities, reportIdentity: (identity) => void identities.push(identity), process: {
+  return { broker, gate: { check: async () => ({ decision: "allow" }) }, adopt: (turn) => adopted.push(turn), adopted, asked, identities, reportIdentity: (identity) => void identities.push(identity), process: {
       hold: (kind, id) => port.push(`hold ${kind}:${id}`),
       unhold: (kind, id) => port.push(`unhold ${kind}:${id}`),
       exited: () => port.push("exited"),

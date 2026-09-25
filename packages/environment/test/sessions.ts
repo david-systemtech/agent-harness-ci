@@ -26,9 +26,13 @@ import type { WireClient } from "./wire-client.js";
 /** The workspace every test session is created in. */
 export const workspace = { kind: "directory", path: "/work/agent-harness" } as const;
 
-type CreateParams = Omit<ParamsOf<"sessions.create">, "commandId" | "id" | "workspace"> & { id?: string; commandId?: string };
+type CreateParams = Omit<ParamsOf<"sessions.create">, "commandId" | "id" | "workspace"> & {
+  id?: string;
+  commandId?: string;
+  workspace?: ParamsOf<"sessions.create">["workspace"];
+};
 
-/** Sends `sessions.create` for a fresh id (or the one given) in the test workspace; resolves with what its response carries. */
+/** Sends `sessions.create` for a fresh id (or the one given) in the test workspace, or the one given; resolves with what its response carries. */
 export const create = async (client: WireClient, params: CreateParams = {}) => {
   const id = params.id ?? randomUUID();
   const response = registry["sessions.create"].response.parse(

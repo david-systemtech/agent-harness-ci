@@ -85,12 +85,22 @@ const runInput = (overrides: Partial<RunInput> = {}): RunInput => ({
   target: { kind: "fresh" },
   toolServers: [],
   trusted: false,
+  // Containment off (#133): the store's behaviour does not depend on it.
+  containment: {
+    level: "off",
+    mechanism: null,
+    scratchDirectory: "/data/containment/session/scratch",
+    temporaryDirectory: "/data/containment/session/tmp",
+    writable: ["/work/repo", "/data/containment/session/scratch", "/data/containment/session/tmp"],
+    network: true,
+  },
   prompt: [{ messageId: randomUUID(), text: "Go", attachments: [] }],
   ...overrides,
 });
 
 const context = (): RunContext => ({
   broker: { request: () => new Promise(() => undefined) },
+  gate: { check: async () => ({ decision: "allow" }) },
   adopt: () => undefined,
   reportIdentity: () => undefined,
   process: { hold: () => undefined, unhold: () => undefined, exited: () => undefined },

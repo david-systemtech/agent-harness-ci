@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DISCOVERY_PATH } from "@agent-harness/contracts";
-import { createRunRegistry, systemClock, type LauncherQuery, type LauncherReply } from "@agent-harness/environment";
+import { createRunRegistry, systemClock, type ContainmentProbe, type LauncherQuery, type LauncherReply } from "@agent-harness/environment";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runCli, type CliContext } from "./cli.js";
 
@@ -19,6 +19,16 @@ const tempDir = (): string => {
   const dir = mkdtempSync(join(tmpdir(), "agent-harness-cli-"));
   cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
   return dir;
+};
+
+/** What the containment probe finds: no bubblewrap, so a test never probes the machine it runs on. */
+const NO_BUBBLEWRAP: ContainmentProbe = {
+  mechanism: null,
+  levels: {
+    workspace: { available: false, reason: "bubblewrap is not installed.", cause: "binary_missing" },
+    "workspace-no-network": { available: false, reason: "bubblewrap is not installed.", cause: "binary_missing" },
+  },
+  container: { declared: false, detected: false },
 };
 
 /** The CLI in-process, as an ordinary user with no launcher, stopped when the test says. */
@@ -45,6 +55,7 @@ const harness = () => {
       launcher: { present: () => true, prepared, close, onQuery: (respond) => void (answer = respond) },
       runs,
       interfaces: { tailscaleAddress: async () => undefined, tailnetName: async () => undefined },
+      probeContainment: async () => NO_BUBBLEWRAP,
     },
   };
   return { context, stop, prepared, close, ask, runs, out: () => out, err: () => err };

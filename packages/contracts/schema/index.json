@@ -487,6 +487,14 @@
       "title": "SessionModeSetPayload"
     },
     {
+      "path": "sessions/events/session.containment.set.json",
+      "title": "SessionContainmentSetPayload"
+    },
+    {
+      "path": "sessions/events/tool.decision.json",
+      "title": "ToolDecisionPayload"
+    },
+    {
       "path": "sessions/events/group.created.json",
       "title": "GroupCreatedPayload"
     },
@@ -787,12 +795,32 @@
       "title": "ContainmentLevel"
     },
     {
+      "path": "permissions/containment-cause.json",
+      "title": "ContainmentCause"
+    },
+    {
       "path": "permissions/containment-availability.json",
       "title": "ContainmentAvailability"
     },
     {
+      "path": "permissions/containment-mechanism.json",
+      "title": "ContainmentMechanism"
+    },
+    {
+      "path": "permissions/containment-container.json",
+      "title": "ContainmentContainer"
+    },
+    {
+      "path": "permissions/containment-report.json",
+      "title": "ContainmentReport"
+    },
+    {
       "path": "permissions/containment-resolution.json",
       "title": "ContainmentResolution"
+    },
+    {
+      "path": "permissions/tool-decider.json",
+      "title": "ToolDecider"
     },
     {
       "path": "permissions/run-policy.json",
@@ -2083,6 +2111,22 @@
       "title": "permissions.mode.set error"
     },
     {
+      "path": "methods/permissions.containment.set/params.json",
+      "title": "permissions.containment.set params"
+    },
+    {
+      "path": "methods/permissions.containment.set/result.json",
+      "title": "permissions.containment.set result"
+    },
+    {
+      "path": "methods/permissions.containment.set/response.json",
+      "title": "permissions.containment.set response"
+    },
+    {
+      "path": "methods/permissions.containment.set/error.json",
+      "title": "permissions.containment.set error"
+    },
+    {
       "path": "methods/permissions.settings.get/params.json",
       "title": "permissions.settings.get params"
     },
@@ -2905,6 +2949,16 @@
       "result": "methods/permissions.mode.set/result.json",
       "response": "methods/permissions.mode.set/response.json",
       "error": "methods/permissions.mode.set/error.json"
+    },
+    {
+      "name": "permissions.containment.set",
+      "scope": "runs:drive",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/permissions.containment.set/params.json",
+      "result": "methods/permissions.containment.set/result.json",
+      "response": "methods/permissions.containment.set/response.json",
+      "error": "methods/permissions.containment.set/error.json"
     },
     {
       "name": "permissions.settings.get",

@@ -62,6 +62,7 @@ export const capabilities = {
   imageInput: true,
   fileInput: false,
   modeChange: true,
+  containment: false,
   instructionChannel: { kind: "system-prompt-append", maxCharacters: null },
   modes: [
     { mode: "plan", available: true, reason: null },
