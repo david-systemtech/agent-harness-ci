@@ -1031,7 +1031,7 @@ export class ClaudeProcess implements TurnControl {
         suggestions: (options.suggestions ?? []).map((suggestion) => toJson(suggestion) as JsonObject),
         agentId: options.agentID ?? null,
       };
-      // The permission table's id is the prompt's: an answer through the host's `answerPrompt` names the same prompt.
+      // The permission table's id is the prompt's: an answer through the host's `deliverAnswer` names the same prompt.
       const asked = this.#context.broker.request({ sessionId: this.sessionId, runId, kind, detail, promptId, signal: options.signal });
       return this.#result(await Promise.race([answered, asked]), toolName, input, options.suggestions ?? [], toolUseID);
     } catch (error) {
