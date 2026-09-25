@@ -55,8 +55,8 @@ export type Panel =
       readonly label: string;
       readonly accountId: string | null;
       readonly startedAt: string | null;
-      /** A command is on its way: keys wait for its answer. */
-      readonly sending: boolean;
+      /** The command on its way, whose answer the keys wait for: the new account, the sign-in's start, or the code; null for none. */
+      readonly sending: "add" | "start" | "code" | null;
     } & Typed)
   /** `/model`: the models of the account, then the efforts of the model chosen. */
   | { readonly kind: "models"; readonly environmentId: string; readonly accountId: string | null; readonly cursor: number; readonly model: ModelEntry | null; readonly modelCursor: number }

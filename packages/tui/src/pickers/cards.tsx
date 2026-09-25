@@ -22,7 +22,7 @@ const Styled = (props: { readonly span: Span }) => (
 );
 
 /** A line being typed, with its cursor at the end. */
-export const TypedLine = (props: { readonly prompt: string; readonly text: string; readonly masked?: boolean }) => (
+export const TypedLine = (props: { readonly prompt: string; readonly text: string }) => (
   <Text wrap="wrap">
     <Text>{props.prompt} </Text>
     {props.text}

@@ -138,6 +138,26 @@ describe("/account", () => {
     }
   });
 
+  it("says the code is being checked from the moment it is sent, before the environment has answered (PR review)", async () => {
+    const { app, env } = await launch();
+    await command(app, "/account");
+    await app.waitFor("+ Add an account");
+    await app.press(KEY.down, KEY.down, KEY.enter);
+    await app.type("side");
+    await app.press(KEY.enter);
+    env.signIn("awaiting-code", { url: "https://claude.ai/oauth/authorize?code=true" });
+    await app.waitFor("Then paste the code");
+    // The environment holds its answer: the sign-in it holds still awaits the code.
+    let answer = () => undefined as void;
+    env.wire.answer("accounts.signin.code", () => new Promise((resolve) => (answer = () => resolve({ result: { receipt: { status: "accepted", sequence: 999, changed: true } } }))));
+    await app.type("abc-123");
+    await app.press(KEY.enter);
+    await app.waitFor("Checking the code");
+    expect(app.frame()).not.toContain("Starting the sign-in");
+    expect(app.frame()).toContain("https://claude.ai/oauth/authorize?code=true");
+    answer();
+  });
+
   it("cancels the sign-in it started when Esc leaves the card", async () => {
     const { app, env } = await launch();
     await command(app, "/account");

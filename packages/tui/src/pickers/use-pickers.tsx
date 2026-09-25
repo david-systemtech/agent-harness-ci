@@ -171,7 +171,8 @@ export const usePickers = (host: PickersHost): Pickers => {
   /** The sign-in the card follows: its account's, from when the card started it on. */
   const followed = (card: Extract<Panel, { kind: "signin" }>) => {
     const held = signIn?.read().result?.signIn;
-    if (!held || card.accountId === null || card.sending || held.accountId !== card.accountId) return undefined;
+    // Until the start answers, the sign-in the card started is not known from an earlier one of the account.
+    if (!held || card.accountId === null || card.sending === "start" || held.accountId !== card.accountId) return undefined;
     if (card.startedAt !== null && Date.parse(held.startedAt) < Date.parse(card.startedAt)) return undefined;
     return held;
   };
@@ -207,13 +208,13 @@ export const usePickers = (host: PickersHost): Pickers => {
   const startSignIn = (environmentId: string, account: AccountRecord) => {
     const absent = lacking(environmentId, "accounts.signin.start");
     if (absent !== undefined) return host.say(`Cannot sign ${account.label} in on ${nameFor(environmentId)}: ${absent}`);
-    host.open({ kind: "signin", environmentId, label: account.label, accountId: account.id, startedAt: null, sending: true, text: "", error: null });
+    host.open({ kind: "signin", environmentId, label: account.label, accountId: account.id, startedAt: null, sending: "start", text: "", error: null });
     void admin(() => runtime.requests.call(environmentId, "accounts.signin.start", { commandId: host.newCommandId(), accountId: account.id })).then((answer) => {
       if (!answer.ok) {
         host.close();
         return host.say(`${account.label} was not signed in: ${answer.line}`);
       }
-      host.change((card) => (card.kind === "signin" && card.accountId === account.id ? { ...card, sending: false, startedAt: answer.result?.signIn.startedAt ?? null } : card));
+      host.change((card) => (card.kind === "signin" && card.accountId === account.id ? { ...card, sending: null, startedAt: answer.result?.signIn.startedAt ?? null } : card));
     });
   };
 
@@ -222,9 +223,9 @@ export const usePickers = (host: PickersHost): Pickers => {
     if (!AccountLabel.safeParse(label).success) {
       return host.change((c) => (c.kind === "signin" ? { ...c, error: "A label is one line of up to 200 characters, with no space at either end." } : c));
     }
-    host.change((c) => (c.kind === "signin" ? { ...c, label, sending: true, error: null } : c));
+    host.change((c) => (c.kind === "signin" ? { ...c, label, sending: "add", error: null } : c));
     void admin(() => runtime.requests.call(card.environmentId, "accounts.add", { commandId: host.newCommandId(), label })).then((answer) => {
-      if (!answer.ok) return host.change((c) => (c.kind === "signin" ? { ...c, sending: false, error: `Not added: ${answer.line}` } : c));
+      if (!answer.ok) return host.change((c) => (c.kind === "signin" ? { ...c, sending: null, error: `Not added: ${answer.line}` } : c));
       const result = answer.result;
       if (!result) {
         host.close();
@@ -234,16 +235,16 @@ export const usePickers = (host: PickersHost): Pickers => {
         host.close();
         return host.say(`${label} was added on ${nameFor(card.environmentId)}, but its sign-in did not start: ${result.signIn.message ?? "the environment gave no reason"}`);
       }
-      host.change((c) => (c.kind === "signin" ? { ...c, accountId: result.account.id, sending: false, text: "" } : c));
+      host.change((c) => (c.kind === "signin" ? { ...c, accountId: result.account.id, sending: null, text: "" } : c));
     });
   };
 
   const sendCode = (card: Extract<Panel, { kind: "signin" }>) => {
     const code = card.text.trim();
     if (code === "" || card.accountId === null) return;
-    host.change((c) => (c.kind === "signin" ? { ...c, sending: true, error: null } : c));
+    host.change((c) => (c.kind === "signin" ? { ...c, sending: "code", error: null } : c));
     void admin(() => runtime.requests.call(card.environmentId, "accounts.signin.code", { commandId: host.newCommandId(), accountId: card.accountId as string, code })).then((answer) =>
-      host.change((c) => (c.kind === "signin" ? { ...c, sending: false, ...(answer.ok ? { text: "" } : { error: `The code was not taken: ${answer.line}` }) } : c)),
+      host.change((c) => (c.kind === "signin" ? { ...c, sending: null, ...(answer.ok ? { text: "" } : { error: `The code was not taken: ${answer.line}` }) } : c)),
     );
   };
 
@@ -533,10 +534,10 @@ export const usePickers = (host: PickersHost): Pickers => {
           if (card.purpose === "handoff") return host.say(`Not handed off: ${BETWEEN_ENVIRONMENTS}.`);
           const absent = lacking(card.environmentId, "accounts.add");
           if (absent !== undefined) return host.say(`Cannot add an account on ${nameFor(card.environmentId)}: ${absent}`);
-          return host.open({ kind: "signin", environmentId: card.environmentId, label: "", accountId: null, startedAt: null, sending: false, text: "", error: null });
+          return host.open({ kind: "signin", environmentId: card.environmentId, label: "", accountId: null, startedAt: null, sending: null, text: "", error: null });
         }
         case "signin":
-          if (card.sending) return;
+          if (card.sending !== null) return;
           if (card.accountId === null) return addAccount(card);
           if (followed(card)?.state === "awaiting-code") return sendCode(card);
           return;
@@ -598,7 +599,7 @@ export const usePickers = (host: PickersHost): Pickers => {
       switch (card.kind) {
         case "signin":
           // A command on its way has the card until it answers.
-          if (card.sending) return card;
+          if (card.sending !== null) return card;
           if (card.text !== "") return { ...card, text: "", error: null };
           if (card.accountId === null) return { kind: "accounts", purpose: "account", environmentId: card.environmentId, cursor: null };
           // The sign-in this card started is the card's to end: leaving it cancels it, whatever state it has reached.
@@ -615,7 +616,7 @@ export const usePickers = (host: PickersHost): Pickers => {
 
     takesText(card) {
       if (card.kind === "settings") return card.edit?.kind === "text";
-      if (card.kind !== "signin" || card.sending) return false;
+      if (card.kind !== "signin" || card.sending !== null) return false;
       return card.accountId === null || followed(card)?.state === "awaiting-code";
     },
 
@@ -689,17 +690,20 @@ export const usePickers = (host: PickersHost): Pickers => {
           const held = followed(card);
           const directory = accountList().find((a) => a.id === card.accountId)?.directory.path;
           const lines: (readonly Span[])[] = [];
-          if (card.accountId === null && !card.sending) {
+          if (card.accountId === null && card.sending === null) {
             return (
               <LinesPanel title={`Add an account on ${name}`} hint={hint} lines={[[{ text: "The email it signs in as makes a good label.", dim: true }], ...(card.error ? [[{ text: card.error, color: "red" }]] : [])]}>
                 <TypedLine prompt="Label for the new account:" text={card.text} />
               </LinesPanel>
             );
           }
-          if (!held || held.state === "starting" || card.sending) lines.push([{ text: held?.state === "submitting" ? "Checking the code…" : "Starting the sign-in…", dim: true }]);
-          else if (held.state === "submitting") lines.push([{ text: "Checking the code…", dim: true }]);
-          else if (held.state === "awaiting-code") lines.push([{ text: "Open this page and sign in:" }], [{ text: held.url ?? "", color: "cyan" }], []);
-          const typing = held?.state === "awaiting-code" && !card.sending;
+          // The page stays in sight while a code is checked, so another code can follow a refused one.
+          if (held?.url != null && (held.state === "awaiting-code" || held.state === "submitting" || card.sending === "code")) {
+            lines.push([{ text: "Open this page and sign in:" }], [{ text: held.url, color: "cyan" }], []);
+          }
+          if (card.sending === "code" || held?.state === "submitting") lines.push([{ text: "Checking the code…", dim: true }]);
+          else if (!held || held.state === "starting" || card.sending !== null) lines.push([{ text: "Starting the sign-in…", dim: true }]);
+          const typing = held?.state === "awaiting-code" && card.sending === null;
           const after: (readonly Span[])[] = [
             ...(card.error ? [[{ text: card.error, color: "red" }]] : []),
             ...(held ? [[], [{ text: `Or run this in a terminal on ${name}'s machine:`, dim: true }], [{ text: fallbackOf(held, directory) }]] : []),
