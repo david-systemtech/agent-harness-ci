@@ -50,6 +50,8 @@ import type { SignInSpawn } from "../accounts/signin-process.js";
 import { CLAUDE_PROVIDER, type HostEnvironment } from "../adapters/claude/credentials.js";
 import { bundledExecutable } from "../adapters/claude/executable.js";
 import { claudeSignInProgram } from "../adapters/claude/signin.js";
+import { usageMethods } from "../accounts/usage-methods.js";
+import { createUsagePool } from "../accounts/usage-pool.js";
 import { processMethods } from "../adapter/processes-methods.js";
 import { ATTACHMENTS_DIRECTORY, createAttachmentStage } from "../adapter/attachment-stage.js";
 import { recoverCutRuns, recoverStagedAttachments } from "../adapter/recovery.js";
@@ -218,6 +220,8 @@ export interface EnvironmentOptions {
   };
   /** How long an account's status or model probe may take. Preset: `PROBE_TIMEOUT_MS`. */
   readonly probeTimeoutMs?: number;
+  /** How long a plan-usage read may take before the reading answers unavailable. Preset: `USAGE_READ_TIMEOUT_MS`. */
+  readonly usageReadTimeoutMs?: number;
   /**
    * The idle time of a provider process, in minutes, read each time a wait
    * begins. Preset: the `providers.processIdleMinutes` setting as the
@@ -541,6 +545,18 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     return { host: created, accounts: store };
   });
 
+  // Plan usage (#136): one reading per account, read through the host and kept six minutes, a run's plan.limit folded in
+  // from the log, usage.updated on a change; heard from here on, before the wire opens.
+  const usagePool = createUsagePool({
+    log,
+    clock,
+    environmentId: record.id,
+    accounts,
+    host,
+    ...(options.usageReadTimeoutMs !== undefined && { readTimeoutMs: options.usageReadTimeoutMs }),
+  });
+  closers.push(() => usagePool.close());
+
   const surface = createHttpSurface({ tailnetName: () => tailnetName });
   const noStore = { "cache-control": "no-store" };
   surface.route("GET", DISCOVERY_PATH, (_request, response) => {
@@ -617,6 +633,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ...reviewMethods({ log, environmentId: record.id }),
     ...processMethods({ log, host }),
     ...accountMethods({ accounts, host }),
+    ...usageMethods({ pool: usagePool, accounts, clock }),
     ...terminalService.handlers,
     ...workspaceMethods({ log }),
   });

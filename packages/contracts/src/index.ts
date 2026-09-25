@@ -72,4 +72,5 @@ export * from "./steps.js";
 export * from "./summary-fields.js";
 export * from "./terminals.js";
 export * from "./transcript.js";
+export * from "./usage.js";
 export * from "./write-commands.js";

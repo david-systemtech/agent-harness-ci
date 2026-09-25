@@ -14,6 +14,7 @@ import { runMethodFixtures, runSchemaFixtures } from "./run-fixtures.js";
 import { sessionMethodFixtures, sessionSchemaFixtures } from "./session-fixtures.js";
 import { settingsMethodFixtures, settingsSchemaFixtures } from "./settings-fixtures.js";
 import { terminalMethodFixtures, terminalSchemaFixtures } from "./terminal-fixtures.js";
+import { usageMethodFixtures, usageSchemaFixtures } from "./usage-fixtures.js";
 
 const uuid = "0f8fad5b-d9cb-469f-a165-70867728950e";
 const otherUuid = "7c9e6679-7425-40de-944b-e07fc1f90ae7";
@@ -463,6 +464,7 @@ const methodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
   ...settingsMethodFixtures,
   ...permissionMethodFixtures,
   ...accountMethodFixtures,
+  ...usageMethodFixtures,
   ...terminalMethodFixtures,
 };
 
@@ -664,7 +666,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
     invalid: [envelopeWithoutCommandId, { ...validEnvelope, sequence: 0 }, { ...validEnvelope, payload: [] }],
   },
   "notices/environment-notice-type.json": {
-    valid: ["environment.started", "environment.updated", "environment.draining", "account.updated", "signin.updated", "signin.executable-chosen", "prompt.parked", "prompt.resolved"],
+    valid: ["environment.started", "environment.updated", "environment.draining", "account.updated", "signin.updated", "signin.executable-chosen", "prompt.parked", "prompt.resolved", "usage.updated"],
     invalid: ["environment.stopped", "session.created", "signin.started", "prompt.opened", ""],
   },
   "notices/environment-notice.json": {
@@ -691,6 +693,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
         payload: { sessionId: otherUuid, runId: thirdUuid, promptId: "toolu_1", kind: "question", title: "Fix the receipts", summary: "Which library?" },
       },
       { type: "prompt.resolved", payload: { sessionId: otherUuid, runId: thirdUuid, promptId: "toolu_1", decision: "allow", decidedBy: "cs-1" } },
+      { type: "usage.updated", payload: { accountId: "claude-max", identity: { provider: "claude", email: "david@example.com", organisation: null } } },
       validEnvironmentStartedEvent,
     ],
     invalid: [
@@ -705,6 +708,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
       { type: "signin.executable-chosen", payload: { provider: "claude", source: "bundled" } },
       { type: "prompt.parked", payload: { sessionId: otherUuid, runId: thirdUuid, promptId: "toolu_1", kind: "tool", title: "t", summary: "s" } },
       { type: "prompt.resolved", payload: { sessionId: otherUuid, runId: thirdUuid, promptId: "toolu_1", decision: "allow" } },
+      { type: "usage.updated", payload: { accountId: "claude-max" } },
       validEnvelope,
     ],
   },
@@ -761,6 +765,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
   ...settingsSchemaFixtures,
   ...permissionSchemaFixtures,
   ...accountSchemaFixtures,
+  ...usageSchemaFixtures,
   ...terminalSchemaFixtures,
   ...methodSchemaFixtures,
 };

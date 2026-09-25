@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "HandoffTrigger",
+  "type": "object",
+  "properties": {
+    "threshold": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The threshold's key: five_hour, seven_day, fable."
+    },
+    "label": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The window as a sentence names it: 5-hour, weekly, Fable."
+    },
+    "at": {
+      "type": "number",
+      "minimum": 0,
+      "description": "The utilisation, 0 to 1, at or above which the work should be handed on."
+    },
+    "window": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The account's window that met it."
+    },
+    "utilisation": {
+      "type": "number",
+      "minimum": 0,
+      "description": "The window's utilisation, rounded to a whole percent; 1 for a refused window that reported none."
+    },
+    "verdict": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "allowed",
+            "warning",
+            "rejected"
+          ],
+          "description": "The latest rate-limit verdict a run of the account reported for the window (plan.limit): allowed, warning (near the limit) or rejected (refused until the reset, whatever the utilisation reads)."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The window's verdict: rejected when the provider is refusing, whatever the threshold."
+    }
+  },
+  "required": [
+    "threshold",
+    "label",
+    "at",
+    "window",
+    "utilisation",
+    "verdict"
+  ],
+  "description": "The hand-off threshold the account handed from has met: which, on what window, and how full it reads."
+}

@@ -167,8 +167,12 @@ interface Held {
 export const createPlanUsageReader = (options: PlanUsageReaderOptions): PlanUsageReader => {
   const held = new Map<string, Held>();
   const inFlight = new Map<string, Promise<UsageReading>>();
-  /** Verdicts that arrived while a read was in flight: that read began before them, so its reading takes them. */
-  const arrivedDuring = new Map<string, PlanLimitVerdict[]>();
+  /**
+   * Verdicts that arrived while a read was in flight, with when: the
+   * reading takes those at or after its stamp, and not those the provider
+   * answered the read after, whose numbers are newer (#136).
+   */
+  const arrivedDuring = new Map<string, { readonly verdict: PlanLimitVerdict; readonly at: number }[]>();
   const keyOf = (account: AccountRef): string => account.directory ?? "";
 
   return {
@@ -184,7 +188,9 @@ export const createPlanUsageReader = (options: PlanUsageReaderOptions): PlanUsag
           const probe = await options.probe(account);
           // Stamped once the provider has answered: that is when the numbers were true.
           const at = options.clock.now();
-          const reading = (arrivedDuring.get(key) ?? []).reduce(foldVerdict, readingOf(probe, at.toISOString()));
+          const reading = (arrivedDuring.get(key) ?? [])
+            .filter((arrived) => arrived.at >= at.getTime())
+            .reduce((folded, arrived) => foldVerdict(folded, arrived.verdict), readingOf(probe, at.toISOString()));
           if (probe.outcome.kind !== "failed") held.set(key, { reading, at: at.getTime() });
           return reading;
         } finally {
@@ -197,9 +203,9 @@ export const createPlanUsageReader = (options: PlanUsageReaderOptions): PlanUsag
     },
     fold(account, verdict) {
       const key = keyOf(account);
-      // A read under way began before this verdict, so its reading takes it; one that begins after is newer (a verdict
-      // with no reading to fold into is dropped for that reason).
-      if (inFlight.has(key)) arrivedDuring.set(key, [...(arrivedDuring.get(key) ?? []), verdict]);
+      // A read under way takes this verdict unless the provider answers it after the verdict; one that begins after is
+      // newer (a verdict with no reading to fold into is dropped for that reason).
+      if (inFlight.has(key)) arrivedDuring.set(key, [...(arrivedDuring.get(key) ?? []), { verdict, at: options.clock.now().getTime() }]);
       const cached = held.get(key);
       if (cached !== undefined) cached.reading = foldVerdict(cached.reading, verdict);
     },
