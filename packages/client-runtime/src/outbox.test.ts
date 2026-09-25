@@ -437,6 +437,40 @@ describe("commands.dispatch", () => {
     expect(runtime.projections.notices.read().filter((n) => n.kind === "command-rejected")).toHaveLength(1);
     expect(pendingCount(runtime)).toBe(0);
   });
+
+  it("drops a command whose request fails for another reason than its socket, answered unconfirmed with one notice, and sends the next while the socket stays open", async () => {
+    const { runtime, wire, clock, id, platform } = await paired();
+    // The first archive's frame is refused as it is sent (a platform socket that throws); the socket stays open.
+    const refused = new Error("The socket refused the frame.");
+    let sends = 0;
+    wire.answer("sessions.archive", () => {
+      if (++sends === 1) throw refused;
+      return answering(accepted(4));
+    });
+    // Nothing else happens on the environment: the command is answered all the same, not left in flight until a later dispatch or ready.
+    const answers: unknown[] = [];
+    void runtime.commands.dispatch(id, "sessions.archive", { sessionId: randomUUID() }).then((a) => answers.push(a));
+    await flush();
+    expect(answers).toEqual([
+      expect.objectContaining({ ok: false, error: expect.objectContaining({ code: "unconfirmed", message: expect.stringContaining("The socket refused the frame.") }) }),
+    ]);
+    expect(pendingCount(runtime)).toBe(0);
+
+    // The queue is free: the next command is sent on the same socket, and the refused one is not sent again.
+    expect(await runtime.commands.dispatch(id, "sessions.archive", { sessionId: randomUUID() })).toMatchObject({ ok: true, receipt: { sequence: 4 } });
+    expect(requests(wire, "sessions.archive")).toHaveLength(2);
+    expect(wire.open()).toBe(1);
+    expect(platform.reported).toContain(refused);
+    expect(pendingCount(runtime)).toBe(0);
+    expect(runtime.projections.notices.read().filter((n) => n.kind === "command-dropped")).toEqual([
+      expect.objectContaining({ environmentId: id, message: expect.stringMatching(/^Archive on .* was dropped: sending it to desk failed/) }),
+    ]);
+
+    // Nothing is left to be dropped seven days on as unreachable.
+    clock.advance(COMMAND_EXPIRY_MS + DAY);
+    await flush();
+    expect(runtime.projections.notices.read().filter((n) => n.kind === "command-dropped")).toHaveLength(1);
+  });
 });
 
 describe("receipts and the overlay", () => {

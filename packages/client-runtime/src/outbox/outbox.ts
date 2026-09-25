@@ -83,9 +83,10 @@ export type RejectedReceipt = Extract<CommandReceipt, { readonly status: "reject
  * environment's reason (a rejected receipt's, which the failure carries, or
  * an error answer's code), `malformed` (an answer that is not the method's),
  * `unreachable` (a `runs:drive` command still waiting its turn when the
- * socket went), `unconfirmed` (a `runs:drive` command in flight when the
- * client session changed, which is not sent again: whether it applied is
- * not known), `expired` (seven days unsent), `forgotten` (its environment
+ * socket went), `unconfirmed` (whether it applied is not known, and it is
+ * not sent again: a `runs:drive` command in flight when the client session
+ * changed, or a command whose request failed for another reason than its
+ * socket), `expired` (seven days unsent), `forgotten` (its environment
  * was removed), `closed` (the runtime closed first: the entry stays in the
  * outbox for the next start).
  */
@@ -431,11 +432,42 @@ export const createOutbox = (host: OutboxHost): Outbox => {
     );
   };
 
-  /** The request went with its socket: the entry stays in flight, and the next ready sends it again with its id. */
+  /**
+   * A command whose request failed for another reason than its socket (the
+   * platform's socket refused the frame): whether it went is not known, and
+   * it would fail the same way again, so it leaves unsent, a notice says it
+   * may not have applied, and the queue moves on.
+   */
+  const unsendable = (entry: OutboxEntry, error: unknown) => {
+    const label = labelOf(entry);
+    const name = nameOf(entry.environmentId);
+    const why = error instanceof Error ? error.message : String(error);
+    remove(entry);
+    notices.raise(entry.environmentId, {
+      kind: "command-dropped",
+      message: `${verbOf(entry.method)} on ${label} was dropped: sending it to ${name} failed (${why}), so whether it applied is not known, and it is not sent again.`,
+      action: null,
+    });
+    answer(entry.commandId, failure(entry.commandId, "unconfirmed", `Sending it to ${name} failed: ${why}. It may or may not have applied.`));
+  };
+
+  /**
+   * The request failed. With its socket: the entry stays in flight, and the
+   * next ready sends it again with its id. Otherwise the fault is reported
+   * and the entry is dropped `unconfirmed` (`unsendable`), so it does not
+   * hold the environment's queue on a socket that stays ready.
+   */
   const lost = (environmentId: string, commandId: string, error: unknown) => {
     const sender = senders.get(environmentId);
-    if (sender?.sending === commandId) sender.sending = null;
-    if (!(error instanceof SocketClosedError) && !(error instanceof NotConnectedError)) report(error);
+    const current = sender?.sending === commandId;
+    if (sender && current) sender.sending = null;
+    if (error instanceof SocketClosedError || error instanceof NotConnectedError) return;
+    report(error);
+    const entry = current ? outboxOf(environmentId).entries.find((e) => e.commandId === commandId) : undefined;
+    if (!entry) return;
+    unsendable(entry, error);
+    void persist(environmentId);
+    kick(environmentId);
   };
 
   /**

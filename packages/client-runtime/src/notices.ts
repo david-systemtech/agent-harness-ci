@@ -21,7 +21,10 @@ export const NOTICE_LIMIT = 100;
  * environment now runs another harness version, from `environment.subscribe`);
  * and the outbox's (#128): `command-rejected` (the environment refused a
  * command, by its receipt or an error) and `command-dropped` (a command left
- * the outbox unsent: it waited more than seven days).
+ * the outbox unsent, whatever dropped it: seven days without reaching its
+ * environment, a run command under a changed client session or never sent
+ * before the runtime ended, a request that failed for another reason than
+ * its socket).
  */
 export type NoticeKind = ConnectionNoticeKind | "updated" | "command-rejected" | "command-dropped";
 export type NoticeAction = ConnectionAction;
