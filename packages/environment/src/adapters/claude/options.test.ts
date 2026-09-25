@@ -35,6 +35,14 @@ const run = (overrides: Partial<RunInput> = {}): RunInput => ({
   target: { kind: "fresh" },
   toolServers: [],
   trusted: false,
+  containment: {
+    level: "off",
+    mechanism: null,
+    scratchDirectory: "/data/containment/session/scratch",
+    temporaryDirectory: "/data/containment/session/tmp",
+    writable: ["/work/repo", "/data/containment/session/scratch", "/data/containment/session/tmp"],
+    network: true,
+  },
   prompt: [{ messageId: "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d", text: "Go", attachments: [] }],
   ...overrides,
 });

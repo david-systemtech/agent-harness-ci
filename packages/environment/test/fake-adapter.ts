@@ -4,6 +4,8 @@ import type {
   AccountRef,
   Adapter,
   AdapterEvent,
+  GateDecision,
+  GatedToolCall,
   ModelOption,
   ProcessPort,
   PromptDecision,
@@ -92,6 +94,8 @@ export interface FakeRunRecord {
   readonly stoppedTasks: string[];
   /** The modes `setMode` changed the live run to, in order. */
   readonly modeChanges: Mode[];
+  /** Every tool call the run asked the gate about, with its ruling, in order. */
+  readonly gated: { readonly call: GatedToolCall; readonly decision: GateDecision }[];
 }
 
 export interface FakeAdapterOptions {
@@ -173,6 +177,25 @@ export const say = (text: string, itemId: string = randomUUID()): TranscriptEven
 
 /** The end of a run: completed unless told otherwise. */
 export const end = (reason: RunEnd["reason"] = "completed", extra: Omit<RunEnd, "type" | "reason"> = {}): RunEnd => ({ type: "end", reason, ...extra });
+
+/**
+ * A tool call played as a provider plays one under the gate: `tool.started`,
+ * then the gate's ruling, before the provider's own evaluation; then
+ * `tool.ended`, `ok` when the gate allowed it and `error` carrying what the
+ * model is told when it denied it. The run's record keeps the ruling.
+ */
+export async function* toolCall(controls: ScriptControls, call: Omit<GatedToolCall, "toolCallId"> & { readonly toolCallId?: string }): AsyncGenerator<AdapterEvent> {
+  const toolCallId = call.toolCallId ?? `toolu_${randomUUID()}`;
+  yield {
+    type: "tool.started",
+    payload: { toolCallId, name: call.tool, input: { access: call.access.kind }, title: call.summary, agentId: null, parentToolCallId: null },
+  };
+  const decision = await controls.context.gate.check({ ...call, toolCallId });
+  yield {
+    type: "tool.ended",
+    payload: decision.decision === "allow" ? { toolCallId, status: "ok", output: "done", durationMs: 1 } : { toolCallId, status: "error", output: decision.message, durationMs: 1 },
+  };
+}
 
 /** The preset script: one reply naming the prompt, then completed. */
 export const replyScript: Script = ({ input }) => [say(`Done: ${input.prompt.map((message) => message.text).join(" / ")}`), end()];
@@ -323,8 +346,20 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
       released: false,
       stoppedTasks: [],
       modeChanges: [],
+      gated: [],
     };
     runs.push(record);
+    // The gate as this run's script asks it, recording each ruling on the run; an adopted turn is handed the context it followed with.
+    const gated: RunContext = {
+      ...context,
+      gate: {
+        check: async (call) => {
+          const decision = await context.gate.check(call);
+          record.gated.push({ call, decision });
+          return decision;
+        },
+      },
+    };
     const events = channel();
     const abort = new AbortController();
     /** Sent messages a steering provider has not folded yet, or a non-steering queue holds. */
@@ -363,7 +398,7 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
 
     const controls: ScriptControls = {
       input,
-      context,
+      context: gated,
       signal: abort.signal,
       adopted,
       nextSent: () =>

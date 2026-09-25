@@ -3,6 +3,7 @@ import {
   compareModes,
   lowerMode,
   type ContainmentLevel,
+  type ContainmentReport,
   type Mode,
   type ModeAvailability,
   type ModeResolution,
@@ -11,6 +12,7 @@ import {
   type RunPolicy,
   type UnattendedMode,
 } from "@agent-harness/contracts";
+import { resolveContainment } from "./containment.js";
 
 /**
  * The policy resolver (permissions spec, "Modules": the policy resolver;
@@ -19,6 +21,9 @@ import {
  * run's policy, which the run keeps whatever changes after it; the same
  * clamp answers `permissions.mode.set`. A mode is never refused for being
  * above the ceiling or unavailable: it is lowered, and the reason recorded.
+ * Containment is resolved beside it, independently (ADR 0006): the
+ * session's own level or the default, lowered to what the probe can enforce
+ * (`containment.ts`).
  */
 
 /**
@@ -70,6 +75,14 @@ export interface PolicyInput {
   /** The modes the run's account lists, available or not; a mode it does not list is unavailable. */
   readonly accountModes: readonly ModeAvailability[];
   readonly settings: PolicySettings;
+  /**
+   * The containment level the run's session set for itself
+   * (`permissions.containment.set`); null when it set none, and the default
+   * applies. A routine's or a bot's own level (#92) comes the same way.
+   */
+  readonly containment: ContainmentLevel | null;
+  /** What this environment's probe found it can enforce. */
+  readonly enforceable: ContainmentReport;
 }
 
 /** What the resolver answers: the policy, or, only when no mode at or below the ceiling is available, why none could be given. */
@@ -118,8 +131,7 @@ export const resolvePolicy = (input: PolicyInput): PolicyOutcome => {
     actorKind: input.actor.kind,
     attended,
     mode,
-    // A session's own level and the mechanism are #133's; the default is all there is.
-    containment: { requested: null, effective: input.settings.containmentDefault, mechanism: null, reason: null },
+    containment: resolveContainment(input.containment, input.settings.containmentDefault, input.enforceable),
     unattendedDefaultApplied,
   };
 };

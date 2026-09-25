@@ -661,12 +661,15 @@ describe("permissions.settings.get", () => {
         "permissions.parkedPrompt.ttl": { amount: 24, unit: "hours" },
         "permissions.containment.default": "off",
       },
+      // The helper's probe finds no bubblewrap: only off can be enforced (containment.test.ts has the rest).
       containment: {
         levels: [
           { level: "off", available: true, reason: null },
-          { level: "workspace", available: false, reason: expect.stringContaining("#133") as unknown as string },
-          { level: "workspace-no-network", available: false, reason: expect.stringContaining("#133") as unknown as string },
+          { level: "workspace", available: false, reason: expect.stringContaining("bubblewrap is not installed") as unknown as string },
+          { level: "workspace-no-network", available: false, reason: expect.stringContaining("bubblewrap is not installed") as unknown as string },
         ],
+        mechanism: null,
+        container: { declared: false, detected: false },
       },
       isRoot: false,
       denylist: { browserDomains: 0, paths: 0, commandPatterns: 0, hosts: 0 },
@@ -752,7 +755,7 @@ describe("permissions.settings.set", () => {
     const t = await start();
     const admin = await t.client();
     const answer = await send(admin, "permissions.settings.set", { values: { "permissions.containment.default": "workspace" } });
-    expect(answer.receipt).toMatchObject({ status: "rejected", reason: "containment_unavailable", error: { data: { level: "workspace", reason: expect.stringContaining("#133") } } });
+    expect(answer.receipt).toMatchObject({ status: "rejected", reason: "containment_unavailable", error: { data: { level: "workspace", reason: expect.stringContaining("bubblewrap is not installed") } } });
     expect((await send(admin, "permissions.settings.set", { values: { "permissions.containment.default": "off" } })).receipt).toMatchObject({ status: "accepted" });
   });
 

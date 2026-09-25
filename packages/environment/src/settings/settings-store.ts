@@ -42,9 +42,12 @@ export const settingsProjector: Projector = {
  * Every setting's value: each key's stored value, or its preset when it has
  * none, or when the value stored no longer passes the key's schema (a later
  * version that narrowed it). A stored key the table no longer has is ignored.
+ * `presets` replaces the key table's preset of a key with the environment's
+ * own: `permissions.containment.default` is `workspace` where the probe says
+ * it can be enforced (#133).
  */
-export const readSettings = (reader: Reader): SettingsValues => {
-  const values: Record<string, unknown> = { ...presetSettings() };
+export const readSettings = (reader: Reader, presets: Partial<SettingsValues> = {}): SettingsValues => {
+  const values: Record<string, unknown> = { ...presetSettings(), ...presets };
   for (const row of reader.all<{ key: string; value: string }>("SELECT key, value FROM settings")) {
     if (!(SETTINGS_KEYS as readonly string[]).includes(row.key)) continue;
     const parsed = SETTINGS[row.key as SettingsKey].schema.safeParse(JSON.parse(row.value));

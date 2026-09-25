@@ -8,11 +8,13 @@ import {
   HEALTH_PATH,
   PAIR_PATH,
   PROTOCOL_VERSION,
+  SESSION_STREAM_KIND,
   WIRE_PATH,
   formatHostPort,
   pairingLink,
   type AuthPolicy,
   type CapabilityFlags,
+  type ContainmentReport,
   type DiscoveryDocument,
   type DrainTrigger,
   type EnvironmentReadiness,
@@ -40,6 +42,9 @@ import { ATTACHMENTS_DIRECTORY, createAttachmentStage } from "../adapter/attachm
 import { recoverCutRuns, recoverStagedAttachments } from "../adapter/recovery.js";
 import type { InstructionComposer, PolicySeam, ToolServerFactory } from "../adapter/seams.js";
 import type { PermissionBroker } from "../adapter/contract.js";
+import { UNPROBED_REPORT, containmentFlags, containmentReport, presetContainmentDefault } from "../permissions/containment.js";
+import { CONTAINMENT_DIRECTORY, containmentDirectories } from "../permissions/containment-directories.js";
+import { probeContainment, type ContainmentProbe } from "../permissions/containment-probe.js";
 import { permissionMethods, sessionModeClamp } from "../permissions/methods.js";
 import { permissionsProjector, readPermissionSettings } from "../permissions/permissions-store.js";
 import { policySettings, resolvePolicy } from "../permissions/resolver.js";
@@ -183,9 +188,16 @@ export interface EnvironmentOptions {
     readonly toolServers?: ToolServerFactory;
     readonly instructions?: InstructionComposer;
     readonly broker?: PermissionBroker;
-    /** Preset: the policy resolver on the environment's permission settings (#129). */
+    /** Preset: the policy resolver on the environment's permission settings (#129) and its containment probe (#133). */
     readonly resolvePolicy?: PolicySeam;
   };
+  /**
+   * What this environment can enforce (#133), probed once as the adapter
+   * host starts: its capability flags, the containment default's preset and
+   * every run's containment follow from it. Preset: the probe of the running
+   * machine (`containment-probe.ts`); tests script it.
+   */
+  readonly probeContainment?: () => Promise<ContainmentProbe>;
   /** How terminals start: the pty, the shell, the base environment. Preset: `node-pty`, the user's login shell, the clean base (`terminals/`). */
   readonly terminals?: Omit<TerminalsOptions, "clock">;
 }
@@ -307,7 +319,10 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // Where pairing links point: set when the listeners are bound, before any request is served.
   let linkOrigin: string | undefined;
   // The permission settings (#129), read where they are used: inside a command, in its transaction.
-  const permissionSettings = () => readPermissionSettings({ all: (sql, ...params) => log.read(sql, ...params) });
+  // What containment can enforce here: probed as the adapter host starts, before any client can ask (#133).
+  let containment: ContainmentReport = UNPROBED_REPORT;
+  const settingsPresets = () => ({ "permissions.containment.default": presetContainmentDefault(containment) }) as const;
+  const permissionSettings = () => readPermissionSettings({ all: (sql, ...params) => log.read(sql, ...params) }, settingsPresets());
 
   // The record, the signing key and the auth tables: client sessions and pairings are read once, here, into memory.
   const { record, clientSessions, pairings, accessLog } = await step("identity", async () => {
@@ -337,8 +352,30 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     return { record: loaded, clientSessions: loadedClientSessions, pairings: loadedPairings, accessLog: access };
   });
 
+  // Each session's scratch and temporary directories, under the data directory; removed as the session's purge commits.
+  const sessionDirectories = containmentDirectories(join(dataDir, CONTAINMENT_DIRECTORY));
+  closers.push(
+    log.subscribe((event) => {
+      if (event.streamKind !== SESSION_STREAM_KIND || event.type !== "session.purged") return;
+      try {
+        sessionDirectories.remove(event.streamId);
+      } catch (error) {
+        console.error(`Removing the containment directories of the purged session ${event.streamId} failed:`, error);
+      }
+    }),
+  );
+
   // The adapter host: the adapters, the accounts' sign-in states read through their probes, the run registry.
   const host: AdapterHost = await step("adapter-host", async () => {
+    // The probe never fails a start: a probe that throws leaves nothing but off, and says why.
+    try {
+      containment = containmentReport(await (options.probeContainment ?? (() => probeContainment()))());
+    } catch (error) {
+      console.error("The containment probe failed; only off is offered:", error);
+      const reason = `The containment probe failed: ${error instanceof Error ? error.message : String(error)}`;
+      containment = { ...UNPROBED_REPORT, levels: UNPROBED_REPORT.levels.map((level) => (level.available ? level : { ...level, reason })) };
+    }
+    capabilities.push(...containmentFlags(containment));
     // First the recovery sweep: a run the log left without an end was cut by the last stop, and is ended before anything can read it.
     const recovered = recoverCutRuns({ log, clock });
     if (recovered.length > 0) console.error(`The recovery sweep ended ${recovered.length} run(s) a restart cut: ${recovered.join(", ")}.`);
@@ -355,14 +392,17 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       ...(options.accounts !== undefined && { accounts: options.accounts }),
       ...(options.defaultAccountId !== undefined && { defaultAccountId: options.defaultAccountId }),
       // The policy resolver on the permission settings, and each client session's ceiling as it is now (#129).
-      resolvePolicy: ({ actor, requested, accountModes }) =>
+      resolvePolicy: ({ actor, requested, accountModes, containment: level }) =>
         resolvePolicy({
           actor,
           requested,
           ceiling: actor.ceiling,
           accountModes,
           settings: policySettings(permissionSettings()),
+          containment: level,
+          enforceable: containment,
         }),
+      containmentDirectories: sessionDirectories,
       ceilingOf: (id) => clientSessions.ceiling(id),
       processIdleMinutes:
         options.processIdleMinutes ?? (() => readSettings({ all: (sql, ...params) => log.read(sql, ...params) })["providers.processIdleMinutes"]),
@@ -434,7 +474,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       result: { projectors: [...log.rebuildProjections()], sequence: log.head() },
     }),
     // The generic settings (#117), on the environment's settings stream.
-    ...settingsMethods({ log, environmentId: record.id, onChange: (keys) => settleSweep.settingsChanged(keys) }),
+    ...settingsMethods({ log, environmentId: record.id, onChange: (keys) => settleSweep.settingsChanged(keys), presets: settingsPresets() }),
     ...accessMethods({ pairings, clientSessions, accessLog }),
     ...sessionMethods({
       log,
@@ -445,7 +485,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     }),
     ...groupMethods({ log, clock: now }),
     ...runMethods({ log, host, ceilingOf: (id) => clientSessions.ceiling(id) }),
-    ...permissionMethods({ log, host, accessLog, clock, environmentId: record.id, ceilingOf: (id) => clientSessions.ceiling(id) }),
+    ...permissionMethods({ log, host, accessLog, clock, environmentId: record.id, ceilingOf: (id) => clientSessions.ceiling(id), containment }),
     ...processMethods({ log, host }),
     ...terminalService.handlers,
     ...workspaceMethods({ log }),
