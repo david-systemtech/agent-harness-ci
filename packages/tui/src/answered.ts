@@ -1,5 +1,6 @@
 import type { ActionId, KeyActionId } from "@agent-harness/contracts";
 import { ANSWERED_COMMANDS } from "./commands/parse.js";
+import { COMPOSER_KEYS } from "./composer/use-composer.js";
 
 /**
  * The actions of the shared list this build answers: the keys the screen
@@ -9,36 +10,12 @@ import { ANSWERED_COMMANDS } from "./commands/parse.js";
  * draws every other action dim with "(soon)", as Artemis drew its planned
  * rows; the screens that answer them add them here as they arrive.
  */
-export const ANSWERED_KEYS = [
+export const SCREEN_KEYS = [
   "app.focus.next",
   "app.interrupt",
   "app.interruptOrQuit",
   "app.pager.open",
   "app.help",
-  "composer.send",
-  "composer.newline",
-  "composer.continueLine",
-  "composer.navigate",
-  "composer.command.menu",
-  "composer.complete",
-  "composer.slot.back",
-  "composer.paste",
-  "composer.editor",
-  "composer.line.start",
-  "composer.line.end",
-  "composer.buffer.start",
-  "composer.buffer.end",
-  "composer.word.back",
-  "composer.word.forward",
-  "composer.word.deleteBack",
-  "composer.word.deleteForward",
-  "composer.cut.toStart",
-  "composer.cut.toEnd",
-  "composer.yank",
-  "composer.undo",
-  "composer.backspace",
-  "composer.history.search",
-  "composer.history.scopeOrStash",
   "transcript.pageUp",
   "transcript.pageDown",
   "transcript.cursor",
@@ -69,7 +46,10 @@ export const ANSWERED_KEYS = [
   "confirm.no",
 ] as const satisfies readonly KeyActionId[];
 
-export type AnsweredKey = (typeof ANSWERED_KEYS)[number];
+/** The keys the screen answers itself, beside the composer's (`COMPOSER_KEYS`, `composer/use-composer.ts`). */
+export type ScreenKey = (typeof SCREEN_KEYS)[number];
+
+export const ANSWERED_KEYS: readonly KeyActionId[] = [...SCREEN_KEYS, ...COMPOSER_KEYS];
 
 export const ANSWERED: ReadonlySet<ActionId> = new Set<ActionId>([...ANSWERED_KEYS, ...ANSWERED_COMMANDS.map((name) => `command.${name}` as const)]);
 

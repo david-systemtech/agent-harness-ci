@@ -1,6 +1,7 @@
 import { useReducer, useRef } from "react";
 import type { AttachmentInput } from "@agent-harness/contracts";
-import { direction, type Handlers, type Keymap } from "../keys.js";
+import type { KeyActionId } from "@agent-harness/contracts";
+import { direction, type Handler, type Keymap } from "../keys.js";
 import { attachmentFromBytes } from "./attachments.js";
 import type { ClipboardImage } from "./clipboard.js";
 import {
@@ -50,6 +51,7 @@ import {
   sent,
   stashed,
   typed,
+  walkPlace,
   walkStops,
   walked,
   type ComposerState,
@@ -66,6 +68,36 @@ import {
  * and the next context in the lookup takes the key (Tab moves the focus when
  * no popup wants it).
  */
+
+/** The composer's actions this build answers: every one has its handler below (the table is typed by this list). */
+export const COMPOSER_KEYS = [
+  "composer.send",
+  "composer.newline",
+  "composer.continueLine",
+  "composer.navigate",
+  "composer.command.menu",
+  "composer.complete",
+  "composer.slot.back",
+  "composer.paste",
+  "composer.editor",
+  "composer.line.start",
+  "composer.line.end",
+  "composer.buffer.start",
+  "composer.buffer.end",
+  "composer.word.back",
+  "composer.word.forward",
+  "composer.word.deleteBack",
+  "composer.word.deleteForward",
+  "composer.cut.toStart",
+  "composer.cut.toEnd",
+  "composer.yank",
+  "composer.undo",
+  "composer.backspace",
+  "composer.history.search",
+  "composer.history.scopeOrStash",
+] as const satisfies readonly KeyActionId[];
+
+export type ComposerKey = (typeof COMPOSER_KEYS)[number];
 
 /** The clipboard reads Ctrl+V makes; the real clipboard unless a test hands in another. */
 export interface ComposerClipboard {
@@ -110,7 +142,7 @@ export interface Composer {
   readonly text: string;
   /** The same, as it is now rather than at the last render: for an effect that runs after a key changed it. */
   current(): string;
-  readonly handlers: Handlers;
+  readonly handlers: Readonly<Record<ComposerKey, Handler>>;
   /** Characters typed, not keys: into the search query while one is open, else the text. */
   type(text: string): void;
   /** A bracketed paste. */
@@ -173,7 +205,7 @@ export const useComposer = (host: ComposerHost): Composer => {
     return true;
   };
 
-  const handlers: Handlers = {
+  const handlers: Record<ComposerKey, Handler> = {
     "composer.send": () => {
       const state = box.current;
       if (state.search !== null) {
@@ -321,6 +353,8 @@ export const useComposer = (host: ComposerHost): Composer => {
 /** The note under the box: where a history walk stands, the snippet stops left, what goes attached. */
 export const composerNote = (state: ComposerState, completeKey: string): string | undefined => {
   const notes: string[] = [];
+  const place = walkPlace(state);
+  if (place !== null) notes.push(`history ${place.at} of ${place.of}`);
   const stops = liveStops(state);
   if (stops !== null) {
     const left = stops.slots.length - 1 - stops.at + (stops.final === undefined ? 0 : 1);

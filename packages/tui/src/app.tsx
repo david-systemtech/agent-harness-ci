@@ -4,7 +4,7 @@ import { Box, Text, render as inkRender, useApp, useInput, usePaste, useStdout, 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactElement } from "react";
 import type { Clock, EnvironmentView, GrantReader, Observable, PairingInput, SessionRow } from "@agent-harness/client-runtime";
 import { PRODUCT_NAME, actionById, isCommandId, type AttachmentInput, type KeyActionId } from "@agent-harness/contracts";
-import { ANSWERED, BUILD_WORDS, type AnsweredKey } from "./answered.js";
+import { ANSWERED, BUILD_WORDS, type ScreenKey } from "./answered.js";
 import { applyAction, actionsFor, listClientSessions, removeEnvironment, revokeClientSession, type ClientSessionRow } from "./commands/environment.js";
 import { parseCommand } from "./commands/parse.js";
 import { mintPairing, pairingLine, type MintedLines } from "./commands/pair.js";
@@ -540,10 +540,10 @@ export const App = (props: AppProps) => {
     const held = projection?.summary ? (projection.draft ?? "") : undefined;
     const text = composer.current();
     if (synced.current?.key !== openKey) {
-      // A session just opened: what it holds, once it is known.
+      // A session just opened: what it holds, once it is known; what was typed before that is kept, and saved over it.
       if (held === undefined) return;
       synced.current = { key: openKey, text: held };
-      if (text !== held) composer.set(composerOf(held));
+      if (text.length === 0 && held.length > 0) composer.set(composerOf(held));
       return;
     }
     if (held !== undefined && held !== synced.current.text && text === synced.current.text) {
@@ -583,7 +583,7 @@ export const App = (props: AppProps) => {
         setSending((s) => s.filter((one) => one.id !== id));
         say(outcome.line);
         // What was not sent comes back into an empty box, so it is not lost.
-        if (composer.state.editor.text.length === 0) composer.set(composerOf(message.text));
+        if (composer.current().length === 0) composer.set(composerOf(message.text));
         return;
       }
       setSending((s) => s.map((one) => (one.id === id ? { ...one, messageId: outcome.messageId } : one)));
@@ -625,6 +625,9 @@ export const App = (props: AppProps) => {
   const attach = (path: string) => {
     void readAttachment(path, cwd).then((read) => {
       if (!read.ok) return say(`Not attached: ${read.reason}`);
+      // What the session's provider cannot take is refused now, not at the send.
+      const refused = attachmentRefusal({ text: "", attachments: [read.attachment] }, session.provider);
+      if (refused !== undefined) return say(refused.replace("nothing was sent", `${read.attachment.name} was not attached`));
       composer.attach(read.attachment);
       say(`Attached ${read.attachment.name}; it goes with the next message.`);
     });
@@ -963,8 +966,8 @@ export const App = (props: AppProps) => {
     };
     const onRow = (): Row | undefined => (transcriptFocused ? cursorRow : undefined);
     // Every key the screen answers, by action: the key is looked up in the keymap in force, never matched here.
-    const handlers: Record<AnsweredKey, Handler> = {
-      ...(composer.handlers as Record<AnsweredKey, Handler>),
+    const handlers: Record<ScreenKey, Handler> & typeof composer.handlers = {
+      ...composer.handlers,
       "app.focus.next": () => (card.kind === "none" ? setFocus(nextFocus(focused, stops)) : false),
       "rail.leave": () => setFocus("composer"),
       "row.leave": () => {

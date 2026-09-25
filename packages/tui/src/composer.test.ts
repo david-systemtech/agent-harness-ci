@@ -124,6 +124,17 @@ describe("sending", () => {
     expect(app.frame()).toContain("[image shot.png");
   });
 
+  it("refuses at /attach a file the session's provider cannot take", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "agent-harness-attach-"));
+    dirs.push(dir);
+    writeFileSync(join(dir, "notes.pdf"), "%PDF");
+    const { app } = await launch({}, { cwd: dir });
+    await app.tick(5);
+    await send(app, "/attach notes.pdf");
+    await app.waitFor("Claude takes images but no other files: notes.pdf was not attached.");
+    expect(app.frame()).not.toContain("attached: notes.pdf");
+  });
+
   it("pastes an image off the clipboard with Ctrl+V as a chip, sent as an attachment", async () => {
     const { app } = await launch();
     app.clipboard.hold({ image: Uint8Array.of(1, 2, 3) });
