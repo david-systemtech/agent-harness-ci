@@ -98,6 +98,27 @@ describe("the ceiling at pairing", () => {
     expect(created?.payload).toMatchObject({ ceiling: "plan" });
   });
 
+  it("refuses a pairing above the caller's own ceiling, forbidden reason ceiling, whether chosen or the default; at or below it is minted (#180)", async () => {
+    const t = await start();
+    const phone = await pairedClient(t, "acceptEdits");
+    const head = t.env.log.head();
+    const above = await send(phone, "access.pairings.create", { ceiling: "bypassPermissions" });
+    expect(above.receipt).toMatchObject({
+      status: "rejected",
+      reason: "forbidden",
+      error: { code: "forbidden", data: { scope: "admin", reason: "ceiling", ceiling: "acceptEdits" } },
+    });
+    expect(t.env.log.head()).toBe(head);
+    expect((await send(phone, "access.pairings.create", { ceiling: "acceptEdits" })).result?.ceiling).toBe("acceptEdits");
+    expect((await send(phone, "access.pairings.create", { ceiling: "plan" })).result?.ceiling).toBe("plan");
+    // The default stands in for a ceiling not chosen, and is held to the same rule.
+    const admin = await t.client();
+    await send(admin, "permissions.settings.set", { values: { "permissions.defaultCeiling": "auto" } });
+    expect((await send(phone, "access.pairings.create", {})).receipt).toMatchObject({ status: "rejected", reason: "forbidden", error: { data: { reason: "ceiling" } } });
+    // The bootstrap grant's local client session holds the top ceiling, so it mints any.
+    expect((await send(admin, "access.pairings.create", { ceiling: "bypassPermissions" })).result?.ceiling).toBe("bypassPermissions");
+  });
+
   it("refuses a ceiling that is not a mode: default and dontAsk never appear on the wire", async () => {
     const t = await start();
     const admin = await t.client();
@@ -585,6 +606,32 @@ describe("access.sessions.setCeiling", () => {
     });
     expect(t.env.log.head()).toBe(head);
     expect(await accessEvents(admin, "ceiling.changed")).toHaveLength(1);
+  });
+
+  it("refuses raising another session above the caller's own ceiling, forbidden reason ceiling; lowering is always allowed (#180)", async () => {
+    const t = await start();
+    const phone = await pairedClient(t, "acceptEdits");
+    const low = await t.pair({ ceiling: "plan" });
+    const high = await t.pair({ ceiling: "bypassPermissions" });
+    const head = t.env.log.head();
+    expect((await send(phone, "access.sessions.setCeiling", { clientSessionId: low.clientSessionId, ceiling: "auto" })).receipt).toMatchObject({
+      status: "rejected",
+      reason: "forbidden",
+      error: { code: "forbidden", data: { scope: "admin", reason: "ceiling", ceiling: "acceptEdits" } },
+    });
+    expect(t.env.log.head()).toBe(head);
+    // Up to the caller's own ceiling is allowed.
+    expect((await send(phone, "access.sessions.setCeiling", { clientSessionId: low.clientSessionId, ceiling: "acceptEdits" })).result).toEqual({
+      clientSessionId: low.clientSessionId,
+      from: "plan",
+      to: "acceptEdits",
+    });
+    // Lowering is allowed even when the new ceiling is still above the caller's.
+    expect((await send(phone, "access.sessions.setCeiling", { clientSessionId: high.clientSessionId, ceiling: "auto" })).result).toEqual({
+      clientSessionId: high.clientSessionId,
+      from: "bypassPermissions",
+      to: "auto",
+    });
   });
 
   it("keeps the change across a restart", async () => {

@@ -124,6 +124,8 @@ export interface ClientSessions {
    * that can no longer act (a run from the queue waits instead).
    */
   ceiling(id: string): Ceiling | undefined;
+  /** The ceiling the client session holds, live, expired or revoked; undefined only for an id never issued. */
+  heldCeiling(id: string): Ceiling | undefined;
   /** Every client session, oldest first; with `live`, only those neither revoked nor expired. */
   list(options: { readonly live: boolean }): ClientSessionSummary[];
   /** Hears every revocation, once, after it is committed. Returns the unsubscribe. */
@@ -374,6 +376,8 @@ export const createClientSessions = (options: ClientSessionsOptions): ClientSess
       const entry = known.get(id);
       return entry === undefined || !live(entry, clock.now().getTime()) ? undefined : entry.ceiling;
     },
+
+    heldCeiling: (id) => known.get(id)?.ceiling,
 
     list({ live: liveOnly }) {
       const now = clock.now().getTime();
