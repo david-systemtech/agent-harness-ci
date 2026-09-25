@@ -133,7 +133,10 @@ export interface RuledRun {
    * `prompt.opened`, parked for a person on an attended run, answered at once
    * by the broker's automatic rules otherwise (#131); the answer, whoever
    * gives it, settles the ask. The host hands the answer to the gate and
-   * never to the adapter, which did not raise the prompt.
+   * never to the adapter, which did not raise the prompt. A request the
+   * broker denies at once (the run has ended, the provider has given up on
+   * the call, the log refuses the prompt) opens none, and is answered deny
+   * with what the model is told.
    */
   ask(kind: PromptKind, detail: PromptDetail, signal?: AbortSignal): Promise<PromptDecision>;
 }
@@ -148,7 +151,8 @@ export interface RuledRun {
  * `decider` (a throw's too), through #131's `recordToolDecision`, which
  * leaves a call decided already as it is; a denial through `ask` is the
  * prompt's answer's to record (or, when a stop denied it in memory, the
- * prompt stays open for a later answer, ADR 0007). The
+ * prompt stays open for a later answer, ADR 0007), and one the broker gave
+ * before any prompt opened is the gate's (`createToolGate`). The
  * environment's rule is the denylist's (#132, `permissions/denylist-gate.ts`);
  * containment's hard denials come first (#133). Preset: none, every call
  * goes on to the provider.

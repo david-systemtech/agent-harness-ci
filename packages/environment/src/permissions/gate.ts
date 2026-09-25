@@ -4,7 +4,7 @@ import { dirname, isAbsolute, join, parse, relative, sep } from "node:path";
 import type { PromptKind, ToolDecider, ToolDecisionPayload } from "@agent-harness/contracts";
 import type { GateDecision, PromptDecision, PromptDetail, RunContainment, ToolAccess, ToolGate } from "../adapter/contract.js";
 import type { RuledRun, ToolGateRule } from "../adapter/seams.js";
-import { summarise } from "./broker.js";
+import { summarise, type BrokerAnswer } from "./broker.js";
 import { formatActor, type EventLog } from "../event-log/event-log.js";
 import { recordToolDecision } from "./tool-decisions.js";
 
@@ -165,8 +165,13 @@ export interface ToolGateOptions {
   readonly liveRunOf: (sessionId: string) => GatedRun | undefined;
   /** The rules after containment's, in order (#132: the denylist's). Preset: none. */
   readonly rules?: readonly ToolGateRule[];
-  /** How a rule asks the run's person: the broker, as a prompt of that run's (the host's). Preset: nobody can be asked, so the ask is denied and the rule's denial is recorded as one made without asking anyone. */
-  readonly ask?: (run: GatedRun, kind: PromptKind, detail: PromptDetail, signal?: AbortSignal) => Promise<PromptDecision>;
+  /**
+   * How a rule asks the run's person: the broker, as a prompt of that run's
+   * (the host's), whose answer says whether a prompt opened. Preset: nobody
+   * can be asked, so the ask is denied and the rule's denial is recorded as
+   * one made without asking anyone.
+   */
+  readonly ask?: (run: GatedRun, kind: PromptKind, detail: PromptDetail, signal?: AbortSignal) => Promise<BrokerAnswer>;
 }
 
 const NOBODY_TO_ASK: PromptDecision = { decision: "deny", message: "Denied: nobody could be asked about this call. Continue without it and say what you could not do." };
@@ -184,28 +189,37 @@ const NOBODY_TO_ASK: PromptDecision = { decision: "deny", message: "Denied: nobo
  * `system:tool-gate`, when the gate rules, which may be before the
  * provider's report of the call reaches the log; a denial through `ask` is
  * the prompt's answer's to record (or, when a stop denied it in memory, the
- * prompt stays open, ADR 0007), unless no `ask` is wired: then nobody was
- * asked and no prompt opened, so the gate records it. An ask that fails
- * (rejects) makes the rule one that threw. A denial whose record cannot be
- * appended is still a denial. `signal` is the provider giving up on the
- * call: an ask then closes its prompt.
+ * prompt stays open, ADR 0007), unless no prompt opened: no `ask` is wired,
+ * or the broker denied the ask at once (the run had ended, the provider had
+ * given up on the call, the log refused the prompt). Then no answer records
+ * it, so the gate does: by `provider` when the run had ended or the provider
+ * had given up, as the answer to a prompt either closed would be, else by
+ * the rule's decider. An ask that fails (rejects) makes the rule one that
+ * threw. A denial whose record cannot be appended is still a denial.
+ * `signal` is the provider giving up on the call: an ask then closes its
+ * prompt.
  */
 export const createToolGate =
   (options: ToolGateOptions) =>
   (handedTo: GatedRun): ToolGate => ({
     check: async (call, signal) => {
       const gated = options.liveRunOf(handedTo.sessionId) ?? handedTo;
-      // Whether the rule being asked put the call to a person and was answered: then the prompt's answer is the call's decision.
+      // Whether the rule being asked put the call to a person in a prompt that was answered: then the prompt's answer is
+      // the call's decision.
       let asked = false;
+      // Who closed an ask the broker denied before any prompt opened: the provider, when the run had ended or the
+      // provider had given up on the call; else (the log refused the prompt) the rule's own denial.
+      let closedBy: ToolDecider | undefined;
       const run: RuledRun = {
         ...gated,
         ask: async (kind, detail, askSignal) => {
           // With no ask wired no prompt opens, so no answer records the denial: the gate does. An ask that fails
           // answered nothing either, so the rule's failure is the gate's to record.
           if (options.ask === undefined) return NOBODY_TO_ASK;
-          const answer = await options.ask(gated, kind, detail, askSignal ?? signal);
-          asked = true;
-          return answer;
+          const { decision, unopened } = await options.ask(gated, kind, detail, askSignal ?? signal);
+          if (unopened === null) asked = true;
+          else if (unopened !== "unrecorded") closedBy = "provider";
+          return decision;
         },
       };
       const record = (decider: ToolDecider, reason: string): void => {
@@ -228,6 +242,7 @@ export const createToolGate =
       };
       for (const rule of [containmentRule, ...(options.rules ?? [])]) {
         asked = false;
+        closedBy = undefined;
         let ruling: GateDecision | null;
         try {
           ruling = await rule.check(call, run, signal);
@@ -237,7 +252,7 @@ export const createToolGate =
           return { decision: "deny", message: GATE_FAILED_MESSAGE };
         }
         if (ruling?.decision === "deny") {
-          record(rule.decider, ruling.message);
+          record(closedBy ?? rule.decider, ruling.message);
           return ruling;
         }
       }

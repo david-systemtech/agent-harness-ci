@@ -119,7 +119,6 @@ export const AUTO_MEMORY_DIRECTORY = "auto-memory";
 /** The database file in the data directory. */
 export const DATABASE_FILE = "environment.db";
 
-
 /**
  * The startup order the env spec fixes ("Lifecycle"), after the root refusal
  * that precedes them all. Readiness turns `ready` only after the last.

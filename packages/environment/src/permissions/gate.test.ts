@@ -11,8 +11,8 @@ import type { ToolGateOptions } from "./gate.js";
  * The gate on its own, without a host: its path walk where the file system
  * changes under it (a link seen by `lstat` and gone by the time `readlink`
  * reads it; `readlinkSync` is wrapped so a test can remove the link just
- * before the real read), and a rule that asks when no ask is wired or the
- * ask fails.
+ * before the real read), and a rule that asks when no ask is wired, the
+ * ask fails, or the broker denies it before any prompt opens.
  */
 
 const beforeReadlink = vi.hoisted(() => ({ hook: undefined as ((path: string) => void) | undefined }));
@@ -118,8 +118,25 @@ describe("a rule whose ask fails", () => {
   it("leaves an ask that was answered to its prompt: the gate records nothing", async () => {
     const workspace = realpathSync(tempDir());
     const append = vi.fn();
-    const answered: ToolGateOptions["ask"] = () => Promise.resolve({ decision: "deny", message: "A person denied it." });
+    const answered: ToolGateOptions["ask"] = () => Promise.resolve({ decision: { decision: "deny", message: "A person denied it." }, unopened: null });
     expect(await gateAt(workspace, append, [keyRule()], answered).check(readKey)).toEqual({ decision: "deny", message: "A person denied it." });
     expect(append).not.toHaveBeenCalled();
+  });
+});
+
+describe("a rule whose ask the broker denied before any prompt opened", () => {
+  it.each([
+    ["the run had ended", "run_ended", "provider"],
+    ["the provider had given up on the call", "cancelled", "provider"],
+    ["the log refused the prompt", "unrecorded", "denylist"],
+  ] as const)("is recorded by the gate when %s (%s), since no answer will: by %s", async (_why, unopened, decidedBy) => {
+    const workspace = realpathSync(tempDir());
+    const append = vi.fn();
+    const denied: ToolGateOptions["ask"] = () => Promise.resolve({ decision: { decision: "deny", message: `Denied: ${unopened}.` }, unopened });
+    expect(await gateAt(workspace, append, [keyRule()], denied).check(readKey)).toEqual({ decision: "deny", message: `Denied: ${unopened}.` });
+    expect(append).toHaveBeenCalledTimes(1);
+    expect(append.mock.calls[0]?.[1]).toEqual([
+      { type: "tool.decision", payload: expect.objectContaining({ toolCallId: "toolu_1", decision: "denied", decidedBy, promptId: null, reason: `Denied: ${unopened}.` }) },
+    ]);
   });
 });

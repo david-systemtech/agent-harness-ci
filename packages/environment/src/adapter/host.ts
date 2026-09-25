@@ -33,6 +33,8 @@ import {
   nextRunText,
   openedPayload,
   ruledAnswer,
+  type BrokerAnswer,
+  type UnopenedReason,
 } from "../permissions/broker.js";
 import { answersFor, hasKeptAnswer, parkedPromptsOfRun } from "../permissions/prompts-store.js";
 import { readRunPolicy } from "../permissions/review-store.js";
@@ -67,6 +69,7 @@ import type {
   PermissionBroker,
   PromptDecision,
   PromptMessage,
+  PromptRequest,
   ProviderCommand,
   ProviderTurn,
   RunContainment,
@@ -837,99 +840,103 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
    * the provider cancelling it (its signal aborts: closed `cancelled`), or
    * by the run's end, which denies it in memory. A request made when no run
    * is live, cancelled before it was made, under the id of a request the run
-   * holds open, or that the log would not take, is denied at once and parks
-   * nothing.
+   * holds open, or that the log would not take, is denied at once, opens no
+   * prompt and parks nothing; the answer says why (`BrokerAnswer`), for the
+   * tool gate, which records such a denial of a call itself (#132).
    */
-  const brokerFor = (sessionId: string, from: "adapter" | "gate" = "adapter"): PermissionBroker => ({
-    request: async (request) => {
-      const entry = live.get(sessionId);
-      if (entry === undefined || entry.ended) return { decision: "deny", message: RUN_ENDED_MESSAGE };
-      if (request.signal?.aborted === true) return { decision: "deny", message: CANCELLED_MESSAGE };
-      const promptId = request.promptId ?? randomUUID();
-      // A second request under the id of one this run holds open is refused before it is recorded: the open one stands
-      // and stays answerable (the prompts projection would refuse its prompt.opened anyway, as a failed record).
-      if (waiters.has(waiterKey(entry.runId, promptId))) {
-        console.error(`Run ${entry.runId} asked again under prompt ${promptId}, which it holds open; the second request is denied.`);
-        return { decision: "deny", message: DUPLICATE_PROMPT_MESSAGE };
-      }
-      const stream = sessionStream(sessionId);
-      const rule = autoAnswer({ kind: request.kind, attended: entry.plan.policy.attended, mode: entry.mode });
-      let opened: PromptOpenedPayload;
-      let ruled: ReturnType<typeof ruledAnswer> | null;
-      try {
-        // The TTL is fixed as it opens (#131); a prompt a rule answers at once never waits, so never expires.
-        const ttlMs = rule === null ? promptTtlMs() : null;
-        opened = openedPayload({
-          runId: entry.runId,
-          promptId,
-          kind: request.kind,
-          detail: request.detail,
-          mode: entry.mode,
-          ceiling: entry.plan.policy.mode.ceiling,
-          ttlExpiresAt: ttlMs === null ? null : new Date(clock.now().getTime() + ttlMs).toISOString(),
-        });
-        // A rule's mode is clamped as a person's is, to the run's ceiling and its account's modes (none left: no mode is
-        // given); what is recorded is what the run is handed, every part of it.
-        ruled = rule === null ? null : ruledAnswer(rule.decision, opened.ceiling, entry.descriptor.modes);
-        log.atomically((tx) => {
-          log.append(stream, [{ type: "prompt.opened", payload: opened }], { tx, actor: entry.actor, correlationId: entry.runId });
-          if (rule !== null && ruled !== null) {
-            const { decision, mode } = ruled;
-            const payload: PromptAnsweredPayload = {
-              ...autoDenial(opened, rule.auto, decision.message ?? null),
-              decision: decision.decision,
-              answers: decision.answers === undefined ? null : { ...decision.answers },
-              updatedInput: decision.updatedInput ?? null,
-              mode,
-              remember: decision.remember ?? null,
-              delivery: "live",
-            };
-            log.append(stream, answerEvents(reader, opened, payload), { tx, actor: HOST_ACTOR, correlationId: entry.runId });
-          }
-        });
-      } catch (error) {
-        console.error(`Recording prompt ${promptId} of run ${entry.runId} failed; it is denied, and nobody was asked:`, error);
-        return { decision: "deny", message: UNRECORDED_MESSAGE };
-      }
-      if (ruled !== null) {
-        // The run continues in the mode the rule gave it, as it does after a person's answer (`deliverAnswer`).
-        if (ruled.mode !== null && !entry.ended) entry.mode = ruled.mode.effective;
-        return ruled.decision;
-      }
-      raised(entry, promptId);
-      return new Promise<PromptDecision>((resolve) => {
-        let open = true;
-        const settle = (decision: PromptDecision): void => {
-          if (!open) return;
-          open = false;
-          if (waiters.get(key) === waiter) waiters.delete(key);
-          gateRequests.delete(key);
-          request.signal?.removeEventListener("abort", cancel);
-          answered(entry, promptId);
-          resolve(decision);
-        };
-        // The provider cancelled it and answered it itself: the log closes it, unless someone answered first.
-        const cancel = (): void => {
-          if (!open) return;
-          try {
-            log.atomically((tx) => {
-              if (parkedPromptsOfRun(reader, entry.runId).some((prompt) => prompt.promptId === promptId)) {
-                log.append(stream, answerEvents(reader, opened, autoDenial(opened, "cancelled")), { tx, actor: entry.actor, correlationId: entry.runId });
-              }
-            });
-          } catch (error) {
-            console.error(`Recording the cancelling of prompt ${promptId} of run ${entry.runId} failed:`, error);
-          }
-          settle({ decision: "deny", message: CANCELLED_MESSAGE });
-        };
-        const key = waiterKey(entry.runId, promptId);
-        const waiter = { runId: entry.runId, settle };
-        waiters.set(key, waiter);
-        if (from === "gate") gateRequests.add(key);
-        request.signal?.addEventListener("abort", cancel, { once: true });
+  const requestPrompt = async (sessionId: string, from: "adapter" | "gate", request: PromptRequest): Promise<BrokerAnswer> => {
+    const unopened = (reason: UnopenedReason, message: string): BrokerAnswer => ({ decision: { decision: "deny", message }, unopened: reason });
+    const entry = live.get(sessionId);
+    if (entry === undefined || entry.ended) return unopened("run_ended", RUN_ENDED_MESSAGE);
+    if (request.signal?.aborted === true) return unopened("cancelled", CANCELLED_MESSAGE);
+    const promptId = request.promptId ?? randomUUID();
+    // A second request under the id of one this run holds open is refused before it is recorded: the open one stands
+    // and stays answerable (the prompts projection would refuse its prompt.opened anyway, as a failed record).
+    if (waiters.has(waiterKey(entry.runId, promptId))) {
+      console.error(`Run ${entry.runId} asked again under prompt ${promptId}, which it holds open; the second request is denied.`);
+      return unopened("unrecorded", DUPLICATE_PROMPT_MESSAGE);
+    }
+    const stream = sessionStream(sessionId);
+    const rule = autoAnswer({ kind: request.kind, attended: entry.plan.policy.attended, mode: entry.mode });
+    let opened: PromptOpenedPayload;
+    let ruled: ReturnType<typeof ruledAnswer> | null;
+    try {
+      // The TTL is fixed as it opens (#131); a prompt a rule answers at once never waits, so never expires.
+      const ttlMs = rule === null ? promptTtlMs() : null;
+      opened = openedPayload({
+        runId: entry.runId,
+        promptId,
+        kind: request.kind,
+        detail: request.detail,
+        mode: entry.mode,
+        ceiling: entry.plan.policy.mode.ceiling,
+        ttlExpiresAt: ttlMs === null ? null : new Date(clock.now().getTime() + ttlMs).toISOString(),
       });
-    },
-  });
+      // A rule's mode is clamped as a person's is, to the run's ceiling and its account's modes (none left: no mode is
+      // given); what is recorded is what the run is handed, every part of it.
+      ruled = rule === null ? null : ruledAnswer(rule.decision, opened.ceiling, entry.descriptor.modes);
+      log.atomically((tx) => {
+        log.append(stream, [{ type: "prompt.opened", payload: opened }], { tx, actor: entry.actor, correlationId: entry.runId });
+        if (rule !== null && ruled !== null) {
+          const { decision, mode } = ruled;
+          const payload: PromptAnsweredPayload = {
+            ...autoDenial(opened, rule.auto, decision.message ?? null),
+            decision: decision.decision,
+            answers: decision.answers === undefined ? null : { ...decision.answers },
+            updatedInput: decision.updatedInput ?? null,
+            mode,
+            remember: decision.remember ?? null,
+            delivery: "live",
+          };
+          log.append(stream, answerEvents(reader, opened, payload), { tx, actor: HOST_ACTOR, correlationId: entry.runId });
+        }
+      });
+    } catch (error) {
+      console.error(`Recording prompt ${promptId} of run ${entry.runId} failed; it is denied, and nobody was asked:`, error);
+      return unopened("unrecorded", UNRECORDED_MESSAGE);
+    }
+    if (ruled !== null) {
+      // The run continues in the mode the rule gave it, as it does after a person's answer (`deliverAnswer`).
+      if (ruled.mode !== null && !entry.ended) entry.mode = ruled.mode.effective;
+      return { decision: ruled.decision, unopened: null };
+    }
+    raised(entry, promptId);
+    const answer = await new Promise<PromptDecision>((resolve) => {
+      let open = true;
+      const settle = (decision: PromptDecision): void => {
+        if (!open) return;
+        open = false;
+        if (waiters.get(key) === waiter) waiters.delete(key);
+        gateRequests.delete(key);
+        request.signal?.removeEventListener("abort", cancel);
+        answered(entry, promptId);
+        resolve(decision);
+      };
+      // The provider cancelled it and answered it itself: the log closes it, unless someone answered first.
+      const cancel = (): void => {
+        if (!open) return;
+        try {
+          log.atomically((tx) => {
+            if (parkedPromptsOfRun(reader, entry.runId).some((prompt) => prompt.promptId === promptId)) {
+              log.append(stream, answerEvents(reader, opened, autoDenial(opened, "cancelled")), { tx, actor: entry.actor, correlationId: entry.runId });
+            }
+          });
+        } catch (error) {
+          console.error(`Recording the cancelling of prompt ${promptId} of run ${entry.runId} failed:`, error);
+        }
+        settle({ decision: "deny", message: CANCELLED_MESSAGE });
+      };
+      const key = waiterKey(entry.runId, promptId);
+      const waiter = { runId: entry.runId, settle };
+      waiters.set(key, waiter);
+      if (from === "gate") gateRequests.add(key);
+      request.signal?.addEventListener("abort", cancel, { once: true });
+    });
+    return { decision: answer, unopened: null };
+  };
+
+  /** The broker as a session's adapter is handed it: the answer alone. */
+  const brokerFor = (sessionId: string): PermissionBroker => ({ request: async (request) => (await requestPrompt(sessionId, "adapter", request)).decision });
 
   /** A live run as the tool gate rules under it. */
   const gatedRun = (entry: LiveRun): GatedRun => ({ runId: entry.runId, sessionId: entry.sessionId, workspace: entry.plan.workspace.path, containment: entry.containment });
@@ -937,13 +944,14 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
    * The gate a run is handed (`permissions/gate.ts`): containment's rule, then
    * the environment's (the denylist's, #132), under the session's run live
    * when it is asked. A rule asks a person through the broker, as a prompt of
-   * that run's, whose answer the host hands to the gate alone.
+   * that run's, whose answer the host hands to the gate alone; the gate is
+   * told when no prompt opened, since it then records the call's decision.
    */
   const gateFor = createToolGate({
     log,
     rules: gateRules,
     ask: (run, kind, detail, signal) =>
-      brokerFor(run.sessionId, "gate").request({ sessionId: run.sessionId, runId: run.runId, kind, detail, ...(signal !== undefined && { signal }) }),
+      requestPrompt(run.sessionId, "gate", { sessionId: run.sessionId, runId: run.runId, kind, detail, ...(signal !== undefined && { signal }) }),
     liveRunOf: (sessionId) => {
       const current = live.get(sessionId);
       return current !== undefined && !current.ended ? gatedRun(current) : undefined;

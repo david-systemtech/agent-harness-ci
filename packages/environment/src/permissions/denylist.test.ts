@@ -25,7 +25,8 @@ import { end, fakeAdapter, say, toolCall, type FakeAdapter, type FakeAdapterOpti
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { create, refusal } from "../../test/sessions.js";
 import type { WireClient } from "../../test/wire-client.js";
-import type { GatedToolCall } from "../adapter/contract.js";
+import type { GatedToolCall, ToolGate } from "../adapter/contract.js";
+import { CANCELLED_MESSAGE, RUN_ENDED_MESSAGE, UNRECORDED_MESSAGE } from "./broker.js";
 import { denylistCall } from "./denylist-gate.js";
 import { GATE_FAILED_MESSAGE, resolvePath } from "./gate.js";
 import type { ToolGateRule } from "../adapter/seams.js";
@@ -709,6 +710,62 @@ describe("the gate's rules", () => {
     expect(decisions(t, id)).toEqual([expect.objectContaining({ decision: "denied", decidedBy: "provider", promptId: prompt?.promptId })]);
     expect(toolEnds(t, id)).toEqual([expect.objectContaining({ status: "cancelled" })]);
     expect(registry["permissions.prompts.list"].result.parse(await client.request("permissions.prompts.list", {})).prompts).toEqual([]);
+  });
+
+  it("record a call the provider gave up on before its prompt could open as the provider's, not as the mode's at the run's end", async () => {
+    const t = await start();
+    const client = await t.client();
+    const { id } = await create(client);
+    const gaveUp = new AbortController();
+    gaveUp.abort();
+    t.adapter.nextScripts.push(async function* (controls: ScriptControls) {
+      yield* toolCall(controls, readKey, gaveUp.signal);
+      yield say("Carried on");
+      yield end();
+    });
+    const { runId } = await startRun(client, id);
+    await untilEnded(t, id, runId);
+    // The broker denied the ask at once: no prompt opened, so no answer records the call's decision.
+    expect(opened(t, id)).toEqual([]);
+    expect(t.adapter.lastRun().gated.map((ruling) => ruling.decision)).toEqual([{ decision: "deny", message: CANCELLED_MESSAGE }]);
+    expect(toolEnds(t, id)).toEqual([expect.objectContaining({ status: "cancelled" })]);
+    expect(decisions(t, id)).toEqual([expect.objectContaining({ decision: "denied", decidedBy: "provider", promptId: null, reason: CANCELLED_MESSAGE })]);
+  });
+
+  it("record a call whose prompt the log refused as the denylist's: nobody was asked, and the mode let nothing through", async () => {
+    const t = await start({ script: calls(readKey) });
+    const client = await t.client();
+    const { id } = await create(client);
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    onCleanup(() => error.mockRestore());
+    const append = t.env.log.append.bind(t.env.log);
+    vi.spyOn(t.env.log, "append").mockImplementation((stream, events, options) => {
+      if (events.some((event) => event.type === "prompt.opened")) throw new Error("The log refused the prompt.");
+      return append(stream, events, options);
+    });
+    const { runId } = await startRun(client, id);
+    await untilEnded(t, id, runId);
+    expect(opened(t, id)).toEqual([]);
+    expect(toolEnds(t, id)).toEqual([expect.objectContaining({ status: "error", output: UNRECORDED_MESSAGE })]);
+    expect(decisions(t, id)).toEqual([expect.objectContaining({ decision: "denied", decidedBy: "denylist", promptId: null, reason: UNRECORDED_MESSAGE })]);
+  });
+
+  it("record a call the provider asked the gate about after its run ended as the provider's", async () => {
+    const t = await start();
+    const client = await t.client();
+    const { id } = await create(client);
+    let late: ToolGate | undefined;
+    t.adapter.nextScripts.push(async function* (controls: ScriptControls) {
+      late = controls.context.gate;
+      yield end();
+    });
+    const { runId } = await startRun(client, id);
+    await untilEnded(t, id, runId);
+    expect(await late?.check({ ...readKey, toolCallId: "toolu_late" })).toEqual({ decision: "deny", message: RUN_ENDED_MESSAGE });
+    expect(opened(t, id)).toEqual([]);
+    expect(decisions(t, id)).toEqual([
+      expect.objectContaining({ runId, toolCallId: "toolu_late", decision: "denied", decidedBy: "provider", promptId: null, reason: RUN_ENDED_MESSAGE }),
+    ]);
   });
 
   it("leave a denylist prompt a person's interrupt ended the run under to the provider, not the denylist", async () => {
