@@ -291,7 +291,7 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
     readonly runId: string;
     readonly messageId: string;
     readonly queued: boolean;
-    /** The listing id of the model the message is read in: the requested one for a new run, the live run's for a queued message. */
+    /** The model the message is read in, by its listing id: the requested one for a new run, the live run's for a queued message (its bare id once its account has left the listing). */
     readonly model: string;
     readonly head: AnswerHead;
   }
@@ -338,9 +338,11 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
           if (sent.rejected !== undefined) throw refused(sent.rejected);
           // What a live run cannot take is said to be ignored. Its model first: whichever run reads the message runs on the
           // live run's (the live run, a run of its queue, which takes the model of the run before it, or a turn its provider
-          // opens), so the answer names that one, and a request naming another is told so.
+          // opens), so the answer names that one, by its bare id once its account has left the listing (removed mid-run),
+          // and a request naming another is told so. A live run's row is there: `run.started` wrote it, and only a purge,
+          // refused above for a deleted session, takes it away.
           const running = readRun(reader, facts.live.runId);
-          const answeredIn = running === null ? model.id : (listingId(catalogue, running.accountId, running.model) ?? model.id);
+          const answeredIn = running === null ? model.id : (listingId(catalogue, running.accountId, running.model) ?? running.model);
           if (answeredIn !== model.id) ignored.push("model");
           if (turn.extension.permissionMode !== null) ignored.push(`${COMPLETIONS_NAMESPACE}.permissionMode`);
           ignored.push(...turn.instructionSources);

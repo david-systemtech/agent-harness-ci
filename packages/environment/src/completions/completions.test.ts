@@ -1004,6 +1004,32 @@ describe("session continuity", () => {
     await first.rest();
   });
 
+  it("names the live run's own model id once its account has left the listing, and reports the requested model ignored", async () => {
+    const t = await start({}, { accounts: [{ id: "claude-max", provider: "fake" }, { id: "work", provider: "fake" }] });
+    const { token } = await program(t);
+    const client = await t.client();
+    // A session with no account of its own runs on the default, claude-max, the first.
+    const sessionId = randomUUID();
+    await create(client, { id: sessionId });
+    const held = gate();
+    t.adapter.nextScripts.push(async function* ({ nextSent }) {
+      await held.opened;
+      yield say(`Also: ${(await nextSent()).text}`);
+      yield end();
+    });
+    const first = await stream(t, token, turn("Start", { "agent-harness": { sessionId } }));
+    await first.chunk();
+    // Its account is removed while the run goes on, and work becomes the default a bare model names.
+    await client.request("accounts.remove", { commandId: randomUUID(), accountId: "claude-max" });
+    const queued = await stream(t, token, { ...turn("and tidy up"), model: "opus", "agent-harness": { sessionId } });
+    const opening = await queued.chunk();
+    expect(opening).toMatchObject({ model: "opus", "agent-harness": { delivery: "queued", ignored: ["model"] } });
+    held.open();
+    expect(new Set(chunksOf(await queued.rest()).map((chunk) => chunk.model))).toEqual(new Set(["opus"]));
+    await first.rest();
+    await client.close();
+  });
+
   it("ends the answer with an internal error chunk when where the queued message waits cannot be read", async () => {
     const t = await start({ capabilities: { providerQueue: false, steering: false } });
     const { token } = await program(t);
