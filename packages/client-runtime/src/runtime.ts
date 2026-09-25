@@ -12,6 +12,12 @@ import type { EnvironmentView } from "./projections/environments.js";
 import type { Requests } from "./requests.js";
 import type { SessionListView, SessionRow } from "./projections/session-list.js";
 import type { SessionHandle } from "./streams/session-handles.js";
+import type { AccountsAnswer, ModelsAnswer, UsageView } from "./projections/accounts.js";
+import type { Attention } from "./projections/attention.js";
+import type { ClientCalls } from "./projections/client-calls.js";
+import type { ModePicker } from "./projections/modes.js";
+import type { RunsView } from "./projections/runs.js";
+import type { SessionProjection } from "./projections/session.js";
 
 /**
  * The client runtime (docs/specs/client-runtime.md): what every client
@@ -40,13 +46,34 @@ export interface Runtime {
   readonly preferences: Observable<ClientPreferences>;
   readonly projections: {
     readonly environments: Observable<readonly EnvironmentView[]>;
-    /** What the runtime has to tell David, newest last, at most 100: the connections' notices and environment updates. */
+    /** What the runtime has to tell David, newest last, at most 100: the connections' notices, the environment's (updated, draining, an account, a prompt parked or settled unanswered) and the outbox's rejections and drops. */
     readonly notices: Observable<readonly Notice[]>;
     /** Every session across the enabled environments with the sidebar's views: shelves, merged groups, repositories; and each list's freshness. */
     readonly sessionList: Observable<SessionListView>;
     /** A case-insensitive substring match over titles, tags, group names and repository identity, in the sidebar's order. */
     search(query: string): Observable<readonly SessionRow[]>;
+    /**
+     * One session's stream reduced into runs and transcript entries, with
+     * its parked prompts, its queue, its rewind, its summary and its draft.
+     * Following it holds the session's subscription as a handle does;
+     * reading it never subscribes.
+     */
+    session(environmentId: string, sessionId: string): Observable<SessionProjection>;
+    /** Each session's run state, and the parked asks of every enabled environment with their TTL countdowns. */
+    readonly runs: Observable<RunsView>;
+    /** The environment's accounts, from the request cache; fetched while followed. */
+    accounts(environmentId: string): Observable<AccountsAnswer>;
+    /** The models the environment's accounts can use, from the request cache; fetched while followed. */
+    models(environmentId: string): Observable<ModelsAnswer>;
+    /** Plan usage of every enabled environment, pooled by account identity into one gauge per login. */
+    readonly usage: Observable<UsageView>;
+    /** The mode picker for the environment: the contracts' modes in their order, each allowed up to the connection's ceiling. */
+    modes(environmentId: string): Observable<ModePicker>;
   };
+  /** Run ended, prompt parked, notice arrived: for the renderer to surface; the runtime never calls the shell for them. */
+  readonly attention: Attention;
+  /** The calls the environment addresses to this client (ADR 0014), each handed to the handler registered for its kind. */
+  readonly clientCalls: ClientCalls;
   readonly subscriptions: {
     /**
      * Subscribes one session for as long as a handle holds it, from its

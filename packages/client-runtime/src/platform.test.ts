@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, expectTypeOf, it } from "vitest";
-import { derived, writable } from "./observable.js";
+import { derived, dynamic, writable } from "./observable.js";
 import { SHELL_MEMBERS, hasShellMember, type Shell } from "./shell.js";
 import { fakeShell, inMemoryPlatform, manualClock } from "./testing/in-memory-platform.js";
 
@@ -79,6 +79,37 @@ describe("observables", () => {
     source.set(2);
     expect(() => doubled.read()).toThrow("compute failed once");
     expect(doubled.read()).toBe(4);
+  });
+
+  it("follow nothing when a compute throws as the first subscriber arrives, derived or dynamic", () => {
+    let following = 0;
+    const base = writable(1);
+    const counted = {
+      read: base.read,
+      subscribe(listener: (value: number) => void) {
+        following++;
+        const stop = base.subscribe(listener);
+        return () => {
+          following--;
+          stop();
+        };
+      },
+    };
+    let fail = true;
+    const compute = () => {
+      if (fail) throw new Error("not computable yet");
+      return counted.read() * 2;
+    };
+    for (const view of [derived([counted], compute), dynamic(() => [counted], compute)]) {
+      fail = true;
+      expect(() => view.subscribe(() => undefined)).toThrow("not computable yet");
+      expect(following).toBe(0);
+      fail = false;
+      const stop = view.subscribe(() => undefined);
+      expect(following).toBe(1);
+      stop();
+      expect(following).toBe(0);
+    }
   });
 
   it("tell every listener even when one throws, then throw what was thrown", () => {
