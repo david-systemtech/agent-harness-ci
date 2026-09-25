@@ -150,29 +150,20 @@ export const REQUEST_CACHE_TTL_MS = 5 * 60_000;
 export const CACHE_REFRESH_NOTICES: readonly string[] = ["environment.started", "environment.updated"];
 
 /**
- * `accounts.usage`, plan usage per account (#136), which `projections.usage`
- * reads: not registered until #136 merges, so the request cache answers it
- * `unsupported` until then. Named here so its refresh notice is listed
- * beside the others; the merge drops it from `CachedQueryName`.
- */
-export const USAGE_QUERY = "accounts.usage";
-
-/** The queries the request cache refreshes on a notice of their own. */
-export type CachedQueryName = QueryMethodName | typeof USAGE_QUERY;
-
-/**
  * The notices after which one query's cached answer is fetched again: its
  * matching notices (#142). An account changing (`account.updated`: its
  * status, identity, label, or its removal) or a sign-in moving
  * (`signin.updated`, whose end changes an account) changes the accounts, the
  * models they can use and their plan usage; `usage.updated` (#136) a
- * reading; a prompt parking or resolving (`prompt.parked`,
- * `prompt.resolved`, #130) the parked prompts.
+ * reading, and so the hand-off recommendation made from the readings; a
+ * prompt parking or resolving (`prompt.parked`, `prompt.resolved`, #130)
+ * the parked prompts.
  */
-export const QUERY_REFRESH_NOTICES: Partial<Readonly<Record<CachedQueryName, readonly string[]>>> = {
+export const QUERY_REFRESH_NOTICES: Partial<Readonly<Record<QueryMethodName, readonly string[]>>> = {
   "accounts.list": ["account.updated", "signin.updated"],
   "models.list": ["account.updated", "signin.updated"],
-  [USAGE_QUERY]: ["usage.updated", "account.updated", "signin.updated"],
+  "accounts.usage": ["usage.updated", "account.updated", "signin.updated"],
+  "accounts.handoff.recommend": ["usage.updated", "account.updated", "signin.updated"],
   "permissions.prompts.list": ["prompt.parked", "prompt.resolved"],
 };
 
@@ -370,7 +361,7 @@ export const createRequestCache = (host: {
     noticed(environmentId, type) {
       for (const entry of entries.values()) {
         if (entry.environmentId !== environmentId) continue;
-        if (CACHE_REFRESH_NOTICES.includes(type) || (QUERY_REFRESH_NOTICES[entry.method as CachedQueryName] ?? []).includes(type)) refresh(entry);
+        if (CACHE_REFRESH_NOTICES.includes(type) || (QUERY_REFRESH_NOTICES[entry.method] ?? []).includes(type)) refresh(entry);
       }
     },
     forget(environmentId) {

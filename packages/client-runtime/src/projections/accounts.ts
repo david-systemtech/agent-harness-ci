@@ -1,4 +1,4 @@
-import type { AccountCatalogue, AccountIdentity, AccountRecord } from "@agent-harness/contracts";
+import type { AccountCatalogue, AccountIdentity, AccountRecord, AccountUsage, UsageWindow } from "@agent-harness/contracts";
 import { derived, dynamic, type Observable } from "../observable.js";
 import type { CachedAnswer, QueryMethodName, RequestFailure } from "../requests.js";
 
@@ -41,34 +41,6 @@ export const answerOf = <N extends QueryMethodName, T>(environmentId: string, ca
 export type AccountsAnswer = EnvironmentAnswer<readonly AccountRecord[]>;
 export type ModelsAnswer = EnvironmentAnswer<readonly AccountCatalogue[]>;
 
-/**
- * One plan window of an account's reading: #136's `UsageWindow`, which this
- * build's contracts do not hold yet. The merge with #136 replaces these two
- * types with the contracts' `UsageWindow` and `AccountUsage`.
- */
-export interface UsageWindow {
-  /** The window in the provider's words: five_hour, seven_day, model_scoped:<model>. */
-  readonly window: string;
-  /** How much of it is used, 0 to 1 and beyond; null when the provider does not say. */
-  readonly utilisation: number | null;
-  readonly resetsAt: string | null;
-  /** The latest rate-limit verdict a run reported for it since the read. */
-  readonly verdict: "allowed" | "warning" | "rejected" | null;
-  /** When these numbers were observed: the reading's `readAt`, or a run's report folded in since. What pooling compares. */
-  readonly observedAt: string;
-}
-
-/** One account's plan usage as `accounts.usage` answers it (#136's `AccountUsage`). */
-export interface UsageReading {
-  readonly accountId: string;
-  /** Who the account is signed in as: what readings are pooled by. Null when it has never been read. */
-  readonly identity: AccountIdentity | null;
-  readonly windows: readonly UsageWindow[];
-  readonly readAt: string;
-  /** Why the reading has no windows, when it has none. */
-  readonly unavailableReason: string | null;
-}
-
 /** One gauge: the readings of one account identity across environments, merged window by window. */
 export interface UsageGauge {
   /** The identity pooled; null for an account never read, which is a gauge of its own. */
@@ -87,7 +59,7 @@ export interface UsageView {
   /** The gauges, in the order their first account appears. */
   readonly gauges: readonly UsageGauge[];
   /** Each enabled environment's readings and how its read went, in the connection list's order. */
-  readonly environments: readonly EnvironmentAnswer<readonly UsageReading[]>[];
+  readonly environments: readonly EnvironmentAnswer<readonly AccountUsage[]>[];
 }
 
 /** One login, as deep equality reads an identity: #136 makes one login read as one deep-equal identity on every environment. */
@@ -103,8 +75,8 @@ const later = (a: string, b: string): boolean => Date.parse(a) > Date.parse(b);
  * verdict folded in on one environment beats an older read on another. An
  * account with no identity yet is a gauge of its own.
  */
-export const poolUsage = (environments: readonly { readonly environmentId: string; readonly readings: readonly UsageReading[] }[]): UsageGauge[] => {
-  const pools = new Map<string, { identity: AccountIdentity | null; members: { environmentId: string; reading: UsageReading }[] }>();
+export const poolUsage = (environments: readonly { readonly environmentId: string; readonly readings: readonly AccountUsage[] }[]): UsageGauge[] => {
+  const pools = new Map<string, { identity: AccountIdentity | null; members: { environmentId: string; reading: AccountUsage }[] }>();
   for (const { environmentId, readings } of environments) {
     for (const reading of readings) {
       const key = reading.identity === null ? `unread ${environmentId} ${reading.accountId}` : identityKey(reading.identity);
@@ -135,7 +107,7 @@ export const poolUsage = (environments: readonly { readonly environmentId: strin
   });
 };
 
-type UsageAnswer = CachedAnswer<never>;
+type UsageAnswer = CachedAnswer<"accounts.usage">;
 
 export interface UsageHost {
   /** The enabled environments, in the connection list's order. */
@@ -149,10 +121,9 @@ export const usageProjection = (host: UsageHost): Observable<UsageView> =>
   dynamic(
     () => [host.environments, ...host.environments.read().map(host.source)],
     (): UsageView => {
-      const environments = host.environments.read().map((environmentId): EnvironmentAnswer<readonly UsageReading[]> => {
+      const environments = host.environments.read().map((environmentId): EnvironmentAnswer<readonly AccountUsage[]> => {
         const answer = host.source(environmentId).read();
-        const result = answer.result as { readonly readings?: readonly UsageReading[] } | null;
-        return { environmentId, value: result?.readings ?? null, fetchedAt: answer.fetchedAt, error: answer.error, loading: answer.loading };
+        return { environmentId, value: answer.result?.readings ?? null, fetchedAt: answer.fetchedAt, error: answer.error, loading: answer.loading };
       });
       return { gauges: poolUsage(environments.map(({ environmentId, value }) => ({ environmentId, readings: value ?? [] }))), environments };
     },

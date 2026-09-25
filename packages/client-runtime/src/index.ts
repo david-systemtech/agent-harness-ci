@@ -85,8 +85,6 @@ export {
   type RequestFailure,
   type RequestFailureCode,
   type Requests,
-  type CachedQueryName,
-  USAGE_QUERY,
 } from "./requests.js";
 export type {
   AssistantEntry,
@@ -106,7 +104,7 @@ export type {
 export { COUNTDOWN_TICK_MS, type Countdown, type ParkedAsk, type RunState, type RunsView, type SessionRun } from "./projections/runs.js";
 export type { Attention, AttentionEvent } from "./projections/attention.js";
 export { CLIENT_CALL_ANSWER_METHOD, CLIENT_CALL_EVENT, type ClientCall, type ClientCallHandler, type ClientCalls } from "./projections/client-calls.js";
-export type { AccountsAnswer, EnvironmentAnswer, ModelsAnswer, UsageGauge, UsageReading, UsageView, UsageWindow } from "./projections/accounts.js";
+export type { AccountsAnswer, EnvironmentAnswer, ModelsAnswer, UsageGauge, UsageView } from "./projections/accounts.js";
 export type { ModeChoice, ModePicker } from "./projections/modes.js";
 export type {
   HeadingMember,

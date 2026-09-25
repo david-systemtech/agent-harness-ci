@@ -16,7 +16,7 @@ import { modesProjection, type ModePicker } from "./projections/modes.js";
 import { createEnvironmentNotices } from "./projections/notices.js";
 import { createRuns } from "./projections/runs.js";
 import { sessionProjection, type SessionProjection } from "./projections/session.js";
-import { createRequestCache, createRequests, USAGE_QUERY, type Requests } from "./requests.js";
+import { createRequestCache, createRequests, type Requests } from "./requests.js";
 import { searchProjection } from "./projections/search.js";
 import { sessionListProjection } from "./projections/session-list.js";
 import type { Runtime } from "./runtime.js";
@@ -161,14 +161,12 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
   const accountsProjections = memo((environmentId): Observable<AccountsAnswer> => answerOf(environmentId, requestCache.cached(environmentId, "accounts.list", {}), (result) => result.accounts));
   const modelsProjections = memo((environmentId): Observable<ModelsAnswer> => answerOf(environmentId, requestCache.cached(environmentId, "models.list", {}), (result) => result.catalogues));
   const modesProjections = memo((environmentId): Observable<ModePicker> => modesProjection(registry.list, environmentId));
-  // `accounts.usage` is #136's: until it merges the request cache answers it `unsupported` (a new observable on each call, hence
-  // the memo), and every gauge is empty.
-  const usageSources = memo((environmentId) => requestCache.cached(environmentId, USAGE_QUERY as never, {} as never));
   const usage = usageProjection({
     environments: derived([registry.list] as const, (list) =>
       list.filter((record) => record.enabled && record.environmentId !== LOCAL_PLACEHOLDER_ID).map((record) => record.environmentId),
     ),
-    source: usageSources,
+    // The request cache gives the same observable for the same environment and query.
+    source: (environmentId) => requestCache.cached(environmentId, "accounts.usage", {}),
   });
 
   const runtime: Runtime = {
