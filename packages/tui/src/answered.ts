@@ -44,6 +44,21 @@ export const SCREEN_KEYS = [
   "pager.close",
   "confirm.yes",
   "confirm.no",
+  "app.attention.next",
+  "permission.move",
+  "permission.choose",
+  "permission.deny",
+  "permission.note",
+  "permission.tick",
+  "permission.rule.edit",
+  "permission.scope.walk",
+  "asks.move",
+  "asks.open",
+  "asks.allow",
+  "asks.deny",
+  "asks.allowAll",
+  "asks.denyAll",
+  "asks.close",
 ] as const satisfies readonly KeyActionId[];
 
 /** The keys the screen answers itself, beside the composer's (`COMPOSER_KEYS`, `composer/use-composer.ts`). */
@@ -62,6 +77,7 @@ export const ANSWERED: ReadonlySet<ActionId> = new Set<ActionId>([...ANSWERED_KE
 export const BUILD_WORDS: Readonly<Partial<Record<ActionId, string>>> = {
   "app.focus.next": "Round the composer, the rail and the transcript",
   "app.interruptOrQuit": "Clear the text or close the card; else interrupt, then quit",
+  "app.attention.next": "The parked asks when more than one session waits; else the next session that needs you",
   "composer.navigate": "The text, then history",
   "rail.leave": "Back to the composer",
   "row.leave": "Back to the composer",

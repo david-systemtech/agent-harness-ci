@@ -113,8 +113,9 @@ describe("the help overlay", () => {
     await app.press("?");
     await pageTo(app, "Edit the rule that row would save");
     expect(app.frame()).toContain("Rules are per session on the harness");
-    expect(rowsWith(app.frame(), "Tick one of several options")[0]).toContain("(soon)");
     expect(rowsWith(app.frame(), "Edit the rule that row would save")[0]).not.toContain("(soon)");
+    await pageTo(app, "Open the conversation in your editor");
+    expect(rowsWith(app.frame(), "Open the conversation in your editor")[0]).toContain("(soon)");
   });
 
   it("shows the effective map: a remapped row with its new key, marked", async () => {

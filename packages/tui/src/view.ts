@@ -120,13 +120,16 @@ export interface Fault {
 /**
  * The activity line: the newer of the latest fault and the latest notice
  * (a notice on a tie), so neither hides what follows it; undefined when
- * there is neither.
+ * there is neither. The notices it does not show are counted after it,
+ * with where they are stacked (`/notices`, #149).
  */
 export const activityLine = (faults: readonly Fault[], notices: readonly Notice[]): string | undefined => {
   const fault = faults.at(-1);
   const notice = notices.at(-1);
-  if (fault && (!notice || Date.parse(fault.at) > Date.parse(notice.at))) return fault.message;
-  return notice ? noticeLine(notice) : undefined;
+  const faultFirst = fault !== undefined && (!notice || Date.parse(fault.at) > Date.parse(notice.at));
+  const shown = faultFirst ? fault.message : notice ? noticeLine(notice) : undefined;
+  const more = notices.length - (faultFirst ? 0 : 1);
+  return shown === undefined || more <= 0 ? shown : `${shown} (+${more} more: /notices)`;
 };
 
 /** What went wrong, in the words of the error. */
