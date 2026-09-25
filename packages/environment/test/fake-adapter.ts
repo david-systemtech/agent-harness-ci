@@ -197,7 +197,7 @@ export interface AskOptions {
  * it is working, asks a prompt of `kind` with `detail`, says what it was told
  * (`toldText`) and ends. An answer a person gives reaches it through the
  * broker's request, which the host settles, and through `answerPrompt`,
- * which the fake records (`nextAnswer`).
+ * which the fake records in the run record's `answers` and hands out through `nextAnswer()`.
  */
 export const ask =
   (kind: PromptKind, detail: PromptDetail = {}, options: AskOptions = {}): Script =>
