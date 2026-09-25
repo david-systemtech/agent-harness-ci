@@ -119,6 +119,21 @@ const accessPayloads = {
   "ceiling.changed": { clientSessionId: "cs-1", from: "plan", to: "auto" },
   "bypass.acknowledged": { setting: "permissions.unattended.mode", sentence: BYPASS_SENTENCE },
   "settings.changed": { area: "permissions", keys: ["permissions.parkedPrompt.ttl"], values: { "permissions.parkedPrompt.ttl": "never" } },
+  "denylist.changed": {
+    section: "paths",
+    added: [{ id: "e-1", pattern: "/etc/shadow", note: "", preset: false, enabled: true }],
+    removed: [],
+    edited: [
+      {
+        before: { id: "preset:~/.ssh", pattern: "~/.ssh", note: "SSH keys.", preset: true, enabled: true },
+        after: { id: "preset:~/.ssh", pattern: "~/.ssh", note: "SSH keys.", preset: true, enabled: false },
+      },
+    ],
+    entries: [
+      { id: "preset:~/.ssh", pattern: "~/.ssh", note: "SSH keys.", preset: true, enabled: false },
+      { id: "e-1", pattern: "/etc/shadow", note: "", preset: false, enabled: true },
+    ],
+  },
 };
 
 /** An invalid payload for every access event type. */
@@ -143,6 +158,12 @@ const invalidAccessPayloads: Record<keyof typeof accessPayloads, readonly unknow
     { area: "permissions", keys: ["permissions.parkedPrompt.ttl"], values: { "permissions.parkedPrompt.ttl": "forever" } },
     { area: "permissions", keys: ["permissions.other"], values: {} },
     { area: "permissions", keys: ["permissions.defaultCeiling"], values: { "permissions.defaultCeiling": "plan", other: 1 } },
+  ],
+  "denylist.changed": [
+    { ...accessPayloads["denylist.changed"], section: "files" },
+    without(accessPayloads["denylist.changed"], "entries"),
+    { ...accessPayloads["denylist.changed"], added: [{ id: "e-1", pattern: "/etc/shadow" }] },
+    { ...accessPayloads["denylist.changed"], edited: [{ before: null, after: null }] },
   ],
 };
 

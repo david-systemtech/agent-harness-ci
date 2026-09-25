@@ -206,6 +206,7 @@ import {
   ToolDecider,
 } from "./permissions.js";
 import { Mode, ModeAvailability } from "./permissions-modes.js";
+import { Denylist, DenylistEntry, DenylistInput, DenylistMatch, DenylistSection, DenylistTestKind } from "./denylist.js";
 import {
   AutoDecider,
   DecidedBy,
@@ -446,6 +447,12 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "permissions/prompt-delivery.json", title: "PromptDelivery", schema: PromptDelivery },
   { path: "permissions/prompt-decision.json", title: "PromptDecisionValue", schema: PromptDecisionValue },
   { path: "permissions/prompt-answer-input.json", title: "PromptAnswerInput", schema: PromptAnswerInput },
+  { path: "permissions/denylist-section.json", title: "DenylistSection", schema: DenylistSection },
+  { path: "permissions/denylist-entry.json", title: "DenylistEntry", schema: DenylistEntry },
+  { path: "permissions/denylist.json", title: "Denylist", schema: Denylist },
+  { path: "permissions/denylist-input.json", title: "DenylistInput", schema: DenylistInput },
+  { path: "permissions/denylist-match.json", title: "DenylistMatch", schema: DenylistMatch },
+  { path: "permissions/denylist-test-kind.json", title: "DenylistTestKind", schema: DenylistTestKind },
   { path: "permissions/listed-prompt.json", title: "ListedPrompt", schema: ListedPrompt },
   { path: "permissions/review-actor.json", title: "ReviewActor", schema: ReviewActor },
   { path: "permissions/review-counts.json", title: "ReviewCounts", schema: ReviewCounts },

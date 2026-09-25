@@ -26,9 +26,19 @@ describe("Claude's tools as the gate reads them", () => {
       tool: "Write",
       summary: "Write /etc/hosts",
       access: { kind: "write", paths: ["/etc/hosts"] },
+      input: { file_path: "/etc/hosts" },
     });
     expect(claudeGatedCall("Bash", { command: "echo a\necho b" }, "toolu_2").summary).toBe("Bash echo a");
     expect(claudeGatedCall("Bash", { command: "ls" }, "toolu_3", "List the files").summary).toBe("List the files");
+  });
+
+  it("reads WebSearch's allowed domains for the denylist's hosts (#132)", () => {
+    expect(claudeGatedCall("WebSearch", { query: "status", allowed_domains: ["api.internal.example", 3] }, "toolu_6").access).toEqual({
+      kind: "search",
+      query: "status",
+      domains: ["api.internal.example"],
+    });
+    expect(claudeGatedCall("WebSearch", { query: "status" }, "toolu_7").access).toEqual({ kind: "search", query: "status" });
   });
 
   it("cuts a long title to 200 characters, as it cuts a long command", () => {

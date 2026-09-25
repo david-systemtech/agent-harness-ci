@@ -1,7 +1,8 @@
 import { SESSION_STREAM_KIND, type EnvironmentNotice } from "@agent-harness/contracts";
-import { formatActor, type EventEnvelope, type EventLog, type StreamRef } from "../event-log/event-log.js";
+import { type EventEnvelope, type EventLog, type StreamRef } from "../event-log/event-log.js";
 import type { Reader } from "../sessions/session-reads.js";
 import { allParkedPrompts, readPromptAt, type PromptRecord } from "./prompts-store.js";
+import { PERMISSIONS_ACTOR } from "./actor.js";
 
 /**
  * The prompt notices (permissions spec, "Prompts, parked prompts and the
@@ -14,8 +15,6 @@ import { allParkedPrompts, readPromptAt, type PromptRecord } from "./prompts-sto
  * parked, and raises neither. The prompts parked before a start count as
  * raised, so their answer after it resolves them.
  */
-
-const NOTICE_ACTOR = formatActor({ kind: "system", id: "permissions" });
 
 export interface PromptNoticesOptions {
   readonly log: EventLog;
@@ -32,7 +31,7 @@ export const startPromptNotices = ({ log, stream }: PromptNoticesOptions): (() =
   const title = (sessionId: string): string | undefined => reader.all<{ title: string }>("SELECT title FROM sessions WHERE id = ?", sessionId)[0]?.title;
 
   const notify = (event: EventEnvelope, prompt: PromptRecord, notice: EnvironmentNotice): void => {
-    log.append(stream, [notice], { actor: NOTICE_ACTOR, causationId: event.eventId, correlationId: prompt.runId });
+    log.append(stream, [notice], { actor: PERMISSIONS_ACTOR, causationId: event.eventId, correlationId: prompt.runId });
   };
 
   return log.subscribe((event) => {

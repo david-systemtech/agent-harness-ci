@@ -6,6 +6,7 @@ import type {
   ContainmentLevel,
   ContainmentMechanism,
   CredentialSpec,
+  DenylistMatch,
   InterruptCause,
   JsonObject,
   Mode,
@@ -225,6 +226,8 @@ export interface PromptDetail {
   readonly suggestions?: readonly JsonObject[];
   /** The subagent that asked. */
   readonly agentId?: string | null;
+  /** A denylist prompt's matches: each entry the call matched, the first the one it names (#132). */
+  readonly denylist?: readonly DenylistMatch[] | null;
 }
 
 /** A permission prompt or question a run asks through the broker. */
@@ -320,24 +323,34 @@ export interface PermissionBroker {
  * What a tool call does, as its adapter describes it to the tool gate, in
  * the provider's terms mapped onto the harness's: reading or writing files
  * (their paths, absolute or relative to the workspace, `~` for the home
- * directory), a shell command, fetching URLs, a web search, or anything
- * else (a tool server's call, a question). The gate rules on this, never on
- * the provider's tool names.
+ * directory), a shell command, fetching URLs, a web search (its query, and
+ * the domains it is limited to when it names any), a browser verb opening
+ * addresses, or anything else (a tool server's call, a question). The gate
+ * rules on this, never on the provider's tool names; for `other` the
+ * denylist reads the call's input.
  */
 export type ToolAccess =
   | { readonly kind: "read"; readonly paths: readonly string[] }
   | { readonly kind: "write"; readonly paths: readonly string[] }
   | { readonly kind: "shell"; readonly command: string }
   | { readonly kind: "fetch"; readonly urls: readonly string[] }
-  | { readonly kind: "search"; readonly query: string }
+  | { readonly kind: "search"; readonly query: string; readonly domains?: readonly string[] }
+  | { readonly kind: "browse"; readonly urls: readonly string[] }
   | { readonly kind: "other" };
 
-/** One tool call the gate is asked about: the provider's id and name for it, a one-line summary for people, and what it does. */
+/**
+ * One tool call the gate is asked about: the provider's id and name for it,
+ * a one-line summary for people, what it does, and the tool's input as the
+ * model gave it, which a prompt about the call records and the denylist
+ * reads for a call of kind `other` (what the harness's own tool servers
+ * receive).
+ */
 export interface GatedToolCall {
   readonly toolCallId: string;
   readonly tool: string;
   readonly summary: string;
   readonly access: ToolAccess;
+  readonly input?: JsonObject;
 }
 
 /**
@@ -350,14 +363,23 @@ export type GateDecision = { readonly decision: "allow" } | { readonly decision:
 /**
  * The tool gate (permissions spec, "Modules": the tool gate): consulted by
  * every adapter before the provider's own evaluation, for every tool call in
- * every mode, bypass included. It applies containment as a hard deny: no
- * prompt, the model told why, the decision recorded as `tool.decision` with
- * `decidedBy: containment`; widening containment is a settings change,
- * never an answer to a prompt. The denylist's matches (#132) join it. For
- * Claude it is the `PreToolUse` hook (#140).
+ * every mode, bypass included. It applies containment as a hard deny (#133:
+ * no prompt, the model told why, recorded as `tool.decision` by
+ * `containment`; widening containment is a settings change, never an answer
+ * to a prompt), then hands a denylist match to the broker as a `denylist`
+ * prompt (#132): parked for the person on an attended run, whose explicit
+ * allow lets that one call on, denied at once on an unattended one. For
+ * Claude it is the `PreToolUse` hook (#140), and meanwhile `canUseTool` for
+ * the calls the provider asks about; the fake adapter asks it for every call.
  */
 export interface ToolGate {
-  check(call: GatedToolCall): Promise<GateDecision>;
+  /**
+   * Rules on a call. `signal` aborts when the provider gives up on the call
+   * (it cancelled the tool use, or its hook timed out): a prompt the gate
+   * parked for it is closed (`cancelled`) and the call denied, so nobody is
+   * left answering for a call that will never run.
+   */
+  check(call: GatedToolCall, signal?: AbortSignal): Promise<GateDecision>;
 }
 
 /** The types a run's events may be: the transcript types an adapter produces. The run's start and end, and the messages sent to it, are the host's. */
@@ -525,7 +547,7 @@ export interface RunContext {
   /**
    * The tool gate, asked before the provider's own evaluation for every tool
    * call; a turn the provider opened on its own asks through the gate of the
-   * run it followed, which rules under the policy of the run live then.
+   * run it followed, which rules under the run live then.
    */
   readonly gate: ToolGate;
   /** Held work on the session's provider process (the pool's port). */

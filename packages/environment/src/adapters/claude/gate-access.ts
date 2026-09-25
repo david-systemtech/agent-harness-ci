@@ -1,10 +1,11 @@
+import type { JsonObject } from "@agent-harness/contracts";
 import type { GatedToolCall, ToolAccess } from "../../adapter/contract.js";
 
 /**
  * Claude's tools as the tool gate reads them (permissions spec, "Modules":
  * the tool gate): each call's input mapped onto what it does. The file
  * tools name their path (`file_path`, `notebook_path`), `Bash` its command,
- * `WebFetch` its URL, `WebSearch` its query; a write tool whose path is
+ * `WebFetch` its URL, `WebSearch` its query and allowed domains; a write tool whose path is
  * missing is a write naming none, which a workspace level denies. Anything
  * else (a tool server's call, a question, a plan) is `other`.
  */
@@ -31,7 +32,10 @@ export const claudeToolAccess = (toolName: string, input: Readonly<Record<string
     const url = text(input["url"]);
     return { kind: "fetch", urls: url === undefined ? [] : [url] };
   }
-  if (toolName === "WebSearch") return { kind: "search", query: text(input["query"]) ?? "" };
+  if (toolName === "WebSearch") {
+    const domains = Array.isArray(input["allowed_domains"]) ? input["allowed_domains"].filter((domain): domain is string => typeof domain === "string") : [];
+    return { kind: "search", query: text(input["query"]) ?? "", ...(domains.length > 0 && { domains }) };
+  }
   return { kind: "other" };
 };
 
@@ -63,5 +67,6 @@ const summaryOf = (toolName: string, access: ToolAccess, title: string | undefin
 /** The gate's call for a Claude tool call: its id, name, a summary, and what it does. */
 export const claudeGatedCall = (toolName: string, input: Readonly<Record<string, unknown>>, toolCallId: string, title?: string): GatedToolCall => {
   const access = claudeToolAccess(toolName, input);
-  return { toolCallId, tool: toolName, summary: summaryOf(toolName, access, title), access };
+  // The input as the model gave it, as JSON: a denylist prompt records it, and the denylist reads an `other` call's (#132).
+  return { toolCallId, tool: toolName, summary: summaryOf(toolName, access, title), access, input: JSON.parse(JSON.stringify(input)) as JsonObject };
 };

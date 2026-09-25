@@ -41,6 +41,28 @@ export const UNRECORDED_MESSAGE = "The request could not be recorded, so nobody 
 /** What the model reads when it asks under the id of a request its run holds open: the open one stands, this one is not recorded. */
 export const DUPLICATE_PROMPT_MESSAGE = "A request with this prompt id is open already, so this one was denied and nobody was asked; wait for the answer to the open one.";
 
+/**
+ * Why the broker denied a request without opening a prompt: its run had
+ * ended (`RUN_ENDED_MESSAGE`), the provider had cancelled it already
+ * (`CANCELLED_MESSAGE`), or it was not recorded (the log refused its
+ * `prompt.opened`, `UNRECORDED_MESSAGE`, or its id was one the run holds
+ * open, `DUPLICATE_PROMPT_MESSAGE`).
+ */
+export type UnopenedReason = "run_ended" | "cancelled" | "unrecorded";
+
+/**
+ * A request's answer as the broker gives it, and whether a prompt opened for
+ * it. A prompt's answer records the call's `tool.decision` beside it (or,
+ * denied in memory by a stop, the prompt stays open for a later answer,
+ * ADR 0007); a request denied with no prompt has no answer to record one,
+ * which is why the tool gate is told (#132).
+ */
+export interface BrokerAnswer {
+  readonly decision: PromptDecision;
+  /** Null when a prompt opened for the request; else why none did. */
+  readonly unopened: UnopenedReason | null;
+}
+
 /** One line: the first line with anything on it, white space collapsed, cut to the summary's length. */
 const oneLine = (text: string | null | undefined): string | null => {
   const line = text
@@ -104,6 +126,7 @@ export const openedPayload = (request: {
     plan: detail.plan ?? null,
     suggestions: [...(detail.suggestions ?? [])],
     agentId: text(detail.agentId),
+    denylist: detail.denylist === undefined || detail.denylist === null ? null : [...detail.denylist],
     mode: request.mode,
     ceiling: request.ceiling,
     ttlExpiresAt: request.ttlExpiresAt,

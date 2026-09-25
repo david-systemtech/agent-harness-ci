@@ -1043,8 +1043,10 @@ export class ClaudeProcess implements TurnControl {
         const early = await Promise.race([answered, Promise.resolve<PromptDecision>({ decision: "deny", message: DISPOSED_DENY_MESSAGE })]);
         return this.#result(early, toolName, input, options.suggestions ?? [], toolUseID);
       }
-      // The gate before anyone is asked: a containment denial is final, and the model is told why (#133).
-      const ruling = await this.#context.gate.check(claudeGatedCall(toolName, input, promptId, options.title));
+      // The gate before anyone is asked: a containment denial is final, and the model is told why (#133); a denylist match
+      // is put to the person first, and only an allowed call comes on to the provider's own prompt (#132).
+      // The SDK's signal goes with it: a request the CLI withdraws closes a prompt the gate parked for it (#132).
+      const ruling = await this.#context.gate.check(claudeGatedCall(toolName, input, promptId, options.title), options.signal);
       if (ruling.decision === "deny") return { behavior: "deny", message: ruling.message, toolUseID };
       const kind = PROMPT_KINDS[toolName] ?? "permission";
       // The CLI's request on the harness's fields: its title is the one-line summary, its reason the provider's.

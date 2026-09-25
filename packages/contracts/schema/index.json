@@ -195,6 +195,10 @@
       "title": "SettingsChangedPayload"
     },
     {
+      "path": "access/events/denylist.changed.json",
+      "title": "DenylistChangedPayload"
+    },
+    {
       "path": "sessions/session-id.json",
       "title": "SessionId"
     },
@@ -989,6 +993,30 @@
     {
       "path": "permissions/prompt-answer-input.json",
       "title": "PromptAnswerInput"
+    },
+    {
+      "path": "permissions/denylist-section.json",
+      "title": "DenylistSection"
+    },
+    {
+      "path": "permissions/denylist-entry.json",
+      "title": "DenylistEntry"
+    },
+    {
+      "path": "permissions/denylist.json",
+      "title": "Denylist"
+    },
+    {
+      "path": "permissions/denylist-input.json",
+      "title": "DenylistInput"
+    },
+    {
+      "path": "permissions/denylist-match.json",
+      "title": "DenylistMatch"
+    },
+    {
+      "path": "permissions/denylist-test-kind.json",
+      "title": "DenylistTestKind"
     },
     {
       "path": "permissions/listed-prompt.json",
@@ -2411,6 +2439,62 @@
       "title": "permissions.review.seen error"
     },
     {
+      "path": "methods/permissions.denylist.get/params.json",
+      "title": "permissions.denylist.get params"
+    },
+    {
+      "path": "methods/permissions.denylist.get/result.json",
+      "title": "permissions.denylist.get result"
+    },
+    {
+      "path": "methods/permissions.denylist.get/error.json",
+      "title": "permissions.denylist.get error"
+    },
+    {
+      "path": "methods/permissions.denylist.set/params.json",
+      "title": "permissions.denylist.set params"
+    },
+    {
+      "path": "methods/permissions.denylist.set/result.json",
+      "title": "permissions.denylist.set result"
+    },
+    {
+      "path": "methods/permissions.denylist.set/response.json",
+      "title": "permissions.denylist.set response"
+    },
+    {
+      "path": "methods/permissions.denylist.set/error.json",
+      "title": "permissions.denylist.set error"
+    },
+    {
+      "path": "methods/permissions.denylist.restorePresets/params.json",
+      "title": "permissions.denylist.restorePresets params"
+    },
+    {
+      "path": "methods/permissions.denylist.restorePresets/result.json",
+      "title": "permissions.denylist.restorePresets result"
+    },
+    {
+      "path": "methods/permissions.denylist.restorePresets/response.json",
+      "title": "permissions.denylist.restorePresets response"
+    },
+    {
+      "path": "methods/permissions.denylist.restorePresets/error.json",
+      "title": "permissions.denylist.restorePresets error"
+    },
+    {
+      "path": "methods/permissions.denylist.test/params.json",
+      "title": "permissions.denylist.test params"
+    },
+    {
+      "path": "methods/permissions.denylist.test/result.json",
+      "title": "permissions.denylist.test result"
+    },
+    {
+      "path": "methods/permissions.denylist.test/error.json",
+      "title": "permissions.denylist.test error"
+    },
+    {
       "path": "methods/terminals.open/params.json",
       "title": "terminals.open params"
     },
@@ -3292,6 +3376,44 @@
       "result": "methods/permissions.review.seen/result.json",
       "response": "methods/permissions.review.seen/response.json",
       "error": "methods/permissions.review.seen/error.json"
+    },
+    {
+      "name": "permissions.denylist.get",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/permissions.denylist.get/params.json",
+      "result": "methods/permissions.denylist.get/result.json",
+      "error": "methods/permissions.denylist.get/error.json"
+    },
+    {
+      "name": "permissions.denylist.set",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/permissions.denylist.set/params.json",
+      "result": "methods/permissions.denylist.set/result.json",
+      "response": "methods/permissions.denylist.set/response.json",
+      "error": "methods/permissions.denylist.set/error.json"
+    },
+    {
+      "name": "permissions.denylist.restorePresets",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/permissions.denylist.restorePresets/params.json",
+      "result": "methods/permissions.denylist.restorePresets/result.json",
+      "response": "methods/permissions.denylist.restorePresets/response.json",
+      "error": "methods/permissions.denylist.restorePresets/error.json"
+    },
+    {
+      "name": "permissions.denylist.test",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/permissions.denylist.test/params.json",
+      "result": "methods/permissions.denylist.test/result.json",
+      "error": "methods/permissions.denylist.test/error.json"
     },
     {
       "name": "terminals.open",

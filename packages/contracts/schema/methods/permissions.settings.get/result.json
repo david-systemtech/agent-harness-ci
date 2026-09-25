@@ -257,7 +257,7 @@
         "commandPatterns",
         "hosts"
       ],
-      "description": "How many entries each section of the denylist holds (#132 fills it)."
+      "description": "How many entries each section of the denylist holds, enabled or not."
     }
   },
   "required": [
