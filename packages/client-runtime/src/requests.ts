@@ -176,7 +176,7 @@ interface Cached {
   /** A ready or a notice said the answer may have changed while nobody followed it: the next follower fetches it. */
   stale: boolean;
   inFlight: boolean;
-  /** Asked again while a fetch was under way: fetched once more when it ends. */
+  /** Asked again while a fetch was under way: fetched once more when it ends, if still followed (else the next follower fetches it). */
   again: boolean;
   followers: number;
   timer: Timer | undefined;
@@ -228,6 +228,9 @@ export const createRequestCache = (host: {
       return;
     }
     entry.inFlight = true;
+    // The fetch's end sets the next timer: one that fired while it was under way would only ask for it again.
+    entry.timer?.cancel();
+    entry.timer = undefined;
     entry.value.update((value) => ({ ...value, loading: true }));
     void host.call(entry.environmentId, entry.method, entry.params as ParamsOf<QueryMethodName>).then((answer) => {
       entry.inFlight = false;
@@ -242,7 +245,10 @@ export const createRequestCache = (host: {
       }
       if (entry.again) {
         entry.again = false;
-        return fetch(entry);
+        // Nobody follows it any more: nothing is sent for nobody, and its next follower fetches it.
+        if (entry.followers > 0) return fetch(entry);
+        entry.stale = true;
+        return;
       }
       schedule(entry, REQUEST_CACHE_TTL_MS);
     }, host.report);
@@ -252,6 +258,14 @@ export const createRequestCache = (host: {
   const refresh = (entry: Cached) => {
     if (entry.followers > 0) fetch(entry);
     else entry.stale = true;
+  };
+
+  /** The entry is let go of (its environment removed, the runtime closed): a fetch under way is not waited for. */
+  const drop = (entry: Cached) => {
+    entry.timer?.cancel();
+    entry.timer = undefined;
+    entry.again = false;
+    if (entry.value.read().loading) entry.value.update((value) => ({ ...value, loading: false }));
   };
 
   const keyOf = (entry: Pick<Cached, "environmentId" | "method" | "params">) => `${entry.environmentId} ${entry.method} ${canonical(entry.params)}`;
@@ -324,15 +338,15 @@ export const createRequestCache = (host: {
     forget(environmentId) {
       for (const [key, entry] of entries) {
         if (entry.environmentId !== environmentId) continue;
-        entry.timer?.cancel();
         entries.delete(key);
+        drop(entry);
       }
       phases.delete(environmentId);
     },
     close() {
       closed = true;
       stopRecords();
-      for (const entry of entries.values()) entry.timer?.cancel();
+      for (const entry of entries.values()) drop(entry);
     },
   };
 };

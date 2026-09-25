@@ -103,6 +103,11 @@ describe("commands.dispatch", () => {
       commandId: null,
       error: { code: "invalid_params" },
     });
+    // A blank title is refused, never laid over the row as an empty one: clearing the title is null.
+    expect(await runtime.commands.dispatch(id, "sessions.rename", { sessionId: randomUUID(), title: "   " })).toMatchObject({
+      ok: false,
+      error: { code: "invalid_params" },
+    });
     expect(await runtime.commands.dispatch(id, "sessions.archive", { sessionId: randomUUID() })).toMatchObject({
       ok: false,
       error: { code: "scope", message: expect.stringContaining("sessions:write") },

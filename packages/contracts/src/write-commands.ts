@@ -12,7 +12,8 @@ export type SessionWriteMethodName = {
  *
  * - an absolute **setter** writes `fields` of its target (the session or the
  *   group its params name) to values its params give, or the environment's
- *   now, whatever the target held, so a later command of the same method and
+ *   now, or clears them (`unarchive`, `unpin`, `unsnooze`), whatever the
+ *   target held, so a later command of the same method and
  *   target leaves nothing of an earlier one's effect: an outbox holding both
  *   unsent may keep only the later and drop the earlier;
  * - an **ordered** command is sent as queued, never replaced: its effect
@@ -35,8 +36,8 @@ export type WriteCommandKind =
 /**
  * Every `sessions:write` method as a setter or an ordered command, read from
  * the environment's deciders (verified in #128): a setter's decider writes
- * the fields from its params and answers unchanged only when they already
- * hold those values. The contract test fails when a `sessions:write` method
+ * the fields from its params (or its now, or clears them) and answers
+ * unchanged only when they already hold those values. The contract test fails when a `sessions:write` method
  * is missing here, or a setter names a field its target does not have.
  */
 export const SESSION_WRITE_COMMANDS = {

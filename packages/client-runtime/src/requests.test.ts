@@ -248,6 +248,74 @@ describe("the request cache", () => {
     expect(asked()).toBe(2);
   });
 
+  it("fetches once more after a fetch asked for again while under way only while followed, and never for five minutes running out during it", async () => {
+    const { clock, wire, runtime, id, asked, environment } = await counting({ environmentStream: true });
+    const cached = runtime.requests.cached(id, "groups.list", {});
+    let stop = cached.subscribe(() => undefined);
+    await flush();
+    expect(asked()).toBe(1);
+
+    // From now on each answer is held until the test lets it go.
+    let held = 0;
+    let release = () => undefined as void;
+    wire.answer("groups.list", () => {
+      held++;
+      return new Promise((resolve) => (release = () => resolve({ result: { groups: [] } })));
+    });
+
+    // A notice fetches before the five minutes are out, and they run out while that fetch is under way: that is not a second
+    // ask, so its answer is the only one sent, and the next comes five minutes after it.
+    clock.advance(REQUEST_CACHE_TTL_MS - 1_000);
+    environment?.event(noticeEvent(1, wire.environmentId, "environment.updated", { fromVersion: "0.1.0", toVersion: "0.2.0" }));
+    await flush();
+    expect(held).toBe(1);
+    clock.advance(1_000);
+    await flush();
+    release();
+    await flush();
+    expect(held).toBe(1);
+    expect(cached.read()).toMatchObject({ loading: false, error: null });
+    stop();
+
+    // Followed, let go, followed and let go again while a fetch is under way: the second ask is not sent for nobody either,
+    // but the answer counts as stale, so the next follower fetches it.
+    clock.advance(REQUEST_CACHE_TTL_MS);
+    stop = cached.subscribe(() => undefined);
+    await flush();
+    expect(held).toBe(2);
+    stop();
+    stop = cached.subscribe(() => undefined);
+    stop();
+    release();
+    await flush();
+    expect(held).toBe(2);
+    cached.subscribe(() => undefined);
+    await flush();
+    expect(held).toBe(3);
+  });
+
+  it("stops loading when the environment is removed or the runtime closes with a fetch under way", async () => {
+    const hold = async () => {
+      const setup = await counting();
+      setup.wire.answer("groups.list", () => new Promise(() => undefined));
+      const cached = setup.runtime.requests.cached(setup.id, "groups.list", {});
+      cached.subscribe(() => undefined);
+      await flush();
+      expect(cached.read().loading).toBe(true);
+      return { ...setup, cached };
+    };
+
+    const removed = await hold();
+    await removed.runtime.connections.remove(removed.id);
+    await flush();
+    expect(removed.cached.read().loading).toBe(false);
+
+    const closed = await hold();
+    await closed.runtime.close();
+    await flush();
+    expect(closed.cached.read().loading).toBe(false);
+  });
+
   it("keeps one answer per params, and none for what is not a query", async () => {
     const { runtime, id } = await counting();
     expect(runtime.requests.cached(id, "settings.get", { keys: ["sessions.autoSettleOnMerge"] })).not.toBe(

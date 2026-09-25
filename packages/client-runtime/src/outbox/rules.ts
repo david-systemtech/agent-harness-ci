@@ -120,7 +120,8 @@ export const overlayOf = (method: CommandMethodName, params: Readonly<Record<str
   switch (method) {
     case "sessions.rename": {
       const title = text(params, "title");
-      // A title cleared falls back to the generated title, which the summary does not carry: the event says what it is.
+      // A title cleared (null) falls back to the generated title, which the summary does not carry: the event says what it is.
+      // An empty or blank title never reaches here: `UserTitle` refuses it at dispatch (`invalid_params`).
       return title === undefined ? null : set({ title: title.trim(), titleSource: "user" });
     }
     case "sessions.archive":
