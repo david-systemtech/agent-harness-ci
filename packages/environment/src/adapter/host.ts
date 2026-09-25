@@ -34,6 +34,7 @@ import { answerEvents, runToolCalls, type RunToolCalls } from "../permissions/to
 import { environmentQueue, latestRun, messageCeilings, providerHeld, providerSessionOf, readRun, readSessionFacts } from "../runs/run-reads.js";
 import {
   decideStart,
+  originOfActor,
   policyResolvedEvent,
   type AccountFacts,
   type LiveRunFacts,
@@ -1018,7 +1019,8 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
           effort: plan.effort,
           mode: plan.mode,
           ceiling: plan.policy.mode.ceiling,
-          instructions: instructions(scope),
+          // The composed instructions, then what the run appends after them (a completions request's, #138), never in their place.
+          instructions: [instructions(scope), plan.appendedInstructions].filter((part): part is string => part !== null && part.trim() !== "").join("\n\n"),
           target: plan.resumeFrom === null ? { kind: "fresh" } : { kind: "resume", providerSessionId: plan.resumeFrom },
           toolServers: toolServers({ ...scope, runId: plan.runId }),
           trusted: false,
@@ -1256,7 +1258,8 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       }
       const facts = startFacts(previous.sessionId, actor);
       const decision = decideStart(facts, {
-        origin: "client",
+        // The run is the actor's: a completions request's queue runs as completions, a routine's as routine (#138).
+        origin: originOfActor(actor),
         message: null,
         model: previous.model,
         ...(previous.effort !== null && { effort: previous.effort }),

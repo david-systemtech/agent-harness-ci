@@ -1,0 +1,299 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CompletionsAnswerExtension",
+  "type": "object",
+  "properties": {
+    "seq": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991,
+      "description": "The log sequence of the event the chunk renders; never decreasing along a stream."
+    },
+    "sessionId": {
+      "description": "The session the turn ran on: continue it by sending it back as agent-harness.sessionId.",
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$"
+    },
+    "runId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "A run's id: a version 4 UUID the environment mints when the run starts or is adopted."
+    },
+    "messageId": {
+      "description": "The message the turn was sent as: the prompt of a new run, or a steer.",
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$"
+    },
+    "steered": {
+      "description": "True when the turn was sent to a run already live on the session, and the answer follows that run.",
+      "type": "boolean"
+    },
+    "mode": {
+      "description": "The mode the run the answer follows is in.",
+      "type": "string",
+      "enum": [
+        "plan",
+        "acceptEdits",
+        "auto",
+        "bypassPermissions"
+      ]
+    },
+    "clamped": {
+      "description": "The permissionMode asked for and lowered; null when nothing was.",
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "requested": {
+              "type": "string",
+              "enum": [
+                "plan",
+                "acceptEdits",
+                "auto",
+                "bypassPermissions"
+              ],
+              "description": "What an agent may do without asking during a run, in the order ceilings use: plan < acceptEdits < auto < bypassPermissions. Claude's default and dontAsk are never used."
+            },
+            "effective": {
+              "type": "string",
+              "enum": [
+                "plan",
+                "acceptEdits",
+                "auto",
+                "bypassPermissions"
+              ],
+              "description": "What an agent may do without asking during a run, in the order ceilings use: plan < acceptEdits < auto < bypassPermissions. Claude's default and dontAsk are never used."
+            },
+            "ceiling": {
+              "type": "string",
+              "enum": [
+                "plan",
+                "acceptEdits",
+                "auto",
+                "bypassPermissions"
+              ],
+              "description": "What an agent may do without asking during a run, in the order ceilings use: plan < acceptEdits < auto < bypassPermissions. Claude's default and dontAsk are never used."
+            },
+            "reason": {
+              "type": "string",
+              "enum": [
+                "ceiling",
+                "unavailable"
+              ],
+              "description": "Why a mode was lowered: ceiling (above the ceiling, lowered to it), or unavailable (the mode it would have had is one the account lists as unavailable, so the next lower available one)."
+            }
+          },
+          "required": [
+            "requested",
+            "effective",
+            "ceiling",
+            "reason"
+          ],
+          "description": "A permissionMode the turn could not have: the mode it got instead, the ceiling, and why."
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "ignored": {
+      "description": "The parameters and fields accepted and ignored, as request paths: temperature, agent-harness.alwaysOnSkills.",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "activity": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "tool.started"
+            },
+            "toolCallId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "title": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "type",
+            "toolCallId",
+            "name",
+            "title"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "tool.ended"
+            },
+            "toolCallId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "ok",
+                "error",
+                "cancelled"
+              ],
+              "description": "How a tool call ended: ok, error, or cancelled."
+            }
+          },
+          "required": [
+            "type",
+            "toolCallId",
+            "status"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "prompt.opened"
+            },
+            "promptId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "permission",
+                "denylist",
+                "question",
+                "plan"
+              ],
+              "description": "What a prompt asks: permission (a tool call the mode does not allow without asking), denylist (a call that touches the denylist), question (the model asks its user), or plan (a plan to approve, with the mode to continue in)."
+            },
+            "summary": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "promptId",
+            "kind",
+            "summary"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "prompt.answered"
+            },
+            "promptId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "decision": {
+              "type": "string",
+              "enum": [
+                "allow",
+                "deny"
+              ],
+              "description": "Whether the call may go ahead: allow, or deny."
+            },
+            "auto": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "unattended",
+                    "bypass",
+                    "ttl",
+                    "run_ended",
+                    "reviewer",
+                    "cancelled"
+                  ],
+                  "description": "What answered a prompt when no person did: unattended (nobody is present for the run), bypass (a residual prompt in bypassPermissions), ttl (it waited past its TTL), run_ended (its run ended on its own first), reviewer (a provider's automatic reviewer), cancelled (the provider cancelled the request, its tool call moot, while the run went on)."
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The rule that answered; null when a person did."
+            }
+          },
+          "required": [
+            "type",
+            "promptId",
+            "decision",
+            "auto"
+          ]
+        }
+      ],
+      "description": "What the agent did that is not text: a tool call it started or ended, a prompt raised or answered."
+    },
+    "ended": {
+      "type": "object",
+      "properties": {
+        "reason": {
+          "type": "string",
+          "enum": [
+            "completed",
+            "error",
+            "interrupted",
+            "disposed",
+            "drained"
+          ],
+          "description": "Why a run ended: completed, error, interrupted (with its cause), disposed (the environment let the run go: its session was deleted, or the environment closed), drained (cut by a drain's cap)."
+        },
+        "cause": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "user",
+                "read-now",
+                "restart",
+                "parked"
+              ],
+              "description": "What interrupted a run: user (runs.interrupt), read-now, restart (the recovery sweep after a restart), parked (its process was stopped while parked on a prompt)."
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "reason",
+        "cause"
+      ],
+      "description": "How the run ended: its run.ended reason and, for an interrupted one, the cause."
+    },
+    "queued": {
+      "description": "The turn's message waits in the session's queue: the run it was sent to ended before reading it.",
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$"
+    }
+  },
+  "required": [
+    "seq"
+  ],
+  "description": "The harness's fields on an answer or a chunk."
+}

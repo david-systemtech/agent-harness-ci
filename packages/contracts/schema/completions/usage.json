@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CompletionUsage",
+  "type": "object",
+  "properties": {
+    "prompt_tokens": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "completion_tokens": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "total_tokens": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "prompt_tokens_details": {
+      "type": "object",
+      "properties": {
+        "cached_tokens": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "cached_tokens"
+      ]
+    }
+  },
+  "required": [
+    "prompt_tokens",
+    "completion_tokens",
+    "total_tokens",
+    "prompt_tokens_details"
+  ],
+  "description": "The run's token use: input with cache reads and writes as prompt tokens, output as completion tokens."
+}

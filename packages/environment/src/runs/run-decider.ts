@@ -94,7 +94,18 @@ export interface StartCommand {
   readonly model?: string | undefined;
   readonly effort?: string | undefined;
   readonly mode?: Mode | undefined;
+  /**
+   * Text the run's instructions carry after the environment's composed ones,
+   * never in their place: a completions request's `systemPrompt` and its
+   * system and developer messages (#138). The run's alone: a run the
+   * environment starts after it carries none.
+   */
+  readonly appendedInstructions?: string | undefined;
 }
+
+/** Where a run an actor starts comes from: a client session's is `client`, the completions surface's `completions`, a routine's or a bot's `routine` (ADR 0008: bots own routines). */
+export const originOfActor = (actor: RunActor): RunOrigin =>
+  actor.kind === "client" ? "client" : actor.kind === "completions" ? "completions" : "routine";
 
 /** A run the host is to start once its events commit. */
 export interface PlannedRun {
@@ -112,6 +123,8 @@ export interface PlannedRun {
   readonly actor: RunActor;
   /** The run's policy as resolved at its start, recorded as `run.policy.resolved`: fixed for the run, whatever changes after. */
   readonly policy: RunPolicy;
+  /** What the run's instructions carry after the composed ones (`StartCommand.appendedInstructions`); null for nothing. */
+  readonly appendedInstructions: string | null;
   /**
    * The messages the run starts with, in order: the queued ones, whose
    * attachments' bytes the host holds, then the one sent, with its bytes.
@@ -250,6 +263,7 @@ export const decideStart = (facts: StartFacts, command: StartCommand): StartDeci
       resumeFrom: facts.resumeFrom,
       actor: facts.actor,
       policy,
+      appendedInstructions: command.appendedInstructions === undefined || command.appendedInstructions.trim() === "" ? null : command.appendedInstructions,
       prompt: [
         ...facts.queued.map((queued) => ({ messageId: queued.messageId, text: queued.text, attachments: [] })),
         ...(command.message === null ? [] : [{ messageId: command.message.messageId, text: command.message.text, attachments: attachments.data }]),

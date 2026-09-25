@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CompletionFinishReason",
+  "type": "string",
+  "enum": [
+    "stop",
+    "length",
+    "error"
+  ],
+  "description": "Why the answer ended: stop (the run completed, or a stop sequence), length (max_tokens), or error (the run ended any other way; the chunk carries error)."
+}

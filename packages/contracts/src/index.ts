@@ -3,6 +3,7 @@ export { PRODUCT_NAME } from "./product.js";
 export * from "./access-log.js";
 export * from "./adapter.js";
 export * from "./bootstrap.js";
+export * from "./completions.js";
 export * from "./discovery.js";
 export * from "./envelope.js";
 export * from "./event-types.js";

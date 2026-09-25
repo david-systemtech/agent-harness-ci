@@ -8,6 +8,7 @@ import {
   DISCOVERY_PATH,
   ENVIRONMENT_STREAM_KIND,
   HEALTH_PATH,
+  OPENAI_PATH_PREFIX,
   PAIR_PATH,
   PROTOCOL_VERSION,
   WIRE_PATH,
@@ -22,7 +23,6 @@ import {
   type EnvironmentStatus,
   type HealthDocument,
   type Mode,
-  type RunOrigin,
 } from "@agent-harness/contracts";
 import { SYSTEM, createAccessLog } from "../auth/access-log.js";
 import { accessMethods } from "../auth/access-methods.js";
@@ -39,6 +39,7 @@ import { createRateLimiter } from "../auth/rate-limit.js";
 import { formatActor, openEventLog, type EventLog, type Projector } from "../event-log/event-log.js";
 import type { Adapter } from "../adapter/contract.js";
 import { createClaudeAdapter } from "../adapters/claude/index.js";
+import { SCRATCH_DIRECTORY, createCompletionsSurface } from "../completions/surface.js";
 import { createAdapterHost, type AdapterHost, type HostAccount } from "../adapter/host.js";
 import { processMethods } from "../adapter/processes-methods.js";
 import { ATTACHMENTS_DIRECTORY, createAttachmentStage } from "../adapter/attachment-stage.js";
@@ -52,7 +53,7 @@ import { permissionsProjector, readPermissionSettings } from "../permissions/per
 import { policySettings, resolvePolicy, type RunActor } from "../permissions/resolver.js";
 import { reviewMethods } from "../permissions/review-methods.js";
 import { createTtlSweeper } from "../permissions/ttl-sweeper.js";
-import { decideStart } from "../runs/run-decider.js";
+import { decideStart, originOfActor } from "../runs/run-decider.js";
 import { runMethods } from "../runs/run-methods.js";
 import { runsProjector } from "../runs/runs-projector.js";
 import { appendRunEvents } from "../sessions/activity-companions.js";
@@ -209,9 +210,6 @@ export interface ActorRunRequest {
   readonly text: string;
   readonly mode?: Mode;
 }
-
-/** Where a run an actor starts comes from: a bot's runs are its routines' (ADR 0008). */
-const originOf = (actor: RunActor): RunOrigin => (actor.kind === "client" ? "client" : actor.kind === "completions" ? "completions" : "routine");
 
 /** A running environment. */
 export interface EnvironmentHandle {
@@ -505,6 +503,26 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     PAIR_PATH,
     pairRoute({ pairings, atomically: accessLog.atomically, rateLimiter: createRateLimiter({ clock }), readiness: () => readiness }),
   );
+  // The completions surface (#138): OpenAI's routes under /v1/ on the wire's port, for programs' client sessions.
+  const completions = createCompletionsSurface({
+    log,
+    host,
+    clock,
+    clientSessions,
+    readiness: () => readiness,
+    // Until the account store (#134) joins, the configured accounts, each labelled by its id.
+    catalogue: {
+      accounts: () =>
+        (options.accounts ?? []).flatMap((config) => {
+          const facts = host.account(config.id);
+          return facts === null ? [] : [{ id: config.id, label: config.id, provider: config.provider, signedIn: facts.signedIn, models: facts.models }];
+        }),
+      defaultAccountId: () => host.account(null)?.id ?? null,
+    },
+    methods: table,
+    scratchRoot: join(dataDir, SCRATCH_DIRECTORY),
+  });
+  surface.prefix(OPENAI_PATH_PREFIX, completions.handle);
   const wire = createWire({
     environment: record,
     capabilities,
@@ -539,6 +557,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     grant.issue(loopback.address);
     return { address: loopback.address, addresses: listening.map((entry) => entry.address) };
   });
+
+  // Closed before the wire and the listeners: an answer still open ends with a final chunk, never a bare close.
+  closers.push(() => completions.close());
 
   await step("prepared", () => launcher.prepared());
   readiness = "ready";
@@ -625,7 +646,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
         const facts = host.startFacts(sessionId, actor);
         if (facts.session !== null && !facts.session.deleted) host.admit();
         const message = { messageId, text: request.text, attachments: [] };
-        const decision = decideStart(facts, { origin: originOf(actor), message, ...(request.mode !== undefined && { mode: request.mode }) });
+        const decision = decideStart(facts, { origin: originOfActor(actor), message, ...(request.mode !== undefined && { mode: request.mode }) });
         if (decision.rejected !== undefined) throw new ContractError(decision.rejected);
         appendRunEvents(log, sessionId, decision.events, { tx, actor: by, correlationId: decision.run.runId });
         tx.afterCommit(() => host.launch(decision.run));

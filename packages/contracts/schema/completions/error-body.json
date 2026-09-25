@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CompletionsErrorBody",
+  "type": "object",
+  "properties": {
+    "error": {
+      "type": "object",
+      "properties": {
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "type": {
+          "type": "string",
+          "minLength": 1,
+          "description": "OpenAI's error family: invalid_request_error, authentication_error, permission_error, not_found_error, conflict_error, server_error."
+        },
+        "code": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The harness's reason: unauthorized, forbidden, model_not_found, run_active, unavailable."
+        },
+        "param": {
+          "description": "The request field at fault, when one is.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "message",
+        "type",
+        "code",
+        "param"
+      ],
+      "description": "What went wrong, as OpenAI shapes it."
+    },
+    "agent-harness": {
+      "description": "The session and run a failed turn ran on, when it got that far.",
+      "type": "object",
+      "properties": {
+        "sessionId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+          "description": "A session's id: a version 4 UUID the creating client mints (never the provider's resume id), kept in lowercase."
+        },
+        "runId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+          "description": "A run's id: a version 4 UUID the environment mints when the run starts or is adopted."
+        },
+        "ended": {
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "enum": [
+                "completed",
+                "error",
+                "interrupted",
+                "disposed",
+                "drained"
+              ],
+              "description": "Why a run ended: completed, error, interrupted (with its cause), disposed (the environment let the run go: its session was deleted, or the environment closed), drained (cut by a drain's cap)."
+            },
+            "cause": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "user",
+                    "read-now",
+                    "restart",
+                    "parked"
+                  ],
+                  "description": "What interrupted a run: user (runs.interrupt), read-now, restart (the recovery sweep after a restart), parked (its process was stopped while parked on a prompt)."
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "reason",
+            "cause"
+          ],
+          "description": "How the run ended: its run.ended reason and, for an interrupted one, the cause."
+        }
+      }
+    }
+  },
+  "required": [
+    "error"
+  ],
+  "description": "An OpenAI-style error body."
+}
