@@ -24,6 +24,31 @@ export type DenylistSection = z.infer<typeof DenylistSection>;
 /** One DNS label: letters, digits, `-` and `_`, never starting or ending with `-`. */
 const LABEL = "[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?";
 
+/** One group of an IPv6 literal. */
+const H16 = "[0-9A-Fa-f]{1,4}";
+/** A dotted IPv4 address, as the last 32 bits of an IPv6 literal may be written. */
+const V4 = "(?:\\d{1,3}\\.){3}\\d{1,3}";
+
+/**
+ * An IPv6 literal as RFC 4291 writes it: eight groups, or fewer around one
+ * `::`, the last two groups optionally a dotted IPv4 address. `::::` and
+ * nine groups are refused.
+ */
+const IPV6 = [
+  `(?:${H16}:){7}${H16}`,
+  `(?:${H16}:){6}${V4}`,
+  `(?:${H16}:){1,7}:`,
+  `(?:${H16}:){1,6}:${H16}`,
+  `(?:${H16}:){1,5}(?::${H16}){1,2}`,
+  `(?:${H16}:){1,4}(?::${H16}){1,3}`,
+  `(?:${H16}:){1,3}(?::${H16}){1,4}`,
+  `(?:${H16}:){1,2}(?::${H16}){1,5}`,
+  `${H16}:(?::${H16}){1,6}`,
+  `:(?:(?::${H16}){1,7}|:)`,
+  `(?:${H16}:){0,5}:${V4}`,
+  `::(?:${H16}:){0,5}${V4}`,
+].join("|");
+
 /**
  * A domain or host pattern: a host name, an IPv4 address or an IPv6 literal,
  * with an optional leading wildcard label (`*.paypal.com`: the domain and
@@ -31,7 +56,7 @@ const LABEL = "[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?";
  */
 const HostPattern = z
   .string()
-  .regex(new RegExp(`^(?:(?:\\*\\.)?${LABEL}(?:\\.${LABEL})*|[0-9A-Fa-f.]*:[0-9A-Fa-f:.]*:[0-9A-Fa-f:.]*)$`))
+  .regex(new RegExp(`^(?:(?:\\*\\.)?${LABEL}(?:\\.${LABEL})*|${IPV6})$`))
   .meta({ description: "A host name, IPv4 address or IPv6 literal, with an optional leading wildcard label (*.example.com): no scheme, port or path." });
 
 /**
@@ -299,7 +324,8 @@ export interface DenylistMatchContext {
    * followed where it stands before any `..` after it; absent, paths are
    * matched as written only. Both the path as written and as resolved are
    * matched, and so is an entry's own literal part, so a link to a
-   * denylisted directory and a denylisted link are both caught.
+   * denylisted directory and a denylisted link are both caught. Asked at
+   * most once per path in a match.
    */
   readonly resolve?: ((path: string) => string) | undefined;
   /**
@@ -309,13 +335,20 @@ export interface DenylistMatchContext {
    * runs write in), while an entry inside the directory still matches, and
    * so does a link there that leads out.
    */
-  readonly exempt?: readonly string[];
+  readonly exempt?: readonly string[] | undefined;
+  /** The name of the user whose home `home` is: `~name/` reads as the home directory too. */
+  readonly user?: string | undefined;
+  /** Whether paths compare without regard to case, as the file systems of macOS and Windows do. */
+  readonly caseInsensitive?: boolean | undefined;
 }
 
-/** `path` absolute: `~` expanded, a relative path read against `cwd`. Not normalised. */
-const absolute = (path: string, context: Pick<DenylistMatchContext, "home" | "cwd">): string => {
-  if (path === "~") return context.home;
-  if (path.startsWith("~/")) return `${context.home}/${path.slice(2)}`;
+/** `path` absolute: `~` (and `~user` for the context's own user) expanded, a relative path read against `cwd`. Not normalised. */
+const absolute = (path: string, context: Pick<DenylistMatchContext, "home" | "cwd" | "user">): string => {
+  const own = context.user !== undefined && context.user !== "" ? `~${context.user}` : null;
+  for (const tilde of own === null ? ["~"] : ["~", own]) {
+    if (path === tilde) return context.home;
+    if (path.startsWith(`${tilde}/`)) return `${context.home}/${path.slice(tilde.length + 1)}`;
+  }
   if (path.startsWith("/")) return path;
   return `${context.cwd}/${path}`;
 };
@@ -337,8 +370,8 @@ const isGlob = (segment: string): boolean => segment.includes("*") || segment.in
 /**
  * Whether `text` matches `glob`, where `*` is any run of characters and,
  * when `question` is set, `?` any one character; everything else is itself.
- * Linear in practice: a `*` is backtracked to only once per position, so no
- * pattern can make a long token slow.
+ * Two pointers with one backtrack point, so at worst the glob's length
+ * times the text's, and never exponential whatever the pattern.
  */
 const wildcard = (glob: string, text: string, question: boolean): boolean => {
   let g = 0;
@@ -385,29 +418,30 @@ const sequenceMatches = <T>(pattern: readonly string[], items: readonly T[], sta
   return next[0] as boolean;
 };
 
+const segmentMatches = (segment: string, part: string): boolean => (isGlob(segment) ? wildcard(segment, part, true) : segment === part);
+
 /** Whether an entry's segments cover a path: the path is the entry or lies under it. `**` is any number of segments. */
-const coversPath = (entry: readonly string[], path: readonly string[]): boolean =>
-  sequenceMatches([...entry, "**"], path, "**", (segment, part) => (isGlob(segment) ? wildcard(segment, part, true) : segment === part));
+const coversPath = (entry: readonly string[], path: readonly string[]): boolean => sequenceMatches([...entry, "**"], path, "**", segmentMatches);
 
-/** The forms of a path the matcher reads: as written (`..` applied as text), and as resolved when a resolver is given. */
-const pathForms = (path: string, context: DenylistMatchContext): string[][] => {
-  const full = absolute(path, context);
-  const forms = [lexical(full)];
-  if (context.resolve !== undefined) forms.push(lexical(context.resolve(full)));
-  return forms;
-};
-
-/** The forms of an entry's pattern: as written, and with its literal part before the first glob segment resolved. */
-const entryForms = (pattern: string, context: DenylistMatchContext): string[][] => {
-  const segments = lexical(absolute(pattern, context));
-  const forms = [segments];
-  if (context.resolve !== undefined) {
-    const firstGlob = segments.findIndex(isGlob);
-    const literal = firstGlob === -1 ? segments : segments.slice(0, firstGlob);
-    const rest = firstGlob === -1 ? [] : segments.slice(firstGlob);
-    forms.push([...lexical(context.resolve(`/${literal.join("/")}`)), ...rest]);
+/**
+ * Whether a path written as a glob (`~/.s*h/id_rsa`, which the shell
+ * expands) can name the entry's path or one under it: its first segments,
+ * as globs, match the entry's literal ones, a leading dot matched only by a
+ * dot as the shell expands it. An entry with globs of its own is left to
+ * the literal comparison.
+ */
+const globReaches = (glob: readonly string[], entry: readonly string[]): boolean => {
+  if (entry.some(isGlob)) return false;
+  for (let index = 0; index < entry.length; index++) {
+    const segment = glob[index];
+    if (segment === undefined) return false;
+    if (segment === "**") return true;
+    const part = entry[index] as string;
+    // A shell's `*` and `?` do not expand to a leading dot: `~/*` is not `~/.ssh`, `~/.*` is.
+    if (part.startsWith(".") && !segment.startsWith(".")) return false;
+    if (!segmentMatches(segment, part)) return false;
   }
-  return forms;
+  return true;
 };
 
 const sameSegments = (a: readonly string[], b: readonly string[]): boolean => a.length === b.length && a.every((part, index) => part === b[index]);
@@ -418,74 +452,161 @@ const dedupe = (forms: string[][]): string[][] => forms.filter((form, index) => 
 const within = (directory: readonly string[], path: readonly string[]): boolean =>
   directory.length <= path.length && directory.every((part, index) => part === path[index]);
 
-/** Whether the entry matches the path, leaving out a path in an exempt directory the entry covers as a whole. */
-const pathMatches = (entry: readonly string[][], path: readonly string[][], exempt: readonly string[][]): boolean =>
-  path.some((form) =>
-    entry.some((pattern) => {
-      if (!coversPath(pattern, form)) return false;
-      return !exempt.some((directory) => within(directory, form) && coversPath(pattern, directory));
-    }),
-  );
+/**
+ * A match's reading of paths: `~` and the working directory, the resolver
+ * asked once per path, case folded where the file system folds it; and each
+ * entry's forms, read once.
+ */
+const pathReader = (context: DenylistMatchContext) => {
+  const resolved = new Map<string, string>();
+  const resolve = context.resolve;
+  const fold = context.caseInsensitive === true ? (form: string[]) => form.map((part) => part.toLowerCase()) : (form: string[]) => form;
+  const resolveOnce = (path: string): string => {
+    let known = resolved.get(path);
+    if (known === undefined) {
+      known = (resolve as (path: string) => string)(path);
+      resolved.set(path, known);
+    }
+    return known;
+  };
+  /** The forms of a path the matcher reads: as written (`..` applied as text), and as resolved when a resolver is given. */
+  const forms = (path: string): string[][] => {
+    const full = absolute(path, context);
+    const read = [lexical(full)];
+    if (resolve !== undefined) read.push(lexical(resolveOnce(full)));
+    return dedupe(read.map(fold));
+  };
+  const entries = new Map<string, string[][]>();
+  /** The forms of an entry's pattern: as written, and with its literal part before the first glob segment resolved. */
+  const entryForms = (pattern: string): string[][] => {
+    let known = entries.get(pattern);
+    if (known === undefined) {
+      const segments = lexical(absolute(pattern, context));
+      const read = [segments];
+      if (resolve !== undefined) {
+        const firstGlob = segments.findIndex(isGlob);
+        const literal = firstGlob === -1 ? segments : segments.slice(0, firstGlob);
+        const rest = firstGlob === -1 ? [] : segments.slice(firstGlob);
+        read.push([...lexical(resolveOnce(`/${literal.join("/")}`)), ...rest]);
+      }
+      known = dedupe(read.map(fold));
+      entries.set(pattern, known);
+    }
+    return known;
+  };
+  const exempt = dedupe((context.exempt ?? []).flatMap(forms));
+  /** Whether the entry matches the path, leaving out a path in an exempt directory the entry covers as a whole. */
+  const matches = (pattern: string, path: PathSubject): boolean =>
+    path.forms.some((form) =>
+      entryForms(pattern).some((entry) => {
+        if (!coversPath(entry, form) && !(path.glob && globReaches(form, entry))) return false;
+        return !exempt.some((directory) => within(directory, form) && coversPath(entry, directory));
+      }),
+    );
+  return { forms, matches };
+};
 
 // Command lines -------------------------------------------------------------
 
-/** What wraps a token without being part of it: quotes, brackets, a substitution's opening, a statement's end. */
-const WRAPPING_START = /^(?:\$\(|[`"'({[<])+/;
-const WRAPPING_END = /[`"')}\];,]+$/;
+/**
+ * What splits a token as white space does: a substitution's or a group's
+ * bracket, a redirection, a statement's end, a background `&`; each is a
+ * token of its own. The longest spelling first at a position.
+ */
+const OPERATORS = /(\$\(|`|\(|\)|&>>|&>|>>|>&|>\||>|<<<|<<|<|;|&&|\|\||&)/;
+const OPERATOR_TOKEN = new RegExp(`^${OPERATORS.source}$`);
 
-/** A token with its quotes and brackets taken off. */
-const unwrap = (token: string): string => token.replace(WRAPPING_START, "").replace(WRAPPING_END, "");
+/** A token with its quotes and escapes taken out, wherever they stand, and the brackets or punctuation that wrap it off. */
+const unwrap = (token: string): string => token.replace(/["'\\]/g, "").replace(/^[{[]+/, "").replace(/[}\],]+$/, "");
 
 /**
- * A command line's tokens: split on white space, then `;`, `&&`, `||` and
- * `&` split off as tokens of their own, and a `|` inside a token starting a
- * token (`x|sh` is `x` and `|sh`), so a pattern meets the spellings a shell
- * reads alike.
+ * A command line's tokens: split on white space, then at every operator
+ * (`$(`, a backtick, `(`, `)`, a redirection, `;`, `&&`, `||`, `&`), each
+ * kept as a token, and a `|` inside a token starting a token (`x|sh` is `x`
+ * and `|sh`), so a pattern meets the spellings a shell reads alike:
+ * `x>~/.netrc`, `cat<key`, `x=$(sudo ls)`. A quote does not hide an
+ * operator: the reading is of tokens, not of the shell's grammar.
  */
 const tokensOf = (line: string): string[] =>
   line
     .trim()
     .split(/\s+/)
-    .flatMap((token) => token.split(/(;|&&|\|\||(?<!>)&(?![>&]))/))
-    .flatMap((token) => (token === "||" ? [token] : token.split(/(?=\|)/)))
+    .flatMap((token) => token.split(OPERATORS))
+    .flatMap((token) => (OPERATOR_TOKEN.test(token) ? [token] : token.split(/(?=\|)/)))
     .filter((token) => token !== "");
 
 /** Whether a pattern token matches a line token, as written or unwrapped: a `*` inside it matches anything within the token. */
 const tokenMatches = (pattern: string, token: string): boolean => wildcard(pattern, token, false) || wildcard(pattern, unwrap(token), false);
 
-/** Whether a command pattern matches a command line anywhere in it: a bare `*` any run of tokens, none included. */
-const commandMatches = (pattern: string, line: string): boolean => sequenceMatches(["*", ...pattern.trim().split(/\s+/), "*"], tokensOf(line), "*", tokenMatches);
+/** Whether a command pattern matches a command line's tokens anywhere in it: a bare `*` any run of tokens, none included. */
+const commandMatches = (pattern: string, tokens: readonly string[]): boolean => sequenceMatches(["*", ...pattern.trim().split(/\s+/), "*"], tokens, "*", tokenMatches);
 
 const URL_PREFIX = /^[A-Za-z][A-Za-z0-9+.-]*:\/\//;
-
-/** A redirection before a target (`2>`, `>>`, `&>`, `<`) or an option's name before its value (`--out=`, `of=`). */
-const REDIRECTION = /^\d*(?:&>>?|>>?&?|<<?<?|>\|)/;
 
 /** `$HOME` and `${HOME}` at a token's start read as `~`. */
 const home = (token: string): string => token.replace(/^(?:\$HOME|\$\{HOME\})(?=\/|$)/, "~");
 
 /** Whether a token reads as a path: absolute, `~`, a dot file or a relative path with a slash in it. */
-const isPathLike = (token: string): boolean => token.startsWith("/") || token === "~" || token.startsWith("~/") || token.startsWith(".") || token.includes("/");
+const isPathLike = (token: string): boolean => token.startsWith("/") || token.startsWith("~") || token.startsWith(".") || token.includes("/");
 
-/** Whether a bare token reads as a host: a name with a dot, an IPv4 address, `localhost`, a bracketed IPv6 literal, each with an optional port. */
+/** A token that reads as a host: a name with a dot, `localhost`, a bracketed IPv6 literal, each with an optional port. */
 const HOST_TOKEN = new RegExp(`^(?:${LABEL}(?:\\.${LABEL})+|localhost|\\[[0-9A-Fa-f:.]+\\])(?::\\d+)?$`);
+const SINGLE_LABEL = new RegExp(`^${LABEL}(?::\\d+)?$`);
+
+/**
+ * A number that reaches a host as the network reads one: `0x` hex, or a
+ * decimal above the first eight bits, as `inet_aton` takes `2852039166` for
+ * 169.254.169.254 (a small number, an exit code or a count, is left alone).
+ */
+const numericHost = (token: string): boolean => {
+  const bare = token.replace(/:\d+$/, "");
+  if (/^0[xX][0-9A-Fa-f]{1,8}$/.test(bare)) return true;
+  return /^[1-9][0-9]{7,9}$/.test(bare) && Number(bare) >= 2 ** 24 && Number(bare) < 2 ** 32;
+};
+
+/** Full-width and ideographic spellings read as ASCII, as a browser maps a host before it resolves it. */
+const asciiHost = (text: string): string => text.normalize("NFKC").replace(/[\u3002\uff0e\uff61]/g, ".");
+
+/**
+ * The host a bare token reaches, or null: a name with a dot or a number the
+ * network reads as an address, with an optional port; after a user
+ * (`admin@db.internal`, where a single label is a host too); before a path
+ * (`169.254.169.254/latest`) or scp's `:path` (`git@host.example:repo.git`).
+ * An absolute, `~` or dot path, an option and a URL are not hosts. The
+ * port is dropped.
+ */
+export const hostToken = (token: string): string | null => {
+  const text = asciiHost(token.trim());
+  if (text === "" || /^[-/~.]/.test(text) || URL_PREFIX.test(text)) return null;
+  let candidate = text.split("/")[0] as string;
+  const user = candidate.lastIndexOf("@");
+  candidate = candidate.slice(user + 1);
+  const scp = /^([^:[\]]+):(.*)$/.exec(candidate);
+  if (scp !== null && !/^\d+$/.test(scp[2] as string)) candidate = scp[1] as string;
+  if (candidate === "") return null;
+  if (HOST_TOKEN.test(candidate) || numericHost(candidate) || (user !== -1 && SINGLE_LABEL.test(candidate))) return candidate.replace(/:\d+$/, "");
+  return null;
+};
 
 /**
  * The path-like tokens, URLs and hosts of a command line, as the matcher
- * reads them against the paths and the hosts: each token unwrapped, a
- * redirection's target and an option's value taken on their own. A path is
- * absolute, `~`-relative, a dot file, or has a slash in it; a host is a bare
- * token that reads as one (`10.0.0.5`, `api.example.com:443`,
- * `admin@db.internal`).
+ * reads them against the paths and the hosts: each token unwrapped (quotes
+ * and escapes taken out wherever they stand), `$HOME` read as `~`, a
+ * redirection's target a token of its own, an option's value (`--out=x`,
+ * `of=/dev/sdb`) taken on its own. A path is absolute, `~`-relative, a dot
+ * file, or has a slash in it; a host is a bare token `hostToken` reads as one.
  */
-export const shellSubjects = (line: string): { paths: string[]; urls: string[]; hosts: string[] } => {
+export const shellSubjects = (line: string): { paths: string[]; urls: string[]; hosts: string[] } => subjectsOf(tokensOf(line));
+
+const subjectsOf = (tokens: readonly string[]): { paths: string[]; urls: string[]; hosts: string[] } => {
   const paths: string[] = [];
   const urls: string[] = [];
   const hosts: string[] = [];
-  for (const raw of tokensOf(line)) {
-    const whole = home(unwrap(raw).replace(REDIRECTION, ""));
+  for (const raw of tokens) {
+    if (OPERATOR_TOKEN.test(raw)) continue;
+    const whole = home(unwrap(raw));
     const equals = whole.indexOf("=");
-    const candidates = equals > 0 && !URL_PREFIX.test(whole) ? [home(unwrap(whole.slice(equals + 1)))] : [whole];
+    const candidates = equals > 0 && !URL_PREFIX.test(whole) ? [home(whole.slice(equals + 1))] : [whole];
     // An absolute path with `=` in it is a path too, beside what follows the `=`.
     if (candidates[0] !== whole && (whole.startsWith("/") || whole.startsWith("~/"))) candidates.unshift(whole);
     for (const token of candidates) {
@@ -495,10 +616,8 @@ export const shellSubjects = (line: string): { paths: string[]; urls: string[]; 
         continue;
       }
       if (isPathLike(token)) paths.push(token);
-      if (token.startsWith("/") || token.startsWith("~") || token.startsWith(".")) continue;
-      // A host before a path (`169.254.169.254/latest`), after a user (`admin@db.internal`), before scp's `:` (`host:file`).
-      const host = (token.split("/")[0] as string).replace(/^.*@/, "").replace(/:$/, "");
-      if (HOST_TOKEN.test(host)) hosts.push(host);
+      const host = hostToken(token);
+      if (host !== null) hosts.push(host);
     }
   }
   return { paths, urls, hosts };
@@ -593,7 +712,8 @@ const canonicalHost = (host: string, special: boolean): string | null => {
   } catch {
     return null;
   }
-  text = text.toLowerCase().replace(/\.$/, "");
+  // Full-width letters and digits and the ideographic full stops read as ASCII, as a browser maps a host (UTS 46).
+  text = asciiHost(text).toLowerCase().replace(/\.$/, "");
   if (text === "" || /[\s/\\?#@]/.test(text)) return null;
   if (!special) return text;
   const v4 = ipv4Of(text);
@@ -615,10 +735,25 @@ interface Address {
   readonly filePath: string | null;
 }
 
+const isControl = (char: string): boolean => char.charCodeAt(0) < 0x20 || char.charCodeAt(0) === 0x7f;
+
+/**
+ * An address as WHATWG's parser reads it before anything else: every tab,
+ * CR and LF removed wherever it stands (`http://169.254.169\t.254/` is the
+ * metadata address), control characters and spaces trimmed from both ends;
+ * null when a control character is left inside.
+ */
+const cleanAddress = (address: string): string | null => {
+  const chars = [...address].filter((char) => char !== "\t" && char !== "\n" && char !== "\r");
+  while (chars.length > 0 && ((chars[0] as string) === " " || isControl(chars[0] as string))) chars.shift();
+  while (chars.length > 0 && ((chars.at(-1) as string) === " " || isControl(chars.at(-1) as string))) chars.pop();
+  return chars.some(isControl) ? null : chars.join("");
+};
+
 /** Reads an address: a URL, or a bare host with an optional port. */
 const readAddress = (address: string): Address | null => {
-  const text = address.trim();
-  if (text === "" || text.length > 8_192 || [...text].some((char) => char.charCodeAt(0) < 0x20 || char.charCodeAt(0) === 0x7f)) return null;
+  const text = address.length > 8_192 ? null : cleanAddress(address);
+  if (text === null || text === "") return null;
   const schemed = /^([A-Za-z][A-Za-z0-9+.-]*):(.*)$/s.exec(text);
   // `localhost:8080` and `db.internal:5432/x` are hosts with ports, and `fe80::1` an IPv6 literal, not schemes.
   const bareIpv6 = /^[0-9A-Fa-f:.]+$/.test(text) && (text.match(/:/g)?.length ?? 0) >= 2;
@@ -681,8 +816,7 @@ const hostPatternOf = (pattern: string): { readonly wildcard: boolean; readonly 
 };
 
 /** Whether a host pattern matches a host: `*.x` matches `x` and every subdomain of it, anything else the host alone. */
-const hostMatches = (pattern: string, host: string): boolean => {
-  const { wildcard, host: target } = hostPatternOf(pattern);
+const hostMatches = ({ wildcard, host: target }: { readonly wildcard: boolean; readonly host: string | null }, host: string): boolean => {
   if (target === null) return false;
   const candidates = [host, mappedIpv4(host)].filter((value): value is string => value !== null);
   return candidates.some((candidate) => candidate === target || (wildcard && candidate.endsWith(`.${target}`)));
@@ -696,66 +830,86 @@ interface Subject {
 }
 interface PathSubject extends Subject {
   readonly forms: string[][];
+  /** Whether the value holds glob syntax the shell expands (`~/.s*h/id_rsa`). */
+  readonly glob: boolean;
 }
 interface HostSubject extends Subject {
   readonly host: string;
 }
+interface CommandSubject extends Subject {
+  readonly tokens: readonly string[];
+}
+
+/** Keeps the first of each value. */
+const unique = <S extends Subject>(subjects: readonly S[]): S[] => {
+  const seen = new Set<string>();
+  return subjects.filter((subject) => !seen.has(subject.value) && (seen.add(subject.value), true));
+};
 
 /**
  * Every enabled entry the call matches, once each, in section order and
  * each section in its own order, with the first value that matched it. A
  * call matches nothing when it names nothing an entry covers. Paths are
  * matched after `~` and the working directory, as written and after
- * symbolic links resolve; command patterns against each whole command line;
- * hosts and domains against the host each address reaches.
+ * symbolic links resolve (a path written as a glob also against what it
+ * can expand to); command patterns against each whole command line; hosts
+ * and domains against the host each address reaches. Each value is read
+ * once, each entry's forms computed once and each path resolved once, so a
+ * long command line costs its length, not its length times the list.
  */
 export const matchDenylist = (denylist: Denylist, call: DenylistCall, context: DenylistMatchContext): DenylistMatch[] => {
+  const commands: CommandSubject[] = unique((call.commands ?? []).map((value) => ({ value, tokens: tokensOf(value) })));
   const pathValues: string[] = [...(call.paths ?? [])];
   const hostValues: string[] = [...(call.hosts ?? [])];
-  const commandValues = call.commands ?? [];
-  const domainValues = call.browserDomains ?? [];
   const hostSubjects: HostSubject[] = [];
   const domainSubjects: HostSubject[] = [];
-  const filePaths: Subject[] = [];
+  const filePaths: string[] = [];
 
-  for (const line of commandValues) {
-    const found = shellSubjects(line);
+  for (const command of commands) {
+    const found = subjectsOf(command.tokens);
     pathValues.push(...found.paths);
     hostValues.push(...found.urls, ...found.hosts);
   }
   const readInto = (value: string, into: HostSubject[] | null): void => {
     const address = readAddress(value);
     if (address === null) return;
-    if (address.filePath !== null) filePaths.push({ value });
+    if (address.filePath !== null) filePaths.push(address.filePath);
     if (address.host === null) return;
     hostSubjects.push({ value, host: address.host });
     into?.push({ value, host: address.host });
   };
-  for (const value of domainValues) readInto(value, domainSubjects);
+  for (const value of call.browserDomains ?? []) readInto(value, domainSubjects);
   for (const value of hostValues) readInto(value, null);
 
-  const pathSubjects: PathSubject[] = [
-    ...pathValues.map((value) => ({ value, forms: dedupe(pathForms(value, context)) })),
-    ...filePaths.map(({ value }) => ({ value, forms: dedupe(pathForms(readAddress(value)?.filePath ?? "/", context)) })),
-  ];
-  const exempt = dedupe((context.exempt ?? []).flatMap((directory) => pathForms(directory, context)));
+  const paths = pathReader(context);
+  const pathSubjects: PathSubject[] = unique([...pathValues, ...filePaths].map((value) => ({ value }))).map(({ value }) => ({
+    value,
+    forms: paths.forms(value),
+    glob: /[*?]/.test(value),
+  }));
+  const hostPatterns = new Map<string, { readonly wildcard: boolean; readonly host: string | null }>();
+  const hostMatchesEntry = (entry: DenylistEntry, subject: HostSubject): boolean => {
+    let pattern = hostPatterns.get(entry.pattern);
+    if (pattern === undefined) {
+      pattern = hostPatternOf(entry.pattern);
+      hostPatterns.set(entry.pattern, pattern);
+    }
+    return hostMatches(pattern, subject.host);
+  };
 
   const matches: DenylistMatch[] = [];
   const take = <S extends Subject>(section: DenylistSection, subjects: readonly S[], matchesEntry: (entry: DenylistEntry, subject: S) => boolean): void => {
+    if (subjects.length === 0) return;
     for (const entry of denylist[section]) {
       if (!entry.enabled) continue;
       const subject = subjects.find((candidate) => matchesEntry(entry, candidate));
       if (subject !== undefined) matches.push({ section, entry, matched: subject.value });
     }
   };
-  take("browserDomains", domainSubjects, (entry, subject) => hostMatches(entry.pattern, subject.host));
-  take("paths", pathSubjects, (entry, subject) => pathMatches(dedupe(entryForms(entry.pattern, context)), subject.forms, exempt));
-  take(
-    "commandPatterns",
-    commandValues.map((value) => ({ value })),
-    (entry, subject) => commandMatches(entry.pattern, subject.value),
-  );
-  take("hosts", hostSubjects, (entry, subject) => hostMatches(entry.pattern, subject.host));
+  take("browserDomains", unique(domainSubjects), hostMatchesEntry);
+  take("paths", pathSubjects, (entry, subject) => paths.matches(entry.pattern, subject));
+  take("commandPatterns", commands, (entry, subject) => commandMatches(entry.pattern, subject.tokens));
+  take("hosts", unique(hostSubjects), hostMatchesEntry);
   return matches;
 };
 
@@ -773,12 +927,29 @@ export const denylistTestCall = (kind: DenylistTestKind, value: string): Denylis
   }
 };
 
-/** One line naming a match, for a prompt's summary and the model's message: the section and the entry. */
-export const describeDenylistMatch = (match: DenylistMatch): string => `${match.matched} is on the denylist (${SECTION_NAMES[match.section]}: ${match.entry.pattern})`;
-
 const SECTION_NAMES: Readonly<Record<DenylistSection, string>> = {
   browserDomains: "browser domains",
   paths: "paths",
   commandPatterns: "command patterns",
   hosts: "hosts",
 };
+
+/** The longest a match's value is quoted in a sentence about it. */
+const QUOTED_MAX = 60;
+
+/** A value on one short line: its first line with anything on it, white space collapsed, cut with an ellipsis. */
+const quoted = (value: string): string => {
+  const line =
+    value
+      .split(/\r\n|\r|\n/)
+      .map((part) => part.replace(/\s+/g, " ").trim())
+      .find((part) => part !== "") ?? "";
+  return line.length <= QUOTED_MAX ? line : `${line.slice(0, QUOTED_MAX - 1).trimEnd()}…`;
+};
+
+/**
+ * One line naming a match, for a prompt's summary and reason and the
+ * model's message: the section and the entry, with what matched it cut to
+ * one short line, so a long command or a heredoc is never repeated whole.
+ */
+export const describeDenylistMatch = (match: DenylistMatch): string => `${quoted(match.matched)} is on the denylist (${SECTION_NAMES[match.section]}: ${match.entry.pattern})`;

@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
-import { homedir, hostname } from "node:os";
-import { join } from "node:path";
+import { homedir, hostname, userInfo } from "node:os";
+import { join, resolve as absolutePath } from "node:path";
 import {
   BOOTSTRAP_PATH,
   ContractError,
@@ -51,7 +51,7 @@ import { claudeSignInProgram } from "../adapters/claude/signin.js";
 import { processMethods } from "../adapter/processes-methods.js";
 import { ATTACHMENTS_DIRECTORY, createAttachmentStage } from "../adapter/attachment-stage.js";
 import { recoverCutRuns, recoverStagedAttachments } from "../adapter/recovery.js";
-import type { InstructionComposer, PolicySeam, PromptAutoAnswer, ToolServerFactory } from "../adapter/seams.js";
+import type { InstructionComposer, PolicySeam, PromptAutoAnswer, ToolGateRule, ToolServerFactory } from "../adapter/seams.js";
 import { autoAnswer } from "../permissions/auto-answer.js";
 import { denylistRule, type DenylistContext } from "../permissions/denylist-gate.js";
 import { denylistMethods } from "../permissions/denylist-methods.js";
@@ -238,6 +238,8 @@ export interface EnvironmentOptions {
     readonly autoAnswer?: PromptAutoAnswer;
     /** Preset: the policy resolver on the environment's permission settings (#129). */
     readonly resolvePolicy?: PolicySeam;
+    /** The tool gate's rules; preset: the denylist's (#132, `permissions/denylist-gate.ts`). */
+    readonly gateRules?: readonly ToolGateRule[];
   };
   /** How terminals start: the pty, the shell, the base environment. Preset: `node-pty`, the user's login shell, the clean base (`terminals/`). */
   readonly terminals?: Omit<TerminalsOptions, "clock">;
@@ -354,7 +356,8 @@ const linkHost = (listening: readonly { readonly address: Address; readonly inte
 export const startEnvironment = async (options: EnvironmentOptions = {}): Promise<EnvironmentHandle> => {
   refusePrivilegedUser(options.user ?? processUserCheck());
 
-  const dataDir = options.dataDir ?? defaultDataDirectory();
+  // Absolute once, here: a relative `--data-dir` would make the denylist's data-directory preset and its exemption relative paths (#132).
+  const dataDir = absolutePath(options.dataDir ?? defaultDataDirectory());
   const clock: Clock = options.clock ?? systemClock;
   const now = () => clock.now();
   const launcher = options.launcher ?? processLauncherChannel();
@@ -432,7 +435,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
 
   // Where the denylist reads paths from (#132): the user's home for `~`, the file system's links, and the containment
   // directories inside the data directory (#133's), which the data directory's preset leaves out.
-  const denylistContext: Omit<DenylistContext, "denylist"> = { home: homedir(), exempt: [join(dataDir, CONTAINMENT_DIRECTORY)] };
+  const denylistContext: Omit<DenylistContext, "denylist"> = { home: homedir(), user: userInfo().username, exempt: [join(dataDir, CONTAINMENT_DIRECTORY)] };
 
   // The account store and the adapter host: the adapters, the accounts' sign-in states read through their probes, the run registry.
   const { host, accounts } = await step("adapter-host", async () => {

@@ -11,6 +11,7 @@ import {
   type PromptAnsweredPayload,
   type PromptKind,
   type PromptOpenedPayload,
+  type ToolDecider,
   type ProviderProcess,
   type RunEndedPayload,
   type RunPolicy,
@@ -29,12 +30,13 @@ import {
   autoDenial,
   nextRunText,
   openedPayload,
+  summarise,
   ruledAnswer,
 } from "../permissions/broker.js";
 import { answersFor, hasKeptAnswer, parkedPromptsOfRun } from "../permissions/prompts-store.js";
 import { readRunPolicy } from "../permissions/review-store.js";
 import type { RunActor } from "../permissions/resolver.js";
-import { answerEvents, runToolCalls, type RunToolCalls } from "../permissions/tool-decisions.js";
+import { answerEvents, recordToolDecision, runToolCalls, type RunToolCalls } from "../permissions/tool-decisions.js";
 import { environmentQueue, latestRun, messageCeilings, providerHeld, providerSessionOf, readRun, readSessionFacts } from "../runs/run-reads.js";
 import {
   decideStart,
@@ -68,6 +70,7 @@ import type {
   ProviderTurn,
   RunContext,
   RunEnd,
+  GateDecision,
   ToolGate,
   UsageReading,
 } from "./contract.js";
@@ -314,6 +317,9 @@ export interface AdapterHost {
 export const HOST_ACTOR = formatActor({ kind: "system", id: "adapter-host" });
 
 /** What the model reads when the tool gate could not rule on a call (a rule failed): denied, since the gate fails closed. */
+/** The tool gate's actor, for the denials it records when no prompt's answer did (`tool.decision`). */
+export const GATE_ACTOR = formatActor({ kind: "system", id: "tool-gate" });
+
 export const GATE_FAILED_MESSAGE = "Denied: the harness could not check this call against its rules, so it was not run. Continue without it and say what you could not do.";
 
 /** `message.requeued` for each message of `runId`: the environment holds it now (ADR 0022). Always the host's. */
@@ -924,23 +930,53 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
    * it could not rule on.
    */
   const gateFor = (handedTo: LiveRun): ToolGate => ({
-    check: async (call) => {
+    check: async (call, signal) => {
       const current = live.get(handedTo.sessionId);
       const entry = current !== undefined && !current.ended ? current : handedTo;
       const broker = brokerFor(entry.sessionId, "gate");
+      // Whether the rule being asked put the call to a person: then the prompt's answer is the call's decision, or, when a
+      // stop denied it in memory, the prompt stays open and a later answer is (ADR 0007); the gate records nothing of it.
+      let asked = false;
       const run = {
         runId: entry.runId,
         sessionId: entry.sessionId,
         workspace: entry.plan.workspace.path,
-        ask: (kind: PromptKind, detail: PromptDetail) => broker.request({ sessionId: entry.sessionId, runId: entry.runId, kind, detail }),
+        ask: (kind: PromptKind, detail: PromptDetail, askSignal?: AbortSignal) => {
+          asked = true;
+          const cancel = askSignal ?? signal;
+          return broker.request({ sessionId: entry.sessionId, runId: entry.runId, kind, detail, ...(cancel !== undefined && { signal: cancel }) });
+        },
+      };
+      /** A denial no prompt decided: its `tool.decision`, by the rule's decider, unless the call has one already. */
+      const record = (decider: ToolDecider, reason: string): void => {
+        if (asked) return;
+        try {
+          log.atomically((tx) =>
+            recordToolDecision(
+              log,
+              tx,
+              entry.sessionId,
+              { runId: entry.runId, toolCallId: call.toolCallId, tool: call.tool, summary: summarise("permission", { toolName: call.tool, input: call.input ?? null, summary: call.summary }), decidedBy: decider, promptId: null, decision: "denied", reason },
+              { actor: GATE_ACTOR },
+            ),
+          );
+        } catch (error) {
+          console.error(`Recording the gate's denial of ${call.tool} (${call.toolCallId}) in run ${entry.runId} failed; it is denied all the same:`, error);
+        }
       };
       for (const rule of gateRules) {
+        asked = false;
+        let ruling: GateDecision | null;
         try {
-          const ruling = await rule(call, run);
-          if (ruling?.decision === "deny") return ruling;
+          ruling = await rule.check(call, run, signal);
         } catch (error) {
           console.error(`The tool gate could not rule on ${call.tool} (${call.toolCallId}) in run ${entry.runId}; it is denied:`, error);
+          record(rule.decider, GATE_FAILED_MESSAGE);
           return { decision: "deny", message: GATE_FAILED_MESSAGE };
+        }
+        if (ruling?.decision === "deny") {
+          record(rule.decider, ruling.message);
+          return ruling;
         }
       }
       return { decision: "allow" };

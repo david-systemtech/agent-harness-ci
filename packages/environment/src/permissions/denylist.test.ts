@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync, symlinkSync } from "node:fs";
+import { relative } from "node:path";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import {
@@ -25,6 +26,9 @@ import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions
 import { create, refusal } from "../../test/sessions.js";
 import type { WireClient } from "../../test/wire-client.js";
 import type { GatedToolCall } from "../adapter/contract.js";
+import { GATE_FAILED_MESSAGE } from "../adapter/host.js";
+import type { ToolGateRule } from "../adapter/seams.js";
+import { resolveLinks } from "./denylist-gate.js";
 import type { EventEnvelope as LogEvent } from "../event-log/event-log.js";
 import type { ActorRunRequest } from "../serve/start.js";
 
@@ -49,7 +53,7 @@ const start = async (adapter: FakeAdapterOptions | FakeAdapter = {}, options: Om
   return t;
 };
 
-type Command = "runs.start" | "permissions.prompts.answer" | "permissions.denylist.set" | "permissions.denylist.restorePresets" | "permissions.settings.set";
+type Command = "runs.interrupt" | "runs.start" | "permissions.prompts.answer" | "permissions.denylist.set" | "permissions.denylist.restorePresets" | "permissions.settings.set";
 
 const send = async <N extends Command>(client: WireClient, method: N, params: Omit<ParamsOf<N>, "commandId">): Promise<ResponseOf<N>> =>
   registry[method].response.parse(await client.request(method, { commandId: randomUUID(), ...params } as ParamsOf<N>)) as ResponseOf<N>;
@@ -335,11 +339,11 @@ describe("the tool gate on an attended run", () => {
     expect(t.adapter.lastRun().answers).toEqual([]);
   });
 
-  it("asks again for the next identical call: an allow is for that call only", async () => {
+  it.each(MODES)("asks again for the next identical call in %s: an allow is for that call only", async (mode) => {
     const t = await start({ script: calls(readKey, readKey) });
     const client = await t.client();
     const { id } = await create(client);
-    const { runId } = await startRun(client, id, "bypassPermissions");
+    const { runId } = await startRun(client, id, mode);
     const [first] = await untilOpened(t, id);
     await answer(client, first!.promptId, "allow");
     const [, second] = await untilOpened(t, id, 2);
@@ -417,7 +421,7 @@ describe("the tool gate on an attended run", () => {
 });
 
 describe("the tool gate on an unattended run", () => {
-  it.each(["acceptEdits", "bypassPermissions"] as const)("denies a match at once in %s, recorded as an opened and answered pair decided by the denylist, and the run continues", async (mode) => {
+  it.each(MODES)("denies a match at once in %s, recorded as an opened and answered pair decided by the denylist, and the run continues", async (mode) => {
     const t = await start({ script: calls(readKey, harmless) });
     const client = await t.client();
     const { id } = await create(client);
@@ -530,5 +534,177 @@ describe("a restart", () => {
     const { runId } = await startRun(again, id);
     await untilEnded(second, id, runId);
     expect(second.adapter.lastRun().input.prompt[0]?.text).toContain("~/.ssh");
+  });
+});
+
+describe("disguised addresses and long lines", () => {
+  it("match an address the platform's URL parser reads as a denylisted host: a tab, full-width letters and dots, a soft hyphen", async () => {
+    const t = await start();
+    const client = await t.client();
+    await send(client, "permissions.denylist.set", { sections: { hosts: [{ id: "metadata", pattern: "169.254.169.254" }] } });
+    for (const value of ["http://169.254.169\t.254/", "http://169\uff0e254\uff0e169\uff0e254/", "169\u3002254\u3002169\u3002254"]) {
+      expect((await test(client, "host", value)).map((match) => match.entry.id), JSON.stringify(value)).toEqual(["metadata"]);
+    }
+    for (const value of ["https://www.\uff30\uff41\uff59\uff50\uff41\uff4c.com/", "https://www.pay\u00adpal.com/"]) {
+      expect((await test(client, "browserDomain", value)).map((match) => match.entry.pattern), JSON.stringify(value)).toEqual(["*.paypal.com"]);
+    }
+  });
+
+  it("name the section and the entry in one short line, never the whole command", async () => {
+    const t = await start();
+    const client = await t.client();
+    const { id } = await create(client);
+    const heredoc = `sudo tee /etc/motd <<'EOF'\n${"line of the message ".repeat(2_000)}\nEOF`;
+    t.adapter.nextScripts.push(calls({ tool: "Bash", summary: "tee", access: { kind: "shell", command: heredoc } }));
+    const { runId } = startAsRoutine(t, id);
+    await untilEnded(t, id, runId);
+    const [prompt] = opened(t, id);
+    expect(prompt?.reason).toMatch(/is on the denylist \(command patterns: sudo \*\)$/);
+    expect(prompt?.reason?.length).toBeLessThan(120);
+    expect(prompt?.summary.length).toBeLessThan(140);
+    expect(prompt?.denylist?.[0]?.matched).toBe(heredoc);
+  });
+});
+
+describe("the data directory", () => {
+  it("is absolute however it was given: a relative one seeds the preset and the exemption as absolute paths", async () => {
+    const absolute = tempDir();
+    const t = await start({}, { dataDir: relative(process.cwd(), absolute) });
+    const client = await t.client();
+    expect(t.env.dataDir).toBe(absolute);
+    const held = await getDenylist(client);
+    expect(held.paths.find((entry) => entry.id === DATA_DIRECTORY_PRESET_ID)?.pattern).toBe(absolute);
+    // The stored preset is in the grammar: sent back, it is taken.
+    expect((await send(client, "permissions.denylist.set", { sections: { paths: held.paths } })).receipt).toMatchObject({ status: "accepted" });
+    expect(await test(client, "path", join(absolute, "containment", randomUUID(), "tmp", "x"))).toEqual([]);
+  });
+
+  it("keeps a section's grammar in the log: a denylist.changed with an entry outside it fails its append", async () => {
+    const t = await start();
+    const bad = { id: "x", pattern: ".ssh", note: "", preset: false, enabled: true };
+    expect(() =>
+      t.env.log.append({ kind: "access", id: t.env.id }, [{ type: "denylist.changed", payload: { section: "paths", added: [bad], removed: [], edited: [], entries: [bad] } }], {
+        actor: "system:test",
+      }),
+    ).toThrow();
+  });
+});
+
+describe("links the gate cannot follow", () => {
+  it("resolve to nothing: a loop, and a link that goes away between being seen and being read", () => {
+    const links = tempDir();
+    symlinkSync(join(links, "b"), join(links, "a"));
+    symlinkSync(join(links, "a"), join(links, "b"));
+    expect(resolveLinks(join(links, "a", "x"))).toBeNull();
+    const vanishing = { isLink: () => true, readlink: () => { throw new Error("ENOENT"); } };
+    expect(resolveLinks("/tmp/gone/x", vanishing)).toBeNull();
+    expect(resolveLinks("/tmp/not-a-link/x", { isLink: () => false, readlink: () => "" })).toBe("/tmp/not-a-link/x");
+  });
+
+  it("deny the call outright, asking nobody, recorded as the denylist's", async () => {
+    const t = await start();
+    const client = await t.client();
+    const links = tempDir();
+    symlinkSync(join(links, "b"), join(links, "a"));
+    symlinkSync(join(links, "a"), join(links, "b"));
+    const { id } = await create(client);
+    t.adapter.nextScripts.push(calls({ tool: "Read", summary: "Read a", access: { kind: "read", paths: [join(links, "a", "x")] } }));
+    const { runId } = await startRun(client, id, "bypassPermissions");
+    await untilEnded(t, id, runId);
+    expect(opened(t, id)).toEqual([]);
+    expect(toolEnds(t, id)).toEqual([expect.objectContaining({ status: "error", output: expect.stringContaining("loops or changed") })]);
+    expect(decisions(t, id)).toEqual([expect.objectContaining({ decision: "denied", decidedBy: "denylist", promptId: null, reason: expect.stringContaining("loops or changed") })]);
+  });
+});
+
+describe("the gate's rules", () => {
+  it("deny a call a rule could not rule on, recorded by that rule's decider", async () => {
+    const failing: ToolGateRule = {
+      decider: "denylist",
+      check: () => {
+        throw new Error("The denylist could not be read.");
+      },
+    };
+    const t = await start({}, { adapterSeams: { gateRules: [failing] } });
+    const client = await t.client();
+    const { id } = await create(client);
+    t.adapter.nextScripts.push(calls(harmless));
+    const { runId } = await startRun(client, id, "bypassPermissions");
+    await untilEnded(t, id, runId);
+    expect(toolEnds(t, id)).toEqual([expect.objectContaining({ status: "error", output: GATE_FAILED_MESSAGE })]);
+    expect(decisions(t, id)).toEqual([expect.objectContaining({ decision: "denied", decidedBy: "denylist", reason: GATE_FAILED_MESSAGE })]);
+  });
+
+  it("stop at a deny: the rules after it are not asked, and the denial is recorded by its rule's decider", async () => {
+    const asked: string[] = [];
+    const walls: ToolGateRule = { decider: "containment", check: () => (asked.push("containment"), { decision: "deny", message: "Denied by containment." }) };
+    const after: ToolGateRule = { decider: "denylist", check: () => (asked.push("denylist"), null) };
+    const passes: ToolGateRule = { decider: "denylist", check: () => (asked.push("passes"), { decision: "allow" }) };
+    const t = await start({}, { adapterSeams: { gateRules: [passes, walls, after] } });
+    const client = await t.client();
+    const { id } = await create(client);
+    t.adapter.nextScripts.push(calls(harmless));
+    const { runId } = await startRun(client, id);
+    await untilEnded(t, id, runId);
+    expect(asked).toEqual(["passes", "containment"]);
+    expect(decisions(t, id)).toEqual([expect.objectContaining({ decision: "denied", decidedBy: "containment", reason: "Denied by containment." })]);
+  });
+
+  it("close a parked denylist prompt when the provider gives up on the call, the call the provider's to decide", async () => {
+    const t = await start();
+    const client = await t.client();
+    const { id } = await create(client);
+    const gaveUp = new AbortController();
+    t.adapter.nextScripts.push(async function* (controls: ScriptControls) {
+      yield* toolCall(controls, readKey, gaveUp.signal);
+      yield say("Carried on");
+      yield end();
+    });
+    const { runId } = await startRun(client, id);
+    const [prompt] = await untilOpened(t, id);
+    gaveUp.abort();
+    await untilEnded(t, id, runId);
+    expect(answered(t, id)).toEqual([expect.objectContaining({ promptId: prompt?.promptId, decision: "deny", decidedBy: { auto: "cancelled" } })]);
+    expect(decisions(t, id)).toEqual([expect.objectContaining({ decision: "denied", decidedBy: "provider", promptId: prompt?.promptId })]);
+    expect(toolEnds(t, id)).toEqual([expect.objectContaining({ status: "cancelled" })]);
+    expect(registry["permissions.prompts.list"].result.parse(await client.request("permissions.prompts.list", {})).prompts).toEqual([]);
+  });
+
+  it("leave a denylist prompt a person's interrupt ended the run under to the provider, not the denylist", async () => {
+    const t = await start({ script: calls(readKey) });
+    const client = await t.client();
+    const { id } = await create(client);
+    const { runId } = await startRun(client, id);
+    await untilOpened(t, id);
+    await send(client, "runs.interrupt", { runId });
+    await untilEnded(t, id, runId);
+    expect(answered(t, id)).toEqual([expect.objectContaining({ decidedBy: { auto: "run_ended" } })]);
+    expect(decisions(t, id)).toEqual([expect.objectContaining({ decision: "denied", decidedBy: "provider" })]);
+  });
+});
+
+describe("a tool server's input", () => {
+  it("is read for a host with a port in a whole value, and the rest past its limits is logged, not read", async () => {
+    const t = await start();
+    const client = await t.client();
+    await send(client, "permissions.denylist.set", { sections: { hosts: [{ id: "internal", pattern: "*.internal.example" }] } });
+    const { id } = await create(client);
+    let deep: Record<string, unknown> = { path: "~/.ssh/id_rsa" };
+    for (let level = 0; level < 12; level++) deep = { next: deep };
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    onCleanup(() => warn.mockRestore());
+    t.adapter.nextScripts.push(
+      calls(
+        { tool: "mcp__db__query", summary: "Query", access: { kind: "other" }, input: { target: "db.internal.example:5432", sql: "select 1" } },
+        { tool: "mcp__deep__read", summary: "Deep", access: { kind: "other" }, input: deep as never },
+      ),
+    );
+    const { runId } = startAsRoutine(t, id);
+    await untilEnded(t, id, runId);
+    expect(decisions(t, id).map((decision) => [decision.tool, decision.decision, decision.decidedBy])).toEqual([
+      ["mcp__db__query", "denied", "denylist"],
+      ["mcp__deep__read", "allowed", "mode"],
+    ]);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("mcp__deep__read"));
   });
 });

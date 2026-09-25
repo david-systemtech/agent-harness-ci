@@ -1,6 +1,7 @@
 import { presetPermissionSettings, type AutoDecider, type Mode, type ModeAvailability, type PromptKind, type Workspace } from "@agent-harness/contracts";
 import { policySettings, resolvePolicy, type PolicyOutcome, type RunActor } from "../permissions/resolver.js";
 import type { GateDecision, GatedToolCall, PromptDecision, PromptDetail, ToolServer } from "./contract.js";
+import type { ToolDecider } from "@agent-harness/contracts";
 
 /**
  * The host's seams other workstreams fill (claude-adapter spec, "The adapter
@@ -125,15 +126,26 @@ export interface RuledRun {
    * gives it, settles the ask. The host hands the answer to the gate and
    * never to the adapter, which did not raise the prompt.
    */
-  ask(kind: PromptKind, detail: PromptDetail): Promise<PromptDecision>;
+  ask(kind: PromptKind, detail: PromptDetail, signal?: AbortSignal): Promise<PromptDecision>;
 }
 
 /**
  * One rule of the tool gate (`RunContext.gate`): a deny is final and ends
- * the ruling; an allow or null passes the call on to the next rule, and past
- * the last to the provider's own evaluation. A rule that throws denies the
- * call (the gate fails closed). The environment's are the denylist's (#132,
- * `permissions/denylist-gate.ts`); containment's hard denials come first
- * (#133). Preset: none, every call goes on to the provider.
+ * the ruling, and the rules after it are not asked; an allow or null passes
+ * the call on to the next rule, and past the last to the provider's own
+ * evaluation. A rule that throws denies the call (the gate fails closed).
+ * A rule records nothing itself: the gate records a denial the rule made
+ * without asking anyone as the call's `tool.decision` by the rule's
+ * `decider` (a throw's too), through #131's `recordToolDecision`, which
+ * leaves a call decided already as it is; a denial through `ask` is the
+ * prompt's answer's to record (or, when a stop denied it in memory, the
+ * prompt stays open for a later answer, ADR 0007). The
+ * environment's rule is the denylist's (#132, `permissions/denylist-gate.ts`);
+ * containment's hard denials come first (#133). Preset: none, every call
+ * goes on to the provider.
  */
-export type ToolGateRule = (call: GatedToolCall, run: RuledRun) => GateDecision | null | Promise<GateDecision | null>;
+export interface ToolGateRule {
+  /** What decided a call this rule denied, or could not rule on. */
+  readonly decider: ToolDecider;
+  check(call: GatedToolCall, run: RuledRun, signal?: AbortSignal): GateDecision | null | Promise<GateDecision | null>;
+}

@@ -6,7 +6,9 @@ import {
   DenylistChangedPayload,
   denylistPresets,
   denylistTestCall,
+  describeDenylistMatch,
   hostOf,
+  hostToken,
   matchDenylist,
   registry,
   shellSubjects,
@@ -57,7 +59,7 @@ const resolve = (path: string): string => {
   return current === "" ? "/" : current;
 };
 
-const context: DenylistMatchContext = { home: HOME, cwd: HOME, resolve, exempt: [`${DATA}/containment`] };
+const context: DenylistMatchContext = { home: HOME, cwd: HOME, resolve, exempt: [`${DATA}/containment`], user: "david" };
 
 const entry = (id: string, pattern: string, enabled = true): DenylistEntry => ({ id, pattern, note: "", preset: false, enabled });
 
@@ -394,5 +396,94 @@ describe("the denylist methods", () => {
     const payload = { section: "paths", added: [entry("new", "/etc/shadow")], removed: [gnupg], edited: [{ before: ssh, after: { ...ssh, enabled: false } }], entries: [{ ...ssh, enabled: false }, entry("new", "/etc/shadow")] };
     expect(DenylistChangedPayload.safeParse(payload).success).toBe(true);
     expect(DenylistChangedPayload.safeParse({ ...payload, section: "files" }).success).toBe(false);
+  });
+});
+
+describe("disguised spellings", () => {
+  it("read an address as WHATWG does: a tab, CR or LF anywhere removed, full-width letters and digits and the ideographic dots as ASCII", () => {
+    expect(first({ hosts: ["http://169.254.169\t.254/"] })?.[1]).toBe("169.254.169.254");
+    expect(first({ hosts: ["http://169.254\r\n.169.254/latest"] })?.[1]).toBe("169.254.169.254");
+    expect(first({ hosts: ["169\uff0e254\uff0e169\uff0e254"] })?.[1]).toBe("169.254.169.254");
+    expect(first({ hosts: ["http://169\u3002254\u3002169\u3002254/"] })?.[1]).toBe("169.254.169.254");
+    expect(first({ browserDomains: ["https://www.\uff30\uff41\uff59\uff50\uff41\uff4c.com/"] })?.[1]).toBe("*.paypal.com");
+    expect(first({ commands: ["curl \uff11\uff16\uff19.254.169.254"] })?.[1]).toBe("169.254.169.254");
+    expect(hostOf("http://exa\u0001mple.com/")).toBeNull();
+  });
+
+  it("find a path behind a redirection written against it, and a command inside a substitution or an assignment", () => {
+    expect(first({ commands: ["echo x>~/.ssh/authorized_keys"] })?.[1]).toBe("~/.ssh");
+    expect(first({ commands: ["echo machine x>>~/.netrc"] })?.[1]).toBe("~/.netrc");
+    expect(first({ commands: ["cat<~/.ssh/id_rsa"] })?.[1]).toBe("~/.ssh");
+    expect(first({ commands: ["x=$(sudo ls)"] })?.[1]).toBe("sudo *");
+    expect(first({ commands: ['FOO="$(sudo cat x)"'] })?.[1]).toBe("sudo *");
+    expect(first({ commands: ["echo `sudo id`"] })?.[1]).toBe("sudo *");
+  });
+
+  it("take quotes out wherever they stand, and read ~ with the user's own name as the home directory", () => {
+    expect(first({ commands: ['cat "$HOME"/.ssh/id_rsa'] })?.[1]).toBe("~/.ssh");
+    expect(first({ commands: ["cat ~/'.ssh'/id_rsa"] })?.[1]).toBe("~/.ssh");
+    expect(first({ commands: ["cat ~david/.ssh/id_rsa"] })?.[1]).toBe("~/.ssh");
+    expect(first({ paths: ["~david/.aws/credentials"] })?.[1]).toBe("~/.aws");
+    expect(first({ paths: ["~root/.ssh/id_rsa"] })).toBeNull();
+  });
+
+  it("read scp's host:path, a bare number the network reads as an address, and a host with a port in a whole value", () => {
+    expect(first({ commands: ["git clone git@api.internal.example:team/repo.git"] })?.[1]).toBe("*.internal.example");
+    expect(first({ commands: ["rsync -a admin@db.internal.example:backup/ ."] })?.[1]).toBe("*.internal.example");
+    expect(first({ commands: ["curl 2852039166"] })?.[1]).toBe("169.254.169.254");
+    expect(first({ commands: ["curl 0xa9fea9fe/latest"] })?.[1]).toBe("169.254.169.254");
+    expect(first({ commands: ["sleep 30 && exit 2"] })).toBeNull();
+    expect(hostToken("db.internal:5432")).toBe("db.internal");
+    expect(hostToken("admin@nas")).toBe("nas");
+    expect(hostToken("nas")).toBeNull();
+    expect(hostToken("~/.ssh")).toBeNull();
+  });
+
+  it("fold case where the file system does, and not elsewhere", () => {
+    expect(first({ paths: ["~/.SSH/id_rsa"] })).toBeNull();
+    expect(first({ paths: ["~/.SSH/id_rsa"] }, { caseInsensitive: true })?.[1]).toBe("~/.ssh");
+    expect(first({ commands: ["cat /HOME/DAVID/.AWS/credentials"] }, { caseInsensitive: true })?.[1]).toBe("~/.aws");
+  });
+
+  it("match a path written as a glob against what it can expand to, a leading dot only by a dot", () => {
+    expect(first({ commands: ["cat ~/.s*h/id_rsa"] })?.[1]).toBe("~/.ssh");
+    expect(first({ commands: ["tar czf out.tgz ~/.a?s"] })?.[1]).toBe("~/.aws");
+    expect(first({ commands: ["du -sh ~/*"] })).toBeNull();
+    expect(first({ commands: ["ls ~/projects/*/src"] })).toBeNull();
+    expect(first({ commands: [`rm ${DATA}/containment/*/tmp/x`] })).toBeNull();
+  });
+});
+
+describe("the host grammar", () => {
+  it("takes an IPv6 literal as RFC 4291 writes it, and refuses a malformed one", () => {
+    const accepts = (pattern: string) => Denylist.safeParse({ ...presets, hosts: [entry("x", pattern)] }).success;
+    for (const pattern of ["::1", "fe80::1", "2001:db8::8a2e:370:7334", "::ffff:169.254.169.254", "1:2:3:4:5:6:7:8", "::"]) expect(accepts(pattern), pattern).toBe(true);
+    for (const pattern of ["::::", "1:2:3:4:5:6:7:8:9", "1::2::3", "12345::1", ":1"]) expect(accepts(pattern), pattern).toBe(false);
+  });
+});
+
+describe("a long call", () => {
+  it("costs its length: each path is resolved once and each entry read once, so 5,000 tokens match well under 100 ms", () => {
+    let resolves = 0;
+    const counting = (path: string) => {
+      resolves++;
+      return resolve(path);
+    };
+    const line = `cat ${Array.from({ length: 5_000 }, (_, index) => `src/file-${index % 50}.ts`).join(" ")} ~/.ssh/id_rsa`;
+    const started = performance.now();
+    const found = matchDenylist(denylist, { commands: [line] }, { ...context, resolve: counting });
+    expect(performance.now() - started).toBeLessThan(100);
+    expect(found.map((match) => match.entry.pattern)).toEqual(["~/.ssh"]);
+    // 51 distinct paths, the enabled path entries' literal parts and the exempt directory: never one per token and entry.
+    expect(resolves).toBeLessThan(51 + denylist.paths.length + 2);
+  });
+
+  it("is named in one short line: the section and the entry, the value cut", () => {
+    const line = `sudo tee /etc/motd <<'EOF'\n${"x".repeat(5_000)}\nEOF`;
+    const [found] = matchDenylist(denylist, { commands: [line] }, context);
+    const named = describeDenylistMatch(found!);
+    expect(named).toMatch(/is on the denylist \(command patterns: sudo \*\)$/);
+    expect(named.length).toBeLessThan(120);
+    expect(named).not.toContain("\n");
   });
 });

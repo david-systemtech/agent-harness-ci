@@ -2,14 +2,15 @@ import { isDeepStrictEqual } from "node:util";
 import {
   ACCESS_STREAM_KIND,
   DENYLIST_SECTIONS,
+  Denylist,
   DenylistChangedPayload,
   denylistPresets,
-  type Denylist,
   type DenylistEntry,
   type DenylistSection,
 } from "@agent-harness/contracts";
-import { formatActor, type EventEnvelope, type EventLog, type ProjectionDb, type StreamRef } from "../event-log/event-log.js";
+import { type EventEnvelope, type EventLog, type ProjectionDb, type StreamRef } from "../event-log/event-log.js";
 import type { Reader } from "../sessions/session-reads.js";
+import { PERMISSIONS_ACTOR } from "./actor.js";
 
 /**
  * The denylist's read model (#132; permissions spec, "The denylist"): each
@@ -31,10 +32,16 @@ export const DENYLIST_TABLES = {
   ) STRICT`,
 } as const;
 
-/** Keeps a section as its `denylist.changed` left it; a malformed payload fails its append. */
+/**
+ * Keeps a section as its `denylist.changed` left it. A malformed payload,
+ * or a section whose entries break its own grammar (a relative path, a URL
+ * as a host), fails its append, whoever appends it, so the gate never reads
+ * an entry the methods would refuse.
+ */
 export const projectDenylist = (event: EventEnvelope, db: ProjectionDb): void => {
   if (event.streamKind !== ACCESS_STREAM_KIND || event.type !== "denylist.changed") return;
-  const { section, entries } = DenylistChangedPayload.parse(event.payload);
+  const { section, entries: given } = DenylistChangedPayload.parse(event.payload);
+  const entries = Denylist.shape[section].parse(given);
   db.run(
     "INSERT INTO denylist_sections (section, entries) VALUES (?, ?) ON CONFLICT (section) DO UPDATE SET entries = excluded.entries",
     section,
@@ -77,8 +84,6 @@ export const sectionChange = (section: DenylistSection, before: readonly Denylis
   };
 };
 
-/** The environment's own actor for what it records of the denylist: the presets it seeds. */
-export const DENYLIST_ACTOR = formatActor({ kind: "system", id: "permissions" });
 
 /**
  * Seeds the presets on first start, for an environment whose data directory
@@ -96,6 +101,6 @@ export const seedDenylist = (options: { readonly log: EventLog; readonly stream:
       const change = sectionChange(section, [], presets[section]);
       return change === null ? [] : [{ type: "denylist.changed", payload: change }];
     });
-    log.append(options.stream, events, { tx, actor: DENYLIST_ACTOR });
+    log.append(options.stream, events, { tx, actor: PERMISSIONS_ACTOR });
   });
 };

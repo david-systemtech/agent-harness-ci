@@ -320,7 +320,13 @@ export type GateDecision = { readonly decision: "allow" } | { readonly decision:
  * `PreToolUse` hook (#140); the fake adapter asks it for every call it plays.
  */
 export interface ToolGate {
-  check(call: GatedToolCall): Promise<GateDecision>;
+  /**
+   * Rules on a call. `signal` aborts when the provider gives up on the call
+   * (it cancelled the tool use, or its hook timed out): a prompt the gate
+   * parked for it is closed (`cancelled`) and the call denied, so nobody is
+   * left answering for a call that will never run.
+   */
+  check(call: GatedToolCall, signal?: AbortSignal): Promise<GateDecision>;
 }
 
 /** The types a run's events may be: the transcript types an adapter produces. The run's start and end, and the messages sent to it, are the host's. */
