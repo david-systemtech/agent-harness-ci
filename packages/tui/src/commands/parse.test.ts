@@ -18,6 +18,12 @@ describe("parseCommand", () => {
     expect(parseCommand("/copy two").kind).toBe("usage");
   });
 
+  it("reads the cards' commands, which take nothing after them", () => {
+    expect(parseCommand("/asks")).toEqual({ kind: "asks" });
+    expect(parseCommand("/notices")).toEqual({ kind: "notices" });
+    expect(parseCommand("/asks all")).toEqual({ kind: "usage", line: "Usage: /asks" });
+  });
+
   it("reads /snip's forms, a template's lines kept", () => {
     expect(parseCommand("/snip")).toEqual({ kind: "snip-list" });
     expect(parseCommand("/snip fix pnpm -w")).toEqual({ kind: "snip", name: "fix", words: ["pnpm", "-w"] });

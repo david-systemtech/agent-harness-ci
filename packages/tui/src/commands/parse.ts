@@ -7,9 +7,10 @@ import { actionById, isCommandId } from "@agent-harness/contracts";
  * `/pair create`, `/environment`, `/help`, `/reload`; and, carried from
  * Artemis with the transcript and the composer, `/resume`, `/new`,
  * `/attach <path>`, `/snip`, `/tasks`, `/copy`, `/export [file]`,
- * `/timeline` and `/quit`. A command of the shared list this build does not
- * answer yet says so in one line, and one the list keeps absent gives its
- * reason; `/profile` is a hidden alias of `/account`. Anything else that
+ * `/timeline` and `/quit`; with the cards, `/asks` and `/notices`. A
+ * command of the shared list this build does not answer yet says so in one
+ * line, and one the list keeps absent gives its reason; `/profile` is a
+ * hidden alias of `/account`. Anything else that
  * begins with a slash is not the terminal's: it goes to the agent as typed,
  * which is how the provider's own commands are run (Artemis's rule). What
  * follows a `/` is syntax, whatever key opens the command menu.
@@ -30,6 +31,8 @@ export const ANSWERED_COMMANDS = [
   "export",
   "timeline",
   "quit",
+  "asks",
+  "notices",
 ] as const;
 
 export type Command =
@@ -51,6 +54,8 @@ export type Command =
   | { readonly kind: "export"; readonly file: string | null }
   | { readonly kind: "timeline" }
   | { readonly kind: "quit" }
+  | { readonly kind: "asks" }
+  | { readonly kind: "notices" }
   /** A command of the shared list this build does not answer: `line` says why. */
   | { readonly kind: "not-here"; readonly name: string; readonly line: string }
   | { readonly kind: "usage"; readonly line: string }
@@ -107,6 +112,10 @@ export const parseCommand = (typed: string): Command => {
       return bare(rest, { kind: "timeline" }, "/timeline");
     case "quit":
       return bare(rest, { kind: "quit" }, "/quit");
+    case "asks":
+      return bare(rest, { kind: "asks" }, "/asks");
+    case "notices":
+      return bare(rest, { kind: "notices" }, "/notices");
     case "attach":
       return tail.length > 0 ? { kind: "attach", path: tail } : { kind: "usage", line: "Usage: /attach <path>" };
     case "export":

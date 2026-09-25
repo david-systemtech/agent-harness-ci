@@ -34,6 +34,7 @@ import {
   SessionSummary,
   type SummaryPatch,
 } from "@agent-harness/contracts";
+import { scriptedPrompts, type ScriptedPrompts } from "./prompts.js";
 
 /**
  * The scripted fake environment (docs/specs/tui.md, "Testing Decisions"):
@@ -41,7 +42,9 @@ import {
  * with its sessions and groups, its client sessions, the receipts its
  * commands answer, how its pairing exchange refuses a code, and what its
  * discovery answers. A test drives it further through its handle: `bye`
- * reasons, a dropped socket, discovery answering `starting` or nothing.
+ * reasons, a dropped socket, discovery answering `starting` or nothing, a
+ * notice on the environment's stream, and prompts parked and answered
+ * (`prompts.ts`).
  */
 
 /** How a command is answered: accepted, or rejected with a reason (an error code) and a message. */
@@ -104,7 +107,7 @@ export interface Script {
   readonly environments: readonly ScriptedEnvironment[];
 }
 
-export interface EnvironmentHandle {
+export interface EnvironmentHandle extends ScriptedPrompts {
   readonly name: string;
   readonly environmentId: string;
   readonly wire: FakeWire;
@@ -144,6 +147,8 @@ export interface EnvironmentHandle {
   setUsage(readings: readonly AccountUsage[]): void;
   /** Sends the catch-up of every session subscription `holdSessions` held. */
   releaseSessions(): void;
+  /** Says a notice on the environment's own stream (`environment.subscribe`), as the environment does. */
+  notice(type: string, payload: Record<string, unknown>): void;
 }
 
 export interface ScriptedWorld {
@@ -343,27 +348,29 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
   });
   let usage: readonly AccountUsage[] = [];
   wire.answer("accounts.usage", () => ({ result: { readings: [...usage] } }));
+  /** Says a notice on the environment's own stream, as the environment does. */
+  const notice = (type: string, payload: Record<string, unknown>) => {
+    const at = ++sequence;
+    const event: EventEnvelope = {
+      sequence: at,
+      eventId: `0199fe00-0000-7000-8000-${String(at).padStart(12, "0")}`,
+      streamKind: ENVIRONMENT_STREAM_KIND,
+      streamId: wire.environmentId,
+      streamVersion: at,
+      type,
+      occurredAt: clock.now().toISOString(),
+      commandId: null,
+      causationId: null,
+      correlationId: null,
+      actor: { kind: "system", id: "script" },
+      payload,
+      metadata: {},
+    };
+    if (environmentSubscription) wire.server.send({ type: "event", subscription: environmentSubscription, sequence: at, event });
+  };
   const setUsage = (readings: readonly AccountUsage[]) => {
     usage = readings;
-    for (const reading of readings) {
-      const at = ++sequence;
-      const event: EventEnvelope = {
-        sequence: at,
-        eventId: `0199fe00-0000-7000-8000-${String(at).padStart(12, "0")}`,
-        streamKind: ENVIRONMENT_STREAM_KIND,
-        streamId: wire.environmentId,
-        streamVersion: at,
-        type: "usage.updated",
-        occurredAt: clock.now().toISOString(),
-        commandId: null,
-        causationId: null,
-        correlationId: null,
-        actor: { kind: "system", id: "script" },
-        payload: { accountId: reading.accountId, identity: reading.identity },
-        metadata: {},
-      };
-      if (environmentSubscription) wire.server.send({ type: "event", subscription: environmentSubscription, sequence: at, event });
-    }
+    for (const reading of readings) notice("usage.updated", { accountId: reading.accountId, identity: reading.identity });
   };
 
   /** The summary a session's snapshot holds: its creation's, since everything after is replayed on top of it. */
@@ -465,6 +472,18 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     );
     if (live.get(sessionId) === runId) live.delete(sessionId);
   };
+
+  // Parked prompts and their answers (`test/prompts.ts`).
+  const { prompts, answer: answerPrompt } = scriptedPrompts({
+    clock,
+    wire,
+    emit,
+    notice,
+    summary: summaryNow,
+    liveRun: (sessionId) => live.get(sessionId),
+    nextSequence: () => ++sequence,
+  });
+  wire.answer("permissions.prompts.answer", (params) => answerPrompt(params));
 
   // The run commands, as the environment answers them (claude-adapter spec, "Wire methods"; ADR 0022): a start or a send
   // with no run live starts one; a send during a live run is queued, held by whoever the script says holds the queue; an
@@ -614,6 +633,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     "runs.stopTask",
     "sessions.setDraft",
     "sessions.create",
+    "permissions.prompts.answer",
   ]);
   for (const method of Object.keys(spec.receipts ?? {})) {
     if (ownResponders.has(method)) continue;
@@ -675,6 +695,8 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     liveRun: (sessionId) => live.get(sessionId),
     setUsage,
     releaseSessions: () => held.splice(0).forEach((catchUp) => catchUp()),
+    notice,
+    ...prompts,
   };
   return { handle, fetch, webSocket, wsUrl: `${wire.origin.replace(/^http/, "ws")}${WIRE_PATH}` };
 };
