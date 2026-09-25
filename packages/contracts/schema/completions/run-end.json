@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CompletionsRunEnd",
+  "type": "object",
+  "properties": {
+    "reason": {
+      "type": "string",
+      "enum": [
+        "completed",
+        "error",
+        "interrupted",
+        "disposed",
+        "drained"
+      ],
+      "description": "Why a run ended: completed, error, interrupted (with its cause), disposed (the environment let the run go: its session was deleted, or the environment closed), drained (cut by a drain's cap)."
+    },
+    "cause": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "user",
+            "read-now",
+            "restart",
+            "parked"
+          ],
+          "description": "What interrupted a run: user (runs.interrupt), read-now, restart (the recovery sweep after a restart), parked (its process was stopped while parked on a prompt)."
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "reason",
+    "cause"
+  ],
+  "description": "How the run ended: its run.ended reason and, for an interrupted one, the cause."
+}
