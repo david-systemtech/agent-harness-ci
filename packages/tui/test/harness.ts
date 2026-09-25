@@ -7,6 +7,7 @@ import { App, type AppProps, type ScreenFlags } from "../src/app.js";
 import { FRAME_MS } from "../src/frames.js";
 import { DEFAULT_KEYMAP, keybindingsFor, type Keymap } from "../src/keys.js";
 import type { LocalService, ServiceOutcome } from "../src/platform/services.js";
+import type { Presentation } from "../src/presentation.js";
 import { createRuntimeHost, type RuntimeHost } from "../src/runtime-host.js";
 import type { Fault } from "../src/view.js";
 import { scriptedWorld, type EnvironmentHandle, type Script, type ScriptedWorld } from "./script.js";
@@ -109,6 +110,8 @@ export interface RenderOptions {
   readonly notes?: readonly string[];
   /** The protocol version the runtime speaks, to be the newer side of a mismatch; preset this build's. */
   readonly protocolVersion?: number;
+  /** The client-local presentation (the rail's folds), to launch again on another app's; preset, a fresh one in memory. */
+  readonly presentation?: Presentation;
 }
 
 export interface RenderedApp {
@@ -208,6 +211,7 @@ export const appUnderTest = async (options: RenderOptions): Promise<AppUnderTest
     faults,
     size: options.size ?? SIZE,
     newCommandId: () => `0199ee00-0000-7000-8000-${String(++commandIds).padStart(12, "0")}`,
+    ...(options.presentation && { presentation: options.presentation }),
   });
   return { element, clock, platform, world, host, service, faults };
 };

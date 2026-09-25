@@ -7,6 +7,7 @@ import { keybindingsFor } from "./keys.js";
 import { ensurePrivateDirectory } from "./platform/files.js";
 import { nodePlatform, stateDirectory, systemClock } from "./platform/node-platform.js";
 import type { LocalService } from "./platform/services.js";
+import { presentationFile } from "./presentation.js";
 import { createRuntimeHost } from "./runtime-host.js";
 import { messageOf, type Fault } from "./view.js";
 
@@ -85,6 +86,8 @@ export const runTui = async (options: TuiOptions): Promise<number> => {
     notes: keybindings.launch.problems,
     faults,
     newCommandId: randomUUID,
+    // The rail's folds, kept in the state directory (`presentation.json`).
+    presentation: presentationFile(stateDir, (error) => report(`Fault: ${messageOf(error)}`)),
   });
   const instance = mountApp(app, { stdin, stdout, stderr }, options.render);
   void host.start().catch((error: unknown) => report(`The runtime did not start: ${messageOf(error)}`));

@@ -25,7 +25,7 @@ const KEY_ACTION_IDS = Object.keys(DEFAULT_KEYS) as KeyActionId[];
  * the file must give such an action exactly two different keys. A ticket that
  * wires another direction-keyed action adds it here.
  */
-const MOVE_ACTIONS: ReadonlySet<KeyActionId> = new Set<KeyActionId>(["picker.move", "picker.moveVi"]);
+const MOVE_ACTIONS: ReadonlySet<KeyActionId> = new Set<KeyActionId>(["picker.move", "picker.moveVi", "rail.move", "rail.moveVi"]);
 
 /** An action's context as the shared list gives it; for an id it does not list, the part before the first dot. */
 export const contextOf = (id: string): string => actionById(id)?.context ?? id.slice(0, id.indexOf("."));

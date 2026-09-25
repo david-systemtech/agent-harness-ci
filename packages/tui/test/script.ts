@@ -18,6 +18,7 @@ import {
   type Scope,
   SessionSummary,
 } from "@agent-harness/contracts";
+import { scriptedList, type ScriptedList } from "./list-server.js";
 
 /**
  * The scripted fake environment (docs/specs/tui.md, "Testing Decisions"):
@@ -92,6 +93,8 @@ export interface EnvironmentHandle {
   autoAccept(on: boolean): void;
   /** The requests the client sent on its latest socket, by method. */
   requests(method?: string): readonly Extract<Frame, { readonly type: "request" }>[];
+  /** Its session list: what it holds now, a method's answers held, a change of its own accord. */
+  readonly list: ScriptedList;
 }
 
 export interface ScriptedWorld {
@@ -210,12 +213,6 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
   const sessions = (spec.sessions ?? []).map((s, i) => summaryOf(clock, s, i));
   const groups = (spec.groups ?? []).map((g, i) => groupOf(clock, g, i));
   let sequence = 100;
-  wire.answer("sessions.list", () => ({ result: { sequence, sessions } }));
-  wire.answer("groups.list", () => ({ result: { groups } }));
-  wire.answer("sessions.get", (params) => {
-    const found = sessions.find((s) => s.id === params["sessionId"]);
-    return found ? { result: { summary: found } } : { error: { code: "not_found", message: "No such session.", data: {} } };
-  });
 
   const others = (spec.clientSessions ?? []).map((c, i) => clientSessionOf(clock, c, i));
   const revoked = new Set<string>();
@@ -278,6 +275,8 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     if (ownResponders.has(method)) continue;
     wire.answer(method, () => receiptFor(method) ?? { result: { receipt: { status: "accepted", sequence: ++sequence, changed: true } } });
   }
+  // The session list and the organisation commands, applied with their patches; a rejection the script names still stands.
+  const list = scriptedList({ wire, clock, sessions, groups, next: () => ++sequence, refusal: receiptFor });
 
   const fetch: HttpFetch = async (url, request) => {
     if (spec.pairing && url === `${wire.origin}${PAIR_PATH}` && request?.method === "POST" && discovery !== "nothing") {
@@ -293,7 +292,9 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     return {
       send(text) {
         socket.send(text);
-        if (!accepting || (JSON.parse(text) as Frame).type !== "auth") return;
+        const frame = JSON.parse(text) as Frame;
+        if (frame.type === "request" && frame.method === "sessions.subscribe") later(() => list.subscribe(frame.id));
+        if (!accepting || frame.type !== "auth") return;
         later(() => {
           try {
             wire.server.hello(hello);
@@ -322,6 +323,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
       wire.server
         .received()
         .filter((f): f is Extract<Frame, { readonly type: "request" }> => f.type === "request" && (method === undefined || f.method === method)),
+    list,
   };
   return { handle, fetch, webSocket, wsUrl: `${wire.origin.replace(/^http/, "ws")}${WIRE_PATH}` };
 };

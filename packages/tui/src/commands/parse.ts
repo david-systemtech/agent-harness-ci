@@ -1,4 +1,5 @@
 import type { PairingInput } from "@agent-harness/client-runtime";
+import { RAIL_COMMANDS, isRailCommand, type RailCommand } from "../rail/commands.js";
 
 /**
  * The slash commands this build answers (docs/specs/tui.md, "First launch"
@@ -8,14 +9,15 @@ import type { PairingInput } from "@agent-harness/client-runtime";
  * What follows a `/` is syntax, whatever key opens the command menu.
  */
 
-/** The slash commands `parseCommand` knows, by their names in the shared action list (`command.<name>`). */
-export const ANSWERED_COMMANDS = ["pair", "environment", "help", "reload"] as const;
+/** The slash commands `parseCommand` knows, by their names in the shared action list (`command.<name>`); the rail's are its own (`rail/commands.ts`). */
+export const ANSWERED_COMMANDS = ["pair", "environment", "help", "reload", ...RAIL_COMMANDS] as const;
 export type Command =
   | { readonly kind: "pair"; readonly input: PairingInput }
   | { readonly kind: "pair-create" }
   | { readonly kind: "environment" }
   | { readonly kind: "help" }
   | { readonly kind: "reload" }
+  | { readonly kind: "rail"; readonly command: RailCommand }
   | { readonly kind: "usage"; readonly line: string }
   | { readonly kind: "unknown"; readonly name: string }
   | { readonly kind: "text"; readonly text: string };
@@ -26,6 +28,8 @@ export const parseCommand = (typed: string): Command => {
   const text = typed.trim();
   if (!text.startsWith("/")) return { kind: "text", text };
   const [name = "", ...rest] = text.slice(1).split(/\s+/);
+  // The rail's forms take what follows the name whole, spaces kept: a title or a group's name has several words.
+  if (isRailCommand(name)) return { kind: "rail", command: { name, text: text.slice(1 + name.length).trim() } };
   switch (name) {
     case "pair": {
       if (rest.length === 1 && rest[0] === "create") return { kind: "pair-create" };

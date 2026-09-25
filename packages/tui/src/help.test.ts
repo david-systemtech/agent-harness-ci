@@ -54,7 +54,9 @@ describe("the help lines", () => {
   it("tell the actions this build answers from the ones it does not yet", () => {
     expect(rowOf(lines, "app.help")?.state).toBe("answered");
     expect(rowOf(lines, "command.reload")?.state).toBe("answered");
-    expect(rowOf(lines, "rail.pin")?.state).toBe("soon");
+    expect(rowOf(lines, "rail.pin")?.state).toBe("answered");
+    expect(rowOf(lines, "command.search")?.state).toBe("answered");
+    expect(rowOf(lines, "rail.preview")?.state).toBe("soon");
     expect(rowOf(lines, "command.model")?.state).toBe("soon");
   });
 

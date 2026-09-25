@@ -1,5 +1,6 @@
 import type { ActionId, KeyActionId } from "@agent-harness/contracts";
 import { ANSWERED_COMMANDS } from "./commands/parse.js";
+import { RAIL_KEYS } from "./rail/use-rail.js";
 
 /**
  * The actions of the shared list this build answers: the keys the screen
@@ -15,7 +16,7 @@ export const ANSWERED_KEYS = [
   "app.help",
   "composer.send",
   "composer.backspace",
-  "rail.leave",
+  ...RAIL_KEYS,
   "row.leave",
   "picker.move",
   "picker.moveVi",
@@ -45,6 +46,6 @@ export const ANSWERED: ReadonlySet<ActionId> = new Set<ActionId>([...ANSWERED_KE
 export const BUILD_WORDS: Readonly<Partial<Record<ActionId, string>>> = {
   "app.focus.next": "Round the composer, the rail and the transcript",
   "app.interruptOrQuit": "Clear the draft, or close the question or the card; else quit",
-  "rail.leave": "Back to the composer",
+  "rail.open": "Fold the heading; on an environment's, start a session there",
   "row.leave": "Back to the composer",
 };
