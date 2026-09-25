@@ -664,8 +664,8 @@ export const schemaFixtures: Record<string, Fixtures> = {
     invalid: [envelopeWithoutCommandId, { ...validEnvelope, sequence: 0 }, { ...validEnvelope, payload: [] }],
   },
   "notices/environment-notice-type.json": {
-    valid: ["environment.started", "environment.updated", "environment.draining", "account.updated"],
-    invalid: ["environment.stopped", "session.created", ""],
+    valid: ["environment.started", "environment.updated", "environment.draining", "account.updated", "signin.updated", "signin.executable-chosen"],
+    invalid: ["environment.stopped", "session.created", "signin.started", ""],
   },
   "notices/environment-notice.json": {
     valid: [
@@ -673,6 +673,19 @@ export const schemaFixtures: Record<string, Fixtures> = {
       { type: "environment.updated", payload: { fromVersion: "0.1.0", toVersion: "0.2.0" } },
       { type: "environment.draining", payload: { drainingSince: at, trigger: "launcher" } },
       { type: "account.updated", payload: { accountId: "claude-max", change: "status-changed", warning: null } },
+      {
+        type: "signin.updated",
+        payload: {
+          accountId: "claude-max",
+          state: "awaiting-code",
+          url: "https://claude.com/cai/oauth/authorize?code=true",
+          startedAt: at,
+          expiresAt: at,
+          fallback: { posix: "CLAUDE_CONFIG_DIR='/x' claude auth login", powershell: "$env:CLAUDE_CONFIG_DIR = '/x'; & 'claude' auth login" },
+          error: null,
+        },
+      },
+      { type: "signin.executable-chosen", payload: { provider: "claude", source: "bundled", executable: "/opt/claude", bundled: "/opt/claude", detail: null } },
       validEnvironmentStartedEvent,
     ],
     invalid: [
@@ -683,6 +696,8 @@ export const schemaFixtures: Record<string, Fixtures> = {
       { type: "environment.draining", payload: { drainingSince: at } },
       { type: "environment.stopped", payload: {} },
       { type: "account.updated", payload: { accountId: "claude-max", change: "status-changed" } },
+      { type: "signin.updated", payload: { accountId: "claude-max", state: "waiting" } },
+      { type: "signin.executable-chosen", payload: { provider: "claude", source: "bundled" } },
       validEnvelope,
     ],
   },
@@ -711,6 +726,27 @@ export const schemaFixtures: Record<string, Fixtures> = {
   "frames/frame.json": {
     valid: FRAME_TYPES.flatMap((kind) => validFrames[kind]),
     invalid: [...FRAME_TYPES.flatMap(malformedJson), { type: "nonsense" }, {}],
+  },
+  "actions/action-context.json": {
+    valid: ["anywhere", "sidebar", "terminal", "asks", "confirm"],
+    invalid: ["rail", "Anywhere", "", 1],
+  },
+  "actions/action.json": {
+    valid: [
+      { id: "rail.pin", context: "sidebar", keys: ["p"], description: "Pin it to the top of its folder", status: "wired" },
+      { id: "permission.rule.edit", context: "permission", keys: ["e"], description: "Edit the rule", status: "absent", reason: "Rules are per session." },
+      { id: "command.profile", context: "composer", keys: [], description: "Switch the account", usage: "/profile", aliasOf: "command.account", status: "wired" },
+    ],
+    invalid: [
+      { id: "rail.pin", context: "sidebar", keys: ["p"], description: "Pin it", status: "absent" },
+      { id: "sidebar.pin", context: "sidebar", keys: ["p"], description: "Pin it", status: "wired" },
+      { id: "rail", context: "sidebar", keys: ["p"], description: "Pin it", status: "wired" },
+      { id: "rail.pin", context: "rail", keys: ["p"], description: "Pin it", status: "wired" },
+      { id: "rail.pin", context: "sidebar", keys: [""], description: "Pin it", status: "wired" },
+      { id: "rail.pin", context: "sidebar", keys: ["p"], description: "", status: "wired" },
+      { id: "command.help", context: "composer", keys: [], description: "Help", usage: "help", status: "wired" },
+      { id: "rail.pin", context: "sidebar", keys: ["p"], description: "Pin it", status: "planned" },
+    ],
   },
   ...sessionSchemaFixtures,
   ...runSchemaFixtures,

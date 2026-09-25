@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
@@ -299,6 +299,26 @@ describe("diffs.workingTree", () => {
 
     expect([error.code, error.data["reason"]]).toEqual(["conflict", "git_failed"]);
     expect(error.message).toMatch(/a\.txt/);
+  });
+
+  it("shows a tracked file rewritten at the same size in the second its index was written, which git's stat alone would call unchanged", async () => {
+    const { client, root, sessionId } = await setUp();
+    git(root, "init", "-q");
+    // Racy git, pinned: the file and the index share one whole second, set rather than raced for; a ctime cannot be set back, so git is told not to weigh it.
+    git(root, "config", "core.trustctime", "false");
+    const second = Math.floor(Date.now() / 1000) - 60;
+    write(root, { "a.txt": "a\n" });
+    utimesSync(join(root, "a.txt"), second, second);
+    git(root, "add", ".");
+    git(root, "commit", "-qm", "first");
+    write(root, { "a.txt": "b\n", "new.txt": "new\n" });
+    utimesSync(join(root, "a.txt"), second, second);
+    utimesSync(join(root, ".git", "index"), second, second);
+
+    const answer = await client.request("diffs.workingTree", { sessionId });
+
+    expect(answer.diff).toContain("-a\n+b\n");
+    expect(answer.diff).toContain("+new\n");
   });
 
   it("says a workspace in no repository has nothing to diff", async () => {

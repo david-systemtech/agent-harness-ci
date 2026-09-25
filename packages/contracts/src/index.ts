@@ -2,6 +2,7 @@ export { PRODUCT_NAME } from "./product.js";
 
 export * from "./access-log.js";
 export * from "./accounts.js";
+export * from "./actions.js";
 export * from "./adapter.js";
 export * from "./bootstrap.js";
 export * from "./discovery.js";

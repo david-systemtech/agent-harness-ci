@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SignInState",
+  "type": "string",
+  "enum": [
+    "starting",
+    "awaiting-code",
+    "submitting",
+    "done",
+    "failed",
+    "expired",
+    "cancelled"
+  ],
+  "description": "Where a sign-in is: starting, awaiting-code (the verification URL is published), submitting (a code was written to the provider's CLI), or ended: done (the status read found the account signed in), failed, expired (ten minutes without a code, or a submission that never finished) or cancelled."
+}
