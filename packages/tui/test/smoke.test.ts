@@ -5,6 +5,7 @@ import { render } from "ink-testing-library";
 import { createRuntime, writable } from "@agent-harness/client-runtime";
 import { describe, expect, it } from "vitest";
 import { useCleanups } from "../../environment/test/cleanups.js";
+import { end, gate, say, type Script } from "../../environment/test/fake-adapter.js";
 import { startTestEnvironment } from "../../environment/test/helper.js";
 import { FORBIDDEN_WORDS } from "../../../eslint-rules/no-client-organisation-state.js";
 import { App } from "../src/app.js";
@@ -16,11 +17,13 @@ import { createRuntimeHost } from "../src/runtime-host.js";
 import { SIZE } from "./harness.js";
 
 /**
- * The smoke test through the real spine (docs/specs/tui.md, "Testing
+ * The smoke tests through the real spine (docs/specs/tui.md, "Testing
  * Decisions"), serial: the #108 in-process environment on a temporary data
- * directory and loopback port 0, and the terminal UI on its real platform on
- * a temporary state directory, reading the environment's real grant file.
- * The second smoke test, a send streaming into a transcript, is #146's.
+ * directory and loopback port 0, with the scripted fake provider, and the
+ * terminal UI on its real platform on a temporary state directory, reading
+ * the environment's real grant file: the grant exchanged into a rendered
+ * rail (#143), and a send streaming through the fake provider into a
+ * rendered transcript, its draft reaching a second runtime (#146).
  */
 
 const { onCleanup, tempDir } = useCleanups();
@@ -57,6 +60,8 @@ const terminal = (dataDir: string, stateDir: string, tty: string) => {
       faults: writable<readonly Fault[]>([]),
       size: SIZE,
       newCommandId: () => `0199ee00-0000-7000-8000-${String(++ids).padStart(12, "0")}`,
+      stateDir,
+      cwd: stateDir,
     }),
   );
   onCleanup(async () => {
@@ -64,8 +69,16 @@ const terminal = (dataDir: string, stateDir: string, tty: string) => {
     await host.close();
   });
   void host.start();
-  return { app, host, frame: () => app.lastFrame() ?? "" };
+  return {
+    app,
+    host,
+    frame: () => app.lastFrame() ?? "",
+    type: (text: string) => void app.stdin.write(text),
+  };
 };
+
+/** The bytes of Enter, as a terminal sends them. */
+const ENTER = "\r";
 
 describe.sequential("the terminal UI through the real spine", () => {
   it("exchanges the grant and renders the header and the rail", async () => {
@@ -102,5 +115,44 @@ describe.sequential("the terminal UI through the real spine", () => {
     expect(terminals.map((s) => s.label).sort()).toEqual(["seth@desk:pts/1", "seth@desk:pts/2"]);
     expect(one.host.current.read().connections.list.read()[0]?.phase).toBe("ready");
     expect(two.host.current.read().connections.list.read()[0]?.phase).toBe("ready");
+  });
+
+  it("streams a send through the fake provider into the rendered transcript, and its draft reaches a second runtime", async () => {
+    const t = await startTestEnvironment({ name: "smoke-send" });
+    onCleanup(() => t.close());
+    const streamed = gate();
+    const script: Script = async function* () {
+      yield { type: "assistant.delta", payload: { itemId: "i-1", fragments: [{ kind: "text", text: "Look" }] } };
+      await streamed.opened;
+      yield { type: "assistant.delta", payload: { itemId: "i-1", fragments: [{ kind: "text", text: "ing" }] } };
+      yield say("Looking at the receipts.", "i-1");
+      yield end();
+    };
+    t.adapter.nextScripts.push(script);
+    const stateDir = join(tempDir("agent-harness-tui-smoke-"), "tui");
+    const one = terminal(t.dataDir, stateDir, "pts/1");
+    await until(() => one.frame().includes("● smoke-send ready"), one.frame);
+
+    one.type("/new");
+    one.type(ENTER);
+    await until(() => one.frame().includes("Nothing said yet."), one.frame);
+    one.type("Fix the receipts");
+    one.type(ENTER);
+    await until(() => one.frame().includes("▌ Fix the receipts") && one.frame().includes("● Look"), one.frame);
+    streamed.open();
+    await until(() => one.frame().includes("● Looking at the receipts."), one.frame);
+    await until(() => /\d+ms|\d+(\.\d)?s/.test(one.frame().split("● Looking at the receipts.")[1] ?? ""), () => `the cost line under the turn:\n${one.frame()}`);
+
+    // The draft is the session's field: typed in this terminal, it is in another runtime of the same environment.
+    one.type("half a thought");
+    const runtime = one.host.current.read();
+    const [local] = runtime.connections.list.read();
+    const environmentId = local?.environmentId ?? "";
+    const sessionId = runtime.projections.sessionList.read().rows.find((row) => row.environmentId === environmentId)?.summary.id ?? "";
+    const two = terminal(t.dataDir, join(tempDir("agent-harness-tui-smoke-"), "tui"), "pts/2");
+    await until(() => two.frame().includes("● smoke-send ready"), two.frame);
+    const other = two.host.current.read().projections.session(environmentId, sessionId);
+    onCleanup(other.subscribe(() => undefined));
+    await until(() => other.read().draft === "half a thought", () => `the draft in the second runtime: ${String(other.read().draft)}`);
   });
 });

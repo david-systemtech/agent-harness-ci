@@ -34,7 +34,8 @@ import { createDispatch } from "../wire/dispatch.js";
 import { createRenderer, type AnswerEnd, type AnswerHead } from "./answer.js";
 import { CompletionsRefusal, asRefusal, fromContractError, sendRefusal, type RefusalContext } from "./errors.js";
 import { listModels, listingId, modelObject, resolveModel, type CompletionsCatalogue, type ResolvedModel } from "./models.js";
-import { readTurnRequest, withPreamble, type TurnRequest } from "./request.js";
+import type { Passthrough } from "./passthrough.js";
+import { readTurnRequest, sameTools, withPreamble, type TurnRequest } from "./request.js";
 
 /**
  * The completions surface (claude-adapter spec, "The completions surface";
@@ -71,6 +72,13 @@ import { readTurnRequest, withPreamble, type TurnRequest } from "./request.js";
  *   comment after fifteen silent seconds on the environment's clock, and
  *   ends with `[DONE]`; a whole answer waits for the end. A client that goes
  *   away stops only its answer: the run goes on.
+ * - **The caller's tools** (#139, `passthrough.ts`): a request's `tools`
+ *   are served to its run as the `client` tool server; a call the model
+ *   makes to one is parked and returned as `tool_calls`, ending the answer
+ *   with `finish_reason: tool_calls`; a follow-up whose trailing messages
+ *   are the tool results (matched by `tool_call_id` alone, whatever session
+ *   it names or leaves out) resumes the parked turn, and its answer carries
+ *   the turn on from there.
  */
 
 /** The largest request body taken: 20 MiB attachments travel base64 inside it. A chosen default. */
@@ -107,6 +115,8 @@ export interface CompletionsSurfaceOptions {
   readonly methods: MethodTable;
   /** The data directory's scratch root: `<data dir>/scratch`. */
   readonly scratchRoot: string;
+  /** Client-tool passthrough (#139): the parked calls, and the tools each session's runs were served. */
+  readonly passthrough: Passthrough;
 }
 
 export interface CompletionsSurface {
@@ -135,7 +145,7 @@ const wrongMethod = (path: string, allow: string): CompletionsRefusal =>
   new CompletionsRefusal(405, "method_not_allowed", `${path} takes ${allow}.`, { headers: { allow } });
 
 export const createCompletionsSurface = (options: CompletionsSurfaceOptions): CompletionsSurface => {
-  const { log, host, clock, catalogue } = options;
+  const { log, host, clock, catalogue, passthrough } = options;
   const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
   const dispatch = createDispatch(options.methods, log);
   /** Every answer still being written: ended with an error chunk when the environment stops. */
@@ -297,16 +307,40 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
     if (!forkSession && facts.accountId !== model.account.id) throw accountMismatch(sessionId, facts.accountId, model);
   };
 
-  /** What the turn recorded: the session, the run the answer follows, the message, whether it was queued to a live run, the model the answer names, and the first chunk's fields. */
+  /**
+   * What the turn recorded: the session, the run the answer follows, the
+   * message (none for tool results, which resume a turn), whether it was
+   * queued to a live run, the model the answer names, and the first chunk's
+   * fields.
+   */
   interface Begun {
     readonly sessionId: string;
     readonly runId: string;
-    readonly messageId: string;
+    readonly messageId: string | null;
     readonly queued: boolean;
-    /** The model the message is read in, by its listing id: the requested one for a new run, the live run's for a queued message (its bare id once its account has left the listing). */
+    /** The model the message is read in, by its listing id: the requested one for a new run, the live run's for a queued message or tool results (its bare id once its account has left the listing). */
     readonly model: string;
     readonly head: AnswerHead;
+    /** The sequence an answer to tool results starts from: the log's head when it began following. */
+    readonly startSeq?: number;
   }
+
+  /** The live run's model by its listing id, else its bare id once its account has left the listing (removed while the run went on). */
+  const modelOfRun = (runId: string, fallback: string): string => {
+    const running = readRun(reader, runId);
+    return running === null ? fallback : (listingId(catalogue, running.accountId, running.model) ?? running.model);
+  };
+
+  /**
+   * What the caller's tools on a request that cannot give a run its tools
+   * (the run is live already) come to: `tools` ignored when they are not the
+   * ones the session's run was served, `tool_choice` when it would withhold
+   * them, since a live run keeps what it started with.
+   */
+  const liveToolsIgnored = (turn: TurnRequest, sessionId: string): string[] => [
+    ...(turn.tools.declared !== null && !sameTools(turn.tools.declared, passthrough.toolsOf(sessionId) ?? []) ? ["tools"] : []),
+    ...(turn.tools.withheld ? ["tool_choice"] : []),
+  ];
 
   /**
    * The turn, in one transaction: a fresh session made as `sessions.create`
@@ -353,13 +387,13 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
           // opens), so the answer names that one, by its bare id once its account has left the listing (removed mid-run),
           // and a request naming another is told so. A live run's row is there: `run.started` wrote it, and only a purge,
           // refused above for a deleted session, takes it away.
-          const running = readRun(reader, facts.live.runId);
-          const answeredIn = running === null ? model.id : (listingId(catalogue, running.accountId, running.model) ?? running.model);
+          const answeredIn = modelOfRun(facts.live.runId, model.id);
           if (answeredIn !== model.id) ignored.push("model");
           if (turn.extension.permissionMode !== null) ignored.push(`${COMPLETIONS_NAMESPACE}.permissionMode`);
           ignored.push(...turn.instructionSources);
           if (turn.effortParam !== null) ignored.push(turn.effortParam);
           if (turn.extension.attendedSet) ignored.push(`${COMPLETIONS_NAMESPACE}.attended`);
+          ignored.push(...liveToolsIgnored(turn, sessionId));
           const { runId, messageId } = sent.result;
           return {
             sessionId,
@@ -383,6 +417,7 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
           effort: turn.effort ?? undefined,
           mode: turn.extension.permissionMode ?? undefined,
           appendedInstructions: turn.appendedInstructions,
+          clientTools: turn.tools.served,
         });
         if (started.rejected !== undefined) throw refused(started.rejected);
         const { mode } = started.policy;
@@ -492,7 +527,9 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
       exchange.onGone?.();
     });
     const clientSession = authenticate(request, TURN_SCOPES);
-    ready(true);
+    // A turn is refused while the environment drains, after the body says what it is: tool results resume a running turn,
+    // which the drain lets finish.
+    ready(false);
     let text: string;
     try {
       text = await readBody(request, MAX_COMPLETIONS_BODY_BYTES);
@@ -506,12 +543,13 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
     } catch {
       throw new CompletionsRefusal(400, "invalid_json", "The request body is not JSON.");
     }
-    // The environment may have begun to stop while the body was read.
-    ready(true);
     const turn = readTurnRequest(body);
+    // The environment may have begun to stop while the body was read.
+    ready(turn.toolResults.length === 0);
     if (turn.extension.after !== null && turn.extension.after > log.head()) {
       throw new CompletionsRefusal(400, "invalid_params", `after ${turn.extension.after} is past the log's head, ${log.head()}.`, { param: `${COMPLETIONS_NAMESPACE}.after` });
     }
+    if (turn.toolResults.length > 0) return resume(response, turn, clientSession, exchange);
     // A bare model continuing a session is the session's account's, so a change of default leaves the conversation where it was.
     const named = turn.extension.sessionId === null ? null : readSessionFacts(log, reader, turn.extension.sessionId);
     const model = resolveModel(catalogue, turn.model, named?.account ?? catalogue.defaultAccountId());
@@ -536,21 +574,107 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
     answer(response, turn, begun, follower, exchange);
   };
 
+  /**
+   * A follow-up whose trailing messages are tool results (#139): each is
+   * matched to a parked call by its `tool_call_id` alone, whatever session
+   * the request names or leaves out; the calls resolve with the caller's
+   * text and the answer carries the same turn on from there, in the run's
+   * model. It records nothing of its own: the provider reports what it
+   * reads. What the running turn cannot take is reported ignored, as for a
+   * queued message, and so is a result no call waits for, once another
+   * matched; none matching is 404.
+   */
+  const resume = (response: ServerResponse, turn: TurnRequest, clientSession: VerifiedClientSession, exchange: Exchange): void => {
+    const matched: { readonly id: string; readonly text: string; readonly sessionId: string }[] = [];
+    const unmatched: number[] = [];
+    for (const result of turn.toolResults) {
+      const call = passthrough.find(result.toolCallId);
+      // A second result for one call is as stray as one for no call.
+      if (call === undefined || matched.some((other) => other.id === call.id)) unmatched.push(result.index);
+      else matched.push({ id: call.id, text: result.text, sessionId: call.sessionId });
+    }
+    const [first] = matched;
+    if (first === undefined) {
+      const [result] = turn.toolResults;
+      throw new CompletionsRefusal(
+        404,
+        "tool_call_not_found",
+        `No call ${result?.toolCallId ?? ""} waits for its result here: it was answered already, it expired, or its run ended.`,
+        { param: `messages.${result?.index ?? 0}.tool_call_id` },
+      );
+    }
+    const { sessionId } = first;
+    const other = matched.find((call) => call.sessionId !== sessionId);
+    if (other !== undefined) {
+      const at = turn.toolResults.find((result) => result.toolCallId === other.id);
+      throw new CompletionsRefusal(400, "invalid_params", "The tool results answer calls of two sessions' runs; send each session's in a request of its own.", {
+        param: `messages.${at?.index ?? 0}.tool_call_id`,
+      });
+    }
+    const named = turn.extension.sessionId;
+    if (named !== null && named !== sessionId) {
+      throw new CompletionsRefusal(400, "invalid_params", `The tool calls answered are session ${sessionId}'s, not ${named}'s.`, { param: `${COMPLETIONS_NAMESPACE}.sessionId` });
+    }
+    for (const [set, field] of [
+      [turn.extension.forkSession, "forkSession"],
+      [turn.extension.rewindToMessageId !== null, "rewindToMessageId"],
+    ] as const) {
+      if (set) throw new CompletionsRefusal(400, "invalid_params", `Tool results resume a running turn; they cannot ${field === "forkSession" ? "fork its session" : "rewind it"}.`, { param: `${COMPLETIONS_NAMESPACE}.${field}` });
+    }
+    // A call waits only while its run is live: every run's end lets go of what it left parked.
+    const facts = host.startFacts(sessionId, actorFor(turn, clientSession));
+    if (facts.live === null) {
+      throw new CompletionsRefusal(404, "tool_call_not_found", `The run that made the call ${first.id} has ended.`, { param: "messages" });
+    }
+    const runId = facts.live.runId;
+    const answeredIn = modelOfRun(runId, turn.model);
+    const requested = resolveModel(catalogue, turn.model, facts.accountId ?? catalogue.defaultAccountId());
+    const ignored = [...turn.ignored];
+    if (requested?.id !== answeredIn) ignored.push("model");
+    if (turn.extension.permissionMode !== null) ignored.push(`${COMPLETIONS_NAMESPACE}.permissionMode`);
+    ignored.push(...turn.instructionSources);
+    if (turn.effortParam !== null) ignored.push(turn.effortParam);
+    if (turn.extension.attendedSet) ignored.push(`${COMPLETIONS_NAMESPACE}.attended`);
+    if (turn.extension.workspace !== null) ignored.push(`${COMPLETIONS_NAMESPACE}.workspace`);
+    if (turn.extension.attachments.length > 0) ignored.push(`${COMPLETIONS_NAMESPACE}.attachments`);
+    if (turn.extension.after !== null) ignored.push(`${COMPLETIONS_NAMESPACE}.after`);
+    ignored.push(...liveToolsIgnored(turn, sessionId));
+    ignored.push(...unmatched.map((index) => `messages.${index}`));
+    if (exchange.gone) return;
+
+    // Following first, so nothing the resumed turn records is missed; then the calls resolve and the turn goes on.
+    const follower = follow(sessionId);
+    for (const call of matched) passthrough.resolve(call.id, call.text);
+    answer(response, turn, {
+      sessionId,
+      runId,
+      messageId: null,
+      queued: false,
+      model: answeredIn,
+      head: { sessionId, runId, mode: facts.live.policy.mode.effective, clamped: null, ignored },
+      startSeq: follower.head,
+    }, follower, exchange);
+  };
+
   /** Writes the answer: a stream of chunks, or the whole completion once it is over. */
   const answer = (response: ServerResponse, turn: TurnRequest, begun: Begun, follower: Follower, exchange: Exchange): void => {
     const created = seconds();
-    const id = `chatcmpl-${begun.messageId}`;
+    const id = `chatcmpl-${begun.messageId ?? randomUUID()}`;
     const chunks: ChatCompletionChunk[] = [];
     let heartbeat: Timer | undefined;
     /** Armed while the answer is backed up past the cap: fires unless the client drains it first. */
     let stalled: Timer | undefined;
     let finished = false;
 
+    /** Stops offering the answer the calls its session's runs park (#139); set once it watches them. */
+    const watching = { stop: (): void => undefined };
+
     const done = (): void => {
       if (finished) return;
       finished = true;
       heartbeat?.cancel();
       follower.stop();
+      watching.stop();
       open.delete(entry);
     };
 
@@ -614,12 +738,14 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
         const status = reason === undefined ? unended : reason === "interrupted" ? 409 : reason === "error" ? 502 : 503;
         return sendRefusal(response, new CompletionsRefusal(status, ended.error.code ?? "error", ended.error.message, { context }));
       }
+      const toolCalls = chunks.flatMap((chunk) => chunk.choices[0]?.delta.tool_calls ?? []).map((call) => ({ id: call.id, type: call.type, function: call.function }));
+      const content = chunks.map((chunk) => chunk.choices[0]?.delta.content ?? "").join("");
       const completion: ChatCompletion = {
         id,
         object: "chat.completion",
         created,
         model: begun.model,
-        choices: [{ index: 0, message: { role: "assistant", content: chunks.map((chunk) => chunk.choices[0]?.delta.content ?? "").join("") }, finish_reason: ended.finishReason }],
+        choices: [{ index: 0, message: { role: "assistant", content, ...(toolCalls.length > 0 && { tool_calls: toolCalls }) }, finish_reason: ended.finishReason }],
         ...(ended.usage !== null && { usage: ended.usage }),
         [COMPLETIONS_NAMESPACE]: { ...first, seq: ended.seq, ...(ended.waiting !== null && { waiting: ended.waiting }) },
       };
@@ -642,6 +768,13 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
       end,
       holderOf,
       later: (work) => void setImmediate(work),
+      isClientCall: (toolCallId) => passthrough.isClientCall(begun.sessionId, toolCallId),
+      // A queued turn's answer returns calls to the caller's tools once it follows the run that reads its message.
+      onReading: () => {
+        // A later turn of the event loop has no caller to catch for it (each claim catches its own).
+        if (!finished) passthrough.offer(begun.sessionId);
+      },
+      ...(begun.startSeq !== undefined && { startSeq: begun.startSeq }),
     });
     const entry = { abandon: () => renderer.abandon("The environment is stopping; the run goes on, or ends with it.", "closing") };
     open.add(entry);
@@ -666,6 +799,19 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
     } catch (error) {
       failed("Reading the session back", error);
     }
+    // The calls to the caller's tools its runs park, those waiting already first, once the events read back are rendered (#139).
+    if (finished) return;
+    watching.stop = passthrough.watch(begun.sessionId, {
+      claim: (call) => {
+        if (finished) return false;
+        try {
+          return renderer.claim(call);
+        } catch (error) {
+          failed(`Returning the call ${call.id}`, error);
+          return false;
+        }
+      },
+    });
   };
 
   const handle: RouteHandler = async (request, response) => {

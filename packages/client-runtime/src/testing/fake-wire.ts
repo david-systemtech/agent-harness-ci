@@ -36,6 +36,9 @@ import type { Clock, GrantReader, HttpFetch, SocketHandlers, WebSocketFactory } 
 /** A response's body: `{result}` or `{error}`. */
 export type FakeAnswer = { readonly result: Record<string, unknown> } | { readonly error: WireError };
 
+/** How a method's requests are answered: from the params, the whole request frame beside them. */
+export type FakeResponder = (params: Record<string, unknown>, request: RequestFrame) => FakeAnswer | Promise<FakeAnswer | undefined> | undefined;
+
 export interface FakeWireOptions {
   /** The clock credentials expire on and `hello` tells the time by: the platform's. */
   readonly clock: Clock;
@@ -98,9 +101,11 @@ export interface FakeWire {
    * `environment.status` (the status document), `access.sessions.revoke`
    * (accepted) and `access.sessions.refresh` (a fresh credential for the
    * client session last issued); any other
-   * method is answered `not_found`.
+   * method is answered `not_found`. The responder is handed the request
+   * frame too, so one that leaves a stream method unanswered can say
+   * `subscribed` to its id itself (`server.send`).
    */
-  answer(method: string, responder: (params: Record<string, unknown>) => FakeAnswer | Promise<FakeAnswer | undefined> | undefined): void;
+  answer(method: string, responder: FakeResponder): void;
   /** How many sockets the client has opened, and how many are open now. */
   opened(): number;
   open(): number;
@@ -162,7 +167,7 @@ export const fakeWire = (options: FakeWireOptions): FakeWire => {
     return issued;
   };
 
-  const responders = new Map<string, (params: Record<string, unknown>) => FakeAnswer | Promise<FakeAnswer | undefined> | undefined>([
+  const responders = new Map<string, FakeResponder>([
     [
       "environment.status",
       () => ({ result: { readiness: document().readiness, activity: { state: "idle" }, updatesManagedOutside: false } satisfies EnvironmentStatus }),
@@ -207,7 +212,7 @@ export const fakeWire = (options: FakeWireOptions): FakeWire => {
     if (frame.type !== "request") return;
     const responder = responders.get(frame.method);
     const body = responder
-      ? responder(frame.params)
+      ? responder(frame.params, frame)
       : { error: { code: "not_found", message: `The fake environment has no method ${frame.method}.`, data: {} } };
     if (body instanceof Promise) void body.then((later) => later && deliver(socket, { type: "response", id: frame.id, ...later } as Frame));
     else if (body) deliver(socket, { type: "response", id: frame.id, ...body } as Frame);

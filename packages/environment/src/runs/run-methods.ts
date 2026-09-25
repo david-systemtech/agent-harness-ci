@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { AttachmentInput, Mode, RunOrigin, RunPolicy, SendResponse } from "@agent-harness/contracts";
 import type { AdapterHost } from "../adapter/host.js";
+import type { ClientTool } from "../adapter/seams.js";
 import type { EventLog, StreamRef, Tx } from "../event-log/event-log.js";
 import type { RunActor } from "../permissions/resolver.js";
 import type { CommandContext, MethodHandlers } from "../serve/methods.js";
@@ -51,6 +52,8 @@ export interface RunStart {
   readonly mode?: Mode | undefined;
   /** What the run's instructions carry after the composed ones: a completions request's own (#138). */
   readonly appendedInstructions?: string | undefined;
+  /** The tools a completions request declared for the caller to run, served to the run (#139). */
+  readonly clientTools?: readonly ClientTool[] | undefined;
 }
 
 /** A run started (its ids and the policy it was resolved with), or why not. */
@@ -84,6 +87,7 @@ export const startRunIn = (
     effort: request.effort,
     mode: request.mode,
     appendedInstructions: request.appendedInstructions,
+    clientTools: request.clientTools,
   });
   if (decision.rejected !== undefined) return { rejected: decision.rejected };
   appendRunEvents(log, sessionId, decision.events, { tx, ...attribution, correlationId: decision.run.runId });

@@ -29,6 +29,12 @@ const extension = {
   ignoreUnsupported: true,
 };
 
+const tool = {
+  type: "function",
+  function: { name: "get_weather", description: "The weather in a city.", parameters: { type: "object", properties: { city: { type: "string" } }, required: ["city"] } },
+};
+const toolCall = { id: "call_7f3a9c1e2b4d4e6f8a0b1c2d3e4f5a6b", type: "function", function: { name: "get_weather", arguments: '{"city":"Manila"}' } };
+
 const request = {
   model: "claude-max/opus",
   messages: [
@@ -40,8 +46,19 @@ const request = {
   max_tokens: 400,
   stop: ["\n\n"],
   temperature: 0.2,
+  tools: [tool],
+  tool_choice: "auto",
   "agent-harness": { sessionId },
   artemis: { permissionMode: "plan" },
+};
+const toolResults = {
+  model: "claude-max/opus",
+  messages: [
+    { role: "user", content: "Weather in Manila?" },
+    { role: "assistant", content: null, tool_calls: [toolCall] },
+    { role: "tool", content: "Sunny, 31C", tool_call_id: toolCall.id },
+  ],
+  tools: [tool],
 };
 
 const clamp = { requested: "bypassPermissions", effective: "acceptEdits", ceiling: "acceptEdits", reason: "ceiling" };
@@ -68,6 +85,8 @@ const failedChunk = {
   "agent-harness": { seq: 12, ended: { reason: "error", cause: null } },
 };
 const usageChunk = { ...firstChunk, choices: [], usage, "agent-harness": { seq: 12 } };
+const toolCallChunk = { ...firstChunk, choices: [{ index: 0, delta: { tool_calls: [{ index: 0, ...toolCall }] }, finish_reason: null }], "agent-harness": { seq: 10 } };
+const toolCallsEndChunk = { ...firstChunk, choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }], "agent-harness": { seq: 10 } };
 
 const completion = {
   id: `chatcmpl-${runId}`,
@@ -101,8 +120,20 @@ export const completionsSchemaFixtures: Record<string, Fixtures> = {
     valid: [{ role: "user", content: "Hello" }, { role: "assistant", content: null, tool_calls: [{ id: "call_1" }] }, { role: "tool", content: "42", tool_call_id: "call_1" }],
     invalid: [{ role: "robot", content: "Hello" }, { content: "Hello" }, { role: "user", content: 7 }],
   },
+  "completions/tool-function.json": {
+    valid: [tool.function, { name: "ping", description: null, parameters: null, strict: null }],
+    invalid: [{ name: "" }, { name: "get weather" }, { description: "no name" }, { name: "a", parameters: "object" }],
+  },
+  "completions/tool.json": {
+    valid: [tool, { type: "function", function: { name: "ping" } }, { type: "custom", custom: { name: "grammar" } }],
+    invalid: [{ type: "function", function: { name: "get weather" } }, { type: "function", function: { name: "x".repeat(65) } }, { type: "" }, { type: "function", function: { name: "a", parameters: [] } }],
+  },
+  "completions/tool-choice.json": {
+    valid: ["auto", "none", "required", { type: "function", function: { name: "get_weather" } }],
+    invalid: ["", 7, { function: { name: "get_weather" } }],
+  },
   "completions/request.json": {
-    valid: [request, { model: "opus", messages: [{ role: "user", content: "Hi" }] }],
+    valid: [request, toolResults, { model: "opus", messages: [{ role: "user", content: "Hi" }] }],
     invalid: [
       { messages: [{ role: "user", content: "Hi" }] },
       { model: "opus", messages: [] },
@@ -110,9 +141,16 @@ export const completionsSchemaFixtures: Record<string, Fixtures> = {
       { ...request, artemis: { sessionId: "s-1" } },
       { ...request, stop: ["a", "b", "c", "d", "e"] },
       { ...request, max_tokens: 0 },
+      { ...request, tools: [{ type: "function", function: { name: "get weather" } }] },
+      { ...request, tools: Array.from({ length: 129 }, (_, index) => ({ type: "function", function: { name: `tool_${index}` } })) },
     ],
   },
-  "completions/finish-reason.json": { valid: ["stop", "length", "error"], invalid: ["tool_calls", ""] },
+  "completions/finish-reason.json": { valid: ["stop", "length", "tool_calls", "error"], invalid: ["function_call", ""] },
+  "completions/tool-call.json": {
+    valid: [toolCall, { ...toolCall, function: { name: "ping", arguments: "{}" } }],
+    invalid: [{ ...toolCall, id: "" }, { ...toolCall, type: "custom" }, { ...toolCall, function: { name: "ping" } }],
+  },
+  "completions/tool-call-delta.json": { valid: [{ index: 0, ...toolCall }, { index: 3, ...toolCall }], invalid: [toolCall, { index: -1, ...toolCall }] },
   "completions/clamp.json": { valid: [clamp], invalid: [{ ...clamp, reason: null }, { ...clamp, effective: "default" }] },
   "completions/activity.json": {
     valid: [
@@ -135,12 +173,26 @@ export const completionsSchemaFixtures: Record<string, Fixtures> = {
     invalid: [{}, { error: { message: "m" } }, { error: errorDetail, "agent-harness": { sessionId: "s-1" } }],
   },
   "completions/chunk.json": {
-    valid: [firstChunk, activityChunk, failedChunk, usageChunk],
-    invalid: [{ ...firstChunk, object: "chat.completion" }, { ...firstChunk, "agent-harness": {} }, { ...firstChunk, choices: [{ index: 0, delta: {}, finish_reason: "done" }] }],
+    valid: [firstChunk, activityChunk, failedChunk, usageChunk, toolCallChunk, toolCallsEndChunk],
+    invalid: [
+      { ...firstChunk, object: "chat.completion" },
+      { ...firstChunk, "agent-harness": {} },
+      { ...firstChunk, choices: [{ index: 0, delta: {}, finish_reason: "done" }] },
+      { ...firstChunk, choices: [{ index: 0, delta: { tool_calls: [toolCall] }, finish_reason: null }] },
+    ],
   },
   "completions/completion.json": {
-    valid: [completion, { ...completion, usage: undefined }],
-    invalid: [{ ...completion, choices: [] }, { ...completion, object: "chat.completion.chunk" }, { ...completion, usage: { prompt_tokens: 1 } }],
+    valid: [
+      completion,
+      { ...completion, usage: undefined },
+      { ...completion, usage: undefined, choices: [{ index: 0, message: { role: "assistant", content: "Let me look.", tool_calls: [toolCall] }, finish_reason: "tool_calls" }] },
+    ],
+    invalid: [
+      { ...completion, choices: [] },
+      { ...completion, object: "chat.completion.chunk" },
+      { ...completion, usage: { prompt_tokens: 1 } },
+      { ...completion, choices: [{ index: 0, message: { role: "assistant", content: "", tool_calls: [] }, finish_reason: "tool_calls" }] },
+    ],
   },
   "completions/model.json": { valid: [model], invalid: [{ ...model, object: "list" }, { ...model, "agent-harness": {} }, { ...model, tier: 1.5 }] },
   "completions/model-list.json": { valid: [{ object: "list", data: [] }, { object: "list", data: [model] }], invalid: [{ object: "list" }, { object: "list", data: [{ id: "opus" }] }] },

@@ -41,6 +41,7 @@ import { createRateLimiter } from "../auth/rate-limit.js";
 import { formatActor, openEventLog, type EventLog, type Projector } from "../event-log/event-log.js";
 import type { Adapter } from "../adapter/contract.js";
 import { createClaudeAdapter } from "../adapters/claude/index.js";
+import { createPassthrough } from "../completions/passthrough.js";
 import { SCRATCH_DIRECTORY, createCompletionsSurface } from "../completions/surface.js";
 import { createAdapterHost } from "../adapter/host.js";
 import { ACCOUNTS_DIRECTORY, createAccountService, type AccountService, type ConfiguredAccount } from "../accounts/account-service.js";
@@ -57,12 +58,12 @@ import { createUsagePool } from "../accounts/usage-pool.js";
 import { processMethods } from "../adapter/processes-methods.js";
 import { ATTACHMENTS_DIRECTORY, createAttachmentStage } from "../adapter/attachment-stage.js";
 import { recoverCutRuns, recoverStagedAttachments } from "../adapter/recovery.js";
-import type { InstructionComposer, PolicySeam, PromptAutoAnswer, ToolGateRule, ToolServerFactory } from "../adapter/seams.js";
+import { noToolServers, type InstructionComposer, type PolicySeam, type PromptAutoAnswer, type ToolGateRule, type ToolServerFactory } from "../adapter/seams.js";
 import { autoAnswer } from "../permissions/auto-answer.js";
 import { UNPROBED_REPORT, containmentFlags, containmentReport, failedProbeReport, presetContainmentDefault, withAdapters } from "../permissions/containment.js";
 import { CONTAINMENT_DIRECTORY, containmentDirectories } from "../permissions/containment-directories.js";
 import { probeContainment, type ContainmentProbe } from "../permissions/containment-probe.js";
-import { denylistRule, type DenylistContext } from "../permissions/denylist-gate.js";
+import { denylistRule, providerDenylist, type DenylistContext } from "../permissions/denylist-gate.js";
 import { denylistMethods } from "../permissions/denylist-methods.js";
 import { readDenylist, seedDenylist } from "../permissions/denylist-store.js";
 import { permissionMethods, sessionModeClamp } from "../permissions/methods.js";
@@ -469,9 +470,15 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   });
 
   // Where the denylist reads paths from (#132): the user's home for `~` (and for `~<the user's name>`), the file system's
-  // links, and the containment directories inside the data directory (#133's), which the data directory's preset leaves out.
+  // links, and the directories inside the data directory where runs work, which the data directory's preset leaves out: the
+  // containment directories (#133's) and the scratch workspaces a completions request runs in (#140, now its every call is gated).
   const user = passwdName();
-  const denylistContext: Omit<DenylistContext, "denylist"> = { home: homedir(), exempt: [join(dataDir, CONTAINMENT_DIRECTORY)], ...(user !== undefined && { user }) };
+  const denylistContext: Omit<DenylistContext, "denylist"> = {
+    home: homedir(),
+    exempt: [join(dataDir, CONTAINMENT_DIRECTORY), join(dataDir, SCRATCH_DIRECTORY)],
+    ...(user !== undefined && { user }),
+  };
+  const readDenylistNow = () => readDenylist({ all: (sql, ...params) => log.read(sql, ...params) });
 
   // The SDK session store (#137): the provider's transcripts beside the log, which every Claude run passes and resumes from.
   const providerStore: ProviderTranscriptStore = createProviderTranscriptStore({ log, clock });
@@ -487,6 +494,13 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       });
     }),
   );
+
+  // Client-tool passthrough (#139): the calls runs make to a completions caller's tools, parked until the caller answers,
+  // and the `client` tool server the factory adds for a run whose request declared tools. Closed after the host, whose
+  // close ends every run (and so lets go of what each left parked).
+  const passthrough = createPassthrough({ log, clock });
+  closers.push(() => passthrough.close());
+  const seamServers = options.adapterSeams?.toolServers ?? noToolServers;
 
   // The account store and the adapter host: the adapters, the accounts' sign-in states read through their probes, the run registry.
   const { host, accounts } = await step("adapter-host", async () => {
@@ -574,10 +588,14 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       // The unattended and bypass rules, and the TTL a prompt that parks is fixed with (#131).
       autoAnswer,
       // The tool gate's rules (#132): the denylist, read as it is when each call is made.
-      gateRules: [denylistRule({ ...denylistContext, denylist: () => readDenylist({ all: (sql, ...params) => log.read(sql, ...params) }) })],
+      gateRules: [denylistRule({ ...denylistContext, denylist: readDenylistNow })],
+      // What an unattended run projects onto its provider's own rules (#140), read as it starts.
+      providerDenylist: () => providerDenylist(readDenylistNow(), denylistContext),
       promptTtlMs: () => parkedPromptTtlMs(permissionSettings()["permissions.parkedPrompt.ttl"]),
       processIdleMinutes: options.processIdleMinutes ?? (() => settings()["providers.processIdleMinutes"]),
       ...options.adapterSeams,
+      // The seam's servers, then the caller's own tools as the `client` server (#139).
+      toolServers: (scope) => [...seamServers(scope), ...passthrough.toolServers(scope)],
     });
     // Closed before the event log, so a run the close ends has its end appended (drained when a drain's cap cut it), and
     // before the launcher's channel, so the launcher hears the environment go only once every provider process has
@@ -722,6 +740,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     },
     methods: table,
     scratchRoot: join(dataDir, SCRATCH_DIRECTORY),
+    passthrough,
   });
   surface.prefix(OPENAI_PATH_PREFIX, completions.handle);
   const wire = createWire({

@@ -18,6 +18,7 @@ import {
   type UsageReportedPayload,
 } from "@agent-harness/contracts";
 import type { EventEnvelope } from "../event-log/event-log.js";
+import type { ParkedCall } from "./passthrough.js";
 
 /**
  * The answer a turn gets (claude-adapter spec, "The completions surface":
@@ -33,8 +34,14 @@ import type { EventEnvelope } from "../event-log/event-log.js";
  * - Text renders from `assistant.delta` fragments, and from a settled
  *   `assistant.text` whatever its deltas did not carry; two text items are
  *   parted by a blank line. Thinking is not rendered.
- * - Tool calls and prompts ride `agent-harness.activity` on chunks with an
- *   empty delta; they never appear as `tool_calls`.
+ * - The agent's own tool calls and prompts ride `agent-harness.activity` on
+ *   chunks with an empty delta; they never appear as `tool_calls`.
+ * - A call to one of the caller's own tools (#139, `passthrough.ts`) is a
+ *   `tool_calls` delta, whole in one chunk, under the id the environment
+ *   minted and the name the request declared; its transcript events are not
+ *   activity. The answer ends with `finish_reason: tool_calls` a turn of the
+ *   event loop after the first, with every call parked by then: the run
+ *   waits on them, and a follow-up's tool messages resume it.
  * - `run.ended` of the followed run renders the final chunk: `stop` for a
  *   run that completed, else `error` with the error beside it; then, when
  *   asked, the usage chunk, from the run's last `usage.reported`.
@@ -156,6 +163,16 @@ export interface RendererOptions {
    */
   readonly holderOf: (messageId: string) => "wait" | "queued" | "read";
   readonly later: (work: () => void) => void;
+  /** Whether a tool call of the followed runs (by the provider's id) is one of the caller's: its tool events are not activity. */
+  readonly isClientCall: (toolCallId: string) => boolean;
+  /**
+   * Called, on a later turn of the event loop, once a queued turn's answer
+   * follows the run that reads its message: from then on it may return that
+   * run's calls to the caller's tools, those parked before included.
+   */
+  readonly onReading?: () => void;
+  /** The sequence the answer starts from before it renders an event: the log's head when an answer to tool results began following. Preset: 0. */
+  readonly startSeq?: number;
 }
 
 /** The sentence of a run that did not complete. */
@@ -179,7 +196,9 @@ export const createRenderer = (options: RendererOptions) => {
   let readBy: string | null = options.queuedMessage === null ? options.runId : null;
   let headSent = false;
   let over = false;
-  let lastSeq = 0;
+  let lastSeq = options.startSeq ?? 0;
+  /** The calls to the caller's tools this answer returned, in order; the answer ends on a later turn of the event loop after the first. */
+  const returned: ParkedCall[] = [];
   let usage: readonly ModelUsage[] | null = null;
   let lastEnded: { payload: RunEndedPayload; seq: number } | null = null;
   const gate = new TextGate(options.stops, options.maxCharacters);
@@ -261,6 +280,40 @@ export const createRenderer = (options: RendererOptions) => {
     });
   };
 
+  /** The run the answer follows now reads its queued message: the answer may return the run's calls to the caller's tools. */
+  const reading = (): void => {
+    if (options.onReading !== undefined) options.later(options.onReading);
+  };
+
+  /**
+   * Returns a call to the caller's tools, parked by the run the answer
+   * follows: a `tool_calls` delta, whole, after whatever text was held back;
+   * the answer ends a turn of the event loop after its first call, with
+   * every call parked by then. False when the answer cannot return it: it is
+   * over, or it follows a run that has not read its queued message.
+   */
+  const claim = (call: ParkedCall): boolean => {
+    if (over || readBy !== followed) return false;
+    head(lastSeq);
+    if (returned.length === 0) {
+      // Text held back for a stop sequence goes out before the calls: nothing follows them in this answer.
+      const tail = gate.flush();
+      if (tail !== "") chunk(lastSeq, [{ index: 0, delta: { content: tail }, finish_reason: null }]);
+      options.later(() => {
+        // A later turn of the event loop has no caller to catch for it: a failure is logged, never thrown.
+        try {
+          finish({ finishReason: "tool_calls", seq: lastSeq, ended: null, error: null, waiting: null });
+        } catch (error) {
+          console.error("Ending an answer on its calls to the caller's tools failed:", error);
+        }
+      });
+    }
+    const index = returned.length;
+    returned.push(call);
+    chunk(lastSeq, [{ index: 0, delta: { tool_calls: [{ index, id: call.id, type: "function", function: { name: call.name, arguments: call.arguments } }] }, finish_reason: null }]);
+    return true;
+  };
+
   const abandon = (message: string, code: string): void => {
     if (over) return;
     head(lastSeq);
@@ -285,7 +338,10 @@ export const createRenderer = (options: RendererOptions) => {
       const queued = options.queuedMessage;
       // Which run reads the queued message: the live one it is folded into, or a later one that opens with it.
       if (queued !== null) {
-        if (event.type === "message.delivered" && event.payload["messageId"] === queued) readBy = String(event.payload["runId"]);
+        if (event.type === "message.delivered" && event.payload["messageId"] === queued) {
+          readBy = String(event.payload["runId"]);
+          if (readBy === followed) reading();
+        }
         if (event.type === "run.started") {
           const started = event.payload as RunStartedPayload;
           if (started.promptMessageId === queued || started.queuedMessageIds.includes(queued)) {
@@ -294,6 +350,7 @@ export const createRenderer = (options: RendererOptions) => {
             // The answer now ends with this run: its usage and its end are its own, never the run followed before.
             usage = null;
             lastEnded = null;
+            reading();
           }
         }
         if (event.type === "message.requeued" && event.payload["messageId"] === queued && lastEnded !== null) runEnded(lastEnded.payload, lastEnded.seq);
@@ -328,10 +385,13 @@ export const createRenderer = (options: RendererOptions) => {
         }
         case "tool.started": {
           const { toolCallId, name, title } = event.payload as ToolStartedPayload;
+          // A call to the caller's own tools goes back to the caller as tool_calls, not as the agent's activity.
+          if (options.isClientCall(toolCallId)) return;
           return activity(seq, { type: "tool.started", toolCallId, name, title });
         }
         case "tool.ended": {
           const { toolCallId, status } = event.payload as ToolEndedPayload;
+          if (options.isClientCall(toolCallId)) return;
           return activity(seq, { type: "tool.ended", toolCallId, status });
         }
         case "prompt.opened": {
@@ -351,6 +411,7 @@ export const createRenderer = (options: RendererOptions) => {
           return;
       }
     },
+    claim,
     /** The environment is stopping, or the answer cannot go on: it ends with an error chunk, never a bare close. */
     abandon,
     isOver: (): boolean => over,

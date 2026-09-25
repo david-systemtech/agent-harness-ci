@@ -3,6 +3,7 @@ import { mkdirSync, statSync } from "node:fs";
 import { connect } from "node:net";
 import { join } from "node:path";
 import {
+  CLIENT_TOOL_CALL_EXPIRY_MS,
   COMPLETIONS_HEARTBEAT_MS,
   ChatCompletion,
   ChatCompletionChunk,
@@ -11,6 +12,7 @@ import {
   CompletionsModelList,
   registry,
   type ChatCompletionChunk as Chunk,
+  type ChatToolCall,
   type Mode,
   type PromptAnsweredPayload,
   type RunPolicyResolvedPayload,
@@ -20,13 +22,27 @@ import {
 } from "@agent-harness/contracts";
 import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
-import { ask, end, fakeAdapter, gate, say, toldText, type FakeAdapter, type FakeAdapterOptions, type Script } from "../../test/fake-adapter.js";
+import {
+  ask,
+  callClientTool,
+  callClientTools,
+  end,
+  fakeAdapter,
+  gate,
+  say,
+  toldText,
+  toolResultText,
+  type FakeAdapter,
+  type FakeAdapterOptions,
+  type Script,
+} from "../../test/fake-adapter.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import type { StartupStep } from "../serve/start.js";
 import type { Address } from "../serve/http.js";
 import { accountSlug } from "./models.js";
 import { create, workspace } from "../../test/sessions.js";
-import type { AdapterEvent } from "../adapter/contract.js";
+import { isInProcess, type AdapterEvent, type HostToolResult } from "../adapter/contract.js";
+import { EXPIRED_RESULT } from "./passthrough.js";
 import type { EventEnvelope } from "../event-log/event-log.js";
 
 /**
@@ -1422,5 +1438,390 @@ describe("the request's instructions, parameters and fields", () => {
     ).toMatchObject({ status: 400, body: { error: { code: "invalid_params", param: "messages" } } });
     expect(await refusalOf(await post(t, token, { ...turn("Hi"), model: "nobody/opus" }))).toMatchObject({ status: 404, body: { error: { code: "model_not_found", param: "model" } } });
     expect(t.adapter.runs).toHaveLength(0);
+  });
+});
+
+describe("client-tool passthrough (#139)", () => {
+  const WEATHER = {
+    type: "function",
+    function: { name: "get_weather", description: "The weather in a city.", parameters: { type: "object", properties: { city: { type: "string" } }, required: ["city"] } },
+  };
+  const TIME = { type: "function", function: { name: "get_time", description: "The time in a city.", parameters: { type: "object", properties: { city: { type: "string" } } } } };
+
+  /** An answer, streamed or whole, as a program reads it: its text, its calls to the program's tools, why it ended, and the harness's fields. */
+  interface Answer {
+    readonly content: string;
+    readonly toolCalls: readonly ChatToolCall[];
+    readonly finishReason: string | null;
+    /** The first chunk's fields on a stream, the whole answer's otherwise. */
+    readonly extension: Chunk["agent-harness"];
+    readonly usage: ChatCompletion["usage"];
+    /** A stream's chunks; empty for a whole answer. */
+    readonly chunks: readonly Chunk[];
+  }
+
+  /** Sends `body` and reads the answer, streamed or whole. */
+  const exchange = async (t: TestEnvironment, token: string, body: Record<string, unknown>, streaming: boolean): Promise<Answer> => {
+    if (!streaming) {
+      const whole = await complete(t, token, body);
+      const [choice] = whole.choices;
+      return { content: choice?.message.content ?? "", toolCalls: choice?.message.tool_calls ?? [], finishReason: choice?.finish_reason ?? null, extension: whole["agent-harness"], usage: whole.usage, chunks: [] };
+    }
+    const messages = await (await stream(t, token, body)).rest();
+    expect(messages.at(-1)).toEqual({ kind: "done" });
+    const chunks = chunksOf(messages);
+    const toolCalls = chunks.flatMap((chunk) => chunk.choices[0]?.delta.tool_calls ?? []);
+    // Each call comes whole, at its index among the answer's calls.
+    expect(toolCalls.map((call) => call.index)).toEqual(toolCalls.map((_, index) => index));
+    return {
+      content: contentOf(chunks),
+      toolCalls: toolCalls.map((call) => ({ id: call.id, type: call.type, function: call.function })),
+      finishReason: chunks.findLast((chunk) => chunk.choices[0]?.finish_reason !== null && chunk.choices[0]?.finish_reason !== undefined)?.choices[0]?.finish_reason ?? null,
+      extension: chunks[0]?.["agent-harness"] ?? { seq: 0 },
+      usage: chunks.at(-1)?.usage,
+      chunks,
+    };
+  };
+
+  /** A program's follow-up: the conversation so far with the assistant's calls, then a tool message for each with what `results` says of its tool. */
+  const followUp = (asked: string, answer: Answer, results: Readonly<Record<string, string>>, extra: Record<string, unknown> = {}): Record<string, unknown> => ({
+    model: "claude-max/opus",
+    messages: [
+      { role: "user", content: asked },
+      { role: "assistant", content: answer.content, tool_calls: answer.toolCalls },
+      ...answer.toolCalls.map((call) => ({ role: "tool", tool_call_id: call.id, content: results[call.function.name] ?? "" })),
+    ],
+    tools: [WEATHER],
+    ...extra,
+  });
+
+  /** Says it will look, calls get_weather for Manila, then says what the tool answered and completes. */
+  const weatherScript: Script = async function* (controls) {
+    yield say("Let me look.");
+    const result = yield* callClientTool(controls, { name: "get_weather", input: { city: "Manila" } });
+    yield say(toolResultText(result));
+    yield usage(30, 6);
+    yield end();
+  };
+
+  const CALL_ID = /^call_[0-9a-f]{32}$/;
+
+  it("serves the request's tools to its run as a tool server named client, one tool per function with its schema", async () => {
+    const t = await start();
+    const { token } = await program(t);
+    for (const streaming of [true, false]) {
+      const answer = await exchange(
+        t,
+        token,
+        turn("Hi", { tools: [WEATHER, { type: "function", function: { name: "ping" } }, { type: "function", function: { name: "echo", parameters: { properties: { text: { type: "string" } } } } }] }),
+        streaming,
+      );
+      expect(answer.finishReason).toBe("stop");
+      expect(answer.extension.ignored).toEqual([]);
+      const servers = t.adapter.lastRun().input.toolServers;
+      expect(servers.map((server) => server.name)).toEqual(["client"]);
+      const [server] = servers;
+      if (server === undefined || !isInProcess(server)) throw new Error("The client server is not served in process.");
+      expect(server.external).toBe(true);
+      expect(server.tools.map((tool) => ({ name: tool.name, description: tool.description, inputSchema: tool.inputSchema }))).toEqual([
+        { name: "get_weather", description: "The weather in a city.", inputSchema: WEATHER.function.parameters },
+        // No parameters: an object with none; a schema that leaves its type out is an object's.
+        { name: "ping", description: "", inputSchema: { type: "object", properties: {} } },
+        { name: "echo", description: "", inputSchema: { type: "object", properties: { text: { type: "string" } } } },
+      ]);
+    }
+    // A request with no tools gives its run none.
+    await complete(t, token, turn("Hi"));
+    expect(t.adapter.lastRun().input.toolServers).toEqual([]);
+  });
+
+  it("returns a call to the caller's tool as a tool_calls delta with a minted id and the bare name, ends with finish_reason tool_calls, and parks the handler", async () => {
+    const t = await start({ script: weatherScript });
+    const { token } = await program(t);
+    for (const streaming of [true, false]) {
+      const answer = await exchange(t, token, turn("Weather in Manila?", { tools: [WEATHER], stream_options: { include_usage: true } }), streaming);
+      expect(answer.content).toBe("Let me look.");
+      expect(answer.toolCalls).toEqual([{ id: expect.stringMatching(CALL_ID), type: "function", function: { name: "get_weather", arguments: '{"city":"Manila"}' } }]);
+      expect(answer.finishReason).toBe("tool_calls");
+      // The run waits on the call: its spend is not known yet.
+      expect(answer.usage).toBeUndefined();
+      const sessionId = answer.extension.sessionId as string;
+      expect(ofType(t, sessionId, "run.ended")).toHaveLength(0);
+      if (streaming) {
+        // OpenAI's order: the role, the text, the call, then the finish on an empty delta; the sequences never go back.
+        expect(answer.chunks.map((chunk) => Object.keys(chunk.choices[0]?.delta ?? {}).join(","))).toEqual(["role,content", "content", "tool_calls", ""]);
+        const seqs = answer.chunks.map((chunk) => chunk["agent-harness"].seq);
+        expect(seqs).toEqual([...seqs].sort((a, b) => a - b));
+        expect(answer.chunks.every((chunk) => chunk.choices[0]?.delta.tool_calls === undefined || chunk["agent-harness"].seq > 0)).toBe(true);
+      }
+    }
+  });
+
+  it("resumes the parked turn with a follow-up's tool messages matched by tool_call_id, with no session id, the same turn streaming on in that response", async () => {
+    const t = await start({ script: weatherScript });
+    const { token } = await program(t);
+    for (const [first, second] of [
+      [true, true],
+      [false, false],
+      [true, false],
+      [false, true],
+    ] as const) {
+      const asked = await exchange(t, token, turn("Weather in Manila?", { tools: [WEATHER] }), first);
+      const sessionId = asked.extension.sessionId as string;
+      const runs = t.adapter.runs.length;
+      const resumed = await exchange(t, token, followUp("Weather in Manila?", asked, { get_weather: "Sunny, 31C" }, { stream_options: { include_usage: true } }), second);
+      expect(resumed.content).toBe("Tool said: Sunny, 31C");
+      expect(resumed.finishReason).toBe("stop");
+      // The same session and run: no session was made and no run started for the follow-up.
+      expect(resumed.extension).toMatchObject({ sessionId, runId: asked.extension.runId, ignored: [] });
+      expect(resumed.extension.messageId).toBeUndefined();
+      expect(t.adapter.runs).toHaveLength(runs);
+      expect(resumed.usage).toEqual({ prompt_tokens: 36, completion_tokens: 6, total_tokens: 42, prompt_tokens_details: { cached_tokens: 5 } });
+      await untilEnded(t, sessionId);
+      // The transcript records the call and what the caller answered.
+      expect(payloadsOf<{ name: string }>(t, sessionId, "tool.started").map((payload) => payload.name)).toEqual(["mcp__client__get_weather"]);
+      expect(payloadsOf<{ status: string; output: unknown }>(t, sessionId, "tool.ended")).toMatchObject([{ status: "ok", output: "Sunny, 31C" }]);
+      if (second) expect(resumed.chunks[0]?.["agent-harness"].seq).toBeGreaterThanOrEqual(asked.extension.seq);
+    }
+  });
+
+  it("returns several calls of one turn in one answer, each matched by its own id, and calls made one after another in answers of their own", async () => {
+    const t = await start();
+    const { token } = await program(t);
+    for (const streaming of [true, false]) {
+      // Side by side: both come back in one answer, and the results may come in any order.
+      t.adapter.nextScripts.push(async function* (controls) {
+        const [weather, time] = yield* callClientTools(controls, [
+          { name: "get_weather", input: { city: "Manila" } },
+          { name: "get_time", input: { city: "Manila" } },
+        ]);
+        yield say(`${toolResultText(weather as HostToolResult)} / ${toolResultText(time as HostToolResult)}`);
+        yield end();
+      });
+      const both = await exchange(t, token, turn("Weather and time in Manila?", { tools: [WEATHER, TIME] }), streaming);
+      expect(both.toolCalls.map((call) => call.function.name)).toEqual(["get_weather", "get_time"]);
+      expect(new Set(both.toolCalls.map((call) => call.id)).size).toBe(2);
+      expect(both.finishReason).toBe("tool_calls");
+      const reversed = followUp("Weather and time in Manila?", both, { get_weather: "Sunny", get_time: "14:05" }, { tools: [WEATHER, TIME] });
+      reversed["messages"] = [...(reversed["messages"] as unknown[]).slice(0, 2), ...(reversed["messages"] as unknown[]).slice(2).reverse()];
+      expect((await exchange(t, token, reversed, streaming)).content).toBe("Tool said: Sunny / Tool said: 14:05");
+
+      // One after another: the second call is made only once the first is answered, and comes back in the follow-up's answer.
+      t.adapter.nextScripts.push(async function* (controls) {
+        const weather = yield* callClientTool(controls, { name: "get_weather", input: { city: "Manila" } });
+        const time = yield* callClientTool(controls, { name: "get_time", input: { city: "Manila" } });
+        yield say(`${toolResultText(weather)} / ${toolResultText(time)}`);
+        yield end();
+      });
+      const first = await exchange(t, token, turn("Weather, then time?", { tools: [WEATHER, TIME] }), streaming);
+      expect(first.toolCalls.map((call) => call.function.name)).toEqual(["get_weather"]);
+      const second = await exchange(t, token, followUp("Weather, then time?", first, { get_weather: "Rain" }, { tools: [WEATHER, TIME] }), streaming);
+      expect(second.toolCalls.map((call) => call.function.name)).toEqual(["get_time"]);
+      expect(second.finishReason).toBe("tool_calls");
+      expect(second.toolCalls[0]?.id).not.toBe(first.toolCalls[0]?.id);
+      const third = await exchange(t, token, followUp("Weather, then time?", second, { get_time: "09:00" }, { tools: [WEATHER, TIME] }), streaming);
+      expect(third).toMatchObject({ content: "Tool said: Rain / Tool said: 09:00", finishReason: "stop" });
+    }
+  });
+
+  it("expires a handler not answered within ten minutes: the model gets an error result, the run goes on, and a late follow-up is 404", async () => {
+    const t = await start({ script: weatherScript });
+    const { token } = await program(t);
+    for (const streaming of [true, false]) {
+      const asked = await exchange(t, token, turn("Weather in Manila?", { tools: [WEATHER] }), streaming);
+      const sessionId = asked.extension.sessionId as string;
+      t.clock.advance(CLIENT_TOOL_CALL_EXPIRY_MS - 1);
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(ofType(t, sessionId, "run.ended")).toHaveLength(0);
+      t.clock.advance(1);
+      await untilEnded(t, sessionId);
+      expect(payloadsOf<{ status: string; output: unknown }>(t, sessionId, "tool.ended")).toMatchObject([{ status: "error", output: EXPIRED_RESULT }]);
+      expect(payloadsOf<{ reason: string }>(t, sessionId, "run.ended")[0]?.reason).toBe("completed");
+      expect(payloadsOf<{ text: string }>(t, sessionId, "assistant.text").map((payload) => payload.text)).toContain(`Tool said (error): ${EXPIRED_RESULT}`);
+      expect(await refusalOf(await post(t, token, followUp("Weather in Manila?", asked, { get_weather: "Sunny" }, { stream: streaming })))).toMatchObject({
+        status: 404,
+        body: { error: { type: "not_found_error", code: "tool_call_not_found", param: "messages.2.tool_call_id" } },
+      });
+    }
+  });
+
+  it("lets a parked call go when its run ends, so a follow-up for it is 404", async () => {
+    const t = await start({ script: weatherScript });
+    const { token } = await program(t);
+    const client = await t.client();
+    for (const streaming of [true, false]) {
+      const asked = await exchange(t, token, turn("Weather in Manila?", { tools: [WEATHER] }), streaming);
+      await client.request("runs.interrupt", { commandId: randomUUID(), runId: asked.extension.runId as string });
+      await untilEnded(t, asked.extension.sessionId as string);
+      expect(await refusalOf(await post(t, token, followUp("Weather in Manila?", asked, { get_weather: "Sunny" }, { stream: streaming })))).toMatchObject({
+        status: 404,
+        body: { error: { code: "tool_call_not_found", param: "messages.2.tool_call_id" } },
+      });
+    }
+  });
+
+  it("withholds the tools from the run under tool_choice none", async () => {
+    const t = await start();
+    const { token } = await program(t);
+    for (const streaming of [true, false]) {
+      const answer = await exchange(t, token, turn("Hi", { tools: [WEATHER], tool_choice: "none" }), streaming);
+      expect(answer.finishReason).toBe("stop");
+      expect(answer.extension.ignored).toEqual([]);
+      expect(t.adapter.lastRun().input.toolServers).toEqual([]);
+      // auto is the default, said out loud.
+      await exchange(t, token, turn("Hi", { tools: [WEATHER], tool_choice: "auto" }), streaming);
+      expect(t.adapter.lastRun().input.toolServers.map((server) => server.name)).toEqual(["client"]);
+    }
+  });
+
+  it("refuses tool_choice required and a named choice 400, and ignores and reports them under ignoreUnsupported, serving the tools", async () => {
+    const t = await start();
+    const { token } = await program(t);
+    for (const streaming of [true, false]) {
+      for (const choice of ["required", { type: "function", function: { name: "get_weather" } }]) {
+        expect(await refusalOf(await post(t, token, turn("Hi", { tools: [WEATHER], tool_choice: choice, stream: streaming })))).toMatchObject({
+          status: 400,
+          body: { error: { type: "invalid_request_error", code: "unsupported_parameter", param: "tool_choice" } },
+        });
+        const tolerated = await exchange(t, token, turn("Hi", { tools: [WEATHER], tool_choice: choice, "agent-harness": { ignoreUnsupported: true } }), streaming);
+        expect(tolerated.extension.ignored).toEqual(["tool_choice"]);
+        expect(t.adapter.lastRun().input.toolServers.map((server) => server.name)).toEqual(["client"]);
+      }
+    }
+    expect(t.adapter.runs).toHaveLength(4);
+  });
+
+  it("shows the agent's own tools only as activity on empty-delta chunks, never as tool_calls, and a call to the caller's tools only as tool_calls", async () => {
+    const t = await start({
+      script: async function* (controls) {
+        yield toolStarted("toolu_1");
+        yield toolEnded("toolu_1");
+        const result = yield* callClientTool(controls, { name: "get_weather", input: { city: "Manila" }, toolCallId: "toolu_client" });
+        yield toolStarted("toolu_2");
+        yield toolEnded("toolu_2");
+        yield say(toolResultText(result));
+        yield end();
+      },
+    });
+    const { token } = await program(t);
+    for (const streaming of [true, false]) {
+      const asked = await exchange(t, token, turn("Weather in Manila?", { tools: [WEATHER] }), streaming);
+      expect(asked.toolCalls.map((call) => call.function.name)).toEqual(["get_weather"]);
+      const resumed = await exchange(t, token, followUp("Weather in Manila?", asked, { get_weather: "Sunny" }), streaming);
+      expect(resumed.content).toBe("Tool said: Sunny");
+      if (!streaming) continue;
+      const activity = [...asked.chunks, ...resumed.chunks].flatMap((chunk) => {
+        const value = chunk["agent-harness"].activity;
+        if (value === undefined) return [];
+        expect(chunk.choices[0]?.delta).toEqual({});
+        return [`${value.type} ${"toolCallId" in value ? value.toolCallId : ""}`];
+      });
+      expect(activity).toEqual(["tool.started toolu_1", "tool.ended toolu_1", "tool.started toolu_2", "tool.ended toolu_2"]);
+    }
+  });
+
+  it("refuses tools it cannot serve: another type 400 or ignored, a bad or repeated name, parameters that are not an object's", async () => {
+    const t = await start();
+    const { token } = await program(t);
+    for (const streaming of [true, false]) {
+      const refused = async (body: Record<string, unknown>) => (await refusalOf(await post(t, token, { ...body, stream: streaming }))).body.error;
+      expect(await refused(turn("Hi", { tools: [{ type: "custom", custom: { name: "grammar" } }, WEATHER] }))).toMatchObject({ code: "unsupported_parameter", param: "tools.0" });
+      const tolerated = await exchange(t, token, turn("Hi", { tools: [{ type: "custom", custom: { name: "grammar" } }, WEATHER], "agent-harness": { ignoreUnsupported: true } }), streaming);
+      expect(tolerated.extension.ignored).toEqual(["tools.0"]);
+      const [server] = t.adapter.lastRun().input.toolServers;
+      expect(server !== undefined && isInProcess(server) ? server.tools.map((tool) => tool.name) : []).toEqual(["get_weather"]);
+      expect(await refused(turn("Hi", { tools: [{ type: "function", function: { name: "get weather" } }] }))).toMatchObject({ code: "invalid_params", param: "tools.0.function.name" });
+      expect(await refused(turn("Hi", { tools: [WEATHER, WEATHER] }))).toMatchObject({ code: "invalid_params", param: "tools.1.function.name" });
+      expect(await refused(turn("Hi", { tools: [{ type: "function", function: { name: "ping", parameters: { type: "string" } } }] }))).toMatchObject({
+        code: "invalid_params",
+        param: "tools.0.function.parameters",
+      });
+      expect(await refused(turn("Hi", { tools: [{ type: "function" }] }))).toMatchObject({ code: "invalid_params", param: "tools.0.function" });
+      // strict is not honoured, and a choice among no tools says nothing: both reported.
+      const strict = await exchange(t, token, turn("Hi", { tools: [{ ...WEATHER, function: { ...WEATHER.function, strict: true } }] }), streaming);
+      expect(strict.extension.ignored).toEqual(["tools.0.function.strict"]);
+      expect((await exchange(t, token, turn("Hi", { tool_choice: "auto" }), streaming)).extension.ignored).toEqual(["tool_choice"]);
+    }
+    expect(t.adapter.runs).toHaveLength(6);
+  });
+
+  it("refuses tool results no parked call waits for 404, results for another session's calls 400, and reports a stray result and what the running turn cannot take", async () => {
+    const t = await start({ script: weatherScript });
+    const { token } = await program(t);
+    const unknown = { model: "claude-max/opus", messages: [{ role: "user", content: "Hi" }, { role: "tool", tool_call_id: "call_nobody", content: "42" }] };
+    expect(await refusalOf(await post(t, token, unknown))).toMatchObject({ status: 404, body: { error: { code: "tool_call_not_found", param: "messages.1.tool_call_id" } } });
+    const nameless = { model: "claude-max/opus", messages: [{ role: "user", content: "Hi" }, { role: "tool", content: "42" }] };
+    expect(await refusalOf(await post(t, token, nameless))).toMatchObject({ status: 400, body: { error: { code: "invalid_params", param: "messages.1.tool_call_id" } } });
+    for (const streaming of [true, false]) {
+      const asked = await exchange(t, token, turn("Weather in Manila?", { tools: [WEATHER] }), streaming);
+      t.adapter.nextScripts.push(() => [say("Elsewhere"), end()]);
+      const other = await complete(t, token, turn("Elsewhere"));
+      const elsewhere = followUp("Weather in Manila?", asked, { get_weather: "Sunny" }, { "agent-harness": { sessionId: other["agent-harness"].sessionId } });
+      expect(await refusalOf(await post(t, token, elsewhere))).toMatchObject({ status: 400, body: { error: { code: "invalid_params", param: "agent-harness.sessionId" } } });
+      const forked = followUp("Weather in Manila?", asked, { get_weather: "Sunny" }, { "agent-harness": { forkSession: true, sessionId: asked.extension.sessionId } });
+      expect(await refusalOf(await post(t, token, forked))).toMatchObject({ status: 400, body: { error: { code: "invalid_params", param: "agent-harness.forkSession" } } });
+      // A stray result beside the call's, and the fields a running turn cannot take, are ignored and said so; the answer names the run's model.
+      const request = followUp("Weather in Manila?", asked, { get_weather: "Sunny" }, {
+        model: "claude-max/sonnet",
+        tools: [TIME],
+        tool_choice: "none",
+        "agent-harness": { sessionId: asked.extension.sessionId, permissionMode: "plan", systemPrompt: "Be terse." },
+      });
+      request["messages"] = [...(request["messages"] as unknown[]), { role: "tool", tool_call_id: "call_stray", content: "?" }];
+      const resumed = await exchange(t, token, request, streaming);
+      expect(resumed.content).toBe("Tool said: Sunny");
+      expect(resumed.extension.ignored).toEqual(["model", "agent-harness.permissionMode", "agent-harness.systemPrompt", "tools", "tool_choice", "messages.3"]);
+      const [chunk] = resumed.chunks;
+      if (chunk !== undefined) expect(chunk.model).toBe("claude-max/opus");
+    }
+  });
+
+  it("takes tool results while the environment drains, so the running turn can finish", async () => {
+    const t = await start({ script: weatherScript });
+    const { token } = await program(t);
+    const streamed = await exchange(t, token, turn("Weather in Manila?", { tools: [WEATHER] }), true);
+    const whole = await exchange(t, token, turn("Weather in Manila?", { tools: [WEATHER] }), false);
+    void t.env.drain("command");
+    await vi.waitFor(() => expect(t.env.readiness()).toBe("draining"));
+    expect(await refusalOf(await post(t, token, turn("One more", { tools: [WEATHER] })))).toMatchObject({ status: 503, body: { error: { code: "unavailable" } } });
+    for (const [asked, streaming] of [
+      [streamed, true],
+      [whole, false],
+    ] as const) {
+      expect(await exchange(t, token, followUp("Weather in Manila?", asked, { get_weather: "Sunny" }), streaming)).toMatchObject({ content: "Tool said: Sunny", finishReason: "stop" });
+    }
+  });
+
+  it("carries a completions run's client tools to the run started from its queue, whose answer returns its calls", async () => {
+    const t = await start({ capabilities: { providerQueue: false, steering: false } });
+    const { token } = await program(t);
+    for (const streaming of [true, false]) {
+      const held = gate();
+      t.adapter.nextScripts.push(heldScript(held.opened, "First done"));
+      t.adapter.nextScripts.push(weatherScript);
+      const first = await stream(t, token, turn("First", { tools: [WEATHER] }));
+      const sessionId = (await first.chunk())["agent-harness"].sessionId as string;
+      // Queued with the same tools: nothing ignored; the run of the queue is served them and its call comes back in this answer.
+      const queued = exchange(t, token, turn("Weather in Manila?", { tools: [WEATHER], "agent-harness": { sessionId } }), streaming);
+      await vi.waitFor(() => expect(ofType(t, sessionId, "message.sent")).toHaveLength(2));
+      held.open();
+      await first.rest();
+      const answer = await queued;
+      expect(answer.extension).toMatchObject({ delivery: "queued", ignored: [] });
+      expect(answer.content).toBe("First done\n\nLet me look.");
+      expect(answer.toolCalls.map((call) => call.function.name)).toEqual(["get_weather"]);
+      expect(answer.finishReason).toBe("tool_calls");
+      expect(t.adapter.runs.slice(-2).map((run) => run.input.toolServers.map((server) => server.name))).toEqual([["client"], ["client"]]);
+      // The call is the queue's run's, and a follow-up resumes that run.
+      const resumed = await exchange(t, token, followUp("Weather in Manila?", answer, { get_weather: "Sunny" }), streaming);
+      expect(resumed).toMatchObject({ content: "Tool said: Sunny", finishReason: "stop" });
+      expect(resumed.extension.runId).toBe(t.adapter.lastRun().input.runId);
+    }
+    // A queued turn whose tools differ from the live run's is told they were not taken.
+    t.adapter.nextScripts.push(heldScript(gate().opened));
+    const other = await stream(t, token, turn("Again", { tools: [WEATHER] }));
+    const otherSession = (await other.chunk())["agent-harness"].sessionId as string;
+    const differing = await stream(t, token, turn("Then this", { tools: [TIME], "agent-harness": { sessionId: otherSession } }));
+    expect((await differing.chunk())["agent-harness"].ignored).toEqual(["tools"]);
   });
 });
