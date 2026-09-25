@@ -63,9 +63,9 @@ const VOCABULARY = [
 ];
 
 describe("the transcript vocabulary", () => {
-  it("is on the session stream: every type the spec lists, and message.requeued for ADR 0022's interrupt", () => {
+  it("is on the session stream: every type the spec lists, message.requeued for ADR 0022's interrupt and message.withdrawn for its withdraw", () => {
     for (const type of VOCABULARY) expect(eventTypeEntry("session", type), type).toBeDefined();
-    expect([...TRANSCRIPT_EVENT_TYPE_NAMES].sort()).toEqual([...VOCABULARY, "message.requeued"].sort());
+    expect([...TRANSCRIPT_EVENT_TYPE_NAMES].sort()).toEqual([...VOCABULARY, "message.requeued", "message.withdrawn"].sort());
     for (const type of TRANSCRIPT_EVENT_TYPE_NAMES) {
       expect(SessionEventType.safeParse(type).success, type).toBe(true);
       expect(eventTypeEntry("group", type), type).toBeUndefined();
