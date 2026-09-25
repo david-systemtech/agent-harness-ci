@@ -186,6 +186,16 @@ describe("PromptHistory", () => {
     expect(await readdir(dir)).toEqual(["history.jsonl"]);
   });
 
+  it("starts on a line of its own when another process left a half-written line after this one loaded", async () => {
+    await seed([{ ts: 1, text: "good one", cwd: HERE }]);
+    const history = await PromptHistory.load(path);
+    // A process killed between its write and its newline.
+    await writeFile(path, `${await readFile(path, "utf8")}{"ts":2,"te`, "utf8");
+    history.append({ text: "good two", cwd: HERE, ts: 3 });
+    await history.flush();
+    expect((await PromptHistory.load(path)).recent({ kind: "all" })).toEqual(["good two", "good one"]);
+  });
+
   it("keeps what another terminal appended to the same file when the cap rewrites it", async () => {
     const entries: HistoryEntry[] = [];
     for (let i = 0; i < HISTORY_MAX_ENTRIES; i += 1) entries.push({ ts: i, text: `prompt ${String(i)}`, cwd: HERE });

@@ -21,7 +21,9 @@ describe("sending", () => {
     const file = { kind: "file" as const, name: "a.pdf", mediaType: "application/pdf", data: "" };
     expect(attachmentRefusal({ text: "x", attachments: [image] }, provider)).toBeUndefined();
     expect(attachmentRefusal({ text: "x", attachments: [file] }, provider)).toBe("Claude takes images but no other files: nothing was sent.");
-    expect(attachmentRefusal({ text: "x", attachments: [image] }, { ...provider, imageInput: false })).toBe("Claude takes no images: nothing was sent.");
+    expect(attachmentRefusal({ text: "x", attachments: [image] }, { ...provider, imageInput: false, fileInput: true })).toBe("Claude takes no images: nothing was sent.");
+    expect(attachmentRefusal({ text: "x", attachments: [image] }, { ...provider, imageInput: false })).toBe("Claude takes no attachments: nothing was sent.");
     expect(attachmentRefusal({ text: "x", attachments: [file] }, undefined)).toBeUndefined();
+    expect(attachmentRefusal({ text: "x", attachments: [file] }, { ...provider, imageInput: false })).toBe("Claude takes no attachments: nothing was sent.");
   });
 });

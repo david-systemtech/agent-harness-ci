@@ -36,7 +36,10 @@
  * never something a launch gets to fail on. A truncated tail costs one line
  * and only one: a file that does not end in a newline has lost the end of its
  * last entry, so the next append opens with a newline of its own rather than
- * gluing a good entry onto a broken one and losing them both.
+ * gluing a good entry onto a broken one and losing them both. Whether it does
+ * is read from the file when the append is written, not remembered from the
+ * load, so a line cut short by another process since, or by a failed write of
+ * this one, is closed too.
  *
  * **It is capped, because otherwise it grows for years.** Past
  * `HISTORY_MAX_ENTRIES` the file is rewritten to the newest
@@ -70,7 +73,7 @@
  * it is missing.
  */
 
-import { appendFile, mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, open, readFile, rename, writeFile, type FileHandle } from "node:fs/promises";
 import { dirname } from "node:path";
 
 /** One prompt, as it went to a provider. */
@@ -118,15 +121,12 @@ export class PromptHistory {
   readonly #path: string;
   /** Oldest first, exactly as on disk, so appending is pushing. */
   #entries: HistoryEntry[];
-  /** True when the file's last line was cut short and the next append must close it. */
-  #healTail: boolean;
   /** Writes are chained so two quick appends land in the order they were made. */
   #writing: Promise<void> = Promise.resolve();
 
   private constructor(path: string, loaded: LoadedFile) {
     this.#path = path;
     this.#entries = loaded.entries;
-    this.#healTail = loaded.truncatedTail;
   }
 
   /** Read the file at `path`, skipping whatever cannot be read. A missing file is an empty history. */
@@ -160,12 +160,9 @@ export class PromptHistory {
     if (this.#entries.length > HISTORY_MAX_ENTRIES) {
       this.#entries = this.#entries.slice(-HISTORY_KEPT_ENTRIES);
       const snapshot = [...this.#entries];
-      this.#healTail = false; // A rewrite ends the file on a newline by construction.
       this.#queue(() => this.#rewrite(entry, snapshot));
     } else {
-      const prefix = this.#healTail ? "\n" : "";
-      this.#healTail = false;
-      this.#queue(() => this.#appendLine(prefix, entry));
+      this.#queue(() => this.#appendLine(entry));
     }
   }
 
@@ -213,9 +210,16 @@ export class PromptHistory {
     this.#writing = this.#writing.then(write).catch(() => undefined);
   }
 
-  // Owner-only, as the rest of the state directory is: a prompt can hold anything.
-  async #appendLine(prefix: string, entry: HistoryEntry): Promise<void> {
+  /**
+   * One line appended, owner-only as the rest of the state directory is (a
+   * prompt can hold anything). Whether the file ends in a half-written line is
+   * read from the file as it is when the write runs, not as it was at load, so
+   * a line another process left cut short, or a write of this one that failed,
+   * is closed with a newline of its own rather than glued onto.
+   */
+  async #appendLine(entry: HistoryEntry): Promise<void> {
     await mkdir(dirname(this.#path), { recursive: true, mode: 0o700 });
+    const prefix = (await endsCutShort(this.#path)) ? "\n" : "";
     await appendFile(this.#path, prefix + serialise(entry), { encoding: "utf8", mode: 0o600 });
   }
 
@@ -284,6 +288,25 @@ export class HistoryCursor {
   }
 }
 
+/** Whether the file has content and its last byte is not a newline: its last line was cut short. A missing file is not. */
+async function endsCutShort(path: string): Promise<boolean> {
+  let file: FileHandle;
+  try {
+    file = await open(path, "r");
+  } catch {
+    return false;
+  }
+  try {
+    const { size } = await file.stat();
+    if (size === 0) return false;
+    const last = Buffer.alloc(1);
+    await file.read(last, 0, 1, size - 1);
+    return last[0] !== 0x0a;
+  } finally {
+    await file.close();
+  }
+}
+
 /**
  * Lower case, one code unit for one: a character whose lower case is longer
  * (`İ` becomes `i` and a combining dot) is kept as it is, so an offset found
@@ -318,8 +341,6 @@ function serialise(entry: HistoryEntry): string {
 
 interface LoadedFile {
   readonly entries: HistoryEntry[];
-  /** The file has content but does not end in a newline: its last entry was cut off. */
-  readonly truncatedTail: boolean;
 }
 
 async function readEntries(path: string): Promise<LoadedFile> {
@@ -327,7 +348,7 @@ async function readEntries(path: string): Promise<LoadedFile> {
   try {
     text = await readFile(path, "utf8");
   } catch {
-    return { entries: [], truncatedTail: false };
+    return { entries: [] };
   }
 
   const entries: HistoryEntry[] = [];
@@ -345,7 +366,7 @@ async function readEntries(path: string): Promise<LoadedFile> {
     const entry = toEntry(parsed);
     if (entry !== undefined) entries.push(entry);
   }
-  return { entries, truncatedTail: text.length > 0 && !text.endsWith("\n") };
+  return { entries };
 }
 
 /** A parsed line, or nothing if it is not an entry after all. */

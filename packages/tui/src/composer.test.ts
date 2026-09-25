@@ -393,6 +393,11 @@ describe("the transcript's keys", () => {
     await app.press(KEY.ctrlO);
     await app.waitFor("Read(a.ts)");
     expect(app.frame()).toContain("line two");
+    // A search typed at the pager takes text, not a Tab.
+    await app.press("/", KEY.tab);
+    await app.type("line two");
+    await app.press(KEY.enter);
+    await app.waitFor("1 match for line two");
     await app.press("q");
     await app.waitUntil(() => !app.frame().includes("Read(a.ts)"), "the pager to close");
   });

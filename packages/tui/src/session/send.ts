@@ -43,6 +43,7 @@ export const attachmentRefusal = (message: Message, provider: AdapterCapabilitie
   if (provider === undefined) return undefined;
   const images = message.attachments.filter((a) => a.kind === "image").length;
   const files = message.attachments.length - images;
+  if (!provider.imageInput && !provider.fileInput && message.attachments.length > 0) return `${provider.displayName} takes no attachments: nothing was sent.`;
   if (images > 0 && !provider.imageInput) return `${provider.displayName} takes no images: nothing was sent.`;
   if (files > 0 && !provider.fileInput) return `${provider.displayName} takes images but no other files: nothing was sent.`;
   return undefined;
