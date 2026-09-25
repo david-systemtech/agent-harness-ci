@@ -133,10 +133,16 @@ export const recordToolDecision = (
 
 /** What the host needs of the tool events of one live run. */
 export interface RunToolCalls {
-  /** The decision a transcript event brings with it, for its transaction: the mode's, for a call that ended `ok` unasked and undecided. */
-  after(event: TranscriptEvent): EventInput[];
-  /** The provider's report of a call it denied: the call's decision, unless it was asked about or is decided already. */
-  denied(report: ToolDenial): EventInput[];
+  /** A call started: its tool and summary are kept until it is decided. */
+  started(event: TranscriptEvent): void;
+  /**
+   * The decision a transcript event brings with it, for the transaction
+   * `tx` it is appended in: the mode's, for a call that ended `ok` unasked
+   * and undecided.
+   */
+  after(event: TranscriptEvent, tx: Tx): EventInput[];
+  /** The provider's report of a call it denied, for the transaction `tx`: the call's decision, unless it was asked about or is decided already. */
+  denied(report: ToolDenial, tx: Tx): EventInput[];
   /** At the run's end, for the transaction of its `run.ended`: the mode's decision for every call it started that is still unasked and undecided. */
   settle(): EventInput[];
 }
@@ -149,12 +155,19 @@ interface StartedCall {
 /**
  * Tracks the tool calls of run `runId` as the host consumes its events. What
  * it keeps is the tool and summary of each started call not yet known to be
- * decided, dropped once it is; whether a call is decided or asked about is
+ * decided, dropped once its decision has committed (a transaction that rolls
+ * back leaves it kept, for the run's end to decide); whether a call is decided or asked about is
  * read from the log (in the transaction the host appends in), so the run's
  * end, retried after a rollback, decides again.
  */
 export const runToolCalls = (reader: Reader, runId: string): RunToolCalls => {
   const started = new Map<string, StartedCall>();
+  /**
+   * Forgets a call once the decision `tx` appends for it has committed: a
+   * transaction that rolls back leaves it kept, so the run's end still
+   * decides it.
+   */
+  const forget = (toolCallId: string, tx: Tx): void => tx.afterCommit(() => started.delete(toolCallId));
   /** Whether the call is still to be decided here; one that is not is forgotten. */
   const open = (toolCallId: string): boolean => {
     const undecided = !isDecided(reader, runId, toolCallId) && !isAsked(reader, runId, toolCallId);
@@ -166,26 +179,26 @@ export const runToolCalls = (reader: Reader, runId: string): RunToolCalls => {
     payload: decision({ runId, toolCallId, tool: call.tool, summary: call.summary, decidedBy: "mode", promptId: null }, "allowed", null),
   });
   return {
-    after(event) {
-      if (event.type === "tool.started") {
-        const { toolCallId, name, input, title } = event.payload;
-        started.set(toolCallId, { tool: name, summary: summarise("permission", { toolName: name, input, summary: title }) });
-        return [];
-      }
+    started(event) {
+      if (event.type !== "tool.started") return;
+      const { toolCallId, name, input, title } = event.payload;
+      started.set(toolCallId, { tool: name, summary: summarise("permission", { toolName: name, input, summary: title }) });
+    },
+    after(event, tx) {
       if (event.type !== "tool.ended" || event.payload.status !== "ok") return [];
       const id = event.payload.toolCallId;
       const call = started.get(id);
       if (call === undefined || !open(id)) return [];
-      started.delete(id);
+      forget(id, tx);
       return [byMode(id, call)];
     },
-    denied(report) {
+    denied(report, tx) {
       if (!open(report.toolCallId)) return [];
       const call = started.get(report.toolCallId);
       const tool = call?.tool ?? report.toolName;
       const summary = call?.summary ?? tool ?? "A tool call the provider denied";
       const payload = decision({ runId, toolCallId: report.toolCallId, tool, summary, decidedBy: report.by, promptId: null }, "denied", report.reason);
-      started.delete(report.toolCallId);
+      forget(report.toolCallId, tx);
       return [{ type: "tool.decision", payload }];
     },
     settle() {

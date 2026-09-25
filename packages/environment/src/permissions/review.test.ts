@@ -14,7 +14,7 @@ import { sessionListProjector } from "../sessions/session-list.js";
 import type { Reader } from "../sessions/session-reads.js";
 import { permissionsProjector } from "./permissions-store.js";
 import { readRunPolicy } from "./review-store.js";
-import { recordToolDecision } from "./tool-decisions.js";
+import { recordToolDecision, runToolCalls } from "./tool-decisions.js";
 import type { ActorRunRequest } from "../serve/start.js";
 
 /**
@@ -254,6 +254,32 @@ describe("the review projection", () => {
     expect(readRunPolicy(reader, runId)).toMatchObject({ actorKind: "client", actorName: null });
     expect(log.rebuildProjections()).toContain("permissions");
     expect(readRunPolicy(reader, runId)).toMatchObject({ actorName: null });
+  });
+
+  it("keeps a call whose decision's transaction rolled back, so the run's end still decides it, once (runToolCalls)", () => {
+    const log = openLog();
+    const stream = { kind: "session", id: sessionId } as const;
+    const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
+    const calls = runToolCalls(reader, runId);
+    calls.started({ type: "tool.started", payload: { toolCallId: "toolu_5", name: "Bash", input: { command: "ls" }, title: null, agentId: null, parentToolCallId: null } });
+    calls.started({ type: "tool.started", payload: { toolCallId: "toolu_6", name: "Read", input: { file_path: "/etc/shadow" }, title: null, agentId: null, parentToolCallId: null } });
+    const decide = (work: (tx: Parameters<Parameters<typeof log.atomically>[0]>[0]) => ReturnType<typeof calls.settle>, fail: boolean) =>
+      log.atomically((tx) => {
+        log.append(stream, work(tx), { tx, actor: "system:test", correlationId: runId });
+        if (fail) throw new Error("rolled back");
+      });
+    // The mode's decision at an ok end, and the provider's denial, each rolled back with the transaction that carried it.
+    expect(() => decide((tx) => calls.after({ type: "tool.ended", payload: { toolCallId: "toolu_5", status: "ok", output: "done", durationMs: 1 } }, tx), true)).toThrow("rolled back");
+    expect(() => decide((tx) => calls.denied({ type: "denial", toolCallId: "toolu_6", toolName: "Read", by: "rule", reason: "Denied by a rule" }, tx), true)).toThrow("rolled back");
+    expect(log.readStream(stream).filter((event) => event.type === "tool.decision")).toEqual([]);
+    // The run's end still has both calls, and decides each once.
+    decide(() => calls.settle(), false);
+    decide(() => calls.settle(), false);
+    const decided = log.readStream(stream).filter((event) => event.type === "tool.decision").map((event) => [event.payload["toolCallId"], event.payload["decidedBy"]]);
+    expect(decided).toEqual([
+      ["toolu_5", "mode"],
+      ["toolu_6", "mode"],
+    ]);
   });
 
   it("records a decision through recordToolDecision once per call: a call decided already is left as it was", () => {

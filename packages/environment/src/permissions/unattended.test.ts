@@ -510,6 +510,7 @@ describe("tool.decision", () => {
     await untilEnded(t, id, third.runId);
     expect(decisions(t, id).map(({ toolCallId, decision, decidedBy, reason }) => ({ toolCallId, decision, decidedBy, reason }))).toEqual([
       { toolCallId: "toolu_1", decision: "denied", decidedBy: "unattended", reason: UNATTENDED_DENIAL },
+      // Its prompt was answered by the unattended rule (auto: unattended); the call was denied by the denylist, with what the model read.
       { toolCallId: "toolu_2", decision: "denied", decidedBy: "denylist", reason: UNATTENDED_DENIAL },
       { toolCallId: "toolu_7", decision: "denied", decidedBy: "bypass", reason: expect.stringMatching(/^Denied: /) },
     ]);
