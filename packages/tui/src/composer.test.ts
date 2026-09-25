@@ -85,6 +85,19 @@ describe("sending", () => {
     await app.waitFor("↳ steering use the other parser");
   });
 
+  it("takes the provider from the session's account when the environment has several", async () => {
+    const { app } = await launch({
+      sessions: [{ title: "Receipts", workspace: { kind: "directory", path: "/home/seth/receipts" }, accountId: "account-2" }],
+      providers: [{}, { provider: "codex", displayName: "Codex", providerQueue: true, steering: true }],
+      accounts: [{}, { provider: "codex" }],
+      queue: "provider",
+    });
+    await send(app, "Fix the receipts");
+    await app.waitFor("steer or queue a message");
+    await send(app, "use the other parser");
+    await app.waitFor("↳ steering use the other parser");
+  });
+
   it("interrupts the live run on Esc", async () => {
     const { app, env } = await launch();
     await send(app, "Fix the receipts");
@@ -291,6 +304,21 @@ describe("@ names a file", () => {
 });
 
 describe("what stays client-local", () => {
+  it("closes a reverse search on Ctrl+V, keeping the match, and pastes after it", async () => {
+    const { app } = await launch();
+    await send(app, "first prompt");
+    await app.waitFor("▌ first prompt");
+    await app.press(KEY.esc);
+    await app.waitFor("message the agent");
+    await app.press(KEY.ctrlR);
+    await app.type("first");
+    await app.waitFor("(search this session) first");
+    app.clipboard.hold({ text: " and more" });
+    await app.press(KEY.ctrlV);
+    await app.waitFor("› first prompt and more");
+    expect(app.frame()).not.toContain("(search");
+  });
+
   it("keeps the prompt history in the state directory and walks it with ↑", async () => {
     const { app } = await launch();
     await send(app, "first prompt");

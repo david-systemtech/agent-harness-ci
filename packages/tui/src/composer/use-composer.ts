@@ -293,6 +293,8 @@ export const useComposer = (host: ComposerHost): Composer => {
     },
     "composer.paste": () => {
       const { clipboard } = latest.current;
+      // A reverse search gives way to the paste, keeping its match to paste into, as a bracketed paste does.
+      set(searchClosed(box.current, false));
       void (async () => {
         const image = await clipboard.readImage().catch(() => null);
         if (image) {
@@ -307,6 +309,7 @@ export const useComposer = (host: ComposerHost): Composer => {
       })();
     },
     "composer.editor": () => {
+      set(searchClosed(box.current, false));
       void latest.current.editText(expandedText(box.current)).then((edited) => {
         // The paste chips went out expanded and are text now; a pasted image stays attached while its marker is still there.
         if (edited !== undefined) set({ ...replaced(box.current, edited.replace(/\n+$/, "")), chips: box.current.chips.filter((chip) => chip.kind === "image") });

@@ -1230,7 +1230,7 @@ export const App = (props: AppProps) => {
           {card.kind === "pager" && (
             <LinesCard
               title={projection?.summary?.title ?? "The transcript"}
-              hint={`${keys("pager.line")} ${keys("pager.halfDown")} ${keys("pager.halfUp")} scroll · ${keys("pager.turn.prev")}${keys("pager.turn.next")} turns · ${keys("pager.search")} search · ${keys("pager.close")} close`}
+              hint={`${keys("pager.line")} ${keys("pager.halfDown")} ${keys("pager.halfUp")} scroll · ${keys("pager.turn.prev")} ${keys("pager.turn.next")} turns · ${keys("pager.search")} search · ${keys("pager.close")} close`}
               lines={pagerLines}
               top={pagerTop}
               height={helpHeight}

@@ -11,11 +11,11 @@
  * the macOS assertions run on a Linux CI box and the Windows ones on both.
  */
 
-import { access, chmod, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { access, chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import { MAX_ATTACHMENT_BYTES } from "@agent-harness/contracts";
 import {
@@ -31,6 +31,17 @@ import {
   type ExecFileLike,
   type RunOptions,
 } from "./clipboard.js";
+
+/** Temporary directories the tests make, removed after each. */
+const made: string[] = [];
+const temporary = async (prefix: string): Promise<string> => {
+  const directory = await mkdtemp(prefix);
+  made.push(directory);
+  return directory;
+};
+afterEach(async () => {
+  for (const directory of made.splice(0)) await rm(directory, { recursive: true, force: true });
+});
 
 const ESC = String.fromCharCode(27);
 const BEL = String.fromCharCode(7);
@@ -346,7 +357,7 @@ describe("copyText", () => {
 
 describe("onPath", () => {
   it.skipIf(process.platform === "win32")("finds an executable on PATH and ignores one without the bit", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "agent-harness-path-"));
+    const directory = await temporary(join(tmpdir(), "agent-harness-path-"));
     await writeFile(join(directory, "wl-copy"), "#!/bin/sh\n");
     await chmod(join(directory, "wl-copy"), 0o755);
     await writeFile(join(directory, "notes"), "not a program");
@@ -358,7 +369,7 @@ describe("onPath", () => {
   });
 
   it("resolves a Windows command through PATHEXT, and an explicit extension as it is", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "agent-harness-path-"));
+    const directory = await temporary(join(tmpdir(), "agent-harness-path-"));
     await writeFile(join(directory, "clip.exe"), "MZ");
     await writeFile(join(directory, "tool.CMD"), "rem");
     const env: NodeJS.ProcessEnv = { PATH: directory, PATHEXT: ".COM;.EXE;.CMD" };
@@ -378,7 +389,7 @@ describe("runClipboardTool", () => {
     // The only test that starts a process. It proves the wiring the injected
     // runner stands in for everywhere else: buffer encoding, and a standard
     // input that is closed rather than left open.
-    const directory = await mkdtemp(join(tmpdir(), "agent-harness-clip-run-"));
+    const directory = await temporary(join(tmpdir(), "agent-harness-clip-run-"));
     const file = join(directory, "note.txt");
     const source = [
       "const fs = require('fs');",

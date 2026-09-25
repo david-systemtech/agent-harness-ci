@@ -15,6 +15,7 @@ import {
   eventTypeEntry,
   isListEvent,
   registry,
+  AccountRecord,
   type AccountUsage,
   type AttachmentInput,
   type ByeReason,
@@ -89,6 +90,10 @@ export interface ScriptedEnvironment {
   readonly commands?: readonly CommandEntry[];
   /** The one provider `providers.list` describes, over a Claude-shaped descriptor that neither queues nor steers. */
   readonly provider?: Partial<AdapterCapabilities>;
+  /** Several providers instead, each over the same descriptor; `provider` is then ignored. */
+  readonly providers?: readonly Partial<AdapterCapabilities>[];
+  /** What `accounts.list` lists, over an adopted, signed-in account on the first provider: preset none. */
+  readonly accounts?: readonly Partial<AccountRecord>[];
   /** Who holds a message sent during a live run: preset the environment (ADR 0022). */
   readonly queue?: QueueHolder;
   /** Holds each session's catch-up after `subscribed`, until `releaseSessions`: the stream stays catching up. Preset false. */
@@ -318,11 +323,12 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     const log = logs.get(sessionId);
     if (!summary || !log) return { error: { code: "not_found", message: "No such session.", data: { kind: "session" } } };
     const id = subscribed(request);
-    sessionSubscriptions.set(sessionId, id);
+    // Live events go to the subscription only once its catch-up is sent, as an environment catching up sends them after it.
     const catchUp = () => {
       wire.server.send({ type: "snapshot", subscription: id, sequence: log.base, payload: { sequence: log.base, summary: summaryAt(sessionId), runs: [], items: [], parkedPrompts: [] } });
       for (const event of log.events) wire.server.send({ type: "event", subscription: id, sequence: event.sequence, event });
       wire.server.send({ type: "synchronized", subscription: id, sequence });
+      sessionSubscriptions.set(sessionId, id);
     };
     if (spec.holdSessions) held.push(catchUp);
     else catchUp();
@@ -524,7 +530,23 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
   });
   wire.answer("files.list", () => ({ result: { files: [...(spec.files ?? [])], truncated: false, source: "git" } }));
   wire.answer("commands.list", () => ({ result: { accountId: "account-1", commands: [...(spec.commands ?? [])] } }));
-  wire.answer("providers.list", () => ({ result: { providers: [providerOf(spec.provider)] } }));
+  wire.answer("providers.list", () => ({ result: { providers: (spec.providers ?? [spec.provider ?? {}]).map((p) => providerOf(p)) } }));
+  wire.answer("accounts.list", () => ({
+    result: {
+      accounts: (spec.accounts ?? []).map((account, i) =>
+        checked(AccountRecord, {
+          id: `account-${i + 1}`,
+          provider: "claude",
+          label: `account ${i + 1}`,
+          directory: { kind: "adopted", path: `/home/seth/.account-${i + 1}` },
+          identity: null,
+          status: { state: "signed-in", checkedAt: null, detail: null },
+          createdAt: clock.now().toISOString(),
+          ...account,
+        }),
+      ),
+    },
+  }));
 
   const others = (spec.clientSessions ?? []).map((c, i) => clientSessionOf(clock, c, i));
   const revoked = new Set<string>();

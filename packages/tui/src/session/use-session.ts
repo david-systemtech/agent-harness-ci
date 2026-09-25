@@ -57,9 +57,11 @@ export const useSession = (runtime: Runtime, clock: Clock, request: () => void):
   const projection = view?.read();
   const summary = projection?.summary ?? null;
   const listed = providers?.read().result?.providers ?? [];
-  // One adapter in phase A; with several, the session's account names its provider when the accounts are known.
+  // One adapter in phase A; with several, the session's account names its provider, once the accounts (followed while open) are known.
+  const accounts = useMemo(() => (environmentId !== undefined ? runtime.projections.accounts(environmentId) : undefined), [runtime, environmentId]);
+  useFollow(accounts, request);
   const accountProvider =
-    summary?.accountId && environmentId !== undefined ? runtime.projections.accounts(environmentId).read().value?.find((a) => a.id === summary.accountId)?.provider : undefined;
+    summary?.accountId && accounts ? accounts.read().value?.find((a) => a.id === summary.accountId)?.provider : undefined;
   const provider = listed.find((p) => p.provider === accountProvider) ?? (listed.length === 1 ? listed[0] : undefined);
 
   const workspace = summary?.workspace;
