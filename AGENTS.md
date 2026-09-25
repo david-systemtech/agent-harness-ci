@@ -55,7 +55,10 @@ the event log uses; pnpm comes from the `packageManager` pin through
   headless installer, tested by `test/install-script.test.ts` against a fake
   `curl`. What only a real launchd, `systemd --user` or Task Scheduler can prove
   is the manual checklist in `docs/agents/service-install-checklist.md`, run (or listed as not run, per platform)
-  when either changes.
+  when either changes. The container image (`Dockerfile`) and its compose file
+  (`scripts/compose.yaml`) run the environment as a non-root user and are read
+  as text by `test/container.test.ts`; building and running them is the
+  checklist's Container section. Never build or run an image on the shared agent box.
 - Two local lint rules in `eslint-rules/` enforce ADR 0003 and 0004:
   `agent-harness/no-client-organisation-state` (its allowlisted modules and the
   enumerated presentation keys are constants at the top of the rule) and

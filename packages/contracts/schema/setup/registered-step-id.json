@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RegisteredStepId",
+  "type": "string",
+  "enum": [
+    "account",
+    "your-machines",
+    "permissions",
+    "appearance"
+  ],
+  "description": "A step with an entry in the step registry: account, your-machines, permissions, appearance."
+}

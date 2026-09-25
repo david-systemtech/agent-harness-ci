@@ -87,6 +87,8 @@ import type { TerminalsOptions } from "../terminals/terminals.js";
 import { workspaceMethods } from "../workspace/methods.js";
 import { createSettleSweep } from "../sessions/settle-sweep.js";
 import { settingsMethods } from "../settings/methods.js";
+import { setupMethods } from "../setup/methods.js";
+import { environmentStateChecks } from "../setup/state-checks.js";
 import { readSettings, settingsProjector } from "../settings/settings-store.js";
 import type { SubscriptionHooks } from "../wire/subscriptions.js";
 import { createWire } from "../wire/wire.js";
@@ -383,6 +385,9 @@ const passwdName = (): string | undefined => {
  */
 export const startEnvironment = async (options: EnvironmentOptions = {}): Promise<EnvironmentHandle> => {
   refusePrivilegedUser(options.user ?? processUserCheck());
+  // Past the refusal, the environment does not run as root (ADR 0006): what `permissions.settings.get` answers as
+  // `isRoot`, and the not-root line the Permissions and Your machines steps' checks read from it (#141).
+  const isRoot = false;
 
   // Absolute once, here: a relative `--data-dir` would make the denylist's data-directory preset and its exemption relative paths (#132).
   const dataDir = absolutePath(options.dataDir ?? defaultDataDirectory());
@@ -690,10 +695,12 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       clampSessionMode: sessionModeClamp({ host, ceilingOf: (id) => clientSessions.ceiling(id) }),
     }),
     ...runMethods({ log, host, ceilingOf: (id) => clientSessions.ceiling(id) }),
-    ...permissionMethods({ log, host, accessLog, clock, environmentId: record.id, ceilingOf: (id) => clientSessions.ceiling(id), containment }),
+    ...permissionMethods({ log, host, accessLog, clock, environmentId: record.id, ceilingOf: (id) => clientSessions.ceiling(id), containment, isRoot }),
     ...promptMethods({ log, host, environmentId: record.id }),
     ...reviewMethods({ log, environmentId: record.id }),
     ...denylistMethods({ log, accessLog, dataDir, context: denylistContext }),
+    // Set up's health checks (ADR 0031; #141): each registered step's, on this environment.
+    ...setupMethods({ log, clock, presets: settingsPresets(), stateChecks: environmentStateChecks({ log, containment, isRoot, dataDir }) }),
     ...processMethods({ log, host }),
     ...accountMethods({ accounts, host }),
     ...usageMethods({ pool: usagePool, accounts, clock }),
