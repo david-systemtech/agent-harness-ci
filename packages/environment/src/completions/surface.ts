@@ -163,7 +163,12 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
     return clientSession;
   };
 
-  /** Set by `close`: the environment is stopping, and a turn that arrives before the listeners close is refused. */
+  /**
+   * Set by `close`: the environment is stopping. A turn is refused when it
+   * arrives, and again after each wait (its body, a fork or a rewind), so one
+   * that was waiting when `close` ran starts nothing; an answer opened after
+   * it is abandoned at once.
+   */
   let closed = false;
 
   const ready = (forTurn: boolean): void => {
@@ -478,6 +483,8 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
     } catch {
       throw new CompletionsRefusal(400, "invalid_json", "The request body is not JSON.");
     }
+    // The environment may have begun to stop while the body was read.
+    ready(true);
     const turn = readTurnRequest(body);
     if (turn.extension.after !== null && turn.extension.after > log.head()) {
       throw new CompletionsRefusal(400, "invalid_params", `after ${turn.extension.after} is past the log's head, ${log.head()}.`, { param: `${COMPLETIONS_NAMESPACE}.after` });
@@ -490,6 +497,8 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
     if (exchange.gone) return;
     const where = await target(turn, model, clientSession);
     if (exchange.gone) return;
+    // Or while a fork or a rewind was asked for.
+    ready(true);
 
     // Listen before anything is recorded, so no event of the turn is missed; what came before `after` is read back.
     const follower = follow(where.sessionId);
@@ -612,6 +621,8 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
     const entry = { abandon: () => renderer.abandon("The environment is stopping; the run goes on, or ends with it.", "closing") };
     open.add(entry);
     exchange.onGone = done;
+    // `close` has run already: its one pass over the open answers never saw this one.
+    if (closed) return entry.abandon();
     if (exchange.gone) return done();
 
     const failed = (what: string, error: unknown): void => {

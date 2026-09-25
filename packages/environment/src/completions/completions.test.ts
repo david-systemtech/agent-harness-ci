@@ -621,6 +621,42 @@ describe("a completion, streamed", () => {
     expect(received).not.toContain("[DONE]");
   }, 60_000);
 
+  it("never matches a stop sequence against the blank line it puts between two items", async () => {
+    const t = await start({ script: () => [say("First."), say("Second."), end()] });
+    const { token } = await program(t);
+    const chunks = chunksOf(await (await stream(t, token, turn("Two", { stop: "\n" }))).rest());
+    expect(contentOf(chunks)).toBe("First.\n\nSecond.");
+    expect(chunks.at(-1)?.choices[0]?.finish_reason).toBe("stop");
+  });
+
+  it("answers 503 to a turn whose body arrives after the environment began to stop, starting nothing", async () => {
+    const t = await start();
+    const { token } = await program(t);
+    const body = JSON.stringify(turn("Late"));
+    const socket = connect(t.address.port, t.address.host);
+    await new Promise<void>((resolve) => socket.once("connect", () => resolve()));
+    let received = "";
+    socket.on("data", (data: Buffer) => (received += data.toString("utf8")));
+    socket.on("error", () => undefined);
+    // The headers and half the body: the request waits in its body read.
+    socket.write(
+      `POST /v1/chat/completions HTTP/1.1\r\nHost: 127.0.0.1:${t.address.port}\r\nAuthorization: Bearer ${token}\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\n\r\n${body.slice(0, 10)}`,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const release = await deafSocket(t);
+    const closing = t.env.close();
+    // The surface has closed; the wire waits out its grace for the deaf socket, so the listeners are still up.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    socket.write(body.slice(10));
+    await vi.waitFor(() => expect(received).toMatch(/^HTTP\/1\.1 503/));
+    expect(received).toContain("The environment is stopping.");
+    expect(t.adapter.runs).toHaveLength(0);
+    socket.destroy();
+    release();
+    t.clock.advance(1000);
+    await closing;
+  });
+
   it("holds back what may begin a stop sequence split across deltas", async () => {
     const t = await start({ script: () => [delta("i1", "one two ST"), delta("i1", "OP three"), text("i1", "one two STOP three"), end()] });
     const { token } = await program(t);
@@ -799,6 +835,28 @@ describe("session continuity", () => {
     held.open();
     await second.rest();
     expect(t.adapter.runs.map((run) => run.input.instructions)).toEqual(["COMPOSED\n\nPersona: tidy.", "COMPOSED\n\nPersona: tidy."]);
+  });
+
+  it("reports the usage of the run the answer ended with, not of a run it followed before", async () => {
+    const t = await start({ capabilities: { providerQueue: false, steering: false } });
+    const { token } = await program(t);
+    const held = gate();
+    t.adapter.nextScripts.push(async function* () {
+      await held.opened;
+      yield say("First done");
+      yield usage(40, 7);
+      yield end();
+    });
+    const first = await stream(t, token, turn("First"));
+    const sessionId = (await first.chunk())["agent-harness"].sessionId as string;
+    const second = await stream(t, token, turn("Then this", { stream_options: { include_usage: true }, "agent-harness": { sessionId } }));
+    await second.chunk();
+    held.open();
+    const chunks = chunksOf(await second.rest());
+    expect(contentOf(chunks)).toBe("First done\n\nDone: Then this");
+    // The run that read the queued message reported no usage of its own.
+    expect(chunks.at(-1)?.usage).toEqual({ prompt_tokens: 0, completion_tokens: 0, total_tokens: 0, prompt_tokens_details: { cached_tokens: 0 } });
+    await first.rest();
   });
 
   it("ends a steer's answer with the message still queued when the run it was sent to ends without reading it", async () => {

@@ -59,8 +59,11 @@ export class TextGate {
   }
 
   /** The text to send now, and whether the answer ends here, cut by a stop sequence or by the budget. */
-  push(text: string): { readonly out: string; readonly cut: "stop" | "length" | null } {
-    let candidate = this.#pending + text;
+  push(text: string, lead = ""): { readonly out: string; readonly cut: "stop" | "length" | null } {
+    // A lead (the blank line between two items) is not the model's text: what was held back goes out before it,
+    // and no stop sequence is matched against either, since the item that held it back has ended.
+    const fixed = lead === "" ? "" : this.#pending + lead;
+    let candidate = lead === "" ? this.#pending + text : text;
     this.#pending = "";
     let cut: "stop" | "length" | null = null;
     const at = this.#stops.map((stop) => candidate.indexOf(stop)).filter((index) => index >= 0);
@@ -73,14 +76,15 @@ export class TextGate {
       this.#pending = candidate.slice(candidate.length - hold);
       candidate = candidate.slice(0, candidate.length - hold);
     }
-    if (this.#max !== null && this.#emitted + candidate.length + (cut === null ? this.#pending.length : 0) > this.#max) {
+    let out = fixed + candidate;
+    if (this.#max !== null && this.#emitted + out.length + (cut === null ? this.#pending.length : 0) > this.#max) {
       // The budget falls before any stop sequence in the text: the answer ends for its length.
-      candidate = (candidate + (cut === null ? this.#pending : "")).slice(0, Math.max(0, this.#max - this.#emitted));
+      out = (out + (cut === null ? this.#pending : "")).slice(0, Math.max(0, this.#max - this.#emitted));
       this.#pending = "";
       cut = "length";
     }
-    this.#emitted += candidate.length;
-    return { out: candidate, cut };
+    this.#emitted += out.length;
+    return { out, cut };
   }
 
   /** What was held back, sent at the end. */
@@ -226,7 +230,7 @@ export const createRenderer = (options: RendererOptions) => {
     const lead = before === undefined && lastItem !== null && lastItem !== itemId ? "\n\n" : "";
     sent.set(itemId, (before ?? "") + value);
     lastItem = itemId;
-    const { out, cut } = gate.push(lead + value);
+    const { out, cut } = gate.push(value, lead);
     if (out !== "") chunk(seq, [{ index: 0, delta: { content: out }, finish_reason: null }]);
     if (cut !== null) finish({ finishReason: cut, seq, ended: null, error: null, waiting: null });
   };
@@ -283,6 +287,9 @@ export const createRenderer = (options: RendererOptions) => {
           if (started.promptMessageId === queued || started.queuedMessageIds.includes(queued)) {
             followed = started.runId;
             readBy = started.runId;
+            // The answer now ends with this run: its usage and its end are its own, never the run followed before.
+            usage = null;
+            lastEnded = null;
           }
         }
         if (event.type === "message.requeued" && event.payload["messageId"] === queued && lastEnded !== null) runEnded(lastEnded.payload, lastEnded.seq);
