@@ -88,7 +88,7 @@ export interface ScreenFlags {
   readonly environment?: string | undefined;
   /** `--session <id>`: a session to open, on whichever environment holds it. */
   readonly session?: string | undefined;
-  /** `-c`: the newest session on the local environment whose workspace is `workspace`. */
+  /** `-c`: the newest session on the local environment whose workspace is the current directory (`cwd`). */
   readonly continueLatest?: boolean | undefined;
   /** Where a new session's workspace is: `--cwd`, else the current directory. Shown in the header. */
   readonly workspace: string;
@@ -193,9 +193,14 @@ interface Sending {
   readonly id: number;
   readonly text: string;
   readonly messageId: string | undefined;
+  /** The messages the session held when it was sent: one of the same text not among them is this one, heard back. */
+  readonly before: ReadonlySet<string>;
 }
 
 const useObservable = <T,>(observable: Observable<T>): T => useSyncExternalStore(observable.subscribe, observable.read);
+
+/** The transcript's keys the composer lets through. */
+const PAGE_KEYS: ReadonlySet<KeyActionId> = new Set<KeyActionId>(["transcript.pageUp", "transcript.pageDown"]);
 
 const NO_FAULTS: Observable<readonly Fault[]> = { read: () => [], subscribe: () => () => undefined };
 
@@ -346,14 +351,14 @@ export const App = (props: AppProps) => {
       wanted !== undefined
         ? list.rows.find((row) => row.summary.id === wanted)
         : list.rows
-            .filter((row) => row.environmentId === localView?.environmentId && row.summary.workspace.path === props.flags.workspace)
+            .filter((row) => row.environmentId === localView?.environmentId && row.summary.workspace.path === cwd)
             .sort((a, b) => (b.summary.lastActivityAt ?? b.summary.createdAt).localeCompare(a.summary.lastActivityAt ?? a.summary.createdAt))[0];
     if (found) {
       launched.current = "done";
       open({ environmentId: found.environmentId, sessionId: found.summary.id });
     } else if (settled) {
       launched.current = "done";
-      say(wanted !== undefined ? `No session ${props.flags.session} is on any environment here.` : `No session on this machine has ${props.flags.workspace} as its workspace.`);
+      say(wanted !== undefined ? `No session ${props.flags.session} is on any environment here.` : `No session on this machine has ${cwd} as its workspace.`);
     }
   });
 
@@ -441,12 +446,18 @@ export const App = (props: AppProps) => {
     width: mainWidth - (transcriptFocused ? 1 : 0),
     quietMs: (id: string) => quietFor(session.quiet, id, now),
     stopKey: keys("row.stop"),
+    planDeltas: session.planDeltas,
   };
   const lines: TranscriptLine[] = [
     ...transcriptLines(rows, { ...lineContext, expanded: false }, view.unfolded),
     // A message sent and not yet heard back: dim at the foot, until its `message.sent` arrives.
     ...sending
-      .filter((s) => s.messageId === undefined || !projection?.items.some((entry) => entry.kind === "user-message" && entry.messageId === s.messageId))
+      .filter(
+        (s) =>
+          !projection?.items.some(
+            (entry) => entry.kind === "user-message" && (entry.messageId === s.messageId || (s.messageId === undefined && entry.text === s.text && !s.before.has(entry.messageId))),
+          ),
+      )
       .flatMap((s): TranscriptLine[] => [
         { row: `sending:${s.id}`, spans: [] },
         { row: `sending:${s.id}`, spans: [{ text: "▌ ", dim: true }, { text: s.text.split("\n")[0] ?? "", dim: true }, { text: " · sending", dim: true }] },
@@ -563,7 +574,8 @@ export const App = (props: AppProps) => {
     }
     const id = ++sends.current;
     const { environmentId, sessionId } = opened;
-    setSending((s) => [...s, { id, text: message.text, messageId: undefined }]);
+    const before = new Set(projection?.items.flatMap((entry) => (entry.kind === "user-message" ? [entry.messageId] : [])) ?? []);
+    setSending((s) => [...s, { id, text: message.text, messageId: undefined, before }]);
     stores.history?.append({ text: message.text, cwd: projection?.summary?.workspace.path ?? props.flags.workspace, sessionId });
     setView((v) => ({ ...v, offset: 0 }));
     void sendMessage(runtime, environmentId, sessionId, message, live).then((outcome) => {
@@ -1104,6 +1116,8 @@ export const App = (props: AppProps) => {
     else if (card.kind !== "none") lookups.push("picker");
     if (!cardHasKeys) {
       lookups.push(focused);
+      // The page keys are never the composer's: with it focused they still move the transcript half a screen (Artemis's rule).
+      if (focused === "composer" && opened) lookups.push({ context: "transcript", only: PAGE_KEYS });
       if (!screen.question && question && !typing) lookups.push("confirm");
     }
     lookups.push({ context: "anywhere", except: FIRST_ANYWHERE });
@@ -1175,7 +1189,11 @@ export const App = (props: AppProps) => {
 
   return (
     <Box flexDirection="column" width={size.columns} height={size.rows}>
-      <Header current={current} startingService={startingService} workspace={props.flags.workspace} />
+      <Header
+        current={(opened && viewOf(opened.environmentId)) || current}
+        startingService={startingService}
+        workspace={projection?.summary ? `${projection.summary.title} · ${projection.summary.workspace.path}` : props.flags.workspace}
+      />
       <Box flexGrow={1} flexDirection="row" overflow="hidden">
         {showRail && <Rail views={views} startingService={startingService} focused={focused === "sidebar" && !cardHasKeys} />}
         <Box flexGrow={1} flexDirection="column" overflow="hidden">

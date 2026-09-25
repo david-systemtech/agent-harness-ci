@@ -9,11 +9,13 @@ import {
   MODES,
   PAIR_PATH,
   SCOPES,
+  ENVIRONMENT_STREAM_KIND,
   SESSION_STREAM_KIND,
   WIRE_PATH,
   eventTypeEntry,
   isListEvent,
   registry,
+  type AccountUsage,
   type AttachmentInput,
   type ByeReason,
   type CapabilityFlags,
@@ -89,6 +91,8 @@ export interface ScriptedEnvironment {
   readonly provider?: Partial<AdapterCapabilities>;
   /** Who holds a message sent during a live run: preset the environment (ADR 0022). */
   readonly queue?: QueueHolder;
+  /** Holds each session's catch-up after `subscribed`, until `releaseSessions`: the stream stays catching up. Preset false. */
+  readonly holdSessions?: boolean;
 }
 
 export interface Script {
@@ -131,6 +135,10 @@ export interface EnvironmentHandle {
   endRun(sessionId: string, runId: string, end?: { readonly reason?: RunEndReason; readonly usage?: readonly ModelUsage[] | null; readonly durationMs?: number }): void;
   /** The run live on the session, as the environment knows it; undefined when none is. */
   liveRun(sessionId: string): string | undefined;
+  /** What `accounts.usage` answers from now on, said with a `usage.updated` notice for each reading, as the environment says it. */
+  setUsage(readings: readonly AccountUsage[]): void;
+  /** Sends the catch-up of every session subscription `holdSessions` held. */
+  releaseSessions(): void;
 }
 
 export interface ScriptedWorld {
@@ -311,16 +319,46 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     if (!summary || !log) return { error: { code: "not_found", message: "No such session.", data: { kind: "session" } } };
     const id = subscribed(request);
     sessionSubscriptions.set(sessionId, id);
-    wire.server.send({ type: "snapshot", subscription: id, sequence: log.base, payload: { sequence: log.base, summary: summaryAt(sessionId), runs: [], items: [], parkedPrompts: [] } });
-    for (const event of log.events) wire.server.send({ type: "event", subscription: id, sequence: event.sequence, event });
-    wire.server.send({ type: "synchronized", subscription: id, sequence });
+    const catchUp = () => {
+      wire.server.send({ type: "snapshot", subscription: id, sequence: log.base, payload: { sequence: log.base, summary: summaryAt(sessionId), runs: [], items: [], parkedPrompts: [] } });
+      for (const event of log.events) wire.server.send({ type: "event", subscription: id, sequence: event.sequence, event });
+      wire.server.send({ type: "synchronized", subscription: id, sequence });
+    };
+    if (spec.holdSessions) held.push(catchUp);
+    else catchUp();
     return undefined;
   });
+  const held: (() => void)[] = [];
+  let environmentSubscription: string | undefined;
   wire.answer("environment.subscribe", (_params, request) => {
-    const id = subscribed(request);
-    wire.server.send({ type: "synchronized", subscription: id, sequence });
+    environmentSubscription = subscribed(request);
+    wire.server.send({ type: "synchronized", subscription: environmentSubscription, sequence });
     return undefined;
   });
+  let usage: readonly AccountUsage[] = [];
+  wire.answer("accounts.usage", () => ({ result: { readings: [...usage] } }));
+  const setUsage = (readings: readonly AccountUsage[]) => {
+    usage = readings;
+    for (const reading of readings) {
+      const at = ++sequence;
+      const event: EventEnvelope = {
+        sequence: at,
+        eventId: `0199fe00-0000-7000-8000-${String(at).padStart(12, "0")}`,
+        streamKind: ENVIRONMENT_STREAM_KIND,
+        streamId: wire.environmentId,
+        streamVersion: at,
+        type: "usage.updated",
+        occurredAt: clock.now().toISOString(),
+        commandId: null,
+        causationId: null,
+        correlationId: null,
+        actor: { kind: "system", id: "script" },
+        payload: { accountId: reading.accountId, identity: reading.identity },
+        metadata: {},
+      };
+      if (environmentSubscription) wire.server.send({ type: "event", subscription: environmentSubscription, sequence: at, event });
+    }
+  };
 
   /** The summary a session's snapshot holds: its creation's, since everything after is replayed on top of it. */
   const created = new Map<string, SessionSummary>(sessions.map((s) => [s.id, s]));
@@ -613,6 +651,8 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     startRun,
     endRun,
     liveRun: (sessionId) => live.get(sessionId),
+    setUsage,
+    releaseSessions: () => held.splice(0).forEach((catchUp) => catchUp()),
   };
   return { handle, fetch, webSocket, wsUrl: `${wire.origin.replace(/^http/, "ws")}${WIRE_PATH}` };
 };

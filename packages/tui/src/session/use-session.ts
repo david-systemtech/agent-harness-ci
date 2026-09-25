@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Clock, RunState, Runtime, SessionProjection } from "@agent-harness/client-runtime";
 import type { AdapterCapabilities, CommandEntry } from "@agent-harness/contracts";
+import { gaugeOf, markOf, planDelta, type PlanMark } from "../transcript/plan.js";
 import { hear, nextQuietChange, runningCalls, type QuietCalls } from "../transcript/quiet.js";
 import { lockOf, type Lock } from "./send.js";
 
@@ -33,6 +34,8 @@ export interface OpenSession {
   readonly providerCommands: readonly CommandEntry[];
   /** When each running call was last heard. */
   readonly quiet: QuietCalls;
+  /** The plan windows a finished run moved, in words, for a run this terminal saw running. */
+  planDeltas(runId: string): readonly string[];
   open(opened: Opened | null): void;
 }
 
@@ -72,6 +75,23 @@ export const useSession = (runtime: Runtime, clock: Clock, request: () => void):
   );
   useFollow(commands, request);
 
+  // What each run cost the plan: its account's windows when it is first seen running, against a reading observed since.
+  useFollow(opened ? runtime.projections.usage : undefined, request);
+  const marks = useRef(new Map<string, PlanMark>());
+  const moved = useRef(new Map<string, readonly string[]>());
+  if (projection && environmentId !== undefined) {
+    const gauges = runtime.projections.usage.read().gauges;
+    for (const run of projection.runs) {
+      const mark = markOf(gaugeOf(gauges, environmentId, run.accountId));
+      const before = marks.current.get(run.runId);
+      if (run.state === "running" && before === undefined && mark.size > 0) marks.current.set(run.runId, mark);
+      if (run.state === "ended" && before !== undefined && !moved.current.has(run.runId)) {
+        const words = planDelta(before, mark);
+        if (words !== null) moved.current.set(run.runId, words);
+      }
+    }
+  }
+
   const runs = opened ? runtime.projections.runs.read().sessions.get(opened.environmentId)?.get(opened.sessionId) : undefined;
   const liveRun = projection?.runs.findLast((run) => run.state === "running")?.runId;
 
@@ -94,6 +114,7 @@ export const useSession = (runtime: Runtime, clock: Clock, request: () => void):
     provider,
     providerCommands: commands?.read().result?.commands ?? [],
     quiet: heard.current,
+    planDeltas: (runId) => moved.current.get(runId) ?? [],
     open: setOpened,
   };
 };

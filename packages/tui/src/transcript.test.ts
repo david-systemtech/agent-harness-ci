@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { renderApp, type EnvironmentHandle, type RenderedApp } from "../test/harness.js";
+import { KEY, renderApp, type EnvironmentHandle, type RenderedApp } from "../test/harness.js";
 
 /**
  * The transcript (docs/specs/tui.md, "The transcript: a projection of one
@@ -52,19 +52,67 @@ describe("streaming", () => {
     await app.waitFor("● Looking at the parser. Found it.");
   });
 
-  it("heads the transcript with the freshness marker until the stream is live", async () => {
+  it("opens the newest session whose workspace is the current directory with -c, and says when there is none", async () => {
     const app = await renderApp({
-      script: { environments: [{ name: "desk", reach: "local", sessions: [{ title: "Receipts" }], autoAccept: true }] },
-      flags: { session: SESSION },
+      script: {
+        environments: [
+          {
+            name: "desk",
+            reach: "local",
+            sessions: [
+              { title: "Older here", workspace: { kind: "directory", path: "/home/seth/receipts" }, lastActivityAt: "2026-09-20T10:00:00.000Z" },
+              { title: "Newer here", workspace: { kind: "directory", path: "/home/seth/receipts" }, lastActivityAt: "2026-09-24T10:00:00.000Z" },
+              { title: "Elsewhere", workspace: { kind: "directory", path: "/home/seth/other" }, lastActivityAt: "2026-09-25T09:00:00.000Z" },
+            ],
+          },
+        ],
+      },
+      flags: { continueLatest: true },
+      cwd: "/home/seth/receipts",
     });
     apps.push(app);
     await app.waitFor("Nothing said yet.");
+    app.environment("desk").startRun("0199aa00-0000-4000-8000-000000000002", "which one?");
+    await app.waitFor("▌ which one?");
+
+    const none = await renderApp({ script: { environments: [{ name: "desk", reach: "local", sessions: [{ title: "Elsewhere" }] }] }, flags: { session: "0199aa00-0000-4000-8000-00000000abcd" } });
+    apps.push(none);
+    await none.waitFor("No session 0199aa00-0000-4000-8000-00000000abcd is on any environment here.");
+  });
+
+  it("heads the transcript with the freshness marker until the stream is live", async () => {
+    const app = await renderApp({
+      script: { environments: [{ name: "desk", reach: "local", sessions: [{ title: "Receipts" }], holdSessions: true }] },
+      flags: { session: SESSION },
+    });
+    apps.push(app);
+    await app.waitFor("⟳ catching up…");
+    app.environment("desk").releaseSessions();
+    await app.waitFor("Nothing said yet.");
     expect(app.frame()).not.toContain("catching up");
     expect(app.frame()).not.toContain("cached");
-    // The environment goes away: what this terminal holds is shown as cached until it is back and synchronized.
+    // Caught up, the marker goes; the environment gone, what this terminal holds is shown as cached.
     app.environment("desk").server.drop();
     await app.waitFor("◌ cached: what this terminal last saw of it");
     expect(app.frame()).toContain("Locked: desk cannot be reached.");
+  });
+
+  it("scrolls back half a screen on PgUp from the composer, and follows the end again on Esc", async () => {
+    const { app, env } = await opened();
+    const { runId } = run(env);
+    const long = Array.from({ length: 60 }, (_, i) => `line ${i + 1}`).join("\n");
+    env.emit(SESSION, "assistant.text", { runId, itemId: "i-1", text: long, aborted: false });
+    env.endRun(SESSION, runId);
+    await app.waitFor("line 60");
+    const showing = (text: string) => app.rows().some((row) => row.endsWith(text));
+    expect(showing("line 20")).toBe(false);
+    await app.press(KEY.pageUp, KEY.pageUp, KEY.pageUp);
+    await app.waitFor(/↓ \d+ more lines · End follows/);
+    expect(showing("line 60")).toBe(false);
+    expect(showing("line 20")).toBe(true);
+    await app.press(KEY.esc);
+    await app.waitFor("line 60");
+    expect(app.frame()).not.toContain("more lines");
   });
 
   it("draws an event of a type this version does not know as one dim row naming its type", async () => {
@@ -127,6 +175,27 @@ describe("the fold", () => {
     await app.waitFor("4.2s · 2.0k in · 340 out · $0.042");
     const rows = app.rows();
     expect(rows.findIndex((row) => row.includes("4.2s · 2.0k in"))).toBeGreaterThan(rows.findIndex((row) => row.includes("● Done.")));
+  });
+
+  it("adds the plan windows a turn moved once a reading observed after it comes, when this terminal saw it start", async () => {
+    const { app, env } = await opened();
+    const reading = (utilisation: number) => ({
+      accountId: "account-1",
+      identity: { provider: "claude", email: "seth@example.com", organisation: null },
+      windows: [{ window: "five_hour", utilisation, resetsAt: null, verdict: null, observedAt: app.clock.now().toISOString() }],
+      readAt: app.clock.now().toISOString(),
+      unavailableReason: null,
+    });
+    env.setUsage([reading(0.1)]);
+    await app.tick(5);
+    const { runId } = run(env);
+    await app.waitFor("Fix the receipts");
+    await app.jump(60_000);
+    env.endRun(SESSION, runId, { durationMs: 60_000 });
+    await app.waitFor("1m 0s");
+    expect(app.frame()).not.toContain("of the 5-hour window");
+    env.setUsage([reading(0.132)]);
+    await app.waitFor("1m 0s · 3.2% of the 5-hour window");
   });
 
   it("says how a turn that did not complete ended", async () => {
