@@ -100,6 +100,11 @@ const runOn = async (t: TestEnvironment, client: WireClient, account: string): P
 };
 
 describe("accounts.usage", () => {
+  it("answers the read's own identity when it names another login than the store records: another provider", async () => {
+    const { client } = await start({ usage: (account, now) => ({ ...usageOf(`${account.id}@example.com`, [usageWindow("five_hour", 0.4, RESETS)], now), identity: { provider: "elsewhere", email: `${account.id}@example.com`, organisation: null } }) });
+    expect((await reading(client, "work")).identity).toEqual({ provider: "elsewhere", email: "work@example.com", organisation: null });
+  });
+
   it("answers each account's windows with its identity, as the store records it, through the wire", async () => {
     const { t, client } = await start({
       status: (account) => signedInAs(`${account.id}@example.com`, "Acme"),

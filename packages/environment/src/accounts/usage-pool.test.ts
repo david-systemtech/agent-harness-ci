@@ -5,6 +5,7 @@ import { manualClock } from "../../test/clock.js";
 import { fakeAdapter, usageOf, usageWindow } from "../../test/fake-adapter.js";
 import { openEventLog } from "../event-log/event-log.js";
 import type { AccountFacts } from "../runs/run-decider.js";
+import { USAGE_MAX_AGE_MS, rankAccounts } from "./handoff.js";
 import { createUsagePool, foldVerdict, sameReading, type PlanVerdict } from "./usage-pool.js";
 
 /**
@@ -111,6 +112,23 @@ describe("a window keeps the clock it was read on", () => {
     const spent = reading([w("five_hour", 0.97, { resetsAt: iso(reset), verdict: "rejected" })]);
     const window = windowOf(foldVerdict(spent, verdict("five_hour", "allowed", reset + 1)), "five_hour");
     expect(window).toMatchObject({ verdict: "allowed", utilisation: null, resetsAt: null, observedAt: iso(reset + 1) });
+  });
+
+  it("takes a number a verdict brings after the reset with no reset known, and the ranking stops trusting it six minutes on", () => {
+    const reset = READ + 10_000;
+    const spent = reading([w("five_hour", 0.97, { resetsAt: iso(reset), verdict: "rejected" })]);
+    const at = reset + 1;
+    const folded = foldVerdict(spent, verdict("five_hour", "allowed", at, { utilisation: 0.04 })) as AccountUsage;
+    // The old reset is the period that ended: not carried, and not guessed at; the provider's next read names the new one.
+    expect(windowOf(folded, "five_hour")).toEqual({ window: "five_hour", utilisation: 0.04, resetsAt: null, verdict: "allowed", observedAt: iso(at) });
+    const other = reading([w("five_hour", 0.5, { observedAt: iso(at) })], { accountId: "personal", readAt: iso(at) });
+    const entries = [
+      { accountId: "work", reading: folded },
+      { accountId: "personal", reading: other },
+    ];
+    expect(rankAccounts(entries, { now: at + USAGE_MAX_AGE_MS - 1 }).best?.accountId).toBe("work");
+    // With no reset to roll it over, its age retires the number: past six minutes it ranks nobody.
+    expect(rankAccounts(entries, { now: at + USAGE_MAX_AGE_MS }).candidates).toBe(0);
   });
 
   it("keeps a number the verdict brought with it across the same reset", () => {

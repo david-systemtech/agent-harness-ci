@@ -59,7 +59,8 @@ import { MANUAL_CLOCK_START } from "./clock.js";
  * Plan usage (#136): the reading is scripted per account and can be changed
  * mid-test (`setUsage`), may wait on a gate or throw, and every read is
  * recorded (`usageReads`), so a test counts the reads concurrent asks
- * shared; the preset reading is stamped with the fake's clock. A run's
+ * shared; the preset reading is stamped with the fake's clock and names the
+ * fake's provider, and a scripted one is answered as scripted. A run's
  * script reports a rate-limit verdict with `planLimit`.
  */
 
@@ -429,7 +430,11 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
   const commandListings: { account: AccountRef; workspace: string }[] = [];
   let status = options.status;
   const usageReads: AccountRef[] = [];
-  let usage = options.usage ?? presetUsage;
+  // The preset names the fake's own provider, whatever a test calls it; a scripted reading is answered as scripted.
+  let usage: UsageScript = options.usage ?? (async (account, now) => {
+    const reading = await presetUsage(account, now);
+    return { ...reading, identity: { ...reading.identity, provider } };
+  });
 
   /** The session's process as it is now: its latest, unless that one has been told to stop or has exited. */
   const liveProcess = (sessionId: string): FakeProcessRecord | undefined => {
@@ -646,9 +651,7 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
     },
     usage: async (account): Promise<UsageReading> => {
       usageReads.push(account);
-      const reading = await usage(account, options.clock?.now() ?? new Date(MANUAL_CLOCK_START));
-      // The preset names the fake's own provider, whatever a test calls it.
-      return { ...reading, identity: { ...reading.identity, provider } };
+      return usage(account, options.clock?.now() ?? new Date(MANUAL_CLOCK_START));
     },
     ...(declaredDelete !== undefined && {
       deleteTranscript: (sessionId: string) => {

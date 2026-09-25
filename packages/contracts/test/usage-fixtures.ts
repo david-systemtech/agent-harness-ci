@@ -67,7 +67,7 @@ export const usageSchemaFixtures: Record<string, Fixtures> = {
   },
   "usage/handoff-recommendation.json": {
     valid: [recommendation, none, { ...recommendation, reason: "most-room", fromAccountId: null, trigger: null, candidates: 2 }],
-    invalid: [{ ...recommendation, reason: "rotate" }, { ...recommendation, message: "" }, { ...recommendation, candidates: -1 }, { accountId: null }],
+    invalid: [{ ...recommendation, reason: "rotate" }, { ...recommendation, message: "" }, { ...recommendation, candidates: -1 }, { ...recommendation, candidates: 1.5 }, { accountId: null }],
   },
 };
 
