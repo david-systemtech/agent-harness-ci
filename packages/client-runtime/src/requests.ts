@@ -285,7 +285,8 @@ export const createRequestCache = (host: {
     const entry: Cached = {
       environmentId,
       method,
-      params: { ...params },
+      // A JSON round trip: the params are JSON already (checked against the method's schema), and a shared nested object would let the caller change what is sent under a key fixed at creation.
+      params: JSON.parse(JSON.stringify(params)) as Record<string, unknown>,
       key,
       value,
       fetchedAt: null,
