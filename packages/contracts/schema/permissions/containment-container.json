@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ContainmentContainer",
+  "type": "object",
+  "properties": {
+    "declared": {
+      "type": "boolean",
+      "description": "Whether the install declared the container: its compose sets the marker variable AGENT_HARNESS_CONTAINER."
+    },
+    "detected": {
+      "type": "boolean",
+      "description": "Whether a container runtime's marker was found: /.dockerenv, /run/.containerenv, or a container runtime in PID 1's cgroup."
+    }
+  },
+  "required": [
+    "declared",
+    "detected"
+  ],
+  "description": "The container the environment runs in: the operator's outer boundary, which enforces no containment level."
+}

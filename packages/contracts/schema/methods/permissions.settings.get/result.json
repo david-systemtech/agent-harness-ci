@@ -156,13 +156,50 @@
               }
             ],
             "description": "Whether this environment can enforce a containment level and, when it cannot, why."
-          }
+          },
+          "description": "Each containment level, off first, and whether this environment can enforce it."
+        },
+        "mechanism": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "seatbelt",
+                "bubblewrap"
+              ],
+              "description": "What enforces a workspace containment level: seatbelt (macOS) or bubblewrap (Linux and WSL2)."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "What enforces the workspace levels here; null when neither can be enforced."
+        },
+        "container": {
+          "type": "object",
+          "properties": {
+            "declared": {
+              "type": "boolean",
+              "description": "Whether the install declared the container: its compose sets the marker variable AGENT_HARNESS_CONTAINER."
+            },
+            "detected": {
+              "type": "boolean",
+              "description": "Whether a container runtime's marker was found: /.dockerenv, /run/.containerenv, or a container runtime in PID 1's cgroup."
+            }
+          },
+          "required": [
+            "declared",
+            "detected"
+          ],
+          "description": "The container the environment runs in: the operator's outer boundary, which enforces no containment level."
         }
       },
       "required": [
-        "levels"
+        "levels",
+        "mechanism",
+        "container"
       ],
-      "description": "Each containment level and whether this environment can enforce it, with the reason when it cannot (#133 probes it)."
+      "description": "What this environment can enforce: each containment level with its reason, the mechanism, and the container as the outer boundary."
     },
     "isRoot": {
       "type": "boolean",

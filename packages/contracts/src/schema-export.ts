@@ -141,12 +141,16 @@ import { ContainmentUnavailableError } from "./methods/permissions.js";
 import {
   ClampReason,
   ContainmentAvailability,
+  ContainmentContainer,
   ContainmentLevel,
+  ContainmentMechanism,
+  ContainmentReport,
   ContainmentResolution,
   ModeResolution,
   PERMISSION_SESSION_EVENT_TYPES,
   RunActorKind,
   RunPolicy,
+  ToolDecider,
 } from "./permissions.js";
 import { Mode, ModeAvailability } from "./permissions-modes.js";
 import { ParkedPromptTtl, PermissionSettingsPatch, PermissionSettingsValues, SettingsArea, TtlUnit, UnattendedMode } from "./permissions-settings.js";
@@ -302,7 +306,11 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "permissions/mode-resolution.json", title: "ModeResolution", schema: ModeResolution },
   { path: "permissions/containment-level.json", title: "ContainmentLevel", schema: ContainmentLevel },
   { path: "permissions/containment-availability.json", title: "ContainmentAvailability", schema: ContainmentAvailability },
+  { path: "permissions/containment-mechanism.json", title: "ContainmentMechanism", schema: ContainmentMechanism },
+  { path: "permissions/containment-container.json", title: "ContainmentContainer", schema: ContainmentContainer },
+  { path: "permissions/containment-report.json", title: "ContainmentReport", schema: ContainmentReport },
   { path: "permissions/containment-resolution.json", title: "ContainmentResolution", schema: ContainmentResolution },
+  { path: "permissions/tool-decider.json", title: "ToolDecider", schema: ToolDecider },
   { path: "permissions/run-policy.json", title: "RunPolicy", schema: RunPolicy },
   { path: "permissions/settings-area.json", title: "SettingsArea", schema: SettingsArea },
   { path: "permissions/unattended-mode.json", title: "UnattendedMode", schema: UnattendedMode },

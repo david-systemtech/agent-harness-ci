@@ -178,6 +178,7 @@ describe("the method registry", () => {
       "providers.processes.stop",
       "settings.update",
       "permissions.mode.set",
+      "permissions.containment.set",
       "permissions.settings.set",
       "terminals.open",
       "terminals.write",
@@ -306,6 +307,7 @@ describe("the method registry", () => {
       | "settings.get"
       | "settings.update"
       | "permissions.mode.set"
+      | "permissions.containment.set"
       | "permissions.settings.get"
       | "permissions.settings.set"
       | "terminals.open"

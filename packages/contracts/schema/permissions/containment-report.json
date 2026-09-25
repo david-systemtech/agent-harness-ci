@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ContainmentReport",
+  "type": "object",
+  "properties": {
+    "levels": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "level": {
+                "type": "string",
+                "enum": [
+                  "off",
+                  "workspace",
+                  "workspace-no-network"
+                ],
+                "description": "Where a run may reach: off (nothing applied), workspace (writes only inside the workspace), workspace-no-network (and no network for the model's commands and fetches)."
+              },
+              "available": {
+                "type": "boolean",
+                "const": true
+              },
+              "reason": {
+                "type": "null",
+                "description": "Null: the level can be enforced here."
+              }
+            },
+            "required": [
+              "level",
+              "available",
+              "reason"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "level": {
+                "type": "string",
+                "enum": [
+                  "off",
+                  "workspace",
+                  "workspace-no-network"
+                ],
+                "description": "Where a run may reach: off (nothing applied), workspace (writes only inside the workspace), workspace-no-network (and no network for the model's commands and fetches)."
+              },
+              "available": {
+                "type": "boolean",
+                "const": false
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Why the level cannot be enforced here, for people."
+              }
+            },
+            "required": [
+              "level",
+              "available",
+              "reason"
+            ]
+          }
+        ],
+        "description": "Whether this environment can enforce a containment level and, when it cannot, why."
+      },
+      "description": "Each containment level, off first, and whether this environment can enforce it."
+    },
+    "mechanism": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "seatbelt",
+            "bubblewrap"
+          ],
+          "description": "What enforces a workspace containment level: seatbelt (macOS) or bubblewrap (Linux and WSL2)."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "What enforces the workspace levels here; null when neither can be enforced."
+    },
+    "container": {
+      "type": "object",
+      "properties": {
+        "declared": {
+          "type": "boolean",
+          "description": "Whether the install declared the container: its compose sets the marker variable AGENT_HARNESS_CONTAINER."
+        },
+        "detected": {
+          "type": "boolean",
+          "description": "Whether a container runtime's marker was found: /.dockerenv, /run/.containerenv, or a container runtime in PID 1's cgroup."
+        }
+      },
+      "required": [
+        "declared",
+        "detected"
+      ],
+      "description": "The container the environment runs in: the operator's outer boundary, which enforces no containment level."
+    }
+  },
+  "required": [
+    "levels",
+    "mechanism",
+    "container"
+  ],
+  "description": "What this environment can enforce: each containment level with its reason, the mechanism, and the container as the outer boundary."
+}
