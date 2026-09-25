@@ -127,7 +127,8 @@ describe("the settings keys", () => {
   });
 
   it("are recorded on a settings stream of their own, whose settings.updated changes no session list", () => {
-    expect(Object.keys(EVENT_TYPES.settings)).toEqual(["settings.updated"]);
+    // Beside them, the Unattended review's watermark (#131).
+    expect(Object.keys(EVENT_TYPES.settings)).toEqual(["settings.updated", "review.seen"]);
     expect(eventTypeEntry("settings", "settings.updated")?.list).toBe(false);
     expect(isListEvent("settings", "settings.updated")).toBe(false);
     expect(eventTypeEntry("environment", "settings.updated")).toBeUndefined();

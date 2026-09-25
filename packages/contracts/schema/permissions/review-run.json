@@ -1,0 +1,315 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ReviewRun",
+  "type": "object",
+  "properties": {
+    "sessionId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "A session's id: a version 4 UUID the creating client mints (never the provider's resume id), kept in lowercase."
+    },
+    "runId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "A run's id: a version 4 UUID the environment mints when the run starts or is adopted."
+    },
+    "ranAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+      "description": "When the run started."
+    },
+    "actor": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "client",
+            "routine",
+            "bot",
+            "completions"
+          ],
+          "description": "Who started a run: client (a client session; attended), routine, bot, or completions (a program on the completions surface; unattended unless it asks otherwise)."
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The routine's or bot's name; null for a client session and the completions surface."
+        }
+      },
+      "required": [
+        "kind",
+        "name"
+      ],
+      "description": "Who started the run: client, routine (with its name), bot (with its name) or completions."
+    },
+    "attended": {
+      "type": "boolean"
+    },
+    "mode": {
+      "type": "object",
+      "properties": {
+        "requested": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "plan",
+                "acceptEdits",
+                "auto",
+                "bypassPermissions"
+              ],
+              "description": "What an agent may do without asking during a run, in the order ceilings use: plan < acceptEdits < auto < bypassPermissions. Claude's default and dontAsk are never used."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The mode asked for; null when none was, so a default applied (acceptEdits, or the unattended default)."
+        },
+        "effective": {
+          "type": "string",
+          "enum": [
+            "plan",
+            "acceptEdits",
+            "auto",
+            "bypassPermissions"
+          ],
+          "description": "The mode it got."
+        },
+        "ceiling": {
+          "type": "string",
+          "enum": [
+            "plan",
+            "acceptEdits",
+            "auto",
+            "bypassPermissions"
+          ],
+          "description": "The ceiling it was clamped to."
+        },
+        "clamped": {
+          "type": "boolean",
+          "description": "Whether the mode got is below the one asked for; false when none was asked for, since a default applied then and nothing was clamped."
+        },
+        "clampReason": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "ceiling",
+                "unavailable"
+              ],
+              "description": "Why a mode was lowered: ceiling (above the ceiling, lowered to it), or unavailable (the mode it would have had is one the account lists as unavailable, so the next lower available one)."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Why the mode asked for was lowered; null when it was not, or when none was asked for."
+        }
+      },
+      "required": [
+        "requested",
+        "effective",
+        "ceiling",
+        "clamped",
+        "clampReason"
+      ],
+      "description": "The run's mode as resolved at its start: effective, and the clamp."
+    },
+    "containment": {
+      "type": "object",
+      "properties": {
+        "requested": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "off",
+                "workspace",
+                "workspace-no-network"
+              ],
+              "description": "Where a run may reach: off (nothing applied), workspace (writes only inside the workspace), workspace-no-network (and no network for the model's commands and fetches)."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The session's own level; null when it names none, so the default applied."
+        },
+        "effective": {
+          "type": "string",
+          "enum": [
+            "off",
+            "workspace",
+            "workspace-no-network"
+          ],
+          "description": "The level the run has: the one asked for, or the highest below it this environment can enforce."
+        },
+        "mechanism": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "seatbelt",
+                "bubblewrap"
+              ],
+              "description": "What enforces a workspace containment level: seatbelt (macOS) or bubblewrap (Linux and WSL2)."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "What enforces it: seatbelt or bubblewrap; null at off."
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Why the level asked for (or the default) was not the one got, when it was not."
+        }
+      },
+      "required": [
+        "requested",
+        "effective",
+        "mechanism",
+        "reason"
+      ],
+      "description": "A run's containment as resolved at its start: requested, effective, the mechanism and, when lowered, why."
+    },
+    "counts": {
+      "type": "object",
+      "properties": {
+        "toolCalls": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "description": "Tool calls decided in the run (one tool.decision each); a prompt that named no call is counted by how it was decided, not here."
+        },
+        "autoApproved": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "description": "Calls allowed with no person answering: by the mode, a rule or a classifier."
+        },
+        "denied": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "description": "Calls denied, by anyone."
+        },
+        "answeredByPerson": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "description": "Calls a person decided through a prompt, allowed or denied."
+        },
+        "expired": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "description": "Calls whose prompt was denied past its TTL."
+        }
+      },
+      "required": [
+        "toolCalls",
+        "autoApproved",
+        "denied",
+        "answeredByPerson",
+        "expired"
+      ],
+      "description": "A reviewed run's tool calls: how many, auto-approved, denied, answered by a person, expired."
+    },
+    "denials": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "toolCallId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tool": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "summary": {
+            "type": "string",
+            "minLength": 1
+          },
+          "decidedBy": {
+            "type": "string",
+            "enum": [
+              "person",
+              "mode",
+              "rule",
+              "classifier",
+              "denylist",
+              "containment",
+              "ttl",
+              "unattended",
+              "bypass",
+              "provider"
+            ],
+            "description": "What decided a tool call: person (a person answered its prompt), mode (the mode let it through without asking), rule (one of the provider's own rules), classifier (the provider's classifier or reviewer), denylist, containment, ttl (its prompt waited past the TTL), unattended (nobody was present), bypass (a residual prompt in bypassPermissions), or provider (the provider decided otherwise: it cancelled the request, the run ended under the prompt, or it reported a denial for another reason)."
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "toolCallId",
+          "tool",
+          "summary",
+          "decidedBy",
+          "reason"
+        ],
+        "description": "A denied tool call: the tool, what it would have done, what denied it and why."
+      },
+      "description": "Each denied call, in the order decided."
+    }
+  },
+  "required": [
+    "sessionId",
+    "runId",
+    "ranAt",
+    "actor",
+    "attended",
+    "mode",
+    "containment",
+    "counts",
+    "denials"
+  ],
+  "description": "A run in the Unattended review: who ran it and when, its mode and containment, its calls counted, and each denial."
+}

@@ -1,0 +1,180 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ToolDecisionPayload",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "runId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+          "description": "A run's id: a version 4 UUID the environment mints when the run starts or is adopted."
+        },
+        "toolCallId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The provider's id for the tool call; null for a prompt that named no call."
+        },
+        "tool": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The tool the call is for; null for a prompt that named no tool."
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1,
+          "description": "One line saying what the call does: its prompt's summary, else the tool with what its input names."
+        },
+        "decidedBy": {
+          "type": "string",
+          "enum": [
+            "person",
+            "mode",
+            "rule",
+            "classifier",
+            "denylist",
+            "containment",
+            "ttl",
+            "unattended",
+            "bypass",
+            "provider"
+          ],
+          "description": "What decided a tool call: person (a person answered its prompt), mode (the mode let it through without asking), rule (one of the provider's own rules), classifier (the provider's classifier or reviewer), denylist, containment, ttl (its prompt waited past the TTL), unattended (nobody was present), bypass (a residual prompt in bypassPermissions), or provider (the provider decided otherwise: it cancelled the request, the run ended under the prompt, or it reported a denial for another reason)."
+        },
+        "promptId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The prompt the call was decided through, when there was one."
+        },
+        "decision": {
+          "type": "string",
+          "const": "allowed"
+        },
+        "reason": {
+          "type": "null",
+          "description": "Null: only a denial carries a reason."
+        }
+      },
+      "required": [
+        "runId",
+        "toolCallId",
+        "tool",
+        "summary",
+        "decidedBy",
+        "promptId",
+        "decision",
+        "reason"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "runId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+          "description": "A run's id: a version 4 UUID the environment mints when the run starts or is adopted."
+        },
+        "toolCallId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The provider's id for the tool call; null for a prompt that named no call."
+        },
+        "tool": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The tool the call is for; null for a prompt that named no tool."
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1,
+          "description": "One line saying what the call does: its prompt's summary, else the tool with what its input names."
+        },
+        "decidedBy": {
+          "type": "string",
+          "enum": [
+            "person",
+            "mode",
+            "rule",
+            "classifier",
+            "denylist",
+            "containment",
+            "ttl",
+            "unattended",
+            "bypass",
+            "provider"
+          ],
+          "description": "What decided a tool call: person (a person answered its prompt), mode (the mode let it through without asking), rule (one of the provider's own rules), classifier (the provider's classifier or reviewer), denylist, containment, ttl (its prompt waited past the TTL), unattended (nobody was present), bypass (a residual prompt in bypassPermissions), or provider (the provider decided otherwise: it cancelled the request, the run ended under the prompt, or it reported a denial for another reason)."
+        },
+        "promptId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The prompt the call was decided through, when there was one."
+        },
+        "decision": {
+          "type": "string",
+          "const": "denied"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Why it was denied: the message the model read, or the provider's reason."
+        }
+      },
+      "required": [
+        "runId",
+        "toolCallId",
+        "tool",
+        "summary",
+        "decidedBy",
+        "promptId",
+        "decision",
+        "reason"
+      ]
+    }
+  ],
+  "description": "tool.decision: how one tool call was decided, allowed or denied, and by what; exactly one per tool call."
+}

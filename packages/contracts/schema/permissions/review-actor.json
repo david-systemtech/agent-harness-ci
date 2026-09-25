@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ReviewActor",
+  "type": "object",
+  "properties": {
+    "kind": {
+      "type": "string",
+      "enum": [
+        "client",
+        "routine",
+        "bot",
+        "completions"
+      ],
+      "description": "Who started a run: client (a client session; attended), routine, bot, or completions (a program on the completions surface; unattended unless it asks otherwise)."
+    },
+    "name": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The routine's or bot's name; null for a client session and the completions surface."
+    }
+  },
+  "required": [
+    "kind",
+    "name"
+  ],
+  "description": "Who started the run: client, routine (with its name), bot (with its name) or completions."
+}

@@ -101,6 +101,12 @@ export interface StartCommand {
   readonly model?: string | undefined;
   readonly effort?: string | undefined;
   readonly mode?: Mode | undefined;
+  /**
+   * The run starts for the answers kept for the session's next run (#131: a
+   * TTL answer whose run had gone), which it reads first: with no message
+   * and nothing queued it still has something to read.
+   */
+  readonly keptAnswers?: boolean;
 }
 
 /** A run the host is to start once its events commit. */
@@ -229,11 +235,11 @@ export const decideStart = (facts: StartFacts, command: StartCommand): StartDeci
   const requested = command.mode ?? session.mode;
   // The lowest of the asker's ceiling and each queued sender's (#119), which the policy resolves under (#129).
   const ceiling = [facts.actor.ceiling, ...facts.queued.map((queued) => queued.ceiling)].reduce(lowerMode);
-  const policy = facts.resolvePolicy({ actor: { ...facts.actor, ceiling }, requested, accountModes: descriptor.modes });
+  const policy = facts.resolvePolicy({ actor: { ...facts.actor, ceiling }, requested, accountModes: descriptor.modes, containment: session.containment });
   if ("refused" in policy) return conflict(sessionId, "mode_unavailable", policy.refused, { accountId: account.id, ceiling });
 
   const queuedIds = facts.queued.map((message) => message.messageId);
-  if (command.message === null && queuedIds.length === 0) throw new Error(`A run of session ${sessionId} was asked to start with nothing to read.`);
+  if (command.message === null && queuedIds.length === 0 && command.keptAnswers !== true) throw new Error(`A run of session ${sessionId} was asked to start with nothing to read.`);
   const started: RunStartedPayload = {
     runId,
     accountId: account.id,

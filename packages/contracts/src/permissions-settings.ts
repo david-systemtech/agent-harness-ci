@@ -32,7 +32,8 @@ export const MAX_TTL_AMOUNT = 1000;
 /**
  * How long a parked prompt waits before it is denied and the run continues:
  * a duration, or `never` (permissions spec, "Prompts, parked prompts and the
- * TTL"). #131 applies it.
+ * TTL"): fixed on each prompt that parks as its `ttlExpiresAt`, which the
+ * environment's sweeper denies it past (#131).
  */
 export const ParkedPromptTtl = z
   .union([
@@ -62,9 +63,11 @@ const PERMISSIONS_STEP = { id: "permissions", band: "access" } as const;
 const WRITTEN_BY = "permissions.settings.set";
 
 /**
- * Every permission settings key. The containment default's preset is `off`
- * until #133's prober can say whether `workspace` is enforceable here, which
- * the spec's preset depends on.
+ * Every permission settings key. The containment default's preset here is
+ * `off`, what a client that knows nothing of the environment assumes; an
+ * environment's own preset is `workspace` where its containment probe says
+ * it can enforce it, and `off` otherwise (#133), which is what its
+ * `settings.get` and `permissions.settings.get` answer for a key never set.
  */
 export const PERMISSION_SETTINGS = {
   "permissions.defaultCeiling": setting({

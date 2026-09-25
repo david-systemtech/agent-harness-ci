@@ -2,7 +2,8 @@ import { z } from "zod";
 import { RunId } from "./adapter.js";
 import type { EventTypeEntry } from "./event-types.js";
 import { Mode } from "./permissions-modes.js";
-import { SummaryPatch } from "./sessions.js";
+import { Sequence, Timestamp } from "./primitives.js";
+import { SessionId, SummaryPatch } from "./sessions.js";
 
 /**
  * The permissions vocabulary (permissions spec, "Modes and the Claude
@@ -54,8 +55,12 @@ export type ModeResolution = z.infer<typeof ModeResolution>;
 
 /**
  * The containment levels (permissions spec, "Containment"): where a run may
- * reach on its environment, independent of its mode. The prober and the
- * enforcement are #133's; until then only `off` is available.
+ * reach on its environment, independent of its mode, in their order: `off`
+ * applies nothing; `workspace` lets a run write only inside its workspace,
+ * the session's scratch directory and the temporary directory of the
+ * session's runs (one per session, since its runs share one provider process);
+ * `workspace-no-network` adds that the model's commands and the provider's
+ * fetch and search tools reach no host.
  */
 export const CONTAINMENT_LEVELS = ["off", "workspace", "workspace-no-network"] as const;
 export const ContainmentLevel = z.enum(CONTAINMENT_LEVELS).meta({
@@ -63,30 +68,106 @@ export const ContainmentLevel = z.enum(CONTAINMENT_LEVELS).meta({
 });
 export type ContainmentLevel = z.infer<typeof ContainmentLevel>;
 
-/** Whether this environment can enforce a containment level, and, when it cannot, why. */
+/** Negative when `a` contains less than `b` in the level order, zero when they are one level, positive when more. */
+export const compareContainment = (a: ContainmentLevel, b: ContainmentLevel): number => CONTAINMENT_LEVELS.indexOf(a) - CONTAINMENT_LEVELS.indexOf(b);
+
+/**
+ * What enforces a workspace level (permissions spec, "Mechanisms and the
+ * probe"): Seatbelt on macOS, bubblewrap on Linux and WSL2. A container is
+ * not one: it is the operator's outer boundary and enforces no level.
+ */
+export const CONTAINMENT_MECHANISMS = ["seatbelt", "bubblewrap"] as const;
+export const ContainmentMechanism = z.enum(CONTAINMENT_MECHANISMS).meta({
+  description: "What enforces a workspace containment level: seatbelt (macOS) or bubblewrap (Linux and WSL2).",
+});
+export type ContainmentMechanism = z.infer<typeof ContainmentMechanism>;
+
+/**
+ * Why a containment level cannot be enforced, as a cause a client can act
+ * on (the Permissions step's package hint, #141). First the seven the
+ * probe finds: bubblewrap missing, user namespaces blocked by the kernel, by
+ * AppArmor or by a seccomp profile, socat missing, the mechanism failing
+ * otherwise, no mechanism on the platform. Then the adapter not enforcing
+ * containment, the probe failing, and the probe not run.
+ */
+export const CONTAINMENT_CAUSES = [
+  "binary_missing",
+  "userns_blocked",
+  "apparmor",
+  "seccomp",
+  "socat_missing",
+  "failed",
+  "platform",
+  "adapter",
+  "probe_failed",
+  "not_probed",
+] as const;
+export const ContainmentCause = z.enum(CONTAINMENT_CAUSES).meta({
+  description:
+    "Why a containment level cannot be enforced. First the seven the probe finds: binary_missing (bwrap or sandbox-exec), userns_blocked (the kernel), apparmor, seccomp, socat_missing, failed (the mechanism failed otherwise), platform (none on it). Then adapter (the adapter does not enforce containment), probe_failed (the probe itself failed), not_probed (the probe not run).",
+});
+export type ContainmentCause = z.infer<typeof ContainmentCause>;
+
+/** Whether this environment can enforce a containment level, and, when it cannot, why: for people and as a cause. */
 export const ContainmentAvailability = z
   .discriminatedUnion("available", [
     z.object({
       level: ContainmentLevel,
       available: z.literal(true),
       reason: z.null().meta({ description: "Null: the level can be enforced here." }),
+      cause: z.null().meta({ description: "Null: the level can be enforced here." }),
     }),
     z.object({
       level: ContainmentLevel,
       available: z.literal(false),
       reason: z.string().min(1).meta({ description: "Why the level cannot be enforced here, for people." }),
+      cause: ContainmentCause,
     }),
   ])
-  .meta({ description: "Whether this environment can enforce a containment level and, when it cannot, why." });
+  .meta({ description: "Whether this environment can enforce a containment level and, when it cannot, why, for people and as a cause." });
 export type ContainmentAvailability = z.infer<typeof ContainmentAvailability>;
 
-/** A run's containment as resolved at its start; the mechanism and a session's own level are #133's. */
+/**
+ * The container the environment runs in, if any: the operator's outer
+ * boundary, reported so Set up can say what its mounts expose. It enforces
+ * no level: inside it the workspace levels need bubblewrap to work there.
+ */
+export const ContainmentContainer = z
+  .object({
+    declared: z.boolean().meta({ description: "Whether the install declared the container: its compose sets the marker variable AGENT_HARNESS_CONTAINER." }),
+    detected: z.boolean().meta({
+      description: "Whether a container runtime's marker was found: /.dockerenv, /run/.containerenv, or a container runtime in PID 1's cgroup.",
+    }),
+  })
+  .meta({ description: "The container the environment runs in: the operator's outer boundary, which enforces no containment level." });
+export type ContainmentContainer = z.infer<typeof ContainmentContainer>;
+
+/**
+ * What the containment probe found at startup (permissions spec,
+ * "Mechanisms and the probe"): each level and whether it can be enforced,
+ * with the reason when it cannot; the mechanism that enforces the workspace
+ * levels (null when none can be); the container, if any.
+ */
+export const ContainmentReport = z
+  .object({
+    levels: z.array(ContainmentAvailability).meta({ description: "Each containment level, off first, and whether this environment can enforce it." }),
+    mechanism: ContainmentMechanism.nullable().meta({ description: "What enforces the workspace levels here; null when neither can be enforced." }),
+    container: ContainmentContainer,
+  })
+  .meta({ description: "What this environment can enforce: each containment level with its reason, the mechanism, and the container as the outer boundary." });
+export type ContainmentReport = z.infer<typeof ContainmentReport>;
+
+/**
+ * A run's containment as resolved at its start: the level asked for (the
+ * session's own, or null for the default), the level got, which is never one
+ * the probe cannot enforce, what enforces it, and why it was lowered.
+ */
 export const ContainmentResolution = z
   .object({
     requested: ContainmentLevel.nullable().meta({ description: "The session's own level; null when it names none, so the default applied." }),
-    effective: ContainmentLevel,
-    mechanism: z.string().min(1).nullable().meta({ description: "What enforces it (bubblewrap, Seatbelt); null at off." }),
-    reason: z.string().min(1).nullable().meta({ description: "Why the level asked for was not the one got, when it was not." }),
+    effective: ContainmentLevel.meta({ description: "The level the run has: the one asked for, or the highest below it this environment can enforce." }),
+    mechanism: ContainmentMechanism.nullable().meta({ description: "What enforces it: seatbelt or bubblewrap; null at off." }),
+    reason: z.string().min(1).nullable().meta({ description: "Why the level asked for (or the default) was not the one got, when it was not." }),
   })
   .meta({ description: "A run's containment as resolved at its start: requested, effective, the mechanism and, when lowered, why." });
 export type ContainmentResolution = z.infer<typeof ContainmentResolution>;
@@ -98,6 +179,9 @@ export type ContainmentResolution = z.infer<typeof ContainmentResolution>;
 export const RunPolicy = z
   .object({
     actorKind: RunActorKind,
+    actorName: z.string().min(1).nullable().meta({
+      description: "The routine's or bot's name, which the Unattended review shows; null for a client session and the completions surface, and for a routine or bot that gave none.",
+    }),
     attended: z.boolean().meta({ description: "Whether a person started the run (a client session), fixed at its start." }),
     mode: ModeResolution,
     containment: ContainmentResolution,
@@ -130,11 +214,141 @@ export const SessionModeSetPayload = z
   });
 export type SessionModeSetPayload = z.infer<typeof SessionModeSetPayload>;
 
-/** The permission events on a session's stream: `session.mode.set` changes the summary's `mode` (#179), so it is `list`-flagged with a patch; the policy record changes nothing listed. */
+export const SessionContainmentSetPayload = z
+  .object({
+    containment: z
+      .object({
+        requested: ContainmentLevel.meta({ description: "The level asked for." }),
+        effective: ContainmentLevel.meta({ description: "The level the session got: the one asked for, since a level this environment cannot enforce is refused." }),
+        clamped: z.boolean().meta({
+          description: "Whether the level got is not the one asked for: false, since an unenforceable level is refused (containment_unavailable) rather than lowered; the shape is session.mode.set's.",
+        }),
+      })
+      .meta({ description: "The level asked for, the one the session got, and whether it was lowered." }),
+  })
+  .meta({
+    description:
+      "session.containment.set: the session's containment level was set (permissions.containment.set). Its next runs ask for it; a live run keeps the level it was resolved with.",
+  });
+export type SessionContainmentSetPayload = z.infer<typeof SessionContainmentSetPayload>;
+
+/**
+ * What decided a tool call (permissions spec, "Events": `tool.decision`): a
+ * person's answer to its prompt; the mode, which let it through without
+ * asking; one of the provider's own rules, its classifier (or reviewer), or
+ * the provider otherwise (a request it cancelled, a run that ended under
+ * the prompt, a denial it reports for another reason); the denylist or
+ * containment (the gate); the TTL; the unattended rule; or the bypass rule.
+ */
+export const TOOL_DECIDERS = ["person", "mode", "rule", "classifier", "denylist", "containment", "ttl", "unattended", "bypass", "provider"] as const;
+export const ToolDecider = z.enum(TOOL_DECIDERS).meta({
+  description:
+    "What decided a tool call: person (a person answered its prompt), mode (the mode let it through without asking), rule (one of the provider's own rules), classifier (the provider's classifier or reviewer), denylist, containment, ttl (its prompt waited past the TTL), unattended (nobody was present), bypass (a residual prompt in bypassPermissions), or provider (the provider decided otherwise: it cancelled the request, the run ended under the prompt, or it reported a denial for another reason).",
+});
+export type ToolDecider = z.infer<typeof ToolDecider>;
+
+const toolDecisionShape = {
+  runId: RunId,
+  toolCallId: z.string().min(1).nullable().meta({ description: "The provider's id for the tool call; null for a prompt that named no call." }),
+  tool: z.string().min(1).nullable().meta({ description: "The tool the call is for; null for a prompt that named no tool." }),
+  summary: z.string().min(1).meta({ description: "One line saying what the call does: its prompt's summary, else the tool with what its input names." }),
+  decidedBy: ToolDecider,
+  promptId: z.string().min(1).nullable().meta({ description: "The prompt the call was decided through, when there was one." }),
+};
+
+export const ToolDecisionPayload = z
+  .discriminatedUnion("decision", [
+    z.object({
+      ...toolDecisionShape,
+      decision: z.literal("allowed"),
+      reason: z.null().meta({ description: "Null: only a denial carries a reason." }),
+    }),
+    z.object({
+      ...toolDecisionShape,
+      decision: z.literal("denied"),
+      reason: z.string().min(1).meta({ description: "Why it was denied: the message the model read, or the provider's reason." }),
+    }),
+  ])
+  .meta({ description: "tool.decision: how one tool call was decided, allowed or denied, and by what; exactly one per tool call." });
+export type ToolDecisionPayload = z.infer<typeof ToolDecisionPayload>;
+
+/**
+ * The permission events on a session's stream: `session.mode.set` changes
+ * the summary's `mode` (#179), so it is `list`-flagged with a patch; the
+ * policy record, a session's containment level and the tool decisions
+ * (#131, #133) change nothing listed (the summary has no field for them).
+ */
 export const PERMISSION_SESSION_EVENT_TYPES = {
   "run.policy.resolved": { list: false, payload: RunPolicyResolvedPayload },
   "session.mode.set": { list: true, payload: SessionModeSetPayload, patch: SummaryPatch },
+  "session.containment.set": { list: false, payload: SessionContainmentSetPayload },
+  "tool.decision": { list: false, payload: ToolDecisionPayload },
 } as const satisfies Record<string, EventTypeEntry>;
+
+/**
+ * The Unattended review (permissions spec, "The Unattended review view";
+ * #131): the runs with nobody present that made a tool call or had a
+ * denial, and the
+ * attended runs a TTL, the denylist or containment decided something in,
+ * since the environment-wide watermark `review.seen` moves.
+ */
+export const ReviewSeenPayload = z
+  .object({
+    through: Sequence.meta({ description: "The log position the review has been seen through: a run whose latest decision is at or below it is left out." }),
+  })
+  .meta({ description: "review.seen: the Unattended review was seen through a log position; the environment-wide watermark (#131)." });
+export type ReviewSeenPayload = z.infer<typeof ReviewSeenPayload>;
+
+/** Who started a reviewed run: the kind, and a routine's or bot's name. */
+export const ReviewActor = z
+  .object({
+    kind: RunActorKind,
+    name: z.string().min(1).nullable().meta({ description: "The routine's or bot's name; null for a client session and the completions surface." }),
+  })
+  .meta({ description: "Who started the run: client, routine (with its name), bot (with its name) or completions." });
+export type ReviewActor = z.infer<typeof ReviewActor>;
+
+const count = z.int().nonnegative();
+
+/** A reviewed run's tool calls, counted by how they were decided. */
+export const ReviewCounts = z
+  .object({
+    toolCalls: count.meta({ description: "Tool calls decided in the run (one tool.decision each); a prompt that named no call is counted by how it was decided, not here." }),
+    autoApproved: count.meta({ description: "Calls allowed with no person answering: by the mode, a rule or a classifier." }),
+    denied: count.meta({ description: "Calls denied, by anyone." }),
+    answeredByPerson: count.meta({ description: "Calls a person decided through a prompt, allowed or denied." }),
+    expired: count.meta({ description: "Calls whose prompt was denied past its TTL." }),
+  })
+  .meta({ description: "A reviewed run's tool calls: how many, auto-approved, denied, answered by a person, expired." });
+export type ReviewCounts = z.infer<typeof ReviewCounts>;
+
+/** One denied tool call of a reviewed run. */
+export const ReviewDenial = z
+  .object({
+    toolCallId: z.string().min(1).nullable(),
+    tool: z.string().min(1).nullable(),
+    summary: z.string().min(1),
+    decidedBy: ToolDecider,
+    reason: z.string().min(1),
+  })
+  .meta({ description: "A denied tool call: the tool, what it would have done, what denied it and why." });
+export type ReviewDenial = z.infer<typeof ReviewDenial>;
+
+/** One run in the Unattended review. */
+export const ReviewRun = z
+  .object({
+    sessionId: SessionId,
+    runId: RunId,
+    ranAt: Timestamp.meta({ description: "When the run started." }),
+    actor: ReviewActor,
+    attended: z.boolean(),
+    mode: ModeResolution.meta({ description: "The run's mode as resolved at its start: effective, and the clamp." }),
+    containment: ContainmentResolution,
+    counts: ReviewCounts,
+    denials: z.array(ReviewDenial).meta({ description: "Each denied call, in the order decided." }),
+  })
+  .meta({ description: "A run in the Unattended review: who ran it and when, its mode and containment, its calls counted, and each denial." });
+export type ReviewRun = z.infer<typeof ReviewRun>;
 
 export const BypassAcknowledgedPayload = z
   .object({

@@ -487,6 +487,14 @@
       "title": "SessionModeSetPayload"
     },
     {
+      "path": "sessions/events/session.containment.set.json",
+      "title": "SessionContainmentSetPayload"
+    },
+    {
+      "path": "sessions/events/tool.decision.json",
+      "title": "ToolDecisionPayload"
+    },
+    {
       "path": "sessions/events/group.created.json",
       "title": "GroupCreatedPayload"
     },
@@ -819,12 +827,32 @@
       "title": "ContainmentLevel"
     },
     {
+      "path": "permissions/containment-cause.json",
+      "title": "ContainmentCause"
+    },
+    {
       "path": "permissions/containment-availability.json",
       "title": "ContainmentAvailability"
     },
     {
+      "path": "permissions/containment-mechanism.json",
+      "title": "ContainmentMechanism"
+    },
+    {
+      "path": "permissions/containment-container.json",
+      "title": "ContainmentContainer"
+    },
+    {
+      "path": "permissions/containment-report.json",
+      "title": "ContainmentReport"
+    },
+    {
       "path": "permissions/containment-resolution.json",
       "title": "ContainmentResolution"
+    },
+    {
+      "path": "permissions/tool-decider.json",
+      "title": "ToolDecider"
     },
     {
       "path": "permissions/run-policy.json",
@@ -889,6 +917,22 @@
     {
       "path": "permissions/listed-prompt.json",
       "title": "ListedPrompt"
+    },
+    {
+      "path": "permissions/review-actor.json",
+      "title": "ReviewActor"
+    },
+    {
+      "path": "permissions/review-counts.json",
+      "title": "ReviewCounts"
+    },
+    {
+      "path": "permissions/review-denial.json",
+      "title": "ReviewDenial"
+    },
+    {
+      "path": "permissions/review-run.json",
+      "title": "ReviewRun"
     },
     {
       "path": "terminals/terminal-id.json",
@@ -1021,6 +1065,10 @@
     {
       "path": "settings/events/settings.updated.json",
       "title": "SettingsUpdatedPayload"
+    },
+    {
+      "path": "settings/events/review.seen.json",
+      "title": "ReviewSeenPayload"
     },
     {
       "path": "errors/error-code.json",
@@ -2095,6 +2143,22 @@
       "title": "permissions.mode.set error"
     },
     {
+      "path": "methods/permissions.containment.set/params.json",
+      "title": "permissions.containment.set params"
+    },
+    {
+      "path": "methods/permissions.containment.set/result.json",
+      "title": "permissions.containment.set result"
+    },
+    {
+      "path": "methods/permissions.containment.set/response.json",
+      "title": "permissions.containment.set response"
+    },
+    {
+      "path": "methods/permissions.containment.set/error.json",
+      "title": "permissions.containment.set error"
+    },
+    {
       "path": "methods/permissions.settings.get/params.json",
       "title": "permissions.settings.get params"
     },
@@ -2149,6 +2213,34 @@
     {
       "path": "methods/permissions.prompts.answer/error.json",
       "title": "permissions.prompts.answer error"
+    },
+    {
+      "path": "methods/permissions.review.list/params.json",
+      "title": "permissions.review.list params"
+    },
+    {
+      "path": "methods/permissions.review.list/result.json",
+      "title": "permissions.review.list result"
+    },
+    {
+      "path": "methods/permissions.review.list/error.json",
+      "title": "permissions.review.list error"
+    },
+    {
+      "path": "methods/permissions.review.seen/params.json",
+      "title": "permissions.review.seen params"
+    },
+    {
+      "path": "methods/permissions.review.seen/result.json",
+      "title": "permissions.review.seen result"
+    },
+    {
+      "path": "methods/permissions.review.seen/response.json",
+      "title": "permissions.review.seen response"
+    },
+    {
+      "path": "methods/permissions.review.seen/error.json",
+      "title": "permissions.review.seen error"
     },
     {
       "path": "methods/terminals.open/params.json",
@@ -2908,6 +3000,16 @@
       "error": "methods/permissions.mode.set/error.json"
     },
     {
+      "name": "permissions.containment.set",
+      "scope": "runs:drive",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/permissions.containment.set/params.json",
+      "result": "methods/permissions.containment.set/result.json",
+      "response": "methods/permissions.containment.set/response.json",
+      "error": "methods/permissions.containment.set/error.json"
+    },
+    {
       "name": "permissions.settings.get",
       "scope": "read",
       "kind": "query",
@@ -2944,6 +3046,25 @@
       "result": "methods/permissions.prompts.answer/result.json",
       "response": "methods/permissions.prompts.answer/response.json",
       "error": "methods/permissions.prompts.answer/error.json"
+    },
+    {
+      "name": "permissions.review.list",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/permissions.review.list/params.json",
+      "result": "methods/permissions.review.list/result.json",
+      "error": "methods/permissions.review.list/error.json"
+    },
+    {
+      "name": "permissions.review.seen",
+      "scope": "sessions:write",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/permissions.review.seen/params.json",
+      "result": "methods/permissions.review.seen/result.json",
+      "response": "methods/permissions.review.seen/response.json",
+      "error": "methods/permissions.review.seen/error.json"
     },
     {
       "name": "terminals.open",

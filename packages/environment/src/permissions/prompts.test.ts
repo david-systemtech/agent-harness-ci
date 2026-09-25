@@ -148,8 +148,8 @@ describe("a prompt", () => {
       // The run's mode when it asked, and the ceiling it was resolved under (a local bootstrap session's: the top one).
       mode: "acceptEdits",
       ceiling: "bypassPermissions",
-      // No TTL sweeper yet (#131): nothing expires.
-      ttlExpiresAt: null,
+      // Fixed as it opens from permissions.parkedPrompt.ttl, preset 24 hours (#131).
+      ttlExpiresAt: at(24 * 60 * MINUTE),
     });
     const openedEvent = ofType(t, id, "prompt.opened")[0];
     expect(openedEvent).toMatchObject({ correlationId: runId, actor: "adapter:fake" });
@@ -626,7 +626,8 @@ describe("a prompt whose run ends", () => {
     ending.open();
     await untilEnded(t, id, runId);
 
-    expect(typesOf(t, id).slice(-2)).toEqual(["prompt.answered", "run.ended"]);
+    // The call's decision rides with its answer (#131).
+    expect(typesOf(t, id).slice(-3)).toEqual(["prompt.answered", "tool.decision", "run.ended"]);
     expect(answeredEvents(t, id)).toEqual([
       { runId, promptId: "p-1", decision: "deny", message: null, answers: null, updatedInput: null, mode: null, remember: null, decidedBy: { auto: "run_ended" }, delivery: null },
     ]);

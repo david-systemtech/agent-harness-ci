@@ -1,5 +1,6 @@
-import { MODES, type Mode, type ModeAvailability } from "@agent-harness/contracts";
+import { MODES, type ContainmentReport, type Mode, type ModeAvailability } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
+import { UNPROBED_REPORT } from "./containment.js";
 import { resolvePolicy, type PolicyInput } from "./resolver.js";
 
 /**
@@ -19,6 +20,8 @@ const input = (overrides: Partial<PolicyInput> = {}): PolicyInput => ({
   ceiling: "bypassPermissions",
   accountModes: everyMode,
   settings: { unattendedMode: "acceptEdits", containmentDefault: "off" },
+  containment: null,
+  enforceable: UNPROBED_REPORT,
   ...overrides,
 });
 
@@ -85,6 +88,7 @@ describe("the policy resolver", () => {
     const bypass = { unattendedMode: "bypassPermissions", containmentDefault: "off" } as const;
     expect(resolvePolicy(input({ ...unattended, settings: bypass }))).toEqual({
       actorKind: "routine",
+      actorName: null,
       attended: false,
       mode: { requested: null, effective: "bypassPermissions", ceiling: "bypassPermissions", clamped: false, clampReason: null },
       containment: { requested: null, effective: "off", mechanism: null, reason: null },
@@ -110,6 +114,92 @@ describe("the policy resolver", () => {
     expect(resolvePolicy(input({ actor: { kind: "client" } }))).toMatchObject({ attended: true });
     expect(resolvePolicy(input({ actor: { kind: "routine" } }))).toMatchObject({ attended: false });
     expect(resolvePolicy(input({ actor: { kind: "bot" } }))).toMatchObject({ attended: false });
+    // A routine's or bot's name is recorded for the Unattended review (#131); nobody else has one.
+    expect(resolvePolicy(input({ actor: { kind: "routine", name: "nightly-receipts" } }))).toMatchObject({ actorKind: "routine", actorName: "nightly-receipts" });
+    expect(resolvePolicy(input({ actor: { kind: "bot", name: "triage" } }))).toMatchObject({ actorKind: "bot", actorName: "triage" });
+    expect(resolvePolicy(input({ actor: { kind: "client" } }))).toMatchObject({ actorName: null });
     expect(resolvePolicy(input({ actor: { kind: "completions", attended: false } }))).toMatchObject({ attended: false, unattendedDefaultApplied: true });
+  });
+});
+
+/** What a probe that found bubblewrap reports: both workspace levels, or only `workspace` when no network cannot be enforced. */
+const bubblewrap = (noNetwork = true): ContainmentReport => ({
+  levels: [
+    { level: "off", available: true, reason: null, cause: null },
+    { level: "workspace", available: true, reason: null, cause: null },
+    noNetwork
+      ? { level: "workspace-no-network", available: true, reason: null, cause: null }
+      : { level: "workspace-no-network", available: false, reason: "bubblewrap cannot give a run a network namespace of its own here.", cause: "failed" },
+  ],
+  mechanism: "bubblewrap",
+  container: { declared: false, detected: false },
+});
+
+const containmentOf = (overrides: Partial<PolicyInput>) => {
+  const resolved = resolvePolicy(input(overrides));
+  if ("refused" in resolved) throw new Error(resolved.refused);
+  return resolved.containment;
+};
+
+describe("the policy resolver's containment", () => {
+  const settings = (containmentDefault: PolicyInput["settings"]["containmentDefault"]) => ({ unattendedMode: "acceptEdits", containmentDefault }) as const;
+
+  it("gives a run the default when its session names no level, with the mechanism the probe found at a workspace level", () => {
+    expect(containmentOf({ settings: settings("workspace"), enforceable: bubblewrap() })).toEqual({
+      requested: null,
+      effective: "workspace",
+      mechanism: "bubblewrap",
+      reason: null,
+    });
+    expect(containmentOf({ settings: settings("off"), enforceable: bubblewrap() })).toEqual({ requested: null, effective: "off", mechanism: null, reason: null });
+  });
+
+  it("gives a run its session's own level over the default, lower or higher", () => {
+    expect(containmentOf({ settings: settings("workspace"), containment: "off", enforceable: bubblewrap() })).toEqual({
+      requested: "off",
+      effective: "off",
+      mechanism: null,
+      reason: null,
+    });
+    expect(containmentOf({ settings: settings("off"), containment: "workspace-no-network", enforceable: bubblewrap() })).toEqual({
+      requested: "workspace-no-network",
+      effective: "workspace-no-network",
+      mechanism: "bubblewrap",
+      reason: null,
+    });
+  });
+
+  it("lowers a level the probe cannot enforce to the highest one below it that it can, with the reason, never refusing", () => {
+    const lowered = containmentOf({ containment: "workspace-no-network", enforceable: bubblewrap(false) });
+    expect(lowered).toMatchObject({ requested: "workspace-no-network", effective: "workspace", mechanism: "bubblewrap" });
+    expect(lowered.reason).toMatch(/workspace-no-network cannot be enforced/);
+    expect(lowered.reason).toMatch(/network namespace/);
+    const off = containmentOf({ containment: "workspace", enforceable: UNPROBED_REPORT });
+    expect(off).toMatchObject({ requested: "workspace", effective: "off", mechanism: null });
+    expect(off.reason).toMatch(/not probed/);
+    // A default the probe can no longer enforce is lowered the same way, and says why.
+    expect(containmentOf({ settings: settings("workspace"), enforceable: UNPROBED_REPORT })).toMatchObject({
+      requested: null,
+      effective: "off",
+      reason: expect.stringMatching(/workspace cannot be enforced/) as unknown as string,
+    });
+  });
+
+  it("asks for the preset's workspace when no default was set, and says why when it cannot be enforced", () => {
+    expect(containmentOf({ settings: settings(null), enforceable: bubblewrap() })).toEqual({ requested: null, effective: "workspace", mechanism: "bubblewrap", reason: null });
+    const lowered = containmentOf({ settings: settings(null), enforceable: UNPROBED_REPORT });
+    expect(lowered).toMatchObject({ requested: null, effective: "off", mechanism: null });
+    expect(lowered.reason).toMatch(/preset default is workspace/);
+    expect(lowered.reason).toMatch(/not probed/);
+  });
+
+  it("lets a routine or a bot inherit the default unless it names its own level, as any run does", () => {
+    for (const kind of ["routine", "bot"] as const) {
+      expect(containmentOf({ actor: { kind }, settings: settings("workspace"), enforceable: bubblewrap() }), kind).toMatchObject({ requested: null, effective: "workspace" });
+      expect(containmentOf({ actor: { kind }, settings: settings("workspace"), containment: "workspace-no-network", enforceable: bubblewrap() }), kind).toMatchObject({
+        requested: "workspace-no-network",
+        effective: "workspace-no-network",
+      });
+    }
   });
 });

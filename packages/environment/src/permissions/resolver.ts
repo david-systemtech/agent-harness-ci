@@ -3,6 +3,7 @@ import {
   compareModes,
   lowerMode,
   type ContainmentLevel,
+  type ContainmentReport,
   type Mode,
   type ModeAvailability,
   type ModeResolution,
@@ -11,6 +12,7 @@ import {
   type RunPolicy,
   type UnattendedMode,
 } from "@agent-harness/contracts";
+import { resolveContainment } from "./containment.js";
 
 /**
  * The policy resolver (permissions spec, "Modules": the policy resolver;
@@ -19,6 +21,9 @@ import {
  * run's policy, which the run keeps whatever changes after it; the same
  * clamp answers `permissions.mode.set`. A mode is never refused for being
  * above the ceiling or unavailable: it is lowered, and the reason recorded.
+ * Containment is resolved beside it, independently (ADR 0006): the
+ * session's own level or the default, lowered to what the probe can enforce
+ * (`containment.ts`).
  */
 
 /**
@@ -36,8 +41,16 @@ export const ATTENDED_DEFAULT_MODE: Mode = "acceptEdits";
  * routine attended.
  */
 export type PolicyActor =
-  | { readonly kind: Exclude<RunActorKind, "completions"> }
+  | { readonly kind: "client" }
+  | {
+      readonly kind: Extract<RunActorKind, "routine" | "bot">;
+      /** The routine's or bot's name, recorded on the run's policy for the Unattended review (#131). */
+      readonly name?: string | null;
+    }
   | { readonly kind: "completions"; readonly attended: boolean };
+
+/** The routine's or bot's name a run's policy records; null for anyone else, or a routine or bot that gave none. */
+const actorName = (actor: PolicyActor): string | null => (actor.kind === "routine" || actor.kind === "bot" ? actor.name || null : null);
 
 /** Whether a person is present for a run `actor` started. */
 export const isAttended = (actor: PolicyActor): boolean => (actor.kind === "completions" ? actor.attended : actor.kind === "client");
@@ -53,13 +66,18 @@ export type RunActor = PolicyActor & {
 /** The settings the resolver reads. */
 export interface PolicySettings {
   readonly unattendedMode: UnattendedMode;
-  readonly containmentDefault: ContainmentLevel;
+  /** The containment default as it was set; null when it never was, and the preset's `workspace` is asked for (`containment.ts`). */
+  readonly containmentDefault: ContainmentLevel | null;
 }
 
-/** The resolver's settings, from the permission settings' values. */
-export const policySettings = (values: PermissionSettingsValues): PolicySettings => ({
+/**
+ * The resolver's settings, from the permission settings' values and the
+ * containment default as it was stored (null when it never was; preset: the
+ * value, for a caller with no store behind it).
+ */
+export const policySettings = (values: PermissionSettingsValues, storedContainmentDefault: ContainmentLevel | null = values["permissions.containment.default"]): PolicySettings => ({
   unattendedMode: values["permissions.unattended.mode"],
-  containmentDefault: values["permissions.containment.default"],
+  containmentDefault: storedContainmentDefault,
 });
 
 export interface PolicyInput {
@@ -70,6 +88,14 @@ export interface PolicyInput {
   /** The modes the run's account lists, available or not; a mode it does not list is unavailable. */
   readonly accountModes: readonly ModeAvailability[];
   readonly settings: PolicySettings;
+  /**
+   * The containment level the run's session set for itself
+   * (`permissions.containment.set`); null when it set none, and the default
+   * applies. A routine's or a bot's own level (#92) comes the same way.
+   */
+  readonly containment: ContainmentLevel | null;
+  /** What this environment's probe found it can enforce. */
+  readonly enforceable: ContainmentReport;
 }
 
 /** What the resolver answers: the policy, or, only when no mode at or below the ceiling is available, why none could be given. */
@@ -116,10 +142,10 @@ export const resolvePolicy = (input: PolicyInput): PolicyOutcome => {
   if (mode === null) return { refused: noModeAvailable(input.ceiling) };
   return {
     actorKind: input.actor.kind,
+    actorName: actorName(input.actor),
     attended,
     mode,
-    // A session's own level and the mechanism are #133's; the default is all there is.
-    containment: { requested: null, effective: input.settings.containmentDefault, mechanism: null, reason: null },
+    containment: resolveContainment(input.containment, input.settings.containmentDefault, input.enforceable),
     unattendedDefaultApplied,
   };
 };

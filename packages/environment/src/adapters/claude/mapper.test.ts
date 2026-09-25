@@ -126,7 +126,8 @@ describe("tool use and results", () => {
         type: "tool.started",
         payload: { toolCallId: "toolu_rm", name: "Bash", input: { command: "rm -rf build", description: "Remove the build" }, title: null, agentId: null, parentToolCallId: null },
       },
-      // Denied: ended at the denial, with its reason; the result the model is then handed ends nothing more.
+      // Denied: reported as a rule's denial (#131), then ended at the denial, with its reason; the result the model is then handed ends nothing more.
+      { type: "denial", toolCallId: "toolu_rm", toolName: "Bash", by: "rule", reason: "Denied: rm is not allowed." },
       { type: "tool.ended", payload: { toolCallId: "toolu_rm", status: "error", output: "Denied: rm is not allowed.", durationMs: 1000 } },
       { type: "tool.ended", payload: { toolCallId: "toolu_agent", status: "cancelled", output: null, durationMs: 6000 } },
       { type: "end", reason: "completed", cause: null, error: null, usage: null, turnCount: 3, resultText: "Listed." },
@@ -152,6 +153,81 @@ describe("tool use and results", () => {
     const result = messages[3];
     expect(mapSdkMessage(result, state)).toHaveLength(1);
     expect(mapSdkMessage(result, state)).toEqual([]);
+  });
+});
+
+describe("the provider's denial report (#131)", () => {
+  const assistant = (id: string, name: string) => ({
+    type: "assistant",
+    message: { id: `msg_${id}`, role: "assistant", content: [{ type: "tool_use", id, name, input: { file_path: "/etc/shadow" } }] },
+    parent_tool_use_id: null,
+    session_id: "s",
+    uuid: `u-${id}`,
+  });
+  const result = (denials: { tool_name: string; tool_use_id: string }[]) => ({
+    type: "result",
+    subtype: "success",
+    is_error: false,
+    result: "Done.",
+    num_turns: 1,
+    modelUsage: {},
+    permission_denials: denials.map((denial) => ({ ...denial, tool_input: {} })),
+    session_id: "s",
+    uuid: "u-result",
+  });
+
+  it("reports a permission_denied frame as the call's denial, by the reason's kind, before the call's end", () => {
+    const { state } = setup();
+    mapSdkMessage(assistant("toolu_1", "Read"), state);
+    const frame = {
+      type: "system",
+      subtype: "permission_denied",
+      tool_name: "Read",
+      tool_use_id: "toolu_1",
+      decision_reason_type: "rule",
+      decision_reason: "Read(/etc/**) is denied",
+      message: "Permission to use Read has been denied.",
+      session_id: "s",
+      uuid: "u",
+    };
+    expect(mapSdkMessage(frame, state)).toEqual([
+      { type: "denial", toolCallId: "toolu_1", toolName: "Read", by: "rule", reason: "Read(/etc/**) is denied" },
+      { type: "tool.ended", payload: { toolCallId: "toolu_1", status: "error", output: "Permission to use Read has been denied.", durationMs: 0 } },
+    ]);
+    mapSdkMessage(assistant("toolu_2", "WebFetch"), state);
+    const classifier = { ...frame, tool_name: "WebFetch", tool_use_id: "toolu_2", decision_reason_type: "classifier", decision_reason: undefined };
+    expect(mapSdkMessage(classifier, state)[0]).toEqual({ type: "denial", toolCallId: "toolu_2", toolName: "WebFetch", by: "classifier", reason: "Permission to use Read has been denied." });
+    mapSdkMessage(assistant("toolu_3", "Bash"), state);
+    expect(mapSdkMessage({ ...frame, tool_use_id: "toolu_3", decision_reason_type: "asyncAgent" }, state)[0]).toMatchObject({ by: "provider" });
+    mapSdkMessage(assistant("toolu_4", "Bash"), state);
+    expect(mapSdkMessage({ ...frame, tool_use_id: "toolu_4", decision_reason_type: "mode" }, state)[0]).toMatchObject({ by: "mode" });
+    // A kind named like an object's own inherited property is the provider's too, never that property.
+    for (const [id, kind] of [
+      ["toolu_5", "constructor"],
+      ["toolu_6", "valueOf"],
+      ["toolu_7", "__proto__"],
+    ] as const) {
+      mapSdkMessage(assistant(id, "Bash"), state);
+      expect(mapSdkMessage({ ...frame, tool_use_id: id, decision_reason_type: kind }, state)[0], kind).toMatchObject({ by: "provider" });
+    }
+  });
+
+  it("reports, before the end, the result's denials of calls the turn saw and no frame reported, as a rule's", () => {
+    const { state } = setup();
+    mapSdkMessage(assistant("toolu_1", "Read"), state);
+    mapSdkMessage(assistant("toolu_2", "Read"), state);
+    mapSdkMessage({ type: "system", subtype: "permission_denied", tool_name: "Read", tool_use_id: "toolu_1", message: "Denied.", session_id: "s", uuid: "u" }, state);
+    mapSdkMessage({ type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_2", content: "denied by a path rule", is_error: true }] }, parent_tool_use_id: null, session_id: "s", uuid: "u2" }, state);
+    const events = mapSdkMessage(
+      result([
+        { tool_name: "Read", tool_use_id: "toolu_1" },
+        { tool_name: "Read", tool_use_id: "toolu_2" },
+        { tool_name: "Bash", tool_use_id: "toolu_unseen" },
+      ]),
+      state,
+    );
+    expect(events.filter((event) => event.type === "denial")).toEqual([{ type: "denial", toolCallId: "toolu_2", toolName: "Read", by: "rule", reason: null }]);
+    expect(events.at(-1)).toMatchObject({ type: "end", reason: "completed" });
   });
 });
 
