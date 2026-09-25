@@ -3,6 +3,8 @@ import type {
   AdapterCapabilities,
   AttachmentKind,
   AuthStatus,
+  ContainmentLevel,
+  ContainmentMechanism,
   CredentialSpec,
   DenylistMatch,
   InterruptCause,
@@ -135,6 +137,34 @@ export interface ToolServer {
 }
 
 /**
+ * A run's containment as its adapter enforces it (permissions spec,
+ * "Containment": what each level means, and the enforcement for Claude):
+ * the level `run.policy.resolved` recorded, never one the probe cannot
+ * enforce, the mechanism the probe found, and the directories a run may
+ * write in at a workspace level. The shell side is the provider's sandbox
+ * (Claude's `sandbox` option, #140), set from these values; file tools,
+ * fetch and search do not pass through it, so the tool gate
+ * (`RunContext.gate`) denies them. At `off` nothing applies, and the
+ * directories are named but not made. A session's runs share its provider
+ * process, whose sandbox is fixed when it starts: an adapter whose process
+ * was started under another level or mechanism stops it and starts one for
+ * the run.
+ */
+export interface RunContainment {
+  readonly level: ContainmentLevel;
+  /** What enforces it: null at `off`. */
+  readonly mechanism: ContainmentMechanism | null;
+  /** The session's scratch directory: it lives with the session, removed when the session is purged. */
+  readonly scratchDirectory: string;
+  /** The temporary directory of the session's runs, the provider's `TMPDIR`: the session's, since its runs share one provider process. */
+  readonly temporaryDirectory: string;
+  /** Where a run may write at a workspace level: its workspace, the scratch directory and its temporary directory, as absolute paths. */
+  readonly writable: readonly string[];
+  /** Whether the model's commands and the provider's fetch and search tools may reach any host: false only at `workspace-no-network`. */
+  readonly network: boolean;
+}
+
+/**
  * Everything a run needs, resolved by the host: the session and run, the
  * account's directory, the workspace and repository, model, effort and the
  * mode the policy resolver gave it, the composed instruction text, what it continues from, the
@@ -158,6 +188,8 @@ export interface RunInput {
   readonly toolServers: readonly ToolServer[];
   /** Whether the repository passed the trust gate (ADR 0009); false until the skills workstream records it. */
   readonly trusted: boolean;
+  /** The run's containment (`run.policy.resolved`): the adapter maps it onto its provider's sandbox. */
+  readonly containment: RunContainment;
   readonly prompt: readonly PromptMessage[];
 }
 
@@ -313,11 +345,14 @@ export type GateDecision = { readonly decision: "allow" } | { readonly decision:
 /**
  * The tool gate (permissions spec, "Modules": the tool gate): consulted by
  * every adapter before the provider's own evaluation, for every tool call in
- * every mode, bypass included. It hands a denylist match to the broker as a
- * `denylist` prompt (#132): parked for the person on an attended run, whose
- * explicit allow lets that one call on, denied at once on an unattended
- * one; containment's hard denials join it (#133). For Claude it is the
- * `PreToolUse` hook (#140); the fake adapter asks it for every call it plays.
+ * every mode, bypass included. It applies containment as a hard deny (#133:
+ * no prompt, the model told why, recorded as `tool.decision` by
+ * `containment`; widening containment is a settings change, never an answer
+ * to a prompt), then hands a denylist match to the broker as a `denylist`
+ * prompt (#132): parked for the person on an attended run, whose explicit
+ * allow lets that one call on, denied at once on an unattended one. For
+ * Claude it is the `PreToolUse` hook (#140), and meanwhile `canUseTool` for
+ * the calls the provider asks about; the fake adapter asks it for every call.
  */
 export interface ToolGate {
   /**

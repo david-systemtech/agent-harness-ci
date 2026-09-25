@@ -15,6 +15,7 @@ import type { Reader } from "../sessions/session-reads.js";
 import { permissionsProjector } from "./permissions-store.js";
 import { readRunPolicy } from "./review-store.js";
 import { recordToolDecision, runToolCalls } from "./tool-decisions.js";
+import { createToolGate } from "./gate.js";
 import type { ActorRunRequest } from "../serve/start.js";
 
 /**
@@ -104,7 +105,8 @@ describe("permissions.review.list", () => {
         actor: { kind: "routine", name: "nightly-receipts" },
         attended: false,
         mode: { requested: null, effective: "acceptEdits", ceiling: "acceptEdits", clamped: false, clampReason: null },
-        containment: { requested: null, effective: "off", mechanism: null, reason: null },
+        // The preset's workspace, lowered to off where it cannot be enforced, says why (#133).
+        containment: { requested: null, effective: "off", mechanism: null, reason: expect.stringContaining("cannot be enforced") },
         counts: { toolCalls: 2, autoApproved: 1, denied: 1, answeredByPerson: 0, expired: 0 },
         denials: [{ toolCallId: "toolu_1", tool: "Bash", summary: "Claude wants to run sudo apt install jq", decidedBy: "unattended", reason: UNATTENDED_DENIAL }],
       },
@@ -306,6 +308,33 @@ describe("the review projection", () => {
       ["toolu_5", "mode"],
       ["toolu_6", "mode"],
     ]);
+  });
+
+  it("has the gate record its containment denial through recordToolDecision: a call decided already is left as it was, and a provider's report of the gate's denial is not recorded again", async () => {
+    const log = openLog();
+    const stream = { kind: "session", id: sessionId } as const;
+    const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
+    const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    onCleanup(() => errors.mockRestore());
+    const containment = { level: "workspace", mechanism: "bubblewrap", scratchDirectory: "/work/.scratch", temporaryDirectory: "/work/.tmp", writable: ["/work"], network: true } as const;
+    const gate = createToolGate({ log, liveRunOf: () => undefined })({ runId, sessionId, workspace: "/work", containment });
+    const write = (toolCallId: string) => ({ toolCallId, tool: "Write", summary: "Write /etc/hosts", access: { kind: "write", paths: ["/etc/hosts"] } }) as const;
+    const decisions = () => log.readStream(stream).filter((event) => event.type === "tool.decision").map((event) => [event.payload["toolCallId"], event.payload["decidedBy"]]);
+
+    // A call the gate is first to decide: its denial is the call's one decision, and the provider's report of it adds nothing.
+    expect(await gate.check(write("toolu_gate"))).toMatchObject({ decision: "deny" });
+    const calls = runToolCalls(reader, runId);
+    expect(log.atomically((tx) => calls.denied({ type: "denial", toolCallId: "toolu_gate", toolName: "Write", by: "rule", reason: "Denied by a hook" }, tx))).toEqual([]);
+    // A call decided already (here by a rule) is left as it was: the gate still denies it, records nothing and reports no failure.
+    log.atomically((tx) =>
+      recordToolDecision(log, tx, sessionId, { runId, toolCallId: "toolu_rule", tool: "Write", summary: "Write /etc/hosts", decidedBy: "rule", promptId: null, decision: "denied", reason: "A rule." }, { actor: "system:test" }),
+    );
+    expect(await gate.check(write("toolu_rule"))).toMatchObject({ decision: "deny" });
+    expect(decisions()).toEqual([
+      ["toolu_gate", "containment"],
+      ["toolu_rule", "rule"],
+    ]);
+    expect(errors).not.toHaveBeenCalled();
   });
 
   it("records a decision through recordToolDecision once per call: a call decided already is left as it was", () => {

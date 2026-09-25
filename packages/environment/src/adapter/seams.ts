@@ -1,6 +1,7 @@
-import { presetPermissionSettings, type AutoDecider, type Mode, type ModeAvailability, type PromptKind, type Workspace } from "@agent-harness/contracts";
+import { presetPermissionSettings, type AutoDecider, type ContainmentLevel, type Mode, type ModeAvailability, type PromptKind, type Workspace } from "@agent-harness/contracts";
+import { UNPROBED_REPORT } from "../permissions/containment.js";
 import { policySettings, resolvePolicy, type PolicyOutcome, type RunActor } from "../permissions/resolver.js";
-import type { GateDecision, GatedToolCall, PromptDecision, PromptDetail, ToolServer } from "./contract.js";
+import type { GateDecision, GatedToolCall, PromptDecision, PromptDetail, RunContainment, ToolServer } from "./contract.js";
 import type { ToolDecider } from "@agent-harness/contracts";
 
 /**
@@ -88,29 +89,35 @@ export type PromptAutoAnswer = (request: AutoAnswerRequest) => AutoAnswer | null
 
 export const noAutoAnswer: PromptAutoAnswer = () => null;
 
-/** What a run's policy is resolved from, beside the settings: who started it, the mode asked for, and the account's modes. */
+/** What a run's policy is resolved from, beside the settings: who started it, the mode asked for, the account's modes, and the session's own containment level. */
 export interface PolicyRequest {
   readonly actor: RunActor;
   /** The mode the run or its session asks for; null when neither names one. */
   readonly requested: Mode | null;
   readonly accountModes: readonly ModeAvailability[];
+  /** The containment level the session set for itself; null when it set none, and the default applies. */
+  readonly containment: ContainmentLevel | null;
 }
 
 /**
  * Resolves a run's policy at its start (#129, `permissions/resolver.ts`):
  * the mode clamped to the ceiling and the account's modes, never refused
- * for being above them. The environment's reads the permission settings;
- * preset: the resolver on the settings' presets.
+ * for being above them, and the containment level lowered to what can be
+ * enforced (#133). The environment's reads the permission settings and its
+ * probe's findings; preset: the resolver on the settings' presets, with
+ * nothing probed, so every run is at `off`.
  */
 export type PolicySeam = (request: PolicyRequest) => PolicyOutcome;
 
-export const presetPolicy: PolicySeam = ({ actor, requested, accountModes }) =>
+export const presetPolicy: PolicySeam = ({ actor, requested, accountModes, containment }) =>
   resolvePolicy({
     actor,
     requested,
     ceiling: actor.ceiling,
     accountModes,
     settings: policySettings(presetPermissionSettings()),
+    containment,
+    enforceable: UNPROBED_REPORT,
   });
 
 /** A run as the tool gate's rules see it: its ids, the directory its relative paths are read against, and its person. */
@@ -119,6 +126,8 @@ export interface RuledRun {
   readonly sessionId: string;
   /** The run's workspace: a relative path in a call is read against it. */
   readonly workspace: string;
+  /** The run's containment, as its adapter was handed it (#133). */
+  readonly containment: RunContainment;
   /**
    * Asks through the broker, as the run's own prompt: recorded as
    * `prompt.opened`, parked for a person on an attended run, answered at once

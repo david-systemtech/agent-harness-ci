@@ -26,9 +26,8 @@ import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions
 import { create, refusal } from "../../test/sessions.js";
 import type { WireClient } from "../../test/wire-client.js";
 import type { GatedToolCall } from "../adapter/contract.js";
-import { GATE_FAILED_MESSAGE } from "../adapter/host.js";
+import { GATE_FAILED_MESSAGE, resolvePath } from "./gate.js";
 import type { ToolGateRule } from "../adapter/seams.js";
-import { resolveLinks } from "./denylist-gate.js";
 import type { EventEnvelope as LogEvent } from "../event-log/event-log.js";
 import type { ActorRunRequest } from "../serve/start.js";
 
@@ -595,10 +594,10 @@ describe("links the gate cannot follow", () => {
     const links = tempDir();
     symlinkSync(join(links, "b"), join(links, "a"));
     symlinkSync(join(links, "a"), join(links, "b"));
-    expect(resolveLinks(join(links, "a", "x"))).toBeNull();
+    expect(resolvePath(join(links, "a", "x"), "/")).toBeNull();
     const vanishing = { isLink: () => true, readlink: () => { throw new Error("ENOENT"); } };
-    expect(resolveLinks("/tmp/gone/x", vanishing)).toBeNull();
-    expect(resolveLinks("/tmp/not-a-link/x", { isLink: () => false, readlink: () => "" })).toBe("/tmp/not-a-link/x");
+    expect(resolvePath("/tmp/gone/x", "/", vanishing)).toBeNull();
+    expect(resolvePath("/tmp/not-a-link/x", "/", { isLink: () => false, readlink: () => "" })).toBe("/tmp/not-a-link/x");
   });
 
   it("deny the call outright, asking nobody, recorded as the denylist's", async () => {

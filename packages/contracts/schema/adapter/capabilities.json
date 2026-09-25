@@ -89,6 +89,10 @@
       "type": "boolean",
       "description": "A live run's mode can be changed (permissions.mode.set); without it a new mode applies at the session's next run."
     },
+    "containment": {
+      "type": "boolean",
+      "description": "The adapter enforces a run's containment level through its provider's sandbox (#133, #140); without it only off is available to the runs of its accounts."
+    },
     "instructionChannel": {
       "type": "object",
       "properties": {
@@ -211,6 +215,7 @@
     "imageInput",
     "fileInput",
     "modeChange",
+    "containment",
     "instructionChannel",
     "modes"
   ],

@@ -5,8 +5,12 @@ import { z } from "zod";
 import {
   BYPASS_SENTENCE,
   CLAUDE_PERMISSION_MODE,
+  CONTAINMENT_LEVELS,
+  CONTAINMENT_MECHANISMS,
   Ceiling,
   ContainmentLevel,
+  ContainmentReport,
+  compareContainment,
   EVENT_TYPES,
   HelloFrame,
   MODES,
@@ -168,6 +172,7 @@ describe("the permissions methods", () => {
     );
     expect(table).toEqual({
       "permissions.mode.set": ["command", "runs:drive"],
+      "permissions.containment.set": ["command", "runs:drive"],
       "permissions.settings.get": ["query", "read"],
       "permissions.settings.set": ["command", "admin"],
       "permissions.prompts.list": ["query", "read"],
@@ -180,7 +185,7 @@ describe("the permissions methods", () => {
       "permissions.denylist.test": ["query", "read"],
       "access.sessions.setCeiling": ["command", "admin"],
     });
-    for (const name of ["permissions.mode.set", "permissions.settings.set", "permissions.prompts.answer", "permissions.review.seen", "access.sessions.setCeiling"] as const) {
+    for (const name of ["permissions.mode.set", "permissions.containment.set", "permissions.settings.set", "permissions.prompts.answer", "permissions.review.seen", "access.sessions.setCeiling"] as const) {
       expect(Object.keys(registry[name].params.shape), name).toContain("commandId");
     }
   });
@@ -193,6 +198,47 @@ describe("the permissions methods", () => {
     expect(registry["access.pairings.create"].params.safeParse({ commandId, ceiling: "dontAsk" }).success).toBe(false);
     expect(registry["runs.start"].params.safeParse({ commandId, sessionId, text: "Go", mode: "dontAsk" }).success).toBe(false);
   });
+
+  it("set a session's containment level with permissions.containment.set, one of the three, which may answer containment_unavailable", () => {
+    const sessionId = "7c9e6679-7425-40de-944b-e07fc1f90ae7";
+    const commandId = "0f8fad5b-d9cb-469f-a165-70867728950e";
+    const params = registry["permissions.containment.set"].params;
+    for (const level of CONTAINMENT_LEVELS) expect(params.safeParse({ commandId, sessionId, level }).success, level).toBe(true);
+    expect(params.safeParse({ commandId, sessionId, level: "sandbox" }).success).toBe(false);
+    expect(params.safeParse({ sessionId, level: "off" }).success).toBe(false);
+    expect(registry["permissions.containment.set"].errors.map((error) => error.shape.code.value)).toEqual(["containment_unavailable"]);
+    const result = registry["permissions.containment.set"].result;
+    expect(result.safeParse({ sessionId, containment: { requested: "workspace", effective: "workspace", clamped: false } }).success).toBe(true);
+    expect(result.safeParse({ sessionId, containment: { requested: "workspace", effective: "workspace" } }).success).toBe(false);
+  });
+});
+
+describe("containment", () => {
+  it("has three levels, off < workspace < workspace-no-network, and two mechanisms, Seatbelt and bubblewrap", () => {
+    expect(CONTAINMENT_LEVELS).toEqual(["off", "workspace", "workspace-no-network"]);
+    expect(compareContainment("off", "workspace")).toBeLessThan(0);
+    expect(compareContainment("workspace", "workspace-no-network")).toBeLessThan(0);
+    expect(compareContainment("workspace", "workspace")).toBe(0);
+    expect(compareContainment("workspace-no-network", "off")).toBeGreaterThan(0);
+    expect(CONTAINMENT_MECHANISMS).toEqual(["seatbelt", "bubblewrap"]);
+  });
+
+  it("is reported by permissions.settings.get: each level with its reason, the mechanism, and the container as the operator's outer boundary", () => {
+    const report = {
+      levels: [
+        { level: "off", available: true, reason: null, cause: null },
+        { level: "workspace", available: true, reason: null, cause: null },
+        { level: "workspace-no-network", available: false, reason: "socat is not installed.", cause: "socat_missing" },
+      ],
+      mechanism: "bubblewrap",
+      container: { declared: true, detected: true },
+    };
+    expect(ContainmentReport.safeParse(report).success).toBe(true);
+    expect(ContainmentReport.safeParse({ ...report, mechanism: null }).success).toBe(true);
+    expect(ContainmentReport.safeParse({ ...report, mechanism: "none" }).success).toBe(false);
+    expect(ContainmentReport.safeParse({ ...report, container: { declared: true } }).success).toBe(false);
+    expect(registry["permissions.settings.get"].result.shape.containment).toBe(ContainmentReport);
+  });
 });
 
 describe("the permissions events", () => {
@@ -201,6 +247,16 @@ describe("the permissions events", () => {
     expect(isListEvent("session", "run.policy.resolved")).toBe(false);
     expect(isListEvent("session", "session.mode.set")).toBe(true);
     expect(SUMMARY_FIELD_OWNERS.mode).toEqual({ command: "permissions.mode.set" });
+  });
+
+  it("put session.containment.set and tool.decision on the session stream, neither listed: the summary has no field for them", () => {
+    for (const type of ["session.containment.set", "tool.decision"]) {
+      expect(EVENT_TYPES.session, type).toHaveProperty(type);
+      expect(isListEvent("session", type), type).toBe(false);
+    }
+    const set = EVENT_TYPES.session["session.containment.set"].payload;
+    expect(set.safeParse({ containment: { requested: "workspace", effective: "workspace", clamped: false } }).success).toBe(true);
+    expect(set.safeParse({ containment: { requested: "jail", effective: "workspace", clamped: false } }).success).toBe(false);
   });
 
   it("put ceiling.changed, bypass.acknowledged and settings.changed on the access stream", () => {
@@ -219,6 +275,9 @@ describe("the permissions events", () => {
       unattendedDefaultApplied: false,
     };
     expect(payload.safeParse(resolved).success).toBe(true);
+    const contained = { ...resolved, containment: { requested: "workspace", effective: "workspace", mechanism: "bubblewrap", reason: null } };
+    expect(payload.safeParse(contained).success).toBe(true);
+    expect(payload.safeParse({ ...contained, containment: { ...contained.containment, mechanism: "docker" } }).success).toBe(false);
     expect(payload.safeParse({ ...resolved, mode: { ...resolved.mode, clampReason: "because" } }).success).toBe(false);
     expect(payload.safeParse({ ...resolved, actorKind: "provider" }).success).toBe(false);
     expect(payload.safeParse({ ...resolved, actorKind: "routine", actorName: "nightly-backup", attended: false }).success).toBe(true);
@@ -246,6 +305,14 @@ describe("the permissions events", () => {
     // A denial always says why.
     expect(ToolDecisionPayload.safeParse({ ...decision, reason: null }).success).toBe(false);
     expect(ToolDecisionPayload.safeParse({ ...decision, summary: "" }).success).toBe(false);
+    // The gate's containment denial (#133): a call it ruled on, with no prompt.
+    const contained = { ...decision, toolCallId: "toolu_01", tool: "Write", summary: "Write /etc/hosts", decidedBy: "containment", promptId: null, reason: "Outside the workspace." };
+    expect(ToolDecisionPayload.safeParse(contained).success).toBe(true);
+    expect(ToolDecisionPayload.safeParse({ ...contained, decidedBy: "sandbox" }).success).toBe(false);
+    // An allowed call carries no reason, and says so.
+    expect(ToolDecisionPayload.safeParse({ ...contained, decision: "allowed", decidedBy: "mode" }).success).toBe(false);
+    // A prompt that named no call still gets its decision (#131).
+    expect(ToolDecisionPayload.safeParse({ ...decision, toolCallId: null, tool: null, decidedBy: "ttl" }).success).toBe(true);
   });
 
   it("put review.seen, the Unattended review's watermark, on the settings stream (#131)", () => {

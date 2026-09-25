@@ -1,5 +1,3 @@
-import { lstatSync, readlinkSync } from "node:fs";
-import { dirname, isAbsolute, join, parse, sep } from "node:path";
 import {
   describeDenylistMatch,
   hostOf,
@@ -12,6 +10,7 @@ import {
 } from "@agent-harness/contracts";
 import type { GatedToolCall } from "../adapter/contract.js";
 import type { ToolGateRule } from "../adapter/seams.js";
+import { resolvePath } from "./gate.js";
 
 /**
  * The tool gate's denylist rule (#132; permissions spec, "The denylist",
@@ -27,68 +26,6 @@ import type { ToolGateRule } from "../adapter/seams.js";
  * answered pair and as the call's `tool.decision` by `denylist`. No mode,
  * rule or classifier answers a denylist prompt: only a person allows.
  */
-
-/** Links followed in one path before it counts as a loop, as Linux's own limit. */
-const MAX_LINKS = 40;
-
-const componentsOf = (path: string): string[] => path.split(sep === "\\" ? /[\\/]/ : "/").filter((part) => part !== "");
-
-/** What the resolver reads of the file system: a path's own status, and a link's target. */
-export interface LinkReader {
-  isLink(path: string): boolean;
-  readlink(path: string): string;
-}
-
-const fileSystem: LinkReader = {
-  isLink: (path) => {
-    try {
-      return lstatSync(path).isSymbolicLink();
-    } catch {
-      // Not there: taken as written, as is everything under it.
-      return false;
-    }
-  },
-  readlink: (path) => readlinkSync(path),
-};
-
-/**
- * An absolute path as the file system resolves it: one component at a
- * time, each symbolic link followed where it stands, before any `..` after
- * it is applied, a link whose target is not there read with `readlink`, a
- * component that is not there taken as written. Null when where it leads
- * cannot be said: the links loop (more than 40), or a link went away
- * between being seen and being read; the gate denies such a call rather
- * than guess (as #133's `resolvePath` does).
- */
-export const resolveLinks = (path: string, reader: LinkReader = fileSystem): string | null => {
-  const { root } = parse(path);
-  const pending = componentsOf(path.slice(root.length));
-  let current = root;
-  let links = 0;
-  while (pending.length > 0) {
-    const part = pending.shift() as string;
-    if (part === ".") continue;
-    if (part === "..") {
-      current = dirname(current);
-      continue;
-    }
-    const next = join(current, part);
-    if (!reader.isLink(next)) {
-      current = next;
-      continue;
-    }
-    if (++links > MAX_LINKS) return null;
-    let target: string;
-    try {
-      target = reader.readlink(next);
-    } catch {
-      return null;
-    }
-    if (isAbsolute(target)) current = parse(target).root;
-    pending.unshift(...componentsOf(isAbsolute(target) ? target.slice(parse(target).root.length) : target));
-  }
-  return current;
-};
 
 /** How deep and how wide a tool's input is read for what it touches. */
 const INPUT_DEPTH = 8;
@@ -197,7 +134,7 @@ export interface DenylistContext {
   readonly home: string;
   /** The directories the data directory's preset leaves out: the containment directories the runs write in (#133). */
   readonly exempt: readonly string[];
-  /** Follows symbolic links, null where it cannot say; preset: the file system's (`resolveLinks`). */
+  /** Follows symbolic links, null where it cannot say; preset: the file system's (`resolvePath`, the walk containment's rule shares). */
   readonly resolve?: (path: string) => string | null;
   /** The user whose home `home` is: `~name/` reads as it too. */
   readonly user?: string;
@@ -218,7 +155,8 @@ export interface DenylistReading {
  */
 export const readDenylistCall = (context: DenylistContext, call: DenylistCall, cwd: string): DenylistReading => {
   const unresolvable: string[] = [];
-  const resolve = context.resolve ?? ((path: string) => resolveLinks(path));
+  // The paths the matcher hands it are absolute already, so the base is never read.
+  const resolve = context.resolve ?? ((path: string) => resolvePath(path, "/"));
   const matches = matchDenylist(context.denylist(), withUrlHosts(call), {
     home: context.home,
     cwd,

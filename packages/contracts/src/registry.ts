@@ -45,6 +45,7 @@ import {
   sessionsUntag,
 } from "./methods/sessions.js";
 import {
+  permissionsContainmentSet,
   permissionsDenylistGet,
   permissionsDenylistRestorePresets,
   permissionsDenylistSet,
@@ -153,6 +154,7 @@ export const methods = [
   settingsGet,
   settingsUpdate,
   permissionsModeSet,
+  permissionsContainmentSet,
   permissionsSettingsGet,
   permissionsSettingsSet,
   permissionsPromptsList,

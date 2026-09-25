@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ContainmentMechanism",
+  "type": "string",
+  "enum": [
+    "seatbelt",
+    "bubblewrap"
+  ],
+  "description": "What enforces a workspace containment level: seatbelt (macOS) or bubblewrap (Linux and WSL2)."
+}

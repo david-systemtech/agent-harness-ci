@@ -9,9 +9,7 @@ import {
   type Mode,
   type ProcessStopReason,
   type PromptAnsweredPayload,
-  type PromptKind,
   type PromptOpenedPayload,
-  type ToolDecider,
   type ProviderProcess,
   type RunEndedPayload,
   type RunPolicy,
@@ -21,6 +19,8 @@ import {
 } from "@agent-harness/contracts";
 import type { HostAccounts } from "../accounts/account-service.js";
 import { formatActor, type EventEnvelope, type EventLog, type EventInput } from "../event-log/event-log.js";
+import { runContainment, temporaryContainmentDirectories, type ContainmentDirectories } from "../permissions/containment-directories.js";
+import { createToolGate, type GatedRun } from "../permissions/gate.js";
 import {
   DUPLICATE_PROMPT_MESSAGE,
   RUN_ENDED_MESSAGE,
@@ -30,13 +30,12 @@ import {
   autoDenial,
   nextRunText,
   openedPayload,
-  summarise,
   ruledAnswer,
 } from "../permissions/broker.js";
 import { answersFor, hasKeptAnswer, parkedPromptsOfRun } from "../permissions/prompts-store.js";
 import { readRunPolicy } from "../permissions/review-store.js";
 import type { RunActor } from "../permissions/resolver.js";
-import { answerEvents, recordToolDecision, runToolCalls, type RunToolCalls } from "../permissions/tool-decisions.js";
+import { answerEvents, runToolCalls, type RunToolCalls } from "../permissions/tool-decisions.js";
 import { environmentQueue, latestRun, messageCeilings, providerHeld, providerSessionOf, readRun, readSessionFacts } from "../runs/run-reads.js";
 import {
   decideStart,
@@ -64,14 +63,12 @@ import type {
   AttachmentData,
   PermissionBroker,
   PromptDecision,
-  PromptDetail,
   PromptMessage,
   ProviderCommand,
   ProviderTurn,
+  RunContainment,
   RunContext,
   RunEnd,
-  GateDecision,
-  ToolGate,
   UsageReading,
 } from "./contract.js";
 import type { AttachmentStage } from "./attachment-stage.js";
@@ -171,6 +168,13 @@ export interface AdapterHostOptions {
   readonly promptTtlMs?: () => number | null;
   /** The policy resolver runs start through; preset: the resolver on the settings' presets. */
   readonly resolvePolicy?: PolicySeam;
+  /**
+   * Where a contained run may write beside its workspace: each session's
+   * scratch and temporary directories (#133). Preset: a root of the host's
+   * own, made with `mkdtemp` on first use and removed when the host closes;
+   * the environment keeps them under its data directory.
+   */
+  readonly containmentDirectories?: ContainmentDirectories;
   /**
    * A client session's ceiling as it is now, which a run the environment
    * starts after another (from its queue, or a turn the provider opened) is
@@ -316,11 +320,6 @@ export interface AdapterHost {
 /** The host's own actor, for the run events it decides on itself: an end it appends, a run it starts from the queue. */
 export const HOST_ACTOR = formatActor({ kind: "system", id: "adapter-host" });
 
-/** The tool gate's actor, for the denials it records when no prompt's answer did (`tool.decision`). */
-export const GATE_ACTOR = formatActor({ kind: "system", id: "tool-gate" });
-
-/** What the model reads when the tool gate could not rule on a call (a rule failed): denied, since the gate fails closed. */
-export const GATE_FAILED_MESSAGE = "Denied: the harness could not check this call against its rules, so it was not run. Continue without it and say what you could not do.";
 
 /** `message.requeued` for each message of `runId`: the environment holds it now (ADR 0022). Always the host's. */
 export const requeuedEvents = (runId: string, messageIds: readonly string[]): EventInput[] =>
@@ -353,6 +352,8 @@ interface LiveRun {
   readonly startedAt: number;
   /** The mode the provider runs it in now: its policy's, until a live change (`setMode`) takes. */
   mode: Mode;
+  /** Its containment, as its adapter was handed it and the gate rules under it: its policy's, fixed for the run. */
+  readonly containment: RunContainment;
   run: AdapterRun | undefined;
   /**
    * Set once the host ends it, synchronously and first thing in `finish`,
@@ -411,6 +412,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
   const gateRules = options.gateRules ?? [];
   const promptTtlMs = options.promptTtlMs ?? (() => null);
   const resolvePolicy = options.resolvePolicy ?? presetPolicy;
+  const directories = options.containmentDirectories ?? temporaryContainmentDirectories();
   const { accounts } = options;
   const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
 
@@ -922,70 +924,28 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     },
   });
 
+  /** A live run as the tool gate rules under it. */
+  const gatedRun = (entry: LiveRun): GatedRun => ({ runId: entry.runId, sessionId: entry.sessionId, workspace: entry.plan.workspace.path, containment: entry.containment });
   /**
-   * The gate a run is handed: the rules in order, under the session's run
-   * live when it is asked, else the run it was handed to (whose broker then
-   * denies at once: a call of a run that has gone is moot). A deny is final;
-   * a rule that throws denies the call, so the gate never lets through what
-   * it could not rule on.
+   * The gate a run is handed (`permissions/gate.ts`): containment's rule, then
+   * the environment's (the denylist's, #132), under the session's run live
+   * when it is asked. A rule asks a person through the broker, as a prompt of
+   * that run's, whose answer the host hands to the gate alone.
    */
-  const gateFor = (handedTo: LiveRun): ToolGate => ({
-    check: async (call, signal) => {
-      const current = live.get(handedTo.sessionId);
-      const entry = current !== undefined && !current.ended ? current : handedTo;
-      const broker = brokerFor(entry.sessionId, "gate");
-      // Whether the rule being asked put the call to a person: then the prompt's answer is the call's decision, or, when a
-      // stop denied it in memory, the prompt stays open and a later answer is (ADR 0007); the gate records nothing of it.
-      let asked = false;
-      const run = {
-        runId: entry.runId,
-        sessionId: entry.sessionId,
-        workspace: entry.plan.workspace.path,
-        ask: (kind: PromptKind, detail: PromptDetail, askSignal?: AbortSignal) => {
-          asked = true;
-          const cancel = askSignal ?? signal;
-          return broker.request({ sessionId: entry.sessionId, runId: entry.runId, kind, detail, ...(cancel !== undefined && { signal: cancel }) });
-        },
-      };
-      /** A denial no prompt decided: its `tool.decision`, by the rule's decider, unless the call has one already. */
-      const record = (decider: ToolDecider, reason: string): void => {
-        if (asked) return;
-        try {
-          log.atomically((tx) =>
-            recordToolDecision(
-              log,
-              tx,
-              entry.sessionId,
-              { runId: entry.runId, toolCallId: call.toolCallId, tool: call.tool, summary: summarise("permission", { toolName: call.tool, input: call.input ?? null, summary: call.summary }), decidedBy: decider, promptId: null, decision: "denied", reason },
-              { actor: GATE_ACTOR },
-            ),
-          );
-        } catch (error) {
-          console.error(`Recording the gate's denial of ${call.tool} (${call.toolCallId}) in run ${entry.runId} failed; it is denied all the same:`, error);
-        }
-      };
-      for (const rule of gateRules) {
-        asked = false;
-        let ruling: GateDecision | null;
-        try {
-          ruling = await rule.check(call, run, signal);
-        } catch (error) {
-          console.error(`The tool gate could not rule on ${call.tool} (${call.toolCallId}) in run ${entry.runId}; it is denied:`, error);
-          record(rule.decider, GATE_FAILED_MESSAGE);
-          return { decision: "deny", message: GATE_FAILED_MESSAGE };
-        }
-        if (ruling?.decision === "deny") {
-          record(rule.decider, ruling.message);
-          return ruling;
-        }
-      }
-      return { decision: "allow" };
+  const gateFor = createToolGate({
+    log,
+    rules: gateRules,
+    ask: (run, kind, detail, signal) =>
+      brokerFor(run.sessionId, "gate").request({ sessionId: run.sessionId, runId: run.runId, kind, detail, ...(signal !== undefined && { signal }) }),
+    liveRunOf: (sessionId) => {
+      const current = live.get(sessionId);
+      return current !== undefined && !current.ended ? gatedRun(current) : undefined;
     },
   });
 
   const contextFor = (entry: LiveRun): RunContext => ({
     broker: brokerFor(entry.sessionId),
-    gate: gateFor(entry),
+    gate: gateFor(gatedRun(entry)),
     process: pool.port(entry.sessionId),
     adopt: (turn) => adopt(entry, turn),
     // Checked against the account store's identity for the run's account (#134). The check appends and may run as the
@@ -1016,6 +976,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       append: createScopedAppend({ log, sessionId: plan.sessionId, runId: plan.runId, actor }),
       startedAt: clock.now().getTime(),
       mode: plan.mode,
+      containment: runContainment(plan.policy.containment, plan.workspace.path, directories.of(plan.sessionId)),
       run: undefined,
       ended: false,
       unrecorded: false,
@@ -1074,6 +1035,8 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     ];
     const scope = { sessionId: plan.sessionId, accountId: plan.account.id, workspace: plan.workspace };
     begin(plan, (entry) => {
+      // At a workspace level the directories it may write in are there before the provider is.
+      if (entry.containment.level !== "off") directories.make(plan.sessionId);
       const run = adapterOf(plan.account).createRun(
         {
           sessionId: plan.sessionId,
@@ -1089,6 +1052,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
           target: plan.resumeFrom === null ? { kind: "fresh" } : { kind: "resume", providerSessionId: plan.resumeFrom },
           toolServers: toolServers({ ...scope, runId: plan.runId }),
           trusted: false,
+          containment: entry.containment,
           prompt,
         },
         contextFor(entry),
@@ -1182,8 +1146,17 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     if (actor === undefined) return refuse("the client session its run was started for has been revoked or has expired.");
     const { descriptor } = previous.account;
     const ceiling = [actor.ceiling, ...messageCeilings(reader, turn.messageIds)].reduce(lowerMode);
-    const policy = resolvePolicy({ actor: { ...actor, ceiling }, requested: session.mode, accountModes: descriptor.modes });
+    const policy = resolvePolicy({ actor: { ...actor, ceiling }, requested: session.mode, accountModes: descriptor.modes, containment: session.containment });
     if ("refused" in policy) return refuse(policy.refused);
+    // The provider process runs the turn in the sandbox the run it followed started it with, which no adapter changes on a live process.
+    const followedContainment = previous.policy.containment;
+    if (policy.containment.effective !== followedContainment.effective || policy.containment.mechanism !== followedContainment.mechanism) {
+      const levelOf = (containment: { effective: string; mechanism: string | null }): string =>
+        containment.mechanism === null ? containment.effective : `${containment.effective} (${containment.mechanism})`;
+      return refuse(
+        `it runs at containment ${levelOf(followedContainment)} and the policy now resolves ${levelOf(policy.containment)}, which its process cannot take on, so a run from the queue reads its messages at the new level.`,
+      );
+    }
     const mode = policy.mode.effective;
     const adoptIn = (running: Mode): void => adoptTurn(previous, turn, actor, policy, running);
     if (mode !== followed.mode) {
@@ -1651,6 +1624,8 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       for (const entry of [...live.values()]) finish(entry, { type: "end", reason }, { by: "host", stop });
       for (const sessionId of [...adoptions.keys()]) dropAdoptions(sessionId);
       await pool.close(stop);
+      // The preset's own root, if it made one; the environment's directories stay with its data directory.
+      await directories.close().catch((error: unknown) => console.error("Removing the host's containment directories failed:", error));
     },
   };
 };

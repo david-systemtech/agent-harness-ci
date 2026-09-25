@@ -107,10 +107,10 @@ export interface FakeRunRecord {
   readonly stoppedTasks: string[];
   /** The modes `setMode` changed the live run to, in order. */
   readonly modeChanges: Mode[];
-  /** The answers the host handed it through `answerPrompt`, in order. */
-  readonly answers: { readonly promptId: string; readonly decision: PromptDecision }[];
   /** Every tool call the run asked the gate about, with its ruling, in order. */
   readonly gated: { readonly call: GatedToolCall; readonly decision: GateDecision }[];
+  /** The answers the host handed it through `answerPrompt`, in order. */
+  readonly answers: { readonly promptId: string; readonly decision: PromptDecision }[];
 }
 
 export interface FakeAdapterOptions {
@@ -386,6 +386,8 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
     imageInput: true,
     fileInput: false,
     modeChange: true,
+    // The fake stands in for an adapter that enforces containment (#140's Claude adapter), so the gate's rules can be driven.
+    containment: true,
     instructionChannel: { kind: "system-prompt-append", maxCharacters: null },
     modes: [...(options.modes ?? MODES.map((mode): ModeAvailability => ({ mode, available: true, reason: null })))],
     ...options.capabilities,
@@ -432,8 +434,8 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
       released: false,
       stoppedTasks: [],
       modeChanges: [],
-      answers: [],
       gated: [],
+      answers: [],
     };
     runs.push(record);
     // The gate as this run's script asks it, recording each ruling on the run; an adopted turn is handed the context it followed with.
