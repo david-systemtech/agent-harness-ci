@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { Action, ActionContext } from "./actions.js";
 import { ACCESS_EVENT_PAYLOADS, ACCESS_EVENT_TYPES, AccessEventType, ClientSessionOrigin, RevocationReason } from "./access-log.js";
 import {
   ACCOUNT_EVENT_TYPES,
@@ -378,6 +379,8 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "files/files-list-source.json", title: "FilesListSource", schema: FilesListSource },
   { path: "diffs/session-diff-change.json", title: "SessionDiffChange", schema: SessionDiffChange },
   { path: "diffs/session-diff-file.json", title: "SessionDiffFile", schema: SessionDiffFile },
+  { path: "actions/action-context.json", title: "ActionContext", schema: ActionContext },
+  { path: "actions/action.json", title: "Action", schema: Action },
   { path: "actor.json", title: "Actor", schema: Actor },
   { path: "event-envelope.json", title: "EventEnvelope", schema: EventEnvelope },
   { path: "notices/environment-notice-type.json", title: "EnvironmentNoticeType", schema: EnvironmentNoticeType },
