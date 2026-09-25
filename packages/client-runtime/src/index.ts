@@ -51,7 +51,7 @@ export {
 } from "./connections/records.js";
 export type { Connections, RemoveResult } from "./connections/registry.js";
 export type { ConnectionAction } from "./connections/state-machine.js";
-export { NOTICE_LIMIT, type Notice, type NoticeAction, type NoticeKind } from "./notices.js";
+export { NOTICE_LIMIT, type Notice, type NoticeAction, type NoticeKind, type NoticeSubject } from "./notices.js";
 export {
   parsePairingInput,
   type PairingFailure,
@@ -86,6 +86,26 @@ export {
   type RequestFailureCode,
   type Requests,
 } from "./requests.js";
+export type {
+  AssistantEntry,
+  CommandEntry,
+  OpaqueEntry,
+  PromptEntry,
+  PromptState,
+  RewoundAt,
+  SessionProjection,
+  SessionTranscript,
+  SubagentEntry,
+  TasksEntry,
+  ToolCallEntry,
+  TranscriptEntry,
+  UserMessageEntry,
+} from "./projections/session.js";
+export { COUNTDOWN_TICK_MS, type Countdown, type ParkedAsk, type RunState, type RunsView, type SessionRun } from "./projections/runs.js";
+export type { Attention, AttentionEvent } from "./projections/attention.js";
+export { CLIENT_CALL_ANSWER_METHOD, CLIENT_CALL_EVENT, type ClientCall, type ClientCallHandler, type ClientCalls } from "./projections/client-calls.js";
+export type { AccountsAnswer, EnvironmentAnswer, ModelsAnswer, UsageGauge, UsageView } from "./projections/accounts.js";
+export type { ModeChoice, ModePicker } from "./projections/modes.js";
 export type {
   HeadingMember,
   ListFreshness,
