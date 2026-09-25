@@ -43,6 +43,19 @@ const git = (cwd: string, ...args: string[]): string =>
     env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" },
   });
 
+/**
+ * Gives the environment's git a global config of the test's own, as the
+ * machine's owner would write one: `HOME`, which the scrubbed environment
+ * keeps, is pointed at a directory whose `.gitconfig` holds `entries`.
+ */
+const machineGitConfig = (entries: Record<string, string>): void => {
+  const home = tempDir("agent-harness-home-");
+  for (const [key, value] of Object.entries(entries)) git(home, "config", "--file", join(home, ".gitconfig"), key, value);
+  const before = process.env["HOME"];
+  process.env["HOME"] = home;
+  onCleanup(() => void (before === undefined ? delete process.env["HOME"] : (process.env["HOME"] = before)));
+};
+
 /** A workspace of the test's own, and a session in it. */
 const setUp = async (options: TestEnvironmentOptions = {}) => {
   const t = await start(options);
@@ -186,22 +199,94 @@ describe("git on a workspace", () => {
     expect(existsSync(marker)).toBe(false);
   });
 
-  it("gives git none of the environment's own variables: a clean filter the repository names runs, but sees no secret", async () => {
-    const secret = "AGENT_HARNESS_TEST_GIT_SECRET";
-    process.env[secret] = "the environment's own";
-    onCleanup(() => void delete process.env[secret]);
+  it("refuses a diff whose repository names a clean filter, conflict, reason git_filters_refused, naming it, and never runs it (#212)", async () => {
     const { client, root, sessionId } = await setUp();
     git(root, "init", "-q");
     write(root, { "a.txt": "a\n" });
     git(root, "add", ".");
     git(root, "commit", "-qm", "first");
+    // The filter writes outside the workspace, as an agent's planted one would: the marker says whether it ran.
+    const marker = join(tempDir("agent-harness-marker-"), "ran");
+    git(root, "config", "filter.spy.clean", `sh -c 'echo ran >> ${marker}; cat'`);
+    write(root, { ".gitattributes": "* filter=spy\n", "a.txt": "b\n", "new.txt": "new\n" });
+
+    const error = await refusedWith(client.request("diffs.workingTree", { sessionId }));
+
+    expect([error.code, error.data]).toEqual(["conflict", { reason: "git_filters_refused", filters: ["spy"] }]);
+    expect(error.message).toMatch(/\bspy\b/);
+    expect(existsSync(marker)).toBe(false);
+    // A query: a second ask is refused the same, the filter still never run, and listing the files runs no filter.
+    expect((await refusedWith(client.request("diffs.workingTree", { sessionId }))).data).toEqual({ reason: "git_filters_refused", filters: ["spy"] });
+    expect((await client.request("files.list", { sessionId })).files).toEqual([".gitattributes", "a.txt", "new.txt"]);
+    expect(existsSync(marker)).toBe(false);
+  });
+
+  it("counts a smudge or process filter, and one the repository's config includes from elsewhere, as the repository's; the machine's own config is not the repository's", async () => {
+    const { client, root, sessionId } = await setUp();
+    machineGitConfig({ "filter.machine.clean": "cat" });
+    git(root, "init", "-q");
+    write(root, { "a.txt": "a\n" });
+    git(root, "add", ".");
+    git(root, "commit", "-qm", "first");
+    const included = join(tempDir("agent-harness-include-"), "filters");
+    writeFileSync(included, '[filter "lfs"]\n\tprocess = git-lfs filter-process\n');
+    git(root, "config", "include.path", included);
+    git(root, "config", "filter.Pretty.smudge", "cat");
+    write(root, { "a.txt": "b\n" });
+
+    const error = await refusedWith(client.request("diffs.workingTree", { sessionId }));
+
+    expect([error.code, error.data]).toEqual(["conflict", { reason: "git_filters_refused", filters: ["Pretty", "lfs"] }]);
+  });
+
+  it("never runs the filter a committed nested repository's own config names: its dirt is not looked at, and its commit change still shows (#212)", async () => {
+    const { client, root, sessionId } = await setUp();
+    const nested = join(root, "nested");
+    mkdirSync(nested);
+    git(nested, "init", "-q");
+    write(nested, { "n.txt": "n\n" });
+    git(nested, "add", ".");
+    git(nested, "commit", "-qm", "nested first");
+    const first = git(nested, "rev-parse", "HEAD").trim();
+    git(root, "init", "-q");
+    write(root, { "a.txt": "a\n" });
+    // A gitlink, no .gitmodules: git records the nested repository's commit.
+    git(root, "add", ".");
+    git(root, "commit", "-qm", "first");
+    write(nested, { ".gitattributes": "* filter=spy\n" });
+    git(nested, "add", ".gitattributes");
+    git(nested, "commit", "-qm", "nested second");
+    const second = git(nested, "rev-parse", "HEAD").trim();
+    // Planted after the nested commits, so only the diff could run them; the nested file is left dirty.
+    const marker = join(tempDir("agent-harness-marker-"), "ran");
+    git(nested, "config", "filter.spy.clean", `sh -c 'echo ran >> ${marker}; cat'`);
+    git(nested, "config", "diff.external", `sh -c 'echo ran >> ${marker}'`);
+    // The outer repository asks for the nested diff in full, which would run a diff, and its external diff, inside it.
+    git(root, "config", "diff.submodule", "diff");
+    write(nested, { "n.txt": "dirty\n" });
+
+    const answer = await client.request("diffs.workingTree", { sessionId });
+
+    expect(existsSync(marker)).toBe(false);
+    expect(answer.diff).toContain(`-Subproject commit ${first}\n+Subproject commit ${second}\n`);
+  });
+
+  it("runs a filter the machine's own git config names, and gives git none of the environment's own variables", async () => {
+    const secret = "AGENT_HARNESS_TEST_GIT_SECRET";
+    process.env[secret] = "the environment's own";
+    onCleanup(() => void delete process.env[secret]);
+    const { client, root, sessionId } = await setUp();
     const marker = join(tempDir("agent-harness-marker-"), "seen");
-    git(root, "config", "filter.spy.clean", `sh -c 'echo "[$${secret}]" >> ${marker}; cat'`);
+    machineGitConfig({ "filter.spy.clean": `sh -c 'echo "[$${secret}]" >> ${marker}; cat'` });
+    git(root, "init", "-q");
+    write(root, { "a.txt": "a\n" });
+    git(root, "add", ".");
+    git(root, "commit", "-qm", "first");
     write(root, { ".gitattributes": "* filter=spy\n", "a.txt": "b\n" });
 
-    await client.request("diffs.workingTree", { sessionId });
+    const answer = await client.request("diffs.workingTree", { sessionId });
 
-    // The clean filter still runs (owed to containment, #133); it is handed nothing of the environment's.
+    expect(answer.diff).toContain("-a\n+b\n");
     expect(readFileSync(marker, "utf8").trim().split("\n")).toContain("[]");
     expect(readFileSync(marker, "utf8")).not.toContain("the environment's own");
   });
@@ -291,8 +376,8 @@ describe("diffs.workingTree", () => {
     write(root, { "a.txt": "a\n" });
     git(root, "add", ".");
     git(root, "commit", "-qm", "first");
-    git(root, "config", "filter.broken.clean", "false");
-    git(root, "config", "filter.broken.required", "true");
+    // A failing required filter the machine's config names: the repository's own would be refused before git ran.
+    machineGitConfig({ "filter.broken.clean": "false", "filter.broken.required": "true" });
     write(root, { ".gitattributes": "a.txt filter=broken\n", "a.txt": "b\n" });
 
     const error = await refusedWith(client.request("diffs.workingTree", { sessionId }));
