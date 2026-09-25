@@ -78,12 +78,15 @@ const resumeUnder = async (options: { readonly projectDirName: string | null }):
       },
     },
   });
+  let failure: unknown;
   try {
     for await (const message of made) void message;
-  } catch {
+  } catch (error) {
     // The recorder answers nothing, so the query ends in error once it exits; what it recorded is the point.
+    failure = error;
   }
-  await expect.poll(() => existsSync(record), { timeout: 10_000 }).toBe(true);
+  // A recorder that never ran leaves no record: the query's own error says why.
+  await expect.poll(() => existsSync(record), { timeout: 10_000, message: `The recorder wrote no record; the query ended with: ${String(failure)}` }).toBe(true);
   return { spawned: JSON.parse(readFileSync(record, "utf8")) as Spawned, accountB };
 };
 

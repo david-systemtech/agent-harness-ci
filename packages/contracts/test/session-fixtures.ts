@@ -12,7 +12,7 @@ interface Fixtures {
 
 const commandId = "0f8fad5b-d9cb-469f-a165-70867728950e";
 const sessionId = "7c9e6679-7425-40de-944b-e07fc1f90ae7";
-const otherSessionId = "1b4e28ba-2fa1-41d2-883f-0016d3cca427";
+const otherSessionId = "3d6f9a2c-4b1e-4c8d-a5f7-2e9b0c1d4a68";
 const messageId = "9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d";
 const groupId = "1b4e28ba-2fa1-41d2-883f-0016d3cca427";
 const at = "2026-09-24T01:02:03.456Z";
