@@ -3,7 +3,7 @@ import { ContractError, type AttachmentInput, type Mode, type PromptAnsweredPayl
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { manualClock } from "../../test/clock.js";
 import { storeAccounts } from "../../test/accounts.js";
-import { FAKE_AMBIENT_DIRECTORY, end, fakeAdapter, gate, say, type FakeAdapter } from "../../test/fake-adapter.js";
+import { FAKE_AMBIENT_DIRECTORY, ask, end, fakeAdapter, gate, say, toldText, type FakeAdapter } from "../../test/fake-adapter.js";
 import type { ConfiguredAccount } from "../accounts/account-service.js";
 import { accountsProjector } from "../accounts/account-store.js";
 import { openEventLog, type EventEnvelope, type EventLog } from "../event-log/event-log.js";
@@ -1000,8 +1000,44 @@ describe("the seams", () => {
 });
 
 describe("a run's prompts", () => {
-  it("park the run from the request until its answer, whether the broker settles it or the host answers it through the run", async () => {
-    // The answer comes through the adapter's own table: the requests themselves are never settled.
+  it("take a person's answer one way, deliverAnswer, which settles the request the run waits on and hands the adapter the answer (#224)", async () => {
+    const t = await setup(fakeAdapter({ script: ask("permission", { toolName: "Bash" }, { promptId: "p-1" }) }));
+    const runId = startRun(t);
+    const state = () => [...t.host.runs.runs()].find((run) => run.id === runId)?.state;
+    await vi.waitFor(() => expect(openedOf(t)).toHaveLength(1));
+    expect(state()).toBe("parked");
+
+    // The answer as permissions.prompts.answer records it in its transaction, then hands it to the run after the commit.
+    const decision = { decision: "allow", message: "Go ahead" } as const;
+    const answer: PromptAnsweredPayload = {
+      runId,
+      promptId: "p-1",
+      decision: "allow",
+      message: "Go ahead",
+      answers: null,
+      updatedInput: null,
+      mode: null,
+      remember: null,
+      decidedBy: randomUUID(),
+      delivery: "live",
+    };
+    t.log.append({ kind: "session", id: t.sessionId }, [{ type: "prompt.answered", payload: answer }], { actor: "client_session:test", correlationId: runId });
+    expect(t.host.deliverAnswer(runId, "p-1", decision)).toBeUndefined();
+    expect(state()).toBe("running");
+
+    // The request the run asked resolves with the answer (the provider's canUseTool is never left waiting), and the adapter has it too.
+    await untilEnded(t, runId);
+    expect(eventsOf(t).filter((event) => event.type === "assistant.text").at(-1)?.payload["text"]).toBe(toldText(decision));
+    expect(t.adapter.lastRun().answers).toEqual([{ promptId: "p-1", decision }]);
+    // The command's answer is the prompt's one: the run's end found nothing open to close.
+    expect(answeredOf(t)).toEqual([answer]);
+    expect(endsOf(t, runId)[0]?.payload).toMatchObject({ reason: "completed" });
+    // No other way in: an answer handed to the adapter alone would leave the request pending until the run ends.
+    expect(t.host).not.toHaveProperty("answerPrompt");
+  });
+
+  it("park the run from the request until its answer, whether the provider cancels it or a person's answer reaches it through deliverAnswer", async () => {
+    // The script reads the answers from the adapter's own table: deliverAnswer hands them there as well as settling the requests.
     const t = await setup(
       fakeAdapter({
         script: async function* ({ context, input, nextAnswer }) {
@@ -1024,9 +1060,9 @@ describe("a run's prompts", () => {
     expect(state()).toBe("parked");
     expect(t.host.processes.list()[0]?.state).toBe("parked");
 
-    t.host.answerPrompt(runId, "p-1", { decision: "allow" });
+    t.host.deliverAnswer(runId, "p-1", { decision: "allow" });
     expect(state()).toBe("parked");
-    t.host.answerPrompt(runId, requests[1]?.promptId as string, { decision: "deny" });
+    t.host.deliverAnswer(runId, requests[1]?.promptId as string, { decision: "deny" });
     expect(state()).toBe("running");
     expect(t.host.processes.list()[0]?.state).toBe("busy");
 
@@ -1091,7 +1127,7 @@ describe("a run's prompts", () => {
     expect(t.host.processes.list()[0]?.state).toBe("busy");
   });
 
-  it("refuses an answer prompt_not_open for a prompt its live run has not raised, and run_ended once the run has ended, whatever the adapter would say", async () => {
+  it("refuses an answer prompt_not_open for a prompt its live run has not raised, whatever the adapter would say, and hands an ended run nothing", async () => {
     const held = gate();
     const t = await setup(
       fakeAdapter({
@@ -1105,11 +1141,13 @@ describe("a run's prompts", () => {
     );
     const runId = startRun(t);
     await vi.waitFor(() => expect(openedOf(t)).toHaveLength(1));
-    expect(() => t.host.answerPrompt(runId, "p-unknown", { decision: "allow" })).toThrow(expect.objectContaining({ code: "conflict", data: expect.objectContaining({ reason: "prompt_not_open" }) }));
+    expect(() => t.host.deliverAnswer(runId, "p-unknown", { decision: "allow" })).toThrow(expect.objectContaining({ code: "conflict", data: expect.objectContaining({ reason: "prompt_not_open" }) }));
     expect([...t.host.runs.runs()].find((run) => run.id === runId)?.state).toBe("parked");
     held.open();
     await untilEnded(t, runId);
-    expect(() => t.host.answerPrompt(runId, "p-1", { decision: "allow" })).toThrow(expect.objectContaining({ code: "conflict", data: expect.objectContaining({ reason: "run_ended" }) }));
+    // The answer's command checked the run in its transaction and the log keeps the answer: the adapter is not asked.
+    expect(t.host.deliverAnswer(runId, "p-1", { decision: "allow" })).toBeUndefined();
+    expect(t.adapter.lastRun().answers).toEqual([]);
   });
 
   it("refuses an answer internal, logged, when the adapter fails at it for any other reason, at once or asynchronously", async () => {
@@ -1129,11 +1167,11 @@ describe("a run's prompts", () => {
     const runId = startRun(t);
     await vi.waitFor(() => expect([...t.host.runs.runs()].find((run) => run.id === runId)?.state).toBe("parked"));
     const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
-    await expect(t.host.answerPrompt(runId, "p-1", { decision: "allow" })).rejects.toMatchObject({ code: "internal", message: expect.stringMatching(/control channel is gone/) });
+    await expect(t.host.deliverAnswer(runId, "p-1", { decision: "allow" })).rejects.toMatchObject({ code: "internal", message: expect.stringMatching(/control channel is gone/) });
     fail = () => {
       throw new Error("The adapter broke.");
     };
-    expect(() => t.host.answerPrompt(runId, "p-2", { decision: "allow" })).toThrow(expect.objectContaining({ code: "internal", message: expect.stringMatching(/adapter broke/) }));
+    expect(() => t.host.deliverAnswer(runId, "p-2", { decision: "allow" })).toThrow(expect.objectContaining({ code: "internal", message: expect.stringMatching(/adapter broke/) }));
     expect(logged).toHaveBeenCalledTimes(2);
     logged.mockRestore();
     held.open();
@@ -1158,21 +1196,17 @@ describe("a run's prompts", () => {
     );
     const runId = startRun(t);
     await vi.waitFor(() => expect([...t.host.runs.runs()].find((run) => run.id === runId)?.state).toBe("parked"));
-    await expect(t.host.answerPrompt(runId, "p-1", { decision: "allow" })).rejects.toMatchObject({ code: "conflict", data: { reason: "run_ended", runId, promptId: "p-1" } });
+    await expect(t.host.deliverAnswer(runId, "p-1", { decision: "allow" })).rejects.toMatchObject({ code: "conflict", data: { reason: "run_ended", runId, promptId: "p-1" } });
     held.open();
   });
 
-  it("refuses an answer on an adapter that takes none, invalid_params with reason unsupported", async () => {
-    const held = gate();
-    const t = await setup(fakeAdapter({ capabilities: { interactivePrompts: false }, script: async function* () {
-      yield say("Working");
-      await held.opened;
-      yield end();
-    } }));
+  it("settle the request alone on an adapter that takes no answers, handing the adapter nothing", async () => {
+    const t = await setup(fakeAdapter({ capabilities: { interactivePrompts: false }, script: ask("permission", {}, { promptId: "p-1" }) }));
     const runId = startRun(t);
-    await vi.waitFor(() => expect(eventsOf(t).map((event) => event.type)).toContain("assistant.text"));
-    expect(() => t.host.answerPrompt(runId, "p-1", { decision: "allow" })).toThrow(expect.objectContaining({ code: "invalid_params" }));
-    held.open();
+    await vi.waitFor(() => expect([...t.host.runs.runs()].find((run) => run.id === runId)?.state).toBe("parked"));
+    expect(t.host.deliverAnswer(runId, "p-1", { decision: "deny", message: "No" })).toBeUndefined();
+    await vi.waitFor(() => expect(eventsOf(t).filter((event) => event.type === "assistant.text").at(-1)?.payload["text"]).toBe(toldText({ decision: "deny", message: "No" })));
+    expect(t.adapter.lastRun().answers).toEqual([]);
   });
 });
 
