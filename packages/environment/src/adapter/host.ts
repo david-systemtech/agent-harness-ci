@@ -6,6 +6,7 @@ import {
   type IssueInput,
   type MessageDeliveredPayload,
   type MessageRequeuedPayload,
+  type MessageWithdrawnPayload,
   type Mode,
   type ProcessStopReason,
   type PromptAnsweredPayload,
@@ -252,6 +253,23 @@ export interface AdapterHost {
   continueSession(sessionId: string): void;
   /** Interrupts a live run with cancel; the messages its provider still held come back to the environment's queue. */
   interrupt(runId: string): void;
+  /**
+   * Reads the session's queue now (ADR 0022, #228), once the command that
+   * asked has committed: interrupts its live run with cause `read-now`, takes
+   * back what the provider still held, and once the run's end is recorded
+   * starts the next run with the environment's whole queue, for `actor`
+   * under its ceiling as it is then and each queued sender's.
+   */
+  readNow(sessionId: string, actor: RunActor): void;
+  /**
+   * Asks the provider holding the session's queue to take message
+   * `messageId` back (`withdraw`, ADR 0022, #228), through the session's live
+   * run: `withdrawn` when it did, false when it no longer holds it (it read
+   * it), and false with no run live to ask (a turn the provider opened with
+   * it is being adopted). Refused `invalid_params`, reason `unsupported`,
+   * when the run's adapter cannot withdraw, and `internal` when it fails.
+   */
+  withdraw(sessionId: string, messageId: string): Promise<{ readonly withdrawn: boolean }>;
   /** Stops a piece of a live run's delegated work. */
   stopTask(runId: string, taskId: string): void;
   /** Changes a live run's mode through its adapter (`modeChange`), once the command that asked has committed; its resolved policy stays. */
@@ -361,6 +379,12 @@ interface LiveRun {
   unrecorded: boolean;
   running: boolean;
   interrupting: boolean;
+  /**
+   * Set by `runs.readNow` (#228): whose run of the queue starts once both the
+   * interrupt has taken back what the provider held and the end is
+   * recorded, and whether each has happened; its end's cause is `read-now`.
+   */
+  readNow: ReadNow | null;
   /** The prompts it raised that are not answered yet, by id: while any is, the run is parked. */
   readonly prompts: Set<string>;
   /** Whether its adapter was handed the run's input; until then the messages it was launched with are still the environment's. */
@@ -369,6 +393,14 @@ interface LiveRun {
   readonly launchedWith: readonly PromptMessage[];
   /** Its tool calls, for the decisions no prompt's answer makes (#131). */
   readonly calls: RunToolCalls;
+}
+
+/** A read-now waiting on its run's interrupt and end (#228). */
+interface ReadNow {
+  readonly actor: RunActor;
+  interrupted: boolean;
+  ended: boolean;
+  started: boolean;
 }
 
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
@@ -554,6 +586,44 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     });
   };
 
+  /**
+   * Interrupts a live run with cancel, for `runs.interrupt` or a read-now:
+   * what its provider reports it no longer holds comes back to the
+   * environment's queue, and `then` runs once it has (#228's read-now waits
+   * on it). An interrupt the adapter cannot make ends the run as the host's,
+   * `interrupted`, and disposes it.
+   */
+  const interruptRun = (entry: LiveRun, then: () => void = () => undefined): void => {
+    const run = entry.run;
+    if (run === undefined) return;
+    entry.interrupting = true;
+    safely(
+      async () => {
+        const { stillQueued } = await run.interrupt();
+        // What the provider no longer holds comes back to the environment's queue, in its order (ADR 0022), this run's
+        // and any an earlier run left with the provider, even when the run's end came first: the end took back this
+        // run's only, and a message it took back is the environment's already, so nothing is taken back twice.
+        if (!closing) requeueReported(entry.sessionId, stillQueued);
+        then();
+      },
+      (error) => {
+        // The adapter could not interrupt: the host ends the run itself, interrupted as asked, and disposes it.
+        console.error(`Interrupting run ${entry.runId} failed; the host ends it:`, error);
+        then();
+        finish(entry, { type: "end", reason: "interrupted", cause: "user" }, { by: "host", stop: "failed" });
+      },
+    );
+  };
+
+  /** Starts a read-now's run of the queue once its run's interrupt and end are both done, once (#228). */
+  const startReadNow = (entry: LiveRun): void => {
+    const pending = entry.readNow;
+    if (pending === null || !pending.interrupted || !pending.ended || pending.started || closing) return;
+    pending.started = true;
+    // The run the queue would have had after this one, for the caller: its model and effort, the caller's ceiling and each sender's.
+    startFromQueue({ ...entry.plan, actor: pending.actor });
+  };
+
   const startFacts = (sessionId: string, actor: RunActor): StartFacts => {
     const session = readSessionFacts(log, reader, sessionId);
     const accountId = session?.account ?? accounts.defaultId();
@@ -655,7 +725,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       runId: entry.runId,
       reason,
       // The host knows it interrupted; an adapter that ends interrupted on its own names its cause, or none.
-      cause: reason === "interrupted" ? (entry.interrupting ? "user" : (full.cause ?? null)) : null,
+      cause: reason === "interrupted" ? (entry.interrupting ? (entry.readNow !== null ? "read-now" : "user") : (full.cause ?? null)) : null,
       error: reason === "error" ? (full.error ?? { message: "The run failed.", code: null }) : null,
       usage: full.usage === undefined || full.usage === null ? null : [...full.usage],
       durationMs: Math.max(0, clock.now().getTime() - entry.startedAt),
@@ -731,6 +801,12 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       if (rest.length > 0) adoptions.set(entry.sessionId, rest);
       else adoptions.delete(entry.sessionId);
       adoptNow(adopted.followed, adopted.turn);
+      return;
+    }
+    // A read-now's run of the queue, once its interrupt has taken back what the provider held too (#228).
+    if (entry.readNow !== null) {
+      entry.readNow.ended = true;
+      startReadNow(entry);
       return;
     }
     // Not after a run that never reached its adapter: the next start, not a loop of failing ones, reads the queue it left.
@@ -957,6 +1033,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       unrecorded: false,
       running: false,
       interrupting: false,
+      readNow: null,
       prompts: new Set(),
       received: false,
       launchedWith,
@@ -1339,6 +1416,11 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       if (delivered.delivery === "steered") unstage(delivered.messageId);
       return;
     }
+    // Withdrawn (#228): no run will read its bytes, which go as a read message's do.
+    if (event.type === "message.withdrawn") {
+      unstage((event.payload as MessageWithdrawnPayload).messageId);
+      return;
+    }
     if (event.type === "session.purged") {
       for (const [messageId, staged] of [...heldAttachments]) if (staged.sessionId === event.streamId) unstage(messageId);
       lastPlans.delete(event.streamId);
@@ -1516,22 +1598,33 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     interrupt(runId) {
       const entry = byRunId(runId);
       if (entry === undefined || entry.ended || entry.interrupting || entry.run === undefined) return;
-      entry.interrupting = true;
-      const run = entry.run;
-      safely(
-        async () => {
-          const { stillQueued } = await run.interrupt();
-          // What the provider no longer holds comes back to the environment's queue, in its order (ADR 0022), this run's
-          // and any an earlier run left with the provider, even when the run's end came first: the end took back this
-          // run's only, and a message it took back is the environment's already, so nothing is taken back twice.
-          if (!closing) requeueReported(entry.sessionId, stillQueued);
-        },
-        (error) => {
-          // The adapter could not interrupt: the host ends the run itself, interrupted as asked, and disposes it.
-          console.error(`Interrupting run ${runId} failed; the host ends it:`, error);
-          finish(entry, { type: "end", reason: "interrupted", cause: "user" }, { by: "host", stop: "failed" });
-        },
-      );
+      interruptRun(entry);
+    },
+    readNow(sessionId, actor) {
+      const entry = live.get(sessionId);
+      if (closing || entry === undefined || entry.ended || entry.readNow !== null) return;
+      const pending: ReadNow = { actor, interrupted: false, ended: false, started: false };
+      entry.readNow = pending;
+      const interrupted = (): void => {
+        pending.interrupted = true;
+        startReadNow(entry);
+      };
+      // An interrupt under way takes back what the provider held already; one never handed its input has nothing to interrupt.
+      if (entry.interrupting || entry.run === undefined) interrupted();
+      else interruptRun(entry, interrupted);
+    },
+    async withdraw(sessionId, messageId) {
+      const entry = live.get(sessionId);
+      const run = entry?.run;
+      // No run is live to ask: the provider's queue is read by a turn it opened, waiting to be adopted.
+      if (entry === undefined || entry.ended || run === undefined) return { withdrawn: false };
+      const withdraw = capability(entry.descriptor, "providerQueue", run.withdraw, "withdraw a queued message", "withdraw");
+      try {
+        return await withdraw.call(run, messageId);
+      } catch (error) {
+        console.error(`Withdrawing message ${messageId} from the provider of run ${entry.runId} failed:`, error);
+        throw new ContractError({ code: "internal", message: `The provider could not say whether it still held message ${messageId}: ${messageOf(error)}`, data: {} });
+      }
     },
     holdsPrompt: (runId, promptId) => byRunId(runId)?.prompts.has(promptId) === true,
     deliverAnswer(runId, promptId, decision) {

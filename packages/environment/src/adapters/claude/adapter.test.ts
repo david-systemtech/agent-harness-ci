@@ -647,6 +647,86 @@ describe("a mode change on a live run", () => {
   });
 });
 
+describe("a withdraw", () => {
+  it("withdraws a queued message through the cancel-by-id control, so an interrupt never hands it back", async () => {
+    const steer = message("Wait, do this instead");
+    const other = message("And this");
+    fake.controls = {
+      interruptReceipt: async () => ({ still_queued: [], cancelled: [other.messageId] }),
+      cancelled: (uuid) => uuid === steer.messageId,
+    };
+    const adapter = adapterWith();
+    const run = adapter.createRun(runInput(), contextWith());
+    const query = await started();
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [query.prompts[0]?.uuid as string]));
+    await flush();
+    await run.send(steer);
+    await run.send(other);
+    expect(await run.withdraw?.(steer.messageId)).toEqual({ withdrawn: true });
+    expect(query.cancelRequests).toEqual([steer.messageId]);
+    // Only what the CLI still held is handed back; the withdrawn one is gone.
+    expect(await run.interrupt()).toEqual({ stillQueued: [other.messageId] });
+  });
+
+  it("answers not withdrawn when the CLI says it no longer holds the message: it was read", async () => {
+    const steer = message("Wait, do this instead");
+    fake.controls = { cancelled: () => false };
+    const adapter = adapterWith();
+    const run = adapter.createRun(runInput(), contextWith());
+    const query = await started();
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [query.prompts[0]?.uuid as string]));
+    await flush();
+    await run.send(steer);
+    expect(await run.withdraw?.(steer.messageId)).toEqual({ withdrawn: false });
+    expect(query.cancelRequests).toEqual([steer.messageId]);
+  });
+
+  it("answers not withdrawn, asking the CLI nothing, for a message a turn has been seen reading", async () => {
+    const steer = message("Also check the tests");
+    fake.controls = { cancelled: () => true };
+    const adapter = adapterWith();
+    const input = runInput();
+    const run = adapter.createRun(input, contextWith());
+    const query = await started();
+    const promptId = input.prompt[0]?.messageId as string;
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [promptId]));
+    await run.send(steer);
+    await query.promptsPushed(2);
+    query.emit(sdk.text("msg_2", "Checking the tests too.", [promptId, steer.messageId]));
+    await flush();
+    expect(await run.withdraw?.(steer.messageId)).toEqual({ withdrawn: false });
+    expect(query.cancelRequests).toEqual([]);
+  });
+
+  it("takes a message back from the prompt pump before the CLI has read it, asking the CLI nothing", async () => {
+    fake.controls = { cancelled: () => true };
+    const adapter = adapterWith();
+    const run = adapter.createRun(runInput(), contextWith());
+    // Sent before the process has spawned, and withdrawn before the SDK reads the pump.
+    const early = message("Sent before the spawn");
+    const sending = run.send(early);
+    const withdrawing = run.withdraw?.(early.messageId);
+    await sending;
+    expect(await withdrawing).toEqual({ withdrawn: true });
+    const query = await started();
+    await flush();
+    expect(query.prompts.map((prompt) => prompt.uuid)).not.toContain(early.messageId);
+    expect(query.cancelRequests).toEqual([]);
+  });
+
+  it("refuses when the SDK has no cancel-by-id control: the message cannot be taken back", async () => {
+    const steer = message("Wait, do this instead");
+    const adapter = adapterWith();
+    const run = adapter.createRun(runInput(), contextWith());
+    const query = await started();
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [query.prompts[0]?.uuid as string]));
+    await flush();
+    await run.send(steer);
+    await query.promptsPushed(2);
+    await expect(run.withdraw?.(steer.messageId)).rejects.toThrow(/cancel-by-id/);
+  });
+});
+
 describe("an interrupt", () => {
   it("interrupts the turn, which ends interrupted though the provider calls it an error", async () => {
     const adapter = adapterWith();

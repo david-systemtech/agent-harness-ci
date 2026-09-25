@@ -182,6 +182,20 @@ export const MessageRequeuedPayload = z
   });
 export type MessageRequeuedPayload = z.infer<typeof MessageRequeuedPayload>;
 
+export const MessageWithdrawnPayload = z
+  .object({
+    ...runPart,
+    messageId: MessageId,
+    heldBy: QueueHolder.meta({
+      description: "Who held it when it was taken back: the provider, which cancelled it by id, or the environment, whose queue it left.",
+    }),
+  })
+  .meta({
+    description:
+      "message.withdrawn: a queued message was taken back before any run read it (runs.withdraw, ADR 0022); runId is the run it was sent during. No run reads it after this; its text went to the session's draft in the same transaction (session.draft-set), and its attachments are dropped.",
+  });
+export type MessageWithdrawnPayload = z.infer<typeof MessageWithdrawnPayload>;
+
 /** Which stream of the open assistant item a fragment extends. */
 export const DELTA_KINDS = ["text", "thinking"] as const;
 const DeltaKind = z.enum(DELTA_KINDS).meta({ description: "What a fragment extends: the open item's text, or its thinking." });
@@ -317,6 +331,7 @@ export const TRANSCRIPT_EVENT_TYPES = {
   "message.sent": unlisted(MessageSentPayload),
   "message.delivered": unlisted(MessageDeliveredPayload),
   "message.requeued": unlisted(MessageRequeuedPayload),
+  "message.withdrawn": unlisted(MessageWithdrawnPayload),
   "assistant.delta": unlisted(AssistantDeltaPayload),
   "assistant.text": unlisted(AssistantTextPayload),
   "assistant.thinking": unlisted(AssistantThinkingPayload),

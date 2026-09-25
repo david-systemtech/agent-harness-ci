@@ -421,6 +421,16 @@ export interface AdapterRun {
    */
   interrupt(): Promise<{ readonly stillQueued: readonly string[] }>;
   /**
+   * Takes back one message the provider holds in its queue, by the id it was
+   * handed under (`providerQueue`; Claude's cancel-by-id control, ADR 0022):
+   * `withdrawn` when the provider cancelled it, so no turn will read it;
+   * false when the provider no longer holds it, having read it (or never
+   * had it). The host calls it only for a message the log says the provider
+   * holds, on the session's live run, since a provider's queue is the
+   * session's; it throws when the provider cannot say.
+   */
+  withdraw?(messageId: string): Promise<{ readonly withdrawn: boolean }>;
+  /**
    * Answers a parked prompt (`interactivePrompts`); throws `PromptClosed`
    * when the answer can reach no tool call. An adapter denies its run's
    * parked prompts itself as the run ends, however it ends: once a run is no

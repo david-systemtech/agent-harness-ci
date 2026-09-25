@@ -143,6 +143,10 @@ const payloads: Record<string, Fixtures> = {
     invalid: [{ runId, messageId, delivery: "queued" }, { runId, delivery: "steered" }],
   },
   "message.requeued": { valid: [{ runId, messageId }], invalid: [{ runId }, { runId, messageId: "m-1" }] },
+  "message.withdrawn": {
+    valid: [{ runId, messageId, heldBy: "provider" }, { runId, messageId, heldBy: "environment" }],
+    invalid: [{ runId, messageId }, { runId, messageId, heldBy: "read" }, { runId, heldBy: "provider" }],
+  },
   "assistant.delta": {
     valid: [{ runId, itemId: "i-1", fragments: [{ kind: "text", text: "Hel" }, { kind: "thinking", text: "hmm" }] }],
     invalid: [{ runId, itemId: "i-1", fragments: [] }, { runId, itemId: "i-1", fragments: [{ kind: "tool", text: "x" }] }],
@@ -404,5 +408,23 @@ export const runMethodFixtures: Record<string, { params: Fixtures; result: Fixtu
   "runs.stopTask": {
     params: { valid: [{ commandId, runId, taskId: "t-1" }], invalid: [...noRun, { commandId, runId, taskId: "" }] },
     result: { valid: [{ runId, taskId: "t-1", ended: false }], invalid: [{ runId, ended: false }, { runId, taskId: "t-1" }] },
+  },
+  "runs.readNow": {
+    params: { valid: [{ commandId, sessionId }], invalid: [{ commandId }, { commandId, sessionId: "s-1" }, { sessionId }] },
+    result: {
+      valid: [
+        { sessionId, interruptedRunId: runId, runId: null },
+        { sessionId, interruptedRunId: null, runId },
+        { sessionId, interruptedRunId: null, runId: null },
+      ],
+      invalid: [{ sessionId, interruptedRunId: null }, { sessionId, interruptedRunId: "r-1", runId: null }, { interruptedRunId: null, runId: null }],
+    },
+  },
+  "runs.withdraw": {
+    params: { valid: [{ commandId, messageId }], invalid: [{ commandId }, { commandId, messageId: "m-1" }, { messageId }] },
+    result: {
+      valid: [{ messageId, sessionId, heldBy: "provider" }, { messageId, sessionId, heldBy: "environment" }],
+      invalid: [{ messageId, sessionId }, { messageId, sessionId, heldBy: null }, { messageId, heldBy: "provider" }],
+    },
   },
 };

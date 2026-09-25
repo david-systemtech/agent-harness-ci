@@ -1119,6 +1119,39 @@ export class ClaudeProcess implements TurnControl {
   }
 
   /**
+   * Takes back one queued message this process sent (ADR 0022's withdraw,
+   * #228), once whose turn the CLI opened is known: one a turn has been seen
+   * reading, or never sent here, is not withdrawn and the CLI is not asked;
+   * one still in the prompt pump, which the SDK has not read, is taken out
+   * of it at once; any other goes to the CLI's cancel-by-id control
+   * (`cancelAsyncMessage`), whose answer says whether the CLI still held it:
+   * false means a turn read it, and its reply naming it will follow. Without
+   * the control nothing can take the message back, and the call throws.
+   */
+  async withdraw(messageId: string): Promise<{ readonly withdrawn: boolean }> {
+    // Still in the pump, so the SDK has not read it and the CLI cannot have it: taken out here, nobody asked.
+    if (this.#queuedSends.has(messageId) && this.#prompts.remove((prompt) => prompt.uuid === messageId)) {
+      this.#queuedSends.delete(messageId);
+      return { withdrawn: true };
+    }
+    await this.#decided();
+    if (!this.#queuedSends.has(messageId)) return { withdrawn: false };
+    const query = this.#query;
+    if (query === undefined || !this.#featuresOf(query).cancelById) {
+      throw new Error("This Claude SDK has no cancel-by-id control, so the queued message cannot be taken back; it runs as the CLI's next turn.");
+    }
+    const cancel = (query as unknown as QueryControls).cancelAsyncMessage;
+    let withdrawn: boolean;
+    try {
+      withdrawn = (await this.#within(cancel?.call(query, messageId) ?? Promise.resolve(false), this.#deps.timings.controlTimeoutMs)) === true;
+    } catch (error) {
+      throw new Error(`The CLI did not answer the withdraw of message ${messageId}: ${describe(error)}`, { cause: error });
+    }
+    if (withdrawn) this.#queuedSends.delete(messageId);
+    return { withdrawn };
+  }
+
+  /**
    * Interrupts the open turn and takes the queue back with it (ADR 0022: an
    * interrupt re-owns the queue and starts nothing). The pinned SDK's
    * `interrupt({cancelQueued: true})`, present at run time though its

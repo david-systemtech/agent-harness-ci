@@ -39,6 +39,9 @@ import { MANUAL_CLOCK_START } from "./clock.js";
  * the end an interrupt causes. A provider queue that does not steer holds
  * what it is sent and, when the turn completes, opens a turn with it on its
  * own, reported through the adoption hook, as a provider reading its queue does.
+ * It gives a message it still holds back on `withdraw` (#228), and says it
+ * no longer holds one a turn has taken; a test can hold every withdraw on a
+ * gate (`holdWithdraws`) to race it against the provider's read.
  *
  * Titles (session-state spec, "Title fallback"): the fake can declare
  * `titleRead`, answering a title of its own and recording each read, and
@@ -117,6 +120,8 @@ export interface FakeRunRecord {
   readonly gated: { readonly call: GatedToolCall; readonly decision: GateDecision }[];
   /** The answers the host handed it through `answerPrompt`, in order. */
   readonly answers: { readonly promptId: string; readonly decision: PromptDecision }[];
+  /** The messages the host asked it to take back (`withdraw`), in order, whether or not it still held them. */
+  readonly withdrawals: string[];
 }
 
 export interface FakeAdapterOptions {
@@ -156,6 +161,8 @@ export interface FakeAdapterOptions {
   readonly titleWrite?: true | { readonly fails: string };
   /** A gate every process stop waits on before it finishes, so a test sees a process `stopping`. Preset: none. */
   readonly holdStops?: Gate;
+  /** A gate every `withdraw` waits on, once recorded, before it looks at what the provider holds (#228). Preset: none. */
+  readonly holdWithdraws?: Gate;
   /** What stamps the preset usage reading's `readAt`; give it the test's manual clock. Preset: `MANUAL_CLOCK_START`, always. */
   readonly clock?: Pick<Clock, "now">;
   /** The plan-usage read, per account: answers at once, when its promise settles, or throws. Preset: `presetUsage`. */
@@ -468,6 +475,7 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
       modeChanges: [],
       gated: [],
       answers: [],
+      withdrawals: [],
     };
     runs.push(record);
     // The gate as this run's script asks it, recording each ruling on the run; an adopted turn is handed the context it followed with.
@@ -572,6 +580,15 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
         const taker = takers.shift();
         if (taker !== undefined && descriptor.steering) taker(message);
         else untaken.push(message);
+      },
+      async withdraw(messageId) {
+        record.withdrawals.push(messageId);
+        await options.holdWithdraws?.opened;
+        // Held until a turn takes it: a steering provider's taker, or the turn it opens with its queue.
+        const at = untaken.findIndex((message) => message.messageId === messageId);
+        if (at === -1) return { withdrawn: false };
+        untaken.splice(at, 1);
+        return { withdrawn: true };
       },
       async interrupt() {
         record.interrupted = true;

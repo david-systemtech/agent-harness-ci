@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "runs.readNow result",
+  "type": "object",
+  "properties": {
+    "sessionId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "A session's id: a version 4 UUID the creating client mints (never the provider's resume id), kept in lowercase."
+    },
+    "interruptedRunId": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+          "description": "A run's id: a version 4 UUID the environment mints when the run starts or is adopted."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The live run interrupted to read the queue; its end and the next run.started follow on the session's stream. Null when no run was live."
+    },
+    "runId": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+          "description": "A run's id: a version 4 UUID the environment mints when the run starts or is adopted."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The run of the queue this command started, when no run was live; null when it starts after the interrupted run's end, or when nothing was queued."
+    }
+  },
+  "required": [
+    "sessionId",
+    "interruptedRunId",
+    "runId"
+  ]
+}

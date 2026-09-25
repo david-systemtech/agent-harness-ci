@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MessageWithdrawnPayload",
+  "type": "object",
+  "properties": {
+    "runId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "A run's id: a version 4 UUID the environment mints when the run starts or is adopted."
+    },
+    "messageId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "A user message's id: a version 4 UUID the environment mints when a client sends it, and the id the provider is handed."
+    },
+    "heldBy": {
+      "type": "string",
+      "enum": [
+        "provider",
+        "environment"
+      ],
+      "description": "Who held it when it was taken back: the provider, which cancelled it by id, or the environment, whose queue it left."
+    }
+  },
+  "required": [
+    "runId",
+    "messageId",
+    "heldBy"
+  ],
+  "description": "message.withdrawn: a queued message was taken back before any run read it (runs.withdraw, ADR 0022); runId is the run it was sent during. No run reads it after this; its text went to the session's draft in the same transaction (session.draft-set), and its attachments are dropped."
+}

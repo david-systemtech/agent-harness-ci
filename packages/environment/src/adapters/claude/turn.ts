@@ -26,6 +26,7 @@ import type { TaskLedger } from "./tasks.js";
 export interface TurnControl {
   send(turn: ClaudeTurn, message: PromptMessage): Promise<void>;
   interrupt(turn: ClaudeTurn): Promise<{ readonly stillQueued: readonly string[] }>;
+  withdraw(messageId: string): Promise<{ readonly withdrawn: boolean }>;
   answerPrompt(promptId: string, decision: PromptDecision): void;
   stopTask(taskId: string): Promise<void>;
   setMode(turn: ClaudeTurn, mode: Mode): Promise<void>;
@@ -152,6 +153,11 @@ export class ClaudeTurn implements ProviderTurn {
 
   interrupt(): Promise<{ readonly stillQueued: readonly string[] }> {
     return this.#control.interrupt(this);
+  }
+
+  /** Takes back a queued message the CLI holds (`providerQueue`): the process's, since the CLI's queue is the process's, whichever turn it was sent on. */
+  withdraw(messageId: string): Promise<{ readonly withdrawn: boolean }> {
+    return this.#control.withdraw(messageId);
   }
 
   answerPrompt(promptId: string, decision: PromptDecision): void {
