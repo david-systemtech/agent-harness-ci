@@ -144,7 +144,8 @@ const mapPermissionDenied = (message: Record_, state: MapperState): AdapterEvent
   const id = text(message["tool_use_id"]);
   if (id === null || !state.openTools.has(id)) return [];
   const kind = text(message["decision_reason_type"]);
-  const by = (kind === null ? undefined : DENIED_BY[kind]) ?? "provider";
+  // An own property only: an inherited one (`constructor`, `valueOf`) is no kind of ours.
+  const by = kind !== null && Object.hasOwn(DENIED_BY, kind) ? (DENIED_BY[kind] ?? "provider") : "provider";
   const said = text(message["message"]);
   return [...denial(state, id, text(message["tool_name"]), by, text(message["decision_reason"]) ?? said), ...endTool(state, id, "error", said ?? "The tool call was denied.")];
 };

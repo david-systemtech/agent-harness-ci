@@ -187,7 +187,8 @@ export const PERMISSION_SESSION_EVENT_TYPES = {
 
 /**
  * The Unattended review (permissions spec, "The Unattended review view";
- * #131): the runs with nobody present that made a tool call, and the
+ * #131): the runs with nobody present that made a tool call or had a
+ * denial, and the
  * attended runs a TTL, the denylist or containment decided something in,
  * since the environment-wide watermark `review.seen` moves.
  */
@@ -212,7 +213,7 @@ const count = z.int().nonnegative();
 /** A reviewed run's tool calls, counted by how they were decided. */
 export const ReviewCounts = z
   .object({
-    toolCalls: count.meta({ description: "Tool calls decided in the run (one tool.decision each)." }),
+    toolCalls: count.meta({ description: "Tool calls decided in the run (one tool.decision each); a prompt that named no call is counted by how it was decided, not here." }),
     autoApproved: count.meta({ description: "Calls allowed with no person answering: by the mode, a rule or a classifier." }),
     denied: count.meta({ description: "Calls denied, by anyone." }),
     answeredByPerson: count.meta({ description: "Calls a person decided through a prompt, allowed or denied." }),
