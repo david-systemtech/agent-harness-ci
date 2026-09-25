@@ -65,7 +65,9 @@ const forkRecord = (log: Pick<EventLog, "read">, sessionId: string): SessionFork
 
 /**
  * The session's latest rewind while no run has continued from it yet: no
- * run since has ended `completed`. A run that linked the provider session
+ * run since has linked the provider session and ended `completed` (a run
+ * that completed without linking one, which a provider could report, never
+ * resumed the rewound history). A run that linked the provider session
  * and then failed does not count: it may have failed before the provider
  * wrote anything, whose latest is then still what the rewind hid, so the
  * next run is a rewind again; where the failed run did write a turn of its
@@ -81,8 +83,13 @@ export const pendingRewind = (log: Pick<EventLog, "read">, sessionId: string): S
   );
   if (row === undefined) return null;
   const [continued] = log.read(
-    `SELECT 1 FROM events WHERE stream_kind = '${SESSION_STREAM_KIND}' AND stream_id = ? AND type = 'run.ended' AND sequence > ? AND json_extract(payload, '$.reason') = 'completed' LIMIT 1`,
+    `SELECT 1 FROM events ended WHERE ended.stream_kind = '${SESSION_STREAM_KIND}' AND ended.stream_id = ? AND ended.type = 'run.ended' AND ended.sequence > ?
+       AND json_extract(ended.payload, '$.reason') = 'completed'
+       AND EXISTS (SELECT 1 FROM events linked WHERE linked.stream_kind = ended.stream_kind AND linked.stream_id = ended.stream_id
+                     AND linked.type = 'session.provider-linked' AND linked.sequence > ? AND json_extract(linked.payload, '$.runId') = json_extract(ended.payload, '$.runId'))
+     LIMIT 1`,
     sessionId,
+    row.sequence,
     row.sequence,
   );
   return continued === undefined ? (JSON.parse(row.payload) as SessionRewoundPayload) : null;

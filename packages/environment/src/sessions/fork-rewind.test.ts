@@ -312,7 +312,7 @@ describe("sessions.rewind", () => {
     expect((await rewind(client, id, second.messageId)).receipt.status).toBe("accepted");
   });
 
-  it("is not continued by a run that linked the provider session and then failed: the next run rewinds again", async () => {
+  it("is not continued by a run that linked the provider session and then failed, nor by one that completed without linking it: the next run rewinds again", async () => {
     const t = await start();
     const client = await t.client();
     const { id } = await create(client);
@@ -323,6 +323,9 @@ describe("sessions.rewind", () => {
     await runTo(t, client, id, "Second, again");
     expect(ended(t, id).at(-1)?.payload).toMatchObject({ reason: "error" });
 
+    // A run that completes without linking the provider session never resumed the rewound history either.
+    t.adapter.nextScripts.push(() => [say("Nothing linked"), end()]);
+    await runTo(t, client, id, "Second, unlinked");
     await runTo(t, client, id, "Second, once more");
     expect(t.adapter.lastRun().input.target).toEqual({ kind: "rewind", providerSessionId: "provider-1", toMessageId: second.messageId });
     // That run completed: the rewind is continued from, and the next resumes.
