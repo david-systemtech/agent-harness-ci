@@ -110,7 +110,7 @@ const attemptOpen = (url: string, ms: number): Promise<WebSocket> =>
   new Promise((resolve, reject) => {
     const ws = new WebSocket(url);
     const timer = setTimeout(() => {
-      reject(new Error(`Timed out after ${CONNECT_MS} ms opening ${url}.`));
+      reject(new Error(`Gave up opening ${url}: ${CONNECT_MS} ms of trying ran out with this attempt unanswered.`));
       ws.close();
     }, ms);
     ws.addEventListener("open", () => {
@@ -126,18 +126,22 @@ const attemptOpen = (url: string, ms: number): Promise<WebSocket> =>
 /**
  * Opens the wire's socket, trying again on a refused or reset connect.
  * `CONNECT_MS` is a cap on the whole: each attempt gets only what is left of
- * it, and no attempt starts once too little is left for the pause before it.
+ * it, and no attempt starts once nothing is left (a pause that overran the
+ * deadline on a loaded runner), in which case the last attempt's own error is
+ * the one reported.
  */
 const connect = async (url: string): Promise<WebSocket> => {
   const until = Date.now() + CONNECT_MS;
-  for (;;) {
+  let last: unknown = new Error(`Could not open ${url}: no attempt could start within ${CONNECT_MS} ms.`);
+  for (let left = CONNECT_MS; left > 0; left = until - Date.now()) {
     try {
-      return await attemptOpen(url, until - Date.now());
+      return await attemptOpen(url, left);
     } catch (error) {
-      if (until - Date.now() <= RETRY_MS) throw error;
-      await new Promise((resolve) => setTimeout(resolve, RETRY_MS));
+      last = error;
+      if (until - Date.now() > RETRY_MS) await new Promise((resolve) => setTimeout(resolve, RETRY_MS));
     }
   }
+  throw last;
 };
 
 /** Opens a WebSocket to the wire at `address` and resolves once it is open. */
@@ -331,5 +335,10 @@ export const connectClient = async (address: Address, options: AuthOptions): Pro
     socket.closed.then(() => undefined),
   ]).catch(() => undefined);
   if (first?.type === "hello") return asClient(socket, first, options.methods);
-  throw new ByeError(await withTimeout(socket.closed, "the socket to close after bye", CLOSE_AFTER_BYE_MS));
+  // The longer wait is for a close the environment announced with a `bye`;
+  // with neither frame, the socket has had its `WAIT_MS` already.
+  const byeSeen = first?.type === "bye";
+  throw new ByeError(
+    await withTimeout(socket.closed, byeSeen ? "the socket to close after bye" : "a hello, a bye or the socket to close", byeSeen ? CLOSE_AFTER_BYE_MS : WAIT_MS),
+  );
 };
