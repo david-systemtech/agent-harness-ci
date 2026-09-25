@@ -1104,6 +1104,11 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
         () => accounts.crossCheck(entry.plan.account.id, identity, entry.runId),
         (error) => console.error(`Cross-checking the identity run ${entry.runId} reported failed:`, error),
       ),
+    recheckAccount: () =>
+      safely(
+        () => accounts.recheck(entry.plan.account.id),
+        (error) => console.error(`Reading the status of the account of run ${entry.runId} again failed:`, error),
+      ),
   });
 
   /**
@@ -1192,7 +1197,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
         {
           sessionId: plan.sessionId,
           runId: plan.runId,
-          account: { id: plan.account.id, directory: plan.account.directory },
+          account: { id: plan.account.id, directory: plan.account.directory, ...(plan.account.label !== undefined && { label: plan.account.label }) },
           workspace: plan.workspace,
           repositoryIdentity: plan.repositoryIdentity,
           model: plan.model,

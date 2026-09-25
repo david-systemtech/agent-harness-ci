@@ -138,7 +138,8 @@ describe("the program", () => {
       managedTool: () => null,
     });
     const env = program.env("/data/accounts/a1");
-    expect(env).toEqual({ PATH: "/usr/bin", CLAUDE_CONFIG_DIR: "/data/accounts/a1" });
+    // The login lands in the credential store every later process of the account reads, the directory's own (#229).
+    expect(env).toEqual({ PATH: "/usr/bin", CLAUDE_CONFIG_DIR: "/data/accounts/a1", CLAUDE_SECURESTORAGE_CONFIG_DIR: "/data/accounts/a1" });
     for (const name of CLAUDE_STRIPPED_VARIABLES) expect(env).not.toHaveProperty(name);
     expect(program.argv).toEqual(["auth", "login"]);
     expect(program.bundled).toBe("/opt/sdk/claude");

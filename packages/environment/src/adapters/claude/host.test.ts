@@ -35,6 +35,7 @@ const { permissionsProjector } = await import("../../permissions/permissions-sto
 const { accountsProjector } = await import("../../accounts/account-store.js");
 const { storeAccounts } = await import("../../../test/accounts.js");
 const { resolvePolicy } = await import("../../permissions/resolver.js");
+const { createProviderTranscriptStore } = await import("../../provider-transcripts/store.js");
 const { answerEvents } = await import("../../permissions/tool-decisions.js");
 
 /** A person's allow, as `permissions.prompts.answer` records it, for the prompt a test names. */
@@ -92,7 +93,7 @@ const containedAt =
       enforceable: ENFORCEABLE,
     });
 
-const setup = async (policy?: PolicySeam, gateRules?: readonly ToolGateRule[]) => {
+const setup = async (policy?: PolicySeam, gateRules?: readonly ToolGateRule[], account: { readonly sessionStore?: boolean; readonly signedIn?: () => boolean } = {}) => {
   const clock = manualClock();
   const log = openEventLog({ path: ":memory:", projectors: [sessionListProjector, runsProjector, permissionsProjector, accountsProjector], clock: () => clock.now() });
   const adapter = createClaudeAdapter({
@@ -100,7 +101,11 @@ const setup = async (policy?: PolicySeam, gateRules?: readonly ToolGateRule[]) =
     executablePath: "/sdk/claude",
     hostEnv: { PATH: "/usr/bin" },
     diagnostic: () => undefined,
-    runCommand: async () => ({ code: 0, stdout: JSON.stringify({ loggedIn: true, authMethod: "claude.ai", email: "david@example.com" }), stderr: "" }),
+    runCommand: async () =>
+      (account.signedIn?.() ?? true)
+        ? { code: 0, stdout: JSON.stringify({ loggedIn: true, authMethod: "claude.ai", email: "david@example.com" }), stderr: "" }
+        : { code: 1, stdout: JSON.stringify({ loggedIn: false, authMethod: "none" }), stderr: "" },
+    ...(account.sessionStore === true && { sessionStore: createProviderTranscriptStore({ log, clock }) }),
   });
   // The account store holds the account, read once as startup reads it.
   const accounts = await storeAccounts({ log, clock, adapters: [adapter], accounts: [{ id: "acct", provider: "claude", directory: "/data/accounts/work" }] });
@@ -229,6 +234,44 @@ describe("a Claude run through the adapter host", () => {
     startRun(t, "Again");
     const next = await runQuery(t, 2);
     expect(next.options.resume).toBe(PROVIDER_SESSION);
+  });
+
+  it("ends a cold resume whose account's login cannot be refreshed error, naming the account by its label, and the store reads the account expired, after one refresh (#229)", async () => {
+    let refreshes = 0;
+    let signedIn = true;
+    fake.controls = {
+      usage: {
+        name: "usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET",
+        // As 2.1.281 answers when the provider refuses the refresh: no plan limits, and the login cleared.
+        answer: async () => {
+          refreshes += 1;
+          signedIn = false;
+          return { rate_limits_available: true, rate_limits: null };
+        },
+      },
+    };
+    const t = await setup(undefined, undefined, { sessionStore: true, signedIn: () => signedIn });
+    const label = t.accounts.list()[0]?.label as string;
+    const first = startRun(t);
+    const query = await runQuery(t, 1);
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [first.messageId]), sdk.result(PROVIDER_SESSION));
+    await vi.waitFor(() => expect(eventsOf(t).filter((event) => event.type === "run.ended")).toHaveLength(1));
+    // A fresh run needs no refresh: its CLI runs in the account's own directory.
+    expect(refreshes).toBe(0);
+    t.clock.advance(30 * 60 * 1000);
+    await vi.waitFor(() => expect(query.closed).toBe(true));
+    expect(t.accounts.list()[0]?.status.state).toBe("signed-in");
+    const made = fake.queries.length;
+    const again = startRun(t, "Again");
+    await vi.waitFor(() => expect(eventsOf(t).filter((event) => event.type === "run.ended")).toHaveLength(2));
+    const ended = eventsOf(t).filter((event) => event.type === "run.ended").at(-1);
+    expect(ended?.correlationId).toBe(again.runId);
+    expect(ended?.payload).toMatchObject({ reason: "error", error: { code: "login_expired", message: expect.stringContaining(`The Claude account ${label} has an expired login`) } });
+    // No run was started: only the refresh's unsampled query was made, none resuming the session.
+    expect(fake.queries.slice(made).filter((made) => made.options.resume !== undefined)).toEqual([]);
+    await vi.waitFor(() => expect(t.accounts.list()[0]?.status.state).toBe("expired"));
+    // The status read the failure asked for asks the binary only: one refresh in all.
+    expect(refreshes).toBe(1);
   });
 
   it("adopts the turn the provider opens with a message it held, as the session's next run", async () => {
