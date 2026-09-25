@@ -641,7 +641,7 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
         return await chat(request, response);
       }
       if (path === MODELS_PATH || path.startsWith(`${MODELS_PATH}/`)) {
-        if (method !== "GET" && method !== "HEAD") throw wrongMethod(path, "GET");
+        if (method !== "GET" && method !== "HEAD") throw wrongMethod(path, "GET, HEAD");
         const id = path === MODELS_PATH ? null : path.slice(MODELS_PATH.length + 1);
         return models(request, response, id === "" ? null : id);
       }

@@ -368,6 +368,10 @@ describe("the routes on the wire's port", () => {
     const wrong = await fetch(url(t, "/v1/chat/completions"), { headers: bearer(token) });
     expect(wrong.status).toBe(405);
     expect(wrong.headers.get("allow")).toBe("POST");
+    const models = await fetch(url(t, "/v1/models"), { method: "POST", headers: bearer(token) });
+    expect(models.status).toBe(405);
+    expect(models.headers.get("allow")).toBe("GET, HEAD");
+    expect((await fetch(url(t, "/v1/models"), { method: "HEAD", headers: bearer(token) })).status).toBe(200);
   });
 });
 
@@ -679,6 +683,15 @@ describe("session continuity", () => {
     expect(t.adapter.lastRun().input.sessionId).toBe(sessionId);
     expect(payloadsOf<RunStartedPayload>(t, sessionId, "run.started").map((payload) => payload.origin)).toEqual(["completions", "completions"]);
     expect((await listed(t)).filter((session) => session.tags.includes("completions")).map((session) => session.id)).toEqual([sessionId]);
+  });
+
+  it("continues a session named by its id in upper case", async () => {
+    const t = await start();
+    const { token } = await program(t);
+    const sessionId = (await complete(t, token, turn("Hi")))["agent-harness"].sessionId as string;
+    const again = await complete(t, token, turn("Again", { "agent-harness": { sessionId: sessionId.toUpperCase() } }));
+    expect(again["agent-harness"].sessionId).toBe(sessionId);
+    expect(payloadsOf<RunStartedPayload>(t, sessionId, "run.started")).toHaveLength(2);
   });
 
   it("accepts the artemis namespace, and the agent-harness key wins a field both set", async () => {
