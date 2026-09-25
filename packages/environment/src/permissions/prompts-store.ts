@@ -1,6 +1,7 @@
 import {
   PromptAnsweredPayload,
   PromptOpenedPayload,
+  promptAnswerMisfits,
   type ListedPrompt,
   type MessageRequeuedPayload,
   type RunStartedPayload,
@@ -25,7 +26,10 @@ import type { Reader } from "../sessions/session-reads.js";
  *
  * The projection holds the rule "exactly one answer per prompt": a
  * `prompt.answered` for a prompt that is not parked, or a `prompt.opened`
- * for an id parked already, fails its append.
+ * for an id parked already, fails its append. It holds an answer to its
+ * prompt's kind too (`promptAnswerMisfits`), which the answer's own payload
+ * does not carry: one that does not fit, whether a person's or a rule's,
+ * fails its append.
  */
 
 export const PROMPTS_TABLES = {
@@ -102,12 +106,17 @@ export const projectPrompt = (event: EventEnvelope, db: ProjectionDb): void => {
     }
     case "prompt.answered": {
       const payload = PromptAnsweredPayload.parse(event.payload);
-      const row = db.get<{ sequence: number }>(
-        "SELECT sequence FROM prompts WHERE prompt_id = ? AND session_id = ? AND answered_sequence IS NULL ORDER BY sequence DESC LIMIT 1",
+      const row = db.get<{ sequence: number; prompt: string }>(
+        "SELECT sequence, prompt FROM prompts WHERE prompt_id = ? AND session_id = ? AND answered_sequence IS NULL ORDER BY sequence DESC LIMIT 1",
         payload.promptId,
         event.streamId,
       );
       if (row === undefined) throw new Error(`Prompt ${payload.promptId} is not parked, so it cannot be answered: a prompt has exactly one answer.`);
+      const { kind } = JSON.parse(row.prompt) as PromptOpenedPayload;
+      const misfits = promptAnswerMisfits(kind, payload);
+      if (misfits.length > 0) {
+        throw new Error(`The answer to ${kind} prompt ${payload.promptId} does not fit it: ${misfits.map(({ path, message }) => `${path}: ${message}`).join(" ")}`);
+      }
       db.run("UPDATE prompts SET answered_sequence = ?, answer = ? WHERE sequence = ?", event.sequence, JSON.stringify(payload), row.sequence);
       return;
     }
@@ -152,14 +161,20 @@ export type PromptLookup = { readonly record: PromptRecord } | { readonly ambigu
  * latest under the id; without, the one parked under it, and when none is,
  * the latest under it, answered; null when there is none. Parked under the
  * id in more than one session, without a session named, it is ambiguous:
- * the sessions, oldest prompt first.
+ * the sessions, oldest prompt first. Without a session named, a deleted
+ * session's prompts are left out, as the list leaves them out: they neither
+ * make an id ambiguous nor are named among its sessions.
  */
 export const readPrompt = (reader: Reader, promptId: string, sessionId?: string): PromptLookup | null => {
   if (sessionId !== undefined) {
     const [row] = reader.all<PromptRow>("SELECT * FROM prompts WHERE prompt_id = ? AND session_id = ? ORDER BY sequence DESC LIMIT 1", promptId, sessionId);
     return row === undefined ? null : { record: toRecord(row) };
   }
-  const parked = reader.all<PromptRow>("SELECT * FROM prompts WHERE prompt_id = ? AND answered_sequence IS NULL ORDER BY sequence", promptId);
+  const parked = reader.all<PromptRow>(
+    `SELECT prompts.* FROM prompts JOIN sessions ON sessions.id = prompts.session_id
+     WHERE prompts.prompt_id = ? AND prompts.answered_sequence IS NULL AND sessions.deleted_at IS NULL ORDER BY prompts.sequence`,
+    promptId,
+  );
   const [only] = parked;
   if (parked.length > 1) return { ambiguous: parked.map((row) => row.session_id) };
   if (only !== undefined) return { record: toRecord(only) };

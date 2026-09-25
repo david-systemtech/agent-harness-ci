@@ -12,6 +12,7 @@ import {
   SummaryPatch,
   TranscriptItem,
   isListEvent,
+  promptAnswerMisfits,
   registry,
 } from "./index.js";
 
@@ -116,6 +117,19 @@ describe("the prompt vocabulary", () => {
     expect(TranscriptItem.safeParse({ ...item, answer: answered }).success).toBe(true);
     // A known kind is held to its own schema: a malformed prompt item is never kept opaque.
     expect(TranscriptItem.safeParse({ kind: "prompt", sequence: 7 }).success).toBe(false);
+  });
+
+  it("names the parts of an answer that do not fit its prompt's kind or its decision, a null part absent", () => {
+    const allow = { decision: "allow", answers: null, updatedInput: null, mode: null, remember: null } as const;
+    expect(promptAnswerMisfits("permission", { ...allow, updatedInput: { command: "ls" }, remember: "session" })).toEqual([]);
+    expect(promptAnswerMisfits("question", { ...allow, answers: { "Which library?": "luxon" } })).toEqual([]);
+    expect(promptAnswerMisfits("plan", { ...allow, mode: "auto" })).toEqual([]);
+    expect(promptAnswerMisfits("denylist", { decision: "deny" })).toEqual([]);
+    const paths = (...args: Parameters<typeof promptAnswerMisfits>) => promptAnswerMisfits(...args).map((misfit) => misfit.path);
+    expect(paths("permission", { ...allow, decision: "deny", remember: "session" })).toEqual(["remember"]);
+    expect(paths("denylist", { ...allow, remember: "session", updatedInput: {} })).toEqual(["remember", "updatedInput"]);
+    expect(paths("permission", { ...allow, answers: {}, mode: "plan" })).toEqual(["answers", "mode"]);
+    expect(paths("plan", { decision: "deny", mode: "acceptEdits" })).toEqual(["mode"]);
   });
 
   it("lists parked prompts at read and answers them at runs:drive, a command", () => {

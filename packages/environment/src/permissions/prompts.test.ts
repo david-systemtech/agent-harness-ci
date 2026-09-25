@@ -485,6 +485,30 @@ describe("permissions.prompts.answer", () => {
     expect(ofType(t, two.id, "prompt.answered")).toHaveLength(1);
   });
 
+  it("leaves a deleted session's prompt out of an id's sessions: it makes no id ambiguous until the session is restored", async () => {
+    const t = await start();
+    const client = await t.client();
+    const one = await create(client);
+    const two = await create(client);
+    const park = (sessionId: string) => {
+      const opened = openedPayload({ runId: randomUUID(), promptId: "dup", kind: "permission", detail: permission, mode: "acceptEdits", ceiling: "acceptEdits", ttlExpiresAt: null });
+      t.env.log.append({ kind: "session", id: sessionId }, [{ type: "prompt.opened", payload: opened }], { actor: "adapter:fake", correlationId: opened.runId });
+    };
+    park(one.id);
+    park(two.id);
+    await client.request("sessions.delete", { commandId: randomUUID(), sessionId: one.id });
+    // The deleted session's prompt is neither a second holder of the id nor named: the live session's is answered.
+    expect((await answer(client, "dup", { decision: "deny" })).result).toMatchObject({ sessionId: two.id, decision: "deny" });
+    park(two.id);
+    await client.request("sessions.restore", { commandId: randomUUID(), sessionId: one.id });
+    expect((await answer(client, "dup", { decision: "allow" })).receipt).toMatchObject({
+      status: "rejected",
+      reason: "conflict",
+      error: { data: { reason: "ambiguous_prompt", promptId: "dup", sessionIds: [one.id, two.id] } },
+    });
+    expect(ofType(t, one.id, "prompt.answered")).toEqual([]);
+  });
+
   it("continues an approved plan in acceptEdits when no mode is given, and in the mode given clamped to the run's ceiling, not the answering client's", async () => {
     const adapter = fakeAdapter();
     const t = await start(adapter);
@@ -530,6 +554,55 @@ describe("permissions.prompts.answer", () => {
     await untilOpened(t, four.id);
     expect((await answer(planClient, "plan-4", { decision: "deny", message: "Smaller steps" })).result?.mode).toBeNull();
     expect(ofType(t, four.id, "session.mode.set")).toEqual([]);
+  });
+
+  it("records the session's mode as permissions.mode.set would when a bare approval's acceptEdits is lowered to the run's ceiling: asked for, and clamped", async () => {
+    const adapter = fakeAdapter();
+    const t = await start(adapter);
+    const planOnly = await pairedClient(t, "plan");
+    adapter.nextScripts.push(ask("plan", plan, { promptId: "plan-low" }));
+    const session = await create(planOnly);
+    const { runId } = await startRun(planOnly, session.id);
+    await untilOpened(t, session.id);
+    const bare = await answer(await t.client(), "plan-low", { decision: "allow" });
+    // The answer records that none was asked for; the session's record, that its default was, and lowered.
+    expect(bare.result?.mode).toEqual({ requested: null, effective: "plan", ceiling: "plan", clamped: false, clampReason: null });
+    await untilEnded(t, session.id, runId);
+    expect(ofType(t, session.id, "session.mode.set").map((event) => event.payload)).toEqual([
+      { mode: { requested: "acceptEdits", effective: "plan", ceiling: "plan", clamped: true, clampReason: "ceiling" }, live: { runId, mode: "plan" } },
+    ]);
+  });
+
+  it("refuses to record an answer that does not fit its prompt's kind, whoever appends it: the prompt stays parked", async () => {
+    const t = await start();
+    const client = await t.client();
+    const { id } = await create(client);
+    const opened = openedPayload({ runId: randomUUID(), promptId: "p-fit", kind: "permission", detail: permission, mode: "acceptEdits", ceiling: "acceptEdits", ttlExpiresAt: null });
+    const stream = { kind: "session", id };
+    t.env.log.append(stream, [{ type: "prompt.opened", payload: opened }], { actor: "adapter:fake", correlationId: opened.runId });
+    const answered: PromptAnsweredPayload = {
+      runId: opened.runId,
+      promptId: "p-fit",
+      decision: "allow",
+      message: null,
+      answers: null,
+      updatedInput: null,
+      mode: null,
+      remember: null,
+      decidedBy: { auto: "unattended" },
+      delivery: "live",
+    };
+    const unfit: Partial<PromptAnsweredPayload>[] = [
+      { answers: { "Which library?": "luxon" } },
+      { mode: { requested: "auto", effective: "auto", ceiling: "auto", clamped: false, clampReason: null } },
+      { decision: "deny", remember: "session" },
+    ];
+    for (const parts of unfit) {
+      expect(() => t.env.log.append(stream, [{ type: "prompt.answered", payload: { ...answered, ...parts } }], { actor: "adapter:fake" }), JSON.stringify(parts)).toThrow(/does not fit/);
+    }
+    expect((await client.request("permissions.prompts.list", {})).prompts.map((prompt) => prompt.promptId)).toEqual(["p-fit"]);
+    t.env.log.append(stream, [{ type: "prompt.answered", payload: { ...answered, updatedInput: { command: "ls" }, remember: "session" } }], { actor: "adapter:fake" });
+    expect((await client.request("permissions.prompts.list", {})).prompts).toEqual([]);
   });
 });
 

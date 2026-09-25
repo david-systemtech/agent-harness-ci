@@ -3,6 +3,7 @@ import {
   ENVIRONMENT_STREAM_KIND,
   MODES,
   invalidParams,
+  promptAnswerMisfits,
   type IssueInput,
   type ModeAvailability,
   type ModeResolution,
@@ -115,24 +116,21 @@ export const promptMethods = ({ log, host, environmentId }: PromptMethodsOptions
         };
       }
 
-      const issues: IssueInput[] = [];
-      const refuse = (path: string, message: string): void => void issues.push({ code: "custom", path: [path], message });
-      if (params.remember !== undefined && prompt.kind !== "permission") refuse("remember", "Only a permission prompt's answer can be remembered for the session.");
-      if (params.remember !== undefined && params.decision !== "allow") refuse("remember", "Only an allow can be remembered for the session.");
-      if (params.answers !== undefined && prompt.kind !== "question") refuse("answers", "Only a question prompt takes answers.");
-      if (params.updatedInput !== undefined && prompt.kind !== "permission") refuse("updatedInput", "Only a permission prompt's input can be edited.");
-      if (params.mode !== undefined && prompt.kind !== "plan") refuse("mode", "Only a plan prompt takes a mode to continue in.");
-      if (params.mode !== undefined && prompt.kind === "plan" && params.decision !== "allow") refuse("mode", "Only an approved plan continues in a mode.");
+      const issues: IssueInput[] = promptAnswerMisfits(prompt.kind, params).map(({ path, message }) => ({ code: "custom", path: [path], message }));
       if (issues.length > 0) throw new ContractError(invalidParams(issues, "The answer does not fit the prompt's kind."));
 
       // An approved plan continues in the mode asked for, acceptEdits when none was, clamped to the run's ceiling and its account's modes.
+      const asked = params.mode ?? PLAN_CONTINUE_DEFAULT;
       let mode: ModeResolution | null = null;
+      let sessionMode: ModeResolution | null = null;
       if (prompt.kind === "plan" && params.decision === "allow") {
         const accountModes = host.account(readRun(reader, runId)?.accountId ?? null)?.descriptor.modes ?? EVERY_MODE;
-        mode = clampMode(params.mode ?? null, params.mode ?? PLAN_CONTINUE_DEFAULT, prompt.ceiling, accountModes);
+        mode = clampMode(params.mode ?? null, asked, prompt.ceiling, accountModes);
         if (mode === null) {
           return { aggregate, rejected: { code: "conflict", message: noModeAvailable(prompt.ceiling), data: { reason: "mode_unavailable", promptId, ceiling: prompt.ceiling } } };
         }
+        // The session's record is permissions.mode.set's: the mode it continues in was asked for, the default too, and a lowered one is a clamp.
+        sessionMode = clampMode(asked, asked, prompt.ceiling, accountModes);
       }
 
       // The run that asked still waits on it, or has gone: then the session's next run reads the answer first.
@@ -154,10 +152,10 @@ export const promptMethods = ({ log, host, environmentId }: PromptMethodsOptions
       };
       const attribution = { tx: context.tx, actor: context.actor, commandId: context.commandId, correlationId: runId };
       log.append(aggregate, [{ type: "prompt.answered", payload }], attribution);
-      if (mode !== null && mode.effective !== session.mode) {
+      if (sessionMode !== null && sessionMode.effective !== session.mode) {
         const modeSet: SessionModeSetPayload = {
-          mode: { ...mode, requested: mode.requested ?? PLAN_CONTINUE_DEFAULT },
-          live: live ? { runId, mode: mode.effective } : null,
+          mode: { ...sessionMode, requested: asked },
+          live: live ? { runId, mode: sessionMode.effective } : null,
         };
         log.append(aggregate, [{ type: "session.mode.set", payload: modeSet }], attribution);
       }

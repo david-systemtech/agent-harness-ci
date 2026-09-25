@@ -256,12 +256,12 @@ const items = [
   { kind: "assistant-text", sequence: 6, runId, itemId: "i-1", text: "Done.", aborted: false },
   { kind: "command", sequence: 7, runId, name: "compact", args: "", output: null },
   { kind: "tasks", sequence: 8, runId, tasks: [task] },
-  { kind: "prompt", sequence: 8, runId, promptId: "toolu_1", prompt: openedPrompt, answer: answeredPrompt },
-  { kind: "opaque", sequence: 9, type: "transcript.chunk", payload: { text: "hi" } },
-  { kind: "plan-card", sequence: 10, plan: "Step one" },
+  { kind: "prompt", sequence: 9, runId, promptId: "toolu_1", prompt: openedPrompt, answer: answeredPrompt },
+  { kind: "opaque", sequence: 10, type: "transcript.chunk", payload: { text: "hi" } },
+  { kind: "plan-card", sequence: 11, plan: "Step one" },
 ];
-const parkedPrompt = { promptId: "toolu_1", sequence: 11, openedAt: at, prompt: openedPrompt };
-const snapshot = { sequence: 12, summary: freshSummary, runs: [runSummary, runningSummary], items, parkedPrompts: [parkedPrompt] };
+const parkedPrompt = { promptId: "toolu_2", sequence: 12, openedAt: at, prompt: { ...openedPrompt, promptId: "toolu_2", toolCallId: "toolu_2" } };
+const snapshot = { sequence: 13, summary: freshSummary, runs: [runSummary, runningSummary], items, parkedPrompts: [parkedPrompt] };
 
 /** Every adapter and transcript schema the export writes, by path. */
 export const runSchemaFixtures: Record<string, Fixtures> = {
@@ -358,7 +358,7 @@ export const runSchemaFixtures: Record<string, Fixtures> = {
   "transcript/parked-prompt.json": { valid: [parkedPrompt], invalid: [{ ...parkedPrompt, promptId: "" }, { ...parkedPrompt, prompt: "Allow?" }, { ...parkedPrompt, prompt: { kind: "permission", toolName: "Bash" } }] },
   "transcript/session-snapshot.json": {
     valid: [snapshot, { sequence: 0, summary: freshSummary, runs: [], items: [], parkedPrompts: [] }],
-    invalid: [{ sequence: 12, summary: freshSummary, transcript: {} }, { ...snapshot, runs: [{}] }, { ...snapshot, items: [{ sequence: 1 }] }],
+    invalid: [{ sequence: 13, summary: freshSummary, transcript: {} }, { ...snapshot, runs: [{}] }, { ...snapshot, items: [{ sequence: 1 }] }],
   },
 };
 
