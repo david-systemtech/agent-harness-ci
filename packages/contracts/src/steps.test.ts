@@ -76,11 +76,18 @@ describe("the step registry", () => {
     for (const key of PERMISSION_SETTINGS_KEYS) expect(SETTINGS[key].step, key).toEqual({ id: "permissions", band: "access" });
   });
 
-  it("puts providers.processIdleMinutes under the Account entry's Default model band, checked done on any valid value", () => {
-    expect(account.writes).toEqual(["providers.processIdleMinutes"]);
+  it("puts the default account, model family and effort and providers.processIdleMinutes under the Account entry's Default account and model band, each checked done on any valid value", () => {
+    const keys = ["accounts.defaultAccount", "accounts.defaultModelFamily", "accounts.defaultEffort", "providers.processIdleMinutes"] as const;
+    expect(account.writes).toEqual(keys);
     expect(account.links).toEqual([{ pane: "accounts", band: "default-model" }]);
-    expect(SETTINGS["providers.processIdleMinutes"].step).toEqual({ id: "account", band: "default-model" });
-    const check = (account.checks[0] as LooseStep["checks"][number]).check;
+    for (const key of keys) expect(SETTINGS[key].step, key).toEqual({ id: "account", band: "default-model" });
+    const checkOf = (key: string) => (account.checks.find((entry) => entry.key === key) as LooseStep["checks"][number]).check;
+    for (const key of keys.slice(0, 3)) {
+      expect(checkOf(key)(null), key).toBe(true);
+      expect(checkOf(key)("opus"), key).toBe(true);
+      expect(checkOf(key)(""), key).toMatch(key);
+    }
+    const check = checkOf("providers.processIdleMinutes");
     expect(check(presetSettings()["providers.processIdleMinutes"])).toBe(true);
     expect(check(1440)).toBe(true);
     expect(check(0)).toMatch(/providers\.processIdleMinutes/);

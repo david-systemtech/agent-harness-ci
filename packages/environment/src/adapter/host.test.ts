@@ -2,7 +2,10 @@ import { randomUUID } from "node:crypto";
 import { ContractError, type AttachmentInput, type Mode, type PromptAnsweredPayload, type PromptOpenedPayload } from "@agent-harness/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { manualClock } from "../../test/clock.js";
-import { end, fakeAdapter, gate, say, type FakeAdapter } from "../../test/fake-adapter.js";
+import { storeAccounts } from "../../test/accounts.js";
+import { FAKE_AMBIENT_DIRECTORY, end, fakeAdapter, gate, say, type FakeAdapter } from "../../test/fake-adapter.js";
+import type { ConfiguredAccount } from "../accounts/account-service.js";
+import { accountsProjector } from "../accounts/account-store.js";
 import { openEventLog, type EventEnvelope, type EventLog } from "../event-log/event-log.js";
 import { permissionsProjector } from "../permissions/permissions-store.js";
 import type { RunActor } from "../permissions/resolver.js";
@@ -44,13 +47,20 @@ interface Setup {
   readonly sessionId: string;
 }
 
-const setup = async (adapter: FakeAdapter = fakeAdapter(), options: Partial<AdapterHostOptions> = {}, wrap: (log: EventLog) => EventLog = (log) => log): Promise<Setup> => {
+/** What a test sets up beside the host's own options: the accounts the store holds (preset: one, `acct`, in the fake's own directory). */
+interface SetupOptions extends Partial<Omit<AdapterHostOptions, "accounts">> {
+  readonly accounts?: readonly ConfiguredAccount[];
+}
+
+const setup = async (adapter: FakeAdapter = fakeAdapter(), options: SetupOptions = {}, wrap: (log: EventLog) => EventLog = (log) => log): Promise<Setup> => {
   const clock = manualClock();
-  const log = openEventLog({ path: ":memory:", projectors: [sessionListProjector, runsProjector, permissionsProjector], clock: () => clock.now() });
+  const log = openEventLog({ path: ":memory:", projectors: [sessionListProjector, runsProjector, permissionsProjector, accountsProjector], clock: () => clock.now() });
+  const { accounts: configured = [{ id: "acct", provider: adapter.descriptor.provider }], ...hostOptions } = options;
+  // The account store, holding the configured accounts as a first start carries them over, each read once.
+  const accounts = await storeAccounts({ log, clock, adapters: [adapter], accounts: configured });
   // No client session stands behind these runs (their actor names none), so no ceiling is read again.
-  const host = createAdapterHost({ log: wrap(log), clock, adapters: [adapter], accounts: [{ id: "acct", provider: adapter.descriptor.provider }], ceilingOf: () => undefined, ...options });
-  closers.push(() => log.close(), () => host.close("disposed"));
-  await host.refresh();
+  const host = createAdapterHost({ log: wrap(log), clock, adapters: [adapter], accounts, ceilingOf: () => undefined, ...hostOptions });
+  closers.push(() => log.close(), () => host.close("disposed"), () => accounts.close());
   const sessionId = randomUUID();
   log.append({ kind: "session", id: sessionId }, [created], { actor: "system:test" });
   return { log, host, adapter, sessionId };
@@ -164,7 +174,7 @@ describe("a run's event stream", () => {
     expect(input).toMatchObject({
       sessionId: t.sessionId,
       runId,
-      account: { id: "acct", directory: null },
+      account: { id: "acct", directory: FAKE_AMBIENT_DIRECTORY },
       model: "sonnet",
       effort: "high",
       mode: "acceptEdits",
@@ -886,12 +896,6 @@ describe("the host's own bookkeeping", () => {
     held.open();
   });
 
-  it("gives up on a status probe that never answers, so startup goes on with the account signed out", async () => {
-    const adapter = fakeAdapter();
-    const t = await setup({ ...adapter, status: () => new Promise(() => undefined) } as FakeAdapter, { probeTimeoutMs: 20 });
-    expect(t.host.account("acct")).toMatchObject({ signedIn: false });
-  });
-
   it("refuses a transcript delete as unsupported when the session's provider is not known here", async () => {
     const t = await setup(fakeAdapter({ deleteTranscript: true }), { accounts: [] });
     let thrown: unknown;
@@ -979,10 +983,11 @@ describe("the seams", () => {
 
   it("validates the account, model and mode sessions.create is given against the accounts and their catalogues", async () => {
     const t = await setup();
-    expect(t.host.validateSessionInput({ account: "acct", model: "opus", mode: "plan" })).toEqual([]);
-    expect(t.host.validateSessionInput({ account: null, model: null, mode: null })).toEqual([]);
-    expect(t.host.validateSessionInput({ account: "nobody", model: "gpt", mode: "yolo" }).map((issue) => issue.path)).toEqual([["account"], ["model"], ["mode"]]);
-    expect(t.host.validateSessionInput({ account: null, model: "gpt", mode: null }).map((issue) => issue.path)).toEqual([["model"]]);
+    expect(t.host.validateSessionInput({ account: "acct", model: "opus", mode: "plan" })).toEqual({ issues: [] });
+    expect(t.host.validateSessionInput({ account: null, model: null, mode: null })).toEqual({ issues: [] });
+    expect(t.host.validateSessionInput({ account: "nobody", model: "opus", mode: null })).toMatchObject({ unavailable: { accountId: "nobody" } });
+    expect(t.host.validateSessionInput({ account: "acct", model: "gpt", mode: "yolo" }).issues?.map((issue) => issue.path)).toEqual([["model"], ["mode"]]);
+    expect(t.host.validateSessionInput({ account: null, model: "gpt", mode: null }).issues?.map((issue) => issue.path)).toEqual([["model"]]);
   });
 
   it("offers the purge a transcript delete only when an adapter declares it, synchronous and routed to the session's adapter", async () => {

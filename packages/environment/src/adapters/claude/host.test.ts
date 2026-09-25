@@ -31,6 +31,8 @@ const { decideSend, decideStart } = await import("../../runs/run-decider.js");
 const { runsProjector } = await import("../../runs/runs-projector.js");
 const { sessionListProjector } = await import("../../sessions/session-list.js");
 const { permissionsProjector } = await import("../../permissions/permissions-store.js");
+const { accountsProjector } = await import("../../accounts/account-store.js");
+const { storeAccounts } = await import("../../../test/accounts.js");
 
 /** The prompts the session's runs asked, as their `prompt.opened` recorded them. */
 const openedOf = (t: { log: { readStream: (stream: { kind: string; id: string }) => { type: string; payload: unknown }[] }; sessionId: string }): PromptOpenedPayload[] =>
@@ -59,7 +61,7 @@ const created = {
 
 const setup = async () => {
   const clock = manualClock();
-  const log = openEventLog({ path: ":memory:", projectors: [sessionListProjector, runsProjector, permissionsProjector], clock: () => clock.now() });
+  const log = openEventLog({ path: ":memory:", projectors: [sessionListProjector, runsProjector, permissionsProjector, accountsProjector], clock: () => clock.now() });
   const adapter = createClaudeAdapter({
     clock,
     executablePath: "/sdk/claude",
@@ -67,18 +69,19 @@ const setup = async () => {
     diagnostic: () => undefined,
     runCommand: async () => ({ code: 0, stdout: JSON.stringify({ loggedIn: true, authMethod: "claude.ai", email: "david@example.com" }), stderr: "" }),
   });
+  // The account store holds the account, read once as startup reads it.
+  const accounts = await storeAccounts({ log, clock, adapters: [adapter], accounts: [{ id: "acct", provider: "claude", directory: "/data/accounts/work" }] });
   const host = createAdapterHost({
     log,
     clock,
     adapters: [adapter],
-    accounts: [{ id: "acct", provider: "claude", directory: "/data/accounts/work" }],
+    accounts,
     ceilingOf: () => undefined,
   });
-  closers.push(() => log.close(), () => host.close("disposed"));
-  await host.refresh();
+  closers.push(() => log.close(), () => host.close("disposed"), () => accounts.close());
   const sessionId = randomUUID();
   log.append({ kind: "session", id: sessionId }, [created], { actor: "system:test" });
-  return { log, host, clock, sessionId, controlQueries: fake.queries.length };
+  return { log, host, clock, accounts, sessionId, controlQueries: fake.queries.length };
 };
 
 type Setup = Awaited<ReturnType<typeof setup>>;
@@ -149,6 +152,35 @@ describe("a Claude run through the adapter host", () => {
     await query.promptsPushed(2);
     expect(query.prompts[1]).toMatchObject({ uuid: again.messageId });
     expect(fake.queries).toHaveLength(t.controlQueries + 1);
+  });
+
+  it("logs a cross-check of the run's identity that throws, and the run ends and the next one runs as ever", async () => {
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown): void => void unhandled.push(reason);
+    process.on("unhandledRejection", onUnhandled);
+    const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      const t = await setup();
+      // As when the log has closed under a run that reports late: the check appends, and its throw reaches the host.
+      const crossCheck = vi.spyOn(t.accounts, "crossCheck").mockImplementation(() => {
+        throw new Error("The event log is closed.");
+      });
+      const first = startRun(t);
+      const query = await runQuery(t, 1);
+      query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [first.messageId]), sdk.text("msg_1", "Hi."), sdk.result(PROVIDER_SESSION));
+      await vi.waitFor(() => expect(crossCheck).toHaveBeenCalledOnce());
+      await vi.waitFor(() => expect(eventsOf(t).filter((event) => event.type === "run.ended").map((event) => event.payload["reason"])).toEqual(["completed"]));
+      expect(logged).toHaveBeenCalledWith(expect.stringMatching(new RegExp(`Cross-checking the identity run ${first.runId} reported failed`)), expect.objectContaining({ message: "The event log is closed." }));
+      const again = startRun(t, "Again");
+      await query.promptsPushed(2);
+      query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_2", [again.messageId]), sdk.text("msg_2", "Again."), sdk.result(PROVIDER_SESSION));
+      await vi.waitFor(() => expect(eventsOf(t).filter((event) => event.type === "run.ended").map((event) => event.payload["reason"])).toEqual(["completed", "completed"]));
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      expect(unhandled).toEqual([]);
+    } finally {
+      logged.mockRestore();
+      process.off("unhandledRejection", onUnhandled);
+    }
   });
 
   it("starts the next run cold on a fresh process, resuming, once the pool has stopped the kept one", async () => {

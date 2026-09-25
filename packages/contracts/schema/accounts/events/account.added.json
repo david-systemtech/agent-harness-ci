@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AccountAddedPayload",
+  "type": "object",
+  "properties": {
+    "accountId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "description": "An account's id on its environment: a version 4 UUID the environment mints when it adopts or adds the account; an account carried over from configuration keeps the id it was configured with."
+    },
+    "provider": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$",
+      "description": "A provider's id, as the environment's adapter registry keys it: lowercase letters, digits and hyphens (claude)."
+    },
+    "label": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "^\\S(?:.*\\S)?$",
+      "description": "An account's label: 1 to 200 characters on one line, with no space at either end; unique on its environment ignoring case, preset to the email the account signed in as."
+    },
+    "directory": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The directory the environment made for the account under its data directory."
+    }
+  },
+  "required": [
+    "accountId",
+    "provider",
+    "label",
+    "directory"
+  ],
+  "description": "account.added: an account was added with a directory of the environment's own, for a fresh sign-in."
+}
