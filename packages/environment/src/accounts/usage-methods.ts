@@ -3,7 +3,6 @@ import type { Clock } from "../serve/clock.js";
 import type { MethodHandlers } from "../serve/methods.js";
 import {
   DEFAULT_HANDOFF_THRESHOLDS,
-  bindingWindow,
   handoffTrigger,
   isFresh,
   rankAccounts,
@@ -29,8 +28,10 @@ import type { UsagePool } from "./usage-pool.js";
  * ago, or one the provider is refusing whatever its age: a percentage goes
  * stale, a refusal does not) and names the other account with the most
  * room, one being a choice, never one whose tightest window the provider is
- * refusing. No account with no room is ever named. No plan weights are known
- * yet, so the basis is `percentage`.
+ * refusing. No account with no room is ever named, though one counts among
+ * the `candidates`: the accounts ranked (`rankAccounts`), as Artemis's
+ * `recommendProfile` counts them. No plan weights are known yet, so the basis
+ * is `percentage`.
  */
 
 export interface UsageMethodsOptions {
@@ -79,11 +80,8 @@ export const recommendHandoff = (options: UsageMethodsOptions, fromAccountId: st
     .map((record) => ({ accountId: record.id, provider: record.provider, reading: pool.cached(record.id), liveRuns: pool.liveRuns(record.id) }));
 
   const trigger = fromAccountId === undefined ? null : metThreshold(pool.cached(fromAccountId), now);
-  // Handing off, the others are the targets, one being a choice; a refused one is not one.
-  const targets =
-    fromAccountId === undefined
-      ? entries
-      : entries.filter((entry) => entry.accountId !== fromAccountId && bindingWindow(entry.reading, now)?.verdict !== "rejected");
+  // Handing off, the others are the targets, one being a choice; a refused one is ranked, and counted, but never named.
+  const targets = fromAccountId === undefined ? entries : entries.filter((entry) => entry.accountId !== fromAccountId);
   const { candidates, best } = rankAccounts(targets, { now, minCandidates: fromAccountId === undefined ? 2 : 1 });
 
   const from = fromAccountId === undefined ? null : labelOf(fromAccountId);

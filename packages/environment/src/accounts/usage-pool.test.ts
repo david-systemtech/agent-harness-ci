@@ -1,6 +1,11 @@
-import type { AccountUsage, UsageWindow } from "@agent-harness/contracts";
-import { describe, expect, it } from "vitest";
-import { foldVerdict, sameReading, type PlanVerdict } from "./usage-pool.js";
+import type { AccountRecord, AccountUsage, UsageWindow } from "@agent-harness/contracts";
+import { describe, expect, it, vi } from "vitest";
+import { useCleanups } from "../../test/cleanups.js";
+import { manualClock } from "../../test/clock.js";
+import { fakeAdapter, usageOf, usageWindow } from "../../test/fake-adapter.js";
+import { openEventLog } from "../event-log/event-log.js";
+import type { AccountFacts } from "../runs/run-decider.js";
+import { createUsagePool, foldVerdict, sameReading, type PlanVerdict } from "./usage-pool.js";
 
 /**
  * The pool's fold and its notice rule as pure functions: a run's verdict
@@ -8,8 +13,11 @@ import { foldVerdict, sameReading, type PlanVerdict } from "./usage-pool.js";
  * (`packages/protocol/src/usage.test.ts` at 443cf2e, "applyPlanLimit" and
  * "a window keeps the clock it was read on"), and what counts as a change.
  * The pool's own reads, sharing and notices are the wire's
- * (`usage.test.ts`).
+ * (`usage.test.ts`); a fault around a read, which the wire cannot stage, is
+ * the pool's own, below.
  */
+
+const { onCleanup } = useCleanups();
 
 const READ = Date.parse("2026-09-24T01:00:00.000Z");
 const iso = (ms: number): string => new Date(ms).toISOString();
@@ -128,5 +136,48 @@ describe("sameReading, the notice rule", () => {
 
   it("is no change when only the times moved", () => {
     expect(sameReading(polled, reading([w("five_hour", 0.33, { observedAt: iso(READ + 60_000) }), w("seven_day", 0.97)], { readAt: iso(READ + 60_000) }))).toBe(true);
+  });
+});
+
+describe("a fault around one account's read", () => {
+  it("answers that account unavailable and reported, the other read as ever, rather than failing the batch", async () => {
+    const clock = manualClock();
+    const log = openEventLog({ path: ":memory:", clock: () => clock.now() });
+    onCleanup(() => log.close());
+    const record = (id: string): AccountRecord => ({
+      id,
+      provider: "fake",
+      label: id,
+      directory: { kind: "adopted", path: `/nonexistent/${id}` },
+      identity: { provider: "fake", email: `${id}@example.com`, organisation: null },
+      status: { state: "signed-in", checkedAt: null, detail: null },
+      createdAt: clock.now().toISOString(),
+    });
+    const { descriptor } = fakeAdapter({ clock });
+    const facts = (id: string): AccountFacts => ({ id, directory: `/nonexistent/${id}`, signedIn: true, identity: null, descriptor, models: [] });
+    const pool = createUsagePool({
+      log,
+      clock,
+      environmentId: "environment",
+      accounts: { list: () => [record("work"), record("broken")] },
+      host: {
+        // The seam outside the adapter's read: the host's account lookup throws for one account.
+        account: (id) => {
+          if (id === "broken") throw new Error("The account table is locked.");
+          return facts(id ?? "work");
+        },
+        usage: async (id) => usageOf(`${id}@example.com`, [usageWindow("five_hour", 0.4)], clock.now()),
+      },
+    });
+    onCleanup(() => pool.close());
+    const reported = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    onCleanup(() => reported.mockRestore());
+
+    const readings = await pool.read();
+    expect(readings.map((reading) => reading.accountId)).toEqual(["work", "broken"]);
+    expect(readings[0]).toMatchObject({ unavailableReason: null, windows: [{ window: "five_hour", utilisation: 0.4 }] });
+    expect(readings[1]).toMatchObject({ windows: [], unavailableReason: "Could not read plan usage: The account table is locked." });
+    expect(await pool.read("broken")).toEqual([expect.objectContaining({ accountId: "broken", windows: [] })]);
+    expect(reported).toHaveBeenCalledWith(expect.stringContaining("broken"), expect.any(Error));
   });
 });

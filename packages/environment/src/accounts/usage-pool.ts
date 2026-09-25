@@ -47,7 +47,10 @@ import { currentWindow, isFresh, type LiveRunLoad } from "./handoff.js";
  *   times out, and a provider reporting no limits each answer a reading with
  *   no windows and the reason. A failed read is answered and held (so the
  *   notice and the hand-off see it) but read again at the next ask, as the
- *   Claude adapter does not keep a failed read either.
+ *   Claude adapter does not keep a failed read either. A fault around the
+ *   read, outside the adapter (the host's account lookup, the store), answers
+ *   that account unavailable too, reported and not held: one account's fault
+ *   never fails the others' readings.
  * - **A run's `plan.limit` folds in** (Artemis's `applyPlanLimit`): the pool
  *   hears the log, maps the run to its account through the runs table, and
  *   folds the verdict into that account's window: the verdict, and the
@@ -289,6 +292,21 @@ export const createUsagePool = (options: UsagePoolOptions): UsagePool => {
     return reading;
   };
 
+  /**
+   * One account's read, total: a fault outside the adapter's read (the host's
+   * account lookup, the store) answers that account unavailable and is
+   * reported, rather than failing the other accounts' readings with it. Not
+   * held, so the next ask reads again.
+   */
+  const readTotal = async (record: AccountRecord): Promise<AccountUsage> => {
+    try {
+      return await readOne(record);
+    } catch (error) {
+      console.error(`Reading the plan usage of the account ${record.label} failed in the environment:`, error);
+      return unavailable(record, record.identity, clock.now().toISOString(), `Could not read plan usage: ${messageOf(error)}`);
+    }
+  };
+
   /** The account a run ran on: the live record, else the runs table. */
   const accountOfRun = (runId: string): string | null => live.get(runId)?.accountId ?? readRun(reader, runId)?.accountId ?? null;
 
@@ -329,7 +347,7 @@ export const createUsagePool = (options: UsagePoolOptions): UsagePool => {
       if (accountId !== undefined && chosen.length === 0) {
         throw new ContractError({ code: "not_found", message: `No account ${accountId} is on this environment.`, data: { kind: "account", accountId } });
       }
-      return Promise.all(chosen.map(readOne));
+      return Promise.all(chosen.map(readTotal));
     },
     cached: (accountId) => held.get(accountId)?.reading ?? null,
     liveRuns: (accountId) => [...live.values()].filter((run) => run.accountId === accountId).map(({ model, effort }) => ({ model: model ?? null, effort: effort ?? null })),

@@ -306,7 +306,7 @@ export interface AccountRecommendation {
   /** Its room, 0 to 1, in its tightest window: the reading's, not less what its runs reserve. */
   readonly headroom: number;
   readonly binding: UsageWindow;
-  /** How many accounts it was chosen from. */
+  /** How many accounts it was chosen from: the ones ranked (`rankAccounts`), itself and any full or refused one among them. */
   readonly candidates: number;
   readonly basis: HandoffBasis;
   readonly plan: PlanWeight | null;
@@ -362,7 +362,7 @@ export interface RankOptions {
   readonly minCandidates?: number;
 }
 
-/** A ranking: how many accounts could be ranked, and the one with the most room, or null. */
+/** A ranking: how many accounts were ranked (the candidates), and the one with the most room, or null. */
 export interface Ranking {
   readonly candidates: number;
   readonly best: AccountRecommendation | null;
@@ -371,7 +371,10 @@ export interface Ranking {
 /**
  * Ranks the accounts. A candidate is an account with plan limits (never a
  * metered one), a fresh reading by its newest observation, and a usable
- * number. Fewer than `minCandidates` candidates is no recommendation. A
+ * number; `candidates` counts these and nothing else, as Artemis's
+ * `recommendProfile` counts its ranked set, so an account never read, one
+ * unavailable, one stale, or one whose every window has rolled over is not
+ * one. Fewer than `minCandidates` candidates is no recommendation. A
  * refused account and a full one count among the candidates but never win:
  * no account with no room is named, so all of them full or refused is no
  * recommendation. Ties keep the caller's order, so the answer does not swap

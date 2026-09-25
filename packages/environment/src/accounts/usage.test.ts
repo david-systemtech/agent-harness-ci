@@ -402,13 +402,15 @@ describe("accounts.handoff.recommend", () => {
     expect(answer.message).toMatch(/personal/);
   });
 
-  it("from an account the provider is refusing, says it has reached its limit, and never names a refused account to hand to", async () => {
+  it("from an account the provider is refusing, says it has reached its limit, and never names a refused account to hand to, though it counts it", async () => {
     const { client, t } = await start({ usage: fiveHour({ work: 0.4, personal: 0.3 }), script: () => [planLimit("five_hour", "rejected"), end()] });
     await usage(client);
     await runOn(t, client, "work");
-    expect(await recommend(client, "work")).toMatchObject({ accountId: "personal", reason: "limit-reached", trigger: { window: "five_hour", verdict: "rejected" } });
+    expect(await recommend(client, "work")).toMatchObject({ accountId: "personal", reason: "limit-reached", trigger: { window: "five_hour", verdict: "rejected" }, candidates: 1 });
     await runOn(t, client, "personal");
-    expect(await recommend(client, "work")).toMatchObject({ accountId: null, reason: "no-target", trigger: { verdict: "rejected" }, candidates: 0 });
+    // Personal is ranked, at no room, so it is one of the accounts the answer was chosen from, as it is asked with no account.
+    expect(await recommend(client, "work")).toMatchObject({ accountId: null, reason: "no-target", trigger: { verdict: "rejected" }, candidates: 1 });
+    expect(await recommend(client)).toMatchObject({ accountId: null, reason: "no-target", candidates: 2 });
   });
 
   it("from an account with room, still names the other account with the most room, with no threshold met", async () => {

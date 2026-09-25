@@ -298,6 +298,8 @@ describe("recommendAccount", () => {
     const stale = five(0.1, { readAt: iso(NOW - USAGE_MAX_AGE_MS - 1), windows: [w("five_hour", 0.1, { observedAt: iso(NOW - USAGE_MAX_AGE_MS - 1) })] });
     const result = recommendAccount([entry("stale", stale), entry("fresh", five(0.8)), entry("other", five(0.85))], { now: NOW });
     expect(result?.accountId).toBe("fresh");
+    // Nor counts it: the candidates are the accounts ranked, as Artemis's recommendProfile counts them.
+    expect(result?.candidates).toBe(2);
   });
 
   it("counts a reading as fresh from its newest observation: a verdict a run reported since the read", () => {
