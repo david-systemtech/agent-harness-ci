@@ -23,8 +23,8 @@ export interface FakeControls {
   flagSettings?: () => Promise<void>;
   /** What `stopTask` answers once it has recorded the task; preset: at once. */
   stopTask?: (taskId: string) => Promise<void>;
-  /** What `cancelAsyncMessage` answers per uuid; absent means the method is absent. */
-  cancelled?: (uuid: string) => boolean;
+  /** What `cancelAsyncMessage` answers per uuid, at once or when its promise settles; absent means the method is absent. */
+  cancelled?: (uuid: string) => boolean | Promise<boolean>;
   accountInfo?: () => Promise<{ email?: string; organization?: string }>;
   /** The usage method: its name on the query, and its answer. */
   usage?: { readonly name: string; readonly answer: () => Promise<unknown> };

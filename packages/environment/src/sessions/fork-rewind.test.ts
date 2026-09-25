@@ -590,6 +590,53 @@ describe("sessions.undoRewind", () => {
     expect(texts(await snapshotOf(t, client, id))).toEqual(ALL);
   });
 
+  describe("beside read now and withdraw (#228)", () => {
+    /**
+     * A message the environment holds, recorded after the rewind as the host's late requeue leaves one: sent during the
+     * run before the rewind, taken back from the provider once that run's end had committed.
+     */
+    const heldAfterRewind = (t: TestEnvironment, id: string, runId: string, text: string): string => {
+      const messageId = randomUUID();
+      t.env.log.append(
+        { kind: "session", id },
+        [{ type: "message.sent", payload: { runId, messageId, text, attachments: [], delivery: "queued", heldBy: "environment", ceiling: "bypassPermissions" } }],
+        { actor: "system:adapter-host", correlationId: runId },
+      );
+      return messageId;
+    };
+
+    it("counts a run runs.readNow starts from the environment's queue as a run started since the rewind", async () => {
+      const t = await start();
+      const client = await t.client();
+      const { id, second, third } = await threeRuns(t, client);
+      await rewind(client, id, second.messageId);
+      heldAfterRewind(t, id, third.runId, "Late");
+
+      const read = registry["runs.readNow"].response.parse(await client.request("runs.readNow", { commandId: randomUUID(), sessionId: id }));
+      const runId = read.result?.runId;
+      expect(runId).toEqual(expect.any(String));
+      await vi.waitFor(() => expect(ended(t, id).at(-1)?.payload).toMatchObject({ runId }));
+      expect((await undoRewind(client, id)).receipt).toMatchObject({ status: "rejected", reason: "conflict", error: { data: { reason: "run_started", runId } } });
+    });
+
+    it("keeps a draft a withdraw appended to since the rewind", async () => {
+      const t = await start();
+      const client = await t.client();
+      const { id, second, third } = await threeRuns(t, client);
+      await command(client, "sessions.setDraft", { sessionId: id, draft: "Before" });
+      await rewind(client, id, second.messageId);
+      const late = heldAfterRewind(t, id, third.runId, "Late");
+      const withdrawn = registry["runs.withdraw"].response.parse(await client.request("runs.withdraw", { commandId: randomUUID(), messageId: late }));
+      expect(withdrawn.receipt.status).toBe("accepted");
+      expect((await get(client, id)).draft).toBe("Second\n\nLate");
+
+      expect((await undoRewind(client, id)).receipt.status).toBe("accepted");
+      expect(events(t, id).at(-1)?.type).toBe("session.rewind-undone");
+      expect((await get(client, id)).draft).toBe("Second\n\nLate");
+      expect(texts(await snapshotOf(t, client, id))).toEqual(ALL);
+    });
+  });
+
   it("reads the same after the projections are rebuilt: the items shown, the draft, and the next run's target", async () => {
     const t = await start();
     const client = await t.client();

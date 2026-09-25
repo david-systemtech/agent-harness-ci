@@ -3,6 +3,7 @@ import {
   type MessageRequeuedPayload,
   type MessageSentPayload,
   type MessageDeliveredPayload,
+  type MessageWithdrawnPayload,
   type RunEndedPayload,
   type RunStartedPayload,
   type SessionProviderLinkedPayload,
@@ -16,9 +17,10 @@ import type { EventEnvelope, ProjectionDb, Projector } from "../event-log/event-
  * the transaction that appends them. `runs` has a row per run (its session,
  * state, account, model, times, how it ended, the provider's session id);
  * `run_messages` holds every message sent to the session, who holds it
- * while it is queued (`read` once a run has it) and the ceiling of the
- * connection that sent it, so a message a run was started with and never
- * got can be queued again (`message.requeued`);
+ * while it is queued (`read` once a run has it, `withdrawn` once
+ * `runs.withdraw` took it back, #228) and the ceiling of the connection
+ * that sent it, so a message a run was started with and never got can be
+ * queued again (`message.requeued`);
  * `run_tasks` a run's delegated-work ledger as its latest `tasks.changed`
  * left it. The tombstone (`session.purged`) removes the session's rows, as
  * the purge removed its events. The snapshot's items are not a table: they
@@ -47,7 +49,7 @@ export const RUNS_TABLES = {
     run_id TEXT NOT NULL,
     sequence INTEGER NOT NULL,
     text TEXT NOT NULL,
-    held_by TEXT NOT NULL CHECK (held_by IN ('provider', 'environment', 'read')),
+    held_by TEXT NOT NULL CHECK (held_by IN ('provider', 'environment', 'read', 'withdrawn')),
     ceiling TEXT NOT NULL
   ) STRICT;
   CREATE INDEX run_messages_by_session ON run_messages (session_id, sequence)`,
@@ -105,6 +107,10 @@ const PROJECTIONS: Partial<Record<string, Projection>> = {
       (event.payload as MessageRequeuedPayload).messageId,
       event.streamId,
     );
+  },
+  // Taken back before any run read it (#228): out of every queue, for good.
+  "message.withdrawn": (event, db) => {
+    db.run("UPDATE run_messages SET held_by = 'withdrawn' WHERE message_id = ? AND session_id = ?", (event.payload as MessageWithdrawnPayload).messageId, event.streamId);
   },
   "tasks.changed": (event, db) => {
     const payload = event.payload as TasksChangedPayload;

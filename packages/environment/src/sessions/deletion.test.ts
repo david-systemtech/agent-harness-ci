@@ -193,13 +193,14 @@ describe("sessions.delete", () => {
 
 describe("a deleted session", () => {
   /**
-   * The params of every command that names a session or a run, but create,
-   * restore and purge, on `sessionId` and its run `runId`. The test below
-   * refuses a served command whose params carry a `sessionId` or a `runId`
-   * and that is missing here, so each ticket that serves one (#117, the
-   * run verbs, the process stop) adds it.
+   * The params of every command that names a session, a run or a message,
+   * but create, restore and purge, on `sessionId`, its run `runId` and that
+   * run's message `messageId`. The test below refuses a served command whose
+   * params carry a `sessionId`, a `runId` or a `messageId` and that is
+   * missing here, so each ticket that serves one (#117, the run verbs, the
+   * process stop, read now and withdraw) adds it.
    */
-  const onDeleted = (sessionId: string, runId: string): Partial<{ [N in CommandMethodName]: Omit<ParamsOf<N>, "commandId"> }> => ({
+  const onDeleted = (sessionId: string, runId: string, messageId: string): Partial<{ [N in CommandMethodName]: Omit<ParamsOf<N>, "commandId"> }> => ({
     "sessions.rename": { sessionId, title: "Back from the dead" },
     "sessions.archive": { sessionId },
     "sessions.unarchive": { sessionId },
@@ -224,6 +225,10 @@ describe("a deleted session", () => {
     "permissions.prompts.answer": { sessionId, promptId: "p-1", decision: "deny" },
     "runs.interrupt": { runId },
     "runs.stopTask": { runId, taskId: "t-1" },
+    // Nothing is queued, and a deleted session is not found before that is looked at (#228).
+    "runs.readNow": { sessionId },
+    // Its message was read long ago; the deleted session is not found first (#228).
+    "runs.withdraw": { messageId },
     "providers.processes.stop": { sessionId },
     "terminals.open": { id: randomUUID(), sessionId },
     // A deleted session is no source to fork, and has nothing to rewind (#137).
@@ -248,10 +253,10 @@ describe("a deleted session", () => {
     "permissions.prompts.list": { sessionId },
   });
 
-  /** Whether a command's params name a session or a run. */
+  /** Whether a command's params name a session, a run or a message. */
   const namesSessionOrRun = (method: (typeof methods)[number]): boolean => {
     const shape = (method.params as unknown as { readonly shape?: Record<string, unknown> }).shape ?? {};
-    return "sessionId" in shape || "runId" in shape;
+    return "sessionId" in shape || "runId" in shape || "messageId" in shape;
   };
 
   it("rejects every served command naming the session or its run but restore and purge not_found, kind session, in a receipt, and appends nothing", async () => {
@@ -264,7 +269,7 @@ describe("a deleted session", () => {
     const runId = started.result?.runId as string;
     await vi.waitFor(() => expect(t.env.log.readStream({ kind: "session", id }).map((event) => event.type)).toContain("run.ended"));
     await deleteSession(client, id);
-    const cases = onDeleted(id, runId);
+    const cases = onDeleted(id, runId, started.result?.messageId as string);
     const served = methods
       .filter((method) => isCommand(method) && namesSessionOrRun(method) && t.env.methods.get(method.name)?.handler !== undefined)
       .map((method) => method.name)

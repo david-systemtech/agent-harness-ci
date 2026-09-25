@@ -187,6 +187,24 @@ describe("the transcript fold", () => {
     expect(text(foldTranscript([...both, event("session.rewind-undone", { toMessageId: second, rewindSequence: 5 })]))).toEqual(["One", "Two", "Three"]);
   });
 
+  it("drops a withdrawn message's item, whose text went to the draft, and keeps the rest of the queue (#228)", () => {
+    sequence = 0;
+    const kept = "4d6f8a0c-2e4a-4c6e-8a0c-2e4a6c8e0a2c";
+    const events = [
+      started(runId),
+      event("message.sent", { runId, messageId: first, text: "One", attachments: [], delivery: "prompt", heldBy: null }),
+      event("message.sent", { runId, messageId: queued, text: "Taken back", attachments: [], delivery: "queued", heldBy: "provider" }),
+      event("message.sent", { runId, messageId: kept, text: "Still queued", attachments: [], delivery: "queued", heldBy: "provider" }),
+      event("message.withdrawn", { runId, messageId: queued, heldBy: "provider" }),
+      event("assistant.text", { runId, itemId: "i-1", text: "Reply", aborted: false }),
+    ];
+    const { items } = foldTranscript(events);
+    expect(items.map((item) => (item.kind === "assistant-text" || item.kind === "user-message" ? item.text : item.kind))).toEqual(["One", "Still queued", "Reply"]);
+    // Folding on from a fold that still held it gives the same.
+    const before = foldTranscript(events.slice(0, 4));
+    expect(foldTranscript(events.slice(4), before).items).toEqual(items);
+  });
+
   it("holds a prompt parked from its prompt.opened until its prompt.answered", () => {
     sequence = 0;
     const events = [
