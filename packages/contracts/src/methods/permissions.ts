@@ -1,18 +1,19 @@
 import { z } from "zod";
 import { errorSchema } from "../errors.js";
 import { commandParams, defineMethod } from "../method.js";
-import { ContainmentCause, ContainmentLevel, ContainmentReport, SessionContainmentSetPayload, SessionModeSetPayload } from "../permissions.js";
+import { ContainmentCause, ContainmentLevel, ContainmentReport, ReviewRun, SessionContainmentSetPayload, SessionModeSetPayload } from "../permissions.js";
 import { Mode } from "../permissions-modes.js";
 import { PermissionSettingsPatch, PermissionSettingsValues } from "../permissions-settings.js";
 import { ListedPrompt, PromptAnsweredPayload, PromptAnswerInput } from "../prompts.js";
+import { Sequence } from "../primitives.js";
 import { SessionId } from "../sessions.js";
 
 /**
  * The permissions methods (permissions spec, "Methods on the wire"): a
  * session's mode and the permission settings (#129), the parked prompts and
- * their answer (#130), a session's containment level (#133). The ceiling's
- * method, `access.sessions.setCeiling`, is in the `access` family
- * (`methods/access.ts`). The denylist and review methods are #131 and
+ * their answer (#130), a session's containment level (#133), the
+ * Unattended review (#131). The ceiling's method, `access.sessions.setCeiling`,
+ * is in the `access` family (`methods/access.ts`). The denylist methods are
  * #132's.
  */
 
@@ -159,5 +160,59 @@ export const permissionsPromptsAnswer = defineMethod({
     ...PromptAnswerInput.shape,
   }),
   result: z.object({ sessionId: SessionId, ...PromptAnsweredPayload.shape }),
+  errors: [],
+});
+
+/**
+ * The Unattended review (permissions spec, "The Unattended review view"):
+ * the runs that qualify, newest first, whose latest tool decision is after
+ * the environment-wide watermark. A run qualifies when it was unattended and
+ * made a tool call or had a denial (a prompt that named no call is one), or was attended and had a call decided by the TTL, the
+ * denylist or containment (a chosen default, so a person's own bypass runs do
+ * not flood it). A deleted session's runs are left out. `head` is the log's
+ * position as read: what `permissions.review.seen` takes to mark exactly
+ * what was listed as seen. At most `limit` runs (preset 200), the newest.
+ */
+export const REVIEW_LIST_LIMIT = 200;
+
+/** The most runs one review list may ask for. */
+export const REVIEW_LIST_MAX = 1000;
+
+export const permissionsReviewList = defineMethod({
+  name: "permissions.review.list",
+  scope: "read",
+  kind: "query",
+  params: z.object({
+    limit: z
+      .int()
+      .min(1)
+      .max(REVIEW_LIST_MAX)
+      .optional()
+      .meta({ description: `The most runs to list, the newest; ${REVIEW_LIST_LIMIT} when absent.` }),
+  }),
+  result: z.object({
+    watermark: Sequence.meta({ description: "The position the review has been seen through; 0 when it never has." }),
+    head: Sequence.meta({ description: "The log's position when the list was read." }),
+    runs: z.array(ReviewRun).meta({ description: "The qualifying runs since the watermark, newest first." }),
+  }),
+  errors: [],
+});
+
+/**
+ * Marks the Unattended review seen through a log position (the head when
+ * none is named), moving the environment-wide watermark, recorded as
+ * `review.seen` on the settings stream: a later list leaves out the runs
+ * with nothing decided after it. It never moves back: a position at or
+ * below the watermark changes nothing. A position past the log's head is
+ * `invalid_params`. Clients hold no state (ADR 0003).
+ */
+export const permissionsReviewSeen = defineMethod({
+  name: "permissions.review.seen",
+  scope: "sessions:write",
+  kind: "command",
+  params: commandParams({
+    through: Sequence.optional().meta({ description: "The position to mark seen through: a list's head. The log's head when absent." }),
+  }),
+  result: z.object({ watermark: Sequence.meta({ description: "The watermark after the command." }) }),
   errors: [],
 });

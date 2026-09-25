@@ -68,6 +68,7 @@ export {
   type RunContainment,
   type RunContext,
   type RunEnd,
+  type ToolDenial,
   type RunInput,
   type RunTarget,
   type ToolAccess,
@@ -133,6 +134,8 @@ export {
   type RunActor,
 } from "./permissions/resolver.js";
 export { PERMISSIONS_PROJECTOR, permissionsProjector } from "./permissions/permissions-store.js";
+export { BYPASS_DENIAL, UNATTENDED_ANSWER, UNATTENDED_DENIAL, autoAnswer } from "./permissions/auto-answer.js";
+export { TTL_ANSWER, TTL_DENIAL, TTL_SWEEP_INTERVAL_MS, createTtlSweeper, type TtlSweeper, type TtlSweeperOptions } from "./permissions/ttl-sweeper.js";
 export {
   ADAPTER_REASON,
   PRESET_CONTAINMENT,
@@ -256,6 +259,7 @@ export {
   STARTUP_STEPS,
   StartupError,
   startEnvironment,
+  type ActorRunRequest,
   type EnvironmentHandle,
   type EnvironmentOptions,
   type StartupHooks,

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { DefaultAccount, DefaultEffort, DefaultModelFamily } from "./accounts.js";
 import type { EventTypeEntry } from "./event-types.js";
+import { ReviewSeenPayload } from "./permissions.js";
 import { PERMISSION_SETTINGS } from "./permissions-settings.js";
 import { PROCESS_IDLE_MINUTES_PRESET, ProcessIdleMinutes } from "./methods/providers.js";
 
@@ -186,9 +187,11 @@ export type SettingsUpdatedPayload = z.infer<typeof SettingsUpdatedPayload>;
 /** The event types of the `settings` stream: none changes the session list. */
 export const SETTINGS_EVENT_TYPES = {
   "settings.updated": { list: false, payload: SettingsUpdatedPayload },
+  // The Unattended review's environment-wide watermark (#131): the environment's own state, moved by a person, beside its settings.
+  "review.seen": { list: false, payload: ReviewSeenPayload },
 } as const satisfies Record<string, EventTypeEntry>;
 
 export type SettingsEventType = keyof typeof SETTINGS_EVENT_TYPES;
 export const SettingsEventType = z
   .enum(Object.keys(SETTINGS_EVENT_TYPES) as [SettingsEventType, ...SettingsEventType[]])
-  .meta({ description: "The event types of the settings stream: settings.updated." });
+  .meta({ description: "The event types of the settings stream: settings.updated, and review.seen, the Unattended review's watermark." });

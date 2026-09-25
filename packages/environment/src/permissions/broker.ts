@@ -151,28 +151,35 @@ const inputLine = (input: JsonObject | null): string => (input === null ? "" : `
  * restart, a parked stop, an admin stop, a drain) and the session's next run
  * reads it first (ADR 0007): what was asked, what was answered, and that the
  * call itself did not run, so the model makes it again if it still needs it.
+ * An answer no person gave (the TTL's, #131) says nobody answered in time,
+ * and carries no person's message.
  */
 export const nextRunText = (prompt: PromptOpenedPayload, answer: PromptAnsweredPayload): string => {
   const asked = "Before your last run ended you asked";
+  const byPerson = typeof answer.decidedBy === "string";
+  const said = byPerson ? quoted(answer.message) : "";
   if (prompt.kind === "question") {
     const answers = Object.entries(answer.answers ?? {}).map(([question, given]) => `- ${question} ${given}`);
     const questions = (prompt.questions ?? []).map((question) => `- ${question.question}`).join("\n");
-    const body =
-      answer.decision === "allow" && answers.length > 0
+    const body = !byPerson
+      ? "Nobody answered in time; proceed with your best judgement."
+      : answer.decision === "allow" && answers.length > 0
         ? `A person has answered since:\n${answers.join("\n")}`
         : "A person declined to answer; proceed with your best judgement.";
-    return `${asked}:\n${questions || `- ${prompt.summary}`}\n${body}${quoted(answer.message)}`;
+    return `${asked}:\n${questions || `- ${prompt.summary}`}\n${body}${said}`;
   }
   if (prompt.kind === "plan") {
-    const verdict =
-      answer.decision === "allow"
+    const verdict = !byPerson
+      ? "Nobody approved it in time; do not carry it out as proposed."
+      : answer.decision === "allow"
         ? `A person has approved it since; continue in ${answer.mode?.effective ?? "acceptEdits"}.`
         : "A person has rejected it since; do not carry it out as proposed.";
-    return `${asked} for approval of your plan (${prompt.summary}). ${verdict}${quoted(answer.message)}`;
+    return `${asked} for approval of your plan (${prompt.summary}). ${verdict}${said}`;
   }
-  const verdict =
-    answer.decision === "allow"
+  const verdict = !byPerson
+    ? "Nobody answered in time, so it was denied; carry on without it and say what you could not do."
+    : answer.decision === "allow"
       ? "A person has allowed it since, but the call did not run: make it again if you still need it."
       : "A person has denied it since; carry on without it and say what you could not do.";
-  return `${asked} permission for: ${prompt.summary}. ${verdict}${answer.decision === "allow" ? inputLine(answer.updatedInput) : ""}${quoted(answer.message)}`;
+  return `${asked} permission for: ${prompt.summary}. ${verdict}${answer.decision === "allow" ? inputLine(answer.updatedInput) : ""}${said}`;
 };

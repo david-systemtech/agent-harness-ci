@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ReviewDenial",
+  "type": "object",
+  "properties": {
+    "toolCallId": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "tool": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1
+    },
+    "decidedBy": {
+      "type": "string",
+      "enum": [
+        "person",
+        "mode",
+        "rule",
+        "classifier",
+        "denylist",
+        "containment",
+        "ttl",
+        "unattended",
+        "bypass",
+        "provider"
+      ],
+      "description": "What decided a tool call: person (a person answered its prompt), mode (the mode let it through without asking), rule (one of the provider's own rules), classifier (the provider's classifier or reviewer), denylist, containment, ttl (its prompt waited past the TTL), unattended (nobody was present), bypass (a residual prompt in bypassPermissions), or provider (the provider decided otherwise: it cancelled the request, the run ended under the prompt, or it reported a denial for another reason)."
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "required": [
+    "toolCallId",
+    "tool",
+    "summary",
+    "decidedBy",
+    "reason"
+  ],
+  "description": "A denied tool call: the tool, what it would have done, what denied it and why."
+}

@@ -403,7 +403,8 @@ describe("a Claude run through the adapter host", () => {
     query.emit(sdk.result(PROVIDER_SESSION));
     await vi.waitFor(() => expect(eventsOf(t).map((event) => event.type)).toContain("run.ended"));
     expect(await asked).toMatchObject({ behavior: "deny" });
-    expect(eventsOf(t).map((event) => event.type).slice(-2)).toEqual(["prompt.answered", "run.ended"]);
+    // The call's decision rides with its answer (#131).
+    expect(eventsOf(t).map((event) => event.type).slice(-3)).toEqual(["prompt.answered", "tool.decision", "run.ended"]);
     expect(eventsOf(t).find((event) => event.type === "prompt.answered")?.payload as PromptAnsweredPayload).toMatchObject({
       runId,
       promptId: "toolu_edit",

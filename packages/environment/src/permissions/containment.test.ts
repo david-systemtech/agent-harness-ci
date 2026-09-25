@@ -111,7 +111,12 @@ const runScript = async (t: TestEnvironment, client: WireClient, id: string, scr
   return runId;
 };
 
-const decisionsOf = (t: TestEnvironment, id: string, runId: string) => runEvents(t, id, runId).filter((event) => event.type === "tool.decision");
+/** Every tool decision of the run: the gate's, and those the host derives for the calls it let through (#131). */
+const allDecisionsOf = (t: TestEnvironment, id: string, runId: string) => runEvents(t, id, runId).filter((event) => event.type === "tool.decision");
+
+/** The tool decisions the gate recorded itself (`system:tool-gate`): its own denials only. */
+const decisionsOf = (t: TestEnvironment, id: string, runId: string) =>
+  allDecisionsOf(t, id, runId).filter((event) => event.actor.kind === "system" && event.actor.id === "tool-gate");
 
 describe("what this environment can enforce", () => {
   it("is answered by permissions.settings.get: each level with its reason and cause, the mechanism, and the container as the outer boundary", async () => {
@@ -584,6 +589,13 @@ describe("the tool gate's containment", () => {
       ["WebSearch", "denied", "containment"],
     ]);
     for (const payload of denials) expect(payload["reason"]).toMatch(/no network/);
+    // The calls it let through ended ok unasked: the host records them the mode's, once each, beside the gate's denials.
+    expect(allDecisionsOf(t, id, runId).map((event) => [event.payload["tool"], event.payload["decidedBy"]])).toEqual([
+      ["WebFetch", "containment"],
+      ["WebSearch", "containment"],
+      ["Bash", "mode"],
+      ["Read", "mode"],
+    ]);
     expect(sessionEvents(t, id).map((event) => event.type)).not.toContain("prompt.opened");
   });
 

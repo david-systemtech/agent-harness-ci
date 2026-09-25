@@ -4,7 +4,7 @@ import { dirname, isAbsolute, join, parse, relative, sep } from "node:path";
 import type { ToolDecisionPayload } from "@agent-harness/contracts";
 import type { RunContainment, ToolAccess, ToolGate } from "../adapter/contract.js";
 import { formatActor, type EventLog } from "../event-log/event-log.js";
-import { sessionStream } from "../sessions/streams.js";
+import { recordToolDecision } from "./tool-decisions.js";
 
 /**
  * The tool gate (permissions spec, "Modules": the tool gate) and its
@@ -130,7 +130,7 @@ export interface GatedRun {
 }
 
 export interface ToolGateOptions {
-  readonly log: Pick<EventLog, "append">;
+  readonly log: Pick<EventLog, "append" | "atomically" | "read">;
   /** The session's run live now, if any: a turn the provider opened on its own asks through the gate of the run it followed. */
   readonly liveRunOf: (sessionId: string) => GatedRun | undefined;
 }
@@ -143,7 +143,9 @@ export interface ToolGateOptions {
  * `decidedBy: containment`, appended when the gate rules, which may be before
  * the provider's report of the call reaches the log. A denial whose record
  * cannot be appended is still a denial. The gate records only its own
- * denials: every other decision is #131's to derive.
+ * denials, through `recordToolDecision` (#131), which records nothing for a
+ * call already decided; every other decision is #131's to derive, and the
+ * host skips a provider's report of a call the gate decided.
  */
 export const createToolGate =
   (options: ToolGateOptions) =>
@@ -163,7 +165,7 @@ export const createToolGate =
         reason: denial,
       };
       try {
-        options.log.append(sessionStream(run.sessionId), [{ type: "tool.decision", payload }], { actor: GATE_ACTOR, correlationId: run.runId });
+        options.log.atomically((tx) => recordToolDecision(options.log, tx, run.sessionId, payload, { actor: GATE_ACTOR }));
       } catch (error) {
         console.error(`Recording the gate's denial of ${call.tool} (${call.toolCallId}) in run ${run.runId} failed; it is denied all the same:`, error);
       }

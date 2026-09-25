@@ -379,8 +379,24 @@ export interface RunEnd {
   readonly resultText?: string | null;
 }
 
-/** What a run's event stream yields: transcript events, then one end. */
-export type AdapterEvent = TranscriptEvent | RunEnd;
+/**
+ * The provider's report of a tool call it denied itself, without asking the
+ * broker (permissions spec, "Events": rule denials come from the provider's
+ * own denial report): one of its rules, its classifier, its mode, or
+ * another reason of its own. Not a transcript event: the host records it as
+ * the call's `tool.decision` (#131), unless the call has one already.
+ */
+export interface ToolDenial {
+  readonly type: "denial";
+  readonly toolCallId: string;
+  readonly toolName: string | null;
+  readonly by: "rule" | "classifier" | "mode" | "provider";
+  /** The provider's reason, in its own words; null when it gives none. */
+  readonly reason: string | null;
+}
+
+/** What a run's event stream yields: transcript events and the provider's denial reports, then one end. */
+export type AdapterEvent = TranscriptEvent | ToolDenial | RunEnd;
 
 /**
  * One run, live. Its `events` are consumed once, by the host, and losslessly:

@@ -19,6 +19,18 @@
       ],
       "description": "Who started a run: client (a client session; attended), routine, bot, or completions (a program on the completions surface; unattended unless it asks otherwise)."
     },
+    "actorName": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The routine's or bot's name, which the Unattended review shows; null for a client session and the completions surface, and for a routine or bot that gave none."
+    },
     "attended": {
       "type": "boolean",
       "description": "Whether a person started the run (a client session), fixed at its start."
@@ -168,6 +180,7 @@
   "required": [
     "runId",
     "actorKind",
+    "actorName",
     "attended",
     "mode",
     "containment",
