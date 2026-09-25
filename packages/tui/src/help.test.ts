@@ -1,6 +1,6 @@
 import { ACTIONS, ACTION_GROUPS, SLASH_COMMANDS_TITLE, actionById, isCommandId, type KeyActionId } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
-import { ANSWERED } from "./answered.js";
+import { ANSWERED, BUILD_WORDS, OVERLAY_KEYS } from "./answered.js";
 import { helpLines, type HelpLine } from "./help.js";
 import { DEFAULT_KEYMAP, resolveKeymap } from "./keys.js";
 
@@ -62,6 +62,17 @@ describe("the help lines", () => {
     const remapped = helpLines(resolveKeymap({ "app.help": ["Ctrl+X", "F"] }).keymap, ANSWERED);
     expect(rowOf(remapped, "app.help")).toMatchObject({ keys: "Ctrl+X, F", remapped: true });
     expect(rowOf(remapped, "confirm.yes")).toMatchObject({ keys: "y", remapped: false });
+  });
+
+  it("say what this build does where it does less than the list's words, and nowhere else", () => {
+    const built = helpLines(DEFAULT_KEYMAP, ANSWERED, BUILD_WORDS);
+    expect(rowOf(built, "app.interruptOrQuit")?.description).toBe("Clear the draft, or close the question or the card; else quit");
+    expect(rowOf(built, "composer.send")?.description).toBe(actionById("composer.send")?.description);
+    for (const id of Object.keys(BUILD_WORDS)) expect(ANSWERED.has(id as never), id).toBe(true);
+  });
+
+  it("draw the pager's rows as soon: the overlay borrows their keys to scroll, but the pager is not drawn yet", () => {
+    for (const id of OVERLAY_KEYS) expect(rowOf(lines, id)?.state, id).toBe("soon");
   });
 
   it("name only actions of the list as answered", () => {

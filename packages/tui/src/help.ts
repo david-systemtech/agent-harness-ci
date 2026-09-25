@@ -24,25 +24,30 @@ export type HelpLine =
     }
   | { readonly kind: "reason"; readonly id: ActionId; readonly text: string };
 
-const rowOf = (action: ListedAction, keymap: Keymap, answered: ReadonlySet<ActionId>): HelpLine => {
+const rowOf = (action: ListedAction, keymap: Keymap, answered: ReadonlySet<ActionId>, words: Readonly<Partial<Record<ActionId, string>>>): HelpLine => {
   const command = isCommandId(action.id);
   const id = action.id as KeyActionId;
   return {
     kind: "row",
     id: action.id,
     keys: command ? (action.usage ?? action.id) : keymap.keys[id].join(", "),
-    description: action.description,
+    description: words[action.id] ?? action.description,
     remapped: !command && keymap.remapped.has(id),
     state: action.status === "absent" ? "absent" : answered.has(action.id) ? "answered" : "soon",
   };
 };
 
-export const helpLines = (keymap: Keymap, answered: ReadonlySet<ActionId>): readonly HelpLine[] =>
+/**
+ * The overlay's lines for the map in force: `answered` the actions the build
+ * answers, `words` what it says instead of the list's words where it does
+ * less than they promise.
+ */
+export const helpLines = (keymap: Keymap, answered: ReadonlySet<ActionId>, words: Readonly<Partial<Record<ActionId, string>>> = {}): readonly HelpLine[] =>
   ACTION_GROUPS.flatMap((g): HelpLine[] => [
     { kind: "heading", text: g.title },
     ...(g.actions as readonly ListedAction[]).flatMap((action): HelpLine[] =>
       action.aliasOf !== undefined
         ? []
-        : [rowOf(action, keymap, answered), ...(action.status === "absent" ? [{ kind: "reason" as const, id: action.id, text: action.reason }] : [])],
+        : [rowOf(action, keymap, answered, words), ...(action.status === "absent" ? [{ kind: "reason" as const, id: action.id, text: action.reason }] : [])],
     ),
   ]);

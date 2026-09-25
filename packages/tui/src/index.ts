@@ -1,10 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { join } from "node:path";
 import { createElement } from "react";
 import { PROTOCOL_VERSION, createRuntime, writable } from "@agent-harness/client-runtime";
 import { PRODUCT_NAME } from "@agent-harness/contracts";
 import { App, mountApp, type InkRender } from "./app.js";
-import { loadKeybindings, type Keymap } from "./keys.js";
+import { keybindingsFor } from "./keys.js";
 import { ensurePrivateDirectory } from "./platform/files.js";
 import { nodePlatform, stateDirectory, systemClock } from "./platform/node-platform.js";
 import type { LocalService } from "./platform/services.js";
@@ -15,9 +14,6 @@ export type { LocalService, ServiceOutcome } from "./platform/services.js";
 
 /** The protocol version the terminal UI speaks: the client runtime's. */
 export const TUI_PROTOCOL_VERSION: number = PROTOCOL_VERSION;
-
-/** The keybindings file's name in the state directory. */
-const KEYBINDINGS_FILE = "keybindings.json";
 
 /** `agent-harness tui`'s flags and what the CLI hands in beside them. */
 export interface TuiOptions {
@@ -61,10 +57,7 @@ export const runTui = async (options: TuiOptions): Promise<number> => {
   }
   const stateDir = options.stateDir ?? stateDirectory();
   ensurePrivateDirectory(stateDir);
-  // `--keybindings` names a file that must be there; the state directory's may not be, and is then the defaults.
-  const keybindingsPath = options.keybindings ?? join(stateDir, KEYBINDINGS_FILE);
-  const read = { required: options.keybindings !== undefined };
-  const keys = loadKeybindings(keybindingsPath, read);
+  const keybindings = keybindingsFor(options, stateDir);
   const faults = writable<readonly Fault[]>([]);
   // On the system clock the platform is built with, the one notices carry, so the activity line can tell which is newer;
   // read from the clock itself, so a report never depends on the platform binding being initialised.
@@ -81,15 +74,15 @@ export const runTui = async (options: TuiOptions): Promise<number> => {
     clock: platform.clock,
     services: options.services,
     grant: platform.grant,
-    keymap: keys.keymap,
-    keybindings: { path: keybindingsPath, reload: (previous: Keymap) => loadKeybindings(keybindingsPath, read, previous) },
+    keymap: keybindings.launch.keymap,
+    keybindings: { path: keybindings.path, reload: keybindings.reload },
     flags: {
       environment: options.environment,
       session: options.session,
       continueLatest: options.continueLatest,
       workspace: options.cwd ?? process.cwd(),
     },
-    notes: keys.problems,
+    notes: keybindings.launch.problems,
     faults,
     newCommandId: randomUUID,
   });

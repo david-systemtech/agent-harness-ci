@@ -6,6 +6,7 @@ import { ACTIONS, isCommandId } from "@agent-harness/contracts";
 import {
   DEFAULT_KEYMAP,
   DEFAULT_KEYS,
+  FIRST_ANYWHERE,
   contextOf,
   direction,
   dispatch,
@@ -116,6 +117,14 @@ describe("key names", () => {
     ["", key({ tab: true, shift: true }), "Shift+Tab"],
     ["y", key(), "y"],
     ["Y", key({ shift: true }), "Y"],
+    // An arrow is a named key: Shift on it is a modifier, not a case.
+    ["", key({ upArrow: true, shift: true }), "Shift+↑"],
+    ["", key({ downArrow: true, shift: true }), "Shift+↓"],
+    // The control bytes Ink hands over unmarked.
+    ["\u001C", key(), "Ctrl+\\"],
+    ["\u001D", key(), "Ctrl+]"],
+    ["\u001F", key(), "Ctrl+_"],
+    ["\n", key(), "Ctrl+J"],
   ])("names the key Ink hears for %j", (input, inkKey, name) => {
     expect(eventName(input, inkKey)).toBe(name);
   });
@@ -158,10 +167,7 @@ describe("the keybindings file", () => {
     const loaded = loadKeybindings(file(JSON.stringify({ "confirm.yes": ["Hyper+Q"] })), { required: true });
     expect(loaded.keymap.keys["confirm.yes"]).toEqual(["y"]);
     expect(loaded.keymap.remapped.has("confirm.yes")).toBe(false);
-    expect(loaded.problems).toEqual([
-      expect.stringContaining('"Hyper+Q" is not a key name'),
-      expect.stringContaining("confirm.yes has no key left; its default keys stand."),
-    ]);
+    expect(loaded.problems).toEqual([expect.stringContaining('"Hyper+Q" is not a key name; confirm.yes has no key left; its default keys stand.')]);
   });
 
   it.each([[["↓"]], [["PgUp", "PgDn", "Home"]], [["k", "k"]], [["Down", "↓"]]])("keeps a move action's default keys when it is not given exactly two different keys, up and down: %j", (written) => {
@@ -307,5 +313,62 @@ describe("dispatch through the action list", () => {
     expect(keysText(DEFAULT_KEYMAP, "picker.move")).toBe("↑↓");
     expect(keysText(DEFAULT_KEYMAP, "pager.close")).toBe("q/Esc");
     expect(keysText(resolveKeymap({ "picker.leave": ["q"] }).keymap, "picker.leave")).toBe("q");
+  });
+});
+
+describe("key names that only some actions take", () => {
+  it("refuses a class of keys for an action whose defaults are not that class, in one line, leaving its defaults", () => {
+    const loaded = resolveKeymap({ "confirm.yes": ["Letters"] });
+    expect(loaded.problems).toEqual([expect.stringMatching(/"Letters" is a class of keys.*; confirm\.yes has no key left; its default keys stand\.$/)]);
+    expect(loaded.keymap.keys["confirm.yes"]).toEqual(["y"]);
+    for (const written of ["1-4", ";;"]) expect(resolveKeymap({ "confirm.no": [written] }).keymap.keys["confirm.no"]).toEqual(["n", "Esc"]);
+  });
+
+  it("refuses keys pressed in turn for an action whose defaults are single presses, and ignores them beside a key that stands", () => {
+    const loaded = resolveKeymap({ "confirm.no": ["Esc Esc", "q"] });
+    expect(loaded.problems).toEqual([expect.stringContaining('"Esc Esc" is keys pressed in turn')]);
+    expect(loaded.keymap.keys["confirm.no"]).toEqual(["q"]);
+  });
+
+  it("takes a class or keys pressed in turn where the defaults are one", () => {
+    const loaded = resolveKeymap({ "app.prompt.back": ["Ctrl+X Ctrl+B"], "picker.filter": ["Letters"], "composer.suggestion.take": ["1-4"] });
+    expect(loaded.problems).toEqual([]);
+    expect(loaded.keymap.keys["app.prompt.back"]).toEqual(["Ctrl+X Ctrl+B"]);
+  });
+
+  it.each([
+    ["Ctrl+I", "Tab"],
+    ["Ctrl+M", "Enter"],
+    ["Ctrl+H", "Backspace"],
+    ["Ctrl+[", "Esc"],
+  ])("refuses %s, which a terminal sends as the byte of %s, and says so", (written, as) => {
+    const loaded = resolveKeymap({ "app.help": [written, "Ctrl+X"] });
+    expect(loaded.problems).toEqual([expect.stringContaining(`"${written}" is sent as the byte of ${as}`)]);
+    expect(loaded.keymap.keys["app.help"]).toEqual(["Ctrl+X"]);
+  });
+});
+
+describe("what counts as remapped", () => {
+  it("is only an action whose keys differ from its defaults", () => {
+    const loaded = resolveKeymap({ "app.help": ["?"], "confirm.no": ["n", "Esc"], "confirm.yes": ["Y"] });
+    expect([...loaded.keymap.remapped]).toEqual(["confirm.yes"]);
+  });
+
+  it("says a state directory with no file is the defaults", () => {
+    const loaded = loadKeybindings(join(tmpdir(), "no-such-dir-agent-harness", "keybindings.json"), { required: false });
+    expect(loaded.missing).toBe(true);
+    expect(loadKeybindings(file("{}"), { required: false }).missing).toBeUndefined();
+  });
+});
+
+describe("dispatch with part of a context", () => {
+  it("looks up only the actions `only` holds, or all but `except`'s", () => {
+    const ran: string[] = [];
+    const handlers = { "app.help": () => void ran.push("app.help"), "app.interruptOrQuit": () => void ran.push("quit") };
+    expect(dispatch(DEFAULT_KEYMAP, [{ context: "anywhere", only: FIRST_ANYWHERE }], handlers, "?", key())).toBe(false);
+    expect(dispatch(DEFAULT_KEYMAP, [{ context: "anywhere", only: FIRST_ANYWHERE }], handlers, "c", key({ ctrl: true }))).toBe(true);
+    expect(dispatch(DEFAULT_KEYMAP, [{ context: "anywhere", except: FIRST_ANYWHERE }], handlers, "c", key({ ctrl: true }))).toBe(false);
+    expect(dispatch(DEFAULT_KEYMAP, [{ context: "anywhere", except: FIRST_ANYWHERE }], handlers, "?", key())).toBe(true);
+    expect(ran).toEqual(["quit", "app.help"]);
   });
 });

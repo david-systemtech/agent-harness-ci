@@ -1,8 +1,8 @@
 import { Box, Text, render as inkRender, useApp, useInput, useStdout, type Instance, type RenderOptions } from "ink";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactElement } from "react";
 import type { Clock, EnvironmentView, GrantReader, Observable, PairingInput } from "@agent-harness/client-runtime";
-import { PRODUCT_NAME, type ActionContext } from "@agent-harness/contracts";
-import { ANSWERED, type AnsweredKey } from "./answered.js";
+import { PRODUCT_NAME } from "@agent-harness/contracts";
+import { ANSWERED, BUILD_WORDS, type AnsweredKey } from "./answered.js";
 import { applyAction, actionsFor, listClientSessions, removeEnvironment, revokeClientSession, type ClientSessionRow } from "./commands/environment.js";
 import { parseCommand } from "./commands/parse.js";
 import { mintPairing, pairingLine, type MintedLines } from "./commands/pair.js";
@@ -10,11 +10,11 @@ import { startLocalEnvironment } from "./commands/service.js";
 import { nextFocus, type Focus } from "./focus.js";
 import { createFrameScheduler } from "./frames.js";
 import { helpLines } from "./help.js";
-import { direction, dispatch, keysText, type Handler, type InkKey, type Keymap, type LoadedKeymap } from "./keys.js";
+import { FIRST_ANYWHERE, direction, dispatch, keysText, type Handler, type InkKey, type Keymap, type LoadedKeymap, type Lookup } from "./keys.js";
 import type { LocalService } from "./platform/services.js";
 import type { RuntimeHost } from "./runtime-host.js";
 import { ClientSessionsCard, EnvironmentMenu, EnvironmentsCard, HelpCard, MintedCard } from "./screens/cards.js";
-import { Composer, Header, Line, PairingPrompt, RAIL_MIN_COLUMNS, Rail } from "./screens/layout.js";
+import { Composer, Header, HintLine, Line, PairingPrompt, RAIL_MIN_COLUMNS, Rail } from "./screens/layout.js";
 import {
   activityLine,
   currentEnvironment,
@@ -108,8 +108,8 @@ type Card =
       readonly listing: number;
     }
   | { readonly kind: "minted"; readonly lines: MintedLines }
-  /** The help overlay: the effective map, scrolled to `top`. */
-  | { readonly kind: "help"; readonly top: number };
+  /** The help overlay: the effective map, scrolled to `top`, over `under`, the card it goes back to when it closes. */
+  | { readonly kind: "help"; readonly top: number; readonly under: Card };
 
 interface Question {
   readonly text: string;
@@ -185,9 +185,9 @@ export const App = (props: AppProps) => {
   const update = (change: Partial<Screen>) => setScreen((current) => ({ ...current, ...change }));
   // The keymap in force: the launch map, until `/reload` reads the file again.
   const [keymap, setKeymap] = useState(props.keymap);
-  // What has the keys when no card does: the composer, the rail or the conversation (Tab walks them, `nextFocus`).
+  // What has the keys when no card does: the composer, the rail or the transcript (Tab walks them, `nextFocus`).
   const [focus, setFocus] = useState<Focus>("composer");
-  const help = useMemo(() => helpLines(keymap, ANSWERED), [keymap]);
+  const help = useMemo(() => helpLines(keymap, ANSWERED, BUILD_WORDS), [keymap]);
   const say = (line: string) => update({ line });
 
   // Read at render: a frame the scheduler drew, or a key's, shows the runtime as it is now.
@@ -323,12 +323,13 @@ export const App = (props: AppProps) => {
       case "environment":
         return update({ card: { kind: "environments", cursor: 0 } });
       case "help":
-        return update({ card: { kind: "help", top: 0 } });
+        return update({ card: { kind: "help", top: 0, under: screen.card.kind === "help" ? screen.card.under : screen.card } });
       case "reload": {
         if (!props.keybindings) return say("There is no keybindings file to read here.");
         const loaded = props.keybindings.reload(keymap);
         setKeymap(loaded.keymap);
         const count = loaded.keymap.remapped.size;
+        if (loaded.missing === true) return say(`There is no keybindings file at ${props.keybindings.path}; the default keys stand.`);
         return say(
           loaded.problems.length > 0
             ? loaded.problems.join(" ")
@@ -417,6 +418,8 @@ export const App = (props: AppProps) => {
         return { kind: "environments", cursor: Math.max(0, views.findIndex((v) => v.environmentId === card.environmentId)) };
       case "client-sessions":
         return { kind: "menu", environmentId: card.environmentId, cursor: 0 };
+      case "help":
+        return card.under;
       default:
         return { kind: "none" };
     }
@@ -440,6 +443,10 @@ export const App = (props: AppProps) => {
   // The help overlay's body: the frame less the header, the three lines and the composer under the card, and the card's title and foot.
   const helpHeight = Math.max(1, size.rows - 7);
   const helpMaxTop = Math.max(0, help.length - helpHeight);
+  // A taller terminal, or a shorter map after `/reload`, leaves less to scroll: the overlay's place is clamped to it.
+  useEffect(() => {
+    setScreen((s) => (s.card.kind === "help" && s.card.top > helpMaxTop ? { ...s, card: { ...s.card, top: helpMaxTop } } : s));
+  }, [helpMaxTop]);
 
   useInput((input: string, key: InkKey) => {
     // A key draws what the scheduler holds back, with its own echo.
@@ -448,8 +455,9 @@ export const App = (props: AppProps) => {
     const listCard = card.kind === "environments" || card.kind === "menu" || card.kind === "client-sessions";
     // A list or the help overlay has the keys whatever has the focus; the focus has them back when it closes.
     const cardHasKeys = listCard || card.kind === "help";
+    const composerHasKeys = focused === "composer" && !cardHasKeys;
     const scroll = (to: (top: number) => number): false | void =>
-      card.kind === "help" ? update({ card: { kind: "help", top: Math.min(Math.max(to(card.top), 0), helpMaxTop) } }) : false;
+      card.kind === "help" ? update({ card: { ...card, top: Math.min(Math.max(to(Math.min(card.top, helpMaxTop)), 0), helpMaxTop) } }) : false;
     const move = (action: "picker.move" | "picker.moveVi") => (name: string) => {
       const step = direction(keymap, action, name);
       if (card.kind === "help") return scroll((top) => top + step);
@@ -462,18 +470,19 @@ export const App = (props: AppProps) => {
       "rail.leave": () => setFocus("composer"),
       "row.leave": () => setFocus("composer"),
       "app.interruptOrQuit": () => {
-        if (screen.composer !== "") return update({ composer: "" });
+        // The draft is cleared only where it is being typed: with the rail or the transcript focused it is kept.
+        if (screen.composer !== "" && composerHasKeys) return update({ composer: "" });
         if (screen.question) return update({ question: undefined });
-        if (card.kind !== "none") return update({ card: { kind: "none" } });
+        if (card.kind !== "none") return update({ card: card.kind === "help" ? card.under : { kind: "none" } });
         quit.abort();
         exit();
       },
       "app.help": () => {
-        if (card.kind === "help") return update({ card: { kind: "none" } });
+        if (card.kind === "help") return update({ card: card.under });
         // Artemis's map: from an empty composer; with text there it is a character like any other. With the
-        // focus in the rail or the conversation nothing is being typed, so it is the map (Artemis's rail rule).
-        if (screen.composer !== "" && focused === "composer") return false;
-        update({ card: { kind: "help", top: 0 } });
+        // focus in the rail or the transcript nothing is being typed, so it is the map (Artemis's rail rule).
+        if (screen.composer !== "" && composerHasKeys) return false;
+        update({ card: { kind: "help", top: 0, under: card } });
       },
       "confirm.yes": () => {
         if (!question) return false;
@@ -493,7 +502,7 @@ export const App = (props: AppProps) => {
       "pager.halfUp": () => scroll((top) => top - Math.max(1, Math.floor(helpHeight / 2))),
       "pager.top": () => scroll(() => 0),
       "pager.bottom": () => scroll(() => helpMaxTop),
-      "pager.close": () => (card.kind === "help" ? update({ card: { kind: "none" } }) : false),
+      "pager.close": () => (card.kind === "help" ? update({ card: card.under }) : false),
       "composer.send": () => {
         const typed = screen.composer;
         update({ composer: "" });
@@ -501,16 +510,24 @@ export const App = (props: AppProps) => {
       },
       "composer.backspace": () => setScreen((s) => ({ ...s, composer: [...s.composer].slice(0, -1).join("") })),
     };
-    // The contexts in play, in the order a key is looked up in them: what no component may take, a yes or no
-    // offer unless its letters are being typed into the composer, the open card, then what has the focus unless
-    // a list or the help overlay has the keys.
-    const contexts: ActionContext[] = ["anywhere"];
-    if (question && (screen.composer === "" || focused !== "composer")) contexts.push("confirm");
-    if (card.kind === "help") contexts.push("pager", "picker");
-    else if (card.kind !== "none") contexts.push("picker");
-    if (!cardHasKeys) contexts.push(focused);
-    if (dispatch(keymap, contexts, handlers, input, key)) return;
-    // A key nothing answered is dropped unless the composer has the keys: the rail and the conversation take
+    // Where a key is looked up, in order: the quit and the jump to what needs you, which nothing may take; a
+    // question just asked (a removal or a revoke the card asks to confirm, a re-pair), which has the keys until it
+    // is answered; the open card; unless a list or the help overlay has the keys, what has the focus and then the
+    // standing service-down offer; the rest of what is answered anywhere. Neither question is looked up while its
+    // letters are being typed into the composer. So a card's Esc or `n` is the card's, never the offer's answer,
+    // and never an interrupt.
+    const typing = composerHasKeys && screen.composer !== "";
+    const lookups: Lookup[] = [{ context: "anywhere", only: FIRST_ANYWHERE }];
+    if (screen.question && !typing) lookups.push("confirm");
+    if (card.kind === "help") lookups.push("pager", "picker");
+    else if (card.kind !== "none") lookups.push("picker");
+    if (!cardHasKeys) {
+      lookups.push(focused);
+      if (!screen.question && question && !typing) lookups.push("confirm");
+    }
+    lookups.push({ context: "anywhere", except: FIRST_ANYWHERE });
+    if (dispatch(keymap, lookups, handlers, input, key)) return;
+    // A key nothing answered is dropped unless the composer has the keys: the rail and the transcript take
     // every key, answered or not, so a letter pressed there is never typed into a draft out of sight.
     if (cardHasKeys || focused !== "composer") return;
     // What is typed is text, not a key: a sigil (`/`) included, whatever the keymap says.
@@ -529,13 +546,22 @@ export const App = (props: AppProps) => {
   const menuView = card.kind === "menu" || card.kind === "client-sessions" ? viewOf(card.environmentId) : undefined;
   const activity = activityLine(faults, notices);
   const promptLine = question?.text ?? (startingService ? "Starting the environment on this machine: starting…" : undefined);
-  // The line under the composer says what has the keys, in the keys of the map in force.
-  const focusHint =
-    focused === "sidebar"
-      ? `The list has the keys · ${keys("rail.leave")} back to the composer · ${keys("app.focus.next")} next`
-      : focused === "transcript"
-        ? `The conversation has the keys · ${keys("row.leave")} back to the composer · ${keys("app.focus.next")} next`
-        : `${keys("app.interruptOrQuit")} quits · ${keys("app.help")} keys · /pair · /environment`;
+  // The line under the composer says what has the keys, in the keys of the map in force: an open list or the help
+  // overlay first, then the rail or the transcript. Either stays in sight beside a notice; the composer's own
+  // hint gives way to one.
+  const hint =
+    card.kind === "help"
+      ? `The card has the keys · ${keys("pager.close")} closes it`
+      : card.kind === "environments"
+        ? `The card has the keys · ${keys("picker.leave")} closes it`
+        : card.kind === "menu" || card.kind === "client-sessions"
+          ? `The card has the keys · ${keys("picker.leave")} goes back`
+          : focused === "sidebar"
+            ? `The rail has the keys · ${keys("rail.leave")} back to the composer · ${keys("app.focus.next")} next`
+            : focused === "transcript"
+              ? `The transcript has the keys · ${keys("row.leave")} back to the composer · ${keys("app.focus.next")} next`
+              : undefined;
+  const composerHint = `${keys("app.interruptOrQuit")} quits · ${keys("app.help")} keys · /pair · /environment`;
   const own = menuView ? (runtime.connections.list.read().find((r) => r.environmentId === menuView.environmentId)?.clientSessionId ?? null) : null;
 
   return (
@@ -576,7 +602,7 @@ export const App = (props: AppProps) => {
       <Line text={screen.line} />
       <Line text={promptLine} color="yellow" />
       <Composer text={screen.composer} focused={focused === "composer" && !cardHasKeys} />
-      <Line text={activity ?? focusHint} dim={activity === undefined} {...(activity !== undefined && { color: "red" })} />
+      <HintLine hint={hint} activity={activity} fallback={composerHint} />
     </Box>
   );
 };

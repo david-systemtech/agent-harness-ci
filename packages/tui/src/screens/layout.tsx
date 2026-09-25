@@ -91,7 +91,23 @@ export const Line = (props: { readonly text: string | undefined; readonly color?
   </Box>
 );
 
-/** The composer: its prompt in colour and its cursor drawn while it has the keys; dim, with no cursor, while the rail or the conversation has them. */
+/**
+ * The line under the composer: `hint`, what has the keys when that is not
+ * the composer, kept in sight with the latest notice or fault beside it in
+ * red; otherwise the notice, or the composer's own hint when there is none.
+ */
+export const HintLine = (props: { readonly hint: string | undefined; readonly activity: string | undefined; readonly fallback: string }) => (
+  <Box flexShrink={0}>
+    <Text wrap="wrap">
+      {props.hint !== undefined && <Text dimColor>{props.hint}</Text>}
+      {props.hint !== undefined && props.activity !== undefined && <Text dimColor> · </Text>}
+      {props.activity !== undefined && <Text color="red">{props.activity}</Text>}
+      {props.hint === undefined && props.activity === undefined && <Text dimColor>{props.fallback}</Text>}
+    </Text>
+  </Box>
+);
+
+/** The composer: its prompt in colour and its cursor drawn while it has the keys; dim, with no cursor, while the rail or the transcript has them. */
 export const Composer = (props: { readonly text: string; readonly focused: boolean }) => (
   <Box height={1}>
     <Text wrap="truncate-start" dimColor={!props.focused}>

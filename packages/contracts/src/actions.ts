@@ -99,10 +99,36 @@ const AbsentAction = z
   })
   .meta({ description: "An action the harness keeps the keys of but does not answer: drawn dim with its reason, as Artemis drew its planned rows." });
 
-/** One entry of the shared action list. */
-export const Action = z.discriminatedUnion("status", [WiredAction, AbsentAction]).meta({
-  description: "One named action of the shared list: its id, context, default keys and description, and wired or absent with a reason.",
-});
+/**
+ * One entry of the shared action list. The rules that tie its fields
+ * together are zod's half only, as `EventFrame`'s sequence rule is: the id's
+ * first word names its context (`row` is `transcript`, `rail` is `sidebar`,
+ * `app` is `anywhere`, `command` is `composer`); a slash command has a usage
+ * line and no keys, any other action keys and no usage line; only a slash
+ * command is an alias. The JSON Schema export cannot state them, so a client
+ * in another language checks them itself.
+ */
+export const Action = z
+  .discriminatedUnion("status", [WiredAction, AbsentAction])
+  .superRefine((action, ctx) => {
+    const prefix = action.id.slice(0, action.id.indexOf(".")) as keyof typeof ACTION_ID_PREFIXES;
+    const context = ACTION_ID_PREFIXES[prefix];
+    if (context !== action.context) ctx.addIssue({ code: "custom", path: ["context"], message: `${action.id} is an action of the context ${context}.` });
+    if (prefix === "command") {
+      if (action.keys.length > 0) ctx.addIssue({ code: "custom", path: ["keys"], message: "A slash command is typed: it has no keys." });
+      if (action.usage === undefined) ctx.addIssue({ code: "custom", path: ["usage"], message: "A slash command has a usage line." });
+      else if (!action.usage.startsWith(`/${action.id.slice("command.".length)}`))
+        ctx.addIssue({ code: "custom", path: ["usage"], message: "A slash command's usage line starts with its name." });
+    } else {
+      if (action.keys.length === 0) ctx.addIssue({ code: "custom", path: ["keys"], message: "An action that is pressed has at least one key." });
+      if (action.usage !== undefined) ctx.addIssue({ code: "custom", path: ["usage"], message: "Only a slash command has a usage line." });
+      if (action.aliasOf !== undefined) ctx.addIssue({ code: "custom", path: ["aliasOf"], message: "Only a slash command is an alias." });
+    }
+  })
+  .meta({
+    description:
+      "One named action of the shared list: its id, context, default keys and description, and wired or absent with a reason. The id's first word names its context (row is transcript, rail is sidebar, app is anywhere, command is composer); a slash command has a usage line and no keys, any other action keys and no usage line, and only a slash command is an alias: rules the decoder keeps and this schema cannot state.",
+  });
 export type Action = z.infer<typeof Action>;
 
 /* ------------------------------------------------------------------------------------------------------------ */

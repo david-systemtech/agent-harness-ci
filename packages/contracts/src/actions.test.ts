@@ -136,6 +136,25 @@ describe("the action list's shape", () => {
     for (const action of ACTIONS) expect(Action.safeParse(action).success, action.id).toBe(true);
   });
 
+  it("refuses an entry whose fields disagree: an id's prefix and its context, keys and usage on the wrong kind", () => {
+    const pin = { id: "rail.pin", context: "sidebar", keys: ["p"], description: "Pin it", status: "wired" } as const;
+    const help = { id: "command.help", context: "composer", keys: [], description: "List these commands", usage: "/help", status: "wired" } as const;
+    expect(Action.safeParse(pin).success).toBe(true);
+    expect(Action.safeParse(help).success).toBe(true);
+    const refused = [
+      { ...pin, context: "transcript" },
+      { ...pin, id: "row.pin" },
+      { ...pin, keys: [] },
+      { ...pin, usage: "/pin" },
+      { ...pin, aliasOf: "rail.archive" },
+      { ...help, keys: ["F1"] },
+      { ...help, usage: undefined },
+      { ...help, usage: "/quit" },
+      { ...help, context: "anywhere" },
+    ];
+    for (const entry of refused) expect(Action.safeParse(entry).success, JSON.stringify(entry)).toBe(false);
+  });
+
   it("has eleven contexts, Artemis's eight and the terminal pane, the parked asks and the yes or no offers", () => {
     expect([...ACTION_CONTEXTS].sort()).toEqual(
       ["anywhere", "composer", "transcript", "sidebar", "delegated", "picker", "permission", "pager", "terminal", "asks", "confirm"].sort(),

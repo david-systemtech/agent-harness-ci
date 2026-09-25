@@ -1,13 +1,8 @@
 import { mkdtempSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import type { Instance } from "ink";
-import type { ReactElement } from "react";
+import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { KEY, renderApp, type RenderedApp } from "../test/harness.js";
-import type { AppProps } from "./app.js";
-import { runTui } from "./index.js";
-import type { LocalService } from "./platform/services.js";
 
 /**
  * Shortcuts (docs/specs/tui.md, "Shortcuts: the shared action list, the
@@ -43,15 +38,18 @@ const keybindings = (mapping: unknown) => {
   return path;
 };
 
-/** Launches on the local environment with the keybindings file at `path`, as `--keybindings` names one. */
-const launchWith = async (path: string, required = true) => {
-  const app = await launch({ ...DESK, keybindings: { path, required } });
+/**
+ * Launches on the local environment with the keybindings file at `path`: named by `--keybindings`, or, `inStateDir`,
+ * as the state directory's own `keybindings.json`.
+ */
+const launchWith = async (path: string, inStateDir = false) => {
+  const app = await launch({ ...DESK, keybindings: inStateDir ? { stateDir: dirname(path) } : { stateDir: dirname(path), flag: path } });
   await app.waitFor("● desk ready");
   return app;
 };
 
 const rowsWith = (frame: string, text: string) => frame.split("\n").filter((row) => row.includes(text));
-const HELP_ROW = "Round the composer, the list, the strip and the rows";
+const HELP_ROW = "Round the composer, the rail and the transcript";
 
 /** Types a slash command and sends it. */
 const run = async (app: RenderedApp, typed: string) => {
@@ -126,7 +124,7 @@ describe("the help overlay", () => {
     const row = rowsWith(app.frame(), "Open this map, from an empty composer")[0];
     expect(row).toContain("Ctrl+X");
     expect(row).toContain("(remapped)");
-    expect(rowsWith(app.frame(), "Interrupt; again in a moment to quit")[0]).not.toContain("(remapped)");
+    expect(rowsWith(app.frame(), "Clear the draft, or close the question or the card; else quit")[0]).not.toContain("(remapped)");
   });
 });
 
@@ -200,22 +198,22 @@ describe("the keybindings file", () => {
 
   it("gives the defaults back when the state directory's file is gone at /reload", async () => {
     const path = keybindings({ "app.help": ["Ctrl+X"] });
-    const app = await launchWith(path, false);
+    const app = await launchWith(path, true);
     unlinkSync(path);
     await run(app, "/reload");
-    await app.waitFor("0 actions remapped");
+    await app.waitFor(`There is no keybindings file at ${path}; the default keys stand.`);
     await app.press("?");
     await app.waitFor(HELP_ROW);
   });
 });
 
-/** The line under the composer names what has the keys: the composer's own hint, or the rail's, or the conversation's. */
+/** The line under the composer names what has the keys: the composer's own hint, or the rail's, or the transcript's. */
 const COMPOSER_HINT = "Ctrl+C quits";
-const RAIL_HINT = "The list has the keys";
-const TRANSCRIPT_HINT = "The conversation has the keys";
+const RAIL_HINT = "The rail has the keys";
+const TRANSCRIPT_HINT = "The transcript has the keys";
 
 describe("focus", () => {
-  it("walks Tab round the composer, the rail and the conversation, and Esc brings it back to the composer from either", async () => {
+  it("walks Tab round the composer, the rail and the transcript, and Esc brings it back to the composer from either", async () => {
     const app = await launch(DESK);
     await app.waitFor("● desk ready");
     expect(app.frame()).toContain(COMPOSER_HINT);
@@ -245,7 +243,7 @@ describe("focus", () => {
     await app.waitFor(COMPOSER_HINT);
   });
 
-  it("types nothing into the composer while the rail or the conversation has the keys, and sends nothing on Enter", async () => {
+  it("types nothing into the composer while the rail or the transcript has the keys, and sends nothing on Enter", async () => {
     const app = await launch(DESK);
     await app.waitFor("● desk ready");
     await app.type("draft");
@@ -316,49 +314,192 @@ describe("focus", () => {
   });
 });
 
-describe("runTui's keybindings", () => {
-  const services: LocalService = {
-    installed: async () => false,
-    install: async () => ({ ok: false, message: "" }),
-    start: async () => ({ ok: false, message: "" }),
-    readiness: async () => "nothing",
-  };
-  const tty = () => Object.assign(Object.create(process.stdout) as NodeJS.WriteStream, { isTTY: true, columns: 100, rows: 30, write: () => true });
+const OFFER = "Start it? y/n";
+const DOWN = { script: { environments: [{ name: "desk", reach: "local" as const, discovery: "nothing" as const }] } };
 
-  /** Runs the terminal UI with a render that keeps the App's props and exits at once. */
-  const propsOf = async (options: { readonly stateDir: string; readonly keybindings?: string }): Promise<AppProps> => {
-    let props: AppProps | undefined;
-    const render = (element: ReactElement): Instance => {
-      props = element.props as AppProps;
-      return { waitUntilExit: async () => undefined } as unknown as Instance;
-    };
-    const stdin = Object.assign(Object.create(process.stdin) as NodeJS.ReadStream, { isTTY: true });
-    await runTui({ dataDir: options.stateDir, version: "0.0.0-test", services, stdin, stdout: tty(), stderr: tty(), render, ...options });
-    if (!props) throw new Error("runTui rendered nothing");
-    return props;
-  };
-
-  it("reads keybindings.json in the state directory at launch, and again for /reload", async () => {
-    const stateDir = mkdtempSync(join(tmpdir(), "agent-harness-tui-keys-"));
-    dirs.push(stateDir);
-    writeFileSync(join(stateDir, "keybindings.json"), JSON.stringify({ "app.help": ["Ctrl+X"], "rail.fly": ["f"] }));
-    const props = await propsOf({ stateDir });
-    expect(props.keymap.keys["app.help"]).toEqual(["Ctrl+X"]);
-    expect(props.notes).toEqual([expect.stringContaining("rail.fly")]);
-    writeFileSync(join(stateDir, "keybindings.json"), JSON.stringify({ "app.help": ["Ctrl+B"] }));
-    expect(props.keybindings?.path).toBe(join(stateDir, "keybindings.json"));
-    expect(props.keybindings?.reload(props.keymap).keymap.keys["app.help"]).toEqual(["Ctrl+B"]);
+describe("the order a key is looked up in, with a yes or no offer standing", () => {
+  it("gives Esc and n on the help overlay to the overlay, never to the offer", async () => {
+    const app = await launch(DOWN);
+    await app.waitFor(OFFER);
+    await app.press("?");
+    await app.waitFor(HELP_ROW);
+    await app.press("n");
+    expect(app.frame()).toContain(HELP_ROW);
+    expect(app.frame()).toContain(OFFER);
+    await app.press(KEY.esc);
+    expect(app.frame()).not.toContain(HELP_ROW);
+    expect(app.frame()).toContain(OFFER);
+    expect(app.frame()).not.toContain("Not started");
   });
 
-  it("reads the file --keybindings names instead, and reports it when it is not there", async () => {
-    const stateDir = mkdtempSync(join(tmpdir(), "agent-harness-tui-keys-"));
-    dirs.push(stateDir);
-    writeFileSync(join(stateDir, "keybindings.json"), JSON.stringify({ "app.help": ["Ctrl+X"] }));
+  it("gives Esc and n on the /environment list to the list, never to the offer", async () => {
+    const app = await launch(DOWN);
+    await app.waitFor(OFFER);
+    await run(app, "/environment");
+    await app.waitFor("Environments");
+    await app.press("n", "y");
+    expect(app.frame()).toContain("Environments");
+    expect(app.frame()).toContain(OFFER);
+    expect(app.service.calls).toEqual([]);
+    await app.press(KEY.esc);
+    expect(app.frame()).not.toContain("Environments");
+    expect(app.frame()).toContain(OFFER);
+    expect(app.frame()).not.toContain("Not started");
+  });
+
+  it("takes Esc from the rail back to the composer, and only then as the offer's no", async () => {
+    const app = await launch(DOWN);
+    await app.waitFor(OFFER);
+    await app.press(KEY.tab);
+    await app.waitFor(RAIL_HINT);
+    await app.press(KEY.esc);
+    await app.waitFor(COMPOSER_HINT);
+    expect(app.frame()).toContain(OFFER);
+    expect(app.frame()).not.toContain("Not started");
+    await app.press(KEY.esc);
+    await app.waitFor("Not started");
+  });
+});
+
+describe("Ctrl+C with a draft", () => {
+  it("keeps the draft while the rail has the keys, closing the card instead", async () => {
+    const app = await launch(DESK);
+    await app.waitFor("● desk ready");
+    await app.type("draft");
+    await app.press(KEY.tab);
+    await app.waitFor(RAIL_HINT);
+    await app.press("?");
+    await app.waitFor(HELP_ROW);
+    await app.press(KEY.ctrlC);
+    expect(app.frame()).not.toContain(HELP_ROW);
+    expect(app.frame()).toContain("› draft");
+    await app.press(KEY.esc, KEY.ctrlC);
+    expect(app.frame()).not.toContain("› draft");
+  });
+});
+
+describe("the hint line", () => {
+  it("says an open card has the keys, and how it closes", async () => {
+    const app = await launch(DESK);
+    await app.waitFor("● desk ready");
+    await run(app, "/environment");
+    await app.waitFor("The card has the keys · Esc closes it");
+    await app.press(KEY.enter);
+    await app.waitFor("The card has the keys · Esc goes back");
+  });
+
+  it("keeps what has the keys in sight beside a notice, where the composer's own hint gives way to it", async () => {
+    const app = await launch(DESK);
+    await app.waitFor("● desk ready");
+    app.fault("The disk is full");
+    await app.waitFor("The disk is full");
+    expect(app.frame()).not.toContain(COMPOSER_HINT);
+    await app.press(KEY.tab);
+    await app.waitFor(RAIL_HINT);
+    expect(app.frame()).toContain("The disk is full");
+  });
+});
+
+describe("the help overlay over a card", () => {
+  it("goes back to the /environment list it was opened over when it closes", async () => {
+    const app = await launch(DESK);
+    await app.waitFor("● desk ready");
+    await run(app, "/environment");
+    await app.waitFor("Environments");
+    await app.press("?");
+    await app.waitFor(HELP_ROW);
+    await app.press(KEY.esc);
+    await app.waitFor("Environments");
+    await app.press("?");
+    await app.waitFor(HELP_ROW);
+    await app.press("?");
+    await app.waitFor("Environments");
+    await app.press(KEY.esc);
+    expect(app.frame()).not.toContain("Environments");
+  });
+
+  it("keeps its place within the map after the terminal is resized, so a scroll moves from what is on screen", async () => {
+    const app = await launch(DESK);
+    await app.waitFor("● desk ready");
+    await app.press("?");
+    await app.waitFor(HELP_ROW);
+    await app.press("G");
+    expect(app.frame()).not.toContain("Anywhere");
+    await app.resize({ columns: 100, rows: 400 });
+    await app.waitFor("Anywhere");
+    await app.resize({ columns: 100, rows: 30 });
+    await app.waitFor("Anywhere");
+    await app.press("j");
+    expect(app.frame()).not.toContain(" Anywhere");
+  });
+});
+
+describe("the keybindings file's validation, seen on the screen", () => {
+  it("refuses a class of keys for a yes or no answer in one line, and y still answers", async () => {
+    const app = await launch({ ...DOWN, keybindings: { stateDir: dirname(keybindings({ "confirm.yes": ["Letters"] })) } });
+    await app.waitFor(OFFER);
+    const lines = rowsWith(app.frame(), "Letters");
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain("is a class of keys");
+    await app.press("y");
+    expect(app.service.calls).toEqual(["start"]);
+  });
+
+  it("counts as remapped only what differs from the defaults", async () => {
+    const path = keybindings({});
+    const app = await launchWith(path);
+    writeFileSync(path, JSON.stringify({ "app.help": ["?"], "confirm.yes": ["Y"] }));
+    await run(app, "/reload");
+    await app.waitFor("1 action remapped.");
+  });
+});
+
+describe("the keybindings a launch reads (keybindingsFor, as runTui reads them)", () => {
+  /** A state directory holding `mapping` as its keybindings.json. */
+  const stateDirWith = (mapping: unknown) => dirname(keybindings(mapping));
+
+  it("reads keybindings.json in the state directory at launch, and again on /reload", async () => {
+    const stateDir = stateDirWith({ "app.help": ["Ctrl+X"], "rail.fly": ["f"] });
+    const app = await launch({ ...DESK, keybindings: { stateDir } });
+    await app.waitFor("● desk ready");
+    expect(app.frame()).toContain("there is no action rail.fly; ignored.");
+    await app.press(KEY.ctrlX);
+    await app.waitFor(HELP_ROW);
+    await app.press(KEY.esc);
+    writeFileSync(join(stateDir, "keybindings.json"), JSON.stringify({ "app.help": ["Ctrl+B"] }));
+    await run(app, "/reload");
+    await app.waitFor(`Keybindings read again from ${join(stateDir, "keybindings.json")}: 1 action remapped.`);
+    await app.press(KEY.ctrlB);
+    await app.waitFor(HELP_ROW);
+  });
+
+  it("reads the file --keybindings names instead of the state directory's", async () => {
+    const stateDir = stateDirWith({ "app.help": ["Ctrl+X"] });
     const named = join(stateDir, "mine.json");
     writeFileSync(named, JSON.stringify({ "app.help": ["Ctrl+B"] }));
-    expect((await propsOf({ stateDir, keybindings: named })).keymap.keys["app.help"]).toEqual(["Ctrl+B"]);
-    const missing = await propsOf({ stateDir, keybindings: join(stateDir, "gone.json") });
-    expect(missing.keymap.keys["app.help"]).toEqual(["?"]);
-    expect(missing.notes).toEqual([expect.stringContaining("could not be read")]);
+    const app = await launch({ ...DESK, keybindings: { stateDir, flag: named } });
+    await app.waitFor("● desk ready");
+    await app.press(KEY.ctrlX);
+    expect(app.frame()).not.toContain(HELP_ROW);
+    await app.press(KEY.ctrlB);
+    await app.waitFor(HELP_ROW);
+  });
+
+  it("reports a --keybindings file that is not there, and launches on the defaults", async () => {
+    const stateDir = stateDirWith({ "app.help": ["Ctrl+X"] });
+    const app = await launch({ ...DESK, keybindings: { stateDir, flag: join(stateDir, "gone.json") } });
+    await app.waitFor("could not be read");
+    await app.press("?");
+    await app.waitFor(HELP_ROW);
+  });
+
+  it("launches on the defaults, saying nothing, when the state directory has no keybindings.json", async () => {
+    const stateDir = mkdtempSync(join(tmpdir(), "agent-harness-shortcuts-"));
+    dirs.push(stateDir);
+    const app = await launch({ ...DESK, keybindings: { stateDir } });
+    await app.waitFor("● desk ready");
+    expect(app.frame()).toContain("Ctrl+C quits · ? keys");
+    await run(app, "/reload");
+    await app.waitFor(`There is no keybindings file at ${join(stateDir, "keybindings.json")}; the default keys stand.`);
   });
 });
