@@ -1,6 +1,7 @@
 import type { SessionProjection, ToolCallEntry, TranscriptEntry } from "@agent-harness/client-runtime";
 import type { RunSummary } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
+import { formatDuration } from "./format.js";
 import { TOOL_QUIET_MS, lineText, rowLines, transcriptLines, turnFacts, wrap, type LineContext } from "./lines.js";
 import { transcriptRows } from "./rows.js";
 
@@ -165,5 +166,16 @@ describe("wrap", () => {
   it("keeps each span's style across the break", () => {
     const lines = wrap([{ text: "bold words", bold: true }, { text: " plain" }], 11);
     expect(lines.map((line) => line.map((s) => `${s.bold ? "*" : ""}${s.text}`).join("|"))).toEqual(["*bold words", "plain"]);
+  });
+});
+
+describe("formatDuration", () => {
+  it("never says 60 seconds: a duration that rounds up to a minute says the minute", () => {
+    expect(formatDuration(900)).toBe("900ms");
+    expect(formatDuration(4200)).toBe("4.2s");
+    expect(formatDuration(59_400)).toBe("59s");
+    expect(formatDuration(59_500)).toBe("1m 0s");
+    expect(formatDuration(119_500)).toBe("2m 0s");
+    expect(formatDuration(61_000)).toBe("1m 1s");
   });
 });

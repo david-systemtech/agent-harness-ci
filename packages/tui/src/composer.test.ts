@@ -200,6 +200,23 @@ describe("slash commands", () => {
     await app.waitFor("Compact the conversation · the agent's");
   });
 
+  it("types ? into /resume's filter rather than opening the keys", async () => {
+    const { app } = await launch({
+      sessions: [
+        { title: "Receipts", workspace: { kind: "directory", path: "/home/seth/receipts" } },
+        { title: "Why is it slow?", workspace: { kind: "directory", path: "/home/seth/parser" } },
+      ],
+    });
+    await send(app, "/resume");
+    await app.waitFor("Sessions");
+    await app.type("slow?");
+    await app.waitFor("filter slow?");
+    expect(app.frame()).not.toContain("everything the terminal answers");
+    expect(app.frame()).toContain("Why is it slow?");
+    // Under the header, which names the open session, the list holds only the match.
+    expect(app.rows().slice(1).filter((row) => row.includes("Receipts"))).toEqual([]);
+  });
+
   it("sends a command it does not know to the agent as typed", async () => {
     const { app } = await launch();
     await send(app, "/compact keep the tests");
@@ -307,6 +324,19 @@ describe("what stays client-local", () => {
     await app.type("a draft");
     await app.press(KEY.ctrlG);
     await app.waitFor("› a draft (edited)");
+  });
+
+  it("keeps a pasted image through Ctrl+G while its marker is still in the text", async () => {
+    const { app } = await launch();
+    app.clipboard.hold({ image: Uint8Array.of(1, 2, 3) });
+    await app.type("See ");
+    await app.press(KEY.ctrlV);
+    await app.waitFor("› See [Image #1]");
+    await app.press(KEY.ctrlG);
+    await app.waitFor("› See [Image #1] (edited)");
+    await app.press(KEY.enter);
+    await app.waitUntil(() => paramsOf(app, "runs.start").length === 1, "the start to be sent");
+    expect(paramsOf(app, "runs.start")[0]).toMatchObject({ text: "See [Image #1] (edited)", attachments: [{ name: "clipboard-1.png" }] });
   });
 
   it("keeps a line open with a backslash before Enter", async () => {

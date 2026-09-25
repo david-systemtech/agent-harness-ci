@@ -308,7 +308,8 @@ export const useComposer = (host: ComposerHost): Composer => {
     },
     "composer.editor": () => {
       void latest.current.editText(expandedText(box.current)).then((edited) => {
-        if (edited !== undefined) set({ ...replaced(box.current, edited.replace(/\n+$/, "")), chips: [] });
+        // The paste chips went out expanded and are text now; a pasted image stays attached while its marker is still there.
+        if (edited !== undefined) set({ ...replaced(box.current, edited.replace(/\n+$/, "")), chips: box.current.chips.filter((chip) => chip.kind === "image") });
       });
     },
     "composer.command.menu": () => (box.current.editor.text.length === 0 ? update((s) => typed(s, "/")) : false),

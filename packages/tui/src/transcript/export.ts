@@ -19,8 +19,7 @@ const callHead = (call: ToolCallEntry): string => {
   return gloss.length > 0 ? `${call.name}(${gloss})` : call.name;
 };
 
-const callState = (call: ToolCallEntry): string =>
-  call.decision?.decision === "denied" ? "denied" : call.status === "running" ? "running" : call.status === "ok" ? "ok" : call.status;
+const callState = (call: ToolCallEntry): string => (call.decision?.decision === "denied" ? "denied" : call.status);
 
 /** One row as markdown. */
 const rowMarkdown = (row: Row): string => {

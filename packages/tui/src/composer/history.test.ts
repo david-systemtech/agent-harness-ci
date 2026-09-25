@@ -186,6 +186,23 @@ describe("PromptHistory", () => {
     expect(await readdir(dir)).toEqual(["history.jsonl"]);
   });
 
+  it("keeps what another terminal appended to the same file when the cap rewrites it", async () => {
+    const entries: HistoryEntry[] = [];
+    for (let i = 0; i < HISTORY_MAX_ENTRIES; i += 1) entries.push({ ts: i, text: `prompt ${String(i)}`, cwd: HERE });
+    await seed(entries);
+
+    const mine = await PromptHistory.load(path);
+    const theirs = await PromptHistory.load(path);
+    theirs.append({ text: "from the other terminal", cwd: HERE, ts: HISTORY_MAX_ENTRIES });
+    await theirs.flush();
+    mine.append({ text: "the one over the line", cwd: HERE, ts: HISTORY_MAX_ENTRIES + 1 });
+    await mine.flush();
+
+    const texts = (await PromptHistory.load(path)).recent({ kind: "all" });
+    expect(texts.slice(0, 2)).toEqual(["the one over the line", "from the other terminal"]);
+    expect(texts).toHaveLength(HISTORY_KEPT_ENTRIES);
+  });
+
   it("offers each distinct prompt once, at its newest position", async () => {
     await seed([
       { ts: 1, text: "alpha", cwd: HERE },
@@ -234,6 +251,12 @@ describe("PromptHistory", () => {
     // Scope still applies while searching.
     expect(history.search("parse", { kind: "folder", cwd: HERE }).map((match) => match.text)).toEqual(["Fix the Parser bug"]);
     expect(history.search("nothing like this", { kind: "all" })).toEqual([]);
+  });
+
+  it("says where the match was in the text as written, when a letter before it lower-cases to two", async () => {
+    await seed([{ ts: 1, text: "İstanbul: fix the Parser", cwd: HERE }]);
+    const history = await PromptHistory.load(path);
+    expect(history.search("parser", { kind: "all" }).map((match) => match.index)).toEqual(["İstanbul: fix the Parser".indexOf("Parser")]);
   });
 
   it("answers an empty query with the recent list, and honours a limit", async () => {

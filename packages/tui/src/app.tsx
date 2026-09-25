@@ -1,4 +1,5 @@
 import { writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { Box, Text, render as inkRender, useApp, useInput, usePaste, useStdout, type Instance, type RenderOptions } from "ink";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactElement } from "react";
@@ -9,7 +10,7 @@ import { applyAction, actionsFor, listClientSessions, removeEnvironment, revokeC
 import { parseCommand } from "./commands/parse.js";
 import { mintPairing, pairingLine, type MintedLines } from "./commands/pair.js";
 import { startLocalEnvironment } from "./commands/service.js";
-import { readAttachment } from "./composer/attachments.js";
+import { expandHome, readAttachment } from "./composer/attachments.js";
 import { copyText, readClipboardImage, readClipboardText, type CopyOutcome } from "./composer/clipboard.js";
 import { editInExternalEditor, type ExternalEditResult } from "./composer/external-editor.js";
 import { HISTORY_FILE, PromptHistory, type HistoryScope } from "./composer/history.js";
@@ -647,7 +648,7 @@ export const App = (props: AppProps) => {
   const exportTo = (file: string | null) => {
     if (!projection || !opened) return say("There is no session open to export.");
     const name = file ?? `${opened.sessionId.slice(0, 8)}.md`;
-    const path = resolve(cwd, name);
+    const path = resolve(cwd, expandHome(name, homedir()));
     const text = exportMarkdown(projection, { environment: names.get(opened.environmentId) ?? "", at: clock.now() });
     void writeFile(path, text, "utf8").then(
       () => say(`Wrote the conversation to ${path}.`),
@@ -998,7 +999,8 @@ export const App = (props: AppProps) => {
         // Artemis's map: from an empty composer; with text there it is a character like any other. With the
         // focus in the rail or the transcript nothing is being typed, so it is the map (Artemis's rail rule).
         if (composerText !== "" && composerHasKeys) return false;
-        if (card.kind === "pager" && card.typing) return false;
+        // A list typed at takes `?` into its filter.
+        if ((card.kind === "pager" && card.typing) || card.kind === "sessions") return false;
         update({ card: { kind: "help", top: 0, under: card } });
       },
       "confirm.yes": () => {

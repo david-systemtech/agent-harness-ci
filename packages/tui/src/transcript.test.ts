@@ -115,6 +115,22 @@ describe("streaming", () => {
     expect(app.frame()).not.toContain("more lines");
   });
 
+  it("scrolls back to the very first line while the freshness marker heads the transcript", async () => {
+    const { app, env } = await opened();
+    env.emit(SESSION, "weird.first-thing", {});
+    const { runId } = run(env);
+    const long = Array.from({ length: 60 }, (_, i) => `line ${i + 1}`).join("\n");
+    env.emit(SESSION, "assistant.text", { runId, itemId: "i-1", text: long, aborted: false });
+    env.endRun(SESSION, runId);
+    await app.waitFor("line 60");
+    env.autoAccept(false);
+    env.discovery("nothing");
+    env.server.drop();
+    await app.waitFor("◌ cached");
+    await app.press(...Array.from({ length: 10 }, () => KEY.pageUp));
+    await app.waitFor("· weird.first-thing: an event this version does not show");
+  });
+
   it("draws an event of a type this version does not know as one dim row naming its type", async () => {
     const { app, env } = await opened();
     env.emit(SESSION, "weird.new-thing", { anything: true });

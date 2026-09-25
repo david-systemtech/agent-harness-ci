@@ -112,14 +112,14 @@ export const formatUsd = (v: number): string => {
   return `$${v.toFixed(2)}`;
 };
 
-/** A duration in the smallest unit that still reads clearly. */
+/** A duration in the smallest unit that still reads clearly; rounded to whole seconds first past ten, so it never says 60 seconds. */
 export const formatDuration = (ms: number): string => {
   if (Number.isNaN(ms)) return "—";
   if (ms < 1000) return `${Math.round(ms)}ms`;
-  if (ms < 60_000) return `${(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)}s`;
-  const minutes = Math.floor(ms / 60_000);
-  const seconds = Math.round((ms % 60_000) / 1000);
-  return `${minutes}m ${seconds}s`;
+  if (ms < 10_000) return `${(ms / 1000).toFixed(1)}s`;
+  const seconds = Math.round(ms / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
 };
 
 /** Whitespace collapsed and the text clipped to `max`, for one-line summaries. */

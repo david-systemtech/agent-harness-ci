@@ -70,7 +70,7 @@ export interface TranscriptViewProps {
   readonly marker: { readonly text: string; readonly color: string } | undefined;
   /** What to say with no line to draw. */
   readonly empty: string;
-  /** The rows the viewport has, as laid out: the app's to scroll by and to keep the cursor in view with. */
+  /** The rows the viewport has for lines, as laid out (the marker's row not counted): the app's to scroll by and to keep the cursor in view with. */
   readonly onHeight: (height: number) => void;
   /** Said on the last line while scrolled back: how to follow the end again. */
   readonly follow: string;
@@ -85,10 +85,11 @@ export const TranscriptView = (props: TranscriptViewProps) => {
   const box = useRef<DOMElement>(null);
   const metrics = useBoxMetrics(box);
   const { onHeight } = props;
-  useEffect(() => {
-    if (metrics.hasMeasured) onHeight(metrics.height);
-  }, [metrics.hasMeasured, metrics.height, onHeight]);
+  // The rows the lines have: the box less the marker's row, which is what the app scrolls by.
   const height = Math.max(0, metrics.height - (props.marker ? 1 : 0));
+  useEffect(() => {
+    if (metrics.hasMeasured) onHeight(height);
+  }, [metrics.hasMeasured, height, onHeight]);
   const scrolled = props.offset > 0;
   const shown = visibleLines(props.lines, Math.max(0, height - (scrolled ? 1 : 0)), props.offset);
   const firstOf = new Set<number>();

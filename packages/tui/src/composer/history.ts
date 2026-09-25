@@ -161,7 +161,7 @@ export class PromptHistory {
       this.#entries = this.#entries.slice(-HISTORY_KEPT_ENTRIES);
       const snapshot = [...this.#entries];
       this.#healTail = false; // A rewrite ends the file on a newline by construction.
-      this.#queue(() => this.#rewrite(snapshot));
+      this.#queue(() => this.#rewrite(entry, snapshot));
     } else {
       const prefix = this.#healTail ? "\n" : "";
       this.#healTail = false;
@@ -193,14 +193,14 @@ export class PromptHistory {
    * the history rather than nothing.
    */
   search(query: string, scope: HistoryScope, limit?: number): readonly HistoryMatch[] {
-    const needle = query.toLowerCase();
+    const needle = alignedLower(query);
     const matches: HistoryMatch[] = [];
     const seen = new Set<string>();
     for (let i = this.#entries.length - 1; i >= 0; i -= 1) {
       const entry = this.#entries[i];
       if (entry === undefined || !inScope(entry, scope)) continue;
       if (seen.has(entry.text)) continue;
-      const index = needle.length === 0 ? 0 : entry.text.toLowerCase().indexOf(needle);
+      const index = needle.length === 0 ? 0 : alignedLower(entry.text).indexOf(needle);
       if (index < 0) continue;
       seen.add(entry.text);
       matches.push({ text: entry.text, cwd: entry.cwd, ts: entry.ts, index });
@@ -219,8 +219,16 @@ export class PromptHistory {
     await appendFile(this.#path, prefix + serialise(entry), { encoding: "utf8", mode: 0o600 });
   }
 
-  async #rewrite(entries: readonly HistoryEntry[]): Promise<void> {
+  /**
+   * The rewrite past the cap reads the file again first, so what another
+   * terminal appended since this one loaded is kept: the newest entries of
+   * the file as it is now, with the one that crossed the cap, and this
+   * process's own view (`fallback`) only when the file cannot be read.
+   */
+  async #rewrite(entry: HistoryEntry, fallback: readonly HistoryEntry[]): Promise<void> {
     await mkdir(dirname(this.#path), { recursive: true, mode: 0o700 });
+    const onDisk = await readEntries(this.#path);
+    const entries = onDisk.entries.length > 0 ? [...onDisk.entries, entry].slice(-HISTORY_KEPT_ENTRIES) : fallback;
     const temp = `${this.#path}.${String(process.pid)}.tmp`;
     await writeFile(temp, entries.map(serialise).join(""), { encoding: "utf8", mode: 0o600 });
     await rename(temp, this.#path);
@@ -274,6 +282,23 @@ export class HistoryCursor {
   atDraft(): boolean {
     return this.#position < 0;
   }
+}
+
+/**
+ * Lower case, one code unit for one: a character whose lower case is longer
+ * (`İ` becomes `i` and a combining dot) is kept as it is, so an offset found
+ * in the folded text is an offset in the text as written (the scorer's rule
+ * in `mentions.ts`).
+ */
+function alignedLower(value: string): string {
+  const lower = value.toLowerCase();
+  if (lower.length === value.length) return lower;
+  let out = "";
+  for (const character of value) {
+    const folded = character.toLowerCase();
+    out += folded.length === character.length ? folded : character;
+  }
+  return out;
 }
 
 function inScope(entry: HistoryEntry, scope: HistoryScope): boolean {

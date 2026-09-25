@@ -76,6 +76,14 @@ describe("the help lines", () => {
     expect(rowOf(lines, "pager.editor")?.state).toBe("soon");
   });
 
+  it("draw the 1–4 keys as soon, since nothing carries the follow-ups they would take, and ↑ with what it does in this build", () => {
+    const built = helpLines(DEFAULT_KEYMAP, ANSWERED, BUILD_WORDS);
+    expect(rowOf(built, "composer.suggestion.take")?.state).toBe("soon");
+    expect(rowOf(built, "composer.readNow")?.state).toBe("soon");
+    expect(rowOf(built, "composer.navigate")).toMatchObject({ state: "answered", description: "The text, then history" });
+    expect(rowOf(built, "transcript.follow")?.state).toBe("answered");
+  });
+
   it("name only actions of the list as answered", () => {
     for (const id of ANSWERED) expect(actionById(id), id).toBeDefined();
   });
