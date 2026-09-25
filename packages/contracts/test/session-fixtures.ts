@@ -347,6 +347,13 @@ export const sessionMethodFixtures: Record<string, { params: Fixtures; result: F
     params: { valid: [{ ...target, messageId }], invalid: [target, { ...target, messageId: "m-1" }, { commandId, messageId }] },
     result: { valid: [{ sessionId, messageId }], invalid: [{ sessionId }, { sessionId, messageId: "m-1" }] },
   },
+  "sessions.undoRewind": {
+    params: { valid: [target], invalid: [{ commandId }, { commandId, sessionId: "s-1" }, { sessionId }] },
+    result: {
+      valid: [{ sessionId, messageId, rewindSequence: 42 }],
+      invalid: [{ sessionId, messageId }, { sessionId, rewindSequence: 42 }, { sessionId, messageId: "m-1", rewindSequence: 42 }, { sessionId, messageId, rewindSequence: -1 }],
+    },
+  },
   "sessions.subagentTranscript": {
     params: {
       valid: [{ sessionId, agentId: "a1b2c3" }],

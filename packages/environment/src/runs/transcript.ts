@@ -12,6 +12,7 @@ import {
   type RunEndedPayload,
   type RunStartedPayload,
   type RunSummary,
+  type SessionRewindUndonePayload,
   type SessionRewoundPayload,
   type TasksChangedPayload,
   type ToolEndedPayload,
@@ -85,9 +86,13 @@ export const sessionTranscript = (log: Pick<EventLog, "read" | "readSnapshot">, 
  * Folds one session's events, oldest first, into its runs, its settled
  * items and its parked prompts; from `from`, a fold of the events before
  * them (a compaction's snapshot), when given, which it leaves unchanged.
- * Folding on from a fold gives what folding every event would, but for an
- * event aimed at an item a rewind hid before the fold: that item is not in
- * the fold to update, and stays hidden either way.
+ * A rewind hides the message it names and every item after it, and an undo
+ * (`session.rewind-undone`) shows them again, in their places. Folding on
+ * from a fold gives what folding every event would, but for what a rewind
+ * hid before the fold: the fold does not keep it, so an event aimed at such
+ * an item has nothing to update and an undo of that rewind brings nothing
+ * back. Compaction therefore never folds a rewind that can still be undone
+ * (`sessions/compaction.ts`).
  */
 export const foldTranscript = (events: Iterable<EventEnvelope>, from?: TranscriptParts): TranscriptParts => {
   const start = from === undefined ? undefined : (structuredClone(from) as { runs: Mutable<RunSummary>[]; items: Item[]; parkedPrompts: ParkedPrompt[] });
@@ -100,6 +105,8 @@ export const foldTranscript = (events: Iterable<EventEnvelope>, from?: Transcrip
   const ledgers = new Map<string, ItemOf<"tasks">>();
   /** Prompt items not yet answered, by prompt id. */
   const prompts = new Map<string, ItemOf<"prompt">>();
+  /** What each rewind hid, by its `session.rewound`'s sequence, until an undo shows it again. */
+  const hidden = new Map<number, Item[]>();
   // The items of the fold it goes on from that later events update, by the ids those carry.
   for (const item of items) {
     if (item.kind === "user-message") {
@@ -257,7 +264,18 @@ export const foldTranscript = (events: Iterable<EventEnvelope>, from?: Transcrip
         // The rewound message and every item after it are hidden; they stay in the log.
         const { toMessageId } = event.payload as SessionRewoundPayload;
         const target = messages.get(toMessageId);
-        if (target !== undefined) items = items.filter((item) => item.sequence < target.sequence);
+        if (target !== undefined) {
+          hidden.set(sequence, items.filter((item) => item.sequence >= target.sequence));
+          items = items.filter((item) => item.sequence < target.sequence);
+        }
+        break;
+      }
+      case "session.rewind-undone": {
+        // What the rewind hid is shown again where it stood, before anything that came after the rewind.
+        const { rewindSequence } = event.payload as SessionRewindUndonePayload;
+        const back = hidden.get(rewindSequence);
+        if (back !== undefined) items = [...items, ...back].sort((a, b) => a.sequence - b.sequence);
+        hidden.delete(rewindSequence);
         break;
       }
       case "prompt.opened": {

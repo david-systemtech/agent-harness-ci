@@ -210,6 +210,10 @@ const payloads: Record<string, Fixtures> = {
     ],
   },
   "session.rewound": { valid: [{ toMessageId: messageId }], invalid: [{}, { toMessageId: "m-1" }] },
+  "session.rewind-undone": {
+    valid: [{ toMessageId: messageId, rewindSequence: 42 }],
+    invalid: [{ toMessageId: messageId }, { rewindSequence: 42 }, { toMessageId: "m-1", rewindSequence: 42 }, { toMessageId: messageId, rewindSequence: -1 }],
+  },
 };
 
 const runSummary = {

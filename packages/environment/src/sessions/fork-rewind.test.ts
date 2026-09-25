@@ -64,6 +64,12 @@ const fork = async (client: WireClient, params: Omit<ParamsOf<"sessions.fork">, 
 const rewind = async (client: WireClient, sessionId: string, messageId: string): Promise<ResponseOf<"sessions.rewind">> =>
   registry["sessions.rewind"].response.parse(await client.request("sessions.rewind", { commandId: randomUUID(), sessionId, messageId }));
 
+const undoRewind = async (client: WireClient, sessionId: string): Promise<ResponseOf<"sessions.undoRewind">> =>
+  registry["sessions.undoRewind"].response.parse(await client.request("sessions.undoRewind", { commandId: randomUUID(), sessionId }));
+
+/** The snapshot's items as their text, or their kind where they have none. */
+const texts = (snapshot: SessionSnapshot): string[] => snapshot.items.map((item) => ("text" in item ? String(item.text) : item.kind));
+
 /** The session's snapshot, as a subscriber from beyond the head is sent it. */
 const snapshotOf = async (t: TestEnvironment, client: WireClient, sessionId: string) => {
   const { subscription } = await client.subscribe("sessions.subscribeSession", { sessionId, afterSequence: t.env.log.head() + 1000 });
@@ -387,6 +393,144 @@ describe("sessions.rewind", () => {
     t.adapter.nextScripts.push(linking("provider-fork"));
     const own = await runTo(t, client, id, "The fork's first");
     expect((await rewind(client, id, own.messageId)).receipt.status).toBe("accepted");
+  });
+});
+
+describe("sessions.undoRewind", () => {
+  /** A session run three times, First, Second and Third, each linking provider-1; resolves with its id and the three runs. */
+  const threeRuns = async (t: TestEnvironment, client: WireClient) => {
+    const { id } = await create(client);
+    const first = await runTo(t, client, id, "First");
+    const second = await runTo(t, client, id, "Second");
+    const third = await runTo(t, client, id, "Third");
+    return { id, first, second, third };
+  };
+  const ALL = ["First", "Done: First", "Second", "Done: Second", "Third", "Done: Third"];
+
+  it("records session.rewind-undone naming the rewind, shows the hidden items again, puts back the draft the rewind replaced, and the next run resumes the provider session", async () => {
+    const t = await start();
+    const client = await t.client();
+    const { id, second, third } = await threeRuns(t, client);
+    await command(client, "sessions.setDraft", { sessionId: id, draft: "Half a thought" });
+    await rewind(client, id, second.messageId);
+    const rewound = events(t, id).find((event) => event.type === "session.rewound");
+    expect((await get(client, id)).draft).toBe("Second");
+
+    const answer = await undoRewind(client, id);
+    expect(answer.receipt).toMatchObject({ status: "accepted", changed: true });
+    expect(answer.result).toEqual({ sessionId: id, messageId: second.messageId, rewindSequence: rewound?.sequence });
+    const [undone, draft] = events(t, id).slice(-2);
+    expect(undone).toMatchObject({ type: "session.rewind-undone", payload: { toMessageId: second.messageId, rewindSequence: rewound?.sequence }, correlationId: null });
+    expect(draft).toMatchObject({ type: "session.draft-set", payload: { draft: "Half a thought" }, commandId: undone?.commandId });
+    expect((await get(client, id)).draft).toBe("Half a thought");
+    expect(texts(await snapshotOf(t, client, id))).toEqual(ALL);
+    // Visible again, so a message to rewind to, and a fork of the whole is a fork of the whole again.
+    const forked = randomUUID();
+    await fork(client, { sessionId: id, id: forked });
+    expect(events(t, forked).find((event) => event.type === "session.forked")?.payload).toMatchObject({ atMessageId: null });
+
+    // The rewind is no longer the next run's target: it resumes the provider session as it was before the rewind.
+    await runTo(t, client, id, "Fourth");
+    expect(t.adapter.lastRun().input.target).toEqual({ kind: "resume", providerSessionId: "provider-1" });
+    expect(texts(await snapshotOf(t, client, id))).toEqual([...ALL, "Fourth", "Done: Fourth"]);
+    expect((await rewind(client, id, third.messageId)).receipt.status).toBe("accepted");
+  });
+
+  it("leaves a draft changed since the rewind, and clears one the rewind wrote over none", async () => {
+    const t = await start();
+    const client = await t.client();
+    const { id, second } = await threeRuns(t, client);
+    await rewind(client, id, second.messageId);
+    await command(client, "sessions.setDraft", { sessionId: id, draft: "Second, reworded" });
+    await undoRewind(client, id);
+    expect(events(t, id).at(-1)?.type).toBe("session.rewind-undone");
+    expect((await get(client, id)).draft).toBe("Second, reworded");
+
+    // No draft before the rewind, and none typed since: the undo clears the one the rewind wrote.
+    const other = await threeRuns(t, client);
+    await rewind(client, other.id, other.second.messageId);
+    await undoRewind(client, other.id);
+    expect(events(t, other.id).at(-1)).toMatchObject({ type: "session.draft-set", payload: { draft: null } });
+    expect((await get(client, other.id)).draft).toBeNull();
+  });
+
+  it("refuses with no rewind to undo, while a run is live, and once a run has started since the rewind, whatever its end", async () => {
+    const held = gate();
+    const t = await start();
+    const client = await t.client();
+    const { id, second } = await threeRuns(t, client);
+    expect((await undoRewind(client, id)).receipt).toMatchObject({ status: "rejected", reason: "not_found", error: { data: { kind: "rewind", sessionId: id } } });
+
+    await rewind(client, id, second.messageId);
+    t.adapter.nextScripts.push(async function* () {
+      yield { type: "session.provider-linked", payload: { providerSessionId: "provider-1" } };
+      await held.opened;
+      yield end("error", { error: { message: "Overloaded", code: "overloaded" } });
+    });
+    const busy = registry["runs.start"].response.parse(await client.request("runs.start", { commandId: randomUUID(), sessionId: id, text: "Second, again" }));
+    expect((await undoRewind(client, id)).receipt).toMatchObject({
+      status: "rejected",
+      reason: "conflict",
+      error: { data: { reason: "run_active", sessionId: id, runId: busy.result?.runId } },
+    });
+    held.open();
+    await vi.waitFor(() => expect(ended(t, id).at(-1)?.payload).toMatchObject({ runId: busy.result?.runId, reason: "error" }));
+
+    // That run failed, so the next still rewinds; but it started on the rewound session, and the undo is gone with it (ADR 0022).
+    const refused = await undoRewind(client, id);
+    expect(refused.receipt).toMatchObject({ status: "rejected", reason: "conflict", error: { data: { reason: "run_started", sessionId: id, runId: busy.result?.runId } } });
+    expect(events(t, id).map((event) => event.type)).not.toContain("session.rewind-undone");
+    expect(texts(await snapshotOf(t, client, id))).toEqual(["First", "Done: First", "Second, again"]);
+    await runTo(t, client, id, "Second, once more");
+    expect(t.adapter.lastRun().input.target).toEqual({ kind: "rewind", providerSessionId: "provider-1", toMessageId: second.messageId });
+
+    // Once undone, there is nothing left to undo.
+    const other = await threeRuns(t, client);
+    await rewind(client, other.id, other.second.messageId);
+    expect((await undoRewind(client, other.id)).receipt.status).toBe("accepted");
+    expect((await undoRewind(client, other.id)).receipt).toMatchObject({ status: "rejected", reason: "not_found", error: { data: { kind: "rewind" } } });
+  });
+
+  it("undoes rewinds one at a time, the latest first: the earlier still hides what it hid and is the next run's target until it is undone too", async () => {
+    const t = await start();
+    const client = await t.client();
+    const { id, second, third } = await threeRuns(t, client);
+    await rewind(client, id, third.messageId);
+    await rewind(client, id, second.messageId);
+    expect(texts(await snapshotOf(t, client, id))).toEqual(["First", "Done: First"]);
+
+    expect((await undoRewind(client, id)).result).toMatchObject({ messageId: second.messageId });
+    expect(texts(await snapshotOf(t, client, id))).toEqual(["First", "Done: First", "Second", "Done: Second"]);
+    // The draft is the earlier rewind's again: the later one's undo put back what it replaced.
+    expect((await get(client, id)).draft).toBe("Third");
+    expect((await undoRewind(client, id)).result).toMatchObject({ messageId: third.messageId });
+    expect(texts(await snapshotOf(t, client, id))).toEqual(ALL);
+    expect((await get(client, id)).draft).toBeNull();
+
+    // With only the later undone, the next run goes back to the earlier rewind's message.
+    const other = await threeRuns(t, client);
+    await rewind(client, other.id, other.third.messageId);
+    await rewind(client, other.id, other.second.messageId);
+    await undoRewind(client, other.id);
+    await runTo(t, client, other.id, "Third, again");
+    expect(t.adapter.lastRun().input.target).toEqual({ kind: "rewind", providerSessionId: "provider-1", toMessageId: other.third.messageId });
+  });
+
+  it("reads the same after the projections are rebuilt: the items shown, the draft, and the next run's target", async () => {
+    const t = await start();
+    const client = await t.client();
+    const { id, second } = await threeRuns(t, client);
+    await command(client, "sessions.setDraft", { sessionId: id, draft: "Kept" });
+    await rewind(client, id, second.messageId);
+    await undoRewind(client, id);
+    const before = await snapshotOf(t, client, id);
+
+    await client.request("environment.rebuildProjections", { commandId: randomUUID() });
+    const after = await snapshotOf(t, client, id);
+    expect(after.items).toEqual(before.items);
+    expect(after.summary.draft).toBe("Kept");
+    await runTo(t, client, id, "Fourth");
+    expect(t.adapter.lastRun().input.target).toEqual({ kind: "resume", providerSessionId: "provider-1" });
   });
 });
 
