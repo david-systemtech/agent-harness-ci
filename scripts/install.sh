@@ -9,6 +9,10 @@
 # read:repository scope (git.systemtech.dev: Settings > Applications). The
 # token goes to curl on stdin, never on its command line.
 #
+# For a container, the compose file beside this script (scripts/compose.yaml)
+# runs the image the repository's Dockerfile builds, as that image's non-root
+# user: the environment never runs as root, in a container or out of one.
+#
 # The artefact layout does not exist yet: no release publishes one. This
 # script looks for a release asset named agent-harness-<os>-<arch>.tar.gz,
 # <os> linux or darwin and <arch> x64 or arm64 (Node's names), holding

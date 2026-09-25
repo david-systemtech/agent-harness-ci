@@ -1,0 +1,117 @@
+import {
+  DENYLIST_SECTIONS,
+  type ContainmentCause,
+  type ContainmentLevel,
+  type ContainmentReport,
+  type Denylist,
+  type DenylistSection,
+} from "@agent-harness/contracts";
+import { parseActor } from "../event-log/event-log.js";
+import { unenforceable } from "./containment.js";
+
+/**
+ * The Permissions step's state checks (permissions spec, "The Permissions
+ * step"; ADR 0031; #141), as pure functions over what the environment
+ * holds: the containment default against the probe's report, the denylist
+ * against its presets, and not-root. Each answers `true` when it holds, else
+ * the one line that says what does not. `setup.check` runs them
+ * (`setup/check.ts`); the Your machines step's line reads the same not-root.
+ */
+
+/** A state check's answer: it holds, or the sentence saying what does not. */
+export type StateCheckAnswer = true | { readonly reason: string };
+
+/**
+ * What a person can do on Linux about a containment level the probe refused:
+ * Claude Code's own setup for its sandbox (the bubblewrap and socat packages,
+ * and on Ubuntu 24.04 the AppArmor profile that lets `bwrap` create user
+ * namespaces), then a restart, since the probe runs once, as the environment
+ * starts (#133).
+ */
+export const CONTAINMENT_LINUX_HINT =
+  "On Linux, install the bubblewrap and socat packages (sudo apt-get install bubblewrap socat); on Ubuntu 24.04 and later, where AppArmor restricts unprivileged user namespaces, also add an AppArmor profile that grants bwrap userns (/etc/apparmor.d/bwrap, as Claude Code's sandboxing documentation gives it) and reload AppArmor. Then restart the environment, which probes containment as it starts.";
+
+/** What a container also needs when its seccomp profile refused the namespace (#133's finding on the agent box). */
+const CONTAINER_SECCOMP_HINT = "In a container, start it with a seccomp profile that allows unshare(CLONE_NEWUSER).";
+
+/**
+ * The causes the machine itself can remove, for which the package hint is
+ * given: what the probe found on it (a missing binary, the kernel, AppArmor,
+ * seccomp, socat, a failing mechanism). Not the adapter's (no package makes
+ * an adapter enforce containment), the platform's (native Windows has no
+ * mechanism), or a probe that failed or never ran.
+ */
+const MACHINE_CAUSES: ReadonlySet<ContainmentCause> = new Set<ContainmentCause>(["binary_missing", "userns_blocked", "apparmor", "seccomp", "socat_missing", "failed"]);
+
+/**
+ * The containment default holds when this environment can enforce it; `off`
+ * always can. A default that was set on a start whose probe allowed it and
+ * that a later start's probe refuses (bubblewrap removed, the kernel
+ * changed) does not, and the line names the level, the probe's reason and,
+ * where installing or configuring something would help, the Linux package
+ * hint.
+ */
+export const containmentDefaultHolds = (level: ContainmentLevel, report: ContainmentReport): StateCheckAnswer => {
+  const why = unenforceable(report, level);
+  if (why === null) return true;
+  const hints = MACHINE_CAUSES.has(why.cause) ? [CONTAINMENT_LINUX_HINT, ...(why.cause === "seccomp" ? [CONTAINER_SECCOMP_HINT] : [])] : [];
+  return { reason: [`The containment default ${level} cannot be enforced here: ${why.reason}`, ...hints].join(" ") };
+};
+
+/** The denylist as the check reads it: each section, and the actor of the latest change to it (null for a section never recorded). */
+export interface DenylistState {
+  readonly denylist: Denylist;
+  readonly changedBy: Readonly<Record<DenylistSection, string | null>>;
+}
+
+/** How a section is named in a sentence. */
+const SECTION_NAMES: Readonly<Record<DenylistSection, string>> = {
+  browserDomains: "browser domains",
+  paths: "paths",
+  commandPatterns: "command patterns",
+  hosts: "hosts",
+};
+
+/** How many missing presets a line names before it counts the rest. */
+const NAMED = 3;
+
+/** Whether an actor is a person: a client session, as every change through `permissions.denylist.*` is. */
+const byPerson = (actor: string | null): boolean => actor !== null && parseActor(actor).kind === "client_session";
+
+/**
+ * The denylist holds its preset sections or a deliberate emptying: each
+ * section with presets holds every one of them, read by id (a preset a
+ * person disabled or edited is still held; so is the data directory's,
+ * wherever it points), or is empty because a person emptied it. A section
+ * missing some of its presets, or empty with no person having emptied it
+ * (never seeded, or emptied by the environment), does not hold, and
+ * `permissions.denylist.restorePresets` (Restore) puts them back. Hosts has
+ * no presets, so it always holds.
+ */
+export const denylistHoldsPresets = (state: DenylistState, presets: Denylist): StateCheckAnswer => {
+  const problems: string[] = [];
+  for (const section of DENYLIST_SECTIONS) {
+    const expected = presets[section];
+    if (expected.length === 0) continue;
+    const entries = state.denylist[section];
+    const name = `The ${SECTION_NAMES[section]} section of the denylist`;
+    if (entries.length === 0) {
+      if (!byPerson(state.changedBy[section])) problems.push(`${name} holds none of its presets, and no person emptied it; Restore puts them back.`);
+      continue;
+    }
+    const held = new Set(entries.map((entry) => entry.id));
+    const missing = expected.filter((entry) => !held.has(entry.id)).map((entry) => entry.pattern);
+    if (missing.length === 0) continue;
+    const named = missing.slice(0, NAMED).join(", ") + (missing.length > NAMED ? ` and ${missing.length - NAMED} more` : "");
+    problems.push(`${name} is missing ${missing.length} of its presets (${named}); Restore puts them back.`);
+  }
+  return problems.length === 0 ? true : { reason: problems.join(" ") };
+};
+
+/**
+ * Not root, from what `permissions.settings.get` answers as `isRoot`: always
+ * false while the environment answers, since `serve` refuses root before it
+ * starts (ADR 0006), so a check that fails says a refusal was got past.
+ */
+export const runsAsNonRoot = (isRoot: boolean): StateCheckAnswer =>
+  isRoot ? { reason: "The environment runs as root, which it must never do: start it as an ordinary user (the container's non-root USER)." } : true;

@@ -1,0 +1,8 @@
+# What the image's build (Dockerfile) never copies: installed and built
+# output, which the build makes afresh, and the repository's history.
+**/node_modules
+**/dist
+**/.tsbuild
+**/*.tsbuildinfo
+**/coverage
+.git

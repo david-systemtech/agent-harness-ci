@@ -23,12 +23,16 @@ import { PERMISSIONS_ACTOR } from "./actor.js";
  * The presets are seeded on first start (`seedDenylist`): one
  * `denylist.changed` per section that has presets, by the environment.
  * Seeded once: a section a person emptied stays empty after a restart.
+ * Each section also keeps the actor of its latest change, so the
+ * Permissions step's check can tell a section a person emptied on purpose
+ * from one that never held its presets (#141).
  */
 
 export const DENYLIST_TABLES = {
   denylist_sections: `CREATE TABLE denylist_sections (
     section TEXT PRIMARY KEY,
-    entries TEXT NOT NULL
+    entries TEXT NOT NULL,
+    changed_by TEXT NOT NULL
   ) STRICT`,
 } as const;
 
@@ -43,9 +47,10 @@ export const projectDenylist = (event: EventEnvelope, db: ProjectionDb): void =>
   const { section, entries: given } = DenylistChangedPayload.parse(event.payload);
   const entries = Denylist.shape[section].parse(given);
   db.run(
-    "INSERT INTO denylist_sections (section, entries) VALUES (?, ?) ON CONFLICT (section) DO UPDATE SET entries = excluded.entries",
+    "INSERT INTO denylist_sections (section, entries, changed_by) VALUES (?, ?, ?) ON CONFLICT (section) DO UPDATE SET entries = excluded.entries, changed_by = excluded.changed_by",
     section,
     JSON.stringify(entries),
+    event.actor,
   );
 };
 
@@ -54,6 +59,13 @@ export const readDenylist = (reader: Reader): Denylist => {
   const rows = reader.all<{ section: string; entries: string }>("SELECT section, entries FROM denylist_sections");
   const held = new Map(rows.map((row) => [row.section, JSON.parse(row.entries) as DenylistEntry[]]));
   return Object.fromEntries(DENYLIST_SECTIONS.map((section) => [section, held.get(section) ?? []])) as Denylist;
+};
+
+/** The actor of each section's latest change, as `kind:id`; null for a section never recorded (the Permissions step's check, #141). */
+export const readDenylistChangedBy = (reader: Reader): Record<DenylistSection, string | null> => {
+  const rows = reader.all<{ section: string; changed_by: string }>("SELECT section, changed_by FROM denylist_sections");
+  const held = new Map(rows.map((row) => [row.section, row.changed_by]));
+  return Object.fromEntries(DENYLIST_SECTIONS.map((section) => [section, held.get(section) ?? null])) as Record<DenylistSection, string | null>;
 };
 
 /** How many entries each section holds, enabled or not (`permissions.settings.get`). */

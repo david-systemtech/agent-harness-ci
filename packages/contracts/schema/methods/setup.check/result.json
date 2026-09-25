@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "setup.check result",
+  "type": "object",
+  "properties": {
+    "results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "step": {
+            "type": "string",
+            "enum": [
+              "account",
+              "your-machines",
+              "permissions",
+              "appearance"
+            ],
+            "description": "A step with an entry in the step registry: account, your-machines, permissions, appearance."
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "done",
+              "needs-attention",
+              "skipped"
+            ],
+            "description": "What a step's check found: done, needs-attention, or skipped (a skippable step a person skipped; never a preference step)."
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "description": "One line for the step's row: what needs attention, naming each check that failed; when the step is done, what its checks found to hold."
+          },
+          "failing": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "The checks that did not hold, in the entry's order: a settings key its value check refused, or a state check's id (permissions.containment, ...); empty when done."
+          },
+          "actions": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "sign-in-again",
+                "pull-now",
+                "check-again",
+                "unpair",
+                "pair-another",
+                "install",
+                "update",
+                "reload",
+                "set-up-this-machine",
+                "restore",
+                "move"
+              ],
+              "description": "A named action a step's result offers, from ADR 0031's fixed vocabulary: sign-in-again, pull-now, check-again, unpair, pair-another, install, update, reload, set-up-this-machine, restore (the Permissions step: the denylist's presets), move."
+            },
+            "description": "The actions to offer beside the reason: those of the checks that failed, each once; empty when done."
+          },
+          "checkedAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+            "description": "When the check ran, on the environment's clock."
+          }
+        },
+        "required": [
+          "step",
+          "state",
+          "reason",
+          "failing",
+          "actions",
+          "checkedAt"
+        ],
+        "description": "A step's health check: its state, one line naming what failed, the checks that failed, the actions to offer and when it ran (ADR 0031)."
+      },
+      "description": "The step's result, or every registered step's in the milestone-1 order."
+    }
+  },
+  "required": [
+    "results"
+  ]
+}
