@@ -28,27 +28,20 @@ export const DEFAULT_CLAUDE_MODE: ClaudeMode = "acceptEdits";
 /** The reasoning efforts the SDK takes; a model the provider cannot run at one degrades it itself. */
 export const CLAUDE_EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const satisfies readonly EffortLevel[];
 
-/**
- * The variable the bundled CLI reads before any setting for where auto
- * memory lives (2.1.281's resolver: this, then the settings layers from
- * policy down, then the project directory's default). A run given the
- * environment's directory has it removed, so a stray one in the host's
- * environment cannot move memory out of the directory every account shares.
- */
-export const MEMORY_PATH_OVERRIDE_VARIABLE = "CLAUDE_COWORK_MEMORY_PATH_OVERRIDE";
-
 /** Who the provider's User-Agent names. */
 export const CLIENT_APP = "agent-harness";
 
 /**
  * Where a truncating resume re-enters the stored chain: the last entry kept
  * and, when everything after it is one turn, that turn's prompt, which the
- * provider validates before dropping it (`history.ts`).
+ * provider validates before dropping it (`history.ts`). Or `passed`: the
+ * stored session holds the anchor only on a branch its latest chain has
+ * left, since a run after a rewind wrote a turn of its own and did not
+ * complete (`sessions/fork-rewind.ts`, `pendingRewind`), so the run
+ * continues the latest chain as it stands, which is what the harness's
+ * transcript shows.
  */
-export interface ResumePoint {
-  readonly resumeSessionAt: string;
-  readonly dropsTurn?: string;
-}
+export type ResumePoint = { readonly resumeSessionAt: string; readonly dropsTurn?: string } | { readonly passed: true };
 
 export interface RunOptionsInput {
   readonly run: RunInput;
@@ -118,10 +111,12 @@ const continuation = (run: RunInput, point: ResumePoint | null): Partial<Options
       if (target.atMessageId === null) return { resume: target.providerSessionId, forkSession: true };
       // A fork from a message that could not be placed must not become a fork of the whole session.
       if (point === null) throw new Error(`The fork from ${target.atMessageId} was not placed in the stored session.`);
+      if ("passed" in point) return { resume: target.providerSessionId, forkSession: true };
       return { resume: target.providerSessionId, forkSession: true, resumeSessionAt: point.resumeSessionAt };
     case "rewind":
       // A rewind that could not be placed must not become a resume of the whole session.
       if (point === null) throw new Error(`The rewind to ${target.toMessageId} was not placed in the stored session.`);
+      if ("passed" in point) return { resume: target.providerSessionId };
       return {
         resume: target.providerSessionId,
         resumeSessionAt: point.resumeSessionAt,
@@ -142,7 +137,6 @@ export const buildRunOptions = (input: RunOptionsInput): Options => {
     CLAUDE_CODE_PROJECT_DIR_NAME: run.sessionId,
     CLAUDE_AGENT_SDK_CLIENT_APP: CLIENT_APP,
   });
-  if (input.autoMemoryDirectory !== null) delete env[MEMORY_PATH_OVERRIDE_VARIABLE];
   return {
     cwd: run.workspace.path,
     // Only for a trusted repository: an untrusted one loads nothing of its project, from the branch or from its checkout.

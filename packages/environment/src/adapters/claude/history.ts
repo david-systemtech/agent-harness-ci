@@ -90,19 +90,52 @@ export const mirrorUserTitle = async (store: SessionStore, sessionId: string, ti
   return true;
 };
 
+/** The subagent transcripts' subpaths, `subagents/.../agent-<agent id>`, as the SDK's helper names them. */
+const AGENT_PREFIX = "agent-";
+
+/**
+ * The CLI's own id of the subagent that ran under the tool call `toolCallId`
+ * in one stored conversation: the one whose transcript's latest
+ * `agent_metadata` entry names that call as its `toolUseId` (the sidecar the
+ * SDK mirrors beside a subagent's transcript); null when none does.
+ */
+const agentOfToolCall = async (store: SessionStore, sessionId: string, conversation: string, toolCallId: string): Promise<string | null> => {
+  for (const subpath of (await store.listSubkeys?.({ projectKey: sessionId, sessionId: conversation })) ?? []) {
+    const name = subpath.split("/").at(-1) ?? "";
+    if (!subpath.startsWith("subagents/") || !name.startsWith(AGENT_PREFIX)) continue;
+    const entries = (await store.load({ projectKey: sessionId, sessionId: conversation, subpath })) ?? [];
+    const metadata = entries.findLast((entry) => entry.type === "agent_metadata");
+    if (metadata?.["toolUseId"] === toolCallId) return name.slice(AGENT_PREFIX.length);
+  }
+  return null;
+};
+
 /**
  * A subagent's transcript as the store holds it, through the SDK's helper:
  * from the latest conversation of the harness session that has one, its
- * messages as JSON, oldest first; empty when none does.
+ * messages as JSON, oldest first; empty when none does. `agentId` is the id
+ * `tool.started` names a subagent by, the Agent tool call's id (the mapper
+ * has only the stream's `parent_tool_use_id`), which the SDK's helper does
+ * not know: it looks a transcript up by the CLI's own agent id, so the call
+ * is resolved to it through the stored `agent_metadata`. The CLI's own id is
+ * taken as it is.
  */
 export const readSubagentTranscript = async (store: SessionStore, sessionId: string, agentId: string): Promise<JsonObject[]> => {
   const view = scopedStore(store, sessionId);
   for (const conversation of await storedConversations(store, sessionId)) {
-    const messages = await sdkGetSubagentMessages(conversation, agentId, { sessionStore: view });
+    let messages = await sdkGetSubagentMessages(conversation, agentId, { sessionStore: view });
+    if (messages.length === 0) {
+      const resolved = await agentOfToolCall(store, sessionId, conversation, agentId);
+      if (resolved !== null) messages = await sdkGetSubagentMessages(conversation, resolved, { sessionStore: view });
+    }
     if (messages.length > 0) return messages.map((message) => JSON.parse(JSON.stringify(message)) as JsonObject);
   }
   return [];
 };
+
+/** Whether the stored session holds the entry `uuid` on any branch, not only on the chain its latest entry ends. */
+export const storedHolds = async (store: SessionStore, harnessSessionId: string, providerSessionId: string, uuid: string): Promise<boolean> =>
+  ((await store.load({ projectKey: harnessSessionId, sessionId: providerSessionId })) ?? []).some((entry) => entry.uuid === uuid);
 
 /** One entry of the stored chain, as the SDK's session helper reads it. */
 export interface StoredMessage {

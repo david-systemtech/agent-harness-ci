@@ -5,7 +5,7 @@ import { useCleanups } from "../../test/cleanups.js";
 import { manualClock } from "../../test/clock.js";
 import { end, fakeAdapter, gate, say, type FakeAdapterOptions, type Script } from "../../test/fake-adapter.js";
 import { startTestEnvironment, type TestEnvironment } from "../../test/helper.js";
-import { command, create, deleteSession, purgeSession, refusal } from "../../test/sessions.js";
+import { command, create, deleteSession, get, purgeSession, refusal } from "../../test/sessions.js";
 import type { WireClient } from "../../test/wire-client.js";
 import type { EventEnvelope } from "../event-log/event-log.js";
 import { createProviderTranscriptStore } from "../provider-transcripts/store.js";
@@ -150,6 +150,28 @@ describe("sessions.fork", () => {
     expect(events(t, fromFirst).find((event) => event.type === "run.started")?.payload).toMatchObject({ forkedFrom: source.id, resumedFrom: null });
   });
 
+  it("forks a fork that has never run from what the fork's own record names, rather than starting fresh", async () => {
+    const t = await start();
+    const client = await t.client();
+    const source = await create(client);
+    await runTo(t, client, source.id, "First");
+    const second = await runTo(t, client, source.id, "Second");
+    const store = storeOf(t);
+    await store.append({ projectKey: source.id, sessionId: "provider-1" }, [{ type: "user", uuid: "u1", message: { role: "user", content: "First" } }]);
+    const child = randomUUID();
+    await fork(client, { sessionId: source.id, id: child, atMessageId: second.messageId });
+    const grandchild = randomUUID();
+
+    await fork(client, { sessionId: child, id: grandchild });
+    expect(events(t, grandchild).at(-1)?.payload).toEqual({ fromSessionId: child, atMessageId: second.messageId, fromProviderSessionId: "provider-1" });
+    // Its copy of the provider session is the child's, which the child copied from the source.
+    expect(await store.load({ projectKey: grandchild, sessionId: "provider-1" })).toEqual([{ type: "user", uuid: "u1", message: { role: "user", content: "First" } }]);
+    t.adapter.nextScripts.push(linking("provider-grandchild"));
+    await runTo(t, client, grandchild, "Third");
+    expect(t.adapter.lastRun().input.target).toEqual({ kind: "fork", providerSessionId: "provider-1", atMessageId: second.messageId });
+    expect(events(t, grandchild).find((event) => event.type === "run.started")?.payload).toMatchObject({ forkedFrom: child, resumedFrom: "provider-1" });
+  });
+
   it("is allowed while the source runs", async () => {
     const held = gate();
     const t = await start();
@@ -202,7 +224,11 @@ describe("sessions.rewind", () => {
     const before = t.adapter.processesOf(id).length;
 
     expect((await rewind(client, id, second.messageId)).result).toEqual({ sessionId: id, messageId: second.messageId });
-    expect(events(t, id).at(-1)).toMatchObject({ type: "session.rewound", payload: { toMessageId: second.messageId }, correlationId: null });
+    // The message's text becomes the draft, in the same append (ADR 0022).
+    const [rewound, draft] = events(t, id).slice(-2);
+    expect(rewound).toMatchObject({ type: "session.rewound", payload: { toMessageId: second.messageId }, correlationId: null });
+    expect(draft).toMatchObject({ type: "session.draft-set", payload: { draft: "Second" }, commandId: rewound?.commandId });
+    expect((await get(client, id)).draft).toBe("Second");
     const snapshot = await snapshotOf(t, client, id);
     expect(snapshot.items.map((item) => ("text" in item ? item.text : item.kind))).toEqual(["First", "Done: First"]);
     expect(events(t, id).filter((event) => event.type === "message.sent")).toHaveLength(3);
@@ -253,6 +279,57 @@ describe("sessions.rewind", () => {
     });
   });
 
+  it("refuses while the environment holds queued messages for the session, which the next run would read after the cut", async () => {
+    const held = gate();
+    // No steering: the provider holds a message sent during the run until the interrupt hands it back.
+    const t = await start({ capabilities: { fork: true, rewind: true, steering: false } });
+    const client = await t.client();
+    const { id } = await create(client);
+    await runTo(t, client, id, "First");
+    const second = await runTo(t, client, id, "Second");
+    t.adapter.nextScripts.push(async function* () {
+      yield say("Working");
+      await held.opened;
+      yield end();
+    });
+    const busy = registry["runs.start"].response.parse(await client.request("runs.start", { commandId: randomUUID(), sessionId: id, text: "Busy" }));
+    await vi.waitFor(() => expect(events(t, id).map((event) => event.type)).toContain("assistant.text"));
+    const sent = registry["runs.send"].response.parse(await client.request("runs.send", { commandId: randomUUID(), sessionId: id, text: "Also this" }));
+    // The interrupt hands what the provider held back to the environment's queue, and starts nothing.
+    await client.request("runs.interrupt", { commandId: randomUUID(), runId: busy.result?.runId as string });
+    await vi.waitFor(() => expect(ended(t, id)).toHaveLength(3));
+    held.open();
+
+    const refused = await rewind(client, id, second.messageId);
+    expect(refused.receipt).toMatchObject({
+      status: "rejected",
+      reason: "conflict",
+      error: { data: { reason: "queued_messages", sessionId: id, messageIds: [sent.result?.messageId] } },
+    });
+    expect(events(t, id).map((event) => event.type)).not.toContain("session.rewound");
+    // Once a run has read the queue, the rewind is taken.
+    await runTo(t, client, id, "Now");
+    expect((await rewind(client, id, second.messageId)).receipt.status).toBe("accepted");
+  });
+
+  it("is not continued by a run that linked the provider session and then failed: the next run rewinds again", async () => {
+    const t = await start();
+    const client = await t.client();
+    const { id } = await create(client);
+    await runTo(t, client, id, "First");
+    const second = await runTo(t, client, id, "Second");
+    await rewind(client, id, second.messageId);
+    t.adapter.nextScripts.push(() => [{ type: "session.provider-linked", payload: { providerSessionId: "provider-1" } }, end("error", { error: { message: "Overloaded", code: "overloaded" } })]);
+    await runTo(t, client, id, "Second, again");
+    expect(ended(t, id).at(-1)?.payload).toMatchObject({ reason: "error" });
+
+    await runTo(t, client, id, "Second, once more");
+    expect(t.adapter.lastRun().input.target).toEqual({ kind: "rewind", providerSessionId: "provider-1", toMessageId: second.messageId });
+    // That run completed: the rewind is continued from, and the next resumes.
+    await runTo(t, client, id, "Third");
+    expect(t.adapter.lastRun().input.target).toEqual({ kind: "resume", providerSessionId: "provider-1" });
+  });
+
   it("lets a fork rewind to its own first message, which the source's conversation precedes", async () => {
     const t = await start();
     const client = await t.client();
@@ -300,7 +377,16 @@ describe("sessions.subagentTranscript", () => {
 });
 
 describe("the store under the tombstone", () => {
-  it("purges a session's store entries with it, leaving its fork's copy whole, and hands the transcript delete the accounts the session ran under", async () => {
+  /** An account the environment owns, added and signed in. */
+  const addOwned = async (client: WireClient, label: string) => {
+    const added = registry["accounts.add"].response.parse(await client.request("accounts.add", { commandId: randomUUID(), label }));
+    const account = added.result?.account;
+    if (account === undefined) throw new Error(`accounts.add was refused: ${JSON.stringify(added.receipt)}`);
+    await client.request("accounts.refresh", { accountId: account.id });
+    return account;
+  };
+
+  it("purges a session's store entries with it, leaving its fork's copy whole", async () => {
     const t = await start({ deleteTranscript: true });
     const client = await t.client();
     const source = await create(client);
@@ -315,6 +401,27 @@ describe("the store under the tombstone", () => {
     await purgeSession(client, source.id);
     expect(await store.load({ projectKey: source.id, sessionId: "provider-1" })).toBeNull();
     expect(await store.load({ projectKey: id, sessionId: "provider-1" })).toEqual([entry]);
-    expect(t.adapter.deletedTranscriptAccounts).toEqual([[{ id: "claude-max", directory: expect.any(String) }]]);
+  });
+
+  it("hands the transcript delete only the owned accounts the session ran under, and keeps a copy in an adopted directory, recorded kept with the reason", async () => {
+    // The test helper's configured accounts are carried over as adopted, as #134 does in place.
+    const t = await start({ deleteTranscript: true });
+    const client = await t.client();
+    const owned = await addOwned(client, "Owned");
+    const onOwned = await create(client, { account: owned.id });
+    await runTo(t, client, onOwned.id, "On the owned account");
+    const adoptedOnly = await create(client);
+    await runTo(t, client, adoptedOnly.id, "Only adopted");
+
+    const tombstone = async (id: string) => {
+      await deleteSession(client, id, true);
+      await purgeSession(client, id);
+      return events(t, id).at(-1)?.payload;
+    };
+    expect(await tombstone(onOwned.id)).toEqual({ providerTranscript: { outcome: "deleted" } });
+    expect(await tombstone(adoptedOnly.id)).toEqual({ providerTranscript: { outcome: "kept", reason: "adopted-directory" } });
+    // Adopted only: the adapter is not asked at all; owned: it is handed the owned directory alone.
+    expect(t.adapter.deletedTranscripts).toEqual([onOwned.id]);
+    expect(t.adapter.deletedTranscriptAccounts).toEqual([[{ id: owned.id, directory: owned.directory.path }]]);
   });
 });

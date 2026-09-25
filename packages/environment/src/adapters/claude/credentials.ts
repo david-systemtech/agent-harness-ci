@@ -65,7 +65,12 @@ export const CLAUDE_STRIPPED_VARIABLES = [
  *   CLI inherits the variable (verified on the bundled 2.1.281), so leaving
  *   it out is the opt-out;
  * - `CLAUDE_CONFIG_DIR` and `CLAUDE_CODE_PROJECT_DIR_NAME`, set again from
- *   the run, never inherited.
+ *   the run, never inherited;
+ * - `CLAUDE_COWORK_MEMORY_PATH_OVERRIDE`, which the bundled CLI reads before
+ *   any setting for where auto memory lives (2.1.281's resolver: this, then
+ *   the settings layers from policy down, then the project directory's
+ *   default), so a stray one cannot move memory out of the directory every
+ *   account shares (ADR 0018, #137).
  *
  * What the SDK itself sets (`CLAUDE_CODE_ENTRYPOINT`) or the harness sets
  * (`CLAUDE_AGENT_SDK_CLIENT_APP`) is layered on after the scrub.
@@ -78,6 +83,7 @@ export const CLAUDE_SCRUBBED_VARIABLES: readonly string[] = [
   "CLAUDE_SECURESTORAGE_CONFIG_DIR",
   "CLAUDE_CODE_SIMPLE",
   "CLAUDE_CODE_PROJECT_DIR_NAME",
+  "CLAUDE_COWORK_MEMORY_PATH_OVERRIDE",
 ];
 
 /** The families scrubbed by pattern. */

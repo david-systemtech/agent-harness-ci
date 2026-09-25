@@ -141,7 +141,7 @@
                   "exited",
                   "rewound"
                 ],
-                "description": "Why a provider process stopped: idle (idle for providers.processIdleMinutes with no held work), parked (parked on a prompt as long; its run ended interrupted, cause parked), deleted (its session was deleted), admin (providers.processes.stop), drain (the environment drained), closed (the environment closed), failed (its run failed and the environment ended it), exited (it exited on its own), rewound (its session was rewound, so the next run starts from the rewind's point on a fresh process)."
+                "description": "Why a provider process stopped: idle (idle for providers.processIdleMinutes with no held work), parked (parked on a prompt as long; its run ended interrupted, cause parked), deleted (its session was deleted), admin (providers.processes.stop), drain (the environment drained), closed (the environment closed), failed (its run failed and the environment ended it), exited (it exited on its own), rewound (its session was rewound, so the next run starts from the rewind's point on a fresh process; a background task it held ends with it)."
               },
               {
                 "type": "null"

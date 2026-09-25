@@ -116,6 +116,12 @@ describe("the summaries", () => {
     expect(await store.load(SUB)).toBeNull();
   });
 
+  it("reads the latest write time through an index on mtime, not a scan of every summary", () => {
+    const log = open();
+    const plan = log.read<{ detail: string }>("EXPLAIN QUERY PLAN SELECT MAX(mtime) AS latest FROM provider_transcript_summaries");
+    expect(plan.map((row) => row.detail).join(" ")).toMatch(/USING COVERING INDEX provider_transcript_summaries_by_mtime/);
+  });
+
   it("keeps what it holds across a restart", async () => {
     const path = join(tempDir(), "environment.db");
     const first = openEventLog({ path });
@@ -170,6 +176,30 @@ describe("the purge's cascade", () => {
     expect(await store.load(SUB)).toBeNull();
     expect(await store.listSessions(HARNESS)).toEqual([]);
     expect(await store.load({ ...MAIN, projectKey: OTHER })).toEqual([prompt("u1", "Go")]);
+  });
+
+  it("drops a mirror write that lands after the purge, and the startup sweep clears what one left under a purged key", async () => {
+    const log = open();
+    const store = storeOn(log);
+    for (const id of [HARNESS, OTHER]) log.append(stream(id), [created], { actor });
+    log.append(stream(HARNESS), [deleted(false)], { actor });
+    const deletion = createDeletion({ log, providerStore: store });
+    log.atomically((tx) => deletion.purgeSession(HARNESS, { tx, actor }));
+
+    // A process still flushing its mirror after the tombstone.
+    await store.append(MAIN, [prompt("u1", "Late")]);
+    await store.append(SUB, [prompt("s1", "Late too")]);
+    expect(await store.load(MAIN)).toBeNull();
+    expect(await store.load(SUB)).toBeNull();
+    expect(await store.listSessions(HARNESS)).toEqual([]);
+
+    // What a write racing the purge left before the drop existed: rows under the purged key, beside a live session's.
+    log.atomically((tx) => log.providerTranscripts.insert(tx, { projectKey: HARNESS, sessionId: PROVIDER, subpath: "" }, [{ uuid: "u2", json: JSON.stringify(prompt("u2", "Raced")) }]));
+    await store.append({ ...MAIN, projectKey: OTHER }, [prompt("u1", "Live")]);
+    expect(store.sweepOrphans()).toEqual([HARNESS]);
+    expect(await store.load(MAIN)).toBeNull();
+    expect(await store.load({ ...MAIN, projectKey: OTHER })).toEqual([prompt("u1", "Live")]);
+    expect(store.sweepOrphans()).toEqual([]);
   });
 
   it("rolls the store's delete back with a purge that does not commit", async () => {

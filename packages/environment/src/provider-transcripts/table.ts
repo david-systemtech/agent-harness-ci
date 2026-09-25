@@ -47,7 +47,7 @@ export interface ProviderTranscriptTable {
   writeSummary(tx: Tx, projectKey: string, summary: StoredSummary): void;
   /** Every summary of the project: one per main transcript. */
   summaries(projectKey: string): StoredSummary[];
-  /** The latest storage write time any summary holds; 0 before any. */
+  /** The latest storage write time any summary holds; 0 before any. Read through the index on `mtime`, not a scan. */
   latestMtime(): number;
   /** The subpaths the session has entries under, the main transcript left out. */
   subkeys(projectKey: string, sessionId: string): string[];
@@ -57,6 +57,8 @@ export interface ProviderTranscriptTable {
   copyProject(tx: Tx, from: string, to: string): void;
   /** Deletes everything the project holds. */
   purgeProject(tx: Tx, projectKey: string): void;
+  /** Every project key either table holds a row under. */
+  projectKeys(): string[];
 }
 
 export const createProviderTranscriptTable = (sql: Sql, requireTx: (tx: Tx) => void): ProviderTranscriptTable => ({
@@ -146,4 +148,10 @@ export const createProviderTranscriptTable = (sql: Sql, requireTx: (tx: Tx) => v
     sql.run("DELETE FROM provider_transcripts WHERE project_key = ?", projectKey);
     sql.run("DELETE FROM provider_transcript_summaries WHERE project_key = ?", projectKey);
   },
+  projectKeys: () =>
+    sql
+      .all<{ project_key: string }>(
+        "SELECT project_key FROM provider_transcripts GROUP BY project_key UNION SELECT project_key FROM provider_transcript_summaries GROUP BY project_key ORDER BY project_key",
+      )
+      .map((row) => row.project_key),
 });

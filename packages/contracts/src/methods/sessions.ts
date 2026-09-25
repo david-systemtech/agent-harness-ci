@@ -302,9 +302,9 @@ export const groupsDelete = defineMethod({
  * account unless `account` names another of this environment, which is the
  * hand-off onto another account (across environments is milestone 2). With
  * `atMessageId` (a user message of the source's visible transcript) the fork
- * holds the conversation up to but excluding it, and its text becomes the
- * fork's draft; without it, the whole conversation. Its first run continues
- * the source's provider conversation as a fork; `session.forked` on the new
+ * holds the source's history up to but excluding it, and its text becomes
+ * the fork's draft; without it, the whole history. Its first run continues
+ * the source's provider session as a fork; `session.forked` on the new
  * session's stream records where it came from. Allowed while the source
  * runs. A source that is not here, or a message not in its visible
  * transcript, is `not_found` (data kind `session` or `message`); an id
@@ -318,7 +318,7 @@ export const sessionsFork = defineMethod({
   params: commandParams({
     sessionId: SessionId.meta({ description: "The session to fork: the source." }),
     id: SessionId.meta({ description: "The fork's id, minted by the client as sessions.create's is." }),
-    atMessageId: MessageId.optional().meta({ description: "A user message of the source: the fork holds the conversation before it, and its text becomes the fork's draft; the whole conversation when absent." }),
+    atMessageId: MessageId.optional().meta({ description: "A user message of the source: the fork holds the history before it, and its text becomes the fork's draft; the whole history when absent." }),
     account: z.string().min(1).optional().meta({ description: "The account the fork's runs use, one this environment holds and is signed in; the source's when absent." }),
     title: UserTitle.optional().meta({ description: "The fork's user title; the source's title is carried as its generated title when absent." }),
   }),
@@ -328,10 +328,15 @@ export const sessionsFork = defineMethod({
 
 /**
  * Rewind a session to one of its user messages (ADR 0022): `session.rewound`
- * is recorded, the message and every item after it stay in the log and the
- * snapshot hides them, and the session's next run continues the provider's
- * conversation from just before it. Files are never restored. While a run is
- * live it is `conflict` (reason `run_active`); a message that is not a user
+ * is recorded with `session.draft-set` carrying the message's text (the
+ * draft), the message and every item after it stay in the log and the
+ * snapshot hides them, and the session's next run continues the provider
+ * session from just before it. Files are never restored. While a run is
+ * live it is `conflict` (reason `run_active`); while the environment holds
+ * queued messages for the session it is `conflict` (reason
+ * `queued_messages`: the next run would read them after a history that
+ * hides the messages sent before them; withdraw them or let a run read them
+ * first); a message that is not a user
  * message of the session's visible transcript is `not_found` (data kind
  * `message`); the session's first message is `conflict` (reason
  * `use_new_session`: the client starts a new session with its text as the
@@ -351,10 +356,12 @@ export const sessionsRewind = defineMethod({
 });
 
 /**
- * A subagent's own transcript, read from the provider's stored conversation
- * on demand and never logged (chosen default): its messages as the provider
- * keeps them, oldest first, empty when none is stored for it. `agentId` is
- * the id a `tool.started` names the subagent by. Needs the adapter's
+ * A subagent's own transcript, read from the provider session's stored
+ * transcript on demand and never logged (chosen default): its messages as
+ * the provider keeps them, oldest first, empty when none is stored for it.
+ * `agentId` is the id a `tool.started` names the subagent by (for Claude,
+ * the id of the Agent tool call it runs under); the provider's own agent id
+ * is taken too. Needs the adapter's
  * `subagentTranscripts` (`invalid_params`, data reason `unsupported`,
  * without it); a session that is not here is `not_found`.
  */

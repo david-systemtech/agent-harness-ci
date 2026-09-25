@@ -148,6 +148,8 @@ export const MIGRATIONS: readonly Migration[] = [
         unrenamed TEXT NOT NULL,
         PRIMARY KEY (project_key, session_id)
       ) STRICT;
+      -- Every append reads the latest write time across all summaries (MAX(mtime)), which this index answers without a scan.
+      CREATE INDEX provider_transcript_summaries_by_mtime ON provider_transcript_summaries (mtime);
     `,
   },
 ];

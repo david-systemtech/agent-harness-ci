@@ -34,11 +34,17 @@ import { sessionStream } from "./streams.js";
  *   must succeed (or throw, which is recorded as `failed`).
  *
  * A throw is recorded in the tombstone as `failed` with its message, and the
- * session is purged all the same.
+ * session is purged all the same. It answers nothing when the transcript is
+ * gone, or why a copy was kept (`kept`: a copy lies in an adopted account's
+ * directory, which only the provider's own CLI touches, ADR 0018, #137),
+ * recorded as `kept` with that reason.
  */
 export interface ProviderTranscripts {
-  readonly deleteTranscript?: (sessionId: string) => undefined;
+  readonly deleteTranscript?: (sessionId: string) => TranscriptDeleteAnswer;
 }
+
+/** What a transcript delete answers: nothing once the transcript is gone, or why a copy of it was kept. */
+export type TranscriptDeleteAnswer = undefined | { readonly kept: NonNullable<Extract<ProviderTranscriptOutcome, { outcome: "kept" }>["reason"]> };
 
 /** Who a purge is appended as, and in which transaction: a command's, or the sweep's own. */
 export interface PurgeContext {
@@ -115,7 +121,8 @@ export const createDeletion = (options: DeletionOptions): Deletion => {
       Promise.resolve(answered).catch(() => undefined);
       throw new Error(`The adapter's transcript delete for session ${sessionId} answered with a promise; it must answer at once.`);
     }
-    return { outcome: "deleted" };
+    const kept = (answered as TranscriptDeleteAnswer)?.kept;
+    return kept === undefined ? { outcome: "deleted" } : { outcome: "kept", reason: kept };
   };
 
   const purgeSession = (sessionId: string, context: PurgeContext): EventEnvelope => {

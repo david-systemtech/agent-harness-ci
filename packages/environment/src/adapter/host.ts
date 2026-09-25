@@ -33,7 +33,7 @@ import {
 import type { Clock } from "../serve/clock.js";
 import { createRunRegistry, type MemoryRunRegistry } from "../serve/run-registry.js";
 import { appendRunEvents } from "../sessions/activity-companions.js";
-import type { ProviderTranscripts } from "../sessions/deletion.js";
+import type { ProviderTranscripts, TranscriptDeleteAnswer } from "../sessions/deletion.js";
 import type { RunParameters, RunParametersCheck, RunParametersVerdict } from "../sessions/run-parameters.js";
 import type { Reader } from "../sessions/session-reads.js";
 import { sessionStream } from "../sessions/streams.js";
@@ -1105,18 +1105,31 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
   };
 
   /** The accounts the session's runs went through, as the environment still holds them: where its provider may have left a transcript. */
-  const accountsOfSession = (sessionId: string): AccountRef[] =>
+  const accountsOfSession = (sessionId: string): (AccountRef & { readonly adopted: boolean })[] =>
     reader.all<{ account_id: string }>("SELECT DISTINCT account_id FROM runs WHERE session_id = ? ORDER BY account_id", sessionId).flatMap((row) => {
       const facts = accounts.facts(row.account_id);
-      return facts === null ? [] : [{ id: facts.id, directory: facts.directory }];
+      return facts === null ? [] : [{ id: facts.id, directory: facts.directory, adopted: facts.adopted }];
     });
 
+  /**
+   * The purge's transcript delete (#118), handed only the owned accounts the
+   * session ran under: an adopted directory is read and written only by the
+   * provider's own CLI (ADR 0018, user story 5), so a copy there is kept and
+   * the answer says so, whatever the adapter deleted elsewhere (#137).
+   */
   const transcripts: ProviderTranscripts = adapters.list().some((adapter) => adapter.descriptor.transcriptDelete)
     ? {
         deleteTranscript: (sessionId) => {
           const adapter = adapterOfSession(sessionId, "transcriptDelete", "its transcript cannot be deleted");
           const remove = capability(adapter.descriptor, "transcriptDelete", adapter.deleteTranscript, "delete a provider transcript", "deleteTranscript");
-          return remove.call(adapter, sessionId, accountsOfSession(sessionId));
+          const ran = accountsOfSession(sessionId);
+          const owned = ran.filter((account) => !account.adopted).map(({ id, directory }) => ({ id, directory }));
+          const adopted = owned.length < ran.length;
+          // Nothing to hand over when every account it ran under is adopted; a session that never ran is the adapter's to answer.
+          const answered: unknown = adopted && owned.length === 0 ? undefined : remove.call(adapter, sessionId, owned);
+          // An answer that is not synchronous is the purge's to refuse (`sessions/deletion.ts`), so it is passed on as it is.
+          if (answered !== undefined) return answered as TranscriptDeleteAnswer;
+          return adopted ? { kept: "adopted-directory" } : undefined;
         },
       }
     : {};

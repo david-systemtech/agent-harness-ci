@@ -6,7 +6,9 @@ import { expect, it } from "vitest";
  * SDK's session-storage page tells an adapter to: the pinned package
  * (0.3.281) exports no suite (its declarations and `sdk.mjs` hold none), so
  * this is `examples/session-stores/shared/conformance.ts` of
- * anthropics/claude-agent-sdk-typescript at main, fetched 2026-09-25, its
+ * anthropics/claude-agent-sdk-typescript at commit
+ * 9e477a178c370991ed87ca65b4c8631d390aea35 (main when fetched, 2026-09-25;
+ * the file last changed in 0e9214d99f87cf3b3b053ae69df2d741164b1766), its
  * thirteen cases unchanged but for running under Vitest (`bun:test`'s `test`
  * is Vitest's `it`, with the same `expect`) and taking the SDK's own
  * `SessionStore` type in place of its structural copy. What the suite does

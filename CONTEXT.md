@@ -36,6 +36,10 @@ _Avoid_: migrated session, legacy session, provider session (the transcript, not
 One conversation with an agent, owned by exactly one environment.
 _Avoid_: thread, chat, pane, conversation
 
+**Provider session**:
+A provider's own record of a session's history, under the provider's id, which a run resumes, forks or rewinds; a session links one or more over its life, and a fork starts from its source's.
+_Avoid_: conversation, provider conversation, transcript (the session's events in the log)
+
 **Run**:
 One turn of a session, from the prompt that starts it to the reason it ended.
 _Avoid_: query, task, job

@@ -208,8 +208,8 @@ export const sessionSchemaFixtures: Record<string, Fixtures> = {
   "sessions/pull-request.json": { valid: [pullRequest, mergedPullRequest], invalid: [{ ...pullRequest, state: "draft" }, { url: pullRequest.url }] },
   "sessions/session-summary.json": { valid: [freshSummary, fullSummary], invalid: invalidSummaries },
   "sessions/provider-transcript-outcome.json": {
-    valid: [{ outcome: "kept" }, { outcome: "deleted" }, { outcome: "unsupported" }, { outcome: "failed", message: "m" }],
-    invalid: [{}, { outcome: "lost" }, { outcome: "failed" }, true],
+    valid: [{ outcome: "kept" }, { outcome: "kept", reason: "adopted-directory" }, { outcome: "deleted" }, { outcome: "unsupported" }, { outcome: "failed", message: "m" }],
+    invalid: [{}, { outcome: "lost" }, { outcome: "failed" }, { outcome: "kept", reason: "stale" }, true],
   },
   "sessions/deleted-session-summary.json": { valid: [deleted], invalid: [freshSummary, { ...deleted, purgeAt: "never" }] },
   "sessions/group.json": { valid: [group, { ...group, orderKey: "m" }], invalid: invalidGroups },

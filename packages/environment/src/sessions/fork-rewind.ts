@@ -13,7 +13,7 @@ import { requireCapability } from "../adapter/capabilities.js";
 import type { AdapterDescriptor, RunTarget } from "../adapter/contract.js";
 import type { AdapterHost } from "../adapter/host.js";
 import type { EventInput, EventLog, Tx } from "../event-log/event-log.js";
-import { latestRun, providerSessionOf, readSessionFacts } from "../runs/run-reads.js";
+import { environmentQueue, latestRun, providerSessionOf, readSessionFacts } from "../runs/run-reads.js";
 import { sessionTranscript } from "../runs/transcript.js";
 import type { MethodHandlers } from "../serve/methods.js";
 import { PURGED_STATE, decideCreate, sessionNotFound, type SessionState } from "./decider.js";
@@ -39,7 +39,9 @@ import { generatedTitle } from "./titles.js";
  * the moment it exists and a purge of either never takes the other's. Its
  * first run is a fork of that conversation, on whichever account of this
  * environment it names (the hand-off onto another account). A rewind is
- * `session.rewound` on the session: the snapshot hides the message and
+ * `session.rewound` on the session, with `session.draft-set` carrying the
+ * message's text, refused while a run is live or the environment holds
+ * queued messages for the session: the snapshot hides the message and
  * everything after it (`runs/transcript.ts`), and the session's next run
  * resumes the provider's conversation from just before it, on a fresh
  * process (the host stops the session's process when the rewind commits).
@@ -63,8 +65,14 @@ const forkRecord = (log: Pick<EventLog, "read">, sessionId: string): SessionFork
 
 /**
  * The session's latest rewind while no run has continued from it yet: no
- * provider conversation has been linked since (`session.provider-linked`),
- * so the provider still holds what the rewind hid as its latest.
+ * run since has ended `completed`. A run that linked the provider session
+ * and then failed does not count: it may have failed before the provider
+ * wrote anything, whose latest is then still what the rewind hid, so the
+ * next run is a rewind again; where the failed run did write a turn of its
+ * own after the rewind's point, the adapter finds the message off its
+ * stored chain and continues the chain as it stands (the Claude adapter's
+ * `#resumePoint`). `run.ended` is never compacted away (#123), so the
+ * answer holds after a compaction.
  */
 export const pendingRewind = (log: Pick<EventLog, "read">, sessionId: string): SessionRewoundPayload | null => {
   const [row] = log.read<{ sequence: number; payload: string }>(
@@ -72,12 +80,12 @@ export const pendingRewind = (log: Pick<EventLog, "read">, sessionId: string): S
     sessionId,
   );
   if (row === undefined) return null;
-  const [linked] = log.read(
-    `SELECT 1 FROM events WHERE stream_kind = '${SESSION_STREAM_KIND}' AND stream_id = ? AND type = 'session.provider-linked' AND sequence > ? LIMIT 1`,
+  const [continued] = log.read(
+    `SELECT 1 FROM events WHERE stream_kind = '${SESSION_STREAM_KIND}' AND stream_id = ? AND type = 'run.ended' AND sequence > ? AND json_extract(payload, '$.reason') = 'completed' LIMIT 1`,
     sessionId,
     row.sequence,
   );
-  return linked === undefined ? (JSON.parse(row.payload) as SessionRewoundPayload) : null;
+  return continued === undefined ? (JSON.parse(row.payload) as SessionRewoundPayload) : null;
 };
 
 /**
@@ -175,10 +183,20 @@ export const forkRewindMethods = (options: ForkRewindMethodsOptions): MethodHand
         anchor = messages.find((message) => message.messageId === asked && message.heldBy === null) ?? null;
         if (anchor === null) return { aggregate, rejected: messageNotFound(sourceId, asked) };
       }
-      const atMessageId = anchor?.messageId ?? pendingRewind(log, sourceId)?.toMessageId ?? null;
       const linked = providerSessionOf(reader, sourceId);
-      // Nothing of the provider's comes before the anchor when it is the source's first message: the fork starts fresh.
-      const fromProviderSessionId = linked !== null && (atMessageId === null || historyBefore(sourceId, messages, atMessageId)) ? linked : null;
+      let atMessageId: string | null;
+      let fromProviderSessionId: string | null;
+      if (linked !== null) {
+        atMessageId = anchor?.messageId ?? pendingRewind(log, sourceId)?.toMessageId ?? null;
+        // Nothing of the provider's comes before the anchor when it is the source's first message: the fork starts fresh.
+        fromProviderSessionId = atMessageId === null || historyBefore(sourceId, messages, atMessageId) ? linked : null;
+      } else {
+        // A source no run of which has linked a provider session: a fork continues what the source's own fork named
+        // (its copy of those rows is the source's), since nothing the source was sent since reached the provider.
+        const inherited = forkRecord(log, sourceId);
+        fromProviderSessionId = inherited?.fromProviderSessionId ?? null;
+        atMessageId = inherited !== null && fromProviderSessionId !== null ? inherited.atMessageId : (anchor?.messageId ?? null);
+      }
 
       // The source's account unless another is named; its model only on the same account, whose catalogue it came from.
       const account = params.account ?? facts.account;
@@ -232,8 +250,22 @@ export const forkRewindMethods = (options: ForkRewindMethodsOptions): MethodHand
           rejected: { code: "conflict", message: `A run of the session ${id} is live; interrupt it before rewinding.`, data: { reason: "run_active", sessionId: id, runId: live.runId } },
         };
       }
+      // The next run reads the environment's queue before its prompt: a message queued before the rewind would reach the
+      // provider after a history that hides what it was sent after, so the rewind waits for the queue to be read or withdrawn.
+      const queued = environmentQueue(reader, id);
+      if (queued.length > 0) {
+        return {
+          aggregate,
+          rejected: {
+            code: "conflict",
+            message: `The session ${id} has queued messages the next run would read; withdraw them or let a run read them before rewinding.`,
+            data: { reason: "queued_messages", sessionId: id, messageIds: queued.map((message) => message.messageId) },
+          },
+        };
+      }
       const messages = visibleMessages(id);
-      if (!messages.some((message) => message.messageId === messageId && message.heldBy === null)) return { aggregate, rejected: messageNotFound(id, messageId) };
+      const target = messages.find((message) => message.messageId === messageId && message.heldBy === null);
+      if (target === undefined) return { aggregate, rejected: messageNotFound(id, messageId) };
       if (!historyBefore(id, messages, messageId)) {
         return {
           aggregate,
@@ -247,7 +279,11 @@ export const forkRewindMethods = (options: ForkRewindMethodsOptions): MethodHand
       const descriptor = descriptorOf(id);
       if (descriptor !== null) requireCapability(descriptor, "rewind", ["messageId"], "rewind a session");
       const payload: SessionRewoundPayload = { toMessageId: messageId };
-      log.append(aggregate, [{ type: "session.rewound", payload }], { tx: context.tx, actor: context.actor, commandId: context.commandId });
+      const events: EventInput[] = [{ type: "session.rewound", payload }];
+      // The message's text becomes the draft (ADR 0022), in the same append.
+      const draft = target.text.slice(0, MAX_DRAFT_LENGTH);
+      if (draft !== "") events.push({ type: "session.draft-set", payload: { draft } });
+      log.append(aggregate, events, { tx: context.tx, actor: context.actor, commandId: context.commandId });
       return { aggregate, result: { sessionId: id, messageId } };
     },
 

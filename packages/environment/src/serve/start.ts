@@ -563,6 +563,12 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   } catch (error) {
     console.error("The startup purge failed; the minute sweep will try again:", error);
   }
+  // Then the SDK session store's rows under a purged session's key: a mirror write that raced its purge (#137).
+  try {
+    providerStore.sweepOrphans();
+  } catch (error) {
+    console.error("The session store's orphan sweep failed; the next start will try again:", error);
+  }
   // The shelf's sweep (#117): a pass now, before the wire opens, then every five minutes.
   closers.push(settleSweep.start());
   // Transcript compaction (#123): a pass now, before the wire opens, then once a day.

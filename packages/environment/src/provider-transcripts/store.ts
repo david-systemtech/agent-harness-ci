@@ -1,4 +1,5 @@
 import { foldSessionSummary, type SessionKey, type SessionStore, type SessionStoreEntry, type SessionSummaryEntry } from "@anthropic-ai/claude-agent-sdk";
+import { SESSION_STREAM_KIND } from "@agent-harness/contracts";
 import type { EventLog, Tx } from "../event-log/event-log.js";
 import type { Clock } from "../serve/clock.js";
 import type { StoredSummary, TranscriptKey } from "./table.js";
@@ -46,10 +47,17 @@ export interface ProviderTranscriptStore extends Required<SessionStore> {
   copySession(tx: Tx, fromSessionId: string, toSessionId: string): void;
   /** Deletes everything stored under a harness session, inside the transaction open now: the purge's cascade. */
   purgeSession(tx: Tx, sessionId: string): void;
+  /**
+   * Deletes everything stored under a project key whose session has been
+   * purged (its stream holds the tombstone): what a write that raced the
+   * purge left before appends were dropped for it. Startup runs it once;
+   * answers the keys it cleared.
+   */
+  sweepOrphans(): string[];
 }
 
 export interface ProviderTranscriptStoreOptions {
-  readonly log: Pick<EventLog, "atomically" | "providerTranscripts">;
+  readonly log: Pick<EventLog, "atomically" | "providerTranscripts" | "read">;
   /** Stamps a summary's storage write time, which `listSessions` answers too. */
   readonly clock: Pick<Clock, "now">;
 }
@@ -70,12 +78,18 @@ export const createProviderTranscriptStore = (options: ProviderTranscriptStoreOp
   const { log, clock } = options;
   const table = log.providerTranscripts;
 
+  /** Whether the harness session `projectKey` names has been purged: its stream holds the tombstone. */
+  const purged = (projectKey: string): boolean =>
+    log.read(`SELECT 1 FROM events WHERE stream_kind = '${SESSION_STREAM_KIND}' AND stream_id = ? AND type = 'session.purged' LIMIT 1`, projectKey).length > 0;
+
   return {
     async append(key, entries) {
       const stored = keyOf(key);
       if (entries.length === 0) return;
       const rows = entries.map((entry) => ({ uuid: typeof entry.uuid === "string" && entry.uuid !== "" ? entry.uuid : null, json: JSON.stringify(entry) }));
       log.atomically((tx) => {
+        // A mirror write that lands after its session's purge (a process still flushing) is dropped: nothing may outlive the tombstone.
+        if (purged(stored.projectKey)) return;
         const kept = table.insert(tx, stored, rows).map((index) => entries[index] as SessionStoreEntry);
         // A subagent transcript never contributes to the main session's summary; a batch stored already folds nothing again.
         if (stored.subpath !== "" || kept.length === 0) return;
@@ -111,5 +125,11 @@ export const createProviderTranscriptStore = (options: ProviderTranscriptStoreOp
     },
     copySession: (tx, fromSessionId, toSessionId) => table.copyProject(tx, fromSessionId, toSessionId),
     purgeSession: (tx, sessionId) => table.purgeProject(tx, sessionId),
+    sweepOrphans: () =>
+      log.atomically((tx) => {
+        const orphans = table.projectKeys().filter(purged);
+        for (const projectKey of orphans) table.purgeProject(tx, projectKey);
+        return orphans;
+      }),
   };
 };

@@ -33,7 +33,7 @@
           "type": "null"
         }
       ],
-      "description": "The provider's conversation the fork's first run continues, as the source had linked it when forked; null when the source had none, so the fork starts fresh."
+      "description": "The provider session the fork's first run continues, as the source had linked it when forked (or, for a source that was itself a fork no run of which had linked one, as its own session.forked named it); null when there was none, so the fork starts fresh."
     }
   },
   "required": [

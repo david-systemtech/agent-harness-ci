@@ -36,7 +36,7 @@ export { CLAUDE_PROVIDER };
  * both present at run time in 0.3.281 and undeclared (`sdk-surface.test.ts`).
  * Titles (read and write) and subagent transcripts go through the SDK's
  * helpers over the environment's session store (#137), so an adapter made
- * without one declares them false (`descriptorFor`); transcript delete
+ * without one declares them, and fork, false (`descriptorFor`); transcript delete
  * removes the CLI's own files for the session. Session listing is not
  * offered: every conversation the harness runs is a harness session already.
  * File attachments wait on the staging Artemis does.
@@ -129,9 +129,14 @@ export const autoMemoryDirectory = (root: string, input: Pick<RunInput, "reposit
   return join(root, `${slug}-${createHash("sha256").update(key).digest("hex").slice(0, 12)}`);
 };
 
-/** What an adapter declares: `CLAUDE_DESCRIPTOR`, less what only the session store serves when it has none. */
+/**
+ * What an adapter declares: `CLAUDE_DESCRIPTOR`, less what only the session
+ * store serves when it has none: titles, subagent transcripts, and fork,
+ * whose copy of the source's provider session is the store's rows and whose
+ * resume onto another account loads from it.
+ */
 const descriptorFor = (hasStore: boolean): AdapterDescriptor =>
-  hasStore ? CLAUDE_DESCRIPTOR : { ...CLAUDE_DESCRIPTOR, subagentTranscripts: false, titleRead: false, titleWrite: false };
+  hasStore ? CLAUDE_DESCRIPTOR : { ...CLAUDE_DESCRIPTOR, fork: false, subagentTranscripts: false, titleRead: false, titleWrite: false };
 
 export const createClaudeAdapter = (options: ClaudeAdapterOptions = {}): ClaudeAdapter => {
   const clock = options.clock ?? systemClock;

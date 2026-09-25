@@ -22,7 +22,7 @@
       "description": "The fork's id, minted by the client as sessions.create's is."
     },
     "atMessageId": {
-      "description": "A user message of the source: the fork holds the conversation before it, and its text becomes the fork's draft; the whole conversation when absent.",
+      "description": "A user message of the source: the fork holds the history before it, and its text becomes the fork's draft; the whole history when absent.",
       "type": "string",
       "format": "uuid",
       "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$"

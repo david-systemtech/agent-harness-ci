@@ -286,7 +286,7 @@ export const PlanLimitPayload = z
 export type PlanLimitPayload = z.infer<typeof PlanLimitPayload>;
 
 export const SessionProviderLinkedPayload = z
-  .object({ ...runPart, providerSessionId: z.string().min(1).meta({ description: "The provider's own id for the conversation, which a resume hands back." }) })
+  .object({ ...runPart, providerSessionId: z.string().min(1).meta({ description: "The provider session's own id, which a resume hands back." }) })
   .meta({ description: "session.provider-linked: the provider named its session for this one, on the run's first init." });
 export type SessionProviderLinkedPayload = z.infer<typeof SessionProviderLinkedPayload>;
 
@@ -298,7 +298,7 @@ export const SessionForkedPayload = z
       .string()
       .min(1)
       .nullable()
-      .meta({ description: "The provider's conversation the fork's first run continues, as the source had linked it when forked; null when the source had none, so the fork starts fresh." }),
+      .meta({ description: "The provider session the fork's first run continues, as the source had linked it when forked (or, for a source that was itself a fork no run of which had linked one, as its own session.forked named it); null when there was none, so the fork starts fresh." }),
   })
   .meta({ description: "session.forked: the session was forked from another; on the new session's stream." });
 export type SessionForkedPayload = z.infer<typeof SessionForkedPayload>;

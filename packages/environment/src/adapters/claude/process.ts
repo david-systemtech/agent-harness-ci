@@ -18,7 +18,7 @@ import type { Clock, Timer } from "../../serve/clock.js";
 import { AsyncQueue } from "./async-queue.js";
 import type { ConfigDirQueue } from "./config-dir-queue.js";
 import { CLAUDE_PROVIDER, type HostEnvironment } from "./credentials.js";
-import { readStoredSession, resolveForkPoint, resolveRewindPoint, type ClaudeSessionStore } from "./history.js";
+import { readStoredSession, resolveForkPoint, resolveRewindPoint, storedHolds, type ClaudeSessionStore } from "./history.js";
 import { readRateLimit, toJson } from "./mapper.js";
 import { buildRunOptions, claudeEffort, claudeMode, type ClaudeMode, type ResumePoint } from "./options.js";
 import type { PlanLimitVerdict } from "./plan-usage.js";
@@ -468,8 +468,12 @@ export class ClaudeProcess implements TurnControl {
       getSessionMessages: sdkGetSessionMessages,
     });
     const point = target.kind === "rewind" ? resolveRewindPoint(stored, anchor) : resolveForkPoint(stored, anchor);
-    if (point === null) throw new Error(`The message ${anchor} is not in the stored conversation, or nothing comes before it; a fork or a rewind from the first message is a new session.`);
-    return point;
+    if (point !== null) return point;
+    // Off the latest chain but stored: a run after a rewind branched past it and did not complete, so the chain goes on as it stands.
+    const store = this.#deps.sessionStore;
+    const offChain = !stored.some((entry) => entry.uuid === anchor) && store !== null && (await storedHolds(store, input.sessionId, target.providerSessionId, anchor));
+    if (offChain) return { passed: true };
+    throw new Error(`The message ${anchor} is not in the stored conversation, or nothing comes before it; a fork or a rewind from the first message is a new session.`);
   }
 
   async #start(input: RunInput, turn: ClaudeTurn, carried: readonly PromptMessage[]): Promise<void> {

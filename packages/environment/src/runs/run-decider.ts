@@ -42,6 +42,8 @@ export type RunRefusal =
 export interface AccountFacts {
   readonly id: string;
   readonly directory: string | null;
+  /** Whether the directory is the machine's own, adopted in place (ADR 0018): only the provider's own CLI reads and writes it. */
+  readonly adopted: boolean;
   readonly signedIn: boolean;
   readonly identity: AccountIdentity | null;
   readonly descriptor: AdapterDescriptor;

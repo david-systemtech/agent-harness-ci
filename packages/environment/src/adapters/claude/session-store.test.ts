@@ -164,9 +164,15 @@ describe("auto memory", () => {
     expect(directory.autoMemoryDirectory).toMatch(/^\/data\/auto-memory\/git-example-david-repo-[0-9a-f]{12}$/);
     expect(other.options.settings).toEqual(directory);
     expect(work.env).not.toHaveProperty("CLAUDE_COWORK_MEMORY_PATH_OVERRIDE");
+    // Scrubbed with the other variables, so an adapter with no memory root drops it too.
+    const bare = adapterWith();
+    const unrooted = randomUUID();
+    bare.createRun(runInput({ sessionId: unrooted }), context());
+    expect((await fake.made(3)).env).not.toHaveProperty("CLAUDE_COWORK_MEMORY_PATH_OVERRIDE");
+    await bare.stopProcess(unrooted);
     // A workspace with no repository identity is keyed by its path.
     adapter.createRun(runInput({ sessionId: randomUUID(), repositoryIdentity: null, workspace: { kind: "directory", path: "/scratch/notes" } }), context());
-    expect(((await fake.made(3)).options.settings as { autoMemoryDirectory: string }).autoMemoryDirectory).toMatch(/^\/data\/auto-memory\/scratch-notes-[0-9a-f]{12}$/);
+    expect(((await fake.made(4)).options.settings as { autoMemoryDirectory: string }).autoMemoryDirectory).toMatch(/^\/data\/auto-memory\/scratch-notes-[0-9a-f]{12}$/);
     for (const id of [SESSION, FORK]) await adapter.stopProcess(id);
   });
 });
@@ -188,6 +194,19 @@ describe("fork and rewind targets, placed in the stored chain through the SDK's 
     const adapter = adapterWith();
     adapter.createRun(runInput({ target: { kind: "rewind", providerSessionId: PROVIDER, toMessageId: P2 } }), context());
     expect((await fake.made(1)).options).toMatchObject({ resume: PROVIDER, resumeSessionAt: "a1", resumeDropsTurn: P2 });
+    await adapter.stopProcess(SESSION);
+  });
+
+  it("continues the stored chain as it stands when a run after the rewind branched past the message and did not complete", async () => {
+    await storeConversation(SESSION);
+    // The run after the rewind resumed at a1 and wrote its own prompt there, then failed: the latest chain leaves P2 behind.
+    await store.append({ projectKey: SESSION, sessionId: PROVIDER }, [line("user", "r1", "a1", "Second, again")]);
+    const adapter = adapterWith();
+    adapter.createRun(runInput({ target: { kind: "rewind", providerSessionId: PROVIDER, toMessageId: P2 } }), context());
+    const options: Options = (await fake.made(1)).options;
+    expect(options).toMatchObject({ resume: PROVIDER, sessionStore: store });
+    expect(options).not.toHaveProperty("resumeSessionAt");
+    expect(options).not.toHaveProperty("resumeDropsTurn");
     await adapter.stopProcess(SESSION);
   });
 
@@ -240,13 +259,32 @@ describe("a subagent's transcript", () => {
     expect(await adapter.subagentTranscript?.(SESSION, "nobody")).toEqual([]);
     expect(await adapter.subagentTranscript?.(FORK, "a1")).toEqual([]);
   });
+  it("is found by the id tool.started names the subagent by, the Agent tool call's, through the stored agent_metadata", async () => {
+    await storeConversation(SESSION);
+    // The CLI's own agent id and the tool call it ran under are different ids; the mapper knows only the call's.
+    await store.append({ projectKey: SESSION, sessionId: PROVIDER, subpath: "subagents/agent-a7f3c21e9b" }, [
+      line("user", "s1", null, "Look it up", { isSidechain: true, agentId: "a7f3c21e9b" }),
+      line("assistant", "s2", "s1", [{ type: "text", text: "Found it." }], { isSidechain: true, agentId: "a7f3c21e9b" }),
+      { type: "agent_metadata", agentType: "general-purpose", toolUseId: "toolu_01HxK9dQ" },
+    ]);
+    await store.append({ projectKey: SESSION, sessionId: PROVIDER, subpath: "subagents/agent-b0d4e6" }, [
+      line("user", "o1", null, "Something else", { isSidechain: true, agentId: "b0d4e6" }),
+      { type: "agent_metadata", agentType: "general-purpose", toolUseId: "toolu_01Other" },
+    ]);
+    const adapter = adapterWith();
+    const byCall = await adapter.subagentTranscript?.(SESSION, "toolu_01HxK9dQ");
+    expect(byCall?.map((message) => message["uuid"])).toEqual(["s1", "s2"]);
+    expect((await adapter.subagentTranscript?.(SESSION, "a7f3c21e9b"))?.map((message) => message["uuid"])).toEqual(["s1", "s2"]);
+    expect(await adapter.subagentTranscript?.(SESSION, "toolu_01Unknown")).toEqual([]);
+  });
 });
 
 describe("the descriptor", () => {
-  it("declares titles, subagent transcripts and transcript delete with a store, and only the delete without one", () => {
+  it("declares titles, subagent transcripts, fork and transcript delete with a store, and only the delete without one", () => {
     expect(adapterWith().descriptor).toBe(CLAUDE_DESCRIPTOR);
     expect(CLAUDE_DESCRIPTOR).toMatchObject({ titleRead: true, titleWrite: true, subagentTranscripts: true, transcriptDelete: true, sessionListing: false });
     expect(createClaudeAdapter({ clock: manualClock(), executablePath: null }).descriptor).toMatchObject({
+      fork: false,
       titleRead: false,
       titleWrite: false,
       subagentTranscripts: false,

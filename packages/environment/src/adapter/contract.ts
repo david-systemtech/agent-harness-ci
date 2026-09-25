@@ -439,7 +439,9 @@ export interface Adapter {
    * synchronous, irreversible and idempotent, since it runs inside the
    * purge's transaction (`sessions/deletion.ts`, `ProviderTranscripts`).
    * `accounts` are the accounts the session's runs went through that the
-   * environment still holds: where the provider may have kept it.
+   * environment still holds and owns: where the provider may have kept it.
+   * An adopted account's directory is never handed over (ADR 0018: only the
+   * provider's own CLI touches it); the purge records the copy there kept.
    */
   deleteTranscript?(sessionId: string, accounts: readonly AccountRef[]): undefined;
 }
