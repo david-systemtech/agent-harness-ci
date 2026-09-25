@@ -176,7 +176,10 @@ export const AuthStatus = z
     expired: z
       .boolean()
       .optional()
-      .meta({ description: "True when the provider says the login has lapsed and must be signed in again; absent when it cannot tell (Claude's status cannot)." }),
+      .meta({
+        description:
+          "True when the provider says the login has lapsed and must be signed in again; absent when it cannot tell. Claude's status command cannot, so its adapter says so only once the refresh of an expired login has failed.",
+      }),
   })
   .meta({ description: "An account's sign-in state: signed in or not, how, as whom, on which plan, or why it could not be read." });
 export type AuthStatus = z.infer<typeof AuthStatus>;
