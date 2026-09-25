@@ -260,28 +260,23 @@ export interface AdapterHost {
   holdsPrompt(runId: string, promptId: string): boolean;
   /**
    * Hands a person's answer, once it has committed, to the run that waits on
-   * it: through its adapter's `answerPrompt` when the adapter takes answers
-   * (`interactivePrompts`), with the same refusals, and by settling the
-   * broker's request, whatever the adapter says, so the run is never left
-   * waiting on an answer the log holds. An approved plan's mode becomes the
-   * mode the host knows the run is in.
+   * it, the host's one answer path (#224): through its adapter's
+   * `answerPrompt` when the adapter takes answers (`interactivePrompts`), and
+   * by settling the broker's request, whatever the adapter says, so the run
+   * is never left waiting on an answer the log holds, and no longer parked
+   * on it. An approved plan's mode becomes the mode the host knows the run
+   * is in. A run no longer live is handed nothing (the answer's command
+   * checked it in its transaction; the log keeps the answer). Refused
+   * `conflict` with reason `prompt_not_open` when the live run has not
+   * raised the prompt or it is answered already (the host's own record,
+   * checked before the adapter is asked), and with the adapter's reason
+   * (`run_ended` or `prompt_not_open`) when the adapter holds it no longer:
+   * thrown when the adapter answers at once, and the returned promise
+   * rejected when it answers asynchronously, so the caller awaits what it
+   * returns. Any other failure of the adapter's is logged and refused
+   * `internal`, the same way at once or asynchronously.
    */
   deliverAnswer(runId: string, promptId: string, decision: PromptDecision): void | Promise<void>;
-  /**
-   * Answers a prompt the run raised through the broker: handed to its
-   * adapter (`interactivePrompts`), and the run no longer parked on it.
-   * `deliverAnswer` is how a person's answer reaches a run (#130). Refused
-   * `conflict` with reason `run_ended` when the run is no longer live (a
-   * prompt kept open across its end is answered into the session's next
-   * run instead), and
-   * `prompt_not_open` when the live run has not raised it or it is answered
-   * already (the host's own record), or the adapter holds it no longer: thrown
-   * when the adapter answers at once, and the returned promise rejected
-   * when it answers asynchronously, so the caller awaits what it returns.
-   * Any other failure of the adapter's is logged and refused `internal`, the
-   * same way at once or asynchronously.
-   */
-  answerPrompt(runId: string, promptId: string, decision: PromptDecision): void | Promise<void>;
   /** Plan usage for an account, with its identity (`planUsage`). */
   usage(accountId: string): Promise<UsageReading>;
   /** The slash commands for an account and workspace (`commands`). */
@@ -1413,17 +1408,16 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
   };
 
   /**
-   * Answers a prompt its live run raised, through the run's adapter
-   * (`AdapterHost.answerPrompt`): the refusals are the caller's `conflict`,
+   * Hands an answer to the live run's adapter when it takes answers
+   * (`interactivePrompts`), for `deliverAnswer`, which settles the broker's
+   * request whatever this says: the refusals are the caller's `conflict`,
    * any other failure `internal`, at once or asynchronously.
    */
-  const answerPrompt = (runId: string, promptId: string, decision: PromptDecision): void | Promise<void> => {
-    const entry = byRunId(runId);
-    const run = entry?.run;
+  const answerThroughAdapter = (entry: LiveRun, promptId: string, decision: PromptDecision): void | Promise<void> => {
+    const { runId, run } = entry;
+    if (!entry.descriptor.interactivePrompts || run?.answerPrompt === undefined) return undefined;
     const closed = (reason: "run_ended" | "prompt_not_open", message: string): ContractError =>
       new ContractError({ code: "conflict", message, data: { reason, runId, promptId } });
-    if (entry === undefined || run === undefined) throw closed("run_ended", `Run ${runId} has ended, so prompt ${promptId} can no longer be answered through it.`);
-    const answer = capability(entry.descriptor, "interactivePrompts", run.answerPrompt, "answer a prompt", "answerPrompt");
     // The host's own record first, whatever the adapter would say: a prompt this live run has not raised, or that is
     // answered already, is not open.
     if (!entry.prompts.has(promptId)) throw closed("prompt_not_open", `Run ${runId} has no prompt ${promptId} open.`);
@@ -1438,7 +1432,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     };
     let answering: void | Promise<void>;
     try {
-      answering = answer.call(run, promptId, decision);
+      answering = run.answerPrompt(promptId, decision);
     } catch (error) {
       throw refusal(error);
     }
@@ -1537,17 +1531,13 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     deliverAnswer(runId, promptId, decision) {
       const entry = byRunId(runId);
       try {
-        if (entry !== undefined && entry.descriptor.interactivePrompts && entry.run?.answerPrompt !== undefined) {
-          return answerPrompt(runId, promptId, decision);
-        }
-        return undefined;
+        return entry === undefined ? undefined : answerThroughAdapter(entry, promptId, decision);
       } finally {
         // The answer is in the log: the request is settled whatever the adapter said, so nothing waits on it.
         waiters.get(waiterKey(runId, promptId))?.settle(decision);
         if (entry !== undefined && !entry.ended && decision.decision === "allow" && decision.mode !== undefined) entry.mode = decision.mode;
       }
     },
-    answerPrompt,
     stopTask(runId, taskId) {
       const entry = byRunId(runId);
       const run = entry?.run;

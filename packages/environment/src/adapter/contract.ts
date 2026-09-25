@@ -292,8 +292,9 @@ export interface PromptDecision {
  * (`permissions.prompts.answer`), or, when the run ends, with a denial.
  *
  * The host counts a run parked from a request until that prompt is
- * answered: when the request settles, or when the host answers it through
- * `AdapterHost.answerPrompt`, whichever comes first.
+ * answered: when the request settles, or when the host hands a person's
+ * answer to the run's `answerPrompt` (`AdapterHost.deliverAnswer`, which
+ * settles the request too), whichever comes first.
  */
 export interface PermissionBroker {
   request(request: PromptRequest): Promise<PromptDecision>;
