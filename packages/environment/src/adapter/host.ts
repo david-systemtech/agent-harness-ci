@@ -709,8 +709,13 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     broker: brokerFor(entry.sessionId),
     process: pool.port(entry.sessionId),
     adopt: (turn) => adopt(entry, turn),
-    // Checked against the account store's identity for the run's account (#134).
-    reportIdentity: (identity) => accounts.crossCheck(entry.plan.account.id, identity, entry.runId),
+    // Checked against the account store's identity for the run's account (#134). The check appends and may run as the
+    // environment closes: a throw is logged, never handed back to the adapter or left an unhandled rejection.
+    reportIdentity: (identity) =>
+      safely(
+        () => accounts.crossCheck(entry.plan.account.id, identity, entry.runId),
+        (error) => console.error(`Cross-checking the identity run ${entry.runId} reported failed:`, error),
+      ),
   });
 
   /**

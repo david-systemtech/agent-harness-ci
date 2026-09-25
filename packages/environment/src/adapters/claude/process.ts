@@ -667,7 +667,9 @@ export class ClaudeProcess implements TurnControl {
    * Tells the host who the CLI says it is signed in as, once the process's
    * first `init` shows it is up: the account store cross-checks it against
    * the identity it holds (#134). Best effort: a CLI that cannot say, or
-   * says no email, reports nothing.
+   * says no email, reports nothing, and a report the host fails to take (the
+   * cross-check appends, and may run as the environment closes) is a
+   * diagnostic, never an unhandled rejection.
    */
   #reportIdentity(): void {
     const query = this.#query;
@@ -679,7 +681,11 @@ export class ClaudeProcess implements TurnControl {
         const email = info.email ?? "";
         if (email === "") return;
         const organisation = info.organization ?? "";
-        context.reportIdentity({ provider: CLAUDE_PROVIDER, email, organisation: organisation === "" ? null : organisation });
+        try {
+          context.reportIdentity({ provider: CLAUDE_PROVIDER, email, organisation: organisation === "" ? null : organisation });
+        } catch (error) {
+          this.#deps.diagnostic(`Claude (session ${this.sessionId}): reporting who the CLI is signed in as failed.`, error);
+        }
       },
       (error: unknown) => this.#deps.diagnostic(`Claude (session ${this.sessionId}): reading who the CLI is signed in as failed.`, error),
     );

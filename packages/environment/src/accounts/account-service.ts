@@ -731,6 +731,7 @@ export const createAccountService = (options: AccountServiceOptions): AccountSer
     providerOf: (id) => readAccount(reader, id)?.record.provider ?? null,
 
     crossCheck(accountId, identity, runId) {
+      if (closed) return;
       const current = liveAccount(reader, accountId);
       if (current === null || current.identity === null || sameLogin(identity, current.identity)) return;
       notice(
@@ -738,7 +739,7 @@ export const createAccountService = (options: AccountServiceOptions): AccountSer
         "identity-mismatch",
         `Run ${runId} on ${current.label} ran as ${describeIdentity(identity)}, not ${describeIdentity(current.identity)} as the account's status said; its status is read again.`,
       );
-      void readStatus(accountId, { fresh: true });
+      readStatus(accountId, { fresh: true }).catch((error: unknown) => console.error(`Reading the status of the account ${current.label} again failed:`, error));
     },
 
     close() {
