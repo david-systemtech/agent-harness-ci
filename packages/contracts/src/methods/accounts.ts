@@ -52,7 +52,9 @@ export const accountsProbe = defineMethod({
  * fifteen-minute read: what the Account step and the Accounts pane call as
  * they open. A change is recorded (`account.status-changed`,
  * `account.identity-set`) and noticed (`account.updated`); the answer is the
- * accounts after it. Also re-reads their models.
+ * accounts after it. Also re-reads their models. A query, not a command: what
+ * it appends is the account store's own read, as `system:account-store` with no
+ * receipt, and a repeat reads again (env spec, "Commands").
  */
 export const accountsRefresh = defineMethod({
   name: "accounts.refresh",

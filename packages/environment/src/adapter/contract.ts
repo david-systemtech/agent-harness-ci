@@ -361,7 +361,8 @@ export interface RunContext {
    * Who the provider says the run is signed in as (Claude's `accountInfo`),
    * when it says: the account store checks it against the identity it holds
    * for the run's account, and a mismatch is an `account.updated` notice with
-   * a warning, and a fresh status read (#134).
+   * a warning, and a fresh status read (#134). The host's never throws: a
+   * failed check is logged.
    */
   reportIdentity(identity: AccountIdentity): void;
   /**

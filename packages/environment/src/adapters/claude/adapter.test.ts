@@ -172,6 +172,31 @@ describe("a run", () => {
     expect(context.identities).toHaveLength(1);
   });
 
+  it("logs a report of who the CLI is signed in as that the host fails to take, and the run goes on to its end", async () => {
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown): void => void unhandled.push(reason);
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      const adapter = adapterWith();
+      const context: Context = {
+        ...contextWith(),
+        reportIdentity: () => {
+          throw new Error("The event log is closed.");
+        },
+      };
+      const input = runInput();
+      const run = adapter.createRun(input, context);
+      const query = await started();
+      query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [input.prompt[0]?.messageId as string]), sdk.text("msg_1", "Hi."), sdk.result(PROVIDER_SESSION));
+      expect(ends(await drain(run))).toEqual([expect.objectContaining({ reason: "completed" })]);
+      await vi.waitFor(() => expect(diagnostics.some((line) => /reporting who the CLI is signed in as failed/.test(line))).toBe(true));
+      await flush();
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+  });
+
   it("buffers what the provider says before anyone reads, and is read once", async () => {
     const adapter = adapterWith();
     const run = adapter.createRun(runInput(), contextWith());
