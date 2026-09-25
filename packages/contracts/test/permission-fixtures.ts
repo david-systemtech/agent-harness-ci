@@ -391,7 +391,10 @@ export const permissionMethodFixtures: Record<string, { params: Fixtures; result
   },
   "permissions.denylist.test": {
     params: { valid: [{ kind: "path", value: "~/.ssh/id_rsa" }, { kind: "command", value: "sudo ls" }], invalid: [{ kind: "path" }, { kind: "file", value: "x" }, { kind: "path", value: "" }] },
-    result: { valid: [{ matches: [] }, { matches: [sshMatch] }], invalid: [{}, { matches: [{}] }] },
+    result: {
+      valid: [{ matches: [], unresolvable: [] }, { matches: [sshMatch], unresolvable: [] }, { matches: [], unresolvable: ["/tmp/loop/x"] }],
+      invalid: [{}, { matches: [] }, { matches: [{}], unresolvable: [] }, { matches: [], unresolvable: [1] }],
+    },
   },
   "permissions.settings.get": {
     params: { valid: [{}], invalid: [[], "all"] },

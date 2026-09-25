@@ -68,9 +68,17 @@
         "description": "One denylist entry a call matched: the section, the entry, and what matched it."
       },
       "description": "Every enabled entry the value matches, in section order; empty for none."
+    },
+    "unresolvable": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "The paths whose symbolic links loop or changed while they were read, so where they lead cannot be said: the gate denies a call naming one outright. Empty for none."
     }
   },
   "required": [
-    "matches"
+    "matches",
+    "unresolvable"
   ]
 }

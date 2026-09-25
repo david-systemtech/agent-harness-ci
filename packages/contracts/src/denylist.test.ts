@@ -507,3 +507,13 @@ describe("a long or fully qualified address", () => {
     expect(hostToken("example.com.")).toBe("example.com");
   });
 });
+
+describe("a file: URL", () => {
+  it("names a path wherever it stands, with two slashes, one or three, in any case, percent-encoded", () => {
+    expect(first({ commands: ["cat file:///home/david/.ssh/id_rsa"] })?.[1]).toBe("~/.ssh");
+    expect(first({ commands: ["cat file:/home/david/.ssh/id_rsa"] })?.[1]).toBe("~/.ssh");
+    expect(first({ commands: ["curl FILE:///home/david/.aws/credentials"] })?.[1]).toBe("~/.aws");
+    expect(first({ hosts: ["file:/home/david/%2Essh/id_rsa"] })?.[1]).toBe("~/.ssh");
+    expect(shellSubjects("curl file:/etc/hosts").urls).toEqual(["file:/etc/hosts"]);
+  });
+});

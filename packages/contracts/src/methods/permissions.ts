@@ -273,6 +273,9 @@ export const permissionsDenylistRestorePresets = defineMethod({
  * out, in section order, with the pure matcher the tool gate rules with,
  * on this environment's file system (its home directory for `~` and for a
  * relative path, its symbolic links followed). No match is an empty list.
+ * A path whose links loop or change while they are read is answered in
+ * `unresolvable`: the gate denies a call naming one outright, asking nobody,
+ * whatever it matches.
  */
 export const permissionsDenylistTest = defineMethod({
   name: "permissions.denylist.test",
@@ -282,6 +285,11 @@ export const permissionsDenylistTest = defineMethod({
     kind: DenylistTestKind,
     value: z.string().min(1).meta({ description: "The address, path, command line or host to test, of any length: an address is read from its front." }),
   }),
-  result: z.object({ matches: z.array(DenylistMatch).meta({ description: "Every enabled entry the value matches, in section order; empty for none." }) }),
+  result: z.object({
+    matches: z.array(DenylistMatch).meta({ description: "Every enabled entry the value matches, in section order; empty for none." }),
+    unresolvable: z.array(z.string()).meta({
+      description: "The paths whose symbolic links loop or changed while they were read, so where they lead cannot be said: the gate denies a call naming one outright. Empty for none.",
+    }),
+  }),
   errors: [],
 });

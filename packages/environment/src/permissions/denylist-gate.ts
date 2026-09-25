@@ -31,7 +31,8 @@ import { resolvePath } from "./gate.js";
 const INPUT_DEPTH = 8;
 const INPUT_STRINGS = 500;
 
-const URL_PREFIX = /^[A-Za-z][A-Za-z0-9+.-]*:\/\//;
+/** A URL: a scheme and `//`, or any `file:` address, which names a local path with one slash as well as with three. */
+const URL_PREFIX = /^(?:[A-Za-z][A-Za-z0-9+.-]*:\/\/|file:)/i;
 
 /**
  * What a call of kind `other` touches, read from its input (what the
@@ -172,9 +173,6 @@ export const readDenylistCall = (context: DenylistContext, call: DenylistCall, c
   });
   return { matches, unresolvable };
 };
-
-/** Every entry a call matches, read against `cwd` (`permissions.denylist.test`). */
-export const denylistMatches = (context: DenylistContext, call: DenylistCall, cwd: string): DenylistMatch[] => readDenylistCall(context, call, cwd).matches;
 
 /** What the model reads when a person denies a denylisted call and gives no message of their own. */
 export const denylistDenial = (reason: string): string => `Denied: ${reason}, and the person declined it. Continue without it and say what you could not do.`;

@@ -541,7 +541,8 @@ const tokenMatches = (pattern: string, token: string): boolean => wildcard(patte
 /** Whether a command pattern matches a command line's tokens anywhere in it: a bare `*` any run of tokens, none included. */
 const commandMatches = (pattern: string, tokens: readonly string[]): boolean => sequenceMatches(["*", ...pattern.trim().split(/\s+/), "*"], tokens, "*", tokenMatches);
 
-const URL_PREFIX = /^[A-Za-z][A-Za-z0-9+.-]*:\/\//;
+/** A URL: a scheme and `//`, or any `file:` address, which names a local path with one slash as well as with three. */
+const URL_PREFIX = /^(?:[A-Za-z][A-Za-z0-9+.-]*:\/\/|file:)/i;
 
 /** `$HOME` and `${HOME}` at a token's start read as `~`. */
 const home = (token: string): string => token.replace(/^(?:\$HOME|\$\{HOME\})(?=\/|$)/, "~");

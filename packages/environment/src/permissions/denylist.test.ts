@@ -727,3 +727,33 @@ describe("long values and a user's own home", () => {
     expect(decisions(t, id)).toEqual([expect.objectContaining({ decision: "denied", decidedBy: "denylist" })]);
   });
 });
+
+describe("a file: URL in a call", () => {
+  it.each([
+    ["a tool server's input, three slashes", { tool: "mcp__files__open", summary: "Open", access: { kind: "other" as const }, input: { uri: `file://${homedir()}/.ssh/id_rsa` } }],
+    ["a tool server's input, one slash", { tool: "mcp__files__open", summary: "Open", access: { kind: "other" as const }, input: { uri: `file:${homedir()}/.ssh/id_rsa` } }],
+    ["a search query", { tool: "WebSearch", summary: "Search", access: { kind: "search" as const, query: `read file:${homedir()}/.ssh/id_rsa` } }],
+    ["a shell line", { tool: "Bash", summary: "curl", access: { kind: "shell" as const, command: `curl -s file:${homedir()}/.ssh/id_rsa` } }],
+  ])("is read as a path: %s", async (_, call) => {
+    const t = await start();
+    const client = await t.client();
+    const { id } = await create(client);
+    t.adapter.nextScripts.push(calls(call));
+    const { runId } = startAsRoutine(t, id);
+    await untilEnded(t, id, runId);
+    expect(opened(t, id).map((prompt) => prompt.denylist?.[0]?.entry.pattern)).toEqual(["~/.ssh"]);
+  });
+});
+
+describe("permissions.denylist.test on a link that loops", () => {
+  it("answers the path it cannot follow beside the matches, as the gate denies such a call", async () => {
+    const t = await start();
+    const client = await t.client();
+    const links = tempDir();
+    symlinkSync(join(links, "b"), join(links, "a"));
+    symlinkSync(join(links, "a"), join(links, "b"));
+    const answer = registry["permissions.denylist.test"].result.parse(await client.request("permissions.denylist.test", { kind: "path", value: join(links, "a", "x") }));
+    expect(answer).toEqual({ matches: [], unresolvable: [join(links, "a", "x")] });
+    expect(registry["permissions.denylist.test"].result.parse(await client.request("permissions.denylist.test", { kind: "path", value: "~/.ssh/id_rsa" })).unresolvable).toEqual([]);
+  });
+});

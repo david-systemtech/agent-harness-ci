@@ -15,7 +15,7 @@ import type { AccessLog } from "../auth/access-log.js";
 import type { EventInput, EventLog } from "../event-log/event-log.js";
 import type { MethodHandlers } from "../serve/methods.js";
 import type { Reader } from "../sessions/session-reads.js";
-import { denylistMatches, type DenylistContext } from "./denylist-gate.js";
+import { readDenylistCall, type DenylistContext } from "./denylist-gate.js";
 import { readDenylist, sectionChange } from "./denylist-store.js";
 
 /**
@@ -107,9 +107,15 @@ export const denylistMethods = (options: DenylistMethodsOptions): Required<Pick<
       return { aggregate: accessLog.stream, result: { restored, denylist: next }, events: changes(held, next) };
     },
 
-    /** Every enabled entry the value matches, read as the gate reads a call's, relative paths against the home directory. */
-    "permissions.denylist.test": (params) => ({
-      matches: denylistMatches({ ...options.context, denylist: () => readDenylist(reader) }, denylistTestCall(params.kind, params.value), options.context.home),
-    }),
+    /**
+     * Every enabled entry the value matches, read as the gate reads a call's,
+     * relative paths against the home directory; and the paths whose links
+     * cannot be followed, which the gate denies outright (a list beside the
+     * matches rather than a match: they name no entry).
+     */
+    "permissions.denylist.test": (params) => {
+      const { matches, unresolvable } = readDenylistCall({ ...options.context, denylist: () => readDenylist(reader) }, denylistTestCall(params.kind, params.value), options.context.home);
+      return { matches, unresolvable: [...new Set(unresolvable)] };
+    },
   };
 };
