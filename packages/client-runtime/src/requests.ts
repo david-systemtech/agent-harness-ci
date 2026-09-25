@@ -45,7 +45,8 @@ const OUTBOX_SCOPES: ReadonlySet<Scope> = new Set<Scope>(["sessions:write", "run
  * sent), `outbox` (a command only the outbox sends; nothing was sent),
  * `invalid_params` (the params are not the method's; nothing was sent),
  * `timeout`, `malformed` (the answer is not the method's), or the
- * environment's own error code, passed on as it is.
+ * environment's own error code, passed on as it is; `internal` also when a
+ * cached query's call failed in this client, not at the environment.
  */
 export type RequestFailureCode = AbsentReason | "outbox" | "invalid_params" | "timeout" | "malformed" | (string & {});
 
@@ -232,7 +233,13 @@ export const createRequestCache = (host: {
     entry.timer?.cancel();
     entry.timer = undefined;
     entry.value.update((value) => ({ ...value, loading: true }));
-    void host.call(entry.environmentId, entry.method, entry.params as ParamsOf<QueryMethodName>).then((answer) => {
+    const called = host.call(entry.environmentId, entry.method, entry.params as ParamsOf<QueryMethodName>).catch((reason: unknown): RequestAnswer<QueryMethodName> => {
+      // A call that rejects (the host itself failed, not the environment answering an error) is a failed attempt like any
+      // other: reported, kept beside the last result as `internal`, and tried again as a failed one is.
+      host.report(reason);
+      return failed("internal", reason instanceof Error ? reason.message : String(reason));
+    });
+    void called.then((answer) => {
       entry.inFlight = false;
       if (closed || entries.get(keyOf(entry)) !== entry) return;
       if (answer.ok) {
@@ -251,16 +258,6 @@ export const createRequestCache = (host: {
         return;
       }
       schedule(entry, REQUEST_CACHE_TTL_MS);
-    }, (reason: unknown) => {
-      // A call that rejects (the host itself failed, not the environment answering an error) is still over: the entry
-      // is not left in flight, or every later fetch would only mark it `again` and nothing would ever be sent.
-      entry.inFlight = false;
-      entry.again = false;
-      if (!closed && entries.get(keyOf(entry)) === entry) {
-        entry.stale = true;
-        entry.value.update((value) => ({ ...value, loading: false }));
-      }
-      host.report(reason);
     });
   };
 

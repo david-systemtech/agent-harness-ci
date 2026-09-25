@@ -5,7 +5,8 @@ import { accepted, byCommand, groupEvent, groupOf, rejected, sessionEvent, summa
 import { subscription, type Scripted } from "../test/scripted.js";
 import { createRuntimeWithSeams } from "./internal.js";
 import { outboxDocument } from "./outbox/entries.js";
-import { COMMAND_EXPIRY_MS, DRAFT_DEBOUNCE_MS } from "./outbox/outbox.js";
+import { DRAFT_DEBOUNCE_MS } from "./outbox/drafts.js";
+import { COMMAND_EXPIRY_MS } from "./outbox/outbox.js";
 import type { Runtime } from "./runtime.js";
 import { fakeWire, flush, type FakeAnswer, type FakeWire } from "./testing/fake-wire.js";
 import { inMemoryDocuments, inMemoryPlatform, manualClock, type InMemoryDocumentStore, type ManualClock } from "./testing/in-memory-platform.js";

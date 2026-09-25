@@ -27,8 +27,6 @@ import { decodeOutbox, encodeOutbox, outboxDocument, type OutboxEntry } from "./
 import { reachable, type EnvironmentOutbox, type OutboxView, type OverlayRecord } from "./overlay.js";
 import { overlayOf, reasonOf, targetOf, verbOf, type Target } from "./rules.js";
 
-export { DRAFT_DEBOUNCE_MS } from "./drafts.js";
-
 /**
  * The outbox (docs/specs/client-runtime.md, "The offline outbox, receipts
  * and optimistic application"; ADR 0003): every `sessions:write` and

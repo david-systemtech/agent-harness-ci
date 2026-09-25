@@ -22,11 +22,13 @@ import type { SessionHandle } from "./streams/session-handles.js";
  * capability questions. While a connection is enabled it subscribes the
  * environment's session list and its own stream, caches each with its
  * cursor, and projects the list across environments; a session is
- * subscribed while a handle holds it. Every mutation goes through the
- * outbox with a command id minted once (`commands`, `drafts`): its effect
- * shows at once, it waits while the environment is unreachable, and a retry
- * never applies twice. It carries no frames and no raw requests (ADR 0004:
- * renderers never reach the streams).
+ * subscribed while a handle holds it. Every `sessions:write` and
+ * `runs:drive` command goes through the outbox with a command id minted once
+ * (`commands`, `drafts`), so a retry never applies twice: a session-list
+ * change shows at once and waits while the environment is unreachable; a run
+ * command never waits, failing `unreachable` instead. The `admin` calls are
+ * direct requests (`requests`). It carries no frames and no raw requests
+ * (ADR 0004: renderers never reach the streams).
  */
 export interface Runtime {
   /** Reads what was saved, exchanges the local grant when the platform reads one, and starts every connection; settles once each first attempt has. A failed start may be called again. */

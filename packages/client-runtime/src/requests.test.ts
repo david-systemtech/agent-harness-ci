@@ -345,6 +345,35 @@ describe("the request cache", () => {
     expect(cached.read()).toMatchObject({ result: { groups: [] }, loading: false, error: null });
   });
 
+  it("keeps a call that rejected beside the last result as a failure, and tries it again five minutes on while followed", async () => {
+    const clock = manualClock();
+    const reported: unknown[] = [];
+    let calls = 0;
+    const cache = createRequestCache({
+      clock,
+      call: () => {
+        calls++;
+        return calls === 1 ? Promise.reject(new Error("the host broke")) : Promise.resolve({ ok: true, result: { groups: [] } } as never);
+      },
+      records: writable<readonly ConnectionRecord[]>([]),
+      report: (error) => reported.push(error),
+    });
+    onTestFinished(() => cache.close());
+    const cached = cache.cached("env-1", "groups.list", {});
+    cached.subscribe(() => undefined);
+    await flush();
+    expect(reported).toEqual([new Error("the host broke")]);
+    expect(cached.read()).toMatchObject({ result: null, loading: false, error: { code: "internal", message: "the host broke" } });
+
+    clock.advance(REQUEST_CACHE_TTL_MS - 1);
+    await flush();
+    expect(calls).toBe(1);
+    clock.advance(1);
+    await flush();
+    expect(calls).toBe(2);
+    expect(cached.read()).toMatchObject({ result: { groups: [] }, loading: false, error: null });
+  });
+
   it("keeps one answer per params, and none for what is not a query", async () => {
     const { runtime, id } = await counting();
     expect(runtime.requests.cached(id, "settings.get", { keys: ["sessions.autoSettleOnMerge"] })).not.toBe(
