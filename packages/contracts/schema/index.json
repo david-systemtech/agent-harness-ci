@@ -679,6 +679,30 @@
       "title": "SignInStart"
     },
     {
+      "path": "accounts/sign-in-state.json",
+      "title": "SignInState"
+    },
+    {
+      "path": "accounts/sign-in-fallback.json",
+      "title": "SignInFallback"
+    },
+    {
+      "path": "accounts/sign-in.json",
+      "title": "SignIn"
+    },
+    {
+      "path": "accounts/sign-in-code.json",
+      "title": "SignInCode"
+    },
+    {
+      "path": "accounts/sign-in-executable-source.json",
+      "title": "SignInExecutableSource"
+    },
+    {
+      "path": "accounts/sign-in-executable-chosen.json",
+      "title": "SignInExecutableChosenPayload"
+    },
+    {
       "path": "transcript/run-origin.json",
       "title": "RunOrigin"
     },
@@ -885,6 +909,14 @@
     {
       "path": "diffs/session-diff-file.json",
       "title": "SessionDiffFile"
+    },
+    {
+      "path": "actions/action-context.json",
+      "title": "ActionContext"
+    },
+    {
+      "path": "actions/action.json",
+      "title": "Action"
     },
     {
       "path": "actor.json",
@@ -1879,6 +1911,66 @@
       "title": "accounts.remove error"
     },
     {
+      "path": "methods/accounts.signin.get/params.json",
+      "title": "accounts.signin.get params"
+    },
+    {
+      "path": "methods/accounts.signin.get/result.json",
+      "title": "accounts.signin.get result"
+    },
+    {
+      "path": "methods/accounts.signin.get/error.json",
+      "title": "accounts.signin.get error"
+    },
+    {
+      "path": "methods/accounts.signin.start/params.json",
+      "title": "accounts.signin.start params"
+    },
+    {
+      "path": "methods/accounts.signin.start/result.json",
+      "title": "accounts.signin.start result"
+    },
+    {
+      "path": "methods/accounts.signin.start/response.json",
+      "title": "accounts.signin.start response"
+    },
+    {
+      "path": "methods/accounts.signin.start/error.json",
+      "title": "accounts.signin.start error"
+    },
+    {
+      "path": "methods/accounts.signin.code/params.json",
+      "title": "accounts.signin.code params"
+    },
+    {
+      "path": "methods/accounts.signin.code/result.json",
+      "title": "accounts.signin.code result"
+    },
+    {
+      "path": "methods/accounts.signin.code/response.json",
+      "title": "accounts.signin.code response"
+    },
+    {
+      "path": "methods/accounts.signin.code/error.json",
+      "title": "accounts.signin.code error"
+    },
+    {
+      "path": "methods/accounts.signin.cancel/params.json",
+      "title": "accounts.signin.cancel params"
+    },
+    {
+      "path": "methods/accounts.signin.cancel/result.json",
+      "title": "accounts.signin.cancel result"
+    },
+    {
+      "path": "methods/accounts.signin.cancel/response.json",
+      "title": "accounts.signin.cancel response"
+    },
+    {
+      "path": "methods/accounts.signin.cancel/error.json",
+      "title": "accounts.signin.cancel error"
+    },
+    {
       "path": "methods/models.list/params.json",
       "title": "models.list params"
     },
@@ -2654,6 +2746,45 @@
       "result": "methods/accounts.remove/result.json",
       "response": "methods/accounts.remove/response.json",
       "error": "methods/accounts.remove/error.json"
+    },
+    {
+      "name": "accounts.signin.get",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/accounts.signin.get/params.json",
+      "result": "methods/accounts.signin.get/result.json",
+      "error": "methods/accounts.signin.get/error.json"
+    },
+    {
+      "name": "accounts.signin.start",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/accounts.signin.start/params.json",
+      "result": "methods/accounts.signin.start/result.json",
+      "response": "methods/accounts.signin.start/response.json",
+      "error": "methods/accounts.signin.start/error.json"
+    },
+    {
+      "name": "accounts.signin.code",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/accounts.signin.code/params.json",
+      "result": "methods/accounts.signin.code/result.json",
+      "response": "methods/accounts.signin.code/response.json",
+      "error": "methods/accounts.signin.code/error.json"
+    },
+    {
+      "name": "accounts.signin.cancel",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/accounts.signin.cancel/params.json",
+      "result": "methods/accounts.signin.cancel/result.json",
+      "response": "methods/accounts.signin.cancel/response.json",
+      "error": "methods/accounts.signin.cancel/error.json"
     },
     {
       "name": "models.list",

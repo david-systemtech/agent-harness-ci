@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { Action, ActionContext } from "./actions.js";
 import { ACCESS_EVENT_PAYLOADS, ACCESS_EVENT_TYPES, AccessEventType, ClientSessionOrigin, RevocationReason } from "./access-log.js";
 import {
   ACCOUNT_EVENT_TYPES,
@@ -20,7 +21,13 @@ import {
   DefaultEffort,
   DefaultModelFamily,
   ModelEntry,
+  SignIn,
+  SignInCode,
+  SignInExecutableChosenPayload,
+  SignInExecutableSource,
+  SignInFallback,
   SignInStart,
+  SignInState,
 } from "./accounts.js";
 import { BootstrapError, BootstrapGrant, BootstrapKind, BootstrapRequest, ClientSessionCredential } from "./bootstrap.js";
 import { AuthPolicy, DiscoveryDocument, EnvironmentReadiness, HealthDocument } from "./discovery.js";
@@ -336,6 +343,12 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "accounts/catalogue.json", title: "AccountCatalogue", schema: AccountCatalogue },
   { path: "accounts/command-entry.json", title: "CommandEntry", schema: CommandEntry },
   { path: "accounts/sign-in-start.json", title: "SignInStart", schema: SignInStart },
+  { path: "accounts/sign-in-state.json", title: "SignInState", schema: SignInState },
+  { path: "accounts/sign-in-fallback.json", title: "SignInFallback", schema: SignInFallback },
+  { path: "accounts/sign-in.json", title: "SignIn", schema: SignIn },
+  { path: "accounts/sign-in-code.json", title: "SignInCode", schema: SignInCode },
+  { path: "accounts/sign-in-executable-source.json", title: "SignInExecutableSource", schema: SignInExecutableSource },
+  { path: "accounts/sign-in-executable-chosen.json", title: "SignInExecutableChosenPayload", schema: SignInExecutableChosenPayload },
   { path: "transcript/run-origin.json", title: "RunOrigin", schema: RunOrigin },
   { path: "transcript/run-end-reason.json", title: "RunEndReason", schema: RunEndReason },
   { path: "transcript/interrupt-cause.json", title: "InterruptCause", schema: InterruptCause },
@@ -388,6 +401,8 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "files/files-list-source.json", title: "FilesListSource", schema: FilesListSource },
   { path: "diffs/session-diff-change.json", title: "SessionDiffChange", schema: SessionDiffChange },
   { path: "diffs/session-diff-file.json", title: "SessionDiffFile", schema: SessionDiffFile },
+  { path: "actions/action-context.json", title: "ActionContext", schema: ActionContext },
+  { path: "actions/action.json", title: "Action", schema: Action },
   { path: "actor.json", title: "Actor", schema: Actor },
   { path: "event-envelope.json", title: "EventEnvelope", schema: EventEnvelope },
   { path: "notices/environment-notice-type.json", title: "EnvironmentNoticeType", schema: EnvironmentNoticeType },

@@ -146,6 +146,17 @@ describe("/environment", () => {
     expect(app.runtime().projections.environments.read().map((v) => v.name)).toEqual(["desk", "laptop"]);
   });
 
+  it("gives a question the card asks the keys until it is answered: Esc declines it, and the card stays", async () => {
+    const app = await twoEnvironments();
+    await openActions(app, 1);
+    await app.press(KEY.down, KEY.enter);
+    await app.waitFor("Remove laptop?");
+    await app.press(KEY.esc);
+    expect(app.frame()).not.toContain("Remove laptop?");
+    expect(app.frame()).toContain("Set primary");
+    expect(app.runtime().projections.environments.read().map((v) => v.name)).toEqual(["desk", "laptop"]);
+  });
+
   it("says why the local environment cannot be removed", async () => {
     const app = await twoEnvironments();
     await app.waitFor("● desk ready");

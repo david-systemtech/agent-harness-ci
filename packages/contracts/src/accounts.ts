@@ -278,3 +278,82 @@ export const DefaultEffort = z
     description:
       "The reasoning effort a run with none of its own takes, when its model takes that effort; null, or an effort the model does not take, for the model's own. The Account step presets it to high.",
   });
+
+/**
+ * The sign-in director (claude-adapter spec, "Sign-in and status through the
+ * bundled binary"; ADR 0018): one sign-in at a time per environment, which
+ * runs the provider's CLI with the account's directory, publishes the
+ * verification URL and takes the code back from any client.
+ */
+
+/**
+ * Where a sign-in is: `starting` (the CLI is being chosen and started),
+ * `awaiting-code` (the verification URL is published), `submitting` (a code
+ * was written to the CLI), then one of the ends: `done`, `failed`, `expired`
+ * (ten minutes without a code, or a submission that never finished) or
+ * `cancelled`.
+ */
+export const SIGN_IN_STATES = ["starting", "awaiting-code", "submitting", "done", "failed", "expired", "cancelled"] as const;
+export const SignInState = z.enum(SIGN_IN_STATES).meta({
+  description:
+    "Where a sign-in is: starting, awaiting-code (the verification URL is published), submitting (a code was written to the provider's CLI), or ended: done (the status read found the account signed in), failed, expired (ten minutes without a code, or a submission that never finished) or cancelled.",
+});
+export type SignInState = z.infer<typeof SignInState>;
+
+/** The states a sign-in ends in: nothing runs after them. */
+export const SIGN_IN_ENDED_STATES = ["done", "failed", "expired", "cancelled"] as const satisfies readonly SignInState[];
+
+/** The command a person runs in a terminal on the environment's machine instead, in both shells. */
+export const SignInFallback = z
+  .object({
+    posix: z.string().min(1).meta({ description: "For sh, bash or zsh: the directory variable set on the command, the directory single-quoted." }),
+    powershell: z.string().min(1).meta({ description: "For PowerShell: the directory variable set, then the executable called, each path single-quoted." }),
+  })
+  .meta({ description: "The exact command that signs the account's directory in from a terminal on the environment's machine, in POSIX and PowerShell renderings." });
+export type SignInFallback = z.infer<typeof SignInFallback>;
+
+/** One sign-in as `accounts.signin.get` answers it and `signin.updated` carries it. */
+export const SignIn = z
+  .object({
+    accountId: AccountId.meta({ description: "The account whose directory is being signed in." }),
+    state: SignInState,
+    url: z.url().nullable().meta({ description: "The verification URL a person opens to sign in, once the provider's CLI has printed it; null until then." }),
+    startedAt: Timestamp.meta({ description: "When the sign-in started." }),
+    expiresAt: Timestamp.meta({ description: "When the sign-in expires if it is still waiting: ten minutes after it started, or after the code was written." }),
+    fallback: SignInFallback,
+    error: z.string().min(1).nullable().meta({ description: "Why the sign-in failed, expired or was cancelled, when there is more to say; null otherwise." }),
+  })
+  .meta({ description: "A sign-in of an account's directory: its state, the verification URL, when it expires, the fallback command, and why it ended when it did not succeed." });
+export type SignIn = z.infer<typeof SignIn>;
+
+/** The code a person copies from the provider's page after signing in. */
+export const SignInCode = z
+  .string()
+  .min(1)
+  .max(4096)
+  .regex(/^\S+$/)
+  .meta({
+    description:
+      "The code the provider's page shows after signing in: one token, with no space or line break anywhere, so a client trims what a person pasted before sending it.",
+  });
+export type SignInCode = z.infer<typeof SignInCode>;
+
+/** Which executable sign-ins run: the SDK's bundled binary, or the managed tool when the bundled one does not run a sign-in. */
+export const SIGN_IN_EXECUTABLE_SOURCES = ["bundled", "managed-tool"] as const;
+export const SignInExecutableSource = z.enum(SIGN_IN_EXECUTABLE_SOURCES).meta({
+  description:
+    "Which executable sign-ins run: bundled (the provider's binary the SDK ships, which runs use too) or managed-tool (the provider's CLI on the environment's PATH, when the bundled binary does not run a sign-in).",
+});
+export type SignInExecutableSource = z.infer<typeof SignInExecutableSource>;
+
+/** The `signin.executable-chosen` notice's payload: the choice, made once per environment and bundled binary. */
+export const SignInExecutableChosenPayload = z
+  .object({
+    provider: ProviderId,
+    source: SignInExecutableSource,
+    executable: z.string().min(1).meta({ description: "The executable chosen, as it was found." }),
+    bundled: z.string().min(1).nullable().meta({ description: "The bundled binary the choice was made against; null when this platform has none. A different one is probed again." }),
+    detail: z.string().min(1).nullable().meta({ description: "Why the bundled binary was passed over, when it was." }),
+  })
+  .meta({ description: "signin.executable-chosen: which executable the environment's sign-ins for a provider run, chosen once and recorded." });
+export type SignInExecutableChosenPayload = z.infer<typeof SignInExecutableChosenPayload>;

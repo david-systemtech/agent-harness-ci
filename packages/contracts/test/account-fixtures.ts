@@ -64,6 +64,33 @@ const probe = {
   checkedAt: at,
 };
 
+const fallback = {
+  posix: "CLAUDE_CONFIG_DIR='/home/david/.local/state/agent-harness/accounts/claude-max' claude auth login",
+  powershell: "$env:CLAUDE_CONFIG_DIR = 'C:\\Users\\david\\AppData\\Local\\agent-harness\\accounts\\claude-max'; & 'claude' auth login",
+};
+const url = "https://claude.com/cai/oauth/authorize?code=true&client_id=9d1c250a&response_type=code&state=abc";
+const signIn = { accountId, state: "awaiting-code", url, startedAt: at, expiresAt: "2026-09-24T01:12:03.456Z", fallback, error: null };
+const signIns: Fixtures = {
+  valid: [
+    signIn,
+    { ...signIn, state: "starting", url: null },
+    { ...signIn, state: "submitting" },
+    { ...signIn, state: "done" },
+    { ...signIn, state: "failed", error: "OAuth error: invalid code." },
+    { ...signIn, state: "expired", url: null, error: "No code came within ten minutes." },
+    { ...signIn, state: "cancelled", error: null },
+  ],
+  invalid: [
+    { ...signIn, state: "waiting" },
+    { ...signIn, url: "not a url" },
+    { ...signIn, fallback: { posix: "claude auth login" } },
+    { ...signIn, error: "" },
+    { ...signIn, startedAt: "now" },
+    { accountId, state: "starting" },
+  ],
+};
+const chosen = { provider: "claude", source: "bundled", executable: "/opt/sdk/claude", bundled: "/opt/sdk/claude", detail: null };
+
 /** Every account schema the export writes, by path. */
 export const accountSchemaFixtures: Record<string, Fixtures> = {
   "accounts/account-id.json": { valid: [accountId, "claude-max"], invalid: ["", "x".repeat(201), 7] },
@@ -151,6 +178,18 @@ export const accountSchemaFixtures: Record<string, Fixtures> = {
     valid: [{ started: true, message: null }, { started: false, message: "Signing in from the environment is not built yet." }],
     invalid: [{ started: false }, { started: "no", message: null }, { started: false, message: "" }],
   },
+  "accounts/sign-in-state.json": {
+    valid: ["starting", "awaiting-code", "submitting", "done", "failed", "expired", "cancelled"],
+    invalid: ["awaiting_code", "running", ""],
+  },
+  "accounts/sign-in-fallback.json": { valid: [fallback], invalid: [{ posix: "x" }, { posix: "", powershell: "x" }] },
+  "accounts/sign-in.json": signIns,
+  "accounts/sign-in-code.json": { valid: ["abc123#state-xyz", "x"], invalid: ["", "two words", "code\n", "x".repeat(4097)] },
+  "accounts/sign-in-executable-source.json": { valid: ["bundled", "managed-tool"], invalid: ["path", ""] },
+  "accounts/sign-in-executable-chosen.json": {
+    valid: [chosen, { ...chosen, source: "managed-tool", executable: "/usr/local/bin/claude", detail: "The bundled binary has no auth login." }, { ...chosen, bundled: null }],
+    invalid: [{ ...chosen, source: "path" }, { ...chosen, executable: "" }, { provider: "claude", source: "bundled" }],
+  },
   "settings/keys/accounts.defaultAccount.json": { valid: [null, accountId, "claude-max"], invalid: ["", 3] },
   "settings/keys/accounts.defaultModelFamily.json": { valid: [null, "opus"], invalid: ["", false] },
   "settings/keys/accounts.defaultEffort.json": { valid: [null, "high"], invalid: ["", 2] },
@@ -194,6 +233,25 @@ export const accountMethodFixtures: Record<string, { params: Fixtures; result: F
       invalid: [{ commandId }, { commandId, accountId, deleteDirectory: "yes" }, { accountId }],
     },
     result: { valid: [{ accountId, directoryDeleted: false }, { accountId, directoryDeleted: true }], invalid: [{ accountId }, { accountId, directoryDeleted: 1 }] },
+  },
+  "accounts.signin.start": {
+    params: { valid: [{ commandId, accountId }], invalid: [{ commandId }, { accountId }, { commandId, accountId: "" }] },
+    result: { valid: [{ signIn: { ...signIn, state: "starting", url: null } }], invalid: [{}, { signIn: null }] },
+  },
+  "accounts.signin.code": {
+    params: {
+      valid: [{ commandId, accountId, code: "abc123#state-xyz" }],
+      invalid: [{ commandId, accountId }, { commandId, accountId, code: "" }, { commandId, accountId, code: "a b" }, { accountId, code: "abc" }],
+    },
+    result: { valid: [{ signIn: { ...signIn, state: "submitting" } }], invalid: [{}, { signIn: { ...signIn, state: "sent" } }] },
+  },
+  "accounts.signin.cancel": {
+    params: { valid: [{ commandId, accountId }], invalid: [{ commandId }, { accountId }] },
+    result: { valid: [{ signIn: { ...signIn, state: "cancelled" } }], invalid: [{}, { signIn: null }] },
+  },
+  "accounts.signin.get": {
+    params: { valid: [{}], invalid: [[], "latest"] },
+    result: { valid: [{ signIn: null }, { signIn }], invalid: [{}, { signIn: { accountId } }] },
   },
   "models.list": {
     params: { valid: [{}, { accountId }], invalid: [{ accountId: "" }, []] },
