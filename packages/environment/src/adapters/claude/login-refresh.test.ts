@@ -231,7 +231,10 @@ const contextWith = (): Context => {
     gate: { check: async () => ({ decision: "allow" }) },
     adopt: () => undefined,
     reportIdentity: () => undefined,
-    recheckAccount: () => void (rechecks += 1),
+    recheckAccount: () => {
+      rechecks += 1;
+      port.push("recheck");
+    },
     rechecks: () => rechecks,
     port,
     process: { hold: () => undefined, unhold: () => undefined, exited: () => void port.push("exited") },
@@ -363,7 +366,8 @@ describe("a cold resume through the store", () => {
     expect(runQueries()).toEqual([]);
     expect(cli.attempts).toBe(1);
     expect(context.rechecks()).toBe(1);
-    expect(context.port).toEqual(["exited"]);
+    // The run's end comes first (the process is let go after it), then the store is asked to read the account again.
+    expect(context.port).toEqual(["exited", "recheck"]);
     // The refused refresh cleared the login, so the CLI's own status says signed out; the lapse is what the read answers.
     expect((await statusCommand("", [], { CLAUDE_CONFIG_DIR: directory }, 0)).stdout).toContain('"loggedIn":false');
     statusCommands = [];
@@ -417,6 +421,33 @@ describe("a cold resume through the store", () => {
     await runsMade(2);
     expect(diagnostics.some((line) => /did not answer within 15000 ms/.test(line))).toBe(true);
     expect(await adapter.status(account)).toMatchObject({ signedIn: true, error: null });
+    await adapter.stopProcess(OTHER);
+  });
+
+  it("lets the run go on when the refresh query itself rejects, and clears it, so the next resume runs a query of its own rather than waiting on it", async () => {
+    const directory = accountDirectory(-HOUR);
+    const cli = scriptedCli();
+    const adapter = adapterWith();
+    const account = { id: "0c9e7d52-3f1a-4b6e-9d2c-8a7f5e4b3c21", directory };
+    // The SDK throws as the refresh's query is made (a transport that cannot start): the query rejects, not an outcome.
+    let refusals = 1;
+    const onQuery = hooks.onQuery;
+    hooks.onQuery = (options) => {
+      if (options.persistSession === false && refusals > 0) {
+        refusals -= 1;
+        throw new Error("spawn /sdk/claude-agent-sdk-linux-x64/claude EACCES");
+      }
+      onQuery?.(options);
+    };
+    adapter.createRun(runInput(directory), contextWith());
+    await runsMade(1);
+    expect(diagnostics.some((line) => /could not be checked before a resume \(spawn .* EACCES\)/.test(line))).toBe(true);
+    expect(await adapter.status(account)).toMatchObject({ signedIn: true, error: null });
+    await adapter.stopProcess(SESSION);
+    // Nothing is left in flight: the next cold resume runs its own query, which refreshes the login.
+    adapter.createRun(runInput(directory, { sessionId: OTHER }), contextWith());
+    await runsMade(2);
+    expect(cli.refreshes).toBe(1);
     await adapter.stopProcess(OTHER);
   });
 
