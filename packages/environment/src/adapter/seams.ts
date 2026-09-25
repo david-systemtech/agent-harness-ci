@@ -1,4 +1,13 @@
-import { presetPermissionSettings, type AutoDecider, type ContainmentLevel, type Mode, type ModeAvailability, type PromptKind, type Workspace } from "@agent-harness/contracts";
+import {
+  presetPermissionSettings,
+  type AutoDecider,
+  type ContainmentLevel,
+  type JsonObject,
+  type Mode,
+  type ModeAvailability,
+  type PromptKind,
+  type Workspace,
+} from "@agent-harness/contracts";
 import { UNPROBED_REPORT } from "../permissions/containment.js";
 import { policySettings, resolvePolicy, type PolicyOutcome, type RunActor } from "../permissions/resolver.js";
 import type { PromptDecision, ToolServer } from "./contract.js";
@@ -11,17 +20,32 @@ import type { PromptDecision, ToolServer } from "./contract.js";
  * workstream.
  */
 
-/** What a run's tool servers close over: the account, the workspace and the session. */
+/**
+ * A tool a completions request declared for its run (#139, client-tool
+ * passthrough): the caller runs it, and the run hands each call back to the
+ * caller. Its name, what it does, and its parameters as the JSON Schema
+ * object the caller wrote.
+ */
+export interface ClientTool {
+  readonly name: string;
+  readonly description: string;
+  readonly parameters: JsonObject;
+}
+
+/** What a run's tool servers close over: the account, the workspace and the session, and the tools its request declared for the caller to run. */
 export interface ToolServerScope {
   readonly sessionId: string;
   readonly runId: string;
   readonly accountId: string;
   readonly workspace: Workspace;
+  /** A completions request's own tools (#139), or those of the run before a run of the queue; empty for none. */
+  readonly clientTools: readonly ClientTool[];
 }
 
 /**
  * Builds a run's tool servers (memory tools #90, the browser #93, the
- * completions surface's client tools #139). Preset: none.
+ * completions surface's client tools #139, which the environment always
+ * adds after this seam's). Preset: none.
  */
 export type ToolServerFactory = (scope: ToolServerScope) => readonly ToolServer[];
 

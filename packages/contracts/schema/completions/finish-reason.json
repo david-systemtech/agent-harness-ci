@@ -5,7 +5,8 @@
   "enum": [
     "stop",
     "length",
+    "tool_calls",
     "error"
   ],
-  "description": "Why the answer ended: stop (the run completed, or a stop sequence), length (max_tokens), or error (the run ended any other way; the chunk carries error)."
+  "description": "Why the answer ended: stop (the run completed, or a stop sequence), length (max_tokens), tool_calls (the model called the caller's tools: send their results to resume the turn), or error (the run ended any other way; the chunk carries error)."
 }
