@@ -13,6 +13,7 @@ import {
 import type { ConnectionRecord } from "../connections/records.js";
 import { derived, writable, type Observable } from "../observable.js";
 import type { Clock, Timer } from "../platform.js";
+import type { PendingTargets } from "../outbox/overlay.js";
 import type { ListData } from "../streams/kinds.js";
 import { emptyStream, type Freshness, type StreamState } from "../streams/stream.js";
 
@@ -41,7 +42,7 @@ export interface SessionRow {
   readonly summary: SessionSummary;
   /** The name of the group the session is in on its environment; null when it is in none. */
   readonly groupName: string | null;
-  /** A command about it waits in the outbox while its environment is unreachable (#128); false until the outbox lands. */
+  /** A command about it waits in the outbox while its environment is unreachable: what it shows is the command's effect, not yet the environment's word. */
   readonly pending: boolean;
 }
 
@@ -82,7 +83,7 @@ export interface MergedGroupHeading {
   /** In the connection list's order. */
   readonly groups: readonly HeadingMember[];
   readonly shelves: SessionShelves;
-  /** A command about one of its groups waits in the outbox (#128); false until the outbox lands. */
+  /** A command about one of its groups waits in the outbox while that group's environment is unreachable. */
   readonly pending: boolean;
 }
 
@@ -113,11 +114,12 @@ export interface SessionListView extends SessionShelves {
 export interface SessionListInput {
   /** Every connection, in the saved sequence: the first is the primary environment. */
   readonly records: readonly ConnectionRecord[];
+  /** Each environment's list, with the outbox's overlay laid over it. */
   readonly lists: ReadonlyMap<string, StreamState<ListData>>;
   /** Each environment's time now. */
   readonly now: (environmentId: string) => Date;
-  /** The outbox's seam (#128): whether a command about the session waits in it. */
-  readonly pending: (environmentId: string, sessionId: string) => boolean;
+  /** The sessions and groups a command waits in the outbox about, on environments that cannot be reached. */
+  readonly pending: PendingTargets;
 }
 
 type Visible = Exclude<Shelf, "hidden">;
@@ -158,7 +160,7 @@ export const sessionListView = (input: SessionListInput): SessionListView => {
     });
     for (const summary of data.sessions.values()) {
       const groupName = summary.groupId === null ? null : (data.groups.get(summary.groupId)?.name ?? null);
-      rows.push({ environmentId, summary, groupName, pending: input.pending(environmentId, summary.id) });
+      rows.push({ environmentId, summary, groupName, pending: input.pending.get(environmentId)?.sessions.has(summary.id) === true });
     }
   }
 
@@ -192,7 +194,13 @@ export const sessionListView = (input: SessionListInput): SessionListView => {
     }),
     rows,
     ...shelvesOf(rows, order, shelf),
-    groups: placed.map(([key, heading]) => ({ key, name: heading.name, groups: heading.members, shelves: shelvesOf(heading.rows, order, shelf), pending: false })),
+    groups: placed.map(([key, heading]) => ({
+      key,
+      name: heading.name,
+      groups: heading.members,
+      shelves: shelvesOf(heading.rows, order, shelf),
+      pending: heading.members.some((member) => input.pending.get(member.environmentId)?.groups.has(member.groupId) === true),
+    })),
     repositories: [...repositories.keys()].sort().map((repositoryIdentity) => ({
       repositoryIdentity,
       shelves: shelvesOf(repositories.get(repositoryIdentity) as SessionRow[], order, shelf),
@@ -221,12 +229,12 @@ export const sessionListProjection = (options: {
   readonly lists: Observable<ReadonlyMap<string, StreamState<ListData>>>;
   readonly now: (environmentId: string) => Date;
   readonly clock: Clock;
-  readonly pending: SessionListInput["pending"];
+  readonly pending: Observable<PendingTargets>;
 }): SessionListProjection => {
   const wakes = writable(0);
   let wake: Timer | undefined;
-  const view = derived([options.records, options.lists, wakes] as const, (records, lists) => {
-    const value = sessionListView({ records, lists, now: options.now, pending: options.pending });
+  const view = derived([options.records, options.lists, options.pending, wakes] as const, (records, lists, pending) => {
+    const value = sessionListView({ records, lists, now: options.now, pending });
     wake?.cancel();
     wake = undefined;
     const due = nextWake(value, options.now);

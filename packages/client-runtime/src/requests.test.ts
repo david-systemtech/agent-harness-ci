@@ -1,6 +1,10 @@
 import { describe, expect, it, onTestFinished } from "vitest";
 import { createRuntimeWithSeams } from "./internal.js";
-import { REQUEST_TIMEOUT_MS } from "./requests.js";
+import { noticeEvent } from "../test/events.js";
+import { subscription } from "../test/scripted.js";
+import { createRequestCache, REQUEST_CACHE_TTL_MS, REQUEST_TIMEOUT_MS } from "./requests.js";
+import { writable } from "./observable.js";
+import type { ConnectionRecord } from "./connections/records.js";
 import { fakeWire, flush } from "./testing/fake-wire.js";
 import { inMemoryPlatform, manualClock } from "./testing/in-memory-platform.js";
 
@@ -9,7 +13,9 @@ import { inMemoryPlatform, manualClock } from "./testing/in-memory-platform.js";
  * non-mutating calls and the `admin` calls, which are direct requests): never
  * queued, refused at once absent-with-reason when the connection cannot take
  * it, answered with the method's response checked against its schema, and
- * given up after 30 seconds. The request cache is #128's.
+ * given up after 30 seconds; and the request cache (#128), which keeps a
+ * query's answer five minutes and fetches it again on ready and on the
+ * notice that says it may have changed.
  */
 
 const paired = async (hello: Parameters<ReturnType<typeof fakeWire>["server"]["accept"]>[0] = {}) => {
@@ -148,5 +154,249 @@ describe("requests.call", () => {
     await flush();
     wire.server.drop();
     expect(await answer).toMatchObject({ ok: false, error: { code: "unreachable" } });
+  });
+});
+
+describe("the request cache", () => {
+  /** A runtime paired with the fake wire, counting the `groups.list` requests it sends. */
+  const counting = async (setup: { readonly environmentStream?: boolean } = {}) => {
+    const clock = manualClock();
+    const wire = fakeWire({ clock, name: "box" });
+    let asked = 0;
+    wire.answer("groups.list", () => {
+      asked++;
+      return { result: { groups: [] } };
+    });
+    if (setup.environmentStream) wire.answer("environment.subscribe", () => undefined);
+    const platform = inMemoryPlatform({ clock, fetch: wire.fetch, webSocket: wire.webSocket });
+    const { runtime } = createRuntimeWithSeams(platform);
+    onTestFinished(() => runtime.close());
+    await runtime.start();
+    const adding = runtime.connections.add({ link: wire.link });
+    await wire.server.accept();
+    const environment = setup.environmentStream ? await subscription(wire, "environment.subscribe") : undefined;
+    environment?.synchronized(0);
+    expect(await adding).toMatchObject({ status: "paired" });
+    return { clock, wire, runtime, id: wire.environmentId, asked: () => asked, environment };
+  };
+
+  it("fetches a query when first followed, and answers every follower from it for five minutes", async () => {
+    const { clock, runtime, id, asked } = await counting();
+    const cached = runtime.requests.cached(id, "groups.list", {});
+    expect(cached.read()).toEqual({ result: null, fetchedAt: null, error: null, loading: false });
+    expect(asked()).toBe(0);
+
+    const stop = cached.subscribe(() => undefined);
+    expect(cached.read().loading).toBe(true);
+    await flush();
+    expect(cached.read()).toEqual({ result: { groups: [] }, fetchedAt: clock.now().toISOString(), error: null, loading: false });
+    expect(runtime.requests.cached(id, "groups.list", {})).toBe(cached);
+    const again = runtime.requests.cached(id, "groups.list", {}).subscribe(() => undefined);
+    await flush();
+    expect(asked()).toBe(1);
+
+    clock.advance(REQUEST_CACHE_TTL_MS - 1);
+    await flush();
+    expect(asked()).toBe(1);
+    clock.advance(1);
+    await flush();
+    expect(asked()).toBe(2);
+
+    // Followed by nobody, it is not fetched again until someone follows it once more.
+    stop();
+    again();
+    clock.advance(REQUEST_CACHE_TTL_MS * 2);
+    await flush();
+    expect(asked()).toBe(2);
+    cached.subscribe(() => undefined);
+    await flush();
+    expect(asked()).toBe(3);
+    expect(REQUEST_CACHE_TTL_MS).toBe(5 * 60_000);
+  });
+
+  it("keeps the last result beside the failure while the environment cannot be reached, and fetches again on ready", async () => {
+    const { clock, wire, runtime, id, asked } = await counting();
+    const cached = runtime.requests.cached(id, "groups.list", {});
+    cached.subscribe(() => undefined);
+    await flush();
+    expect(asked()).toBe(1);
+    wire.discovery("unreachable");
+    wire.server.drop();
+    await flush();
+    // The five minutes run out with no socket: the answer is unreachable at once, and the last result stays.
+    clock.advance(REQUEST_CACHE_TTL_MS);
+    await flush();
+    expect(asked()).toBe(1);
+    expect(cached.read()).toMatchObject({ result: { groups: [] }, error: { code: "unreachable" }, loading: false });
+
+    wire.discovery({});
+    void runtime.connections.retryNow(id);
+    await wire.server.accept();
+    await flush();
+    expect(asked()).toBe(2);
+    expect(cached.read()).toMatchObject({ result: { groups: [] }, error: null });
+  });
+
+  it("fetches again on a notice that the environment restarted or was updated", async () => {
+    const { runtime, wire, id, asked, environment } = await counting({ environmentStream: true });
+    runtime.requests.cached(id, "groups.list", {}).subscribe(() => undefined);
+    await flush();
+    expect(asked()).toBe(1);
+    environment?.event(noticeEvent(1, wire.environmentId, "environment.updated", { fromVersion: "0.1.0", toVersion: "0.2.0" }));
+    await flush();
+    expect(asked()).toBe(2);
+    environment?.event(noticeEvent(2, wire.environmentId, "environment.draining", { drainingSince: "2026-09-24T00:00:00.000Z" }));
+    await flush();
+    expect(asked()).toBe(2);
+  });
+
+  it("fetches once more after a fetch asked for again while under way only while followed, and never for five minutes running out during it", async () => {
+    const { clock, wire, runtime, id, asked, environment } = await counting({ environmentStream: true });
+    const cached = runtime.requests.cached(id, "groups.list", {});
+    let stop = cached.subscribe(() => undefined);
+    await flush();
+    expect(asked()).toBe(1);
+
+    // From now on each answer is held until the test lets it go.
+    let held = 0;
+    let release = () => undefined as void;
+    wire.answer("groups.list", () => {
+      held++;
+      return new Promise((resolve) => (release = () => resolve({ result: { groups: [] } })));
+    });
+
+    // A notice fetches before the five minutes are out, and they run out while that fetch is under way: that is not a second
+    // ask, so its answer is the only one sent, and the next comes five minutes after it.
+    clock.advance(REQUEST_CACHE_TTL_MS - 1_000);
+    environment?.event(noticeEvent(1, wire.environmentId, "environment.updated", { fromVersion: "0.1.0", toVersion: "0.2.0" }));
+    await flush();
+    expect(held).toBe(1);
+    clock.advance(1_000);
+    await flush();
+    release();
+    await flush();
+    expect(held).toBe(1);
+    expect(cached.read()).toMatchObject({ loading: false, error: null });
+    stop();
+
+    // Followed, let go, followed and let go again while a fetch is under way: the second ask is not sent for nobody either,
+    // but the answer counts as stale, so the next follower fetches it.
+    clock.advance(REQUEST_CACHE_TTL_MS);
+    stop = cached.subscribe(() => undefined);
+    await flush();
+    expect(held).toBe(2);
+    stop();
+    stop = cached.subscribe(() => undefined);
+    stop();
+    release();
+    await flush();
+    expect(held).toBe(2);
+    cached.subscribe(() => undefined);
+    await flush();
+    expect(held).toBe(3);
+  });
+
+  it("stops loading when the environment is removed or the runtime closes with a fetch under way", async () => {
+    const hold = async () => {
+      const setup = await counting();
+      setup.wire.answer("groups.list", () => new Promise(() => undefined));
+      const cached = setup.runtime.requests.cached(setup.id, "groups.list", {});
+      cached.subscribe(() => undefined);
+      await flush();
+      expect(cached.read().loading).toBe(true);
+      return { ...setup, cached };
+    };
+
+    const removed = await hold();
+    await removed.runtime.connections.remove(removed.id);
+    await flush();
+    expect(removed.cached.read().loading).toBe(false);
+
+    const closed = await hold();
+    await closed.runtime.close();
+    await flush();
+    expect(closed.cached.read().loading).toBe(false);
+  });
+
+  it("is not left in flight by a call that rejects: the failure is reported, loading ends, and the next follower fetches again", async () => {
+    const clock = manualClock();
+    const reported: unknown[] = [];
+    let calls = 0;
+    const cache = createRequestCache({
+      clock,
+      call: () => {
+        calls++;
+        return calls === 1 ? Promise.reject(new Error("the host broke")) : Promise.resolve({ ok: true, result: { groups: [] } } as never);
+      },
+      records: writable<readonly ConnectionRecord[]>([]),
+      report: (error) => reported.push(error),
+    });
+    onTestFinished(() => cache.close());
+    const cached = cache.cached("env-1", "groups.list", {});
+    const stop = cached.subscribe(() => undefined);
+    await flush();
+    expect(reported).toEqual([new Error("the host broke")]);
+    expect(cached.read().loading).toBe(false);
+    stop();
+
+    cached.subscribe(() => undefined);
+    await flush();
+    expect(calls).toBe(2);
+    expect(cached.read()).toMatchObject({ result: { groups: [] }, loading: false, error: null });
+  });
+
+  it("keeps a call that rejected beside the last result as a failure, and tries it again five minutes on while followed", async () => {
+    const clock = manualClock();
+    const reported: unknown[] = [];
+    let calls = 0;
+    const cache = createRequestCache({
+      clock,
+      call: () => {
+        calls++;
+        return calls === 1 ? Promise.reject(new Error("the host broke")) : Promise.resolve({ ok: true, result: { groups: [] } } as never);
+      },
+      records: writable<readonly ConnectionRecord[]>([]),
+      report: (error) => reported.push(error),
+    });
+    onTestFinished(() => cache.close());
+    const cached = cache.cached("env-1", "groups.list", {});
+    cached.subscribe(() => undefined);
+    await flush();
+    expect(reported).toEqual([new Error("the host broke")]);
+    expect(cached.read()).toMatchObject({ result: null, loading: false, error: { code: "internal", message: "the host broke" } });
+
+    clock.advance(REQUEST_CACHE_TTL_MS - 1);
+    await flush();
+    expect(calls).toBe(1);
+    clock.advance(1);
+    await flush();
+    expect(calls).toBe(2);
+    expect(cached.read()).toMatchObject({ result: { groups: [] }, loading: false, error: null });
+  });
+
+  it("is not moved by a caller changing its params object after the call: the entry keeps sending what it was given", async () => {
+    const { runtime, wire, id, asked, environment } = await counting({ environmentStream: true });
+    const params: Record<string, unknown> = {};
+    const cached = runtime.requests.cached(id, "groups.list", params as never);
+    cached.subscribe(() => undefined);
+    await flush();
+    expect(asked()).toBe(1);
+    params["changed"] = "later";
+    environment?.event(noticeEvent(1, wire.environmentId, "environment.updated", { fromVersion: "0.1.0", toVersion: "0.2.0" }));
+    await flush();
+    expect(asked()).toBe(2);
+    expect(cached.read().loading).toBe(false);
+    expect(wire.server.received().flatMap((f) => (f.type === "request" && f.method === "groups.list" ? [f.params] : []))).toEqual([{}, {}]);
+  });
+
+  it("keeps one answer per params, and none for what is not a query", async () => {
+    const { runtime, id } = await counting();
+    expect(runtime.requests.cached(id, "settings.get", { keys: ["sessions.autoSettleOnMerge"] })).not.toBe(
+      runtime.requests.cached(id, "settings.get", { keys: ["sessions.autoSettleAfterIdle"] }),
+    );
+    const command = runtime.requests.cached(id, "sessions.archive" as never, {} as never);
+    command.subscribe(() => undefined);
+    await flush();
+    expect(command.read()).toMatchObject({ result: null, error: { code: "unsupported" } });
   });
 });
