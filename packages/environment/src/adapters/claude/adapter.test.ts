@@ -7,7 +7,20 @@ import type { Options, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { manualClock, type ManualClock } from "../../../test/clock.js";
 import { FakeSdk, sdk, type FakeQuery } from "../../../test/fake-claude-sdk.js";
-import { WithdrawUnsupported, type AdapterEvent, type AdapterRun, type InProcessToolServer, type PermissionBroker, type PromptDecision, type PromptRequest, type ProviderTurn, type RunContext, type RunInput } from "../../adapter/contract.js";
+import {
+  WithdrawUnsupported,
+  type AdapterEvent,
+  type AdapterRun,
+  type GateDecision,
+  type GatedToolCall,
+  type InProcessToolServer,
+  type PermissionBroker,
+  type PromptDecision,
+  type PromptRequest,
+  type ProviderTurn,
+  type RunContext,
+  type RunInput,
+} from "../../adapter/contract.js";
 
 /**
  * The Claude adapter with the SDK transport scripted (claude-adapter spec,
@@ -91,6 +104,7 @@ const runInput = (overrides: Partial<RunInput> = {}): RunInput => ({
     writable: ["/work/repo", "/data/containment/session/scratch", "/data/containment/session/tmp"],
     network: true,
   },
+  denylist: null,
   prompt: [message("Go")],
   ...overrides,
 });
@@ -120,6 +134,24 @@ const contextWith = (decide?: (request: PromptRequest) => Promise<PromptDecision
     },
   };
 };
+
+/** A context whose gate rules as `rule` says and records every call it was asked about, with the signal it was given. */
+const gatedWith = (rule: (call: GatedToolCall, signal: AbortSignal | undefined) => GateDecision | Promise<GateDecision>, decide?: (request: PromptRequest) => Promise<PromptDecision>) => {
+  const checked: { readonly call: GatedToolCall; readonly signal: AbortSignal | undefined }[] = [];
+  const context: Context = {
+    ...contextWith(decide),
+    gate: {
+      check: async (call, signal) => {
+        checked.push({ call, signal });
+        return rule(call, signal);
+      },
+    },
+  };
+  return { context, checked };
+};
+
+/** What the hook answers for a call the gate denies. */
+const hookDenies = (message: string) => ({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: message } });
 
 /** Reads a run's events to its end. */
 const drain = async (run: AdapterRun): Promise<AdapterEvent[]> => {
@@ -513,6 +545,185 @@ describe("canUseTool on the broker seam", () => {
     await new Promise((resolve) => setTimeout(resolve, 1));
     abort.abort();
     expect(await asked).toMatchObject({ behavior: "deny", message: "The provider aborted this tool call." });
+  });
+});
+
+describe("the tool gate's PreToolUse hook (#140)", () => {
+  /** A run in `mode` whose first turn has opened. */
+  const opened = async (context: Context, overrides: Partial<RunInput> = {}) => {
+    const adapter = adapterWith();
+    const input = runInput(overrides);
+    const run = adapter.createRun(input, context);
+    const query = await started();
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [input.prompt[0]?.messageId as string]));
+    await flush();
+    return { adapter, input, run, query };
+  };
+
+  it.each(["acceptEdits", "plan", "auto", "bypassPermissions"] as const)(
+    "asks the gate about every call before the provider in %s: its denial is the hook's deny, and an allow leaves the call to the provider's own evaluation",
+    async (mode) => {
+      const { context, checked } = gatedWith((call) => (call.tool === "Read" ? { decision: "deny", message: "Denied by containment." } : { decision: "allow" }));
+      const { query } = await opened(context, { mode, ceiling: "bypassPermissions" });
+      expect(await query.preToolUse("Read", { file_path: "/etc/shadow" }, { toolUseID: "toolu_read" })).toEqual(hookDenies("Denied by containment."));
+      // Never allow on the provider's behalf: the mode, the rules and the provider's own prompt still decide.
+      expect(await query.preToolUse("Bash", { command: "ls" }, { toolUseID: "toolu_ls" })).toEqual({});
+      expect(await query.preToolUse("mcp__memory__read", { path: "notes" }, { toolUseID: "toolu_mcp" })).toEqual({});
+      expect(checked.map(({ call }) => [call.toolCallId, call.tool, call.access])).toEqual([
+        ["toolu_read", "Read", { kind: "read", paths: ["/etc/shadow"] }],
+        ["toolu_ls", "Bash", { kind: "shell", command: "ls" }],
+        ["toolu_mcp", "mcp__memory__read", { kind: "other" }],
+      ]);
+      expect(checked.map(({ call }) => call.input)).toEqual([{ file_path: "/etc/shadow" }, { command: "ls" }, { path: "notes" }]);
+      expect(context.asked).toEqual([]);
+    },
+  );
+
+  it("does not ask the gate again when the provider asks about a call the hook ruled on, and asks it about one the hook never saw", async () => {
+    const { context, checked } = gatedWith(() => ({ decision: "allow" }), async () => ({ decision: "allow" }));
+    const { query } = await opened(context);
+    expect(await query.preToolUse("Edit", { file_path: "/work/repo/a.ts" }, { toolUseID: "toolu_edit" })).toEqual({});
+    expect(await query.canUseTool("Edit", { file_path: "/work/repo/a.ts" }, { toolUseID: "toolu_edit" })).toMatchObject({ behavior: "allow" });
+    expect(checked.map(({ call }) => call.toolCallId)).toEqual(["toolu_edit"]);
+    expect(context.asked.map((request) => request.promptId)).toEqual(["toolu_edit"]);
+    // The same call asked about again (a second prompt of the provider's) is not gated twice either.
+    await query.canUseTool("Write", { file_path: "/work/repo/b.ts" }, { toolUseID: "toolu_unhooked" });
+    expect(checked.map(({ call }) => call.toolCallId)).toEqual(["toolu_edit", "toolu_unhooked"]);
+  });
+
+  it("waits on a gate that parks for as long as it takes, and hands the gate the SDK's signal, which closes the prompt when the CLI gives up on the hook", async () => {
+    const { context, checked } = gatedWith(
+      (_call, signal) =>
+        new Promise<GateDecision>((resolve) => signal?.addEventListener("abort", () => resolve({ decision: "deny", message: "The provider gave up on this call." }), { once: true })),
+    );
+    const { query } = await opened(context);
+    const abort = new AbortController();
+    const hooked = query.preToolUse("Read", { file_path: "~/.ssh/id_rsa" }, { toolUseID: "toolu_key", signal: abort.signal });
+    let settled = false;
+    void hooked.then(() => (settled = true));
+    await flush();
+    expect(settled).toBe(false);
+    expect(checked[0]?.signal).toBe(abort.signal);
+    abort.abort();
+    expect(await hooked).toEqual(hookDenies("The provider gave up on this call."));
+  });
+
+  it("denies, never passes, a call the gate could not rule on: a hook that threw would leave the call to the CLI", async () => {
+    const { context } = gatedWith(() => {
+      throw new Error("The gate fell over.");
+    });
+    const { query } = await opened(context);
+    const answer = await query.preToolUse("Read", { file_path: "/work/repo/a.ts" }, { toolUseID: "toolu_a" });
+    expect(answer).toMatchObject({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny" } });
+    expect((answer as { hookSpecificOutput: { permissionDecisionReason: string } }).hookSpecificOutput.permissionDecisionReason).toMatch(/could not be checked.*The gate fell over/);
+  });
+
+  it("denies at once, asking the gate nothing, once the process has been let go", async () => {
+    const { context, checked } = gatedWith(() => ({ decision: "allow" }));
+    const { query, run } = await opened(context);
+    await run.dispose();
+    expect(await query.preToolUse("Read", { file_path: "/work/repo/a.ts" })).toEqual(hookDenies("The run was stopped before this could be answered."));
+    expect(checked).toEqual([]);
+  });
+
+  it("gates a subagent's call like any other, whenever it comes", async () => {
+    const { context, checked } = gatedWith(() => ({ decision: "allow" }));
+    const { query } = await opened(context);
+    query.emit(sdk.result(PROVIDER_SESSION));
+    await flush();
+    // A background subagent's call between the CLI's turns: gated, and no turn is opened for it.
+    expect(await query.preToolUse("Read", { file_path: "/work/repo/a.ts" }, { toolUseID: "toolu_sub", agentId: "agent_1" })).toEqual({});
+    expect(checked.map(({ call }) => call.toolCallId)).toEqual(["toolu_sub"]);
+    expect(context.adopted).toEqual([]);
+  });
+});
+
+describe("the sandbox's ask for a host (SandboxNetworkAccess)", () => {
+  const workspace: RunInput["containment"] = {
+    level: "workspace",
+    mechanism: "bubblewrap",
+    scratchDirectory: "/data/containment/session/scratch",
+    temporaryDirectory: "/data/containment/session/tmp",
+    writable: ["/work/repo", "/data/containment/session/scratch", "/data/containment/session/tmp"],
+    network: true,
+  };
+
+  it("is answered by the adapter once the gate lets the host through, asking nobody: the network is open at workspace", async () => {
+    const { context, checked } = gatedWith((call) => (call.access.kind === "fetch" && call.access.urls.includes("169.254.169.254") ? { decision: "deny", message: "Denylisted." } : { decision: "allow" }));
+    const input = runInput({ containment: workspace });
+    adapterWith().createRun(input, context);
+    const query = await started();
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [input.prompt[0]?.messageId as string]));
+    await flush();
+    expect(await query.canUseTool("SandboxNetworkAccess", { host: "registry.npmjs.org" }, { toolUseID: "net_1", title: "Allow network connection to registry.npmjs.org?" })).toEqual({
+      behavior: "allow",
+      updatedInput: { host: "registry.npmjs.org" },
+      toolUseID: "net_1",
+    });
+    expect(await query.canUseTool("SandboxNetworkAccess", { host: "169.254.169.254" }, { toolUseID: "net_2" })).toEqual({ behavior: "deny", message: "Denylisted.", toolUseID: "net_2" });
+    expect(checked.map(({ call }) => [call.tool, call.access])).toEqual([
+      ["SandboxNetworkAccess", { kind: "fetch", urls: ["registry.npmjs.org"] }],
+      ["SandboxNetworkAccess", { kind: "fetch", urls: ["169.254.169.254"] }],
+    ]);
+    expect(context.asked).toEqual([]);
+  });
+
+  it("opens no turn for an ask that comes between the CLI's turns, from a command still running in the background", async () => {
+    const { context } = gatedWith(() => ({ decision: "allow" }));
+    const input = runInput({ containment: workspace });
+    const run = adapterWith().createRun(input, context);
+    const query = await started();
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [input.prompt[0]?.messageId as string]), sdk.result(PROVIDER_SESSION));
+    await drain(run);
+    expect(await query.canUseTool("SandboxNetworkAccess", { host: "github.com" }, { toolUseID: "net_3" })).toMatchObject({ behavior: "allow" });
+    expect(context.adopted).toEqual([]);
+    expect(context.asked).toEqual([]);
+  });
+});
+
+describe("an approved plan", () => {
+  it("leaves the process in the mode it continues in, so a later run in plan moves the CLI back to plan", async () => {
+    const adapter = adapterWith();
+    const context = contextWith(async (request) => (request.kind === "plan" ? { decision: "allow", mode: "acceptEdits" } : { decision: "deny" }));
+    const input = runInput({ mode: "plan" });
+    const first = adapter.createRun(input, context);
+    const query = await started();
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [input.prompt[0]?.messageId as string]));
+    await flush();
+    expect(await query.canUseTool("ExitPlanMode", { plan: "1. Read" }, { toolUseID: "toolu_plan" })).toMatchObject({
+      behavior: "allow",
+      updatedPermissions: [{ type: "setMode", mode: "acceptEdits", destination: "session" }],
+    });
+    query.emit(sdk.result(PROVIDER_SESSION));
+    await drain(first);
+    first.release();
+    // The CLI is in acceptEdits now: a run that asks for acceptEdits sends nothing, and one that asks for plan moves it back.
+    const second = adapter.createRun(runInput({ mode: "acceptEdits", target: { kind: "resume", providerSessionId: PROVIDER_SESSION } }), context);
+    await query.promptsPushed(2);
+    expect(query.modes).toEqual([]);
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_2", [query.prompts[1]?.uuid as string]), sdk.result(PROVIDER_SESSION));
+    await drain(second);
+    second.release();
+    adapter.createRun(runInput({ mode: "plan", target: { kind: "resume", providerSessionId: PROVIDER_SESSION } }), context);
+    await query.promptsPushed(3);
+    expect(query.modes).toEqual(["plan"]);
+  });
+});
+
+describe("under auto", () => {
+  it("hands the classifier's fallback prompt to the broker as a permission prompt with the provider's reason", async () => {
+    const adapter = adapterWith();
+    const context = contextWith(async () => ({ decision: "allow" }));
+    const input = runInput({ mode: "auto", ceiling: "auto" });
+    adapter.createRun(input, context);
+    const query = await started();
+    expect(query.options.permissionMode).toBe("auto");
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [input.prompt[0]?.messageId as string]));
+    await flush();
+    await query.canUseTool("Bash", { command: "npm publish" }, { toolUseID: "toolu_publish", decisionReason: "The classifier could not rule on this: publishing needs approval." });
+    expect(context.asked).toEqual([
+      expect.objectContaining({ kind: "permission", promptId: "toolu_publish", detail: expect.objectContaining({ reason: "The classifier could not rule on this: publishing needs approval." }) }),
+    ]);
   });
 });
 
@@ -979,6 +1190,27 @@ describe("the process across turns", () => {
     expect(second.options).toMatchObject({ permissionMode: "bypassPermissions", allowDangerouslySkipPermissions: true, resume: PROVIDER_SESSION });
   });
 
+  it("spawns fresh for a run at another containment level, or with other denylist rules to project, since the sandbox and the rules are fixed at spawn", async () => {
+    const adapter = adapterWith();
+    const resume = { kind: "resume", providerSessionId: PROVIDER_SESSION } as const;
+    const first = await oneTurn(adapter, runInput());
+    await first.finish();
+    const contained: RunInput["containment"] = { ...runInput().containment, level: "workspace", mechanism: "bubblewrap" };
+    const second = await oneTurn(adapter, runInput({ containment: contained, target: resume }));
+    expect(first.query.closed).toBe(true);
+    expect(second.query.options.sandbox).toMatchObject({ enabled: true });
+    await second.finish();
+    const projected: RunInput["denylist"] = { paths: ["/home/david/.ssh"], exempt: [], commandPatterns: ["sudo *"] };
+    const third = await oneTurn(adapter, runInput({ containment: contained, denylist: projected, target: resume }));
+    expect(second.query.closed).toBe(true);
+    expect(third.query.options).toMatchObject({ disallowedTools: ["Bash(sudo *)"], sandbox: { filesystem: { denyRead: ["/home/david/.ssh"] } } });
+    await third.finish();
+    // The same level and the same rules: the kept process serves it.
+    const fourth = await oneTurn(adapter, runInput({ containment: contained, denylist: { ...projected }, target: resume }), third.query);
+    await fourth.finish();
+    expect(fake.queries).toHaveLength(3);
+  });
+
   it("spawns fresh, with the opt-in, for a run under a bypass ceiling in a lower mode, so its mode can later be changed to bypass", async () => {
     const adapter = adapterWith();
     const first = await oneTurn(adapter, runInput());
@@ -1294,8 +1526,9 @@ describe("status, models and commands", () => {
     expect(fake.last().prompts).toEqual([]);
   });
 
-  it("describes itself: the four modes, the append channel, a provider queue that steers", () => {
+  it("describes itself: the four modes, the append channel, a provider queue that steers, containment enforced", () => {
     expect(CLAUDE_DESCRIPTOR).toMatchObject({
+      containment: true,
       provider: "claude",
       modes: ["acceptEdits", "plan", "auto", "bypassPermissions"].map((mode) => ({ mode, available: true, reason: null })),
       instructionChannel: { kind: "system-prompt-append", maxCharacters: null },

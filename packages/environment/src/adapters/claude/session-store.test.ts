@@ -95,6 +95,7 @@ const runInput = (overrides: Partial<RunInput> = {}): RunInput => ({
     writable: ["/work/repo", "/data/containment/session/scratch", "/data/containment/session/tmp"],
     network: true,
   },
+  denylist: null,
   prompt: [{ messageId: randomUUID(), text: "Go", attachments: [] }],
   ...overrides,
 });

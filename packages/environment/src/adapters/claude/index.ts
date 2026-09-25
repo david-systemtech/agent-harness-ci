@@ -64,10 +64,9 @@ export const CLAUDE_DESCRIPTOR: AdapterDescriptor = {
   imageInput: true,
   fileInput: false,
   modeChange: true,
-  // Not until #140 hands the run's containment to the SDK's sandbox option: until then only off is offered. The gate is asked
-  // from `canUseTool` already, but that sees only the calls the provider asks about: a call the mode approves without asking
-  // is not gated until #140's `PreToolUse` hook, so for those the sandbox option is what will enforce containment.
-  containment: false,
+  // The run's containment is the SDK's sandbox for its commands (`options.ts`, #140), and the tool gate, asked from the
+  // `PreToolUse` hook before every call, denies the rest: a write outside the writable set, a fetch or search with no network.
+  containment: true,
   instructionChannel: { kind: "system-prompt-append", maxCharacters: null },
   // Every mode is the SDK permission mode of its name (permissions spec, the Claude mapping), available to every account.
   modes: CLAUDE_MODES.map((mode) => ({ mode, available: true, reason: null })),

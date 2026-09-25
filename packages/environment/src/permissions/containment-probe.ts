@@ -14,9 +14,10 @@ import { CONTAINER_MARKER_VARIABLE, isDeclaredContainer, isDetectedContainer } f
  * which Claude's sandbox needs beside it on Linux for its network proxy.
  * Both workspace levels need all three: the pinned sandbox runtime unshares
  * the network whenever it restricts it (`needsNetworkRestriction`, set by
- * any `allowedDomains`), and whether #140 can leave it unrestricted at
- * `workspace` is its own verify-first, so until then a bubblewrap that
- * cannot unshare the network offers neither level.
+ * any `allowedDomains`), and the pinned CLI always sets one once its
+ * sandbox is enabled (#140 read it: the domains of its settings, however
+ * few), so its network is restricted, through the proxy, at `workspace`
+ * too; a bubblewrap that cannot unshare the network offers neither level.
  * Native Windows, and any other platform, has none.
  *
  * When bubblewrap cannot work, the probe says why, for people and as a

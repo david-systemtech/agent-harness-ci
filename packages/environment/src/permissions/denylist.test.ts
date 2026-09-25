@@ -27,9 +27,9 @@ import { create, refusal } from "../../test/sessions.js";
 import type { WireClient } from "../../test/wire-client.js";
 import type { GatedToolCall, ToolGate } from "../adapter/contract.js";
 import { CANCELLED_MESSAGE, RUN_ENDED_MESSAGE, UNRECORDED_MESSAGE } from "./broker.js";
-import { denylistCall } from "./denylist-gate.js";
+import { denylistCall, denylistReadsCall, denylistRule } from "./denylist-gate.js";
 import { GATE_FAILED_MESSAGE, resolvePath } from "./gate.js";
-import type { ToolGateRule } from "../adapter/seams.js";
+import type { RuledRun, ToolGateRule } from "../adapter/seams.js";
 import type { EventEnvelope as LogEvent } from "../event-log/event-log.js";
 import type { ActorRunRequest } from "../serve/start.js";
 
@@ -37,9 +37,10 @@ import type { ActorRunRequest } from "../serve/start.js";
  * The denylist and the tool gate (#132; permissions spec, "The denylist",
  * "Prompts, parked prompts and the TTL", "Events"; ADR 0006) through the
  * primary seam: an in-process environment whose fake provider plays tool
- * calls under the run context's gate, as #140's Claude hook will. What is
- * asserted is what a client sees (the methods, the session's and the
- * environment's streams, the access log) and what the provider was told.
+ * calls under the run context's gate, as Claude's PreToolUse hook does
+ * (#140). What is asserted is what a client sees (the methods, the
+ * session's and the environment's streams, the access log) and what the
+ * provider was told.
  */
 
 const { onCleanup, tempDir } = useCleanups();
@@ -546,6 +547,99 @@ describe("the tool gate on an unattended run", () => {
       [false, "denied", "denylist"],
     ]);
     expect(opened(t, id)[0]?.denylist?.[0]?.entry.id).toBe(DATA_DIRECTORY_PRESET_ID);
+  });
+});
+
+describe("the denylist a provider projects onto its own rules (#140)", () => {
+  it("is handed to an unattended run: the enabled paths with ~ expanded, the directories the denylist leaves out, and the enabled command patterns", async () => {
+    const t = await start();
+    const client = await t.client();
+    const held = await getDenylist(client);
+    await send(client, "permissions.denylist.set", {
+      sections: {
+        paths: held.paths.map((entry) => (entry.pattern === "~/.aws" ? { ...entry, enabled: false } : entry)),
+        commandPatterns: [...held.commandPatterns.map((entry) => (entry.pattern === "reboot *" ? { ...entry, enabled: false } : entry)), { pattern: "terraform destroy *" }],
+      },
+    });
+    const { id } = await create(client);
+    const { runId } = startAsRoutine(t, id);
+    await untilEnded(t, id, runId);
+    const projected = t.adapter.runs.at(-1)?.input.denylist;
+    const home = homedir();
+    expect(projected?.paths).toContain(join(home, ".ssh"));
+    expect(projected?.paths).toContain(join(home, ".docker", "config.json"));
+    expect(projected?.paths).toContain(t.env.dataDir);
+    expect(projected?.paths).not.toContain(join(home, ".aws"));
+    expect(projected?.paths.every((path) => path.startsWith("/"))).toBe(true);
+    expect(projected?.exempt).toEqual([join(t.env.dataDir, "containment"), join(t.env.dataDir, "scratch")]);
+    expect(projected?.commandPatterns).toContain("sudo *");
+    expect(projected?.commandPatterns).toContain("terraform destroy *");
+    expect(projected?.commandPatterns).not.toContain("reboot *");
+  });
+
+  it("is not handed to an attended run, whose person's explicit allow no provider rule may block", async () => {
+    const t = await start();
+    const client = await t.client();
+    const { id } = await create(client);
+    const { runId } = await startRun(client, id, "bypassPermissions");
+    await untilEnded(t, id, runId);
+    expect(t.adapter.runs.at(-1)?.input.denylist).toBeNull();
+  });
+});
+
+describe("a client tool's call (mcp__client__*, #139)", () => {
+  const clientRead: Omit<GatedToolCall, "toolCallId"> = {
+    tool: "mcp__client__read_file",
+    summary: "read_file ~/.ssh/id_rsa",
+    access: { kind: "other" },
+    input: { path: "~/.ssh/id_rsa" },
+  };
+
+  it("is read by the denylist like any other call, by default: its arguments are matched, though the tool runs on the caller's machine", async () => {
+    const t = await start({ script: calls(clientRead) });
+    const client = await t.client();
+    const { id } = await create(client);
+    const { runId } = startAsRoutine(t, id);
+    await untilEnded(t, id, runId);
+    expect(opened(t, id).map((prompt) => [prompt.toolName, prompt.denylist?.[0]?.entry.pattern])).toEqual([["mcp__client__read_file", "~/.ssh"]]);
+    expect(decisions(t, id)).toEqual([expect.objectContaining({ tool: "mcp__client__read_file", decision: "denied", decidedBy: "denylist" })]);
+  });
+
+  it("is passed over by the rule when the one seam that says which calls the denylist reads leaves it out", async () => {
+    const rule = denylistRule({
+      denylist: () => denylistPresets("/data/agent-harness"),
+      home: "/home/test",
+      exempt: [],
+      resolve: (path) => path,
+      readsCall: (call) => !call.tool.startsWith("mcp__client__"),
+    });
+    const run: RuledRun = {
+      runId: "run",
+      sessionId: "session",
+      workspace: "/work/repo",
+      containment: { level: "off", mechanism: null, scratchDirectory: "/s", temporaryDirectory: "/t", writable: ["/work/repo"], network: true },
+      ask: () => {
+        throw new Error("Nobody is asked about a call the denylist does not read.");
+      },
+    };
+    expect(await rule.check({ ...clientRead, toolCallId: "call_1" }, run)).toBeNull();
+    await expect(rule.check({ ...readKey, toolCallId: "call_2" }, run)).rejects.toThrow(/Nobody is asked/);
+    expect(denylistReadsCall({ ...clientRead, toolCallId: "call_3" })).toBe(true);
+  });
+});
+
+describe("the harness's scratch workspaces", () => {
+  it("are left out of the data directory's preset, as the containment directories are, so a completions run works in its own", async () => {
+    const t = await start();
+    const client = await t.client();
+    expect(await test(client, "path", join(t.env.dataDir, "scratch", randomUUID(), "notes.md"))).toEqual([]);
+    const { id } = await create(client);
+    const inside = join(t.env.dataDir, "scratch", id, "notes.md");
+    mkdirSync(join(t.env.dataDir, "scratch", id), { recursive: true });
+    t.adapter.nextScripts.push(calls({ tool: "Write", summary: "Write notes.md", access: { kind: "write", paths: [inside] } }));
+    const { runId } = startAsRoutine(t, id);
+    await untilEnded(t, id, runId);
+    expect(decisions(t, id).map((decision) => [decision.decision, decision.decidedBy])).toEqual([["allowed", "mode"]]);
   });
 });
 

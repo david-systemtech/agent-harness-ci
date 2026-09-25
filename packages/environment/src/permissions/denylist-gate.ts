@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import {
   describeDenylistMatch,
   hostOf,
@@ -8,7 +9,7 @@ import {
   type DenylistCall,
   type DenylistMatch,
 } from "@agent-harness/contracts";
-import type { GatedToolCall } from "../adapter/contract.js";
+import type { GatedToolCall, RunDenylist } from "../adapter/contract.js";
 import type { ToolGateRule } from "../adapter/seams.js";
 import { resolvePath } from "./gate.js";
 
@@ -140,7 +141,7 @@ export interface DenylistContext {
   readonly denylist: () => Denylist;
   /** The home directory `~` stands for. */
   readonly home: string;
-  /** The directories the data directory's preset leaves out: the containment directories the runs write in (#133). */
+  /** The directories the data directory's preset leaves out: where runs work, the containment directories (#133) and the scratch workspaces (#140). */
   readonly exempt: readonly string[];
   /** Follows symbolic links, null where it cannot say; preset: the file system's (`resolvePath`, the walk containment's rule shares). */
   readonly resolve?: (path: string) => string | null;
@@ -148,7 +149,20 @@ export interface DenylistContext {
   readonly user?: string;
   /** Whether paths compare without regard to case: preset, on macOS and Windows. */
   readonly caseInsensitive?: boolean;
+  /** Which calls the denylist reads at all; preset: `denylistReadsCall`, every one. */
+  readonly readsCall?: (call: GatedToolCall) => boolean;
 }
+
+/**
+ * Which calls the denylist reads: every one, a client tool's included. A
+ * client tool (`mcp__client__*`, the completions surface's passthrough,
+ * #139) runs on the caller's machine, not the environment's, so whether its
+ * arguments should meet this environment's denylist is David's open
+ * question; until he answers, the safe default reads them like any other
+ * call's (#140). The one seam an exemption would go in: a predicate here,
+ * which the rule consults before it matches anything.
+ */
+export const denylistReadsCall: (call: GatedToolCall) => boolean = () => true;
 
 /** Every entry a call matches, and the paths whose links could not be followed. */
 export interface DenylistReading {
@@ -181,6 +195,23 @@ export const readDenylistCall = (context: DenylistContext, call: DenylistCall, c
   return { matches, unresolvable };
 };
 
+/**
+ * The denylist as a provider projects it onto its own deny rules on an
+ * unattended run (#140; permissions spec, "Provider deny rules where they
+ * must apply"): the enabled paths, `~` read as the home directory, since a
+ * provider's sandbox reads its paths with no home of the environment's; the
+ * directories the matcher leaves out, which the sandbox reads again; and
+ * the enabled command patterns as written.
+ */
+export const providerDenylist = (denylist: Denylist, context: Pick<DenylistContext, "home" | "exempt">): RunDenylist => {
+  const absolute = (pattern: string): string => (pattern === "~" ? context.home : pattern.startsWith("~/") ? join(context.home, pattern.slice(2)) : pattern);
+  return {
+    paths: denylist.paths.filter((entry) => entry.enabled).map(({ pattern }) => absolute(pattern)),
+    exempt: [...context.exempt],
+    commandPatterns: denylist.commandPatterns.filter((entry) => entry.enabled).map(({ pattern }) => pattern),
+  };
+};
+
 /** What the model reads when a person denies a denylisted call and gives no message of their own. */
 export const denylistDenial = (reason: string): string => `Denied: ${reason}, and the person declined it. Continue without it and say what you could not do.`;
 
@@ -189,17 +220,19 @@ export const unresolvableDenial = (path: string): string =>
   `Denied: ${path} is a symbolic link that loops or changed while it was read, so where it leads cannot be checked against the denylist. Continue without it and say what you could not do.`;
 
 /**
- * The rule: no match passes the call on (`null`); a match asks the run's
- * person through the broker, and the answer is the ruling: an allow passes
- * the call on to the provider's own evaluation, a deny is final, with the
- * person's message or a sentence naming the entry, or the rule's own when no
- * person could answer. A path whose links cannot be followed denies the
+ * The rule: a call the denylist does not read (`readsCall`) and one that
+ * matches nothing pass on (`null`); a match asks the run's person through
+ * the broker, and the answer is the ruling: an allow passes the call on to
+ * the provider's own evaluation, a deny is final, with the person's message
+ * or a sentence naming the entry, or the rule's own when no person could
+ * answer. A path whose links cannot be followed denies the
  * call outright, asking nobody (the gate records it, by `denylist`). The
  * prompt is closed when the provider gives up on the call (`signal`).
  */
 export const denylistRule = (context: DenylistContext): ToolGateRule => ({
   decider: "denylist",
   check: async (call, run, signal) => {
+    if (!(context.readsCall ?? denylistReadsCall)(call)) return null;
     const { matches, unresolvable } = readDenylistCall(context, denylistCall(call), run.workspace);
     const [lost] = unresolvable;
     if (lost !== undefined) return { decision: "deny", message: unresolvableDenial(lost) };
