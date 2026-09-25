@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ChatTool",
+  "type": "object",
+  "properties": {
+    "type": {
+      "type": "string",
+      "minLength": 1,
+      "description": "function; another type is refused with 400, or ignored under ignoreUnsupported."
+    },
+    "function": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,64}$",
+          "description": "1 to 64 letters, digits, underscores and hyphens; unique among the request's tools."
+        },
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "parameters": {
+          "description": "The call's arguments as a JSON Schema object, handed to the model as written; an object with no properties when absent.",
+          "anyOf": [
+            {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {}
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "strict": {
+          "description": "Not honoured: reported ignored when true.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "additionalProperties": {},
+      "description": "A function the caller declares and runs itself."
+    }
+  },
+  "required": [
+    "type"
+  ],
+  "additionalProperties": {},
+  "description": "A tool the caller declares: the model's calls to it come back as tool_calls, and the caller sends each result as a tool message."
+}

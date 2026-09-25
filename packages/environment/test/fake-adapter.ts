@@ -1,26 +1,30 @@
 import { randomUUID } from "node:crypto";
 import { MODES, type AdapterCapabilities, type AuthStatus, type JsonObject, type Mode, type ModeAvailability, type ProcessHoldKind } from "@agent-harness/contracts";
-import type {
-  AccountRef,
-  Adapter,
-  AdapterEvent,
-  GateDecision,
-  GatedToolCall,
-  ModelOption,
-  ProcessPort,
-  ProviderCommand,
-  PromptDecision,
-  PromptDetail,
-  PromptKind,
-  PromptMessage,
-  ProviderTurn,
-  RunContext,
-  RunEnd,
-  RunInput,
-  TranscriptEvent,
-  UsageReading,
-  UsageWindow,
+import {
+  inProcessToolName,
+  isInProcess,
+  type AccountRef,
+  type Adapter,
+  type AdapterEvent,
+  type GateDecision,
+  type GatedToolCall,
+  type HostToolResult,
+  type ModelOption,
+  type ProcessPort,
+  type ProviderCommand,
+  type PromptDecision,
+  type PromptDetail,
+  type PromptKind,
+  type PromptMessage,
+  type ProviderTurn,
+  type RunContext,
+  type RunEnd,
+  type RunInput,
+  type TranscriptEvent,
+  type UsageReading,
+  type UsageWindow,
 } from "../src/adapter/contract.js";
+import { CLIENT_TOOL_SERVER } from "../src/completions/passthrough.js";
 import type { Clock } from "../src/serve/clock.js";
 import { MANUAL_CLOCK_START } from "./clock.js";
 
@@ -271,6 +275,55 @@ export const say = (text: string, itemId: string = randomUUID()): TranscriptEven
 
 /** The end of a run: completed unless told otherwise. */
 export const end = (reason: RunEnd["reason"] = "completed", extra: Omit<RunEnd, "type" | "reason"> = {}): RunEnd => ({ type: "end", reason, ...extra });
+
+/** A call a script makes to one of the tools a completions request declared (#139). */
+export interface ClientToolCallScript {
+  readonly name: string;
+  readonly input?: JsonObject;
+  /** The provider's id for the call, as its `tool.started` names it; preset: a fresh `toolu_` id. */
+  readonly toolCallId?: string;
+}
+
+/**
+ * Calls the caller's own tools as a provider calls an in-process server's
+ * (#139): a `tool.started` for each under the name the contract gives it
+ * (`mcp__client__<name>`), then every call at once through the `client`
+ * server the run was handed, as Claude's CLI runs concurrency-safe tools
+ * side by side, the run's signal passed on; then a `tool.ended` for each
+ * with what it answered. Returns the answers in the order of the calls.
+ */
+export async function* callClientTools(controls: ScriptControls, calls: readonly ClientToolCallScript[]): AsyncGenerator<AdapterEvent, HostToolResult[]> {
+  const server = controls.input.toolServers.find((candidate) => candidate.name === CLIENT_TOOL_SERVER);
+  if (server === undefined || !isInProcess(server)) throw new Error("The run was handed no client tool server.");
+  const made = calls.map((call) => ({ ...call, input: call.input ?? {}, toolCallId: call.toolCallId ?? `toolu_${randomUUID()}` }));
+  for (const call of made) {
+    yield {
+      type: "tool.started",
+      payload: { toolCallId: call.toolCallId, name: inProcessToolName(CLIENT_TOOL_SERVER, call.name), input: call.input, title: null, agentId: null, parentToolCallId: null },
+    };
+  }
+  const results = await Promise.all(
+    made.map((call) => {
+      const tool = server.tools.find((candidate) => candidate.name === call.name);
+      if (tool === undefined) throw new Error(`The client server has no tool ${call.name}.`);
+      return tool.call(call.input, { toolCallId: call.toolCallId, signal: controls.signal });
+    }),
+  );
+  for (const [index, call] of made.entries()) {
+    const result = results[index] as HostToolResult;
+    yield { type: "tool.ended", payload: { toolCallId: call.toolCallId, status: result.isError ? "error" : "ok", output: result.text, durationMs: 1 } };
+  }
+  return results;
+}
+
+/** Calls one of the caller's own tools (`callClientTools`), returning its answer. */
+export async function* callClientTool(controls: ScriptControls, call: ClientToolCallScript): AsyncGenerator<AdapterEvent, HostToolResult> {
+  const [result] = yield* callClientTools(controls, [call]);
+  return result as HostToolResult;
+}
+
+/** What a script says a client tool answered, so a test reads what reached the run. */
+export const toolResultText = (result: HostToolResult): string => `Tool said${result.isError ? " (error)" : ""}: ${result.text}`;
 
 /** What an asking script says once it is answered: the decision it got, as JSON, so a test reads what reached the run. */
 export const toldText = (decision: PromptDecision): string => `Told ${JSON.stringify(decision)}`;

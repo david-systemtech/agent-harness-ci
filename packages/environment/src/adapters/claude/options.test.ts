@@ -138,6 +138,25 @@ describe("the options a run is handed", () => {
     expect(none).not.toHaveProperty("mcpServers");
   });
 
+  it("serves an in-process server's tools through an in-process MCP server, and lets an external one's go ahead without asking (#139)", () => {
+    const tool = { name: "get_weather", description: "The weather.", inputSchema: { type: "object" }, call: async () => ({ text: "Sunny", isError: false }) };
+    const options = buildRunOptions(
+      input({
+        toolServers: [
+          { name: "client", tools: [tool], external: true },
+          { name: "memory", tools: [tool], external: false },
+          { name: "browser", config: { type: "sdk", name: "browser" } },
+        ],
+      }),
+    );
+    expect(options.mcpServers?.["client"]).toMatchObject({ type: "sdk", name: "client", instance: expect.anything() });
+    expect(options.mcpServers?.["memory"]).toMatchObject({ type: "sdk", name: "memory", instance: expect.anything() });
+    expect(options.mcpServers?.["browser"]).toEqual({ type: "sdk", name: "browser" });
+    // The caller runs its own tools: a call touches nothing here, so no prompt stands between the model and the caller.
+    expect(options.allowedTools).toEqual(["mcp__client"]);
+    expect(buildRunOptions(input())).not.toHaveProperty("allowedTools");
+  });
+
   it("hands the account's skill-set plugin directory over as a local plugin", () => {
     expect(buildRunOptions(input()).plugins).toEqual([{ type: "local", path: "/data/skills/work" }]);
     expect(buildRunOptions(input({}, { pluginDirectory: null }))).not.toHaveProperty("plugins");

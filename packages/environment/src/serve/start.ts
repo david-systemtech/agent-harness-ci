@@ -41,6 +41,7 @@ import { createRateLimiter } from "../auth/rate-limit.js";
 import { formatActor, openEventLog, type EventLog, type Projector } from "../event-log/event-log.js";
 import type { Adapter } from "../adapter/contract.js";
 import { createClaudeAdapter } from "../adapters/claude/index.js";
+import { createPassthrough } from "../completions/passthrough.js";
 import { SCRATCH_DIRECTORY, createCompletionsSurface } from "../completions/surface.js";
 import { createAdapterHost } from "../adapter/host.js";
 import { ACCOUNTS_DIRECTORY, createAccountService, type AccountService, type ConfiguredAccount } from "../accounts/account-service.js";
@@ -57,7 +58,7 @@ import { createUsagePool } from "../accounts/usage-pool.js";
 import { processMethods } from "../adapter/processes-methods.js";
 import { ATTACHMENTS_DIRECTORY, createAttachmentStage } from "../adapter/attachment-stage.js";
 import { recoverCutRuns, recoverStagedAttachments } from "../adapter/recovery.js";
-import type { InstructionComposer, PolicySeam, PromptAutoAnswer, ToolGateRule, ToolServerFactory } from "../adapter/seams.js";
+import { noToolServers, type InstructionComposer, type PolicySeam, type PromptAutoAnswer, type ToolGateRule, type ToolServerFactory } from "../adapter/seams.js";
 import { autoAnswer } from "../permissions/auto-answer.js";
 import { UNPROBED_REPORT, containmentFlags, containmentReport, failedProbeReport, presetContainmentDefault, withAdapters } from "../permissions/containment.js";
 import { CONTAINMENT_DIRECTORY, containmentDirectories } from "../permissions/containment-directories.js";
@@ -483,6 +484,13 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     }),
   );
 
+  // Client-tool passthrough (#139): the calls runs make to a completions caller's tools, parked until the caller answers,
+  // and the `client` tool server the factory adds for a run whose request declared tools. Closed after the host, whose
+  // close ends every run (and so lets go of what each left parked).
+  const passthrough = createPassthrough({ log, clock });
+  closers.push(() => passthrough.close());
+  const seamServers = options.adapterSeams?.toolServers ?? noToolServers;
+
   // The account store and the adapter host: the adapters, the accounts' sign-in states read through their probes, the run registry.
   const { host, accounts } = await step("adapter-host", async () => {
     // The denylist's presets on first start (#132), before any run can be gated.
@@ -573,6 +581,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       promptTtlMs: () => parkedPromptTtlMs(permissionSettings()["permissions.parkedPrompt.ttl"]),
       processIdleMinutes: options.processIdleMinutes ?? (() => settings()["providers.processIdleMinutes"]),
       ...options.adapterSeams,
+      // The seam's servers, then the caller's own tools as the `client` server (#139).
+      toolServers: (scope) => [...seamServers(scope), ...passthrough.toolServers(scope)],
     });
     // Closed before the event log, so a run the close ends has its end appended (drained when a drain's cap cut it), and
     // before the launcher's channel, so the launcher hears the environment go only once every provider process has
@@ -715,6 +725,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     },
     methods: table,
     scratchRoot: join(dataDir, SCRATCH_DIRECTORY),
+    passthrough,
   });
   surface.prefix(OPENAI_PATH_PREFIX, completions.handle);
   const wire = createWire({

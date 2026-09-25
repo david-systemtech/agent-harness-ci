@@ -5,13 +5,13 @@ import {
   CompletionsExtension as ExtensionSchema,
   IGNORED_PARAMETERS,
   MAX_SYSTEM_PROMPT_CHARS,
-  PASSTHROUGH_PARAMETERS,
   REJECTED_PARAMETERS,
   type AttachmentInput,
   type ChatMessage,
   type CompletionsExtension,
   type Mode,
 } from "@agent-harness/contracts";
+import type { ClientTool } from "../adapter/seams.js";
 import { CompletionsRefusal, paramOf } from "./errors.js";
 
 /**
@@ -21,6 +21,8 @@ import { CompletionsRefusal, paramOf } from "./errors.js";
  * refused or, under `ignoreUnsupported`, ignored and reported, and the
  * messages split into the turn (the trailing user message), the instructions
  * it appends (system and developer messages) and the conversation before it.
+ * The caller's tools (#139) are read into the functions its run is served,
+ * and trailing tool messages into the results that resume a parked turn.
  */
 
 /** How many characters a token stands for when `max_tokens` bounds an answer: a chosen default, since no tokenizer runs here. */
@@ -42,6 +44,23 @@ export interface TurnExtension {
   readonly after: number | null;
 }
 
+/** The caller's own tools as a request declares them (#139). */
+export interface TurnTools {
+  /** What the run is served: the functions declared, none when `tool_choice` is `none`. */
+  readonly served: readonly ClientTool[];
+  /** The functions `tools` declared, as a run would be served them; null when the request sets no `tools`. */
+  readonly declared: readonly ClientTool[] | null;
+  /** `tool_choice: none`: the tools are withheld from the run. */
+  readonly withheld: boolean;
+}
+
+/** One trailing tool message: the result of a call to the caller's tools, and where it stands in `messages`. */
+export interface ToolResult {
+  readonly index: number;
+  readonly toolCallId: string;
+  readonly text: string;
+}
+
 /** A request as a turn. */
 export interface TurnRequest {
   readonly model: string;
@@ -60,10 +79,13 @@ export interface TurnRequest {
   readonly appendedInstructions: string;
   /** Where those came from, as request paths (`agent-harness.systemPrompt`, `messages.0`), for a turn that cannot take them to report. */
   readonly instructionSources: readonly string[];
-  /** The turn: the trailing user message's text. */
+  /** The turn: the trailing user message's text; empty for tool results. */
   readonly text: string;
   /** The conversation before the turn, system and developer messages aside: the preamble of a fresh session. */
   readonly earlier: readonly ChatMessage[];
+  readonly tools: TurnTools;
+  /** The trailing tool messages, in order: the request resumes the turn that parked their calls. Empty for a turn of a user message. */
+  readonly toolResults: readonly ToolResult[];
 }
 
 const invalid = (message: string, param: string | null): CompletionsRefusal => new CompletionsRefusal(400, "invalid_params", message, { param });
@@ -104,6 +126,51 @@ const textOf = (message: ChatMessage, index: number, tolerate: boolean, ignored:
   return texts.join("\n");
 };
 
+/** Whether two sets of the caller's tools serve the same: the same functions, in the same order, alike in every part. */
+export const sameTools = (one: readonly ClientTool[], other: readonly ClientTool[]): boolean =>
+  JSON.stringify(one.map((tool) => [tool.name, tool.description, tool.parameters])) === JSON.stringify(other.map((tool) => [tool.name, tool.description, tool.parameters]));
+
+/**
+ * The caller's tools (#139): each function with its name, description and
+ * parameters (an object with no properties when absent; `type: object`
+ * when the schema leaves the type out, refused when it names another);
+ * another type of tool refused, or ignored and reported; `tool_choice`
+ * `auto` serves them, `none` withholds them, and `required` or a named
+ * function (no model is made to call a tool here) is refused, or ignored and
+ * reported, the tools then served as for `auto`.
+ */
+const readTools = (request: ChatCompletionRequest, tolerate: boolean, ignored: string[]): TurnTools => {
+  const unsupported = (message: string, param: string): void => {
+    if (!tolerate) throw new CompletionsRefusal(400, "unsupported_parameter", `${message} Leave it out, or set ${COMPLETIONS_NAMESPACE}.ignoreUnsupported to have it ignored.`, { param });
+    ignored.push(param);
+  };
+  const declared: ClientTool[] = [];
+  for (const [index, tool] of (request.tools ?? []).entries()) {
+    if (tool.type !== "function") {
+      unsupported(`A ${tool.type} tool is not served here: only functions are.`, `tools.${index}`);
+      continue;
+    }
+    const fn = tool.function;
+    if (fn === undefined) throw invalid("A function tool names its function.", `tools.${index}.function`);
+    if (declared.some((other) => other.name === fn.name)) throw invalid(`Two tools are named ${fn.name}; each name is one tool's.`, `tools.${index}.function.name`);
+    const parameters = fn.parameters ?? { type: "object", properties: {} };
+    if (parameters["type"] !== undefined && parameters["type"] !== "object") {
+      throw invalid("A tool's parameters are a JSON Schema object: its type is object.", `tools.${index}.function.parameters`);
+    }
+    if (fn.strict === true) ignored.push(`tools.${index}.function.strict`);
+    declared.push({ name: fn.name, description: fn.description ?? "", parameters: parameters["type"] === undefined ? { type: "object", ...parameters } : parameters });
+  }
+  const choice = request.tool_choice;
+  let withheld = false;
+  if (choice === "none") withheld = true;
+  else if (typeof choice === "object" && choice !== null) unsupported("A named tool_choice is not honoured here: the model is never made to call a tool.", "tool_choice");
+  else if (choice === "required") unsupported("tool_choice required is not honoured here: the model is never made to call a tool.", "tool_choice");
+  else if (typeof choice === "string" && choice !== "auto") throw invalid(`tool_choice is auto, none, required or a function; ${choice} is none of them.`, "tool_choice");
+  // A choice with no function to choose among says nothing.
+  if (isSet(choice) && declared.length === 0 && !ignored.includes("tool_choice")) ignored.push("tool_choice");
+  return { served: withheld ? [] : declared, declared: isSet(request.tools) ? declared : null, withheld: withheld && declared.length > 0 };
+};
+
 /** Reads a request body, already parsed as JSON, into a turn; a refusal names the field at fault. */
 export const readTurnRequest = (body: unknown): TurnRequest => {
   const parsed = ChatCompletionRequest.safeParse(body);
@@ -124,7 +191,8 @@ export const readTurnRequest = (body: unknown): TurnRequest => {
     }
     ignored.push(name);
   }
-  for (const name of [...IGNORED_PARAMETERS, ...PASSTHROUGH_PARAMETERS]) if (isSet(request[name])) ignored.push(name);
+  for (const name of IGNORED_PARAMETERS) if (isSet(request[name])) ignored.push(name);
+  const tools = readTools(request, tolerate, ignored);
   if (extension.alwaysOnSkills !== undefined && extension.alwaysOnSkills !== null) ignored.push(`${COMPLETIONS_NAMESPACE}.alwaysOnSkills`);
   // A field neither namespace knows (a browser field, a later version's) is dropped, and said so.
   const known = new Set(Object.keys(ExtensionSchema.shape));
@@ -135,13 +203,25 @@ export const readTurnRequest = (body: unknown): TurnRequest => {
   }
 
   const { messages } = request;
-  const trailingIndex = messages.length - 1;
-  const trailing = messages[trailingIndex];
-  if (trailing === undefined || trailing.role !== "user") {
-    throw invalid("The trailing message is the turn, and must be the user's.", "messages");
+  // Trailing tool messages are results for calls to the caller's tools, which resume the turn that parked them (#139).
+  let turnStart = messages.length;
+  while (turnStart > 0 && messages[turnStart - 1]?.role === "tool") turnStart -= 1;
+  const toolResults: ToolResult[] = messages.slice(turnStart).map((message, offset) => {
+    const index = turnStart + offset;
+    const toolCallId = message.tool_call_id;
+    if (typeof toolCallId !== "string" || toolCallId === "") throw invalid("A tool message names the call it answers as tool_call_id.", `messages.${index}.tool_call_id`);
+    return { index, toolCallId, text: textOf(message, index, tolerate, ignored) };
+  });
+  let text = "";
+  if (toolResults.length === 0) {
+    turnStart = messages.length - 1;
+    const trailing = messages[turnStart];
+    if (trailing === undefined || trailing.role !== "user") {
+      throw invalid("The trailing message is the turn, and must be the user's, or tool results for calls to the caller's tools.", "messages");
+    }
+    text = textOf(trailing, turnStart, tolerate, ignored);
+    if (text.trim() === "") throw invalid("The trailing user message has no text.", "messages");
   }
-  const text = textOf(trailing, trailingIndex, tolerate, ignored);
-  if (text.trim() === "") throw invalid("The trailing user message has no text.", "messages");
 
   const instructions: string[] = [];
   const instructionSources: string[] = [];
@@ -150,7 +230,7 @@ export const readTurnRequest = (body: unknown): TurnRequest => {
     instructionSources.push(`${COMPLETIONS_NAMESPACE}.systemPrompt`);
   }
   const earlier: ChatMessage[] = [];
-  messages.slice(0, trailingIndex).forEach((message, index) => {
+  messages.slice(0, turnStart).forEach((message, index) => {
     if (message.role === "system" || message.role === "developer") {
       const instruction = textOf(message, index, tolerate, ignored);
       if (instruction.trim() !== "") {
@@ -199,6 +279,8 @@ export const readTurnRequest = (body: unknown): TurnRequest => {
     instructionSources,
     text,
     earlier,
+    tools,
+    toolResults,
   };
 };
 

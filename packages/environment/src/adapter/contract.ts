@@ -133,11 +133,76 @@ export type RunTarget =
   | { readonly kind: "fork"; readonly providerSessionId: string; readonly atMessageId: string | null }
   | { readonly kind: "rewind"; readonly providerSessionId: string; readonly toMessageId: string };
 
-/** A tool server the factory built for one run (memory tools, the browser, the completions surface's client tools): opaque to the host. */
-export interface ToolServer {
+/**
+ * A tool server the factory built for one run (memory tools, the browser, the
+ * completions surface's client tools): a server the provider starts from
+ * configuration of its own shape (`ConfiguredToolServer`), or tools served
+ * in the environment's own process (`InProcessToolServer`).
+ */
+export type ToolServer = ConfiguredToolServer | InProcessToolServer;
+
+/** A server the provider starts itself from its own configuration (Claude's MCP server config): opaque to the host. */
+export interface ConfiguredToolServer {
   readonly name: string;
   readonly config: unknown;
 }
+
+/**
+ * Tools the environment serves in its own process (#139): the adapter shows
+ * each to the model under the server's name and hands each call to `call`.
+ * An adapter reports a call to one in its transcript under the name
+ * `inProcessToolName` gives (`mcp__<server>__<tool>`, the name Claude's own
+ * MCP servers go by), with the provider's id for the call, which it passes
+ * to `call` as well. A session's runs share its provider process, so an
+ * adapter may serve a later run with the server a process was started with
+ * when its tools are the same (`inProcessToolKey`); a server built for one
+ * session is never handed to another.
+ */
+export interface InProcessToolServer {
+  readonly name: string;
+  readonly tools: readonly HostTool[];
+  /**
+   * The tools run outside the environment (the completions surface's caller
+   * runs its own): a call touches nothing here, so the adapter lets it go
+   * ahead without a permission prompt, and several go out side by side.
+   */
+  readonly external: boolean;
+}
+
+/** One tool of an in-process server: its name, what it does, the JSON Schema of its input as the model sees it, and what runs a call. */
+export interface HostTool {
+  readonly name: string;
+  readonly description: string;
+  readonly inputSchema: JsonObject;
+  /** Runs a call, resolving with what the model reads; it may take as long as the tool needs (a caller's tool is parked until the caller answers). */
+  call(input: JsonObject, call: HostToolCall): Promise<HostToolResult>;
+}
+
+/** A call as the adapter hands it over: the provider's id for it (as the transcript's `tool.started` names it), and a signal aborted when the provider gives up on it. */
+export interface HostToolCall {
+  readonly toolCallId: string | null;
+  readonly signal?: AbortSignal;
+}
+
+/** What a tool call answers the model: text, and whether it failed. */
+export interface HostToolResult {
+  readonly text: string;
+  readonly isError: boolean;
+}
+
+/** Whether a tool server is served in the environment's own process. */
+export const isInProcess = (server: ToolServer): server is InProcessToolServer => "tools" in server;
+
+/** The name an adapter reports a call to an in-process server's tool under in its transcript. */
+export const inProcessToolName = (server: string, tool: string): string => `mcp__${server}__${tool}`;
+
+/**
+ * What an in-process server shows the model, as one string: two servers with
+ * the same key serve the same tools, so a process started with one can serve
+ * a run handed the other.
+ */
+export const inProcessToolKey = (server: InProcessToolServer): string =>
+  JSON.stringify([server.name, server.external, server.tools.map((tool) => [tool.name, tool.description, tool.inputSchema])]);
 
 /**
  * A run's containment as its adapter enforces it (permissions spec,

@@ -20,7 +20,7 @@ import {
 } from "@agent-harness/contracts";
 import { requireCapability } from "../adapter/capabilities.js";
 import type { AdapterDescriptor, AttachmentData, ModelOption, PromptMessage, RunTarget } from "../adapter/contract.js";
-import type { PolicySeam } from "../adapter/seams.js";
+import type { ClientTool, PolicySeam } from "../adapter/seams.js";
 import type { EventInput, JsonObject } from "../event-log/event-log.js";
 import type { RunActor } from "../permissions/resolver.js";
 import type { QueuedMessage, RunRow, SentMessageRow, SessionFacts } from "./run-reads.js";
@@ -116,10 +116,16 @@ export interface StartCommand {
   /**
    * Text the run's instructions carry after the environment's composed ones,
    * never in their place: a completions request's `systemPrompt` and its
-   * system and developer messages (#138). The run's alone: a run the
-   * environment starts after it carries none.
+   * system and developer messages (#138). A run the environment starts from
+   * the queue after it carries them too (the host's `NextRunBasis`).
    */
   readonly appendedInstructions?: string | undefined;
+  /**
+   * The tools a completions request declared for the caller to run (#139),
+   * which the run's tool servers serve; a run of the queue takes the run
+   * before it's, as it takes its instructions.
+   */
+  readonly clientTools?: readonly ClientTool[] | undefined;
   /**
    * The run starts for the answers kept for the session's next run (#131: a
    * TTL answer whose run had gone), which it reads first: with no message
@@ -160,6 +166,8 @@ export interface PlannedRun {
   readonly policy: RunPolicy;
   /** What the run's instructions carry after the composed ones (`StartCommand.appendedInstructions`); null for nothing. */
   readonly appendedInstructions: string | null;
+  /** The tools the caller runs (`StartCommand.clientTools`); empty for none. */
+  readonly clientTools: readonly ClientTool[];
   /**
    * The messages the run starts with, in order: the queued ones, whose
    * attachments' bytes the host holds, then the one sent, with its bytes.
@@ -325,6 +333,7 @@ export const decideStart = (facts: StartFacts, command: StartCommand): StartDeci
       actor: facts.actor,
       policy,
       appendedInstructions: command.appendedInstructions === undefined || command.appendedInstructions.trim() === "" ? null : command.appendedInstructions,
+      clientTools: command.clientTools ?? [],
       prompt: [
         ...facts.queued.map((queued) => ({ messageId: queued.messageId, text: queued.text, attachments: [] })),
         ...(command.message === null ? [] : [{ messageId: command.message.messageId, text: command.message.text, attachments: attachments.data }]),
@@ -435,10 +444,16 @@ export interface ReadNowFacts {
   readonly providerHeld: readonly string[];
   /**
    * The run before, whose model and effort the run of the queue takes, and
-   * its own instructions (a completions request's, #138), as the queue's run
-   * after it would; null before the session's first run.
+   * its own instructions and client tools (a completions request's, #138,
+   * #139), as the queue's run after it would; null before the session's
+   * first run.
    */
-  readonly basis: { readonly model: string; readonly effort: string | null; readonly appendedInstructions: string | null } | null;
+  readonly basis: {
+    readonly model: string;
+    readonly effort: string | null;
+    readonly appendedInstructions: string | null;
+    readonly clientTools: readonly ClientTool[];
+  } | null;
 }
 
 export type ReadNowDecision =
@@ -473,6 +488,7 @@ export const decideReadNow = (facts: ReadNowFacts): ReadNowDecision => {
     ...(basis !== null && { model: basis.model }),
     ...(basis?.effort !== null && basis?.effort !== undefined && { effort: basis.effort }),
     ...(basis !== null && basis.appendedInstructions !== null && { appendedInstructions: basis.appendedInstructions }),
+    ...(basis !== null && { clientTools: basis.clientTools }),
   });
   if (decision.rejected !== undefined) return { rejected: decision.rejected };
   return { events: decision.events, run: decision.run };

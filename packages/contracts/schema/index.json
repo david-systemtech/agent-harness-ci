@@ -795,8 +795,28 @@
       "title": "ChatMessage"
     },
     {
+      "path": "completions/tool-function.json",
+      "title": "ChatToolFunction"
+    },
+    {
+      "path": "completions/tool.json",
+      "title": "ChatTool"
+    },
+    {
+      "path": "completions/tool-choice.json",
+      "title": "ChatToolChoice"
+    },
+    {
       "path": "completions/request.json",
       "title": "ChatCompletionRequest"
+    },
+    {
+      "path": "completions/tool-call.json",
+      "title": "ChatToolCall"
+    },
+    {
+      "path": "completions/tool-call-delta.json",
+      "title": "ChatToolCallDelta"
     },
     {
       "path": "completions/finish-reason.json",
