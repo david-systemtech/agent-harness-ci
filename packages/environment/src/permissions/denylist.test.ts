@@ -27,9 +27,9 @@ import { create, refusal } from "../../test/sessions.js";
 import type { WireClient } from "../../test/wire-client.js";
 import type { GatedToolCall, ToolGate } from "../adapter/contract.js";
 import { CANCELLED_MESSAGE, RUN_ENDED_MESSAGE, UNRECORDED_MESSAGE } from "./broker.js";
-import { denylistCall } from "./denylist-gate.js";
+import { denylistCall, denylistReadsCall, denylistRule } from "./denylist-gate.js";
 import { GATE_FAILED_MESSAGE, resolvePath } from "./gate.js";
-import type { ToolGateRule } from "../adapter/seams.js";
+import type { RuledRun, ToolGateRule } from "../adapter/seams.js";
 import type { EventEnvelope as LogEvent } from "../event-log/event-log.js";
 import type { ActorRunRequest } from "../serve/start.js";
 
@@ -584,6 +584,47 @@ describe("the denylist a provider projects onto its own rules (#140)", () => {
     const { runId } = await startRun(client, id, "bypassPermissions");
     await untilEnded(t, id, runId);
     expect(t.adapter.runs.at(-1)?.input.denylist).toBeNull();
+  });
+});
+
+describe("a client tool's call (mcp__client__*, #139)", () => {
+  const clientRead: Omit<GatedToolCall, "toolCallId"> = {
+    tool: "mcp__client__read_file",
+    summary: "read_file ~/.ssh/id_rsa",
+    access: { kind: "other" },
+    input: { path: "~/.ssh/id_rsa" },
+  };
+
+  it("is read by the denylist like any other call, by default: its arguments are matched, though the tool runs on the caller's machine", async () => {
+    const t = await start({ script: calls(clientRead) });
+    const client = await t.client();
+    const { id } = await create(client);
+    const { runId } = startAsRoutine(t, id);
+    await untilEnded(t, id, runId);
+    expect(opened(t, id).map((prompt) => [prompt.toolName, prompt.denylist?.[0]?.entry.pattern])).toEqual([["mcp__client__read_file", "~/.ssh"]]);
+    expect(decisions(t, id)).toEqual([expect.objectContaining({ tool: "mcp__client__read_file", decision: "denied", decidedBy: "denylist" })]);
+  });
+
+  it("is passed over by the rule when the one seam that says which calls the denylist reads leaves it out", async () => {
+    const rule = denylistRule({
+      denylist: () => denylistPresets("/data/agent-harness"),
+      home: "/home/test",
+      exempt: [],
+      resolve: (path) => path,
+      readsCall: (call) => !call.tool.startsWith("mcp__client__"),
+    });
+    const run: RuledRun = {
+      runId: "run",
+      sessionId: "session",
+      workspace: "/work/repo",
+      containment: { level: "off", mechanism: null, scratchDirectory: "/s", temporaryDirectory: "/t", writable: ["/work/repo"], network: true },
+      ask: () => {
+        throw new Error("Nobody is asked about a call the denylist does not read.");
+      },
+    };
+    expect(await rule.check({ ...clientRead, toolCallId: "call_1" }, run)).toBeNull();
+    await expect(rule.check({ ...readKey, toolCallId: "call_2" }, run)).rejects.toThrow(/Nobody is asked/);
+    expect(denylistReadsCall({ ...clientRead, toolCallId: "call_3" })).toBe(true);
   });
 });
 
