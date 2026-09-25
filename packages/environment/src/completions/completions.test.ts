@@ -1723,24 +1723,26 @@ describe("client-tool passthrough (#139)", () => {
   it("refuses tools it cannot serve: another type 400 or ignored, a bad or repeated name, parameters that are not an object's", async () => {
     const t = await start();
     const { token } = await program(t);
-    const refused = async (body: Record<string, unknown>) => (await refusalOf(await post(t, token, body))).body.error;
-    expect(await refused(turn("Hi", { tools: [{ type: "custom", custom: { name: "grammar" } }, WEATHER] }))).toMatchObject({ code: "unsupported_parameter", param: "tools.0" });
-    const tolerated = await complete(t, token, turn("Hi", { tools: [{ type: "custom", custom: { name: "grammar" } }, WEATHER], "agent-harness": { ignoreUnsupported: true } }));
-    expect(tolerated["agent-harness"].ignored).toEqual(["tools.0"]);
-    const [server] = t.adapter.lastRun().input.toolServers;
-    expect(server !== undefined && isInProcess(server) ? server.tools.map((tool) => tool.name) : []).toEqual(["get_weather"]);
-    expect(await refused(turn("Hi", { tools: [{ type: "function", function: { name: "get weather" } }] }))).toMatchObject({ code: "invalid_params", param: "tools.0.function.name" });
-    expect(await refused(turn("Hi", { tools: [WEATHER, WEATHER] }))).toMatchObject({ code: "invalid_params", param: "tools.1.function.name" });
-    expect(await refused(turn("Hi", { tools: [{ type: "function", function: { name: "ping", parameters: { type: "string" } } }] }))).toMatchObject({
-      code: "invalid_params",
-      param: "tools.0.function.parameters",
-    });
-    expect(await refused(turn("Hi", { tools: [{ type: "function" }] }))).toMatchObject({ code: "invalid_params", param: "tools.0.function" });
-    // strict is not honoured, and a choice among no tools says nothing: both reported.
-    const strict = await complete(t, token, turn("Hi", { tools: [{ ...WEATHER, function: { ...WEATHER.function, strict: true } }] }));
-    expect(strict["agent-harness"].ignored).toEqual(["tools.0.function.strict"]);
-    expect((await complete(t, token, turn("Hi", { tool_choice: "auto" })))["agent-harness"].ignored).toEqual(["tool_choice"]);
-    expect(t.adapter.runs).toHaveLength(3);
+    for (const streaming of [true, false]) {
+      const refused = async (body: Record<string, unknown>) => (await refusalOf(await post(t, token, { ...body, stream: streaming }))).body.error;
+      expect(await refused(turn("Hi", { tools: [{ type: "custom", custom: { name: "grammar" } }, WEATHER] }))).toMatchObject({ code: "unsupported_parameter", param: "tools.0" });
+      const tolerated = await exchange(t, token, turn("Hi", { tools: [{ type: "custom", custom: { name: "grammar" } }, WEATHER], "agent-harness": { ignoreUnsupported: true } }), streaming);
+      expect(tolerated.extension.ignored).toEqual(["tools.0"]);
+      const [server] = t.adapter.lastRun().input.toolServers;
+      expect(server !== undefined && isInProcess(server) ? server.tools.map((tool) => tool.name) : []).toEqual(["get_weather"]);
+      expect(await refused(turn("Hi", { tools: [{ type: "function", function: { name: "get weather" } }] }))).toMatchObject({ code: "invalid_params", param: "tools.0.function.name" });
+      expect(await refused(turn("Hi", { tools: [WEATHER, WEATHER] }))).toMatchObject({ code: "invalid_params", param: "tools.1.function.name" });
+      expect(await refused(turn("Hi", { tools: [{ type: "function", function: { name: "ping", parameters: { type: "string" } } }] }))).toMatchObject({
+        code: "invalid_params",
+        param: "tools.0.function.parameters",
+      });
+      expect(await refused(turn("Hi", { tools: [{ type: "function" }] }))).toMatchObject({ code: "invalid_params", param: "tools.0.function" });
+      // strict is not honoured, and a choice among no tools says nothing: both reported.
+      const strict = await exchange(t, token, turn("Hi", { tools: [{ ...WEATHER, function: { ...WEATHER.function, strict: true } }] }), streaming);
+      expect(strict.extension.ignored).toEqual(["tools.0.function.strict"]);
+      expect((await exchange(t, token, turn("Hi", { tool_choice: "auto" }), streaming)).extension.ignored).toEqual(["tool_choice"]);
+    }
+    expect(t.adapter.runs).toHaveLength(6);
   });
 
   it("refuses tool results no parked call waits for 404, results for another session's calls 400, and reports a stray result and what the running turn cannot take", async () => {
@@ -1777,32 +1779,44 @@ describe("client-tool passthrough (#139)", () => {
   it("takes tool results while the environment drains, so the running turn can finish", async () => {
     const t = await start({ script: weatherScript });
     const { token } = await program(t);
-    const asked = await exchange(t, token, turn("Weather in Manila?", { tools: [WEATHER] }), true);
+    const streamed = await exchange(t, token, turn("Weather in Manila?", { tools: [WEATHER] }), true);
+    const whole = await exchange(t, token, turn("Weather in Manila?", { tools: [WEATHER] }), false);
     void t.env.drain("command");
     await vi.waitFor(() => expect(t.env.readiness()).toBe("draining"));
     expect(await refusalOf(await post(t, token, turn("One more", { tools: [WEATHER] })))).toMatchObject({ status: 503, body: { error: { code: "unavailable" } } });
-    const resumed = await exchange(t, token, followUp("Weather in Manila?", asked, { get_weather: "Sunny" }), true);
-    expect(resumed).toMatchObject({ content: "Tool said: Sunny", finishReason: "stop" });
+    for (const [asked, streaming] of [
+      [streamed, true],
+      [whole, false],
+    ] as const) {
+      expect(await exchange(t, token, followUp("Weather in Manila?", asked, { get_weather: "Sunny" }), streaming)).toMatchObject({ content: "Tool said: Sunny", finishReason: "stop" });
+    }
   });
 
   it("carries a completions run's client tools to the run started from its queue, whose answer returns its calls", async () => {
     const t = await start({ capabilities: { providerQueue: false, steering: false } });
     const { token } = await program(t);
-    const held = gate();
-    t.adapter.nextScripts.push(heldScript(held.opened, "First done"));
-    t.adapter.nextScripts.push(weatherScript);
-    const first = await stream(t, token, turn("First", { tools: [WEATHER] }));
-    const sessionId = (await first.chunk())["agent-harness"].sessionId as string;
-    // Queued with the same tools: nothing ignored; the run of the queue is served them and its call comes back in this answer.
-    const queued = await stream(t, token, turn("Weather in Manila?", { tools: [WEATHER], "agent-harness": { sessionId } }));
-    expect((await queued.chunk())["agent-harness"].ignored).toEqual([]);
-    held.open();
-    await first.rest();
-    const chunks = chunksOf(await queued.rest());
-    const calls = chunks.flatMap((chunk) => chunk.choices[0]?.delta.tool_calls ?? []);
-    expect(calls.map((call) => call.function.name)).toEqual(["get_weather"]);
-    expect(chunks.at(-1)?.choices[0]?.finish_reason).toBe("tool_calls");
-    expect(t.adapter.runs.map((run) => run.input.toolServers.map((server) => server.name))).toEqual([["client"], ["client"]]);
+    for (const streaming of [true, false]) {
+      const held = gate();
+      t.adapter.nextScripts.push(heldScript(held.opened, "First done"));
+      t.adapter.nextScripts.push(weatherScript);
+      const first = await stream(t, token, turn("First", { tools: [WEATHER] }));
+      const sessionId = (await first.chunk())["agent-harness"].sessionId as string;
+      // Queued with the same tools: nothing ignored; the run of the queue is served them and its call comes back in this answer.
+      const queued = exchange(t, token, turn("Weather in Manila?", { tools: [WEATHER], "agent-harness": { sessionId } }), streaming);
+      await vi.waitFor(() => expect(ofType(t, sessionId, "message.sent")).toHaveLength(2));
+      held.open();
+      await first.rest();
+      const answer = await queued;
+      expect(answer.extension).toMatchObject({ delivery: "queued", ignored: [] });
+      expect(answer.content).toBe("First done\n\nLet me look.");
+      expect(answer.toolCalls.map((call) => call.function.name)).toEqual(["get_weather"]);
+      expect(answer.finishReason).toBe("tool_calls");
+      expect(t.adapter.runs.slice(-2).map((run) => run.input.toolServers.map((server) => server.name))).toEqual([["client"], ["client"]]);
+      // The call is the queue's run's, and a follow-up resumes that run.
+      const resumed = await exchange(t, token, followUp("Weather in Manila?", answer, { get_weather: "Sunny" }), streaming);
+      expect(resumed).toMatchObject({ content: "Tool said: Sunny", finishReason: "stop" });
+      expect(resumed.extension.runId).toBe(t.adapter.lastRun().input.runId);
+    }
     // A queued turn whose tools differ from the live run's is told they were not taken.
     t.adapter.nextScripts.push(heldScript(gate().opened));
     const other = await stream(t, token, turn("Again", { tools: [WEATHER] }));
