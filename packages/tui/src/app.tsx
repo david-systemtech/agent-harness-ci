@@ -578,7 +578,7 @@ export const App = (props: AppProps) => {
     panel: screen.card.kind === "panel" ? screen.card.panel : undefined,
     open: (panel) => update({ card: { kind: "panel", panel } }),
     change: (next) => setScreen((s) => (s.card.kind === "panel" ? { ...s, card: { kind: "panel", panel: next(s.card.panel) } } : s)),
-    close: () => setScreen((s) => (s.card.kind === "panel" ? { ...s, card: { kind: "none" } } : s)),
+    close: (when) => setScreen((s) => (s.card.kind === "panel" && (when?.(s.card.panel) ?? true) ? { ...s, card: { kind: "none" } } : s)),
     say,
     ask: (asked) => update({ question: asked }),
     openSession: (next) => open(next),

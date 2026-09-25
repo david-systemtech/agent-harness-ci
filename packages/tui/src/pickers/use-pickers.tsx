@@ -75,7 +75,8 @@ export interface PickersHost {
   open(panel: Panel): void;
   /** Changes the open card while it is still one of these, of the same kind. */
   change(update: (panel: Panel) => Panel): void;
-  close(): void;
+  /** Closes the open card while it is one of these, and, with `when`, only while `when` holds of it. */
+  close(when?: (panel: Panel) => boolean): void;
   say(line: string): void;
   ask(question: { readonly text: string; readonly yes: () => void; readonly no?: () => void }): void;
   openSession(opened: Opened): void;
@@ -114,6 +115,9 @@ export interface Pickers {
 }
 
 const keyOf = (opened: Opened) => `${opened.environmentId} ${opened.sessionId}`;
+
+/** An answer that comes after a card was replaced closes only the card it was for: a sign-in's. */
+const isSignIn = (panel: Panel): boolean => panel.kind === "signin";
 
 const clamp = (cursor: number, rows: number): number => (rows <= 0 ? 0 : Math.min(Math.max(cursor, 0), rows - 1));
 
@@ -182,7 +186,7 @@ export const usePickers = (host: PickersHost): Pickers => {
   const ending = panel?.kind === "signin" && followedNow ? signInEnd(followedNow, panel.label, nameFor(panel.environmentId)) : undefined;
   useEffect(() => {
     if (ending === undefined) return;
-    host.close();
+    host.close(isSignIn);
     host.say(ending);
   }, [ending]);
 
@@ -211,7 +215,7 @@ export const usePickers = (host: PickersHost): Pickers => {
     host.open({ kind: "signin", environmentId, label: account.label, accountId: account.id, startedAt: null, sending: "start", text: "", error: null });
     void admin(() => runtime.requests.call(environmentId, "accounts.signin.start", { commandId: host.newCommandId(), accountId: account.id })).then((answer) => {
       if (!answer.ok) {
-        host.close();
+        host.close(isSignIn);
         return host.say(`${account.label} was not signed in: ${answer.line}`);
       }
       host.change((card) => (card.kind === "signin" && card.accountId === account.id ? { ...card, sending: null, startedAt: answer.result?.signIn.startedAt ?? null } : card));
@@ -228,11 +232,11 @@ export const usePickers = (host: PickersHost): Pickers => {
       if (!answer.ok) return host.change((c) => (c.kind === "signin" ? { ...c, sending: null, error: `Not added: ${answer.line}` } : c));
       const result = answer.result;
       if (!result) {
-        host.close();
+        host.close(isSignIn);
         return host.say(`${label} was added on ${nameFor(card.environmentId)}; /account shows it.`);
       }
       if (!result.signIn.started) {
-        host.close();
+        host.close(isSignIn);
         return host.say(`${label} was added on ${nameFor(card.environmentId)}, but its sign-in did not start: ${result.signIn.message ?? "the environment gave no reason"}`);
       }
       host.change((c) => (c.kind === "signin" ? { ...c, accountId: result.account.id, sending: null, text: "" } : c));

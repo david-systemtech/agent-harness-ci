@@ -158,6 +158,29 @@ describe("/account", () => {
     answer();
   });
 
+  it("leaves a card opened meanwhile alone when a sign-in's start answers late with a refusal (PR review)", async () => {
+    const { app, env } = await launch([desk({ accounts: [{ id: "account-1", label: "work", identity: SETH }, { id: "account-2", label: "personal", status: { state: "signed-out", checkedAt: null, detail: null } }] })]);
+    let refuse = () => undefined as void;
+    env.wire.answer(
+      "accounts.signin.start",
+      () =>
+        new Promise((resolve) => {
+          refuse = () =>
+            resolve({ result: { receipt: { status: "rejected", sequence: 999, changed: false, reason: "conflict", error: { code: "conflict", message: "Another sign-in holds desk.", data: {} } } } });
+        }),
+    );
+    await command(app, "/account");
+    await app.waitFor("+ Add an account");
+    await app.press(KEY.down, KEY.enter);
+    await app.waitFor("Starting the sign-in");
+    // Alt+H opens the hand-off picker over the sign-in card while its start is on its way.
+    await app.press("\u001Bh");
+    await app.waitFor("Hand off Receipts on desk");
+    refuse();
+    await app.waitFor("personal was not signed in: Another sign-in holds desk.");
+    expect(app.frame()).toContain("Hand off Receipts on desk");
+  });
+
   it("cancels the sign-in it started when Esc leaves the card", async () => {
     const { app, env } = await launch();
     await command(app, "/account");
