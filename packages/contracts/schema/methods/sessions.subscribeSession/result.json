@@ -1834,7 +1834,7 @@
         ],
         "description": "One settled item of a transcript: a user message, assistant text or thinking, a tool call, a command, a run's delegated work, a prompt with its answer, or an item of a kind the reader does not know, kept opaque."
       },
-      "description": "The settled items of the transcript, in order; items a rewind hid are left out."
+      "description": "The settled items of the transcript, in order; items a rewind hid are left out until it is undone."
     },
     "parkedPrompts": {
       "type": "array",

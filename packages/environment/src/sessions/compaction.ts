@@ -3,6 +3,7 @@ import type { EventEnvelope, EventLog } from "../event-log/event-log.js";
 import { foldTranscript, type TranscriptParts } from "../runs/transcript.js";
 import type { Clock } from "../serve/clock.js";
 import { readSettings } from "../settings/settings-store.js";
+import { undoableRewind } from "./fork-rewind.js";
 import type { Reader } from "./session-tables.js";
 import { SETTLE_SWEEP_ACTOR } from "./settle-sweep.js";
 import { sessionStream } from "./streams.js";
@@ -24,6 +25,13 @@ import { sessionStream } from "./streams.js";
  *   and leaves only a receipt, kept 30 days, shorter than any window worth
  *   having; the rule reads events. Older than the window is strict: a
  *   session exactly the window old is compacted at the next pass.
+ * - **Not rewound with an undo still offered** (#218): a session whose
+ *   latest rewind not undone has had no run started since
+ *   (`undoableRewind`, `sessions/fork-rewind.ts`) is left out, since the
+ *   fold does not keep the items a rewind hides and `sessions.undoRewind`
+ *   shows them again. Once a run starts after the rewind the undo is gone
+ *   and the session is compacted as any other, the hidden items folded
+ *   away with the events removed.
  * - **Folded**: every event of the stream up to its last, organisation ones
  *   included, since the fold reads a run's start and end and a rewind; the
  *   fold goes on from an earlier compaction's snapshot.
@@ -35,9 +43,9 @@ import { sessionStream } from "./streams.js";
  *   every organisation event (`session.*`, `group.*`, prompts, pull
  *   requests), the `list`-flagged `run.started` and `run.ended` (the session
  *   list's `activity`, `lastActivityAt`, `accountId` and `model`, and the runs
- *   table), `session.provider-linked` (the resume id), `session.forked` and
- *   `session.rewound`, and the `message.*` events (the runs projector's
- *   queue of messages, which a run reads from).
+ *   table), `session.provider-linked` (the resume id), `session.forked`,
+ *   `session.rewound` and `session.rewind-undone`, and the `message.*`
+ *   events (the runs projector's queue of messages, which a run reads from).
  *
  * The sweep compacts each session in a transaction of its own, a failure
  * rolled back, logged by the session's id and left for the next pass. It
@@ -133,6 +141,8 @@ export const createCompactionSweep = (options: CompactionSweepOptions): Compacti
   /** Compacts one session in a transaction of its own: whether it removed anything. */
   const compact = (id: string): boolean =>
     log.atomically((tx) => {
+      // A rewind that can still be undone hides items the fold would not keep, which the undo shows again (#218).
+      if (undoableRewind(log, id) !== null) return false;
       const stream = sessionStream(id);
       const snapshot = log.readSnapshot(stream);
       const events = log.readStream(stream, snapshot?.sequence ?? 0);

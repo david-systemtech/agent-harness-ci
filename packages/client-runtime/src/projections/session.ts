@@ -15,6 +15,7 @@ import {
   type RunEndedPayload,
   type RunStartedPayload,
   type RunSummary,
+  type SessionRewindUndonePayload,
   type SessionRewoundPayload,
   type SessionSummary,
   type TasksChangedPayload,
@@ -68,6 +69,16 @@ import type { SessionLease } from "../streams/streams.js";
  * - **`session.rewound`** hides the message rewound to and every entry
  *   after it (they stay in the log; ADR 0022), and `rewound` says so until
  *   the next run starts, while `sessions.undoRewind` is offered;
+ *   **`session.rewind-undone`** (#218) shows what the rewind it names hid
+ *   again, in sequence order before anything that came after the rewind,
+ *   and `rewound` falls back to the rewind before it that still stands,
+ *   which a run starting ends as it ends the latest. The reducer keeps what
+ *   a rewind hid only for a rewind it heard: the snapshot leaves out what a
+ *   rewind hid, so an undo of one that stood when the snapshot was taken has
+ *   nothing to show again here; the session's stream kind sees the same
+ *   undo and resubscribes for a fresh snapshot, folded past it, which does
+ *   (`undoesUnheardRewind`, `streams/kinds.ts`). For the same reason a
+ *   snapshot taken after a rewind gives no `rewound`;
  * - an event of a type the contracts do not know, and one of a known type
  *   whose payload cannot be folded, is kept as an `opaque` entry naming its
  *   type, and the fold goes on (ADR 0001): an older client survives a newer
@@ -150,7 +161,7 @@ export interface OpaqueEntry {
 
 export type TranscriptEntry = UserMessageEntry | AssistantEntry | ToolCallEntry | CommandEntry | TasksEntry | PromptEntry | SubagentEntry | OpaqueEntry;
 
-/** The rewind a session is at, until a run starts on it (ADR 0022: `sessions.undoRewind` is offered until then). */
+/** The rewind a session is at, until a run starts on it or it is undone (ADR 0022: `sessions.undoRewind` is offered until then). */
 export interface RewoundAt {
   readonly toMessageId: string;
   /** The sequence of the `session.rewound`. */
@@ -231,7 +242,10 @@ export const reduceSession = (snapshot: SessionSnapshotParts, events: readonly E
   const runs = new Map<string, Mutable<RunSummary>>(snapshot.runs.map((run) => [run.runId, { ...run }]));
   let items: Held[] = snapshot.items.map(fromSnapshot);
   const parked = new Map<string, ParkedPrompt>(snapshot.parkedPrompts.map((prompt) => [prompt.promptId, prompt]));
-  let rewound: RewoundAt | null = null;
+  /** The rewinds heard that still stand, oldest first, each with what it hid: undoable until a run starts, which ends them all. */
+  let rewinds: { readonly at: RewoundAt; readonly hidden: readonly Held[] }[] = [];
+  /** The latest rewind standing: the one `sessions.undoRewind` would undo. */
+  const rewound = (): RewoundAt | null => rewinds.at(-1)?.at ?? null;
 
   // The entries later events update, by the ids those carry.
   const messages = new Map<string, Mutable<UserMessageEntry>>();
@@ -278,8 +292,8 @@ export const reduceSession = (snapshot: SessionSnapshotParts, events: readonly E
           usage: null,
           durationMs: null,
         });
-        // A run started on a rewound session: the rewind can no longer be undone.
-        rewound = null;
+        // A run started on a rewound session: no rewind before it can be undone any more.
+        rewinds = [];
         return;
       }
       case "run.ended": {
@@ -426,8 +440,17 @@ export const reduceSession = (snapshot: SessionSnapshotParts, events: readonly E
         const { toMessageId } = event.payload as SessionRewoundPayload;
         const target = messages.get(toMessageId);
         if (target === undefined || !items.includes(target)) return;
+        rewinds.push({ at: { toMessageId, sequence }, hidden: items.filter((item) => item.sequence >= target.sequence) });
         items = items.filter((item) => item.sequence < target.sequence);
-        rewound = { toMessageId, sequence };
+        return;
+      }
+      case "session.rewind-undone": {
+        const { rewindSequence } = event.payload as SessionRewindUndonePayload;
+        const undone = rewinds.find((rewind) => rewind.at.sequence === rewindSequence);
+        // One it did not hear (it stood when the snapshot was taken) has nothing to show again: the stream resubscribes for a fresh snapshot, which does.
+        if (undone === undefined) return;
+        rewinds = rewinds.filter((rewind) => rewind !== undone);
+        items = [...items, ...undone.hidden].sort((a, b) => a.sequence - b.sequence);
         return;
       }
       case "prompt.opened": {
@@ -459,7 +482,7 @@ export const reduceSession = (snapshot: SessionSnapshotParts, events: readonly E
     }
   }
 
-  return { runs: [...runs.values()], items: gatherSubagents(items), parkedPrompts: [...parked.values()], queued: queuedOf(items), rewound };
+  return { runs: [...runs.values()], items: gatherSubagents(items), parkedPrompts: [...parked.values()], queued: queuedOf(items), rewound: rewound() };
 };
 
 /** The messages still waiting to be read, in order. */

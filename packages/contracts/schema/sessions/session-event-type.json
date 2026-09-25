@@ -46,6 +46,7 @@
     "session.provider-linked",
     "session.forked",
     "session.rewound",
+    "session.rewind-undone",
     "run.ended",
     "run.policy.resolved",
     "session.mode.set",
