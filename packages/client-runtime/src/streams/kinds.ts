@@ -164,7 +164,8 @@ export const sessionKind = (): StreamKind<SessionData> => ({
  * and colour would be too: they come from the environment, never the client
  * (ADR 0005), from `environment.status` and an environment-updated notice.
  * As built neither carries them: the notices are `environment.started`,
- * `environment.updated` (harness versions) and `environment.draining`, and
+ * `environment.updated` (harness versions), `environment.draining` and
+ * `account.updated` (the account store, #134), and
  * the status is readiness, activity and `updatesManagedOutside`; so the name
  * comes from discovery and `hello`, and icon and colour stay null until the
  * workspace-picker workstream adds the notice this `apply` then reads.
@@ -186,7 +187,9 @@ export const environmentKind = (): StreamKind<EnvironmentData> => ({
         return { status: { ...data.status, readiness: "draining", activity: { state: "draining", drainingSince: notice.data.payload.drainingSince } } };
       case "environment.started":
         return { status: { ...data.status, readiness: "ready", activity: { state: "idle" } } };
+      // A new version, or an account changed (#134): the status holds neither; a request cache refreshes on the latter.
       case "environment.updated":
+      case "account.updated":
         return data;
       // A prompt's notices change no status: the parked asks and the notices queue are projections of their own (#142).
       case "prompt.parked":

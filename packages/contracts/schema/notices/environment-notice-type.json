@@ -6,8 +6,9 @@
     "environment.started",
     "environment.updated",
     "environment.draining",
+    "account.updated",
     "prompt.parked",
     "prompt.resolved"
   ],
-  "description": "An environment notice's event type: environment.started (startup finished), environment.updated (a new harness version now runs), environment.draining (new runs are refused before a restart), prompt.parked (a run waits for a person's answer), prompt.resolved (a parked prompt was answered)."
+  "description": "An environment notice's event type: environment.started (startup finished), environment.updated (a new harness version now runs), environment.draining (new runs are refused before a restart), account.updated (an account changed; a client refreshes what it caches of the accounts), prompt.parked (a run waits for a person's answer), prompt.resolved (a parked prompt was answered)."
 }

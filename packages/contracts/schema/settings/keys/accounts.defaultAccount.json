@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DefaultAccount",
+  "anyOf": [
+    {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "description": "An account's id on its environment: a version 4 UUID the environment mints when it adopts or adds the account; an account carried over from configuration keeps the id it was configured with."
+    },
+    {
+      "type": "null"
+    }
+  ],
+  "description": "The account a session with none of its own runs on (ADR 0018); null, or an account the environment no longer holds, for the first account adopted or added that it still holds."
+}

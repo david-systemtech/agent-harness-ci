@@ -7,6 +7,7 @@
  * less than the whole package.
  */
 import { BYPASS_SENTENCE, FRAME_TYPES, SHARED_ERROR_CODES, methodPath, methods, type FrameType } from "../src/index.js";
+import { accountMethodFixtures, accountSchemaFixtures } from "./account-fixtures.js";
 import { permissionMethodFixtures, permissionSchemaFixtures } from "./permission-fixtures.js";
 import { providerMethodFixtures, providerSchemaFixtures } from "./provider-fixtures.js";
 import { runMethodFixtures, runSchemaFixtures } from "./run-fixtures.js";
@@ -461,6 +462,7 @@ const methodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
   ...providerMethodFixtures,
   ...settingsMethodFixtures,
   ...permissionMethodFixtures,
+  ...accountMethodFixtures,
   ...terminalMethodFixtures,
 };
 
@@ -662,7 +664,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
     invalid: [envelopeWithoutCommandId, { ...validEnvelope, sequence: 0 }, { ...validEnvelope, payload: [] }],
   },
   "notices/environment-notice-type.json": {
-    valid: ["environment.started", "environment.updated", "environment.draining", "prompt.parked", "prompt.resolved"],
+    valid: ["environment.started", "environment.updated", "environment.draining", "account.updated", "prompt.parked", "prompt.resolved"],
     invalid: ["environment.stopped", "session.created", "prompt.opened", ""],
   },
   "notices/environment-notice.json": {
@@ -670,6 +672,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
       { type: "environment.started", payload: { harnessVersion: "0.1.0", protocolVersion: 1 } },
       { type: "environment.updated", payload: { fromVersion: "0.1.0", toVersion: "0.2.0" } },
       { type: "environment.draining", payload: { drainingSince: at, trigger: "launcher" } },
+      { type: "account.updated", payload: { accountId: "claude-max", change: "status-changed", warning: null } },
       {
         type: "prompt.parked",
         payload: { sessionId: otherUuid, runId: thirdUuid, promptId: "toolu_1", kind: "question", title: "Fix the receipts", summary: "Which library?" },
@@ -684,6 +687,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
       { type: "environment.draining", payload: { drainingSince: "soon", trigger: "signal" } },
       { type: "environment.draining", payload: { drainingSince: at } },
       { type: "environment.stopped", payload: {} },
+      { type: "account.updated", payload: { accountId: "claude-max", change: "status-changed" } },
       { type: "prompt.parked", payload: { sessionId: otherUuid, runId: thirdUuid, promptId: "toolu_1", kind: "tool", title: "t", summary: "s" } },
       { type: "prompt.resolved", payload: { sessionId: otherUuid, runId: thirdUuid, promptId: "toolu_1", decision: "allow" } },
       validEnvelope,
@@ -720,6 +724,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
   ...providerSchemaFixtures,
   ...settingsSchemaFixtures,
   ...permissionSchemaFixtures,
+  ...accountSchemaFixtures,
   ...terminalSchemaFixtures,
   ...methodSchemaFixtures,
 };

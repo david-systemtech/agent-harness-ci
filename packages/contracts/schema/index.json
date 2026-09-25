@@ -587,6 +587,98 @@
       "title": "ProviderProcess"
     },
     {
+      "path": "accounts/account-id.json",
+      "title": "AccountId"
+    },
+    {
+      "path": "accounts/account-label.json",
+      "title": "AccountLabel"
+    },
+    {
+      "path": "accounts/directory-kind.json",
+      "title": "AccountDirectoryKind"
+    },
+    {
+      "path": "accounts/directory.json",
+      "title": "AccountDirectory"
+    },
+    {
+      "path": "accounts/status-state.json",
+      "title": "AccountStatusState"
+    },
+    {
+      "path": "accounts/status.json",
+      "title": "AccountStatus"
+    },
+    {
+      "path": "accounts/account-record.json",
+      "title": "AccountRecord"
+    },
+    {
+      "path": "accounts/removal-reason.json",
+      "title": "AccountRemovalReason"
+    },
+    {
+      "path": "accounts/event-type.json",
+      "title": "AccountEventType"
+    },
+    {
+      "path": "accounts/events/account.adopted.json",
+      "title": "AccountAdoptedPayload"
+    },
+    {
+      "path": "accounts/events/account.added.json",
+      "title": "AccountAddedPayload"
+    },
+    {
+      "path": "accounts/events/account.identity-set.json",
+      "title": "AccountIdentitySetPayload"
+    },
+    {
+      "path": "accounts/events/account.status-changed.json",
+      "title": "AccountStatusChangedPayload"
+    },
+    {
+      "path": "accounts/events/account.relabelled.json",
+      "title": "AccountRelabelledPayload"
+    },
+    {
+      "path": "accounts/events/account.removed.json",
+      "title": "AccountRemovedPayload"
+    },
+    {
+      "path": "accounts/events/account.directory-deleted.json",
+      "title": "AccountDirectoryDeletedPayload"
+    },
+    {
+      "path": "accounts/change.json",
+      "title": "AccountChange"
+    },
+    {
+      "path": "accounts/account-updated.json",
+      "title": "AccountUpdatedPayload"
+    },
+    {
+      "path": "accounts/ambient-probe.json",
+      "title": "AmbientProbe"
+    },
+    {
+      "path": "accounts/model-entry.json",
+      "title": "ModelEntry"
+    },
+    {
+      "path": "accounts/catalogue.json",
+      "title": "AccountCatalogue"
+    },
+    {
+      "path": "accounts/command-entry.json",
+      "title": "CommandEntry"
+    },
+    {
+      "path": "accounts/sign-in-start.json",
+      "title": "SignInStart"
+    },
+    {
       "path": "transcript/run-origin.json",
       "title": "RunOrigin"
     },
@@ -833,6 +925,18 @@
     {
       "path": "settings/keys/sessions.transcriptCompactAfterDays.json",
       "title": "TranscriptCompactAfterDays"
+    },
+    {
+      "path": "settings/keys/accounts.defaultAccount.json",
+      "title": "DefaultAccount"
+    },
+    {
+      "path": "settings/keys/accounts.defaultModelFamily.json",
+      "title": "DefaultModelFamily"
+    },
+    {
+      "path": "settings/keys/accounts.defaultEffort.json",
+      "title": "DefaultEffort"
     },
     {
       "path": "settings/keys/providers.processIdleMinutes.json",
@@ -1675,6 +1779,130 @@
       "title": "providers.processes.stop error"
     },
     {
+      "path": "methods/accounts.list/params.json",
+      "title": "accounts.list params"
+    },
+    {
+      "path": "methods/accounts.list/result.json",
+      "title": "accounts.list result"
+    },
+    {
+      "path": "methods/accounts.list/error.json",
+      "title": "accounts.list error"
+    },
+    {
+      "path": "methods/accounts.probe/params.json",
+      "title": "accounts.probe params"
+    },
+    {
+      "path": "methods/accounts.probe/result.json",
+      "title": "accounts.probe result"
+    },
+    {
+      "path": "methods/accounts.probe/error.json",
+      "title": "accounts.probe error"
+    },
+    {
+      "path": "methods/accounts.refresh/params.json",
+      "title": "accounts.refresh params"
+    },
+    {
+      "path": "methods/accounts.refresh/result.json",
+      "title": "accounts.refresh result"
+    },
+    {
+      "path": "methods/accounts.refresh/error.json",
+      "title": "accounts.refresh error"
+    },
+    {
+      "path": "methods/accounts.adopt/params.json",
+      "title": "accounts.adopt params"
+    },
+    {
+      "path": "methods/accounts.adopt/result.json",
+      "title": "accounts.adopt result"
+    },
+    {
+      "path": "methods/accounts.adopt/response.json",
+      "title": "accounts.adopt response"
+    },
+    {
+      "path": "methods/accounts.adopt/error.json",
+      "title": "accounts.adopt error"
+    },
+    {
+      "path": "methods/accounts.add/params.json",
+      "title": "accounts.add params"
+    },
+    {
+      "path": "methods/accounts.add/result.json",
+      "title": "accounts.add result"
+    },
+    {
+      "path": "methods/accounts.add/response.json",
+      "title": "accounts.add response"
+    },
+    {
+      "path": "methods/accounts.add/error.json",
+      "title": "accounts.add error"
+    },
+    {
+      "path": "methods/accounts.relabel/params.json",
+      "title": "accounts.relabel params"
+    },
+    {
+      "path": "methods/accounts.relabel/result.json",
+      "title": "accounts.relabel result"
+    },
+    {
+      "path": "methods/accounts.relabel/response.json",
+      "title": "accounts.relabel response"
+    },
+    {
+      "path": "methods/accounts.relabel/error.json",
+      "title": "accounts.relabel error"
+    },
+    {
+      "path": "methods/accounts.remove/params.json",
+      "title": "accounts.remove params"
+    },
+    {
+      "path": "methods/accounts.remove/result.json",
+      "title": "accounts.remove result"
+    },
+    {
+      "path": "methods/accounts.remove/response.json",
+      "title": "accounts.remove response"
+    },
+    {
+      "path": "methods/accounts.remove/error.json",
+      "title": "accounts.remove error"
+    },
+    {
+      "path": "methods/models.list/params.json",
+      "title": "models.list params"
+    },
+    {
+      "path": "methods/models.list/result.json",
+      "title": "models.list result"
+    },
+    {
+      "path": "methods/models.list/error.json",
+      "title": "models.list error"
+    },
+    {
+      "path": "methods/commands.list/params.json",
+      "title": "commands.list params"
+    },
+    {
+      "path": "methods/commands.list/result.json",
+      "title": "commands.list result"
+    },
+    {
+      "path": "methods/commands.list/error.json",
+      "title": "commands.list error"
+    },
+    {
       "path": "methods/settings.get/params.json",
       "title": "settings.get params"
     },
@@ -2359,6 +2587,91 @@
       "result": "methods/providers.processes.stop/result.json",
       "response": "methods/providers.processes.stop/response.json",
       "error": "methods/providers.processes.stop/error.json"
+    },
+    {
+      "name": "accounts.list",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/accounts.list/params.json",
+      "result": "methods/accounts.list/result.json",
+      "error": "methods/accounts.list/error.json"
+    },
+    {
+      "name": "accounts.probe",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/accounts.probe/params.json",
+      "result": "methods/accounts.probe/result.json",
+      "error": "methods/accounts.probe/error.json"
+    },
+    {
+      "name": "accounts.refresh",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/accounts.refresh/params.json",
+      "result": "methods/accounts.refresh/result.json",
+      "error": "methods/accounts.refresh/error.json"
+    },
+    {
+      "name": "accounts.adopt",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/accounts.adopt/params.json",
+      "result": "methods/accounts.adopt/result.json",
+      "response": "methods/accounts.adopt/response.json",
+      "error": "methods/accounts.adopt/error.json"
+    },
+    {
+      "name": "accounts.add",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/accounts.add/params.json",
+      "result": "methods/accounts.add/result.json",
+      "response": "methods/accounts.add/response.json",
+      "error": "methods/accounts.add/error.json"
+    },
+    {
+      "name": "accounts.relabel",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/accounts.relabel/params.json",
+      "result": "methods/accounts.relabel/result.json",
+      "response": "methods/accounts.relabel/response.json",
+      "error": "methods/accounts.relabel/error.json"
+    },
+    {
+      "name": "accounts.remove",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/accounts.remove/params.json",
+      "result": "methods/accounts.remove/result.json",
+      "response": "methods/accounts.remove/response.json",
+      "error": "methods/accounts.remove/error.json"
+    },
+    {
+      "name": "models.list",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/models.list/params.json",
+      "result": "methods/models.list/result.json",
+      "error": "methods/models.list/error.json"
+    },
+    {
+      "name": "commands.list",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/commands.list/params.json",
+      "result": "methods/commands.list/result.json",
+      "error": "methods/commands.list/error.json"
     },
     {
       "name": "settings.get",

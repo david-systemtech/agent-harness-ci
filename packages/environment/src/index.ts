@@ -40,7 +40,7 @@ export {
 export { SESSION_LIST_PROJECTOR, sessionListProjector } from "./sessions/session-list.js";
 export { SESSION_LIST_SELECTOR, sessionMethods, type SessionMethodsOptions } from "./sessions/methods.js";
 export { groupMethods, type GroupMethodsOptions } from "./sessions/group-methods.js";
-export { acceptAnyRunParameters, type RunParameters, type RunParametersCheck } from "./sessions/run-parameters.js";
+export { acceptAnyRunParameters, type RunParameters, type RunParametersCheck, type RunParametersVerdict } from "./sessions/run-parameters.js";
 export {
   ADAPTER_EVENT_TYPES,
   PromptClosed,
@@ -78,7 +78,6 @@ export {
   type ActiveRun,
   type AdapterHost,
   type AdapterHostOptions,
-  type HostAccount,
   type StagedAttachments,
 } from "./adapter/host.js";
 export { PROCESS_STOP_TIMEOUT_MS, STOPPED_LISTED_MS, createProcessPool, type ProcessPool, type ProcessPoolOptions } from "./adapter/pool.js";
@@ -132,6 +131,21 @@ export { runMethods, type RunMethodsOptions } from "./runs/run-methods.js";
 export { foldTranscript, type TranscriptParts } from "./runs/transcript.js";
 export { SETTLE_SWEEP_ACTOR, SETTLE_SWEEP_INTERVAL_MS, createSettleSweep, type SettleSweep, type SweepOutcome } from "./sessions/settle-sweep.js";
 export { settingsMethods, type SettingsMethodsOptions } from "./settings/methods.js";
+export {
+  ACCOUNTS_DIRECTORY,
+  ACCOUNT_STORE_ACTOR,
+  PROBE_TIMEOUT_MS,
+  STATUS_READ_INTERVAL_MS,
+  createAccountService,
+  type AccountDefaults,
+  type AccountService,
+  type AccountServiceOptions,
+  type ConfiguredAccount,
+  type HostAccounts,
+} from "./accounts/account-service.js";
+export { ACCOUNTS_PROJECTOR, accountsProjector, listAccounts, readAccount, type StoredAccount } from "./accounts/account-store.js";
+export { accountMethods, type AccountMethodsOptions } from "./accounts/methods.js";
+export { signInNotBuilt, type SignInDirector, type SignInDirectorFactory, type SignInOutcome, type SignInPort } from "./accounts/sign-in.js";
 export { SETTINGS_PROJECTOR, readSettings, settingsProjector } from "./settings/settings-store.js";
 
 export { DEFAULT_LOG_PAGE } from "./auth/access-log.js";
