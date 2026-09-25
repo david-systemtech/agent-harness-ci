@@ -318,6 +318,34 @@ describe("the request cache", () => {
     expect(closed.cached.read().loading).toBe(false);
   });
 
+  it("says when the fetch whose result it holds was sent, which a failed fetch after it does not move", async () => {
+    const clock = manualClock();
+    const answers: ((answer: unknown) => void)[] = [];
+    const cache = createRequestCache({
+      clock,
+      call: () => new Promise((resolve) => answers.push(resolve)) as never,
+      records: writable<readonly ConnectionRecord[]>([]),
+      report: () => undefined,
+    });
+    onTestFinished(() => cache.close());
+    const cached = cache.cached("env-1", "groups.list", {});
+    expect(cache.askedAt("env-1", "groups.list", {})).toBeNull();
+    const sent = clock.now().getTime();
+    onTestFinished(cached.subscribe(() => undefined));
+    clock.advance(500);
+    answers[0]!({ ok: true, result: { groups: [] } });
+    await flush();
+    expect(cached.read().fetchedAt).toBe(new Date(sent + 500).toISOString());
+    expect(cache.askedAt("env-1", "groups.list", {})).toBe(sent);
+
+    clock.advance(REQUEST_CACHE_TTL_MS);
+    await flush();
+    answers[1]!({ ok: false, error: { code: "unreachable", message: "The environment cannot be reached." } });
+    await flush();
+    expect(cached.read()).toMatchObject({ result: { groups: [] }, error: { code: "unreachable" } });
+    expect(cache.askedAt("env-1", "groups.list", {})).toBe(sent);
+  });
+
   it("is not left in flight by a call that rejects: the failure is reported, loading ends, and the next follower fetches again", async () => {
     const clock = manualClock();
     const reported: unknown[] = [];
