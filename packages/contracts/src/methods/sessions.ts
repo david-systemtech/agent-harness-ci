@@ -309,7 +309,9 @@ export const groupsDelete = defineMethod({
  * runs. A source that is not here, or a message not in its visible
  * transcript, is `not_found` (data kind `session` or `message`); an id
  * already used is `conflict` (reason `exists`); an account that cannot run is
- * `conflict` (reason `account_unavailable`).
+ * `conflict` (reason `account_unavailable`); when there is a provider
+ * session to fork, an adapter of the fork's account that cannot fork is
+ * `invalid_params` with data reason `unsupported`.
  */
 export const sessionsFork = defineMethod({
   name: "sessions.fork",

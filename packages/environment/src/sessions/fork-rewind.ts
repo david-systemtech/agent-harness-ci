@@ -54,7 +54,11 @@ export interface RunContinuation {
   readonly forkedFrom: string | null;
 }
 
-/** A fork's own record: its `session.forked`, the first event after its creation. */
+/**
+ * A fork's own record: its `session.forked`, the first event after its
+ * creation, read from the log, where it survives a compaction (#123: not in
+ * `COMPACTION_REMOVES`, `sessions/compaction.ts`).
+ */
 const forkRecord = (log: Pick<EventLog, "read">, sessionId: string): SessionForkedPayload | null => {
   const [row] = log.read<{ payload: string }>(
     `SELECT payload FROM events WHERE stream_kind = '${SESSION_STREAM_KIND}' AND stream_id = ? AND type = 'session.forked' ORDER BY sequence LIMIT 1`,
@@ -73,8 +77,12 @@ const forkRecord = (log: Pick<EventLog, "read">, sessionId: string): SessionFork
  * next run is a rewind again; where the failed run did write a turn of its
  * own after the rewind's point, the adapter finds the message off its
  * stored chain and continues the chain as it stands (the Claude adapter's
- * `#resumePoint`). `run.ended` is never compacted away (#123), so the
- * answer holds after a compaction.
+ * `#resumePoint`). Every event read here survives a compaction (#123):
+ * `sessions/compaction.ts` removes only `COMPACTION_REMOVES` (the
+ * assistant's items, tool calls, commands, usage and plan limits) and all
+ * but each run's last `tasks.changed`, keeping `session.rewound`,
+ * `session.provider-linked` and `run.ended`, so the answer is the same
+ * after one.
  */
 export const pendingRewind = (log: Pick<EventLog, "read">, sessionId: string): SessionRewoundPayload | null => {
   const [row] = log.read<{ sequence: number; payload: string }>(
