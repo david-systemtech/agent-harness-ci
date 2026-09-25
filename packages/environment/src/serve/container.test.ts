@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { processContainerDetector } from "./container.js";
+import { CONTAINER_MARKER_VARIABLE, processContainerDetector } from "./container.js";
 
 describe("the container detector", () => {
   it("finds a container from its runtime's marker files, or a container runtime in PID 1's cgroup", () => {
@@ -11,5 +11,14 @@ describe("the container detector", () => {
     expect(probe({ "/proc/1/cgroup": "12:pids:/docker/abc\n" }).inContainer()).toBe(true);
     expect(probe({ "/proc/1/cgroup": "0::/init.scope\n" }).inContainer()).toBe(false);
     expect(probe({}).inContainer()).toBe(false);
+  });
+
+  it("takes a container the install declared (its compose sets AGENT_HARNESS_CONTAINER) for one, as the containment probe does", () => {
+    const declared = (value: string | undefined) =>
+      processContainerDetector({ exists: () => false, read: () => undefined, env: { [CONTAINER_MARKER_VARIABLE]: value } }).inContainer();
+    expect(CONTAINER_MARKER_VARIABLE).toBe("AGENT_HARNESS_CONTAINER");
+    expect(declared("1")).toBe(true);
+    expect(declared("")).toBe(false);
+    expect(declared(undefined)).toBe(false);
   });
 });

@@ -119,7 +119,7 @@ export const answerEvents = (reader: Reader, prompt: PromptOpenedPayload, answer
  * at hook time among them (#132, #133). Whether it recorded it.
  */
 export const recordToolDecision = (
-  log: EventLog,
+  log: Pick<EventLog, "append" | "read">,
   tx: Tx,
   sessionId: string,
   payload: ToolDecisionPayload,
