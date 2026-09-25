@@ -1,4 +1,4 @@
 import { packageProject } from "../../vitest.shared.js";
 
-// Each test file will start a listener, so files run one at a time.
-export default packageProject("environment", { test: { fileParallelism: false } });
+// Files run in parallel: every listener a test starts takes loopback port 0. Run one at a time, the suite took 14 minutes on a CI runner.
+export default packageProject("environment");

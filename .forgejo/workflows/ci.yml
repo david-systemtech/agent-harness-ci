@@ -58,7 +58,10 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm lint
-      - run: pnpm test
+      # Vitest sizes its pool to the 16 CPUs the job can see, but the three
+      # ci jobs share one 8-CPU, 8 GB daemon: 16 workers peaked at 2.8 GB, 4
+      # at 1.2 GB.
+      - run: pnpm test --maxWorkers=4
 
       - name: The JSON Schema export is current
         # packages/contracts/schema is the JSON Schema export a client in
