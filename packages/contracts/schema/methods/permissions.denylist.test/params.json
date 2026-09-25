@@ -16,8 +16,7 @@
     "value": {
       "type": "string",
       "minLength": 1,
-      "maxLength": 8192,
-      "description": "The address, path, command line or host to test."
+      "description": "The address, path, command line or host to test, of any length: an address is read from its front."
     }
   },
   "required": [

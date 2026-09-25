@@ -119,7 +119,8 @@ const inputSubjects = (call: GatedToolCall): DenylistCall => {
       strings++;
       const text = value.trim();
       if (URL_PREFIX.test(text)) hosts.push(text);
-      else if (text === "~" || text.startsWith("~/") || text.startsWith("/")) paths.push(text);
+      // `~`, `~/…`, and `~name` or `~name/…`, which the matcher reads as the home directory for the environment's own user.
+      else if (/^~[^\s/]*(?:\/|$)/.test(text) || text.startsWith("/")) paths.push(text);
       else if (hostToken(text) !== null && !/\s/.test(text)) hosts.push(text);
     } else if (Array.isArray(value)) {
       for (const item of value) walk(item, depth + 1);

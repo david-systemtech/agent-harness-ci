@@ -316,10 +316,10 @@ export interface AdapterHost {
 /** The host's own actor, for the run events it decides on itself: an end it appends, a run it starts from the queue. */
 export const HOST_ACTOR = formatActor({ kind: "system", id: "adapter-host" });
 
-/** What the model reads when the tool gate could not rule on a call (a rule failed): denied, since the gate fails closed. */
 /** The tool gate's actor, for the denials it records when no prompt's answer did (`tool.decision`). */
 export const GATE_ACTOR = formatActor({ kind: "system", id: "tool-gate" });
 
+/** What the model reads when the tool gate could not rule on a call (a rule failed): denied, since the gate fails closed. */
 export const GATE_FAILED_MESSAGE = "Denied: the harness could not check this call against its rules, so it was not run. Continue without it and say what you could not do.";
 
 /** `message.requeued` for each message of `runId`: the environment holds it now (ADR 0022). Always the host's. */

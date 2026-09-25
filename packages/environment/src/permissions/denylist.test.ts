@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync, symlinkSync } from "node:fs";
 import { relative } from "node:path";
-import { homedir } from "node:os";
+import { homedir, userInfo } from "node:os";
 import { join } from "node:path";
 import {
   DATA_DIRECTORY_PRESET_ID,
@@ -706,5 +706,25 @@ describe("a tool server's input", () => {
       ["mcp__deep__read", "allowed", "mode"],
     ]);
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("mcp__deep__read"));
+  });
+});
+
+describe("long values and a user's own home", () => {
+  it("answer a value longer than an address is read to in permissions.denylist.test, its host read from its front", async () => {
+    const t = await start();
+    const client = await t.client();
+    await send(client, "permissions.denylist.set", { sections: { hosts: [{ id: "metadata", pattern: "169.254.169.254" }] } });
+    expect((await test(client, "host", `http://169.254.169.254/${"a".repeat(20_000)}`)).map((match) => match.entry.id)).toEqual(["metadata"]);
+  });
+
+  it("read a tool server's ~name/ value as the home of the environment's own user", async () => {
+    const t = await start();
+    const client = await t.client();
+    const { id } = await create(client);
+    t.adapter.nextScripts.push(calls({ tool: "mcp__files__read", summary: "Read", access: { kind: "other" }, input: { path: `~${userInfo().username}/.ssh/id_rsa` } }));
+    const { runId } = startAsRoutine(t, id);
+    await untilEnded(t, id, runId);
+    expect(opened(t, id).map((prompt) => prompt.denylist?.[0]?.entry.pattern)).toEqual(["~/.ssh"]);
+    expect(decisions(t, id)).toEqual([expect.objectContaining({ decision: "denied", decidedBy: "denylist" })]);
   });
 });

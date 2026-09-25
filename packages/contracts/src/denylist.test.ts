@@ -487,3 +487,23 @@ describe("a long call", () => {
     expect(named).not.toContain("\n");
   });
 });
+
+describe("a long or fully qualified address", () => {
+  it("is read from its front: padding the path does not hide the host, in a fetch, a browser address or a shell line", () => {
+    const padded = `http://169.254.169.254/${"a".repeat(20_000)}`;
+    expect(first({ hosts: [padded] })?.[1]).toBe("169.254.169.254");
+    expect(named({ browserDomains: [padded] }).map(([section]) => section)).toEqual(["hosts"]);
+    expect(first({ browserDomains: [`https://www.paypal.com/${"b".repeat(20_000)}`] })?.[1]).toBe("*.paypal.com");
+    expect(first({ commands: [`curl -s ${padded}`] })?.[1]).toBe("169.254.169.254");
+    // A control character in the path is the path's; in the host, there is no host.
+    expect(first({ hosts: ["http://169.254.169.254/latest\u0001"] })?.[1]).toBe("169.254.169.254");
+    expect(hostOf("http://169.254.\u0001169.254/")).toBeNull();
+  });
+
+  it("with a trailing dot on a command line reaches the same host", () => {
+    expect(first({ commands: ["curl 169.254.169.254./latest"] })?.[1]).toBe("169.254.169.254");
+    expect(first({ commands: ["ssh api.internal.example."] })?.[1]).toBe("*.internal.example");
+    expect(first({ commands: ["ssh admin@api.internal.example.:22"] })?.[1]).toBe("*.internal.example");
+    expect(hostToken("example.com.")).toBe("example.com");
+  });
+});

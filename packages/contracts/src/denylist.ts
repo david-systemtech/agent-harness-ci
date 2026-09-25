@@ -573,7 +573,7 @@ const asciiHost = (text: string): string => text.normalize("NFKC").replace(/[\u3
  * (`admin@db.internal`, where a single label is a host too); before a path
  * (`169.254.169.254/latest`) or scp's `:path` (`git@host.example:repo.git`).
  * An absolute, `~` or dot path, an option and a URL are not hosts. The
- * port is dropped.
+ * port and a trailing dot are dropped.
  */
 export const hostToken = (token: string): string | null => {
   const text = asciiHost(token.trim());
@@ -583,6 +583,8 @@ export const hostToken = (token: string): string | null => {
   candidate = candidate.slice(user + 1);
   const scp = /^([^:[\]]+):(.*)$/.exec(candidate);
   if (scp !== null && !/^\d+$/.test(scp[2] as string)) candidate = scp[1] as string;
+  // A fully qualified name's trailing dot (`169.254.169.254.`, `example.com.`) reaches the same host.
+  candidate = candidate.replace(/\.(?=(?::\d+)?$)/, "");
   if (candidate === "") return null;
   if (HOST_TOKEN.test(candidate) || numericHost(candidate) || (user !== -1 && SINGLE_LABEL.test(candidate))) return candidate.replace(/:\d+$/, "");
   return null;
@@ -714,7 +716,7 @@ const canonicalHost = (host: string, special: boolean): string | null => {
   }
   // Full-width letters and digits and the ideographic full stops read as ASCII, as a browser maps a host (UTS 46).
   text = asciiHost(text).toLowerCase().replace(/\.$/, "");
-  if (text === "" || /[\s/\\?#@]/.test(text)) return null;
+  if (text === "" || /[\s/\\?#@]/.test(text) || [...text].some(isControl)) return null;
   if (!special) return text;
   const v4 = ipv4Of(text);
   return v4 === undefined ? text : v4;
@@ -740,20 +742,30 @@ const isControl = (char: string): boolean => char.charCodeAt(0) < 0x20 || char.c
 /**
  * An address as WHATWG's parser reads it before anything else: every tab,
  * CR and LF removed wherever it stands (`http://169.254.169\t.254/` is the
- * metadata address), control characters and spaces trimmed from both ends;
- * null when a control character is left inside.
+ * metadata address), control characters and spaces trimmed from both ends.
+ * A control character left in the host makes it no host (`canonicalHost`);
+ * one in the path is the path's.
  */
-const cleanAddress = (address: string): string | null => {
+const cleanAddress = (address: string): string => {
   const chars = [...address].filter((char) => char !== "\t" && char !== "\n" && char !== "\r");
-  while (chars.length > 0 && ((chars[0] as string) === " " || isControl(chars[0] as string))) chars.shift();
-  while (chars.length > 0 && ((chars.at(-1) as string) === " " || isControl(chars.at(-1) as string))) chars.pop();
-  return chars.some(isControl) ? null : chars.join("");
+  let start = 0;
+  let end = chars.length;
+  while (start < end && ((chars[start] as string) === " " || isControl(chars[start] as string))) start++;
+  while (end > start && ((chars[end - 1] as string) === " " || isControl(chars[end - 1] as string))) end--;
+  return chars.slice(start, end).join("");
 };
+
+/**
+ * How much of an address is read: its scheme and its authority are at its
+ * front, so a longer one is read from its first characters, never refused,
+ * and padding its path cannot hide its host.
+ */
+const ADDRESS_READ = 8_192;
 
 /** Reads an address: a URL, or a bare host with an optional port. */
 const readAddress = (address: string): Address | null => {
-  const text = address.length > 8_192 ? null : cleanAddress(address);
-  if (text === null || text === "") return null;
+  const text = cleanAddress(address).slice(0, ADDRESS_READ);
+  if (text === "") return null;
   const schemed = /^([A-Za-z][A-Za-z0-9+.-]*):(.*)$/s.exec(text);
   // `localhost:8080` and `db.internal:5432/x` are hosts with ports, and `fe80::1` an IPv6 literal, not schemes.
   const bareIpv6 = /^[0-9A-Fa-f:.]+$/.test(text) && (text.match(/:/g)?.length ?? 0) >= 2;

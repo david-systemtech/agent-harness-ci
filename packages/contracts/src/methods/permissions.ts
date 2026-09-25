@@ -261,7 +261,7 @@ export const permissionsDenylistTest = defineMethod({
   kind: "query",
   params: z.object({
     kind: DenylistTestKind,
-    value: z.string().min(1).max(8_192).meta({ description: "The address, path, command line or host to test." }),
+    value: z.string().min(1).meta({ description: "The address, path, command line or host to test, of any length: an address is read from its front." }),
   }),
   result: z.object({ matches: z.array(DenylistMatch).meta({ description: "Every enabled entry the value matches, in section order; empty for none." }) }),
   errors: [],
