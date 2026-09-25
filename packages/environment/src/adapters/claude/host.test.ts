@@ -87,7 +87,7 @@ const containedAt =
       enforceable: ENFORCEABLE,
     });
 
-const setup = async (policy?: PolicySeam, account: { readonly sessionStore?: boolean } = {}) => {
+const setup = async (policy?: PolicySeam, account: { readonly sessionStore?: boolean; readonly signedIn?: () => boolean } = {}) => {
   const clock = manualClock();
   const log = openEventLog({ path: ":memory:", projectors: [sessionListProjector, runsProjector, permissionsProjector, accountsProjector], clock: () => clock.now() });
   const adapter = createClaudeAdapter({
@@ -95,7 +95,10 @@ const setup = async (policy?: PolicySeam, account: { readonly sessionStore?: boo
     executablePath: "/sdk/claude",
     hostEnv: { PATH: "/usr/bin" },
     diagnostic: () => undefined,
-    runCommand: async () => ({ code: 0, stdout: JSON.stringify({ loggedIn: true, authMethod: "claude.ai", email: "david@example.com" }), stderr: "" }),
+    runCommand: async () =>
+      (account.signedIn?.() ?? true)
+        ? { code: 0, stdout: JSON.stringify({ loggedIn: true, authMethod: "claude.ai", email: "david@example.com" }), stderr: "" }
+        : { code: 1, stdout: JSON.stringify({ loggedIn: false, authMethod: "none" }), stderr: "" },
     ...(account.sessionStore === true && { sessionStore: createProviderTranscriptStore({ log, clock }) }),
   });
   // The account store holds the account, read once as startup reads it.
@@ -228,16 +231,19 @@ describe("a Claude run through the adapter host", () => {
 
   it("ends a cold resume whose account's login cannot be refreshed error, naming the account by its label, and the store reads the account expired, after one refresh (#229)", async () => {
     let refreshes = 0;
+    let signedIn = true;
     fake.controls = {
       usage: {
         name: "usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET",
+        // As 2.1.281 answers when the provider refuses the refresh: no plan limits, and the login cleared.
         answer: async () => {
           refreshes += 1;
-          throw new Error("Auth error: OAuth refresh token is no longer valid; run /login to re-authenticate");
+          signedIn = false;
+          return { rate_limits_available: true, rate_limits: null };
         },
       },
     };
-    const t = await setup(undefined, { sessionStore: true });
+    const t = await setup(undefined, { sessionStore: true, signedIn: () => signedIn });
     const label = t.accounts.list()[0]?.label as string;
     const first = startRun(t);
     const query = await runQuery(t, 1);
@@ -257,8 +263,7 @@ describe("a Claude run through the adapter host", () => {
     // No run was started: only the refresh's unsampled query was made, none resuming the session.
     expect(fake.queries.slice(made).filter((made) => made.options.resume !== undefined)).toEqual([]);
     await vi.waitFor(() => expect(t.accounts.list()[0]?.status.state).toBe("expired"));
-    // The status read the failure asked for answers from the lapse; it does not refresh a second time.
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    // The status read the failure asked for asks the binary only: one refresh in all.
     expect(refreshes).toBe(1);
   });
 

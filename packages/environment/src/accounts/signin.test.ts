@@ -241,15 +241,11 @@ describe("accounts.signin.code", () => {
     // The code is never recorded.
     expect(JSON.stringify(setup.t.env.log.read("SELECT * FROM events"))).not.toContain("a1b2c3");
     expect(JSON.stringify(setup.t.env.log.read("SELECT * FROM command_receipts"))).not.toContain("a1b2c3");
-    // Signed in only once the adapter has been told the login was replaced (#229: a lapse it held must not outlive the sign-in).
-    const replaced = () => setup.t.adapter.loginsReplaced.some((ref) => ref.directory === setup.workDirectory);
-    setup.t.adapter.setStatus((ref) => (ref.directory === setup.workDirectory && replaced() ? signedInAs("work@example.com") : signedInAs(null)));
-    expect(replaced()).toBe(false);
+    setup.t.adapter.setStatus((ref) => (ref.directory === setup.workDirectory ? signedInAs("work@example.com") : signedInAs(null)));
     login.print("Login successful.\n");
     login.exit(0);
     const done = await reaches(setup.t, "done");
     expect(done).toMatchObject({ accountId: "work", error: null });
-    expect(setup.t.adapter.loginsReplaced).toEqual([{ id: "work", directory: setup.workDirectory }]);
     expect(accountEvents(setup.t, "work").map((event) => event.type)).toEqual(["account.adopted", "account.identity-set", "account.status-changed"]);
     const [account] = (await setup.client.request("accounts.list", {})).accounts;
     expect(account).toMatchObject({ id: "work", label: "work", identity: { email: "work@example.com" }, status: { state: "signed-in" } });

@@ -113,8 +113,10 @@ describe("a Claude process's environment", () => {
     const env = composeRunEnvironment({ ...host, CLAUDE_SECURESTORAGE_CONFIG_DIR: "/home/david/.claude-other" }, "/data/accounts/work");
     expect(env["CLAUDE_SECURESTORAGE_CONFIG_DIR"]).toBe("/data/accounts/work");
     expect(isScrubbed("CLAUDE_SECURESTORAGE_CONFIG_DIR")).toBe(true);
-    // Set from the account whoever asks, as the config directory is.
-    expect(composeRunEnvironment(host, "/data/accounts/work", { CLAUDE_SECURESTORAGE_CONFIG_DIR: "/elsewhere" })["CLAUDE_SECURESTORAGE_CONFIG_DIR"]).toBe("/data/accounts/work");
+    // Both set from the account whoever asks: a caller's own value for either never wins.
+    const asked = composeRunEnvironment(host, "/data/accounts/work", { CLAUDE_SECURESTORAGE_CONFIG_DIR: "/elsewhere", [CLAUDE_CONFIG_DIR]: "/elsewhere" });
+    expect(asked["CLAUDE_SECURESTORAGE_CONFIG_DIR"]).toBe("/data/accounts/work");
+    expect(asked[CLAUDE_CONFIG_DIR]).toBe("/data/accounts/work");
   });
 
   it("keeps bare mode, other backends, other endpoints and model overrides out", () => {
@@ -200,6 +202,8 @@ describe("reading the status through the bundled binary", () => {
     expect(calls).toHaveLength(1);
     expect(calls[0]).toMatchObject({ executable: "/sdk/claude", argv: ["auth", "status", "--json"] });
     expect(calls[0]?.env[CLAUDE_CONFIG_DIR]).toBe("/data/accounts/work");
+    // The status reads the credential store every other process of the account uses (#229).
+    expect(calls[0]?.env["CLAUDE_SECURESTORAGE_CONFIG_DIR"]).toBe("/data/accounts/work");
     expect(calls[0]?.env).not.toHaveProperty("ANTHROPIC_API_KEY");
   });
 

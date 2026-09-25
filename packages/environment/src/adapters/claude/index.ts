@@ -10,7 +10,7 @@ import { withControlQuery } from "./control-query.js";
 import { CLAUDE_PROVIDER, ambientConfigDirectory, claudeCredentials, readClaudeStatus, type CommandRunner, type HostEnvironment } from "./credentials.js";
 import { bundledExecutable } from "./executable.js";
 import { mirrorUserTitle, readGeneratedTitle, readSubagentTranscript, type ClaudeSessionStore } from "./history.js";
-import { createLoginRefresher, isLoginFailure, type RefreshOutcome } from "./login-refresh.js";
+import { createLoginRefresher, reachedPlanLimits, type RefreshOutcome } from "./login-refresh.js";
 import { catalogueOf, staticCatalogue } from "./models.js";
 import { CLAUDE_MODES, claudeEffort, claudeMode } from "./options.js";
 import { createPlanUsageReader, readUsageMethod, type UsageOutcome } from "./plan-usage.js";
@@ -168,45 +168,62 @@ export const createClaudeAdapter = (options: ClaudeAdapterOptions = {}): ClaudeA
   });
   const control = (account: AccountRef, cwd: string) => controlIn(configDirectory(account), cwd);
 
-  /**
-   * The refresh query before a cold resume (#229): the usage read on an
-   * unsampled query in the account's own directory, which the bundled CLI
-   * makes with its OAuth refresh on, so the CLI refreshes a login that is due
-   * in place. Its answer is the verdict: an answer is a usable login, a
-   * failure worded as an authentication failure is a lapsed one, and
-   * anything else could not tell. Not under the config-directory queue: the
-   * query is handed its environment explicitly and reads nothing of the
-   * process's, and a CLI start there would hold every account's helper calls.
-   */
-  const logins = createLoginRefresher({
-    clock,
-    diagnostic,
-    refresh: async (directory): Promise<RefreshOutcome> => {
-      const outcome = await withControlQuery(controlIn(directory, tmpdir()), (query) => readUsageMethod(query));
-      if (outcome.kind === "read") return { kind: "usable" };
-      if (outcome.kind === "missing") return { kind: "not-run", detail: "this SDK build has no usage read to have the CLI refresh the login with" };
-      return isLoginFailure(outcome.message) ? { kind: "login-failed", detail: outcome.message } : { kind: "not-run", detail: outcome.message };
-    },
-  });
-
-  /**
-   * The account's sign-in state: the bundled binary's status, unless a cold
-   * resume found the account's login lapsed (#229), which reads expired at
-   * once, before the binary is asked: the binary says signed in whatever the
-   * token's state, and signed out once a refused refresh token has cleared
-   * the login. A lapsed login is tried again behind the answer, at most once
-   * a minute; one that works, or a sign-in, clears it.
-   */
-  const status = async (account: AccountRef): Promise<AuthStatus> => {
-    const directory = configDirectory(account);
-    if (logins.lapsed(directory)) return { signedIn: false, authMethod: null, email: null, orgName: null, subscriptionType: null, error: null, expired: true };
-    return readClaudeStatus({
+  /** The bundled binary's status of an account's directory, as the CLI there says it. */
+  const statusIn = (directory: string): Promise<AuthStatus> =>
+    readClaudeStatus({
       executable: executablePath(),
       directory,
       hostEnv,
       timeoutMs: timings.statusTimeoutMs,
       ...(options.runCommand !== undefined && { run: options.runCommand }),
     });
+
+  /**
+   * The refresh query before a cold resume (#229): the usage read on an
+   * unsampled query in the account's own directory, which the bundled CLI
+   * makes with its OAuth refresh on, so the CLI refreshes a login that is due
+   * in place. An answer that reaches the plan's limits is a usable login.
+   * Anything else is settled by the status command, since the usage read
+   * answers even when its fetch could not authenticate: signed out (the CLI
+   * clears a login whose refresh the provider refused) is a lapsed login,
+   * and signed in could not tell. Not under the config-directory queue: the
+   * query is handed its environment explicitly and reads nothing of the
+   * process's, and a CLI start there would hold every account's helper calls.
+   */
+  const logins = createLoginRefresher({
+    diagnostic,
+    refresh: async (directory): Promise<RefreshOutcome> => {
+      let detail: string;
+      try {
+        const outcome = await withControlQuery(controlIn(directory, tmpdir()), (query) => readUsageMethod(query));
+        if (outcome.kind === "read" && reachedPlanLimits(outcome.response)) return { kind: "usable" };
+        detail =
+          outcome.kind === "read"
+            ? "the usage read reached no plan limits"
+            : outcome.kind === "missing"
+              ? "this SDK build has no usage read to have the CLI refresh the login with"
+              : outcome.message;
+      } catch (error) {
+        detail = error instanceof Error ? error.message : String(error);
+      }
+      const after = await statusIn(directory);
+      if (after.error === null && !after.signedIn) return { kind: "login-failed", detail: `${detail}; the provider's CLI now reads the account signed out` };
+      return { kind: "not-run", detail };
+    },
+  });
+
+  /**
+   * The account's sign-in state: the bundled binary's status, except that a
+   * login a cold resume found lapsed (#229) reads expired rather than signed
+   * out (the CLI clears a login whose refresh the provider refused) until the
+   * binary says signed in again, after a sign-in from anywhere.
+   */
+  const status = async (account: AccountRef): Promise<AuthStatus> => {
+    const directory = configDirectory(account);
+    const read = await statusIn(directory);
+    if (read.signedIn) logins.signedIn(directory);
+    else if (read.error === null && logins.lapsed(directory)) return { signedIn: false, authMethod: null, email: null, orgName: null, subscriptionType: null, error: null, expired: true };
+    return read;
   };
 
   const usage = createPlanUsageReader({
@@ -239,7 +256,8 @@ export const createClaudeAdapter = (options: ClaudeAdapterOptions = {}): ClaudeA
     pluginDirectory: (input) => options.pluginDirectory?.(input.account) ?? null,
     autoMemoryDirectory: (input) => (options.autoMemoryRoot === undefined ? null : autoMemoryDirectory(options.autoMemoryRoot, input)),
     queue,
-    freshLogin: (account) => logins.beforeResume(configDirectory(account), account.label ?? account.id),
+    // Named by its label where the host gave one; an empty or blank label is no name.
+    freshLogin: (account) => logins.beforeResume(configDirectory(account), account.label?.trim() || account.id),
     timings,
     diagnostic,
     onRateLimit: (verdict) => usage.fold(account, verdict),
@@ -259,7 +277,6 @@ export const createClaudeAdapter = (options: ClaudeAdapterOptions = {}): ClaudeA
     descriptor: descriptorFor(store !== undefined),
     credentials: claudeCredentials,
     status,
-    loginReplaced: (account) => logins.forget(configDirectory(account)),
     // The machine's own directory, resolved once: what `accounts.adopt` registers in place (#134).
     ambientDirectory: () => ambient,
     async models(account) {

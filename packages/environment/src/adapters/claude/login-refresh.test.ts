@@ -22,11 +22,14 @@ import type { CommandRunner } from "./credentials.js";
  * the refresh token removed (`sdk-store-resume.test.ts`), so before every
  * such resume the adapter has the CLI refresh the login in the account's own
  * directory, through an unsampled query whose usage read the bundled CLI
- * makes with its OAuth refresh on. The CLI is scripted here as it behaves:
- * under the directory its credential store names, it refreshes a login
- * within its five-minute margin and rotates the refresh token; it refuses a
- * refresh token used before (`invalid_grant`), and a refused refresh clears
- * the stored login, so its status then says signed out.
+ * makes with its OAuth refresh on. The CLI is scripted here as 2.1.281
+ * behaves: under the directory its credential store names, it refreshes a
+ * login within its five-minute margin and rotates the refresh token; the
+ * provider refuses a refresh token used before (`invalid_grant`), and a
+ * refused refresh clears the stored login (only if it is still the one
+ * refused), so the status command then says signed out; and the usage read
+ * answers either way, with the plan's limits only when its fetch
+ * authenticated (`rate_limits: null` otherwise).
  */
 
 const hooks = vi.hoisted(() => ({
@@ -46,7 +49,8 @@ vi.mock("@anthropic-ai/claude-agent-sdk", async (importOriginal) => ({
 
 const { createClaudeAdapter } = await import("./index.js");
 const { createConfigDirQueue } = await import("./config-dir-queue.js");
-const { LAPSED_RETRY_MS, LOGIN_EXPIRED_CODE, isLoginFailure } = await import("./login-refresh.js");
+const { LOGIN_EXPIRED_CODE } = await import("./login-refresh.js");
+const { DEFAULT_TIMINGS } = await import("./index.js");
 
 const { onCleanup, tempDir } = useCleanups();
 
@@ -57,8 +61,9 @@ const HOUR = 60 * 60 * 1000;
 /** The bundled CLI's own margin: a login this close to its expiry is refreshed. */
 const CLI_MARGIN_MS = 5 * 60 * 1000;
 const USAGE = "usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET";
-/** What the bundled CLI's usage read says when the refresh token is refused (2.1.281's words). */
-const REFUSED = "Auth error: OAuth refresh token is no longer valid; run /login to re-authenticate";
+/** The usage read's answer when its fetch authenticated, and when it did not (2.1.281 answers either way). */
+const LIMITS = { rate_limits_available: true, rate_limits: { five_hour: { utilization: 12, resets_at: null } } };
+const NO_LIMITS = { rate_limits_available: true, rate_limits: null };
 
 let fake: FakeSdk;
 let clock: ManualClock;
@@ -119,33 +124,38 @@ const accountDirectory = (expiresIn: number): string => {
  * The bundled CLI's usage read, scripted: under the directory its credential
  * store names (`CLAUDE_SECURESTORAGE_CONFIG_DIR`, else its config
  * directory), a login within its margin is refreshed after the token
- * endpoint's round trip. A refresh token used before is refused; `refuse`
- * refuses every one, clearing the stored login as a refused refresh does
- * unless `clears` is false; `fails` fails the read otherwise, touching nothing.
+ * endpoint's round trip (a turn of the event loop, no timer). A refresh token
+ * used before is refused; `refuse` refuses every one; a refusal clears the
+ * stored login if it is still the one refused, and the read answers with no
+ * limits. `unreachable` answers no limits and touches nothing (no network);
+ * `fails` fails the read; `hold` is awaited before the endpoint answers.
  */
-const scriptedCli = (options: { readonly refuse?: boolean; readonly clears?: boolean; readonly fails?: string } = {}) => {
+const scriptedCli = (options: { readonly refuse?: boolean; readonly unreachable?: boolean; readonly fails?: string; readonly hold?: Promise<void> } = {}) => {
   const cli = { refreshes: 0, attempts: 0, used: new Set<string>(), reused: 0 };
   fake.controls = {
     usage: {
       name: USAGE,
       answer: async (query) => {
         if (options.fails !== undefined) throw new Error(options.fails);
+        if (options.unreachable === true) return NO_LIMITS;
         const directory = query.env["CLAUDE_SECURESTORAGE_CONFIG_DIR"] ?? query.env["CLAUDE_CONFIG_DIR"];
         if (directory === undefined) throw new Error("The query named no config directory.");
         const login = readLogin(directory);
-        if (clock.now().getTime() + CLI_MARGIN_MS < login.expiresAt) return { five_hour: null };
+        if (clock.now().getTime() + CLI_MARGIN_MS < login.expiresAt) return LIMITS;
         cli.attempts += 1;
-        await new Promise((resolve) => setTimeout(resolve, 5));
+        await new Promise((resolve) => setImmediate(resolve));
+        await options.hold;
         if (cli.used.has(login.refreshToken)) cli.reused += 1;
         if (options.refuse === true || cli.used.has(login.refreshToken)) {
-          if (options.clears !== false) writeLogin(directory, { accessToken: null, refreshToken: null, expiresAt: 0 });
-          throw new Error(REFUSED);
+          // The CLI's dead-token clear: only the login whose refresh was refused.
+          if (readLogin(directory).refreshToken === login.refreshToken) writeLogin(directory, { accessToken: "", refreshToken: "", expiresAt: 0 });
+          return NO_LIMITS;
         }
         cli.used.add(login.refreshToken);
         cli.refreshes += 1;
         const next = cli.refreshes + 1;
         writeLogin(directory, { ...login, accessToken: `access-${next}`, refreshToken: `refresh-${next}`, expiresAt: clock.now().getTime() + 8 * HOUR });
-        return { five_hour: null };
+        return LIMITS;
       },
     },
   };
@@ -268,6 +278,8 @@ const finishTurn = async (run: AdapterRun, query: FakeQuery, input: RunInput): P
 
 const fresh = (login: Login | null | undefined): boolean => login !== null && login !== undefined && clock.now().getTime() + CLI_MARGIN_MS < login.expiresAt;
 
+const ACCOUNT = (directory: string) => ({ id: "0c9e7d52-3f1a-4b6e-9d2c-8a7f5e4b3c21", directory });
+
 const EXPIRED = { signedIn: false, authMethod: null, email: null, orgName: null, subscriptionType: null, error: null, expired: true };
 
 describe("a cold resume through the store", () => {
@@ -346,7 +358,7 @@ describe("a cold resume through the store", () => {
     for (const id of [SESSION, OTHER]) await adapter.stopProcess(id);
   });
 
-  it("starts no run when the login fails: the run ends error naming the account by its label, its status is read again and says expired, before the signed-out status the cleared login gives, until a sign-in", async () => {
+  it("starts no run when the provider refused the refresh: the run ends error naming the account by its label, its status is read again and says expired rather than the signed out the cleared login gives, until the binary reads it signed in", async () => {
     const directory = accountDirectory(-HOUR);
     const cli = scriptedCli({ refuse: true });
     const adapter = adapterWith();
@@ -357,7 +369,11 @@ describe("a cold resume through the store", () => {
         type: "end",
         reason: "error",
         cause: null,
-        error: { code: LOGIN_EXPIRED_CODE, message: `The Claude account Work has an expired login that could not be refreshed before resuming the session (${REFUSED}); sign in to it again.` },
+        error: {
+          code: LOGIN_EXPIRED_CODE,
+          message:
+            "The Claude account Work has an expired login that could not be refreshed before resuming the session (the usage read reached no plan limits; the provider's CLI now reads the account signed out); sign in to it again.",
+        },
         usage: null,
         turnCount: null,
         resultText: null,
@@ -368,60 +384,90 @@ describe("a cold resume through the store", () => {
     expect(context.rechecks()).toBe(1);
     // The run's end comes first (the process is let go after it), then the store is asked to read the account again.
     expect(context.port).toEqual(["exited", "recheck"]);
-    // The refused refresh cleared the login, so the CLI's own status says signed out; the lapse is what the read answers.
+    // The refused refresh cleared the login, so the CLI's own status says signed out; the account reads expired.
     expect((await statusCommand("", [], { CLAUDE_CONFIG_DIR: directory }, 0)).stdout).toContain('"loggedIn":false');
-    statusCommands = [];
-    expect(await adapter.status({ id: "0c9e7d52-3f1a-4b6e-9d2c-8a7f5e4b3c21", directory })).toEqual(EXPIRED);
-    expect(statusCommands).toEqual([]);
-    // The read that follows the failure at once tries nothing again.
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(await adapter.status(ACCOUNT(directory))).toEqual(EXPIRED);
+    expect(await adapter.status(ACCOUNT(directory))).toEqual(EXPIRED);
+    // A status read asks the binary only, and refreshes nothing.
     expect(refreshQueries()).toHaveLength(1);
-    // Signed in again: the sign-in tells the adapter, and the status is the CLI's own once more.
+    // Signed in again, from the harness or the provider's own CLI: the binary says so, and the lapse is gone.
     writeLogin(directory, { accessToken: "access-new", refreshToken: "refresh-new", expiresAt: clock.now().getTime() + 8 * HOUR });
-    adapter.loginReplaced?.({ id: "0c9e7d52-3f1a-4b6e-9d2c-8a7f5e4b3c21", directory });
-    const after = await adapter.status({ id: "0c9e7d52-3f1a-4b6e-9d2c-8a7f5e4b3c21", directory });
+    const after = await adapter.status(ACCOUNT(directory));
     expect(after).toMatchObject({ signedIn: true, email: "david@example.com", error: null });
     expect(after.expired).toBeUndefined();
+    // And stays gone: signed out later is signed out, not expired.
+    writeLogin(directory, { accessToken: "", refreshToken: "", expiresAt: 0 });
+    const out = await adapter.status(ACCOUNT(directory));
+    expect(out).toMatchObject({ signedIn: false, error: null });
+    expect(out.expired).toBeUndefined();
   });
 
-  it("tries a lapsed login again behind a status read at most once a minute, answering expired at once, and a refresh that works clears it", async () => {
+  it("does not mark a login a sign-in replaced while the refresh query was in flight: the binary then reads signed in, and the run goes on", async () => {
     const directory = accountDirectory(-HOUR);
-    scriptedCli({ refuse: true, clears: false });
+    let release = (): void => undefined;
+    const hold = new Promise<void>((resolve) => (release = resolve));
+    scriptedCli({ refuse: true, hold });
     const adapter = adapterWith();
-    const account = { id: "0c9e7d52-3f1a-4b6e-9d2c-8a7f5e4b3c21", directory };
-    await drain(adapter.createRun(runInput(directory), contextWith()));
-    expect(await adapter.status(account)).toEqual(EXPIRED);
-    clock.advance(LAPSED_RETRY_MS - 1);
-    expect(await adapter.status(account)).toEqual(EXPIRED);
-    expect(refreshQueries()).toHaveLength(1);
-    // The token endpoint answers again; the next read a minute on answers at once and tries again behind it.
-    const again = scriptedCli();
-    clock.advance(1);
-    expect(await adapter.status(account)).toEqual(EXPIRED);
-    await vi.waitFor(() => expect(again.refreshes).toBe(1));
-    expect(refreshQueries()).toHaveLength(2);
-    await vi.waitFor(async () => expect(await adapter.status(account)).toMatchObject({ signedIn: true, error: null }));
     adapter.createRun(runInput(directory), contextWith());
+    await vi.waitFor(() => expect(refreshQueries()).toHaveLength(1));
+    // The sign-in lands while the provider is refusing the old login's refresh.
+    writeLogin(directory, { accessToken: "access-new", refreshToken: "refresh-new", expiresAt: clock.now().getTime() + 8 * HOUR });
+    release();
     await runsMade(1);
-    expect(again.refreshes).toBe(1);
+    expect(readLogin(directory).accessToken).toBe("access-new");
+    expect(diagnostics.some((line) => /could not be checked before a resume \(the usage read reached no plan limits\)/.test(line))).toBe(true);
+    expect(await adapter.status(ACCOUNT(directory))).toMatchObject({ signedIn: true, error: null });
     await adapter.stopProcess(SESSION);
   });
 
-  it("lets the run go on when the query cannot tell: no usage method, or a failure that is not the login's; the account is not lapsed", async () => {
+  it("lets the run go on when the query cannot tell, marks nothing, and leaves nothing in flight: no usage method, no network, a read that fails, a query that times out", async () => {
     const directory = accountDirectory(-HOUR);
     const adapter = adapterWith();
-    const account = { id: "0c9e7d52-3f1a-4b6e-9d2c-8a7f5e4b3c21", directory };
+    let seen = 0;
+    /** The diagnostics since the last asked. */
+    const said = (): string => {
+      const lines = diagnostics.slice(seen).join("\n");
+      seen = diagnostics.length;
+      return lines;
+    };
+    const resumeAs = async (sessionId: string): Promise<void> => {
+      adapter.createRun(runInput(directory, { sessionId }), contextWith());
+      await vi.waitFor(() => expect(runQueries().filter((query) => query.env["CLAUDE_CODE_PROJECT_DIR_NAME"] === sessionId)).toHaveLength(1));
+      await adapter.stopProcess(sessionId);
+    };
     fake.controls = {};
-    adapter.createRun(runInput(directory), contextWith());
-    await runsMade(1);
-    expect(diagnostics.some((line) => /login of the account Work could not be checked before a resume \(this SDK build has no usage read/.test(line))).toBe(true);
-    await adapter.stopProcess(SESSION);
-    scriptedCli({ fails: "The Claude binary did not answer within 15000 ms." });
-    adapter.createRun(runInput(directory, { sessionId: OTHER }), contextWith());
-    await runsMade(2);
-    expect(diagnostics.some((line) => /did not answer within 15000 ms/.test(line))).toBe(true);
-    expect(await adapter.status(account)).toMatchObject({ signedIn: true, error: null });
-    await adapter.stopProcess(OTHER);
+    await resumeAs(randomUUID());
+    expect(said()).toMatch(/login of the account Work could not be checked before a resume \(this SDK build has no usage read/);
+    scriptedCli({ unreachable: true });
+    await resumeAs(randomUUID());
+    expect(said()).toMatch(/\(the usage read reached no plan limits\)/);
+    scriptedCli({ fails: "Claude Code process exited with code 1" });
+    await resumeAs(randomUUID());
+    expect(said()).toMatch(/\(Claude Code process exited with code 1\)/);
+    // A usage read that never answers is given up at the control timeout, on the environment's clock.
+    fake.controls = { usage: { name: USAGE, answer: () => new Promise(() => undefined) } };
+    const timedOut = randomUUID();
+    adapter.createRun(runInput(directory, { sessionId: timedOut }), contextWith());
+    await vi.waitFor(() => expect(refreshQueries()).toHaveLength(4));
+    clock.advance(DEFAULT_TIMINGS.controlTimeoutMs);
+    await vi.waitFor(() => expect(runQueries().filter((query) => query.env["CLAUDE_CODE_PROJECT_DIR_NAME"] === timedOut)).toHaveLength(1));
+    expect(said()).toMatch(/did not answer within 15000 ms/);
+    await adapter.stopProcess(timedOut);
+    // Nothing was left in flight: the next cold resume runs a query of its own, which refreshes the login.
+    const cli = scriptedCli();
+    await resumeAs(randomUUID());
+    expect(refreshQueries()).toHaveLength(5);
+    expect(cli.refreshes).toBe(1);
+    expect(await adapter.status(ACCOUNT(directory))).toMatchObject({ signedIn: true, error: null });
+  });
+
+  it("names the account by its id when the label it was handed is empty", async () => {
+    const directory = accountDirectory(-HOUR);
+    scriptedCli({ refuse: true });
+    const adapter = adapterWith();
+    const input = runInput(directory);
+    const events = await drain(adapter.createRun({ ...input, account: { ...input.account, label: " " } }, contextWith()));
+    expect(events.at(-1)).toMatchObject({ error: { code: LOGIN_EXPIRED_CODE, message: expect.stringMatching(/^The Claude account 0c9e7d52-3f1a-4b6e-9d2c-8a7f5e4b3c21 has an expired login/) } });
   });
 
   it("lets the run go on when the refresh query itself rejects, and clears it, so the next resume runs a query of its own rather than waiting on it", async () => {
@@ -468,16 +514,5 @@ describe("a cold resume through the store", () => {
     expect(refreshQueries()).toEqual([]);
     expect(cli.refreshes).toBe(0);
     await storeless.stopProcess(SESSION);
-  });
-});
-
-describe("what counts as a login failure", () => {
-  it("is the CLI's authentication failure, a refused refresh token or no login; not a failure to run or answer", () => {
-    for (const message of [REFUSED, "Auth error: unauthorized", "Request failed with status code 401", "OAuth token refresh failed: invalid_grant", "Auth error: no claude.ai login"]) {
-      expect(isLoginFailure(message), message).toBe(true);
-    }
-    for (const message of ["The Claude binary did not answer within 15000 ms.", "spawn /sdk/claude ENOENT", "Claude Code process exited with code 1", "getaddrinfo ENOTFOUND api.anthropic.com"]) {
-      expect(isLoginFailure(message), message).toBe(false);
-    }
   });
 });

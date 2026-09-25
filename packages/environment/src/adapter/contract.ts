@@ -572,12 +572,6 @@ export interface Adapter {
   readonly credentials: AdapterCredentialSpec;
   status(account: AccountRef): Promise<AuthStatus>;
   /**
-   * A sign-in to the account has just finished, before the status read that
-   * checks it: whatever the adapter concluded about the login it replaced no
-   * longer holds (Claude: a login it found lapsed, #229). Optional.
-   */
-  loginReplaced?(account: AccountRef): void;
-  /**
    * The machine's own config directory for this provider (Claude's
    * `CLAUDE_CONFIG_DIR`, else `~/.claude`), which `accounts.adopt` registers
    * in place; absent, or null, when the provider has none here.
