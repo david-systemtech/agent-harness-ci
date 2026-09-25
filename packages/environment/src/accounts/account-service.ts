@@ -35,7 +35,7 @@ import {
   sameIdentity,
   sameLogin,
 } from "./account-store.js";
-import { signInNotBuilt, type SignInDirector, type SignInDirectorFactory, type SignInOutcome } from "./sign-in.js";
+import { signInUnavailable, type SignInDirector, type SignInDirectorFactory, type SignInOutcome } from "./signin-seam.js";
 
 /**
  * The account service (claude-adapter spec, "The account store" and "Sign-in
@@ -47,7 +47,8 @@ import { signInNotBuilt, type SignInDirector, type SignInDirectorFactory, type S
  *   from its latest read, and never touches it: nothing in it is moved,
  *   linked or deleted, now or on removal.
  * - **Add** makes an owned directory under `<data dir>/accounts/<id>` and
- *   hands the account to the sign-in director (#135 fills it).
+ *   hands the account to the sign-in director (#135), which the
+ *   `accounts.signin.*` methods drive through `signIn`.
  * - **One identity is one account**: an owned account whose first identity
  *   (the sign-in's, read before it ever read as signed in) is one another
  *   account holds is refused, "already added as <label>", removed and its
@@ -110,7 +111,7 @@ export interface AccountServiceOptions {
   readonly environmentId: string;
   /** Where owned directories are made (`<data dir>/accounts`); null for an environment with none, which cannot add. */
   readonly ownedRoot: string | null;
-  /** The sign-in director's factory; preset: `signInNotBuilt`, until #135. */
+  /** The sign-in director's factory; preset: `signInUnavailable` (the environment passes the real director). */
   readonly signIn?: SignInDirectorFactory;
   /** Preset `PROBE_TIMEOUT_MS`. */
   readonly probeTimeoutMs?: number;
@@ -138,6 +139,8 @@ export interface HostAccounts {
 type Refused = "not_found" | "conflict";
 
 export interface AccountService extends HostAccounts {
+  /** The sign-in director the store handed its port to: what the `accounts.signin.*` methods drive. */
+  readonly signIn: SignInDirector;
   /** Carries over the configured accounts, reads the machine's own directories and every account's status and models, and removes owned directories whose deletion was recorded; startup runs it once. */
   start(): Promise<void>;
   /** The accounts, each with its latest read time. */
@@ -155,7 +158,7 @@ export interface AccountService extends HostAccounts {
     params: { readonly accountId: string; readonly deleteDirectory?: boolean | undefined },
     context: CommandContext,
   ): CommandAnswer<{ accountId: string; directoryDeleted: boolean }, Refused>;
-  /** Stops the fifteen-minute reads. */
+  /** Stops the fifteen-minute reads, and a running sign-in's process. */
   close(): void;
 }
 
@@ -553,9 +556,11 @@ export const createAccountService = (options: AccountServiceOptions): AccountSer
     await readModels(accountId);
     return { signedIn: true, account: withChecked(after.record) };
   };
-  const director: SignInDirector = (options.signIn ?? signInNotBuilt)({ finished });
+  const director: SignInDirector = (options.signIn ?? signInUnavailable)({ finished, account: (accountId) => liveAccount(reader, accountId) });
 
   return {
+    signIn: director,
+
     async start() {
       carryOver();
       sweepOwnedDirectories();
@@ -639,7 +644,7 @@ export const createAccountService = (options: AccountServiceOptions): AccountSer
       if (taken !== null) return taken;
       if (ownedRoot === null) throw new Error("This environment has no data directory to make an account's directory in.");
       const directory = join(ownedRoot, accountId);
-      const signIn = director.ready({ id: accountId, provider, directory: { kind: "owned", path: directory } });
+      const signIn = director.ready({ id: accountId, provider, label: params.label, directory: { kind: "owned", path: directory } });
       // Made before the command commits, so its receipt means the directory is there; an add that does not commit
       // leaves a directory the store never held, which the next start removes.
       mkdirSync(directory, { recursive: true, mode: 0o700 });
@@ -694,6 +699,7 @@ export const createAccountService = (options: AccountServiceOptions): AccountSer
       log.append(aggregate, events, { tx: context.tx, actor: context.actor, commandId: context.commandId });
       context.tx.afterCommit(() => {
         forget(accountId);
+        director.removed(accountId);
         if (deleteDirectory) deleteOwned(current.directory.path);
         notice(accountId, "removed");
       });
@@ -741,6 +747,7 @@ export const createAccountService = (options: AccountServiceOptions): AccountSer
       closed = true;
       for (const timer of timers.values()) timer.cancel();
       timers.clear();
+      director.close();
     },
   };
 };

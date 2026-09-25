@@ -1,11 +1,11 @@
-import { createElement, type ReactElement } from "react";
+import { cloneElement, createElement, type ReactElement } from "react";
 import { render } from "ink-testing-library";
 import { createRuntime, writable, type GrantReader, type Runtime, type Writable } from "@agent-harness/client-runtime";
 import { inMemoryPlatform, manualClock, runtimeSpeaking, type InMemoryPlatform, type ManualClock } from "@agent-harness/client-runtime/testing";
 import { flush } from "@agent-harness/client-runtime/testing/fake-wire";
-import { App, type ScreenFlags } from "../src/app.js";
+import { App, type AppProps, type ScreenFlags } from "../src/app.js";
 import { FRAME_MS } from "../src/frames.js";
-import { DEFAULT_KEYMAP, type Keymap } from "../src/keys.js";
+import { DEFAULT_KEYMAP, keybindingsFor, type Keymap } from "../src/keys.js";
 import type { LocalService, ServiceOutcome } from "../src/platform/services.js";
 import { createRuntimeHost, type RuntimeHost } from "../src/runtime-host.js";
 import type { Fault } from "../src/view.js";
@@ -30,7 +30,11 @@ export const KEY = {
   tab: "\t",
   shiftTab: "\u001B[Z",
   backspace: "\u007F",
+  pageUp: "\u001B[5~",
+  pageDown: "\u001B[6~",
+  ctrlB: "\u0002",
   ctrlC: "\u0003",
+  ctrlX: "\u0018",
 } as const;
 
 /** The frame size every test renders at: `ink-testing-library` draws 100 columns. */
@@ -93,6 +97,13 @@ export interface RenderOptions {
   readonly service?: ServiceScript;
   readonly flags?: Partial<ScreenFlags>;
   readonly keymap?: Keymap;
+  /**
+   * The keybindings, found and read as the terminal UI finds and reads its own
+   * (`keybindingsFor`): `keybindings.json` in `stateDir`, or the file `flag`
+   * names as `--keybindings` does; read at launch (its problems the launch
+   * notes, before `notes`) and again on `/reload`.
+   */
+  readonly keybindings?: { readonly stateDir: string; readonly flag?: string };
   /** The grant reader the screen asks for the service-down offer, when it should differ from the runtime's (a reader that fails). */
   readonly screenGrant?: GrantReader;
   readonly notes?: readonly string[];
@@ -113,6 +124,8 @@ export interface RenderedApp {
   fault(message: string): void;
   /** The frame as a person sees it. */
   frame(): string;
+  /** Draws the screen again at another size, as a terminal resized does. */
+  resize(size: { readonly columns: number; readonly rows: number }): Promise<void>;
   /** How many frames Ink has written. */
   frames(): number;
   /** Sends the bytes a terminal sends, one write per argument, letting each land. */
@@ -146,7 +159,7 @@ const matches = (frame: string, text: string | RegExp) => {
 
 /** Everything a render needs, built and started: the App element, and what it renders from. */
 export interface AppUnderTest {
-  readonly element: ReactElement;
+  readonly element: ReactElement<AppProps>;
   readonly clock: ManualClock;
   readonly platform: InMemoryPlatform;
   readonly world: ScriptedWorld;
@@ -181,14 +194,17 @@ export const appUnderTest = async (options: RenderOptions): Promise<AppUnderTest
 
   let commandIds = 0;
   const faults = writable<readonly Fault[]>([]);
+  const bindings = options.keybindings && keybindingsFor({ keybindings: options.keybindings.flag }, options.keybindings.stateDir);
+  const launched = bindings?.launch;
   const element = createElement(App, {
     host,
     clock,
     services: service,
     grant: options.screenGrant ?? grant,
-    keymap: options.keymap ?? DEFAULT_KEYMAP,
+    keymap: launched?.keymap ?? options.keymap ?? DEFAULT_KEYMAP,
+    ...(bindings && { keybindings: { path: bindings.path, reload: bindings.reload } }),
     flags: { workspace: "~/code/harness", ...options.flags },
-    notes: options.notes ?? [],
+    notes: [...(launched?.problems ?? []), ...(options.notes ?? [])],
     faults,
     size: options.size ?? SIZE,
     newCommandId: () => `0199ee00-0000-7000-8000-${String(++commandIds).padStart(12, "0")}`,
@@ -218,6 +234,10 @@ export const renderApp = async (options: RenderOptions): Promise<RenderedApp> =>
     environment: (name) => world.environment(name),
     fault: (message) => faults.update((list) => [...list, { message, at: clock.now().toISOString() }]),
     frame: () => app.lastFrame() ?? "",
+    async resize(size) {
+      app.rerender(cloneElement(element, { size }));
+      await settle();
+    },
     frames: () => app.frames.length,
     async press(...keys) {
       for (const bytes of keys) {

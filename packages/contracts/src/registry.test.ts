@@ -184,6 +184,9 @@ describe("the method registry", () => {
       "accounts.add",
       "accounts.relabel",
       "accounts.remove",
+      "accounts.signin.start",
+      "accounts.signin.code",
+      "accounts.signin.cancel",
       "settings.update",
       "permissions.mode.set",
       "permissions.settings.set",
@@ -321,6 +324,10 @@ describe("the method registry", () => {
       | "accounts.add"
       | "accounts.relabel"
       | "accounts.remove"
+      | "accounts.signin.get"
+      | "accounts.signin.start"
+      | "accounts.signin.code"
+      | "accounts.signin.cancel"
       | "models.list"
       | "commands.list"
       | "settings.get"

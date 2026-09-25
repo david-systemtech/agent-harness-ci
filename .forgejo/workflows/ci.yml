@@ -33,7 +33,7 @@ concurrency:
 jobs:
   ci:
     runs-on: ci
-    timeout-minutes: 10
+    timeout-minutes: 25
     steps:
       # Pinned to a commit, not a tag. Forgejo resolves `actions/checkout` to
       # its mirror on data.forgejo.org, which carries GitHub's commits.

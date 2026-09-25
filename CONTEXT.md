@@ -24,6 +24,10 @@ _Avoid_: profile
 The provider plus the login an account signed in as, its email and, when present, its organisation; one account per identity per environment, and the same identity on several environments pools plan usage.
 _Avoid_: email (the display field), profile id
 
+**Sign-in**:
+The environment running a provider's own CLI (Claude's bundled binary, `auth login`) against an account's directory, one at a time per environment: it publishes the verification URL, takes the code from whichever client is attending, and ends done, failed, expired after ten minutes, or cancelled; the harness never sees the credential, and the exact command for a terminal on that machine is the fallback.
+_Avoid_: login (the provider's credential itself), authentication, OAuth flow
+
 **Adopted account**:
 An account whose config directory is the machine's own provider directory, registered in place; never moved, linked or deleted by the harness.
 _Avoid_: carried-over profile, imported account

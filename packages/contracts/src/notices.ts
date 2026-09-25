@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { AccountUpdatedPayload } from "./accounts.js";
+import { AccountUpdatedPayload, SignIn, SignInExecutableChosenPayload } from "./accounts.js";
 import { ProtocolVersion } from "./flags.js";
 import { DrainStarted } from "./lifecycle.js";
 
@@ -17,12 +17,22 @@ export const ENVIRONMENT_STREAM_KIND = "environment";
  * The notices there are: the environment finished starting; it was updated
  * from one harness version to another (appended by the launcher ticket); it
  * began to drain (appended by the lifecycle ticket, #112); an account
- * changed (the account store, #134), appended once the change has committed.
+ * changed (the account store, #134), appended once the change has committed;
+ * the sign-in changed state, carrying the sign-in (the sign-in director,
+ * #135); the executable sign-ins run was chosen, once per environment and
+ * bundled binary (#135).
  */
-export const ENVIRONMENT_NOTICE_TYPES = ["environment.started", "environment.updated", "environment.draining", "account.updated"] as const;
+export const ENVIRONMENT_NOTICE_TYPES = [
+  "environment.started",
+  "environment.updated",
+  "environment.draining",
+  "account.updated",
+  "signin.updated",
+  "signin.executable-chosen",
+] as const;
 export const EnvironmentNoticeType = z.enum(ENVIRONMENT_NOTICE_TYPES).meta({
   description:
-    "An environment notice's event type: environment.started (startup finished), environment.updated (a new harness version now runs), environment.draining (new runs are refused before a restart), account.updated (an account changed; a client refreshes what it caches of the accounts).",
+    "An environment notice's event type: environment.started (startup finished), environment.updated (a new harness version now runs), environment.draining (new runs are refused before a restart), account.updated (an account changed; a client refreshes what it caches of the accounts), signin.updated (the sign-in changed state: the verification URL, the end), signin.executable-chosen (which executable sign-ins run, recorded once).",
 });
 export type EnvironmentNoticeType = z.infer<typeof EnvironmentNoticeType>;
 
@@ -60,13 +70,27 @@ const AccountUpdated = z
   })
   .meta({ description: "An account changed: which, how, and a warning when something is wrong." });
 
+const SignInUpdated = z
+  .object({
+    type: z.literal("signin.updated"),
+    payload: SignIn,
+  })
+  .meta({ description: "The sign-in changed state: the sign-in as it is now, with the verification URL once it is awaiting a code." });
+
+const SignInExecutableChosen = z
+  .object({
+    type: z.literal("signin.executable-chosen"),
+    payload: SignInExecutableChosenPayload,
+  })
+  .meta({ description: "The environment chose the executable its sign-ins for a provider run: the bundled binary, or the managed tool when the bundled one does not run a sign-in." });
+
 /**
  * One environment notice, as an event's `type` and `payload`. Parsing an
  * event envelope with it reads the notice and leaves the envelope's other
  * fields aside, so a client parses the `event` of an `event` frame directly.
  */
 export const EnvironmentNotice = z
-  .discriminatedUnion("type", [EnvironmentStarted, EnvironmentUpdated, EnvironmentDraining, AccountUpdated])
+  .discriminatedUnion("type", [EnvironmentStarted, EnvironmentUpdated, EnvironmentDraining, AccountUpdated, SignInUpdated, SignInExecutableChosen])
   .meta({
     description:
       "An event on the environment stream, as environment.subscribe delivers it: its type and payload, read from the event's envelope.",
