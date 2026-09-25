@@ -34,7 +34,7 @@ _Avoid_: carried-over profile, imported account
 
 **Imported session**:
 A session record the Carry over step creates from a transcript found in an adopted directory, with its title, workspace, repository identity and provider session id set at once and its history appended to the log the first time a client opens it.
-_Avoid_: migrated session, legacy session, provider session (the transcript, not the record)
+_Avoid_: migrated session, legacy session, provider session (the provider's own record the imported session links, defined below, not the session)
 
 **Session**:
 One conversation with an agent, owned by exactly one environment.

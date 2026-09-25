@@ -87,6 +87,29 @@ describe("the summaries", () => {
     expect(await store.load(MAIN)).toEqual([prompt("u1", "Once"), marker, marker]);
   });
 
+  it("stores a retried batch once over a prior summary, leaving the summary as it was when nothing new was kept, and folding and restamping it when something was", async () => {
+    const store = storeOn(open());
+    await store.append(MAIN, [prompt("u0", "Before")]);
+    await store.append(MAIN, [prompt("u1", "One"), reply("a1", "Done.")]);
+    const [first] = await store.listSessionSummaries(HARNESS);
+
+    // Every entry of the retry is stored already: nothing is kept, and the summary, write time included, stays.
+    await store.append(MAIN, [prompt("u1", "One"), reply("a1", "Done.")]);
+    expect(await store.load(MAIN)).toEqual([prompt("u0", "Before"), prompt("u1", "One"), reply("a1", "Done.")]);
+    expect(await store.listSessionSummaries(HARNESS)).toEqual([first]);
+
+    // A retry carrying an entry without a uuid keeps that entry again: the summary is folded over it and its write time rises.
+    const marker = { type: "last-prompt", lastPrompt: "Again", sessionId: PROVIDER };
+    await store.append(MAIN, [prompt("u2", "Two"), marker]);
+    const [second] = await store.listSessionSummaries(HARNESS);
+    await store.append(MAIN, [prompt("u2", "Two"), marker]);
+    const [third] = await store.listSessionSummaries(HARNESS);
+    expect((await store.load(MAIN))?.slice(-3)).toEqual([prompt("u2", "Two"), marker, marker]);
+    expect(second?.mtime).toBeGreaterThan(first?.mtime ?? Infinity);
+    expect(third?.mtime).toBeGreaterThan(second?.mtime ?? Infinity);
+    expect(third?.data).toEqual(foldSessionSummary(second, MAIN, [marker], { mtime: third?.mtime ?? 0 }).data);
+  });
+
   it("keeps the fold without the user's renames beside the SDK's own, which a mirrored title reaches", async () => {
     const store = storeOn(open());
     await store.append(MAIN, [prompt("u1", "Fix the receipts"), aiTitle("Fixing the receipt sweep")]);

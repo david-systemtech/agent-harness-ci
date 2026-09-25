@@ -80,7 +80,8 @@ export const createProviderTranscriptStore = (options: ProviderTranscriptStoreOp
 
   /** Whether the harness session `projectKey` names has been purged: its stream holds the tombstone. */
   const purged = (projectKey: string): boolean =>
-    log.read(`SELECT 1 FROM events WHERE stream_kind = '${SESSION_STREAM_KIND}' AND stream_id = ? AND type = 'session.purged' LIMIT 1`, projectKey).length > 0;
+    // One probe of the events' stream index (stream_kind, stream_id, sequence) per key.
+    log.read("SELECT 1 FROM events WHERE stream_kind = ? AND stream_id = ? AND type = 'session.purged' LIMIT 1", SESSION_STREAM_KIND, projectKey).length > 0;
 
   return {
     async append(key, entries) {
