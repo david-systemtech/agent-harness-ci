@@ -30,13 +30,14 @@ export type ProcessState = z.infer<typeof ProcessState>;
  * parked on a prompt for the idle time (its run ended interrupted, cause
  * parked); its session deleted; an admin's `providers.processes.stop`; a
  * drain; the environment closing; its run failed and the environment ended
- * it, so the next run starts cold; or it exited on its own and its adapter
- * said so.
+ * it, so the next run starts cold; it exited on its own and its adapter
+ * said so; or its session was rewound (#137), whose next run starts cold at
+ * the rewind's point (a background task the process held ends with it).
  */
-export const PROCESS_STOP_REASONS = ["idle", "parked", "deleted", "admin", "drain", "closed", "failed", "exited"] as const;
+export const PROCESS_STOP_REASONS = ["idle", "parked", "deleted", "admin", "drain", "closed", "failed", "exited", "rewound"] as const;
 export const ProcessStopReason = z.enum(PROCESS_STOP_REASONS).meta({
   description:
-    "Why a provider process stopped: idle (idle for providers.processIdleMinutes with no held work), parked (parked on a prompt as long; its run ended interrupted, cause parked), deleted (its session was deleted), admin (providers.processes.stop), drain (the environment drained), closed (the environment closed), failed (its run failed and the environment ended it), exited (it exited on its own).",
+    "Why a provider process stopped: idle (idle for providers.processIdleMinutes with no held work), parked (parked on a prompt as long; its run ended interrupted, cause parked), deleted (its session was deleted), admin (providers.processes.stop), drain (the environment drained), closed (the environment closed), failed (its run failed and the environment ended it), exited (it exited on its own), rewound (its session was rewound, so the next run starts from the rewind's point on a fresh process; a background task it held ends with it).",
 });
 export type ProcessStopReason = z.infer<typeof ProcessStopReason>;
 

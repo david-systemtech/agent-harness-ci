@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "HandoffBasis",
+  "type": "string",
+  "enum": [
+    "same-plan",
+    "weighted",
+    "percentage"
+  ],
+  "description": "What the ranking compared: same-plan (every candidate is on one plan, so the shares describe one ceiling), weighted (the plans differ and each publishes its size against its provider's baseline), or percentage (shares of plans that cannot be compared by size; a client says so rather than claim capacity)."
+}

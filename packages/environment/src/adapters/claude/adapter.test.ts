@@ -266,7 +266,7 @@ describe("a run", () => {
   });
 
   it("hands query() the options table: store, trust, instructions, bundled binary, broker", async () => {
-    const store = { append: async () => undefined, load: async () => null };
+    const store = { append: async () => undefined, load: async () => null, listUnrenamedSummaries: async () => [] };
     const adapter = adapterWith({ sessionStore: store, pluginDirectory: () => "/data/skills/work", autoMemoryRoot: "/data/auto-memory" });
     adapter.createRun(runInput({ trusted: true, instructions: "Be brief.", repositoryIdentity: "git.example/david/repo", target: { kind: "resume", providerSessionId: PROVIDER_SESSION } }), contextWith());
     const options: Options = (await started()).options;
@@ -374,7 +374,7 @@ describe("canUseTool on the broker seam", () => {
       sessionId: SESSION,
       runId: input.runId,
       kind: "permission",
-      // The permission table's id: an answer through the host's answerPrompt names the same prompt.
+      // The permission table's id: an answer through the host's deliverAnswer names the same prompt.
       promptId: "toolu_rm",
       signal: expect.any(AbortSignal),
       detail: {

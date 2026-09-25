@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { MODES, type AdapterCapabilities, type AuthStatus, type Mode, type ModeAvailability, type ProcessHoldKind } from "@agent-harness/contracts";
+import { MODES, type AdapterCapabilities, type AuthStatus, type JsonObject, type Mode, type ModeAvailability, type ProcessHoldKind } from "@agent-harness/contracts";
 import type {
   AccountRef,
   Adapter,
@@ -19,7 +19,10 @@ import type {
   RunInput,
   TranscriptEvent,
   UsageReading,
+  UsageWindow,
 } from "../src/adapter/contract.js";
+import type { Clock } from "../src/serve/clock.js";
+import { MANUAL_CLOCK_START } from "./clock.js";
 
 /**
  * The scripted fake adapter (claude-adapter spec, "Testing Decisions", the
@@ -56,6 +59,13 @@ import type {
  * The tool gate (#132, #133): a script plays a tool call as a provider
  * does under the gate (`toolCall`), asking the run context's gate before its
  * own evaluation; each run records every ruling (`gated`).
+ *
+ * Plan usage (#136): the reading is scripted per account and can be changed
+ * mid-test (`setUsage`), may wait on a gate or throw, and every read is
+ * recorded (`usageReads`), so a test counts the reads concurrent asks
+ * shared; the preset reading is stamped with the fake's clock and names the
+ * fake's provider, and a scripted one is answered as scripted. A run's
+ * script reports a rate-limit verdict with `planLimit`.
  */
 
 /** What a script is handed: the run's input, its context, and the messages the run is sent while it plays. */
@@ -150,7 +160,40 @@ export interface FakeAdapterOptions {
   readonly titleWrite?: true | { readonly fails: string };
   /** A gate every process stop waits on before it finishes, so a test sees a process `stopping`. Preset: none. */
   readonly holdStops?: Gate;
+  /**
+   * Declares `subagentTranscripts`: each subagent's transcript by agent id, the
+   * same for every session (none for an id not listed); every read is
+   * recorded. Preset: not declared.
+   */
+  readonly subagentTranscripts?: Readonly<Record<string, readonly JsonObject[]>>;
+  /** What stamps the preset usage reading's `readAt`; give it the test's manual clock. Preset: `MANUAL_CLOCK_START`, always. */
+  readonly clock?: Pick<Clock, "now">;
+  /** The plan-usage read, per account: answers at once, when its promise settles, or throws. Preset: `presetUsage`. */
+  readonly usage?: UsageScript;
 }
+
+/** A plan-usage read a test scripts: the reading for the account, given the fake's clock's time. */
+export type UsageScript = (account: AccountRef, now: Date) => UsageReading | Promise<UsageReading>;
+
+/** The preset reading: signed in as `<account id>@example.com`, the 5-hour window a quarter used, read now. */
+export const presetUsage: UsageScript = (account, now) => usageOf(`${account.id}@example.com`, [usageWindow("five_hour", 0.25, "2026-09-24T05:00:00.000Z")], now);
+
+/** A reading of `email` on the fake provider with `windows`, read at `now`. */
+export const usageOf = (email: string, windows: readonly UsageWindow[], now: Date, organisation: string | null = null): UsageReading => ({
+  identity: { provider: "fake", email, organisation },
+  windows,
+  readAt: now.toISOString(),
+});
+
+/** One window of a reading: its name, its utilisation 0 to 1, and when it resets. */
+export const usageWindow = (window: string, utilisation: number | null, resetsAt: string | null = null): UsageWindow => ({ window, utilisation, resetsAt });
+
+/** A rate-limit verdict a run's script reports (`plan.limit`), with the utilisation and reset it names, if any. */
+export const planLimit = (
+  window: string,
+  status: "allowed" | "warning" | "rejected",
+  named: { readonly utilisation?: number | null; readonly resetsAt?: string | null } = {},
+): TranscriptEvent => ({ type: "plan.limit", payload: { window, status, utilisation: named.utilisation ?? null, resetsAt: named.resetsAt ?? null } });
 
 /** A user title the environment mirrored into the provider's own title field. */
 export interface MirroredTitle {
@@ -169,6 +212,10 @@ export interface FakeAdapter extends Adapter {
   readonly titleReads: readonly string[];
   /** The user titles the environment mirrored (`writeTitle`), in order, whether or not the write failed. */
   readonly mirroredTitles: readonly MirroredTitle[];
+  /** The subagent transcripts the environment read (`subagentTranscript`), in order. */
+  readonly subagentReads: readonly { readonly sessionId: string; readonly agentId: string }[];
+  /** The accounts each transcript delete was handed, in the order of `deletedTranscripts`. */
+  readonly deletedTranscriptAccounts: readonly (readonly AccountRef[])[];
   /** The most recent run. */
   lastRun(): FakeRunRecord;
   /** Every provider process started, in order. */
@@ -183,6 +230,10 @@ export interface FakeAdapter extends Adapter {
   setStatus(status: (account: AccountRef) => AuthStatus | Promise<AuthStatus>): void;
   /** Every commands listing, in order. */
   readonly commandListings: readonly { readonly account: AccountRef; readonly workspace: string }[];
+  /** Every plan-usage read, in order: the account reference it was asked with. */
+  readonly usageReads: readonly AccountRef[];
+  /** Replaces the plan-usage read from now on. */
+  setUsage(usage: UsageScript): void;
 }
 
 /** The fake's own directory unless a test gives it one: a path that is not there, so nothing adopts it by chance. */
@@ -376,7 +427,7 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
     rewind: false,
     sessionListing: false,
     subagents: true,
-    subagentTranscripts: false,
+    subagentTranscripts: options.subagentTranscripts !== undefined,
     titleRead: declaredTitle !== undefined,
     titleWrite: declaredWrite !== undefined,
     transcriptDelete: declaredDelete !== undefined,
@@ -397,12 +448,20 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
   const nextScripts: Script[] = [];
   const titleReads: string[] = [];
   const mirroredTitles: MirroredTitle[] = [];
+  const subagentReads: { sessionId: string; agentId: string }[] = [];
+  const deletedTranscriptAccounts: (readonly AccountRef[])[] = [];
   const processes: FakeProcessRecord[] = [];
   /** The port each process's latest run was handed. */
   const ports = new Map<FakeProcessRecord, ProcessPort>();
   const statusReads: AccountRef[] = [];
   const commandListings: { account: AccountRef; workspace: string }[] = [];
   let status = options.status;
+  const usageReads: AccountRef[] = [];
+  // The preset names the fake's own provider, whatever a test calls it; a scripted reading is answered as scripted.
+  let usage: UsageScript = options.usage ?? (async (account, now) => {
+    const reading = await presetUsage(account, now);
+    return { ...reading, identity: { ...reading.identity, provider } };
+  });
 
   /** The session's process as it is now: its latest, unless that one has been told to stop or has exited. */
   const liveProcess = (sessionId: string): FakeProcessRecord | undefined => {
@@ -617,14 +676,14 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
       await options.holdStops?.opened;
       process.stopped = true;
     },
-    usage: async (account): Promise<UsageReading> => ({
-      identity: { provider, email: `${account.id}@example.com`, organisation: null },
-      windows: [{ window: "five_hour", utilisation: 0.25, resetsAt: "2026-09-24T05:00:00.000Z" }],
-      readAt: "2026-09-24T00:00:00.000Z",
-    }),
+    usage: async (account): Promise<UsageReading> => {
+      usageReads.push(account);
+      return usage(account, options.clock?.now() ?? new Date(MANUAL_CLOCK_START));
+    },
     ...(declaredDelete !== undefined && {
-      deleteTranscript: (sessionId: string) => {
+      deleteTranscript: (sessionId: string, accounts: readonly AccountRef[]) => {
         deletedTranscripts.push(sessionId);
+        deletedTranscriptAccounts.push(accounts);
         // The one cast: what the type refuses, an adapter could still do at run time.
         if (declaredDelete === "async") return Promise.resolve() as unknown as undefined;
         if (declaredDelete !== true) throw new Error(declaredDelete.fails);
@@ -645,12 +704,24 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
         if (declaredWrite !== true) throw new Error(declaredWrite.fails);
       },
     }),
+    ...(options.subagentTranscripts !== undefined && {
+      subagentTranscript: async (sessionId: string, agentId: string) => {
+        subagentReads.push({ sessionId, agentId });
+        return options.subagentTranscripts?.[agentId] ?? [];
+      },
+    }),
     runs,
+    subagentReads,
+    deletedTranscriptAccounts,
     statusReads,
     setStatus(next) {
       status = next;
     },
     commandListings,
+    usageReads,
+    setUsage(next) {
+      usage = next;
+    },
     deletedTranscripts,
     nextScripts,
     titleReads,

@@ -11,11 +11,15 @@ import { baseEnvironment } from "../terminals/shell.js";
  * pointed at nothing, never an external diff or text conversion (the diff's
  * own flags), and in a scrubbed environment: a terminal's clean base, none of
  * the environment's own variables (a provider's config directory, a key
- * manager's token) and no `GIT_*` but the ones asked for. A clean or smudge
- * filter the repository names still runs on a diff (it cannot be turned off
- * without a config of our own); it sees only the scrubbed environment, and
- * running it inside the run's containment is owed to #133. What git answers
- * is bytes; the caller decodes.
+ * manager's token) and no `GIT_*` but the ones asked for. The command line
+ * can blank a filter only by a name it already knows, and this git runs
+ * outside any containment (the session's level binds the provider's commands
+ * and tool calls, not the environment's own), so the diff asks
+ * `repositoryFilters` first and refuses a repository whose own config names a
+ * clean, smudge or process filter (permissions spec, #212); a filter the
+ * machine's config names (system or global, the owner's, as `git lfs install`
+ * writes) runs, seeing only the scrubbed environment. What git answers is
+ * bytes; the caller decodes.
  */
 
 /** How long git gets before it is stopped, and what it wrote kept. */
@@ -40,6 +44,8 @@ export interface GitAnswer {
   readonly truncated: boolean;
   /** Whether there is no git to run at all: none on the PATH. */
   readonly missing: boolean;
+  /** The exit code; null when git could not start, or was stopped. */
+  readonly code: number | null;
   /** What git said on its standard error, its first 64 KiB. */
   readonly stderr: string;
 }
@@ -108,9 +114,41 @@ export const runGit = (cwd: string, args: readonly string[], options: GitOptions
     });
     // A spawn that fails ENOENT is git missing from the PATH, unless the working directory is what is missing.
     child.on("error", (error: NodeJS.ErrnoException) =>
-      finish({ ok: false, stdout: Buffer.alloc(0), truncated: false, missing: error.code === "ENOENT" && existsSync(cwd), stderr: error.message }),
+      finish({ ok: false, stdout: Buffer.alloc(0), truncated: false, missing: error.code === "ENOENT" && existsSync(cwd), code: null, stderr: error.message }),
     );
     child.on("close", (code) =>
-      finish({ ok: code === 0 || (truncated && kept > 0), stdout: Buffer.concat(chunks), truncated, missing: false, stderr: stderr() }),
+      finish({ ok: code === 0 || (truncated && kept > 0), stdout: Buffer.concat(chunks), truncated, missing: false, code, stderr: stderr() }),
     );
   });
+
+/** The config scopes that are the machine's, not the repository's: its filters are the owner's and run. */
+const MACHINE_SCOPES: ReadonlySet<string> = new Set(["system", "global"]);
+
+/** A filter's command keys: `clean` and `smudge`, and `process`, the long-running one that does both. */
+const FILTER_COMMANDS = String.raw`^filter\..+\.(clean|smudge|process)$`;
+
+/**
+ * The filters the repository's own config names a command for
+ * (`filter.<name>.clean`, `smudge` or `process`), by name, sorted and each
+ * once: every scope but the machine's (the repository's `config`, its
+ * worktree's, and whatever file either includes, which git reports under the
+ * including scope), whether or not an attribute points a path at them. Read
+ * with `git config --show-scope` (git 2.26 or later), which runs nothing.
+ * `failed` is git's complaint when it could not say (a config it cannot
+ * parse, a git too old for `--show-scope`).
+ */
+export const repositoryFilters = async (cwd: string): Promise<{ readonly filters: readonly string[] } | { readonly failed: string }> => {
+  const answer = await runGit(cwd, ["config", "--show-scope", "--name-only", "-z", "--get-regexp", FILTER_COMMANDS], { maxBytes: 1024 * 1024 });
+  // Exit 1 with nothing listed and nothing said is git config's "no such key".
+  if (answer.code === 1 && answer.stdout.length === 0 && answer.stderr.trim() === "") return { filters: [] };
+  if (answer.truncated) return { failed: "git config listed more than 1 MiB of filters" };
+  if (!answer.ok) return { failed: answer.stderr };
+  // Scope and name, each ended by a NUL.
+  const fields = answer.stdout.toString("utf8").split("\0");
+  const names = new Set<string>();
+  for (let index = 0; index + 1 < fields.length; index += 2) {
+    const [scope, key] = [fields[index] as string, fields[index + 1] as string];
+    if (!MACHINE_SCOPES.has(scope)) names.add(key.slice("filter.".length, key.lastIndexOf(".")));
+  }
+  return { filters: [...names].sort() };
+};

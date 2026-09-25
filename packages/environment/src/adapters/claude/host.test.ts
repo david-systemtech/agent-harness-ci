@@ -421,7 +421,7 @@ describe("a Claude run through the adapter host", () => {
     });
   });
 
-  it("parks the run under the permission table's id, and an answer through the host's answerPrompt settles the tool call and unparks it", async () => {
+  it("parks the run under the permission table's id, and an answer through the host's deliverAnswer settles the tool call and unparks it", async () => {
     const t = await setup();
     const { runId, messageId } = startRun(t);
     const query = await runQuery(t, 1);
@@ -430,21 +430,21 @@ describe("a Claude run through the adapter host", () => {
     const asked = query.canUseTool("Edit", { file_path: "/work/repo/a.ts" }, { toolUseID: "toolu_edit" });
     const state = () => [...t.host.runs.runs()].find((run) => run.id === runId)?.state;
     await vi.waitFor(() => expect(state()).toBe("parked"));
-    t.host.answerPrompt(runId, "toolu_edit", { decision: "allow" });
+    t.host.deliverAnswer(runId, "toolu_edit", { decision: "allow" });
     expect(await asked).toEqual({ behavior: "allow", updatedInput: { file_path: "/work/repo/a.ts" }, toolUseID: "toolu_edit" });
     expect(state()).toBe("running");
   });
 
-  it("refuses an answer conflict when the prompt is not open, or its run has ended, so the caller can say so", async () => {
+  it("refuses an answer conflict when the prompt is not open, so the caller can say so, and hands a run that has ended nothing", async () => {
     const t = await setup();
     const { runId, messageId } = startRun(t);
     const query = await runQuery(t, 1);
     query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [messageId]));
     await vi.waitFor(() => expect(eventsOf(t).map((event) => event.type)).toContain("session.provider-linked"));
-    expect(() => t.host.answerPrompt(runId, "toolu_unknown", { decision: "allow" })).toThrow(expect.objectContaining({ code: "conflict", data: expect.objectContaining({ reason: "prompt_not_open" }) }));
+    expect(() => t.host.deliverAnswer(runId, "toolu_unknown", { decision: "allow" })).toThrow(expect.objectContaining({ code: "conflict", data: expect.objectContaining({ reason: "prompt_not_open" }) }));
     query.emit(sdk.result(PROVIDER_SESSION));
     await vi.waitFor(() => expect(eventsOf(t).map((event) => event.type)).toContain("run.ended"));
-    expect(() => t.host.answerPrompt(runId, "toolu_edit", { decision: "allow" })).toThrow(expect.objectContaining({ code: "conflict", data: expect.objectContaining({ reason: "run_ended" }) }));
+    expect(t.host.deliverAnswer(runId, "toolu_edit", { decision: "allow" })).toBeUndefined();
   });
 
   it("unparks the run when the provider aborts the request it parked on", async () => {

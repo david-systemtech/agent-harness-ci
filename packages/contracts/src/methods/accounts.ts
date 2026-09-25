@@ -13,6 +13,7 @@ import {
 import { ProviderId } from "../adapter.js";
 import { commandParams, defineMethod } from "../method.js";
 import { Workspace } from "../sessions.js";
+import { AccountUsage, HandoffRecommendation } from "../usage.js";
 
 /**
  * The account methods (claude-adapter spec, "Wire methods" and "The account
@@ -26,6 +27,8 @@ import { Workspace } from "../sessions.js";
  * directory the provider's own CLI signed in, and adding hands a directory
  * of the environment's own to the sign-in director (#135), which runs the
  * provider's own CLI there: the harness never sees a credential.
+ * Plan usage (#136): `accounts.usage` and `accounts.handoff.recommend` at
+ * `read`.
  */
 
 const provider = ProviderId.optional().meta({ description: "The provider; the environment's first when absent." });
@@ -246,5 +249,42 @@ export const accountsSigninGet = defineMethod({
   kind: "query",
   params: z.object({}),
   result: z.object({ signIn: SignIn.nullable() }),
+  errors: [],
+});
+
+/**
+ * Plan usage per window, one account's or every account's, each reading
+ * with its account's identity so a client pools one login's readings across
+ * environments into one gauge. A reading is the environment's, kept for six
+ * minutes from when the provider was read and read again after; concurrent
+ * asks share one read, and a run's rate-limit verdicts (`plan.limit`) fold
+ * into it. An account whose usage cannot be read (its adapter reports none,
+ * it is not signed in, the read failed) answers a reading with no windows
+ * and the reason, never an error. A change is noticed as `usage.updated`.
+ */
+export const accountsUsage = defineMethod({
+  name: "accounts.usage",
+  scope: "read",
+  kind: "query",
+  params: z.object({ accountId: AccountId.optional().meta({ description: "The account whose usage to read; every account's when absent." }) }),
+  result: z.object({ readings: z.array(AccountUsage) }),
+  errors: [],
+});
+
+/**
+ * Which account to hand work to (the ported threshold, load and
+ * recommendation functions), answered from the readings the environment
+ * holds and never by reading the providers, so every client asking at once
+ * shows the same offer. With `fromAccountId`, the account the work runs on:
+ * the threshold it has met, if any, and the other account with the most
+ * room; without it, the account with the most room of two or more. The live
+ * runs on each account count against its room.
+ */
+export const accountsHandoffRecommend = defineMethod({
+  name: "accounts.handoff.recommend",
+  scope: "read",
+  kind: "query",
+  params: z.object({ fromAccountId: AccountId.optional().meta({ description: "The account the work runs on now; absent to ask only which account has the most room." }) }),
+  result: HandoffRecommendation,
   errors: [],
 });

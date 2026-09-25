@@ -1,14 +1,15 @@
 import { createHash } from "node:crypto";
+import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AccountIdentity } from "@agent-harness/contracts";
-import type { SessionStore } from "@anthropic-ai/claude-agent-sdk";
+import { SessionId, type AccountIdentity } from "@agent-harness/contracts";
 import type { AccountRef, Adapter, AdapterDescriptor, PromptMessage, ProviderCommand, RunInput } from "../../adapter/contract.js";
 import { systemClock, type Clock } from "../../serve/clock.js";
 import { configDirQueue as processQueue, type ConfigDirQueue } from "./config-dir-queue.js";
 import { withControlQuery } from "./control-query.js";
 import { CLAUDE_PROVIDER, ambientConfigDirectory, claudeCredentials, readClaudeStatus, type CommandRunner, type HostEnvironment } from "./credentials.js";
 import { bundledExecutable } from "./executable.js";
+import { mirrorUserTitle, readGeneratedTitle, readSubagentTranscript, type ClaudeSessionStore } from "./history.js";
 import { catalogueOf, staticCatalogue } from "./models.js";
 import { CLAUDE_MODES, claudeEffort, claudeMode } from "./options.js";
 import { createPlanUsageReader, readUsageMethod, type UsageOutcome } from "./plan-usage.js";
@@ -32,9 +33,13 @@ export { CLAUDE_PROVIDER };
  * SDK's interrupt that cancels the queue (`interrupt({cancelQueued: true})`,
  * answering `cancelled`; `interrupt_cancel_queued_v1` on the bundled
  * 2.1.281's `init`) and its cancel-by-id control (`cancelAsyncMessage`),
- * both present at run time in 0.3.281 and undeclared (`sdk-surface.test.ts`). Session
- * listing, subagent transcripts, titles and transcript delete are the store's
- * and #137's and #122's; file attachments wait on the staging Artemis does.
+ * both present at run time in 0.3.281 and undeclared (`sdk-surface.test.ts`).
+ * Titles (read and write) and subagent transcripts go through the SDK's
+ * helpers over the environment's session store (#137), so an adapter made
+ * without one declares them, and fork, false (`descriptorFor`); transcript delete
+ * removes the CLI's own files for the session. Session listing is not
+ * offered: every conversation the harness runs is a harness session already.
+ * File attachments wait on the staging Artemis does.
  */
 export const CLAUDE_DESCRIPTOR: AdapterDescriptor = {
   provider: CLAUDE_PROVIDER,
@@ -48,10 +53,10 @@ export const CLAUDE_DESCRIPTOR: AdapterDescriptor = {
   rewind: true,
   sessionListing: false,
   subagents: true,
-  subagentTranscripts: false,
-  titleRead: false,
-  titleWrite: false,
-  transcriptDelete: false,
+  subagentTranscripts: true,
+  titleRead: true,
+  titleWrite: true,
+  transcriptDelete: true,
   planUsage: true,
   liveModels: true,
   commands: true,
@@ -83,8 +88,12 @@ export interface ClaudeAdapterOptions {
   readonly hostEnv?: HostEnvironment;
   /** The binary runs, status and sign-in use; preset: the SDK's bundled one, found once. Null leaves the SDK to find it. */
   readonly executablePath?: string | null;
-  /** The environment's SDK session store (#137), passed on every run. */
-  readonly sessionStore?: SessionStore;
+  /**
+   * The environment's SDK session store (#137, `provider-transcripts/store.ts`):
+   * passed on every run, and read for titles and subagent transcripts. Preset:
+   * none, and without it the adapter declares neither titles nor subagent transcripts.
+   */
+  readonly sessionStore?: ClaudeSessionStore;
   /** The account's skill-set plugin directory (ticket 89); preset: none. */
   readonly pluginDirectory?: (account: AccountRef) => string | null;
   /** The directory the per-repository auto-memory directories live under (ADR 0018); preset: none, the CLI's own. */
@@ -123,6 +132,15 @@ export const autoMemoryDirectory = (root: string, input: Pick<RunInput, "reposit
       .replace(/^-+/, "") || "workspace";
   return join(root, `${slug}-${createHash("sha256").update(key).digest("hex").slice(0, 12)}`);
 };
+
+/**
+ * What an adapter declares: `CLAUDE_DESCRIPTOR`, less what only the session
+ * store serves when it has none: titles, subagent transcripts, and fork,
+ * whose copy of the source's provider session is the store's rows and whose
+ * resume onto another account loads from it.
+ */
+const descriptorFor = (hasStore: boolean): AdapterDescriptor =>
+  hasStore ? CLAUDE_DESCRIPTOR : { ...CLAUDE_DESCRIPTOR, fork: false, subagentTranscripts: false, titleRead: false, titleWrite: false };
 
 export const createClaudeAdapter = (options: ClaudeAdapterOptions = {}): ClaudeAdapter => {
   const clock = options.clock ?? systemClock;
@@ -194,8 +212,15 @@ export const createClaudeAdapter = (options: ClaudeAdapterOptions = {}): ClaudeA
     },
   });
 
+  const store = options.sessionStore;
+  /** The store, which the descriptor declares these methods by; a call without one is the host's bug. */
+  const requireStore = (what: string): ClaudeSessionStore => {
+    if (store === undefined) throw new Error(`The Claude adapter has no session store to ${what} with.`);
+    return store;
+  };
+
   return {
-    descriptor: CLAUDE_DESCRIPTOR,
+    descriptor: descriptorFor(store !== undefined),
     credentials: claudeCredentials,
     status,
     // The machine's own directory, resolved once: what `accounts.adopt` registers in place (#134).
@@ -245,6 +270,30 @@ export const createClaudeAdapter = (options: ClaudeAdapterOptions = {}): ClaudeA
       const kept = processes.get(sessionId);
       processes.delete(sessionId);
       if (kept !== undefined) await kept.stop(stopOptions);
+    },
+    // The provider's own title, from the store-backed listing; never a title the harness mirrored in (#137).
+    readTitle: (sessionId) => readGeneratedTitle(requireStore("read a title"), sessionId),
+    async writeTitle(sessionId, title) {
+      if (!(await mirrorUserTitle(requireStore("mirror a title"), sessionId, title))) {
+        diagnostic(`Claude (session ${sessionId}): no stored conversation to mirror the title into yet.`);
+      }
+    },
+    subagentTranscript: (sessionId, agentId) => readSubagentTranscript(requireStore("read a subagent's transcript"), sessionId, agentId),
+    /**
+     * The CLI's own transcript of the session: every run names its project
+     * directory after the harness session, so under each account's directory
+     * it is `projects/<session id>` (the first run's file, and anything a kept
+     * process wrote there). A store-backed resume leaves nothing there, the
+     * SDK deleting its temporary directory; the store's rows go with every
+     * purge anyway. Synchronous and idempotent, as the purge needs.
+     */
+    deleteTranscript(sessionId, accounts) {
+      // A harness session id is a UUID: it names one directory, never a path.
+      const id = SessionId.parse(sessionId);
+      for (const directory of new Set(accounts.map((account) => configDirectory(account)))) {
+        rmSync(join(directory, "projects", id), { recursive: true, force: true });
+      }
+      return undefined;
     },
   };
 };
