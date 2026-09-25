@@ -1,0 +1,116 @@
+import { EnvironmentNotice, type AutoDecider, type EventEnvelope } from "@agent-harness/contracts";
+import type { Notice, NoticeInput, Notices } from "../notices.js";
+
+/**
+ * The notices `environment.subscribe` raises (docs/specs/client-runtime.md,
+ * "Projections", `projections.notices`): what the environment's own stream
+ * says that is news to this client (an event that applied after the stream
+ * synchronized, or replayed onto a cursor it held; never a replay onto an
+ * empty cache, which is history). Each notice's words are here, so every
+ * renderer says the same:
+ *
+ * - `environment.updated`: `updated`, "<name> was updated from A to B." (#127);
+ * - `environment.draining`: `draining`;
+ * - `account.updated`: `account`, when the environment gives a warning (a
+ *   login that reads as another identity, a sign-in refused as a duplicate)
+ *   or the account's sign-in status changed; a relabel, an adoption, an
+ *   addition or a removal it asked for itself is shown by
+ *   `projections.accounts` and needs no notice;
+ * - `prompt.parked`: `prompt-parked`, naming the session, run and prompt;
+ * - `prompt.resolved`: the parked prompt's notice is taken back, since it
+ *   asks for nothing any more; and when nobody answered it (an automatic
+ *   rule: its TTL, its run ending first, the provider cancelling it) while
+ *   its notice was still showing, a `prompt-resolved` notice says how it was
+ *   settled. A person's answer, from any client, raises none.
+ *
+ * `signin.updated`, `signin.executable-chosen` and `environment.started`
+ * raise none: the sign-in flow shows its own state, and a start is the
+ * connection's phase. A routine's client-notice delivery (ADR 0008) and a
+ * key manager's failed verification (ADR 0011) are owed: no event on the
+ * environment's stream carries them yet (#92, #91).
+ */
+
+export interface EnvironmentNoticeContext {
+  /** The environment's name, as its record has it. */
+  readonly name: string;
+  /** An account's label, when the runtime has read the environment's accounts; null otherwise. */
+  readonly accountLabel: (accountId: string) => string | null;
+  /** A session's title as the list shows it; null for one the list does not hold. */
+  readonly title: (sessionId: string) => string | null;
+}
+
+/** Why a prompt was settled with nobody answering it, as a notice says it. */
+const AUTOMATIC: Readonly<Record<AutoDecider, string>> = {
+  ttl: "nobody answered it before its time ran out",
+  unattended: "nobody was present to answer it",
+  bypass: "the run bypasses permissions",
+  run_ended: "its run ended first",
+  reviewer: "the provider's reviewer decided it",
+  cancelled: "the provider withdrew it",
+};
+
+export interface EnvironmentNotices {
+  /** Raises what `event`, news on the environment's stream, says, and takes back what it settles. */
+  heard(environmentId: string, event: EventEnvelope, context: EnvironmentNoticeContext): void;
+}
+
+export const createEnvironmentNotices = (notices: Notices): EnvironmentNotices => {
+  /** What each parked prompt's notice was raised for, by notice id: the words its resolution says it with. */
+  const parkedPrompts = new Map<string, { readonly title: string; readonly summary: string }>();
+
+  return {
+    heard(environmentId, event, context) {
+      const parsed = EnvironmentNotice.safeParse(event);
+      // A notice this client does not know (a newer environment's), or one that is not a notice at all (a client-addressed call), raises nothing.
+      if (!parsed.success) return;
+      const notice = parsed.data;
+      const { name } = context;
+      const raise = (draft: NoticeInput): Notice => notices.raise(environmentId, draft);
+      switch (notice.type) {
+        case "environment.updated":
+          raise({ kind: "updated", message: `${name} was updated from ${notice.payload.fromVersion} to ${notice.payload.toVersion}.`, action: null });
+          return;
+        case "environment.draining":
+          raise({ kind: "draining", message: `${name} is draining: it takes no new runs until it restarts.`, action: null });
+          return;
+        case "account.updated": {
+          const { accountId, change, warning } = notice.payload;
+          if (warning !== null) raise({ kind: "account", message: `${name}: ${warning}`, action: null });
+          else if (change === "status-changed") raise({ kind: "account", message: `${context.accountLabel(accountId) ?? "An account"} on ${name} changed its sign-in status.`, action: null });
+          return;
+        }
+        case "prompt.parked": {
+          const { sessionId, runId, promptId, title, summary } = notice.payload;
+          const raised = raise({ kind: "prompt-parked", message: `${title} is waiting on ${name}: ${summary}`, action: null, about: { sessionId, runId, promptId } });
+          // Only what the queue still shows is kept: a notice dismissed or pushed out is forgotten here too.
+          const shown = new Set(notices.list.read().map((n) => n.id));
+          for (const id of parkedPrompts.keys()) if (!shown.has(id)) parkedPrompts.delete(id);
+          parkedPrompts.set(raised.id, { title, summary });
+          return;
+        }
+        case "prompt.resolved": {
+          const { sessionId, promptId, decision, decidedBy } = notice.payload;
+          const parked = (n: Notice) =>
+            n.environmentId === environmentId && n.kind === "prompt-parked" && n.about?.promptId === promptId && n.about.sessionId.toLowerCase() === sessionId.toLowerCase();
+          const [taken] = notices.retire(parked);
+          if (taken === undefined) return;
+          const words = parkedPrompts.get(taken.id);
+          parkedPrompts.delete(taken.id);
+          // A person answered it, from some client: nothing more to say.
+          if (typeof decidedBy === "string" || words === undefined) return;
+          raise({
+            kind: "prompt-resolved",
+            message: `${context.title(sessionId) ?? words.title}: ${words.summary} was ${decision === "allow" ? "allowed" : "denied"}: ${AUTOMATIC[decidedBy.auto]}.`,
+            action: null,
+            about: taken.about,
+          });
+          return;
+        }
+        case "environment.started":
+        case "signin.updated":
+        case "signin.executable-chosen":
+          return;
+      }
+    },
+  };
+};

@@ -188,14 +188,14 @@ export const environmentKind = (): StreamKind<EnvironmentData> => ({
         return { status: { ...data.status, readiness: "draining", activity: { state: "draining", drainingSince: notice.data.payload.drainingSince } } };
       case "environment.started":
         return { status: { ...data.status, readiness: "ready", activity: { state: "idle" } } };
-      // A new version, an account changed (#134), or the sign-in moved (#135): the status holds none of them. Refreshing
-      // the request cache on the account and sign-in notices is owed to the clients.
+      // A new version, an account changed (#134), or the sign-in moved (#135): the status holds none of them. The request
+      // cache refreshes on them (`QUERY_REFRESH_NOTICES`, #142), and the notices queue says what is news.
       case "environment.updated":
       case "account.updated":
       case "signin.updated":
       case "signin.executable-chosen":
         return data;
-      // A prompt's notices change no status: the parked asks and the notices queue are projections of their own (#142).
+      // A prompt's notices change no status: the parked asks (`projections.runs`) and the notices queue read them (#142).
       case "prompt.parked":
       case "prompt.resolved":
         return data;

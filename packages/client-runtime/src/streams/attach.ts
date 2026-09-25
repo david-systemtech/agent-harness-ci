@@ -102,7 +102,8 @@ export interface AttachOptions {
    * An event applied. `news` is whether it is: the stream synchronized on
    * this subscription already, or held a cursor when the subscription began
    * (a replay of what happened while this client was away). An event
-   * replayed onto a stream that held nothing is history, not news.
+   * replayed onto a stream that held nothing is history, not news. Heard
+   * once the stream's state is set and before `changed` publishes it.
    */
   readonly applied?: (stream: LiveStream<unknown>, event: EventEnvelope, news: boolean) => void;
   /** The stream committed a new state. */
@@ -132,9 +133,11 @@ const pairOf =
 export const createAttacher = (options: AttachOptions): Attacher => {
   const { clock, seams, cache, report } = options;
 
-  const commit = <D>(stream: LiveStream<D>, next: StreamStep<D>): void => {
+  /** Commits the step; `heard`, when given, runs once the state is set and before the change is published to `changed`. */
+  const commit = <D>(stream: LiveStream<D>, next: StreamStep<D>, heard?: () => void): void => {
     const before = stream.value.read();
     stream.value.set(next.state);
+    heard?.();
     if (next.state !== before) options.changed?.(stream as LiveStream<unknown>);
     if (next.persist === "soon") cache.soon(stream.key, pairOf(stream));
     else if (next.persist === "now") void cache.now(stream.key, pairOf(stream));
@@ -198,10 +201,12 @@ export const createAttacher = (options: AttachOptions): Attacher => {
       }
       case "event": {
         const before = stream.value.read();
-        const next = input(stream, { type: "event", sequence: message.sequence, event: message.event });
+        const next = step(stream.kind, before, { type: "event", sequence: message.sequence, event: message.event });
         if (next.failed) return failed(stream, next.failed);
         if (next.state === before) return;
-        options.applied?.(stream, message.event, stream.resumed || before.freshness === "live");
+        // What the event means beyond its stream is heard before the list's change is published, so a projection reading both
+        // (a run state: the summary's activity and the run's end) never sees the one without the other.
+        commit(stream, next, () => options.applied?.(stream, message.event, stream.resumed || before.freshness === "live"));
         const { data } = next.state;
         if (!stream.trimming && data !== null && stream.kind.outgrown?.(data) === true) {
           stream.trimming = true;

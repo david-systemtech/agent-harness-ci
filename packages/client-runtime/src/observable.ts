@@ -110,3 +110,85 @@ export const derived = <S extends readonly Observable<unknown>[], T>(sources: S,
     },
   };
 };
+
+/**
+ * An observable computed by `compute` from whatever `sources` names now: a
+ * `derived` whose set of sources may change (one per enabled environment,
+ * say). It recomputes only when a source's value has changed or the set has,
+ * and while it has subscribers of its own it follows exactly the sources
+ * `sources` names, taking up a new one and letting go of one no longer
+ * named after each change. `compute` reads the sources itself.
+ */
+export const dynamic = <T>(sources: () => readonly Observable<unknown>[], compute: () => T): Observable<T> => {
+  let inputs: { readonly sources: readonly Observable<unknown>[]; readonly values: readonly unknown[] } | undefined;
+  let value: T;
+  const listeners = new Set<(value: T) => void>();
+  const followed = new Map<Observable<unknown>, () => void>();
+  let syncing = false;
+  let dirty = false;
+
+  const read = (): T => {
+    const current = sources();
+    const values = current.map((source) => source.read());
+    const same =
+      inputs !== undefined &&
+      inputs.sources.length === current.length &&
+      current.every((source, i) => Object.is(source, inputs?.sources[i]) && Object.is(values[i], inputs?.values[i]));
+    if (!same) {
+      // Kept only once the compute has succeeded, so one that throws is run again on the next read.
+      value = compute();
+      inputs = { sources: current, values };
+    }
+    return value;
+  };
+
+  /** Follows what `sources` names now and nothing else. A source that changes as it is taken up (a cache that fetches) is heard once the set is settled. */
+  const follow = () => {
+    syncing = true;
+    try {
+      const wanted = new Set(sources());
+      for (const [source, stop] of [...followed]) {
+        if (wanted.has(source)) continue;
+        followed.delete(source);
+        stop();
+      }
+      for (const source of wanted) if (!followed.has(source)) followed.set(source, source.subscribe(onSource));
+    } finally {
+      syncing = false;
+    }
+  };
+
+  const onSource = () => {
+    if (syncing) {
+      dirty = true;
+      return;
+    }
+    do {
+      dirty = false;
+      follow();
+    } while (dirty);
+    const before = value;
+    const after = read();
+    if (!Object.is(before, after)) notifyAll(listeners, after);
+  };
+
+  return {
+    read,
+    subscribe(listener) {
+      if (listeners.size === 0) {
+        // A source that changed while it was being taken up may name others: followed until the set is settled, then read.
+        do {
+          dirty = false;
+          follow();
+        } while (dirty);
+        read();
+      }
+      listeners.add(listener);
+      return () => {
+        if (!listeners.delete(listener) || listeners.size > 0) return;
+        for (const stop of followed.values()) stop();
+        followed.clear();
+      };
+    },
+  };
+};

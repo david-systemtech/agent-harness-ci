@@ -67,4 +67,7 @@ export const SESSION_WRITE_COMMANDS = {
   "groups.rename": { ordered: "Refused name_taken for a name another group holds, which an earlier rename of the group may not be." },
   "groups.reorder": { setter: { target: "group", fields: ["orderKey"] } },
   "groups.delete": { ordered: "Ends the group and ungroups its members." },
+  "permissions.review.seen": {
+    ordered: "Moves the Unattended review's watermark, never back: a later command naming a lower position changes nothing, where the earlier's higher one would.",
+  },
 } as const satisfies { readonly [N in SessionWriteMethodName]: WriteCommandKind };

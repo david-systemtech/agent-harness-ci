@@ -150,15 +150,36 @@ export const REQUEST_CACHE_TTL_MS = 5 * 60_000;
 export const CACHE_REFRESH_NOTICES: readonly string[] = ["environment.started", "environment.updated"];
 
 /**
- * The notices after which one query's cached answer is fetched again: its
- * matching notice. None is served yet; the workstream that serves a query
- * together with a notice of its change (an account's status, plan usage)
- * names it here.
+ * `accounts.usage`, plan usage per account (#136), which `projections.usage`
+ * reads: not registered until #136 merges, so the request cache answers it
+ * `unsupported` until then. Named here so its refresh notice is listed
+ * beside the others; the merge drops it from `CachedQueryName`.
  */
-export const QUERY_REFRESH_NOTICES: Partial<Readonly<Record<QueryMethodName, readonly string[]>>> = {};
+export const USAGE_QUERY = "accounts.usage";
+
+/** The queries the request cache refreshes on a notice of their own. */
+export type CachedQueryName = QueryMethodName | typeof USAGE_QUERY;
+
+/**
+ * The notices after which one query's cached answer is fetched again: its
+ * matching notices (#142). An account changing (`account.updated`: its
+ * status, identity, label, or its removal) or a sign-in moving
+ * (`signin.updated`, whose end changes an account) changes the accounts, the
+ * models they can use and their plan usage; `usage.updated` (#136) a
+ * reading; a prompt parking or resolving (`prompt.parked`,
+ * `prompt.resolved`, #130) the parked prompts.
+ */
+export const QUERY_REFRESH_NOTICES: Partial<Readonly<Record<CachedQueryName, readonly string[]>>> = {
+  "accounts.list": ["account.updated", "signin.updated"],
+  "models.list": ["account.updated", "signin.updated"],
+  [USAGE_QUERY]: ["usage.updated", "account.updated", "signin.updated"],
+  "permissions.prompts.list": ["prompt.parked", "prompt.resolved"],
+};
 
 export interface RequestCache {
   cached: Requests["cached"];
+  /** The last result held for a query, if any: never fetches, and makes no entry. */
+  peek<N extends QueryMethodName>(environmentId: string, method: N, params: ParamsOf<N>): ResultOf<N> | null;
   /** An event applied to the environment's own stream, which this client had not seen: a matching notice fetches again. */
   noticed(environmentId: string, type: string): void;
   /** Lets go of an environment's answers: it was removed. */
@@ -343,10 +364,13 @@ export const createRequestCache = (host: {
       if (!entry) entries.set(key, (entry = make(environmentId, method, draft.params, key)));
       return entry.observable as never;
     },
+    peek(environmentId, method, params) {
+      return (entries.get(keyOf({ environmentId, method, params: params as Record<string, unknown> }))?.value.read().result ?? null) as never;
+    },
     noticed(environmentId, type) {
       for (const entry of entries.values()) {
         if (entry.environmentId !== environmentId) continue;
-        if (CACHE_REFRESH_NOTICES.includes(type) || (QUERY_REFRESH_NOTICES[entry.method] ?? []).includes(type)) refresh(entry);
+        if (CACHE_REFRESH_NOTICES.includes(type) || (QUERY_REFRESH_NOTICES[entry.method as CachedQueryName] ?? []).includes(type)) refresh(entry);
       }
     },
     forget(environmentId) {

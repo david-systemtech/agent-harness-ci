@@ -1,7 +1,6 @@
-import { EnvironmentNotice, type EventEnvelope, type HelloFrame } from "@agent-harness/contracts";
+import type { EventEnvelope, HelloFrame } from "@agent-harness/contracts";
 import type { ConnectionRecord } from "../connections/records.js";
 import type { ConnectionSeams, RegistryCaches } from "../connections/registry.js";
-import type { Notices } from "../notices.js";
 import { writable, type Observable } from "../observable.js";
 import type { Platform } from "../platform.js";
 import { createAttacher, liveStream, type LiveStream } from "./attach.js";
@@ -30,23 +29,38 @@ export interface Streams {
   /** Each environment's session list stream, by environment id. */
   readonly lists: Observable<ReadonlyMap<string, StreamState<ListData>>>;
   session(environmentId: string, sessionId: string): SessionHandle;
+  /**
+   * Holds a session as a handle does and hands its stream's state, for
+   * `projections.session` (#142) to reduce: the stream itself stays inside
+   * the package (ADR 0004).
+   */
+  lease(environmentId: string, sessionId: string): SessionLease;
+  /** The session's stream state while the runtime holds it (a handle, a lease, or the five minutes after); null otherwise. Holds nothing. */
+  peek(environmentId: string, sessionId: string): StreamState<SessionData> | null;
   /** The environment's time now, as this client reckons it from `hello`. */
   now(environmentId: string): Date;
   /** Writes what is pending and lets go of every timer. */
   close(): Promise<void>;
 }
 
+/** A session held for its stream's state: released as a handle is. */
+export interface SessionLease {
+  readonly state: Observable<StreamState<SessionData>>;
+  release(): void;
+}
+
 export interface StreamsOptions {
   readonly platform: Platform;
   readonly seams: ConnectionSeams;
   readonly records: Observable<readonly ConnectionRecord[]>;
-  readonly notices: Notices;
   readonly report: (error: unknown) => void;
   /**
    * An event applied to one of an environment's streams (`list`,
    * `environment`, or `session.<id>`), and whether it is news (see
    * `AttachOptions.applied`): the outbox retires the overlay of the command
-   * a list event names, and the request cache refreshes on a notice.
+   * a list event names, the request cache refreshes on a notice, and the
+   * projections hear what the list and the environment's notices carry
+   * (#142: run states, parked asks, notices, attention, client calls).
    */
   readonly applied?: (environmentId: string, stream: string, event: EventEnvelope, news: boolean) => void;
 }
@@ -64,7 +78,7 @@ interface EnvironmentStreams {
 const SESSION_DOCUMENT = /^streams\.(.+)\.session\.([^.]+)$/;
 
 export const createStreams = (options: StreamsOptions): Streams => {
-  const { platform, seams, records, notices, report } = options;
+  const { platform, seams, records, report } = options;
   const { clock } = platform;
   const environments = new Map<string, EnvironmentStreams>();
   let closed = false;
@@ -114,16 +128,8 @@ export const createStreams = (options: StreamsOptions): Streams => {
       const state = stream.value.read() as StreamState<ListData>;
       lists.update((current) => new Map(current).set(stream.environmentId, state));
     },
-    applied(stream, event, news) {
-      options.applied?.(stream.environmentId, stream.name, event, news);
-      // Every start appends `environment.started`, so a replay onto an empty cache holds older updates after one: only news is told.
-      if (stream.name !== "environment" || !news) return;
-      const notice = EnvironmentNotice.safeParse(event);
-      if (!notice.success || notice.data.type !== "environment.updated") return;
-      const name = records.read().find((record) => record.environmentId === stream.environmentId)?.descriptor.name ?? "The environment";
-      const { fromVersion, toVersion } = notice.data.payload;
-      notices.raise(stream.environmentId, { kind: "updated", message: `${name} was updated from ${fromVersion} to ${toVersion}.`, action: null });
-    },
+    // What an event means beyond its stream (the notices it raises, the caches it refreshes) is the runtime's composition's (`internal.ts`).
+    applied: (stream, event, news) => options.applied?.(stream.environmentId, stream.name, event, news),
     ended(stream) {
       const sessionId = stream.name.slice("session.".length);
       const session = held(stream.environmentId, sessionId);
@@ -317,6 +323,12 @@ export const createStreams = (options: StreamsOptions): Streams => {
     },
     lists,
     session: (environmentId, sessionId) => handles.open(environmentId, sessionId),
+    lease(environmentId, sessionId) {
+      const handle = handles.open(environmentId, sessionId);
+      const session = held(environmentId, handle.sessionId) as HeldSession;
+      return { state: session.stream.value, release: () => handle.release() };
+    },
+    peek: (environmentId, sessionId) => held(environmentId, sessionId.toLowerCase())?.stream.value.read() ?? null,
     now: (environmentId) => skew.now(environmentId),
     async close() {
       closed = true;
