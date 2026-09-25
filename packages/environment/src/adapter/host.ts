@@ -890,7 +890,11 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     // The provider process runs the turn in the sandbox the run it followed started it with, which no adapter changes on a live process.
     const followedContainment = previous.policy.containment;
     if (policy.containment.effective !== followedContainment.effective || policy.containment.mechanism !== followedContainment.mechanism) {
-      return refuse(`it runs at containment ${followedContainment.effective}, the policy now resolves ${policy.containment.effective}, and a running turn's containment cannot change.`);
+      const levelOf = (containment: { effective: string; mechanism: string | null }): string =>
+        containment.mechanism === null ? containment.effective : `${containment.effective} (${containment.mechanism})`;
+      return refuse(
+        `it runs at containment ${levelOf(followedContainment)} and the policy now resolves ${levelOf(policy.containment)}, which its process cannot take on, so a run from the queue reads its messages at the new level.`,
+      );
     }
     const mode = policy.mode.effective;
     const adoptIn = (running: Mode): void => adoptTurn(previous, turn, actor, policy, running);

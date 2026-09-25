@@ -35,9 +35,18 @@ export const claudeToolAccess = (toolName: string, input: Readonly<Record<string
   return { kind: "other" };
 };
 
-/** The one-line summary the gate records: the tool and what it names, cut to a line. */
+/** Longest summary the gate records, in characters: longer is cut, with an ellipsis. */
+const SUMMARY_MAX = 200;
+
+/** `text`'s first line, cut to `SUMMARY_MAX`. */
+const oneLine = (text: string): string => {
+  const line = (text.split("\n")[0] ?? "").trim();
+  return line.length > SUMMARY_MAX ? `${line.slice(0, SUMMARY_MAX - 1)}…` : line;
+};
+
+/** The one-line summary the gate records: the call's title, else the tool and what it names, cut to a line of at most 200 characters. */
 const summaryOf = (toolName: string, access: ToolAccess, title: string | undefined): string => {
-  if (title !== undefined && title.trim() !== "") return title.trim().split("\n")[0] as string;
+  if (title !== undefined && title.trim() !== "") return oneLine(title.trim());
   const named =
     access.kind === "read" || access.kind === "write"
       ? access.paths.join(", ")
@@ -48,8 +57,7 @@ const summaryOf = (toolName: string, access: ToolAccess, title: string | undefin
           : access.kind === "search"
             ? access.query
             : "";
-  const line = `${toolName} ${named.split("\n")[0] ?? ""}`.trim();
-  return line.length > 200 ? `${line.slice(0, 199)}…` : line;
+  return oneLine(`${toolName} ${named}`);
 };
 
 /** The gate's call for a Claude tool call: its id, name, a summary, and what it does. */

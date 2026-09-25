@@ -30,4 +30,12 @@ describe("Claude's tools as the gate reads them", () => {
     expect(claudeGatedCall("Bash", { command: "echo a\necho b" }, "toolu_2").summary).toBe("Bash echo a");
     expect(claudeGatedCall("Bash", { command: "ls" }, "toolu_3", "List the files").summary).toBe("List the files");
   });
+
+  it("cuts a long title to 200 characters, as it cuts a long command", () => {
+    const title = claudeGatedCall("Bash", { command: "ls" }, "toolu_4", `${"t".repeat(300)}\nsecond line`).summary;
+    expect(title).toBe(`${"t".repeat(199)}…`);
+    const command = claudeGatedCall("Bash", { command: "c".repeat(300) }, "toolu_5").summary;
+    expect(command).toBe(`Bash ${"c".repeat(194)}…`);
+    expect(command).toHaveLength(200);
+  });
 });
