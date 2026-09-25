@@ -246,6 +246,10 @@ export const forkRewindMethods = (options: ForkRewindMethodsOptions): MethodHand
    * does one the rewind did not write (a message with no text).
    */
   const draftBefore = (sessionId: string, rewind: RewindRecord, current: string | null): string | null | undefined => {
+    // Every `session.rewound` is appended by `sessions.rewind`, a command, so it carries its command id (the completions
+    // surface's `rewindToMessageId` goes through that command too); one without, appended outside any command as nothing
+    // here does, has no `session.draft-set` that is surely its own, so the draft is left as it is.
+    if (rewind.commandId === null) return undefined;
     const draftSets = `SELECT payload FROM events WHERE stream_kind = '${SESSION_STREAM_KIND}' AND stream_id = ? AND type = 'session.draft-set'`;
     const wrote = draftOf(log.read<{ payload: string }>(`${draftSets} AND sequence > ? AND command_id = ? ORDER BY sequence LIMIT 1`, sessionId, rewind.sequence, rewind.commandId)[0]);
     if (wrote === null || wrote.draft !== current) return undefined;

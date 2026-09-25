@@ -568,6 +568,28 @@ describe("sessions.undoRewind", () => {
     expect((await get(client, id)).draft).toBe("Typed meanwhile");
   });
 
+  it("leaves the draft as it is on the undo of a rewind recorded without a command id, whose draft cannot be told its own", async () => {
+    const t = await start();
+    const client = await t.client();
+    const { id, second } = await threeRuns(t, client);
+    await command(client, "sessions.setDraft", { sessionId: id, draft: "Before" });
+    // Nothing appends a rewind outside sessions.rewind; this one is written straight to the log with no command id.
+    t.env.log.append(
+      { kind: "session", id },
+      [
+        { type: "session.rewound", payload: { toMessageId: second.messageId } },
+        { type: "session.draft-set", payload: { draft: "Second" } },
+      ],
+      { actor: "system:fixture" },
+    );
+    expect(events(t, id).at(-2)).toMatchObject({ type: "session.rewound", commandId: null });
+
+    expect((await undoRewind(client, id)).receipt.status).toBe("accepted");
+    expect(events(t, id).at(-1)?.type).toBe("session.rewind-undone");
+    expect((await get(client, id)).draft).toBe("Second");
+    expect(texts(await snapshotOf(t, client, id))).toEqual(ALL);
+  });
+
   it("reads the same after the projections are rebuilt: the items shown, the draft, and the next run's target", async () => {
     const t = await start();
     const client = await t.client();
