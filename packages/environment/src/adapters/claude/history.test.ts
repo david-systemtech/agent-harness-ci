@@ -56,6 +56,7 @@ describe("reading the stored session", () => {
     const seen: { sessionId: string; options: unknown; directory: string | undefined }[] = [];
     const messages = await readStoredSession({
       queue: createConfigDirQueue(env),
+      harnessSessionId: "6f1d2a4e-8c3b-4f5a-9d7e-1a2b3c4d5e6f",
       directory: "/data/accounts/work",
       providerSessionId: "provider-1",
       sessionStore: null,

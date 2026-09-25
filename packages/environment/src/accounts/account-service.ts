@@ -713,6 +713,7 @@ export const createAccountService = (options: AccountServiceOptions): AccountSer
       return {
         id,
         directory: record.directory.path,
+        adopted: record.directory.kind === "adopted",
         signedIn: record.status.state === "signed-in",
         identity: record.identity,
         descriptor: adapter.descriptor,

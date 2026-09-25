@@ -6,5 +6,5 @@
     "prompt",
     "provider"
   ],
-  "description": "Where a generated title came from: prompt (the first user message's first line) or provider (the provider's summary)."
+  "description": "Where a generated title came from: prompt (the first user message's first line, or, on a fork, the source's title carried over at the fork's creation) or provider (the provider's summary)."
 }

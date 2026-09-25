@@ -75,6 +75,8 @@ export interface TestEnvironmentOptions {
   readonly signInProcess?: EnvironmentOptions["signInProcess"];
   /** How long a status or model probe may take; preset: the environment's. */
   readonly probeTimeoutMs?: number;
+  /** How long a plan-usage read may take; preset: the environment's. */
+  readonly usageReadTimeoutMs?: number;
   /** A data directory to start on, kept by `close`: a restart on the same directory. Preset: a fresh temporary one, removed by `close`. */
   readonly dataDir?: string;
   readonly name?: string;
@@ -252,6 +254,7 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
     ...(options.processIdleMinutes !== undefined && { processIdleMinutes: options.processIdleMinutes }),
     ...(options.signIn !== undefined && { signIn: options.signIn }),
     ...(options.probeTimeoutMs !== undefined && { probeTimeoutMs: options.probeTimeoutMs }),
+    ...(options.usageReadTimeoutMs !== undefined && { usageReadTimeoutMs: options.usageReadTimeoutMs }),
     ...(options.terminals !== undefined && { terminals: options.terminals }),
     signInProcess: { spawn: refusingSpawn, bundled: TEST_BUNDLED_CLAUDE, managedTool: () => null, hostEnv: { PATH: "/usr/bin" }, ...options.signInProcess },
   };

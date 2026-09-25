@@ -5,6 +5,7 @@ import { DrainStarted } from "./lifecycle.js";
 import { DecidedBy, PromptDecisionValue, PromptKind, PROMPT_SUMMARY_MAX } from "./prompts.js";
 import { RunId } from "./adapter.js";
 import { SessionId } from "./sessions.js";
+import { UsageUpdatedPayload } from "./usage.js";
 
 /**
  * The environment's own notices: the events on its `environment` stream,
@@ -24,8 +25,9 @@ export const ENVIRONMENT_STREAM_KIND = "environment";
  * the sign-in changed state, carrying the sign-in (the sign-in director,
  * #135); the executable sign-ins run was chosen, once per environment and
  * bundled binary (#135); a prompt parked, waiting for a person, and a parked
- * prompt was resolved (#130), so every connected client learns of it
- * whatever else it is subscribed to.
+ * prompt was resolved (#130); an account's plan-usage reading changed
+ * (#136); so every connected client learns of it whatever else it is
+ * subscribed to.
  */
 export const ENVIRONMENT_NOTICE_TYPES = [
   "environment.started",
@@ -36,10 +38,11 @@ export const ENVIRONMENT_NOTICE_TYPES = [
   "signin.executable-chosen",
   "prompt.parked",
   "prompt.resolved",
+  "usage.updated",
 ] as const;
 export const EnvironmentNoticeType = z.enum(ENVIRONMENT_NOTICE_TYPES).meta({
   description:
-    "An environment notice's event type: environment.started (startup finished), environment.updated (a new harness version now runs), environment.draining (new runs are refused before a restart), account.updated (an account changed; a client refreshes what it caches of the accounts), signin.updated (the sign-in changed state: the verification URL, the end), signin.executable-chosen (which executable sign-ins run, recorded once), prompt.parked (a run waits for a person's answer), prompt.resolved (a parked prompt was answered).",
+    "An environment notice's event type: environment.started (startup finished), environment.updated (a new harness version now runs), environment.draining (new runs are refused before a restart), account.updated (an account changed; a client refreshes what it caches of the accounts), signin.updated (the sign-in changed state: the verification URL, the end), signin.executable-chosen (which executable sign-ins run, recorded once), prompt.parked (a run waits for a person's answer), prompt.resolved (a parked prompt was answered), usage.updated (an account's plan-usage reading changed; a client refreshes what it caches of the readings).",
 });
 export type EnvironmentNoticeType = z.infer<typeof EnvironmentNoticeType>;
 
@@ -118,13 +121,20 @@ const PromptResolved = z
   })
   .meta({ description: "A parked prompt was answered, by a person or a rule: which one, the decision, and who made it." });
 
+const UsageUpdated = z
+  .object({
+    type: z.literal("usage.updated"),
+    payload: UsageUpdatedPayload,
+  })
+  .meta({ description: "An account's plan-usage reading changed: which account, and the identity whose gauge it is." });
+
 /**
  * One environment notice, as an event's `type` and `payload`. Parsing an
  * event envelope with it reads the notice and leaves the envelope's other
  * fields aside, so a client parses the `event` of an `event` frame directly.
  */
 export const EnvironmentNotice = z
-  .discriminatedUnion("type", [EnvironmentStarted, EnvironmentUpdated, EnvironmentDraining, AccountUpdated, SignInUpdated, SignInExecutableChosen, PromptParked, PromptResolved])
+  .discriminatedUnion("type", [EnvironmentStarted, EnvironmentUpdated, EnvironmentDraining, AccountUpdated, SignInUpdated, SignInExecutableChosen, PromptParked, PromptResolved, UsageUpdated])
   .meta({
     description:
       "An event on the environment stream, as environment.subscribe delivers it: its type and payload, read from the event's envelope.",

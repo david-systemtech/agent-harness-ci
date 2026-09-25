@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "accounts.handoff.recommend params",
+  "type": "object",
+  "properties": {
+    "fromAccountId": {
+      "description": "The account the work runs on now; absent to ask only which account has the most room.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    }
+  }
+}

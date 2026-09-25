@@ -34,12 +34,14 @@ export const CLIENT_APP = "agent-harness";
 /**
  * Where a truncating resume re-enters the stored chain: the last entry kept
  * and, when everything after it is one turn, that turn's prompt, which the
- * provider validates before dropping it (`history.ts`).
+ * provider validates before dropping it (`history.ts`). Or `passed`: the
+ * stored session holds the anchor only on a branch its latest chain has
+ * left, since a run after a rewind wrote a turn of its own and did not
+ * complete (`sessions/fork-rewind.ts`, `pendingRewind`), so the run
+ * continues the latest chain as it stands, which is what the harness's
+ * transcript shows.
  */
-export interface ResumePoint {
-  readonly resumeSessionAt: string;
-  readonly dropsTurn?: string;
-}
+export type ResumePoint = { readonly resumeSessionAt: string; readonly dropsTurn?: string } | { readonly passed: true };
 
 export interface RunOptionsInput {
   readonly run: RunInput;
@@ -109,10 +111,12 @@ const continuation = (run: RunInput, point: ResumePoint | null): Partial<Options
       if (target.atMessageId === null) return { resume: target.providerSessionId, forkSession: true };
       // A fork from a message that could not be placed must not become a fork of the whole session.
       if (point === null) throw new Error(`The fork from ${target.atMessageId} was not placed in the stored session.`);
+      if ("passed" in point) return { resume: target.providerSessionId, forkSession: true };
       return { resume: target.providerSessionId, forkSession: true, resumeSessionAt: point.resumeSessionAt };
     case "rewind":
       // A rewind that could not be placed must not become a resume of the whole session.
       if (point === null) throw new Error(`The rewind to ${target.toMessageId} was not placed in the stored session.`);
+      if ("passed" in point) return { resume: target.providerSessionId };
       return {
         resume: target.providerSessionId,
         resumeSessionAt: point.resumeSessionAt,
@@ -127,15 +131,17 @@ export const buildRunOptions = (input: RunOptionsInput): Options => {
   const effort = claudeEffort(run.effort);
   const servers = mcpServers(run);
   const settingSources: SettingSource[] = run.trusted ? ["project"] : [];
+  const env = composeRunEnvironment(input.hostEnv, input.configDirectory, {
+    // The harness session names the project directory, so the transcript is found whatever the working directory, and
+    // the session store keys every entry by it (the SDK takes it as the project key beside CLAUDE_CONFIG_DIR, #137).
+    CLAUDE_CODE_PROJECT_DIR_NAME: run.sessionId,
+    CLAUDE_AGENT_SDK_CLIENT_APP: CLIENT_APP,
+  });
   return {
     cwd: run.workspace.path,
     // Only for a trusted repository: an untrusted one loads nothing of its project, from the branch or from its checkout.
     ...(run.trusted && input.checkoutRoot !== null && { projectConfigRoot: input.checkoutRoot }),
-    env: composeRunEnvironment(input.hostEnv, input.configDirectory, {
-      // The harness session names the project directory, so the transcript is found whatever the working directory.
-      CLAUDE_CODE_PROJECT_DIR_NAME: run.sessionId,
-      CLAUDE_AGENT_SDK_CLIENT_APP: CLIENT_APP,
-    }),
+    env,
     ...(input.executablePath !== null && { pathToClaudeCodeExecutable: input.executablePath }),
     abortController: input.abortController,
     ...(input.stderr !== undefined && { stderr: input.stderr }),
@@ -154,6 +160,7 @@ export const buildRunOptions = (input: RunOptionsInput): Options => {
     strictMcpConfig: true,
     ...(servers !== null && { mcpServers: servers }),
     ...(input.pluginDirectory !== null && { plugins: [{ type: "local", path: input.pluginDirectory }] }),
+    // The flag layer, which the CLI reads before the project's (whose own value it ignores for security) and the user's.
     ...(input.autoMemoryDirectory !== null && { settings: { autoMemoryDirectory: input.autoMemoryDirectory } }),
     ...(input.sessionStore !== null && { sessionStore: input.sessionStore }),
     ...continuation(run, input.resumePoint),

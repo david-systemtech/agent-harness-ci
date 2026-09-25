@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "HandoffReason",
+  "type": "string",
+  "enum": [
+    "limit-reached",
+    "limit-near",
+    "most-room",
+    "no-target"
+  ],
+  "description": "Why the recommendation is what it is: limit-reached (the account handed from has a window the provider is refusing, and accountId has room), limit-near (it has met a hand-off threshold, and accountId has room), most-room (accountId has the most room, and the account handed from, if any, has met no threshold), or no-target (accountId is null: fewer accounts were ranked than make a choice, two when no account is handed from and one other when one is, or none ranked has room to take the work, since a full or refused account is never named)."
+}

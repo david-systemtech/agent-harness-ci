@@ -81,6 +81,7 @@ export interface UsageWindow {
 export interface UsageReading {
   readonly identity: AccountIdentity;
   readonly windows: readonly UsageWindow[];
+  /** When the provider was read, as an ISO 8601 instant: what the environment's pool ages the reading by. */
   readonly readAt: string;
   /**
    * Why there are no windows, when the provider reported none: an API-key
@@ -291,8 +292,9 @@ export interface PromptDecision {
  * (`permissions.prompts.answer`), or, when the run ends, with a denial.
  *
  * The host counts a run parked from a request until that prompt is
- * answered: when the request settles, or when the host answers it through
- * `AdapterHost.answerPrompt`, whichever comes first.
+ * answered: when the request settles, or when the host hands a person's
+ * answer to the run's `answerPrompt` (`AdapterHost.deliverAnswer`, which
+ * settles the request too), whichever comes first.
  */
 export interface PermissionBroker {
   request(request: PromptRequest): Promise<PromptDecision>;
@@ -548,7 +550,17 @@ export interface Adapter {
    * process is killed at once, and the answer is not waited for.
    */
   stopProcess(sessionId: string, options?: { readonly kill?: boolean }): void | Promise<void>;
-  /** Plan usage per window, with the account's identity (`planUsage`). */
+  /**
+   * Plan usage per window, with the account's identity (`planUsage`). The
+   * environment's pool (`accounts/usage-pool.ts`, #136) is its one caller:
+   * concurrent asks for an account share one read, and none is made while
+   * the pool holds a reading under six minutes old by its `readAt` (a read
+   * that threw is asked again at the next ask). A read the pool gave up on
+   * at its timeout may still be running when the next ask starts another,
+   * so two can overlap. An adapter may keep readings of its own, but
+   * `readAt` must stay when the provider was read, not when the reading was
+   * handed over, since the pool ages by it.
+   */
   usage?(account: AccountRef): Promise<UsageReading>;
   /**
    * The slash commands for an account and workspace, spending no tokens
@@ -579,6 +591,10 @@ export interface Adapter {
    * Deletes the provider's transcript of a session (`transcriptDelete`):
    * synchronous, irreversible and idempotent, since it runs inside the
    * purge's transaction (`sessions/deletion.ts`, `ProviderTranscripts`).
+   * `accounts` are the accounts the session's runs went through that the
+   * environment still holds and owns: where the provider may have kept it.
+   * An adopted account's directory is never handed over (ADR 0018: only the
+   * provider's own CLI touches it); the purge records the copy there kept.
    */
-  deleteTranscript?(sessionId: string): undefined;
+  deleteTranscript?(sessionId: string, accounts: readonly AccountRef[]): undefined;
 }

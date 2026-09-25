@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "UsageVerdict",
+  "type": "string",
+  "enum": [
+    "allowed",
+    "warning",
+    "rejected"
+  ],
+  "description": "The latest rate-limit verdict a run of the account reported for the window (plan.limit): allowed, warning (near the limit) or rejected (refused until the reset, whatever the utilisation reads)."
+}

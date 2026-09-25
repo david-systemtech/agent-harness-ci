@@ -12,6 +12,8 @@ interface Fixtures {
 
 const commandId = "0f8fad5b-d9cb-469f-a165-70867728950e";
 const sessionId = "7c9e6679-7425-40de-944b-e07fc1f90ae7";
+const otherSessionId = "3d6f9a2c-4b1e-4c8d-a5f7-2e9b0c1d4a68";
+const messageId = "9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d";
 const groupId = "1b4e28ba-2fa1-41d2-883f-0016d3cca427";
 const at = "2026-09-24T01:02:03.456Z";
 const later = "2026-09-29T09:00:00.000Z";
@@ -206,8 +208,8 @@ export const sessionSchemaFixtures: Record<string, Fixtures> = {
   "sessions/pull-request.json": { valid: [pullRequest, mergedPullRequest], invalid: [{ ...pullRequest, state: "draft" }, { url: pullRequest.url }] },
   "sessions/session-summary.json": { valid: [freshSummary, fullSummary], invalid: invalidSummaries },
   "sessions/provider-transcript-outcome.json": {
-    valid: [{ outcome: "kept" }, { outcome: "deleted" }, { outcome: "unsupported" }, { outcome: "failed", message: "m" }],
-    invalid: [{}, { outcome: "lost" }, { outcome: "failed" }, true],
+    valid: [{ outcome: "kept" }, { outcome: "kept", reason: "adopted-directory" }, { outcome: "deleted" }, { outcome: "unsupported" }, { outcome: "failed", message: "m" }],
+    invalid: [{}, { outcome: "lost" }, { outcome: "failed" }, { outcome: "kept", reason: "stale" }, true],
   },
   "sessions/deleted-session-summary.json": { valid: [deleted], invalid: [freshSummary, { ...deleted, purgeAt: "never" }] },
   "sessions/group.json": { valid: [group, { ...group, orderKey: "m" }], invalid: invalidGroups },
@@ -324,6 +326,40 @@ export const sessionMethodFixtures: Record<string, { params: Fixtures; result: F
   },
   "sessions.restore": sessionCommand,
   "sessions.purge": { params: { valid: [target], invalid: noTarget }, result: { valid: [{ sessionId }], invalid: [{}, { sessionId: "s-1" }] } },
+  "sessions.fork": {
+    params: {
+      valid: [
+        { ...target, id: otherSessionId },
+        { ...target, id: otherSessionId, atMessageId: messageId, account: "claude-work", title: "The other approach" },
+      ],
+      invalid: [
+        target,
+        { commandId, id: otherSessionId },
+        { ...target, id: "s-2" },
+        { ...target, id: otherSessionId, atMessageId: "m-1" },
+        { ...target, id: otherSessionId, account: "" },
+        { ...target, id: otherSessionId, title: "" },
+      ],
+    },
+    result: summaryResult,
+  },
+  "sessions.rewind": {
+    params: { valid: [{ ...target, messageId }], invalid: [target, { ...target, messageId: "m-1" }, { commandId, messageId }] },
+    result: { valid: [{ sessionId, messageId }], invalid: [{ sessionId }, { sessionId, messageId: "m-1" }] },
+  },
+  "sessions.subagentTranscript": {
+    params: {
+      valid: [{ sessionId, agentId: "a1b2c3" }],
+      invalid: [{ sessionId }, { sessionId, agentId: "" }, { agentId: "a1b2c3" }, { sessionId: "s-1", agentId: "a1b2c3" }],
+    },
+    result: {
+      valid: [
+        { sessionId, agentId: "a1b2c3", messages: [] },
+        { sessionId, agentId: "a1b2c3", messages: [{ type: "user", uuid: messageId, message: { role: "user", content: "Look it up" } }] },
+      ],
+      invalid: [{ sessionId, agentId: "a1b2c3" }, { sessionId, agentId: "a1b2c3", messages: ["text"] }, { sessionId, messages: [] }],
+    },
+  },
   "groups.create": {
     params: {
       valid: [{ commandId, id: groupId, name: "Brandsolidate" }, { commandId, id: groupId, name: "Brandsolidate", orderKey: "m" }],
