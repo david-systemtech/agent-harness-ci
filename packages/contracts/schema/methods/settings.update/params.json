@@ -54,6 +54,44 @@
           "maximum": 3650,
           "description": "How many whole days a session goes with no run, command or event before its transcript events are folded into a snapshot that replaces them for replay; 1 to 3650. Organisation events are never compacted."
         },
+        "accounts.defaultAccount": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "description": "An account's id on its environment: a version 4 UUID the environment mints when it adopts or adds the account; an account carried over from configuration keeps the id it was configured with."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The account a session with none of its own runs on (ADR 0018); null, or an account the environment no longer holds, for the first account adopted or added that it still holds."
+        },
+        "accounts.defaultModelFamily": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The model family (opus, sonnet) whose strongest model a run takes when neither it nor its session names a model; null, or a family the account does not offer, for the account's strongest model. The Account step presets it to the highest tier's family."
+        },
+        "accounts.defaultEffort": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The reasoning effort a run with none of its own takes, when its model takes that effort; null, or an effort the model does not take, for the model's own. The Account step presets it to high."
+        },
         "providers.processIdleMinutes": {
           "type": "integer",
           "minimum": 1,

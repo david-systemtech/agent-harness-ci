@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { DefaultAccount, DefaultEffort, DefaultModelFamily } from "./accounts.js";
 import type { EventTypeEntry } from "./event-types.js";
 import { PERMISSION_SETTINGS } from "./permissions-settings.js";
 import { PROCESS_IDLE_MINUTES_PRESET, ProcessIdleMinutes } from "./methods/providers.js";
@@ -91,10 +92,11 @@ const setting = <const S extends z.ZodType>(definition: SettingDefinition<S>): S
  * Every settings key. The two auto-settle keys sit under the Appearance
  * step's entry, in a Sessions band of its pane (session-state spec), and the
  * transcript compaction window (#123) beside them; the Set up workstream
- * (#88) may re-home them. `providers.processIdleMinutes`
- * (#120) sits under the Account step's entry, in the Default model band of
- * the Accounts pane (ADR 0027's `accounts.default-model` row, which absorbs
- * Artemis's Runs pane); the Account step's own keys (#134) join it there.
+ * (#88) may re-home them. The Account step's own keys (ADR 0018: the default
+ * account, model family and effort, #134) and `providers.processIdleMinutes`
+ * (#120) sit under the Account step's entry, in the Default account and
+ * model band of the Accounts pane (ADR 0027's `accounts.default-model` row,
+ * which absorbs Artemis's Models pane and its Runs pane).
  * The permission keys (#129) are the Permissions step's, written through
  * `permissions.settings.set` only.
  */
@@ -113,6 +115,21 @@ export const SETTINGS = {
     schema: TranscriptCompactAfterDays,
     preset: 90,
     step: { id: "appearance", band: "sessions" },
+  }),
+  "accounts.defaultAccount": setting({
+    schema: DefaultAccount,
+    preset: null,
+    step: { id: "account", band: "default-model" },
+  }),
+  "accounts.defaultModelFamily": setting({
+    schema: DefaultModelFamily,
+    preset: null,
+    step: { id: "account", band: "default-model" },
+  }),
+  "accounts.defaultEffort": setting({
+    schema: DefaultEffort,
+    preset: null,
+    step: { id: "account", band: "default-model" },
   }),
   "providers.processIdleMinutes": setting({
     schema: ProcessIdleMinutes,

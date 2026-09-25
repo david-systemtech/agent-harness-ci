@@ -69,7 +69,7 @@
       "description": "Where a session's code lives on its environment: its kind and path."
     },
     "account": {
-      "description": "The account the session's runs use; the adapter workstream's to validate.",
+      "description": "The account the session's runs use, one the environment holds and is signed in; the environment's default account at each run when absent.",
       "type": "string",
       "minLength": 1
     },

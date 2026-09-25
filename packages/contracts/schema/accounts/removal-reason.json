@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AccountRemovalReason",
+  "type": "string",
+  "enum": [
+    "user",
+    "duplicate-identity"
+  ],
+  "description": "Why an account was removed: user (accounts.remove), or duplicate-identity (its sign-in yielded an identity another account on the environment holds, so the account and its new directory went)."
+}

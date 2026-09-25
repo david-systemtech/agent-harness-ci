@@ -34,7 +34,11 @@ import { createRateLimiter } from "../auth/rate-limit.js";
 import { formatActor, openEventLog, type EventLog, type Projector } from "../event-log/event-log.js";
 import type { Adapter } from "../adapter/contract.js";
 import { createClaudeAdapter } from "../adapters/claude/index.js";
-import { createAdapterHost, type AdapterHost, type HostAccount } from "../adapter/host.js";
+import { createAdapterHost } from "../adapter/host.js";
+import { ACCOUNTS_DIRECTORY, createAccountService, type AccountService, type ConfiguredAccount } from "../accounts/account-service.js";
+import { accountsProjector } from "../accounts/account-store.js";
+import { accountMethods } from "../accounts/methods.js";
+import type { SignInDirectorFactory } from "../accounts/sign-in.js";
 import { processMethods } from "../adapter/processes-methods.js";
 import { ATTACHMENTS_DIRECTORY, createAttachmentStage } from "../adapter/attachment-stage.js";
 import { recoverCutRuns, recoverStagedAttachments } from "../adapter/recovery.js";
@@ -167,10 +171,17 @@ export interface EnvironmentOptions {
   readonly containerDetector?: ContainerDetector;
   /** The adapters the adapter host holds, one per provider. Preset: the Claude adapter, with auto memory under the data directory. */
   readonly adapters?: readonly Adapter[];
-  /** The accounts runs go through. Preset: none, until the account store (#134) supplies them. */
-  readonly accounts?: readonly HostAccount[];
-  /** The account a session with none of its own runs on. Preset: the first account. */
-  readonly defaultAccountId?: string;
+  /**
+   * Accounts carried over from configuration (#119): adopted in place into
+   * the account store, under their own ids, the first time the environment
+   * starts with a store that has never held an account; ignored after. The
+   * store is what runs go through. Preset: none.
+   */
+  readonly accounts?: readonly ConfiguredAccount[];
+  /** The sign-in director `accounts.add` hands a new account to. Preset: the one that says sign-in is not built yet, until #135. */
+  readonly signIn?: SignInDirectorFactory;
+  /** How long an account's status or model probe may take. Preset: `PROBE_TIMEOUT_MS`. */
+  readonly probeTimeoutMs?: number;
   /**
    * The idle time of a provider process, in minutes, read each time a wait
    * begins. Preset: the `providers.processIdleMinutes` setting as the
@@ -301,7 +312,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   });
 
   await step("projectors", () => {
-    for (const projector of [sessionListProjector, runsProjector, settingsProjector, permissionsProjector, ...(options.projectors ?? [])]) log.registerProjector(projector);
+    for (const projector of [sessionListProjector, runsProjector, settingsProjector, permissionsProjector, accountsProjector, ...(options.projectors ?? [])]) {
+      log.registerProjector(projector);
+    }
   });
 
   // Where pairing links point: set when the listeners are bound, before any request is served.
@@ -337,23 +350,42 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     return { record: loaded, clientSessions: loadedClientSessions, pairings: loadedPairings, accessLog: access };
   });
 
-  // The adapter host: the adapters, the accounts' sign-in states read through their probes, the run registry.
-  const host: AdapterHost = await step("adapter-host", async () => {
+  // The account store and the adapter host: the adapters, the accounts' sign-in states read through their probes, the run registry.
+  const { host, accounts } = await step("adapter-host", async () => {
     // First the recovery sweep: a run the log left without an end was cut by the last stop, and is ended before anything can read it.
     const recovered = recoverCutRuns({ log, clock });
     if (recovered.length > 0) console.error(`The recovery sweep ended ${recovered.length} run(s) a restart cut: ${recovered.join(", ")}.`);
     // Then the queued messages' attachment bytes, read back from the stage, so a message the sweep handed back keeps them (#185).
     const attachmentStage = createAttachmentStage(join(dataDir, ATTACHMENTS_DIRECTORY));
     const stagedAttachments = recoverStagedAttachments({ log, stage: attachmentStage });
+    const adapters = options.adapters ?? [createClaudeAdapter({ clock, autoMemoryRoot: join(dataDir, AUTO_MEMORY_DIRECTORY) })];
+    const settings = () => readSettings({ all: (sql, ...params) => log.read(sql, ...params) });
+    // The account store (#134): the configured accounts carried over once, then every account's status read, and read
+    // again at most every fifteen minutes; its reads before the wire opens notice nothing.
+    const store: AccountService = createAccountService({
+      log,
+      clock,
+      adapters,
+      environmentId: record.id,
+      ownedRoot: join(dataDir, ACCOUNTS_DIRECTORY),
+      configured: options.accounts ?? [],
+      defaults: () => {
+        const values = settings();
+        return { account: values["accounts.defaultAccount"], modelFamily: values["accounts.defaultModelFamily"], effort: values["accounts.defaultEffort"] };
+      },
+      ...(options.signIn !== undefined && { signIn: options.signIn }),
+      ...(options.probeTimeoutMs !== undefined && { probeTimeoutMs: options.probeTimeoutMs }),
+    });
+    closers.push(() => store.close());
+    await store.start();
     const created = createAdapterHost({
       log,
       clock,
       attachmentStage,
       stagedAttachments,
       ...(options.runs !== undefined && { runs: options.runs }),
-      adapters: options.adapters ?? [createClaudeAdapter({ clock, autoMemoryRoot: join(dataDir, AUTO_MEMORY_DIRECTORY) })],
-      ...(options.accounts !== undefined && { accounts: options.accounts }),
-      ...(options.defaultAccountId !== undefined && { defaultAccountId: options.defaultAccountId }),
+      adapters,
+      accounts: store,
       // The policy resolver on the permission settings, and each client session's ceiling as it is now (#129).
       resolvePolicy: ({ actor, requested, accountModes }) =>
         resolvePolicy({
@@ -364,16 +396,14 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
           settings: policySettings(permissionSettings()),
         }),
       ceilingOf: (id) => clientSessions.ceiling(id),
-      processIdleMinutes:
-        options.processIdleMinutes ?? (() => readSettings({ all: (sql, ...params) => log.read(sql, ...params) })["providers.processIdleMinutes"]),
+      processIdleMinutes: options.processIdleMinutes ?? (() => settings()["providers.processIdleMinutes"]),
       ...options.adapterSeams,
     });
     // Closed before the event log, so a run the close ends has its end appended (drained when a drain's cap cut it), and
     // before the launcher's channel, so the launcher hears the environment go only once every provider process has
     // stopped, or has been killed after the stop timeout.
     closers.push(() => created.close(readiness === "draining" ? "drained" : "disposed"));
-    await created.refresh();
-    return created;
+    return { host: created, accounts: store };
   });
 
   const surface = createHttpSurface({ tailnetName: () => tailnetName });
@@ -447,6 +477,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ...runMethods({ log, host, ceilingOf: (id) => clientSessions.ceiling(id) }),
     ...permissionMethods({ log, host, accessLog, clock, environmentId: record.id, ceilingOf: (id) => clientSessions.ceiling(id) }),
     ...processMethods({ log, host }),
+    ...accountMethods({ accounts, host }),
     ...terminalService.handlers,
     ...workspaceMethods({ log }),
   });

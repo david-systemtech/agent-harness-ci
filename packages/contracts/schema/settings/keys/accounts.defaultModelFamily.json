@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DefaultModelFamily",
+  "anyOf": [
+    {
+      "type": "string",
+      "minLength": 1
+    },
+    {
+      "type": "null"
+    }
+  ],
+  "description": "The model family (opus, sonnet) whose strongest model a run takes when neither it nor its session names a model; null, or a family the account does not offer, for the account's strongest model. The Account step presets it to the highest tier's family."
+}
