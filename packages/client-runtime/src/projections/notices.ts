@@ -18,14 +18,15 @@ import type { Notice, NoticeInput, Notices } from "../notices.js";
  *   `projections.accounts` and needs no notice;
  * - `prompt.parked`: `prompt-parked`, naming the session, run and prompt;
  * - `prompt.resolved`: the parked prompt's notice is taken back, since it
- *   asks for nothing any more; and when nobody answered it (an automatic
+ *   asks for nothing any more (a resolution heard as history takes it back
+ *   too, saying nothing: `settled`); and when nobody answered it (an automatic
  *   rule: its TTL, its run ending first, the provider cancelling it) while
  *   its notice was still showing, a `prompt-resolved` notice says how it was
  *   settled. A person's answer, from any client, raises none.
  *
- * `signin.updated`, `signin.executable-chosen` and `environment.started`
- * raise none: the sign-in flow shows its own state, and a start is the
- * connection's phase. A routine's client-notice delivery (ADR 0008) and a
+ * `signin.updated`, `signin.executable-chosen`, `environment.started` and
+ * `usage.updated` (#136) raise none: the sign-in flow shows its own state, a
+ * start is the connection's phase, and plan usage is `projections.usage`'s. A routine's client-notice delivery (ADR 0008) and a
  * key manager's failed verification (ADR 0011) are owed: no event on the
  * environment's stream carries them yet (#92, #91).
  */
@@ -52,11 +53,29 @@ const AUTOMATIC: Readonly<Record<AutoDecider, string>> = {
 export interface EnvironmentNotices {
   /** Raises what `event`, news on the environment's stream, says, and takes back what it settles. */
   heard(environmentId: string, event: EventEnvelope, context: EnvironmentNoticeContext): void;
+  /**
+   * A parked prompt was resolved, heard as history (replayed onto a stream
+   * that held nothing, as after the environment was removed and added
+   * again): its notice, if one still shows, is taken back, and nothing is
+   * raised, since the resolution is not news.
+   */
+  settled(environmentId: string, sessionId: string, promptId: string): void;
 }
 
 export const createEnvironmentNotices = (notices: Notices): EnvironmentNotices => {
   /** What each parked prompt's notice was raised for, by notice id: the words its resolution says it with. */
   const parkedPrompts = new Map<string, { readonly title: string; readonly summary: string }>();
+
+  /** Takes a parked prompt's notice off the queue: the notice, and the words it was raised with; undefined when none shows. */
+  const takeBack = (environmentId: string, sessionId: string, promptId: string) => {
+    const parked = (n: Notice) =>
+      n.environmentId === environmentId && n.kind === "prompt-parked" && n.about?.promptId === promptId && n.about.sessionId.toLowerCase() === sessionId.toLowerCase();
+    const [taken] = notices.retire(parked);
+    if (taken === undefined) return undefined;
+    const words = parkedPrompts.get(taken.id);
+    parkedPrompts.delete(taken.id);
+    return { taken, words };
+  };
 
   return {
     heard(environmentId, event, context) {
@@ -90,12 +109,9 @@ export const createEnvironmentNotices = (notices: Notices): EnvironmentNotices =
         }
         case "prompt.resolved": {
           const { sessionId, promptId, decision, decidedBy } = notice.payload;
-          const parked = (n: Notice) =>
-            n.environmentId === environmentId && n.kind === "prompt-parked" && n.about?.promptId === promptId && n.about.sessionId.toLowerCase() === sessionId.toLowerCase();
-          const [taken] = notices.retire(parked);
-          if (taken === undefined) return;
-          const words = parkedPrompts.get(taken.id);
-          parkedPrompts.delete(taken.id);
+          const back = takeBack(environmentId, sessionId, promptId);
+          if (back === undefined) return;
+          const { taken, words } = back;
           // A person answered it, from some client: nothing more to say.
           if (typeof decidedBy === "string" || words === undefined) return;
           raise({
@@ -109,8 +125,12 @@ export const createEnvironmentNotices = (notices: Notices): EnvironmentNotices =
         case "environment.started":
         case "signin.updated":
         case "signin.executable-chosen":
+        case "usage.updated":
           return;
       }
+    },
+    settled(environmentId, sessionId, promptId) {
+      takeBack(environmentId, sessionId, promptId);
     },
   };
 };

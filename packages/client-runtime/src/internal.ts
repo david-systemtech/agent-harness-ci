@@ -72,10 +72,12 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
         }
       }
       if (stream !== "environment") return;
-      // A resolution settles a parked ask whether or not it is news: an answered prompt never parks again.
+      // A resolution settles a parked ask, and takes back its notice, whether or not it is news: an answered prompt never parks
+      // again. Only news says how it was settled (`environmentNotices.heard`, below).
       if (event.type === "prompt.resolved") {
         const { sessionId, promptId } = event.payload as { sessionId: string; promptId: string };
         runs.resolved(environmentId, sessionId, promptId);
+        if (!news) environmentNotices.settled(environmentId, sessionId, promptId);
       }
       // A notice replayed onto a stream that held nothing is history: every ready fetches the cache again anyway, and it says nothing new.
       if (!news) return;

@@ -181,7 +181,14 @@ export const dynamic = <T>(sources: () => readonly Observable<unknown>[], comput
           dirty = false;
           follow();
         } while (dirty);
-        read();
+        try {
+          read();
+        } catch (error) {
+          // A compute that throws leaves nothing followed, as `derived` does: the caller is refused, and has nothing to unsubscribe.
+          for (const stop of followed.values()) stop();
+          followed.clear();
+          throw error;
+        }
       }
       listeners.add(listener);
       return () => {

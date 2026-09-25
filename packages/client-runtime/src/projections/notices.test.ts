@@ -89,6 +89,30 @@ describe("the notices from the environment's stream", () => {
   });
 });
 
+describe("a parked prompt's notice", () => {
+  it("is taken back by its resolution replayed as history, the environment removed and added again, and nothing more is said", async () => {
+    const { runtime, desk, env } = await oneEnvironment();
+    const parked = noticeEvent(1, env, "prompt.parked", { sessionId: desk.sessionId, runId, promptId: "toolu_1", kind: "permission", title: "Invoices", summary: "Bash: ls" });
+    desk.notices.event(parked);
+    await flush();
+    const prompts = () => runtime.projections.notices.read().filter((n) => n.kind.startsWith("prompt-"));
+    expect(prompts().map((n) => n.kind)).toEqual(["prompt-parked"]);
+
+    // Removed and added again, its stream holds nothing: what it replays is history, a resolution included.
+    await runtime.connections.remove(env);
+    const adding = runtime.connections.add({ link: desk.wire.link });
+    await desk.wire.server.accept();
+    (await subscription(desk.wire, "sessions.subscribe")).synchronized(0);
+    const environment = await subscription(desk.wire, "environment.subscribe");
+    environment.event(parked);
+    environment.event(noticeEvent(2, env, "prompt.resolved", { sessionId: desk.sessionId, runId, promptId: "toolu_1", decision: "deny", decidedBy: { auto: "ttl" } }));
+    environment.synchronized(2);
+    await adding;
+    await flush();
+    expect(prompts()).toEqual([]);
+  });
+});
+
 describe("the notices queue", () => {
   it("holds at most 100, the newest last, from the stream, the receipts and the connection, and a dismissal is this client's", async () => {
     const { runtime, desk, env } = await oneEnvironment();
