@@ -166,8 +166,9 @@ export const sessionKind = (): StreamKind<SessionData> => ({
  * As built neither carries them: the notices are `environment.started`,
  * `environment.updated` (harness versions), `environment.draining`,
  * `account.updated` (the account store, #134), `signin.updated` and
- * `signin.executable-chosen` (the sign-in director, #135), `usage.updated`
- * (plan usage, #136), and
+ * `signin.executable-chosen` (the sign-in director, #135), `prompt.parked`
+ * and `prompt.resolved` (the permission broker, #130), `usage.updated` (plan
+ * usage, #136), and
  * the status is readiness, activity and `updatesManagedOutside`; so the name
  * comes from discovery and `hello`, and icon and colour stay null until the
  * workspace-picker workstream adds the notice this `apply` then reads.

@@ -284,6 +284,27 @@ describe("accounts.usage", () => {
       expect(readsOf(adapter, "work")).toBe(2);
     });
 
+    it("keeps a verdict heard while a read was under way when the read fails, so the hand-off still sees the refused window", async () => {
+      const held = gate();
+      const { adapter, client, clock, t } = await start({ script: () => [planLimit("five_hour", "rejected"), end()] });
+      await usage(client);
+      clock.advance(USAGE_MAX_AGE_MS);
+      await reading(client, "personal");
+      adapter.setUsage(async () => {
+        await held.opened;
+        throw new Error("The usage endpoint is down.");
+      });
+      const pending = client.request("accounts.usage", { accountId: "work" });
+      await vi.waitFor(() => expect(readsOf(adapter, "work")).toBe(2));
+      await runOn(t, await t.client(), "work");
+      // The read fails a second after the verdict: it read nothing, so the verdict is still the newest word on the account.
+      clock.advance(1_000);
+      held.open();
+      const answered = registry["accounts.usage"].result.parse(await pending).readings[0];
+      expect(answered).toMatchObject({ unavailableReason: null, windows: [{ window: "five_hour", verdict: "rejected" }] });
+      expect(await recommend(client, "work")).toMatchObject({ accountId: "personal", reason: "limit-reached", trigger: { window: "five_hour", verdict: "rejected" } });
+    });
+
     it("answers a read that never returns as unavailable once the read timeout passes, well inside a client's thirty-second request timeout", async () => {
       expect(USAGE_READ_TIMEOUT_MS).toBeLessThanOrEqual(10_000);
       const { adapter, client } = await start({ usage: () => new Promise(() => undefined) }, ACCOUNTS, { usageReadTimeoutMs: 50 });

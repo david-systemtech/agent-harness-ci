@@ -47,10 +47,13 @@ import { currentWindow, isFresh, type LiveRunLoad } from "./handoff.js";
  *   times out, and a provider reporting no limits each answer a reading with
  *   no windows and the reason. A failed read is answered and held (so the
  *   notice and the hand-off see it) but read again at the next ask, as the
- *   Claude adapter does not keep a failed read either. A fault around the
- *   read, outside the adapter (the host's account lookup, the store), answers
- *   that account unavailable too, reported and not held: one account's fault
- *   never fails the others' readings.
+ *   Claude adapter does not keep a failed read either. It is dated when it
+ *   was asked, not when it failed: it read nothing, so a verdict heard while
+ *   it was under way is newer and folds in, rather than being lost with the
+ *   reading it replaces. A fault around the read, outside the adapter (the
+ *   host's account lookup, the store), answers that account unavailable too,
+ *   reported and not held: one account's fault never fails the others'
+ *   readings.
  * - **A run's `plan.limit` folds in** (Artemis's `applyPlanLimit`): the pool
  *   hears the log, maps the run to its account through the runs table, and
  *   folds the verdict into that account's window: the verdict, and the
@@ -166,7 +169,8 @@ export const sameReading = (a: AccountUsage, b: AccountUsage): boolean =>
 /**
  * A run's verdict folded into a reading (Artemis's `applyPlanLimit`), or
  * null when it is not news: neither the verdict nor the utilisation moved,
- * or it is older than the reading, whose read the provider answered after it.
+ * or it is older than the reading, whose read the provider answered after it
+ * (a failed read is dated when it was asked, so none heard during it is).
  * The folded window takes the verdict, and the utilisation and reset it
  * names; what it does not name is kept from the window, unless the window
  * rolled over before the verdict, whose numbers describe a period that is
@@ -272,8 +276,9 @@ export const createUsagePool = (options: UsagePoolOptions): UsagePool => {
           next = { reading: mapped, at, retry: false };
         } catch (error) {
           console.error(`Reading the plan usage of the account ${record.label} failed:`, error);
-          const failedAt = clock.now();
-          next = { reading: unavailable(record, record.identity, failedAt.toISOString(), `Could not read plan usage: ${messageOf(error)}`), at: failedAt.getTime(), retry: true };
+          // Stamped when it was asked, not when it failed: it read nothing, so a verdict heard while it was under way is
+          // newer than it and folds in below, rather than being lost with the reading it replaces.
+          next = { reading: unavailable(record, record.identity, askedAt.toISOString(), `Could not read plan usage: ${messageOf(error)}`), at: askedAt.getTime(), retry: true };
         }
       }
       // A verdict heard while the read was under way is newer than it: folded in.

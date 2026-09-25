@@ -270,13 +270,18 @@ export const bindingWindow = (reading: AccountUsage | null | undefined, now: num
   return rejected ?? worst;
 };
 
-/** How much of the plan is left, 0 to 1, in its tightest window; 0 when refused; null with nothing to answer from. */
+/**
+ * How much of the plan is left, 0 to 1, in its tightest window; 0 when
+ * refused, and when the provider reports the window beyond its limit (Artemis
+ * went below zero there); null with nothing to answer from. The ranking
+ * reckons its own room, and never names an account with none.
+ */
 export const planHeadroom = (reading: AccountUsage | null | undefined, now: number): number | null => {
   const binding = bindingWindow(reading, now);
   if (binding === null) return null;
   if (binding.verdict === "rejected") return 0;
   if (binding.utilisation === null) return null;
-  return 1 - binding.utilisation;
+  return Math.max(0, 1 - binding.utilisation);
 };
 
 /** A plan's size against its provider's baseline, when one is known: Artemis's resolved plan weight. */

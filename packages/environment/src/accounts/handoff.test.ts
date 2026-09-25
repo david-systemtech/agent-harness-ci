@@ -264,6 +264,8 @@ describe("planHeadroom", () => {
   it("is null when there is no plan, and 0 when the plan is full", () => {
     expect(planHeadroom(metered, NOW)).toBeNull();
     expect(planHeadroom(reading([w("five_hour", 1)]), NOW)).toBe(0);
+    // A provider may report a window beyond its limit: no room, never less than none.
+    expect(planHeadroom(reading([w("five_hour", 1.2)]), NOW)).toBe(0);
   });
 
   it("is null when every window omits its number, or there is no reading", () => {
