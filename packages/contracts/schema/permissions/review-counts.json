@@ -7,7 +7,7 @@
       "type": "integer",
       "minimum": 0,
       "maximum": 9007199254740991,
-      "description": "Tool calls decided in the run (one tool.decision each)."
+      "description": "Tool calls decided in the run (one tool.decision each); a prompt that named no call is counted by how it was decided, not here."
     },
     "autoApproved": {
       "type": "integer",

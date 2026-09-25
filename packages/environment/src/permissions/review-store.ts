@@ -115,8 +115,10 @@ export const projectReview = (event: EventEnvelope, db: ProjectionDb): void => {
       );
       const person = decision.decidedBy === "person";
       db.run(
-        `UPDATE review_runs SET tool_calls = tool_calls + 1, auto_approved = auto_approved + ?, denied = denied + ?, by_person = by_person + ?,
+        `UPDATE review_runs SET tool_calls = tool_calls + ?, auto_approved = auto_approved + ?, denied = denied + ?, by_person = by_person + ?,
          expired = expired + ?, flagged = flagged + ?, updated_sequence = ? WHERE run_id = ?`,
+        // A prompt that named no call (a question some providers ask outside a tool) is a decision, not a tool call.
+        decision.toolCallId === null ? 0 : 1,
         decision.decision === "allowed" && !person ? 1 : 0,
         decision.decision === "denied" ? 1 : 0,
         person ? 1 : 0,
@@ -165,7 +167,7 @@ interface ReviewRow {
 /**
  * The runs the review lists, newest first, at most `limit`: those with
  * anything decided after `watermark` that qualify (unattended with a tool
- * call, or attended with a call decided by the TTL, the denylist or
+ * call or a denial, or attended with a call decided by the TTL, the denylist or
  * containment), a deleted session's left out, each with its denials in the
  * order they were decided, read in one query for all of them.
  */
@@ -173,7 +175,7 @@ export const reviewRuns = (reader: Reader, watermark: number, limit: number): Re
   const rows = reader.all<ReviewRow>(
     `SELECT review_runs.* FROM review_runs JOIN sessions ON sessions.id = review_runs.session_id
      WHERE sessions.deleted_at IS NULL AND review_runs.updated_sequence > ?
-     AND ((review_runs.attended = 0 AND review_runs.tool_calls > 0) OR (review_runs.attended = 1 AND review_runs.flagged > 0))
+     AND ((review_runs.attended = 0 AND (review_runs.tool_calls > 0 OR review_runs.denied > 0)) OR (review_runs.attended = 1 AND review_runs.flagged > 0))
      ORDER BY review_runs.started_sequence DESC LIMIT ?`,
     watermark,
     limit,

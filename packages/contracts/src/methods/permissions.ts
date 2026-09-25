@@ -148,7 +148,7 @@ export const permissionsPromptsAnswer = defineMethod({
  * The Unattended review (permissions spec, "The Unattended review view"):
  * the runs that qualify, newest first, whose latest tool decision is after
  * the environment-wide watermark. A run qualifies when it was unattended and
- * made a tool call, or was attended and had a call decided by the TTL, the
+ * made a tool call or had a denial (a prompt that named no call is one), or was attended and had a call decided by the TTL, the
  * denylist or containment (a chosen default, so a person's own bypass runs do
  * not flood it). A deleted session's runs are left out. `head` is the log's
  * position as read: what `permissions.review.seen` takes to mark exactly

@@ -183,6 +183,32 @@ describe("permissions.review.list", () => {
   });
 });
 
+describe("a call-less prompt in the review", () => {
+  it("counts a question that named no tool call as a denial, not a tool call, and lists an unattended run whose only decision it is", async () => {
+    const t = await start();
+    const client = await t.client();
+    const { id } = await create(client);
+    const question: PromptDetail = {
+      toolName: null,
+      toolCallId: null,
+      summary: "Which date library?",
+      questions: [{ header: "Library", question: "Which date library?", options: [{ label: "date-fns", description: "" }], multiSelect: false }],
+    };
+    t.adapter.nextScripts.push(async function* ({ context, input }) {
+      const decision = await context.broker.request({ sessionId: input.sessionId, runId: input.runId, kind: "question", detail: question });
+      yield say(toldText(decision));
+      yield end();
+    });
+    const { runId } = startAs(t, id, routine());
+    await untilEnded(t, id, runId);
+
+    const [row] = (await list(client)).runs;
+    expect(row?.runId).toBe(runId);
+    expect(row?.counts).toEqual({ toolCalls: 0, autoApproved: 0, denied: 1, answeredByPerson: 0, expired: 0 });
+    expect(row?.denials).toEqual([{ toolCallId: null, tool: null, summary: "Which date library?", decidedBy: "unattended", reason: expect.stringContaining("nobody is present") }]);
+  });
+});
+
 describe("permissions.review.seen", () => {
   it("moves the environment-wide watermark: a later list leaves out the runs before it, and a run decided after it comes back", async () => {
     const t = await start();

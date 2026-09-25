@@ -201,6 +201,15 @@ describe("the provider's denial report (#131)", () => {
     expect(mapSdkMessage({ ...frame, tool_use_id: "toolu_3", decision_reason_type: "asyncAgent" }, state)[0]).toMatchObject({ by: "provider" });
     mapSdkMessage(assistant("toolu_4", "Bash"), state);
     expect(mapSdkMessage({ ...frame, tool_use_id: "toolu_4", decision_reason_type: "mode" }, state)[0]).toMatchObject({ by: "mode" });
+    // A kind named like an object's own inherited property is the provider's too, never that property.
+    for (const [id, kind] of [
+      ["toolu_5", "constructor"],
+      ["toolu_6", "valueOf"],
+      ["toolu_7", "__proto__"],
+    ] as const) {
+      mapSdkMessage(assistant(id, "Bash"), state);
+      expect(mapSdkMessage({ ...frame, tool_use_id: id, decision_reason_type: kind }, state)[0], kind).toMatchObject({ by: "provider" });
+    }
   });
 
   it("reports, before the end, the result's denials of calls the turn saw and no frame reported, as a rule's", () => {
