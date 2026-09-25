@@ -368,6 +368,21 @@ export const createSignInDirector =
       rejected: { code: "conflict", message, data: { reason, ...data } },
     });
 
+    /**
+     * Applies a command's transition once it has committed, through the same
+     * guard `update` keeps: never over a sign-in that has ended, been
+     * replaced or is completing, nor once the environment is closing. The log
+     * runs a command's callbacks in the commit's own turn, before any process
+     * event can land (`signin-director.test.ts` pins it), so this refuses
+     * nothing today; it keeps a later change to that ordering from
+     * overwriting what the process decided, or re-arming its expiry.
+     */
+    const settle = (sign: Running, next: SignIn): boolean => {
+      if (closed || current !== sign || ended(sign.state) || sign.completing) return false;
+      sign.state = next;
+      return true;
+    };
+
     const accepted = (state: SignIn, context: CommandContext, then: () => void): SignInAnswer => {
       context.tx.afterCommit(then);
       return { aggregate: stream, result: { signIn: state }, events: [noticeOf(state)] };
@@ -444,7 +459,7 @@ export const createSignInDirector =
         }
         const next: SignIn = { ...sign.state, state: "submitting", expiresAt: new Date(clock.now().getTime() + SIGN_IN_EXPIRY_MS).toISOString() };
         return accepted(next, context, () => {
-          sign.state = next;
+          if (!settle(sign, next)) return;
           arm(sign);
           try {
             // The code goes to the process and nowhere else: never into an event, a receipt or a log line.
@@ -464,8 +479,7 @@ export const createSignInDirector =
         if (sign.completing) return refuse("signin_completing", `The sign-in of ${sign.label} is completing: its status is being read, and it ends as that read says.`);
         const next: SignIn = { ...sign.state, state: "cancelled", error: null };
         return accepted(next, context, () => {
-          sign.state = next;
-          stop(sign);
+          if (settle(sign, next)) stop(sign);
         });
       },
 

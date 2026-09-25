@@ -267,6 +267,7 @@ describe("accounts.add", () => {
     expect(statSync(directory).isDirectory()).toBe(true);
     if (process.platform !== "win32") expect(statSync(directory).mode & 0o777).toBe(0o700);
     // The fake provider has no sign-in program (the director's own tests run a Claude one): the message names the directory.
+    // This pins the director's wording for an unavailable provider (`signin-director.ts`); change both together.
     expect(signIn).toEqual({ started: false, message: expect.stringContaining("not available for the fake provider") });
     expect(signIn.message).toContain(directory);
     expect(accountEvents(t)).toEqual([{ type: "account.added", payload: { accountId: account.id, provider: "fake", label: "Work", directory } }]);
