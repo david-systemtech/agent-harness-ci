@@ -561,7 +561,7 @@ describe("receipts and the overlay", () => {
     expect(row(runtime, sessionId)?.summary.title).toBe("Bills");
   });
 
-  it("keeps an accepted command's effect until the list's cursor passes its receipt's sequence when no event carries its id", async () => {
+  it("keeps an accepted command's effect until the list's cursor reaches its receipt's sequence when no event carries its id", async () => {
     const { runtime, wire, id, list } = await paired({ list: true });
     const sessionId = randomUUID();
     listed(list, 10, [summaryOf(sessionId)]);
@@ -575,7 +575,7 @@ describe("receipts and the overlay", () => {
     expect(row(runtime, sessionId)?.summary).toMatchObject({ tags: ["a"], archivedAt: expect.any(String) });
     list.event(sessionEvent(12, { op: "set", sessionId, fields: { tags: ["a", "b"] } }, "session.tagged"));
     await flush();
-    // Past the receipt's sequence: the confirmed state is what shows, so the archive the environment took as no change is gone.
+    // At the receipt's sequence: the confirmed state is what shows, so the archive the environment took as no change is gone.
     expect(row(runtime, sessionId)?.summary).toMatchObject({ tags: ["a", "b"], archivedAt: null });
   });
 
