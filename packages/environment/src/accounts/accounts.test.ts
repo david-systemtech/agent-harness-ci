@@ -17,7 +17,7 @@ import { MANUAL_CLOCK_START } from "../../test/clock.js";
 import { end, fakeAdapter, say, signedInAs, type FakeAdapter, type FakeAdapterOptions } from "../../test/fake-adapter.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { create, refusal } from "../../test/sessions.js";
-import { scriptedSignIn } from "../../test/sign-in.js";
+import { scriptedSignIn } from "../../test/signin.js";
 import type { WireClient } from "../../test/wire-client.js";
 import type { EventEnvelope } from "../event-log/event-log.js";
 import { ACCOUNTS_DIRECTORY, STATUS_READ_INTERVAL_MS } from "./account-service.js";

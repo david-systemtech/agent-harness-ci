@@ -1,5 +1,5 @@
 import type { AccountRecord } from "@agent-harness/contracts";
-import { signInUnavailable, type SignInDirectorFactory, type SignInOutcome, type SignInPort } from "../src/accounts/sign-in.js";
+import { signInUnavailable, type SignInDirectorFactory, type SignInOutcome, type SignInPort } from "../src/accounts/signin-seam.js";
 import type { SignInChild, SignInSpawn } from "../src/accounts/signin-process.js";
 import { WAIT_MS } from "./wire-client.js";
 
@@ -82,7 +82,11 @@ Options:
   --sso            Force SSO login flow
 `;
 
-/** What the bundled 2.1.281 answers to `auth <a command it lacks> --help`: its parent's usage, exit 0. */
+/**
+ * A made-up binary without `auth login`, not a recording: shaped from what
+ * the bundled 2.1.281 answers to `auth <a command it lacks> --help` (its
+ * parent's usage, exit 0) with the login line taken out.
+ */
 export const AUTH_HELP_WITHOUT_LOGIN = `Usage: claude auth [options] [command]
 
 Manage authentication

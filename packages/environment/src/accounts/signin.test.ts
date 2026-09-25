@@ -23,7 +23,7 @@ import {
   loginBanner,
   type FakeSignInProcess,
   type FakeSignInSpawner,
-} from "../../test/sign-in.js";
+} from "../../test/signin.js";
 import { WAIT_MS, type WireClient } from "../../test/wire-client.js";
 import { CLAUDE_STRIPPED_VARIABLES } from "../adapters/claude/credentials.js";
 import { SIGN_IN_ACTOR, SIGN_IN_EXPIRY_MS } from "./signin-director.js";
@@ -281,6 +281,69 @@ describe("accounts.signin.code", () => {
   });
 });
 
+describe("an account the environment does not hold", () => {
+  it("is not_found, kind account, for the code and the cancel as for the start, whatever sign-in runs", async () => {
+    const setup = await start();
+    await awaitingCode(setup);
+    for (const [method, params] of [
+      ["accounts.signin.start", { accountId: "nobody" }],
+      ["accounts.signin.code", { accountId: "nobody", code: "abc" }],
+      ["accounts.signin.cancel", { accountId: "nobody" }],
+    ] as const) {
+      const answer = await command(setup.client, method, params as never);
+      expect(answer.receipt, method).toMatchObject({ status: "rejected", reason: "not_found", error: { data: { kind: "account", accountId: "nobody" } } });
+    }
+    expect(notices(setup.t).at(-1)).toMatchObject({ accountId: "work", state: "awaiting-code" });
+  });
+});
+
+describe("completing", () => {
+  it("is not cut short by the expiry or a cancel while the status read after exit 0 runs, so it ends as the read says", async () => {
+    const setup = await start();
+    const login = await awaitingCode(setup);
+    setup.t.clock.advance(SIGN_IN_EXPIRY_MS - 1_000);
+    let answer!: (status: ReturnType<typeof signedInAs>) => void;
+    const slow = new Promise<ReturnType<typeof signedInAs>>((resolve) => (answer = resolve));
+    setup.t.adapter.setStatus((ref) => (ref.directory === setup.workDirectory ? slow : signedInAs(null)));
+    login.exit(0);
+    // The status read is under way: the deadline passes, and a cancel is refused.
+    const deadline = Date.now() + WAIT_MS;
+    while (!setup.t.adapter.statusReads.some((ref) => ref.directory === setup.workDirectory) && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 2));
+    }
+    setup.t.clock.advance(2_000);
+    const cancel = await command(setup.client, "accounts.signin.cancel", { accountId: "work" });
+    expect(cancel.receipt).toMatchObject({ status: "rejected", reason: "conflict", error: { data: { reason: "signin_completing" } } });
+    const code = await command(setup.client, "accounts.signin.code", { accountId: "work", code: "abc" });
+    expect(code.receipt).toMatchObject({ status: "rejected", error: { data: { reason: "not_awaiting_code" } } });
+    expect(notices(setup.t).at(-1)?.state).toBe("awaiting-code");
+    answer(signedInAs("work@example.com"));
+    expect(await reaches(setup.t, "done")).toMatchObject({ accountId: "work", error: null });
+    expect(notices(setup.t).map((notice) => notice.state)).toEqual(["starting", "awaiting-code", "done"]);
+    expect(accountEvents(setup.t, "work").map((event) => event.type)).toContain("account.identity-set");
+  });
+});
+
+describe("a restart", () => {
+  it("closes a sign-in the last run left running with a cancelled notice, so environment.subscribe never replays a live one", async () => {
+    const spawner = fakeSignInSpawner();
+    const dataDir = join(tempDir(), "data");
+    const workDirectory = join(tempDir(), "work");
+    const first = await start({ spawner, dataDir, workDirectory });
+    await awaitingCode(first);
+    await first.t.close();
+    const again = await start({ spawner, dataDir, workDirectory });
+    const last = notices(again.t).at(-1);
+    expect(last).toMatchObject({ accountId: "work", state: "cancelled", url: VERIFICATION_URL, error: "The environment restarted." });
+    expect(notices(again.t).map((notice) => notice.state)).toEqual(["starting", "awaiting-code", "cancelled"]);
+    expect(await again.client.request("accounts.signin.get", {})).toEqual({ signIn: null });
+    // A sign-in that ended is left as it is at the next start.
+    await again.t.close();
+    const third = await start({ spawner, dataDir, workDirectory });
+    expect(notices(third.t)).toHaveLength(3);
+  });
+});
+
 describe("a failed login", () => {
   it("ends failed with the CLI's last line on stderr when it exits non-zero", async () => {
     const setup = await start();
@@ -336,6 +399,9 @@ describe("expiry", () => {
 describe("accounts.signin.cancel", () => {
   it("ends the sign-in cancelled and stops the CLI; a second cancel changes nothing, and its exit after is not read", async () => {
     const setup = await start();
+    // A held account with no sign-in yet is no_signin.
+    const none = await command(setup.client, "accounts.signin.cancel", { accountId: "work" });
+    expect(none.receipt).toMatchObject({ status: "rejected", reason: "conflict", error: { data: { reason: "no_signin" } } });
     const login = await awaitingCode(setup);
     const other = await setup.t.client({ token: (await setup.t.pair({ kind: "desktop", scopes: ["read", "admin"] })).token, clientKind: "desktop" });
     const cancelled = await signIn(other, "accounts.signin.cancel", { accountId: "work" });
@@ -345,8 +411,7 @@ describe("accounts.signin.cancel", () => {
     expect(again).toEqual({ receipt: expect.objectContaining({ status: "accepted", changed: false }), result: { signIn: cancelled } });
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(notices(setup.t).map((notice) => notice.state)).toEqual(["starting", "awaiting-code", "cancelled"]);
-    const none = await command(setup.client, "accounts.signin.cancel", { accountId: "another" });
-    expect(none.receipt).toMatchObject({ status: "rejected", error: { data: { reason: "no_signin" } } });
+
   });
 
   it("is what removing the account does to its running sign-in", async () => {
@@ -399,6 +464,33 @@ describe("the executable", () => {
     expect((await spawner.nextLogin()).command).toBe(MANAGED);
     expect(spawner.probes()).toHaveLength(2);
     expect(choices(again.t)).toHaveLength(1);
+  });
+
+  it("found on the PATH again for each sign-in once the managed tool was chosen", async () => {
+    const spawner = fakeSignInSpawner();
+    spawner.probe = (executable) => (executable === TEST_BUNDLED_CLAUDE ? { code: 0, stdout: AUTH_HELP_WITHOUT_LOGIN } : { code: 0, stdout: "Usage: claude auth login [options]\n" });
+    let managed: string | null = MANAGED;
+    const workDirectory = join(tempDir(), "work");
+    mkdirSync(workDirectory, { recursive: true });
+    const t = await startTestEnvironment({
+      accounts: [{ id: "work", provider: "claude", directory: workDirectory }],
+      adapter: fakeAdapter({ provider: "claude", status: () => signedInAs(null) }),
+      signInProcess: { spawn: spawner.spawn, hostEnv: HOST_ENV, bundled: TEST_BUNDLED_CLAUDE, managedTool: () => managed, cwd: "/home/david" },
+    });
+    onCleanup(() => t.close());
+    const client = await t.client();
+    await signIn(client, "accounts.signin.start", { accountId: "work" });
+    expect((await spawner.nextLogin()).command).toBe(MANAGED);
+    await signIn(client, "accounts.signin.cancel", { accountId: "work" });
+    managed = "/opt/homebrew/bin/claude";
+    await signIn(client, "accounts.signin.start", { accountId: "work" });
+    expect((await spawner.nextLogin()).command).toBe("/opt/homebrew/bin/claude");
+    await signIn(client, "accounts.signin.cancel", { accountId: "work" });
+    managed = null;
+    await signIn(client, "accounts.signin.start", { accountId: "work" });
+    const failed = await reaches(t, "failed");
+    expect(failed.error).toMatch(/no longer on the PATH/);
+    expect(spawner.probes()).toHaveLength(2);
   });
 
   it("is chosen again against another bundled binary: an updated harness is probed afresh", async () => {

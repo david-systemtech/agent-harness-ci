@@ -2,6 +2,7 @@ import { homedir } from "node:os";
 import {
   ENVIRONMENT_STREAM_KIND,
   SIGN_IN_ENDED_STATES,
+  SignIn as SignInSchema,
   SignInExecutableChosenPayload,
   type AccountRecord,
   type SignIn,
@@ -11,8 +12,8 @@ import {
 import { formatActor, type EventLog, type StreamRef } from "../event-log/event-log.js";
 import type { Clock, Timer } from "../serve/clock.js";
 import type { CommandContext } from "../serve/methods.js";
-import type { SignInAnswer, SignInDirector, SignInDirectorFactory, SignInPort, SignInProgram } from "./sign-in.js";
-import { runToExit, spawnSignInProcess, type SignInChild, type SignInSpawn } from "./signin-process.js";
+import type { SignInAnswer, SignInDirector, SignInDirectorFactory, SignInPort, SignInProgram } from "./signin-seam.js";
+import { keep, runToExit, spawnSignInProcess, type SignInChild, type SignInSpawn } from "./signin-process.js";
 
 /**
  * The sign-in director (claude-adapter spec, "Sign-in and status through the
@@ -33,9 +34,13 @@ import { runToExit, spawnSignInProcess, type SignInChild, type SignInSpawn } fro
  *   read (which appends `account.identity-set`, or refuses an identity
  *   another account holds): `done` when it reads signed in, else `failed`
  *   with what it said; any other exit is `failed` with stderr's last line.
- *   Ten minutes on the environment's clock with no code, or after the last
- *   code, is `expired`; `accounts.signin.cancel` is `cancelled`; either
- *   stops the process.
+ *   While that read runs the sign-in is completing: the expiry is off and a
+ *   cancel or a removal is refused, so it cannot end otherwise after the
+ *   identity was recorded. Ten minutes on the environment's clock with no
+ *   code, or after the code, is `expired`; `accounts.signin.cancel` is
+ *   `cancelled`; either stops the process.
+ * - **A restart** ends a sign-in the last run left running: its latest
+ *   notice is followed by a `cancelled` one ("The environment restarted.").
  * - **Every change of state** is a `signin.updated` notice on the
  *   environment's stream, carrying the sign-in: a command's in its own
  *   transaction, with its receipt, and the process's as `system:sign-in`.
@@ -54,9 +59,6 @@ export const EXECUTABLE_PROBE_TIMEOUT_MS = 15_000;
 
 /** The director's own actor: the changes the process makes, and the executable's choice. */
 export const SIGN_IN_ACTOR = formatActor({ kind: "system", id: "sign-in" });
-
-/** The most of a process's output the director keeps, from its end. */
-const OUTPUT_LIMIT = 64 * 1024;
 
 export interface SignInDirectorOptions {
   readonly log: EventLog;
@@ -83,6 +85,8 @@ interface Running {
   state: SignIn;
   child: SignInChild | null;
   timer: Timer | null;
+  /** Set once the CLI exited 0 and the status read is under way: nothing but its outcome ends the sign-in then. */
+  completing: boolean;
   stdout: string;
   stderr: string;
 }
@@ -96,9 +100,6 @@ interface Choice {
 const ENDED: readonly SignInState[] = SIGN_IN_ENDED_STATES;
 
 const ended = (state: SignIn): boolean => ENDED.includes(state.state);
-
-/** The output kept: its last `OUTPUT_LIMIT` characters. */
-const keep = (output: string): string => (output.length > OUTPUT_LIMIT ? output.slice(-OUTPUT_LIMIT) : output);
 
 /** The last line of `output` that says something; null when none does. */
 const lastLine = (output: string): string | null =>
@@ -130,6 +131,8 @@ export const createSignInDirector =
     /** The executable each provider's sign-ins run, once chosen (or read back); in flight while it is being chosen. */
     const choices = new Map<string, Promise<Choice>>();
     let closed = false;
+    /** Aborted when the environment closes: a probe in flight is killed. */
+    const closing = new AbortController();
 
     const running = (): Running | null => (current !== null && !ended(current.state) ? current : null);
 
@@ -165,16 +168,25 @@ export const createSignInDirector =
 
     const noticeOf = (state: SignIn) => ({ type: "signin.updated", payload: state });
 
-    /** Publishes the process's change of state as `system:sign-in`; a sign-in that has ended, or been replaced, changes no more. */
+    /**
+     * Publishes the process's change of state as `system:sign-in`; a sign-in
+     * that has ended, or been replaced, changes no more. The state held
+     * changes only once its notice is in the log, so the two never differ;
+     * an end whose notice could not be appended still stops the process,
+     * whose exit then tries to notice the sign-in's failure.
+     */
     const update = (sign: Running, change: Partial<SignIn>): void => {
       if (closed || current !== sign || ended(sign.state)) return;
-      sign.state = { ...sign.state, ...change };
+      const next: SignIn = { ...sign.state, ...change };
       try {
-        log.append(stream, [noticeOf(sign.state)], { actor: SIGN_IN_ACTOR });
+        log.append(stream, [noticeOf(next)], { actor: SIGN_IN_ACTOR });
       } catch (error) {
-        console.error(`Noticing the sign-in of ${sign.label} failed:`, error);
+        console.error(`Noticing the sign-in of ${sign.label} failed; its state is left as it was:`, error);
+        if (ended(next)) sign.child?.kill();
+        return;
       }
-      if (ended(sign.state)) stop(sign);
+      sign.state = next;
+      if (ended(next)) stop(sign);
     };
 
     /** Stops what a sign-in that has ended still holds: its expiry and its process. */
@@ -199,11 +211,18 @@ export const createSignInDirector =
 
     /** Probes one executable; answers why it does not run a sign-in, or null when it does. */
     const refuses = async (program: SignInProgram, executable: string, directory: string): Promise<string | null> => {
-      const result = await runToExit(spawnWith, executable, program.probeArgv, { env: program.env(directory), cwd }, probeTimeoutMs);
+      const result = await runToExit(spawnWith, executable, program.probeArgv, { env: program.env(directory), cwd }, probeTimeoutMs, closing.signal);
       if (program.runsSignIn(result)) return null;
       const said = lastLine(result.stderr) ?? firstLine(result.stdout);
       const how = result.code === null ? "could not be run" : `answered ${program.probeArgv.join(" ")} with exit code ${result.code}`;
       return `${executable} ${how} without a sign-in command${said === null ? "" : ` (${said})`}.`;
+    };
+
+    /** The managed tool where the PATH has it now. */
+    const managedOnPath = (program: SignInProgram): string => {
+      const found = program.managedTool();
+      if (found === null) throw new Error(`The managed tool ${program.toolName} chosen for sign-in is no longer on the PATH; run the fallback command in a terminal.`);
+      return found;
     };
 
     /** Chooses the executable, probing the bundled binary and then the managed tool, and records the choice. */
@@ -212,9 +231,7 @@ export const createSignInDirector =
       if (known !== null) {
         if (known.source === "bundled") return known;
         // The managed tool is found on the PATH each time, as its registry detects it; the recorded path names where it was.
-        const found = program.managedTool();
-        if (found === null) throw new Error(`The managed tool ${program.toolName} chosen for sign-in is no longer on the PATH; run the fallback command in a terminal.`);
-        return { source: "managed-tool", executable: found };
+        return { source: "managed-tool", executable: managedOnPath(program) };
       }
       let detail: string;
       if (program.bundled === null) detail = "This platform has no bundled binary.";
@@ -236,14 +253,21 @@ export const createSignInDirector =
       return choice;
     };
 
-    /** The provider's executable: chosen once, shared while it is being chosen, looked for again after a choice that found none. */
-    const executableFor = (sign: Running): Promise<Choice> => {
-      const known = choices.get(sign.provider);
-      if (known !== undefined) return known;
-      const choosing = choose(sign.provider, sign.program, sign.directory);
-      choices.set(sign.provider, choosing);
-      choosing.catch(() => choices.delete(sign.provider));
-      return choosing;
+    /**
+     * The provider's executable: chosen once, shared while it is being
+     * chosen, looked for again after a choice that found none; a managed-tool
+     * choice finds the tool on the PATH again for every sign-in.
+     */
+    const executableFor = async (sign: Running): Promise<Choice> => {
+      let choosing = choices.get(sign.provider);
+      if (choosing === undefined) {
+        choosing = choose(sign.provider, sign.program, sign.directory);
+        choices.set(sign.provider, choosing);
+        choosing.catch(() => choices.delete(sign.provider));
+      }
+      const choice = await choosing;
+      if (choice.source !== "managed-tool") return choice;
+      return { source: "managed-tool", executable: managedOnPath(sign.program) };
     };
 
     /** The exit: 0 is the status read through the port, anything else a failure with the CLI's last words. */
@@ -256,6 +280,10 @@ export const createSignInDirector =
         update(sign, { state: "failed", error: said === null ? `${how}.` : `${how}: ${said}` });
         return;
       }
+      // Completing: the status read decides, and neither the expiry, a cancel nor a removal cuts across the identity it records.
+      sign.completing = true;
+      sign.timer?.cancel();
+      sign.timer = null;
       let outcome;
       try {
         outcome = await port.finished(sign.accountId);
@@ -318,6 +346,7 @@ export const createSignInDirector =
         },
         child: null,
         timer: null,
+        completing: false,
         stdout: "",
         stderr: "",
       };
@@ -329,6 +358,11 @@ export const createSignInDirector =
       void launch(sign);
     };
 
+    const notHeld = (accountId: string): SignInAnswer => ({
+      aggregate: stream,
+      rejected: { code: "not_found", message: `No account ${accountId} is on this environment.`, data: { kind: "account", accountId } },
+    });
+
     const refuse = (reason: string, message: string, data: Record<string, string> = {}): SignInAnswer => ({
       aggregate: stream,
       rejected: { code: "conflict", message, data: { reason, ...data } },
@@ -338,6 +372,28 @@ export const createSignInDirector =
       context.tx.afterCommit(then);
       return { aggregate: stream, result: { signIn: state }, events: [noticeOf(state)] };
     };
+
+    /**
+     * A sign-in the last run of the environment left running ended with it:
+     * its process is gone. The latest notice is closed with a `cancelled`
+     * one, so `environment.subscribe` never replays a live-looking sign-in.
+     */
+    const closeLeftOver = (): void => {
+      const [row] = log.read<{ payload: string }>(
+        "SELECT payload FROM events WHERE stream_kind = ? AND stream_id = ? AND type = 'signin.updated' ORDER BY sequence DESC LIMIT 1",
+        ENVIRONMENT_STREAM_KIND,
+        environmentId,
+      );
+      if (row === undefined) return;
+      const left = SignInSchema.safeParse(JSON.parse(row.payload));
+      if (!left.success || ended(left.data)) return;
+      try {
+        log.append(stream, [noticeOf({ ...left.data, state: "cancelled", error: "The environment restarted." })], { actor: SIGN_IN_ACTOR });
+      } catch (error) {
+        console.error("Closing the sign-in the last run left open failed:", error);
+      }
+    };
+    closeLeftOver();
 
     return {
       ready(account) {
@@ -365,12 +421,7 @@ export const createSignInDirector =
 
       begin(params, context) {
         const account = port.account(params.accountId);
-        if (account === null) {
-          return {
-            aggregate: stream,
-            rejected: { code: "not_found", message: `No account ${params.accountId} is on this environment.`, data: { kind: "account", accountId: params.accountId } },
-          };
-        }
+        if (account === null) return notHeld(params.accountId);
         const program = programOf(account.provider);
         if (program === undefined) return refuse("signin_unavailable", unavailableMessage(account), { accountId: account.id });
         const holder = running();
@@ -380,12 +431,15 @@ export const createSignInDirector =
       },
 
       code(params, context) {
+        if (port.account(params.accountId) === null) return notHeld(params.accountId);
         const sign = running();
-        if (sign === null || sign.accountId !== params.accountId || sign.state.state !== "awaiting-code") {
+        if (sign === null || sign.accountId !== params.accountId || sign.state.state !== "awaiting-code" || sign.completing) {
           const what =
             sign === null || sign.accountId !== params.accountId
               ? `No sign-in of ${params.accountId} is running.`
-              : `The sign-in of ${sign.label} is ${sign.state.state}, not awaiting a code.`;
+              : sign.completing
+                ? `The sign-in of ${sign.label} is completing: its status is being read.`
+                : `The sign-in of ${sign.label} is ${sign.state.state}, not awaiting a code.`;
           return refuse("not_awaiting_code", what);
         }
         const next: SignIn = { ...sign.state, state: "submitting", expiresAt: new Date(clock.now().getTime() + SIGN_IN_EXPIRY_MS).toISOString() };
@@ -402,10 +456,12 @@ export const createSignInDirector =
       },
 
       cancel(params, context) {
+        if (port.account(params.accountId) === null) return notHeld(params.accountId);
         const sign = current;
         if (sign === null || sign.accountId !== params.accountId) return refuse("no_signin", `No sign-in of ${params.accountId} is the environment's latest.`);
         // Already ended: answered as it ended, changing nothing.
         if (ended(sign.state)) return { aggregate: stream, result: { signIn: sign.state } };
+        if (sign.completing) return refuse("signin_completing", `The sign-in of ${sign.label} is completing: its status is being read, and it ends as that read says.`);
         const next: SignIn = { ...sign.state, state: "cancelled", error: null };
         return accepted(next, context, () => {
           sign.state = next;
@@ -417,11 +473,13 @@ export const createSignInDirector =
 
       removed(accountId) {
         const sign = running();
-        if (sign !== null && sign.accountId === accountId) update(sign, { state: "cancelled", error: "The account was removed." });
+        // A sign-in that is completing ends as its status read says, which finds the account gone.
+        if (sign !== null && sign.accountId === accountId && !sign.completing) update(sign, { state: "cancelled", error: "The account was removed." });
       },
 
       close() {
         closed = true;
+        closing.abort();
         if (current !== null) stop(current);
       },
     };

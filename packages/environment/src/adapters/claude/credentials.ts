@@ -25,7 +25,7 @@ export const CLAUDE_CONFIG_DIR = "CLAUDE_CONFIG_DIR";
  * The bundled binary's auth commands (claude-adapter spec, "Sign-in and
  * status through the bundled binary"), run with `CLAUDE_CONFIG_DIR` at the
  * account's directory and the stripped variables absent, as every Claude
- * process runs. Here rather than in `sign-in.ts`, which re-exports them, so
+ * process runs. Here rather than in `signin.ts`, which re-exports them, so
  * the sign-in program can compose its environment from this module without
  * an import cycle.
  *

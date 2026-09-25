@@ -2,7 +2,7 @@ import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { useCleanups } from "../../../test/cleanups.js";
-import { AUTH_HELP_WITHOUT_LOGIN, LOGIN_HELP, VERIFICATION_URL, loginBanner } from "../../../test/sign-in.js";
+import { AUTH_HELP_WITHOUT_LOGIN, LOGIN_HELP, VERIFICATION_URL, loginBanner } from "../../../test/signin.js";
 import { CLAUDE_STRIPPED_VARIABLES } from "./credentials.js";
 import {
   CLAUDE_LOGIN_ARGV,
@@ -12,7 +12,7 @@ import {
   claudeVerificationUrl,
   findManagedClaude,
   runsClaudeLogin,
-} from "./sign-in.js";
+} from "./signin.js";
 
 /**
  * Claude's sign-in program (#135): what the director runs, how it reads the
@@ -51,6 +51,16 @@ describe("the verification URL", () => {
   it("is read from the line the binary prints once the line has ended", () => {
     expect(claudeVerificationUrl(loginBanner())).toBe(VERIFICATION_URL);
     expect(claudeVerificationUrl("Opening browser to sign in…\n")).toBeNull();
+  });
+
+  it("is never a stray https line before the visit line, nor a match that does not parse as a URL", () => {
+    expect(claudeVerificationUrl(`A newer version is available: https://claude.com/download\n${loginBanner()}`)).toBe(VERIFICATION_URL);
+    expect(claudeVerificationUrl("See https://docs.claude.com/auth for help.\nOpening browser to sign in…\n")).toBeNull();
+    expect(claudeVerificationUrl("If the browser didn't open, visit: https://[not-a-host/oauth/authorize?x=1\n")).toBeNull();
+  });
+
+  it("is read from a line without the visit: prefix when it goes to /oauth/authorize", () => {
+    expect(claudeVerificationUrl(`Open ${VERIFICATION_URL}\n`)).toBe(VERIFICATION_URL);
   });
 
   it("is not read from half a URL, split across two chunks, until the rest comes", () => {

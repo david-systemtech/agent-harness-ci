@@ -191,7 +191,7 @@ const signInResult = z.object({ signIn: SignIn });
  * sign-in runs, rejected `conflict` (reason `signin_running`, data
  * `accountId` naming the account that holds it); a provider that cannot
  * sign in from the environment is `conflict` (reason `signin_unavailable`),
- * whose message names the fallback command.
+ * whose message names the account's directory to sign in by hand.
  */
 export const accountsSigninStart = defineMethod({
   name: "accounts.signin.start",
@@ -206,8 +206,10 @@ export const accountsSigninStart = defineMethod({
  * Writes the code a person copied from the provider's page to the running
  * sign-in: from any client, not only the one that started it. Accepted in
  * `awaiting-code`, which becomes `submitting`; otherwise, or for another
- * account's sign-in, rejected `conflict` (reason `not_awaiting_code`). The
- * code is never recorded.
+ * account's sign-in, or while it is completing (its CLI exited and its
+ * status is being read), rejected `conflict` (reason `not_awaiting_code`).
+ * The code is never recorded; it is refused with any white space, so a
+ * client trims it.
  */
 export const accountsSigninCode = defineMethod({
   name: "accounts.signin.code",
@@ -221,8 +223,10 @@ export const accountsSigninCode = defineMethod({
 /**
  * Cancels the account's running sign-in and stops the provider's CLI; the
  * state becomes `cancelled`. A sign-in of the account that has already ended
- * is answered as it ended, changing nothing; when no sign-in of the account
- * is the environment's latest, rejected `conflict` (reason `no_signin`).
+ * is answered as it ended, changing nothing; one that is completing (its
+ * CLI exited 0 and its status is being read) is rejected `conflict` (reason
+ * `signin_completing`), since it ends as that read says; when no sign-in of
+ * the account is the environment's latest, `conflict` (reason `no_signin`).
  */
 export const accountsSigninCancel = defineMethod({
   name: "accounts.signin.cancel",

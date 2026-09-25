@@ -290,12 +290,13 @@ export const DefaultEffort = z
  * Where a sign-in is: `starting` (the CLI is being chosen and started),
  * `awaiting-code` (the verification URL is published), `submitting` (a code
  * was written to the CLI), then one of the ends: `done`, `failed`, `expired`
- * (ten minutes without a code) or `cancelled`.
+ * (ten minutes without a code, or a submission that never finished) or
+ * `cancelled`.
  */
 export const SIGN_IN_STATES = ["starting", "awaiting-code", "submitting", "done", "failed", "expired", "cancelled"] as const;
 export const SignInState = z.enum(SIGN_IN_STATES).meta({
   description:
-    "Where a sign-in is: starting, awaiting-code (the verification URL is published), submitting (a code was written to the provider's CLI), or ended: done (the status read found the account signed in), failed, expired (ten minutes without a code) or cancelled.",
+    "Where a sign-in is: starting, awaiting-code (the verification URL is published), submitting (a code was written to the provider's CLI), or ended: done (the status read found the account signed in), failed, expired (ten minutes without a code, or a submission that never finished) or cancelled.",
 });
 export type SignInState = z.infer<typeof SignInState>;
 
@@ -318,7 +319,7 @@ export const SignIn = z
     state: SignInState,
     url: z.url().nullable().meta({ description: "The verification URL a person opens to sign in, once the provider's CLI has printed it; null until then." }),
     startedAt: Timestamp.meta({ description: "When the sign-in started." }),
-    expiresAt: Timestamp.meta({ description: "When the sign-in expires if it is still waiting: ten minutes after it started, or after the last code was written." }),
+    expiresAt: Timestamp.meta({ description: "When the sign-in expires if it is still waiting: ten minutes after it started, or after the code was written." }),
     fallback: SignInFallback,
     error: z.string().min(1).nullable().meta({ description: "Why the sign-in failed, expired or was cancelled, when there is more to say; null otherwise." }),
   })
@@ -331,7 +332,10 @@ export const SignInCode = z
   .min(1)
   .max(4096)
   .regex(/^\S+$/)
-  .meta({ description: "The code the provider's page shows after signing in, as it was copied: one token, with no space or line break." });
+  .meta({
+    description:
+      "The code the provider's page shows after signing in: one token, with no space or line break anywhere, so a client trims what a person pasted before sending it.",
+  });
 export type SignInCode = z.infer<typeof SignInCode>;
 
 /** Which executable sign-ins run: the SDK's bundled binary, or the managed tool when the bundled one does not run a sign-in. */

@@ -1,7 +1,7 @@
 import { accessSync, constants, realpathSync, statSync } from "node:fs";
 import { delimiter, dirname, isAbsolute, join, sep } from "node:path";
 import type { SignInFallback } from "@agent-harness/contracts";
-import type { ProbeResult, SignInProgram } from "../../accounts/sign-in.js";
+import type { ProbeResult, SignInProgram } from "../../accounts/signin-seam.js";
 import { CLAUDE_CONFIG_DIR, CLAUDE_LOGIN_ARGV, composeRunEnvironment, type HostEnvironment } from "./credentials.js";
 
 export { CLAUDE_LOGIN_ARGV, CLAUDE_LOGOUT_ARGV, CLAUDE_STATUS_ARGV } from "./credentials.js";
@@ -43,11 +43,17 @@ export const CLAUDE_TOOL = "claude";
 export const runsClaudeLogin = (result: ProbeResult): boolean => result.code === 0 && /^Usage:\s+\S+\s+auth\s+login\b/m.test(result.stdout);
 
 /**
- * The verification URL in what `auth login` has printed so far: the first
- * `https` URL followed by white space, so a URL split across two chunks is
- * read only once its line has ended. Null until then.
+ * The verification URL in what `auth login` has printed so far: the `https`
+ * URL on the `visit:` line, else the first that goes to `/oauth/authorize`,
+ * in either case followed by white space, so a URL split across two chunks
+ * is read only once its line has ended; and only one that parses as a URL,
+ * so a stray `https` line before it is never published and a bad match
+ * never reaches the notice's schema. Null until then.
  */
-export const claudeVerificationUrl = (output: string): string | null => /(https:\/\/\S+)\s/.exec(output)?.[1] ?? null;
+export const claudeVerificationUrl = (output: string): string | null => {
+  const candidates = [/\bvisit:\s*(https:\/\/\S+)\s/.exec(output)?.[1], /(https:\/\/[^\s/]+\/[^\s]*oauth\/authorize\S*)\s/.exec(output)?.[1]];
+  return candidates.find((url): url is string => url !== undefined && URL.canParse(url)) ?? null;
+};
 
 /** A POSIX shell word in single quotes, each quote inside closed, escaped and reopened. */
 const posixQuote = (text: string): string => `'${text.replaceAll("'", `'\\''`)}'`;

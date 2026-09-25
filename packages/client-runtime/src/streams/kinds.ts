@@ -188,8 +188,8 @@ export const environmentKind = (): StreamKind<EnvironmentData> => ({
         return { status: { ...data.status, readiness: "draining", activity: { state: "draining", drainingSince: notice.data.payload.drainingSince } } };
       case "environment.started":
         return { status: { ...data.status, readiness: "ready", activity: { state: "idle" } } };
-      // A new version, an account changed (#134), or the sign-in moved (#135): the status holds none of them; a request
-      // cache refreshes on the account and sign-in notices.
+      // A new version, an account changed (#134), or the sign-in moved (#135): the status holds none of them. Refreshing
+      // the request cache on the account and sign-in notices is owed to the clients.
       case "environment.updated":
       case "account.updated":
       case "signin.updated":

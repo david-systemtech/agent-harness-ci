@@ -79,7 +79,7 @@ export interface ProbeResult {
 /**
  * How one provider's CLI signs an account's directory in, which the
  * director drives without knowing the provider: Claude's is
- * `adapters/claude/sign-in.ts`.
+ * `adapters/claude/signin.ts`.
  */
 export interface SignInProgram {
   /** The provider's binary the SDK ships, which runs use too, and sign-ins run first; null when this platform has none. */

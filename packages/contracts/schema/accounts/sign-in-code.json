@@ -5,5 +5,5 @@
   "minLength": 1,
   "maxLength": 4096,
   "pattern": "^\\S+$",
-  "description": "The code the provider's page shows after signing in, as it was copied: one token, with no space or line break."
+  "description": "The code the provider's page shows after signing in: one token, with no space or line break anywhere, so a client trims what a person pasted before sending it."
 }

@@ -28,9 +28,9 @@ import type { ContextOf, HandlerReturn, MethodHandler } from "../src/serve/metho
 import type { SubscriptionHooks } from "../src/wire/subscriptions.js";
 import { manualClock, type ManualClock } from "./clock.js";
 import type { ConfiguredAccount } from "../src/accounts/account-service.js";
-import type { SignInDirectorFactory } from "../src/accounts/sign-in.js";
+import type { SignInDirectorFactory } from "../src/accounts/signin-seam.js";
 import { fakeAdapter, type FakeAdapter } from "./fake-adapter.js";
-import { refusingSpawn } from "./sign-in.js";
+import { refusingSpawn } from "./signin.js";
 import { testLauncher, type TestLauncher } from "./launcher.js";
 import {
   ByeError,

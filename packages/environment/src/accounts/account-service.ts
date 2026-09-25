@@ -35,7 +35,7 @@ import {
   sameIdentity,
   sameLogin,
 } from "./account-store.js";
-import { signInUnavailable, type SignInDirector, type SignInDirectorFactory, type SignInOutcome } from "./sign-in.js";
+import { signInUnavailable, type SignInDirector, type SignInDirectorFactory, type SignInOutcome } from "./signin-seam.js";
 
 /**
  * The account service (claude-adapter spec, "The account store" and "Sign-in
