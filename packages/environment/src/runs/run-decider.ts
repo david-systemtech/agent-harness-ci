@@ -431,8 +431,12 @@ export interface ReadNowFacts {
    * queue on, under the runs they were sent during).
    */
   readonly providerHeld: readonly string[];
-  /** The run before, whose model and effort the run of the queue takes, as the queue's run after it would; null before the session's first run. */
-  readonly basis: { readonly model: string; readonly effort: string | null } | null;
+  /**
+   * The run before, whose model and effort the run of the queue takes, and
+   * its own instructions (a completions request's, #138), as the queue's run
+   * after it would; null before the session's first run.
+   */
+  readonly basis: { readonly model: string; readonly effort: string | null; readonly appendedInstructions: string | null } | null;
 }
 
 export type ReadNowDecision =
@@ -450,9 +454,9 @@ export type ReadNowDecision =
  * environment, nothing happens. With a run live, it is to be interrupted
  * (the host re-owns what its provider held and starts the next run after
  * the end); with none, the run of the environment's queue starts now, as
- * the environment's queue would start it after the run before (its model
- * and effort), for the caller, clamped to the lowest ceiling among the
- * caller and the queued senders.
+ * the environment's queue would start it after the run before (its model,
+ * effort and own instructions), for the caller, clamped to the lowest
+ * ceiling among the caller and the queued senders.
  */
 export const decideReadNow = (facts: ReadNowFacts): ReadNowDecision => {
   const { start, basis } = facts;
@@ -466,6 +470,7 @@ export const decideReadNow = (facts: ReadNowFacts): ReadNowDecision => {
     message: null,
     ...(basis !== null && { model: basis.model }),
     ...(basis?.effort !== null && basis?.effort !== undefined && { effort: basis.effort }),
+    ...(basis !== null && basis.appendedInstructions !== null && { appendedInstructions: basis.appendedInstructions }),
   });
   if (decision.rejected !== undefined) return { rejected: decision.rejected };
   return { events: decision.events, run: decision.run };

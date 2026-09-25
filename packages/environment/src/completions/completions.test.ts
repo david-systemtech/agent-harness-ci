@@ -928,6 +928,65 @@ describe("session continuity", () => {
     expect(payloadsOf<RunStartedPayload>(t, sessionId, "run.started")).toHaveLength(1);
   });
 
+  it("carries a completions run's own instructions to the run a read-now starts from the queue, with a run live or not, and follows the queued turn into it", async () => {
+    const t = await start({ capabilities: { providerQueue: false, steering: false } }, { adapterSeams: { instructions: () => "COMPOSED" } });
+    const { token } = await program(t);
+    const client = await t.client();
+    // A run is live: the read-now interrupts it, and the run of the queue reads the queued turn.
+    t.adapter.nextScripts.push(heldScript(gate().opened));
+    const first = await stream(t, token, turn("First", { "agent-harness": { systemPrompt: "Persona: tidy." } }));
+    const live = (await first.chunk())["agent-harness"].sessionId as string;
+    const queued = await stream(t, token, turn("Then this", { "agent-harness": { sessionId: live } }));
+    await queued.chunk();
+    await client.request("runs.readNow", { commandId: randomUUID(), sessionId: live });
+    const chunks = chunksOf(await queued.rest());
+    expect(contentOf(chunks)).toBe("Done: Then this");
+    expect(chunks.at(-1)?.choices[0]?.finish_reason).toBe("stop");
+    // None is: an interrupt left the queued turn waiting, and the read-now starts the run of the queue itself.
+    t.adapter.nextScripts.push(heldScript(gate().opened));
+    const second = await stream(t, token, turn("First", { "agent-harness": { systemPrompt: "Persona: terse." } }));
+    const opening = await second.chunk();
+    const idle = opening["agent-harness"].sessionId as string;
+    const waiting = await stream(t, token, turn("Then this", { "agent-harness": { sessionId: idle } }));
+    await waiting.chunk();
+    await client.request("runs.interrupt", { commandId: randomUUID(), runId: opening["agent-harness"].runId as string });
+    expect(chunksOf(await waiting.rest()).at(-1)?.["agent-harness"].waiting).toBeDefined();
+    await client.request("runs.readNow", { commandId: randomUUID(), sessionId: idle });
+    await untilEnded(t, idle, 2);
+    expect(t.adapter.runs.map((run) => [run.input.sessionId, run.input.instructions])).toEqual([
+      [live, "COMPOSED\n\nPersona: tidy."],
+      [live, "COMPOSED\n\nPersona: tidy."],
+      [idle, "COMPOSED\n\nPersona: terse."],
+      [idle, "COMPOSED\n\nPersona: terse."],
+    ]);
+  });
+
+  it("ends a queued turn's answer when its message is withdrawn, which no run will read: an error chunk, withdrawn, and 409 for a whole answer", async () => {
+    const t = await start({ capabilities: { providerQueue: false, steering: false } });
+    const { token } = await program(t);
+    const client = await t.client();
+    const held = gate();
+    t.adapter.nextScripts.push(heldScript(held.opened));
+    const first = await stream(t, token, turn("First"));
+    const sessionId = (await first.chunk())["agent-harness"].sessionId as string;
+    const queued = await stream(t, token, turn("Then this", { "agent-harness": { sessionId } }));
+    const opening = await queued.chunk();
+    await client.request("runs.withdraw", { commandId: randomUUID(), messageId: opening["agent-harness"].messageId as string });
+    const last = chunksOf(await queued.rest()).at(-1);
+    expect(last?.choices[0]?.finish_reason).toBe("error");
+    expect(last?.error).toMatchObject({ code: "withdrawn" });
+    expect(last?.["agent-harness"].waiting).toBeUndefined();
+    // A whole answer, withdrawn while it waits.
+    const whole = post(t, token, turn("And this", { "agent-harness": { sessionId } }));
+    await vi.waitFor(() => expect(payloadsOf<{ text: string }>(t, sessionId, "message.sent").map((sent) => sent.text)).toContain("And this"));
+    const sent = ofType(t, sessionId, "message.sent").at(-1);
+    await client.request("runs.withdraw", { commandId: randomUUID(), messageId: sent?.payload["messageId"] as string });
+    expect(await refusalOf(await whole)).toMatchObject({ status: 409, body: { error: { type: "conflict_error", code: "withdrawn" }, "agent-harness": { sessionId } } });
+    // The run the messages were queued to goes on to its end.
+    held.open();
+    expect(contentOf(chunksOf(await first.rest()))).toBe("Late reply");
+  });
+
   it("records no fork and no rewind for a turn refused after them: an effort the model does not take, an account not signed in, an attachment kind the adapter does not take, a session on another account", async () => {
     const t = await start(
       { ...forking, ...signedOut("work-lapsed") },

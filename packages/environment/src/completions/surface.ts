@@ -609,7 +609,9 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
       };
       if (ended.error !== null) {
         const reason = ended.ended?.reason;
-        const status = reason === undefined ? (ended.error.code === "internal" ? 500 : 503) : reason === "interrupted" ? 409 : reason === "error" ? 502 : 503;
+        // With no run end: the environment stopped the answer (503) or could not go on (500), or its message was withdrawn (409).
+        const unended = ended.error.code === "internal" ? 500 : ended.error.code === "withdrawn" ? 409 : 503;
+        const status = reason === undefined ? unended : reason === "interrupted" ? 409 : reason === "error" ? 502 : 503;
         return sendRefusal(response, new CompletionsRefusal(status, ended.error.code ?? "error", ended.error.message, { context }));
       }
       const completion: ChatCompletion = {

@@ -40,7 +40,8 @@ import type { EventEnvelope } from "../event-log/event-log.js";
  *   asked, the usage chunk, from the run's last `usage.reported`.
  * - A stop sequence or `max_tokens` ends the answer where it falls (`stop`,
  *   `length`); the run goes on to its end on the session, as after a
- *   disconnect.
+ *   disconnect. So does the withdrawal of a queued turn's message
+ *   (`error`, code `withdrawn`), which no run will read.
  *
  * Every chunk carries `agent-harness.seq`, the sequence of the event it
  * renders, so the sequences of a stream never go back.
@@ -293,6 +294,12 @@ export const createRenderer = (options: RendererOptions) => {
           }
         }
         if (event.type === "message.requeued" && event.payload["messageId"] === queued && lastEnded !== null) runEnded(lastEnded.payload, lastEnded.seq);
+        // Taken back before any run read it (`runs.withdraw`, #228): nothing will read it, so the answer ends here; the runs go on.
+        if (event.type === "message.withdrawn" && event.payload["messageId"] === queued) {
+          head(event.sequence);
+          const error = { message: "The message was withdrawn before any run read it; its text is the session's draft.", type: "conflict_error", code: "withdrawn", param: null };
+          return finish({ finishReason: "error", seq: event.sequence, ended: null, error, waiting: null });
+        }
       }
       if (event.correlationId !== followed) return;
       head(event.sequence);
