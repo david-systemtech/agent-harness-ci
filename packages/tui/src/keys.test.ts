@@ -442,8 +442,22 @@ describe("keys pressed in turn, as the screen hears them (#232)", () => {
     expect(pressedBefore(at("\\", 1000), "Enter", 60_000, "none")).toBe("\\");
   });
 
-  it("does not count a press heard in another place: an Esc that closed a card, or left the transcript", () => {
+  it("does not count the same key pressed again in another place: an Esc that closed a card, or left the transcript", () => {
     expect(pressedBefore(at("Esc", 1000, "card:help"), "Esc", 1010, "none")).toBeUndefined();
+    expect(pressedBefore(at("Esc", 1000, "none"), "Esc", 1010, "none")).toBe("Esc");
     expect(pressedBefore(undefined, "Esc", 1010, "none")).toBeUndefined();
+  });
+
+  it("looks up only the keys pressed in turn with pairOnly, never the key alone again", () => {
+    const ran: string[] = [];
+    const handlers = { "app.prompt.back": () => false as const, "app.interrupt": () => void ran.push("interrupt") };
+    expect(dispatch(DEFAULT_KEYMAP, ["anywhere"], handlers, "", key({ escape: true }), { previous: "Esc", pairOnly: true })).toBe(false);
+    expect(ran).toEqual([]);
+    expect(dispatch(DEFAULT_KEYMAP, ["anywhere"], handlers, "", key({ escape: true }), { previous: "Esc" })).toBe(true);
+    expect(ran).toEqual(["interrupt"]);
+  });
+
+  it("counts keys in turn that differ wherever each was heard: a backslash, a question arriving, then Enter is still `\\ Enter`", () => {
+    expect(pressedBefore(at("\\", 1000, "none composer"), "Enter", 60_000, "none question composer")).toBe("\\");
   });
 });

@@ -233,35 +233,42 @@ export type Lookup = ActionContext | { readonly context: ActionContext; readonly
 export interface DispatchContext {
   /** The press before this one: keys pressed in turn (`\ Enter`, `Esc Esc`) are looked up first in each context, as the two presses, and then the key alone. */
   readonly previous?: string | undefined;
+  /** Only the keys pressed in turn are looked up, never the key alone: a press already heard alone once (two Escs in one read). */
+  readonly pairOnly?: boolean;
   /** Whether a condition the list declares holds now; unsaid, none does. */
   readonly holds?: (condition: ActionCondition) => boolean;
 }
 
 /**
  * How soon a key pressed again counts as pressed twice (`Esc Esc`): a chosen
- * default, the window #148's pane gives its leave key pressed twice. Keys
+ * default (#232), exported for any other key pressed twice to share. Keys
  * pressed in turn that differ (`\ Enter`) have no window: a backslash typed a
  * while before Enter still keeps the line open.
  */
 export const DOUBLE_PRESS_MS = 500;
 
-/** A press as the screen heard it: its name, when, and where the keys were (the card open, the focus, a question). */
+/** A press as the screen heard it: its name, when, and where the keys were (`placeOf`). */
 export interface Press {
   readonly name: string;
   readonly at: number;
   readonly place: string;
 }
 
+/** Where the keys are, for `Press`: the parts that hold now (the card open, a question, the focus, a search), in order. */
+export const placeOf = (...parts: readonly (string | false | null | undefined)[]): string => parts.filter((part): part is string => typeof part === "string" && part !== "").join(" ");
+
 /**
  * The press keys pressed in turn start with, for `dispatch`'s `previous`:
- * the press before this one, when it was heard in the same place (so an Esc
- * that closed a card, or took the cursor out of the transcript, and the Esc
- * after it are two single presses, never `Esc Esc`), and, for the same key
- * pressed again, no more than `DOUBLE_PRESS_MS` before it.
+ * the press before this one; for the same key pressed again, only when it
+ * was heard in the same place (so an Esc that closed a card, or took the
+ * cursor out of the transcript, and the Esc after it are two single
+ * presses, never `Esc Esc`) and no more than `DOUBLE_PRESS_MS` before it.
+ * Keys in turn that differ (`\ Enter`) count wherever each was heard: a
+ * question arriving between the backslash and Enter keeps the line open.
  */
 export const pressedBefore = (before: Press | undefined, name: string | undefined, at: number, place: string): string | undefined => {
-  if (before === undefined || before.place !== place) return undefined;
-  if (name === before.name && at - before.at > DOUBLE_PRESS_MS) return undefined;
+  if (before === undefined) return undefined;
+  if (name === before.name && (before.place !== place || at - before.at > DOUBLE_PRESS_MS)) return undefined;
   return before.name;
 };
 
@@ -275,10 +282,10 @@ export const pressedBefore = (before: Press | undefined, name: string | undefine
  * declines.
  */
 export const dispatch = (keymap: Keymap, lookups: readonly Lookup[], handlers: Handlers, input: string, key: InkKey, context: DispatchContext = {}): boolean => {
-  const { previous, holds = () => false } = context;
+  const { previous, pairOnly = false, holds = () => false } = context;
   const name = eventName(input, key);
   if (name === undefined) return false;
-  const names = previous === undefined ? [name] : [`${previous} ${name}`, name];
+  const names = previous === undefined ? (pairOnly ? [] : [name]) : pairOnly ? [`${previous} ${name}`] : [`${previous} ${name}`, name];
   for (const lookup of lookups) {
     const { context, only, except } = typeof lookup === "string" ? { context: lookup, only: undefined, except: undefined } : lookup;
     for (const candidate of names) {
