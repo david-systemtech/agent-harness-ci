@@ -59,7 +59,7 @@ export type VerbAvailability = { readonly status: "present" } | { readonly statu
 export interface SessionVerbs {
   /** `runs.readNow`: interrupt a live run and read the whole queue now, or start the run of the queue the environment holds. */
   readonly readNow: VerbAvailability;
-  /** `runs.withdraw` of the newest queued message a withdraw can reach, as the terminal UI's `↑` takes it; each queued message says its own. */
+  /** `runs.withdraw` of the newest queued message a withdraw can reach (`withdrawTarget`), as the terminal UI's `↑` takes it; each queued message says its own. */
   readonly withdraw: VerbAvailability;
   /** `sessions.fork`, from the end or from a user message. */
   readonly fork: VerbAvailability;
@@ -118,8 +118,20 @@ const first = (...checks: readonly (() => VerbAvailability | null)[]): VerbAvail
 /** The draft a withdraw of `text` leaves, as the environment writes it (#228): in place of an empty draft, else after it on a paragraph of its own. */
 const draftAfterWithdraw = (draft: string | null, text: string): string => (draft === null || draft.length === 0 ? text : `${draft}\n\n${text}`);
 
+/** What `sessionVerbs` answers: the queue, each verb, and the message the verb `withdraw` takes back. */
+export interface SessionVerbsAnswer {
+  readonly queue: readonly QueuedMessage[];
+  readonly verbs: SessionVerbs;
+  /**
+   * The newest queued message a withdraw can reach, whatever the connection
+   * says (`verbs.withdraw` says whether it can be taken back now), so both
+   * renderers take back the same one; null when none is.
+   */
+  readonly withdrawTarget: string | null;
+}
+
 /** Each verb's availability on the session, and its queue with each message's own withdraw. */
-export const sessionVerbs = (input: VerbsInput): { readonly queue: readonly QueuedMessage[]; readonly verbs: SessionVerbs } => {
+export const sessionVerbs = (input: VerbsInput): SessionVerbsAnswer => {
   const { adapter, live, queued, rewound } = input;
   const connection = (method: VerbMethod) => () => input.connection(method);
   const adapterCan = (flag: "fork" | "rewind", verb: string) => () => (adapter === null || adapter[flag] ? null : absent("adapter", `${adapter.displayName} cannot ${verb} a session.`));
@@ -176,5 +188,5 @@ export const sessionVerbs = (input: VerbsInput): { readonly queue: readonly Queu
       () => (rewound?.undoable === false ? absent("run_started", "A run has started since the rewind, so it can no longer be undone.") : null),
     ),
   };
-  return { queue, verbs };
+  return { queue, verbs, withdrawTarget: newest?.messageId ?? null };
 };

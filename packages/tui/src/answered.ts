@@ -61,6 +61,8 @@ export const SCREEN_KEYS = [
   "asks.allowAll",
   "asks.denyAll",
   "asks.close",
+  "composer.readNow",
+  "composer.withdrawLast",
 ] as const satisfies readonly KeyActionId[];
 
 /** The keys the screen answers itself, beside the composer's (`COMPOSER_KEYS`, `composer/use-composer.ts`). */

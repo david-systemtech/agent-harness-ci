@@ -121,3 +121,83 @@ describe("the scripted environment", () => {
     expect(sent).toEqual([expect.objectContaining({ delivery: "prompt", ceiling: "auto" }), expect.objectContaining({ delivery: "queued", ceiling: "auto" })]);
   });
 });
+
+describe("the scripted environment's queue, as ADR 0022 has it (#231)", () => {
+  /** A desk with one session whose queue `queue` holds, and a way to dispatch through the runtime as a client does. */
+  const desk = async (queue: "provider" | "environment") => {
+    const app = await launch({ script: { environments: [{ name: "desk", reach: "local", sessions: [{ title: "Receipts" }], queue }] } });
+    const env = app.environment("desk");
+    const sessionId = env.sessionId();
+    const dispatch = (method: "runs.send" | "runs.interrupt" | "runs.readNow" | "runs.withdraw", params: Record<string, unknown>) =>
+      app.runtime().commands.dispatch(env.environmentId, method, params as never);
+    const queueNow = (text: string) => dispatch("runs.send", { sessionId, text });
+    return { env, sessionId, dispatch, queueNow };
+  };
+  /** The environment's refusal of a withdraw, as it words a message it has no queued message for. */
+  const gone = (messageId: string, why: string) => ({
+    ok: false,
+    error: { code: "not_found", message: `No queued message ${messageId} is on this environment: ${why}.`, data: { kind: "message", messageId } },
+  });
+
+  it("hands what the provider held back to the environment at an end other than completed", async () => {
+    const { env, sessionId, dispatch, queueNow } = await desk("provider");
+    const { runId } = env.startRun(sessionId, "Fix the receipts");
+    await queueNow("and the tests");
+    expect(env.queued(sessionId)).toMatchObject([{ text: "and the tests", heldBy: "provider" }]);
+    await dispatch("runs.interrupt", { runId });
+    expect(env.queued(sessionId)).toMatchObject([{ text: "and the tests", heldBy: "environment" }]);
+    expect(env.liveRun(sessionId)).toBeUndefined();
+  });
+
+  it("starts the run of the environment's queue after a turn that completed, and leaves what the provider holds to the provider", async () => {
+    const held = await desk("environment");
+    const first = held.env.startRun(held.sessionId, "Fix the receipts");
+    await held.queueNow("and the tests");
+    held.env.endRun(held.sessionId, first.runId);
+    expect(held.env.queued(held.sessionId)).toEqual([]);
+    expect(held.env.liveRun(held.sessionId)).not.toBeUndefined();
+    expect(held.env.liveRun(held.sessionId)).not.toBe(first.runId);
+
+    const provider = await desk("provider");
+    const run = provider.env.startRun(provider.sessionId, "Fix the receipts");
+    await provider.queueNow("and the docs");
+    provider.env.endRun(provider.sessionId, run.runId);
+    expect(provider.env.queued(provider.sessionId)).toMatchObject([{ text: "and the docs", heldBy: "provider" }]);
+    expect(provider.env.liveRun(provider.sessionId)).toBeUndefined();
+  });
+
+  it("reads only what the environment holds when a read-now finds no run live, and refuses a withdraw of what the provider holds then", async () => {
+    const { env, sessionId, dispatch, queueNow } = await desk("provider");
+    const { runId } = env.startRun(sessionId, "Fix the receipts");
+    await queueNow("and the tests");
+    env.endRun(sessionId, runId);
+    const [providers] = env.queued(sessionId);
+    env.emit(sessionId, "message.sent", {
+      runId,
+      messageId: "0199a200-0000-4000-8000-00000000aaaa",
+      text: "and the docs",
+      attachments: [],
+      delivery: "queued",
+      heldBy: "environment",
+      ceiling: "bypassPermissions",
+    });
+    await dispatch("runs.readNow", { sessionId });
+    expect(env.queued(sessionId)).toMatchObject([{ text: "and the tests", heldBy: "provider" }]);
+    expect(env.liveRun(sessionId)).not.toBeUndefined();
+    env.endRun(sessionId, env.liveRun(sessionId) ?? "");
+    expect(await dispatch("runs.withdraw", { messageId: providers?.messageId })).toMatchObject(gone(providers?.messageId ?? "", "the provider has read it"));
+    expect(env.queued(sessionId)).toHaveLength(1);
+  });
+
+  it("refuses a withdraw of a message withdrawn already, or read by a run, with the environment's words and the message's id", async () => {
+    const { env, sessionId, dispatch, queueNow } = await desk("environment");
+    const { runId } = env.startRun(sessionId, "Fix the receipts");
+    await queueNow("and the tests");
+    await queueNow("and the docs");
+    const [tests, docs] = env.queued(sessionId);
+    expect(await dispatch("runs.withdraw", { messageId: tests?.messageId })).toMatchObject({ ok: true });
+    expect(await dispatch("runs.withdraw", { messageId: tests?.messageId })).toMatchObject(gone(tests?.messageId ?? "", "it was withdrawn already"));
+    env.endRun(sessionId, runId);
+    expect(await dispatch("runs.withdraw", { messageId: docs?.messageId })).toMatchObject(gone(docs?.messageId ?? "", "a run has read it"));
+  });
+});

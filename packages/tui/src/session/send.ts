@@ -86,6 +86,44 @@ export const interruptRun = async (runtime: Runtime, environmentId: string, runI
 };
 
 /**
+ * Reads the session's queue now (`runs.readNow`, ADR 0022): the live run is
+ * interrupted and the next opens with the queue. The line to show when it
+ * was refused.
+ */
+export const readQueueNow = async (runtime: Runtime, environmentId: string, sessionId: string): Promise<string | undefined> => {
+  const answer = await runtime.commands.dispatch(environmentId, "runs.readNow", { sessionId });
+  return answer.ok ? undefined : `Not read now: ${answer.error.message}`;
+};
+
+/**
+ * The environment's `not_found` for a withdraw says why the message is not
+ * queued in its message only (`run-decider.ts`'s `decideWithdraw`: "… is on
+ * this environment: the provider has read it", or "a run has read it"); the
+ * data names the message, not the why. Read that way, the refusal is said as
+ * the ticket words it; any other (withdrawn already, by another client, say)
+ * is the environment's own message, so a change of its wording falls back to
+ * that message rather than to a claim.
+ */
+const READ_FIRST = /: (the provider|a run) has read it\.$/;
+
+/**
+ * Takes a queued message back (`runs.withdraw`, ADR 0022): its text goes to
+ * the session's draft, and so into every client's composer. The line to
+ * show when it was refused: a message the provider read first is `not_found`,
+ * said in one line, and it stays wherever the log says it is, since nothing
+ * here moved it. An adapter that cannot withdraw is the environment's
+ * refusal too (`invalid_params`, reason `unsupported`), said with its reason
+ * and not kept: the environment asks the adapter only for a message the
+ * provider holds, so the next withdraw may be one it can take back.
+ */
+export const withdrawQueued = async (runtime: Runtime, environmentId: string, messageId: string): Promise<string | undefined> => {
+  const answer = await runtime.commands.dispatch(environmentId, "runs.withdraw", { messageId });
+  if (answer.ok) return undefined;
+  const { code, message } = answer.error;
+  return code === "not_found" && READ_FIRST.test(message) ? "Not withdrawn: the provider read it first." : `Not withdrawn: ${message}`;
+};
+
+/**
  * Stops one running call (`x`, `row.stop`): delegated work the run's ledger
  * names for the call is stopped by `runs.stopTask`; any other call is the
  * run's, since no provider stops one call and leaves the turn going, so it
