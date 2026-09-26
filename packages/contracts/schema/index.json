@@ -1115,6 +1115,10 @@
       "title": "ActionContext"
     },
     {
+      "path": "actions/action-condition.json",
+      "title": "ActionCondition"
+    },
+    {
       "path": "actions/action.json",
       "title": "Action"
     },

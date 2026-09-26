@@ -50,6 +50,13 @@
           "type": "string",
           "pattern": "^(app|composer|command|transcript|row|rail|delegated|picker|permission|pager|terminal|asks|confirm)(\\.[a-z][A-Za-z]*)+$"
         },
+        "when": {
+          "description": "For a key answered only under a condition of its own context: the condition. Such an action may share a default key with one unconditioned action of its context, and is asked first; absent, the key is the action's whenever its context has the keys.",
+          "type": "string",
+          "enum": [
+            "composer.empty"
+          ]
+        },
         "status": {
           "type": "string",
           "const": "wired"
@@ -112,6 +119,13 @@
           "type": "string",
           "pattern": "^(app|composer|command|transcript|row|rail|delegated|picker|permission|pager|terminal|asks|confirm)(\\.[a-z][A-Za-z]*)+$"
         },
+        "when": {
+          "description": "For a key answered only under a condition of its own context: the condition. Such an action may share a default key with one unconditioned action of its context, and is asked first; absent, the key is the action's whenever its context has the keys.",
+          "type": "string",
+          "enum": [
+            "composer.empty"
+          ]
+        },
         "status": {
           "type": "string",
           "const": "absent"
@@ -133,5 +147,5 @@
       "description": "An action the harness keeps the keys of but does not answer: drawn dim with its reason, as Artemis drew its planned rows."
     }
   ],
-  "description": "One named action of the shared list: its id, context, default keys and description, and wired or absent with a reason. The id's first word names its context (row is transcript, rail is sidebar, app is anywhere, command is composer); a slash command has a usage line and no keys, any other action keys and no usage line, and only a slash command is an alias: rules the decoder keeps and this schema cannot state."
+  "description": "One named action of the shared list: its id, context, default keys and description, a condition its keys are answered under where it has one, and wired or absent with a reason. The id's first word names its context (row is transcript, rail is sidebar, app is anywhere, command is composer); a slash command has a usage line and no keys or condition, any other action keys and no usage line, a condition is one of the action's own context, and only a slash command is an alias: rules the decoder keeps and this schema cannot state."
 }

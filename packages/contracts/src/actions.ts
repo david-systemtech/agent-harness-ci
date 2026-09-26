@@ -66,6 +66,24 @@ export const ACTION_ID_PREFIXES = {
 
 const ACTION_ID_PATTERN = new RegExp(`^(${Object.keys(ACTION_ID_PREFIXES).join("|")})(\\.[a-z][A-Za-z]*)+$`);
 
+/**
+ * The conditions an action's keys may be declared under (#231): each named
+ * `<context>.<state>`, answered only in its own context, with the words the
+ * help overlay and the tui spec's table write after the keys. A conditioned
+ * action is asked for its key before an unconditioned one holding the same
+ * key in the same context, and the key falls to that one when the condition
+ * does not hold (the clash rule, `keyClashes`).
+ */
+export const ACTION_CONDITIONS = {
+  "composer.empty": { context: "composer", words: "empty composer", description: "Nothing is typed in the composer and nothing is attached." },
+} as const satisfies Record<string, { readonly context: ActionContext; readonly words: string; readonly description: string }>;
+
+export const ActionCondition = z.enum(Object.keys(ACTION_CONDITIONS) as [keyof typeof ACTION_CONDITIONS, ...(keyof typeof ACTION_CONDITIONS)[]]).meta({
+  description:
+    "A condition an action's keys are answered under, named <context>.<state>: composer.empty, nothing typed in the composer and nothing attached. A conditioned action is asked first for a key it shares with an unconditioned action of its context; the key falls to that one when the condition does not hold.",
+});
+export type ActionCondition = z.infer<typeof ActionCondition>;
+
 const ActionFields = {
   id: z.string().regex(ACTION_ID_PATTERN).meta({
     description:
@@ -87,6 +105,10 @@ const ActionFields = {
     .regex(ACTION_ID_PATTERN)
     .optional()
     .meta({ description: "For a slash command kept as a hidden alias: the command it now names. The help overlay leaves it out." }),
+  when: ActionCondition.optional().meta({
+    description:
+      "For a key answered only under a condition of its own context: the condition. Such an action may share a default key with one unconditioned action of its context, and is asked first; absent, the key is the action's whenever its context has the keys.",
+  }),
 };
 
 const WiredAction = z.object({ ...ActionFields, status: z.literal("wired") }).meta({ description: "An action the harness answers." });
@@ -104,9 +126,10 @@ const AbsentAction = z
  * together are zod's half only, as `EventFrame`'s sequence rule is: the id's
  * first word names its context (`row` is `transcript`, `rail` is `sidebar`,
  * `app` is `anywhere`, `command` is `composer`); a slash command has a usage
- * line and no keys, any other action keys and no usage line; only a slash
- * command is an alias. The JSON Schema export cannot state them, so a client
- * in another language checks them itself.
+ * line and no keys or condition, any other action keys and no usage line;
+ * a condition is one of the action's own context; only a slash command is an
+ * alias. The JSON Schema export cannot state them, so a client in another
+ * language checks them itself.
  */
 export const Action = z
   .discriminatedUnion("status", [WiredAction, AbsentAction])
@@ -114,8 +137,11 @@ export const Action = z
     const prefix = action.id.slice(0, action.id.indexOf(".")) as keyof typeof ACTION_ID_PREFIXES;
     const context = ACTION_ID_PREFIXES[prefix];
     if (context !== action.context) ctx.addIssue({ code: "custom", path: ["context"], message: `${action.id} is an action of the context ${context}.` });
+    if (action.when !== undefined && ACTION_CONDITIONS[action.when].context !== action.context)
+      ctx.addIssue({ code: "custom", path: ["when"], message: `${action.when} is a condition of the context ${ACTION_CONDITIONS[action.when].context}.` });
     if (prefix === "command") {
       if (action.keys.length > 0) ctx.addIssue({ code: "custom", path: ["keys"], message: "A slash command is typed: it has no keys." });
+      if (action.when !== undefined) ctx.addIssue({ code: "custom", path: ["when"], message: "A slash command is typed: it has no condition." });
       if (action.usage === undefined) ctx.addIssue({ code: "custom", path: ["usage"], message: "A slash command has a usage line." });
       else if (!action.usage.startsWith(`/${action.id.slice("command.".length)}`))
         ctx.addIssue({ code: "custom", path: ["usage"], message: "A slash command's usage line starts with its name." });
@@ -127,7 +153,7 @@ export const Action = z
   })
   .meta({
     description:
-      "One named action of the shared list: its id, context, default keys and description, and wired or absent with a reason. The id's first word names its context (row is transcript, rail is sidebar, app is anywhere, command is composer); a slash command has a usage line and no keys, any other action keys and no usage line, and only a slash command is an alias: rules the decoder keeps and this schema cannot state.",
+      "One named action of the shared list: its id, context, default keys and description, a condition its keys are answered under where it has one, and wired or absent with a reason. The id's first word names its context (row is transcript, rail is sidebar, app is anywhere, command is composer); a slash command has a usage line and no keys or condition, any other action keys and no usage line, a condition is one of the action's own context, and only a slash command is an alias: rules the decoder keeps and this schema cannot state.",
   });
 export type Action = z.infer<typeof Action>;
 
@@ -141,10 +167,17 @@ interface Row<Id extends string> {
   readonly reason?: string;
   readonly usage?: string;
   readonly aliasOf?: string;
+  readonly when?: ActionCondition;
 }
 
-/** A key the harness answers. */
-const key = <const Id extends string>(id: Id, keys: readonly string[], description: string): Row<Id> => ({ id, keys, description, status: "wired" });
+/** A key the harness answers; `when`, a condition it is answered under. */
+const key = <const Id extends string>(id: Id, keys: readonly string[], description: string, when?: ActionCondition): Row<Id> => ({
+  id,
+  keys,
+  description,
+  status: "wired",
+  ...(when !== undefined && { when }),
+});
 
 /** A key the harness keeps but answers absent, with the reason. */
 const absent = <const Id extends string>(id: Id, keys: readonly string[], description: string, reason: string): Row<Id> => ({
@@ -192,7 +225,7 @@ export const SLASH_COMMANDS_TITLE = "Slash commands";
 /**
  * The list, in groups. Artemis's rows come first in each of its groups, in its
  * order and with its words; the harness's additions follow them (ADR 0022's
- * fork, rewind and read-now keys, the rail's organisation keys), then the
+ * fork, rewind, read-now and withdraw keys, the rail's organisation keys), then the
  * three contexts the harness adds, then the slash commands: Artemis's, in its
  * order, then the harness's.
  */
@@ -224,6 +257,7 @@ export const ACTION_GROUPS = [
     key("composer.editor", ["Ctrl+G"], "Edit the draft in $EDITOR"),
     key("composer.suggestion.take", ["1–4"], "Take one of the follow-ups the agent offered"),
     key("composer.readNow", ["Ctrl+Enter"], "Have the queued message read now, mid-turn"),
+    key("composer.withdrawLast", ["↑"], "Take the newest queued message back to edit", "composer.empty"),
   ]),
   group("Moving and editing", "composer", [
     key("composer.line.start", ["Ctrl+A", "Home"], "The start of the line"),
@@ -413,6 +447,46 @@ export const actionById = (id: string): ListedAction | undefined => BY_ID.get(id
 
 /** Whether `id` is a slash command's. */
 export const isCommandId = (id: string): id is CommandActionId => id.startsWith("command.") && BY_ID.has(id);
+
+/** One action's keys in its context, as the clash rule reads them: a default of the list, or a keybindings file's remap. */
+export interface KeyBinding {
+  readonly id: string;
+  readonly context: string;
+  readonly keys: readonly string[];
+  readonly when?: ActionCondition | undefined;
+}
+
+/** A key two actions hold in one context where the rule admits only one of them: the one that held it, then the other. */
+export interface KeyClash {
+  readonly context: string;
+  readonly key: string;
+  readonly ids: readonly [string, string];
+}
+
+/**
+ * The clash rule (the tui spec's "Shortcuts"; #144, #231): in one context a
+ * key is held by at most one action with no condition and at most one with a
+ * condition. The conditioned one is asked first, and the key falls to the
+ * other when its condition does not hold, so `↑` is `composer.withdrawLast`
+ * on an empty composer and `composer.navigate` otherwise. Two unconditioned
+ * holders clash, and so do two conditioned ones, whose conditions could hold
+ * at once. The same action holding a key twice is no clash. The list's
+ * defaults keep the rule (a contract test), and a keybindings file that
+ * breaks it is refused whole.
+ */
+export const keyClashes = (bindings: Iterable<KeyBinding>): KeyClash[] => {
+  const holders = new Map<string, string>();
+  const clashes: KeyClash[] = [];
+  for (const binding of bindings) {
+    for (const k of binding.keys) {
+      const slot = `${binding.context} ${k} ${binding.when === undefined ? "always" : "conditioned"}`;
+      const other = holders.get(slot);
+      if (other !== undefined && other !== binding.id) clashes.push({ context: binding.context, key: k, ids: [other, binding.id] });
+      else holders.set(slot, binding.id);
+    }
+  }
+  return clashes;
+};
 
 /**
  * The composer's sigils: syntax, not keys. What is typed after one is parsed

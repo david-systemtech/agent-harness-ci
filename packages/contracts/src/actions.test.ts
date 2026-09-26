@@ -5,12 +5,14 @@ import {
   ACTION_CONTEXTS,
   ACTION_GROUPS,
   ACTION_ID_PREFIXES,
+  ACTION_CONDITIONS,
   Action,
   SIGILS,
   SLASH_COMMANDS_TITLE,
   actionById,
   isActionId,
   isCommandId,
+  keyClashes,
 } from "./index.js";
 
 /**
@@ -29,6 +31,7 @@ const keyActions = ACTIONS.filter((a) => !a.id.startsWith("command."));
 /** The actions the harness adds to Artemis's rows, with their chosen defaults (the tui spec's list under the table). */
 const ADDED_KEYS: Record<string, readonly string[]> = {
   "composer.readNow": ["Ctrl+Enter"],
+  "composer.withdrawLast": ["↑"],
   "row.rewind": ["w"],
   "row.fork": ["f"],
   "row.rewindUndo": ["u"],
@@ -99,18 +102,12 @@ describe("the fixture rule", () => {
     }
   });
 
-  it("lets no two actions in one context share a default key", () => {
-    const holders = new Map<string, string>();
-    const clashes: string[] = [];
-    for (const action of ACTIONS) {
-      for (const k of action.keys) {
-        const slot = `${action.context} ${k}`;
-        const other = holders.get(slot);
-        if (other !== undefined) clashes.push(`${slot}: ${other} and ${action.id}`);
-        holders.set(slot, action.id);
-      }
-    }
-    expect(clashes).toEqual([]);
+  it("lets no two actions in one context share a default key, but for a conditioned action beside an unconditioned one", () => {
+    expect(keyClashes(ACTIONS)).toEqual([]);
+    // The one key two actions hold in one context: ↑ in the composer, withdrawLast asked first while the composer is empty.
+    const shared = new Map<string, string[]>();
+    for (const action of ACTIONS) for (const k of action.keys) shared.set(`${action.context} ${k}`, [...(shared.get(`${action.context} ${k}`) ?? []), action.id]);
+    expect([...shared].filter(([, ids]) => ids.length > 1)).toEqual([["composer ↑", ["composer.navigate", "composer.withdrawLast"]]]);
   });
 
   it("names no id outside the list: each id once, and every group, alias and sigil names ids of the list", () => {
@@ -205,6 +202,54 @@ describe("the action list's shape", () => {
     }
     // `!!` is `!`'s row, not a key of its own.
     expect(ACTIONS.some((a) => a.keys.includes("!!"))).toBe(false);
+  });
+});
+
+describe("the clash rule", () => {
+  const navigate = { id: "composer.navigate", context: "composer", keys: ["↑", "↓"] } as const;
+  const withdraw = { id: "composer.withdrawLast", context: "composer", keys: ["↑"], when: "composer.empty" } as const;
+
+  it("admits a conditioned action beside an unconditioned one on the same key in one context", () => {
+    expect(keyClashes([navigate, withdraw])).toEqual([]);
+    expect(keyClashes([withdraw, navigate])).toEqual([]);
+  });
+
+  it("refuses two unconditioned actions on one key in one context, naming the key, the context and both", () => {
+    expect(keyClashes([navigate, { id: "composer.send", context: "composer", keys: ["Enter", "↓"] }])).toEqual([
+      { context: "composer", key: "↓", ids: ["composer.navigate", "composer.send"] },
+    ]);
+  });
+
+  it("refuses two conditioned actions on one key in one context, since both conditions may hold at once", () => {
+    expect(keyClashes([withdraw, { ...withdraw, id: "composer.readNow" }])).toEqual([{ context: "composer", key: "↑", ids: ["composer.withdrawLast", "composer.readNow"] }]);
+  });
+
+  it("lets one key mean one action in each of two contexts, and an action repeat its own key", () => {
+    expect(keyClashes([navigate, { id: "transcript.cursor", context: "transcript", keys: ["↑", "↓"] }])).toEqual([]);
+    expect(keyClashes([{ ...navigate, keys: ["↑", "↑"] }])).toEqual([]);
+  });
+});
+
+describe("conditions", () => {
+  it("carries composer.withdrawLast on ↑ while the composer is empty, beside composer.navigate on the same key", () => {
+    expect(actionById("composer.withdrawLast")).toMatchObject({ context: "composer", keys: ["↑"], when: "composer.empty", status: "wired" });
+    expect(actionById("composer.navigate")?.when).toBeUndefined();
+  });
+
+  it("names every condition an action declares, each with the words the help overlay writes after the keys", () => {
+    for (const action of ACTIONS) if (action.when !== undefined) expect(Object.keys(ACTION_CONDITIONS), action.id).toContain(action.when);
+    expect(ACTION_CONDITIONS["composer.empty"]).toMatchObject({ context: "composer", words: "empty composer" });
+  });
+
+  it("refuses a condition on a slash command, one of another context, and one the list does not name", () => {
+    const pressed = { id: "composer.withdrawLast", context: "composer", keys: ["↑"], description: "Take it back", status: "wired", when: "composer.empty" } as const;
+    expect(Action.safeParse(pressed).success).toBe(true);
+    const refused = [
+      { id: "command.help", context: "composer", keys: [], description: "List these commands", usage: "/help", status: "wired", when: "composer.empty" },
+      { ...pressed, id: "row.fork", context: "transcript" },
+      { ...pressed, when: "composer.full" },
+    ];
+    for (const entry of refused) expect(Action.safeParse(entry).success, JSON.stringify(entry)).toBe(false);
   });
 });
 

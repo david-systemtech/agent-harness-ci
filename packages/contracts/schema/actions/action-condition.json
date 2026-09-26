@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ActionCondition",
+  "type": "string",
+  "enum": [
+    "composer.empty"
+  ],
+  "description": "A condition an action's keys are answered under, named <context>.<state>: composer.empty, nothing typed in the composer and nothing attached. A conditioned action is asked first for a key it shares with an unconditioned action of its context; the key falls to that one when the condition does not hold."
+}
