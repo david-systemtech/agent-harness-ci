@@ -6,7 +6,7 @@ import { createNotices } from "./notices.js";
 import { derived, type Observable } from "./observable.js";
 import { createDrafts } from "./outbox/drafts.js";
 import { createOutbox, type Outbox } from "./outbox/outbox.js";
-import { overlaidLists, pendingTargets } from "./outbox/overlay.js";
+import { awaitedTargets, keepingSameTargets, overlaidLists, pendingTargets } from "./outbox/overlay.js";
 import type { Platform } from "./platform.js";
 import { answerOf, usageProjection, type AccountsAnswer, type ModelsAnswer } from "./projections/accounts.js";
 import { createAttention } from "./projections/attention.js";
@@ -130,7 +130,8 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
     lists,
     now: (environmentId) => made.now(environmentId),
     clock: platform.clock,
-    pending: derived([registry.list, outbox.view] as const, pendingTargets),
+    pending: derived([registry.list, outbox.view] as const, keepingSameTargets(pendingTargets)),
+    awaiting: derived([outbox.view] as const, keepingSameTargets(awaitedTargets)),
   });
   let closing: Promise<void> | undefined;
   let started: Promise<void> | undefined;
