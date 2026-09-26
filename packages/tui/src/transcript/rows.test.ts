@@ -132,15 +132,51 @@ describe("transcriptRows", () => {
     ]);
   });
 
-  it("draws no row for a rewound fold yet, as none was drawn for what a rewind hid (#232 draws the fold)", () => {
+  it("draws what a rewind cut as one fold at the rewind point, holding the cut rows, never among what came after (#232)", () => {
     const fold: TranscriptEntry = { kind: "rewound", sequence: 4, toMessageId: "m-2", text: "Then", undoable: true, items: [message(2, "Then"), text(3, "Done.")] };
     const rows = transcriptRows(view([message(1, "Go"), fold, message(5, "Again")]));
-    expect(rows.map((row) => (row.kind === "user" ? row.entry.text : row.kind))).toEqual(["Go", "Again"]);
+    expect(rows.map((row) => (row.kind === "user" ? row.entry.text : row.kind))).toEqual(["Go", "rewound", "Again"]);
+    const folded = rows[1];
+    expect(folded?.kind === "rewound" && folded.rows.map((row) => (row.kind === "user" ? row.entry.text : row.kind))).toEqual(["Then", "assistant"]);
   });
 
   it("keeps an entry it cannot show as an opaque row", () => {
     const rows = transcriptRows(view([{ kind: "opaque", sequence: 1, type: "weird.new-thing", payload: {} }]));
     expect(shown(transcriptLines(rows, CONTEXT))).toEqual(["  · weird.new-thing: an event this version does not show"]);
+  });
+});
+
+describe("a rewound fold's lines", () => {
+  const fold: TranscriptEntry = {
+    kind: "rewound",
+    sequence: 4,
+    toMessageId: "m-2",
+    text: "Then the tests",
+    undoable: true,
+    items: [message(2, "Then the tests"), text(3, "Done.")],
+  };
+  const rows = transcriptRows(view([message(1, "Go"), fold]));
+  const undo = { sequence: 4, availability: { status: "present" as const }, key: "u", unfoldKey: "Enter" };
+
+  it("draws the fold closed as one line: what it went back to, how much it cut, and the keys that read and undo it", () => {
+    expect(shown(transcriptLines(rows.slice(1), { ...CONTEXT, rewound: undo }))).toEqual(["↶ Rewound: Then the tests · 1 prompt cut · Enter unfolds · u undo"]);
+  });
+
+  it("draws the undo dim with its reason when it cannot be used now, and none once a run has started since", () => {
+    const absent = { ...undo, availability: { status: "absent" as const, reason: "unreachable" as const, message: "desk is not reachable." } };
+    expect(shown(transcriptLines(rows.slice(1), { ...CONTEXT, width: 120, rewound: absent }))).toEqual(["↶ Rewound: Then the tests · 1 prompt cut · Enter unfolds · u undo (desk is not reachable.)"]);
+    const settled = transcriptRows(view([message(1, "Go"), { ...fold, undoable: false }]));
+    expect(shown(transcriptLines(settled.slice(1), { ...CONTEXT, rewound: undo }))).toEqual(["↶ Rewound: Then the tests · 1 prompt cut · Enter unfolds"]);
+  });
+
+  it("draws the cut rows under it, marked in the gutter the whole way down, when unfolded", () => {
+    expect(shown(transcriptLines(rows.slice(1), { ...CONTEXT, expanded: true, rewound: undo }))).toEqual([
+      "↶ Rewound: Then the tests · 1 prompt cut · u undo",
+      "┊ ",
+      "┊ ▌ Then the tests",
+      "┊ ",
+      "┊ ● Done.",
+    ]);
   });
 });
 

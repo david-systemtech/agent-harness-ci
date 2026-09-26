@@ -1,4 +1,4 @@
-import type { ToolCallEntry } from "@agent-harness/client-runtime";
+import type { ToolCallEntry, VerbAvailability } from "@agent-harness/client-runtime";
 import type { ModelUsage, RunSummary } from "@agent-harness/contracts";
 import {
   classifyTool,
@@ -23,8 +23,8 @@ import { folded, type Row } from "./rows.js";
  * bottom and scroll by lines, and the pager draw the same rows unfolded,
  * without measuring anything Ink laid out.
  *
- * Collapsed (the viewport) a run's finished calls are one count and a cut
- * result shows its head and its tail; unfolded (`expanded`, the pager and a
+ * Collapsed (the viewport) a run's finished calls are one count, a cut
+ * result shows its head and its tail, and what a rewind cut is one line; unfolded (`expanded`, the pager and a
  * row unfolded with Enter) nothing is held back. A running call quiet for
  * `TOOL_QUIET_MS` turns amber and names the silence, Artemis's cue.
  */
@@ -64,6 +64,13 @@ export interface LineContext {
   readonly stopKey?: string;
   /** The plan windows a finished run moved, as words ("1.2% of the 5-hour window"), when known. */
   readonly planDeltas?: (runId: string) => readonly string[];
+  /**
+   * The latest rewind standing (`projections.runs.session`'s `rewound`): the
+   * sequence of its fold, whether `sessions.undoRewind` can be used now, and
+   * the keys that undo it (`row.rewindUndo`) and unfold a row (`row.unfold`),
+   * as the map in force writes them.
+   */
+  readonly rewound?: { readonly sequence: number; readonly availability: VerbAvailability; readonly key: string; readonly unfoldKey: string };
 }
 
 const SPEECH = "●";
@@ -290,6 +297,36 @@ const promptLines = (row: string, entry: Extract<Row, { kind: "prompt" }>["entry
   return block(row, { text: "⚿", dim: answer !== null, ...(answer === null && { color: "yellow" }) }, [[{ text: prompt.summary, dim: answer !== null }, verdict]], context.width, true);
 };
 
+/** How many prompts a rewind's fold holds, a fold inside it included. */
+const promptsIn = (rows: readonly Row[]): number =>
+  rows.reduce((count, row) => count + (row.kind === "user" ? 1 : row.kind === "rewound" ? promptsIn(row.rows) : 0), 0);
+
+/**
+ * What a rewind cut: one line saying what the session went back to and how
+ * much went with it, with the keys that read it (unfolded, not in the pager,
+ * which unfolds everything) and undo it, the undo only on the latest
+ * rewind's fold while no run has started since, dim with its reason when it
+ * cannot be used now; unfolded, the cut rows under it, marked in the gutter.
+ */
+const rewoundLines = (row: Extract<Row, { kind: "rewound" }>, context: LineContext): Line[] => {
+  const cut = promptsIn(row.rows);
+  const head: Span[] = [
+    { text: "Rewound: ", bold: true },
+    { text: oneLine(row.entry.text, 160) },
+    { text: ` · ${cut} ${cut === 1 ? "prompt" : "prompts"} cut`, dim: true },
+  ];
+  const latest = context.rewound;
+  if (!context.expanded) head.push({ text: ` · ${latest?.unfoldKey ?? "Enter"} unfolds`, dim: true });
+  if (latest !== undefined && latest.sequence === row.entry.sequence && row.entry.undoable) {
+    const { availability } = latest;
+    head.push({ text: ` · ${latest.key} undo${availability.status === "absent" ? ` (${availability.message})` : ""}`, dim: true });
+  }
+  const lines = block(row.id, { text: "↶", color: "yellow" }, [head], context.width, true);
+  if (!context.expanded) return lines;
+  const inner = transcriptLines(row.rows, { ...context, width: context.width - 2 });
+  return [...lines, ...inner.map((line): Line => ({ row: row.id, spans: [{ text: "┊ ", color: "yellow" }, ...line.spans.map((span) => ({ ...span, dim: true }))] }))];
+};
+
 /** The lines of one row. */
 export const rowLines = (row: Row, context: LineContext): Line[] => {
   const { width } = context;
@@ -328,6 +365,8 @@ export const rowLines = (row: Row, context: LineContext): Line[] => {
       return turnLines(row.id, row.run, context);
     case "opaque":
       return [{ row: row.id, spans: [{ text: `${INDENT}· ${row.entry.type}: an event this version does not show`, dim: true }] }];
+    case "rewound":
+      return rewoundLines(row, context);
   }
 };
 

@@ -3,6 +3,7 @@ import type {
   CommandEntry,
   OpaqueEntry,
   PromptEntry,
+  RewoundEntry,
   SessionProjection,
   SubagentEntry,
   ToolCallEntry,
@@ -37,9 +38,11 @@ import type { RunSummary } from "@agent-harness/contracts";
  *   took, its tokens and dollars, and the plan windows it moved when known.
  * - **An event this version cannot show** is one dim row naming its type
  *   (ADR 0001): an older terminal survives a newer environment.
- * - **The rewound fold** (`rewound`, #230) is not drawn yet: what a rewind
- *   cut stays out of the rows, as it did while the runtime hid it, until
- *   #232 draws the fold.
+ * - **What a rewind cut** (the runtime's `rewound` fold, #230) is one row
+ *   where the branch was cut, never among the rows that came after the
+ *   rewind (#232): the rows it holds are made as these are, and drawn under
+ *   it only when it is unfolded; a fold an earlier rewind made among them is
+ *   a fold again inside it.
  *
  * Pure: the projection goes in, plain data comes out.
  */
@@ -52,10 +55,15 @@ export type Row =
   | { readonly kind: "prompt"; readonly id: string; readonly runId: string; readonly entry: PromptEntry }
   | { readonly kind: "subagent"; readonly id: string; readonly runId: string; readonly entry: SubagentEntry }
   | { readonly kind: "turn"; readonly id: string; readonly runId: string; readonly run: RunSummary }
-  | { readonly kind: "opaque"; readonly id: string; readonly runId: null; readonly entry: OpaqueEntry };
+  | { readonly kind: "opaque"; readonly id: string; readonly runId: null; readonly entry: OpaqueEntry }
+  /** The branch a rewind cut, folded where it was cut: the rows it holds, drawn under it when unfolded. */
+  | { readonly kind: "rewound"; readonly id: string; readonly runId: null; readonly entry: RewoundEntry; readonly rows: readonly Row[] };
 
 /** The row a run's calls fold into: named for the run, so it keeps its id as the run makes more calls. */
 export const callsRowId = (runId: string): string => `calls:${runId}`;
+
+/** The row a rewind's fold is: named for its `session.rewound`. */
+export const rewoundRowId = (sequence: number): string => `rewound:${sequence}`;
 
 /** The rows of a session's projection, in the order they are drawn. */
 export const transcriptRows = (view: Pick<SessionProjection, "items" | "runs">): readonly Row[] => {
@@ -125,7 +133,8 @@ export const transcriptRows = (view: Pick<SessionProjection, "items" | "runs">):
         push({ kind: "opaque", id: `opaque:${entry.sequence}`, runId: null, entry });
         break;
       case "rewound":
-        // The branch a rewind cut is not drawn yet: it was hidden before the runtime folded it (#230), and #232 draws the fold.
+        // The cut branch's rows are its own: what its runs read opens them inside the fold, and its turns close them there.
+        push({ kind: "rewound", id: rewoundRowId(entry.sequence), runId: null, entry, rows: transcriptRows({ items: entry.items, runs: view.runs }) });
         break;
       default: {
         // Every entry kind is drawn or dropped on purpose: a kind the runtime adds is a compile error here until it is.
