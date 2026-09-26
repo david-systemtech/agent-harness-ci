@@ -1,6 +1,7 @@
 import type { RequestFrame, Scope } from "@agent-harness/contracts";
-import { afterEach, describe, expect, it } from "vitest";
-import { KEY, renderApp, type RenderedApp, type RenderOptions, type Script } from "../test/harness.js";
+import { render } from "ink-testing-library";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { KEY, appUnderTest, renderApp, type RenderedApp, type RenderOptions, type Script } from "../test/harness.js";
 import { resolveKeymap } from "./keys.js";
 import { inMemoryPresentation } from "./presentation.js";
 import { presetTimes } from "./rail/when.js";
@@ -483,6 +484,34 @@ describe("an unreachable environment", () => {
     expect(rejected[0]?.message).toBe("Archive on Train tidy was rejected: it no longer exists.");
     await app.waitFor("●LA ?2 Train tidy");
     expect(sent(app, "laptop", "sessions.archive")).toHaveLength(1);
+  });
+});
+
+describe("following the list", () => {
+  it("asks for a frame once per change to the session list: the screen follows it once", async () => {
+    const made = await appUnderTest({ script: { environments: [desk()] } });
+    const subscribe = vi.spyOn(made.host.current.read().projections.sessionList, "subscribe");
+    const app = render(made.element);
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(subscribe).toHaveBeenCalledTimes(1);
+    } finally {
+      app.unmount();
+      await made.host.close();
+      made.cleanup();
+    }
+  });
+});
+
+describe("a typed picker", () => {
+  it("takes j and k as letters, not as moves", async () => {
+    const app = await one();
+    await focusRail(app);
+    await cursorTo(app, "Fix the rail");
+    await app.press("t");
+    await app.waitFor("Tag “Fix the rail”");
+    await app.press("j", "k");
+    await app.waitFor("Add #jk");
   });
 });
 

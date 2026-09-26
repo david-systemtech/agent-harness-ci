@@ -149,10 +149,13 @@ const weekdayWords = (at: Date) => (WEEKDAYS[at.getDay()] ?? "").slice(0, 3);
 /** A time in a picker: `Mon 28 Sep 09:00`, on this terminal's calendar. */
 export const whenWords = (at: Date): string => `${weekdayWords(at)} ${at.getDate()} ${MONTHS[at.getMonth()] ?? ""} ${clockWords(at)}`;
 
+/** Calendar days from the day of `from` to the day of `to` on this terminal's calendar, whatever a DST change between them does to the hours. */
+const daysBetween = (from: Date, to: Date): number =>
+  Math.round((Date.UTC(to.getFullYear(), to.getMonth(), to.getDate()) - Date.UTC(from.getFullYear(), from.getMonth(), from.getDate())) / DAY);
+
 /** A snoozed row's wake time, short: the clock time on the day of `now`, the weekday and time within six days, else the date. */
 export const wakeWords = (at: Date, now: Date): string => {
-  const startOfToday = dayAt(now, 0, 0).getTime();
-  const days = Math.floor((dayAt(at, 0, 0).getTime() - startOfToday) / DAY);
+  const days = daysBetween(now, at);
   if (days <= 0) return clockWords(at);
   if (days < 7) return `${weekdayWords(at)} ${clockWords(at)}`;
   return `${at.getDate()} ${MONTHS[at.getMonth()] ?? ""}`;

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { parseWhen, presetTimes, wakeWords, whenWords } from "./when.js";
 
 /**
@@ -83,6 +83,22 @@ describe("the words for a time", () => {
     expect(wakeWords(at(24, 18), now)).toBe("18:00");
     expect(wakeWords(at(28, 9), now)).toBe("Mon 09:00");
     expect(wakeWords(at(5, 9, 0, 9), now)).toBe("5 Oct");
+  });
+
+  describe("across a change to summer time", () => {
+    const zone = process.env["TZ"];
+    afterEach(() => {
+      if (zone === undefined) delete process.env["TZ"];
+      else process.env["TZ"] = zone;
+    });
+
+    it("counts calendar days, not 24-hour spans: a week on is the date, even over the short night", () => {
+      // Berlin's clocks go forward in the night of Sunday 29 March 2026, so that week is an hour short.
+      process.env["TZ"] = "Europe/Berlin";
+      const saturday = new Date(2026, 2, 28, 10, 0);
+      expect(wakeWords(new Date(2026, 3, 4, 9, 0), saturday)).toBe("4 Apr");
+      expect(wakeWords(new Date(2026, 3, 3, 9, 0), saturday)).toBe("Fri 09:00");
+    });
   });
 
   it("in a picker: the weekday, the date and the clock time", () => {

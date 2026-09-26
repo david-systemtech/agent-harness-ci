@@ -257,7 +257,6 @@ export const App = (props: AppProps) => {
   useEffect(() => {
     const stops = [
       runtime.projections.environments.subscribe(request),
-      runtime.projections.sessionList.subscribe(request),
       runtime.projections.notices.subscribe(request),
       runtime.projections.sessionList.subscribe(request),
       runtime.local.subscribe(request),
