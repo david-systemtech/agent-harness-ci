@@ -64,9 +64,22 @@ export const browse = (files: readonly string[], dir: string, filter: string): r
  * under it. Null for an absolute path outside it. A Windows environment's
  * paths are read with forward slashes (`slashed`).
  */
+/** `path` with its `.` and `..` segments resolved; null when a `..` climbs above the start, which is out of the workspace. */
+const settled = (path: string): string | null => {
+  const kept: string[] = [];
+  for (const segment of path.split("/")) {
+    if (segment === "" || segment === ".") continue;
+    if (segment !== "..") kept.push(segment);
+    else if (kept.pop() === undefined) return null;
+  }
+  return kept.join("/");
+};
+
 export const typedPath = (typed: string, workspace: string): string | null => {
   const { path, root, windows } = slashed(typed.trim(), workspace);
-  if (!isAbsolutePath(path)) return normalized(path);
+  // A relative path is refused here when it climbs out, as an absolute one outside the workspace is below: the
+  // environment would refuse it too, but with its own line, after a round trip.
+  if (!isAbsolutePath(path)) return settled(normalized(path));
   const bare = path.replace(/\/+$/, "");
   const top = root.replace(/\/+$/, "");
   if (bare !== "" && (windows ? bare.toLowerCase() === top.toLowerCase() : bare === top)) return "";

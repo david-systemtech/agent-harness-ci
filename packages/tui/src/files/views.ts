@@ -69,7 +69,8 @@ export const readFile = async (runtime: Runtime, target: Opened, path: string, w
   if (!answer.ok) return { ok: false, line: `Not read: ${answer.error.message}`, directory: answer.error.data?.["reason"] === "not_a_file" };
   const { size, binary, truncated, text } = answer.result;
   const marks = [formatBytes(size), ...(binary ? ["binary"] : []), ...(truncated ? [`the first ${String(FILES_READ_CAP / MIB)} MiB`] : [])];
-  const lines = binary || text === null ? [line("file:binary", [{ text: `A binary file of ${formatBytes(size)}: not shown as text.`, dim: true }])] : plainPage(text, width);
+  // A text file ends in a newline; the page ends at the last line, not at the blank row after it, as the diff pages do.
+  const lines = binary || text === null ? [line("file:binary", [{ text: `A binary file of ${formatBytes(size)}: not shown as text.`, dim: true }])] : plainPage(text.replace(/\n$/, ""), width);
   return { ok: true, page: { title: `${answer.result.path} · ${marks.join(" · ")}`, lines } };
 };
 

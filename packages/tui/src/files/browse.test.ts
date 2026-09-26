@@ -55,6 +55,14 @@ describe("a path typed after /files", () => {
     expect(typedPath("/", "/home/seth/code")).toBeNull();
   });
 
+  it("refuses a relative path that climbs out of the workspace, as it refuses an absolute one outside it", () => {
+    expect(typedPath("../secrets", "/home/seth/code")).toBeNull();
+    expect(typedPath("..", "/home/seth/code")).toBeNull();
+    expect(typedPath("src/../../x", "/home/seth/code")).toBeNull();
+    expect(typedPath("src/..", "/home/seth/code")).toBe("");
+    expect(typedPath("src/../app.tsx", "/home/seth/code")).toBe("app.tsx");
+  });
+
   it("reads a path typed for a Windows environment's workspace with forward slashes, a drive's absolute path under it as the path under it", () => {
     expect(typedPath("src\\files\\", "C:\\code")).toBe("src/files");
     expect(typedPath("C:\\code\\src\\app.tsx", "C:\\code")).toBe("src/app.tsx");
