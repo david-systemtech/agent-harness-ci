@@ -65,6 +65,13 @@ describe("the screen", () => {
     expect(screen.view({ cursor: true })[0]).toEqual([{ text: "x" }, { text: " ", inverse: true }]);
   });
 
+  it("draws the cursor again after a soft reset (DECSTR, CSI ! p), which shows it as a full reset does", async () => {
+    const screen = createScreen({ cols: 10, rows: 1 });
+    await screen.write(`${ESC}[?25lab`);
+    await screen.write(`${ESC}[!p`);
+    expect(screen.view({ cursor: true })[0]).toEqual([{ text: "ab" }, { text: " ", inverse: true }]);
+  });
+
   it("keeps a wide character's second cell out of the text", async () => {
     const screen = createScreen({ cols: 10, rows: 1 });
     await screen.write("a漢b");

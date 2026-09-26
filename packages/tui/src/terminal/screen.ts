@@ -15,8 +15,8 @@ import { colourOf, sameStyle, type Span } from "../transcript/lines.js";
  * `@xterm/headless` 6.0.0 is a CommonJS bundle with no dependencies whose
  * `module` field names a file it does not ship: Node's ESM loader finds no
  * named export in it, so it is imported whole and `Terminal` read off it;
- * and it counts its buffer reads as proposed API, so it is made with
- * `allowProposedApi`.
+ * and it counts its buffer reads and its parser hooks as proposed API, so
+ * it is made with `allowProposedApi`.
  * Its `write` parses on a timer of its own, so every write here is a
  * promise that settles once the emulator has taken it in.
  */
@@ -106,11 +106,13 @@ const spansOf = (term: xterm.Terminal, y: number, buffer: xterm.Terminal["buffer
 };
 
 export const createScreen = (options: { readonly cols: number; readonly rows: number; readonly scrollback?: number }): Screen => {
-  // The headless build marks its buffer reads proposed: `allowProposedApi` is what lets the pane read its cells at all.
+  // The headless build marks its buffer reads and its parser hooks proposed: `allowProposedApi` is what lets the pane read
+  // its cells, and watch the cursor, at all.
   const term = new xterm.Terminal({ cols: options.cols, rows: options.rows, scrollback: options.scrollback ?? TERMINAL_SCROLLBACK.lines, allowProposedApi: true });
   const write = (data: string): Promise<void> => (data.length === 0 ? Promise.resolve() : new Promise((resolve) => term.write(data, resolve)));
   // Whether the application shows the cursor (DECTCEM, `CSI ? 25 h` and `l`): no public API reads it, so the parser's
-  // hooks watch for it, handing each sequence on to the emulator's own handling; a full reset shows it again.
+  // hooks watch for it, handing each sequence on to the emulator's own handling; a full reset (RIS, `ESC c`) and a soft
+  // one (DECSTR, `CSI ! p`) show it again.
   let cursorShown = true;
   const watchCursor = (shown: boolean) => (params: readonly (number | number[])[]) => {
     if (params.includes(25)) cursorShown = shown;
@@ -118,10 +120,12 @@ export const createScreen = (options: { readonly cols: number; readonly rows: nu
   };
   term.parser.registerCsiHandler({ prefix: "?", final: "h" }, watchCursor(true));
   term.parser.registerCsiHandler({ prefix: "?", final: "l" }, watchCursor(false));
-  term.parser.registerEscHandler({ final: "c" }, () => {
+  const shown = () => {
     cursorShown = true;
     return false;
-  });
+  };
+  term.parser.registerEscHandler({ final: "c" }, shown);
+  term.parser.registerCsiHandler({ intermediates: "!", final: "p" }, shown);
   return {
     cols: () => term.cols,
     rows: () => term.rows,
