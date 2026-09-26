@@ -3,6 +3,7 @@ import type { EnvironmentView, RequestAnswer, Runtime, SessionProjection } from 
 import {
   AccountLabel,
   BYPASS_SENTENCE,
+  CONTAINMENT_LEVELS,
   MODES,
   compareModes,
   lowerMode,
@@ -383,7 +384,9 @@ export const usePickers = (host: PickersHost): Pickers => {
     return model ? { model, effort: null } : undefined;
   };
 
-  const modeCursor = (card: Extract<Panel, { kind: "modes" }>): number => card.cursor ?? Math.max(0, MODES.indexOf(projection?.summary?.mode ?? "acceptEdits"));
+  /** The session's mode as the status line says it: the summary's, else the attended default, acceptEdits lowered to the ceiling. */
+  const sessionMode = (ceiling: Mode | null): Mode => projection?.summary?.mode ?? lowerMode("acceptEdits", ceiling ?? "acceptEdits");
+  const modeCursor = (card: Extract<Panel, { kind: "modes" }>): number => card.cursor ?? Math.max(0, MODES.indexOf(sessionMode(modes?.read().ceiling ?? null)));
 
   const containmentView = () => {
     const read = permissions?.read().result;
@@ -393,7 +396,7 @@ export const usePickers = (host: PickersHost): Pickers => {
   const containmentCursor = (card: Extract<Panel, { kind: "containment" }>): number => {
     if (card.cursor !== null) return card.cursor;
     const { own, fallback } = containmentView();
-    return Math.max(0, (["off", "workspace", "workspace-no-network"] as const).indexOf(own ?? fallback ?? "off"));
+    return Math.max(0, CONTAINMENT_LEVELS.indexOf(own ?? fallback ?? "off"));
   };
 
   const settingsRows = (card: Extract<Panel, { kind: "settings" }>): readonly PanelRow[] => {
@@ -424,7 +427,7 @@ export const usePickers = (host: PickersHost): Pickers => {
         return modelRows(modelList(card), choice?.model ?? null);
       }
       case "modes":
-        return modes ? modeRows(modes.read(), projection?.summary?.mode ?? null) : [];
+        return modes ? modeRows(modes.read(), sessionMode(modes.read().ceiling)) : [];
       case "containment": {
         const { report, own, fallback } = containmentView();
         return containmentRows(report, own, fallback);
@@ -525,7 +528,7 @@ export const usePickers = (host: PickersHost): Pickers => {
       const picker = runtime.projections.modes(opened.environmentId).read();
       const allowed = picker.modes.filter((m) => m.allowed).map((m) => m.mode);
       if (allowed.length === 0) return host.say("This connection's ceiling is not known yet: no mode can be chosen.");
-      const now = asked.current.get(keyOf(opened)) ?? projection?.summary?.mode ?? lowerMode("acceptEdits", picker.ceiling ?? "acceptEdits");
+      const now = asked.current.get(keyOf(opened)) ?? sessionMode(picker.ceiling);
       const next = allowed.find((mode) => compareModes(mode, now) > 0) ?? (allowed[0] as Mode);
       setMode(opened, next);
     },
@@ -578,7 +581,7 @@ export const usePickers = (host: PickersHost): Pickers => {
           return setMode({ environmentId: card.environmentId, sessionId: card.sessionId }, mode);
         }
         case "containment": {
-          const level = (["off", "workspace", "workspace-no-network"] as const)[containmentCursor(card)];
+          const level = CONTAINMENT_LEVELS[containmentCursor(card)];
           if (level === undefined) return;
           host.close();
           return setContainment({ environmentId: card.environmentId, sessionId: card.sessionId }, level);
@@ -662,7 +665,7 @@ export const usePickers = (host: PickersHost): Pickers => {
       const list = (verb: string, leave: string) => `${k("picker.move")} move · ${k("picker.choose")} ${verb} · ${k("picker.leave")} ${leave}`;
       switch (card.kind) {
         case "accounts":
-          return list(card.purpose === "handoff" ? "hands off" : "hands off, signs in or adds", "close");
+          return list(card.purpose === "handoff" ? "hands off or signs in" : "hands off, signs in or adds", "close");
         case "signin":
           return card.accountId === null ? `${k("picker.choose")} adds it · ${k("picker.leave")} goes back` : `${k("picker.choose")} sends the code · ${k("picker.leave")} cancels the sign-in`;
         case "models":

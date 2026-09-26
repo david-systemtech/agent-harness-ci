@@ -304,6 +304,17 @@ describe("/mode", () => {
     await app.waitFor("⏸ auto");
   });
 
+  it("marks the attended default, acceptEdits lowered to the ceiling, as the session's mode and opens on it when the session has none of its own (PR review)", async () => {
+    const { app } = await launch([desk({ hello: { ceiling: "plan" }, sessions: [{ title: "Receipts", accountId: "account-1", model: "claude-opus-4" }] })]);
+    await app.waitFor("⏸ plan");
+    await command(app, "/mode");
+    await app.waitFor("Mode of Receipts");
+    const plan = app.rows().find((row) => row.includes("plan") && !row.includes("Mode of"));
+    expect(plan).toContain("› plan");
+    expect(plan).toContain("this session");
+    expect(app.rows().find((row) => row.includes("acceptEdits"))).toContain("above this connection's ceiling (plan)");
+  });
+
   it("sets bypassPermissions where the ceiling allows it, with the sentence", async () => {
     const { app } = await launch();
     await command(app, "/mode");
@@ -404,6 +415,13 @@ describe("/handoff", () => {
     await app.press(KEY.down, KEY.enter);
     await app.waitFor("Not handed off to desk: hand-off between environments comes in milestone 2 (ADR 0005).");
     expect(env.requests("sessions.fork")).toEqual([]);
+  });
+
+  it("says in its hint that Enter signs in an account not signed in, as it does (PR review)", async () => {
+    const { app } = await launch();
+    await command(app, "/handoff");
+    await app.waitFor("Hand off Receipts on desk");
+    expect(app.frame()).toMatch(/hands off or signs in/);
   });
 
   it("says the session is on the account already", async () => {

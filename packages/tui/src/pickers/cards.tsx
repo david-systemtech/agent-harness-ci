@@ -1,5 +1,5 @@
 import { Box, Text } from "ink";
-import type { Span } from "../transcript/lines.js";
+import { wrap, type Span } from "../transcript/lines.js";
 import type { PanelRow } from "./panel.js";
 
 /**
@@ -21,9 +21,9 @@ const Styled = (props: { readonly span: Span }) => (
   </Text>
 );
 
-/** A line being typed, with its cursor at the end. */
+/** A line being typed, with its cursor at the end, broken at the width (mid-word if need be), so `wrappedRows` counts its rows. */
 export const TypedLine = (props: { readonly prompt: string; readonly text: string }) => (
-  <Text wrap="wrap">
+  <Text wrap="hard">
     <Text>{props.prompt} </Text>
     {props.text}
     <Text inverse> </Text>
@@ -50,14 +50,15 @@ export interface ListCardProps {
   readonly childRows?: number;
 }
 
-/** The rows `text` wraps to in `width` columns less the card's padding; one without a width. */
+/** The rows `text` takes broken at `width` columns less the card's padding (Ink's `hard` wrap); one without a width. */
 export const wrappedRows = (text: string, width: number | undefined): number =>
   width === undefined ? 1 : Math.max(1, Math.ceil([...text].length / Math.max(1, width - 2)));
 
 /** A list: its title and hint, the rows around the cursor (a row's line under it counted), the footer. */
 export const ListCard = (props: ListCardProps) => {
-  const footer = props.footer ?? [];
-  const footerRows = footer.reduce((sum, line) => sum + wrappedRows(line.map((span) => span.text).join(""), props.width), 0);
+  // A footer line is word-wrapped here and each row drawn as it is, so the rows counted are the rows drawn.
+  const footer = (props.footer ?? []).flatMap((line) => (props.width === undefined ? [line] : wrap(line, Math.max(1, props.width - 2))));
+  const footerRows = footer.length;
   const room = Math.max(1, props.height - 1 - (props.lead !== undefined ? 1 : 0) - footerRows - (props.childRows ?? 0));
   const span = (row: PanelRow) => (row.under !== undefined ? 2 : 1);
   // The first row shown: enough before the cursor that it and the rows after it fit.
@@ -116,7 +117,7 @@ export const ListCard = (props: ListCardProps) => {
         );
       })}
       {footer.map((line, index) => (
-        <Text key={`footer-${index}`} wrap="wrap">
+        <Text key={`footer-${index}`} wrap="truncate-end">
           {line.map((span, at) => (
             <Styled key={at} span={span} />
           ))}

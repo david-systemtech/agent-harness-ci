@@ -2,7 +2,7 @@ import { Box, Text } from "ink";
 import { render } from "ink-testing-library";
 import { createElement } from "react";
 import { describe, expect, it } from "vitest";
-import { ListCard } from "./cards.js";
+import { ListCard, TypedLine, wrappedRows } from "./cards.js";
 import type { PanelRow } from "./panel.js";
 
 /** The list card keeps to the lines it is given, a wrapped footer and a typed line counted (PR review). */
@@ -24,6 +24,25 @@ describe("ListCard", () => {
     expect(frame).toContain("› row 11");
     expect(frame.replace(/\s+/g, " ")).toContain(sentence);
     expect(frame).toContain("typed ▌");
+    app.unmount();
+  });
+
+  it("counts a footer line by the rows it word-wraps to, not its characters over the width (PR review)", () => {
+    // Three 20-letter words in 38 columns: 62 characters, two rows by count, three as words wrap.
+    const words = ["a", "b", "c"].map((letter) => letter.repeat(20)).join(" ");
+    const app = render(createElement(Box, { width: 40, flexDirection: "column" }, createElement(ListCard, { title: "Mode", hint: "", rows, cursor: 11, height: 6, width: 40, footer: [[{ text: words }]] })));
+    const frame = app.lastFrame() ?? "";
+    expect(frame.split("\n").length).toBeLessThanOrEqual(6);
+    expect(frame).toContain("› row 11");
+    expect(frame).toContain("c".repeat(20));
+    app.unmount();
+  });
+
+  it("draws a line being typed in the rows wrappedRows counts for it (PR review)", () => {
+    const text = ["a", "b", "c"].map((letter) => letter.repeat(20)).join(" ");
+    const app = render(createElement(Box, { width: 40, flexDirection: "column", paddingX: 1 }, createElement(TypedLine, { prompt: "Value:", text })));
+    const frame = app.lastFrame() ?? "";
+    expect(frame.split("\n").length).toBe(wrappedRows(`Value: ${text} `, 40));
     app.unmount();
   });
 
