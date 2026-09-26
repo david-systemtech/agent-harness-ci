@@ -772,8 +772,13 @@ export const schemaFixtures: Record<string, Fixtures> = {
     valid: ["anywhere", "sidebar", "terminal", "asks", "confirm"],
     invalid: ["rail", "Anywhere", "", 1],
   },
+  "actions/action-condition.json": {
+    valid: ["composer.empty"],
+    invalid: ["composer", "empty", "composer.full", "", 1],
+  },
   "actions/action.json": {
     valid: [
+      { id: "composer.withdrawLast", context: "composer", keys: ["↑"], description: "Take the newest queued message back", status: "wired", when: "composer.empty" },
       { id: "rail.pin", context: "sidebar", keys: ["p"], description: "Pin it to the top of its folder", status: "wired" },
       { id: "permission.rule.edit", context: "permission", keys: ["e"], description: "Edit the rule", status: "absent", reason: "Rules are per session." },
       { id: "command.profile", context: "composer", keys: [], description: "Switch the account", usage: "/profile", aliasOf: "command.account", status: "wired" },
@@ -787,6 +792,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
       { id: "rail.pin", context: "sidebar", keys: ["p"], description: "", status: "wired" },
       { id: "command.help", context: "composer", keys: [], description: "Help", usage: "help", status: "wired" },
       { id: "rail.pin", context: "sidebar", keys: ["p"], description: "Pin it", status: "planned" },
+      { id: "composer.withdrawLast", context: "composer", keys: ["↑"], description: "Take it back", status: "wired", when: "composer.full" },
     ],
   },
   ...sessionSchemaFixtures,

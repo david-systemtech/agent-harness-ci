@@ -26,6 +26,7 @@ import {
   type Frame,
   Group,
   type HelloFrame,
+  type InterruptCause,
   type ModelUsage,
   type QueueHolder,
   type ResultOf,
@@ -53,8 +54,8 @@ import { scriptedPrompts, type ScriptedPrompts } from "./prompts.js";
  * (`prompts.ts`).
  */
 
-/** How a command is answered: accepted, or rejected with a reason (an error code) and a message. */
-export type ScriptedReceipt = "accepted" | { readonly rejected: string; readonly message?: string };
+/** How a command is answered: accepted, or rejected with a reason (an error code), a message and the error's data. */
+export type ScriptedReceipt = "accepted" | { readonly rejected: string; readonly message?: string; readonly data?: Readonly<Record<string, unknown>> };
 
 /** What discovery answers: ready, starting, or nothing at all (nothing listens). */
 export type ScriptedDiscovery = "ready" | "starting" | "nothing";
@@ -192,8 +193,21 @@ export interface EnvironmentHandle extends ScriptedPrompts {
   emit(sessionId: string, type: string, payload: Record<string, unknown>, change?: { readonly fields?: Partial<SessionSummary>; readonly patch?: SummaryPatch }): EventEnvelope;
   /** Starts a run as `runs.start` does: `message.sent` (a prompt) then `run.started`, the session running. */
   startRun(sessionId: string, text: string, attachments?: readonly AttachmentInput[]): { readonly runId: string; readonly messageId: string };
-  /** Ends a run: `run.ended` with `reason` (preset completed), the session idle. */
-  endRun(sessionId: string, runId: string, end?: { readonly reason?: RunEndReason; readonly usage?: readonly ModelUsage[] | null; readonly durationMs?: number }): void;
+  /**
+   * Ends a run as the environment does (ADR 0022): at an end other than
+   * `completed`, what the provider holds of the run comes back to the
+   * environment's queue (`message.requeued`) before `run.ended` (reason preset
+   * completed; an interrupt's cause preset `user`), the session idle; after
+   * any end but an interrupt, the run of the queue starts with what the
+   * environment holds, as the environment's `startFromQueue` does.
+   */
+  endRun(
+    sessionId: string,
+    runId: string,
+    end?: { readonly reason?: RunEndReason; readonly cause?: InterruptCause; readonly usage?: readonly ModelUsage[] | null; readonly durationMs?: number },
+  ): void;
+  /** The session's queue as the environment holds it now, in the order sent: what `message.sent` queued and nothing has read, steered, requeued away or withdrawn. */
+  queued(sessionId: string): readonly { readonly messageId: string; readonly runId: string; readonly text: string; readonly heldBy: QueueHolder }[];
   /** The run live on the session, as the environment knows it; undefined when none is. */
   liveRun(sessionId: string): string | undefined;
   /** What `accounts.usage` answers from now on, said with a `usage.updated` notice for each reading, as the environment says it. */
@@ -450,6 +464,33 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     else sessions[at] = summary;
   };
 
+  // Each session's queue, kept in step with what its log says (ADR 0022): a message queued by `message.sent`, its holder
+  // moved by `message.requeued`, and gone once a run reads it (`message.delivered`, a `run.started` carrying it) or it is
+  // withdrawn, when why it is gone is kept for the environment's `not_found`.
+  type Queued = { readonly messageId: string; readonly runId: string; readonly text: string; heldBy: QueueHolder };
+  const queues = new Map<string, Queued[]>();
+  const gone = new Map<string, string>();
+  const queueOf = (sessionId: string): Queued[] => {
+    let queue = queues.get(sessionId);
+    if (queue === undefined) queues.set(sessionId, (queue = []));
+    return queue;
+  };
+  const followQueue = (sessionId: string, type: string, payload: Record<string, unknown>) => {
+    const queue = queueOf(sessionId);
+    const drop = (ids: readonly unknown[], why: string) => {
+      for (const id of ids) gone.set(String(id), why);
+      queues.set(sessionId, queue.filter((message) => !ids.includes(message.messageId)));
+    };
+    if (type === "message.sent" && payload["delivery"] === "queued") {
+      queue.push({ messageId: String(payload["messageId"]), runId: String(payload["runId"]), text: String(payload["text"]), heldBy: (payload["heldBy"] as QueueHolder | null) ?? "environment" });
+    } else if (type === "message.requeued") {
+      const message = queue.find((m) => m.messageId === payload["messageId"]);
+      if (message) message.heldBy = "environment";
+    } else if (type === "message.withdrawn") drop([payload["messageId"]], "it was withdrawn already");
+    else if (type === "message.delivered") drop([payload["messageId"]], "a run has read it");
+    else if (type === "run.started") drop(payload["queuedMessageIds"] as readonly unknown[], "a run has read it");
+  };
+
   const emit: EnvironmentHandle["emit"] = (sessionId, type, payload, change = {}) => {
     const entry = eventTypeEntry(SESSION_STREAM_KIND, type);
     const checkedPayload = entry ? (entry.payload.parse(payload) as Record<string, unknown>) : payload;
@@ -478,6 +519,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
       metadata: patch ? { [LIST_PATCH_KEY]: patch } : {},
     };
     log.events.push(event);
+    followQueue(sessionId, type, checkedPayload);
     const own = sessionSubscriptions.get(sessionId);
     if (own) wire.server.send({ type: "event", subscription: own, sequence: at, event });
     if (listSubscription && (patch || isListEvent(SESSION_STREAM_KIND, type))) wire.server.send({ type: "event", subscription: listSubscription, sequence: at, event });
@@ -489,11 +531,12 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     attachments.map((a) => ({ kind: a.kind, name: a.name, mediaType: a.mediaType, size: Math.floor((a.data.length * 3) / 4) }));
   let runs = 0;
   const minted = (prefix: string) => `${prefix}-0000-4000-8000-${String(++runs).padStart(12, "0")}`;
-  const startRun: EnvironmentHandle["startRun"] = (sessionId, text, attachments) => {
+  /** Starts a run with a prompt, or (`text` null) a run of the queue carrying `queued`, as the environment starts one after a read-now. */
+  const beginRun = (sessionId: string, text: string | null, attachments: readonly AttachmentInput[] | undefined, queued: readonly string[]) => {
     const runId = minted("0199a100");
-    const messageId = minted("0199a200");
+    const messageId = text === null ? null : minted("0199a200");
     const summary = summaryNow(sessionId);
-    emit(sessionId, "message.sent", { runId, messageId, text, attachments: records(attachments), delivery: "prompt", heldBy: null, ceiling: "bypassPermissions" });
+    if (text !== null) emit(sessionId, "message.sent", { runId, messageId, text, attachments: records(attachments), delivery: "prompt", heldBy: null, ceiling: "bypassPermissions" });
     emit(
       sessionId,
       "run.started",
@@ -507,24 +550,35 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
         workspace: summary.workspace,
         origin: "client",
         promptMessageId: messageId,
-        queuedMessageIds: [],
+        queuedMessageIds: [...queued],
         resumedFrom: null,
         forkedFrom: null,
       },
       { fields: { activity: { state: "running", since: clock.now().toISOString() } } },
     );
+    for (const id of queued) emit(sessionId, "message.delivered", { runId, messageId: id, delivery: "prompt" });
     live.set(sessionId, runId);
     return { runId, messageId };
   };
+  const startRun: EnvironmentHandle["startRun"] = (sessionId, text, attachments) => {
+    const { runId, messageId } = beginRun(sessionId, text, attachments, []);
+    return { runId, messageId: messageId as string };
+  };
   const endRun: EnvironmentHandle["endRun"] = (sessionId, runId, end = {}) => {
     const reason = end.reason ?? "completed";
+    // The environment takes back what the provider holds of a run it did not see complete, in the transaction of its end.
+    if (reason !== "completed") {
+      for (const message of queueOf(sessionId).filter((m) => m.heldBy === "provider" && m.runId === runId)) {
+        emit(sessionId, "message.requeued", { runId, messageId: message.messageId });
+      }
+    }
     emit(
       sessionId,
       "run.ended",
       {
         runId,
         reason,
-        cause: reason === "interrupted" ? "user" : null,
+        cause: reason === "interrupted" ? (end.cause ?? "user") : null,
         error: reason === "error" ? { message: "The run failed.", code: null } : null,
         usage: end.usage ?? null,
         durationMs: end.durationMs ?? 1000,
@@ -534,6 +588,16 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
       { fields: { activity: { state: "idle", since: clock.now().toISOString() } } },
     );
     if (live.get(sessionId) === runId) live.delete(sessionId);
+    // The run of the queue: what the environment holds, read as the next run's prompt. After an interrupt nothing starts
+    // (a read-now starts its run itself), and what the provider holds is read by a turn the provider opens, not modelled here.
+    if (reason !== "interrupted") startFromQueue(sessionId);
+  };
+  /** The messages the environment holds for the session, in the order sent: what a run of the queue reads. */
+  const environmentHeld = (sessionId: string) => queueOf(sessionId).filter((m) => m.heldBy === "environment").map((m) => m.messageId);
+  /** Starts the run of the environment's queue, when it holds anything; the run's id, else undefined. */
+  const startFromQueue = (sessionId: string): string | undefined => {
+    const queued = environmentHeld(sessionId);
+    return queued.length === 0 ? undefined : beginRun(sessionId, null, undefined, queued).runId;
   };
 
   // Parked prompts and their answers (`test/prompts.ts`).
@@ -558,7 +622,11 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     if (scriptedReceipt === undefined || scriptedReceipt === "accepted") return undefined;
     const message = scriptedReceipt.message ?? `Rejected: ${scriptedReceipt.rejected}.`;
     const at = advance ? ++sequence : sequence;
-    return { result: { receipt: { status: "rejected", sequence: at, changed: false, reason: scriptedReceipt.rejected, error: { code: scriptedReceipt.rejected, message, data: {} } } } };
+    return {
+      result: {
+        receipt: { status: "rejected", sequence: at, changed: false, reason: scriptedReceipt.rejected, error: { code: scriptedReceipt.rejected, message, data: { ...scriptedReceipt.data } } },
+      },
+    };
   };
   const attachmentsOf = (params: Record<string, unknown>) => (params["attachments"] as readonly AttachmentInput[] | undefined) ?? [];
   wire.answer("runs.start", (params) => {
@@ -589,6 +657,50 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     if (sessionId === undefined) return acceptedWith({ runId, ended: true });
     endRun(sessionId, runId, { reason: "interrupted" });
     return acceptedWith({ runId, ended: false });
+  });
+  // Read now (ADR 0022): with a run live, it ends interrupted with cause read-now (its end hands back what the provider held),
+  // and the next run starts carrying the whole queue in order; with none live, the run of what the environment holds starts
+  // at once, and what the provider holds is left to the turn it opens; with nothing to read, nothing happens.
+  wire.answer("runs.readNow", (params) => {
+    const refused = rejection("runs.readNow");
+    if (refused) return refused;
+    const sessionId = String(params["sessionId"]);
+    const liveRun = live.get(sessionId);
+    if (liveRun === undefined) return acceptedWith({ sessionId, interruptedRunId: null, runId: startFromQueue(sessionId) ?? null });
+    if (queueOf(sessionId).length === 0) return acceptedWith({ sessionId, interruptedRunId: null, runId: null });
+    endRun(sessionId, liveRun, { reason: "interrupted", cause: "read-now" });
+    startFromQueue(sessionId);
+    return acceptedWith({ sessionId, interruptedRunId: liveRun, runId: null });
+  });
+  // Withdraw (ADR 0022): a queued message taken back, a provider's requeued first; its text goes to the draft, in place of
+  // an empty one, else after it on a paragraph of its own. One not queued, or one the provider holds with no run live (a
+  // turn it opens reads it), is not_found, in the environment's words.
+  const notFound = (messageId: string, why: string): FakeAnswer => ({
+    result: {
+      receipt: {
+        status: "rejected",
+        sequence: ++sequence,
+        changed: false,
+        reason: "not_found",
+        error: { code: "not_found", message: `No queued message ${messageId} is on this environment: ${why}.`, data: { kind: "message", messageId } },
+      },
+    },
+  });
+  wire.answer("runs.withdraw", (params) => {
+    const refused = rejection("runs.withdraw");
+    if (refused) return refused;
+    const messageId = String(params["messageId"]);
+    const found = [...queues.entries()].flatMap(([sessionId, queue]) => queue.filter((m) => m.messageId === messageId).map((m) => ({ sessionId, message: m })))[0];
+    if (found === undefined) return notFound(messageId, gone.get(messageId) ?? "it was never sent here, or its session was purged");
+    if (found.message.heldBy === "provider" && !live.has(found.sessionId)) return notFound(messageId, "the provider has read it");
+    const { sessionId, message } = found;
+    const heldBy = message.heldBy;
+    if (heldBy === "provider") emit(sessionId, "message.requeued", { runId: message.runId, messageId });
+    emit(sessionId, "message.withdrawn", { runId: message.runId, messageId, heldBy });
+    const before = summaryNow(sessionId).draft;
+    const draft = before === null || before.length === 0 ? message.text : `${before}\n\n${message.text}`;
+    emit(sessionId, "session.draft-set", { draft }, { fields: { draft } });
+    return acceptedWith({ messageId, sessionId, heldBy });
   });
   wire.answer("runs.stopTask", (params) => rejection("runs.stopTask") ?? acceptedWith({ runId: params["runId"], taskId: params["taskId"], ended: false }));
   wire.answer("sessions.setDraft", (params) => {
@@ -882,7 +994,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
           sequence: ++sequence,
           changed: false,
           reason: scriptedReceipt.rejected,
-          error: { code: scriptedReceipt.rejected, message, data: {} },
+          error: { code: scriptedReceipt.rejected, message, data: { ...scriptedReceipt.data } },
         },
       },
     };
@@ -919,6 +1031,8 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     "runs.start",
     "runs.send",
     "runs.interrupt",
+    "runs.readNow",
+    "runs.withdraw",
     "runs.stopTask",
     "sessions.setDraft",
     "sessions.create",
@@ -993,6 +1107,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     startRun,
     endRun,
     liveRun: (sessionId) => live.get(sessionId),
+    queued: (sessionId) => queueOf(sessionId).map((m) => ({ ...m })),
     setUsage,
     releaseSessions: () => held.splice(0).forEach((catchUp) => catchUp()),
     notice,

@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { ACTIONS, actionById, isActionId, isCommandId, type ActionContext, type KeyActionId } from "@agent-harness/contracts";
+import { ACTIONS, actionById, isActionId, isCommandId, keyClashes, type ActionCondition, type ActionContext, type KeyActionId } from "@agent-harness/contracts";
 
 /**
  * Keys as named actions (docs/specs/tui.md, "Shortcuts: the shared action
@@ -11,7 +11,10 @@ import { ACTIONS, actionById, isActionId, isCommandId, type ActionContext, type 
  * `--keybindings` names, remaps them: an object from action id to a list of
  * key names as the table writes them, read at launch and on `/reload`.
  * Components dispatch through the keymap in force (`dispatch`): a key is
- * looked up as an action in each context in play, never matched by hand.
+ * looked up as an action in each context in play, never matched by hand. An
+ * action the list declares a condition for (`composer.withdrawLast`, on an
+ * empty composer) is asked first for a key it shares with an unconditioned
+ * one, while the screen says its condition holds.
  */
 
 /** The list's default keys for every action pressed rather than typed. A move action's keys are up, then down. */
@@ -30,28 +33,36 @@ const MOVE_ACTIONS: ReadonlySet<KeyActionId> = new Set<KeyActionId>(["picker.mov
 /** An action's context as the shared list gives it; for an id it does not list, the part before the first dot. */
 export const contextOf = (id: string): string => actionById(id)?.context ?? id.slice(0, id.indexOf("."));
 
+/** The condition the list declares an action's keys are answered under; undefined for most. */
+export const conditionOf = (id: string): ActionCondition | undefined => actionById(id)?.when;
+
 export interface Keymap {
   readonly keys: Readonly<Record<KeyActionId, readonly string[]>>;
   /** The actions the file changed, which `/help` marks. */
   readonly remapped: ReadonlySet<KeyActionId>;
-  /** Which action holds each key in each context (`holderKey`): what `dispatch` looks a key up in. */
-  readonly holders: ReadonlyMap<string, KeyActionId>;
+  /**
+   * Which actions hold each key in each context (`holderKey`), the one with a
+   * condition first: what `dispatch` looks a key up in. The clash rule lets a
+   * key have at most one of each.
+   */
+  readonly holders: ReadonlyMap<string, readonly KeyActionId[]>;
 }
 
 const holderKey = (context: string, name: string) => `${context} ${name}`;
 
-/** Who holds each key in each context, and each clash: a key a second action claims in the same context. */
+/** Who holds each key in each context, and each clash the contracts' rule (`keyClashes`) finds, in words. */
 const holdersOf = (keys: Readonly<Record<KeyActionId, readonly string[]>>) => {
-  const holders = new Map<string, KeyActionId>();
-  const clashes: string[] = [];
+  const holders = new Map<string, KeyActionId[]>();
   for (const id of KEY_ACTION_IDS) {
-    const context = contextOf(id);
-    for (const name of keys[id]) {
-      const other = holders.get(holderKey(context, name));
-      if (other !== undefined && other !== id) clashes.push(`${name} is both ${other} and ${id} in ${context}`);
-      else holders.set(holderKey(context, name), id);
+    for (const name of new Set(keys[id])) {
+      const slot = holderKey(contextOf(id), name);
+      const held = holders.get(slot) ?? [];
+      holders.set(slot, conditionOf(id) === undefined ? [...held, id] : [id, ...held]);
     }
   }
+  const clashes = keyClashes(KEY_ACTION_IDS.map((id) => ({ id, context: contextOf(id), keys: keys[id], when: conditionOf(id) }))).map(
+    (clash) => `${clash.key} is both ${clash.ids[0]} and ${clash.ids[1]} in ${clash.context}`,
+  );
   return { holders, clashes };
 };
 
@@ -249,25 +260,38 @@ export const FIRST_ANYWHERE: ReadonlySet<KeyActionId> = new Set<KeyActionId>(["a
 /** A context to look a key up in: all of it, or only the actions `only` holds, or all but `except`'s. */
 export type Lookup = ActionContext | { readonly context: ActionContext; readonly only?: ReadonlySet<KeyActionId>; readonly except?: ReadonlySet<KeyActionId> };
 
+/** What `dispatch` knows of the screen beside the key itself. */
+export interface DispatchContext {
+  /** The press before this one: keys pressed in turn (`\ Enter`, `Esc Esc`) are looked up first in each context, as the two presses, and then the key alone. */
+  readonly previous?: string | undefined;
+  /** Whether a condition the list declares holds now; unsaid, none does. */
+  readonly holds?: (condition: ActionCondition) => boolean;
+}
+
 /**
  * Dispatches the key Ink heard through the action list: in each of
  * `lookups` in turn, the action the keymap in force gives that key in that
  * context, run when `handlers` answers it. True when a handler took the key.
- * `previous` is the press before this one: keys pressed in turn (`\ Enter`,
- * `Esc Esc`) are looked up first in each context, as the two presses, and
- * then the key alone.
+ * An action the list declares a condition for is asked only while `holds`
+ * says it holds, before the unconditioned action holding the same key,
+ * which gets the key when the condition does not hold or its handler
+ * declines.
  */
-export const dispatch = (keymap: Keymap, lookups: readonly Lookup[], handlers: Handlers, input: string, key: InkKey, previous?: string): boolean => {
+export const dispatch = (keymap: Keymap, lookups: readonly Lookup[], handlers: Handlers, input: string, key: InkKey, context: DispatchContext = {}): boolean => {
+  const { previous, holds = () => false } = context;
   const name = eventName(input, key);
   if (name === undefined) return false;
   const names = previous === undefined ? [name] : [`${previous} ${name}`, name];
   for (const lookup of lookups) {
     const { context, only, except } = typeof lookup === "string" ? { context: lookup, only: undefined, except: undefined } : lookup;
     for (const candidate of names) {
-      const id = keymap.holders.get(holderKey(context, candidate));
-      if (id === undefined || (only !== undefined && !only.has(id)) || except?.has(id) === true) continue;
-      const handler = handlers[id];
-      if (handler !== undefined && handler(candidate) !== false) return true;
+      for (const id of keymap.holders.get(holderKey(context, candidate)) ?? []) {
+        if ((only !== undefined && !only.has(id)) || except?.has(id) === true) continue;
+        const condition = conditionOf(id);
+        if (condition !== undefined && !holds(condition)) continue;
+        const handler = handlers[id];
+        if (handler !== undefined && handler(candidate) !== false) return true;
+      }
     }
   }
   return false;
@@ -320,7 +344,9 @@ const standing = (previous: Keymap) => (previous === DEFAULT_KEYMAP ? "the defau
  * reported (a command is typed, not pressed), an action left with no key or
  * a move action given other than two different keys (up, then down) keeping
  * its defaults, and a clash, one key given to two actions in one context of
- * the shared list, refusing the whole mapping with every clash named; then
+ * the shared list (beyond the one conditioned action the contracts' rule
+ * lets share a key with an unconditioned one), refusing the whole mapping
+ * with every clash named; then
  * `previous`, the map in force, stays (the defaults at launch).
  */
 export const resolveKeymap = (mapping: unknown, source = "keybindings.json", previous: Keymap = DEFAULT_KEYMAP): LoadedKeymap => {

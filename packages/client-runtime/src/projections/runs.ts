@@ -127,6 +127,8 @@ export interface SessionRunsView extends SessionRun {
   /** The latest rewind standing, and whether it can still be undone; null when none stands. */
   readonly rewound: RewoundAt | null;
   readonly verbs: SessionVerbs;
+  /** The queued message `verbs.withdraw` takes back: the newest a withdraw can reach, whatever the connection says; null when none is. */
+  readonly withdrawTarget: string | null;
 }
 
 /** `projections.runs`: every session's run state and the parked asks, and one session's queue, rewind and verbs. */
@@ -470,8 +472,8 @@ export const sessionRunsOf = ({ environmentId, sessionId, run, session, connecti
   const state = run ?? { state: "idle" as const, runId: null, since: null };
   const live = LIVE_STATES.has(state.state) || session.runs.some((summary) => summary.state === "running");
   const rewindable = session.items.some((item) => item.kind === "user-message" && item.delivery !== "queued");
-  const { queue, verbs } = sessionVerbs({ connection, adapter, live, queued: session.queued, rewound: session.rewound, rewindable, draft: session.draft });
-  return { environmentId, sessionId, state: state.state, runId: state.runId, since: state.since, queue, rewound: session.rewound, verbs };
+  const { queue, verbs, withdrawTarget } = sessionVerbs({ connection, adapter, live, queued: session.queued, rewound: session.rewound, rewindable, draft: session.draft });
+  return { environmentId, sessionId, state: state.state, runId: state.runId, since: state.since, queue, rewound: session.rewound, verbs, withdrawTarget };
 };
 
 export interface SessionRunsHost {

@@ -1,6 +1,6 @@
 import { Box, Text, useBoxMetrics, type DOMElement } from "ink";
 import { useEffect, useRef } from "react";
-import type { UserMessageEntry } from "@agent-harness/client-runtime";
+import type { QueuedMessage, VerbAvailability } from "@agent-harness/client-runtime";
 import type { DelegatedWorkRow } from "@agent-harness/contracts";
 import { oneLine } from "../transcript/format.js";
 import type { Line, Span } from "../transcript/lines.js";
@@ -147,25 +147,63 @@ export const DelegatedStrip = (props: { readonly tasks: readonly DelegatedWorkRo
   </Box>
 );
 
+/** A verb of the queued line: its keys in force, what it does, and whether it can be used now. */
+export interface QueueVerb {
+  readonly keys: string;
+  readonly words: string;
+  readonly availability: VerbAvailability;
+}
+
 /**
- * The queued line (ADR 0022): the messages sent during the live run and not
- * yet read, oldest first, each saying whether the provider is steering it
- * into the turn or it waits for the next run.
+ * The queued line (ADR 0022; #231): the session's queue from
+ * `projections.runs`, oldest first, each message with its attachments as
+ * chips and saying whether the provider is steering it into the turn or it
+ * waits for the next run; under it the verbs on the queue, read now and
+ * withdraw, in the keys in force: those that can be used now on one line,
+ * and each that cannot on a line of its own, dim with its reason, never
+ * hidden.
  */
-export const QueuedLine = (props: { readonly queued: readonly UserMessageEntry[]; readonly steers: boolean }) => (
-  <Box flexDirection="column" flexShrink={0}>
-    {props.queued.map((message) => {
-      const steering = props.steers && message.heldBy === "provider";
-      return (
-        <Text key={message.messageId} wrap="truncate-end">
-          <Text color={steering ? "cyan" : "yellow"}>{steering ? "  ↳ steering " : "  ⧗ queued "}</Text>
-          <Text dimColor>{oneLine(message.text, 200)}</Text>
-          {message.attachments.length > 0 && <Text dimColor> · {message.attachments.length} attached</Text>}
+export const QueuedLine = (props: { readonly queue: readonly QueuedMessage[]; readonly steers: boolean; readonly verbs: readonly QueueVerb[] }) => {
+  if (props.queue.length === 0) return null;
+  const present = props.verbs.filter((verb) => verb.availability.status === "present");
+  const absent = props.verbs.flatMap((verb) => (verb.availability.status === "absent" ? [{ ...verb, reason: verb.availability.message }] : []));
+  return (
+    <Box flexDirection="column" flexShrink={0}>
+      {props.queue.map((message) => {
+        const steering = props.steers && message.heldBy === "provider";
+        return (
+          <Text key={message.messageId} wrap="truncate-end">
+            <Text color={steering ? "cyan" : "yellow"}>{steering ? "  ↳ steering " : "  ⧗ queued "}</Text>
+            <Text dimColor>{oneLine(message.text, 200)}</Text>
+            {message.attachments.map((name, index) => (
+              <Text key={index} dimColor>
+                {" "}[{name}]
+              </Text>
+            ))}
+          </Text>
+        );
+      })}
+      {present.length > 0 && (
+        <Text>
+          {"  "}
+          {present.map((verb, index) => (
+            <Text key={verb.words}>
+              {index > 0 && <Text dimColor> · </Text>}
+              <Text color="cyan">{verb.keys}</Text>
+              <Text dimColor> {verb.words}</Text>
+            </Text>
+          ))}
         </Text>
-      );
-    })}
-  </Box>
-);
+      )}
+      {absent.map((verb) => (
+        <Text key={verb.words} dimColor>
+          {"  "}
+          {verb.keys} {verb.words} ({verb.reason})
+        </Text>
+      ))}
+    </Box>
+  );
+};
 
 /**
  * A card of lines scrolled from the top: the pager over the whole
