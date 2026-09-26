@@ -128,6 +128,8 @@ export const usePickers = (host: PickersHost): Pickers => {
   const [forks, setForks] = useState<ReadonlyMap<string, string>>(new Map());
   // The lines a card of lines drew last: what its scroll is clamped to.
   const drawn = useRef({ lines: 0, height: 1 });
+  // The mode each session was last asked for, until its answer lands: what a step taken before then steps on from.
+  const asked = useRef(new Map<string, Mode>());
 
   const environmentOf = (environmentId: string): EnvironmentView | undefined => views.find((v) => v.environmentId === environmentId);
   const nameFor = (environmentId: string): string => {
@@ -284,7 +286,9 @@ export const usePickers = (host: PickersHost): Pickers => {
 
   const setMode = (target: Opened, mode: Mode) => {
     const name = sessionName();
+    asked.current.set(keyOf(target), mode);
     void runtime.commands.dispatch(target.environmentId, "permissions.mode.set", { sessionId: target.sessionId, mode }).then((answer) => {
+      if (asked.current.get(keyOf(target)) === mode) asked.current.delete(keyOf(target));
       if (!answer.ok) return host.say(`The mode was not set: ${answer.error.message}`);
       const resolved = answer.result?.mode;
       if (!resolved) return host.say(`Mode: ${mode}.`);
@@ -521,7 +525,7 @@ export const usePickers = (host: PickersHost): Pickers => {
       const picker = runtime.projections.modes(opened.environmentId).read();
       const allowed = picker.modes.filter((m) => m.allowed).map((m) => m.mode);
       if (allowed.length === 0) return host.say("This connection's ceiling is not known yet: no mode can be chosen.");
-      const now = projection?.summary?.mode ?? lowerMode("acceptEdits", picker.ceiling ?? "acceptEdits");
+      const now = asked.current.get(keyOf(opened)) ?? projection?.summary?.mode ?? lowerMode("acceptEdits", picker.ceiling ?? "acceptEdits");
       const next = allowed.find((mode) => compareModes(mode, now) > 0) ?? (allowed[0] as Mode);
       setMode(opened, next);
     },

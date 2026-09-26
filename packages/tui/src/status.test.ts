@@ -1,4 +1,5 @@
 import type { AccountUsage } from "@agent-harness/contracts";
+import type { FakeAnswer } from "@agent-harness/client-runtime/testing/fake-wire";
 import { afterEach, describe, expect, it } from "vitest";
 import { KEY, renderApp, type RenderedApp, type ScriptedEnvironment } from "../test/harness.js";
 
@@ -194,6 +195,35 @@ describe("Shift+Tab", () => {
     const runs = () => app.runtime().projections.session(env.environmentId, SESSION).read().runs;
     await app.waitUntil(() => runs().length === 1, "the run");
     expect(runs()[0]?.mode).toEqual({ requested: "plan", effective: "plan", clamped: false });
+  });
+
+  it("steps on from the mode it asked for while the environment has not answered yet", async () => {
+    const { app, env } = await opened([desk({ sessions: [{ title: "Receipts", accountId: "account-1", mode: "acceptEdits" }], hello: { ceiling: "auto" } })]);
+    await app.waitFor("⏵⏵ accept edits");
+    // Each answer held, then given as the environment gives it: the mode's event, then the accepted receipt.
+    const held: (() => void)[] = [];
+    env.wire.answer(
+      "permissions.mode.set",
+      (params) =>
+        new Promise<FakeAnswer>((resolve) =>
+          held.push(() => {
+            const sessionId = String(params["sessionId"]);
+            const asked = params["mode"] as "plan" | "acceptEdits" | "auto";
+            const mode = { requested: asked, effective: asked, ceiling: "auto", clamped: false, clampReason: null };
+            const { sequence } = env.emit(sessionId, "session.mode.set", { mode, live: null }, { fields: { mode: asked } });
+            resolve({ result: { receipt: { status: "accepted", sequence, changed: true }, result: { sessionId, mode, live: null } } });
+          }),
+        ),
+    );
+    await app.press(KEY.shiftTab);
+    await app.press(KEY.shiftTab);
+    // Both presses land before the first answer does; the answers are then given as each command reaches the environment.
+    for (let answered = 0; answered < 2; answered++) {
+      await app.waitUntil(() => held.length === 1, "a step on the wire");
+      held.splice(0).forEach((answer) => answer());
+    }
+    expect(env.requests("permissions.mode.set").map((request) => (request.params as { readonly mode: string }).mode)).toEqual(["auto", "plan"]);
+    await app.waitFor("⏸ plan");
   });
 
   it("shows the bypass sentence when the step lands on bypassPermissions", async () => {
