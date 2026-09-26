@@ -998,7 +998,7 @@ export const App = (props: AppProps) => {
     return true;
   };
 
-  // A page asked for (a file, a diff): only the last one asked opens, so a slow answer never covers a later one.
+  // A page asked for (a file, a diff): only the last one asked opens or says why not, so a slow answer never covers a later one.
   const pages = useRef(0);
   const showPage = (loading: string, make: () => Promise<Paged>, back: Card, directory?: () => void) => {
     const asked = ++pages.current;
@@ -1009,7 +1009,9 @@ export const App = (props: AppProps) => {
         if (!paged.ok) return paged.directory === true && directory ? (update({ line: undefined }), directory()) : say(paged.line);
         setScreen((s) => ({ ...s, line: paged.note, card: { kind: "page", title: paged.page.title, lines: paged.page.lines, top: 0, query: "", typing: false, back } }));
       },
-      (error: unknown) => say(messageOf(error)),
+      (error: unknown) => {
+        if (pages.current === asked && !quit.signal.aborted) say(messageOf(error));
+      },
     );
   };
   const diffFilter = (columns: number) => (props.diffFilter ?? systemDiffFilter)(columns);

@@ -174,6 +174,20 @@ describe("/diff", () => {
     expect(piped[0]).toContain("+export const app = 1;");
   });
 
+  it("says nothing of a diff that fails after a later page was asked for, which stays open with its own line", async () => {
+    let fail: (error: Error) => void = () => undefined;
+    const filter = { label: "delta", run: () => new Promise<never>((_, reject) => (fail = reject)) };
+    const { app } = await launch({ sessionDiff: { files: [APP_DIFF] } }, { diffFilter: filter });
+    await command(app, "/diff");
+    await app.waitFor("Reading the diff, through delta…");
+    await command(app, "/files README.md");
+    await app.waitFor("Reads receipts.");
+    fail(new Error("delta crashed."));
+    await app.tick(5);
+    expect(app.frame()).not.toContain("delta crashed.");
+    expect(app.frame()).toContain("Reads receipts.");
+  });
+
   it("says why the working tree has no diff: git refused the repository's filters", async () => {
     const { app } = await launch({ workingTree: { refused: "git_filters_refused", message: "The repository names a clean filter (lfs)." } });
     await command(app, "/diff");
