@@ -40,11 +40,15 @@ import { createFrameScheduler } from "./frames.js";
 import { helpLines } from "./help.js";
 import { FIRST_ANYWHERE, conditionOf, direction, dispatch, eventName, keysText, type Handler, type InkKey, type Keymap, type LoadedKeymap, type Lookup } from "./keys.js";
 import type { LocalService } from "./platform/services.js";
+import { inMemoryPresentation, type Presentation } from "./presentation.js";
+import { PickerCard, erasedFrom, movedBy, printableText, rowAt, typedInto, type Picker } from "./rail/picker.js";
+import { RAIL_WIDTH, RailView } from "./rail/rail.js";
+import { useRail } from "./rail/use-rail.js";
 import type { RuntimeHost } from "./runtime-host.js";
 import { AsksCard } from "./screens/asks-card.js";
 import { ClientSessionsCard, EnvironmentMenu, EnvironmentsCard, HelpCard, MintedCard } from "./screens/cards.js";
 import { ComposerView } from "./screens/composer.js";
-import { Header, HintLine, Line, PairingPrompt, RAIL_MIN_COLUMNS, RAIL_WIDTH, Rail } from "./screens/layout.js";
+import { Header, HintLine, Line, PairingPrompt, RAIL_MIN_COLUMNS } from "./screens/layout.js";
 import { SessionsCard, SnippetsCard } from "./screens/lists.js";
 import { PromptCard } from "./screens/prompt-card.js";
 import { DelegatedStrip, LinesCard, QueuedLine, TranscriptView, maxOffset, offsetShowing, type QueueVerb } from "./screens/transcript.js";
@@ -160,6 +164,8 @@ export interface AppProps {
   readonly editText?: (text: string) => Promise<ExternalEditResult>;
   /** The terminal's title and bell (the attention seam): preset none, so nothing is written; `runTui` hands in the terminal's. */
   readonly chrome?: TerminalChrome;
+  /** The client-local presentation (the rail's folds): the state directory's; preset, held in memory. */
+  readonly presentation?: Presentation;
 }
 
 type Card =
@@ -175,6 +181,8 @@ type Card =
       readonly listing: number;
     }
   | { readonly kind: "minted"; readonly lines: MintedLines }
+  /** A rail's picker: snooze, tag, group, search, restore, or a step of starting a session. */
+  | { readonly kind: "picker"; readonly picker: Picker }
   /** The help overlay: the effective map, scrolled to `top`, over `under`, the card it goes back to when it closes. */
   | { readonly kind: "help"; readonly top: number; readonly under: Card }
   /** The pager (Ctrl+O): the whole transcript unfolded, from `top` (null: the end), with a search. */
@@ -358,11 +366,13 @@ export const App = (props: AppProps) => {
     setSending((all) => (all.some((send) => heard(send, items)) ? all.filter((send) => !heard(send, items)) : all));
   }, [projection, sending]);
 
-  // The stops Tab walks that come and go: the rail, dropped on a narrow terminal or with nothing to list; the delegated
-  // strip and the terminal pane are not stops in this build. A rail that goes takes the focus back to the composer.
-  const railDrawn = size.columns >= RAIL_MIN_COLUMNS && views.length > 0;
-  const stops = { sidebar: railDrawn, delegated: false, terminal: false };
-  const focused: Focus = focus === "sidebar" && !railDrawn ? "composer" : focus;
+  // The stops Tab walks that come and go: the rail, with nothing to list; the delegated strip and the terminal pane are
+  // not drawn by this build. Under 100 columns the rail is not drawn beside the pane: with the focus it is drawn in the
+  // pane's place, the picker that stands in for it. A rail that goes takes the focus back to the composer.
+  const railListed = views.length > 0;
+  const railDrawn = size.columns >= RAIL_MIN_COLUMNS && railListed;
+  const stops = { sidebar: railListed, delegated: false, terminal: false };
+  const focused: Focus = focus === "sidebar" && !railListed ? "composer" : focus;
   useEffect(() => {
     if (focus !== focused) setFocus(focused);
   }, [focus, focused]);
@@ -895,6 +905,9 @@ export const App = (props: AppProps) => {
           );
         return true;
       }
+      case "rail":
+        rail.run(command.command);
+        return true;
       case "resume":
         update({ card: { kind: "sessions", cursor: 0, filter: "" } });
         return true;
@@ -982,6 +995,27 @@ export const App = (props: AppProps) => {
 
   const viewOf = (environmentId: string): EnvironmentView | undefined => views.find((v) => v.environmentId === environmentId);
 
+  const presentation = useMemo(() => props.presentation ?? inMemoryPresentation(), [props.presentation]);
+  const rail = useRail({
+    runtime,
+    views,
+    keymap,
+    presentation,
+    startingService,
+    current,
+    workspace: props.flags.workspace,
+    // The slash forms act on the open session first.
+    inHand: opened ?? undefined,
+    ...(props.newSessionId && { newId: props.newSessionId }),
+    say,
+    ask: (asked) => update({ question: asked }),
+    asked: screen.question !== undefined,
+    open: (picker) => update({ card: { kind: "picker", picker } }),
+    openSession: (target) => open(target),
+    focus: () => setFocus("sidebar"),
+    leave: () => setFocus("composer"),
+  });
+
   // A connection's menu or client sessions whose environment is gone (removed meanwhile) gives way to the list of environments.
   const shownEnvironment = screen.card.kind === "menu" || screen.card.kind === "client-sessions" ? screen.card.environmentId : undefined;
   const shownGone = shownEnvironment !== undefined && !views.some((v) => v.environmentId === shownEnvironment);
@@ -1014,6 +1048,16 @@ export const App = (props: AppProps) => {
 
   const choose = (card: Card) => {
     if (card.kind === "panel") return pickers.choose(card.panel);
+    if (card.kind === "picker") {
+      const row = rowAt(card.picker);
+      if (!row) return;
+      if (row.absent !== undefined) return say(`${row.text}: ${row.absent}.`);
+      // A step on opens the next picker, which goes back to this one as it stands, the choice highlighted; a row
+      // that is done closes the card.
+      const next = row.choose?.();
+      const stepped = next && next.back !== undefined ? { ...next, back: card.picker } : next;
+      return setScreen((s) => (s.card === card ? { ...s, card: stepped ? { kind: "picker", picker: stepped } : { kind: "none" } } : s));
+    }
     if (card.kind === "environments") {
       const chosen = views[clampCursor(card.cursor, views.length)];
       if (chosen) update({ card: { kind: "menu", environmentId: chosen.environmentId, cursor: 0 } });
@@ -1084,6 +1128,10 @@ export const App = (props: AppProps) => {
         const to = pickers.back(card.panel);
         return to ? { kind: "panel", panel: to } : { kind: "none" };
       }
+      case "picker":
+        // The query first, then a step back, then the card closes.
+        if (card.picker.typed && card.picker.query !== "") return { kind: "picker", picker: { ...card.picker, query: "", cursor: 0 } };
+        return card.picker.back ? { kind: "picker", picker: card.picker.back } : { kind: "none" };
       default:
         return { kind: "none" };
     }
@@ -1105,6 +1153,8 @@ export const App = (props: AppProps) => {
         return snippetRows().length;
       case "panel":
         return pickers.rows(card.panel);
+      case "picker":
+        return card.picker.rows(card.picker.query).length;
       default:
         return 0;
     }
@@ -1189,7 +1239,13 @@ export const App = (props: AppProps) => {
     lastPress.current = name ?? (input.length > 0 && !key.ctrl && !key.meta ? [...input].at(-1) : undefined);
     const linesPanel = card.kind === "panel" && pickers.isLines(card.panel);
     const listCard =
-      card.kind === "environments" || card.kind === "menu" || card.kind === "client-sessions" || card.kind === "sessions" || card.kind === "snippets" || (card.kind === "panel" && !linesPanel);
+      card.kind === "environments" ||
+      card.kind === "menu" ||
+      card.kind === "client-sessions" ||
+      card.kind === "sessions" ||
+      card.kind === "snippets" ||
+      card.kind === "picker" ||
+      (card.kind === "panel" && !linesPanel);
     // A list, the help overlay, the pager and the lines cards have the keys whatever has the focus; the focus has them back when it closes.
     const cardHasKeys = listCard || linesPanel || card.kind === "help" || card.kind === "pager" || card.kind === "lines" || card.kind === "asks" || promptShown;
     const composerHasKeys = focused === "composer" && !cardHasKeys;
@@ -1207,8 +1263,10 @@ export const App = (props: AppProps) => {
       if (card.kind === "help" || card.kind === "lines" || linesPanel) return scroll((top) => top + step);
       if (!listCard) return false;
       if (card.kind === "panel") return update({ card: { kind: "panel", panel: pickers.move(card.panel, step) } });
-      // A list typed at takes letters into its filter: k and j are letters there.
-      if (action === "picker.moveVi" && card.kind === "sessions") return false;
+      // A list typed at takes letters into its filter or query: k and j are letters there. A typed picker's letters
+      // never reach here (its intake runs before any lookup, below), so the decline states the rule as the sessions one does.
+      if (action === "picker.moveVi" && (card.kind === "sessions" || (card.kind === "picker" && card.picker.typed))) return false;
+      if (card.kind === "picker") return update({ card: { kind: "picker", picker: movedBy(card.picker, step) } });
       update({ card: { ...card, cursor: clampCursor(card.cursor + step, rowsOf(card)) } });
     };
     const onRow = (): Row | undefined => (transcriptFocused ? cursorRow : undefined);
@@ -1217,8 +1275,8 @@ export const App = (props: AppProps) => {
       ...composer.handlers,
       "app.mode.step": () => pickers.stepMode(),
       "app.handoff": () => pickers.run({ name: "handoff", argument: "" }),
+      ...rail.handlers,
       "app.focus.next": () => (card.kind === "none" ? setFocus(nextFocus(focused, stops)) : false),
-      "rail.leave": () => setFocus("composer"),
       "row.leave": () => {
         setView((v) => ({ ...v, cursor: null }));
         setFocus("composer");
@@ -1373,6 +1431,9 @@ export const App = (props: AppProps) => {
       "composer.readNow": () => readNow(),
       "composer.withdrawLast": () => withdrawLast(),
     };
+    // The quit and the jump to what needs you, which nothing may take, are looked up first: before a line or a list typed at
+    // takes the text, so neither is typed in when remapped to a printable key.
+    if (dispatch(keymap, [{ context: "anywhere", only: FIRST_ANYWHERE }], handlers, input, key, { previous })) return;
     // A card taking a line has the text typed at it: Enter is its choice, Esc its way back, Backspace rubs one out; any
     // other key (Ctrl+C) is looked up as ever.
     if (card.kind === "panel" && pickers.takesText(card.panel) && !screen.question) {
@@ -1404,14 +1465,25 @@ export const App = (props: AppProps) => {
       if (input !== "" && !key.ctrl && !key.meta) return update({ card: { ...card, query: card.query + input } });
       return;
     }
-    // Where a key is looked up, in order: the quit and the jump to what needs you, which nothing may take; a
+    // Where a key is looked up, in order: the quit and the jump to what needs you, which nothing may take (above); a
     // question just asked (a removal or a revoke the card asks to confirm, a re-pair), which has the keys until it
     // is answered; the open card; unless a card has the keys, what has the focus and then the standing
     // service-down offer; the rest of what is answered anywhere. Neither question is looked up while its
     // letters are being typed into the composer. So a card's Esc or `n` is the card's, never the offer's answer,
     // and never an interrupt.
     const typing = composerHasKeys && composerText !== "";
-    const lookups: Lookup[] = [{ context: "anywhere", only: FIRST_ANYWHERE }];
+    // A list typed at (a typed picker, the rail's filter) takes text before any other key is looked up: its letters are
+    // `picker.filter` and the filter's, never a letter-keyed action or a question's answer, while no question was just asked.
+    const text = printableText(input, key);
+    if (!screen.question) {
+      if (card.kind === "picker" && card.picker.typed && (text !== undefined || key.backspace || key.delete)) {
+        return setScreen((s) =>
+          s.card.kind === "picker" ? { ...s, card: { kind: "picker", picker: text !== undefined ? typedInto(s.card.picker, text) : erasedFrom(s.card.picker) } } : s,
+        );
+      }
+      if (!cardHasKeys && focused === "sidebar" && text !== undefined && rail.type(text)) return;
+    }
+    const lookups: Lookup[] = [];
     if (screen.question && !typing) lookups.push("confirm");
     if (card.kind === "asks") lookups.push("asks");
     else if (card.kind === "help" || card.kind === "pager" || card.kind === "lines" || linesPanel) lookups.push("pager", "picker");
@@ -1425,8 +1497,8 @@ export const App = (props: AppProps) => {
     }
     lookups.push({ context: "anywhere", except: FIRST_ANYWHERE });
     // The one condition the list declares (`composer.withdrawLast`'s): the composer is empty, nothing typed, nothing attached
-    // and no search of the history open, and it has the keys: a card taking a line (a label, a code, a value) is never an
-    // empty composer, so ↑ there is never a withdraw (#147).
+    // and no search of the history open. It holds only while the composer has the keys: a typed picker, a list, the rail
+    // (its filter included) or a card taking a line (a label, a code, a value) having them, `↑` is theirs, never a withdraw.
     const composerEmpty = composerHasKeys && composerText === "" && composer.state.attached.length === 0 && composer.state.search === null;
     if (dispatch(keymap, lookups, handlers, input, key, { previous, holds: (condition) => condition === "composer.empty" && composerEmpty })) return;
     // `/resume`'s list is typed at: letters filter it, Backspace rubs one out.
@@ -1458,6 +1530,12 @@ export const App = (props: AppProps) => {
   // The help overlay takes the width, as Artemis's did.
   const showRail = railDrawn && card.kind !== "help";
   const cardHasKeys = (card.kind !== "none" && card.kind !== "minted") || promptShown;
+  // Under 100 columns the rail, with the focus, is drawn in the pane's place (the transcript gives way to it): the picker
+  // that stands in for it.
+  const railInPane = !railDrawn && railListed && focused === "sidebar" && card.kind === "none" && !promptShown;
+  // The rows the rail and a picker have: the frame less the header and the six lines under the pane (the two lines, the
+  // composer, the status line's two and the activity line).
+  const paneRows = Math.max(1, size.rows - 7);
   const listHint = (verb: string, leave: string) => `${keys("picker.move")} move · ${keys("picker.choose")} ${verb} · ${keys("picker.leave")} ${leave}`;
   /** The permission card's legend: the keys the card answers, in the map in force; the note's line takes Enter, Tab and Esc as they are. */
   const cardHint = (kind: PromptKind, lineOpen: boolean): string => {
@@ -1486,11 +1564,14 @@ export const App = (props: AppProps) => {
           ? `The card has the keys · ${keys("picker.leave")} closes it`
           : card.kind === "menu" || card.kind === "client-sessions"
             ? `The card has the keys · ${keys("picker.leave")} goes back`
-            : focused === "sidebar"
-              ? `The rail has the keys · ${keys("rail.leave")} back to the composer · ${keys("app.focus.next")} next`
-              : focused === "transcript"
-                ? `The transcript has the keys · ${keys("transcript.cursor")} rows · ${keys("row.unfold")} unfold · ${keys("row.recall")} recall · ${keys("row.stop")} stop · ${keys("row.leave")} back to the composer`
-                : undefined;
+            : card.kind === "picker"
+              ? `The card has the keys · ${keys("picker.leave")} ${card.picker.back ? "goes back" : "closes it"}`
+              : focused === "sidebar"
+                ? // What the keys do at the cursor gives way to a notice, as the composer's own hint does.
+                  `The rail has the keys · ${keys("rail.leave")} ${rail.filter !== null ? "clears the filter" : `back to the composer · ${keys("app.focus.next")} next`}${rail.hint !== undefined && activity === undefined ? ` · ${rail.hint}` : ""}`
+                : focused === "transcript"
+                  ? `The transcript has the keys · ${keys("transcript.cursor")} rows · ${keys("row.unfold")} unfold · ${keys("row.recall")} recall · ${keys("row.stop")} stop · ${keys("row.leave")} back to the composer`
+                  : undefined;
   const own = menuView ? (runtime.connections.list.read().find((r) => r.environmentId === menuView.environmentId)?.clientSessionId ?? null) : null;
   const freshness = projection?.freshness;
   const marker =
@@ -1518,7 +1599,9 @@ export const App = (props: AppProps) => {
         workspace={projection?.summary ? `${projection.summary.title} · ${projection.summary.workspace.path}` : props.flags.workspace}
       />
       <Box flexGrow={1} flexDirection="row" overflow="hidden">
-        {showRail && <Rail views={views} startingService={startingService} focused={focused === "sidebar" && !cardHasKeys} />}
+        {showRail && (
+          <RailView lines={rail.lines} cursor={rail.cursor} focused={focused === "sidebar" && !cardHasKeys} filter={rail.filter} height={paneRows} width={RAIL_WIDTH} />
+        )}
         <Box flexGrow={1} flexDirection="column" overflow="hidden">
           {card.kind === "environments" && <EnvironmentsCard views={views} cursor={clampCursor(card.cursor, views.length)} hint={listHint("actions", "close")} />}
           {card.kind === "menu" && menuView && <EnvironmentMenu view={menuView} actions={actionsFor(menuView)} cursor={card.cursor} hint={listHint("choose", "back")} />}
@@ -1526,6 +1609,17 @@ export const App = (props: AppProps) => {
             <ClientSessionsCard view={menuView} rows={card.rows} own={own} cursor={clampCursor(card.cursor, card.rows?.length ?? 0)} hint={listHint("revoke", "back")} />
           )}
           {card.kind === "minted" && <MintedCard lines={card.lines} hint={`${keys("picker.leave")} closes`} />}
+          {card.kind === "picker" && (
+            <PickerCard
+              picker={card.picker}
+              height={paneRows}
+              onChange={scheduler.request}
+              hint={`${keys("picker.move")} move · ${keys("picker.choose")} choose · ${keys("picker.leave")} ${card.picker.back ? "back" : "close"}`}
+            />
+          )}
+          {railInPane && (
+            <RailView lines={rail.lines} cursor={rail.cursor} focused filter={rail.filter} height={paneRows} title={{ text: "Sessions", hint: `the rail, drawn here under ${RAIL_MIN_COLUMNS} columns` }} />
+          )}
           {card.kind === "help" && (
             <HelpCard
               lines={help}
@@ -1584,7 +1678,7 @@ export const App = (props: AppProps) => {
               }}
             />
           )}
-          {card.kind === "none" && opened && (
+          {card.kind === "none" && opened && !railInPane && (
             <TranscriptView
               lines={lines}
               offset={Math.min(view.offset, maxOffset(lines, height))}
@@ -1595,8 +1689,8 @@ export const App = (props: AppProps) => {
               follow={`${keys("transcript.follow")} follows`}
             />
           )}
-          {card.kind === "none" && opened && <DelegatedStrip tasks={tasks} />}
-          {card.kind === "none" && opened && <QueuedLine queue={queue} steers={steers} verbs={queueVerbs} />}
+          {card.kind === "none" && opened && !railInPane && <DelegatedStrip tasks={tasks} />}
+          {card.kind === "none" && opened && !railInPane && <QueuedLine queue={queue} steers={steers} verbs={queueVerbs} />}
           {promptShown && (
             <PromptCard
               prompt={shownPrompt.prompt}
@@ -1611,9 +1705,9 @@ export const App = (props: AppProps) => {
               absent={shownPrompt.prompt.kind === "permission" || shownPrompt.prompt.kind === "denylist" ? `${keys("permission.rule.edit")} ${keys("permission.scope.walk")}: rules are per session on the harness` : undefined}
             />
           )}
-          {card.kind === "none" && !opened && started && known.length === 0 && <PairingPrompt />}
-          {card.kind === "none" && !opened && !started && <Text dimColor> Connecting…</Text>}
-          {card.kind === "none" && !opened && started && known.length > 0 && <Text dimColor> No session is open.</Text>}
+          {card.kind === "none" && !opened && !railInPane && started && known.length === 0 && <PairingPrompt />}
+          {card.kind === "none" && !opened && !railInPane && !started && <Text dimColor> Connecting…</Text>}
+          {card.kind === "none" && !opened && !railInPane && started && known.length > 0 && <Text dimColor> No session is open.</Text>}
         </Box>
       </Box>
       <Line text={screen.line} />

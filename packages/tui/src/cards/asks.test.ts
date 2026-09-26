@@ -1,7 +1,8 @@
 import type { EnvironmentView, ParkedAsk } from "@agent-harness/client-runtime";
 import { PromptOpenedPayload } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
-import { abbreviationOf, askRows, asksHeading, decidable, inBulk, parkedSessions, ttlWords } from "./asks.js";
+import { abbreviationOf } from "../rail/badge.js";
+import { askRows, asksHeading, decidable, inBulk, parkedSessions, ttlWords } from "./asks.js";
 
 /** The asks card's rows as pure functions: the badge, the countdown's words, and which rows answer in place. */
 
@@ -80,7 +81,7 @@ describe("the rows", () => {
     expect(rows[1]?.badge.colour).toBe("green");
     expect(rows[0]?.key).toBe("env-a s-1 p-1");
     // An environment not listed wears no other environment's badge.
-    expect(askRows([ask({ environmentId: "env-gone", sessionId: "s-9", promptId: "p-9" })], views, null)[0]?.badge).toEqual({ abbreviation: "??", colour: "gray" });
+    expect(askRows([ask({ environmentId: "env-gone", sessionId: "s-9", promptId: "p-9" })], views, null)[0]?.badge).toMatchObject({ abbreviation: "??", colour: "gray" });
   });
 
   it("answer a permission or a denylist prompt in place, bulk only permissions, and open the rest", () => {

@@ -235,11 +235,16 @@ describe("focus", () => {
     await app.waitFor(COMPOSER_HINT);
   });
 
-  it("steps over the rail on a terminal too narrow to draw it", async () => {
+  it("on a terminal too narrow to draw the rail beside the pane, brings it up in the pane's place (#145)", async () => {
     const app = await launch({ ...DESK, size: { columns: 80, rows: 30 } });
     await app.waitFor("● desk ready");
+    expect(app.frame()).not.toContain("Sessions");
+    await app.press(KEY.tab);
+    await app.waitFor(RAIL_HINT);
+    expect(app.frame()).toContain("Sessions");
     await app.press(KEY.tab);
     await app.waitFor(TRANSCRIPT_HINT);
+    expect(app.frame()).not.toContain("Sessions");
     await app.press(KEY.tab);
     await app.waitFor(COMPOSER_HINT);
   });
@@ -250,7 +255,8 @@ describe("focus", () => {
     await app.type("draft");
     await app.press(KEY.tab);
     await app.waitFor(RAIL_HINT);
-    await app.press("a", "p", "/", KEY.backspace, KEY.enter, KEY.up);
+    // The rail's own keys act on the rail (#145: Enter there starts a session on the heading, so it is left out here).
+    await app.press("a", "p", "/", "x", KEY.backspace, KEY.backspace, KEY.up);
     expect(app.frame()).toContain("› draft");
     expect(app.frame()).not.toContain("There is no session open to send to.");
     await app.press(KEY.tab);

@@ -1,6 +1,7 @@
 import type { PairingInput } from "@agent-harness/client-runtime";
 import { actionById, isCommandId } from "@agent-harness/contracts";
 import { PICKER_COMMANDS, TAKES_ENVIRONMENT, isPickerCommand, type PickerCommand } from "../pickers/commands.js";
+import { RAIL_COMMANDS, isRailCommand, type RailCommand } from "../rail/commands.js";
 
 /**
  * The slash commands this build answers (docs/specs/tui.md, "First launch",
@@ -9,8 +10,10 @@ import { PICKER_COMMANDS, TAKES_ENVIRONMENT, isPickerCommand, type PickerCommand
  * Artemis with the transcript and the composer, `/resume`, `/new`,
  * `/attach <path>`, `/snip`, `/tasks`, `/copy`, `/export [file]`,
  * `/timeline` and `/quit`; the accounts, models, permissions, settings and
- * Set up commands (`pickers/commands.ts`, #147); and, with the cards,
- * `/asks` and `/notices`. A command of the shared list this build does not
+ * Set up commands (`pickers/commands.ts`, #147); with the cards, `/asks`
+ * and `/notices`; with the rail, `/archive`, `/pin`, `/title`, `/group`,
+ * `/tag`, `/settle`, `/snooze`, `/restore`, `/search` and `/cwd`
+ * (`rail/commands.ts`). A command of the shared list this build does not
  * answer yet says so in one line, and one the list keeps absent gives its
  * reason; `/profile` is a hidden alias of `/account`. Anything else that
  * begins with a slash is not the terminal's: it goes to the agent as typed,
@@ -18,7 +21,7 @@ import { PICKER_COMMANDS, TAKES_ENVIRONMENT, isPickerCommand, type PickerCommand
  * follows a `/` is syntax, whatever key opens the command menu.
  */
 
-/** The slash commands `parseCommand` knows, by their names in the shared action list (`command.<name>`). */
+/** The slash commands `parseCommand` knows, by their names in the shared action list (`command.<name>`); the rail's are its own (`rail/commands.ts`). */
 export const ANSWERED_COMMANDS = [
   "pair",
   "environment",
@@ -36,6 +39,7 @@ export const ANSWERED_COMMANDS = [
   ...PICKER_COMMANDS,
   "asks",
   "notices",
+  ...RAIL_COMMANDS,
 ] as const;
 
 export type Command =
@@ -44,6 +48,7 @@ export type Command =
   | { readonly kind: "environment" }
   | { readonly kind: "help" }
   | { readonly kind: "reload" }
+  | { readonly kind: "rail"; readonly command: RailCommand }
   | { readonly kind: "resume" }
   | { readonly kind: "new" }
   | { readonly kind: "attach"; readonly path: string }
@@ -92,6 +97,9 @@ export const parseCommand = (typed: string): Command => {
     const command: Command = { kind: "picker", command: { name, argument: tail } };
     return TAKES_ENVIRONMENT.has(name) ? command : bare(rest, command, `/${name}`);
   }
+  // The rail's forms take what follows the name whole, spaces kept: a title or a group's name has several words. None of
+  // them is a name the switch below answers.
+  if (isRailCommand(name)) return { kind: "rail", command: { name, text: tail } };
   switch (name) {
     case "pair": {
       if (rest.length === 1 && rest[0] === "create") return { kind: "pair-create" };

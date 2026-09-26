@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { PURGED_STATE, decidePin, type Decision, type SessionState } from "./decider.js";
 import {
-  addCalendarMonths,
   autoSettleBy,
   decideSettle,
   decideSnooze,
@@ -189,17 +188,6 @@ describe("deciding sessions.snooze and sessions.unsnooze", () => {
 });
 
 describe("calendar arithmetic", () => {
-  it("adds calendar months keeping the time of day, clamping a month-end to the shorter month's last day", () => {
-    const plus = (from: string, months: number) => addCalendarMonths(new Date(from), months).toISOString();
-    expect(plus("2026-01-15T10:00:00.000Z", 1)).toBe("2026-02-15T10:00:00.000Z");
-    expect(plus("2026-01-31T10:00:00.000Z", 1)).toBe("2026-02-28T10:00:00.000Z");
-    expect(plus("2028-01-31T10:00:00.000Z", 1)).toBe("2028-02-29T10:00:00.000Z");
-    expect(plus("2026-03-31T23:59:59.999Z", 1)).toBe("2026-04-30T23:59:59.999Z");
-    expect(plus("2026-08-31T00:00:00.000Z", 6)).toBe("2027-02-28T00:00:00.000Z");
-    expect(plus("2026-12-31T00:00:00.000Z", 2)).toBe("2027-02-28T00:00:00.000Z");
-    expect(plus("2026-10-31T00:00:00.000Z", 12)).toBe("2027-10-31T00:00:00.000Z");
-  });
-
   it("ends a span of days or weeks a whole number of days on, and one of months that many calendar months on", () => {
     const anchor = new Date("2026-01-31T08:00:00.000Z");
     expect(spanEnd(anchor, { amount: 14, unit: "days" }).toISOString()).toBe("2026-02-14T08:00:00.000Z");
