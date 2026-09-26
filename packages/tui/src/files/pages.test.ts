@@ -17,6 +17,24 @@ describe("a file in the pager", () => {
   });
 });
 
+describe("C1 controls in the pager", () => {
+  // U+009B is CSI and U+009D OSC in their one-character forms, U+009C ST; U+0085 is NEL and U+008E, U+008F single shifts:
+  // a terminal reading C1 in UTF-8 would take `U+009B 31m` in a page as a colour.
+  const C1 = "a\u009B31mred\u009D8;;https://x\u009Clink\u0085nel\u008Ess\u008F";
+  const noC1 = (lines: ReturnType<typeof plainPage>) => lines.every((line) => line.spans.every((span) => !/[\u0080-\u009F]/.test(span.text)));
+
+  it("drops them from a file and from a diff, as it drops C0", () => {
+    expect(texts(plainPage(C1, 60))).toEqual(["a31mred8;;https://xlinknelss"]);
+    expect(texts(diffPage(`+${C1}`, 60))).toEqual(["+a31mred8;;https://xlinknelss"]);
+    expect(noC1(plainPage(C1, 60)) && noC1(diffPage(C1, 60))).toBe(true);
+  });
+
+  it("reads a tool's CSI and OSC in their C1 forms as their ESC forms: an SGR kept, the rest dropped, a stray C1 dropped", () => {
+    const lines = sgrPage("\u009B1mbold\u009B0m \u009D8;;https://x\u009Clink\u009D8;;\u0007 \u009B2Kstill \u009B31mred\u0085\u008E\u009B", 60);
+    expect(lines.map((line) => line.spans)).toEqual([[{ text: "bold", bold: true }, { text: " link still " }, { text: "red", color: "ansi256(1)" }]]);
+  });
+});
+
 describe("widths in terminal cells", () => {
   it("wraps a line of wide characters at the pager's cells, two a character, never past the width", () => {
     expect(texts(plainPage("日本語のテキスト", 10))).toEqual(["日本語のテ", "キスト"]);
@@ -86,6 +104,18 @@ describe("a diff tool's answer in the pager", () => {
       { text: "D", bold: true, color: "ansi256(208)" },
       { text: "E", bold: true, color: "#010203" },
     ]);
+  });
+
+  it("drops an OSC left unterminated to the end of the answer, and one another escape cuts short, leaving none of its text", () => {
+    expect(sgrPage("\u001B[32mgreen\u001B[0m see \u001B]8;;https://x", 40).map((line) => line.spans)).toEqual([[{ text: "green", color: "ansi256(2)" }, { text: " see " }]]);
+    // A control string runs across lines to its terminator (ECMA-48): a newline inside it is part of it, not a new line.
+    expect(texts(sgrPage("before\u001B]8;;https://x\nstill the link\u001B\\after\nnext", 40))).toEqual(["beforeafter", "next"]);
+    // An escape inside an OSC ends it and is read as itself.
+    expect(sgrPage("\u001B]8;;https://x\u001B[1mbold", 40)[0]?.spans).toEqual([{ text: "bold", bold: true }]);
+  });
+
+  it("drops DCS, SOS, PM and APC strings whole, ESC and C1 forms alike, to their ST or the end", () => {
+    expect(texts(sgrPage("a\u001BP1$r0m\u001B\\b\u001B_apc\u009Cc\u0090dcs\u001B\\d\u009Epm\u009Ce\u001BXsos to the end", 40))).toEqual(["abcde"]);
   });
 
   it("passes over the underline colour (58 and 59) with its arguments, never reading them as codes", () => {

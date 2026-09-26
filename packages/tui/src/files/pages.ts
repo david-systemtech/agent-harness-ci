@@ -11,13 +11,15 @@ import { colourOf, paletteColour, sameStyle, type Line, type Span } from "../tra
  * character is never parted from its combining marks at a wrap. Pure.
  *
  * - **A file** is plain text: tabs expanded to the next stop of eight,
- *   control bytes dropped, so nothing in it can move the cursor or recolour
- *   the screen.
+ *   control characters dropped (C0, DEL and C1, which a terminal reading
+ *   C1 in UTF-8 takes as `ESC [` and the rest), so nothing in it can move
+ *   the cursor or recolour the screen.
  * - **A diff with no tool of the user's** is coloured as `git diff` colours
  *   one: headers bold, hunk lines cyan, additions green, removals red.
  * - **A diff tool's answer** keeps the colours and attributes it wrote
  *   (SGR); every other escape it wrote (a hyperlink, an erase, a charset
- *   switch) is dropped.
+ *   switch), in its ESC or its C1 form, is dropped, and so is any other
+ *   control character.
  */
 
 const TAB = 8;
@@ -93,10 +95,9 @@ const expandTabs = (text: string, from = 0): string => {
   return out;
 };
 
-// eslint-disable-next-line no-control-regex -- the control bytes are what is being removed.
-const CONTROLS = /[\u0000-\u0008\u000B-\u001F\u007F]/g;
-// eslint-disable-next-line no-control-regex -- the same, the tab left for `expandTabs`.
-const CONTROLS_BUT_TAB = /[\u0000-\u0008\u000A-\u001F\u007F]/g;
+/** C0 but the tab and the newline, DEL, and C1 (U+0080 to U+009F: U+009B is CSI, U+009D OSC to a terminal reading C1 in UTF-8). */
+// eslint-disable-next-line no-control-regex -- the control characters are what is being removed.
+const CONTROLS = /[\u0000-\u0008\u000B-\u001F\u007F-\u009F]/g;
 
 const pageLines = (logical: readonly (readonly Span[])[], width: number, name: string): Line[] =>
   logical.flatMap((spans, index) => cut(spans, width).map((line): Line => ({ row: `${name}:${index}`, spans: line })));
@@ -222,42 +223,57 @@ const applySgr = (style: Style, raw: string): Style => {
 };
 
 /**
- * An escape sequence (ECMA-48): a CSI with its parameter bytes (group 1, a
- * private marker `<=>?` among them) and intermediate bytes (group 2), and
- * its final byte (group 3), to tell SGR; an OSC, to BEL or ST; an escape
- * with intermediate bytes (`ESC ( B`, which `tput sgr0` writes); any other
- * two-byte one, its final byte anywhere in `0` to `~` (`ESC 7`, `ESC =`,
- * `ESC c` as well as `ESC M`).
+ * An escape sequence (ECMA-48): a CSI (`ESC [` or U+009B) with its
+ * parameter bytes (group 1, a private marker `<=>?` among them) and
+ * intermediate bytes (group 2), and its final byte (group 3), to tell SGR;
+ * a control string, an OSC (`ESC ]` or U+009D) to BEL or ST, a DCS, SOS, PM
+ * or APC (`ESC P`, `ESC X`, `ESC ^`, `ESC _` or their C1 forms) to ST, ST
+ * being `ESC \` or U+009C, the string running across lines, cut short by
+ * another escape (read as itself), and when never terminated running to
+ * the end; an escape with intermediate bytes (`ESC ( B`, which `tput sgr0`
+ * writes); any other two-byte one, its final byte anywhere in `0` to `~`
+ * (`ESC 7`, `ESC =`, `ESC c` as well as `ESC M`).
  */
-// eslint-disable-next-line no-control-regex -- escape sequences are what is being read.
-const ESCAPE = /\u001B(?:\[([0-?]*)([ -/]*)([@-~])|\][^\u0007\u001B]*(?:\u0007|\u001B\\)|[ -/]+[0-~]|[0-~])/g;
+const ESCAPE =
+  // eslint-disable-next-line no-control-regex -- escape sequences are what is being read.
+  /(?:\u001B\[|\u009B)([0-?]*)([ -/]*)([@-~])|(?:\u001B\]|\u009D)[^\u0007\u001B\u009C]*(?:\u0007|\u001B\\|\u009C)?|(?:\u001B[PX^_]|[\u0090\u0098\u009E\u009F])[^\u001B\u009C]*(?:\u001B\\|\u009C)?|\u001B(?:[ -/]+[0-~]|[0-~])/g;
 
 /** SGR: final byte `m`, no intermediate bytes, and parameters of digits, `;` and `:` only (a private marker makes it another sequence). */
 const isSgr = (params: string | undefined, intermediates: string | undefined, final: string | undefined): params is string =>
   final === "m" && intermediates === "" && params !== undefined && /^[0-9;:]*$/.test(params);
 
-/** Text a tool coloured with escape sequences, as the pager draws it. */
+/**
+ * Text a tool coloured with escape sequences, as the pager draws it. The
+ * escapes are read over the whole text, not line by line, since a control
+ * string runs across lines.
+ */
 export const sgrPage = (text: string, width: number): Line[] => {
   let style: Style = {};
-  const logical = text.split("\n").map((raw) => {
-    const spans: Span[] = [];
-    let column = 0;
-    const add = (piece: string) => {
-      const clean = expandTabs(piece.replace(/\r$/, "").replace(CONTROLS_BUT_TAB, ""), column);
+  let spans: Span[] = [];
+  const logical: Span[][] = [spans];
+  let column = 0;
+  /** Text between two escapes, in the style then; each newline in it starts the next line. */
+  const add = (piece: string) =>
+    piece.split("\n").forEach((part, index) => {
+      if (index > 0) {
+        spans = [];
+        logical.push(spans);
+        column = 0;
+      }
+      // A carriage return is among the controls dropped.
+      const clean = expandTabs(part.replace(CONTROLS, ""), column);
       column += ASCII.test(clean) ? clean.length : stringWidth(clean);
       if (clean.length === 0) return;
       const last = spans.at(-1);
       if (last && sameStyle(last, style)) spans[spans.length - 1] = { ...last, text: last.text + clean };
       else spans.push({ ...style, text: clean });
-    };
-    let at = 0;
-    for (const match of raw.matchAll(ESCAPE)) {
-      add(raw.slice(at, match.index));
-      at = match.index + match[0].length;
-      if (isSgr(match[1], match[2], match[3])) style = applySgr(style, match[1]);
-    }
-    add(raw.slice(at));
-    return spans;
-  });
+    });
+  let at = 0;
+  for (const match of text.matchAll(ESCAPE)) {
+    add(text.slice(at, match.index));
+    at = match.index + match[0].length;
+    if (isSgr(match[1], match[2], match[3])) style = applySgr(style, match[1]);
+  }
+  add(text.slice(at));
   return pageLines(logical, width, "tool");
 };

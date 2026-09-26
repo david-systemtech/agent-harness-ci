@@ -40,6 +40,16 @@ describe("the screen", () => {
     ]);
   });
 
+  it("takes C1 controls as the emulator's own controls, so none of them reaches the spans drawn", async () => {
+    // U+009B is CSI, U+009D OSC to U+009C ST, U+0085 NEL, U+008E a single shift: read as their ESC forms are.
+    const screen = createScreen({ cols: 40, rows: 3 });
+    await screen.write("a\u009B31mred\u009B0m \u009D8;;https://x\u009Clink\u0085next\u008Ess");
+    const rows = screen.view();
+    expect(rows.map((row) => row.map((span) => span.text).join(""))).toEqual(["ared link", "nextss", ""]);
+    expect(rows[0]?.[1]).toEqual({ text: "red", color: "ansi256(1)" });
+    expect(rows.flat().some((span) => /[\u0080-\u009F]/.test(span.text))).toBe(false);
+  });
+
   it("shows the rows on screen now: output past the bottom scrolls, and a carriage return overwrites", async () => {
     const screen = createScreen({ cols: 20, rows: 2 });
     await screen.write("one\r\ntwo\r\nthree\r\n50%\r100%");
