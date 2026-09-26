@@ -899,6 +899,10 @@
       "title": "ParkedPrompt"
     },
     {
+      "path": "transcript/standing-rewind.json",
+      "title": "StandingRewind"
+    },
+    {
       "path": "transcript/session-snapshot.json",
       "title": "SessionSnapshot"
     },

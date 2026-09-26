@@ -39,7 +39,7 @@ import { createDeletion, type Deletion } from "./deletion.js";
 import { groupExists, listGroups } from "./group-reads.js";
 import { acceptAnyRunParameters, keepSessionMode, type RunParametersCheck, type SessionModeClamp } from "./run-parameters.js";
 import { listDeleted, listSummaries, readDeletion, readSessionState, readSummary, type Reader } from "./session-reads.js";
-import { sessionTranscript, type TranscriptParts } from "../runs/transcript.js";
+import { sessionTranscript, storedTranscriptParts } from "../runs/transcript.js";
 import { sessionStream } from "./streams.js";
 
 /**
@@ -334,11 +334,11 @@ export const sessionMethods = (options: SessionMethodsOptions): MethodHandlers =
       };
       return {
         stream: sessionStream(id),
-        // The runs, items and parked prompts are folded from the stream as it stands, from its compaction's fold if it has one (`runs/transcript.ts`).
+        // The runs, items, parked prompts and rewinds standing are folded from the stream as it stands, from its compaction's fold if it has one (`runs/transcript.ts`).
         snapshot: () => ({ sequence: log.head(), summary: summaryOf(), ...sessionTranscript(log, id) }),
         // A cursor older than the session's compaction (#123) gets its fold, at the compaction's sequence, then the events after it.
         // The summary is the list's, read at the head: the patches replayed after it set what they set again.
-        compacted: (snapshot) => ({ sequence: snapshot.sequence, summary: summaryOf(), ...(snapshot.payload as TranscriptParts) }),
+        compacted: (snapshot) => ({ sequence: snapshot.sequence, summary: summaryOf(), ...storedTranscriptParts(snapshot.payload) }),
         endOn: (event) =>
           event.type === "session.purged" || (event.type === "session.deleted" && holdsNow(event)) ? "deleted" : undefined,
       };

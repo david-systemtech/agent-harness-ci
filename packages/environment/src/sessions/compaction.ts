@@ -1,6 +1,6 @@
 import { SESSION_STREAM_KIND, type TasksChangedPayload, type TranscriptEventType } from "@agent-harness/contracts";
 import type { EventEnvelope, EventLog } from "../event-log/event-log.js";
-import { foldTranscript, type TranscriptParts } from "../runs/transcript.js";
+import { foldTranscript, storedTranscriptParts, type TranscriptParts } from "../runs/transcript.js";
 import type { Clock } from "../serve/clock.js";
 import { readSettings } from "../settings/settings-store.js";
 import { undoableRewind } from "./fork-rewind.js";
@@ -12,7 +12,7 @@ import { sessionStream } from "./streams.js";
  * Transcript compaction (env spec, "The event log": compaction; ADR 0002):
  * a session left untouched for the window, `sessions.transcriptCompactAfterDays`
  * (preset 90), has its transcript folded into one snapshot on its stream,
- * `{runs, items, parkedPrompts}` as the per-session snapshot holds them, at
+ * `{runs, items, parkedPrompts, rewinds}` as the per-session snapshot holds them, at
  * the sequence of its stream's last event, and loses the transcript events
  * no projector reads. The snapshot then stands in for the folded events on
  * replay (`EventLog.replayStart`, the wire's catch-up); the purge removes it
@@ -27,11 +27,13 @@ import { sessionStream } from "./streams.js";
  *   session exactly the window old is compacted at the next pass.
  * - **Not rewound with an undo still offered** (#218): a session whose
  *   latest rewind not undone has had no run started since
- *   (`undoableRewind`, `sessions/fork-rewind.ts`) is left out, since the
- *   fold does not keep the items a rewind hides and `sessions.undoRewind`
- *   shows them again. Once a run starts after the rewind the undo is gone
- *   and the session is compacted as any other, the hidden items folded
- *   away with the events removed.
+ *   (`undoableRewind`, `sessions/fork-rewind.ts`) is left out. Once a run
+ *   starts after the rewind the undo is gone and the session is compacted
+ *   as any other, the fold keeping the rewind where it cut, not undoable,
+ *   with what it hid (#260). The skip dates from when the fold kept nothing
+ *   of what a rewind hid; the fold now carries it, so an undo after a
+ *   compaction would show it again. The skip is kept to keep #260 narrow;
+ *   lifting it is owed.
  * - **Folded**: every event of the stream up to its last, organisation ones
  *   included, since the fold reads a run's start and end and a rewind; the
  *   fold goes on from an earlier compaction's snapshot.
@@ -141,7 +143,7 @@ export const createCompactionSweep = (options: CompactionSweepOptions): Compacti
   /** Compacts one session in a transaction of its own: whether it removed anything. */
   const compact = (id: string): boolean =>
     log.atomically((tx) => {
-      // A rewind that can still be undone hides items the fold would not keep, which the undo shows again (#218).
+      // A session whose rewind can still be undone waits for the window to close (#218; kept though the fold now carries what it hid, #260).
       if (undoableRewind(log, id) !== null) return false;
       const stream = sessionStream(id);
       const snapshot = log.readSnapshot(stream);
@@ -149,10 +151,9 @@ export const createCompactionSweep = (options: CompactionSweepOptions): Compacti
       const remove = toRemove(events);
       const last = events.at(-1);
       if (remove.length === 0 || last === undefined) return false;
-      // The fold reads what the per-session snapshot does: every event but the deltas the settled items carry whole.
-      const settled = events.filter((event) => event.type !== "assistant.delta");
-      const from = snapshot === null ? undefined : (snapshot.payload as TranscriptParts);
-      const payload: TranscriptParts = foldTranscript(settled, from);
+      // The fold reads a delta only for where its item was opened; the settled items carry the whole text (#260).
+      const from = snapshot === null ? undefined : storedTranscriptParts(snapshot.payload);
+      const payload: TranscriptParts = foldTranscript(events, from);
       log.compactStream(stream, { sequence: last.sequence, payload, remove }, { tx });
       return true;
     });
