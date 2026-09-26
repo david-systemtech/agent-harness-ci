@@ -153,11 +153,42 @@ export interface InkKey {
 }
 
 /**
+ * The bytes a terminal sends for each key name that is neither a character
+ * nor Ctrl and a letter (the canonical names above): the one table both
+ * directions are read from, bytes to name for the controls Ink hands over
+ * raw (`RAW_CONTROLS`), and name to bytes for the terminal pane
+ * (`terminal/keys.ts`).
+ */
+export const KEY_BYTES: Readonly<Record<string, string>> = {
+  Enter: "\r",
+  Tab: "\t",
+  "Shift+Tab": "\u001B[Z",
+  Esc: "\u001B",
+  Backspace: "\u007F",
+  Space: " ",
+  "↑": "\u001B[A",
+  "↓": "\u001B[B",
+  "→": "\u001B[C",
+  "←": "\u001B[D",
+  Home: "\u001B[H",
+  End: "\u001B[F",
+  PgUp: "\u001B[5~",
+  PgDn: "\u001B[6~",
+  "Ctrl+\\": "\u001C",
+  "Ctrl+]": "\u001D",
+  "Ctrl+_": "\u001F",
+  "Ctrl+J": "\n",
+  "Ctrl+Space": "\u0000",
+};
+
+/**
  * The control bytes Ink 7.1.1 hands over as they are, marking no key and no
  * Ctrl: the terminal's Ctrl+\\, Ctrl+], Ctrl+_ and Ctrl+J (a line feed, where
  * Enter is a carriage return).
  */
-const RAW_CONTROLS: Readonly<Record<string, string>> = { "\u001C": "Ctrl+\\", "\u001D": "Ctrl+]", "\u001F": "Ctrl+_", "\n": "Ctrl+J" };
+const RAW_CONTROLS: Readonly<Record<string, string>> = Object.fromEntries(
+  ["Ctrl+\\", "Ctrl+]", "Ctrl+_", "Ctrl+J"].map((name) => [KEY_BYTES[name] as string, name]),
+);
 
 /**
  * The Ctrl letters a terminal sends as the byte of another key, so Ink hears

@@ -1,3 +1,4 @@
+import { KEY_BYTES } from "../keys.js";
 import type { ScreenModes } from "./screen.js";
 
 /**
@@ -16,39 +17,20 @@ import type { ScreenModes } from "./screen.js";
 
 const CSI = "\u001B[";
 
-/** The raw controls a key name stands for that are not Ctrl and a letter. */
-const CONTROLS: Readonly<Record<string, string>> = { "Ctrl+\\": "\u001C", "Ctrl+]": "\u001D", "Ctrl+_": "\u001F", "Ctrl+J": "\n", "Ctrl+Space": "\u0000" };
-
-const NAMED: Readonly<Record<string, string>> = {
-  Enter: "\r",
-  Tab: "\t",
-  "Shift+Tab": `${CSI}Z`,
-  Esc: "\u001B",
-  Backspace: "\u007F",
-  Space: " ",
-  "↑": `${CSI}A`,
-  "↓": `${CSI}B`,
-  "→": `${CSI}C`,
-  "←": `${CSI}D`,
-  Home: `${CSI}H`,
-  End: `${CSI}F`,
-  PgUp: `${CSI}5~`,
-  PgDn: `${CSI}6~`,
-};
-
 /**
- * The bytes a key name (as the keymap writes it: `Ctrl+\`, `Ctrl+O`, `Esc`,
- * `Alt+x`, `q`) stands for when a terminal sends it; undefined for a name
+ * The bytes a key name (as the keymap stores it: `Ctrl+\`, `Ctrl+O`, `Esc`,
+ * `Alt+X`, `q`) stands for when a terminal sends it; undefined for a name
  * no single press sends in every terminal (keys pressed in turn, a class of
- * keys, Ctrl on a named key).
+ * keys, Ctrl on a named key). The keymap writes the letter after Alt in
+ * capitals, as it does after Ctrl, but Alt and a letter is Esc and the
+ * letter as typed: lower case.
  */
 export const keyBytes = (name: string): string | undefined => {
-  const control = CONTROLS[name];
-  if (control !== undefined) return control;
-  const named = NAMED[name];
+  const named = KEY_BYTES[name];
   if (named !== undefined) return named;
   if (name.startsWith("Alt+")) {
-    const rest = keyBytes(name.slice("Alt+".length));
+    const key = name.slice("Alt+".length);
+    const rest = /^[A-Z]$/.test(key) ? key.toLowerCase() : keyBytes(key);
     return rest === undefined ? undefined : `\u001B${rest}`;
   }
   const ctrl = /^Ctrl\+([A-Z])$/.exec(name);
@@ -67,6 +49,15 @@ export const forwarded = (bytes: string, modes: ScreenModes): string => {
   return cursor ? `\u001BO${cursor[1] as string}` : bytes;
 };
 
-/** A paste as the application in the terminal expects it. */
+/** The bracket's own sequences, which a paste may not carry inside the bracket. */
+// eslint-disable-next-line no-control-regex -- the escape the bracket's sequences start with is what is being removed.
+const BRACKET = /\u001B\[20[01]~/g;
+
+/**
+ * A paste as the application in the terminal expects it. Inside the bracket
+ * the bracket's own sequences are dropped, as terminals drop them: a paste
+ * carrying `ESC [201~` would end the bracket early and the rest would reach
+ * the application as typed keys, newlines included.
+ */
 export const pasted = (text: string, modes: ScreenModes): string =>
-  modes.bracketedPaste ? `${CSI}200~${text}${CSI}201~` : text.replace(/\r?\n/g, "\r");
+  modes.bracketedPaste ? `${CSI}200~${text.replace(BRACKET, "")}${CSI}201~` : text.replace(/\r?\n/g, "\r");

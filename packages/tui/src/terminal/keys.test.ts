@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { eventName, parseKeyName, type InkKey } from "../keys.js";
 import { forwarded, keyBytes, pasted } from "./keys.js";
 
 /**
@@ -28,8 +29,25 @@ describe("the bytes a key name stands for", () => {
     expect(keyBytes("↑")).toBe("\u001B[A");
     expect(keyBytes("PgDn")).toBe("\u001B[6~");
     expect(keyBytes("Space")).toBe(" ");
-    expect(keyBytes("Alt+x")).toBe("\u001Bx");
     expect(keyBytes("q")).toBe("q");
+  });
+
+  it("are Esc and the lower-case letter for Alt and a letter, in the form the keymap stores it", () => {
+    // The keymap stores `Alt+x` as `parseKeyName` writes it, `Alt+X`; pressing Alt+x sends Esc and a lower-case x.
+    const stored = parseKeyName("Alt+x");
+    expect(stored).toBe("Alt+X");
+    expect(keyBytes(stored as string)).toBe("\u001Bx");
+    expect(keyBytes("Alt+↑")).toBe("\u001B\u001B[A");
+  });
+
+  it("are the bytes the keymap's reading of a raw control hears as that key, both ways from one table", () => {
+    const none = Object.fromEntries(
+      ["upArrow", "downArrow", "leftArrow", "rightArrow", "pageDown", "pageUp", "home", "end", "return", "escape", "ctrl", "shift", "tab", "backspace", "delete", "meta"].map((flag) => [
+        flag,
+        false,
+      ]),
+    ) as unknown as InkKey;
+    for (const name of ["Ctrl+\\", "Ctrl+]", "Ctrl+_", "Ctrl+J"]) expect(eventName(keyBytes(name) as string, none)).toBe(name);
   });
 
   it("are nothing for a name no single press sends", () => {
@@ -59,5 +77,11 @@ describe("a key forwarded to the terminal", () => {
   it("wraps a paste when the application asked for bracketed paste, and not otherwise", () => {
     expect(pasted("two\nlines", { ...normal, bracketedPaste: true })).toBe("\u001B[200~two\nlines\u001B[201~");
     expect(pasted("two\nlines", normal)).toBe("two\rlines");
+  });
+
+  it("drops the bracket's own sequences from a bracketed paste, so the paste cannot end the bracket early and type the rest", () => {
+    const bracketed = { ...normal, bracketedPaste: true };
+    expect(pasted("echo a\u001B[201~rm -rf build\r", bracketed)).toBe("\u001B[200~echo arm -rf build\r\u001B[201~");
+    expect(pasted("\u001B[200~x", bracketed)).toBe("\u001B[200~x\u001B[201~");
   });
 });
