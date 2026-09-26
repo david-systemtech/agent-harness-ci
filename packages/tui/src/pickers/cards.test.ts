@@ -26,4 +26,30 @@ describe("ListCard", () => {
     expect(frame).toContain("typed ▌");
     app.unmount();
   });
+
+  it("draws the cursor's row, its line under it dropped, when the list has room for one line and each row takes two", () => {
+    const tall: PanelRow[] = Array.from({ length: 3 }, (_, i) => ({ key: `acct-${i}`, cells: [{ text: `acct ${i}` }], dim: false, under: { text: `under ${i}` } }));
+    for (const cursor of [0, 2]) {
+      const app = render(createElement(Box, { width: 40, flexDirection: "column" }, createElement(ListCard, { title: "Accounts", hint: "", rows: tall, cursor, height: 2, width: 40 })));
+      const frame = app.lastFrame() ?? "";
+      expect(frame).toContain(`› acct ${cursor}`);
+      expect(frame).not.toContain(`under ${cursor}`);
+      expect(frame.split("\n").length).toBeLessThanOrEqual(2);
+      app.unmount();
+    }
+  });
+
+  it("keeps the line said when there are no rows within its height, with a lead, a footer and a child", () => {
+    const card = createElement(
+      ListCard,
+      { title: "Accounts", hint: "", rows: [], cursor: 0, height: 5, width: 40, empty: "No accounts yet.", lead: [{ text: "read-only" }], footer: [[{ text: "a footer" }]], childRows: 1 },
+      createElement(Text, null, "typed ▌"),
+    );
+    const app = render(createElement(Box, { width: 40, flexDirection: "column" }, card));
+    const frame = app.lastFrame() ?? "";
+    expect(frame.split("\n").length).toBeLessThanOrEqual(5);
+    expect(frame).toContain("No accounts yet.");
+    expect(frame).toContain("typed ▌");
+    app.unmount();
+  });
 });

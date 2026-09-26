@@ -74,6 +74,9 @@ export const ListCard = (props: ListCardProps) => {
     shown += span(row);
     fits++;
   }
+  // The cursor's row too tall for the room is still drawn, its line under it dropped: the row Enter acts on is always in sight.
+  const clipped = fits === 0 && top < props.rows.length;
+  if (clipped) fits = 1;
   return (
     <Box flexDirection="column" paddingX={1} overflow="hidden">
       <Text bold wrap="truncate-end">
@@ -86,6 +89,7 @@ export const ListCard = (props: ListCardProps) => {
           ))}
         </Text>
       )}
+      {/* In the list's room, which is never under a line. */}
       {props.rows.length === 0 && props.empty !== undefined && <Text dimColor>{props.empty}</Text>}
       {props.rows.slice(top, top + fits).map((row, index) => {
         const selected = top + index === props.cursor;
@@ -103,7 +107,7 @@ export const ListCard = (props: ListCardProps) => {
                 </Text>
               )}
             </Text>
-            {row.under !== undefined && (
+            {row.under !== undefined && !clipped && (
               <Text wrap="truncate-end">
                 <Styled span={row.under} />
               </Text>

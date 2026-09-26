@@ -481,7 +481,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     const requested = summary.mode;
     const effective = lowerMode(requested ?? "acceptEdits", ceiling());
     const clamped = requested !== null && compareModes(effective, requested) < 0;
-    emit(sessionId, "message.sent", { runId, messageId, text, attachments: records(attachments), delivery: "prompt", heldBy: null, ceiling: "bypassPermissions" });
+    emit(sessionId, "message.sent", { runId, messageId, text, attachments: records(attachments), delivery: "prompt", heldBy: null, ceiling: ceiling() });
     emit(
       sessionId,
       "run.started",
@@ -566,7 +566,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     if (runId === undefined) return acceptedWith({ ...startRun(sessionId, String(params["text"]), attachmentsOf(params)), delivery: "prompt", heldBy: null });
     const messageId = minted("0199a200");
     const heldBy = spec.queue ?? "environment";
-    emit(sessionId, "message.sent", { runId, messageId, text: String(params["text"]), attachments: records(attachmentsOf(params)), delivery: "queued", heldBy, ceiling: "bypassPermissions" });
+    emit(sessionId, "message.sent", { runId, messageId, text: String(params["text"]), attachments: records(attachmentsOf(params)), delivery: "queued", heldBy, ceiling: ceiling() });
     return acceptedWith({ runId, messageId, delivery: "queued", heldBy });
   });
   wire.answer("runs.interrupt", (params) => {

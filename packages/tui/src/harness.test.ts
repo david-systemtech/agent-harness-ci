@@ -1,4 +1,4 @@
-import { WIRE_PATH, type ResponseFrame } from "@agent-harness/contracts";
+import { WIRE_PATH, type Frame, type ResponseFrame } from "@agent-harness/contracts";
 import { afterEach, describe, expect, it } from "vitest";
 import { renderApp, type RenderedApp } from "../test/harness.js";
 
@@ -100,5 +100,24 @@ describe("the scripted environment", () => {
     laptop.discovery("starting");
     await app.advance(2000);
     await app.waitUntil(() => phaseOf(app, "laptop") === "starting", "laptop starting");
+  });
+
+  it("stamps a message sent, a prompt or a queued one, with the connection's ceiling, as the environment does", async () => {
+    const app = await launch({ script: { environments: [{ name: "desk", reach: "local", sessions: [{ title: "Receipts" }], hello: { ceiling: "auto" } }] } });
+    const desk = app.environment("desk");
+    const sessionId = desk.sessionId();
+    desk.startRun(sessionId, "first");
+    const frames: Frame[] = [];
+    const socket = app.world.webSocket(`${desk.wire.origin.replace(/^http/, "ws")}${WIRE_PATH}`, {
+      onOpen: () => undefined,
+      onMessage: (text) => frames.push(JSON.parse(text) as Frame),
+      onClose: () => undefined,
+    });
+    socket.send(JSON.stringify({ type: "request", id: "q1", method: "runs.send", params: { commandId: "0199aa00-0000-7000-8000-0000000000b1", sessionId, text: "second" } }));
+    socket.send(JSON.stringify({ type: "request", id: "s1", method: "sessions.subscribeSession", params: { sessionId } }));
+    await app.waitUntil(() => frames.some((f) => f.type === "synchronized"), "the session's catch-up");
+    socket.close();
+    const sent = frames.flatMap((f) => (f.type === "event" && f.event.type === "message.sent" ? [f.event.payload] : []));
+    expect(sent).toEqual([expect.objectContaining({ delivery: "prompt", ceiling: "auto" }), expect.objectContaining({ delivery: "queued", ceiling: "auto" })]);
   });
 });
