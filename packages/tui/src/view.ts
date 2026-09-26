@@ -134,3 +134,17 @@ export const activityLine = (faults: readonly Fault[], notices: readonly Notice[
 
 /** What went wrong, in the words of the error. */
 export const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
+
+/**
+ * A one-line yes or no offer (the `confirm` context): a removal or a revoke a
+ * card asks to confirm, a re-pair, a stop before a rewind. Its letters are
+ * not looked up while text is typed in the composer, unless `whileTyping`:
+ * a question a key action asked, not what was typed, takes its answer
+ * whatever the composer holds.
+ */
+export interface Question {
+  readonly text: string;
+  readonly yes: () => void;
+  readonly no?: () => void;
+  readonly whileTyping?: boolean;
+}

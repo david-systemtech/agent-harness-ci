@@ -10,8 +10,9 @@ import type { Line, Span } from "../transcript/lines.js";
  * transcript"): bottom-anchored, drawn from the lines `lines.ts` makes of
  * `projections.session`, scrolled back by a count of lines from the end,
  * with the freshness marker heading it until the stream is `live`; under it
- * the delegated-work strip, the queued line and the rewound strip. Every component draws its
- * props: the lines, the offset and the cursor are the app's.
+ * the delegated-work strip, the queued line and the rewound strip. Every
+ * component draws its props: the lines, the offset and the cursor are the
+ * app's.
  */
 
 /** One styled line, cut rather than wrapped (`lines.ts` has wrapped it to the width already). */

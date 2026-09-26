@@ -12,7 +12,7 @@ import {
   type ActivityCounts,
   type ToolCategory,
 } from "./format.js";
-import { folded, type Row } from "./rows.js";
+import { folded, undoableFold, type Row } from "./rows.js";
 
 /**
  * How a row is drawn (docs/specs/tui.md, "The transcript"): as lines of
@@ -24,8 +24,9 @@ import { folded, type Row } from "./rows.js";
  * without measuring anything Ink laid out.
  *
  * Collapsed (the viewport) a run's finished calls are one count, a cut
- * result shows its head and its tail, and what a rewind cut is one line; unfolded (`expanded`, the pager and a
- * row unfolded with Enter) nothing is held back. A running call quiet for
+ * result shows its head and its tail, and what a rewind cut is one line;
+ * unfolded (`expanded`, the pager and a row unfolded with Enter) nothing is
+ * held back. A running call quiet for
  * `TOOL_QUIET_MS` turns amber and names the silence, Artemis's cue.
  */
 
@@ -64,13 +65,14 @@ export interface LineContext {
   readonly stopKey?: string;
   /** The plan windows a finished run moved, as words ("1.2% of the 5-hour window"), when known. */
   readonly planDeltas?: (runId: string) => readonly string[];
+  /** The key that unfolds a row (`row.unfold`), as the map in force writes it; preset Enter. */
+  readonly unfoldKey?: string;
   /**
    * The latest rewind standing (`projections.runs.session`'s `rewound`): the
    * sequence of its fold, whether `sessions.undoRewind` can be used now, and
-   * the keys that undo it (`row.rewindUndo`) and unfold a row (`row.unfold`),
-   * as the map in force writes them.
+   * the key that undoes it (`row.rewindUndo`), as the map in force writes it.
    */
-  readonly rewound?: { readonly sequence: number; readonly availability: VerbAvailability; readonly key: string; readonly unfoldKey: string };
+  readonly rewound?: { readonly sequence: number; readonly availability: VerbAvailability; readonly key: string };
 }
 
 const SPEECH = "●";
@@ -297,9 +299,9 @@ const promptLines = (row: string, entry: Extract<Row, { kind: "prompt" }>["entry
   return block(row, { text: "⚿", dim: answer !== null, ...(answer === null && { color: "yellow" }) }, [[{ text: prompt.summary, dim: answer !== null }, verdict]], context.width, true);
 };
 
-/** How many prompts a rewind's fold holds, a fold inside it included. */
-const promptsIn = (rows: readonly Row[]): number =>
-  rows.reduce((count, row) => count + (row.kind === "user" ? 1 : row.kind === "rewound" ? promptsIn(row.rows) : 0), 0);
+/** How many user messages a rewind's fold holds, a fold inside it included. */
+const messagesIn = (rows: readonly Row[]): number =>
+  rows.reduce((count, row) => count + (row.kind === "user" ? 1 : row.kind === "rewound" ? messagesIn(row.rows) : 0), 0);
 
 /**
  * What a rewind cut: one line saying what the session went back to and how
@@ -309,15 +311,15 @@ const promptsIn = (rows: readonly Row[]): number =>
  * cannot be used now; unfolded, the cut rows under it, marked in the gutter.
  */
 const rewoundLines = (row: Extract<Row, { kind: "rewound" }>, context: LineContext): Line[] => {
-  const cut = promptsIn(row.rows);
+  const cut = messagesIn(row.rows);
   const head: Span[] = [
     { text: "Rewound: ", bold: true },
     { text: oneLine(row.entry.text, 160) },
     { text: ` · ${cut} ${cut === 1 ? "prompt" : "prompts"} cut`, dim: true },
   ];
   const latest = context.rewound;
-  if (!context.expanded) head.push({ text: ` · ${latest?.unfoldKey ?? "Enter"} unfolds`, dim: true });
-  if (latest !== undefined && latest.sequence === row.entry.sequence && row.entry.undoable) {
+  if (!context.expanded) head.push({ text: ` · ${context.unfoldKey ?? "Enter"} unfolds`, dim: true });
+  if (latest !== undefined && undoableFold(row, latest)) {
     const { availability } = latest;
     head.push({ text: ` · ${latest.key} undo${availability.status === "absent" ? ` (${availability.message})` : ""}`, dim: true });
   }

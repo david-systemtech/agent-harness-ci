@@ -85,7 +85,7 @@ export const REWIND_USAGE = "Usage: /rewind [n | undo]: n prompts back, one by d
 export const FORK_USAGE = "Usage: /fork [n]: bare, the whole session; n, before the prompt n back.";
 
 /** A count of prompts back: a whole number from one; undefined for anything else. */
-const promptsBack = (word: string): number | undefined => (/^[1-9][0-9]*$/.test(word) ? Number(word) : undefined);
+const countBack = (word: string): number | undefined => (/^[1-9][0-9]*$/.test(word) ? Number(word) : undefined);
 
 /** The hidden aliases: the name typed, and the command it names. */
 const ALIASES: Readonly<Record<string, string>> = { profile: "account", environments: "environment" };
@@ -150,12 +150,13 @@ export const parseCommand = (typed: string): Command => {
       if (rest.length === 0) return { kind: "rewind", back: 1 };
       const [first = ""] = rest;
       if (rest.length === 1 && first.toLowerCase() === "undo") return { kind: "rewind-undo" };
-      const back = rest.length === 1 ? promptsBack(first) : undefined;
+      const back = rest.length === 1 ? countBack(first) : undefined;
       return back === undefined ? { kind: "usage", line: REWIND_USAGE } : { kind: "rewind", back };
     }
     case "fork": {
       if (rest.length === 0) return { kind: "fork", back: null };
-      const back = rest.length === 1 ? promptsBack(rest[0] ?? "") : undefined;
+      const [first = ""] = rest;
+      const back = rest.length === 1 ? countBack(first) : undefined;
       return back === undefined ? { kind: "usage", line: FORK_USAGE } : { kind: "fork", back };
     }
     case "attach":

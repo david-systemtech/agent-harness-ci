@@ -35,11 +35,25 @@ import { composerOf, expandedSnippet, replaced, type CommandRow } from "./compos
 import { composerNote, highlighted, useComposer, type ComposerClipboard } from "./composer/use-composer.js";
 import { nextFocus, stepCursor, type Focus } from "./focus.js";
 import type { Panel } from "./pickers/panel.js";
-import { ListCard } from "./pickers/cards.js";
 import { usePickers } from "./pickers/use-pickers.js";
 import { createFrameScheduler } from "./frames.js";
 import { helpLines } from "./help.js";
-import { FIRST_ANYWHERE, conditionOf, direction, dispatch, eventName, keysText, pressedBefore, type Handler, type InkKey, type Keymap, type LoadedKeymap, type Lookup, type Press } from "./keys.js";
+import {
+  FIRST_ANYWHERE,
+  conditionOf,
+  direction,
+  dispatch,
+  eventName,
+  keysText,
+  placeOf,
+  pressedBefore,
+  type Handler,
+  type InkKey,
+  type Keymap,
+  type LoadedKeymap,
+  type Lookup,
+  type Press,
+} from "./keys.js";
 import type { LocalService } from "./platform/services.js";
 import { inMemoryPresentation, type Presentation } from "./presentation.js";
 import { PickerCard, erasedFrom, movedBy, printableText, rowAt, typedInto, type Picker } from "./rail/picker.js";
@@ -50,18 +64,18 @@ import { AsksCard } from "./screens/asks-card.js";
 import { ClientSessionsCard, EnvironmentMenu, EnvironmentsCard, HelpCard, MintedCard } from "./screens/cards.js";
 import { ComposerView } from "./screens/composer.js";
 import { Header, HintLine, Line, PairingPrompt, RAIL_MIN_COLUMNS } from "./screens/layout.js";
-import { SessionsCard, SnippetsCard } from "./screens/lists.js";
+import { PromptPickerCard, SessionsCard, SnippetsCard } from "./screens/lists.js";
 import { PromptCard } from "./screens/prompt-card.js";
 import { DelegatedStrip, LinesCard, QueuedLine, RewoundStrip, TranscriptView, maxOffset, offsetShowing, type QueueVerb } from "./screens/transcript.js";
 import { attachmentRefusal, interruptRun, isLive, readQueueNow, sendMessage, stopCall, withdrawQueued } from "./session/send.js";
-import { promptBack, promptWords, promptsOf, refusedLive, tooFarBack, useForkRewind } from "./session/use-fork-rewind.js";
+import { useForkRewind, userMessagesOf } from "./session/use-fork-rewind.js";
 import { useFollow, useSession, type Opened } from "./session/use-session.js";
 import { codeBlocks, exportMarkdown, timelineLine, turnsOf } from "./transcript/export.js";
-import { lineText, rowLines, transcriptLines, type Line as TranscriptLine, type Span } from "./transcript/lines.js";
+import { lineText, rowLines, transcriptLines, type Line as TranscriptLine } from "./transcript/lines.js";
 import { StatusLine } from "./status/status-line.js";
 import { useStatus } from "./status/use-status.js";
 import { quietFor } from "./transcript/quiet.js";
-import { lastReply, transcriptRows, type Row } from "./transcript/rows.js";
+import { lastReply, transcriptRows, undoableFold, type Row } from "./transcript/rows.js";
 import {
   activityLine,
   clockTime,
@@ -76,6 +90,7 @@ import {
   noticeLine,
   offerLine,
   type Fault,
+  type Question,
 } from "./view.js";
 
 /**
@@ -199,14 +214,8 @@ type Card =
   | { readonly kind: "panel"; readonly panel: Panel }
   /** `/asks` and `Ctrl+]`: every environment's parked prompts. */
   | { readonly kind: "asks"; readonly cursor: number }
-  /** Esc Esc: the prompt picker of the session it was opened on; the cursor on the newest prompt until a key moves it (null). */
-  | { readonly kind: "prompts"; readonly environmentId: string; readonly sessionId: string; readonly cursor: number | null };
-
-interface Question {
-  readonly text: string;
-  readonly yes: () => void;
-  readonly no?: () => void;
-}
+  /** Esc Esc: the prompt picker of the session it was opened on; the cursor on the newest user message until a key moves it (null). */
+  | { readonly kind: "prompt-picker"; readonly environmentId: string; readonly sessionId: string; readonly cursor: number | null };
 
 interface Screen {
   readonly card: Card;
@@ -500,8 +509,8 @@ export const App = (props: AppProps) => {
   // "Placement"); the pager, the whole transcript unfolded, draws it in place.
   const allRows = useMemo(() => (projection ? transcriptRows(projection) : []), [projection]);
   const rows = useMemo(() => allRows.filter((row) => !(row.kind === "prompt" && row.entry.state === "parked")), [allRows]);
-  // The prompts the prompt picker lists and `/rewind n` and `/fork n` count back through (#232).
-  const prompts = useMemo(() => (projection ? promptsOf(projection.items) : []), [projection]);
+  // The user messages the prompt picker lists (#232).
+  const messages = useMemo(() => (projection ? userMessagesOf(projection.items) : []), [projection]);
   const transcriptFocused = focused === "transcript" && screen.card.kind === "none";
   // The latest rewind standing, which its fold draws the undo on while no run has started since (#232).
   const standing = session.runs?.rewound ?? null;
@@ -510,8 +519,9 @@ export const App = (props: AppProps) => {
     width: mainWidth - (transcriptFocused ? 1 : 0),
     quietMs: (id: string) => quietFor(session.quiet, id, now),
     stopKey: keys("row.stop"),
+    unfoldKey: keys("row.unfold"),
     planDeltas: session.planDeltas,
-    ...(standing !== null && undoVerb !== undefined && { rewound: { sequence: standing.sequence, availability: undoVerb, key: keys("row.rewindUndo"), unfoldKey: keys("row.unfold") } }),
+    ...(standing !== null && undoVerb !== undefined && { rewound: { sequence: standing.sequence, availability: undoVerb, key: keys("row.rewindUndo") } }),
   };
   const lines: TranscriptLine[] = [
     ...transcriptLines(rows, { ...lineContext, expanded: false }, view.unfolded),
@@ -679,6 +689,22 @@ export const App = (props: AppProps) => {
     }
   });
 
+  // Fork and rewind (ADR 0022; #232): the prompt picker's two actions, `/rewind`, `/fork` and the row verbs dispatch through it.
+  const forkRewind = useForkRewind({
+    runtime,
+    clock,
+    opened,
+    projection,
+    runs: session.runs,
+    liveRunId: liveRun,
+    say,
+    ask: (asked) => update({ question: asked }),
+    openSession: (next) => open(next),
+    newSessionId: () => props.newSessionId?.() ?? crypto.randomUUID(),
+  });
+  /** A row verb's words for a hint: its keys and what it does, with the runtime's reason when it cannot be used now; `stop` when it is offered as a stop first. */
+  const verbHint = (id: KeyActionId, words: string, availability: VerbAvailability | undefined, stop = false): string =>
+    stop ? `${keys(id)} stop and ${words}` : `${keys(id)} ${words}${availability?.status === "absent" ? ` (${availability.message})` : ""}`;
   // The accounts, models, permissions, settings and Set up commands (#147): their cards are the screen's, their memory of a
   // session's next runs (a model and effort, a containment level, an account handed off onto) is theirs.
   const sessionView = opened ? views.find((v) => v.environmentId === opened.environmentId) : undefined;
@@ -696,25 +722,11 @@ export const App = (props: AppProps) => {
     say,
     ask: (asked) => update({ question: asked }),
     openSession: (next) => open(next),
+    carriedDraft: () => forkRewind.carriedDraft(),
     newCommandId: props.newCommandId,
     newSessionId: () => props.newSessionId?.() ?? crypto.randomUUID(),
     keys,
   });
-  // Fork and rewind (ADR 0022; #232): the prompt picker's two actions, `/rewind`, `/fork` and the row verbs dispatch through it.
-  const forkRewind = useForkRewind({
-    runtime,
-    opened,
-    projection,
-    runs: session.runs,
-    liveRunId: liveRun,
-    say,
-    ask: (asked) => update({ question: asked }),
-    openSession: (next) => open(next),
-    newSessionId: () => props.newSessionId?.() ?? crypto.randomUUID(),
-  });
-  /** A row verb's words for a hint: its keys and what it does, with the runtime's reason when it cannot be used now; a rewind while a run is live is a stop and rewind. */
-  const verbHint = (id: KeyActionId, words: string, availability: VerbAvailability): string =>
-    refusedLive(availability) ? `${keys(id)} stop and ${words}` : `${keys(id)} ${words}${availability.status === "absent" ? ` (${availability.message})` : ""}`;
   const status = useStatus({
     runtime,
     clock,
@@ -999,26 +1011,15 @@ export const App = (props: AppProps) => {
       case "picker":
         pickers.run(command.command);
         return true;
-      case "rewind": {
-        const target = promptBack(prompts, command.back);
-        if (!opened) say("No session is open to rewind: /resume opens one.");
-        else if (target) forkRewind.rewind(target);
-        else say(tooFarBack(prompts.length, "rewind"));
+      case "rewind":
+        forkRewind.rewindBack(command.back);
         return true;
-      }
       case "rewind-undo":
         forkRewind.undo();
         return true;
-      case "fork": {
-        if (!opened || command.back === null) {
-          forkRewind.fork(null);
-          return true;
-        }
-        const target = promptBack(prompts, command.back);
-        if (target) forkRewind.fork(target);
-        else say(tooFarBack(prompts.length, "fork from"));
+      case "fork":
+        forkRewind.forkBack(command.back);
         return true;
-      }
       case "not-here":
       case "usage":
         say(command.line);
@@ -1091,15 +1092,15 @@ export const App = (props: AppProps) => {
   };
   const snippetRows = (): readonly SnippetTemplate[] => stores.snippets?.list() ?? [];
 
-  /** The prompt picker's row under the cursor: the newest until a key moved it. */
-  const promptAt = (card: Extract<Card, { kind: "prompts" }>) => prompts[clampCursor(card.cursor ?? prompts.length - 1, prompts.length)];
+  /** The prompt picker's cursor: on the newest user message until a key moved it. */
+  const pickerCursor = (card: Extract<Card, { kind: "prompt-picker" }>): number => clampCursor(card.cursor ?? messages.length - 1, messages.length);
   const choose = (card: Card) => {
     if (card.kind === "panel") return pickers.choose(card.panel);
-    if (card.kind === "prompts") {
+    if (card.kind === "prompt-picker") {
       // Enter rewinds here: the card closes, and the rewind (or the offer to stop the run first) is the line's.
-      const prompt = promptAt(card);
+      const message = messages[pickerCursor(card)];
       update({ card: { kind: "none" } });
-      if (prompt) forkRewind.rewind(prompt);
+      if (message) forkRewind.rewind(message);
       return;
     }
     if (card.kind === "picker") {
@@ -1205,8 +1206,8 @@ export const App = (props: AppProps) => {
         return sessionRows(card.filter).length;
       case "snippets":
         return snippetRows().length;
-      case "prompts":
-        return prompts.length;
+      case "prompt-picker":
+        return messages.length;
       case "panel":
         return pickers.rows(card.panel);
       case "picker":
@@ -1283,7 +1284,18 @@ export const App = (props: AppProps) => {
     { isActive: panelTyping },
   );
 
-  useInput((input: string, key: InkKey) => {
+  // Each key Ink hears; `pairedEsc` for the second of two Escs heard in one read, which is `Esc Esc` in the same place.
+  const hear = (input: string, key: InkKey, pairedEsc = false) => {
+    // Two Escs in one read (a fast double tap, SSH, or tmux, whose escape-time sends them together): Ink 7 reads `\x1b\x1b`
+    // as one Esc with Meta, its input the second byte. They are heard in turn: the single Esc's meaning, then the second in
+    // the same place as `Esc Esc` only, never a single Esc again (this render's state is from before the first: a card it
+    // closed is still open here, so `app.prompt.back` declines, and nothing is denied or interrupted twice).
+    if (key.escape && key.meta && (input === "" || input === "\u001B") && !pairedEsc) {
+      const single: InkKey = { ...key, meta: false };
+      hear("", single);
+      hear("", single, true);
+      return;
+    }
     // A key draws what the scheduler holds back, with its own echo.
     scheduler.bypass();
     // Somebody is here: both bells wait again. Past three minutes of stillness the key is a return, answered with what happened
@@ -1291,10 +1303,11 @@ export const App = (props: AppProps) => {
     const recap = attention.touch();
     if (recap !== undefined) flash(recap, RECAP_FLASH_MS);
     const name = eventName(input, key);
-    // Where the keys are: a press heard elsewhere (an Esc that closed a card, left the transcript or a search) starts nothing with this one.
-    const place = [card.kind, promptShown ? "prompt" : "", screen.question ? "question" : "", focused, composer.searching ? "search" : ""].join(" ");
+    // Where the keys are: the same key pressed again elsewhere (an Esc that closed a card, answered a question, left the
+    // transcript or a search) starts nothing with this one.
+    const place = placeOf(card.kind, promptShown && "prompt", question !== undefined && "question", focused, composer.searching && "search");
     const heardAt = clock.now().getTime();
-    const previous = pressedBefore(lastPress.current, name, heardAt, place);
+    const previous = pairedEsc ? "Esc" : pressedBefore(lastPress.current, name, heardAt, place);
     // Text arriving in one read (a fast typist, a terminal that batches) ends on its last character: `one\` then Enter is `\ Enter`.
     const last = name ?? (input.length > 0 && !key.ctrl && !key.meta ? [...input].at(-1) : undefined);
     lastPress.current = last === undefined ? undefined : { name: last, at: heardAt, place };
@@ -1306,7 +1319,7 @@ export const App = (props: AppProps) => {
       card.kind === "sessions" ||
       card.kind === "snippets" ||
       card.kind === "picker" ||
-      card.kind === "prompts" ||
+      card.kind === "prompt-picker" ||
       (card.kind === "panel" && !linesPanel);
     // A list, the help overlay, the pager and the lines cards have the keys whatever has the focus; the focus has them back when it closes.
     const cardHasKeys = listCard || linesPanel || card.kind === "help" || card.kind === "pager" || card.kind === "lines" || card.kind === "asks" || promptShown;
@@ -1329,7 +1342,7 @@ export const App = (props: AppProps) => {
       // never reach here (its intake runs before any lookup, below), so the decline states the rule as the sessions one does.
       if (action === "picker.moveVi" && (card.kind === "sessions" || (card.kind === "picker" && card.picker.typed))) return false;
       if (card.kind === "picker") return update({ card: { kind: "picker", picker: movedBy(card.picker, step) } });
-      if (card.kind === "prompts") return update({ card: { ...card, cursor: clampCursor((card.cursor ?? prompts.length - 1) + step, prompts.length) } });
+      if (card.kind === "prompt-picker") return update({ card: { ...card, cursor: clampCursor(pickerCursor(card) + step, messages.length) } });
       update({ card: { ...card, cursor: clampCursor(card.cursor + step, rowsOf(card)) } });
     };
     const onRow = (): Row | undefined => (transcriptFocused ? cursorRow : undefined);
@@ -1496,14 +1509,14 @@ export const App = (props: AppProps) => {
       // Esc Esc: the prompt picker, over the open session with nothing else open; the second Esc is a single one otherwise.
       "app.prompt.back": () => {
         if (!opened || card.kind !== "none" || promptShown) return false;
-        if (prompts.length === 0) return say("Nothing to go back to: no prompt has been sent in this session yet.");
-        update({ card: { kind: "prompts", environmentId: opened.environmentId, sessionId: opened.sessionId, cursor: null } });
+        if (messages.length === 0) return say("Nothing to go back to: no prompt has been sent in this session yet.");
+        update({ card: { kind: "prompt-picker", environmentId: opened.environmentId, sessionId: opened.sessionId, cursor: null } });
       },
       "picker.branch": () => {
-        if (card.kind !== "prompts") return false;
-        const prompt = promptAt(card);
+        if (card.kind !== "prompt-picker") return false;
+        const message = messages[pickerCursor(card)];
         update({ card: { kind: "none" } });
-        if (prompt) forkRewind.fork(prompt);
+        if (message) forkRewind.fork(message);
       },
       "row.rewind": () => {
         const row = onRow();
@@ -1521,17 +1534,18 @@ export const App = (props: AppProps) => {
         const row = onRow();
         if (!row) return false;
         if (row.kind !== "rewound") return say(`${keys("row.rewindUndo")} undoes a rewind, on the fold of what it cut.`);
-        // A fold a run has started after is kept for reading; the only fold that can be undone is the latest rewind's, drawn outermost.
-        if (!row.entry.undoable) return say("Not undone: A run has started since the rewind, so it can no longer be undone.");
+        // Only the latest rewind can be undone, and on its fold the runtime's verb says whether it can be now. An earlier fold
+        // on screen has had a run started after it: a rewind with none between would have folded it inside the latest.
+        if (standing?.sequence !== row.entry.sequence) return say("Not undone: a run has started since this rewind, so it can no longer be undone.");
         forkRewind.undo();
       },
     };
     // The quit and the jump to what needs you, which nothing may take, are looked up first: before a line or a list typed at
     // takes the text, so neither is typed in when remapped to a printable key.
-    if (dispatch(keymap, [{ context: "anywhere", only: FIRST_ANYWHERE }], handlers, input, key, { previous })) return;
+    if (dispatch(keymap, [{ context: "anywhere", only: FIRST_ANYWHERE }], handlers, input, key, { previous, pairOnly: pairedEsc })) return;
     // A card taking a line has the text typed at it: Enter is its choice, Esc its way back, Backspace rubs one out; any
     // other key (Ctrl+C) is looked up as ever.
-    if (card.kind === "panel" && pickers.takesText(card.panel) && !screen.question) {
+    if (card.kind === "panel" && pickers.takesText(card.panel) && !screen.question && !pairedEsc) {
       if (key.return) return pickers.choose(card.panel);
       if (key.escape) return update({ card: back(card) });
       if (key.backspace || key.delete) return update({ card: { kind: "panel", panel: pickers.erased(card.panel) } });
@@ -1539,7 +1553,7 @@ export const App = (props: AppProps) => {
     }
     // The note's line on the permission card takes what is typed; the move keys wait while it is open, and a key it does not
     // take (Ctrl+C, Ctrl+]) is looked up as any other.
-    if (promptShown && promptState.line !== null) {
+    if (promptShown && promptState.line !== null && !pairedEsc) {
       const typed = (next: CardState | undefined) => void (next && setPromptCard(next));
       if (key.return) return step(lineEntered(shownPrompt.prompt, promptState));
       if (key.tab || key.escape) return setPromptCard(lineClosed(promptState));
@@ -1550,7 +1564,7 @@ export const App = (props: AppProps) => {
       if (input !== "" && !key.ctrl && !key.meta) return typed(lineTyped(promptState, { text: input }));
     }
     // A search being typed at the pager takes every key but Enter (done) and Esc (dropped).
-    if (card.kind === "pager" && card.typing) {
+    if (card.kind === "pager" && card.typing && !pairedEsc) {
       if (key.return) {
         const first = pagerMatches.find((at) => at >= pagerTop) ?? pagerMatches[0];
         return update({ card: { ...card, typing: false, top: first ?? card.top } });
@@ -1564,8 +1578,8 @@ export const App = (props: AppProps) => {
     // question just asked (a removal or a revoke the card asks to confirm, a re-pair), which has the keys until it
     // is answered; the open card; unless a card has the keys, what has the focus and then the standing
     // service-down offer; the rest of what is answered anywhere. Neither question is looked up while its
-    // letters are being typed into the composer. So a card's Esc or `n` is the card's, never the offer's answer,
-    // and never an interrupt.
+    // letters are being typed into the composer, unless a key action asked it (`whileTyping`). So a card's Esc or `n`
+    // is the card's, never the offer's answer, and never an interrupt.
     const typing = composerHasKeys && composerText !== "";
     // A list typed at (a typed picker, the rail's filter) takes text before any other key is looked up: its letters are
     // `picker.filter` and the filter's, never a letter-keyed action or a question's answer, while no question was just asked.
@@ -1579,7 +1593,8 @@ export const App = (props: AppProps) => {
       if (!cardHasKeys && focused === "sidebar" && text !== undefined && rail.type(text)) return;
     }
     const lookups: Lookup[] = [];
-    if (screen.question && !typing) lookups.push("confirm");
+    // A question a key action asked (`whileTyping`) takes its answer whatever the composer holds.
+    if (screen.question && (!typing || screen.question.whileTyping === true)) lookups.push("confirm");
     if (card.kind === "asks") lookups.push("asks");
     else if (card.kind === "help" || card.kind === "pager" || card.kind === "lines" || linesPanel) lookups.push("pager", "picker");
     else if (card.kind !== "none") lookups.push("picker");
@@ -1595,7 +1610,8 @@ export const App = (props: AppProps) => {
     // and no search of the history open. It holds only while the composer has the keys: a typed picker, a list, the rail
     // (its filter included) or a card taking a line (a label, a code, a value) having them, `↑` is theirs, never a withdraw.
     const composerEmpty = composerHasKeys && composerText === "" && composer.state.attached.length === 0 && composer.state.search === null;
-    if (dispatch(keymap, lookups, handlers, input, key, { previous, holds: (condition) => condition === "composer.empty" && composerEmpty })) return;
+    if (dispatch(keymap, lookups, handlers, input, key, { previous, pairOnly: pairedEsc, holds: (condition) => condition === "composer.empty" && composerEmpty })) return;
+    if (pairedEsc) return;
     // `/resume`'s list is typed at: letters filter it, Backspace rubs one out.
     if (card.kind === "sessions") {
       if (key.backspace || key.delete) return update({ card: { ...card, filter: [...card.filter].slice(0, -1).join(""), cursor: 0 } });
@@ -1610,7 +1626,8 @@ export const App = (props: AppProps) => {
     if (key.delete) return void composer.edit("delete");
     // What is typed is text, not a key: a sigil (`/`) included, whatever the keymap says.
     if (input !== "" && !key.ctrl && !key.meta && !key.escape && !key.tab && !key.return) composer.type(input);
-  });
+  };
+  useInput((input: string, key: InkKey) => hear(input, key));
 
   // A card that is a list of the session's needs the session: gone, it closes. The asks card closes with its last row.
   const sessionCard = card.kind === "pager" || (card.kind === "lines" && card.which !== "notices");
@@ -1618,10 +1635,10 @@ export const App = (props: AppProps) => {
     if (!projection && sessionCard) update({ card: { kind: "none" } });
   }, [projection, sessionCard]);
   // The prompt picker is the session's it was opened on: another session opened, it closes.
-  const promptsGone = card.kind === "prompts" && (opened?.environmentId !== card.environmentId || opened.sessionId !== card.sessionId);
+  const pickerGone = card.kind === "prompt-picker" && (opened?.environmentId !== card.environmentId || opened.sessionId !== card.sessionId);
   useEffect(() => {
-    if (promptsGone) setScreen((s) => (s.card.kind === "prompts" ? { ...s, card: { kind: "none" } } : s));
-  }, [promptsGone]);
+    if (pickerGone) setScreen((s) => (s.card.kind === "prompt-picker" ? { ...s, card: { kind: "none" } } : s));
+  }, [pickerGone]);
   const asksDrained = card.kind === "asks" && askList.length === 0;
   useEffect(() => {
     if (asksDrained) setScreen((s) => (s.card.kind === "asks" ? { ...s, card: { kind: "none" } } : s));
@@ -1658,16 +1675,16 @@ export const App = (props: AppProps) => {
   // What the row under the cursor offers besides (#232): a prompt rewinds and forks, a rewind's fold undoes, each with its reason when it cannot now.
   const rowVerbs =
     cursorRow?.kind === "user"
-      ? ` · ${verbHint("row.rewind", "rewind", forkRewind.verbs.rewind)} · ${verbHint("row.fork", "fork", forkRewind.verbs.fork)}`
-      : cursorRow?.kind === "rewound" && cursorRow.entry.undoable
-        ? ` · ${verbHint("row.rewindUndo", "undo", forkRewind.verbs.undoRewind)}`
+      ? ` · ${verbHint("row.rewind", "rewind", forkRewind.verbs?.rewind, forkRewind.offersStop)} · ${verbHint("row.fork", "fork", forkRewind.verbs?.fork)}`
+      : undoableFold(cursorRow, standing)
+        ? ` · ${verbHint("row.rewindUndo", "undo", forkRewind.verbs?.undoRewind)}`
         : "";
   const hint =
     card.kind === "panel"
       ? `The card has the keys · ${pickers.hint(card.panel)}`
       : card.kind === "help" || card.kind === "pager" || card.kind === "lines"
         ? `The card has the keys · ${keys("pager.close")} closes it`
-        : card.kind === "environments" || card.kind === "sessions" || card.kind === "snippets" || card.kind === "prompts"
+        : card.kind === "environments" || card.kind === "sessions" || card.kind === "snippets" || card.kind === "prompt-picker"
           ? `The card has the keys · ${keys("picker.leave")} closes it`
           : card.kind === "menu" || card.kind === "client-sessions"
             ? `The card has the keys · ${keys("picker.leave")} goes back`
@@ -1679,19 +1696,6 @@ export const App = (props: AppProps) => {
                 : focused === "transcript"
                   ? `The transcript has the keys · ${keys("transcript.cursor")} rows · ${keys("row.unfold")} unfold · ${keys("row.recall")} recall · ${keys("row.stop")} stop${rowVerbs} · ${keys("row.leave")} back to the composer`
                   : undefined;
-  // Under the prompt picker: that files stay as they are, then each of its two actions that cannot be used now, dim with the
-  // runtime's reason, never hidden; a rewind while a run is live is offered as a stop and a rewind.
-  const rewindVerb = forkRewind.verbs.rewind;
-  const forkVerb = forkRewind.verbs.fork;
-  const promptsFooter: (readonly Span[])[] = [
-    [{ text: "Files are not restored: a rewind or a branch takes back the conversation, never the files the agent changed.", dim: true }],
-    ...(refusedLive(rewindVerb)
-      ? [[{ text: `A run is live: ${keys("picker.choose")} stops it, then rewinds here.`, color: "yellow" }]]
-      : rewindVerb.status === "absent"
-        ? [[{ text: `${keys("picker.choose")} rewind (${rewindVerb.message})`, dim: true }]]
-        : []),
-    ...(forkVerb.status === "absent" ? [[{ text: `${keys("picker.branch")} branch (${forkVerb.message})`, dim: true }]] : []),
-  ];
   const own = menuView ? (runtime.connections.list.read().find((r) => r.environmentId === menuView.environmentId)?.clientSessionId ?? null) : null;
   const freshness = projection?.freshness;
   const marker =
@@ -1785,16 +1789,16 @@ export const App = (props: AppProps) => {
             />
           )}
           {card.kind === "panel" && pickers.render(card.panel, { width: mainWidth, height: helpHeight })}
-          {card.kind === "prompts" && (
-            <ListCard
+          {card.kind === "prompt-picker" && (
+            <PromptPickerCard
+              messages={messages}
+              cursor={pickerCursor(card)}
               width={mainWidth}
-              title="Prompts"
-              hint={`${keys("picker.move")} move · ${keys("picker.choose")} rewinds here · ${keys("picker.branch")} branches here · ${keys("picker.leave")} closes`}
-              rows={prompts.map((prompt) => ({ key: prompt.messageId, cells: [{ text: promptWords(prompt.text) }], dim: false, note: { text: clockTime(prompt.sentAt), dim: true } }))}
-              cursor={clampCursor(card.cursor ?? prompts.length - 1, prompts.length)}
               height={helpHeight}
-              empty="No prompt to go back to."
-              footer={promptsFooter}
+              keys={{ move: keys("picker.move"), choose: keys("picker.choose"), branch: keys("picker.branch"), leave: keys("picker.leave") }}
+              rewind={forkRewind.verbs?.rewind}
+              fork={forkRewind.verbs?.fork}
+              offersStop={forkRewind.offersStop}
             />
           )}
           {card.kind === "asks" && (
@@ -1823,8 +1827,8 @@ export const App = (props: AppProps) => {
           )}
           {card.kind === "none" && opened && !railInPane && <DelegatedStrip tasks={tasks} />}
           {card.kind === "none" && opened && !railInPane && <QueuedLine queue={queue} steers={steers} verbs={queueVerbs} />}
-          {card.kind === "none" && opened && !railInPane && standing?.undoable === true && (
-            <RewoundStrip text={standing.text} undo="/rewind undo" availability={forkRewind.verbs.undoRewind} />
+          {card.kind === "none" && opened && !railInPane && standing?.undoable === true && undoVerb !== undefined && (
+            <RewoundStrip text={standing.text} undo="/rewind undo" availability={undoVerb} />
           )}
           {promptShown && (
             <PromptCard

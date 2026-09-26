@@ -65,6 +65,15 @@ export const callsRowId = (runId: string): string => `calls:${runId}`;
 /** The row a rewind's fold is: named for its `session.rewound`. */
 export const rewoundRowId = (sequence: number): string => `rewound:${sequence}`;
 
+/**
+ * Whether `row` is the fold whose rewind can be undone: the latest rewind
+ * standing (`projections.runs.session`'s `rewound`, by its sequence), while
+ * no run has started since. The fold's line, the hint line and `u` ask this
+ * one question.
+ */
+export const undoableFold = (row: Row | undefined, latest: { readonly sequence: number } | null | undefined): boolean =>
+  row?.kind === "rewound" && latest != null && latest.sequence === row.entry.sequence && row.entry.undoable;
+
 /** The rows of a session's projection, in the order they are drawn. */
 export const transcriptRows = (view: Pick<SessionProjection, "items" | "runs">): readonly Row[] => {
   const drawn: Row[] = [];

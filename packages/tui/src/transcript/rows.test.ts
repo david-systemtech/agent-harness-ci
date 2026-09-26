@@ -156,7 +156,7 @@ describe("a rewound fold's lines", () => {
     items: [message(2, "Then the tests"), text(3, "Done.")],
   };
   const rows = transcriptRows(view([message(1, "Go"), fold]));
-  const undo = { sequence: 4, availability: { status: "present" as const }, key: "u", unfoldKey: "Enter" };
+  const undo = { sequence: 4, availability: { status: "present" as const }, key: "u" };
 
   it("draws the fold closed as one line: what it went back to, how much it cut, and the keys that read and undo it", () => {
     expect(shown(transcriptLines(rows.slice(1), { ...CONTEXT, rewound: undo }))).toEqual(["↶ Rewound: Then the tests · 1 prompt cut · Enter unfolds · u undo"]);
