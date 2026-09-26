@@ -505,11 +505,52 @@ export const TranscriptItem = z
 export type TranscriptItem = z.infer<typeof TranscriptItem>;
 
 /**
+ * A rewind still standing on a session (ADR 0022; #260): not undone, whether
+ * or not a run has started since. It carries what it hid, the message rewound
+ * to and every item after it at the time, so a client that opens from a
+ * snapshot draws the rewound fold, the strip and the undo as one that heard
+ * `session.rewound` does. A rewind stacked before it (standing, not undone)
+ * whose hidden part it cut with the rest is nested in its `rewinds`; each
+ * hidden item is in exactly one rewind's `items`, the innermost that hid it.
+ * In a rewind's `items` and `rewinds` together, as in the snapshot's own,
+ * the order is by sequence: an item's is where it was opened, a rewind's is
+ * its `session.rewound`'s, where the branch was cut.
+ */
+export interface StandingRewind {
+  sequence: number;
+  toMessageId: string;
+  text: string;
+  undoable: boolean;
+  items: TranscriptItem[];
+  rewinds: StandingRewind[];
+}
+export const StandingRewind = z
+  .object({
+    sequence: Sequence.min(1).meta({ description: "The sequence of its session.rewound: where the branch was cut, and what session.rewind-undone names." }),
+    toMessageId: MessageId.meta({ description: "The user message rewound to: the first item it hid." }),
+    text: z.string().meta({ description: "That message's text, which the rewind put in the draft." }),
+    undoable: z.boolean().meta({
+      description: "No run has started on the session since the rewind, so sessions.undoRewind can still bring back what it hid; only the latest rewind standing is undone, then the one before it.",
+    }),
+    items: z.array(TranscriptItem).meta({ description: "The settled items it hid, in order, as they stand now; those a rewind nested in it hid are that rewind's." }),
+    get rewinds(): z.ZodArray<z.ZodType<StandingRewind>> {
+      return z.array(StandingRewind).meta({ description: "The rewinds standing before it whose hidden part it cut with the rest, oldest first: rewinds stacked with no undo between them nest, the latest outermost." });
+    },
+  })
+  .meta({
+    // The recursion needs a named definition: the id makes the JSON Schema export write it once under `$defs` and `$ref` it.
+    id: "StandingRewind",
+    description:
+      "A rewind standing on a session, not undone: its sequence, the message rewound to and its text, whether it can still be undone, and what it hid, a rewind before it that it cut nested in it.",
+  });
+
+/**
  * What `sessions.subscribeSession` sends when replay from the cursor is out
  * of bounds, or when the cursor is older than the session's compaction
  * (#123), whose fold it then stands in for: the session at `sequence`, its
  * summary, its runs, the settled items of its transcript (deltas are
- * applied by the client to the open item) and the prompts parked on it.
+ * applied by the client to the open item), the prompts parked on it, and
+ * the rewinds standing on it with what each hid (#260).
  */
 export const SessionSnapshot = z
   .object({
@@ -519,8 +560,17 @@ export const SessionSnapshot = z
     }),
     summary: SessionSummary,
     runs: z.array(RunSummary).meta({ description: "Every run of the session, oldest first." }),
-    items: z.array(TranscriptItem).meta({ description: "The settled items of the transcript, in order; items a rewind hid are left out until it is undone." }),
+    items: z.array(TranscriptItem).meta({ description: "The settled items of the transcript, in order; items a rewind hid are left out, carried by that rewind in rewinds until it is undone." }),
     parkedPrompts: z.array(ParkedPrompt).meta({ description: "The prompts parked on the session, oldest first." }),
+    // Defaults to none: an environment from before #260 sends no rewinds, and its snapshot reads as one with no rewind standing,
+    // which is what it showed then, rather than failing to open the session (claude-adapter spec, #260's notes).
+    rewinds: z
+      .array(StandingRewind)
+      .default([])
+      .meta({
+        description:
+          "The rewinds standing on the session (not undone) that no later rewind cut, oldest first, each with what it hid; one a later rewind cut is nested in it. Each sits among items at its own sequence, where its branch was cut; the latest standing is the one sessions.undoRewind undoes. Absent from an environment older than the field, read as none.",
+      }),
   })
-  .meta({ description: "One session at a sequence: its summary, its runs, the settled items of its transcript and its parked prompts." });
+  .meta({ description: "One session at a sequence: its summary, its runs, the settled items of its transcript, its parked prompts and the rewinds standing on it." });
 export type SessionSnapshot = z.infer<typeof SessionSnapshot>;
