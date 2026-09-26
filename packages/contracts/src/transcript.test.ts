@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 import { z } from "zod";
 import {
   AdapterCapabilities,
@@ -24,6 +24,7 @@ import {
   eventTypeEntry,
   exportedSchemas,
   isListEvent,
+  jsonSchemaFiles,
   listEventTypes,
   publishedEventPayloads,
   registry,
@@ -173,8 +174,16 @@ describe("the per-session snapshot", () => {
     expect(Object.keys(SessionSnapshot.shape)).toEqual(["sequence", "summary", "runs", "items", "parkedPrompts", "rewinds"]);
     expect(registry["sessions.subscribeSession"].result).toBe(SessionSnapshot);
     expect(SessionSnapshot.safeParse({ sequence: 9, summary, runs: [], items: [item], parkedPrompts: [], rewinds: [] }).success).toBe(true);
-    // The rewinds are no less the snapshot's than its items: one without them is not a snapshot (#260).
-    expect(SessionSnapshot.safeParse({ sequence: 9, summary, runs: [], items: [item], parkedPrompts: [] }).success).toBe(false);
+  });
+
+  it("reads a snapshot without rewinds, an environment's from before #260, as one with no rewind standing", () => {
+    expect(SessionSnapshot.parse({ sequence: 9, summary, runs: [], items: [item], parkedPrompts: [] }).rewinds).toEqual([]);
+    // Not in the export's required list either: a client in another language reads the older environment's too.
+    const exported = JSON.parse(jsonSchemaFiles().get("transcript/session-snapshot.json") ?? "{}") as { required?: string[]; properties?: Record<string, { default?: unknown }> };
+    expect(exported.required).toEqual(["sequence", "summary", "runs", "items", "parkedPrompts"]);
+    expect(exported.properties?.["rewinds"]?.default).toEqual([]);
+    // A rewind's own fields are all required: only the older environment's missing field is defaulted.
+    expect(StandingRewind.safeParse({ sequence: 8, toMessageId: messageId, text: "Two", undoable: true, items: [] }).success).toBe(false);
   });
 
   it("carries each rewind standing with what it hid, a rewind stacked before it nested in the one that cut it (#260)", () => {
@@ -186,9 +195,15 @@ describe("the per-session snapshot", () => {
     expect(parsed.rewinds).toEqual([outer]);
     expect(StandingRewind.safeParse({ ...outer, rewinds: [{ ...inner, undoable: "yes" }] }).success).toBe(false);
     expect(StandingRewind.safeParse({ ...outer, items: [{ sequence: 7 }] }).success).toBe(false);
-    // The export describes the nesting: a rewind's rewinds are rewinds.
-    const exported = exportedSchemas().find((entry) => entry.path === "transcript/standing-rewind.json");
-    expect(exported?.schema).toBe(StandingRewind);
+    // The export describes the nesting: the snapshot's rewinds, and a rewind's own, are the one named rewind definition.
+    const snapshot = JSON.parse(jsonSchemaFiles().get("transcript/session-snapshot.json") ?? "{}") as {
+      properties: { rewinds: { items: { $ref: string } } };
+      $defs: { StandingRewind: { properties: { rewinds: { items: { $ref: string } } } } };
+    };
+    expect(snapshot.properties.rewinds.items.$ref).toBe("#/$defs/StandingRewind");
+    expect(snapshot.$defs.StandingRewind.properties.rewinds.items.$ref).toBe("#/$defs/StandingRewind");
+    // The hand-written interface the recursion needs is the schema's own type.
+    expectTypeOf<z.infer<typeof StandingRewind>>().toEqualTypeOf<StandingRewind>();
   });
 
   it("keeps an item of a kind it does not know opaque, every field of it kept, rather than failing", () => {

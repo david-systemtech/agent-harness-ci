@@ -388,12 +388,12 @@ export const runSchemaFixtures: Record<string, Fixtures> = {
     ],
   },
   "transcript/session-snapshot.json": {
-    valid: [snapshot, { sequence: 0, summary: freshSummary, runs: [], items: [], parkedPrompts: [], rewinds: [] }],
+    // The last valid one is an environment's from before #260, with no rewinds: read as none standing.
+    valid: [snapshot, { sequence: 0, summary: freshSummary, runs: [], items: [], parkedPrompts: [], rewinds: [] }, { sequence: 0, summary: freshSummary, runs: [], items: [], parkedPrompts: [] }],
     invalid: [
       { sequence: 13, summary: freshSummary, transcript: {} },
       { ...snapshot, runs: [{}] },
       { ...snapshot, items: [{ sequence: 1 }] },
-      { sequence: 0, summary: freshSummary, runs: [], items: [], parkedPrompts: [] },
       { ...snapshot, rewinds: [{ ...standingRewind, rewinds: [{ ...nestedRewind, items: [{ sequence: 1 }] }] }] },
     ],
   },

@@ -538,6 +538,7 @@ export const StandingRewind = z
     },
   })
   .meta({
+    // The recursion needs a named definition: the id makes the JSON Schema export write it once under `$defs` and `$ref` it.
     id: "StandingRewind",
     description:
       "A rewind standing on a session, not undone: its sequence, the message rewound to and its text, whether it can still be undone, and what it hid, a rewind before it that it cut nested in it.",
@@ -561,10 +562,15 @@ export const SessionSnapshot = z
     runs: z.array(RunSummary).meta({ description: "Every run of the session, oldest first." }),
     items: z.array(TranscriptItem).meta({ description: "The settled items of the transcript, in order; items a rewind hid are left out, carried by that rewind in rewinds until it is undone." }),
     parkedPrompts: z.array(ParkedPrompt).meta({ description: "The prompts parked on the session, oldest first." }),
-    rewinds: z.array(StandingRewind).meta({
-      description:
-        "The rewinds standing on the session (not undone) that no later rewind cut, oldest first, each with what it hid; one a later rewind cut is nested in it. Each sits among items at its own sequence, where its branch was cut; the latest standing is the one sessions.undoRewind undoes.",
-    }),
+    // Defaults to none: an environment from before #260 sends no rewinds, and its snapshot reads as one with no rewind standing,
+    // which is what it showed then, rather than failing to open the session (claude-adapter spec, #260's notes).
+    rewinds: z
+      .array(StandingRewind)
+      .default([])
+      .meta({
+        description:
+          "The rewinds standing on the session (not undone) that no later rewind cut, oldest first, each with what it hid; one a later rewind cut is nested in it. Each sits among items at its own sequence, where its branch was cut; the latest standing is the one sessions.undoRewind undoes. Absent from an environment older than the field, read as none.",
+      }),
   })
   .meta({ description: "One session at a sequence: its summary, its runs, the settled items of its transcript, its parked prompts and the rewinds standing on it." });
 export type SessionSnapshot = z.infer<typeof SessionSnapshot>;

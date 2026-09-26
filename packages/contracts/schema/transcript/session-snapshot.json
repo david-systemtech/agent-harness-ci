@@ -2180,11 +2180,12 @@
       "description": "The prompts parked on the session, oldest first."
     },
     "rewinds": {
+      "default": [],
+      "description": "The rewinds standing on the session (not undone) that no later rewind cut, oldest first, each with what it hid; one a later rewind cut is nested in it. Each sits among items at its own sequence, where its branch was cut; the latest standing is the one sessions.undoRewind undoes. Absent from an environment older than the field, read as none.",
       "type": "array",
       "items": {
         "$ref": "#/$defs/StandingRewind"
-      },
-      "description": "The rewinds standing on the session (not undone) that no later rewind cut, oldest first, each with what it hid; one a later rewind cut is nested in it. Each sits among items at its own sequence, where its branch was cut; the latest standing is the one sessions.undoRewind undoes."
+      }
     }
   },
   "required": [
@@ -2192,8 +2193,7 @@
     "summary",
     "runs",
     "items",
-    "parkedPrompts",
-    "rewinds"
+    "parkedPrompts"
   ],
   "description": "One session at a sequence: its summary, its runs, the settled items of its transcript, its parked prompts and the rewinds standing on it.",
   "$defs": {
