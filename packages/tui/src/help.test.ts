@@ -62,7 +62,6 @@ describe("the help lines", () => {
     for (const id of ["app.prompt.back", "picker.branch", "row.rewind", "row.fork", "row.rewindUndo", "command.fork", "command.rewind"]) expect(rowOf(lines, id)?.state, id).toBe("answered");
     expect(rowOf(lines, "command.model")?.state).toBe("answered");
     expect(rowOf(lines, "command.terminal")?.state).toBe("answered");
-    expect(rowOf(lines, "command.fork")?.state).toBe("soon");
   });
 
   it("show the effective map: a remapped row with its new keys, marked", () => {

@@ -2013,6 +2013,11 @@ export const App = (props: AppProps) => {
       : undoableFold(cursorRow, standing)
         ? ` · ${verbHint("row.rewindUndo", "undo", forkRewind.verbs?.undoRewind)}`
         : "";
+  // The file verbs (#148) are said on a row that has them, as the fork and rewind verbs are, so the hint stays one line.
+  const fileVerbs =
+    cursorRow === undefined
+      ? ""
+      : `${rowFile(cursorRow) ? ` · ${keys("row.open")} open` : ""}${editCalls(cursorRow).length > 0 ? ` · ${keys("row.diff")} diff` : ""}`;
   const hint =
     card.kind === "panel"
       ? `The card has the keys · ${pickers.hint(card.panel)}`
@@ -2030,7 +2035,7 @@ export const App = (props: AppProps) => {
                   ? // What the keys do at the cursor gives way to a notice, as the composer's own hint does.
                     `The rail has the keys · ${keys("rail.leave")} ${rail.filter !== null ? "clears the filter" : `back to the composer · ${keys("app.focus.next")} next`}${rail.hint !== undefined && activity === undefined ? ` · ${rail.hint}` : ""}`
                   : focused === "transcript"
-                    ? `The transcript has the keys · ${keys("transcript.cursor")} rows · ${keys("row.unfold")} unfold · ${keys("row.open")} open · ${keys("row.diff")} diff · ${keys("row.recall")} recall · ${keys("row.stop")} stop${rowVerbs} · ${keys("row.leave")} back to the composer`
+                    ? `The transcript has the keys · ${keys("transcript.cursor")} rows · ${keys("row.unfold")} unfold${fileVerbs} · ${keys("row.recall")} recall · ${keys("row.stop")} stop${rowVerbs} · ${keys("row.leave")} back to the composer`
                     : undefined;
   const own = menuView ? (runtime.connections.list.read().find((r) => r.environmentId === menuView.environmentId)?.clientSessionId ?? null) : null;
   const freshness = projection?.freshness;

@@ -202,6 +202,8 @@ describe("the row verbs", () => {
     editRun(app);
     await app.waitFor("◆ Edited a file");
     await onCallsRow(app);
+    // Said on a row that has them, as the fork and rewind verbs are on a user row, so the hint keeps to one line.
+    await app.waitFor("Enter unfold · o open · d diff · r recall");
     await app.press("d");
     await app.waitFor("Diff · src/app.ts");
     expect(app.frame()).toContain("+export const app = 1;");

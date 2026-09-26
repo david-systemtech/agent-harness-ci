@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { ACTIONS } from "@agent-harness/contracts";
 import { parseCommand, shellLine } from "./parse.js";
 
 /** The slash commands this build answers, and what goes to the agent (docs/specs/tui.md, "The composer"). */
@@ -65,8 +66,12 @@ describe("parseCommand", () => {
     expect(parseCommand("/setup desk")).toEqual({ kind: "picker", command: { name: "setup", argument: "desk" } });
   });
 
-  it("says a command of the list this build does not answer yet is not here", () => {
-    expect(parseCommand("/fork")).toEqual({ kind: "not-here", name: "fork", line: "/fork is not in this build of the terminal UI yet." });
+  it("answers every command the shared list wires, so none says it is not in this build yet", () => {
+    // With the terminal pane (#148) and fork and rewind (#232) both in, the list has no wired command this build leaves out.
+    const wired = ACTIONS.filter((a) => a.id.startsWith("command.") && a.status === "wired" && a.aliasOf === undefined).map((a) => a.id.slice("command.".length));
+    expect(wired).toContain("terminal");
+    expect(wired).toContain("fork");
+    for (const name of wired) expect(parseCommand(`/${name}`), name).not.toMatchObject({ kind: "not-here" });
   });
 
   it("gives an absent command's reason", () => {
