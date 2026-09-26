@@ -17,6 +17,7 @@ import {
   PERMISSION_SETTINGS_KEYS,
   isGenericSettingsKey,
   presetPermissionSettings,
+  settingForm,
 } from "./index.js";
 
 /**
@@ -156,5 +157,28 @@ describe("the settings methods", () => {
     expect(params.safeParse({ values: {} }).success).toBe(false);
     const invalid = params.safeParse({ commandId, values: { "sessions.autoSettleAfterIdle": { amount: 2, unit: "fortnights" } } });
     expect(invalid.error?.issues.map((issue) => issue.path)).toEqual([["values", "sessions.autoSettleAfterIdle", "unit"]]);
+  });
+});
+
+describe("a key's form, as a generic editor edits it (the tui spec's `/settings`, #147)", () => {
+  it("is a switch for a boolean, a choice among an enum's values, and typed text for anything else, saying whether it takes null", () => {
+    expect(settingForm("sessions.autoSettleOnMerge")).toEqual({ kind: "switch" });
+    expect(settingForm("permissions.defaultCeiling")).toEqual({ kind: "choice", options: ["plan", "acceptEdits", "auto", "bypassPermissions"] });
+    expect(settingForm("permissions.unattended.mode")).toEqual({ kind: "choice", options: ["acceptEdits", "bypassPermissions"] });
+    expect(settingForm("permissions.containment.default")).toEqual({ kind: "choice", options: ["off", "workspace", "workspace-no-network"] });
+    expect(settingForm("sessions.transcriptCompactAfterDays")).toEqual({ kind: "text", nullable: false });
+    expect(settingForm("providers.processIdleMinutes")).toEqual({ kind: "text", nullable: false });
+    expect(settingForm("permissions.parkedPrompt.ttl")).toEqual({ kind: "text", nullable: false });
+    expect(settingForm("sessions.autoSettleAfterIdle")).toEqual({ kind: "text", nullable: true });
+    expect(settingForm("accounts.defaultAccount")).toEqual({ kind: "text", nullable: true });
+    expect(settingForm("accounts.defaultModelFamily")).toEqual({ kind: "text", nullable: true });
+  });
+
+  it("is one every key has, each choice a value its key's schema takes", () => {
+    for (const key of SETTINGS_KEYS) {
+      const form = settingForm(key);
+      expect(["switch", "choice", "text"], key).toContain(form.kind);
+      if (form.kind === "choice") for (const option of form.options) expect(SETTINGS[key].schema.safeParse(option).success, `${key} ${String(option)}`).toBe(true);
+    }
   });
 });

@@ -240,7 +240,7 @@ describe("slash commands", () => {
   it("answers /profile as the hidden alias of /account, never sending it", async () => {
     const { app } = await launch();
     await send(app, "/profile");
-    await app.waitFor("/account is not in this build of the terminal UI yet.");
+    await app.waitFor("Accounts on desk");
     expect(paramsOf(app, "runs.start")).toEqual([]);
   });
 

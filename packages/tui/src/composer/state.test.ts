@@ -74,6 +74,13 @@ describe("popups", () => {
     expect(matchCommands("rs", COMMANDS).map((r) => r.name)).toEqual(["resume"]);
   });
 
+  it("puts the command named exactly first, so Enter on a whole name runs it and not a longer one it begins (#147: /mode, /model)", () => {
+    const rows = (...names: string[]) => names.map((name) => ({ name, usage: `/${name}`, description: "", provider: false }));
+    expect(matchCommands("mode", rows("model", "mode")).map((r) => r.name)).toEqual(["mode", "model"]);
+    expect(matchCommands("Mode", rows("model", "mode")).map((r) => r.name)).toEqual(["mode", "model"]);
+    expect(matchCommands("mo", rows("model", "mode")).map((r) => r.name)).toEqual(["model", "mode"]);
+  });
+
   it("fills a command in on Tab, with a space when it takes arguments", () => {
     const state = composerOf("/at");
     const popup = popupOf(state, SOURCES);

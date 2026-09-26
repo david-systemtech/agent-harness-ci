@@ -12,8 +12,18 @@ import { StyledLine } from "./transcript.js";
  * in colour while the pane has the keys.
  */
 
-/** The rows the pane's terminal has: two fifths of the frame, between 3 and 16 (a chosen default). */
-export const paneRows = (frameRows: number): number => Math.min(16, Math.max(3, Math.floor(frameRows * 0.4)));
+/**
+ * The frame's rows that are not the column the pane is drawn in: the header above it, and the six rows under it (the two
+ * lines, the composer, the status line's two and the activity line, #147).
+ */
+export const OUTSIDE_COLUMN = 7;
+
+/**
+ * The rows the pane's terminal has: two fifths of the frame, between 3 and 16 (a chosen default), and never more than the
+ * column holds under the pane's own header, so a short frame keeps the rows under it.
+ */
+export const paneRows = (frameRows: number): number =>
+  Math.max(1, Math.min(16, Math.max(3, Math.floor(frameRows * 0.4)), frameRows - OUTSIDE_COLUMN - 1));
 
 const STATE: Readonly<Record<TerminalStatus | "opening", string | undefined>> = {
   opening: "opening…",

@@ -42,9 +42,20 @@ describe("parseCommand", () => {
     expect(parseCommand("/snip --examples")).toEqual({ kind: "snip-examples" });
   });
 
-  it("answers /profile as the hidden alias of /account, a command of the list this build does not answer yet", () => {
-    expect(parseCommand("/profile")).toEqual({ kind: "not-here", name: "account", line: "/account is not in this build of the terminal UI yet." });
-    expect(parseCommand("/model")).toMatchObject({ kind: "not-here", name: "model" });
+  it("reads the accounts, models, permissions, settings and Set up commands, /profile as the hidden alias of /account (#147)", () => {
+    expect(parseCommand("/profile")).toEqual({ kind: "picker", command: { name: "account", argument: "" } });
+    expect(parseCommand("/model")).toEqual({ kind: "picker", command: { name: "model", argument: "" } });
+    for (const name of ["account", "model", "mode", "containment", "usage", "review", "settings"]) {
+      expect(parseCommand(`/${name}`)).toEqual({ kind: "picker", command: { name, argument: "" } });
+      expect(parseCommand(`/${name} extra`)).toEqual({ kind: "usage", line: `Usage: /${name}` });
+    }
+    expect(parseCommand("/handoff")).toEqual({ kind: "picker", command: { name: "handoff", argument: "" } });
+    expect(parseCommand("/handoff My Laptop")).toEqual({ kind: "picker", command: { name: "handoff", argument: "My Laptop" } });
+    expect(parseCommand("/setup desk")).toEqual({ kind: "picker", command: { name: "setup", argument: "desk" } });
+  });
+
+  it("says a command of the list this build does not answer yet is not here", () => {
+    expect(parseCommand("/fork")).toEqual({ kind: "not-here", name: "fork", line: "/fork is not in this build of the terminal UI yet." });
   });
 
   it("gives an absent command's reason", () => {

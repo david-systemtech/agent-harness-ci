@@ -1,5 +1,6 @@
 import type { PairingInput } from "@agent-harness/client-runtime";
 import { actionById, isCommandId } from "@agent-harness/contracts";
+import { PICKER_COMMANDS, TAKES_ENVIRONMENT, isPickerCommand, type PickerCommand } from "../pickers/commands.js";
 import { RAIL_COMMANDS, isRailCommand, type RailCommand } from "../rail/commands.js";
 
 /**
@@ -8,13 +9,14 @@ import { RAIL_COMMANDS, isRailCommand, type RailCommand } from "../rail/commands
  * `/pair create`, `/environment`, `/help`, `/reload`; and, carried from
  * Artemis with the transcript and the composer, `/resume`, `/new`,
  * `/attach <path>`, `/snip`, `/tasks`, `/copy`, `/export [file]`,
- * `/timeline` and `/quit`; with the cards, `/asks` and `/notices`; with
- * the terminal pane, `/terminal`, `/files [path]` and `/diff` (#148); with
- * the rail, `/archive`, `/pin`, `/title`, `/group`, `/tag`, `/settle`,
- * `/snooze`, `/restore`, `/search` and `/cwd` (`rail/commands.ts`). A
- * command of the shared list this build does not answer yet says so in one
- * line, and one the list keeps absent gives its reason; `/profile` is a
- * hidden alias of `/account`. Anything else that
+ * `/timeline` and `/quit`; the accounts, models, permissions, settings and
+ * Set up commands (`pickers/commands.ts`, #147); with the cards, `/asks`
+ * and `/notices`; with the terminal pane, `/terminal`, `/files [path]` and
+ * `/diff` (#148); with the rail, `/archive`, `/pin`, `/title`, `/group`,
+ * `/tag`, `/settle`, `/snooze`, `/restore`, `/search` and `/cwd`
+ * (`rail/commands.ts`). A command of the shared list this build does not
+ * answer yet says so in one line, and one the list keeps absent gives its
+ * reason; `/profile` is a hidden alias of `/account`. Anything else that
  * begins with a slash is not the terminal's: it goes to the agent as typed,
  * which is how the provider's own commands are run (Artemis's rule). What
  * follows a `/` is syntax, whatever key opens the command menu.
@@ -35,6 +37,7 @@ export const ANSWERED_COMMANDS = [
   "export",
   "timeline",
   "quit",
+  ...PICKER_COMMANDS,
   "asks",
   "notices",
   "terminal",
@@ -63,6 +66,7 @@ export type Command =
   | { readonly kind: "export"; readonly file: string | null }
   | { readonly kind: "timeline" }
   | { readonly kind: "quit" }
+  | { readonly kind: "picker"; readonly command: PickerCommand }
   | { readonly kind: "asks" }
   | { readonly kind: "notices" }
   | { readonly kind: "terminal" }
@@ -96,6 +100,10 @@ export const parseCommand = (typed: string): Command => {
   const name = ALIASES[lowered] ?? lowered;
   // Everything after the command word, as typed: a snippet's body keeps its lines.
   const tail = text.slice(1 + word.length).trim();
+  if (isPickerCommand(name)) {
+    const command: Command = { kind: "picker", command: { name, argument: tail } };
+    return TAKES_ENVIRONMENT.has(name) ? command : bare(rest, command, `/${name}`);
+  }
   // The rail's forms take what follows the name whole, spaces kept: a title or a group's name has several words. None of
   // them is a name the switch below answers.
   if (isRailCommand(name)) return { kind: "rail", command: { name, text: tail } };

@@ -36,6 +36,8 @@ import { composerNote, highlighted, useComposer, type ComposerClipboard } from "
 import { nextFocus, stepCursor, type Focus } from "./focus.js";
 import { browse, directoryOf, typedPath, type BrowseRow } from "./files/browse.js";
 import { readFile, rowDiff, sessionDiff, systemDiffFilter, type DiffFilter, type Paged } from "./files/views.js";
+import type { Panel } from "./pickers/panel.js";
+import { usePickers } from "./pickers/use-pickers.js";
 import { createFrameScheduler } from "./frames.js";
 import { helpLines } from "./help.js";
 import { FIRST_ANYWHERE, conditionOf, direction, dispatch, eventName, keysText, type Handler, type InkKey, type Keymap, type LoadedKeymap, type Lookup } from "./keys.js";
@@ -49,7 +51,7 @@ import { AsksCard } from "./screens/asks-card.js";
 import { ClientSessionsCard, EnvironmentMenu, EnvironmentsCard, HelpCard, MintedCard } from "./screens/cards.js";
 import { ComposerView } from "./screens/composer.js";
 import { FilesCard } from "./screens/files-card.js";
-import { TerminalPaneView, paneRows as terminalPaneRows } from "./screens/terminal-pane.js";
+import { OUTSIDE_COLUMN, TerminalPaneView, paneRows as terminalPaneRows } from "./screens/terminal-pane.js";
 import { Header, HintLine, Line, PairingPrompt, RAIL_MIN_COLUMNS } from "./screens/layout.js";
 import { SessionsCard, SnippetsCard } from "./screens/lists.js";
 import { PromptCard } from "./screens/prompt-card.js";
@@ -58,6 +60,8 @@ import { attachmentRefusal, interruptRun, isLive, readQueueNow, sendMessage, sto
 import { useFollow, useSession, type Opened } from "./session/use-session.js";
 import { codeBlocks, exportMarkdown, timelineLine, turnsOf } from "./transcript/export.js";
 import { lineText, rowLines, transcriptLines, type Line as TranscriptLine } from "./transcript/lines.js";
+import { StatusLine } from "./status/status-line.js";
+import { useStatus } from "./status/use-status.js";
 import { quietFor } from "./transcript/quiet.js";
 import { lastReply, transcriptRows, type Row } from "./transcript/rows.js";
 import { editCalls, inWorkspace, rowFile } from "./transcript/targets.js";
@@ -207,6 +211,8 @@ type Card =
   | { readonly kind: "snippets"; readonly cursor: number }
   /** `/tasks` or `/timeline`: lines about the session; `/notices`: every notice, newest first; scrolled from `top`. */
   | { readonly kind: "lines"; readonly which: "tasks" | "timeline" | "notices"; readonly top: number }
+  /** A picker or card of accounts, models, permissions and settings (`pickers/`). */
+  | { readonly kind: "panel"; readonly panel: Panel }
   /** `/asks` and `Ctrl+]`: every environment's parked prompts. */
   | { readonly kind: "asks"; readonly cursor: number }
   /**
@@ -431,7 +437,7 @@ export const App = (props: AppProps) => {
   const stops = { sidebar: railListed, delegated: false, terminal: paneOpen };
   const focused: Focus = (focus === "sidebar" && !railListed) || (focus === "terminal" && !paneOpen) ? "composer" : focus;
   // The pane's terminal is as wide as the column beside the rail (the help overlay's taking the width is no resize) and two
-  // fifths of the frame tall.
+  // fifths of the frame tall, within the column.
   const paneSize = { cols: Math.max(20, size.columns - (railDrawn ? RAIL_WIDTH : 0)), rows: terminalPaneRows(size.rows) };
   useEffect(() => terminal.resize(paneSize), [paneSize.cols, paneSize.rows]);
   useEffect(() => {
@@ -734,6 +740,45 @@ export const App = (props: AppProps) => {
     }
   });
 
+  // The accounts, models, permissions, settings and Set up commands (#147): their cards are the screen's, their memory of a
+  // session's next runs (a model and effort, a containment level, an account handed off onto) is theirs.
+  const sessionView = opened ? views.find((v) => v.environmentId === opened.environmentId) : undefined;
+  const pickers = usePickers({
+    runtime,
+    request,
+    views,
+    current,
+    opened,
+    projection,
+    panel: screen.card.kind === "panel" ? screen.card.panel : undefined,
+    open: (panel) => update({ card: { kind: "panel", panel } }),
+    change: (next) => setScreen((s) => (s.card.kind === "panel" ? { ...s, card: { kind: "panel", panel: next(s.card.panel) } } : s)),
+    close: (when) => setScreen((s) => (s.card.kind === "panel" && (when?.(s.card.panel) ?? true) ? { ...s, card: { kind: "none" } } : s)),
+    say,
+    ask: (asked) => update({ question: asked }),
+    openSession: (next) => open(next),
+    newCommandId: props.newCommandId,
+    newSessionId: () => props.newSessionId?.() ?? crypto.randomUUID(),
+    keys,
+  });
+  const status = useStatus({
+    runtime,
+    clock,
+    request,
+    environment: sessionView ?? current,
+    opened,
+    projection,
+    runState: session.runState,
+    liveRunId: liveRun,
+    steers: session.provider?.steering === true,
+    choice: pickers.choice(opened),
+    containment: pickers.containment(opened),
+    forkedOnto: pickers.forkedOnto(opened),
+    width: size.columns,
+    composerKeys: focused === "composer" && !cardOpen,
+    keys,
+  });
+
   /** Sends `message` to the open session; `remember` false keeps it out of the prompt history (preset in it). */
   const sendText = (message: { readonly text: string; readonly attachments: readonly AttachmentInput[] }, options: { readonly remember?: boolean } = {}): boolean => {
     if (!opened) {
@@ -755,7 +800,7 @@ export const App = (props: AppProps) => {
     setSending((s) => [...s, { id, text: message.text, messageId: undefined, before }]);
     if (options.remember !== false) stores.history?.append({ text: message.text, cwd: projection?.summary?.workspace.path ?? props.flags.workspace, sessionId });
     setView((v) => ({ ...v, offset: 0 }));
-    void sendMessage(runtime, environmentId, sessionId, message, live).then((outcome) => {
+    void sendMessage(runtime, environmentId, sessionId, message, live, pickers.choice(opened)).then((outcome) => {
       if (!outcome.ok) {
         setSending((s) => s.filter((one) => one.id !== id));
         say(outcome.line);
@@ -1123,6 +1168,9 @@ export const App = (props: AppProps) => {
       case "diff":
         showDiff();
         return true;
+      case "picker":
+        pickers.run(command.command);
+        return true;
       case "not-here":
       case "usage":
         say(command.line);
@@ -1194,6 +1242,7 @@ export const App = (props: AppProps) => {
   const snippetRows = (): readonly SnippetTemplate[] => stores.snippets?.list() ?? [];
 
   const choose = (card: Card) => {
+    if (card.kind === "panel") return pickers.choose(card.panel);
     if (card.kind === "picker") {
       const row = rowAt(card.picker);
       if (!row) return;
@@ -1281,6 +1330,10 @@ export const App = (props: AppProps) => {
         return card.under;
       case "page":
         return card.back;
+      case "panel": {
+        const to = pickers.back(card.panel);
+        return to ? { kind: "panel", panel: to } : { kind: "none" };
+      }
       case "picker":
         // The query first, then a step back, then the card closes.
         if (card.picker.typed && card.picker.query !== "") return { kind: "picker", picker: { ...card.picker, query: "", cursor: 0 } };
@@ -1306,6 +1359,8 @@ export const App = (props: AppProps) => {
         return snippetRows().length;
       case "files":
         return fileRows(card)?.length ?? 0;
+      case "panel":
+        return pickers.rows(card.panel);
       case "picker":
         return card.picker.rows(card.picker.query).length;
       default:
@@ -1313,9 +1368,9 @@ export const App = (props: AppProps) => {
     }
   };
 
-  // The help overlay's body, and the pager's: the frame less the header, the three lines and the composer under the card,
-  // and the card's title and foot.
-  const helpHeight = Math.max(1, size.rows - 7);
+  // The help overlay's body, and the pager's: the frame less the header, the three lines, the composer and the status line
+  // under the card, and the card's title and foot.
+  const helpHeight = Math.max(1, size.rows - 9);
   const helpMaxTop = Math.max(0, help.length - helpHeight);
   // A taller terminal, or a shorter map after `/reload`, leaves less to scroll: the overlay's place is clamped to it.
   useEffect(() => {
@@ -1421,6 +1476,15 @@ export const App = (props: AppProps) => {
     },
     { isActive: focused === "composer" && !cardOpen },
   );
+  // A card taking a line (a label, a sign-in's code, a setting's value) takes a paste into it, unless a question has the keys.
+  const panelTyping = card.kind === "panel" && pickers.takesText(card.panel) && !screen.question;
+  usePaste(
+    (text) => {
+      scheduler.bypass();
+      setScreen((s) => (s.card.kind === "panel" ? { ...s, card: { kind: "panel", panel: pickers.typed(s.card.panel, text) } } : s));
+    },
+    { isActive: panelTyping },
+  );
 
   useInput((input: string, key: InkKey) => {
     // The pane took the keys back earlier in this read (the leave key pressed again): the rest of the read is the shell's,
@@ -1438,6 +1502,7 @@ export const App = (props: AppProps) => {
     const previous = lastPress.current;
     // Text arriving in one read (a fast typist, a terminal that batches) ends on its last character: `one\` then Enter is `\ Enter`.
     lastPress.current = name ?? (input.length > 0 && !key.ctrl && !key.meta ? [...input].at(-1) : undefined);
+    const linesPanel = card.kind === "panel" && pickers.isLines(card.panel);
     const listCard =
       card.kind === "environments" ||
       card.kind === "menu" ||
@@ -1445,22 +1510,25 @@ export const App = (props: AppProps) => {
       card.kind === "sessions" ||
       card.kind === "snippets" ||
       card.kind === "files" ||
-      card.kind === "picker";
+      card.kind === "picker" ||
+      (card.kind === "panel" && !linesPanel);
     // A list, the help overlay, the pager (the transcript's or a page's) and the lines cards have the keys whatever has the focus; the focus has them back when it closes.
-    const cardHasKeys = listCard || card.kind === "help" || paged(card) || card.kind === "lines" || card.kind === "asks" || promptShown;
+    const cardHasKeys = listCard || linesPanel || card.kind === "help" || paged(card) || card.kind === "lines" || card.kind === "asks" || promptShown;
     const composerHasKeys = focused === "composer" && !cardHasKeys;
     const composerText = composer.state.editor.text;
     const scrollCard = (to: (top: number) => number, max: number): false | void => {
       if (card.kind === "help") return update({ card: { ...card, top: Math.min(Math.max(to(Math.min(card.top, helpMaxTop)), 0), helpMaxTop) } });
       if (paged(card)) return update({ card: { ...card, top: Math.min(Math.max(to(pagerTop), 0), max) } });
       if (card.kind === "lines") return update({ card: { ...card, top: Math.min(Math.max(to(card.top), 0), Math.max(0, cardLines.length - helpHeight)) } });
+      if (card.kind === "panel" && linesPanel) return update({ card: { kind: "panel", panel: pickers.scroll(card.panel, to) } });
       return false;
     };
     const scroll = (to: (top: number) => number): false | void => scrollCard(to, pagerMaxTop);
     const move = (action: "picker.move" | "picker.moveVi") => (pressed: string) => {
       const step = direction(keymap, action, pressed);
-      if (card.kind === "help" || card.kind === "lines") return scroll((top) => top + step);
+      if (card.kind === "help" || card.kind === "lines" || linesPanel) return scroll((top) => top + step);
       if (!listCard) return false;
+      if (card.kind === "panel") return update({ card: { kind: "panel", panel: pickers.move(card.panel, step) } });
       // A list typed at takes letters into its filter or query: k and j are letters there. A typed picker's letters
       // never reach here (its intake runs before any lookup, below), so the decline states the rule as the sessions one does.
       if (action === "picker.moveVi" && (card.kind === "sessions" || card.kind === "files" || (card.kind === "picker" && card.picker.typed))) return false;
@@ -1471,6 +1539,8 @@ export const App = (props: AppProps) => {
     // Every key the screen answers, by action: the key is looked up in the keymap in force, never matched here.
     const handlers: Record<ScreenKey, Handler> & typeof composer.handlers = {
       ...composer.handlers,
+      "app.mode.step": () => pickers.stepMode(),
+      "app.handoff": () => pickers.run({ name: "handoff", argument: "" }),
       ...rail.handlers,
       "app.focus.next": () => (card.kind === "none" ? setFocus(nextFocus(focused, stops)) : false),
       "row.leave": () => {
@@ -1619,7 +1689,7 @@ export const App = (props: AppProps) => {
       "pager.halfDown": () => scroll((top) => top + Math.max(1, Math.floor(helpHeight / 2))),
       "pager.halfUp": () => scroll((top) => top - Math.max(1, Math.floor(helpHeight / 2))),
       "pager.top": () => scroll(() => 0),
-      "pager.bottom": () => scroll(() => (card.kind === "help" ? helpMaxTop : card.kind === "lines" ? cardLines.length : pagerMaxTop)),
+      "pager.bottom": () => scroll(() => (card.kind === "help" ? helpMaxTop : card.kind === "lines" ? cardLines.length : linesPanel ? Number.MAX_SAFE_INTEGER : pagerMaxTop)),
       "pager.turn.next": () => {
         const next = pagerTurns.find((at) => at > pagerTop);
         return next === undefined ? false : scroll(() => next);
@@ -1638,7 +1708,7 @@ export const App = (props: AppProps) => {
       "pager.close": () => {
         if (card.kind === "help") return update({ card: card.under });
         if (card.kind === "page") return update({ card: card.back });
-        if (card.kind === "pager" || card.kind === "lines") return update({ card: { kind: "none" } });
+        if (card.kind === "pager" || card.kind === "lines" || linesPanel) return update({ card: { kind: "none" } });
         return false;
       },
       "app.attention.next": () => attentionNext(),
@@ -1674,6 +1744,14 @@ export const App = (props: AppProps) => {
     // after it left the pane comes before them, as it goes to the shell.
     const first: Lookup[] = [...(justLeft ? [{ context: "terminal" as const, only: LEAVE }] : []), { context: "anywhere", only: FIRST_ANYWHERE }];
     if (dispatch(keymap, first, handlers, input, key, { previous })) return;
+    // A card taking a line has the text typed at it: Enter is its choice, Esc its way back, Backspace rubs one out; any
+    // other key (Ctrl+C) is looked up as ever.
+    if (card.kind === "panel" && pickers.takesText(card.panel) && !screen.question) {
+      if (key.return) return pickers.choose(card.panel);
+      if (key.escape) return update({ card: back(card) });
+      if (key.backspace || key.delete) return update({ card: { kind: "panel", panel: pickers.erased(card.panel) } });
+      if (input !== "" && !key.ctrl && !key.meta && !key.tab) return update({ card: { kind: "panel", panel: pickers.typed(card.panel, input) } });
+    }
     // The note's line on the permission card takes what is typed; the move keys wait while it is open, and a key it does not
     // take (Ctrl+C, Ctrl+]) is looked up as any other.
     if (promptShown && promptState.line !== null) {
@@ -1718,7 +1796,7 @@ export const App = (props: AppProps) => {
     const lookups: Lookup[] = [];
     if (screen.question && !typing) lookups.push("confirm");
     if (card.kind === "asks") lookups.push("asks");
-    else if (card.kind === "help" || paged(card) || card.kind === "lines") lookups.push("pager", "picker");
+    else if (card.kind === "help" || paged(card) || card.kind === "lines" || linesPanel) lookups.push("pager", "picker");
     else if (card.kind !== "none") lookups.push("picker");
     if (promptShown) lookups.push("permission");
     if (!cardHasKeys) {
@@ -1729,8 +1807,8 @@ export const App = (props: AppProps) => {
     }
     lookups.push({ context: "anywhere", except: FIRST_ANYWHERE });
     // The one condition the list declares (`composer.withdrawLast`'s): the composer is empty, nothing typed, nothing attached
-    // and no search of the history open. It holds only while the composer has the keys: a typed picker, a list or the rail
-    // (its filter included) having them, `↑` is theirs.
+    // and no search of the history open. It holds only while the composer has the keys: a typed picker, a list, the rail
+    // (its filter included) or a card taking a line (a label, a code, a value) having them, `↑` is theirs, never a withdraw.
     const composerEmpty = composerHasKeys && composerText === "" && composer.state.attached.length === 0 && composer.state.search === null;
     if (dispatch(keymap, lookups, handlers, input, key, { previous, holds: (condition) => condition === "composer.empty" && composerEmpty })) return;
     // `/files`' list is typed at as well; Backspace with nothing typed goes up a directory.
@@ -1773,8 +1851,9 @@ export const App = (props: AppProps) => {
   // Under 100 columns the rail, with the focus, is drawn in the pane's place (the transcript gives way to it): the picker
   // that stands in for it.
   const railInPane = !railDrawn && railListed && focused === "sidebar" && card.kind === "none" && !promptShown;
-  // The rows the rail and a picker have: the frame less the header and the four lines under the pane.
-  const paneRows = Math.max(1, size.rows - 5);
+  // The rows the rail and a picker have: the frame less the header and the six lines under the pane (the two lines, the
+  // composer, the status line's two and the activity line).
+  const paneRows = Math.max(1, size.rows - OUTSIDE_COLUMN);
   const listHint = (verb: string, leave: string) => `${keys("picker.move")} move · ${keys("picker.choose")} ${verb} · ${keys("picker.leave")} ${leave}`;
   /** The permission card's legend: the keys the card answers, in the map in force; the note's line takes Enter, Tab and Esc as they are. */
   const cardHint = (kind: PromptKind, lineOpen: boolean): string => {
@@ -1792,29 +1871,27 @@ export const App = (props: AppProps) => {
   const menuView = card.kind === "menu" || card.kind === "client-sessions" ? viewOf(card.environmentId) : undefined;
   const activity = activityLine(faults, notices);
   const promptLine = question?.text ?? (startingService ? "Starting the environment on this machine: starting…" : undefined);
-  // The line under the composer says what has the keys, in the keys of the map in force: an open list or the help
-  // overlay first, then the rail or the transcript. Either stays in sight beside a notice; the composer's own
-  // hint gives way to one.
+  // The line under the status line says what has the keys, in the keys of the map in force: an open card first, then the
+  // rail or the transcript. Either stays in sight beside a notice. The composer's own keys are on the status line (#147).
   const hint =
-    card.kind === "help" || card.kind === "pager" || card.kind === "lines" || card.kind === "page"
-      ? `The card has the keys · ${keys("pager.close")} closes it`
-      : card.kind === "environments" || card.kind === "sessions" || card.kind === "snippets" || card.kind === "files"
-        ? `The card has the keys · ${keys("picker.leave")} closes it`
-        : card.kind === "menu" || card.kind === "client-sessions"
-          ? `The card has the keys · ${keys("picker.leave")} goes back`
-          : card.kind === "picker"
-            ? `The card has the keys · ${keys("picker.leave")} ${card.picker.back ? "goes back" : "closes it"}`
-          : paneHasKeys
-            ? `The terminal has the keys · ${keys("terminal.leave")} leaves · ${keys("terminal.scrollback")} scrollback`
-          : focused === "sidebar"
-            ? // What the keys do at the cursor gives way to a notice, as the composer's own hint does.
-              `The rail has the keys · ${keys("rail.leave")} ${rail.filter !== null ? "clears the filter" : `back to the composer · ${keys("app.focus.next")} next`}${rail.hint !== undefined && activity === undefined ? ` · ${rail.hint}` : ""}`
-            : focused === "transcript"
-              ? `The transcript has the keys · ${keys("transcript.cursor")} rows · ${keys("row.unfold")} unfold · ${keys("row.open")} open · ${keys("row.diff")} diff · ${keys("row.recall")} recall · ${keys("row.stop")} stop · ${keys("row.leave")} back to the composer`
-              : undefined;
-  const composerHint = opened
-    ? `${keys("composer.send")} sends · ${live ? `${keys("app.interrupt")} interrupts · ` : ""}${keys("app.pager.open")} pager · ${keys("app.help")} keys`
-    : `${keys("app.interruptOrQuit")} quits · ${keys("app.help")} keys · /pair · /environment · /resume · /new`;
+    card.kind === "panel"
+      ? `The card has the keys · ${pickers.hint(card.panel)}`
+      : card.kind === "help" || card.kind === "pager" || card.kind === "lines" || card.kind === "page"
+        ? `The card has the keys · ${keys("pager.close")} closes it`
+        : card.kind === "environments" || card.kind === "sessions" || card.kind === "snippets" || card.kind === "files"
+          ? `The card has the keys · ${keys("picker.leave")} closes it`
+          : card.kind === "menu" || card.kind === "client-sessions"
+            ? `The card has the keys · ${keys("picker.leave")} goes back`
+            : card.kind === "picker"
+              ? `The card has the keys · ${keys("picker.leave")} ${card.picker.back ? "goes back" : "closes it"}`
+              : paneHasKeys
+                ? `The terminal has the keys · ${keys("terminal.leave")} leaves · ${keys("terminal.scrollback")} scrollback`
+                : focused === "sidebar"
+                  ? // What the keys do at the cursor gives way to a notice, as the composer's own hint does.
+                    `The rail has the keys · ${keys("rail.leave")} ${rail.filter !== null ? "clears the filter" : `back to the composer · ${keys("app.focus.next")} next`}${rail.hint !== undefined && activity === undefined ? ` · ${rail.hint}` : ""}`
+                  : focused === "transcript"
+                    ? `The transcript has the keys · ${keys("transcript.cursor")} rows · ${keys("row.unfold")} unfold · ${keys("row.open")} open · ${keys("row.diff")} diff · ${keys("row.recall")} recall · ${keys("row.stop")} stop · ${keys("row.leave")} back to the composer`
+                    : undefined;
   const own = menuView ? (runtime.connections.list.read().find((r) => r.environmentId === menuView.environmentId)?.clientSessionId ?? null) : null;
   const freshness = projection?.freshness;
   const marker =
@@ -1935,6 +2012,7 @@ export const App = (props: AppProps) => {
               height={helpHeight}
             />
           )}
+          {card.kind === "panel" && pickers.render(card.panel, { width: mainWidth, height: helpHeight })}
           {card.kind === "asks" && (
             <AsksCard
               rows={askList}
@@ -2004,7 +2082,8 @@ export const App = (props: AppProps) => {
         search={composer.state.search && searchScope !== undefined ? { query: composer.state.search.query, scope: searchScope, found: composer.state.editor !== composer.state.search.saved } : undefined}
         note={composerNote(composer.state, keys("composer.complete"))}
       />
-      <HintLine hint={promptsHint ?? hint} activity={activity} fallback={composerHint} />
+      <StatusLine one={status.one} two={status.two} />
+      <HintLine hint={promptsHint ?? hint} activity={activity} fallback=" " />
     </Box>
   );
 };

@@ -179,6 +179,46 @@ export const isGenericSettingsKey = (key: string): boolean => (GENERIC_SETTINGS_
 export const presetSettings = (): SettingsValues =>
   SettingsValues.parse(Object.fromEntries(SETTINGS_KEYS.map((key) => [key, SETTINGS[key].preset])));
 
+/**
+ * How a generic settings editor edits a key (the tui spec's `/settings`,
+ * #147; the GUI's generic rows the same): a `switch` for a boolean; a
+ * `choice` among the values an enum (or a constant) takes, null among them
+ * when the key takes none; `text` for anything else, typed as JSON (a bare
+ * word as a string), `nullable` saying whether it takes null. Read from the
+ * key's schema, so a key added to the table has its form at once.
+ */
+export type SettingForm =
+  | { readonly kind: "switch" }
+  | { readonly kind: "choice"; readonly options: readonly (string | number | boolean | null)[] }
+  | { readonly kind: "text"; readonly nullable: boolean };
+
+type Scalar = string | number | boolean | null;
+interface JsonShape {
+  readonly type?: string;
+  readonly enum?: readonly Scalar[];
+  readonly const?: Scalar;
+  readonly anyOf?: readonly JsonShape[];
+}
+
+const formOf = (schema: z.ZodType): SettingForm => {
+  const shape = z.toJSONSchema(schema, { io: "input", unrepresentable: "any" }) as JsonShape;
+  const branches = shape.anyOf ?? [shape];
+  const nullable = branches.some((branch) => branch.type === "null");
+  const values = branches.filter((branch) => branch.type !== "null");
+  const only = values.length === 1 ? values[0] : undefined;
+  if (only?.type === "boolean") return nullable ? { kind: "choice", options: [true, false, null] } : { kind: "switch" };
+  if (values.length > 0 && values.every((branch) => branch.enum !== undefined || branch.const !== undefined)) {
+    const options = values.flatMap((branch): Scalar[] => (branch.enum !== undefined ? [...branch.enum] : [branch.const ?? null]));
+    return { kind: "choice", options: nullable ? [...options, null] : options };
+  }
+  return { kind: "text", nullable };
+};
+
+const SETTING_FORMS = Object.fromEntries(SETTINGS_KEYS.map((key) => [key, formOf(SETTINGS[key].schema)])) as Readonly<Record<SettingsKey, SettingForm>>;
+
+/** The form a generic editor edits `key` in. */
+export const settingForm = (key: SettingsKey): SettingForm => SETTING_FORMS[key];
+
 export const SettingsUpdatedPayload = z
   .object({ values: SettingsPatch.meta({ description: "The keys that changed, with their new values." }) })
   .meta({ description: "settings.updated: settings changed; the keys that did, with their new values." });

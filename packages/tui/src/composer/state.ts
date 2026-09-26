@@ -240,12 +240,13 @@ const subsequence = (query: string, name: string): boolean => {
   return at === query.length;
 };
 
-/** Commands matching the typed word: those it begins first, then those holding its letters in order. */
+/** Commands matching the typed word: the one it names exactly first, then those it begins, then those holding its letters in order. */
 export const matchCommands = (word: string, commands: readonly CommandRow[]): CommandRow[] => {
   const query = word.toLowerCase();
-  const starts = commands.filter((c) => c.name.startsWith(query));
+  const exact = commands.filter((c) => c.name === query);
+  const starts = commands.filter((c) => c.name !== query && c.name.startsWith(query));
   const rest = commands.filter((c) => !c.name.startsWith(query) && subsequence(query, c.name));
-  return [...starts, ...rest];
+  return [...exact, ...starts, ...rest];
 };
 
 /**

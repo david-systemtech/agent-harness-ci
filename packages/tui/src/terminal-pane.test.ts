@@ -92,6 +92,23 @@ describe("opening the pane", () => {
     expect(env.terminal(FIRST).resizes).toEqual([{ cols: 100, rows: 16 }]);
   });
 
+  it("keeps the pane inside the column above the six rows under it on a short frame, the status lines and the composer drawn", async () => {
+    const { app, env } = await opened();
+    await command(app, "/terminal");
+    await app.waitFor("terminal · desk");
+    // 12 rows: the header and the six rows under the column leave it 5, the pane's header one of them.
+    await app.resize({ columns: 100, rows: 12 });
+    await app.waitUntil(() => env.terminal(FIRST).resizes.length === 1, "the terminal to be resized");
+    expect(env.terminal(FIRST).resizes).toEqual([{ cols: 72, rows: 4 }]);
+    await app.resize({ columns: 100, rows: 10 });
+    await app.waitUntil(() => env.terminal(FIRST).resizes.length === 2, "the terminal to be resized again");
+    expect(env.terminal(FIRST).resizes.at(-1)).toEqual({ cols: 72, rows: 2 });
+    const rows = app.rows();
+    expect(rows).toHaveLength(10);
+    expect(rows.findIndex((row) => row.includes("terminal · desk"))).toBeGreaterThan(0);
+    expect(rows.some((row) => row.includes("› "))).toBe(true);
+  });
+
   it("sizes the terminal once the environment is back when the pane was resized while it could not be reached", async () => {
     const { app, env } = await opened();
     await command(app, "/terminal");
