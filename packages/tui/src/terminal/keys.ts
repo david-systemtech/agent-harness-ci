@@ -29,7 +29,8 @@ const CSI = `${ESC}[`;
  * letter as typed: lower case.
  */
 export const keyBytes = (name: string): string | undefined => {
-  const named = KEY_BYTES[name];
+  // Own keys only: a name the object's prototype answers ("constructor") is no key.
+  const named = Object.hasOwn(KEY_BYTES, name) ? KEY_BYTES[name] : undefined;
   if (named !== undefined) return named;
   if (name.startsWith("Alt+")) {
     const key = name.slice("Alt+".length);

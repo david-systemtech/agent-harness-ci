@@ -92,7 +92,12 @@ export const rowDiff = async (runtime: Runtime, target: Opened, calls: readonly 
   if (!answer.ok) return { ok: false, line: `No diff: ${answer.error.message}` };
   const wanted = new Set(calls);
   const files = answer.result.files.filter((file) => file.changes.some((change) => wanted.has(change.toolCallId)));
-  if (files.length === 0) return { ok: false, line: "The session's diff holds nothing that row changed." };
+  // A cut diff may have left the row's files past the cut: that is not the same as the row changing nothing.
+  if (files.length === 0) {
+    return answer.result.truncated
+      ? { ok: false, line: `The session's diff was cut at ${String(DIFF_CAP / MIB)} MiB before anything that row changed: not shown.` }
+      : { ok: false, line: "The session's diff holds nothing that row changed." };
+  }
   const shown = await diffLines(joined(files), width, filter);
   const via = filter !== null && shown.problem === null ? ` · via ${filter.label}` : "";
   return {

@@ -54,6 +54,9 @@ describe("the bytes a key name stands for", () => {
     expect(keyBytes("Esc Esc")).toBeUndefined();
     expect(keyBytes("Letters")).toBeUndefined();
     expect(keyBytes("Ctrl+Enter")).toBeUndefined();
+    // A name the table's prototype answers is not a key in the table.
+    expect(keyBytes("constructor")).toBeUndefined();
+    expect(keyBytes("Alt+toString")).toBeUndefined();
   });
 });
 
