@@ -1,6 +1,6 @@
 import type { GrantReader, HttpFetch, WebSocketFactory } from "@agent-harness/client-runtime";
 import type { ManualClock } from "@agent-harness/client-runtime/testing";
-import { fakeWire, type FakeAnswer, type FakeServer, type FakeWire } from "@agent-harness/client-runtime/testing/fake-wire";
+import { fakeWire, type FakeAnswer, type FakeResponder, type FakeServer, type FakeWire } from "@agent-harness/client-runtime/testing/fake-wire";
 import {
   AdapterCapabilities,
   Ceiling,
@@ -211,6 +211,8 @@ export interface EnvironmentHandle extends ScriptedPrompts {
   setUsage(readings: readonly AccountUsage[]): void;
   /** Sends the catch-up of every session subscription `holdSessions` held. */
   releaseSessions(): void;
+  /** Holds every answer to `sessions.rewind` until the release is called, each then answered as the environment stands at the release. */
+  holdRewinds(): () => void;
   /** Moves the environment's sign-in to `state`, as its director does, and says so with `signin.updated`. */
   signIn(state: SignInState, fields?: { readonly url?: string | null; readonly error?: string | null }): void;
   /** The environment's latest sign-in; null before any. */
@@ -856,7 +858,24 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     emit(id, "session.forked", { fromSessionId: source.id, atMessageId, fromProviderSessionId });
     return acceptedWith({ summary });
   });
-  wire.answer("sessions.rewind", (params) => {
+  // The rewinds a test holds (`holdRewinds`), each answered at the release; undefined while none are held.
+  let heldRewinds: (() => void)[] | undefined;
+  const holdable =
+    (responder: FakeResponder): FakeResponder =>
+    (params, request) => {
+      const waiting = heldRewinds;
+      if (waiting === undefined) return responder(params, request);
+      return new Promise<FakeAnswer | undefined>((resolve) => waiting.push(() => resolve(responder(params, request))));
+    };
+  const holdRewinds = () => {
+    heldRewinds ??= [];
+    return () => {
+      const waiting = heldRewinds ?? [];
+      heldRewinds = undefined;
+      for (const release of waiting) release();
+    };
+  };
+  wire.answer("sessions.rewind", holdable((params) => {
     const refused = rejection("sessions.rewind");
     if (refused) return refused;
     const sessionId = String(params["sessionId"]).toLowerCase();
@@ -885,7 +904,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     rewoundDrafts.set(rewound.sequence, { wrote: draft === "" ? null : draft, before });
     if (draft !== "") emit(sessionId, "session.draft-set", { draft }, { fields: { draft } });
     return acceptedWith({ sessionId, messageId });
-  });
+  }));
   wire.answer("sessions.undoRewind", (params) => {
     const refused = rejection("sessions.undoRewind");
     if (refused) return refused;
@@ -1280,6 +1299,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     queued: (sessionId) => queueOf(sessionId).map((m) => ({ ...m })),
     setUsage,
     releaseSessions: () => held.splice(0).forEach((catchUp) => catchUp()),
+    holdRewinds,
     signIn: moveSignIn,
     currentSignIn: () => signIn,
     recommend,

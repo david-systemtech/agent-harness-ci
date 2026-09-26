@@ -554,6 +554,21 @@ describe("the environment's refusals", () => {
     expect(env.requests("runs.interrupt")).toEqual([]);
   });
 
+  it("leaves y to the composer when the offer a typed /rewind was answered with comes after the next message was begun", async () => {
+    const live = { rejected: "conflict", message: "A run of the session is live; interrupt it before rewinding.", data: { reason: "run_active", runId: "0199a100-0000-4000-8000-00000000ffff" } };
+    const { app, env } = await launch({ receipts: { "sessions.rewind": live } });
+    await converse(app, env, "Fix the receipts", "Add the tests");
+    const release = env.holdRewinds();
+    await command(app, "/rewind");
+    await app.waitUntil(() => env.requests("sessions.rewind").length === 1, "the rewind sent");
+    await app.type("my");
+    release();
+    await app.waitFor("A run is live: stop it, then rewind to Add the tests? y/n");
+    await app.type("y");
+    await app.waitUntil(() => composerRow(app).includes("myy"), "the y typed as text");
+    expect(env.requests("runs.interrupt")).toEqual([]);
+  });
+
   it("says a refusal it cannot act on with the environment's message", async () => {
     const queued = { rejected: "conflict", message: "The session has queued messages the next run would read.", data: { reason: "queued_messages" } };
     const { app, env } = await launch({ receipts: { "sessions.rewind": queued } });

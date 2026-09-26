@@ -77,7 +77,7 @@ export interface ForkRewind {
   readonly verbs: ForkRewindVerbs | undefined;
   /** A rewind now is offered as a stop and a rewind: a run is live, one that can be stopped, and nothing is queued behind it. */
   readonly offersStop: boolean;
-  /** `sessions.rewind` to `message` (a new session for the first), or stop-and-rewind while a run is live. */
+  /** A key action's (the picker's Enter, `w`) `sessions.rewind` to `message` (a new session for the first), or stop-and-rewind while a run is live. */
   rewind(message: Anchor): void;
   /** `/rewind n`: a rewind to the user message `back` from the end. */
   rewindBack(back: number): void;
@@ -150,19 +150,25 @@ export const useForkRewind = (host: ForkRewindHost): ForkRewind => {
     });
   };
 
-  const offerStop = (target: Opened, message: Anchor, runId: string | undefined) => {
+  /**
+   * The offer to stop the live run, then rewind. `askedByKey`: a key action
+   * (the picker's Enter, `w`) asked for the rewind, so y and n answer the
+   * offer whatever the composer holds; a typed `/rewind` emptied the
+   * composer, and its offer, which may come once the next message is begun,
+   * leaves what is typed to the composer.
+   */
+  const offerStop = (target: Opened, message: Anchor, runId: string | undefined, askedByKey: boolean) => {
     if (queued) return host.say(`Not rewound: ${QUEUED_FIRST}`);
     if (runId === undefined) return host.say(`Not rewound: ${STARTING}`);
     host.ask({
       text: `A run is live: stop it, then rewind to ${messageWords(message.text)}? y/n`,
       yes: () => stopThenRewind(target, message, runId),
       no: () => host.say("Not rewound: the run goes on."),
-      // Asked by a key action (the picker's Enter, `w`), not by what was typed: y and n answer it whatever the composer holds.
-      whileTyping: true,
+      whileTyping: askedByKey,
     });
   };
 
-  const rewindOn = (target: Opened, message: Anchor) => {
+  const rewindOn = (target: Opened, message: Anchor, askedByKey: boolean) => {
     const workspace = host.projection?.summary?.workspace.path;
     // What this terminal typed goes first, so the draft the rewind writes lands after it, and an undo can put it back.
     runtime.drafts.flush();
@@ -178,16 +184,16 @@ export const useForkRewind = (host: ForkRewindHost): ForkRewind => {
       if (answer.ok) return;
       if (answer.error.code === "conflict" && answer.error.data?.["reason"] === "run_active") {
         const runId = answer.error.data["runId"];
-        return offerStop(target, message, typeof runId === "string" ? runId : undefined);
+        return offerStop(target, message, typeof runId === "string" ? runId : undefined, askedByKey);
       }
       host.say(`Not rewound: ${answer.error.message}`);
     });
   };
 
-  const rewindTo = (target: Opened, available: ForkRewindVerbs, message: Anchor) => {
-    if (offersStop) return offerStop(target, message, host.liveRunId);
+  const rewindTo = (target: Opened, available: ForkRewindVerbs, message: Anchor, askedByKey: boolean) => {
+    if (offersStop) return offerStop(target, message, host.liveRunId, askedByKey);
     if (available.rewind.status === "absent") return host.say(`Not rewound: ${available.rewind.message}`);
-    rewindOn(target, message);
+    rewindOn(target, message, askedByKey);
   };
 
   const forkAt = (target: Opened, available: ForkRewindVerbs, message: Anchor | null) => {
@@ -216,7 +222,8 @@ export const useForkRewind = (host: ForkRewindHost): ForkRewind => {
     if (!waitingOn) return setWaiting(null);
     if (!ended) return;
     setWaiting(null);
-    rewindOn(waiting.target, waiting.message);
+    // No key asks this rewind: the wait may have outlasted the start of the next message.
+    rewindOn(waiting.target, waiting.message, false);
   }, [waiting, waitingOn, ended]);
   useEffect(() => {
     if (waiting === null) return;
@@ -233,14 +240,14 @@ export const useForkRewind = (host: ForkRewindHost): ForkRewind => {
     offersStop,
     rewind(message) {
       const found = sessionFor("rewind");
-      if (found) rewindTo(found.target, found.verbs, message);
+      if (found) rewindTo(found.target, found.verbs, message, true);
     },
     rewindBack(back) {
       const found = sessionFor("rewind");
       if (!found) return;
       const all = messages();
       const message = messageBack(all, back);
-      if (message) rewindTo(found.target, found.verbs, message);
+      if (message) rewindTo(found.target, found.verbs, message, false);
       else host.say(tooFarBack(all.length, "rewind"));
     },
     fork(message) {
