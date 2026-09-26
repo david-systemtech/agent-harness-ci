@@ -84,6 +84,36 @@ describe("the scripted environment", () => {
     expect(ceiling.result).toMatchObject({ receipt: { status: "rejected", reason: "forbidden", error: { message: "Not that one." } } });
   });
 
+  it("refuses a terminal command the script rejects before acting on it: nothing written, resized or closed", async () => {
+    const terminalId = "8a7e0c52-43c5-4a4e-9a55-8f0f0e3c0a11";
+    const app = await launch({
+      script: {
+        environments: [
+          {
+            name: "desk",
+            reach: "local",
+            sessions: [{ title: "Receipts" }],
+            terminals: [{ id: terminalId }],
+            receipts: {
+              "terminals.write": { rejected: "forbidden", message: "Not written." },
+              "terminals.resize": { rejected: "forbidden", message: "Not resized." },
+              "terminals.close": { rejected: "forbidden", message: "Not closed." },
+            },
+          },
+        ],
+      },
+    });
+    const desk = app.environment("desk");
+    const runtime = app.runtime();
+    const write = await runtime.requests.call(desk.environmentId, "terminals.write", { commandId: "0199aa00-0000-7000-8000-0000000000c1", id: terminalId, data: "ls\r" });
+    const resize = await runtime.requests.call(desk.environmentId, "terminals.resize", { commandId: "0199aa00-0000-7000-8000-0000000000c2", id: terminalId, cols: 100, rows: 30 });
+    const close = await runtime.requests.call(desk.environmentId, "terminals.close", { commandId: "0199aa00-0000-7000-8000-0000000000c3", id: terminalId });
+    expect([write, resize, close].map((answer) => (answer.ok ? answer.result.receipt.status : answer.error.code))).toEqual(["rejected", "rejected", "rejected"]);
+    expect(desk.terminal(terminalId)).toMatchObject({ writes: [], resizes: [], closed: false });
+    const listed = await runtime.requests.call(desk.environmentId, "terminals.list", { sessionId: desk.sessionId() });
+    expect(listed).toMatchObject({ ok: true, result: { terminals: [{ id: terminalId }] } });
+  });
+
   it("says bye with any reason", async () => {
     const app = await launch({ script: { environments: [{ name: "laptop", reach: "paired" }] } });
     app.environment("laptop").bye("draining");

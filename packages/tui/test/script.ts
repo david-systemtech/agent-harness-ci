@@ -900,8 +900,8 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     }
     if (held.exitCode !== undefined) t.exit = { exitCode: held.exitCode, signal: null, cause: "exited", sequence: lastOf(t) + 1 };
   }
-  const terminalReceipt = (method: string, result: Record<string, unknown>): FakeAnswer =>
-    rejection(method, false) ?? { result: { receipt: { status: "accepted", sequence, changed: false }, result } };
+  /** A terminal command's accepted receipt; a rejection the script names is answered before the command acts, as the environment refuses one. */
+  const terminalReceipt = (result: Record<string, unknown>): FakeAnswer => ({ result: { receipt: { status: "accepted", sequence, changed: false }, result } });
   const conflict = (reason: string, message: string): FakeAnswer => ({
     result: { receipt: { status: "rejected", sequence, changed: false, reason: "conflict", error: { code: "conflict", message, data: { reason } } } },
   });
@@ -946,12 +946,14 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     });
     // The login shell's prompt, a moment after it starts.
     if (t.env["AGENT_HARNESS_ONE_OFF"] === undefined) later(() => t.exit === null && t.chunks.length === 0 && terminalOutput(id, "$ "));
-    return terminalReceipt("terminals.open", { terminal: infoOf(t) });
+    return terminalReceipt({ terminal: infoOf(t) });
   });
   wire.answer("terminals.list", (params) => ({
     result: { terminals: [...terminals.values()].filter((t) => !t.closed && t.sessionId === String(params["sessionId"]).toLowerCase()).map(infoOf) },
   }));
   wire.answer("terminals.write", (params) => {
+    const refused = rejection("terminals.write", false);
+    if (refused) return refused;
     const id = String(params["id"]).toLowerCase();
     const t = terminals.get(id);
     if (!t || t.closed) return unknownTerminal(id);
@@ -959,9 +961,11 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     const data = String(params["data"]);
     t.writes.push(data);
     if (t.env["AGENT_HARNESS_ONE_OFF"] !== undefined && data.includes("AGENT_HARNESS_ONE_OFF")) runOneOff(t, data);
-    return terminalReceipt("terminals.write", { id });
+    return terminalReceipt({ id });
   });
   wire.answer("terminals.resize", (params) => {
+    const refused = rejection("terminals.resize", false);
+    if (refused) return refused;
     const id = String(params["id"]).toLowerCase();
     const t = terminals.get(id);
     if (!t || t.closed) return unknownTerminal(id);
@@ -969,16 +973,18 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     t.cols = Number(params["cols"]);
     t.rows = Number(params["rows"]);
     t.resizes.push({ cols: t.cols, rows: t.rows });
-    return terminalReceipt("terminals.resize", { terminal: infoOf(t) });
+    return terminalReceipt({ terminal: infoOf(t) });
   });
   wire.answer("terminals.close", (params) => {
+    const refused = rejection("terminals.close", false);
+    if (refused) return refused;
     const id = String(params["id"]).toLowerCase();
     const t = terminals.get(id);
     if (!t || t.closed) return unknownTerminal(id);
     // Out of the list at once, as the environment drops it; its subscribers hear the hang-up after.
     t.closed = true;
     later(() => exitTerminal(id, 0, "closed", 1));
-    return terminalReceipt("terminals.close", { id });
+    return terminalReceipt({ id });
   });
   wire.answer("terminals.subscribe", (params, request) => {
     const id = String(params["id"]).toLowerCase();
