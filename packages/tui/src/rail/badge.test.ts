@@ -37,6 +37,11 @@ describe("the badges of the environments listed", () => {
   it("say this machine for the placeholder", () => {
     expect(badgesOf([view(null)]).get("id-placeholder")?.abbreviation).toBe("TM");
   });
+
+  it("fall back to ?? for a name with no letter or digit, rather than an empty abbreviation", () => {
+    expect(badgesOf([view("---")]).get("id----")?.abbreviation).toBe("??");
+    expect(abbreviationOf("···")).toBe("");
+  });
 });
 
 describe("the activity glyph", () => {

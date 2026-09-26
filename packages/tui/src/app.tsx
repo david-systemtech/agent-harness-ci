@@ -1123,9 +1123,10 @@ export const App = (props: AppProps) => {
       const step = direction(keymap, action, pressed);
       if (card.kind === "help" || card.kind === "lines") return scroll((top) => top + step);
       if (!listCard) return false;
+      // A list typed at takes letters into its filter or query: k and j are letters there. A typed picker's letters
+      // never reach here (its intake runs before any lookup, below), so the decline states the rule as the sessions one does.
+      if (action === "picker.moveVi" && (card.kind === "sessions" || (card.kind === "picker" && card.picker.typed))) return false;
       if (card.kind === "picker") return update({ card: { kind: "picker", picker: movedBy(card.picker, step) } });
-      // A list typed at takes letters into its filter: k and j are letters there.
-      if (action === "picker.moveVi" && card.kind === "sessions") return false;
       update({ card: { ...card, cursor: clampCursor(card.cursor + step, rowsOf(card)) } });
     };
     const onRow = (): Row | undefined => (transcriptFocused ? cursorRow : undefined);

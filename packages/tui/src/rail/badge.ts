@@ -35,11 +35,12 @@ export const abbreviationOf = (name: string | null): string => {
   return lettersOf(first).slice(0, 2).join("");
 };
 
-/** Every abbreviation a name may take, the plain one first: its first letter with each later letter in turn. */
+/** Every abbreviation a name may take, the plain one first: its first letter with each later letter in turn; none for a name with no letters. */
 const candidatesOf = (name: string | null): string[] => {
   const letters = lettersOf(name ?? "this machine");
   const [head = "?", ...rest] = letters;
-  return [abbreviationOf(name), ...rest.map((letter) => `${head}${letter}`)];
+  // A name with no letter or digit abbreviates to nothing: left out, so the badge falls back to "??" below.
+  return [abbreviationOf(name), ...rest.map((letter) => `${head}${letter}`)].filter((c) => c !== "");
 };
 
 /** The badge of every environment listed, by id: an abbreviation taken by one listed earlier is replaced by the next free one. */
