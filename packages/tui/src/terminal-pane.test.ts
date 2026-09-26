@@ -190,3 +190,52 @@ describe("a reconnect", () => {
     expect(after).toMatchObject({ id: FIRST, afterSequence: 2 });
   });
 });
+
+describe("a shell line", () => {
+  const ONE_OFF = "7e000000-0000-4000-8000-000000000001";
+  const startsOf = (app: RenderedApp) => app.environment("desk").requests("runs.start").map((r) => r.params);
+
+  it("runs ! and a command in the session's terminal, opening the pane for it, the composer keeping the keys", async () => {
+    const { app, env } = await opened();
+    await command(app, "!ls -la");
+    await app.waitFor("terminal · desk");
+    await app.waitUntil(() => written(app, FIRST) === "ls -la\r", "the command to be typed into the terminal");
+    expect(env.terminal(FIRST).sessionId).toBe(SESSION);
+    expect(app.frame()).not.toContain("The terminal has the keys");
+    await app.type("next");
+    await app.waitFor("› next");
+    expect(written(app, FIRST)).toBe("ls -la\r");
+    expect(startsOf(app)).toEqual([]);
+  });
+
+  it("runs !! and a command in a terminal of its own and sends what it printed to the agent, closing that terminal", async () => {
+    const { app, env } = await opened({ oneOff: (script) => ({ output: script === "echo hi" ? "hi\n" : "", exitCode: 0 }) });
+    await command(app, "!!echo hi");
+    await app.waitUntil(() => startsOf(app).length === 1, "the output to be sent to the agent");
+    expect(startsOf(app)[0]).toMatchObject({ sessionId: SESSION, text: "Ran `echo hi`:\n```\nhi\n```" });
+    // The command rode the terminal's environment, never typed: the line typed is always the same.
+    const terminal = env.terminal(ONE_OFF);
+    expect(terminal.env["AGENT_HARNESS_ONE_OFF"]).toMatch(/\necho hi$/);
+    expect(terminal.writes).toEqual(['exec /bin/sh -c "$AGENT_HARNESS_ONE_OFF"\r']);
+    await app.waitUntil(() => env.terminal(ONE_OFF).closed, "the one-off terminal to be closed");
+    expect(app.frame()).not.toContain("terminal · desk");
+  });
+
+  it("says how a !! command ended when it did not end cleanly", async () => {
+    const { app } = await opened({ oneOff: () => ({ output: "no such file\n", exitCode: 2 }) });
+    await command(app, "!!cat nope");
+    await app.waitUntil(() => startsOf(app).length === 1, "the output to be sent to the agent");
+    expect(startsOf(app)[0]).toMatchObject({ text: "Ran `cat nope`:\n```\nno such file\nexit 2\n```" });
+  });
+
+  it("refuses ! and !! at once with one line while the environment cannot be reached", async () => {
+    const { app, env } = await opened();
+    env.autoAccept(false);
+    env.discovery("nothing");
+    env.server.drop();
+    await app.waitFor("◌ cached");
+    await command(app, "!!ls");
+    await app.waitFor(/Not run: desk cannot be reached\./);
+    expect(env.terminals()).toEqual([]);
+  });
+});
