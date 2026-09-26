@@ -10,8 +10,9 @@ import type { Line, Span } from "../transcript/lines.js";
  * transcript"): bottom-anchored, drawn from the lines `lines.ts` makes of
  * `projections.session`, scrolled back by a count of lines from the end,
  * with the freshness marker heading it until the stream is `live`; under it
- * the delegated-work strip and the queued line. Every component draws its
- * props: the lines, the offset and the cursor are the app's.
+ * the delegated-work strip, the queued line and the rewound strip. Every
+ * component draws its props: the lines, the offset and the cursor are the
+ * app's.
  */
 
 /** One styled line, cut rather than wrapped (`lines.ts` has wrapped it to the width already). */
@@ -204,6 +205,29 @@ export const QueuedLine = (props: { readonly queue: readonly QueuedMessage[]; re
     </Box>
   );
 };
+
+/**
+ * The rewound strip (ADR 0022; #232): after a rewind, until the next run
+ * starts on the session, what it went back to and how to take it back, the
+ * last line over the composer that now holds the rewound prompt; the undo
+ * dim with the runtime's reason while it cannot be used now, never hidden.
+ */
+export const RewoundStrip = (props: { readonly text: string; readonly undo: string; readonly availability: VerbAvailability }) => (
+  <Box flexShrink={0}>
+    <Text wrap="truncate-end">
+      <Text color="yellow">{"  ↶ "}</Text>
+      <Text>Rewound to {oneLine(props.text, 120)}</Text>
+      <Text dimColor> · </Text>
+      {props.availability.status === "present" ? (
+        <Text color="cyan">{props.undo}</Text>
+      ) : (
+        <Text dimColor>
+          {props.undo} ({props.availability.message})
+        </Text>
+      )}
+    </Text>
+  </Box>
+);
 
 /**
  * A card of lines scrolled from the top: the pager over the whole

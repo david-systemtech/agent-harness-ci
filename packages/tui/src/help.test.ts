@@ -58,6 +58,8 @@ describe("the help lines", () => {
     expect(rowOf(lines, "command.search")?.state).toBe("answered");
     expect(rowOf(lines, "picker.filter")?.state).toBe("answered");
     expect(rowOf(lines, "rail.preview")?.state).toBe("soon");
+    // Fork and rewind (#232): the prompt picker, its branch, the row verbs and both commands.
+    for (const id of ["app.prompt.back", "picker.branch", "row.rewind", "row.fork", "row.rewindUndo", "command.fork", "command.rewind"]) expect(rowOf(lines, id)?.state, id).toBe("answered");
     expect(rowOf(lines, "command.model")?.state).toBe("answered");
     expect(rowOf(lines, "command.terminal")?.state).toBe("answered");
     expect(rowOf(lines, "command.fork")?.state).toBe("soon");

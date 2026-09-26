@@ -53,6 +53,13 @@ const rowMarkdown = (row: Row): string => {
       return `_${[...(row.run.reason === "completed" ? [] : [endWords(row.run)]), ...turnFacts(row.run)].join(" · ")}_`;
     case "opaque":
       return `_${row.entry.type}: an event this version does not show_`;
+    case "rewound": {
+      // What a rewind cut is kept, quoted under a line saying so, as the screen keeps it under its fold.
+      const cut = row.rows.map(rowMarkdown).filter((text) => text.length > 0).join("\n\n");
+      const quoted = cut.split("\n").map((line) => (line.length > 0 ? `> ${line}` : ">")).join("\n");
+      // A cut with nothing to show is the line alone: an empty text split is one empty line, which would quote as a bare `>`.
+      return [`_Rewound to ${oneLine(row.entry.text, 200)}: what the rewind cut follows._`, ...(cut.length > 0 ? [quoted] : [])].join("\n\n");
+    }
   }
 };
 

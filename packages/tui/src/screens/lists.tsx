@@ -1,12 +1,17 @@
 import { Box, Text } from "ink";
-import type { SessionRow } from "@agent-harness/client-runtime";
+import type { SessionRow, UserMessageEntry, VerbAvailability } from "@agent-harness/client-runtime";
 import type { SnippetTemplate } from "../composer/snippets.js";
+import { ListCard } from "../pickers/cards.js";
+import { messageWords } from "../session/use-fork-rewind.js";
 import { oneLine } from "../transcript/format.js";
+import type { Span } from "../transcript/lines.js";
+import { clockTime } from "../view.js";
 
 /**
  * The lists the transcript and composer open (docs/specs/tui.md, "The
- * composer"): `/resume`'s sessions, a filter typed at it, and `/snip`'s saved
- * snippets. Each draws its props; the cursor and the filter are the app's.
+ * composer" and "The transcript"): `/resume`'s sessions, a filter typed at
+ * it, `/snip`'s saved snippets, and Esc Esc's prompt picker. Each draws its
+ * props; the cursor and the filter are the app's.
  */
 
 const Row = (props: { readonly selected: boolean; readonly children: React.ReactNode }) => (
@@ -69,3 +74,46 @@ export const SnippetsCard = (props: { readonly rows: readonly SnippetTemplate[];
     ))}
   </Box>
 );
+
+/**
+ * Esc Esc: the prompt picker (ADR 0022; #232), #147's `ListCard`, not typed
+ * at: the session's user messages a run has read, oldest first, each its
+ * first line and its time. Under them: that files stay as they are, then
+ * each of its two actions that cannot be used now, dim with the runtime's
+ * reason, never hidden; a rewind while a run can be stopped is offered as a
+ * stop and a rewind.
+ */
+export const PromptPickerCard = (props: {
+  readonly messages: readonly UserMessageEntry[];
+  readonly cursor: number;
+  readonly width: number;
+  readonly height: number;
+  /** The keys of the map in force: move, rewind (choose), branch and close. */
+  readonly keys: { readonly move: string; readonly choose: string; readonly branch: string; readonly leave: string };
+  readonly rewind: VerbAvailability | undefined;
+  readonly fork: VerbAvailability | undefined;
+  readonly offersStop: boolean;
+}) => {
+  const { keys, rewind, fork } = props;
+  const footer: (readonly Span[])[] = [
+    [{ text: "Files are not restored: a rewind or a branch takes back the conversation, never the files the agent changed.", dim: true }],
+    ...(props.offersStop
+      ? [[{ text: `A run is live: ${keys.choose} stops it, then rewinds here.`, color: "yellow" }]]
+      : rewind?.status === "absent"
+        ? [[{ text: `${keys.choose} rewind (${rewind.message})`, dim: true }]]
+        : []),
+    ...(fork?.status === "absent" ? [[{ text: `${keys.branch} branch (${fork.message})`, dim: true }]] : []),
+  ];
+  return (
+    <ListCard
+      width={props.width}
+      title="Prompts"
+      hint={`${keys.move} move · ${keys.choose} rewinds here · ${keys.branch} branches here · ${keys.leave} closes`}
+      rows={props.messages.map((message) => ({ key: message.messageId, cells: [{ text: messageWords(message.text) }], dim: false, note: { text: clockTime(message.sentAt), dim: true } }))}
+      cursor={props.cursor}
+      height={props.height}
+      empty="No prompt to go back to."
+      footer={footer}
+    />
+  );
+};

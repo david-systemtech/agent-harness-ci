@@ -14,7 +14,9 @@ import { RAIL_COMMANDS, isRailCommand, type RailCommand } from "../rail/commands
  * and `/notices`; with the terminal pane, `/terminal`, `/files [path]` and
  * `/diff` (#148); with the rail, `/archive`, `/pin`, `/title`, `/group`,
  * `/tag`, `/settle`, `/snooze`, `/restore`, `/search` and `/cwd`
- * (`rail/commands.ts`). A command of the shared list this build does not
+ * (`rail/commands.ts`); with fork and rewind (ADR 0022; #232), `/rewind [n]`
+ * (n prompts back, one by default), `/rewind undo` and `/fork [n]` (bare,
+ * the whole session). A command of the shared list this build does not
  * answer yet says so in one line, and one the list keeps absent gives its
  * reason; `/profile` is a hidden alias of `/account`. Anything else that
  * begins with a slash is not the terminal's: it goes to the agent as typed,
@@ -44,6 +46,8 @@ export const ANSWERED_COMMANDS = [
   "files",
   "diff",
   ...RAIL_COMMANDS,
+  "fork",
+  "rewind",
 ] as const;
 
 export type Command =
@@ -72,6 +76,11 @@ export type Command =
   | { readonly kind: "terminal" }
   | { readonly kind: "files"; readonly path: string | null }
   | { readonly kind: "diff" }
+  /** `/rewind [n]`: to the prompt `back` prompts from the end (1, the latest). */
+  | { readonly kind: "rewind"; readonly back: number }
+  | { readonly kind: "rewind-undo" }
+  /** `/fork [n]`: before the prompt `back` prompts from the end, or (null) the whole session. */
+  | { readonly kind: "fork"; readonly back: number | null }
   /** A command of the shared list this build does not answer: `line` says why. */
   | { readonly kind: "not-here"; readonly name: string; readonly line: string }
   | { readonly kind: "usage"; readonly line: string }
@@ -79,6 +88,11 @@ export type Command =
   | { readonly kind: "text"; readonly text: string };
 
 export const PAIR_USAGE = "Usage: /pair <link>, /pair <address> <code>, or /pair create.";
+export const REWIND_USAGE = "Usage: /rewind [n | undo]: n prompts back, one by default; undo takes the rewind back.";
+export const FORK_USAGE = "Usage: /fork [n]: bare, the whole session; n, before the prompt n back.";
+
+/** A count of prompts back: a whole number from one; undefined for anything else. */
+const countBack = (word: string): number | undefined => (/^[1-9][0-9]*$/.test(word) ? Number(word) : undefined);
 
 /** The hidden aliases: the name typed, and the command it names. */
 const ALIASES: Readonly<Record<string, string>> = { profile: "account", environments: "environment" };
@@ -145,6 +159,19 @@ export const parseCommand = (typed: string): Command => {
       return bare(rest, { kind: "diff" }, "/diff");
     case "files":
       return { kind: "files", path: tail.length > 0 ? tail : null };
+    case "rewind": {
+      if (rest.length === 0) return { kind: "rewind", back: 1 };
+      const [first = ""] = rest;
+      if (rest.length === 1 && first.toLowerCase() === "undo") return { kind: "rewind-undo" };
+      const back = rest.length === 1 ? countBack(first) : undefined;
+      return back === undefined ? { kind: "usage", line: REWIND_USAGE } : { kind: "rewind", back };
+    }
+    case "fork": {
+      if (rest.length === 0) return { kind: "fork", back: null };
+      const [first = ""] = rest;
+      const back = rest.length === 1 ? countBack(first) : undefined;
+      return back === undefined ? { kind: "usage", line: FORK_USAGE } : { kind: "fork", back };
+    }
     case "attach":
       return tail.length > 0 ? { kind: "attach", path: tail } : { kind: "usage", line: "Usage: /attach <path>" };
     case "export":

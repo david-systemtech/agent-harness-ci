@@ -68,6 +68,11 @@ export const SCREEN_KEYS = [
   "asks.close",
   "composer.readNow",
   "composer.withdrawLast",
+  "app.prompt.back",
+  "picker.branch",
+  "row.rewind",
+  "row.fork",
+  "row.rewindUndo",
 ] as const satisfies readonly KeyActionId[];
 
 /**
@@ -108,4 +113,5 @@ export const BUILD_WORDS: Readonly<Partial<Record<ActionId, string>>> = {
   // eslint-disable-next-line agent-harness/no-client-organisation-state -- an action's id, not state held here
   "rail.pin": "Pin it to the pinned block at the top, across environments; or unpin it",
   "row.leave": "Back to the composer",
+  "app.prompt.back": "The prompt picker: rewind to one of this session's prompts, or branch there",
 };

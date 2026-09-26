@@ -6,6 +6,7 @@ import { ACTIONS, isCommandId, keyClashes } from "@agent-harness/contracts";
 import {
   DEFAULT_KEYMAP,
   DEFAULT_KEYS,
+  DOUBLE_PRESS_MS,
   FIRST_ANYWHERE,
   conditionOf,
   contextOf,
@@ -15,8 +16,10 @@ import {
   keysText,
   loadKeybindings,
   parseKeyName,
+  pressedBefore,
   resolveKeymap,
   type InkKey,
+  type Press,
 } from "./keys.js";
 
 /** Each key more than one action holds in one context, as `<context> <key>` with the actions holding it. */
@@ -426,5 +429,35 @@ describe("dispatch with part of a context", () => {
     expect(dispatch(DEFAULT_KEYMAP, [{ context: "anywhere", except: FIRST_ANYWHERE }], handlers, "c", key({ ctrl: true }))).toBe(false);
     expect(dispatch(DEFAULT_KEYMAP, [{ context: "anywhere", except: FIRST_ANYWHERE }], handlers, "?", key())).toBe(true);
     expect(ran).toEqual(["quit", "app.help"]);
+  });
+});
+
+describe("keys pressed in turn, as the screen hears them (#232)", () => {
+  const at = (name: string, time: number, place = "none"): Press => ({ name, at: time, place });
+
+  it("counts the press before in the same place, and a key pressed twice only within DOUBLE_PRESS_MS", () => {
+    expect(pressedBefore(at("Esc", 1000), "Esc", 1000 + DOUBLE_PRESS_MS, "none")).toBe("Esc");
+    expect(pressedBefore(at("Esc", 1000), "Esc", 1001 + DOUBLE_PRESS_MS, "none")).toBeUndefined();
+    // Two different keys have no window: a backslash then Enter a while later is still `\ Enter`.
+    expect(pressedBefore(at("\\", 1000), "Enter", 60_000, "none")).toBe("\\");
+  });
+
+  it("does not count the same key pressed again in another place: an Esc that closed a card, or left the transcript", () => {
+    expect(pressedBefore(at("Esc", 1000, "card:help"), "Esc", 1010, "none")).toBeUndefined();
+    expect(pressedBefore(at("Esc", 1000, "none"), "Esc", 1010, "none")).toBe("Esc");
+    expect(pressedBefore(undefined, "Esc", 1010, "none")).toBeUndefined();
+  });
+
+  it("looks up only the keys pressed in turn with pairOnly, never the key alone again", () => {
+    const ran: string[] = [];
+    const handlers = { "app.prompt.back": () => false as const, "app.interrupt": () => void ran.push("interrupt") };
+    expect(dispatch(DEFAULT_KEYMAP, ["anywhere"], handlers, "", key({ escape: true }), { previous: "Esc", pairOnly: true })).toBe(false);
+    expect(ran).toEqual([]);
+    expect(dispatch(DEFAULT_KEYMAP, ["anywhere"], handlers, "", key({ escape: true }), { previous: "Esc" })).toBe(true);
+    expect(ran).toEqual(["interrupt"]);
+  });
+
+  it("counts keys in turn that differ wherever each was heard: a backslash, a question arriving, then Enter is still `\\ Enter`", () => {
+    expect(pressedBefore(at("\\", 1000, "none composer"), "Enter", 60_000, "none question composer")).toBe("\\");
   });
 });
