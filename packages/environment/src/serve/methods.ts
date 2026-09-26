@@ -93,13 +93,15 @@ export type MethodHandler<N extends MethodName> = (
 ) => HandlerReturn<Registry[N]["kind"], ResultOf<N>, ErrorOf<N>["code"]>;
 
 /**
- * A command that must hear from outside the log before it can decide (#228:
- * whether a provider still held the queued message it was asked to take
- * back). Its `prepare` runs first, outside any transaction, and answers the
- * handler the command then runs inside its transaction, answering at once
- * like any command's. A command id with a stored receipt is answered from
- * the receipt and `prepare` is not run; what `prepare` throws is answered as
- * a handler's throw is, storing no receipt.
+ * A command that must hear from outside the log before it can decide:
+ * `runs.withdraw`, whether a provider still held the queued message it was
+ * asked to take back (#228), and `sessions.rewind`, what the host is still
+ * handing back to the session's queue after a run's end (#245). Its
+ * `prepare` runs first, outside any transaction, and answers the handler
+ * the command then runs inside its transaction, answering at once like any
+ * command's. A command id with a stored receipt is answered from the
+ * receipt and `prepare` is not run; what `prepare` throws is answered as a
+ * handler's throw is, storing no receipt.
  */
 export interface PreparedCommand<N extends MethodName> {
   readonly prepare: (params: ParamsOf<N>, context: MethodContext) => Promise<MethodHandler<N>>;
