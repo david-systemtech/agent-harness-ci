@@ -195,6 +195,8 @@ export interface EnvironmentHandle extends ScriptedPrompts {
   queued(sessionId: string): readonly { readonly messageId: string; readonly runId: string; readonly text: string; readonly heldBy: QueueHolder }[];
   /** The run live on the session, as the environment knows it; undefined when none is. */
   liveRun(sessionId: string): string | undefined;
+  /** The id of the message sent to the session with `text`, the latest of that text; throws when none was. */
+  messageId(sessionId: string, text: string): string;
   /** What `accounts.usage` answers from now on, said with a `usage.updated` notice for each reading, as the environment says it. */
   setUsage(readings: readonly AccountUsage[]): void;
   /** Sends the catch-up of every session subscription `holdSessions` held. */
@@ -700,22 +702,146 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     emit(sessionId, "session.draft-set", { draft }, { fields: { draft } });
     return acceptedWith({ summary: summaryNow(sessionId) });
   });
+  // Fork and rewind (ADR 0022), as the environment's `sessions/fork-rewind.ts` answers them: over the prompts a run has read
+  // that no rewind standing hides, each at the sequence of its `message.sent`.
+  type Prompt = { readonly messageId: string; readonly text: string; readonly sequence: number };
+  type Rewind = { readonly sequence: number; readonly toMessageId: string; undone: boolean };
+  const rewindsOf = (sessionId: string): Rewind[] => {
+    const rewinds: Rewind[] = [];
+    for (const event of logs.get(sessionId)?.events ?? []) {
+      const payload = event.payload as Record<string, unknown>;
+      if (event.type === "session.rewound") rewinds.push({ sequence: event.sequence, toMessageId: String(payload["toMessageId"]), undone: false });
+      if (event.type === "session.rewind-undone") {
+        const undone = rewinds.find((rewind) => rewind.sequence === payload["rewindSequence"]);
+        if (undone) undone.undone = true;
+      }
+    }
+    return rewinds;
+  };
+  /** The session's visible prompts, in order: sent as a prompt or read by a run since, and not hidden by a rewind standing. */
+  const visiblePrompts = (sessionId: string): Prompt[] => {
+    const sent = new Map<string, Prompt>();
+    const read: Prompt[] = [];
+    for (const event of logs.get(sessionId)?.events ?? []) {
+      const payload = event.payload as Record<string, unknown>;
+      if (event.type === "message.sent") {
+        const prompt = { messageId: String(payload["messageId"]), text: String(payload["text"]), sequence: event.sequence };
+        sent.set(prompt.messageId, prompt);
+        if (payload["delivery"] !== "queued") read.push(prompt);
+      } else if (event.type === "message.delivered") {
+        const prompt = sent.get(String(payload["messageId"]));
+        if (prompt && !read.includes(prompt)) read.push(prompt);
+      }
+    }
+    const standing = rewindsOf(sessionId).filter((rewind) => !rewind.undone);
+    const hidden = (prompt: Prompt) =>
+      standing.some((rewind) => (sent.get(rewind.toMessageId)?.sequence ?? Number.POSITIVE_INFINITY) <= prompt.sequence && prompt.sequence < rewind.sequence);
+    return read.filter((prompt) => !hidden(prompt)).sort((a, b) => a.sequence - b.sequence);
+  };
+  // The forks that carried their source's provider conversation in: their first message has history before it.
+  const carried = new Set<string>();
+  // What each rewind wrote into the draft and the draft it replaced, by the rewind's sequence: what an undo puts back.
+  const rewoundDrafts = new Map<number, { readonly wrote: string | null; readonly before: string | null }>();
+  const refusedWith = (code: string, message: string, data: Record<string, unknown>): FakeAnswer => ({
+    result: { receipt: { status: "rejected", sequence: ++sequence, changed: false, reason: code, error: { code, message, data } } },
+  });
+  const adapterLacks = (flag: "fork" | "rewind") => (spec.providers ?? [spec.provider ?? {}])[0]?.[flag] === false;
   wire.answer("sessions.fork", (params) => {
     const refused = rejection("sessions.fork");
     if (refused) return refused;
     const source = summaryNow(String(params["sessionId"]));
     const at = clock.now().toISOString();
+    const prompts = visiblePrompts(source.id);
+    const asked = typeof params["atMessageId"] === "string" ? params["atMessageId"].toLowerCase() : undefined;
+    const anchor = asked === undefined ? undefined : prompts.find((prompt) => prompt.messageId === asked);
+    if (asked !== undefined && anchor === undefined) {
+      return refusedWith("not_found", `No user message ${asked} is in the session ${source.id}'s transcript.`, { kind: "message", messageId: asked });
+    }
+    const linked = (logs.get(source.id)?.events ?? []).some((event) => event.type === "run.started");
+    const fromProvider = linked && (anchor === undefined || prompts[0]?.messageId !== anchor.messageId);
+    if (fromProvider && adapterLacks("fork")) return refusedWith("invalid_params", "Claude cannot fork a session.", { reason: "unsupported" });
     // On the account named, else the source's (sessions.fork).
     const account = typeof params["account"] === "string" ? params["account"] : (sessionAccounts.get(source.id) ?? source.accountId);
     if (account !== null) sessionAccounts.set(String(params["id"]), account);
-    const summary = summaryOf(clock, { id: String(params["id"]), title: source.title, titleSource: "generated", workspace: source.workspace, createdAt: at, updatedAt: at }, sessions.length);
+    if (fromProvider) carried.add(String(params["id"]));
+    // The source's title, tags and group, never its archive, pins or settle; the anchored text as the draft.
+    const title = typeof params["title"] === "string" ? params["title"] : source.title;
+    const draft = anchor?.text ?? null;
+    const summary = summaryOf(
+      clock,
+      {
+        id: String(params["id"]),
+        title,
+        titleSource: typeof params["title"] === "string" ? "user" : "generated",
+        tags: source.tags,
+        groupId: source.groupId,
+        workspace: source.workspace,
+        accountId: account,
+        draft,
+        createdAt: at,
+        updatedAt: at,
+      },
+      sessions.length,
+    );
     emit(
       summary.id,
       "session.created",
-      { title: null, tags: [], groupId: null, workspace: summary.workspace, repositoryIdentity: null, account, model: null, mode: null },
+      { title: null, tags: [...source.tags], groupId: source.groupId, workspace: summary.workspace, repositoryIdentity: null, account, model: null, mode: null },
       { patch: { op: "add", summary } },
     );
+    if (draft !== null) emit(summary.id, "session.draft-set", { draft }, { fields: { draft } });
+    emit(summary.id, "session.forked", { fromSessionId: source.id, atMessageId: anchor?.messageId ?? null, fromProviderSessionId: fromProvider ? `provider-${source.id}` : null });
     return acceptedWith({ summary });
+  });
+  wire.answer("sessions.rewind", (params) => {
+    const refused = rejection("sessions.rewind");
+    if (refused) return refused;
+    const sessionId = String(params["sessionId"]).toLowerCase();
+    const messageId = String(params["messageId"]).toLowerCase();
+    const running = live.get(sessionId);
+    if (running !== undefined) return refusedWith("conflict", `A run of the session ${sessionId} is live; interrupt it before rewinding.`, { reason: "run_active", sessionId, runId: running });
+    const queued = environmentHeld(sessionId);
+    if (queued.length > 0) {
+      return refusedWith("conflict", `The session ${sessionId} has queued messages the next run would read; withdraw them or let a run read them before rewinding.`, {
+        reason: "queued_messages",
+        sessionId,
+        messageIds: queued,
+      });
+    }
+    const prompts = visiblePrompts(sessionId);
+    const target = prompts.find((prompt) => prompt.messageId === messageId);
+    if (target === undefined) return refusedWith("not_found", `No user message ${messageId} is in the session ${sessionId}'s transcript.`, { kind: "message", messageId });
+    if (prompts[0]?.messageId === messageId && !carried.has(sessionId)) {
+      return refusedWith("conflict", `The message ${messageId} is the session's first: start a new session with its text instead.`, { reason: "use_new_session", sessionId, messageId });
+    }
+    if (adapterLacks("rewind")) return refusedWith("invalid_params", "Claude cannot rewind a session.", { reason: "unsupported" });
+    const before = summaryNow(sessionId).draft;
+    const rewound = emit(sessionId, "session.rewound", { toMessageId: messageId });
+    rewoundDrafts.set(rewound.sequence, { wrote: target.text || null, before });
+    if (target.text !== "") emit(sessionId, "session.draft-set", { draft: target.text }, { fields: { draft: target.text } });
+    return acceptedWith({ sessionId, messageId });
+  });
+  wire.answer("sessions.undoRewind", (params) => {
+    const refused = rejection("sessions.undoRewind");
+    if (refused) return refused;
+    const sessionId = String(params["sessionId"]).toLowerCase();
+    const running = live.get(sessionId);
+    if (running !== undefined) return refusedWith("conflict", `A run of the session ${sessionId} is live; interrupt it before undoing its rewind.`, { reason: "run_active", sessionId, runId: running });
+    const latest = rewindsOf(sessionId).filter((rewind) => !rewind.undone).at(-1);
+    if (latest === undefined) return refusedWith("not_found", `The session ${sessionId} has no rewind to undo.`, { kind: "rewind", sessionId });
+    const since = (logs.get(sessionId)?.events ?? []).find((event) => event.type === "run.started" && event.sequence > latest.sequence);
+    if (since !== undefined) {
+      return refusedWith("conflict", `A run has started on the session ${sessionId} since its rewind; what the rewind hid stays hidden.`, {
+        reason: "run_started",
+        sessionId,
+        runId: (since.payload as Record<string, unknown>)["runId"],
+      });
+    }
+    emit(sessionId, "session.rewind-undone", { toMessageId: latest.toMessageId, rewindSequence: latest.sequence });
+    // The draft the rewind replaced comes back while the draft still holds what the rewind wrote; a draft changed since stays.
+    const drafts = rewoundDrafts.get(latest.sequence);
+    if (drafts?.wrote != null && summaryNow(sessionId).draft === drafts.wrote) emit(sessionId, "session.draft-set", { draft: drafts.before }, { fields: { draft: drafts.before } });
+    return acceptedWith({ sessionId, messageId: latest.toMessageId, rewindSequence: latest.sequence });
   });
   wire.answer("files.list", () => ({ result: { files: [...(spec.files ?? [])], truncated: false, source: "git" } }));
   wire.answer("commands.list", () => ({ result: { accountId: "account-1", commands: [...(spec.commands ?? [])] } }));
@@ -977,6 +1103,8 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     "runs.stopTask",
     "sessions.setDraft",
     "sessions.fork",
+    "sessions.rewind",
+    "sessions.undoRewind",
     "accounts.add",
     "accounts.signin.start",
     "accounts.signin.code",
@@ -1072,6 +1200,11 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     startRun,
     endRun,
     liveRun: (sessionId) => live.get(sessionId),
+    messageId(sessionId, text) {
+      const sent = (logs.get(sessionId)?.events ?? []).filter((event) => event.type === "message.sent" && (event.payload as Record<string, unknown>)["text"] === text).at(-1);
+      if (!sent) throw new Error(`${spec.name} holds no message ${JSON.stringify(text)} on ${sessionId}.`);
+      return String((sent.payload as Record<string, unknown>)["messageId"]);
+    },
     queued: (sessionId) => queueOf(sessionId).map((m) => ({ ...m })),
     setUsage,
     releaseSessions: () => held.splice(0).forEach((catchUp) => catchUp()),
