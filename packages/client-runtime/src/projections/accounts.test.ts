@@ -76,6 +76,33 @@ describe("projections.accounts and projections.models", () => {
     expect(QUERY_REFRESH_NOTICES["models.list"]).toEqual(["account.updated", "signin.updated"]);
     expect(QUERY_REFRESH_NOTICES["accounts.usage"]).toEqual(["usage.updated", "account.updated", "signin.updated"]);
     expect(QUERY_REFRESH_NOTICES["accounts.handoff.recommend"]).toEqual(["usage.updated", "account.updated", "signin.updated"]);
+    expect(QUERY_REFRESH_NOTICES["accounts.signin.get"]).toEqual(["signin.updated"]);
+  });
+
+  it("keep the environment's sign-in in the request cache, fetched again as it moves, for a client attending it (#147)", async () => {
+    const { runtime, environments } = await scriptedEnvironments({ onCleanup: onTestFinished, environments: [{ name: "desk" }] });
+    const [desk] = environments as [ScriptedEnvironment];
+    const env = desk.wire.environmentId;
+    const signIn = (state: string, url: string | null) => ({
+      accountId: "account-1",
+      state,
+      url,
+      startedAt: "2026-09-24T00:00:00.000Z",
+      expiresAt: "2026-09-24T00:10:00.000Z",
+      fallback: { posix: "CLAUDE_CONFIG_DIR='/d' claude auth login", powershell: "$env:CLAUDE_CONFIG_DIR = '/d'; & 'claude' auth login" },
+      error: null,
+    });
+    let held = signIn("starting", null);
+    desk.wire.answer("accounts.signin.get", () => ({ result: { signIn: held } }));
+    const view = runtime.requests.cached(env, "accounts.signin.get", {});
+    onTestFinished(view.subscribe(() => undefined));
+    await flush();
+    expect(view.read().result?.signIn).toMatchObject({ state: "starting", url: null });
+    // The URL is published: the notice carries the sign-in, and the cached answer is read again.
+    held = signIn("awaiting-code", "https://claude.ai/oauth/authorize?code=true");
+    desk.notices.event(noticeEvent(1, env, "signin.updated", held));
+    await flush();
+    expect(view.read().result?.signIn).toMatchObject({ state: "awaiting-code", url: "https://claude.ai/oauth/authorize?code=true" });
   });
 });
 

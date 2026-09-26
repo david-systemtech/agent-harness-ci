@@ -157,7 +157,9 @@ export const CACHE_REFRESH_NOTICES: readonly string[] = ["environment.started", 
  * models they can use and their plan usage; `usage.updated` (#136) a
  * reading, and so the hand-off recommendation made from the readings; a
  * prompt parking or resolving (`prompt.parked`, `prompt.resolved`, #130)
- * the parked prompts.
+ * the parked prompts; a sign-in moving (`signin.updated`, which carries it)
+ * the environment's sign-in, which a client attending it follows for its
+ * verification URL and its end (#147).
  */
 export const QUERY_REFRESH_NOTICES: Partial<Readonly<Record<QueryMethodName, readonly string[]>>> = {
   "accounts.list": ["account.updated", "signin.updated"],
@@ -165,6 +167,7 @@ export const QUERY_REFRESH_NOTICES: Partial<Readonly<Record<QueryMethodName, rea
   "accounts.usage": ["usage.updated", "account.updated", "signin.updated"],
   "accounts.handoff.recommend": ["usage.updated", "account.updated", "signin.updated"],
   "permissions.prompts.list": ["prompt.parked", "prompt.resolved"],
+  "accounts.signin.get": ["signin.updated"],
 };
 
 export interface RequestCache {

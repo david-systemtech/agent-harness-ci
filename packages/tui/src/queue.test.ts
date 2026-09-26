@@ -156,6 +156,20 @@ describe("↑ on an empty composer withdraws the newest queued message", () => {
     expect(app.frame()).toContain("⧗ queued and the tests");
   });
 
+  it("withdraws nothing while a card takes a line: ↑ at the label of an account being added is the card's (#147)", async () => {
+    const { app, env } = await launch({ accounts: [{ id: "account-1", label: "work" }] });
+    await withQueue(app, "and the docs");
+    await send(app, "/account");
+    await app.waitFor("+ Add an account");
+    await app.press(KEY.down, KEY.enter);
+    await app.waitFor("Label for the new account:");
+    await app.press(KEY.up);
+    await app.type("side");
+    await app.waitFor("Label for the new account: side");
+    expect(env.requests("runs.withdraw")).toEqual([]);
+    expect(env.queued(SESSION).map((m) => m.text)).toEqual(["and the docs"]);
+  });
+
   it("walks the history as before when nothing is queued", async () => {
     const { app, env } = await launch();
     await send(app, "Fix the receipts");
