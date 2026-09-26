@@ -55,6 +55,13 @@ describe("a path typed after /files", () => {
     expect(typedPath("/", "/home/seth/code")).toBeNull();
   });
 
+  it("reads a path typed for a Windows environment's workspace with forward slashes, a drive's absolute path under it as the path under it", () => {
+    expect(typedPath("src\\files\\", "C:\\code")).toBe("src/files");
+    expect(typedPath("C:\\code\\src\\app.tsx", "C:\\code")).toBe("src/app.tsx");
+    expect(typedPath("c:\\code\\", "C:\\code")).toBe("");
+    expect(typedPath("D:\\elsewhere\\x", "C:\\code")).toBeNull();
+  });
+
   it("names a file's directory", () => {
     expect(directoryOf("src/files/pages.ts")).toBe("src/files");
     expect(directoryOf("README.md")).toBe("");

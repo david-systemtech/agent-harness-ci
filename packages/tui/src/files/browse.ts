@@ -1,4 +1,4 @@
-import { inWorkspace } from "../transcript/targets.js";
+import { inWorkspace, isAbsolutePath, slashed } from "../transcript/targets.js";
 
 /**
  * `/files`' picker (docs/specs/tui.md, "The composer": `/files [path]` opens
@@ -59,15 +59,17 @@ export const browse = (files: readonly string[], dir: string, filter: string): r
 };
 
 /**
- * What a path typed after `/files` names in the workspace at `root`, as the
+ * What a path typed after `/files` names in the workspace at `workspace`, as the
  * listing writes paths; an absolute one inside the workspace is the path
- * under it. Null for an absolute path outside it.
+ * under it. Null for an absolute path outside it. A Windows environment's
+ * paths are read with forward slashes (`slashed`).
  */
-export const typedPath = (typed: string, root: string): string | null => {
-  const path = typed.trim();
-  if (!path.startsWith("/")) return normalized(path);
+export const typedPath = (typed: string, workspace: string): string | null => {
+  const { path, root, windows } = slashed(typed.trim(), workspace);
+  if (!isAbsolutePath(path)) return normalized(path);
   const bare = path.replace(/\/+$/, "");
-  if (bare === root.replace(/\/+$/, "") && bare !== "") return "";
+  const top = root.replace(/\/+$/, "");
+  if (bare !== "" && (windows ? bare.toLowerCase() === top.toLowerCase() : bare === top)) return "";
   const inside = inWorkspace(bare, root);
   return inside === null ? null : normalized(inside);
 };
