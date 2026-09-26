@@ -49,6 +49,19 @@ import { createScreen, type Screen } from "./screen.js";
  *   terminal (`terminals.close`), so an exited one is not reopened.
  */
 
+type Exit = Extract<TerminalOutput, { readonly kind: "exited" }>["exit"];
+
+/**
+ * How a shell that exited on its own ended, as the pane's mark (`exit 2`) or in a sentence (`exited with code 2`). A
+ * signal wins over the code: the pty reports a code beside the signal (0 on POSIX) that is not the shell's.
+ */
+const exitWords = (exit: Exit, form: "mark" | "sentence"): string =>
+  exit.signal !== null
+    ? `${form === "sentence" ? "was " : ""}killed by signal ${String(exit.signal)}`
+    : form === "sentence"
+      ? `exited with code ${String(exit.exitCode)}`
+      : `exit ${String(exit.exitCode)}`;
+
 export interface PaneSize {
   readonly cols: number;
   readonly rows: number;
@@ -231,26 +244,18 @@ export const useTerminalPane = (host: PaneHost): TerminalPane => {
       });
   };
 
-  const ending = (exit: Extract<TerminalOutput, { readonly kind: "exited" }>["exit"]): string =>
-    exit.cause === "closed"
-      ? "closed"
-      : exit.cause === "deleted"
-        ? "gone with its session"
-        : exit.cause === "failed"
-          ? "could not start"
-          : exit.signal !== null
-            ? `killed by signal ${String(exit.signal)}`
-            : `exit ${String(exit.exitCode)}`;
+  const ending = (exit: Exit): string =>
+    exit.cause === "closed" ? "closed" : exit.cause === "deleted" ? "gone with its session" : exit.cause === "failed" ? "could not start" : exitWords(exit, "mark");
 
   const feed = (entry: Live, output: TerminalOutput) => {
     const { request, say, nameOf } = hostRef.current;
     if (output.kind === "exited") {
       const name = nameOf(entry.target.environmentId);
-      const { exitCode, cause } = output.exit;
+      const { cause } = output.exit;
       if (cause === "exited" || cause === "failed") closeTerminal(entry);
       if (entry.command !== null) {
         if (detached.current.has(entry)) {
-          say(cause === "exited" ? `\`${entry.command}\` on ${name} exited with code ${String(exitCode)}.` : `\`${entry.command}\` on ${name}: ${ending(output.exit)}.`);
+          say(cause === "exited" ? `\`${entry.command}\` on ${name} ${exitWords(output.exit, "sentence")}.` : `\`${entry.command}\` on ${name}: ${ending(output.exit)}.`);
           drop(entry);
           return;
         }
@@ -267,7 +272,7 @@ export const useTerminalPane = (host: PaneHost): TerminalPane => {
             ? `The terminal on ${name} went with its session.`
             : cause === "failed"
               ? `The terminal on ${name} could not start its shell.`
-              : `The terminal on ${name} exited with code ${String(exitCode)}.`,
+              : `The terminal on ${name} ${exitWords(output.exit, "sentence")}.`,
       );
       if (live.current === entry) close();
       return;

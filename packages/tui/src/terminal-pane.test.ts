@@ -157,6 +157,15 @@ describe("opening the pane", () => {
     await app.waitFor("The terminal on desk exited with code 3.");
     expect(app.frame()).not.toContain("terminal · desk");
   });
+
+  it("says a shell killed by a signal was killed, not that it exited with the code the pty reports beside the signal", async () => {
+    const { app, env } = await opened();
+    await command(app, "/terminal");
+    await app.waitFor("terminal · desk");
+    env.exitTerminal(FIRST, 0, 9);
+    await app.waitFor("The terminal on desk was killed by signal 9.");
+    expect(app.frame()).not.toContain("exited with code");
+  });
 });
 
 describe("keys in the pane", () => {
@@ -491,6 +500,25 @@ describe("a shell line", () => {
     await app.waitFor("`watch ls` on desk exited with code 0.");
     await app.waitUntil(() => env.terminal(FIRST).closed, "the command's terminal to be closed");
     expect(app.frame()).toContain("terminal · desk");
+  });
+
+  it("says a ! command the pane went from was killed by a signal as its pane would have, not that it exited with a code", async () => {
+    const { app, env } = await opened({ oneOff: () => ({ output: "watching\n" }) });
+    await command(app, "!watch ls");
+    await app.waitFor("watching");
+    await command(app, "/terminal");
+    await app.waitFor("terminal · desk");
+    env.exitTerminal(FIRST, 0, 9);
+    await app.waitFor("`watch ls` on desk was killed by signal 9.");
+    expect(app.frame()).not.toContain("exited with code");
+  });
+
+  it("marks a ! command killed by a signal in its pane with the signal", async () => {
+    const { app, env } = await opened({ oneOff: () => ({ output: "total 0\n" }) });
+    await command(app, "!ls");
+    await app.waitFor("total 0");
+    env.exitTerminal(FIRST, 0, 9);
+    await app.waitFor("!ls · desk · killed by signal 9");
   });
 
   it("runs !! and a command in a terminal of its own and sends what it printed to the agent, closing that terminal", async () => {

@@ -284,8 +284,8 @@ export interface EnvironmentHandle extends ScriptedPrompts {
   holdTerminalOpens(): () => void;
   /** The terminal's shell writes `data`: a `terminal.output` chunk to its subscriptions. */
   terminalOutput(id: string, data: string): void;
-  /** The terminal's shell exits with `exitCode`: `terminal.exited`, then its subscriptions end. */
-  exitTerminal(id: string, exitCode: number): void;
+  /** The terminal's shell exits with `exitCode`, killed by `signal` when one is given: `terminal.exited`, then its subscriptions end. */
+  exitTerminal(id: string, exitCode: number, signal?: number | null): void;
   /** The terminal's scrollback loses its oldest `chunks`, as the cap drops them: a cursor before what is kept gets a truncated snapshot. */
   dropScrollback(id: string, chunks: number): void;
 }
@@ -1635,9 +1635,9 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
       };
     },
     terminalOutput: (id, data) => terminalOutput(id.toLowerCase(), data),
-    exitTerminal(id, exitCode) {
+    exitTerminal(id, exitCode, signal = null) {
       if (!terminals.has(id.toLowerCase())) throw new Error(`${spec.name} never held a terminal ${id}.`);
-      exitTerminal(id.toLowerCase(), exitCode);
+      exitTerminal(id.toLowerCase(), exitCode, "exited", signal);
     },
     dropScrollback(id, chunks) {
       const t = terminals.get(id.toLowerCase());
