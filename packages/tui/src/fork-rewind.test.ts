@@ -1,0 +1,411 @@
+import { describe, afterEach, expect, it } from "vitest";
+import { KEY, renderApp, type EnvironmentHandle, type RenderedApp, type ScriptedEnvironment } from "../test/harness.js";
+
+/**
+ * Fork and rewind in the terminal UI (docs/specs/tui.md, "The transcript"
+ * and "Shortcuts"; ADR 0022; #232): Esc Esc opens the prompt picker, whose
+ * Enter rewinds to the row (`sessions.rewind`) and whose `b` branches there
+ * (`sessions.fork` anchored at it); `/rewind [n | undo]` and `/fork [n]` do
+ * the same from the composer; `w` and `f` on a user row under the
+ * transcript's cursor; the rewound strip and the fold, `u` on the fold and
+ * `/rewind undo` dispatching `sessions.undoRewind`; stop-and-rewind while a
+ * run is live; a rewind to the first prompt starting a new session through
+ * the runtime; a fork opened with its draft, title, tags and group; and fork
+ * and rewind drawn dim with the adapter's reason, never hidden.
+ */
+
+let apps: RenderedApp[] = [];
+afterEach(async () => {
+  for (const app of apps) await app.unmount();
+  apps = [];
+});
+
+const SESSION = "0199aa00-0000-4000-8000-000000000001";
+const GROUP = "0199bb00-0000-4000-8000-000000000001";
+/** The first session id the harness mints: a fork's, or a new session's. */
+const MINTED = "0199ab00-0000-4000-8000-000000000001";
+
+const launch = async (environment: Partial<ScriptedEnvironment> = {}) => {
+  const app = await renderApp({
+    script: {
+      environments: [
+        {
+          name: "desk",
+          reach: "local",
+          groups: [{ name: "Money" }],
+          sessions: [{ title: "Receipts", tags: ["billing"], groupId: GROUP, workspace: { kind: "directory", path: "/home/seth/receipts" } }],
+          accounts: [{ label: "work" }, { label: "personal" }],
+          ...environment,
+        },
+      ],
+    },
+    flags: { session: SESSION },
+  });
+  apps.push(app);
+  await app.waitFor("Nothing said yet.");
+  return { app, env: app.environment("desk") };
+};
+
+const send = async (app: RenderedApp, text: string) => {
+  await app.type(text);
+  await app.press(KEY.enter);
+};
+
+/** A command typed into an emptied composer, which may hold a draft a rewind or a fork put there. */
+const command = async (app: RenderedApp, text: string) => {
+  await app.press(KEY.ctrlU);
+  await send(app, text);
+};
+
+/** Each prompt sent, answered and its run ended, in turn. */
+const converse = async (app: RenderedApp, env: EnvironmentHandle, ...prompts: string[]) => {
+  for (const text of prompts) {
+    await send(app, text);
+    await app.waitFor(`▌ ${text}`);
+    const runId = env.liveRun(SESSION) ?? "";
+    env.emit(SESSION, "assistant.text", { runId, itemId: `reply-${text}`, text: `Reply to ${text}.`, aborted: false });
+    env.endRun(SESSION, runId);
+    await app.waitFor(`Reply to ${text}.`);
+    await app.waitFor("message the agent");
+  }
+};
+
+/** The id the environment gave the prompt sent with `text`. */
+const idOf = (env: EnvironmentHandle, text: string): string => env.messageId(SESSION, text);
+
+const composerRow = (app: RenderedApp) => app.rows().find((row) => row.startsWith("› ")) ?? "";
+const params = (env: EnvironmentHandle, method: string) => env.requests(method).map((request) => request.params);
+/** The methods of the requests sent, in order, of those named. */
+const sentInOrder = (env: EnvironmentHandle, ...methods: string[]) => env.requests().flatMap((request) => (methods.includes(request.method) ? [request.method] : []));
+
+/** Puts the transcript's cursor on the row whose text holds `text`: Tab to the transcript, then ↑ until it is there. */
+const cursorTo = async (app: RenderedApp, text: string) => {
+  if (!app.frame().includes("The transcript has the keys")) {
+    for (let i = 0; i < 3 && !app.frame().includes("The transcript has the keys"); i++) await app.press(KEY.tab);
+  }
+  for (let i = 0; i < 30; i++) {
+    await app.press(KEY.up);
+    const rows = app.rows();
+    const at = rows.findIndex((row) => row.includes("❯"));
+    // A row's first line may be the blank line that spaces it: its text is on the next.
+    if (at !== -1 && `${rows[at] ?? ""} ${rows[at + 1] ?? ""}`.includes(text)) return;
+  }
+  throw new Error(`The cursor never reached ${text}; the frame is:\n${app.frame()}`);
+};
+
+describe("the prompt picker (Esc Esc)", () => {
+  it("lists the session's prompts, the newest under the cursor, says files are not restored, and rewinds to the row with Enter", async () => {
+    const { app, env } = await launch();
+    await converse(app, env, "Fix the receipts", "Add the tests", "Write the docs");
+    await app.press(KEY.esc, KEY.esc);
+    await app.waitFor("Files are not restored");
+    expect(app.frame()).toContain("Enter rewinds here · b branches here");
+    expect(app.rows().find((row) => row.includes("Write the docs") && !row.includes("▌"))).toContain("› Write the docs");
+    expect(app.frame()).toContain("Add the tests");
+    await app.press(KEY.up, KEY.enter);
+    await app.waitFor("Rewound to Add the tests · /rewind undo");
+    expect(params(env, "sessions.rewind")).toEqual([expect.objectContaining({ sessionId: SESSION, messageId: idOf(env, "Add the tests") })]);
+    // The cut branch is folded, what came before it stays, and the message's text is back in the composer.
+    expect(app.frame()).toContain("Reply to Fix the receipts.");
+    expect(app.frame()).not.toContain("Reply to Write the docs.");
+    await app.waitUntil(() => composerRow(app).includes("Add the tests"), "the rewound text in the composer");
+  });
+
+  it("branches from the row with b: the fork anchored there opens with its text as the draft and the source's title, tags and group", async () => {
+    const { app, env } = await launch();
+    await converse(app, env, "Fix the receipts", "Add the tests");
+    await app.press(KEY.esc, KEY.esc);
+    await app.waitFor("Files are not restored");
+    await app.press(KEY.up, "b");
+    await app.waitFor("Forked Receipts");
+    expect(params(env, "sessions.fork")).toEqual([expect.objectContaining({ sessionId: SESSION, id: MINTED, atMessageId: idOf(env, "Fix the receipts") })]);
+    expect(params(env, "sessions.rewind")).toEqual([]);
+    await app.waitUntil(() => composerRow(app).includes("Fix the receipts"), "the anchored text as the fork's draft");
+    // The fork holds the history before the anchor, not its transcript: its own starts empty.
+    await app.waitFor("Nothing said yet.");
+    const fork = app.runtime().projections.sessionList.read().rows.find((row) => row.summary.id === MINTED)?.summary;
+    expect(fork).toMatchObject({ title: "Receipts", tags: ["billing"], groupId: GROUP, draft: "Fix the receipts" });
+    expect(app.frame()).toContain("Receipts · /home/seth/receipts");
+  });
+
+  it("opens only on two presses of Esc heard together: one Esc, a pause, another, is two single presses", async () => {
+    const { app, env } = await launch();
+    await converse(app, env, "Fix the receipts", "Add the tests");
+    await app.press(KEY.esc);
+    await app.advance(600);
+    await app.press(KEY.esc);
+    await app.tick(2);
+    expect(app.frame()).not.toContain("Files are not restored");
+  });
+
+  it("is not opened by an Esc that closed a card and the Esc after it", async () => {
+    const { app, env } = await launch();
+    await converse(app, env, "Fix the receipts", "Add the tests");
+    await command(app, "/help");
+    await app.waitFor("close");
+    await app.press(KEY.esc, KEY.esc);
+    await app.tick(2);
+    expect(app.frame()).not.toContain("Files are not restored");
+  });
+
+  it("interrupts a live run with the first Esc, as Esc does, and opens with the second", async () => {
+    const { app, env } = await launch();
+    await converse(app, env, "Fix the receipts");
+    await send(app, "Add the tests");
+    await app.waitFor("steer or queue a message");
+    await app.press(KEY.esc, KEY.esc);
+    await app.waitFor("Files are not restored");
+    expect(env.requests("runs.interrupt")).toHaveLength(1);
+  });
+
+  it("says why when there is nothing to go back to", async () => {
+    const { app } = await launch();
+    await app.press(KEY.esc, KEY.esc);
+    await app.waitFor("Nothing to go back to: no prompt has been sent in this session yet.");
+  });
+});
+
+describe("/rewind and /fork", () => {
+  it("rewinds one prompt back by default, n prompts back with n, and says so when there are not that many", async () => {
+    const { app, env } = await launch();
+    await converse(app, env, "Fix the receipts", "Add the tests", "Write the docs");
+    await command(app, "/rewind 9");
+    await app.waitFor("There are only 3 prompts to go back through.");
+    await command(app, "/rewind 2");
+    await app.waitFor("Rewound to Add the tests · /rewind undo");
+    expect(params(env, "sessions.rewind")).toEqual([expect.objectContaining({ messageId: idOf(env, "Add the tests") })]);
+    await command(app, "/rewind undo");
+    await app.waitFor("Reply to Write the docs.");
+    expect(params(env, "sessions.undoRewind")).toEqual([expect.objectContaining({ sessionId: SESSION })]);
+    await app.waitUntil(() => !app.frame().includes("/rewind undo"), "the strip to go with the undo");
+    await command(app, "/rewind");
+    await app.waitFor("Rewound to Write the docs · /rewind undo");
+    expect(params(env, "sessions.rewind").at(-1)).toEqual(expect.objectContaining({ messageId: idOf(env, "Write the docs") }));
+  });
+
+  it("forks the whole session with a bare /fork, and before the nth prompt back with /fork n", async () => {
+    const { app, env } = await launch();
+    await converse(app, env, "Fix the receipts", "Add the tests");
+    await command(app, "/fork");
+    await app.waitFor("Forked Receipts");
+    expect(params(env, "sessions.fork")[0]).not.toHaveProperty("atMessageId");
+    // The fork holds the whole history, which is the provider's: its own transcript starts empty, with no draft.
+    await app.waitFor("Nothing said yet.");
+    expect(composerRow(app)).not.toContain("Add the tests");
+  });
+
+  it("forks before the prompt n back", async () => {
+    const { app, env } = await launch();
+    await converse(app, env, "Fix the receipts", "Add the tests");
+    await command(app, "/fork 2");
+    await app.waitFor("Forked Receipts");
+    expect(params(env, "sessions.fork")).toEqual([expect.objectContaining({ sessionId: SESSION, atMessageId: idOf(env, "Fix the receipts") })]);
+    // On the fork, which has sent nothing of its own, there is no prompt to go back to.
+    await app.waitUntil(() => composerRow(app).includes("Fix the receipts"), "the anchored text as the fork's draft");
+    await command(app, "/fork 1");
+    await app.waitFor("Nothing to fork from: no prompt has been sent in this session yet.");
+  });
+
+  it("are in the command menu with their usage", async () => {
+    const { app } = await launch();
+    await app.type("/rew");
+    await app.waitFor("/rewind [n | undo]");
+    await app.press(KEY.ctrlU);
+    await app.type("/for");
+    await app.waitFor("/fork [n]");
+  });
+
+  it("say their usage for anything else after them", async () => {
+    const { app } = await launch();
+    await command(app, "/rewind back");
+    await app.waitFor("Usage: /rewind [n | undo]");
+    await command(app, "/fork 0");
+    await app.waitFor("Usage: /fork [n]");
+  });
+});
+
+describe("the row verbs", () => {
+  it("rewinds with w on a user row under the transcript's cursor", async () => {
+    const { app, env } = await launch();
+    await converse(app, env, "Fix the receipts", "Add the tests", "Write the docs");
+    await cursorTo(app, "▌ Add the tests");
+    expect(app.frame()).toContain("w rewind · f fork");
+    await app.press("w");
+    await app.waitFor("Rewound to Add the tests · /rewind undo");
+    expect(params(env, "sessions.rewind")).toEqual([expect.objectContaining({ messageId: idOf(env, "Add the tests") })]);
+  });
+
+  it("forks with f on a user row, and leaves r to recall", async () => {
+    const { app, env } = await launch();
+    await converse(app, env, "Fix the receipts", "Add the tests");
+    await cursorTo(app, "▌ Add the tests");
+    await app.press("r");
+    await app.tick(2);
+    expect(params(env, "sessions.rewind")).toEqual([]);
+    expect(params(env, "sessions.fork")).toEqual([]);
+    await app.press("f");
+    await app.waitFor("Forked Receipts");
+    expect(params(env, "sessions.fork")).toEqual([expect.objectContaining({ atMessageId: idOf(env, "Add the tests") })]);
+  });
+
+  it("says what w needs on a row that is not a prompt", async () => {
+    const { app, env } = await launch();
+    await converse(app, env, "Fix the receipts");
+    await cursorTo(app, "Reply to Fix the receipts.");
+    await app.press("w");
+    await app.waitFor("w rewinds to one of your prompts: put the cursor on one.");
+    expect(params(env, "sessions.rewind")).toEqual([]);
+  });
+});
+
+describe("after a rewind", () => {
+  it("folds the cut branch, which Enter unfolds to read and u on it undoes", async () => {
+    const { app, env } = await launch();
+    await converse(app, env, "Fix the receipts", "Add the tests", "Write the docs");
+    await command(app, "/rewind 2");
+    await app.waitFor("Rewound to Add the tests · /rewind undo");
+    await cursorTo(app, "↶ Rewound");
+    expect(app.frame()).toContain("u undo");
+    expect(app.frame()).not.toContain("Reply to Write the docs.");
+    await app.press(KEY.enter);
+    await app.waitFor("Reply to Write the docs.");
+    await app.press("u");
+    await app.waitUntil(() => params(env, "sessions.undoRewind").length === 1, "the undo to be sent");
+    await app.waitUntil(() => !app.frame().includes("↶ Rewound"), "the fold to go");
+    expect(app.frame()).toContain("▌ Write the docs");
+    await app.waitUntil(() => !composerRow(app).includes("Add the tests"), "the draft from before the rewind back");
+  });
+
+  it("keeps the strip until the next run starts, then the fold stays and can no longer be undone", async () => {
+    const { app, env } = await launch();
+    await converse(app, env, "Fix the receipts", "Add the tests");
+    await command(app, "/rewind");
+    await app.waitFor("Rewound to Add the tests · /rewind undo");
+    await app.waitUntil(() => composerRow(app).includes("Add the tests"), "the rewound text in the composer");
+    await app.press(KEY.enter);
+    await app.waitFor("steer or queue a message");
+    await app.waitUntil(() => !app.frame().includes("/rewind undo"), "the strip to go when the run starts");
+    expect(app.frame()).toContain("↶ Rewound");
+    await command(app, "/rewind undo");
+    await app.waitFor("Not undone: A run is live on this session: stop it before undoing the rewind.");
+    env.endRun(SESSION, env.liveRun(SESSION) ?? "");
+    await app.waitFor("message the agent");
+    await command(app, "/rewind undo");
+    await app.waitFor("Not undone: A run has started since the rewind, so it can no longer be undone.");
+    expect(params(env, "sessions.undoRewind")).toEqual([]);
+  });
+});
+
+describe("a rewind while a run is live", () => {
+  it("is offered as stop and rewind: runs.interrupt, then sessions.rewind once the run has ended", async () => {
+    const { app, env } = await launch();
+    await converse(app, env, "Fix the receipts", "Add the tests");
+    await send(app, "Write the docs");
+    await app.waitFor("steer or queue a message");
+    await command(app, "/rewind 2");
+    await app.waitFor("A run is live: stop it, then rewind to Add the tests? y/n");
+    expect(params(env, "sessions.rewind")).toEqual([]);
+    await app.press("y");
+    await app.waitFor("Rewound to Add the tests · /rewind undo");
+    expect(sentInOrder(env, "runs.interrupt", "sessions.rewind")).toEqual(["runs.interrupt", "sessions.rewind"]);
+  });
+
+  it("offers stop and rewind in the prompt picker when a run goes live while it is open", async () => {
+    const { app, env } = await launch();
+    await converse(app, env, "Fix the receipts", "Add the tests");
+    await app.press(KEY.esc, KEY.esc);
+    await app.waitFor("Files are not restored");
+    env.startRun(SESSION, "Another client's prompt");
+    await app.waitFor("A run is live: Enter stops it, then rewinds here.");
+    await app.press(KEY.up, KEY.enter);
+    await app.waitFor("A run is live: stop it, then rewind to Add the tests? y/n");
+    await app.press("y");
+    await app.waitFor("Rewound to Add the tests · /rewind undo");
+    expect(sentInOrder(env, "runs.interrupt", "sessions.rewind")).toEqual(["runs.interrupt", "sessions.rewind"]);
+  });
+
+  it("does nothing when the offer is declined", async () => {
+    const { app, env } = await launch();
+    await converse(app, env, "Fix the receipts", "Add the tests");
+    await send(app, "Write the docs");
+    await app.waitFor("steer or queue a message");
+    await command(app, "/rewind 2");
+    await app.waitFor("? y/n");
+    await app.press("n");
+    await app.tick(2);
+    expect(sentInOrder(env, "runs.interrupt", "sessions.rewind")).toEqual([]);
+  });
+});
+
+describe("the environment's refusals", () => {
+  it("offers stop and rewind when the environment says a run is live, and says any other refusal in one line", async () => {
+    const live = { rejected: "conflict", message: "A run of the session is live; interrupt it before rewinding.", data: { reason: "run_active", runId: "0199a100-0000-4000-8000-00000000ffff" } };
+    const { app, env } = await launch({ receipts: { "sessions.rewind": live } });
+    await converse(app, env, "Fix the receipts", "Add the tests");
+    await command(app, "/rewind");
+    await app.waitFor("A run is live: stop it, then rewind to Add the tests? y/n");
+    await app.press("n");
+    await app.waitFor("Not rewound: the run goes on.");
+    expect(env.requests("runs.interrupt")).toEqual([]);
+  });
+
+  it("says a refusal it cannot act on with the environment's message", async () => {
+    const queued = { rejected: "conflict", message: "The session has queued messages the next run would read.", data: { reason: "queued_messages" } };
+    const { app, env } = await launch({ receipts: { "sessions.rewind": queued } });
+    await converse(app, env, "Fix the receipts", "Add the tests");
+    await command(app, "/rewind");
+    await app.waitFor("Not rewound: The session has queued messages the next run would read.");
+  });
+});
+
+describe("a rewind to the first prompt", () => {
+  it("starts a new session in the same workspace with its text as the draft, through the runtime", async () => {
+    const { app, env } = await launch();
+    await converse(app, env, "Fix the receipts", "Add the tests");
+    await command(app, "/rewind 2");
+    await app.waitFor("Fix the receipts was the first prompt");
+    expect(params(env, "sessions.create")).toEqual([expect.objectContaining({ workspace: { kind: "directory", path: "/home/seth/receipts" } })]);
+    await app.waitFor("Nothing said yet.");
+    await app.waitUntil(() => composerRow(app).includes("Fix the receipts"), "the first prompt as the new session's draft");
+    expect(app.frame()).toContain("/home/seth/receipts");
+  });
+});
+
+describe("a fork", () => {
+  it("can be handed off onto another account with /handoff on the new session", async () => {
+    const { app, env } = await launch();
+    await converse(app, env, "Fix the receipts", "Add the tests");
+    await command(app, "/fork");
+    await app.waitFor("Forked Receipts");
+    await app.waitFor("Nothing said yet.");
+    await command(app, "/handoff");
+    await app.waitFor("Hand off Receipts on desk");
+    await app.press(KEY.down, KEY.enter);
+    await app.waitFor("Handed off to personal");
+    expect(params(env, "sessions.fork").at(-1)).toEqual(expect.objectContaining({ sessionId: MINTED, account: "account-2" }));
+  });
+});
+
+describe("an adapter without fork and rewind", () => {
+  it("draws both dim with its reason in the picker and on a user row, never hidden, and refuses them in one line", async () => {
+    const { app, env } = await launch({ provider: { fork: false, rewind: false } });
+    await converse(app, env, "Fix the receipts", "Add the tests");
+    await app.press(KEY.esc, KEY.esc);
+    await app.waitFor("Files are not restored");
+    expect(app.frame()).toContain("Enter rewind (Claude cannot rewind a session.)");
+    expect(app.frame()).toContain("b branch (Claude cannot fork a session.)");
+    await app.press(KEY.enter);
+    await app.waitFor("Not rewound: Claude cannot rewind a session.");
+    await app.press(KEY.esc, KEY.esc);
+    await app.waitFor("Files are not restored");
+    await app.press("b");
+    await app.waitFor("Not forked: Claude cannot fork a session.");
+    await command(app, "/fork");
+    await app.waitFor("Not forked: Claude cannot fork a session.");
+    await cursorTo(app, "▌ Add the tests");
+    // The hint line wraps: read as a wrapped line reads.
+    await app.waitFor("w rewind (Claude cannot rewind a session.) · f fork (Claude cannot fork a session.)");
+    expect(params(env, "sessions.rewind")).toEqual([]);
+    expect(params(env, "sessions.fork")).toEqual([]);
+  });
+});
