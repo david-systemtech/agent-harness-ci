@@ -5,10 +5,12 @@ import type { KeyActionId } from "@agent-harness/contracts";
  * "The rail"). The keys are the shared list's `rail.*` actions this build
  * answers (`use-rail.ts` has a handler for each). The slash forms,
  * `/archive`, `/pin`, `/title <name>`, `/group [name]`, `/tag <tag>`,
- * `/settle`, `/snooze [when]` and `/restore`, issue the commands the rail's
- * keys do, on the session in hand; `/search <text>` and `/cwd` open the
- * search and the workspace pickers. What follows the name is taken whole,
- * spaces kept, so a title or a group's name may have several words.
+ * `/settle` and `/snooze [when]`, issue the commands the rail's keys do, on
+ * the session in hand; `/search <text>`, `/cwd` and `/restore` open the
+ * search, the workspace and the restore pickers (a deleted session is in no
+ * hand, so `/restore` lists what each environment deleted). What follows the
+ * name is taken whole, spaces kept, so a title or a group's name may have
+ * several words.
  */
 
 export const RAIL_KEYS = [
