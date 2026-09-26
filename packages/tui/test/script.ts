@@ -470,12 +470,17 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
   const minted = (prefix: string) => `${prefix}-0000-4000-8000-${String(++runs).padStart(12, "0")}`;
   // The account each session created or forked here runs on, as `sessions.create` and `sessions.fork` name it: a summary names it only once a run has used it.
   const sessionAccounts = new Map<string, string>();
+  const ceiling = (): Mode => (hello.ceiling as Mode | undefined) ?? "bypassPermissions";
   const startRun: EnvironmentHandle["startRun"] = (sessionId, text, attachments, choice = {}) => {
     const runId = minted("0199a100");
     const messageId = minted("0199a200");
     const summary = summaryNow(sessionId);
     const accountId = sessionAccounts.get(sessionId) ?? summary.accountId ?? "account-1";
     const model = choice.model ?? summary.model ?? "claude-fake";
+    // As the environment's run does: the session's mode asked for, clamped to the ceiling; acceptEdits when the session has none.
+    const requested = summary.mode;
+    const effective = lowerMode(requested ?? "acceptEdits", ceiling());
+    const clamped = requested !== null && compareModes(effective, requested) < 0;
     emit(sessionId, "message.sent", { runId, messageId, text, attachments: records(attachments), delivery: "prompt", heldBy: null, ceiling: "bypassPermissions" });
     emit(
       sessionId,
@@ -486,7 +491,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
         identity: null,
         model,
         effort: choice.effort ?? null,
-        mode: { requested: null, effective: "acceptEdits", clamped: false },
+        mode: { requested, effective, clamped },
         workspace: summary.workspace,
         origin: "client",
         promptMessageId: messageId,
@@ -749,7 +754,6 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
   });
 
   // A session's mode, clamped to this client session's ceiling, and its containment level, refused where the probe says it cannot be enforced.
-  const ceiling = (): Mode => (hello.ceiling as Mode | undefined) ?? "bypassPermissions";
   wire.answer("permissions.mode.set", (params) => {
     const refused = rejection("permissions.mode.set");
     if (refused) return refused;

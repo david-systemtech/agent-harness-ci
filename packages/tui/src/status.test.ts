@@ -184,6 +184,18 @@ describe("Shift+Tab", () => {
     await app.waitFor("⏸ plan");
   });
 
+  it("starts the next run in the mode the step gave the session, as the environment does", async () => {
+    const { app, env } = await opened([desk({ sessions: [{ title: "Receipts", accountId: "account-1", mode: "acceptEdits" }], hello: { ceiling: "auto" } })]);
+    await app.press(KEY.shiftTab);
+    await app.press(KEY.shiftTab);
+    await app.waitFor("⏸ plan");
+    await app.type("look first");
+    await app.press(KEY.enter);
+    const runs = () => app.runtime().projections.session(env.environmentId, SESSION).read().runs;
+    await app.waitUntil(() => runs().length === 1, "the run");
+    expect(runs()[0]?.mode).toEqual({ requested: "plan", effective: "plan", clamped: false });
+  });
+
   it("shows the bypass sentence when the step lands on bypassPermissions", async () => {
     const { app } = await opened([desk({ sessions: [{ title: "Receipts", accountId: "account-1", mode: "auto" }] })]);
     await app.waitFor("⏸ auto");
