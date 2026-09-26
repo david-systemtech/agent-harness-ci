@@ -69,10 +69,13 @@ export const movedBy = (picker: Picker, step: number): Picker => {
 /**
  * What a key typed at a list adds to its query: the text, control bytes
  * left out and line breaks as spaces; undefined for a key that is not text
- * (an arrow, Enter, Esc, Tab, Backspace, a Ctrl or Alt chord).
+ * (an arrow, Enter, Esc, Tab, Backspace, a Ctrl or Alt chord). Ink names the
+ * arrows and hands them over with no input; a key it does not name (Home, a
+ * function key) arrives as its escape sequence with no flag set, which is
+ * never text either.
  */
 export const printableText = (input: string, key: { readonly ctrl: boolean; readonly meta: boolean; readonly escape: boolean; readonly tab: boolean; readonly return: boolean; readonly backspace: boolean; readonly delete: boolean }): string | undefined => {
-  if (input === "" || key.ctrl || key.meta || key.escape || key.tab || key.return || key.backspace || key.delete) return undefined;
+  if (input === "" || input.includes("\u001b") || key.ctrl || key.meta || key.escape || key.tab || key.return || key.backspace || key.delete) return undefined;
   const text = input.replace(/[\r\n]+/g, " ").replace(/\p{Cc}/gu, "");
   return text === "" ? undefined : text;
 };
