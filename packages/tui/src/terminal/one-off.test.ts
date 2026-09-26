@@ -1,0 +1,164 @@
+import { describe, expect, it } from "vitest";
+import { writable, type Runtime, type TerminalOutput, type TerminalStreamView } from "@agent-harness/client-runtime";
+import { manualClock } from "@agent-harness/client-runtime/testing";
+import { flush } from "@agent-harness/client-runtime/testing/fake-wire";
+import { afterMarker, clipOutput, NO_PAGERS, ONE_OFF_LINE, ONE_OFF_MAX_CHARS, ONE_OFF_VARIABLE, oneOffEnv, oneOffMessage, oneOffScript, runOneOff } from "./one-off.js";
+
+/**
+ * `!!`'s one-off command (docs/specs/tui.md, "The composer"): the command
+ * rides a terminal's variables behind a marker line, what came after the
+ * marker is what it said, read as a terminal showed it and cut, and a
+ * minute at most. The real shell's side is proven against real
+ * pseudo-terminals in the environment's `terminals/one-off.test.ts`; this
+ * is the reading of what came back, over a terminal the test plays.
+ */
+
+const MARKER = "agent-harness-one-off-t1";
+const TARGET = { environmentId: "env-1", sessionId: "session-1" };
+
+describe("the marker", () => {
+  it("is what the output comes after: the greeting, prompt and echo before its line are dropped", () => {
+    expect(afterMarker(`motd\r\n$  exec /bin/sh -c "$${ONE_OFF_VARIABLE}"\r\n${MARKER}\r\nhi\r\n`, MARKER)).toBe("hi\r\n");
+  });
+
+  it("is null when it never came, and nothing follows it when its line has not ended", () => {
+    expect(afterMarker("$ nu: unknown command exec\r\n", MARKER)).toBeNull();
+    expect(afterMarker(`$ ${MARKER}`, MARKER)).toBe("");
+  });
+});
+
+describe("the script and its variables", () => {
+  it("print the marker, then take no input and tell every pager to print, then run the command as typed", () => {
+    expect(oneOffScript("git log", MARKER).split("\n")).toEqual([
+      `printf '%s\\n' '${MARKER}'`,
+      "exec </dev/null",
+      "PAGER=cat GIT_PAGER=cat MANPAGER=cat SYSTEMD_PAGER=cat; export PAGER GIT_PAGER MANPAGER SYSTEMD_PAGER",
+      "git log",
+    ]);
+    expect(oneOffEnv("git log", MARKER)).toEqual({ ...NO_PAGERS, [ONE_OFF_VARIABLE]: oneOffScript("git log", MARKER) });
+    expect(NO_PAGERS).toEqual({ PAGER: "cat", GIT_PAGER: "cat", MANPAGER: "cat", SYSTEMD_PAGER: "cat" });
+  });
+
+  it("are handed over by a line that starts with a space, which keeps it out of the shell's history", () => {
+    expect(ONE_OFF_LINE).toBe(` exec /bin/sh -c "$${ONE_OFF_VARIABLE}"\r`);
+  });
+});
+
+describe("the output cut to lines", () => {
+  it("is kept whole up to the limit, and past it the first lines and a count of the rest", () => {
+    expect(clipOutput("a\nb", 2)).toBe("a\nb");
+    expect(clipOutput("a\nb\nc", 2)).toBe("a\nb\n… 1 more line");
+    expect(clipOutput("a\nb\nc\nd", 2)).toBe("a\nb\n… 2 more lines");
+  });
+});
+
+/** A runtime whose one terminal the test plays: its writes recorded, its output and exit said when the test says. */
+const played = () => {
+  const clock = manualClock();
+  const calls: { readonly method: string; readonly params: Record<string, unknown> }[] = [];
+  let listener: ((output: TerminalOutput) => void) | undefined;
+  const state = writable<TerminalStreamView>({ status: "live", cursor: 0, terminal: null, exit: null, fault: null });
+  let sequence = 0;
+  let writeAnswer: "accepted" | "unreachable" = "accepted";
+  const runtime = {
+    requests: {
+      call: async (_environmentId: string, method: string, params: Record<string, unknown>) => {
+        calls.push({ method, params });
+        if (method === "terminals.write" && writeAnswer === "unreachable") return { ok: false, error: { code: "unreachable", message: "desk cannot be reached." } };
+        return { ok: true, result: { receipt: { status: "accepted", sequence: 1, changed: false } } };
+      },
+    },
+    subscriptions: {
+      terminal: (_environmentId: string, _id: string, heard: (output: TerminalOutput) => void) => {
+        listener = heard;
+        return { environmentId: "env-1", terminalId: "t1", state, release: () => undefined };
+      },
+    },
+  } as unknown as Runtime;
+  return {
+    clock,
+    calls,
+    runtime,
+    failWrites: () => void (writeAnswer = "unreachable"),
+    print: (data: string) => listener?.({ kind: "output", data, sequence: ++sequence, live: true }),
+    exit: (exitCode: number) => listener?.({ kind: "exited", exit: { exitCode, signal: null, cause: "exited" } }),
+    deps: { runtime, clock, newCommandId: () => "c", newTerminalId: () => "t1" },
+  };
+};
+
+/** Runs `command`, then lets the test play the terminal once the line is typed. */
+const run = async (terminal: ReturnType<typeof played>, command: string, play: () => void) => {
+  const result = runOneOff(terminal.deps, TARGET, command);
+  await flush();
+  await flush();
+  play();
+  return result;
+};
+
+describe("a one-off command run", () => {
+  it("opens its terminal with the script in its variables, types the line, and reads only what came after the marker", async () => {
+    const terminal = played();
+    const result = await run(terminal, "echo hi", () => {
+      terminal.print(`motd\r\n$ ${ONE_OFF_LINE}\n`);
+      terminal.print(`${MARKER}\r\nhi\r\n`);
+      terminal.exit(0);
+    });
+    expect(result).toEqual({ ok: true, output: "hi", exitCode: 0, signal: null, timedOut: false, timeoutMs: 60_000, cut: false });
+    expect(terminal.calls.map((c) => c.method)).toEqual(["terminals.open", "terminals.write", "terminals.close"]);
+    expect(terminal.calls[0]?.params).toMatchObject({ id: "t1", sessionId: "session-1", cols: 120, rows: 40, env: oneOffEnv("echo hi", MARKER) });
+    expect(terminal.calls[1]?.params).toMatchObject({ data: ONE_OFF_LINE });
+  });
+
+  it("finds the marker when it arrives in pieces", async () => {
+    const terminal = played();
+    const result = await run(terminal, "echo hi", () => {
+      terminal.print("$ agent-harness-one-");
+      terminal.print("off-t1\r");
+      terminal.print("\nhi\r\n");
+      terminal.exit(0);
+    });
+    expect(result).toMatchObject({ ok: true, output: "hi" });
+  });
+
+  it("sends nothing when the marker never came, and says the last line the terminal showed", async () => {
+    const terminal = played();
+    const result = await run(terminal, "ls", () => {
+      terminal.print("Welcome\r\n> nu: unknown command: exec\r\n");
+      terminal.exit(1);
+    });
+    expect(result).toEqual({ ok: false, line: "The shell never started it before its terminal ended; it last showed: > nu: unknown command: exec" });
+  });
+
+  it("stops waiting at its limit, closes the terminal, and says how long it was given", async () => {
+    const terminal = played();
+    const result = runOneOff({ ...terminal.deps, timeoutMs: 5_000 }, TARGET, "sleep 100");
+    await flush();
+    await flush();
+    terminal.print(`${MARKER}\r\nstarted\r\n`);
+    terminal.clock.advance(5_000);
+    const ended = await result;
+    expect(ended).toEqual({ ok: true, output: "started", exitCode: null, signal: null, timedOut: true, timeoutMs: 5_000, cut: false });
+    expect(terminal.calls.at(-1)?.method).toBe("terminals.close");
+    expect(oneOffMessage("sleep 100", ended as Extract<typeof ended, { ok: true }>)).toBe("Ran `sleep 100`:\n```\nstarted\ntimed out after 5s\n```");
+  });
+
+  it("cuts what comes after the marker at its limit, marks the cut, and counts past it in characters", async () => {
+    const terminal = played();
+    const result = await run(terminal, "yes", () => {
+      terminal.print(`${MARKER}\r\n`);
+      terminal.print("é".repeat(ONE_OFF_MAX_CHARS - 1));
+      terminal.print("éé");
+      terminal.exit(0);
+    });
+    expect(result).toMatchObject({ ok: true, cut: true });
+    expect(oneOffMessage("yes", result as Extract<typeof result, { ok: true }>)).toMatch(/… output stopped after 256K characters\n```$/);
+  });
+
+  it("stops its clock when the line could not be typed, and says why", async () => {
+    const terminal = played();
+    terminal.failWrites();
+    const result = await runOneOff(terminal.deps, TARGET, "ls");
+    expect(result).toEqual({ ok: false, line: "desk cannot be reached." });
+    expect(terminal.clock.pending()).toBe(0);
+  });
+});

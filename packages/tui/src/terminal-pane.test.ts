@@ -1,5 +1,8 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { KEY, renderApp, type RenderedApp } from "../test/harness.js";
+import { ONE_OFF_LINE } from "./terminal/one-off.js";
 
 /**
  * The terminal pane (docs/specs/tui.md, "The terminal pane"; #148):
@@ -20,6 +23,7 @@ afterEach(async () => {
 
 const SESSION = "0199aa00-0000-4000-8000-000000000001";
 const FIRST = "7e000000-0000-4000-8000-000000000001";
+const SECOND = "7e000000-0000-4000-8000-000000000002";
 const EXISTING = "0a1b2c3d-0000-4000-8000-000000000009";
 /** The pane at the harness's 100 by 30: the width beside the rail, and 40% of the rows. */
 const PANE = { cols: 72, rows: 12 };
@@ -41,6 +45,13 @@ const command = async (app: RenderedApp, text: string) => {
 
 /** Everything written to a terminal, in order, as one string. */
 const written = (app: RenderedApp, id: string) => app.environment("desk").terminal(id).writes.join("");
+
+/** The frame's rows that hold `text`, trimmed. */
+const rowsWith = (app: RenderedApp, text: string) =>
+  app
+    .rows()
+    .filter((row) => row.includes(text))
+    .map((row) => row.slice(row.lastIndexOf("│") + 1).trim());
 
 describe("opening the pane", () => {
   it("opens a terminal for the session with a client-minted id at the pane's size, and draws its output between the transcript and the composer", async () => {
@@ -79,6 +90,18 @@ describe("opening the pane", () => {
     expect(env.terminal(FIRST).resizes).toEqual([{ cols: 100, rows: 16 }]);
   });
 
+  it("sizes the terminal once the environment is back when the pane was resized while it could not be reached", async () => {
+    const { app, env } = await opened();
+    await command(app, "/terminal");
+    await app.waitFor("terminal · desk");
+    env.server.drop();
+    await app.waitFor("reconnecting");
+    await app.resize({ columns: 128, rows: 40 });
+    await app.waitUntil(() => !app.frame().includes("reconnecting"), "the environment to be back");
+    await app.waitUntil(() => env.terminal(FIRST).resizes.length === 1, "the terminal to be sized to the pane");
+    expect(env.terminal(FIRST).resizes).toEqual([{ cols: 100, rows: 16 }]);
+  });
+
   it("refuses at once with one line while the environment cannot be reached, asking it nothing", async () => {
     const { app, env } = await opened();
     env.autoAccept(false);
@@ -88,6 +111,8 @@ describe("opening the pane", () => {
     await command(app, "/terminal");
     await app.waitFor(/No terminal: desk cannot be reached\./);
     expect(app.frame()).not.toContain("terminal · desk");
+    expect(env.requests("terminals.list")).toEqual([]);
+    expect(env.requests("terminals.open")).toEqual([]);
   });
 
   it("closes the pane with a line when the terminal's shell exits", async () => {
@@ -137,8 +162,25 @@ describe("keys in the pane", () => {
     await app.press(KEY.esc);
     await app.waitFor("› ");
     await app.press(KEY.ctrlBackslash);
-    await app.tick(2);
-    expect(written(app, FIRST)).toBe("\u001C");
+    // Back in the pane, a key typed there is the next thing written: the Ctrl+\\ from the composer wrote nothing.
+    await app.press(KEY.tab, KEY.tab);
+    await app.waitFor("The terminal has the keys");
+    await app.type("z");
+    await app.waitUntil(() => written(app, FIRST) === "\u001Cz", "the key to follow the literal");
+  });
+
+  it("sends the literal only when Ctrl+\\ comes again within half a second of leaving", async () => {
+    const { app } = await opened();
+    await command(app, "/terminal");
+    await app.waitFor("The terminal has the keys");
+    await app.press(KEY.ctrlBackslash);
+    await app.waitFor("The transcript has the keys");
+    await app.advance(600);
+    await app.press(KEY.ctrlBackslash);
+    await app.press(KEY.tab, KEY.tab, KEY.tab);
+    await app.waitFor("The terminal has the keys");
+    await app.type("z");
+    await app.waitUntil(() => written(app, FIRST) === "z", "only the key typed in the pane to reach the shell");
   });
 
   it("walks Tab through the pane while it is open, before the transcript", async () => {
@@ -173,7 +215,7 @@ describe("keys in the pane", () => {
 });
 
 describe("a reconnect", () => {
-  it("resubscribes from the cursor and replays what the pane missed, keeping what it drew", async () => {
+  it("resubscribes from the cursor and replays what the pane missed, each chunk once and in order, then goes on live", async () => {
     const { app, env } = await opened();
     await command(app, "/terminal");
     await app.waitFor("The terminal has the keys");
@@ -186,27 +228,83 @@ describe("a reconnect", () => {
     await app.waitFor("reconnecting");
     env.terminalOutput(FIRST, "during the blip\r\n");
     await app.waitFor("during the blip", 400);
-    expect(app.frame()).toContain("before the blip");
     const after = env.requests("terminals.subscribe").at(-1)?.params;
     expect(after).toMatchObject({ id: FIRST, afterSequence: 2 });
+    env.terminalOutput(FIRST, "after the blip\r\n");
+    await app.waitFor("after the blip");
+    expect(rowsWith(app, "blip")).toEqual(["$ before the blip", "during the blip", "after the blip"]);
+  });
+
+  it("draws the pane again from the snapshot when the scrollback no longer reaches its cursor, and says so on the scrollback page", async () => {
+    const { app, env } = await opened();
+    await command(app, "/terminal");
+    await app.waitFor("The terminal has the keys");
+    env.terminalOutput(FIRST, "long gone\r\n");
+    await app.waitFor("long gone");
+    env.server.drop();
+    await app.waitFor("reconnecting");
+    env.terminalOutput(FIRST, "dropped too\r\n");
+    env.terminalOutput(FIRST, "kept\r\n");
+    env.dropScrollback(FIRST, 3);
+    await app.waitFor("kept", 400);
+    expect(app.frame()).not.toContain("long gone");
+    expect(app.frame()).not.toContain("dropped too");
+    await app.press(KEY.ctrlO);
+    await app.waitFor("Terminal scrollback · desk · earlier output dropped");
   });
 });
 
 describe("a shell line", () => {
-  const ONE_OFF = "7e000000-0000-4000-8000-000000000001";
   const startsOf = (app: RenderedApp) => app.environment("desk").requests("runs.start").map((r) => r.params);
+  const history = (app: RenderedApp) =>
+    readFileSync(join(app.stateDir, "history.jsonl"), "utf8")
+      .split("\n")
+      .filter((line) => line.length > 0)
+      .map((line) => (JSON.parse(line) as { readonly text: string }).text);
 
-  it("runs ! and a command in the session's terminal, opening the pane for it, the composer keeping the keys", async () => {
-    const { app, env } = await opened();
+  it("runs ! and a command in a terminal of its own, shown in the pane, never typed into the session's shell, the composer keeping the keys", async () => {
+    const { app, env } = await opened({ terminals: [{ id: EXISTING, output: "vim is running\r\n" }], oneOff: () => ({ output: "total 0\n" }) });
     await command(app, "!ls -la");
-    await app.waitFor("terminal · desk");
-    await app.waitUntil(() => written(app, FIRST) === "ls -la\r", "the command to be typed into the terminal");
-    expect(env.terminal(FIRST).sessionId).toBe(SESSION);
+    await app.waitFor("total 0");
+    expect(app.frame()).toContain("!ls -la · desk");
+    expect(env.terminal(FIRST).env).toEqual({ AGENT_HARNESS_ONE_OFF: "ls -la" });
+    expect(env.terminal(FIRST).writes).toEqual([ONE_OFF_LINE]);
+    expect(env.terminal(EXISTING).writes).toEqual([]);
     expect(app.frame()).not.toContain("The terminal has the keys");
     await app.type("next");
     await app.waitFor("› next");
-    expect(written(app, FIRST)).toBe("ls -la\r");
+    expect(env.terminal(FIRST).writes).toEqual([ONE_OFF_LINE]);
     expect(startsOf(app)).toEqual([]);
+  });
+
+  it("closes a ! command's terminal when it exits, keeping what it showed in the pane until a key there closes it", async () => {
+    const { app, env } = await opened({ oneOff: () => ({ output: "total 0\n" }) });
+    await command(app, "!ls");
+    await app.waitFor("total 0");
+    env.exitTerminal(FIRST, 2);
+    await app.waitFor("!ls · desk · exit 2");
+    await app.waitUntil(() => env.terminal(FIRST).closed, "the terminal to be closed");
+    expect(app.frame()).toContain("total 0");
+    await app.press(KEY.tab, KEY.tab);
+    await app.waitFor("any key closes it");
+    await app.type("q");
+    await app.waitFor("message the agent");
+    expect(app.frame()).not.toContain("total 0");
+    expect(env.terminal(FIRST).writes).toEqual([ONE_OFF_LINE]);
+  });
+
+  it("opens the session's shell on /terminal while a ! command runs, and closes that command's terminal when it exits later", async () => {
+    const { app, env } = await opened({ oneOff: () => ({ output: "watching\n" }) });
+    await command(app, "!watch ls");
+    await app.waitFor("watching");
+    await command(app, "/terminal");
+    await app.waitFor("terminal · desk");
+    expect(env.requests("terminals.open").map((r) => r.params["id"])).toEqual([FIRST, SECOND]);
+    expect(env.terminal(SECOND).env).toEqual({});
+    env.exitTerminal(FIRST, 0);
+    await app.waitFor("`watch ls` on desk exited with code 0.");
+    await app.waitUntil(() => env.terminal(FIRST).closed, "the command's terminal to be closed");
+    expect(app.frame()).toContain("terminal · desk");
   });
 
   it("runs !! and a command in a terminal of its own and sends what it printed to the agent, closing that terminal", async () => {
@@ -215,11 +313,14 @@ describe("a shell line", () => {
     await app.waitUntil(() => startsOf(app).length === 1, "the output to be sent to the agent");
     expect(startsOf(app)[0]).toMatchObject({ sessionId: SESSION, text: "Ran `echo hi`:\n```\nhi\n```" });
     // The command rode the terminal's environment, never typed: the line typed is always the same.
-    const terminal = env.terminal(ONE_OFF);
+    const terminal = env.terminal(FIRST);
     expect(terminal.env["AGENT_HARNESS_ONE_OFF"]).toMatch(/\necho hi$/);
-    expect(terminal.writes).toEqual(['exec /bin/sh -c "$AGENT_HARNESS_ONE_OFF"\r']);
-    await app.waitUntil(() => env.terminal(ONE_OFF).closed, "the one-off terminal to be closed");
+    expect(terminal.env).toMatchObject({ PAGER: "cat", GIT_PAGER: "cat", MANPAGER: "cat", SYSTEMD_PAGER: "cat" });
+    expect(terminal.writes).toEqual([ONE_OFF_LINE]);
+    await app.waitUntil(() => env.terminal(FIRST).closed, "the one-off terminal to be closed");
     expect(app.frame()).not.toContain("terminal · desk");
+    // The prompt history holds the line typed, not the message it became.
+    expect(history(app)).toEqual(["!!echo hi"]);
   });
 
   it("says how a !! command ended when it did not end cleanly", async () => {
@@ -227,6 +328,57 @@ describe("a shell line", () => {
     await command(app, "!!cat nope");
     await app.waitUntil(() => startsOf(app).length === 1, "the output to be sent to the agent");
     expect(startsOf(app)[0]).toMatchObject({ text: "Ran `cat nope`:\n```\nno such file\nexit 2\n```" });
+  });
+
+  it("sends nothing when the login shell never ran the command, and says what it showed", async () => {
+    const { app } = await opened({ posixShell: false });
+    await command(app, "!!ls");
+    await app.waitFor("Not run: The shell never started it before its terminal ended; it last showed: nu: unknown command: exec");
+    expect(startsOf(app)).toEqual([]);
+  });
+
+  it("sends a !! command's output to nobody when its session is no longer open, and leaves a later line alone", async () => {
+    const { app, env } = await opened({
+      sessions: [
+        { title: "Receipts", workspace: { kind: "directory", path: "/home/seth/receipts" } },
+        { title: "Parser", workspace: { kind: "directory", path: "/home/seth/parser" } },
+      ],
+      oneOff: () => ({ output: "slow\n" }),
+    });
+    await command(app, "!!sleep 5");
+    await app.waitFor("Running sleep 5 on desk…");
+    await command(app, "/resume");
+    await app.waitFor("Sessions");
+    await app.type("Pars");
+    await app.press(KEY.enter);
+    await app.waitFor("Parser");
+    env.exitTerminal(FIRST, 0);
+    await app.waitFor("The output of sleep 5 was not sent: its session is no longer open.");
+    expect(startsOf(app)).toEqual([]);
+  });
+
+  it("keeps a line said while a !! command ran when it sends the output", async () => {
+    const { app, env } = await opened({ oneOff: () => ({ output: "slow\n" }) });
+    await command(app, "!!sleep 5");
+    await app.waitFor("Running sleep 5 on desk…");
+    await command(app, "/files nope.txt");
+    await app.waitFor("Not read:");
+    env.exitTerminal(FIRST, 0);
+    await app.waitUntil(() => startsOf(app).length === 1, "the output to be sent to the agent");
+    await app.tick(2);
+    expect(app.frame()).toContain("Not read:");
+  });
+
+  it("does not reopen a !! command's terminal for /terminal while the command runs", async () => {
+    const { app, env } = await opened({ oneOff: () => ({ output: "slow\n" }) });
+    await command(app, "!!sleep 5");
+    await app.waitUntil(() => env.terminals().length === 1 && env.terminal(FIRST).writes.length === 1, "the command to run");
+    await command(app, "/terminal");
+    await app.waitFor("terminal · desk");
+    await app.waitUntil(() => env.requests("terminals.open").length === 2, "a terminal to be opened for the shell");
+    await app.type("x");
+    await app.waitUntil(() => written(app, SECOND) === "x", "the key to reach the shell's terminal");
+    expect(env.terminal(FIRST).writes).toEqual([ONE_OFF_LINE]);
   });
 
   it("refuses ! and !! at once with one line while the environment cannot be reached", async () => {
@@ -237,6 +389,12 @@ describe("a shell line", () => {
     await app.waitFor("◌ cached");
     await command(app, "!!ls");
     await app.waitFor(/Not run: desk cannot be reached\./);
+    expect(app.frame()).toContain("✕ !!ls");
+    await app.press(KEY.ctrlU);
+    await command(app, "!pwd");
+    await app.waitFor("✕ !pwd");
+    expect(app.frame()).toMatch(/Not run: desk cannot be reached\./);
+    expect(app.frame()).not.toContain("!pwd · desk");
     expect(env.terminals()).toEqual([]);
   });
 });

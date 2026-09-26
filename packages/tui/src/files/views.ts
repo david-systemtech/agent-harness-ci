@@ -1,5 +1,6 @@
 import type { Runtime } from "@agent-harness/client-runtime";
 import { DIFF_CAP, FILES_READ_CAP, type SessionDiffFile } from "@agent-harness/contracts";
+import type { Opened } from "../session/use-session.js";
 import type { Line, Span } from "../transcript/lines.js";
 import { externalDiffTool, pipeThrough, type DiffToolDeps, type PipeDeps, type PipeResult } from "./diff-filter.js";
 import { colouredDiff, diffPage, plainPage, sgrPage } from "./pages.js";
@@ -54,11 +55,6 @@ export type Paged =
   /** Why not: one line. `directory` when the path named one, which the files picker opens instead. */
   | { readonly ok: false; readonly line: string; readonly directory?: boolean };
 
-export interface Target {
-  readonly environmentId: string;
-  readonly sessionId: string;
-}
-
 const MIB = 1024 * 1024;
 
 /** A size in the units a person reads it in. */
@@ -68,7 +64,7 @@ export const formatBytes = (bytes: number): string =>
 const line = (row: string, spans: readonly Span[]): Line => ({ row, spans });
 
 /** `path` read through `files.read`, as a page. */
-export const readFile = async (runtime: Runtime, target: Target, path: string, width: number): Promise<Paged> => {
+export const readFile = async (runtime: Runtime, target: Opened, path: string, width: number): Promise<Paged> => {
   const answer = await runtime.requests.call(target.environmentId, "files.read", { sessionId: target.sessionId, path });
   if (!answer.ok) return { ok: false, line: `Not read: ${answer.error.message}`, directory: answer.error.data?.["reason"] === "not_a_file" };
   const { size, binary, truncated, text } = answer.result;
@@ -90,7 +86,7 @@ const joined = (files: readonly SessionDiffFile[]): string => files.map((file) =
 const cutMark = (row: string): Line => line(row, [{ text: `… cut at ${String(DIFF_CAP / MIB)} MiB: the rest is not shown.`, color: "yellow" }]);
 
 /** `d` on a row: the session's diff of the files the row's edits (`calls`, tool call ids) changed. */
-export const rowDiff = async (runtime: Runtime, target: Target, calls: readonly string[], width: number, filter: DiffFilter | null): Promise<Paged> => {
+export const rowDiff = async (runtime: Runtime, target: Opened, calls: readonly string[], width: number, filter: DiffFilter | null): Promise<Paged> => {
   const answer = await runtime.requests.call(target.environmentId, "diffs.session", { sessionId: target.sessionId });
   if (!answer.ok) return { ok: false, line: `No diff: ${answer.error.message}` };
   const wanted = new Set(calls);
@@ -106,7 +102,7 @@ export const rowDiff = async (runtime: Runtime, target: Target, calls: readonly 
 };
 
 /** `/diff`: what the session changed, then the working tree against HEAD. */
-export const sessionDiff = async (runtime: Runtime, target: Target, width: number, filter: DiffFilter | null): Promise<Paged> => {
+export const sessionDiff = async (runtime: Runtime, target: Opened, width: number, filter: DiffFilter | null): Promise<Paged> => {
   const [session, tree] = await Promise.all([
     runtime.requests.call(target.environmentId, "diffs.session", { sessionId: target.sessionId }),
     runtime.requests.call(target.environmentId, "diffs.workingTree", { sessionId: target.sessionId }),

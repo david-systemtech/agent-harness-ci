@@ -255,6 +255,12 @@ const PAGE_KEYS: ReadonlySet<KeyActionId> = new Set<KeyActionId>(["transcript.pa
 /** The pane's leave key, looked up once more right after it left the pane: pressed twice, it goes to the shell. */
 const LEAVE: ReadonlySet<KeyActionId> = new Set<KeyActionId>(["terminal.leave"]);
 
+/** How soon after leaving the pane the leave key counts as pressed twice, sending it to the shell (a chosen default). */
+export const LEAVE_TWICE_MS = 500;
+
+/** What `/terminal` and `!` say when this Ink cannot hand the pane its keys (`useRawInput`). */
+const DEAF = "this build of Ink does not hand the pane its keys.";
+
 const NO_FAULTS: Observable<readonly Fault[]> = { read: () => [], subscribe: () => () => undefined };
 
 /** The slash menu's rows: the commands this build answers, from the shared list, then the provider's own. */
@@ -379,10 +385,13 @@ export const App = (props: AppProps) => {
     newTerminalId: props.newTerminalId ?? (() => crypto.randomUUID()),
     nameOf: (environmentId) => names.get(environmentId) ?? "its environment",
   });
+  // Every key's bytes, heard for the pane (`paneKey`, below); false when this Ink cannot hand them over, and the pane is refused.
+  const paneKey = useRef<(bytes: string) => void>(() => undefined);
+  const hearsKeys = useRawInput((bytes) => paneKey.current(bytes));
   const paneOpen = terminal.pane !== null && opened !== null && terminal.pane.environmentId === opened.environmentId && terminal.pane.sessionId === opened.sessionId;
   useEffect(() => {
     if (terminal.pane !== null && !paneOpen) terminal.close();
-  });
+  }, [paneOpen, terminal.pane]);
 
   // The stops Tab walks that come and go: the rail, dropped on a narrow terminal or with nothing to list, and the terminal
   // pane while it is open; the delegated strip is not a stop in this build. A stop that goes takes the focus back to the
@@ -691,15 +700,16 @@ export const App = (props: AppProps) => {
       composer.set(composerOf(held));
       return;
     }
-    // A command for the terminal being typed (a slash command it answers, a shell line) is not the session's draft: it is
-    // sent nowhere, and saving it would only be undone.
+    // A command for the terminal UI being typed (a slash command it answers, a shell line) is not the session's draft: it
+    // is sent nowhere, and saving it would only be undone.
     if (text !== synced.current.text && !(text.startsWith("/") && parseCommand(text).kind !== "text") && shellLine(text) === null) {
       synced.current = { key: openKey, text };
       runtime.drafts.set(opened.environmentId, opened.sessionId, text.length > 0 ? text : null);
     }
   });
 
-  const sendText = (message: { readonly text: string; readonly attachments: readonly AttachmentInput[] }): boolean => {
+  /** Sends `message` to the open session; `remember` false keeps it out of the prompt history (preset in it). */
+  const sendText = (message: { readonly text: string; readonly attachments: readonly AttachmentInput[] }, options: { readonly remember?: boolean } = {}): boolean => {
     if (!opened) {
       say("There is no session open to send to: /resume opens one, /new starts one.");
       return false;
@@ -717,7 +727,7 @@ export const App = (props: AppProps) => {
     const { environmentId, sessionId } = opened;
     const before = new Set(projection?.items.flatMap((entry) => (entry.kind === "user-message" ? [entry.messageId] : [])) ?? []);
     setSending((s) => [...s, { id, text: message.text, messageId: undefined, before }]);
-    stores.history?.append({ text: message.text, cwd: projection?.summary?.workspace.path ?? props.flags.workspace, sessionId });
+    if (options.remember !== false) stores.history?.append({ text: message.text, cwd: projection?.summary?.workspace.path ?? props.flags.workspace, sessionId });
     setView((v) => ({ ...v, offset: 0 }));
     void sendMessage(runtime, environmentId, sessionId, message, live).then((outcome) => {
       if (!outcome.ok) {
@@ -732,6 +742,10 @@ export const App = (props: AppProps) => {
     });
     return true;
   };
+
+  // What a reply that comes later (`!!`'s output) acts on: this render's session and send, read when it comes.
+  const latest = useRef({ opened, sendText });
+  latest.current = { opened, sendText };
 
   const interrupt = (): boolean => {
     if (!opened || liveRun === undefined) return false;
@@ -811,12 +825,13 @@ export const App = (props: AppProps) => {
   /** `/terminal`: the open session's terminal in the pane, opened or reopened, with the keys. */
   const openTerminal = () => {
     if (!opened) return noSession();
+    if (!hearsKeys) return say(`No terminal: ${DEAF}`);
     if (terminal.open(opened, paneSize)) setFocus("terminal");
   };
 
   /**
-   * A shell line (#148): `!` types the command into the session's terminal, opening the pane for it, the composer keeping
-   * the keys; `!!` runs it in a terminal of its own and sends what it printed to the agent. True when the box empties.
+   * A shell line (#148): `!` runs the command in a terminal of its own, shown in the pane, the composer keeping the keys;
+   * `!!` runs it in a terminal of its own and sends what it printed to the agent. True when the box empties.
    */
   const runShellLine = (shell: { readonly send: boolean; readonly command: string }): boolean => {
     if (shell.command.length === 0) {
@@ -831,7 +846,11 @@ export const App = (props: AppProps) => {
     const record = () =>
       stores.history?.append({ text: `${shell.send ? "!!" : "!"}${shell.command}`, cwd: projection?.summary?.workspace.path ?? props.flags.workspace, sessionId: target.sessionId });
     if (!shell.send) {
-      const ran = terminal.open(target, paneSize, `${shell.command}\r`);
+      if (!hearsKeys) {
+        say(`Not run: ${DEAF}`);
+        return false;
+      }
+      const ran = terminal.run(target, paneSize, shell.command);
       if (ran) record();
       return ran;
     }
@@ -845,13 +864,20 @@ export const App = (props: AppProps) => {
       return false;
     }
     record();
-    say(`Running ${shell.command} on ${names.get(target.environmentId) ?? "the environment"}…`);
-    const newTerminalId = props.newTerminalId ?? (() => crypto.randomUUID());
-    void runOneOff({ runtime, clock, newCommandId: props.newCommandId, newTerminalId }, target, shell.command).then((result) => {
+    const running = `Running ${shell.command} on ${names.get(target.environmentId) ?? "the environment"}…`;
+    say(running);
+    void runOneOff({ runtime, clock, newCommandId: props.newCommandId, newTerminalId: terminal.oneOffId }, target, shell.command).then((result) => {
       if (quit.signal.aborted) return;
       if (!result.ok) return say(`Not run: ${result.line}`);
-      update({ line: undefined });
-      sendText({ text: oneOffMessage(shell.command, result), attachments: [] });
+      // Up to a minute later: the session open now, and the send that knows it, not this render's.
+      const now = latest.current;
+      if (now.opened?.environmentId !== target.environmentId || now.opened.sessionId !== target.sessionId) {
+        return say(`The output of ${shell.command} was not sent: its session is no longer open.`);
+      }
+      // The line it said goes, and only it: another said meanwhile stays.
+      setScreen((s) => (s.line === running ? { ...s, line: undefined } : s));
+      // The prompt history holds the line typed (`record`), not the message it became.
+      now.sendText({ text: oneOffMessage(shell.command, result), attachments: [] }, { remember: false });
     });
     return true;
   };
@@ -901,7 +927,9 @@ export const App = (props: AppProps) => {
   const openScrollback = () => {
     const lines = terminal.history().map((spans, index): TranscriptLine => ({ row: `scrollback:${index}`, spans }));
     const where = terminal.pane ? (names.get(terminal.pane.environmentId) ?? "") : "";
-    update({ card: { kind: "page", title: `Terminal scrollback · ${where}`, lines, top: null, query: "", typing: false, back: { kind: "none" } } });
+    // A snapshot the scrollback's cap had cut: what came before it is gone from the environment too.
+    const dropped = terminal.earlierDropped() ? " · earlier output dropped" : "";
+    update({ card: { kind: "page", title: `Terminal scrollback · ${where}${dropped}`, lines, top: null, query: "", typing: false, back: { kind: "none" } } });
   };
 
   /** The composer's Enter: a command the terminal answers, or a message for the agent. True when the box empties. */
@@ -1218,31 +1246,31 @@ export const App = (props: AppProps) => {
 
   const lastPress = useRef<string | undefined>(undefined);
 
-  // The pane has the keys while it has the focus and no card is open (#148). Every key is heard here first, as the bytes
-  // the terminal sent, and the pane takes it but for its two actions: `terminal.leave` goes on to the next stop, where Tab
-  // would have gone had the shell not had it, and `terminal.scrollback` opens the scrollback. What the pane took, the
-  // screen's own handler below does not look at.
+  // The pane has the keys while it has the focus and no card is open (#148). Every key is heard as the bytes the terminal
+  // sent (`paneKey`), and while the pane has the keys the screen's own handler below is not active: the pane takes each key
+  // but for its two actions. `terminal.leave` goes on to the next stop, where Tab would have gone had the shell not had
+  // it, and `terminal.scrollback` opens the scrollback.
   const paneHasKeys = focused === "terminal" && paneOpen && !cardOpen;
-  terminal.focus(paneHasKeys);
+  useEffect(() => terminal.focus(paneHasKeys), [paneHasKeys]);
   const paneKeys = useRef(false);
   paneKeys.current = paneHasKeys;
-  const paneTook = useRef(false);
-  // Left with `terminal.leave`: the next key, if it is that key again, goes to the shell and the pane has the keys back.
-  const leftPane = useRef(false);
+  // When the pane was left with `terminal.leave`: the leave key again within `LEAVE_TWICE_MS` goes to the shell and the
+  // pane has the keys back.
+  const leftAt = useRef<number | null>(null);
   const heldBy = (action: "terminal.leave" | "terminal.scrollback", bytes: string) => keymap.keys[action].some((name) => keyBytes(name) === bytes);
-  useRawInput((bytes) => {
-    paneTook.current = paneKeys.current;
+  paneKey.current = (bytes) => {
     if (!paneKeys.current) return;
     scheduler.bypass();
     if (heldBy("terminal.leave", bytes)) {
+      // The keys go at once: what comes before the next frame is not the pane's.
       paneKeys.current = false;
-      leftPane.current = true;
+      leftAt.current = clock.now().getTime();
       setFocus(nextFocus("terminal", stops));
       return;
     }
     if (heldBy("terminal.scrollback", bytes)) return openScrollback();
     terminal.key(bytes);
-  });
+  };
   usePaste(
     (text) => {
       scheduler.bypass();
@@ -1261,13 +1289,8 @@ export const App = (props: AppProps) => {
   );
 
   useInput((input: string, key: InkKey) => {
-    // The pane took it (above).
-    if (paneTook.current) {
-      paneTook.current = false;
-      return;
-    }
-    const justLeft = leftPane.current;
-    leftPane.current = false;
+    const justLeft = leftAt.current !== null && clock.now().getTime() - leftAt.current <= LEAVE_TWICE_MS;
+    leftAt.current = null;
     // A key draws what the scheduler holds back, with its own echo.
     scheduler.bypass();
     // Somebody is here: both bells wait again. Past three minutes of stillness the key is a return, answered with what happened
@@ -1563,7 +1586,7 @@ export const App = (props: AppProps) => {
     if (key.delete) return void composer.edit("delete");
     // What is typed is text, not a key: a sigil (`/`) included, whatever the keymap says.
     if (input !== "" && !key.ctrl && !key.meta && !key.escape && !key.tab && !key.return) composer.type(input);
-  });
+  }, { isActive: !paneHasKeys });
 
   // A card that is a list of the session's needs the session: gone, it closes. The asks card closes with its last row.
   const sessionCard = card.kind === "pager" || card.kind === "files" || (card.kind === "lines" && card.which !== "notices");
@@ -1750,8 +1773,10 @@ export const App = (props: AppProps) => {
           {card.kind === "none" && opened && projection && <QueuedLine queued={projection.queued} steers={steers} />}
           {card.kind === "none" && paneOpen && terminal.pane && (
             <TerminalPaneView
+              command={terminal.pane.command}
               environment={names.get(terminal.pane.environmentId) ?? ""}
               status={terminal.status()}
+              ended={terminal.pane.ended}
               focused={paneHasKeys}
               rows={terminal.rows(paneHasKeys)}
               height={paneSize.rows}

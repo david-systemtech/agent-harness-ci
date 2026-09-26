@@ -5,10 +5,11 @@ import { StyledLine } from "./transcript.js";
 
 /**
  * The terminal pane on screen (docs/specs/tui.md, "The terminal pane"):
- * between the transcript and the composer, a header naming the
- * environment the terminal runs on and how its subscription stands, then
- * the emulator's rows as styled lines, each exactly as wide as the
- * terminal. The header is in colour while the pane has the keys.
+ * between the transcript and the composer, a header naming what runs (the
+ * session's shell, or a `!` command), the environment it runs on and how
+ * its subscription stands, or how the command ended, then the emulator's
+ * rows as styled lines, each exactly as wide as the terminal. The header is
+ * in colour while the pane has the keys.
  */
 
 /** The rows the pane's terminal has: two fifths of the frame, between 3 and 16 (a chosen default). */
@@ -23,23 +24,28 @@ const STATE: Readonly<Record<TerminalStatus | "opening", string | undefined>> = 
 };
 
 export const TerminalPaneView = (props: {
+  /** `!` and the command a `!` pane runs; null for the session's shell. */
+  readonly command: string | null;
   readonly environment: string;
   readonly status: TerminalStatus | "opening";
+  /** How the pane's command ended (`exit 2`), once it has. */
+  readonly ended: string | null;
   readonly focused: boolean;
   readonly rows: readonly (readonly Span[])[];
   readonly height: number;
   readonly hint: string;
 }) => {
-  const state = STATE[props.status];
+  const state = props.ended ?? STATE[props.status];
+  const hint = props.focused ? (props.ended !== null ? "any key closes it" : undefined) : props.hint;
   const shown = Array.from({ length: props.height }, (_, i) => props.rows[i] ?? []);
   return (
     <Box flexDirection="column" flexShrink={0}>
       <Box flexShrink={0}>
         <Text wrap="truncate-end" {...(props.focused ? { color: "cyan" } : { dimColor: true })}>
-          {"── terminal · "}
+          {`── ${props.command === null ? "terminal" : `!${props.command}`} · `}
           {props.environment}
           {state !== undefined && ` · ${state}`}
-          {!props.focused && ` · ${props.hint}`}
+          {hint !== undefined && ` · ${hint}`}
         </Text>
       </Box>
       {shown.map((spans, index) => (

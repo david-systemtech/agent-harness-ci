@@ -10,9 +10,11 @@ import { useEffect, useRef } from "react";
  * listens on the channel Ink's input parser emits each key's bytes on,
  * which `useStdin()` carries at runtime though its type does not say so
  * (Ink 7.1.1, pinned). `listener` is heard for every key, before the
- * `useInput` handlers the caller registers after this hook.
+ * `useInput` handlers. False when this Ink carries no such channel: the
+ * caller refuses the pane rather than draw one that says it has the keys
+ * while every key goes elsewhere.
  */
-export const useRawInput = (listener: (bytes: string) => void): void => {
+export const useRawInput = (listener: (bytes: string) => void): boolean => {
   const { internal_eventEmitter: emitter } = useStdin() as ReturnType<typeof useStdin> & { readonly internal_eventEmitter?: EventEmitter };
   const current = useRef(listener);
   current.current = listener;
@@ -22,4 +24,5 @@ export const useRawInput = (listener: (bytes: string) => void): void => {
     emitter.on("input", heard);
     return () => void emitter.off("input", heard);
   }, [emitter]);
+  return emitter !== undefined;
 };
