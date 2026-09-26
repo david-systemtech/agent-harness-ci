@@ -29,14 +29,29 @@ import { folded, type Row } from "./rows.js";
  * `TOOL_QUIET_MS` turns amber and names the silence, Artemis's cue.
  */
 
-/** A piece of a line with one style. */
+/** A piece of a line with one style. The last four are a terminal cell's (the pane, a diff tool's colours): Ink's `Text` carries each. */
 export interface Span {
   readonly text: string;
   readonly color?: string;
   readonly dim?: boolean;
   readonly bold?: boolean;
   readonly italic?: boolean;
+  readonly background?: string;
+  readonly underline?: boolean;
+  readonly inverse?: boolean;
+  readonly strikethrough?: boolean;
 }
+
+/** Whether two spans are drawn alike, so one may run on into the other. */
+export const sameStyle = (a: Omit<Span, "text">, b: Omit<Span, "text">): boolean =>
+  a.color === b.color &&
+  a.dim === b.dim &&
+  a.bold === b.bold &&
+  a.italic === b.italic &&
+  a.background === b.background &&
+  a.underline === b.underline &&
+  a.inverse === b.inverse &&
+  a.strikethrough === b.strikethrough;
 
 /** One line on screen, and the row it belongs to. */
 export interface Line {
@@ -89,7 +104,7 @@ export const wrap = (spans: readonly Span[], width: number, hang = ""): Span[][]
   let breakAt: { readonly span: number; readonly offset: number } | undefined;
   const push = (style: Span, text: string) => {
     const last = line.at(-1);
-    if (last && last.color === style.color && last.dim === style.dim && last.bold === style.bold && last.italic === style.italic) {
+    if (last && sameStyle(last, style)) {
       line[line.length - 1] = { ...last, text: last.text + text };
     } else line.push({ ...style, text });
   };

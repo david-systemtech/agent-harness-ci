@@ -1,0 +1,55 @@
+import { describe, expect, it } from "vitest";
+import { browse, directoryOf, locate } from "./browse.js";
+
+/**
+ * `/files`' picker over `files.list` (docs/specs/tui.md, "The composer"): the
+ * listing is flat, so a directory is every path under it; the picker shows
+ * one directory at a time, its directories first with how many files each
+ * holds, then its files, and a filter typed at it finds files anywhere
+ * under it.
+ */
+
+const FILES = ["README.md", "package.json", "src/app.tsx", "src/files/browse.ts", "src/files/pages.ts", "test/harness.ts"];
+
+describe("browsing the listing", () => {
+  it("shows the root's directories first, each with its file count, then its files, by name", () => {
+    expect(browse(FILES, "", "")).toEqual([
+      { kind: "dir", path: "src", name: "src/", files: 3 },
+      { kind: "dir", path: "test", name: "test/", files: 1 },
+      { kind: "file", path: "README.md", name: "README.md" },
+      { kind: "file", path: "package.json", name: "package.json" },
+    ]);
+  });
+
+  it("leads a directory below the root with the way up", () => {
+    expect(browse(FILES, "src", "")).toEqual([
+      { kind: "up", path: "", name: "../" },
+      { kind: "dir", path: "src/files", name: "files/", files: 2 },
+      { kind: "file", path: "src/app.tsx", name: "app.tsx" },
+    ]);
+    expect(browse(FILES, "src/files", "")[0]).toEqual({ kind: "up", path: "src", name: "../" });
+  });
+
+  it("finds a typed filter in the paths anywhere under the directory, ignoring case", () => {
+    expect(browse(FILES, "", "PAGES")).toEqual([{ kind: "file", path: "src/files/pages.ts", name: "src/files/pages.ts" }]);
+    expect(browse(FILES, "src", "ts")).toEqual([
+      { kind: "file", path: "src/app.tsx", name: "app.tsx" },
+      { kind: "file", path: "src/files/browse.ts", name: "files/browse.ts" },
+      { kind: "file", path: "src/files/pages.ts", name: "files/pages.ts" },
+    ]);
+  });
+});
+
+describe("a path typed after /files", () => {
+  it("is a file the listing holds, a directory some path is under, or neither", () => {
+    expect(locate(FILES, "src/app.tsx")).toEqual({ kind: "file", path: "src/app.tsx" });
+    expect(locate(FILES, "./src/files/")).toEqual({ kind: "dir", path: "src/files" });
+    expect(locate(FILES, "/")).toEqual({ kind: "dir", path: "" });
+    expect(locate(FILES, "nope")).toEqual({ kind: "none", path: "nope" });
+  });
+
+  it("names a file's directory", () => {
+    expect(directoryOf("src/files/pages.ts")).toBe("src/files");
+    expect(directoryOf("README.md")).toBe("");
+  });
+});

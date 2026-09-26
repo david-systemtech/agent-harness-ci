@@ -16,6 +16,7 @@
   "dependencies": {
     "@agent-harness/client-runtime": "workspace:*",
     "@agent-harness/contracts": "workspace:*",
+    "@xterm/headless": "6.0.0",
     "ink": "7.1.1",
     "react": "19.3.0",
     "uqr": "^0.1.3"

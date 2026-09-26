@@ -186,6 +186,35 @@ async function runEditor(spawnImpl: SpawnLike, file: string, args: readonly stri
   });
 }
 
+/** A file to open in the editor, and the line to land on when the row knows it. */
+export interface OpenedFile {
+  readonly path: string;
+  readonly line?: number;
+}
+
+/** Whether the editor ran, or why it did not. */
+export type OpenedResult = { readonly ok: true } | { readonly ok: false; readonly reason: string };
+
+/**
+ * `o` on a row (Artemis's `openInEditorAt`): the file it touched, in the
+ * person's editor, at `+<line>` when the row knows the line (the argument
+ * vi, vim, nano, emacs and `less` agree on; an editor that does not know it
+ * opens the file anyway). The same handover as Ctrl+G's, so the caller
+ * lends the terminal; unlike Ctrl+G nothing is read back, so any exit
+ * status is done.
+ */
+export async function openInExternalEditor(file: OpenedFile, deps: Omit<ExternalEditorDeps, "tmpdir"> = {}): Promise<OpenedResult> {
+  const env = deps.env ?? process.env;
+  const configured = (env["VISUAL"] ?? "").trim() || (env["EDITOR"] ?? "").trim();
+  if (configured.length === 0) return { ok: false, reason: "neither VISUAL nor EDITOR is set" };
+  const argv = splitCommand(configured);
+  const program = argv[0];
+  if (program === undefined || program.length === 0) return { ok: false, reason: "the editor command is empty" };
+  const args = [...argv.slice(1), ...(file.line === undefined ? [] : [`+${String(file.line)}`]), file.path];
+  const ended = await runEditor(deps.spawn ?? defaultSpawn, program, args);
+  return ended === null || !ended.startsWith("could not run") ? { ok: true } : { ok: false, reason: ended };
+}
+
 /**
  * One newline, and the carriage return in front of it: a file saved on Windows
  * ends `\r\n`, which is one newline however many bytes it took.

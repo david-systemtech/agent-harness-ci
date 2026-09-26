@@ -23,9 +23,13 @@ export const StyledLine = (props: { readonly spans: readonly Span[]; readonly gu
         <Text
           key={index}
           {...(span.color !== undefined && { color: span.color })}
+          {...(span.background !== undefined && { backgroundColor: span.background })}
           dimColor={span.dim ?? false}
           bold={span.bold ?? false}
           italic={span.italic ?? false}
+          underline={span.underline ?? false}
+          inverse={span.inverse ?? false}
+          strikethrough={span.strikethrough ?? false}
         >
           {span.text}
         </Text>

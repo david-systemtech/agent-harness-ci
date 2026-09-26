@@ -7,7 +7,8 @@ import { actionById, isCommandId } from "@agent-harness/contracts";
  * `/pair create`, `/environment`, `/help`, `/reload`; and, carried from
  * Artemis with the transcript and the composer, `/resume`, `/new`,
  * `/attach <path>`, `/snip`, `/tasks`, `/copy`, `/export [file]`,
- * `/timeline` and `/quit`. A command of the shared list this build does not
+ * `/timeline` and `/quit`; with the terminal pane, `/terminal`, `/files
+ * [path]` and `/diff` (#148). A command of the shared list this build does not
  * answer yet says so in one line, and one the list keeps absent gives its
  * reason; `/profile` is a hidden alias of `/account`. Anything else that
  * begins with a slash is not the terminal's: it goes to the agent as typed,
@@ -30,6 +31,9 @@ export const ANSWERED_COMMANDS = [
   "export",
   "timeline",
   "quit",
+  "terminal",
+  "files",
+  "diff",
 ] as const;
 
 export type Command =
@@ -51,6 +55,9 @@ export type Command =
   | { readonly kind: "export"; readonly file: string | null }
   | { readonly kind: "timeline" }
   | { readonly kind: "quit" }
+  | { readonly kind: "terminal" }
+  | { readonly kind: "files"; readonly path: string | null }
+  | { readonly kind: "diff" }
   /** A command of the shared list this build does not answer: `line` says why. */
   | { readonly kind: "not-here"; readonly name: string; readonly line: string }
   | { readonly kind: "usage"; readonly line: string }
@@ -107,6 +114,12 @@ export const parseCommand = (typed: string): Command => {
       return bare(rest, { kind: "timeline" }, "/timeline");
     case "quit":
       return bare(rest, { kind: "quit" }, "/quit");
+    case "terminal":
+      return bare(rest, { kind: "terminal" }, "/terminal");
+    case "diff":
+      return bare(rest, { kind: "diff" }, "/diff");
+    case "files":
+      return { kind: "files", path: tail.length > 0 ? tail : null };
     case "attach":
       return tail.length > 0 ? { kind: "attach", path: tail } : { kind: "usage", line: "Usage: /attach <path>" };
     case "export":
@@ -135,4 +148,17 @@ export const parseCommand = (typed: string): Command => {
       if (isCommandId(`command.${name}`)) return notHere(name);
       return { kind: "text", text };
   }
+};
+
+/**
+ * A shell line typed into the composer (docs/specs/tui.md, "The composer"):
+ * `!` and a command runs it in the session's terminal; `!!` and a command
+ * runs it and sends what it printed to the agent. The command is the rest
+ * of the text, trimmed; null for text that is no shell line.
+ */
+export const shellLine = (typed: string): { readonly send: boolean; readonly command: string } | null => {
+  const text = typed.trim();
+  if (!text.startsWith("!")) return null;
+  const send = text.startsWith("!!");
+  return { send, command: text.slice(send ? 2 : 1).trim() };
 };

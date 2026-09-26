@@ -21,6 +21,7 @@ import { searchProjection } from "./projections/search.js";
 import { sessionListProjection } from "./projections/session-list.js";
 import type { Runtime } from "./runtime.js";
 import { createStreams, type Streams } from "./streams/streams.js";
+import { createTerminalSubscriptions } from "./streams/terminals.js";
 
 /**
  * The runtime together with its internal seams: raw frames, socket closes,
@@ -143,6 +144,8 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
     now: (environmentId) => made.now(environmentId),
   });
   registry.seams.onForget((environmentId) => runs.forget(environmentId));
+  // A terminal's output (#148): a subscription per handle, attached on each `ready`, never cached.
+  const terminals = createTerminalSubscriptions({ clock: platform.clock, random: platform.random ?? Math.random, report, seams: registry.seams, records: registry.list });
   const clientCalls = createClientCalls({ seams: registry.seams, record: (environmentId) => registry.record(environmentId), report });
   registry.seams.onForget((environmentId) => clientCalls.forget(environmentId));
   /** One observable per environment (and session), so a renderer reading one twice follows one. */
@@ -206,7 +209,10 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
     },
     attention: { subscribe: (listener) => attention.subscribe(listener) },
     clientCalls: { register: (kind, handler) => clientCalls.register(kind, handler) },
-    subscriptions: { session: (environmentId, sessionId) => made.session(environmentId, sessionId) },
+    subscriptions: {
+      session: (environmentId, sessionId) => made.session(environmentId, sessionId),
+      terminal: (environmentId, terminalId, listener) => terminals.open(environmentId, terminalId, listener),
+    },
     commands: {
       dispatch: (environmentId, method, params) => outbox.dispatch(environmentId, method, params),
       moveToGroup: (environmentId, sessionId, groupName) => outbox.moveToGroup(environmentId, sessionId, groupName),
@@ -222,6 +228,7 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
     close() {
       closing ??= (async () => {
         registry.close();
+        terminals.close();
         // A draft still waiting its second is dispatched, so the outbox keeps it for the next start.
         drafts.close();
         await outbox.close();

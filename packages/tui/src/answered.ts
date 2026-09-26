@@ -24,6 +24,10 @@ export const SCREEN_KEYS = [
   "row.copy",
   "row.unfold",
   "row.stop",
+  "row.open",
+  "row.diff",
+  "terminal.leave",
+  "terminal.scrollback",
   "rail.leave",
   "row.leave",
   "picker.move",
@@ -51,7 +55,15 @@ export type ScreenKey = (typeof SCREEN_KEYS)[number];
 
 export const ANSWERED_KEYS: readonly KeyActionId[] = [...SCREEN_KEYS, ...COMPOSER_KEYS];
 
-export const ANSWERED: ReadonlySet<ActionId> = new Set<ActionId>([...ANSWERED_KEYS, ...ANSWERED_COMMANDS.map((name) => `command.${name}` as const)]);
+/**
+ * Sigils this build reads as syntax (docs/specs/tui.md, "Shortcuts": what
+ * follows one is parsed whatever the keymap says), counted answered for the
+ * help overlay with no handler, so the key is still typed: `!` and `!!`
+ * run a shell line (#148).
+ */
+export const ANSWERED_SYNTAX: readonly KeyActionId[] = ["composer.shell"];
+
+export const ANSWERED: ReadonlySet<ActionId> = new Set<ActionId>([...ANSWERED_KEYS, ...ANSWERED_SYNTAX, ...ANSWERED_COMMANDS.map((name) => `command.${name}` as const)]);
 
 /**
  * What an answered action does in this build, where that is less than the
@@ -60,7 +72,8 @@ export const ANSWERED: ReadonlySet<ActionId> = new Set<ActionId>([...ANSWERED_KE
  * the list's words.
  */
 export const BUILD_WORDS: Readonly<Partial<Record<ActionId, string>>> = {
-  "app.focus.next": "Round the composer, the rail and the transcript",
+  "app.focus.next": "Round the composer, the rail, the terminal pane while it is open, and the transcript",
+  "terminal.leave": "Leave the pane for the transcript, where Tab would go; twice sends the key to the shell",
   "app.interruptOrQuit": "Clear the text or close the card; else interrupt, then quit",
   "composer.navigate": "The text, then history",
   "rail.leave": "Back to the composer",

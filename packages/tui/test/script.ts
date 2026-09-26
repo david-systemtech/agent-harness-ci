@@ -32,7 +32,13 @@ import {
   type RunEndReason,
   type Scope,
   SessionSummary,
+  TERMINAL_EXITED_TYPE,
+  TERMINAL_OUTPUT_TYPE,
+  TERMINAL_STREAM_KIND,
+  type SessionDiffFile,
   type SummaryPatch,
+  type TerminalExitCause,
+  type TerminalInfo,
 } from "@agent-harness/contracts";
 
 /**
@@ -98,6 +104,48 @@ export interface ScriptedEnvironment {
   readonly queue?: QueueHolder;
   /** Holds each session's catch-up after `subscribed`, until `releaseSessions`: the stream stays catching up. Preset false. */
   readonly holdSessions?: boolean;
+  /** Whether `files.list` says the workspace holds more than it listed: preset false. */
+  readonly filesTruncated?: boolean;
+  /** What `files.read` answers, by path: its text, or a file too large or binary; any other path is `not_found`, and a directory of `files` is `not_a_file`. */
+  readonly fileContents?: Readonly<Record<string, ScriptedFile>>;
+  /** What `diffs.session` answers for any session: preset no files. */
+  readonly sessionDiff?: { readonly files: readonly SessionDiffFile[]; readonly truncated?: boolean };
+  /** What `diffs.workingTree` answers, or its refusal (a `conflict` with its reason): preset an empty diff in a repository. */
+  readonly workingTree?: { readonly diff: string; readonly truncated?: boolean; readonly repository?: boolean } | { readonly refused: string; readonly message: string };
+  /** Terminals open on the environment before the first frame, each for the session the script lists at `session` (preset 0). */
+  readonly terminals?: readonly ScriptedTerminal[];
+  /** What a one-off command (`!!`'s) prints and how it exits, once its line is typed: preset nothing, and 0. */
+  readonly oneOff?: (command: string) => { readonly output: string; readonly exitCode: number };
+}
+
+/** A file as `files.read` answers it. */
+export type ScriptedFile = string | { readonly binary: true; readonly size: number } | { readonly text: string; readonly truncated: true; readonly size: number };
+
+/** A terminal the environment holds from the start. */
+export interface ScriptedTerminal {
+  readonly id: string;
+  readonly session?: number;
+  /** Its output so far, one chunk. */
+  readonly output?: string;
+  readonly cols?: number;
+  readonly rows?: number;
+  /** Its exit code when its shell has exited; preset it runs. */
+  readonly exitCode?: number;
+}
+
+/** A terminal as the scripted environment holds it: what was written to it and how it was sized, by the commands that did. */
+export interface TerminalRecord {
+  readonly id: string;
+  readonly sessionId: string;
+  readonly cols: number;
+  readonly rows: number;
+  /** The variables `terminals.open` gave its shell. */
+  readonly env: Readonly<Record<string, string>>;
+  /** What `terminals.write` wrote to it, one entry a command. */
+  readonly writes: readonly string[];
+  /** Every `terminals.resize`, in order. */
+  readonly resizes: readonly { readonly cols: number; readonly rows: number }[];
+  readonly closed: boolean;
 }
 
 export interface Script {
@@ -144,6 +192,14 @@ export interface EnvironmentHandle {
   setUsage(readings: readonly AccountUsage[]): void;
   /** Sends the catch-up of every session subscription `holdSessions` held. */
   releaseSessions(): void;
+  /** The terminals the environment has held, oldest first, closed ones included. */
+  terminals(): readonly TerminalRecord[];
+  /** A terminal it holds or held; fails for one it never did. */
+  terminal(id: string): TerminalRecord;
+  /** The terminal's shell writes `data`: a `terminal.output` chunk to its subscriptions. */
+  terminalOutput(id: string, data: string): void;
+  /** The terminal's shell exits with `exitCode`: `terminal.exited`, then its subscriptions end. */
+  exitTerminal(id: string, exitCode: number): void;
 }
 
 export interface ScriptedWorld {
@@ -528,7 +584,207 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     );
     return acceptedWith({ summary });
   });
-  wire.answer("files.list", () => ({ result: { files: [...(spec.files ?? [])], truncated: false, source: "git" } }));
+  wire.answer("files.list", () => ({ result: { files: [...(spec.files ?? [])], truncated: spec.filesTruncated ?? false, source: "git" } }));
+  wire.answer("files.read", (params) => {
+    const path = String(params["path"]);
+    const file = spec.fileContents?.[path];
+    if (file === undefined) {
+      if ((spec.files ?? []).some((f) => f.startsWith(`${path}/`))) {
+        return { error: { code: "invalid_params", message: `${path} is not a file.`, data: { reason: "not_a_file" } } };
+      }
+      return { error: { code: "not_found", message: `No file ${path} in the workspace.`, data: { kind: "file" } } };
+    }
+    if (typeof file === "string") return { result: { path, size: Buffer.byteLength(file), binary: false, truncated: false, text: file } };
+    if ("binary" in file) return { result: { path, size: file.size, binary: true, truncated: false, text: null } };
+    return { result: { path, size: file.size, binary: false, truncated: true, text: file.text } };
+  });
+  wire.answer("diffs.session", () => ({ result: { files: [...(spec.sessionDiff?.files ?? [])], truncated: spec.sessionDiff?.truncated ?? false } }));
+  wire.answer("diffs.workingTree", () => {
+    const tree = spec.workingTree ?? { diff: "" };
+    if ("refused" in tree) return { error: { code: "conflict", message: tree.message, data: { reason: tree.refused } } };
+    return { result: { diff: tree.diff, truncated: tree.truncated ?? false, repository: tree.repository ?? true } };
+  });
+
+  // Terminals (#124's vocabulary), as the environment answers them: a terminal is opened with the client's id, sized, written
+  // to and closed by commands; its output is a chunk sequence of its own, which a subscription gets as a snapshot from cursor
+  // 0 (or from one before what it keeps), else as the chunks after the cursor, then live; its exit ends every subscription.
+  interface HeldTerminal {
+    readonly id: string;
+    readonly sessionId: string;
+    readonly openedAt: string;
+    cols: number;
+    rows: number;
+    readonly env: Readonly<Record<string, string>>;
+    readonly chunks: { readonly sequence: number; readonly data: string }[];
+    readonly writes: string[];
+    readonly resizes: { readonly cols: number; readonly rows: number }[];
+    exit: { readonly exitCode: number; readonly signal: number | null; readonly cause: TerminalExitCause; readonly sequence: number } | null;
+    closed: boolean;
+    readonly subscriptions: Set<string>;
+  }
+  const terminals = new Map<string, HeldTerminal>();
+  const infoOf = (t: HeldTerminal): TerminalInfo => ({ id: t.id, sessionId: t.sessionId, openedAt: t.openedAt, cols: t.cols, rows: t.rows, exitCode: t.exit?.exitCode ?? null, signal: t.exit?.signal ?? null });
+  const lastOf = (t: HeldTerminal) => t.chunks.at(-1)?.sequence ?? 0;
+  const terminalEnvelope = (t: HeldTerminal, at: number, type: string, payload: Record<string, unknown>): EventEnvelope => ({
+    sequence: at,
+    eventId: `0199fd00-0000-7000-8000-${String(at).padStart(12, "0")}`,
+    streamKind: TERMINAL_STREAM_KIND,
+    streamId: t.id,
+    streamVersion: at,
+    type,
+    occurredAt: clock.now().toISOString(),
+    commandId: null,
+    causationId: null,
+    correlationId: null,
+    actor: { kind: "system", id: "script" },
+    payload,
+    metadata: {},
+  });
+  const exitedEnvelope = (t: HeldTerminal) => {
+    const exit = t.exit as NonNullable<HeldTerminal["exit"]>;
+    return terminalEnvelope(t, exit.sequence, TERMINAL_EXITED_TYPE, { exitCode: exit.exitCode, signal: exit.signal, cause: exit.cause });
+  };
+  const hold = (id: string, sessionId: string, fields: { readonly cols?: number | undefined; readonly rows?: number | undefined; readonly env?: Record<string, string> | undefined }): HeldTerminal => {
+    const t: HeldTerminal = {
+      id,
+      sessionId,
+      openedAt: clock.now().toISOString(),
+      cols: fields.cols ?? 80,
+      rows: fields.rows ?? 24,
+      env: fields.env ?? {},
+      chunks: [],
+      writes: [],
+      resizes: [],
+      exit: null,
+      closed: false,
+      subscriptions: new Set(),
+    };
+    terminals.set(id, t);
+    return t;
+  };
+  /** Sends on the client's socket; with none open (dropped) a chunk is only kept, for the replay after the reconnect. */
+  const toSubscriber = (frame: Frame) => {
+    try {
+      wire.server.send(frame);
+    } catch {
+      // No socket: nothing to say it on.
+    }
+  };
+  const terminalOutput = (id: string, data: string) => {
+    const t = terminals.get(id);
+    if (!t || t.exit) throw new Error(`${spec.name} holds no running terminal ${id}.`);
+    const at = lastOf(t) + 1;
+    t.chunks.push({ sequence: at, data });
+    for (const subscription of t.subscriptions) toSubscriber({ type: "event", subscription, sequence: at, event: terminalEnvelope(t, at, TERMINAL_OUTPUT_TYPE, { data }) });
+  };
+  const exitTerminal = (id: string, exitCode: number, cause: TerminalExitCause = "exited", signal: number | null = null) => {
+    const t = terminals.get(id);
+    if (!t || t.exit) return;
+    t.exit = { exitCode, signal, cause, sequence: lastOf(t) + 1 };
+    const event = exitedEnvelope(t);
+    for (const subscription of t.subscriptions) {
+      toSubscriber({ type: "event", subscription, sequence: event.sequence, event });
+      toSubscriber({ type: "end", subscription, reason: cause === "deleted" ? "deleted" : "closed" });
+    }
+    t.subscriptions.clear();
+  };
+  for (const held of spec.terminals ?? []) {
+    const t = hold(held.id, sessions[held.session ?? 0]?.id ?? "", { cols: held.cols, rows: held.rows });
+    if (held.output !== undefined) t.chunks.push({ sequence: 1, data: held.output });
+    if (held.exitCode !== undefined) t.exit = { exitCode: held.exitCode, signal: null, cause: "exited", sequence: lastOf(t) + 1 };
+  }
+  const terminalReceipt = (method: string, result: Record<string, unknown>): FakeAnswer =>
+    rejection(method) ?? { result: { receipt: { status: "accepted", sequence, changed: false }, result } };
+  const conflict = (reason: string, message: string): FakeAnswer => ({
+    result: { receipt: { status: "rejected", sequence, changed: false, reason: "conflict", error: { code: "conflict", message, data: { reason } } } },
+  });
+  const unknownTerminal = (id: string): FakeAnswer => ({
+    result: { receipt: { status: "rejected", sequence, changed: false, reason: "not_found", error: { code: "not_found", message: `No terminal ${id} is open.`, data: { kind: "terminal" } } } },
+  });
+  /** A one-off command's run, as `sh` would run it: the marker its script prints first, then what the script says, then the exit. */
+  const runOneOff = (t: HeldTerminal) => {
+    const script = t.env["AGENT_HARNESS_ONE_OFF"] ?? "";
+    const [first = "", ...rest] = script.split("\n");
+    const marker = /'([^']+)'$/.exec(first)?.[1] ?? "";
+    const ran = spec.oneOff?.(rest.join("\n")) ?? { output: "", exitCode: 0 };
+    later(() => {
+      terminalOutput(t.id, `${marker}\r\n${ran.output.replace(/\r?\n/g, "\r\n")}`);
+      exitTerminal(t.id, ran.exitCode);
+    });
+  };
+  wire.answer("terminals.open", (params) => {
+    const refused = rejection("terminals.open");
+    if (refused) return refused;
+    const id = String(params["id"]).toLowerCase();
+    if (terminals.has(id)) return conflict("exists", `A terminal ${id} was opened on this environment already.`);
+    const t = hold(id, String(params["sessionId"]).toLowerCase(), {
+      cols: params["cols"] as number | undefined,
+      rows: params["rows"] as number | undefined,
+      env: params["env"] as Record<string, string> | undefined,
+    });
+    // The login shell's prompt, a moment after it starts.
+    if (t.env["AGENT_HARNESS_ONE_OFF"] === undefined) later(() => t.exit === null && t.chunks.length === 0 && terminalOutput(id, "$ "));
+    return terminalReceipt("terminals.open", { terminal: infoOf(t) });
+  });
+  wire.answer("terminals.list", (params) => ({
+    result: { terminals: [...terminals.values()].filter((t) => !t.closed && t.sessionId === String(params["sessionId"]).toLowerCase()).map(infoOf) },
+  }));
+  wire.answer("terminals.write", (params) => {
+    const id = String(params["id"]).toLowerCase();
+    const t = terminals.get(id);
+    if (!t || t.closed) return unknownTerminal(id);
+    if (t.exit) return conflict("exited", "The terminal's shell has exited.");
+    const data = String(params["data"]);
+    t.writes.push(data);
+    if (t.env["AGENT_HARNESS_ONE_OFF"] !== undefined && data.includes("AGENT_HARNESS_ONE_OFF")) runOneOff(t);
+    return terminalReceipt("terminals.write", { id });
+  });
+  wire.answer("terminals.resize", (params) => {
+    const id = String(params["id"]).toLowerCase();
+    const t = terminals.get(id);
+    if (!t || t.closed) return unknownTerminal(id);
+    if (t.exit) return conflict("exited", "The terminal's shell has exited.");
+    t.cols = Number(params["cols"]);
+    t.rows = Number(params["rows"]);
+    t.resizes.push({ cols: t.cols, rows: t.rows });
+    return terminalReceipt("terminals.resize", { terminal: infoOf(t) });
+  });
+  wire.answer("terminals.close", (params) => {
+    const id = String(params["id"]).toLowerCase();
+    const t = terminals.get(id);
+    if (!t || t.closed) return unknownTerminal(id);
+    later(() => {
+      exitTerminal(id, 0, "closed", 1);
+      t.closed = true;
+    });
+    return terminalReceipt("terminals.close", { id });
+  });
+  wire.answer("terminals.subscribe", (params, request) => {
+    const id = String(params["id"]).toLowerCase();
+    const t = terminals.get(id);
+    if (!t || t.closed) return { error: { code: "not_found", message: `No terminal ${id} is open on this environment.`, data: { kind: "terminal", id } } };
+    const subscription = subscribed(request);
+    const after = Number(params["afterSequence"] ?? 0);
+    const last = lastOf(t);
+    const first = t.chunks[0]?.sequence ?? 0;
+    if (after > 0 && after >= first - 1 && after <= last) {
+      for (const chunk of t.chunks.filter((c) => c.sequence > after)) {
+        wire.server.send({ type: "event", subscription, sequence: chunk.sequence, event: terminalEnvelope(t, chunk.sequence, TERMINAL_OUTPUT_TYPE, { data: chunk.data }) });
+      }
+    } else {
+      const payload = { terminal: infoOf(t), scrollback: t.chunks.map((c) => c.data).join(""), firstSequence: first, lastSequence: last, truncated: false };
+      wire.server.send({ type: "snapshot", subscription, sequence: last, payload });
+    }
+    if (t.exit) {
+      const event = exitedEnvelope(t);
+      wire.server.send({ type: "event", subscription, sequence: event.sequence, event });
+      wire.server.send({ type: "end", subscription, reason: "closed" });
+      return undefined;
+    }
+    wire.server.send({ type: "synchronized", subscription, sequence: last });
+    t.subscriptions.add(subscription);
+    return undefined;
+  });
   wire.answer("commands.list", () => ({ result: { accountId: "account-1", commands: [...(spec.commands ?? [])] } }));
   wire.answer("providers.list", () => ({ result: { providers: (spec.providers ?? [spec.provider ?? {}]).map((p) => providerOf(p)) } }));
   wire.answer("accounts.list", () => ({
@@ -614,6 +870,10 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     "runs.stopTask",
     "sessions.setDraft",
     "sessions.create",
+    "terminals.open",
+    "terminals.write",
+    "terminals.resize",
+    "terminals.close",
   ]);
   for (const method of Object.keys(spec.receipts ?? {})) {
     if (ownResponders.has(method)) continue;
@@ -675,6 +935,14 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     liveRun: (sessionId) => live.get(sessionId),
     setUsage,
     releaseSessions: () => held.splice(0).forEach((catchUp) => catchUp()),
+    terminals: () => [...terminals.values()],
+    terminal(id) {
+      const found = terminals.get(id.toLowerCase());
+      if (!found) throw new Error(`${spec.name} never held a terminal ${id}.`);
+      return found;
+    },
+    terminalOutput,
+    exitTerminal: (id, exitCode) => exitTerminal(id.toLowerCase(), exitCode),
   };
   return { handle, fetch, webSocket, wsUrl: `${wire.origin.replace(/^http/, "ws")}${WIRE_PATH}` };
 };
