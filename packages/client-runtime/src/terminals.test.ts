@@ -194,6 +194,18 @@ describe("a terminal's subscription", () => {
     clock.advance(SUBSCRIBE_TIMEOUT_MS);
     await flush();
     expect(handle.state.read()).toMatchObject({ status: "unreachable", fault: expect.stringMatching(/did not answer terminals.subscribe/) });
+
+    wire.server.drop();
+    await flush();
+    clock.advance(1250);
+    await wire.server.accept();
+    (await subscription(wire, "sessions.subscribe")).synchronized(0);
+    const again = await subscription(wire, "terminals.subscribe");
+    expect(again.params).toEqual({ id: TERMINAL, afterSequence: 0 });
+    again.snapshot(1, snapshot(1, "x"));
+    again.synchronized(1);
+    await flush();
+    expect(handle.state.read()).toMatchObject({ status: "live", fault: null });
   });
 
   it("waits for the environment to be ready before it subscribes", async () => {
