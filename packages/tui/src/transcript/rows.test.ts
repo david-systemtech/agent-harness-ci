@@ -90,6 +90,12 @@ describe("transcriptRows", () => {
     expect(rows.map((row) => row.kind)).toEqual(["user", "assistant", "turn", "user", "assistant"]);
   });
 
+  it("draws no row for a rewound fold yet, as none was drawn for what a rewind hid (#232 draws the fold)", () => {
+    const fold: TranscriptEntry = { kind: "rewound", sequence: 4, toMessageId: "m-2", text: "Then", undoable: true, items: [message(2, "Then"), text(3, "Done.")] };
+    const rows = transcriptRows(view([message(1, "Go"), fold, message(5, "Again")]));
+    expect(rows.map((row) => (row.kind === "user" ? row.entry.text : row.kind))).toEqual(["Go", "Again"]);
+  });
+
   it("keeps an entry it cannot show as an opaque row", () => {
     const rows = transcriptRows(view([{ kind: "opaque", sequence: 1, type: "weird.new-thing", payload: {} }]));
     expect(shown(transcriptLines(rows, CONTEXT))).toEqual(["  · weird.new-thing: an event this version does not show"]);

@@ -11,7 +11,7 @@ import {
   type RunStartedPayload,
   type SessionSummary,
 } from "@agent-harness/contracts";
-import { answerCapability, type CapabilityAnswer } from "../capabilities.js";
+import { answerCapability, answerQueuedCommand, type CapabilityAnswer } from "../capabilities.js";
 import { LOCAL_PLACEHOLDER_ID, type ConnectionRecord } from "../connections/records.js";
 import { derived, dynamic, writable, type Observable } from "../observable.js";
 import type { OutboxView } from "../outbox/overlay.js";
@@ -72,7 +72,8 @@ import { sessionVerbs, type QueuedMessage, type SessionVerbs, type VerbMethod } 
  * session, which holds its subscription; the session's adapter is read from
  * the request cache (`providers.list`, and `accounts.list` for the
  * provider of the account its latest run used), the connection's scopes
- * and phase from its record.
+ * and phase from its record. It reads the run states alone, not the parked
+ * asks, so following it fetches no environment's list of prompts.
  */
 
 export type RunState = "idle" | "starting" | "running" | "parked" | "interrupted" | "ended";
@@ -194,6 +195,8 @@ export interface RunsHost {
 
 export interface Runs {
   readonly view: Observable<RunsView>;
+  /** Each enabled environment's sessions' run states alone: what one session's runs read, without following the parked asks. */
+  readonly sessions: Observable<RunsView["sessions"]>;
   /** An event the environment's session list carried (every `list`-flagged run and prompt event of every session). */
   heard(environmentId: string, event: EventEnvelope): void;
   /** The environment said a parked prompt was resolved (`prompt.resolved`). */
@@ -273,6 +276,9 @@ export const createRuns = (host: RunsHost): Runs => {
     sessionsMemo = { inputs, value: sessions };
     return sessions;
   };
+
+  // The run states alone, over what they are computed from: following them follows no environment's list of prompts.
+  const sessions = derived([host.records, host.lists, host.outbox, version] as const, () => sessionsOf(enabled()));
 
   const asksOf = (records: readonly ConnectionRecord[]): ParkedAsk[] => {
     const lists = host.lists.read();
@@ -363,6 +369,7 @@ export const createRuns = (host: RunsHost): Runs => {
 
   return {
     view,
+    sessions,
     heard(environmentId, event) {
       const known = heardOf(environmentId);
       prune(environmentId, known);
@@ -426,15 +433,11 @@ const LIVE_STATES: ReadonlySet<RunState> = new Set(["starting", "running", "park
  * `runs:drive` one, which never queues, so the environment must be
  * reachable now; for `sessions.fork`, a `sessions:write` command the outbox
  * keeps while the environment is unreachable, only the scope, whatever the
- * phase, as dispatch checks it.
+ * phase, with the flag gating it, as dispatch checks them (one helper,
+ * `answerQueuedCommand`).
  */
-export const verbConnection = (record: ConnectionRecord | undefined, method: VerbMethod): CapabilityAnswer => {
-  const { scope } = registry[method];
-  if (scope !== "sessions:write" || record === undefined || record.environmentId === LOCAL_PLACEHOLDER_ID) return answerCapability(method, record, undefined);
-  return record.scopes.includes(scope)
-    ? { status: "present" }
-    : { status: "absent", reason: "scope", message: `This client was paired with ${record.descriptor.name} without the ${scope} scope.` };
-};
+export const verbConnection = (record: ConnectionRecord | undefined, method: VerbMethod): CapabilityAnswer =>
+  registry[method].scope === "sessions:write" ? answerQueuedCommand(method, record) : answerCapability(method, record, undefined);
 
 /**
  * The session's adapter: the environment's only one, else the one of the
@@ -472,7 +475,8 @@ export const sessionRunsOf = ({ environmentId, sessionId, run, session, connecti
 };
 
 export interface SessionRunsHost {
-  readonly runs: Observable<RunsView>;
+  /** Every session's run state (`Runs.sessions`): not the whole of `projections.runs`, whose parked asks follow every environment's list of prompts. */
+  readonly runs: Observable<RunsView["sessions"]>;
   /** `projections.session` for the session: following it holds the session. */
   readonly session: Observable<SessionProjection>;
   readonly records: Observable<readonly ConnectionRecord[]>;
@@ -491,7 +495,7 @@ export interface SessionRunsHost {
 export const sessionRunsProjection = (host: SessionRunsHost, environmentId: string, sessionId: string): Observable<SessionRunsView> => {
   let last: { readonly inputs: readonly unknown[]; readonly value: SessionRunsView } | undefined;
   return derived([host.runs, host.session, host.records, host.providers, host.accounts] as const, (runs, session, records, providers, accounts) => {
-    const run = runs.sessions.get(environmentId)?.get(sessionId);
+    const run = runs.get(environmentId)?.get(sessionId);
     const record = records.find((candidate) => candidate.environmentId === environmentId);
     const inputs = [run?.state, run?.runId, run?.since, session, record, providers.result, accounts.result];
     if (last !== undefined && last.inputs.every((input, i) => Object.is(input, inputs[i]))) return last.value;

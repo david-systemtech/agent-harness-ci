@@ -172,7 +172,7 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
   const sessionRuns = memo((key) => {
     const [environmentId, sessionId] = key.split(" ") as [string, string];
     const host = {
-      runs: runs.view,
+      runs: runs.sessions,
       session: sessionProjections(key),
       records: registry.list,
       providers: requestCache.cached(environmentId, "providers.list", {}),

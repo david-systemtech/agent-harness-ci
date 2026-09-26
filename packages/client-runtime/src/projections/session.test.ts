@@ -173,6 +173,31 @@ describe("the queue (ADR 0022)", () => {
     expect(read.queued).toEqual([]);
     expect(read.items.find((item) => item.kind === "user-message" && item.messageId === THIRD)).toMatchObject({ delivery: "prompt", heldBy: null, runId: NEXT_RUN });
   });
+
+  it("lets a message go once a turn reads it as its prompt, with no run.started naming it", () => {
+    const read = reduce([...sent, sessionStreamEvent(6, "message.delivered", recorded("message.delivered", 1, { messageId: SECOND }))]);
+    expect(read.queued.map((message) => message.messageId)).toEqual([FIXTURE_OTHER_MESSAGE, THIRD]);
+    expect(read.items.find((item) => item.kind === "user-message" && item.messageId === SECOND)).toMatchObject({ delivery: "prompt", heldBy: null });
+  });
+
+  it("reads a queued message with no holder, as an older snapshot or event has it, as the environment's", () => {
+    const old = {
+      kind: "user-message" as const,
+      sequence: 2,
+      runId: FIXTURE_RUN,
+      messageId: SECOND,
+      text: "Old",
+      attachments: [],
+      delivery: "queued" as const,
+      heldBy: null,
+      sentAt: occurredAt(2),
+    };
+    const { queued } = reduceSession({ runs: [], items: [old], parkedPrompts: [] }, [sessionStreamEvent(3, "message.sent", { ...queuedBy(THIRD, "Older", "provider"), heldBy: null })]);
+    expect(queued.map((message) => [message.messageId, message.heldBy])).toEqual([
+      [SECOND, "environment"],
+      [THIRD, "environment"],
+    ]);
+  });
 });
 
 describe("a tool call", () => {
@@ -394,6 +419,21 @@ describe("session.rewound", () => {
     expect(after.rewound).toEqual({ toMessageId: FIXTURE_OTHER_MESSAGE, sequence: 8, text: "Then the tests", undoable: false });
   });
 
+  it("takes a message withdrawn after the rewind out of its fold, and out of the queue", () => {
+    const QUEUED = "0d7e8f9a-1b2c-4d3e-8f4a-5b6c7d8e9f0c";
+    const { items, queued } = reduce([
+      ...conversation,
+      ...numbered(8, [
+        ["message.sent", recorded("message.sent", 1, { messageId: QUEUED, text: "Late", heldBy: "environment" })],
+        ["session.rewound", { toMessageId: FIXTURE_OTHER_MESSAGE }],
+        ["message.withdrawn", recorded("message.withdrawn", 1, { messageId: QUEUED })],
+      ]),
+    ]);
+    expect(items[2]).toMatchObject({ kind: "rewound", items: [expect.objectContaining({ sequence: 5 }), expect.objectContaining({ sequence: 6 }), expect.objectContaining({ sequence: 7 })] });
+    expect(items[2]?.kind === "rewound" && items[2].items).toHaveLength(3);
+    expect(queued).toEqual([]);
+  });
+
   it("to a message it does not hold hides nothing", () => {
     const { items } = reduce([...conversation, sessionStreamEvent(8, "session.rewound", { toMessageId: "0d7e8f9a-1b2c-4d3e-8f4a-5b6c7d8e9f0a" })]);
     expect(items).toHaveLength(5);
@@ -471,6 +511,39 @@ describe("session.rewind-undone", () => {
     expect(items.map((item) => (item.kind === "user-message" ? item.text : item.kind))).toEqual(["Fix the receipts", "assistant-text", "rewound", "Try again"]);
     expect(items[2]).toMatchObject({ kind: "rewound", sequence: 8, undoable: false });
     expect(rewound).toEqual({ toMessageId: FIXTURE_OTHER_MESSAGE, sequence: 8, text: "Then the tests", undoable: false });
+  });
+
+  it("undoes an outer rewind whose fold holds an earlier one a run continued from: the earlier fold is back in place, standing, not undoable", () => {
+    const rewinds = [
+      ...conversation,
+      ...numbered(8, [
+        ["session.rewound", { toMessageId: FIXTURE_OTHER_MESSAGE }],
+        ["run.started", recorded("run.started", 0, { runId: LATER_RUN })],
+        ["message.sent", recorded("message.sent", 0, { runId: LATER_RUN, messageId: LATER_MESSAGE, text: "Try again" })],
+        ["run.ended", recorded("run.ended", 0, { runId: LATER_RUN })],
+        ["session.rewound", { toMessageId: FIXTURE_MESSAGE }],
+      ]),
+    ];
+    const stacked = reduce(rewinds);
+    expect(stacked.items).toEqual([
+      expect.objectContaining({
+        kind: "rewound",
+        sequence: 12,
+        undoable: true,
+        items: [
+          expect.objectContaining({ sequence: 2 }),
+          expect.objectContaining({ sequence: 3 }),
+          expect.objectContaining({ kind: "rewound", sequence: 8, undoable: false }),
+          expect.objectContaining({ sequence: 10, text: "Try again" }),
+        ],
+      }),
+    ]);
+    expect(stacked.rewound).toMatchObject({ toMessageId: FIXTURE_MESSAGE, sequence: 12, undoable: true });
+
+    const undone = reduce([...rewinds, sessionStreamEvent(13, "session.rewind-undone", { toMessageId: FIXTURE_MESSAGE, rewindSequence: 12 })]);
+    expect(sequences(undone.items)).toEqual([2, 3, 8, 10]);
+    expect(undone.items[2]).toMatchObject({ kind: "rewound", undoable: false });
+    expect(undone.rewound).toEqual({ toMessageId: FIXTURE_OTHER_MESSAGE, sequence: 8, text: "Then the tests", undoable: false });
   });
 
   it("has nothing to show again for a rewind it did not hear, as when its snapshot was taken while the rewind stood", () => {

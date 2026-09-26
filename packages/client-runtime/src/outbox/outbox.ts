@@ -15,7 +15,7 @@ import {
   type SessionWriteMethodName,
   type Workspace,
 } from "@agent-harness/contracts";
-import { answerCapability, METHOD_FLAGS, type AbsentReason } from "../capabilities.js";
+import { answerCapability, answerQueuedCommand, type AbsentReason } from "../capabilities.js";
 import { SocketClosedError } from "../connections/connection.js";
 import { LOCAL_PLACEHOLDER_ID, type ConnectionRecord } from "../connections/records.js";
 import { NotConnectedError, type ConnectionSeams } from "../connections/registry.js";
@@ -143,10 +143,15 @@ export interface Commands {
    * `sessions.rewind`; and when the environment refuses it
    * `use_new_session` (the session's first message, with nothing before it
    * to go back to), a new session in the same workspace with the message's
-   * text as its draft: `sessions.create` with a client-minted id, then
-   * `sessions.setDraft`, in that order. Answers the rewind's own answer, or
-   * the new session's id with the create's answer; the refusal it answers
-   * raises no notice, and a draft refused meanwhile leaves its own.
+   * text as its draft: `sessions.create` with a client-minted id, then,
+   * once the environment has accepted it, `sessions.setDraft` (none for an
+   * empty text). Answers the new session's id with the create's answer; the
+   * refusal it answers raises no notice, a create the environment refuses
+   * leaves its own, and a draft refused leaves its own. It answers the
+   * rewind's own answer, with its notice, for any other refusal, and for
+   * this one when it cannot start a session: the message or the session's
+   * workspace not held, or the connection without the scope (or flag) the
+   * create or the draft needs.
    */
   rewind(environmentId: string, sessionId: string, messageId: string): Promise<RewindAnswer>;
 }
@@ -241,8 +246,13 @@ export const createOutbox = (host: OutboxHost): Outbox => {
   let expiry: { readonly due: number; readonly timer: Timer } | undefined;
   /** A sweep is under way: it sets the next timer once it is done. */
   let sweeping = false;
-  /** Refusals a composed command answers itself, by the command id they would refuse: they raise no notice. */
-  const answeredByCaller = new Map<string, (error: DispatchFailure) => boolean>();
+  /**
+   * Refusals a composed command answers itself, by the command id they would
+   * refuse: such a refusal raises no notice, but leaves the notice it would
+   * have raised (`notice`) for the composed command to raise when it cannot
+   * answer it after all.
+   */
+  const answeredByCaller = new Map<string, { readonly answers: (error: DispatchFailure) => boolean; notice?: () => void }>();
 
   const senderOf = (environmentId: string): Sender => {
     let sender = senders.get(environmentId);
@@ -338,17 +348,23 @@ export const createOutbox = (host: OutboxHost): Outbox => {
     change(environmentId, (current) => ({ ...current, overlays: current.overlays.filter((o) => o.sequence === null || o.sequence > cursor) }));
   };
 
-  /** The entry leaves the outbox refused: its overlay goes, one notice says why, and its caller hears it. */
+  /**
+   * The entry leaves the outbox refused: its overlay goes, one notice says
+   * why unless a composed command answers the refusal itself (which is left
+   * the notice to raise if it cannot), and its caller hears it.
+   */
   const fail = (entry: OutboxEntry, error: DispatchFailure) => {
     const label = labelOf(entry);
     remove(entry);
-    if (answeredByCaller.get(entry.commandId)?.(error) !== true) {
+    const raise = () =>
       notices.raise(entry.environmentId, {
         kind: "command-rejected",
         message: `${verbOf(entry.method)} on ${label} was rejected: ${reasonOf(error.code, error.data, entry.target)}.`,
         action: null,
       });
-    }
+    const caller = answeredByCaller.get(entry.commandId);
+    if (caller?.answers(error) === true) caller.notice = raise;
+    else raise();
     answer(entry.commandId, failure(entry.commandId, error.code, error.message, error));
   };
 
@@ -603,12 +619,9 @@ export const createOutbox = (host: OutboxHost): Outbox => {
     if (!checked.success) {
       return { refused: failure(null, "invalid_params", `The params are not ${method}'s: ${checked.error.issues.map((i) => i.message).join("; ")}`) };
     }
-    const name = record.descriptor.name;
-    if (!record.scopes.includes(spec.scope)) return { refused: failure(null, "scope", `This client was paired with ${name} without the ${spec.scope} scope.`) };
-    const flag = METHOD_FLAGS[method];
-    if (flag !== undefined && !record.descriptor.capabilities.includes(flag)) {
-      return { refused: failure(null, "unsupported", `${name} does not offer ${flag}; a version that does is needed.`) };
-    }
+    // The scope and the flag, whatever the phase: a sessions:write command queues; a runs:drive one is checked for the phase below.
+    const admitted = answerQueuedCommand(method, record);
+    if (admitted.status === "absent") return { refused: failure(null, admitted.reason, admitted.message) };
     if (spec.scope === "runs:drive") {
       // Run commands never queue: the connection must be ready now.
       const capability = answerCapability(method, record, undefined);
@@ -742,22 +755,34 @@ export const createOutbox = (host: OutboxHost): Outbox => {
       const source = host.rewindSource(environmentId, sessionId, messageId);
       const rewind = prepare(environmentId, "sessions.rewind", { sessionId, messageId });
       if ("refused" in rewind) return { kind: "rewind", answer: rewind.refused as DispatchAnswer<"sessions.rewind"> };
-      const startsOver = (error: DispatchFailure) => error.data?.["reason"] === "use_new_session";
-      // With nothing held to start a new session from, the refusal is the caller's, with its notice.
-      if (source !== null) answeredByCaller.set(rewind.commandId, startsOver);
-      const answer = (await rewind.enqueue()) as DispatchAnswer<"sessions.rewind">;
-      answeredByCaller.delete(rewind.commandId);
-      if (answer.ok || source === null || !startsOver(answer.error)) return { kind: "rewind", answer };
+      const startsOver = (error: DispatchFailure) => error.code === "conflict" && error.data?.["reason"] === "use_new_session";
+      // The refusal is answered here only when a new session can be started from it: the message and the workspace are held, and
+      // the connection admits the create and the draft. Else it is the caller's, with its notice.
+      const record = host.record(environmentId);
+      const admitted = ["sessions.create", "sessions.setDraft"].every((method) => answerQueuedCommand(method as CommandMethodName, record).status === "present");
+      const caller: { readonly answers: (error: DispatchFailure) => boolean; notice?: () => void } = { answers: startsOver };
+      if (source !== null && admitted) answeredByCaller.set(rewind.commandId, caller);
+      let answer: DispatchAnswer<"sessions.rewind">;
+      try {
+        answer = (await rewind.enqueue()) as DispatchAnswer<"sessions.rewind">;
+      } finally {
+        answeredByCaller.delete(rewind.commandId);
+      }
+      if (answer.ok || caller.notice === undefined || source === null) return { kind: "rewind", answer };
       const id = uuidv4();
       const create = prepare(environmentId, "sessions.create", { id, workspace: source.workspace });
-      if ("refused" in create) return { kind: "new-session", sessionId: id, answer: create.refused as DispatchAnswer<"sessions.create"> };
+      if ("refused" in create) {
+        // Refused on the spot after all (the runtime closing, the environment removed): no session is started, and the rewind's
+        // refusal is the caller's, with the notice it would have raised.
+        caller.notice();
+        return { kind: "rewind", answer };
+      }
+      const created = (await create.enqueue()) as DispatchAnswer<"sessions.create">;
       // The draft holds at most MAX_DRAFT_LENGTH characters: a longer message is cut to it, as a fork's anchored draft is (#137).
+      // Sent only once the session exists, so a create the environment refused leaves one notice, its own.
       const draft = source.text.slice(0, MAX_DRAFT_LENGTH);
-      const setDraft = draft.length === 0 ? null : prepare(environmentId, "sessions.setDraft", { sessionId: id, draft });
-      // In this order, so the create is sent first; the create is answered, the draft's answer is its notice if refused.
-      const created = create.enqueue() as Promise<DispatchAnswer<"sessions.create">>;
-      if (setDraft !== null && !("refused" in setDraft)) void setDraft.enqueue();
-      return { kind: "new-session", sessionId: id, answer: await created };
+      if (created.ok && draft.length > 0) void dispatch(environmentId, "sessions.setDraft", { sessionId: id, draft });
+      return { kind: "new-session", sessionId: id, answer: created };
     },
     async load(environmentIds) {
       await Promise.all(environmentIds.map(load));

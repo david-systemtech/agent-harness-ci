@@ -269,13 +269,24 @@ const LIVE_TASK_STATES: ReadonlySet<string> = new Set(["pending", "running", "pa
 /** Whether `type` is one the session stream's table knows: organisation, prompt, permission or transcript. */
 const knownType = (type: string): boolean => eventTypeEntry(SESSION_STREAM_KIND, type) !== undefined;
 
+/**
+ * Who holds a message: a queued one with no holder (an item or an event from
+ * before ADR 0022 named holders) is the environment's, so the queue and the
+ * queued line agree on it; a message read has none.
+ */
+const holderOf = (delivery: UserMessageEntry["delivery"], heldBy: UserMessageEntry["heldBy"]): UserMessageEntry["heldBy"] =>
+  delivery === "queued" ? (heldBy ?? "environment") : heldBy;
+
 /** A snapshot item as the fold holds it: a copy, since the snapshot is the stream's and never changes here. */
 const fromSnapshot = (item: TranscriptItem): Held => {
   switch (item.kind) {
-    case "user-message":
+    case "user-message": {
+      const message = item as SnapshotItem<"user-message">;
+      return { ...message, heldBy: holderOf(message.delivery, message.heldBy) };
+    }
     case "command":
     case "tasks":
-      return { ...(item as SnapshotItem<"user-message" | "command" | "tasks">) } as Held;
+      return { ...(item as SnapshotItem<"command" | "tasks">) } as Held;
     case "assistant-text":
     case "assistant-thinking": {
       const settled = item as SnapshotItem<"assistant-text" | "assistant-thinking">;
@@ -413,7 +424,7 @@ export const reduceSession = (snapshot: SessionSnapshotParts, events: readonly E
             text: payload.text,
             attachments: payload.attachments,
             delivery: payload.delivery,
-            heldBy: payload.heldBy,
+            heldBy: holderOf(payload.delivery, payload.heldBy),
             sentAt: event.occurredAt,
           }),
         );

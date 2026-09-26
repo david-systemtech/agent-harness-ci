@@ -29,8 +29,10 @@ import type { RewoundAt, UserMessageEntry } from "./session.js";
  *    `queued_messages` for a rewind while the environment holds queued
  *    messages; `run_started` for an undo once a run has started since the
  *    rewind; `draft_full` for a withdraw whose text the draft has no room
- *    for. And what the client can see there is nothing to do: `no_queue`
- *    (nothing to read now or withdraw), `no_message` (no message a run has
+ *    for; `being_read` for a withdraw of a message the provider holds with
+ *    no run live (a turn it opened reads it: the environment answers
+ *    `not_found`). And what the client can see there is nothing to do:
+ *    `no_queue` (nothing a read-now or a withdraw can reach), `no_message` (no message a run has
  *    read to rewind to), `no_rewind` (no rewind standing to undo).
  */
 
@@ -45,6 +47,7 @@ export type VerbReason =
   | "queued_messages"
   | "run_started"
   | "draft_full"
+  | "being_read"
   | "no_queue"
   | "no_message"
   | "no_rewind";
@@ -56,7 +59,7 @@ export type VerbAvailability = { readonly status: "present" } | { readonly statu
 export interface SessionVerbs {
   /** `runs.readNow`: interrupt a live run and read the whole queue now, or start the run of the queue the environment holds. */
   readonly readNow: VerbAvailability;
-  /** `runs.withdraw` of the newest queued message, as the terminal UI's `↑` takes it; each queued message says its own. */
+  /** `runs.withdraw` of the newest queued message a withdraw can reach, as the terminal UI's `↑` takes it; each queued message says its own. */
   readonly withdraw: VerbAvailability;
   /** `sessions.fork`, from the end or from a user message. */
   readonly fork: VerbAvailability;
@@ -122,32 +125,41 @@ export const sessionVerbs = (input: VerbsInput): { readonly queue: readonly Queu
   const adapterCan = (flag: "fork" | "rewind", verb: string) => () => (adapter === null || adapter[flag] ? null : absent("adapter", `${adapter.displayName} cannot ${verb} a session.`));
   const noRun = (what: string) => () => (live ? absent("run_active", `A run is live on this session: stop it before ${what}.`) : null);
 
-  const withdrawOf = (message: UserMessageEntry): VerbAvailability =>
-    first(connection("runs.withdraw"), () =>
-      draftAfterWithdraw(input.draft, message.text).length > MAX_DRAFT_LENGTH ? absent("draft_full", "The draft has no room for this message's text: shorten or clear it first.") : null,
+  /**
+   * What a run of the queue would read: with a run live, the whole queue;
+   * with none, what the environment holds. A message the provider holds with
+   * no run live is a turn the provider opened with it, which reads it: a
+   * read-now has nothing to do for it, and the environment answers its
+   * withdraw `not_found` (#228).
+   */
+  const reachable = (holder: QueueHolder) => live || holder === "environment";
+  const withdrawOf = (message: UserMessageEntry, heldBy: QueueHolder): VerbAvailability =>
+    first(
+      connection("runs.withdraw"),
+      () => (reachable(heldBy) ? null : absent("being_read", "The provider is opening a turn with this message: it can no longer be withdrawn.")),
+      () =>
+        draftAfterWithdraw(input.draft, message.text).length > MAX_DRAFT_LENGTH ? absent("draft_full", "The draft has no room for this message's text: shorten or clear it first.") : null,
     );
-  const queue = queued.flatMap((message): QueuedMessage[] =>
-    message.heldBy === null
-      ? []
-      : [
-          {
-            messageId: message.messageId,
-            text: message.text,
-            attachments: message.attachments.map((attachment) => attachment.name),
-            heldBy: message.heldBy,
-            runId: message.runId,
-            sequence: message.sequence,
-            sentAt: message.sentAt,
-            withdraw: withdrawOf(message),
-          },
-        ],
-  );
-  const newest = queue.at(-1);
-  // With no run live, what the provider still holds is a turn it opened, which reads it: the environment's queue is what a read-now starts a run with.
-  const readable = queue.some((message) => message.heldBy === "environment" || live);
+  const queue = queued.map((message): QueuedMessage => {
+    // A queued message with no holder (a snapshot item from before ADR 0022's holders) is the environment's, as the reducer reads it.
+    const heldBy = message.heldBy ?? "environment";
+    return {
+      messageId: message.messageId,
+      text: message.text,
+      attachments: message.attachments.map((attachment) => attachment.name),
+      heldBy,
+      runId: message.runId,
+      sequence: message.sequence,
+      sentAt: message.sentAt,
+      withdraw: withdrawOf(message, heldBy),
+    };
+  });
+  const readable = queue.filter((message) => reachable(message.heldBy));
+  /** The newest message a withdraw can reach: the terminal UI's `↑`. */
+  const newest = readable.at(-1);
 
   const verbs: SessionVerbs = {
-    readNow: first(connection("runs.readNow"), () => (readable ? null : absent("no_queue", "Nothing is queued to read."))),
+    readNow: first(connection("runs.readNow"), () => (readable.length > 0 ? null : absent("no_queue", "Nothing is queued to read."))),
     withdraw: first(connection("runs.withdraw"), () => (newest === undefined ? absent("no_queue", "Nothing is queued to withdraw.") : newest.withdraw)),
     fork: first(connection("sessions.fork"), adapterCan("fork", "fork")),
     rewind: first(

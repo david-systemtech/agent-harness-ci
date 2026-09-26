@@ -1,4 +1,4 @@
-import type { AdapterCapabilities, SessionSummary } from "@agent-harness/contracts";
+import type { AdapterCapabilities, KnownCapabilityFlag, MethodName, SessionSummary } from "@agent-harness/contracts";
 import { describe, expect, it, onTestFinished } from "vitest";
 import { accountMethodFixtures } from "../../../contracts/test/account-fixtures.js";
 import { capabilities } from "../../../contracts/test/run-fixtures.js";
@@ -6,7 +6,7 @@ import { listEvent, scriptedEnvironments, type ScriptedEnvironment } from "../..
 import { accepted, rejected, summaryOf } from "../../test/events.js";
 import { subscription, type Scripted } from "../../test/scripted.js";
 import { recorded } from "../../test/transcript.js";
-import type { CapabilityAnswer } from "../capabilities.js";
+import { METHOD_FLAGS, type CapabilityAnswer } from "../capabilities.js";
 import { flush, type FakeAnswer, type FakeWire } from "../testing/fake-wire.js";
 import type { UserMessageEntry } from "./session.js";
 import { sessionVerbs, type VerbMethod, type VerbsInput } from "./verbs.js";
@@ -60,8 +60,17 @@ describe("each verb's availability", () => {
     expect(reasons({ live: true, queued })).toEqual({ readNow: "present", withdraw: "present", fork: "present", rewind: "run_active", undoRewind: "run_active" });
     // After an interrupt the environment holds them: a rewind would reach the provider before them (`queued_messages`).
     expect(reasons({ queued: [message("m-1", "Also the tests", "environment", 3)] })).toMatchObject({ readNow: "present", rewind: "queued_messages" });
-    // Held by the provider with no run live: a turn the provider opened reads them, and a read-now has nothing to do.
-    expect(reasons({ queued })).toMatchObject({ readNow: "no_queue", withdraw: "present" });
+    // Held by the provider with no run live: a turn the provider opened reads them, so neither a read-now nor a withdraw reaches
+    // them (the environment answers the withdraw not_found), and each message says why.
+    expect(reasons({ queued })).toMatchObject({ readNow: "no_queue", withdraw: "no_queue" });
+    expect(sessionVerbs(input({ queued })).queue[0]?.withdraw).toEqual({
+      status: "absent",
+      reason: "being_read",
+      message: "The provider is opening a turn with this message: it can no longer be withdrawn.",
+    });
+    // The verb is the newest message a withdraw reaches, past one the provider is reading.
+    const mixed = [message("m-0", "Held", "environment", 2), ...queued];
+    expect(sessionVerbs(input({ queued: mixed })).verbs.withdraw).toEqual(PRESENT);
   });
 
   it("says what the adapter cannot do, by its flag and in its name", () => {
@@ -125,7 +134,15 @@ const LAST_RUN = "6f8b0c2e-4a6c-4e8a-8c2e-4a6c8e0a2c4e";
 const [PROMPT, ALSO, DOCS, PUSH] = ["9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d", "2c4e6a8b-1d3f-4b5a-9c7e-0a2b4c6d8e0f", "4d6f8a0c-2e4a-4c6e-8a0c-2e4a6c8e0a2c", "5e7a9b1d-3f5b-4d7f-9b1d-3f5b7d9f1b3d"];
 
 /** One environment with the session its list holds opened on `projections.runs.session`, its stream in the test's hands. */
-const opened = async (options: { providers?: readonly AdapterCapabilities[]; accountId?: string | null; scopes?: Parameters<typeof scriptedEnvironments>[0]["environments"][0]["scopes"] } = {}) => {
+const opened = async (
+  options: {
+    providers?: readonly AdapterCapabilities[];
+    accountId?: string | null;
+    scopes?: Parameters<typeof scriptedEnvironments>[0]["environments"][0]["scopes"];
+    /** The items of the session's snapshot: what the environment folded before the client subscribed. */
+    items?: readonly Record<string, unknown>[];
+  } = {},
+) => {
   const made = await scriptedEnvironments({ onCleanup: onTestFinished, environments: [{ name: "desk", title: "Receipts", ...(options.scopes && { scopes: options.scopes }) }] });
   const [{ wire, sessionId, list }] = made.environments as [ScriptedEnvironment];
   const env = wire.environmentId;
@@ -138,18 +155,25 @@ const opened = async (options: { providers?: readonly AdapterCapabilities[]; acc
   onTestFinished(runs.subscribe(() => undefined));
   const stream: Scripted = await subscription(wire, "sessions.subscribeSession");
   const summary: SessionSummary = summaryOf(sessionId, { title: "Receipts", accountId: options.accountId ?? null });
-  stream.snapshot(1, { sequence: 1, summary, runs: [], items: [], parkedPrompts: [] });
+  stream.snapshot(1, { sequence: 1, summary, runs: [], items: options.items ?? [], parkedPrompts: [] });
   stream.synchronized(1);
   await flush();
   let sequence = 1;
   let listSequence = 1;
-  /** Plays events on the session's stream, each at the next sequence; a run's start and end go on the list too, as the environment flags them. */
-  const play = async (...events: readonly (readonly [string, Record<string, unknown>, Partial<SessionSummary>?])[]) => {
+  /**
+   * Plays events on the session's stream, each at the next sequence, and
+   * answers their sequences; a run's start and end go on the list too, as
+   * the environment flags them.
+   */
+  const play = async (...events: readonly (readonly [string, Record<string, unknown>, Partial<SessionSummary>?])[]): Promise<number[]> => {
+    const sequences: number[] = [];
     for (const [type, payload, fields] of events) {
       stream.event(listEvent(++sequence, sessionId, type, payload, fields));
+      sequences.push(sequence);
       if (type === "run.started" || type === "run.ended") list.event(listEvent(++listSequence, sessionId, type, payload, fields ?? {}));
     }
     await flush();
+    return sequences;
   };
   const session = made.runtime.projections.session(env, sessionId);
   const texts = () => session.read().items.map((item) => (item.kind === "user-message" ? item.text : item.kind === "rewound" ? `rewound: ${item.items.length}` : item.kind));
@@ -244,8 +268,7 @@ describe("a rewind on projections.runs and projections.session", () => {
 
     wire.answer("sessions.rewind", () => answering(accepted(20), { sessionId, messageId: ALSO }));
     expect(await runtime.commands.rewind(env, sessionId, ALSO)).toMatchObject({ kind: "rewind", answer: { ok: true } });
-    await play(["session.rewound", { toMessageId: ALSO }], ["session.draft-set", { draft: "Then the tests" }, { draft: "Then the tests" }]);
-    const rewindSequence = 10;
+    const [rewindSequence] = await play(["session.rewound", { toMessageId: ALSO }], ["session.draft-set", { draft: "Then the tests" }, { draft: "Then the tests" }]);
     expect(runs.read().rewound).toEqual({ toMessageId: ALSO, sequence: rewindSequence, text: "Then the tests", undoable: true });
     expect(texts()).toEqual(["Fix the receipts", "assistant-text", "rewound: 2"]);
     expect(session.read().items[2]).toMatchObject({ kind: "rewound", undoable: true, toMessageId: ALSO });
@@ -303,6 +326,89 @@ describe("commands.rewind", () => {
     expect(runtime.projections.notices.read().filter((notice) => notice.kind === "command-rejected")).toEqual([]);
   });
 
+  const useNewSession = (wire: FakeWire, sessionId: string, messageId: string) =>
+    wire.answer("sessions.rewind", () => answering(rejected(20, "conflict", { reason: "use_new_session", sessionId, messageId })));
+  const rejections = (runtime: { projections: { notices: { read(): readonly { kind: string; message: string }[] } } }) =>
+    runtime.projections.notices.read().flatMap((notice) => (notice.kind === "command-rejected" ? [notice.message] : []));
+
+  it("sends the draft only once the environment has created the session, and none when the create is refused, which leaves its own notice", async () => {
+    const { runtime, wire, env, sessionId, play } = await opened();
+    await play(...firstRun);
+    useNewSession(wire, sessionId, PROMPT);
+    wire.answer("sessions.create", () => answering(rejected(21, "conflict", { reason: "account_unavailable" })));
+    wire.answer("sessions.setDraft", () => answering(accepted(22)));
+    expect(await runtime.commands.rewind(env, sessionId, PROMPT)).toMatchObject({ kind: "new-session", answer: { ok: false, error: { code: "conflict" } } });
+    await flush();
+    expect(requests(wire, "sessions.setDraft")).toEqual([]);
+    expect(rejections(runtime)).toEqual(["Create session on a new session was rejected: account unavailable."]);
+  });
+
+  it("leaves a draft the environment refuses its own notice, after the session is created", async () => {
+    const { runtime, wire, env, sessionId, play } = await opened();
+    await play(...firstRun);
+    useNewSession(wire, sessionId, PROMPT);
+    wire.answer("sessions.create", () => answering(accepted(21)));
+    wire.answer("sessions.setDraft", () => answering(rejected(22, "not_found", { kind: "session" })));
+    expect(await runtime.commands.rewind(env, sessionId, PROMPT)).toMatchObject({ kind: "new-session", answer: { ok: true } });
+    await flush();
+    expect(requests(wire, "sessions.setDraft")).toHaveLength(1);
+    expect(rejections(runtime)).toEqual([expect.stringMatching(/^Save draft on .+ was rejected: it no longer exists\.$/)]);
+  });
+
+  it("sends no draft for a message with no text, and cuts one past the draft's limit to it", async () => {
+    const { runtime, wire, env, sessionId, play } = await opened();
+    const LONG = "7a9c1e3f-5b7d-4f9a-8c1e-3f5b7d9f1a3c";
+    await play(
+      ["run.started", started(RUN, PROMPT)],
+      ["message.sent", sent(RUN, PROMPT, "", null)],
+      ["run.ended", ended(RUN)],
+      ["run.started", started(NEXT_RUN, LONG)],
+      ["message.sent", sent(NEXT_RUN, LONG, "x".repeat(70_000), null)],
+      ["run.ended", ended(NEXT_RUN)],
+    );
+    wire.answer("sessions.rewind", (params) => answering(rejected(20, "conflict", { reason: "use_new_session", sessionId, messageId: params["messageId"] })));
+    wire.answer("sessions.create", () => answering(accepted(21)));
+    wire.answer("sessions.setDraft", () => answering(accepted(22)));
+    expect(await runtime.commands.rewind(env, sessionId, PROMPT)).toMatchObject({ kind: "new-session", answer: { ok: true } });
+    await flush();
+    expect(requests(wire, "sessions.setDraft")).toEqual([]);
+    expect(await runtime.commands.rewind(env, sessionId, LONG)).toMatchObject({ kind: "new-session", answer: { ok: true } });
+    await flush();
+    const drafts = requests(wire, "sessions.setDraft");
+    expect(drafts).toHaveLength(1);
+    expect((drafts[0]?.["draft"] as string).length).toBe(65_536);
+    expect(requests(wire, "sessions.create")).toHaveLength(2);
+    expect(rejections(runtime)).toEqual([]);
+  });
+
+  it("answers the refusal as the rewind's own, with its notice, when it holds nothing to start a session from", async () => {
+    const { runtime, wire, env, sessionId, play } = await opened();
+    await play(...firstRun);
+    // A message this client does not hold: the refusal is the caller's.
+    useNewSession(wire, sessionId, DOCS);
+    expect(await runtime.commands.rewind(env, sessionId, DOCS)).toMatchObject({ kind: "rewind", answer: { ok: false, error: { data: { reason: "use_new_session" } } } });
+    expect(requests(wire, "sessions.create")).toEqual([]);
+    expect(rejections(runtime)).toEqual(["Rewind on Receipts was rejected: use new session."]);
+  });
+
+  it("answers the refusal as the rewind's own, with its notice, when the connection could not create the session", async () => {
+    const { runtime, wire, env, sessionId, play } = await opened({ scopes: ["read", "runs:drive"] });
+    await play(...firstRun);
+    useNewSession(wire, sessionId, PROMPT);
+    expect(await runtime.commands.rewind(env, sessionId, PROMPT)).toMatchObject({ kind: "rewind", answer: { ok: false, error: { code: "conflict", data: { reason: "use_new_session" } } } });
+    expect(requests(wire, "sessions.create")).toEqual([]);
+    expect(rejections(runtime)).toEqual(["Rewind on Receipts was rejected: use new session."]);
+  });
+
+  it("starts a new session only on a conflict naming use_new_session, not on another code carrying that reason", async () => {
+    const { runtime, wire, env, sessionId, play } = await opened();
+    await play(...firstRun);
+    wire.answer("sessions.rewind", () => answering(rejected(20, "invalid_params", { reason: "use_new_session" })));
+    expect(await runtime.commands.rewind(env, sessionId, PROMPT)).toMatchObject({ kind: "rewind", answer: { ok: false, error: { code: "invalid_params" } } });
+    expect(requests(wire, "sessions.create")).toEqual([]);
+    expect(rejections(runtime)).toHaveLength(1);
+  });
+
   it("answers any other refusal as the rewind's own, with its notice, and starts nothing", async () => {
     const { runtime, wire, env, sessionId, play } = await opened();
     await play(...firstRun);
@@ -310,6 +416,33 @@ describe("commands.rewind", () => {
     expect(await runtime.commands.rewind(env, sessionId, PROMPT)).toMatchObject({ kind: "rewind", answer: { ok: false, error: { code: "conflict", data: { reason: "run_active" } } } });
     expect(requests(wire, "sessions.create")).toEqual([]);
     expect(runtime.projections.notices.read().map((notice) => notice.message)).toEqual(["Rewind on Receipts was rejected: run active."]);
+  });
+});
+
+describe("a queued message read as a turn's prompt", () => {
+  it("leaves the queue on its message.delivered, with no run.started naming it", async () => {
+    const { runs, play } = await opened();
+    await play(
+      ["run.started", started(RUN, PROMPT), { activity: { state: "running", since: "2026-09-24T01:02:03.456Z" } }],
+      ["message.sent", sent(RUN, PROMPT, "Fix the receipts", null)],
+      ["message.sent", sent(RUN, ALSO, "Also the tests", "provider")],
+    );
+    expect(runs.read().queue.map((entry) => entry.messageId)).toEqual([ALSO]);
+    await play(["message.delivered", recorded("message.delivered", 1, { runId: RUN, messageId: ALSO })]);
+    expect(runs.read().queue).toEqual([]);
+  });
+});
+
+describe("a session opened from a snapshot taken after a rewind", () => {
+  it("shows no fold, no rewound state and no undo: the snapshot leaves out what the rewind hid and says nothing of it", async () => {
+    const kept = [
+      { kind: "user-message", sequence: 3, runId: RUN, messageId: PROMPT, text: "Fix the receipts", attachments: [], delivery: "prompt", heldBy: null, sentAt: "2026-09-24T01:02:03.456Z" },
+      { kind: "assistant-text", sequence: 4, runId: RUN, itemId: "i-1", text: "Fixed.", aborted: false },
+    ];
+    const { runs, texts } = await opened({ items: kept });
+    expect(texts()).toEqual(["Fix the receipts", "assistant-text"]);
+    expect(runs.read().rewound).toBeNull();
+    expect(runs.read().verbs.undoRewind).toMatchObject({ status: "absent", reason: "no_rewind" });
   });
 });
 
@@ -324,6 +457,32 @@ describe("the verbs on a runtime", () => {
       rewind: { status: "absent", reason: "scope", message: "This client was paired with desk without the runs:drive scope." },
       undoRewind: { status: "absent", reason: "scope", message: "This client was paired with desk without the runs:drive scope." },
     });
+  });
+
+  it("follow the run states alone: one session's verbs fetch no environment's parked prompts", async () => {
+    const { wire, runs } = await opened();
+    expect(runs.read().verbs.fork).toEqual({ status: "present" });
+    await flush();
+    expect(wire.server.received().filter((frame) => frame.type === "request" && frame.method === "permissions.prompts.list")).toEqual([]);
+  });
+
+  it("say not-ready while the connection is being made again, as the capability does", async () => {
+    const { runs, wire, clock, play } = await opened();
+    await play(["run.started", started(RUN, PROMPT)], ["message.sent", sent(RUN, PROMPT, "Fix the receipts", null)], ["run.ended", ended(RUN)]);
+    wire.server.drop();
+    await flush();
+    clock.advance(1250);
+    await flush();
+    expect(runs.read().verbs).toMatchObject({ rewind: { status: "absent", reason: "not-ready", message: "Connecting to desk." }, fork: { status: "present" } });
+  });
+
+  it("check the flag a method needs for fork, as dispatch does, whatever the phase", async () => {
+    // No method is gated by a flag yet: the test gates fork for its own length, as a workstream would in `METHOD_FLAGS`.
+    const flags = METHOD_FLAGS as Partial<Record<MethodName, KnownCapabilityFlag>>;
+    flags["sessions.fork"] = "containment:workspace";
+    onTestFinished(() => void delete flags["sessions.fork"]);
+    const { runs } = await opened();
+    expect(runs.read().verbs.fork).toEqual({ status: "absent", reason: "unsupported", message: "desk does not offer containment:workspace; a version that does is needed." });
   });
 
   it("refuse every run verb at once while the environment is unreachable, and keep fork, which queues", async () => {
