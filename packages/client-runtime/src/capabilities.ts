@@ -102,3 +102,19 @@ export const answerCapability = (name: CapabilityName, record: ConnectionRecord 
   }
   return PRESENT;
 };
+
+/**
+ * The connection's answer for a `sessions:write` command, which the outbox
+ * keeps while the environment is unreachable: a connection to send it on
+ * (not the first-launch placeholder), the command's scope and the flag
+ * gating it, if any, whatever the phase, as dispatch checks them.
+ */
+export const answerQueuedCommand = (method: MethodName, record: ConnectionRecord | undefined): CapabilityAnswer => {
+  if (!record || record.environmentId === LOCAL_PLACEHOLDER_ID) return absent("unreachable", "This client has no connection to that environment.");
+  const name = record.descriptor.name;
+  const { scope } = registry[method];
+  if (!record.scopes.includes(scope)) return absent("scope", `This client was paired with ${name} without the ${scope} scope.`);
+  const flag = METHOD_FLAGS[method];
+  if (flag !== undefined && !record.descriptor.capabilities.includes(flag)) return absent("unsupported", `${name} does not offer ${flag}; a version that does is needed.`);
+  return PRESENT;
+};
