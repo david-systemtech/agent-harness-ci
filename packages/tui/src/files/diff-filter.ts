@@ -175,11 +175,15 @@ export async function pipeThrough(argv: readonly string[], input: string, deps: 
 
   return await new Promise<PipeResult>((resolve) => {
     let settled = false;
-    let timer: NodeJS.Timeout | undefined;
+    // Never fires before the child has started: a spawn that throws settles first, which clears it.
+    const timer = setTimeout(() => {
+      child.kill("SIGTERM");
+      fail(`${file} took longer than ${timeoutMs % 1_000 === 0 ? `${String(timeoutMs / 1_000)}s` : `${String(timeoutMs)}ms`}`);
+    }, timeoutMs);
     const finish = (result: PipeResult): void => {
       if (settled) return;
       settled = true;
-      if (timer !== undefined) clearTimeout(timer);
+      clearTimeout(timer);
       resolve(result);
     };
     const fail = (reason: string): void => finish({ ok: false, reason });
@@ -237,11 +241,6 @@ export async function pipeThrough(argv: readonly string[], input: string, deps: 
       }
       fail(`${file} was stopped by ${signal ?? "a signal"}`);
     });
-
-    timer = setTimeout(() => {
-      child.kill("SIGTERM");
-      fail(`${file} took longer than ${timeoutMs % 1_000 === 0 ? `${String(timeoutMs / 1_000)}s` : `${String(timeoutMs)}ms`}`);
-    }, timeoutMs);
   });
 }
 

@@ -379,7 +379,7 @@ describe("what stays client-local", () => {
 });
 
 describe("the transcript's keys", () => {
-  it("recalls the command a call ran with r, and unfolds a row with Enter", async () => {
+  it("recalls the command a call ran with r behind `!`, so Enter runs it in the session's terminal, and unfolds a row with Enter", async () => {
     const { app, env } = await launch();
     const { runId } = env.startRun(SESSION, "Run the tests");
     env.emit(SESSION, "tool.started", { runId, toolCallId: "t1", name: "Bash", input: { command: "pnpm test --filter tui" }, title: null, agentId: null, parentToolCallId: null });
@@ -392,7 +392,7 @@ describe("the transcript's keys", () => {
     await app.waitFor("Bash(pnpm test --filter tui)");
     await app.waitFor("all green");
     await app.press("r");
-    await app.waitFor("› pnpm test --filter tui");
+    await app.waitFor("› !pnpm test --filter tui");
   });
 
   it("stops a running call with x: its delegated work by runs.stopTask, else the run by runs.interrupt", async () => {

@@ -57,6 +57,7 @@ export const keyBytes = (name: string): string | undefined => {
 };
 
 /** The normal-form cursor keys an application asking for application cursor keys gets in its form (`ESC O x`). */
+// eslint-disable-next-line no-control-regex -- the escape a cursor key starts with is what is being read.
 const APPLICATION_FORM = /^\u001B\[([ABCDHF])$/;
 
 /** A key's bytes as the application in the terminal expects them. */

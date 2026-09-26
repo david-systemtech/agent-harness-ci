@@ -103,11 +103,9 @@ const spansOf = (term: xterm.Terminal, y: number, buffer: xterm.Terminal["buffer
     const text = cell.isInvisible() !== 0 ? " ".repeat(Math.max(1, cell.getWidth())) : cell.getChars() || " ";
     if (x === cursorX) {
       cursorAt = cells.length;
-      style = { ...style, inverse: style.inverse !== true };
-      if (style.inverse === false) {
-        const { inverse: _, ...rest } = style;
-        style = rest;
-      }
+      // The cursor is drawn by swapping the cell's colours, as a terminal draws a block cursor.
+      const { inverse, ...rest } = style;
+      style = inverse === true ? rest : { ...rest, inverse: true };
     }
     cells.push({ text, style });
   }
