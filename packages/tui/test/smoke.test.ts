@@ -5,7 +5,7 @@ import { render } from "ink-testing-library";
 import { createRuntime, writable } from "@agent-harness/client-runtime";
 import { describe, expect, it } from "vitest";
 import { useCleanups } from "../../environment/test/cleanups.js";
-import { end, gate, say, type Script } from "../../environment/test/fake-adapter.js";
+import { end, fakeAdapter, gate, say, type Script } from "../../environment/test/fake-adapter.js";
 import { startTestEnvironment } from "../../environment/test/helper.js";
 import { FORBIDDEN_WORDS } from "../../../eslint-rules/no-client-organisation-state.js";
 import { App } from "../src/app.js";
@@ -23,7 +23,9 @@ import { SIZE } from "./harness.js";
  * terminal UI on its real platform on a temporary state directory, reading
  * the environment's real grant file: the grant exchanged into a rendered
  * rail (#143), and a send streaming through the fake provider into a
- * rendered transcript, its draft reaching a second runtime (#146).
+ * rendered transcript, its draft reaching a second runtime (#146); a
+ * queued message withdrawn with ↑ on an empty composer, its text back in the
+ * composer and in a second runtime through the draft (#231).
  */
 
 const { onCleanup, tempDir } = useCleanups();
@@ -77,8 +79,9 @@ const terminal = (dataDir: string, stateDir: string, tty: string) => {
   };
 };
 
-/** The bytes of Enter, as a terminal sends them. */
+/** The bytes of Enter and ↑, as a terminal sends them. */
 const ENTER = "\r";
+const UP = "\u001B[A";
 
 describe.sequential("the terminal UI through the real spine", () => {
   it("exchanges the grant and renders the header and the rail", async () => {
@@ -154,5 +157,46 @@ describe.sequential("the terminal UI through the real spine", () => {
     const other = two.host.current.read().projections.session(environmentId, sessionId);
     onCleanup(other.subscribe(() => undefined));
     await until(() => other.read().draft === "half a thought", () => `the draft in the second runtime: ${String(other.read().draft)}`);
+  });
+
+  it("withdraws a queued message with ↑ on an empty composer: its text is back in this composer and, through the draft, in a second runtime", async () => {
+    // A provider queue that does not steer holds the message while the turn is held open, so the withdraw takes it back from the provider.
+    const t = await startTestEnvironment({ name: "smoke-withdraw", adapter: fakeAdapter({ capabilities: { steering: false } }) });
+    onCleanup(() => t.close());
+    const held = gate();
+    const script: Script = async function* () {
+      yield { type: "assistant.delta", payload: { itemId: "i-1", fragments: [{ kind: "text", text: "Look" }] } };
+      await held.opened;
+      yield say("Looked.", "i-1");
+      yield end();
+    };
+    t.adapter.nextScripts.push(script);
+    onCleanup(() => held.open());
+    const one = terminal(t.dataDir, join(tempDir("agent-harness-tui-smoke-"), "tui"), "pts/1");
+    await until(() => one.frame().includes("● smoke-withdraw ready"), one.frame);
+    one.type("/new");
+    one.type(ENTER);
+    await until(() => one.frame().includes("Nothing said yet."), one.frame);
+    one.type("Fix the receipts");
+    one.type(ENTER);
+    await until(() => one.frame().includes("● Look"), one.frame);
+    one.type("and the tests");
+    one.type(ENTER);
+    await until(() => one.frame().includes("⧗ queued and the tests"), one.frame);
+
+    one.type(UP);
+    await until(() => one.frame().includes("› and the tests") && !one.frame().includes("⧗ queued and the tests"), one.frame);
+    expect(t.adapter.runs[0]?.withdrawals).toHaveLength(1);
+
+    const runtime = one.host.current.read();
+    const [local] = runtime.connections.list.read();
+    const environmentId = local?.environmentId ?? "";
+    const sessionId = runtime.projections.sessionList.read().rows.find((row) => row.environmentId === environmentId)?.summary.id ?? "";
+    const two = terminal(t.dataDir, join(tempDir("agent-harness-tui-smoke-"), "tui"), "pts/2");
+    await until(() => two.frame().includes("● smoke-withdraw ready"), two.frame);
+    const other = two.host.current.read().projections.session(environmentId, sessionId);
+    onCleanup(other.subscribe(() => undefined));
+    await until(() => other.read().draft === "and the tests", () => `the draft in the second runtime: ${String(other.read().draft)}`);
+    expect(other.read().queued).toEqual([]);
   });
 });

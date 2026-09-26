@@ -73,6 +73,39 @@ export const interruptRun = async (runtime: Runtime, environmentId: string, runI
 };
 
 /**
+ * Reads the session's queue now (`runs.readNow`, ADR 0022): the live run is
+ * interrupted and the next opens with the queue. The line to show when it
+ * was refused, and whether the refusal was the adapter's (`invalid_params`,
+ * reason `unsupported`), which the queued line then draws.
+ */
+export const readQueueNow = async (runtime: Runtime, environmentId: string, sessionId: string): Promise<VerbOutcome> => {
+  const answer = await runtime.commands.dispatch(environmentId, "runs.readNow", { sessionId });
+  return answer.ok ? { ok: true } : refused("Not read now", answer.error);
+};
+
+/**
+ * Takes a queued message back (`runs.withdraw`, ADR 0022): its text goes to
+ * the session's draft, and so into every client's composer. A message some
+ * run read first is `not_found`: one line, and it stays wherever the log
+ * says it is, since nothing here moved it.
+ */
+export const withdrawQueued = async (runtime: Runtime, environmentId: string, messageId: string): Promise<VerbOutcome> => {
+  const answer = await runtime.commands.dispatch(environmentId, "runs.withdraw", { messageId });
+  if (answer.ok) return { ok: true };
+  if (answer.error.code === "not_found" && answer.error.data?.["kind"] === "message") return { ok: false, line: "Not withdrawn: the provider read it first.", unsupported: null };
+  return refused("Not withdrawn", answer.error);
+};
+
+/** How a verb of the queue went: done, or refused with one line and, when the adapter refused it as unsupported, its reason. */
+export type VerbOutcome = { readonly ok: true } | { readonly ok: false; readonly line: string; readonly unsupported: string | null };
+
+const refused = (what: string, error: { readonly code: string; readonly message: string; readonly data?: Readonly<Record<string, unknown>> | undefined }): VerbOutcome => ({
+  ok: false,
+  line: `${what}: ${error.message}`,
+  unsupported: error.code === "invalid_params" && error.data?.["reason"] === "unsupported" ? error.message : null,
+});
+
+/**
  * Stops one running call (`x`, `row.stop`): delegated work the run's ledger
  * names for the call is stopped by `runs.stopTask`; any other call is the
  * run's, since no provider stops one call and leaves the turn going, so it

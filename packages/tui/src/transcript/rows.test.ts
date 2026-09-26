@@ -90,6 +90,28 @@ describe("transcriptRows", () => {
     expect(rows.map((row) => row.kind)).toEqual(["user", "assistant", "turn", "user", "assistant"]);
   });
 
+  it("opens a run with the queued messages it read as its prompt, in the order sent, after the turn they were sent during (#231)", () => {
+    // Sent during RUN, which went on talking; OTHER_RUN, a read-now's run of the queue, read both as its prompt.
+    const rows = transcriptRows(
+      view(
+        [message(1, "Go"), text(2, "Looking."), message(3, "and the tests", "prompt", OTHER_RUN), text(4, "Still looking."), message(5, "and the docs", "prompt", OTHER_RUN), text(6, "On the tests.", OTHER_RUN)],
+        [run(RUN, "ended", { reason: "interrupted", cause: "read-now" }), run(OTHER_RUN, "running", { queuedMessageIds: ["m-3", "m-5"] })],
+      ),
+    );
+    expect(rows.map((row) => (row.kind === "user" || row.kind === "assistant" ? row.entry.text : row.kind))).toEqual([
+      "Go",
+      "Looking.",
+      "Still looking.",
+      "turn",
+      "and the tests",
+      "and the docs",
+      "On the tests.",
+    ]);
+    // A run of the queue that has drawn nothing yet still opens with it.
+    const started = transcriptRows(view([message(1, "Go"), message(2, "and the tests", "prompt", OTHER_RUN), text(3, "Done.")], [run(RUN, "ended"), run(OTHER_RUN, "running", { queuedMessageIds: ["m-2"] })]));
+    expect(started.map((row) => (row.kind === "user" || row.kind === "assistant" ? row.entry.text : row.kind))).toEqual(["Go", "Done.", "turn", "and the tests"]);
+  });
+
   it("draws no row for a rewound fold yet, as none was drawn for what a rewind hid (#232 draws the fold)", () => {
     const fold: TranscriptEntry = { kind: "rewound", sequence: 4, toMessageId: "m-2", text: "Then", undoable: true, items: [message(2, "Then"), text(3, "Done.")] };
     const rows = transcriptRows(view([message(1, "Go"), fold, message(5, "Again")]));
