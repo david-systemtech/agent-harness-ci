@@ -58,12 +58,6 @@ export const browse = (files: readonly string[], dir: string, filter: string): r
   return [...up, ...folders, ...own.sort(byName)];
 };
 
-/**
- * What a path typed after `/files` names in the workspace at `workspace`, as the
- * listing writes paths; an absolute one inside the workspace is the path
- * under it. Null for an absolute path outside it. A Windows environment's
- * paths are read with forward slashes (`slashed`).
- */
 /** `path` with its `.` and `..` segments resolved; null when a `..` climbs above the start, which is out of the workspace. */
 const settled = (path: string): string | null => {
   const kept: string[] = [];
@@ -75,12 +69,23 @@ const settled = (path: string): string | null => {
   return kept.join("/");
 };
 
+/**
+ * What a path typed after `/files` names in the workspace at `workspace`, as the
+ * listing writes paths; an absolute one inside the workspace is the path
+ * under it. Its `.` and `..` segments are resolved first. Null for a path
+ * outside it. A Windows environment's paths are read with forward slashes
+ * (`slashed`).
+ */
 export const typedPath = (typed: string, workspace: string): string | null => {
   const { path, root, windows } = slashed(typed.trim(), workspace);
   // A relative path is refused here when it climbs out, as an absolute one outside the workspace is below: the
   // environment would refuse it too, but with its own line, after a round trip.
   if (!isAbsolutePath(path)) return settled(normalized(path));
-  const bare = path.replace(/\/+$/, "");
+  // Its root (`/`, a share's `//`, a drive's `C:/`) kept, the rest settled: a `..` above the root is nowhere.
+  const lead = /^([A-Za-z]:)?\/+/.exec(path)?.[0] ?? "";
+  const rest = settled(path.slice(lead.length));
+  if (rest === null) return null;
+  const bare = `${lead}${rest}`.replace(/\/+$/, "");
   const top = root.replace(/\/+$/, "");
   if (bare !== "" && (windows ? bare.toLowerCase() === top.toLowerCase() : bare === top)) return "";
   const inside = inWorkspace(bare, root);

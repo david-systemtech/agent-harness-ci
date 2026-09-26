@@ -63,6 +63,16 @@ describe("a path typed after /files", () => {
     expect(typedPath("src/../app.tsx", "/home/seth/code")).toBe("app.tsx");
   });
 
+  it("resolves an absolute path's dot segments before it is placed in the workspace", () => {
+    expect(typedPath("/home/seth/code/src/../app.tsx", "/home/seth/code")).toBe("app.tsx");
+    expect(typedPath("/home/seth/code/./src/app.tsx", "/home/seth/code")).toBe("src/app.tsx");
+    expect(typedPath("/home/seth/code/src/..", "/home/seth/code")).toBe("");
+    expect(typedPath("/home/seth/other/../code/app.tsx", "/home/seth/code")).toBe("app.tsx");
+    expect(typedPath("/home/seth/code/../secrets", "/home/seth/code")).toBeNull();
+    expect(typedPath("/..", "/home/seth/code")).toBeNull();
+    expect(typedPath("C:\\code\\src\\..\\app.tsx", "C:\\code")).toBe("app.tsx");
+  });
+
   it("reads a path typed for a Windows environment's workspace with forward slashes, a drive's absolute path under it as the path under it", () => {
     expect(typedPath("src\\files\\", "C:\\code")).toBe("src/files");
     expect(typedPath("C:\\code\\src\\app.tsx", "C:\\code")).toBe("src/app.tsx");
