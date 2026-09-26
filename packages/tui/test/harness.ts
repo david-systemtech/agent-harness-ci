@@ -6,7 +6,7 @@ import { render } from "ink-testing-library";
 import { createRuntime, writable, type GrantReader, type Runtime, type Writable } from "@agent-harness/client-runtime";
 import { inMemoryPlatform, manualClock, runtimeSpeaking, type InMemoryPlatform, type ManualClock } from "@agent-harness/client-runtime/testing";
 import { flush } from "@agent-harness/client-runtime/testing/fake-wire";
-import { App, type AppProps, type ScreenFlags, type TerminalClipboard } from "../src/app.js";
+import { App, type AppProps, type DiffFilter, type OpenedFile, type ScreenFlags, type TerminalClipboard } from "../src/app.js";
 import type { AttentionNotice, TerminalChrome } from "../src/attention/chrome.js";
 import type { ExternalEditResult } from "../src/composer/external-editor.js";
 import { FRAME_MS } from "../src/frames.js";
@@ -51,6 +51,7 @@ export const KEY = {
   ctrlX: "\u0018",
   ctrlBracket: "\u001D",
   space: " ",
+  ctrlBackslash: "\u001C",
   left: "\u001B[D",
   right: "\u001B[C",
   end: "\u001B[F",
@@ -186,6 +187,8 @@ export interface RenderOptions {
   readonly clipboard?: FakeClipboard;
   /** Ctrl+G's editor; preset one that hands the text back with " (edited)" after it. */
   readonly editText?: (text: string) => Promise<ExternalEditResult>;
+  /** The user's diff filter; preset none, so a diff is drawn as the terminal UI colours one. */
+  readonly diffFilter?: DiffFilter;
   /** The client-local presentation (the rail's folds), to launch again on another app's; preset, a fresh one in memory. */
   readonly presentation?: Presentation;
 }
@@ -200,6 +203,8 @@ export interface RenderedApp {
   readonly world: ScriptedWorld;
   readonly host: RuntimeHost;
   readonly service: ScriptedService;
+  /** The files `o` opened in the editor, in order. */
+  readonly opened: readonly OpenedFile[];
   /** The runtime the screen renders from now. */
   runtime(): Runtime;
   environment(name: string): EnvironmentHandle;
@@ -260,6 +265,7 @@ export interface AppUnderTest {
   readonly host: RuntimeHost;
   readonly service: ScriptedService;
   readonly faults: Writable<readonly Fault[]>;
+  readonly opened: readonly OpenedFile[];
 }
 
 /** Builds the terminal UI against the scripted world: started, with its `paired` environments paired, ready to render. */
@@ -288,6 +294,8 @@ export const appUnderTest = async (options: RenderOptions): Promise<AppUnderTest
 
   let commandIds = 0;
   let sessionIds = 0;
+  let terminalIds = 0;
+  const opened: OpenedFile[] = [];
   const faults = writable<readonly Fault[]>([]);
   const made = options.stateDir === undefined ? mkdtempSync(join(tmpdir(), "agent-harness-tui-state-")) : undefined;
   const stateDir = options.stateDir ?? (made as string);
@@ -308,6 +316,12 @@ export const appUnderTest = async (options: RenderOptions): Promise<AppUnderTest
     size: options.size ?? SIZE,
     newCommandId: () => `0199ee00-0000-7000-8000-${String(++commandIds).padStart(12, "0")}`,
     newSessionId: () => `0199ab00-0000-4000-8000-${String(++sessionIds).padStart(12, "0")}`,
+    newTerminalId: () => `7e000000-0000-4000-8000-${String(++terminalIds).padStart(12, "0")}`,
+    openFile: async (file: OpenedFile) => {
+      opened.push(file);
+      return { ok: true } as const;
+    },
+    diffFilter: () => options.diffFilter ?? null,
     stateDir,
     cwd: options.cwd ?? stateDir,
     clipboard,
@@ -318,12 +332,12 @@ export const appUnderTest = async (options: RenderOptions): Promise<AppUnderTest
   const cleanup = () => {
     if (made !== undefined) rmSync(made, { recursive: true, force: true });
   };
-  return { element, clock, chrome, platform, world, host, service, faults, clipboard, stateDir, cleanup };
+  return { element, clock, chrome, platform, world, host, service, faults, clipboard, stateDir, cleanup, opened };
 };
 
 /** Renders the terminal UI against the scripted world through `ink-testing-library`, after `appUnderTest`. */
 export const renderApp = async (options: RenderOptions): Promise<RenderedApp> => {
-  const { element, clock, chrome, platform, world, host, service, faults, clipboard, stateDir, cleanup } = await appUnderTest(options);
+  const { element, clock, chrome, platform, world, host, service, faults, clipboard, stateDir, cleanup, opened } = await appUnderTest(options);
   const app = render(element);
   await settle();
 
@@ -342,6 +356,7 @@ export const renderApp = async (options: RenderOptions): Promise<RenderedApp> =>
     world,
     host,
     service,
+    opened,
     runtime: () => host.current.read(),
     environment: (name) => world.environment(name),
     fault: (message) => faults.update((list) => [...list, { message, at: clock.now().toISOString() }]),

@@ -49,6 +49,31 @@ describe("the lint configuration", () => {
     ).toContain("no-restricted-imports");
   });
 
+  it("keeps the environment, its tests included, free of imports from a client or the CLI, by name or by relative path", async () => {
+    const ids = async (file: string, source: string) => ruleIds(file, `import { x } from "${source}";\nexport { x };\n`);
+    const relative = "agent-harness/no-relative-import-into";
+    expect(await ids("packages/environment/src/x.ts", "@agent-harness/tui")).toContain("no-restricted-imports");
+    expect(await ids("packages/environment/src/terminals/x.test.ts", "../../../tui/src/terminal/one-off.js")).toContain(relative);
+    expect(await ids("packages/environment/test/x.ts", "../../cli/src/main.js")).toContain(relative);
+    // The same climbs spelled with a leading `./`, a `./` between them, or back down through `packages/`.
+    expect(await ids("packages/environment/src/x.ts", "./../../tui/src/x.js")).toContain(relative);
+    expect(await ids("packages/environment/src/x.ts", ".././../client-runtime/src/x.js")).toContain(relative);
+    expect(await ids("packages/environment/src/x.ts", "../../../packages/cli/src/main.js")).toContain(relative);
+    // A doubled slash anywhere in the climb, which vitest and tsc read as one (path.resolve collapses it).
+    expect(await ids("packages/environment/src/x.ts", ".//../../tui/src/x.js")).toContain(relative);
+    expect(await ids("packages/environment/src/x.ts", "..//../cli/src/main.js")).toContain(relative);
+    expect(await ids("packages/environment/src/x.ts", "../..//..//packages//tui/src/x.js")).toContain(relative);
+    // An interior `.` or `..` after the climb, which resolves into a client or the CLI all the same.
+    expect(await ids("packages/environment/src/x.ts", "../../contracts/../cli/src/main.js")).toContain(relative);
+    expect(await ids("packages/environment/src/x.ts", "../../../packages/contracts/../cli/src/main.js")).toContain(relative);
+    expect(await ids("packages/environment/src/x.ts", "../.././tui/src/x.js")).toContain(relative);
+    expect(await ids("packages/environment/src/x.ts", "./terminals/x.js")).not.toContain(relative);
+    expect(await ids("packages/environment/src/terminals/x.test.ts", "../../test/helper.js")).not.toContain(relative);
+    // A folder of the environment's own named like a client is not that client.
+    expect(await ids("packages/environment/src/terminals/x.ts", "../web/x.js")).not.toContain(relative);
+    expect(await ids("packages/environment/src/x.ts", "@agent-harness/contracts")).not.toContain("no-restricted-imports");
+  });
+
   it("keeps the client runtime's imports to contracts", async () => {
     const ids = async (source: string) =>
       ruleIds("packages/client-runtime/src/x.ts", `import { x } from "${source}";\nexport { x };\n`);

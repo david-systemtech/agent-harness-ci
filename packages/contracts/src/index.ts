@@ -16,6 +16,7 @@ export * from "./flags.js";
 export * from "./frames.js";
 export * from "./lifecycle.js";
 export * from "./notices.js";
+export * from "./one-off.js";
 export * from "./ordering.js";
 export * from "./pairing.js";
 export * from "./permissions.js";

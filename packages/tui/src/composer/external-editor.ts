@@ -125,12 +125,9 @@ export function splitCommand(command: string): readonly string[] {
  * status line, not an exception handler.
  */
 export async function editInExternalEditor(initial: string, deps: ExternalEditorDeps = {}): Promise<ExternalEditResult> {
-  const env = deps.env ?? process.env;
-  const configured = (env["VISUAL"] ?? "").trim() || (env["EDITOR"] ?? "").trim();
-  if (configured.length === 0) return { ok: false, reason: "neither VISUAL nor EDITOR is set" };
-  const argv = splitCommand(configured);
-  const file = argv[0];
-  if (file === undefined || file.length === 0) return { ok: false, reason: "the editor command is empty" };
+  const editor = resolveEditor(deps.env ?? process.env);
+  if (!editor.ok) return editor;
+  const { program: file, args } = editor;
 
   let directory: string;
   try {
@@ -143,8 +140,8 @@ export async function editInExternalEditor(initial: string, deps: ExternalEditor
   const path = join(directory, MESSAGE_FILE);
   try {
     await writeFile(path, initial, "utf8");
-    const ended = await runEditor(deps.spawn ?? defaultSpawn, file, [...argv.slice(1), path]);
-    if (ended !== null) return { ok: false, reason: ended };
+    const ended = await runEditor(deps.spawn ?? defaultSpawn, file, [...args, path]);
+    if (ended.kind !== "ok") return { ok: false, reason: ended.reason };
     return { ok: true, text: stripTrailingNewline(await readFile(path, "utf8")) };
   } catch (error) {
     return { ok: false, reason: `could not edit the message: ${messageOf(error)}` };
@@ -155,14 +152,27 @@ export async function editInExternalEditor(initial: string, deps: ExternalEditor
   }
 }
 
-/** `null` when the editor exited cleanly; otherwise the reason it did not. */
-async function runEditor(spawnImpl: SpawnLike, file: string, args: readonly string[]): Promise<string | null> {
-  return await new Promise<string | null>((resolve) => {
+/** The editor `$VISUAL` or `$EDITOR` names, split into its program and arguments, or why there is none. */
+export const resolveEditor = (
+  env: NodeJS.ProcessEnv,
+): { readonly ok: true; readonly program: string; readonly args: readonly string[] } | { readonly ok: false; readonly reason: string } => {
+  const configured = (env["VISUAL"] ?? "").trim() || (env["EDITOR"] ?? "").trim();
+  if (configured.length === 0) return { ok: false, reason: "neither VISUAL nor EDITOR is set" };
+  const [program, ...args] = splitCommand(configured);
+  if (program === undefined || program.length === 0) return { ok: false, reason: "the editor command is empty" };
+  return { ok: true, program, args };
+};
+
+/** How the editor ended: it could not be started, it exited otherwise than cleanly, or it exited cleanly. */
+type EditorEnd = { readonly kind: "spawn-failed"; readonly reason: string } | { readonly kind: "exited"; readonly reason: string } | { readonly kind: "ok" };
+
+async function runEditor(spawnImpl: SpawnLike, file: string, args: readonly string[]): Promise<EditorEnd> {
+  return await new Promise<EditorEnd>((resolve) => {
     let settled = false;
-    const finish = (reason: string | null): void => {
+    const finish = (end: EditorEnd): void => {
       if (settled) return;
       settled = true;
-      resolve(reason);
+      resolve(end);
     };
     let child: SpawnedLike;
     try {
@@ -170,20 +180,45 @@ async function runEditor(spawnImpl: SpawnLike, file: string, args: readonly stri
     } catch (error) {
       // A synchronous throw is a bad argument rather than a missing program,
       // but it reaches the person the same way as one.
-      finish(`could not run ${file}: ${messageOf(error)}`);
+      finish({ kind: "spawn-failed", reason: `could not run ${file}: ${messageOf(error)}` });
       return;
     }
     // Both events can arrive — a failed spawn emits `error` and then `exit`
     // with a null code — so the first one to speak is the answer.
     child.on("error", (error: Error) => {
-      finish(`could not run ${file}: ${error.message}`);
+      finish({ kind: "spawn-failed", reason: `could not run ${file}: ${error.message}` });
     });
     child.on("exit", (code: number | null, signal: NodeJS.Signals | null) => {
-      if (code === 0) finish(null);
-      else if (code !== null) finish(`editor exited with status ${String(code)}`);
-      else finish(`editor was stopped by ${signal ?? "a signal"}`);
+      if (code === 0) finish({ kind: "ok" });
+      else if (code !== null) finish({ kind: "exited", reason: `editor exited with status ${String(code)}` });
+      else finish({ kind: "exited", reason: `editor was stopped by ${signal ?? "a signal"}` });
     });
   });
+}
+
+/** A file to open in the editor, and the line to land on when the row knows it. */
+export interface OpenedFile {
+  readonly path: string;
+  readonly line?: number;
+}
+
+/** Whether the editor ran, or why it did not. */
+export type OpenedResult = { readonly ok: true } | { readonly ok: false; readonly reason: string };
+
+/**
+ * `o` on a row (Artemis's `openInEditorAt`): the file it touched, in the
+ * person's editor, at `+<line>` when the row knows the line (the argument
+ * vi, vim, nano, emacs and `less` agree on; an editor that does not know it
+ * opens the file anyway). The same handover as Ctrl+G's, so the caller
+ * lends the terminal; unlike Ctrl+G nothing is read back, so any exit
+ * status is done.
+ */
+export async function openInExternalEditor(file: OpenedFile, deps: Omit<ExternalEditorDeps, "tmpdir"> = {}): Promise<OpenedResult> {
+  const editor = resolveEditor(deps.env ?? process.env);
+  if (!editor.ok) return editor;
+  const args = [...editor.args, ...(file.line === undefined ? [] : [`+${String(file.line)}`]), file.path];
+  const ended = await runEditor(deps.spawn ?? defaultSpawn, editor.program, args);
+  return ended.kind === "spawn-failed" ? { ok: false, reason: ended.reason } : { ok: true };
 }
 
 /**

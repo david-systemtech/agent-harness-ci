@@ -11,7 +11,8 @@ import { RAIL_COMMANDS, isRailCommand, type RailCommand } from "../rail/commands
  * `/attach <path>`, `/snip`, `/tasks`, `/copy`, `/export [file]`,
  * `/timeline` and `/quit`; the accounts, models, permissions, settings and
  * Set up commands (`pickers/commands.ts`, #147); with the cards, `/asks`
- * and `/notices`; with the rail, `/archive`, `/pin`, `/title`, `/group`,
+ * and `/notices`; with the terminal pane, `/terminal`, `/files [path]` and
+ * `/diff` (#148); with the rail, `/archive`, `/pin`, `/title`, `/group`,
  * `/tag`, `/settle`, `/snooze`, `/restore`, `/search` and `/cwd`
  * (`rail/commands.ts`); with fork and rewind (ADR 0022; #232), `/rewind [n]`
  * (n prompts back, one by default), `/rewind undo` and `/fork [n]` (bare,
@@ -41,6 +42,9 @@ export const ANSWERED_COMMANDS = [
   ...PICKER_COMMANDS,
   "asks",
   "notices",
+  "terminal",
+  "files",
+  "diff",
   ...RAIL_COMMANDS,
   "fork",
   "rewind",
@@ -69,6 +73,9 @@ export type Command =
   | { readonly kind: "picker"; readonly command: PickerCommand }
   | { readonly kind: "asks" }
   | { readonly kind: "notices" }
+  | { readonly kind: "terminal" }
+  | { readonly kind: "files"; readonly path: string | null }
+  | { readonly kind: "diff" }
   /** `/rewind [n]`: to the prompt `back` prompts from the end (1, the latest). */
   | { readonly kind: "rewind"; readonly back: number }
   | { readonly kind: "rewind-undo" }
@@ -146,6 +153,12 @@ export const parseCommand = (typed: string): Command => {
       return bare(rest, { kind: "asks" }, "/asks");
     case "notices":
       return bare(rest, { kind: "notices" }, "/notices");
+    case "terminal":
+      return bare(rest, { kind: "terminal" }, "/terminal");
+    case "diff":
+      return bare(rest, { kind: "diff" }, "/diff");
+    case "files":
+      return { kind: "files", path: tail.length > 0 ? tail : null };
     case "rewind": {
       if (rest.length === 0) return { kind: "rewind", back: 1 };
       const [first = ""] = rest;
@@ -187,4 +200,17 @@ export const parseCommand = (typed: string): Command => {
       if (isCommandId(`command.${name}`)) return notHere(name);
       return { kind: "text", text };
   }
+};
+
+/**
+ * A shell line typed into the composer (docs/specs/tui.md, "The composer"):
+ * `!` and a command runs it in the session's terminal; `!!` and a command
+ * runs it and sends what it printed to the agent. The command is the rest
+ * of the text, trimmed; null for text that is no shell line.
+ */
+export const shellLine = (typed: string): { readonly send: boolean; readonly command: string } | null => {
+  const text = typed.trim();
+  if (!text.startsWith("!")) return null;
+  const send = text.startsWith("!!");
+  return { send, command: text.slice(send ? 2 : 1).trim() };
 };

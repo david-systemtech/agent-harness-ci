@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { parseCommand } from "./parse.js";
+import { ACTIONS } from "@agent-harness/contracts";
+import { parseCommand, shellLine } from "./parse.js";
 
 /** The slash commands this build answers, and what goes to the agent (docs/specs/tui.md, "The composer"). */
 
@@ -65,8 +66,12 @@ describe("parseCommand", () => {
     expect(parseCommand("/setup desk")).toEqual({ kind: "picker", command: { name: "setup", argument: "desk" } });
   });
 
-  it("says a command of the list this build does not answer yet is not here", () => {
-    expect(parseCommand("/terminal")).toEqual({ kind: "not-here", name: "terminal", line: "/terminal is not in this build of the terminal UI yet." });
+  it("answers every command the shared list wires, so none says it is not in this build yet", () => {
+    // With the terminal pane (#148) and fork and rewind (#232) both in, the list has no wired command this build leaves out.
+    const wired = ACTIONS.filter((a) => a.id.startsWith("command.") && a.status === "wired" && a.aliasOf === undefined).map((a) => a.id.slice("command.".length));
+    expect(wired).toContain("terminal");
+    expect(wired).toContain("fork");
+    for (const name of wired) expect(parseCommand(`/${name}`), name).not.toMatchObject({ kind: "not-here" });
   });
 
   it("gives an absent command's reason", () => {
@@ -76,5 +81,26 @@ describe("parseCommand", () => {
   it("leaves a command it does not know to the agent, as typed", () => {
     expect(parseCommand("/compact keep the tests")).toEqual({ kind: "text", text: "/compact keep the tests" });
     expect(parseCommand("hello")).toEqual({ kind: "text", text: "hello" });
+  });
+});
+
+describe("the terminal's commands (#148)", () => {
+  it("reads /terminal, /files with or without a path, and /diff", () => {
+    expect(parseCommand("/terminal")).toEqual({ kind: "terminal" });
+    expect(parseCommand("/terminal now").kind).toBe("usage");
+    expect(parseCommand("/files")).toEqual({ kind: "files", path: null });
+    expect(parseCommand("/files src/my file.ts")).toEqual({ kind: "files", path: "src/my file.ts" });
+    expect(parseCommand("/diff")).toEqual({ kind: "diff" });
+    expect(parseCommand("/diff more").kind).toBe("usage");
+  });
+});
+
+describe("a shell line", () => {
+  it("is ! and a command to run, !! and a command whose output goes to the agent, the command as typed", () => {
+    expect(shellLine("!git status")).toEqual({ send: false, command: "git status" });
+    expect(shellLine("!! ls -la | head ")).toEqual({ send: true, command: "ls -la | head" });
+    expect(shellLine("!")).toEqual({ send: false, command: "" });
+    expect(shellLine("!!")).toEqual({ send: true, command: "" });
+    expect(shellLine("hello !")).toBeNull();
   });
 });

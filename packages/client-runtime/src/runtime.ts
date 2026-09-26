@@ -12,6 +12,7 @@ import type { EnvironmentView } from "./projections/environments.js";
 import type { Requests } from "./requests.js";
 import type { SessionListView, SessionRow } from "./projections/session-list.js";
 import type { SessionHandle } from "./streams/session-handles.js";
+import type { TerminalHandle, TerminalOutput } from "./streams/terminals.js";
 import type { AccountsAnswer, ModelsAnswer, UsageView } from "./projections/accounts.js";
 import type { Attention } from "./projections/attention.js";
 import type { ClientCalls } from "./projections/client-calls.js";
@@ -88,6 +89,14 @@ export interface Runtime {
      * minutes.
      */
     session(environmentId: string, sessionId: string): SessionHandle;
+    /**
+     * Subscribes one terminal's output for as long as the handle is held
+     * (docs/specs/tui.md, "The terminal pane"): the retained scrollback as a
+     * reset, then each chunk once, in order, to `listener`; after a
+     * reconnect it resubscribes from its cursor, so the environment replays
+     * what was missed. Never cached: a terminal's output stays in memory.
+     */
+    terminal(environmentId: string, terminalId: string, listener: (output: TerminalOutput) => void): TerminalHandle;
   };
   readonly notices: {
     /** Takes a notice off `projections.notices`, on this client only. */

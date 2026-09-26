@@ -253,6 +253,39 @@ describe("terminals.subscribe", () => {
     expect(resumed.text).not.toContain("before-2");
   });
 
+  it("sends what the terminal printed while a catch-up was held in that catch-up, before synchronized, and no chunk twice or ahead of it", async () => {
+    // Holds every catch-up after its live feed is attached, until released.
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    let reach: () => void = () => undefined;
+    const reached = new Promise<void>((resolve) => (reach = resolve));
+    const pty = fakePty();
+    const { client, sessionId } = await setUp({
+      terminals: { shell: () => SH, pty, gatherMs: 0 },
+      subscriptionHooks: {
+        beforeCatchUp: async () => {
+          reach();
+          await gate;
+        },
+      },
+    });
+    const { id } = await openTerminal(client, sessionId);
+    const shell = pty.spawned[0];
+    if (shell === undefined) throw new Error("No shell was spawned.");
+    shell.print("one\r\n");
+    const following = follow(client, id, 1);
+    await reached;
+    // Heard by the live feed while the catch-up waits, and held in the scrollback the catch-up reads.
+    shell.print("two\r\n");
+    release();
+    const view = await following;
+    await view.until((v) => v.synchronized);
+    shell.print("three\r\n");
+    await view.until((v) => v.text.includes("three"));
+    expect(view.frames.map((frame) => (frame.type === "event" ? frame.sequence : frame.type))).toEqual([2, "synchronized", 3]);
+    expect(view.text).toBe("two\r\nthree\r\n");
+  });
+
   it("refuses an unknown terminal not_found, kind terminal", async () => {
     const { client } = await setUp();
     const id = randomUUID();

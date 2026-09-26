@@ -61,7 +61,7 @@ describe("the help lines", () => {
     // Fork and rewind (#232): the prompt picker, its branch, the row verbs and both commands.
     for (const id of ["app.prompt.back", "picker.branch", "row.rewind", "row.fork", "row.rewindUndo", "command.fork", "command.rewind"]) expect(rowOf(lines, id)?.state, id).toBe("answered");
     expect(rowOf(lines, "command.model")?.state).toBe("answered");
-    expect(rowOf(lines, "command.terminal")?.state).toBe("soon");
+    expect(rowOf(lines, "command.terminal")?.state).toBe("answered");
   });
 
   it("show the effective map: a remapped row with its new keys, marked", () => {

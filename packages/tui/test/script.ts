@@ -50,7 +50,13 @@ import {
   type RunEndReason,
   type Scope,
   SessionSummary,
+  TERMINAL_EXITED_TYPE,
+  TERMINAL_OUTPUT_TYPE,
+  TERMINAL_STREAM_KIND,
+  type SessionDiffFile,
   type SummaryPatch,
+  type TerminalExitCause,
+  type TerminalInfo,
 } from "@agent-harness/contracts";
 import { LIST_COMMANDS, scriptedList, type ScriptedList } from "./list-server.js";
 import { scriptedPrompts, type ScriptedPrompts } from "./prompts.js";
@@ -140,6 +146,53 @@ export interface ScriptedEnvironment {
   readonly recommendation?: Partial<HandoffRecommendation>;
   /** What `accounts.add` says of the sign-in it starts: preset it starts one. */
   readonly addSignIn?: { readonly started: boolean; readonly message: string | null };
+  /** Whether `files.list` says the workspace holds more than it listed: preset false. */
+  readonly filesTruncated?: boolean;
+  /** What `files.read` answers, by path: its text, or a file too large or binary; any other path is `not_found`, and a directory of `files` is `not_a_file`. */
+  readonly fileContents?: Readonly<Record<string, ScriptedFile>>;
+  /** What `diffs.session` answers for any session: preset no files. */
+  readonly sessionDiff?: { readonly files: readonly SessionDiffFile[]; readonly truncated?: boolean };
+  /** What `diffs.workingTree` answers, or its refusal (a `conflict` with its reason): preset an empty diff in a repository. */
+  readonly workingTree?: { readonly diff: string; readonly truncated?: boolean; readonly repository?: boolean } | { readonly refused: string; readonly message: string };
+  /** Terminals open on the environment before the first frame, each for the session the script lists at `session` (preset 0). */
+  readonly terminals?: readonly ScriptedTerminal[];
+  /**
+   * What a one-off command (`!`'s or `!!`'s) prints and how it exits, once its line is typed: preset nothing, and 0. With no
+   * exit code it runs on until `exitTerminal`.
+   */
+  readonly oneOff?: (command: string) => { readonly output: string; readonly exitCode?: number };
+  /** Whether the login shell runs a one-off's line: preset true; false is a shell that is not POSIX, which refuses the line and exits 127. */
+  readonly posixShell?: boolean;
+}
+
+/** A file as `files.read` answers it. */
+export type ScriptedFile = string | { readonly binary: true; readonly size: number } | { readonly text: string; readonly truncated: true; readonly size: number };
+
+/** A terminal the environment holds from the start. */
+export interface ScriptedTerminal {
+  readonly id: string;
+  readonly session?: number;
+  /** Its output so far, one chunk. */
+  readonly output?: string;
+  readonly cols?: number;
+  readonly rows?: number;
+  /** Its exit code when its shell has exited; preset it runs. */
+  readonly exitCode?: number;
+}
+
+/** A terminal as the scripted environment holds it: what was written to it and how it was sized, by the commands that did. */
+export interface TerminalRecord {
+  readonly id: string;
+  readonly sessionId: string;
+  readonly cols: number;
+  readonly rows: number;
+  /** The variables `terminals.open` gave its shell. */
+  readonly env: Readonly<Record<string, string>>;
+  /** What `terminals.write` wrote to it, one entry a command. */
+  readonly writes: readonly string[];
+  /** Every `terminals.resize`, in order. */
+  readonly resizes: readonly { readonly cols: number; readonly rows: number }[];
+  readonly closed: boolean;
 }
 
 export interface Script {
@@ -223,6 +276,18 @@ export interface EnvironmentHandle extends ScriptedPrompts {
   settings(): SettingsValues;
   /** Says a notice on the environment's own stream (`environment.subscribe`), as the environment does. */
   notice(type: string, payload: Record<string, unknown>): void;
+  /** The terminals the environment has held, oldest first, closed ones included. */
+  terminals(): readonly TerminalRecord[];
+  /** A terminal it holds or held; fails for one it never did. */
+  terminal(id: string): TerminalRecord;
+  /** Holds every `terminals.open` unanswered and unacted on until the function it returns is called. */
+  holdTerminalOpens(): () => void;
+  /** The terminal's shell writes `data`: a `terminal.output` chunk to its subscriptions. */
+  terminalOutput(id: string, data: string): void;
+  /** The terminal's shell exits with `exitCode`, killed by `signal` when one is given: `terminal.exited`, then its subscriptions end. */
+  exitTerminal(id: string, exitCode: number, signal?: number | null): void;
+  /** The terminal's scrollback loses its oldest `chunks`, as the cap drops them: a cursor before what is kept gets a truncated snapshot. */
+  dropScrollback(id: string, chunks: number): void;
 }
 
 export interface ScriptedWorld {
@@ -627,13 +692,15 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
   // with no run live starts one; a send during a live run is queued, held by whoever the script says holds the queue; an
   // interrupt ends the run. A receipt the script rejects is answered as it is, and nothing is appended.
   const acceptedWith = (result: Record<string, unknown>): FakeAnswer => ({ result: { receipt: { status: "accepted", sequence, changed: true }, result } });
-  const rejection = (method: string): FakeAnswer | undefined => {
+  /** A scripted rejection of `method`; its receipt carries a new head, or the head it found (`advance` false) as a terminal command's does. */
+  const rejection = (method: string, advance = true): FakeAnswer | undefined => {
     const scriptedReceipt = spec.receipts?.[method];
     if (scriptedReceipt === undefined || scriptedReceipt === "accepted") return undefined;
     const message = scriptedReceipt.message ?? `Rejected: ${scriptedReceipt.rejected}.`;
+    const at = advance ? ++sequence : sequence;
     return {
       result: {
-        receipt: { status: "rejected", sequence: ++sequence, changed: false, reason: scriptedReceipt.rejected, error: { code: scriptedReceipt.rejected, message, data: { ...scriptedReceipt.data } } },
+        receipt: { status: "rejected", sequence: at, changed: false, reason: scriptedReceipt.rejected, error: { code: scriptedReceipt.rejected, message, data: { ...scriptedReceipt.data } } },
       },
     };
   };
@@ -858,6 +925,243 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     emit(id, "session.forked", { fromSessionId: source.id, atMessageId, fromProviderSessionId });
     return acceptedWith({ summary });
   });
+  wire.answer("files.list", () => ({ result: { files: [...(spec.files ?? [])], truncated: spec.filesTruncated ?? false, source: "git" } }));
+  wire.answer("files.read", (params) => {
+    const path = String(params["path"]);
+    const file = spec.fileContents?.[path];
+    if (file === undefined) {
+      if ((spec.files ?? []).some((f) => f.startsWith(`${path}/`))) {
+        return { error: { code: "invalid_params", message: `${path} is not a file.`, data: { reason: "not_a_file" } } };
+      }
+      return { error: { code: "not_found", message: `No file ${path} in the workspace.`, data: { kind: "file" } } };
+    }
+    if (typeof file === "string") return { result: { path, size: Buffer.byteLength(file), binary: false, truncated: false, text: file } };
+    if ("binary" in file) return { result: { path, size: file.size, binary: true, truncated: false, text: null } };
+    return { result: { path, size: file.size, binary: false, truncated: true, text: file.text } };
+  });
+  wire.answer("diffs.session", () => ({ result: { files: [...(spec.sessionDiff?.files ?? [])], truncated: spec.sessionDiff?.truncated ?? false } }));
+  wire.answer("diffs.workingTree", () => {
+    const tree = spec.workingTree ?? { diff: "" };
+    if ("refused" in tree) return { error: { code: "conflict", message: tree.message, data: { reason: tree.refused } } };
+    return { result: { diff: tree.diff, truncated: tree.truncated ?? false, repository: tree.repository ?? true } };
+  });
+
+  // Terminals (#124's vocabulary), as the environment answers them: a terminal is opened with the client's id, sized, written
+  // to and closed by commands; its output is a chunk sequence of its own, which a subscription gets as a snapshot from cursor
+  // 0 (or from one before what it keeps), else as the chunks after the cursor, then live; its exit ends every subscription.
+  interface HeldTerminal {
+    readonly id: string;
+    /** Its place among the terminals held, from 0: its events' ids are its own, as the environment mints each chunk's. */
+    readonly index: number;
+    readonly sessionId: string;
+    readonly openedAt: string;
+    cols: number;
+    rows: number;
+    readonly env: Readonly<Record<string, string>>;
+    readonly chunks: { readonly sequence: number; readonly data: string }[];
+    /** The newest chunk's sequence, and whether the cap has dropped any: neither goes back when the chunks kept are emptied. */
+    last: number;
+    cut: boolean;
+    readonly writes: string[];
+    readonly resizes: { readonly cols: number; readonly rows: number }[];
+    exit: { readonly exitCode: number; readonly signal: number | null; readonly cause: TerminalExitCause; readonly sequence: number } | null;
+    closed: boolean;
+    readonly subscriptions: Set<string>;
+  }
+  const terminals = new Map<string, HeldTerminal>();
+  const infoOf = (t: HeldTerminal): TerminalInfo => ({ id: t.id, sessionId: t.sessionId, openedAt: t.openedAt, cols: t.cols, rows: t.rows, exitCode: t.exit?.exitCode ?? null, signal: t.exit?.signal ?? null });
+  const lastOf = (t: HeldTerminal) => t.last;
+  const terminalEnvelope = (t: HeldTerminal, at: number, type: string, payload: Record<string, unknown>): EventEnvelope => ({
+    sequence: at,
+    // Unique per terminal and chunk, and apart from the session and environment streams' (their own first group).
+    eventId: `0199fd00-${t.index.toString(16).padStart(4, "0")}-7000-8000-${String(at).padStart(12, "0")}`,
+    streamKind: TERMINAL_STREAM_KIND,
+    streamId: t.id,
+    streamVersion: at,
+    type,
+    occurredAt: clock.now().toISOString(),
+    commandId: null,
+    causationId: null,
+    correlationId: null,
+    actor: { kind: "system", id: "script" },
+    payload,
+    metadata: {},
+  });
+  const exitedEnvelope = (t: HeldTerminal) => {
+    const exit = t.exit as NonNullable<HeldTerminal["exit"]>;
+    return terminalEnvelope(t, exit.sequence, TERMINAL_EXITED_TYPE, { exitCode: exit.exitCode, signal: exit.signal, cause: exit.cause });
+  };
+  const hold = (id: string, sessionId: string, fields: { readonly cols?: number | undefined; readonly rows?: number | undefined; readonly env?: Record<string, string> | undefined }): HeldTerminal => {
+    const t: HeldTerminal = {
+      id,
+      index: terminals.size,
+      sessionId,
+      openedAt: clock.now().toISOString(),
+      cols: fields.cols ?? 80,
+      rows: fields.rows ?? 24,
+      env: fields.env ?? {},
+      chunks: [],
+      last: 0,
+      cut: false,
+      writes: [],
+      resizes: [],
+      exit: null,
+      closed: false,
+      subscriptions: new Set(),
+    };
+    terminals.set(id, t);
+    return t;
+  };
+  /** Sends on the client's socket; with none open (dropped) a chunk is only kept, for the replay after the reconnect. */
+  const toSubscriber = (frame: Frame) => {
+    try {
+      wire.server.send(frame);
+    } catch {
+      // No socket: nothing to say it on.
+    }
+  };
+  const terminalOutput = (id: string, data: string) => {
+    const t = terminals.get(id);
+    if (!t || t.exit) throw new Error(`${spec.name} holds no running terminal ${id}.`);
+    const at = lastOf(t) + 1;
+    t.last = at;
+    t.chunks.push({ sequence: at, data });
+    for (const subscription of t.subscriptions) toSubscriber({ type: "event", subscription, sequence: at, event: terminalEnvelope(t, at, TERMINAL_OUTPUT_TYPE, { data }) });
+  };
+  const exitTerminal = (id: string, exitCode: number, cause: TerminalExitCause = "exited", signal: number | null = null) => {
+    const t = terminals.get(id);
+    if (!t || t.exit) return;
+    t.exit = { exitCode, signal, cause, sequence: lastOf(t) + 1 };
+    const event = exitedEnvelope(t);
+    for (const subscription of t.subscriptions) {
+      toSubscriber({ type: "event", subscription, sequence: event.sequence, event });
+      toSubscriber({ type: "end", subscription, reason: cause === "deleted" ? "deleted" : "closed" });
+    }
+    t.subscriptions.clear();
+  };
+  for (const held of spec.terminals ?? []) {
+    const t = hold(held.id.toLowerCase(), sessions[held.session ?? 0]?.id ?? "", { cols: held.cols, rows: held.rows });
+    if (held.output !== undefined) {
+      t.chunks.push({ sequence: 1, data: held.output });
+      t.last = 1;
+    }
+    if (held.exitCode !== undefined) t.exit = { exitCode: held.exitCode, signal: null, cause: "exited", sequence: lastOf(t) + 1 };
+  }
+  /** A terminal command's accepted receipt; a rejection the script names is answered before the command acts, as the environment refuses one. */
+  const terminalReceipt = (result: Record<string, unknown>): FakeAnswer => ({ result: { receipt: { status: "accepted", sequence, changed: false }, result } });
+  const conflict = (reason: string, message: string): FakeAnswer => ({
+    result: { receipt: { status: "rejected", sequence, changed: false, reason: "conflict", error: { code: "conflict", message, data: { reason } } } },
+  });
+  const unknownTerminal = (id: string): FakeAnswer => ({
+    result: { receipt: { status: "rejected", sequence, changed: false, reason: "not_found", error: { code: "not_found", message: `No terminal ${id} is open.`, data: { kind: "terminal" } } } },
+  });
+  /**
+   * A one-off's line typed (`typed`), as a login shell and then `sh` would take it: the shell's prompt and its echo of the
+   * line, then (a POSIX shell) the script run: each `printf '%s\n' '…'` line it prints (`!!`'s marker), the harness's own
+   * lines (no input, no pager) passed over, and the rest the command, which the script's `oneOff` answers; then the exit.
+   */
+  const runOneOff = (t: HeldTerminal, typed: string) => {
+    const script = t.env["AGENT_HARNESS_ONE_OFF"] ?? "";
+    const printed: string[] = [];
+    const command: string[] = [];
+    for (const line of script.split("\n")) {
+      const said = /^printf '%s\\n' '(.*)'$/.exec(line);
+      if (said) printed.push(`${said[1] as string}\r\n`);
+      else if (line !== "exec </dev/null" && !/^PAGER=cat .*; export /.test(line)) command.push(line);
+    }
+    later(() => {
+      terminalOutput(t.id, `$ ${typed.replace(/\r$/, "")}\r\n`);
+      if (spec.posixShell === false) {
+        terminalOutput(t.id, "nu: unknown command: exec\r\n");
+        exitTerminal(t.id, 127);
+        return;
+      }
+      const ran = spec.oneOff?.(command.join("\n")) ?? { output: "", exitCode: 0 };
+      terminalOutput(t.id, `${printed.join("")}${ran.output.replace(/\r?\n/g, "\r\n")}`);
+      if (ran.exitCode !== undefined) exitTerminal(t.id, ran.exitCode);
+    });
+  };
+  let heldOpens: (() => void)[] | null = null;
+  wire.answer("terminals.open", (params) => (heldOpens === null ? openTerminal(params) : new Promise<FakeAnswer>((resolve) => heldOpens?.push(() => resolve(openTerminal(params))))));
+  const openTerminal = (params: Record<string, unknown>): FakeAnswer => {
+    const refused = rejection("terminals.open", false);
+    if (refused) return refused;
+    const id = String(params["id"]).toLowerCase();
+    if (terminals.has(id)) return conflict("exists", `A terminal ${id} was opened on this environment already.`);
+    const t = hold(id, String(params["sessionId"]).toLowerCase(), {
+      cols: params["cols"] as number | undefined,
+      rows: params["rows"] as number | undefined,
+      env: params["env"] as Record<string, string> | undefined,
+    });
+    // The login shell's prompt, a moment after it starts.
+    if (t.env["AGENT_HARNESS_ONE_OFF"] === undefined) later(() => t.exit === null && t.chunks.length === 0 && terminalOutput(id, "$ "));
+    return terminalReceipt({ terminal: infoOf(t) });
+  };
+  wire.answer("terminals.list", (params) => ({
+    result: { terminals: [...terminals.values()].filter((t) => !t.closed && t.sessionId === String(params["sessionId"]).toLowerCase()).map(infoOf) },
+  }));
+  wire.answer("terminals.write", (params) => {
+    const refused = rejection("terminals.write", false);
+    if (refused) return refused;
+    const id = String(params["id"]).toLowerCase();
+    const t = terminals.get(id);
+    if (!t || t.closed) return unknownTerminal(id);
+    if (t.exit) return conflict("exited", "The terminal's shell has exited.");
+    const data = String(params["data"]);
+    t.writes.push(data);
+    if (t.env["AGENT_HARNESS_ONE_OFF"] !== undefined && data.includes("AGENT_HARNESS_ONE_OFF")) runOneOff(t, data);
+    return terminalReceipt({ id });
+  });
+  wire.answer("terminals.resize", (params) => {
+    const refused = rejection("terminals.resize", false);
+    if (refused) return refused;
+    const id = String(params["id"]).toLowerCase();
+    const t = terminals.get(id);
+    if (!t || t.closed) return unknownTerminal(id);
+    if (t.exit) return conflict("exited", "The terminal's shell has exited.");
+    t.cols = Number(params["cols"]);
+    t.rows = Number(params["rows"]);
+    t.resizes.push({ cols: t.cols, rows: t.rows });
+    return terminalReceipt({ terminal: infoOf(t) });
+  });
+  wire.answer("terminals.close", (params) => {
+    const refused = rejection("terminals.close", false);
+    if (refused) return refused;
+    const id = String(params["id"]).toLowerCase();
+    const t = terminals.get(id);
+    if (!t || t.closed) return unknownTerminal(id);
+    // Out of the list at once, as the environment drops it; its subscribers hear the hang-up after.
+    t.closed = true;
+    later(() => exitTerminal(id, 0, "closed", 1));
+    return terminalReceipt({ id });
+  });
+  wire.answer("terminals.subscribe", (params, request) => {
+    const id = String(params["id"]).toLowerCase();
+    const t = terminals.get(id);
+    if (!t || t.closed) return { error: { code: "not_found", message: `No terminal ${id} is open on this environment.`, data: { kind: "terminal", id } } };
+    const subscription = subscribed(request);
+    const after = Number(params["afterSequence"] ?? 0);
+    const last = lastOf(t);
+    const first = t.chunks[0]?.sequence ?? 0;
+    if (after > 0 && after >= (t.chunks.length === 0 ? last : first - 1) && after <= last) {
+      for (const chunk of t.chunks.filter((c) => c.sequence > after)) {
+        wire.server.send({ type: "event", subscription, sequence: chunk.sequence, event: terminalEnvelope(t, chunk.sequence, TERMINAL_OUTPUT_TYPE, { data: chunk.data }) });
+      }
+    } else {
+      // Truncated once the cap has dropped any chunk, as the environment's ring says.
+      const payload = { terminal: infoOf(t), scrollback: t.chunks.map((c) => c.data).join(""), firstSequence: first, lastSequence: last, truncated: t.cut };
+      wire.server.send({ type: "snapshot", subscription, sequence: last, payload });
+    }
+    if (t.exit) {
+      const event = exitedEnvelope(t);
+      wire.server.send({ type: "event", subscription, sequence: event.sequence, event });
+      wire.server.send({ type: "end", subscription, reason: "closed" });
+      return undefined;
+    }
+    wire.server.send({ type: "synchronized", subscription, sequence: last });
+    t.subscriptions.add(subscription);
+    return undefined;
+  });
   // The rewinds a test holds (`holdRewinds`), each answered at the release; undefined while none are held.
   let heldRewinds: (() => void)[] | undefined;
   const holdable =
@@ -933,7 +1237,6 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     }
     return acceptedWith({ sessionId, messageId: latest.toMessageId, rewindSequence: latest.sequence });
   });
-  wire.answer("files.list", () => ({ result: { files: [...(spec.files ?? [])], truncated: false, source: "git" } }));
   wire.answer("commands.list", () => ({ result: { accountId: "account-1", commands: [...(spec.commands ?? [])] } }));
   wire.answer("providers.list", () => ({ result: { providers: (spec.providers ?? [spec.provider ?? {}]).map((p) => providerOf(p)) } }));
   const accountOf = (account: Partial<AccountRecord>, i: number): AccountRecord =>
@@ -1204,6 +1507,10 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     "permissions.mode.set",
     "permissions.containment.set",
     "permissions.prompts.answer",
+    "terminals.open",
+    "terminals.write",
+    "terminals.resize",
+    "terminals.close",
     ...LIST_COMMANDS,
   ]);
   for (const method of Object.keys(spec.receipts ?? {})) {
@@ -1246,7 +1553,14 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
   };
 
   const webSocket: WebSocketFactory = (url, handlers) => {
-    const socket = wire.webSocket(url, handlers);
+    // A socket that closes takes its terminal subscriptions with it, as the environment drops a connection's subscriptions.
+    const socket = wire.webSocket(url, {
+      ...handlers,
+      onClose: (code, reason) => {
+        for (const t of terminals.values()) t.subscriptions.clear();
+        handlers.onClose(code, reason);
+      },
+    });
     return {
       send(text) {
         socket.send(text);
@@ -1306,6 +1620,30 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     settings: () => values,
     notice,
     ...prompts,
+    terminals: () => [...terminals.values()],
+    terminal(id) {
+      const found = terminals.get(id.toLowerCase());
+      if (!found) throw new Error(`${spec.name} never held a terminal ${id}.`);
+      return found;
+    },
+    holdTerminalOpens() {
+      heldOpens ??= [];
+      return () => {
+        const waiting = heldOpens ?? [];
+        heldOpens = null;
+        for (const release of waiting) release();
+      };
+    },
+    terminalOutput: (id, data) => terminalOutput(id.toLowerCase(), data),
+    exitTerminal(id, exitCode, signal = null) {
+      if (!terminals.has(id.toLowerCase())) throw new Error(`${spec.name} never held a terminal ${id}.`);
+      exitTerminal(id.toLowerCase(), exitCode, "exited", signal);
+    },
+    dropScrollback(id, chunks) {
+      const t = terminals.get(id.toLowerCase());
+      if (!t) throw new Error(`${spec.name} never held a terminal ${id}.`);
+      if (t.chunks.splice(0, chunks).length > 0) t.cut = true;
+    },
   };
   return { handle, fetch, webSocket, wsUrl: `${wire.origin.replace(/^http/, "ws")}${WIRE_PATH}` };
 };

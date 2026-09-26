@@ -1,6 +1,6 @@
 import { writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import { Box, Text, render as inkRender, useApp, useInput, usePaste, useStdout, type Instance, type RenderOptions } from "ink";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactElement } from "react";
 import type { Clock, EnvironmentView, GrantReader, Notice, Observable, PairingInput, SessionRow, TranscriptEntry, VerbAvailability } from "@agent-harness/client-runtime";
@@ -22,18 +22,20 @@ import { useAnswers } from "./cards/answers.js";
 import { askKey, askRows, decidable, inBulk, parkedSessions, promptKey, ttlWords } from "./cards/asks.js";
 import { cardFor, chosen, denied, lineClosed, lineEntered, lineOpened, lineTyped, moved, ticked, type CardState, type CardStep } from "./cards/prompt.js";
 import { applyAction, actionsFor, listClientSessions, removeEnvironment, revokeClientSession, type ClientSessionRow } from "./commands/environment.js";
-import { parseCommand } from "./commands/parse.js";
+import { parseCommand, shellLine } from "./commands/parse.js";
 import { mintPairing, pairingLine, type MintedLines } from "./commands/pair.js";
 import { startLocalEnvironment } from "./commands/service.js";
 import { expandHome, readAttachment } from "./composer/attachments.js";
 import { copyText, readClipboardImage, readClipboardText, type CopyOutcome } from "./composer/clipboard.js";
-import { editInExternalEditor, type ExternalEditResult } from "./composer/external-editor.js";
+import { editInExternalEditor, openInExternalEditor, type ExternalEditResult, type OpenedFile, type OpenedResult } from "./composer/external-editor.js";
 import { HISTORY_FILE, PromptHistory, type HistoryScope } from "./composer/history.js";
 import { Frecency, MENTIONS_FILE } from "./composer/mentions.js";
 import { EXAMPLE_SNIPPETS, SNIPPETS_FILE, Snippets, toSnippetName, type SnippetTemplate } from "./composer/snippets.js";
 import { composerOf, expandedSnippet, replaced, type CommandRow } from "./composer/state.js";
 import { composerNote, highlighted, useComposer, type ComposerClipboard } from "./composer/use-composer.js";
 import { nextFocus, stepCursor, type Focus } from "./focus.js";
+import { browse, directoryOf, typedPath, type BrowseRow } from "./files/browse.js";
+import { readFile, rowDiff, sessionDiff, systemDiffFilter, type DiffFilter, type Paged } from "./files/views.js";
 import type { Panel } from "./pickers/panel.js";
 import { usePickers } from "./pickers/use-pickers.js";
 import { createFrameScheduler } from "./frames.js";
@@ -63,6 +65,8 @@ import type { RuntimeHost } from "./runtime-host.js";
 import { AsksCard } from "./screens/asks-card.js";
 import { ClientSessionsCard, EnvironmentMenu, EnvironmentsCard, HelpCard, MintedCard } from "./screens/cards.js";
 import { ComposerView } from "./screens/composer.js";
+import { FilesCard } from "./screens/files-card.js";
+import { OUTSIDE_COLUMN, TerminalPaneView, paneRows as terminalPaneRows } from "./screens/terminal-pane.js";
 import { Header, HintLine, Line, PairingPrompt, RAIL_MIN_COLUMNS } from "./screens/layout.js";
 import { PromptPickerCard, SessionsCard, SnippetsCard } from "./screens/lists.js";
 import { PromptCard } from "./screens/prompt-card.js";
@@ -76,6 +80,11 @@ import { StatusLine } from "./status/status-line.js";
 import { useStatus } from "./status/use-status.js";
 import { quietFor } from "./transcript/quiet.js";
 import { lastReply, transcriptRows, undoableFold, type Row } from "./transcript/rows.js";
+import { editCalls, inWorkspace, rowFile } from "./transcript/targets.js";
+import { heldApart, keyBytes } from "./terminal/keys.js";
+import { oneOffMessage, runOneOff } from "./terminal/one-off.js";
+import { useRawInput } from "./terminal/raw-input.js";
+import { useTerminalPane } from "./terminal/use-terminal.js";
 import {
   activityLine,
   clockTime,
@@ -138,6 +147,9 @@ export interface ScreenFlags {
   readonly workspace: string;
 }
 
+export type { DiffFilter } from "./files/views.js";
+export type { OpenedFile } from "./composer/external-editor.js";
+
 /** The clipboard the composer and `/copy` use: the machine's, unless a test hands in another. */
 export interface TerminalClipboard extends ComposerClipboard {
   copy(text: string): Promise<CopyOutcome>;
@@ -179,6 +191,12 @@ export interface AppProps {
   readonly clipboard?: TerminalClipboard;
   /** Ctrl+G's editor; preset `$VISUAL` or `$EDITOR`, with the terminal lent to it. */
   readonly editText?: (text: string) => Promise<ExternalEditResult>;
+  /** Mints a terminal id for `/terminal` and `!!`: a version 4 UUID. */
+  readonly newTerminalId?: () => string;
+  /** `o` on a local environment: the file in `$VISUAL` or `$EDITOR`, with the terminal lent to it. */
+  readonly openFile?: (file: OpenedFile) => Promise<OpenedResult>;
+  /** The user's diff filter for a pager so wide: preset `AGENT_HARNESS_DIFF`, else delta, diff-so-fancy or bat on `PATH`, else none. */
+  readonly diffFilter?: (columns: number) => DiffFilter | null;
   /** The terminal's title and bell (the attention seam): preset none, so nothing is written; `runTui` hands in the terminal's. */
   readonly chrome?: TerminalChrome;
   /** The client-local presentation (the rail's folds): the state directory's; preset, held in memory. */
@@ -214,8 +232,26 @@ type Card =
   | { readonly kind: "panel"; readonly panel: Panel }
   /** `/asks` and `Ctrl+]`: every environment's parked prompts. */
   | { readonly kind: "asks"; readonly cursor: number }
+  /**
+   * The pager over lines of its own (#148): a file, a diff, the terminal's scrollback, from `top` (null: the end), with a
+   * search; `back` is the card it goes back to when it closes (the files it was read from).
+   */
+  | {
+      readonly kind: "page";
+      readonly title: string;
+      readonly lines: readonly TranscriptLine[];
+      readonly top: number | null;
+      readonly query: string;
+      readonly typing: boolean;
+      readonly back: Card;
+    }
+  /** `/files`: the workspace's listing, one directory at a time (`dir`, the root ""), filtered by what is typed. */
+  | { readonly kind: "files"; readonly dir: string; readonly cursor: number; readonly filter: string }
   /** Esc Esc: the prompt picker of the session it was opened on; the cursor on the newest user message until a key moves it (null). */
   | { readonly kind: "prompt-picker"; readonly environmentId: string; readonly sessionId: string; readonly cursor: number | null };
+
+/** The cards that page lines with the pager's keys and search. */
+const paged = (card: Card): card is Extract<Card, { readonly kind: "pager" | "page" }> => card.kind === "pager" || card.kind === "page";
 
 interface Screen {
   readonly card: Card;
@@ -257,6 +293,15 @@ const useObservable = <T,>(observable: Observable<T>): T => useSyncExternalStore
 
 /** The transcript's keys the composer lets through. */
 const PAGE_KEYS: ReadonlySet<KeyActionId> = new Set<KeyActionId>(["transcript.pageUp", "transcript.pageDown"]);
+
+/** The pane's leave key, looked up once more right after it left the pane: pressed twice, it goes to the shell. */
+const LEAVE: ReadonlySet<KeyActionId> = new Set<KeyActionId>(["terminal.leave"]);
+
+/** How soon after leaving the pane the leave key counts as pressed twice, sending it to the shell (a chosen default). */
+export const LEAVE_TWICE_MS = 500;
+
+/** What `/terminal` and `!` say when this Ink cannot hand the pane its keys (`useRawInput`). */
+const DEAF = "this build of Ink does not hand the pane its keys.";
 
 const NO_FAULTS: Observable<readonly Fault[]> = { read: () => [], subscribe: () => () => undefined };
 
@@ -379,13 +424,35 @@ export const App = (props: AppProps) => {
     setSending((all) => (all.some((send) => heard(send, items)) ? all.filter((send) => !heard(send, items)) : all));
   }, [projection, sending]);
 
-  // The stops Tab walks that come and go: the rail, with nothing to list; the delegated strip and the terminal pane are
-  // not drawn by this build. Under 100 columns the rail is not drawn beside the pane: with the focus it is drawn in the
-  // pane's place, the picker that stands in for it. A rail that goes takes the focus back to the composer.
+  // The terminal pane (#148): the open session's environment-owned terminal, drawn between the transcript and the
+  // composer. It is the session's: another session opened takes it away, and its terminal runs on.
+  const terminal = useTerminalPane({
+    runtime,
+    request,
+    say,
+    newCommandId: props.newCommandId,
+    newTerminalId: props.newTerminalId ?? (() => crypto.randomUUID()),
+    nameOf: (environmentId) => names.get(environmentId) ?? "its environment",
+  });
+  // Every key's bytes, heard for the pane (`paneKey`, below); false when this Ink cannot hand them over, and the pane is refused.
+  const paneKey = useRef<(bytes: string) => void>(() => undefined);
+  const hearsKeys = useRawInput((bytes) => paneKey.current(bytes));
+  const paneOpen = terminal.pane !== null && opened !== null && terminal.pane.environmentId === opened.environmentId && terminal.pane.sessionId === opened.sessionId;
+  useEffect(() => {
+    if (terminal.pane !== null && !paneOpen) terminal.close();
+  }, [paneOpen, terminal.pane]);
+
+  // The stops Tab walks that come and go: the rail, with nothing to list, and the terminal pane while it is open; the
+  // delegated strip is not drawn by this build. Under 100 columns the rail is not drawn beside the pane: with the focus it
+  // is drawn in the pane's place, the picker that stands in for it. A stop that goes takes the focus back to the composer.
   const railListed = views.length > 0;
   const railDrawn = size.columns >= RAIL_MIN_COLUMNS && railListed;
-  const stops = { sidebar: railListed, delegated: false, terminal: false };
-  const focused: Focus = focus === "sidebar" && !railListed ? "composer" : focus;
+  const stops = { sidebar: railListed, delegated: false, terminal: paneOpen };
+  const focused: Focus = (focus === "sidebar" && !railListed) || (focus === "terminal" && !paneOpen) ? "composer" : focus;
+  // The pane's terminal is as wide as the column beside the rail (the help overlay's taking the width is no resize) and two
+  // fifths of the frame tall, within the column.
+  const paneSize = { cols: Math.max(20, size.columns - (railDrawn ? RAIL_WIDTH : 0)), rows: terminalPaneRows(size.rows) };
+  useEffect(() => terminal.resize(paneSize), [paneSize.cols, paneSize.rows]);
   useEffect(() => {
     if (focus !== focused) setFocus(focused);
   }, [focus, focused]);
@@ -634,7 +701,8 @@ export const App = (props: AppProps) => {
     scopes,
     clipboard,
     editText: async (text) => {
-      const edit = props.editText ?? ((initial: string) => runEditor(suspendTerminal, initial));
+      const edit =
+        props.editText ?? ((initial: string) => lendTerminal<ExternalEditResult>(suspendTerminal, () => editInExternalEditor(initial), { ok: false, reason: "the editor did not run" }));
       const result = await edit(text).catch((error: unknown): ExternalEditResult => ({ ok: false, reason: messageOf(error) }));
       if (result.ok) return result.text;
       say(`Could not edit the text: ${result.reason}`);
@@ -648,8 +716,10 @@ export const App = (props: AppProps) => {
     },
     active: focused === "composer" && !cardOpen,
   });
-  // The workspace is listed once the text names a file with `@`, and kept for five minutes by the request cache.
-  useFollow(composer.text.includes("@") ? files : undefined, request);
+  // The workspace is listed once the text names a file with `@`, or `/files` is open, and kept for five minutes by the request cache.
+  useFollow(composer.text.includes("@") || screen.card.kind === "files" ? files : undefined, request);
+  const listing = files?.read().result ?? null;
+  const fileRows = (card: { readonly dir: string; readonly filter: string }): readonly BrowseRow[] | null => (listing ? browse(listing.files, card.dir, card.filter) : null);
 
   // The draft is the session's field (session-state spec): what is typed is saved through the runtime, which waits a
   // second after the last key; a session opened takes its draft; a draft another client saved replaces this one's only
@@ -682,8 +752,9 @@ export const App = (props: AppProps) => {
       composer.set(composerOf(held));
       return;
     }
-    // A command for the terminal being typed is not the session's draft: it is sent nowhere, and saving it would only be undone.
-    if (text !== synced.current.text && !(text.startsWith("/") && parseCommand(text).kind !== "text")) {
+    // A command for the terminal UI being typed (a slash command it answers, a shell line) is not the session's draft: it
+    // is sent nowhere, and saving it would only be undone.
+    if (text !== synced.current.text && !(text.startsWith("/") && parseCommand(text).kind !== "text") && shellLine(text) === null) {
       synced.current = { key: openKey, text };
       runtime.drafts.set(opened.environmentId, opened.sessionId, text.length > 0 ? text : null);
     }
@@ -745,7 +816,8 @@ export const App = (props: AppProps) => {
     keys,
   });
 
-  const sendText = (message: { readonly text: string; readonly attachments: readonly AttachmentInput[] }): boolean => {
+  /** Sends `message` to the open session; `remember` false keeps it out of the prompt history (preset in it). */
+  const sendText = (message: { readonly text: string; readonly attachments: readonly AttachmentInput[] }, options: { readonly remember?: boolean } = {}): boolean => {
     if (!opened) {
       say("There is no session open to send to: /resume opens one, /new starts one.");
       return false;
@@ -763,7 +835,7 @@ export const App = (props: AppProps) => {
     const { environmentId, sessionId } = opened;
     const before = new Set(projection?.items.flatMap((entry) => (entry.kind === "user-message" ? [entry.messageId] : [])) ?? []);
     setSending((s) => [...s, { id, text: message.text, messageId: undefined, before }]);
-    stores.history?.append({ text: message.text, cwd: projection?.summary?.workspace.path ?? props.flags.workspace, sessionId });
+    if (options.remember !== false) stores.history?.append({ text: message.text, cwd: projection?.summary?.workspace.path ?? props.flags.workspace, sessionId });
     setView((v) => ({ ...v, offset: 0 }));
     void sendMessage(runtime, environmentId, sessionId, message, live, pickers.choice(opened)).then((outcome) => {
       if (!outcome.ok) {
@@ -778,6 +850,10 @@ export const App = (props: AppProps) => {
     });
     return true;
   };
+
+  // What a reply that comes later (`!!`'s output) acts on: this render's session and send, read when it comes.
+  const latest = useRef({ opened, sendText });
+  latest.current = { opened, sendText };
 
   const interrupt = (): boolean => {
     if (!opened || liveRun === undefined) return false;
@@ -897,6 +973,132 @@ export const App = (props: AppProps) => {
     return false;
   };
 
+  const noSession = () => say("There is no session open: /resume opens one, /new starts one.");
+
+  /** `/terminal`: the open session's terminal in the pane, opened or reopened, with the keys. */
+  const openTerminal = () => {
+    if (!opened) return noSession();
+    if (!hearsKeys) return say(`No terminal: ${DEAF}`);
+    if (terminal.open(opened, paneSize)) setFocus("terminal");
+  };
+
+  /**
+   * A shell line (#148): `!` runs the command in a terminal of its own, shown in the pane, the composer keeping the keys;
+   * `!!` runs it in a terminal of its own and sends what it printed to the agent. True when the box empties.
+   */
+  const runShellLine = (shell: { readonly send: boolean; readonly command: string }): boolean => {
+    if (shell.command.length === 0) {
+      say(shell.send ? "Usage: !!<command> runs it on the session's environment and sends what it printed to the agent." : "Usage: !<command> runs it in the session's terminal.");
+      return false;
+    }
+    if (!opened) {
+      noSession();
+      return false;
+    }
+    const target = opened;
+    const record = () =>
+      stores.history?.append({ text: `${shell.send ? "!!" : "!"}${shell.command}`, cwd: projection?.summary?.workspace.path ?? props.flags.workspace, sessionId: target.sessionId });
+    if (!shell.send) {
+      if (!hearsKeys) {
+        say(`Not run: ${DEAF}`);
+        return false;
+      }
+      const ran = terminal.run(target, paneSize, shell.command);
+      if (ran) record();
+      return ran;
+    }
+    const capability = runtime.capability(target.environmentId, "terminals.open");
+    if (capability.status === "absent") {
+      say(`Not run: ${capability.message}`);
+      return false;
+    }
+    if (session.lock.locked) {
+      say(`Not run: what it printed could not be sent. ${session.lock.reason}`);
+      return false;
+    }
+    record();
+    const running = `Running ${shell.command} on ${names.get(target.environmentId) ?? "the environment"}…`;
+    say(running);
+    void runOneOff({ runtime, clock, newCommandId: props.newCommandId, newTerminalId: terminal.oneOffId }, target, shell.command).then((result) => {
+      if (quit.signal.aborted) return;
+      if (!result.ok) return say(`Not run: ${result.line}`);
+      // Up to a minute later: the session open now, and the send that knows it, not this render's.
+      const now = latest.current;
+      if (now.opened?.environmentId !== target.environmentId || now.opened.sessionId !== target.sessionId) {
+        return say(`The output of ${shell.command} was not sent: its session is no longer open.`);
+      }
+      // The line it said goes, and only it: another said meanwhile stays.
+      setScreen((s) => (s.line === running ? { ...s, line: undefined } : s));
+      // The prompt history holds the line typed (`record`), not the message it became.
+      now.sendText({ text: oneOffMessage(shell.command, result), attachments: [] }, { remember: false });
+    });
+    return true;
+  };
+
+  // A page asked for (a file, a diff): only the last one asked opens or says why not, so a slow answer never covers a later one.
+  // It opens only over the very card it was asked from (none, the files): a card the user opened while it was read (the
+  // help, a picker, the pager), or one opened and closed again, is never covered, and the page is let go with its line.
+  // `directory`: the card to open instead when the path named a directory.
+  const pages = useRef(0);
+  const showPage = (loading: string, make: () => Promise<Paged>, back: Card, directory?: Card) => {
+    const asked = ++pages.current;
+    let over: Card | undefined;
+    setScreen((s) => {
+      over = s.card;
+      return { ...s, line: loading };
+    });
+    const open = (card: Card, line: string | undefined) =>
+      setScreen((s) => (s.card === over ? { ...s, line, card } : s.line === loading ? { ...s, line: undefined } : s));
+    void make().then(
+      (paged) => {
+        if (pages.current !== asked || quit.signal.aborted) return;
+        if (!paged.ok) return paged.directory === true && directory ? open(directory, undefined) : say(paged.line);
+        open({ kind: "page", title: paged.page.title, lines: paged.page.lines, top: 0, query: "", typing: false, back }, paged.note);
+      },
+      (error: unknown) => {
+        if (pages.current === asked && !quit.signal.aborted) say(messageOf(error));
+      },
+    );
+  };
+  const diffFilter = (columns: number) => (props.diffFilter ?? systemDiffFilter)(columns);
+
+  /** `/files [path]`: the workspace's listing as a picker, or the file `path` names read in the pager. */
+  const openFiles = (path: string | null) => {
+    if (!opened) return noSession();
+    const capability = runtime.capability(opened.environmentId, "files.list");
+    if (capability.status === "absent") return say(`No files: ${capability.message}`);
+    if (path === null) return update({ card: { kind: "files", dir: "", cursor: 0, filter: "" } });
+    const wanted = typedPath(path, projection?.summary?.workspace.path ?? "");
+    if (wanted === null) return say(`${path.trim()} is outside the session's workspace, which the environment reads files from.`);
+    if (wanted === "") return update({ card: { kind: "files", dir: "", cursor: 0, filter: "" } });
+    const target = opened;
+    showPage(`Reading ${wanted}…`, () => readFile(runtime, target, wanted, mainWidth), { kind: "files", dir: directoryOf(wanted), cursor: 0, filter: "" }, {
+      kind: "files",
+      dir: wanted,
+      cursor: 0,
+      filter: "",
+    });
+  };
+
+  /** `/diff`: what the session changed and the working tree, through the user's diff filter. */
+  const showDiff = () => {
+    if (!opened) return noSession();
+    const capability = runtime.capability(opened.environmentId, "diffs.session");
+    if (capability.status === "absent") return say(`No diff: ${capability.message}`);
+    const target = opened;
+    const filter = diffFilter(mainWidth);
+    showPage(filter ? `Reading the diff, through ${filter.label}…` : "Reading the diff…", () => sessionDiff(runtime, target, mainWidth, filter), { kind: "none" });
+  };
+
+  /** Ctrl+O in the pane: the terminal's retained scrollback in the pager, at its end. */
+  const openScrollback = () => {
+    const lines = terminal.history().map((spans, index): TranscriptLine => ({ row: `scrollback:${index}`, spans }));
+    const where = terminal.pane ? (names.get(terminal.pane.environmentId) ?? "") : "";
+    // A snapshot the scrollback's cap had cut: what came before it is gone from the environment too.
+    const dropped = terminal.earlierDropped() ? " · earlier output dropped" : "";
+    update({ card: { kind: "page", title: `Terminal scrollback · ${where}${dropped}`, lines, top: null, query: "", typing: false, back: { kind: "none" } } });
+  };
+
   /** The composer's Enter: a command the terminal answers, or a message for the agent. True when the box empties. */
   const submit = (raw: string, message: { readonly text: string; readonly attachments: readonly AttachmentInput[] }): boolean => {
     const command = parseCommand(raw);
@@ -1008,6 +1210,15 @@ export const App = (props: AppProps) => {
       case "quit":
         quitNow();
         return true;
+      case "terminal":
+        openTerminal();
+        return true;
+      case "files":
+        openFiles(command.path);
+        return true;
+      case "diff":
+        showDiff();
+        return true;
       case "picker":
         pickers.run(command.command);
         return true;
@@ -1024,12 +1235,10 @@ export const App = (props: AppProps) => {
       case "usage":
         say(command.line);
         return true;
-      case "text":
-        if (command.text.startsWith("!")) {
-          say("`!` runs a command in a terminal on the environment, which this build of the terminal UI does not do yet.");
-          return false;
-        }
-        return sendText(message);
+      case "text": {
+        const shell = shellLine(command.text);
+        return shell ? runShellLine(shell) : sendText(message);
+      }
     }
   };
 
@@ -1162,6 +1371,15 @@ export const App = (props: AppProps) => {
       open({ environmentId: row.environmentId, sessionId: row.summary.id });
       return;
     }
+    if (card.kind === "files") {
+      const found = fileRows(card) ?? [];
+      const row = found[clampCursor(card.cursor, found.length)];
+      if (!row || !opened) return;
+      if (row.kind !== "file") return update({ card: { ...card, dir: row.path, cursor: 0, filter: "" } });
+      const target = opened;
+      showPage(`Reading ${row.path}…`, () => readFile(runtime, target, row.path, mainWidth), card);
+      return;
+    }
     if (card.kind === "snippets") {
       const row = snippetRows()[clampCursor(card.cursor, snippetRows().length)];
       if (!row) return;
@@ -1179,6 +1397,8 @@ export const App = (props: AppProps) => {
         return { kind: "menu", environmentId: card.environmentId, cursor: 0 };
       case "help":
         return card.under;
+      case "page":
+        return card.back;
       case "panel": {
         const to = pickers.back(card.panel);
         return to ? { kind: "panel", panel: to } : { kind: "none" };
@@ -1206,6 +1426,8 @@ export const App = (props: AppProps) => {
         return sessionRows(card.filter).length;
       case "snippets":
         return snippetRows().length;
+      case "files":
+        return fileRows(card)?.length ?? 0;
       case "prompt-picker":
         return messages.length;
       case "panel":
@@ -1228,7 +1450,7 @@ export const App = (props: AppProps) => {
 
   // The pager's lines: every row unfolded; `/tasks` and `/timeline` as lines too.
   const card = screen.card;
-  const pagerLines = card.kind === "pager" ? transcriptLines(allRows, { ...lineContext, width: mainWidth, expanded: true }) : [];
+  const pagerLines = card.kind === "pager" ? transcriptLines(allRows, { ...lineContext, width: mainWidth, expanded: true }) : card.kind === "page" ? card.lines : [];
   const cardLines: TranscriptLine[] =
     card.kind === "lines"
       ? card.which === "timeline"
@@ -1259,8 +1481,8 @@ export const App = (props: AppProps) => {
     });
   };
   const pagerMaxTop = Math.max(0, pagerLines.length - helpHeight);
-  const pagerTop = card.kind === "pager" ? Math.min(card.top ?? pagerMaxTop, pagerMaxTop) : 0;
-  const pagerMatches = card.kind === "pager" && card.query.length > 0 ? pagerLines.flatMap((line, index) => (lineText(line).toLowerCase().includes(card.query.toLowerCase()) ? [index] : [])) : [];
+  const pagerTop = paged(card) ? Math.min(card.top ?? pagerMaxTop, pagerMaxTop) : 0;
+  const pagerMatches = paged(card) && card.query.length > 0 ? pagerLines.flatMap((line, index) => (lineText(line).toLowerCase().includes(card.query.toLowerCase()) ? [index] : [])) : [];
   const pagerTurns = card.kind === "pager" ? pagerLines.flatMap((line, index) => (line.row.startsWith("message:") && pagerLines[index - 1]?.row !== line.row ? [index] : [])) : [];
 
   // The press before this one, where and when it was heard: keys pressed in turn (`Esc Esc`, `\ Enter`) start with it (`pressedBefore`).
@@ -1268,6 +1490,67 @@ export const App = (props: AppProps) => {
   // The second of two Escs heard in one read, held for the render after the first's: heard there, in the place the first left.
   const pairedEscHeld = useRef<InkKey | undefined>(undefined);
   const [, drawForPairedEsc] = useState(0);
+
+  // The pane has the keys while it has the focus and no card is open (#148). Every key is heard as the bytes the terminal
+  // sent (`paneKey`), and while the pane has the keys the screen's own handler below is not active: the pane takes each key
+  // but for its two actions. `terminal.leave` goes on to the next stop, where Tab would have gone had the shell not had
+  // it, and `terminal.scrollback` opens the scrollback.
+  const paneHasKeys = focused === "terminal" && paneOpen && !cardOpen;
+  const paneKeys = useRef(false);
+  paneKeys.current = paneHasKeys;
+  // When the pane was left with `terminal.leave`: the leave key again within `LEAVE_TWICE_MS` goes to the shell and the
+  // pane has the keys back. Left in the read being heard, the screen's handler below is not listening until the next
+  // frame, so the leave key again in that read (Ink's next key, or the same text) is heard here.
+  const leftAt = useRef<number | null>(null);
+  const leftInRead = useRef(false);
+  useEffect(() => {
+    leftInRead.current = false;
+    terminal.focus(paneHasKeys);
+  }, [paneHasKeys]);
+  // Somebody is here, whether the key went to the screen or the shell: both bells wait again. Past three minutes of
+  // stillness the key is a return, answered with what happened meanwhile.
+  const present = () => {
+    const recap = attention.touch();
+    if (recap !== undefined) flash(recap, RECAP_FLASH_MS);
+  };
+  const heldBytes = (action: "terminal.leave" | "terminal.scrollback") => keymap.keys[action].flatMap((name) => keyBytes(name) ?? []);
+  const heldBy = (action: "terminal.leave" | "terminal.scrollback", bytes: string) => heldBytes(action).includes(bytes);
+  const paneTakes = (bytes: string) => {
+    if (!paneKeys.current) {
+      if (!leftInRead.current || !heldBy("terminal.leave", bytes)) return;
+      leftInRead.current = false;
+      leftAt.current = null;
+      paneKeys.current = true;
+      setFocus("terminal");
+      present();
+      terminal.key(bytes);
+      return;
+    }
+    scheduler.bypass();
+    present();
+    if (heldBy("terminal.leave", bytes)) {
+      // The keys go at once: what comes before the next frame is not the pane's, but the leave key again.
+      paneKeys.current = false;
+      leftInRead.current = true;
+      leftAt.current = clock.now().getTime();
+      setFocus(nextFocus("terminal", stops));
+      return;
+    }
+    if (heldBy("terminal.scrollback", bytes)) return openScrollback();
+    terminal.key(bytes);
+  };
+  paneKey.current = (bytes) => {
+    if (!paneKeys.current && !leftInRead.current) return;
+    for (const piece of heldApart(bytes, [...heldBytes("terminal.leave"), ...heldBytes("terminal.scrollback")])) paneTakes(piece);
+  };
+  usePaste(
+    (text) => {
+      scheduler.bypass();
+      present();
+      terminal.paste(text);
+    },
+    { isActive: paneHasKeys },
+  );
 
   usePaste(
     (text) => {
@@ -1289,6 +1572,9 @@ export const App = (props: AppProps) => {
 
   // Each key Ink hears; `pairedEsc` for the second of two Escs heard in one read, which is `Esc Esc` in the same place.
   const hear = (input: string, key: InkKey, pairedEsc = false) => {
+    // The pane took the keys back earlier in this read (the leave key pressed again): the rest of the read is the shell's,
+    // heard by `paneKey` first, and this handler, not yet inactive until the frame, leaves it alone.
+    if (paneKeys.current) return;
     // Two Escs in one read (a fast double tap, SSH, or tmux, whose escape-time sends them together): Ink 7 reads `\x1b\x1b`
     // as one Esc with Meta, its input the second byte. They are heard in turn: the single Esc's meaning now, then the second
     // once that is drawn (this render's state is from before the first), as `Esc Esc` only, never a single Esc again, so
@@ -1300,12 +1586,12 @@ export const App = (props: AppProps) => {
       drawForPairedEsc((n) => n + 1);
       return;
     }
+    const justLeft = leftAt.current !== null && clock.now().getTime() - leftAt.current <= LEAVE_TWICE_MS;
+    leftAt.current = null;
     // A key draws what the scheduler holds back, with its own echo.
     scheduler.bypass();
-    // Somebody is here: both bells wait again. Past three minutes of stillness the key is a return, answered with what happened
-    // meanwhile; first, so a key with a line of its own has the last word.
-    const recap = attention.touch();
-    if (recap !== undefined) flash(recap, RECAP_FLASH_MS);
+    // First, so a key with a line of its own has the last word.
+    present();
     const name = eventName(input, key);
     // Where the keys are: the same key pressed again elsewhere (an Esc that closed a card, answered a question, left the
     // transcript or a search) starts nothing with this one.
@@ -1325,16 +1611,17 @@ export const App = (props: AppProps) => {
       card.kind === "client-sessions" ||
       card.kind === "sessions" ||
       card.kind === "snippets" ||
+      card.kind === "files" ||
       card.kind === "picker" ||
       card.kind === "prompt-picker" ||
       (card.kind === "panel" && !linesPanel);
-    // A list, the help overlay, the pager and the lines cards have the keys whatever has the focus; the focus has them back when it closes.
-    const cardHasKeys = listCard || linesPanel || card.kind === "help" || card.kind === "pager" || card.kind === "lines" || card.kind === "asks" || promptShown;
+    // A list, the help overlay, the pager (the transcript's or a page's) and the lines cards have the keys whatever has the focus; the focus has them back when it closes.
+    const cardHasKeys = listCard || linesPanel || card.kind === "help" || paged(card) || card.kind === "lines" || card.kind === "asks" || promptShown;
     const composerHasKeys = focused === "composer" && !cardHasKeys;
     const composerText = composer.state.editor.text;
     const scrollCard = (to: (top: number) => number, max: number): false | void => {
       if (card.kind === "help") return update({ card: { ...card, top: Math.min(Math.max(to(Math.min(card.top, helpMaxTop)), 0), helpMaxTop) } });
-      if (card.kind === "pager") return update({ card: { ...card, top: Math.min(Math.max(to(pagerTop), 0), max) } });
+      if (paged(card)) return update({ card: { ...card, top: Math.min(Math.max(to(pagerTop), 0), max) } });
       if (card.kind === "lines") return update({ card: { ...card, top: Math.min(Math.max(to(card.top), 0), Math.max(0, cardLines.length - helpHeight)) } });
       if (card.kind === "panel" && linesPanel) return update({ card: { kind: "panel", panel: pickers.scroll(card.panel, to) } });
       return false;
@@ -1347,7 +1634,7 @@ export const App = (props: AppProps) => {
       if (card.kind === "panel") return update({ card: { kind: "panel", panel: pickers.move(card.panel, step) } });
       // A list typed at takes letters into its filter or query: k and j are letters there. A typed picker's letters
       // never reach here (its intake runs before any lookup, below), so the decline states the rule as the sessions one does.
-      if (action === "picker.moveVi" && (card.kind === "sessions" || (card.kind === "picker" && card.picker.typed))) return false;
+      if (action === "picker.moveVi" && (card.kind === "sessions" || card.kind === "files" || (card.kind === "picker" && card.picker.typed))) return false;
       if (card.kind === "picker") return update({ card: { kind: "picker", picker: movedBy(card.picker, step) } });
       if (card.kind === "prompt-picker") return update({ card: { ...card, cursor: clampCursor(pickerCursor(card) + step, messages.length) } });
       update({ card: { ...card, cursor: clampCursor(card.cursor + step, rowsOf(card)) } });
@@ -1380,6 +1667,8 @@ export const App = (props: AppProps) => {
         quitNow();
       },
       "app.pager.open": () => {
+        // Ctrl+O closes the page it opened (the pane's scrollback) as it closes the pager.
+        if (card.kind === "page") return update({ card: card.back });
         if (!projection) return false;
         if (card.kind === "pager") return update({ card: { kind: "none" } });
         update({ card: { kind: "pager", top: null, query: "", typing: false } });
@@ -1390,7 +1679,7 @@ export const App = (props: AppProps) => {
         // focus in the rail or the transcript nothing is being typed, so it is the map (Artemis's rail rule).
         if (composerText !== "" && composerHasKeys) return false;
         // A list typed at takes `?` into its filter.
-        if ((card.kind === "pager" && card.typing) || card.kind === "sessions") return false;
+        if ((paged(card) && card.typing) || card.kind === "sessions" || card.kind === "files") return false;
         update({ card: { kind: "help", top: 0, under: card } });
       },
       "confirm.yes": () => {
@@ -1408,7 +1697,7 @@ export const App = (props: AppProps) => {
       "picker.choose": () => (listCard ? choose(card) : false),
       "picker.leave": () => {
         if (card.kind === "none") return false;
-        if (card.kind === "sessions" && card.filter.length > 0) return update({ card: { ...card, filter: "", cursor: 0 } });
+        if ((card.kind === "sessions" || card.kind === "files") && card.filter.length > 0) return update({ card: { ...card, filter: "", cursor: 0 } });
         update({ card: back(card) });
       },
       "transcript.pageUp": () => (transcriptFocused || composerHasKeys ? scrollTo(view.offset + half) : false),
@@ -1455,6 +1744,45 @@ export const App = (props: AppProps) => {
         if (target === null) return say("Nothing on that row is running.");
         void stopCall(runtime, opened.environmentId, target.runId, target.taskId).then((line) => line && say(line));
       },
+      "row.open": () => {
+        const row = onRow();
+        if (!row || !opened) return false;
+        const file = rowFile(row);
+        if (!file) return say("That row names no file.");
+        const workspace = projection?.summary?.workspace.path ?? "";
+        // On this machine the file is the user's own, in their editor; elsewhere it is read in the pager.
+        if (viewOf(opened.environmentId)?.kind === "local") {
+          const path = isAbsolute(file.path) ? file.path : join(workspace, file.path);
+          const openFile =
+            props.openFile ?? ((f: OpenedFile) => lendTerminal<OpenedResult>(suspendTerminal, () => openInExternalEditor(f), { ok: false, reason: "the editor did not run" }));
+          void openFile({ path, ...(file.line !== undefined && { line: file.line }) }).then((result) => result.ok || say(`Could not open ${path}: ${result.reason}`));
+          return;
+        }
+        const relative = inWorkspace(file.path, workspace);
+        if (relative === null) return say(`${file.path} is outside the session's workspace, which the environment reads files from.`);
+        const target = opened;
+        showPage(`Reading ${relative}…`, () => readFile(runtime, target, relative, mainWidth), { kind: "none" });
+      },
+      "row.diff": () => {
+        const row = onRow();
+        if (!row || !opened) return false;
+        const calls = editCalls(row);
+        if (calls.length === 0) return say("That row changed no file.");
+        const target = opened;
+        const filter = diffFilter(mainWidth);
+        showPage(filter ? `Reading the diff, through ${filter.label}…` : "Reading the diff…", () => rowDiff(runtime, target, calls, mainWidth, filter), { kind: "none" });
+      },
+      // Pressed again right after it left the pane: the key goes to the shell, and the pane has the keys back, at once, so
+      // what Ink hears after it in the same read is the shell's too (as `paneTakes` does), not this handler's until the frame.
+      "terminal.leave": (pressed) => {
+        const bytes = keyBytes(pressed);
+        if (!justLeft || !paneOpen || bytes === undefined) return false;
+        paneKeys.current = true;
+        setFocus("terminal");
+        terminal.key(bytes);
+      },
+      // The pane's own key, heard above while the pane has the keys.
+      "terminal.scrollback": () => false,
       "pager.line": (pressed) => {
         // j and ↓ go down, k and ↑ up, as the list writes them: j, k, ↑, ↓.
         const at = keymap.keys["pager.line"].indexOf(pressed);
@@ -1474,15 +1802,16 @@ export const App = (props: AppProps) => {
         const before = pagerTurns.findLast((at) => at < pagerTop);
         return before === undefined ? scroll(() => 0) : scroll(() => before);
       },
-      "pager.search": () => (card.kind === "pager" ? update({ card: { ...card, query: "", typing: true } }) : false),
+      "pager.search": () => (paged(card) ? update({ card: { ...card, query: "", typing: true } }) : false),
       "pager.match": (pressed) => {
-        if (card.kind !== "pager" || pagerMatches.length === 0) return false;
+        if (!paged(card) || pagerMatches.length === 0) return false;
         const backward = keymap.keys["pager.match"].indexOf(pressed) === 1;
         const next = backward ? (pagerMatches.findLast((at) => at < pagerTop) ?? pagerMatches.at(-1)) : (pagerMatches.find((at) => at > pagerTop) ?? pagerMatches[0]);
         return next === undefined ? false : scroll(() => next);
       },
       "pager.close": () => {
         if (card.kind === "help") return update({ card: card.under });
+        if (card.kind === "page") return update({ card: card.back });
         if (card.kind === "pager" || card.kind === "lines" || linesPanel) return update({ card: { kind: "none" } });
         return false;
       },
@@ -1548,8 +1877,10 @@ export const App = (props: AppProps) => {
       },
     };
     // The quit and the jump to what needs you, which nothing may take, are looked up first: before a line or a list typed at
-    // takes the text, so neither is typed in when remapped to a printable key.
-    if (dispatch(keymap, [{ context: "anywhere", only: FIRST_ANYWHERE }], handlers, input, key, { previous, pairOnly: pairedEsc })) return;
+    // takes the text, so neither is typed in when remapped to a printable key. Only the pane's leave key pressed again right
+    // after it left the pane comes before them, as it goes to the shell.
+    const first: Lookup[] = [...(justLeft ? [{ context: "terminal" as const, only: LEAVE }] : []), { context: "anywhere", only: FIRST_ANYWHERE }];
+    if (dispatch(keymap, first, handlers, input, key, { previous, pairOnly: pairedEsc })) return;
     // A card taking a line has the text typed at it: Enter is its choice, Esc its way back, Backspace rubs one out; any
     // other key (Ctrl+C) is looked up as ever.
     if (card.kind === "panel" && pickers.takesText(card.panel) && !screen.question && !pairedEsc) {
@@ -1571,7 +1902,7 @@ export const App = (props: AppProps) => {
       if (input !== "" && !key.ctrl && !key.meta) return typed(lineTyped(promptState, { text: input }));
     }
     // A search being typed at the pager takes every key but Enter (done) and Esc (dropped).
-    if (card.kind === "pager" && card.typing && !pairedEsc) {
+    if (paged(card) && card.typing && !pairedEsc) {
       if (key.return) {
         const first = pagerMatches.find((at) => at >= pagerTop) ?? pagerMatches[0];
         return update({ card: { ...card, typing: false, top: first ?? card.top } });
@@ -1603,7 +1934,7 @@ export const App = (props: AppProps) => {
     // A question a key action asked (`whileTyping`) takes its answer whatever the composer holds.
     if (screen.question && (!typing || screen.question.whileTyping === true)) lookups.push("confirm");
     if (card.kind === "asks") lookups.push("asks");
-    else if (card.kind === "help" || card.kind === "pager" || card.kind === "lines" || linesPanel) lookups.push("pager", "picker");
+    else if (card.kind === "help" || paged(card) || card.kind === "lines" || linesPanel) lookups.push("pager", "picker");
     else if (card.kind !== "none") lookups.push("picker");
     if (promptShown) lookups.push("permission");
     if (!cardHasKeys) {
@@ -1619,6 +1950,14 @@ export const App = (props: AppProps) => {
     const composerEmpty = composerHasKeys && composerText === "" && composer.state.attached.length === 0 && composer.state.search === null;
     if (dispatch(keymap, lookups, handlers, input, key, { previous, pairOnly: pairedEsc, holds: (condition) => condition === "composer.empty" && composerEmpty })) return;
     if (pairedEsc) return;
+    // `/files`' list is typed at as well; Backspace with nothing typed goes up a directory.
+    if (card.kind === "files") {
+      if (key.backspace || key.delete) {
+        return update({ card: card.filter.length > 0 ? { ...card, filter: [...card.filter].slice(0, -1).join(""), cursor: 0 } : { ...card, dir: directoryOf(card.dir), cursor: 0 } });
+      }
+      if (input !== "" && !key.ctrl && !key.meta && !key.escape && !key.tab && !key.return) return update({ card: { ...card, filter: card.filter + input, cursor: 0 } });
+      return;
+    }
     // `/resume`'s list is typed at: letters filter it, Backspace rubs one out.
     if (card.kind === "sessions") {
       if (key.backspace || key.delete) return update({ card: { ...card, filter: [...card.filter].slice(0, -1).join(""), cursor: 0 } });
@@ -1634,7 +1973,7 @@ export const App = (props: AppProps) => {
     // What is typed is text, not a key: a sigil (`/`) included, whatever the keymap says.
     if (input !== "" && !key.ctrl && !key.meta && !key.escape && !key.tab && !key.return) composer.type(input);
   };
-  useInput((input: string, key: InkKey) => hear(input, key));
+  useInput((input: string, key: InkKey) => hear(input, key), { isActive: !paneHasKeys });
   // The second of two Escs in one read, heard with the state the first left.
   useEffect(() => {
     const held = pairedEscHeld.current;
@@ -1644,7 +1983,7 @@ export const App = (props: AppProps) => {
   });
 
   // A card that is a list of the session's needs the session: gone, it closes. The asks card closes with its last row.
-  const sessionCard = card.kind === "pager" || (card.kind === "lines" && card.which !== "notices");
+  const sessionCard = card.kind === "pager" || card.kind === "files" || (card.kind === "lines" && card.which !== "notices");
   useEffect(() => {
     if (!projection && sessionCard) update({ card: { kind: "none" } });
   }, [projection, sessionCard]);
@@ -1666,7 +2005,7 @@ export const App = (props: AppProps) => {
   const railInPane = !railDrawn && railListed && focused === "sidebar" && card.kind === "none" && !promptShown;
   // The rows the rail and a picker have: the frame less the header and the six lines under the pane (the two lines, the
   // composer, the status line's two and the activity line).
-  const paneRows = Math.max(1, size.rows - 7);
+  const paneRows = Math.max(1, size.rows - OUTSIDE_COLUMN);
   const listHint = (verb: string, leave: string) => `${keys("picker.move")} move · ${keys("picker.choose")} ${verb} · ${keys("picker.leave")} ${leave}`;
   /** The permission card's legend: the keys the card answers, in the map in force; the note's line takes Enter, Tab and Esc as they are. */
   const cardHint = (kind: PromptKind, lineOpen: boolean): string => {
@@ -1693,23 +2032,30 @@ export const App = (props: AppProps) => {
       : undoableFold(cursorRow, standing)
         ? ` · ${verbHint("row.rewindUndo", "undo", forkRewind.verbs?.undoRewind)}`
         : "";
+  // The file verbs (#148) are said on a row that has them, as the fork and rewind verbs are, so the hint stays one line.
+  const fileVerbs =
+    cursorRow === undefined
+      ? ""
+      : `${rowFile(cursorRow) ? ` · ${keys("row.open")} open` : ""}${editCalls(cursorRow).length > 0 ? ` · ${keys("row.diff")} diff` : ""}`;
   const hint =
     card.kind === "panel"
       ? `The card has the keys · ${pickers.hint(card.panel)}`
-      : card.kind === "help" || card.kind === "pager" || card.kind === "lines"
+      : card.kind === "help" || card.kind === "pager" || card.kind === "lines" || card.kind === "page"
         ? `The card has the keys · ${keys("pager.close")} closes it`
-        : card.kind === "environments" || card.kind === "sessions" || card.kind === "snippets" || card.kind === "prompt-picker"
+        : card.kind === "environments" || card.kind === "sessions" || card.kind === "snippets" || card.kind === "files" || card.kind === "prompt-picker"
           ? `The card has the keys · ${keys("picker.leave")} closes it`
           : card.kind === "menu" || card.kind === "client-sessions"
             ? `The card has the keys · ${keys("picker.leave")} goes back`
             : card.kind === "picker"
               ? `The card has the keys · ${keys("picker.leave")} ${card.picker.back ? "goes back" : "closes it"}`
-              : focused === "sidebar"
-                ? // What the keys do at the cursor gives way to a notice, as the composer's own hint does.
-                  `The rail has the keys · ${keys("rail.leave")} ${rail.filter !== null ? "clears the filter" : `back to the composer · ${keys("app.focus.next")} next`}${rail.hint !== undefined && activity === undefined ? ` · ${rail.hint}` : ""}`
-                : focused === "transcript"
-                  ? `The transcript has the keys · ${keys("transcript.cursor")} rows · ${keys("row.unfold")} unfold · ${keys("row.recall")} recall · ${keys("row.stop")} stop${rowVerbs} · ${keys("row.leave")} back to the composer`
-                  : undefined;
+              : paneHasKeys
+                ? `The terminal has the keys · ${keys("terminal.leave")} leaves · ${keys("terminal.scrollback")} scrollback`
+                : focused === "sidebar"
+                  ? // What the keys do at the cursor gives way to a notice, as the composer's own hint does.
+                    `The rail has the keys · ${keys("rail.leave")} ${rail.filter !== null ? "clears the filter" : `back to the composer · ${keys("app.focus.next")} next`}${rail.hint !== undefined && activity === undefined ? ` · ${rail.hint}` : ""}`
+                  : focused === "transcript"
+                    ? `The transcript has the keys · ${keys("transcript.cursor")} rows · ${keys("row.unfold")} unfold${fileVerbs} · ${keys("row.recall")} recall · ${keys("row.stop")} stop${rowVerbs} · ${keys("row.leave")} back to the composer`
+                    : undefined;
   const own = menuView ? (runtime.connections.list.read().find((r) => r.environmentId === menuView.environmentId)?.clientSessionId ?? null) : null;
   const freshness = projection?.freshness;
   const marker =
@@ -1793,6 +2139,34 @@ export const App = (props: AppProps) => {
               }
             />
           )}
+          {card.kind === "page" && (
+            <LinesCard
+              title={card.title}
+              hint={`${keys("pager.line")} ${keys("pager.halfDown")} ${keys("pager.halfUp")} scroll · ${keys("pager.search")} search · ${keys("pager.close")} close`}
+              lines={pagerLines}
+              top={pagerTop}
+              height={helpHeight}
+              footer={
+                card.typing
+                  ? `/${card.query}`
+                  : card.query.length > 0
+                    ? `${pagerMatches.length} match${pagerMatches.length === 1 ? "" : "es"} for ${card.query} · ${keys("pager.match")} next, before`
+                    : undefined
+              }
+            />
+          )}
+          {card.kind === "files" && (
+            <FilesCard
+              workspace={projection?.summary?.workspace.path ?? "the workspace"}
+              dir={card.dir}
+              rows={fileRows(card)}
+              truncated={listing?.truncated ?? false}
+              cursor={clampCursor(card.cursor, fileRows(card)?.length ?? 0)}
+              filter={card.filter}
+              height={Math.max(1, helpHeight - 1)}
+              hint={`type to filter · ${listHint("open", "close")}`}
+            />
+          )}
           {card.kind === "lines" && (
             <LinesCard
               title={card.which === "timeline" ? "Timeline" : card.which === "notices" ? "Notices" : "Tasks"}
@@ -1841,6 +2215,18 @@ export const App = (props: AppProps) => {
           )}
           {card.kind === "none" && opened && !railInPane && <DelegatedStrip tasks={tasks} />}
           {card.kind === "none" && opened && !railInPane && <QueuedLine queue={queue} steers={steers} verbs={queueVerbs} />}
+          {card.kind === "none" && paneOpen && !railInPane && terminal.pane && (
+            <TerminalPaneView
+              command={terminal.pane.command}
+              environment={names.get(terminal.pane.environmentId) ?? ""}
+              status={terminal.status()}
+              ended={terminal.pane.ended}
+              focused={paneHasKeys}
+              rows={terminal.rows(paneHasKeys)}
+              height={paneSize.rows}
+              hint={`${keys("app.focus.next")} reaches it`}
+            />
+          )}
           {card.kind === "none" && opened && !railInPane && standing?.undoable === true && undoVerb !== undefined && (
             <RewoundStrip text={standing.text} undo="/rewind undo" availability={undoVerb} />
           )}
@@ -1916,22 +2302,27 @@ const NOTICE_COLOURS: Readonly<Partial<Record<Notice["kind"], string>>> = {
   "prompt-parked": "yellow",
 };
 
-/** Ctrl+G with the terminal lent to `$EDITOR`: Ink leaves the alternate screen and raw mode while it runs (`suspendTerminal`). */
-const runEditor = async (suspend: (callback: () => Promise<void>) => Promise<void>, text: string): Promise<ExternalEditResult> => {
-  let result: ExternalEditResult = { ok: false, reason: "the editor did not run" };
+/**
+ * `work` with the terminal lent to it (Ctrl+G's `$EDITOR`, `o`'s `$VISUAL` or `$EDITOR`): Ink leaves the alternate screen
+ * and raw mode while it runs (`suspendTerminal`); `unrun` is the answer when it never ran.
+ */
+const lendTerminal = async <T,>(suspend: (callback: () => Promise<void>) => Promise<void>, work: () => Promise<T>, unrun: T): Promise<T> => {
+  let result = unrun;
   await suspend(async () => {
-    result = await editInExternalEditor(text);
+    result = await work();
   });
   return result;
 };
 
-/** What `r` puts back in the composer: the shell line a command call ran, or a slash command the run ran; null for any other row. */
+/** What `r` puts back in the composer: the shell line a command call ran, behind `!`, or a slash command the run ran; null for any other row. */
 const recall = (row: Row): string | null => {
   if (row.kind === "command") return `/${row.entry.name}${row.entry.args.length > 0 ? ` ${row.entry.args}` : ""}`;
   if (row.kind !== "calls") return null;
   for (const call of [...row.calls].reverse()) {
     const command = call.input["command"] ?? call.input["cmd"];
-    if (typeof command === "string" && command.trim().length > 0) return command;
+    // Behind `!`, as Artemis put it: Enter runs it again in the session's terminal. A command that itself starts with `!`
+    // (a negated one) is behind `! `, so it is never read as `!!` and runs as it was.
+    if (typeof command === "string" && command.trim().length > 0) return `!${command.startsWith("!") ? " " : ""}${command}`;
   }
   return null;
 };

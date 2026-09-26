@@ -30,14 +30,52 @@ import { folded, undoableFold, type Row } from "./rows.js";
  * `TOOL_QUIET_MS` turns amber and names the silence, Artemis's cue.
  */
 
-/** A piece of a line with one style. */
+/** A piece of a line with one style. The last four are a terminal cell's (the pane, a diff tool's colours): Ink's `Text` carries each. */
 export interface Span {
   readonly text: string;
   readonly color?: string;
   readonly dim?: boolean;
   readonly bold?: boolean;
   readonly italic?: boolean;
+  readonly background?: string;
+  readonly underline?: boolean;
+  readonly inverse?: boolean;
+  readonly strikethrough?: boolean;
 }
+
+/** Whether two spans are drawn alike, so one may run on into the other. */
+export const sameStyle = (a: Omit<Span, "text">, b: Omit<Span, "text">): boolean =>
+  a.color === b.color &&
+  a.dim === b.dim &&
+  a.bold === b.bold &&
+  a.italic === b.italic &&
+  a.background === b.background &&
+  a.underline === b.underline &&
+  a.inverse === b.inverse &&
+  a.strikethrough === b.strikethrough;
+
+/** A terminal cell's colour as an emulator or an SGR sequence gives it: a palette index, a 24-bit value, or the default. */
+export interface CellColour {
+  readonly palette: boolean;
+  readonly rgb: boolean;
+  readonly value: number;
+}
+
+/** A palette entry's colour, as Ink draws it. */
+export const paletteColour = (value: number): string => `ansi256(${String(value)})`;
+
+/**
+ * The colour Ink draws for a cell's (the terminal pane, a diff tool's
+ * colours): a palette entry as `ansi256(n)` (the first sixteen reach the
+ * user's terminal as its own palette, and chalk downsamples the rest where
+ * the terminal has fewer), a true colour as `#rrggbb`, the default as
+ * nothing.
+ */
+export const colourOf = (colour: CellColour): string | undefined => {
+  if (colour.palette) return paletteColour(colour.value);
+  if (colour.rgb) return `#${colour.value.toString(16).padStart(6, "0")}`;
+  return undefined;
+};
 
 /** One line on screen, and the row it belongs to. */
 export interface Line {
@@ -98,7 +136,7 @@ export const wrap = (spans: readonly Span[], width: number, hang = ""): Span[][]
   let breakAt: { readonly span: number; readonly offset: number } | undefined;
   const push = (style: Span, text: string) => {
     const last = line.at(-1);
-    if (last && last.color === style.color && last.dim === style.dim && last.bold === style.bold && last.italic === style.italic) {
+    if (last && sameStyle(last, style)) {
       line[line.length - 1] = { ...last, text: last.text + text };
     } else line.push({ ...style, text });
   };

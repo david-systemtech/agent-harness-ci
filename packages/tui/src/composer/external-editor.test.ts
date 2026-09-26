@@ -19,7 +19,7 @@ import { basename, dirname, join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { editInExternalEditor, splitCommand, type SpawnLike, type SpawnOptionsLike } from "./external-editor.js";
+import { editInExternalEditor, openInExternalEditor, splitCommand, type SpawnLike, type SpawnOptionsLike } from "./external-editor.js";
 
 interface SpawnCall {
   readonly file: string;
@@ -206,5 +206,22 @@ describe("editInExternalEditor", () => {
     await editInExternalEditor("draft", { env: { EDITOR: "vi" }, spawn: missing.spawn, tmpdir: inTemp });
 
     expect(await readdir(temp)).toEqual([]);
+  });
+});
+
+describe("openInExternalEditor", () => {
+  it("opens the file in $VISUAL before $EDITOR, at +line when the row knows the line, and takes any exit as done", async () => {
+    const editor = fakeEditor({ code: 1 });
+    expect(await openInExternalEditor({ path: "/w/src/a.ts", line: 12 }, { env: { VISUAL: "nvim -p", EDITOR: "nano" }, spawn: editor.spawn })).toEqual({ ok: true });
+    expect(editor.calls.map((c) => [c.file, c.args, c.options])).toEqual([["nvim", ["-p", "+12", "/w/src/a.ts"], { stdio: "inherit" }]]);
+  });
+
+  it("opens at the top with no line, and says why when there is no editor or it cannot start", async () => {
+    const editor = fakeEditor({});
+    await openInExternalEditor({ path: "/w/a.ts" }, { env: { EDITOR: "vi" }, spawn: editor.spawn });
+    expect(editor.calls[0]?.args).toEqual(["/w/a.ts"]);
+    expect(await openInExternalEditor({ path: "/w/a.ts" }, { env: {} })).toEqual({ ok: false, reason: "neither VISUAL nor EDITOR is set" });
+    const missing = fakeEditor({ error: new Error("spawn vi ENOENT") });
+    expect(await openInExternalEditor({ path: "/w/a.ts" }, { env: { EDITOR: "vi" }, spawn: missing.spawn })).toEqual({ ok: false, reason: "could not run vi: spawn vi ENOENT" });
   });
 });
