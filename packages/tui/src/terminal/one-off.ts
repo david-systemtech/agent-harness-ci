@@ -1,4 +1,5 @@
 import type { Clock, Runtime, TerminalHandle } from "@agent-harness/client-runtime";
+import { ONE_OFF_LINE, ONE_OFF_MAX_CHARS, ONE_OFF_VARIABLE, oneOffEnv, oneOffOutput } from "@agent-harness/contracts";
 import type { Opened } from "../session/use-session.js";
 import { createScreen } from "./screen.js";
 
@@ -39,45 +40,20 @@ import { createScreen } from "./screen.js";
  * - **A minute at most**: past `ONE_OFF_TIMEOUT_MS` the terminal is closed
  *   and the output says so. Every way it ends, the terminal is closed, so
  *   it never counts against the session's sixteen.
+ *
+ * The variables, the line and the reading of the marker are contracts'
+ * (`one-off.ts` there), where the environment's tests prove them against
+ * real pseudo-terminals.
  */
-
-/** The variable the command's script is handed in. */
-export const ONE_OFF_VARIABLE = "AGENT_HARNESS_ONE_OFF";
-
-/** The line typed into a one-off terminal: its shell hands itself over to `sh` running the script. The space keeps it out of history. */
-export const ONE_OFF_LINE = ` exec /bin/sh -c "$${ONE_OFF_VARIABLE}"\r`;
 
 /** How long a `!!` command may run before its terminal is closed. */
 export const ONE_OFF_TIMEOUT_MS = 60_000;
-
-/** Output held after the marker, in characters; past it the command runs on, unheard. */
-export const ONE_OFF_MAX_CHARS = 256 * 1024;
-
-/** What is held of the terminal before the marker: its tail, to say why when the marker never comes. */
-const PREAMBLE_MAX_CHARS = 16 * 1024;
 
 /** Lines of output kept for the agent; the rest are counted. */
 export const ONE_OFF_MAX_LINES = 200;
 
 /** The size a `!!` terminal opens at, and its output is read at. */
 const ONE_OFF_SIZE = { cols: 120, rows: 40 } as const;
-
-/** The pagers a `!!` command finds, each told to print: nobody is there to press a key. */
-export const NO_PAGERS: Readonly<Record<string, string>> = { PAGER: "cat", GIT_PAGER: "cat", MANPAGER: "cat", SYSTEMD_PAGER: "cat" };
-
-/** The script `sh` runs for `!!`: the marker, no input, no pager, then the command as typed. */
-export const oneOffScript = (command: string, marker: string): string =>
-  [
-    `printf '%s\\n' '${marker}'`,
-    "exec </dev/null",
-    `${Object.entries(NO_PAGERS)
-      .map(([name, value]) => `${name}=${value}`)
-      .join(" ")}; export ${Object.keys(NO_PAGERS).join(" ")}`,
-    command,
-  ].join("\n");
-
-/** The variables a `!!` terminal opens with. */
-export const oneOffEnv = (command: string, marker: string): Record<string, string> => ({ ...NO_PAGERS, [ONE_OFF_VARIABLE]: oneOffScript(command, marker) });
 
 /** The variables a `!` terminal opens with: the command alone, run where a person can answer it. */
 export const shownEnv = (command: string): Record<string, string> => ({ [ONE_OFF_VARIABLE]: command });
@@ -96,61 +72,6 @@ export const clipOutput = (text: string, max = ONE_OFF_MAX_LINES, more = 0): str
   const dropped = Math.max(0, rows.length - max) + more;
   if (dropped === 0) return text;
   return [...rows.slice(0, max), `… ${String(dropped)} more line${dropped === 1 ? "" : "s"}`].join("\n");
-};
-
-/** What a `!!` terminal printed, held as it arrives: the tail of what came before the marker's line, and up to `ONE_OFF_MAX_CHARS` after it. */
-export interface OneOffOutput {
-  take(data: string): void;
-  /**
-   * Starts again from `data` (a snapshot: the retained scrollback). One that no longer holds the marker's line, once it
-   * had come, is all the command's, its start dropped.
-   */
-  reset(data: string): void;
-  /** What came after the marker's line, whether more came than was held, and whether its start was dropped; null before the marker's line has come. */
-  said(): { readonly text: string; readonly cut: boolean; readonly dropped: boolean } | null;
-  /** The tail of what came before the marker (all of it, while no marker has come). */
-  before(): string;
-}
-
-export const oneOffOutput = (marker: string, max = ONE_OFF_MAX_CHARS): OneOffOutput => {
-  let before = "";
-  let after: string | null = null;
-  let cut = false;
-  let dropped = false;
-  const hold = (data: string) => {
-    const room = max - (after ?? "").length;
-    if (data.length > room) cut = true;
-    after = (after ?? "") + data.slice(0, Math.max(0, room));
-  };
-  const take = (data: string) => {
-    if (after !== null) return hold(data);
-    before += data;
-    const at = before.indexOf(marker);
-    const end = at === -1 ? -1 : before.indexOf("\n", at);
-    if (end === -1) {
-      // The marker may be arriving in pieces: the tail kept is always longer than it.
-      if (before.length > PREAMBLE_MAX_CHARS) before = before.slice(-PREAMBLE_MAX_CHARS);
-      return;
-    }
-    const rest = before.slice(end + 1);
-    before = before.slice(0, at);
-    hold(rest);
-  };
-  return {
-    take,
-    reset(data) {
-      const started = after !== null;
-      before = "";
-      after = null;
-      cut = false;
-      // The scrollback's cap took the marker's line after it had come: everything retained came after it.
-      dropped = started && !data.includes(marker);
-      if (dropped) after = "";
-      take(data);
-    },
-    said: () => (after === null ? null : { text: after, cut, dropped }),
-    before: () => before,
-  };
 };
 
 /**

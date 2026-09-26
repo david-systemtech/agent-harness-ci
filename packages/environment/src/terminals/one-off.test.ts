@@ -3,12 +3,10 @@ import { randomUUID } from "node:crypto";
 import { chmodSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { ONE_OFF_LINE, oneOffEnv, oneOffOutput } from "@agent-harness/contracts";
 import { useCleanups } from "../../test/cleanups.js";
 import { startTestEnvironment } from "../../test/helper.js";
 import { follow, openTerminal, sessionIn, typeInto } from "../../test/terminals.js";
-// The terminal UI's `!!` line and its reading, proven here against the environment's real pseudo-terminals: a test-only
-// import of the client's pure module, which the environment itself never loads.
-import { ONE_OFF_LINE, oneOffEnv, oneOffOutput, shownText } from "../../../tui/src/terminal/one-off.js";
 
 /**
  * The terminal UI's one-off command (`!!`, docs/specs/tui.md, "The
@@ -24,6 +22,12 @@ import { ONE_OFF_LINE, oneOffEnv, oneOffOutput, shownText } from "../../../tui/s
 const { onCleanup, tempDir } = useCleanups();
 
 const SH = { file: "/bin/sh", args: [] } as const;
+
+/**
+ * What came after the marker as plain lines: the pseudo-terminal ends each with `\r\n`, and these commands print no
+ * other control. The terminal UI reads it through its emulator (`shownText`), tested there.
+ */
+const lines = (text: string): string => text.replace(/\r\n/g, "\n").trimEnd();
 
 /** Runs `command` as `!!` does in a directory of its own; resolves with the terminal's text, what came after the marker, and the exit. */
 const oneOff = async (command: string, prepare: (dir: string) => void = () => undefined) => {
@@ -42,7 +46,7 @@ const oneOff = async (command: string, prepare: (dir: string) => void = () => un
   const heard = oneOffOutput(marker);
   heard.take(view.text);
   const said = heard.said();
-  return { raw: view.text, said: said === null ? null : await shownText(said.text), exitCode: view.exited?.exitCode };
+  return { raw: view.text, said: said === null ? null : lines(said.text), exitCode: view.exited?.exitCode };
 };
 
 describe("a one-off command in a real terminal", () => {

@@ -1,8 +1,8 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { ONE_OFF_LINE } from "@agent-harness/contracts";
 import { KEY, renderApp, type RenderedApp } from "../test/harness.js";
-import { ONE_OFF_LINE } from "./terminal/one-off.js";
 
 /**
  * The terminal pane (docs/specs/tui.md, "The terminal pane"; #148):

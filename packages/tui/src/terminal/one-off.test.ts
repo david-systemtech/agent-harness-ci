@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import { writable, type Runtime, type TerminalOutput, type TerminalStreamView } from "@agent-harness/client-runtime";
 import { manualClock } from "@agent-harness/client-runtime/testing";
 import { flush } from "@agent-harness/client-runtime/testing/fake-wire";
-import { afterMarker, clipOutput, NO_PAGERS, ONE_OFF_LINE, ONE_OFF_MAX_CHARS, ONE_OFF_VARIABLE, oneOffEnv, oneOffMessage, oneOffScript, runOneOff } from "./one-off.js";
+import { ONE_OFF_LINE, ONE_OFF_MAX_CHARS, ONE_OFF_VARIABLE, oneOffEnv } from "@agent-harness/contracts";
+import { afterMarker, clipOutput, oneOffMessage, runOneOff } from "./one-off.js";
 
 /**
  * `!!`'s one-off command (docs/specs/tui.md, "The composer"): the command
@@ -24,23 +25,6 @@ describe("the marker", () => {
   it("is null when it never came, and nothing follows it when its line has not ended", () => {
     expect(afterMarker("$ nu: unknown command exec\r\n", MARKER)).toBeNull();
     expect(afterMarker(`$ ${MARKER}`, MARKER)).toBe("");
-  });
-});
-
-describe("the script and its variables", () => {
-  it("print the marker, then take no input and tell every pager to print, then run the command as typed", () => {
-    expect(oneOffScript("git log", MARKER).split("\n")).toEqual([
-      `printf '%s\\n' '${MARKER}'`,
-      "exec </dev/null",
-      "PAGER=cat GIT_PAGER=cat MANPAGER=cat SYSTEMD_PAGER=cat; export PAGER GIT_PAGER MANPAGER SYSTEMD_PAGER",
-      "git log",
-    ]);
-    expect(oneOffEnv("git log", MARKER)).toEqual({ ...NO_PAGERS, [ONE_OFF_VARIABLE]: oneOffScript("git log", MARKER) });
-    expect(NO_PAGERS).toEqual({ PAGER: "cat", GIT_PAGER: "cat", MANPAGER: "cat", SYSTEMD_PAGER: "cat" });
-  });
-
-  it("are handed over by a line that starts with a space, which keeps it out of the shell's history", () => {
-    expect(ONE_OFF_LINE).toBe(` exec /bin/sh -c "$${ONE_OFF_VARIABLE}"\r`);
   });
 });
 

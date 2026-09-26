@@ -57,7 +57,8 @@ export default defineConfig([
   {
     files: ["packages/environment/**/*.ts"],
     rules: forbidImports(
-      `^(@agent-harness/(${anyClient})|agent-harness)(/|$)`,
+      // A relative path into a client's or the CLI's folder is the same import, its tests included.
+      `^(@agent-harness/(${anyClient})|agent-harness)(/|$)|^(\\.\\./)+(${anyClient}|cli)/`,
       "The environment depends on contracts, never on a client or the CLI.",
     ),
   },

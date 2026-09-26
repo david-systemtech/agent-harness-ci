@@ -49,6 +49,15 @@ describe("the lint configuration", () => {
     ).toContain("no-restricted-imports");
   });
 
+  it("keeps the environment, its tests included, free of imports from a client or the CLI, by name or by relative path", async () => {
+    const ids = async (file: string, source: string) => ruleIds(file, `import { x } from "${source}";\nexport { x };\n`);
+    expect(await ids("packages/environment/src/x.ts", "@agent-harness/tui")).toContain("no-restricted-imports");
+    expect(await ids("packages/environment/src/terminals/x.test.ts", "../../../tui/src/terminal/one-off.js")).toContain("no-restricted-imports");
+    expect(await ids("packages/environment/test/x.ts", "../../cli/src/main.js")).toContain("no-restricted-imports");
+    expect(await ids("packages/environment/src/terminals/x.test.ts", "../../test/helper.js")).not.toContain("no-restricted-imports");
+    expect(await ids("packages/environment/src/x.ts", "@agent-harness/contracts")).not.toContain("no-restricted-imports");
+  });
+
   it("keeps the client runtime's imports to contracts", async () => {
     const ids = async (source: string) =>
       ruleIds("packages/client-runtime/src/x.ts", `import { x } from "${source}";\nexport { x };\n`);

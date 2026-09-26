@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import type { Runtime, TerminalHandle, TerminalOutput, TerminalStatus } from "@agent-harness/client-runtime";
+import { ONE_OFF_LINE } from "@agent-harness/contracts";
 import type { Opened } from "../session/use-session.js";
 import type { Span } from "../transcript/lines.js";
 import { forwarded, pasted } from "./keys.js";
-import { ONE_OFF_LINE, shownEnv } from "./one-off.js";
+import { shownEnv } from "./one-off.js";
 import { createScreen, type Screen } from "./screen.js";
 
 /**
