@@ -185,6 +185,62 @@ describe("the prompt picker (Esc Esc)", () => {
     await app.waitFor("Files are not restored");
   });
 
+  it("is not opened by two Escs in one read from the transcript: the first leaves it, the second is dropped", async () => {
+    const { app, env } = await launch();
+    await converse(app, env, "Fix the receipts", "Add the tests");
+    await cursorTo(app, "Add the tests");
+    await app.press("\u001B\u001B");
+    await app.waitUntil(() => !app.frame().includes("The transcript has the keys"), "the cursor to leave the transcript");
+    await app.tick(2);
+    expect(app.frame()).not.toContain("Files are not restored");
+    // From the composer it leaves the transcript for, Esc Esc opens it.
+    await app.advance(600);
+    await app.press(KEY.esc, KEY.esc);
+    await app.waitFor("Files are not restored");
+  });
+
+  it("is not opened by two Escs in one read with the reverse search open: the first closes it, the second is dropped", async () => {
+    const { app, env } = await launch();
+    await converse(app, env, "Fix the receipts", "Add the tests");
+    await app.press(KEY.ctrlR);
+    await app.type("Fix");
+    await app.waitFor("(search this session) Fix");
+    await app.press("\u001B\u001B");
+    await app.waitUntil(() => !app.frame().includes("(search"), "the search to close");
+    await app.tick(2);
+    expect(app.frame()).not.toContain("Files are not restored");
+  });
+
+  it("is not opened by two Escs in one read that answer stop and rewind: the first declines it, the second is dropped", async () => {
+    const { app, env } = await launch();
+    await converse(app, env, "Fix the receipts", "Add the tests");
+    await send(app, "Write the docs");
+    await app.waitFor("steer or queue a message");
+    await command(app, "/rewind 2");
+    await app.waitFor("A run is live: stop it, then rewind to Add the tests? y/n");
+    await app.press("\u001B\u001B");
+    await app.waitFor("Not rewound: the run goes on.");
+    await app.tick(2);
+    expect(app.frame()).not.toContain("Files are not restored");
+    expect(sentInOrder(env, "runs.interrupt", "sessions.rewind")).toEqual([]);
+  });
+
+  it("is not opened by two Escs in one read that decline the service-down offer", async () => {
+    const app = await renderApp({
+      script: { environments: [{ name: "desk", reach: "local", discovery: "nothing" }, { name: "laptop", reach: "paired", sessions: [{ title: "Receipts" }] }] },
+      flags: { session: SESSION },
+    });
+    apps.push(app);
+    const env = app.environment("laptop");
+    await app.waitFor("Nothing said yet.");
+    await converse(app, env, "Fix the receipts", "Add the tests");
+    await app.waitFor("Start it? y/n");
+    await app.press("\u001B\u001B");
+    await app.waitFor("Not started");
+    await app.tick(2);
+    expect(app.frame()).not.toContain("Files are not restored");
+  });
+
   it("interrupts a live run with the first of two Escs in one read, and opens with the second", async () => {
     const { app, env } = await launch();
     await converse(app, env, "Fix the receipts");

@@ -1265,6 +1265,9 @@ export const App = (props: AppProps) => {
 
   // The press before this one, where and when it was heard: keys pressed in turn (`Esc Esc`, `\ Enter`) start with it (`pressedBefore`).
   const lastPress = useRef<Press | undefined>(undefined);
+  // The second of two Escs heard in one read, held for the render after the first's: heard there, in the place the first left.
+  const pairedEscHeld = useRef<InkKey | undefined>(undefined);
+  const [, drawForPairedEsc] = useState(0);
 
   usePaste(
     (text) => {
@@ -1287,13 +1290,14 @@ export const App = (props: AppProps) => {
   // Each key Ink hears; `pairedEsc` for the second of two Escs heard in one read, which is `Esc Esc` in the same place.
   const hear = (input: string, key: InkKey, pairedEsc = false) => {
     // Two Escs in one read (a fast double tap, SSH, or tmux, whose escape-time sends them together): Ink 7 reads `\x1b\x1b`
-    // as one Esc with Meta, its input the second byte. They are heard in turn: the single Esc's meaning, then the second in
-    // the same place as `Esc Esc` only, never a single Esc again (this render's state is from before the first: a card it
-    // closed is still open here, so `app.prompt.back` declines, and nothing is denied or interrupted twice).
+    // as one Esc with Meta, its input the second byte. They are heard in turn: the single Esc's meaning now, then the second
+    // once that is drawn (this render's state is from before the first), as `Esc Esc` only, never a single Esc again, so
+    // nothing is denied or interrupted twice.
     if (key.escape && key.meta && (input === "" || input === "\u001B") && !pairedEsc) {
       const single: InkKey = { ...key, meta: false };
       hear("", single);
-      hear("", single, true);
+      pairedEscHeld.current = single;
+      drawForPairedEsc((n) => n + 1);
       return;
     }
     // A key draws what the scheduler holds back, with its own echo.
@@ -1307,10 +1311,13 @@ export const App = (props: AppProps) => {
     // transcript or a search) starts nothing with this one.
     const place = placeOf(card.kind, promptShown && "prompt", question !== undefined && "question", focused, composer.searching && "search");
     const heardAt = clock.now().getTime();
-    const previous = pairedEsc ? "Esc" : pressedBefore(lastPress.current, name, heardAt, place);
+    const previous = pressedBefore(lastPress.current, name, heardAt, place);
     // Text arriving in one read (a fast typist, a terminal that batches) ends on its last character: `one\` then Enter is `\ Enter`.
     const last = name ?? (input.length > 0 && !key.ctrl && !key.meta ? [...input].at(-1) : undefined);
     lastPress.current = last === undefined ? undefined : { name: last, at: heardAt, place };
+    // The second of two Escs in one read after a first that closed a card, answered a question, left the transcript or closed
+    // the search: dropped, as the same-place rule makes it no `Esc Esc` and it is never a single Esc.
+    if (pairedEsc && previous === undefined) return;
     const linesPanel = card.kind === "panel" && pickers.isLines(card.panel);
     const listCard =
       card.kind === "environments" ||
@@ -1628,6 +1635,13 @@ export const App = (props: AppProps) => {
     if (input !== "" && !key.ctrl && !key.meta && !key.escape && !key.tab && !key.return) composer.type(input);
   };
   useInput((input: string, key: InkKey) => hear(input, key));
+  // The second of two Escs in one read, heard with the state the first left.
+  useEffect(() => {
+    const held = pairedEscHeld.current;
+    if (held === undefined) return;
+    pairedEscHeld.current = undefined;
+    hear("", held, true);
+  });
 
   // A card that is a list of the session's needs the session: gone, it closes. The asks card closes with its last row.
   const sessionCard = card.kind === "pager" || (card.kind === "lines" && card.which !== "notices");
