@@ -38,6 +38,11 @@ describe("the badges of the environments listed", () => {
     expect(badgesOf([view(null)]).get("id-placeholder")?.abbreviation).toBe("TM");
   });
 
+  it("take a digit after the first letter once the letters run out, so two names with the same letters differ", () => {
+    const badges = badgesOf([view("ab"), view("a b"), view("A-B")]);
+    expect([...badges.values()].map((b) => b.abbreviation)).toEqual(["AB", "A2", "A3"]);
+  });
+
   it("fall back to ?? for a name with no letter or digit, rather than an empty abbreviation", () => {
     expect(badgesOf([view("---")]).get("id----")?.abbreviation).toBe("??");
     expect(abbreviationOf("···")).toBe("");

@@ -189,8 +189,11 @@ describe("the headings", () => {
     const app = await one({ sessions: [{ id: LATER, title: "Later this week", snoozedUntil: at(81), snoozedAt: at(-1) }, { id: SPARE, title: "Spare" }] });
     await focusRail(app, "Spare");
     await cursorTo(app, "Later");
+    // On the snoozed shelf the wake time sits at the right, some of the title kept beside it.
+    expect(rowWith(app, "Later")).toMatch(/●DE · Later.* \d\d:00$/);
     app.environment("desk").list.hold("sessions.pin");
     await app.press("p");
+    // Pinned while the receipt is held, the row moves to the pinned block, which shows no wake time: the marker takes the right.
     await app.waitUntil(() => rowWith(app, "●DE · ").includes("↻"), "the row pending");
     expect(rowWith(app, "↻")).toMatch(/●DE · Later/);
   });

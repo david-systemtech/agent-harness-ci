@@ -13,7 +13,7 @@ import type { SessionSummary } from "@agent-harness/contracts";
 
 export interface Badge {
   readonly icon: string;
-  /** Two letters, in capitals, no other environment listed has. */
+  /** Two letters, in capitals, no other environment listed has; a digit after the first letter once the letters run out. */
   readonly abbreviation: string;
   /** An Ink colour: the environment's own, or one of the terminal's. */
   readonly colour: string;
@@ -35,12 +35,17 @@ export const abbreviationOf = (name: string | null): string => {
   return lettersOf(first).slice(0, 2).join("");
 };
 
-/** Every abbreviation a name may take, the plain one first: its first letter with each later letter in turn; none for a name with no letters. */
+/**
+ * Every abbreviation a name may take, the plain one first: its first letter
+ * with each later letter in turn, then with a digit from 2 to 9, so two names
+ * of the same letters ("ab", "a b") still differ; none for a name with no
+ * letters, which falls back to "??" below.
+ */
 const candidatesOf = (name: string | null): string[] => {
   const letters = lettersOf(name ?? "this machine");
   const [head = "?", ...rest] = letters;
-  // A name with no letter or digit abbreviates to nothing: left out, so the badge falls back to "??" below.
-  return [abbreviationOf(name), ...rest.map((letter) => `${head}${letter}`)].filter((c) => c !== "");
+  const digits = letters.length === 0 ? [] : [..."23456789"].map((digit) => `${head}${digit}`);
+  return [abbreviationOf(name), ...rest.map((letter) => `${head}${letter}`), ...digits].filter((c) => c !== "");
 };
 
 /** The badge of every environment listed, by id: an abbreviation taken by one listed earlier is replaced by the next free one. */
