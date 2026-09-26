@@ -81,6 +81,18 @@ describe("the output after the marker", () => {
     expect(heard.before()).toBe("motd\r\n$ ");
   });
 
+  it("appends what comes after a snapshot to what the snapshot held, heard before it or not", () => {
+    const fresh = oneOffOutput(MARKER);
+    fresh.reset(`${MARKER}\r\nhi\r\n`);
+    fresh.take("more");
+    expect(fresh.said()).toEqual({ text: "hi\r\nmore", cut: false, dropped: false });
+    const heard = oneOffOutput(MARKER);
+    heard.take(`${MARKER}\r\nhi\r\n`);
+    heard.reset(`${MARKER}\r\nhi\r\n`);
+    heard.take("more");
+    expect(heard.said()).toEqual({ text: "hi\r\nmore", cut: false, dropped: false });
+  });
+
   it("keeps the cut through a snapshot: more came than was held, whatever the snapshot still holds", () => {
     const heard = oneOffOutput(MARKER, 4);
     heard.take(`${MARKER}\r\nabcdef`);
