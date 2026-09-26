@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "StepState",
+  "type": "string",
+  "enum": [
+    "done",
+    "needs-attention",
+    "skipped"
+  ],
+  "description": "What a step's check found: done, needs-attention, or skipped (a skippable step a person skipped; never a preference step)."
+}

@@ -8,11 +8,13 @@
  */
 import { BYPASS_SENTENCE, FRAME_TYPES, SHARED_ERROR_CODES, methodPath, methods, type FrameType } from "../src/index.js";
 import { accountMethodFixtures, accountSchemaFixtures } from "./account-fixtures.js";
+import { completionsSchemaFixtures } from "./completions-fixtures.js";
 import { permissionMethodFixtures, permissionSchemaFixtures } from "./permission-fixtures.js";
 import { providerMethodFixtures, providerSchemaFixtures } from "./provider-fixtures.js";
 import { runMethodFixtures, runSchemaFixtures } from "./run-fixtures.js";
 import { sessionMethodFixtures, sessionSchemaFixtures } from "./session-fixtures.js";
 import { settingsMethodFixtures, settingsSchemaFixtures } from "./settings-fixtures.js";
+import { setupMethodFixtures, setupSchemaFixtures } from "./setup-fixtures.js";
 import { terminalMethodFixtures, terminalSchemaFixtures } from "./terminal-fixtures.js";
 import { usageMethodFixtures, usageSchemaFixtures } from "./usage-fixtures.js";
 
@@ -118,6 +120,21 @@ const accessPayloads = {
   "ceiling.changed": { clientSessionId: "cs-1", from: "plan", to: "auto" },
   "bypass.acknowledged": { setting: "permissions.unattended.mode", sentence: BYPASS_SENTENCE },
   "settings.changed": { area: "permissions", keys: ["permissions.parkedPrompt.ttl"], values: { "permissions.parkedPrompt.ttl": "never" } },
+  "denylist.changed": {
+    section: "paths",
+    added: [{ id: "e-1", pattern: "/etc/shadow", note: "", preset: false, enabled: true }],
+    removed: [],
+    edited: [
+      {
+        before: { id: "preset:~/.ssh", pattern: "~/.ssh", note: "SSH keys.", preset: true, enabled: true },
+        after: { id: "preset:~/.ssh", pattern: "~/.ssh", note: "SSH keys.", preset: true, enabled: false },
+      },
+    ],
+    entries: [
+      { id: "preset:~/.ssh", pattern: "~/.ssh", note: "SSH keys.", preset: true, enabled: false },
+      { id: "e-1", pattern: "/etc/shadow", note: "", preset: false, enabled: true },
+    ],
+  },
 };
 
 /** An invalid payload for every access event type. */
@@ -142,6 +159,12 @@ const invalidAccessPayloads: Record<keyof typeof accessPayloads, readonly unknow
     { area: "permissions", keys: ["permissions.parkedPrompt.ttl"], values: { "permissions.parkedPrompt.ttl": "forever" } },
     { area: "permissions", keys: ["permissions.other"], values: {} },
     { area: "permissions", keys: ["permissions.defaultCeiling"], values: { "permissions.defaultCeiling": "plan", other: 1 } },
+  ],
+  "denylist.changed": [
+    { ...accessPayloads["denylist.changed"], section: "files" },
+    without(accessPayloads["denylist.changed"], "entries"),
+    { ...accessPayloads["denylist.changed"], added: [{ id: "e-1", pattern: "/etc/shadow" }] },
+    { ...accessPayloads["denylist.changed"], edited: [{ before: null, after: null }] },
   ],
 };
 
@@ -302,10 +325,16 @@ const frameFixtures = Object.fromEntries(
 );
 
 const methodErrorFixtures: Fixtures = {
-  valid: Object.values(sharedErrors),
+  valid: [
+    ...Object.values(sharedErrors),
+    // #180: the scope is held, but the call would grant a ceiling above the caller's own.
+    { code: "forbidden", message: "A pairing at bypassPermissions is above this client session's own ceiling.", data: { scope: "admin", reason: "ceiling", ceiling: "acceptEdits" } },
+  ],
   invalid: [
     { code: "no_such_error", message: "m", data: {} },
     { code: "forbidden", message: "m", data: { scope: "everything" } },
+    { code: "forbidden", message: "m", data: { scope: "admin", reason: "mode", ceiling: "acceptEdits" } },
+    { code: "forbidden", message: "m", data: { scope: "admin", reason: "ceiling", ceiling: "dontAsk" } },
     { code: "internal", message: "m" },
   ],
 };
@@ -462,6 +491,7 @@ const methodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
   ...runMethodFixtures,
   ...providerMethodFixtures,
   ...settingsMethodFixtures,
+  ...setupMethodFixtures,
   ...permissionMethodFixtures,
   ...accountMethodFixtures,
   ...usageMethodFixtures,
@@ -763,9 +793,11 @@ export const schemaFixtures: Record<string, Fixtures> = {
   ...runSchemaFixtures,
   ...providerSchemaFixtures,
   ...settingsSchemaFixtures,
+  ...setupSchemaFixtures,
   ...permissionSchemaFixtures,
   ...accountSchemaFixtures,
   ...usageSchemaFixtures,
   ...terminalSchemaFixtures,
+  ...completionsSchemaFixtures,
   ...methodSchemaFixtures,
 };

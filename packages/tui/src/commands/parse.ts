@@ -1,16 +1,44 @@
 import type { PairingInput } from "@agent-harness/client-runtime";
+import { actionById, isCommandId } from "@agent-harness/contracts";
 import { RAIL_COMMANDS, isRailCommand, type RailCommand } from "../rail/commands.js";
 
 /**
- * The slash commands this build answers (docs/specs/tui.md, "First launch"
- * and "Shortcuts"): `/pair <link>`, `/pair <address> <code>`, `/pair create`,
- * `/environment`, `/help`, `/reload`. Text that is not one goes to a session,
- * which the transcript ticket opens; until then it is answered with one line.
- * What follows a `/` is syntax, whatever key opens the command menu.
+ * The slash commands this build answers (docs/specs/tui.md, "First launch",
+ * "The composer" and "Shortcuts"): `/pair <link>`, `/pair <address> <code>`,
+ * `/pair create`, `/environment`, `/help`, `/reload`; and, carried from
+ * Artemis with the transcript and the composer, `/resume`, `/new`,
+ * `/attach <path>`, `/snip`, `/tasks`, `/copy`, `/export [file]`,
+ * `/timeline` and `/quit`; with the cards, `/asks` and `/notices`; with
+ * the rail, `/archive`, `/pin`, `/title`, `/group`, `/tag`, `/settle`,
+ * `/snooze`, `/restore`, `/search` and `/cwd` (`rail/commands.ts`). A
+ * command of the shared list this build does not answer yet says so in one
+ * line, and one the list keeps absent gives its reason; `/profile` is a
+ * hidden alias of `/account`. Anything else that
+ * begins with a slash is not the terminal's: it goes to the agent as typed,
+ * which is how the provider's own commands are run (Artemis's rule). What
+ * follows a `/` is syntax, whatever key opens the command menu.
  */
 
 /** The slash commands `parseCommand` knows, by their names in the shared action list (`command.<name>`); the rail's are its own (`rail/commands.ts`). */
-export const ANSWERED_COMMANDS = ["pair", "environment", "help", "reload", ...RAIL_COMMANDS] as const;
+export const ANSWERED_COMMANDS = [
+  "pair",
+  "environment",
+  "help",
+  "reload",
+  "resume",
+  "new",
+  "attach",
+  "snip",
+  "tasks",
+  "copy",
+  "export",
+  "timeline",
+  "quit",
+  "asks",
+  "notices",
+  ...RAIL_COMMANDS,
+] as const;
+
 export type Command =
   | { readonly kind: "pair"; readonly input: PairingInput }
   | { readonly kind: "pair-create" }
@@ -18,18 +46,52 @@ export type Command =
   | { readonly kind: "help" }
   | { readonly kind: "reload" }
   | { readonly kind: "rail"; readonly command: RailCommand }
+  | { readonly kind: "resume" }
+  | { readonly kind: "new" }
+  | { readonly kind: "attach"; readonly path: string }
+  | { readonly kind: "snip-list" }
+  | { readonly kind: "snip"; readonly name: string; readonly words: readonly string[] }
+  | { readonly kind: "snip-save"; readonly name: string; readonly body: string }
+  | { readonly kind: "snip-remove"; readonly name: string }
+  | { readonly kind: "snip-examples" }
+  | { readonly kind: "tasks" }
+  | { readonly kind: "copy"; readonly block: number | null }
+  | { readonly kind: "export"; readonly file: string | null }
+  | { readonly kind: "timeline" }
+  | { readonly kind: "quit" }
+  | { readonly kind: "asks" }
+  | { readonly kind: "notices" }
+  /** A command of the shared list this build does not answer: `line` says why. */
+  | { readonly kind: "not-here"; readonly name: string; readonly line: string }
   | { readonly kind: "usage"; readonly line: string }
-  | { readonly kind: "unknown"; readonly name: string }
+  /** Text for the agent: a message, or a slash command the terminal does not know, as typed. */
   | { readonly kind: "text"; readonly text: string };
 
 export const PAIR_USAGE = "Usage: /pair <link>, /pair <address> <code>, or /pair create.";
 
+/** The hidden aliases: the name typed, and the command it names. */
+const ALIASES: Readonly<Record<string, string>> = { profile: "account", environments: "environment" };
+
+/** What a command of the list this build does not answer says: its reason when the list keeps it absent. */
+const notHere = (name: string): Command => {
+  const action = actionById(`command.${name}`);
+  const line = action?.status === "absent" ? `/${name} is not here: ${action.reason}` : `/${name} is not in this build of the terminal UI yet.`;
+  return { kind: "not-here", name, line };
+};
+
+const bare = (rest: readonly string[], command: Command, usage: string): Command => (rest.length === 0 ? command : { kind: "usage", line: `Usage: ${usage}` });
+
 export const parseCommand = (typed: string): Command => {
   const text = typed.trim();
   if (!text.startsWith("/")) return { kind: "text", text };
-  const [name = "", ...rest] = text.slice(1).split(/\s+/);
-  // The rail's forms take what follows the name whole, spaces kept: a title or a group's name has several words.
-  if (isRailCommand(name)) return { kind: "rail", command: { name, text: text.slice(1 + name.length).trim() } };
+  const [word = "", ...rest] = text.slice(1).split(/\s+/);
+  const lowered = word.toLowerCase();
+  const name = ALIASES[lowered] ?? lowered;
+  // Everything after the command word, as typed: a snippet's body keeps its lines.
+  const tail = text.slice(1 + word.length).trim();
+  // The rail's forms take what follows the name whole, spaces kept: a title or a group's name has several words. None of
+  // them is a name the switch below answers.
+  if (isRailCommand(name)) return { kind: "rail", command: { name, text: tail } };
   switch (name) {
     case "pair": {
       if (rest.length === 1 && rest[0] === "create") return { kind: "pair-create" };
@@ -43,13 +105,51 @@ export const parseCommand = (typed: string): Command => {
       return { kind: "usage", line: PAIR_USAGE };
     }
     case "environment":
-    case "environments":
-      return rest.length === 0 ? { kind: "environment" } : { kind: "usage", line: "Usage: /environment" };
+      return bare(rest, { kind: "environment" }, "/environment");
     case "help":
-      return rest.length === 0 ? { kind: "help" } : { kind: "usage", line: "Usage: /help" };
+      return bare(rest, { kind: "help" }, "/help");
     case "reload":
-      return rest.length === 0 ? { kind: "reload" } : { kind: "usage", line: "Usage: /reload" };
+      return bare(rest, { kind: "reload" }, "/reload");
+    case "resume":
+      return bare(rest, { kind: "resume" }, "/resume");
+    case "new":
+      return bare(rest, { kind: "new" }, "/new");
+    case "tasks":
+      return bare(rest, { kind: "tasks" }, "/tasks");
+    case "timeline":
+      return bare(rest, { kind: "timeline" }, "/timeline");
+    case "quit":
+      return bare(rest, { kind: "quit" }, "/quit");
+    case "asks":
+      return bare(rest, { kind: "asks" }, "/asks");
+    case "notices":
+      return bare(rest, { kind: "notices" }, "/notices");
+    case "attach":
+      return tail.length > 0 ? { kind: "attach", path: tail } : { kind: "usage", line: "Usage: /attach <path>" };
+    case "export":
+      return { kind: "export", file: tail.length > 0 ? tail : null };
+    case "copy": {
+      if (rest.length === 0) return { kind: "copy", block: null };
+      const block = Number(rest[0]);
+      return rest.length === 1 && Number.isInteger(block) && block >= 1 ? { kind: "copy", block } : { kind: "usage", line: "Usage: /copy, or /copy <n> for the nth code block of the last reply" };
+    }
+    case "snip": {
+      const [first, second] = rest;
+      if (first === undefined) return { kind: "snip-list" };
+      if (first === "--examples") return bare(rest.slice(1), { kind: "snip-examples" }, "/snip --examples");
+      if (first === "save") {
+        // The body is the rest of the line as typed, its line breaks kept: a template's lines are part of it.
+        const afterSave = tail.slice("save".length).replace(/^\s+/, "");
+        const body = second === undefined ? "" : afterSave.slice(second.length).replace(/^[ \t]*\n?/, "");
+        if (second === undefined || body.trim().length === 0) return { kind: "usage", line: "Usage: /snip save <name> <the template>, with the text to save after the name." };
+        return { kind: "snip-save", name: second, body };
+      }
+      if (first === "rm") return second !== undefined && rest.length === 2 ? { kind: "snip-remove", name: second } : { kind: "usage", line: "Usage: /snip rm <name>" };
+      return { kind: "snip", name: first, words: rest.slice(1) };
+    }
     default:
-      return { kind: "unknown", name };
+      // A command of the shared list this build does not answer is still the terminal's, never the agent's.
+      if (isCommandId(`command.${name}`)) return notHere(name);
+      return { kind: "text", text };
   }
 };

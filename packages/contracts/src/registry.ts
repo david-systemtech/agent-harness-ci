@@ -33,6 +33,7 @@ import {
   sessionsReorderPinned,
   sessionsRestore,
   sessionsRewind,
+  sessionsUndoRewind,
   sessionsSetDraft,
   sessionsSetGroup,
   sessionsSettle,
@@ -49,6 +50,10 @@ import {
 } from "./methods/sessions.js";
 import {
   permissionsContainmentSet,
+  permissionsDenylistGet,
+  permissionsDenylistRestorePresets,
+  permissionsDenylistSet,
+  permissionsDenylistTest,
   permissionsModeSet,
   permissionsPromptsAnswer,
   permissionsPromptsList,
@@ -60,6 +65,7 @@ import {
 import { runsInterrupt, runsReadNow, runsSend, runsStart, runsStopTask, runsWithdraw } from "./methods/runs.js";
 import { providersList, providersProcessesList, providersProcessesStop } from "./methods/providers.js";
 import { settingsGet, settingsUpdate } from "./methods/settings.js";
+import { setupCheck } from "./methods/setup.js";
 import {
   accountsAdd,
   accountsAdopt,
@@ -124,6 +130,7 @@ export const methods = [
   sessionsPurge,
   sessionsFork,
   sessionsRewind,
+  sessionsUndoRewind,
   groupsCreate,
   groupsRename,
   groupsReorder,
@@ -169,6 +176,11 @@ export const methods = [
   permissionsPromptsAnswer,
   permissionsReviewList,
   permissionsReviewSeen,
+  permissionsDenylistGet,
+  permissionsDenylistSet,
+  permissionsDenylistRestorePresets,
+  permissionsDenylistTest,
+  setupCheck,
   terminalsOpen,
   terminalsWrite,
   terminalsResize,

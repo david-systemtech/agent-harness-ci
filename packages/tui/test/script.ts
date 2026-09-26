@@ -2,23 +2,40 @@ import type { GrantReader, HttpFetch, WebSocketFactory } from "@agent-harness/cl
 import type { ManualClock } from "@agent-harness/client-runtime/testing";
 import { fakeWire, type FakeAnswer, type FakeServer, type FakeWire } from "@agent-harness/client-runtime/testing/fake-wire";
 import {
+  AdapterCapabilities,
   Ceiling,
   DISCOVERY_PATH,
+  LIST_PATCH_KEY,
+  MODES,
   PAIR_PATH,
   SCOPES,
+  ENVIRONMENT_STREAM_KIND,
+  SESSION_STREAM_KIND,
   WIRE_PATH,
+  eventTypeEntry,
+  isListEvent,
   registry,
+  AccountRecord,
+  type AccountUsage,
+  type AttachmentInput,
   type ByeReason,
   type CapabilityFlags,
+  type CommandEntry,
   type DiscoveryDocument,
+  type EventEnvelope,
   type Frame,
   Group,
   type HelloFrame,
+  type ModelUsage,
+  type QueueHolder,
   type ResultOf,
+  type RunEndReason,
   type Scope,
   SessionSummary,
+  type SummaryPatch,
 } from "@agent-harness/contracts";
-import { scriptedList, type ScriptedList } from "./list-server.js";
+import { LIST_COMMANDS, scriptedList, type ScriptedList } from "./list-server.js";
+import { scriptedPrompts, type ScriptedPrompts } from "./prompts.js";
 
 /**
  * The scripted fake environment (docs/specs/tui.md, "Testing Decisions"):
@@ -26,7 +43,9 @@ import { scriptedList, type ScriptedList } from "./list-server.js";
  * with its sessions and groups, its client sessions, the receipts its
  * commands answer, how its pairing exchange refuses a code, and what its
  * discovery answers. A test drives it further through its handle: `bye`
- * reasons, a dropped socket, discovery answering `starting` or nothing.
+ * reasons, a dropped socket, discovery answering `starting` or nothing, a
+ * notice on the environment's stream, and prompts parked and answered
+ * (`prompts.ts`).
  */
 
 /** How a command is answered: accepted, or rejected with a reason (an error code) and a message. */
@@ -69,13 +88,27 @@ export interface ScriptedEnvironment {
   readonly hello?: Partial<HelloFrame>;
   /** Whether a socket is answered with `hello` as soon as its `auth` arrives: preset true. */
   readonly autoAccept?: boolean;
+  /** What `files.list` lists for any session: preset none. */
+  readonly files?: readonly string[];
+  /** The provider's own slash commands, as `commands.list` answers them: preset none. */
+  readonly commands?: readonly CommandEntry[];
+  /** The one provider `providers.list` describes, over a Claude-shaped descriptor that neither queues nor steers. */
+  readonly provider?: Partial<AdapterCapabilities>;
+  /** Several providers instead, each over the same descriptor; `provider` is then ignored. */
+  readonly providers?: readonly Partial<AdapterCapabilities>[];
+  /** What `accounts.list` lists, over an adopted, signed-in account on the first provider: preset none. */
+  readonly accounts?: readonly Partial<AccountRecord>[];
+  /** Who holds a message sent during a live run: preset the environment (ADR 0022). */
+  readonly queue?: QueueHolder;
+  /** Holds each session's catch-up after `subscribed`, until `releaseSessions`: the stream stays catching up. Preset false. */
+  readonly holdSessions?: boolean;
 }
 
 export interface Script {
   readonly environments: readonly ScriptedEnvironment[];
 }
 
-export interface EnvironmentHandle {
+export interface EnvironmentHandle extends ScriptedPrompts {
   readonly name: string;
   readonly environmentId: string;
   readonly wire: FakeWire;
@@ -95,6 +128,30 @@ export interface EnvironmentHandle {
   requests(method?: string): readonly Extract<Frame, { readonly type: "request" }>[];
   /** Its session list: what it holds now, a method's answers held, a change of its own accord. */
   readonly list: ScriptedList;
+  /** The id of the session the script lists `index`th (from 0). */
+  sessionId(index?: number): string;
+  /** A session's summary as the environment holds it now. */
+  summary(sessionId: string): SessionSummary;
+  /**
+   * Appends an event to the session's stream at the next sequence and sends
+   * it to the client's subscriptions: the session's, and the list's when the
+   * type is list-flagged or it changes the summary (`fields`, or a whole
+   * `patch`). The payload is held to its type's schema when the contracts
+   * know the type; an unknown type goes as it is.
+   */
+  emit(sessionId: string, type: string, payload: Record<string, unknown>, change?: { readonly fields?: Partial<SessionSummary>; readonly patch?: SummaryPatch }): EventEnvelope;
+  /** Starts a run as `runs.start` does: `message.sent` (a prompt) then `run.started`, the session running. */
+  startRun(sessionId: string, text: string, attachments?: readonly AttachmentInput[]): { readonly runId: string; readonly messageId: string };
+  /** Ends a run: `run.ended` with `reason` (preset completed), the session idle. */
+  endRun(sessionId: string, runId: string, end?: { readonly reason?: RunEndReason; readonly usage?: readonly ModelUsage[] | null; readonly durationMs?: number }): void;
+  /** The run live on the session, as the environment knows it; undefined when none is. */
+  liveRun(sessionId: string): string | undefined;
+  /** What `accounts.usage` answers from now on, said with a `usage.updated` notice for each reading, as the environment says it. */
+  setUsage(readings: readonly AccountUsage[]): void;
+  /** Sends the catch-up of every session subscription `holdSessions` held. */
+  releaseSessions(): void;
+  /** Says a notice on the environment's own stream (`environment.subscribe`), as the environment does. */
+  notice(type: string, payload: Record<string, unknown>): void;
 }
 
 export interface ScriptedWorld {
@@ -178,6 +235,36 @@ const clientSessionOf = (clock: ManualClock, partial: Partial<ClientSessionRow>,
   });
 };
 
+/** The descriptor `providers.list` answers: Claude-shaped, with `changes` over it. */
+const providerOf = (changes: Partial<AdapterCapabilities> = {}): AdapterCapabilities =>
+  checked(AdapterCapabilities, {
+    provider: "claude",
+    displayName: "Claude",
+    interactivePrompts: true,
+    partialMessages: true,
+    providerQueue: false,
+    steering: false,
+    resume: true,
+    fork: true,
+    rewind: true,
+    sessionListing: false,
+    subagents: true,
+    subagentTranscripts: false,
+    titleRead: false,
+    titleWrite: false,
+    transcriptDelete: false,
+    planUsage: true,
+    liveModels: false,
+    commands: true,
+    imageInput: true,
+    fileInput: false,
+    modeChange: true,
+    containment: false,
+    instructionChannel: { kind: "system-prompt-append", maxCharacters: null },
+    modes: MODES.map((mode) => ({ mode, available: true as const, reason: null })),
+    ...changes,
+  });
+
 const PAIRING_REFUSALS: Readonly<Record<ScriptedPairingRefusal, { readonly status: number; readonly code: string }>> = {
   "expired-code": { status: 410, code: "pairing_expired" },
   "used-code": { status: 410, code: "pairing_used" },
@@ -213,6 +300,249 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
   const sessions = (spec.sessions ?? []).map((s, i) => summaryOf(clock, s, i));
   const groups = (spec.groups ?? []).map((g, i) => groupOf(clock, g, i));
   let sequence = 100;
+
+  // The streams: the session list (`test/list-server.ts`) and each session, answered `subscribed`, then the list as it
+  // stands or the session's whole log (a snapshot at its creation and every event since), then `synchronized` at the
+  // head. What is emitted later goes to the subscriptions of the latest socket.
+  const logs = new Map<string, { readonly base: number; readonly events: EventEnvelope[] }>(sessions.map((s) => [s.id, { base: sequence, events: [] }]));
+  let subscriptions = 0;
+  const sessionSubscriptions = new Map<string, string>();
+  const subscribed = (request: { readonly id: string }): string => {
+    const id = `${slug(spec.name)}-sub-${++subscriptions}`;
+    wire.server.send({ type: "subscribed", id: request.id, subscription: id });
+    return id;
+  };
+  wire.answer("sessions.subscribeSession", (params, request) => {
+    const sessionId = String(params["sessionId"]).toLowerCase();
+    const summary = sessions.find((s) => s.id === sessionId);
+    const log = logs.get(sessionId);
+    if (!summary || !log) return { error: { code: "not_found", message: "No such session.", data: { kind: "session" } } };
+    const id = subscribed(request);
+    // Live events go to the subscription only once its catch-up is sent, as an environment catching up sends them after it.
+    const catchUp = () => {
+      wire.server.send({ type: "snapshot", subscription: id, sequence: log.base, payload: { sequence: log.base, summary: summaryAt(sessionId), runs: [], items: [], parkedPrompts: [] } });
+      for (const event of log.events) wire.server.send({ type: "event", subscription: id, sequence: event.sequence, event });
+      wire.server.send({ type: "synchronized", subscription: id, sequence });
+      sessionSubscriptions.set(sessionId, id);
+    };
+    if (spec.holdSessions) held.push(catchUp);
+    else catchUp();
+    return undefined;
+  });
+  const held: (() => void)[] = [];
+  let environmentSubscription: string | undefined;
+  wire.answer("environment.subscribe", (_params, request) => {
+    environmentSubscription = subscribed(request);
+    wire.server.send({ type: "synchronized", subscription: environmentSubscription, sequence });
+    return undefined;
+  });
+  let usage: readonly AccountUsage[] = [];
+  wire.answer("accounts.usage", () => ({ result: { readings: [...usage] } }));
+  /** Says a notice on the environment's own stream, as the environment does. */
+  const notice = (type: string, payload: Record<string, unknown>) => {
+    const at = ++sequence;
+    const event: EventEnvelope = {
+      sequence: at,
+      eventId: `0199fe00-0000-7000-8000-${String(at).padStart(12, "0")}`,
+      streamKind: ENVIRONMENT_STREAM_KIND,
+      streamId: wire.environmentId,
+      streamVersion: at,
+      type,
+      occurredAt: clock.now().toISOString(),
+      commandId: null,
+      causationId: null,
+      correlationId: null,
+      actor: { kind: "system", id: "script" },
+      payload,
+      metadata: {},
+    };
+    if (environmentSubscription) wire.server.send({ type: "event", subscription: environmentSubscription, sequence: at, event });
+  };
+  const setUsage = (readings: readonly AccountUsage[]) => {
+    usage = readings;
+    for (const reading of readings) notice("usage.updated", { accountId: reading.accountId, identity: reading.identity });
+  };
+
+  /** The summary a session's snapshot holds: its creation's, since everything after is replayed on top of it. */
+  const created = new Map<string, SessionSummary>(sessions.map((s) => [s.id, s]));
+  const summaryAt = (sessionId: string): SessionSummary => created.get(sessionId) as SessionSummary;
+  const summaryNow = (sessionId: string): SessionSummary => {
+    const found = sessions.find((s) => s.id === sessionId);
+    if (!found) throw new Error(`${spec.name} holds no session ${sessionId}.`);
+    return found;
+  };
+  const setSummary = (summary: SessionSummary) => {
+    const at = sessions.findIndex((s) => s.id === summary.id);
+    if (at === -1) sessions.push(summary);
+    else sessions[at] = summary;
+  };
+
+  const emit: EnvironmentHandle["emit"] = (sessionId, type, payload, change = {}) => {
+    const entry = eventTypeEntry(SESSION_STREAM_KIND, type);
+    const checkedPayload = entry ? (entry.payload.parse(payload) as Record<string, unknown>) : payload;
+    const patch: SummaryPatch | undefined = change.patch ?? (change.fields ? { op: "set", sessionId, fields: change.fields } : undefined);
+    if (patch?.op === "add") {
+      setSummary(patch.summary);
+      created.set(patch.summary.id, patch.summary);
+      logs.set(patch.summary.id, { base: sequence, events: [] });
+    } else if (patch?.op === "set") setSummary(SessionSummary.parse({ ...summaryNow(sessionId), ...patch.fields }));
+    const log = logs.get(sessionId);
+    if (!log) throw new Error(`${spec.name} holds no session ${sessionId}.`);
+    const at = ++sequence;
+    const event: EventEnvelope = {
+      sequence: at,
+      eventId: `0199ff00-0000-7000-8000-${String(at).padStart(12, "0")}`,
+      streamKind: SESSION_STREAM_KIND,
+      streamId: sessionId,
+      streamVersion: log.events.length + 1,
+      type,
+      occurredAt: clock.now().toISOString(),
+      commandId: null,
+      causationId: null,
+      correlationId: null,
+      actor: { kind: "system", id: "script" },
+      payload: checkedPayload,
+      metadata: patch ? { [LIST_PATCH_KEY]: patch } : {},
+    };
+    log.events.push(event);
+    const own = sessionSubscriptions.get(sessionId);
+    if (own) wire.server.send({ type: "event", subscription: own, sequence: at, event });
+    if (patch || isListEvent(SESSION_STREAM_KIND, type)) list.publish(event);
+    return event;
+  };
+
+  const live = new Map<string, string>();
+  const records = (attachments: readonly AttachmentInput[] = []) =>
+    attachments.map((a) => ({ kind: a.kind, name: a.name, mediaType: a.mediaType, size: Math.floor((a.data.length * 3) / 4) }));
+  let runs = 0;
+  const minted = (prefix: string) => `${prefix}-0000-4000-8000-${String(++runs).padStart(12, "0")}`;
+  const startRun: EnvironmentHandle["startRun"] = (sessionId, text, attachments) => {
+    const runId = minted("0199a100");
+    const messageId = minted("0199a200");
+    const summary = summaryNow(sessionId);
+    emit(sessionId, "message.sent", { runId, messageId, text, attachments: records(attachments), delivery: "prompt", heldBy: null, ceiling: "bypassPermissions" });
+    emit(
+      sessionId,
+      "run.started",
+      {
+        runId,
+        accountId: summary.accountId ?? "account-1",
+        identity: null,
+        model: summary.model ?? "claude-fake",
+        effort: null,
+        mode: { requested: null, effective: "acceptEdits", clamped: false },
+        workspace: summary.workspace,
+        origin: "client",
+        promptMessageId: messageId,
+        queuedMessageIds: [],
+        resumedFrom: null,
+        forkedFrom: null,
+      },
+      { fields: { activity: { state: "running", since: clock.now().toISOString() } } },
+    );
+    live.set(sessionId, runId);
+    return { runId, messageId };
+  };
+  const endRun: EnvironmentHandle["endRun"] = (sessionId, runId, end = {}) => {
+    const reason = end.reason ?? "completed";
+    emit(
+      sessionId,
+      "run.ended",
+      {
+        runId,
+        reason,
+        cause: reason === "interrupted" ? "user" : null,
+        error: reason === "error" ? { message: "The run failed.", code: null } : null,
+        usage: end.usage ?? null,
+        durationMs: end.durationMs ?? 1000,
+        turnCount: null,
+        resultText: null,
+      },
+      { fields: { activity: { state: "idle", since: clock.now().toISOString() } } },
+    );
+    if (live.get(sessionId) === runId) live.delete(sessionId);
+  };
+
+  // Parked prompts and their answers (`test/prompts.ts`).
+  const { prompts, answer: answerPrompt } = scriptedPrompts({
+    clock,
+    wire,
+    emit,
+    notice,
+    summary: summaryNow,
+    liveRun: (sessionId) => live.get(sessionId),
+    nextSequence: () => ++sequence,
+  });
+  wire.answer("permissions.prompts.answer", (params) => answerPrompt(params));
+
+  // The run commands, as the environment answers them (claude-adapter spec, "Wire methods"; ADR 0022): a start or a send
+  // with no run live starts one; a send during a live run is queued, held by whoever the script says holds the queue; an
+  // interrupt ends the run. A receipt the script rejects is answered as it is, and nothing is appended.
+  const acceptedWith = (result: Record<string, unknown>): FakeAnswer => ({ result: { receipt: { status: "accepted", sequence, changed: true }, result } });
+  const rejection = (method: string): FakeAnswer | undefined => {
+    const scriptedReceipt = spec.receipts?.[method];
+    if (scriptedReceipt === undefined || scriptedReceipt === "accepted") return undefined;
+    const message = scriptedReceipt.message ?? `Rejected: ${scriptedReceipt.rejected}.`;
+    return { result: { receipt: { status: "rejected", sequence: ++sequence, changed: false, reason: scriptedReceipt.rejected, error: { code: scriptedReceipt.rejected, message, data: {} } } } };
+  };
+  const attachmentsOf = (params: Record<string, unknown>) => (params["attachments"] as readonly AttachmentInput[] | undefined) ?? [];
+  wire.answer("runs.start", (params) => {
+    const refused = rejection("runs.start");
+    if (refused) return refused;
+    const sessionId = String(params["sessionId"]);
+    if (live.has(sessionId)) {
+      return { result: { receipt: { status: "rejected", sequence: ++sequence, changed: false, reason: "conflict", error: { code: "conflict", message: "A run is live.", data: { reason: "run_active" } } } } };
+    }
+    return acceptedWith(startRun(sessionId, String(params["text"]), attachmentsOf(params)));
+  });
+  wire.answer("runs.send", (params) => {
+    const refused = rejection("runs.send");
+    if (refused) return refused;
+    const sessionId = String(params["sessionId"]);
+    const runId = live.get(sessionId);
+    if (runId === undefined) return acceptedWith({ ...startRun(sessionId, String(params["text"]), attachmentsOf(params)), delivery: "prompt", heldBy: null });
+    const messageId = minted("0199a200");
+    const heldBy = spec.queue ?? "environment";
+    emit(sessionId, "message.sent", { runId, messageId, text: String(params["text"]), attachments: records(attachmentsOf(params)), delivery: "queued", heldBy, ceiling: "bypassPermissions" });
+    return acceptedWith({ runId, messageId, delivery: "queued", heldBy });
+  });
+  wire.answer("runs.interrupt", (params) => {
+    const refused = rejection("runs.interrupt");
+    if (refused) return refused;
+    const runId = String(params["runId"]);
+    const sessionId = [...live.entries()].find(([, id]) => id === runId)?.[0];
+    if (sessionId === undefined) return acceptedWith({ runId, ended: true });
+    endRun(sessionId, runId, { reason: "interrupted" });
+    return acceptedWith({ runId, ended: false });
+  });
+  wire.answer("runs.stopTask", (params) => rejection("runs.stopTask") ?? acceptedWith({ runId: params["runId"], taskId: params["taskId"], ended: false }));
+  wire.answer("sessions.setDraft", (params) => {
+    const refused = rejection("sessions.setDraft");
+    if (refused) return refused;
+    const sessionId = String(params["sessionId"]);
+    const draft = (params["draft"] as string | null | undefined) || null;
+    emit(sessionId, "session.draft-set", { draft }, { fields: { draft } });
+    return acceptedWith({ summary: summaryNow(sessionId) });
+  });
+  wire.answer("files.list", () => ({ result: { files: [...(spec.files ?? [])], truncated: false, source: "git" } }));
+  wire.answer("commands.list", () => ({ result: { accountId: "account-1", commands: [...(spec.commands ?? [])] } }));
+  wire.answer("providers.list", () => ({ result: { providers: (spec.providers ?? [spec.provider ?? {}]).map((p) => providerOf(p)) } }));
+  wire.answer("accounts.list", () => ({
+    result: {
+      accounts: (spec.accounts ?? []).map((account, i) =>
+        checked(AccountRecord, {
+          id: `account-${i + 1}`,
+          provider: "claude",
+          label: `account ${i + 1}`,
+          directory: { kind: "adopted", path: `/home/seth/.account-${i + 1}` },
+          identity: null,
+          status: { state: "signed-in", checkedAt: null, detail: null },
+          createdAt: clock.now().toISOString(),
+          ...account,
+        }),
+      ),
+    },
+  }));
 
   const others = (spec.clientSessions ?? []).map((c, i) => clientSessionOf(clock, c, i));
   const revoked = new Set<string>();
@@ -270,13 +600,47 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     });
   });
   // Every other scripted command, `access.*` ones included, answers its receipt alone, as a retry answered from a stored receipt does.
-  const ownResponders = new Set(["access.sessions.list", "access.sessions.revoke", "access.pairings.create"]);
+  const ownResponders = new Set([
+    "access.sessions.list",
+    "access.sessions.revoke",
+    "access.pairings.create",
+    "runs.start",
+    "runs.send",
+    "runs.interrupt",
+    "runs.stopTask",
+    "sessions.setDraft",
+    "permissions.prompts.answer",
+    ...LIST_COMMANDS,
+  ]);
   for (const method of Object.keys(spec.receipts ?? {})) {
     if (ownResponders.has(method)) continue;
     wire.answer(method, () => receiptFor(method) ?? { result: { receipt: { status: "accepted", sequence: ++sequence, changed: true } } });
   }
-  // The session list and the organisation commands, applied with their patches; a rejection the script names still stands.
-  const list = scriptedList({ wire, clock, sessions, groups, next: () => ++sequence, refusal: receiptFor });
+  // The session list and the organisation commands (`sessions.create` among them), applied with their patches to the
+  // sessions the session streams read; a rejection the script names still stands.
+  const list = scriptedList({
+    wire,
+    clock,
+    store: {
+      all: () => sessions,
+      get: (id) => sessions.find((s) => s.id === id),
+      put: (summary) => {
+        if (!logs.has(summary.id)) {
+          created.set(summary.id, summary);
+          logs.set(summary.id, { base: sequence, events: [] });
+        }
+        setSummary(summary);
+      },
+      remove: (id) => {
+        const at = sessions.findIndex((s) => s.id === id);
+        if (at !== -1) sessions.splice(at, 1);
+      },
+    },
+    groups,
+    next: () => ++sequence,
+    head: () => sequence,
+    refusal: receiptFor,
+  });
 
   const fetch: HttpFetch = async (url, request) => {
     if (spec.pairing && url === `${wire.origin}${PAIR_PATH}` && request?.method === "POST" && discovery !== "nothing") {
@@ -292,9 +656,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     return {
       send(text) {
         socket.send(text);
-        const frame = JSON.parse(text) as Frame;
-        if (frame.type === "request" && frame.method === "sessions.subscribe") later(() => list.subscribe(frame.id));
-        if (!accepting || frame.type !== "auth") return;
+        if (!accepting || (JSON.parse(text) as Frame).type !== "auth") return;
         later(() => {
           try {
             wire.server.hello(hello);
@@ -324,6 +686,20 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
         .received()
         .filter((f): f is Extract<Frame, { readonly type: "request" }> => f.type === "request" && (method === undefined || f.method === method)),
     list,
+    sessionId(at = 0) {
+      const found = sessions[at];
+      if (!found) throw new Error(`${spec.name} lists no session at ${at}.`);
+      return found.id;
+    },
+    summary: summaryNow,
+    emit,
+    startRun,
+    endRun,
+    liveRun: (sessionId) => live.get(sessionId),
+    setUsage,
+    releaseSessions: () => held.splice(0).forEach((catchUp) => catchUp()),
+    notice,
+    ...prompts,
   };
   return { handle, fetch, webSocket, wsUrl: `${wire.origin.replace(/^http/, "ws")}${WIRE_PATH}` };
 };

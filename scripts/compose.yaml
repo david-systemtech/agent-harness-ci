@@ -1,0 +1,43 @@
+# The agent-harness environment in a container: the install script's compose
+# file (ADR 0007, ADR 0025; #141), for a machine that runs the environment
+# under Docker or Podman rather than as a user service. From a checkout:
+#
+#   docker build -t agent-harness .
+#   docker compose -f scripts/compose.yaml up -d
+#   docker compose -f scripts/compose.yaml exec environment agent-harness pair
+#
+# The environment runs as the image's non-root user, uid and gid 10001:
+# `serve` refuses root, in a container as anywhere else (ADR 0006), so this
+# file never runs it as root, sets neither IS_SANDBOX nor
+# CLAUDE_CODE_BUBBLEWRAP, and asks for no privilege. Its two volumes are
+# named volumes, which Docker creates owned by that user, since the image's
+# /data and /work are. To mount a directory of the host instead, give it to
+# the user first: sudo chown -R 10001:10001 <directory>.
+#
+# A containerised environment never updates itself (ADR 0007): the host-side
+# updater is the launcher workstream's.
+name: agent-harness
+services:
+  environment:
+    image: ${AGENT_HARNESS_IMAGE:-agent-harness:latest}
+    restart: unless-stopped
+    # The image's user, by its uid and gid: the root refusal lets it start.
+    user: "10001:10001"
+    # The environment binds loopback, and the tailnet address where the
+    # tailscale CLI answers, never the wildcard address (env spec, "Binding
+    # and discovery"), so it shares the host's network instead of publishing
+    # a port.
+    network_mode: host
+    environment:
+      # Declares the container (#133): the containment report names it as the
+      # outer boundary, and updates are managed outside it.
+      AGENT_HARNESS_CONTAINER: "1"
+    volumes:
+      - data:/data
+      - work:/work
+    # SIGTERM starts the drain, which waits up to 30 minutes for the runs
+    # under way (env spec, "Lifecycle"); a stop that kills sooner cuts them.
+    stop_grace_period: 31m
+volumes:
+  data:
+  work:

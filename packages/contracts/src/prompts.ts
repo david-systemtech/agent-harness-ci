@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { RunId } from "./adapter.js";
+import { DenylistMatch } from "./denylist.js";
 import type { EventTypeEntry } from "./event-types.js";
 import { ModeResolution } from "./permissions.js";
 import { Mode } from "./permissions-modes.js";
@@ -64,6 +65,9 @@ export const PromptOpenedPayload = z
       description: "The provider's remember-suggestions, in its own terms: what answering with remember 'session' applies. Empty when it offers none.",
     }),
     agentId: z.string().min(1).nullable().meta({ description: "The subagent that asked; null for the run's own agent." }),
+    denylist: z.array(DenylistMatch).nullable().meta({
+      description: "A denylist prompt's matches: each entry the call matched, with its section and what matched it, the first the one the summary names. Null for the other kinds.",
+    }),
     mode: Mode.meta({ description: "The mode the run was in when it asked." }),
     ceiling: Mode.meta({ description: "The ceiling the run was resolved under: a plan's continue mode is clamped to it." }),
     ttlExpiresAt: Timestamp.nullable().meta({

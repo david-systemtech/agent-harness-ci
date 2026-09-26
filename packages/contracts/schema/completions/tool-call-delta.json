@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ChatToolCallDelta",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Minted by the environment: the follow-up's tool message names it as tool_call_id."
+    },
+    "type": {
+      "type": "string",
+      "const": "function"
+    },
+    "function": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The tool's name as the request declared it."
+        },
+        "arguments": {
+          "type": "string",
+          "description": "The call's arguments, as JSON text."
+        }
+      },
+      "required": [
+        "name",
+        "arguments"
+      ]
+    },
+    "index": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "id",
+    "type",
+    "function",
+    "index"
+  ],
+  "description": "A call to one of the caller's tools, whole, at its index among the calls of the answer."
+}

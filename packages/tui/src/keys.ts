@@ -25,7 +25,7 @@ const KEY_ACTION_IDS = Object.keys(DEFAULT_KEYS) as KeyActionId[];
  * the file must give such an action exactly two different keys. A ticket that
  * wires another direction-keyed action adds it here.
  */
-const MOVE_ACTIONS: ReadonlySet<KeyActionId> = new Set<KeyActionId>(["picker.move", "picker.moveVi", "rail.move", "rail.moveVi"]);
+const MOVE_ACTIONS: ReadonlySet<KeyActionId> = new Set<KeyActionId>(["picker.move", "picker.moveVi", "rail.move", "rail.moveVi", "composer.navigate", "transcript.cursor", "asks.move"]);
 
 /** An action's context as the shared list gives it; for an id it does not list, the part before the first dot. */
 export const contextOf = (id: string): string => actionById(id)?.context ?? id.slice(0, id.indexOf("."));
@@ -222,21 +222,27 @@ export type Lookup = ActionContext | { readonly context: ActionContext; readonly
  * Dispatches the key Ink heard through the action list: in each of
  * `lookups` in turn, the action the keymap in force gives that key in that
  * context, run when `handlers` answers it. True when a handler took the key.
+ * `previous` is the press before this one: keys pressed in turn (`\ Enter`,
+ * `Esc Esc`) are looked up first in each context, as the two presses, and
+ * then the key alone.
  */
-export const dispatch = (keymap: Keymap, lookups: readonly Lookup[], handlers: Handlers, input: string, key: InkKey): boolean => {
+export const dispatch = (keymap: Keymap, lookups: readonly Lookup[], handlers: Handlers, input: string, key: InkKey, previous?: string): boolean => {
   const name = eventName(input, key);
   if (name === undefined) return false;
+  const names = previous === undefined ? [name] : [`${previous} ${name}`, name];
   for (const lookup of lookups) {
     const { context, only, except } = typeof lookup === "string" ? { context: lookup, only: undefined, except: undefined } : lookup;
-    const id = keymap.holders.get(holderKey(context, name));
-    if (id === undefined || (only !== undefined && !only.has(id)) || except?.has(id) === true) continue;
-    const handler = handlers[id];
-    if (handler !== undefined && handler(name) !== false) return true;
+    for (const candidate of names) {
+      const id = keymap.holders.get(holderKey(context, candidate));
+      if (id === undefined || (only !== undefined && !only.has(id)) || except?.has(id) === true) continue;
+      const handler = handlers[id];
+      if (handler !== undefined && handler(candidate) !== false) return true;
+    }
   }
   return false;
 };
 
-/** For a move action (`picker.move`, `picker.moveVi`): -1 for its up key, 1 for its down key, 0 for neither. */
+/** For a move action (`picker.move`, `picker.moveVi`, `rail.move`, `rail.moveVi`, `composer.navigate`, `transcript.cursor`, `asks.move`): -1 for its up key, 1 for its down key, 0 for neither. */
 export const direction = (keymap: Keymap, action: KeyActionId, name: string): -1 | 0 | 1 => {
   const [up, down] = keymap.keys[action];
   return name === up ? -1 : name === down ? 1 : 0;

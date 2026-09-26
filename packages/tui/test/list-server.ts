@@ -23,6 +23,9 @@ import {
  * the list, then the accepted receipt. A command the script rejects
  * changes nothing. A test holds a method's answers to see a command wait
  * for its receipt, and changes a session as another client or a run would.
+ * The sessions are the script's own (`store`), which its session streams
+ * (`sessions.subscribeSession`) read too; what the script emits on a
+ * session's stream reaches the list through `publish`.
  */
 
 export interface ScriptedList {
@@ -33,17 +36,28 @@ export interface ScriptedList {
   hold(method: string): () => void;
   /** A change the environment made of its own accord (a run, another client): `fields` set on one session. */
   change(sessionId: string, fields: Partial<SessionSummary>): void;
-  /** Answers a client's `sessions.subscribe`, the request `requestId`, on the socket it came on: subscribed, the snapshot, synchronized. */
-  subscribe(requestId: string): void;
+  /** Sends `event` on the list's subscription, when the client holds one on an open socket. */
+  publish(event: EventEnvelope): void;
+}
+
+/** The script's sessions, which the list reads and changes. */
+export interface ScriptedStore {
+  all(): readonly SessionSummary[];
+  get(id: string): SessionSummary | undefined;
+  /** Adds or replaces a session: one new to the environment gets its stream. */
+  put(summary: SessionSummary): void;
+  remove(id: string): void;
 }
 
 export interface ScriptedListOptions {
   readonly wire: FakeWire;
   readonly clock: ManualClock;
-  readonly sessions: readonly SessionSummary[];
+  readonly store: ScriptedStore;
   readonly groups: readonly Group[];
-  /** The next sequence on the environment's log. */
+  /** The next sequence on the environment's log, taken. */
   readonly next: () => number;
+  /** The environment's log's head: its latest sequence. */
+  readonly head: () => number;
   /** The script's rejection of `method`, if it rejects it. */
   readonly refusal: (method: string) => FakeAnswer | undefined;
 }
@@ -73,15 +87,12 @@ export const LIST_COMMANDS = [
 const DELETION_GRACE_MS = 30 * 24 * 60 * 60 * 1000;
 
 export const scriptedList = (options: ScriptedListOptions): ScriptedList => {
-  const { wire, clock } = options;
-  const live = new Map(options.sessions.map((s) => [s.id, s]));
+  const { wire, clock, store, next, head } = options;
   const gone = new Map<string, { readonly summary: SessionSummary; readonly deletedAt: string; readonly purgeAt: string }>();
   const kept = new Map(options.groups.map((g) => [g.id, g]));
   const held = new Map<string, (() => void)[]>();
   let subscription: string | undefined;
   let subscriptions = 0;
-  let head = 0;
-  const next = () => (head = options.next());
 
   /** Sends `event` on the list's subscription, when the client holds one on an open socket. */
   const publish = (event: EventEnvelope) => {
@@ -108,7 +119,7 @@ export const scriptedList = (options: ScriptedListOptions): ScriptedList => {
     metadata: { [LIST_PATCH_KEY]: patch },
   });
 
-  const accepted = (result: Record<string, unknown>): FakeAnswer => ({ result: { receipt: { status: "accepted", sequence: head, changed: true }, result } });
+  const accepted = (result: Record<string, unknown>): FakeAnswer => ({ result: { receipt: { status: "accepted", sequence: head(), changed: true }, result } });
   const rejected = (code: string, message: string, data: Record<string, unknown> = {}): FakeAnswer => ({
     result: { receipt: { status: "rejected", sequence: next(), changed: false, reason: code, error: { code, message, data } } },
   });
@@ -116,16 +127,16 @@ export const scriptedList = (options: ScriptedListOptions): ScriptedList => {
 
   /** Sets `fields` on the session, publishing the patch; answers the summary as it now is. */
   const set = (id: string, fields: Partial<SessionSummary>, commandId: string | null, type: string): FakeAnswer => {
-    const before = live.get(id);
+    const before = store.get(id);
     if (!before) return noSession();
     const changed = { ...fields, updatedAt: clock.now().toISOString() };
     const summary = SessionSummary.parse({ ...before, ...changed });
-    live.set(id, summary);
+    store.put(summary);
     publish(envelope(SESSION_STREAM_KIND, id, type, { op: "set", sessionId: id, fields: changed }, commandId));
     return accepted({ summary });
   };
   const add = (summary: SessionSummary, commandId: string | null, type: string) => {
-    live.set(summary.id, summary);
+    store.put(summary);
     publish(envelope(SESSION_STREAM_KIND, summary.id, type, { op: "add", summary }, commandId));
   };
 
@@ -135,7 +146,7 @@ export const scriptedList = (options: ScriptedListOptions): ScriptedList => {
     const commandId = typeof params["commandId"] === "string" ? params["commandId"] : null;
     const id = String(params["sessionId"] ?? "");
     const now = clock.now().toISOString();
-    const session = live.get(id);
+    const session = store.get(id);
     const wake = { snoozedUntil: null, snoozedAt: null };
     switch (method) {
       case "sessions.create": {
@@ -223,7 +234,7 @@ export const scriptedList = (options: ScriptedListOptions): ScriptedList => {
       case "sessions.delete": {
         if (!session) return noSession();
         const purgeAt = new Date(clock.now().getTime() + DELETION_GRACE_MS).toISOString();
-        live.delete(id);
+        store.remove(id);
         gone.set(id, { summary: session, deletedAt: now, purgeAt });
         publish(envelope(SESSION_STREAM_KIND, id, "session.deleted", { op: "remove", sessionId: id }, commandId));
         return accepted({ sessionId: id, deletedAt: now, purgeAt });
@@ -256,21 +267,28 @@ export const scriptedList = (options: ScriptedListOptions): ScriptedList => {
       return new Promise<FakeAnswer>((resolve) => waiting.push(() => resolve(apply(method, params))));
     });
   }
-  wire.answer("sessions.list", () => ({ result: { sequence: head, sessions: [...live.values()] } }));
+  wire.answer("sessions.list", () => ({ result: { sequence: head(), sessions: [...store.all()] } }));
   wire.answer("groups.list", () => ({ result: { groups: [...kept.values()] } }));
   wire.answer("sessions.listDeleted", () => ({
     result: { sessions: [...gone.values()].map(({ summary, deletedAt, purgeAt }) => ({ ...summary, deletedAt, purgeAt })) },
   }));
   wire.answer("sessions.get", (params) => {
-    const found = live.get(String(params["sessionId"]));
+    const found = store.get(String(params["sessionId"]));
     return found ? { result: { summary: found } } : { error: { code: "not_found", message: "No such session.", data: {} } };
   });
-  // The subscription is answered frame by frame (`subscribe`), never with a response.
-  wire.answer("sessions.subscribe", () => undefined);
-  head = options.next();
+  // The subscription is answered frame by frame on the socket the request came on: subscribed, the snapshot, synchronized.
+  wire.answer("sessions.subscribe", (_params, request) => {
+    const id = `list-${++subscriptions}`;
+    subscription = id;
+    const at = head();
+    wire.server.send({ type: "subscribed", id: request.id, subscription: id });
+    wire.server.send({ type: "snapshot", subscription: id, sequence: at, payload: { sequence: at, sessions: [...store.all()], groups: [...kept.values()] } });
+    wire.server.send({ type: "synchronized", subscription: id, sequence: at });
+    return undefined;
+  });
 
   return {
-    summaries: () => [...live.values()],
+    summaries: () => [...store.all()],
     groups: () => [...kept.values()],
     hold(method) {
       held.set(method, held.get(method) ?? []);
@@ -283,12 +301,6 @@ export const scriptedList = (options: ScriptedListOptions): ScriptedList => {
     change(sessionId, fields) {
       set(sessionId, fields, null, "session.changed");
     },
-    subscribe(requestId) {
-      const id = `list-${++subscriptions}`;
-      subscription = id;
-      wire.server.send({ type: "subscribed", id: requestId, subscription: id });
-      wire.server.send({ type: "snapshot", subscription: id, sequence: head, payload: { sequence: head, sessions: [...live.values()], groups: [...kept.values()] } });
-      wire.server.send({ type: "synchronized", subscription: id, sequence: head });
-    },
+    publish,
   };
 };

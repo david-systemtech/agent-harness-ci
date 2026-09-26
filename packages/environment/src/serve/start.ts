@@ -1,12 +1,13 @@
 import { readFileSync } from "node:fs";
-import { hostname } from "node:os";
-import { join } from "node:path";
+import { homedir, hostname, userInfo } from "node:os";
+import { join, resolve as absolutePath } from "node:path";
 import {
   BOOTSTRAP_PATH,
   ContractError,
   DISCOVERY_PATH,
   ENVIRONMENT_STREAM_KIND,
   HEALTH_PATH,
+  OPENAI_PATH_PREFIX,
   PAIR_PATH,
   PROTOCOL_VERSION,
   SESSION_STREAM_KIND,
@@ -40,6 +41,8 @@ import { createRateLimiter } from "../auth/rate-limit.js";
 import { formatActor, openEventLog, type EventLog, type Projector } from "../event-log/event-log.js";
 import type { Adapter } from "../adapter/contract.js";
 import { createClaudeAdapter } from "../adapters/claude/index.js";
+import { createPassthrough } from "../completions/passthrough.js";
+import { SCRATCH_DIRECTORY, createCompletionsSurface } from "../completions/surface.js";
 import { createAdapterHost } from "../adapter/host.js";
 import { ACCOUNTS_DIRECTORY, createAccountService, type AccountService, type ConfiguredAccount } from "../accounts/account-service.js";
 import { accountsProjector } from "../accounts/account-store.js";
@@ -55,11 +58,14 @@ import { createUsagePool } from "../accounts/usage-pool.js";
 import { processMethods } from "../adapter/processes-methods.js";
 import { ATTACHMENTS_DIRECTORY, createAttachmentStage } from "../adapter/attachment-stage.js";
 import { recoverCutRuns, recoverStagedAttachments } from "../adapter/recovery.js";
-import type { InstructionComposer, PolicySeam, PromptAutoAnswer, ToolServerFactory } from "../adapter/seams.js";
+import { noToolServers, type InstructionComposer, type PolicySeam, type PromptAutoAnswer, type ToolGateRule, type ToolServerFactory } from "../adapter/seams.js";
 import { autoAnswer } from "../permissions/auto-answer.js";
 import { UNPROBED_REPORT, containmentFlags, containmentReport, failedProbeReport, presetContainmentDefault, withAdapters } from "../permissions/containment.js";
 import { CONTAINMENT_DIRECTORY, containmentDirectories } from "../permissions/containment-directories.js";
 import { probeContainment, type ContainmentProbe } from "../permissions/containment-probe.js";
+import { denylistRule, providerDenylist, type DenylistContext } from "../permissions/denylist-gate.js";
+import { denylistMethods } from "../permissions/denylist-methods.js";
+import { readDenylist, seedDenylist } from "../permissions/denylist-store.js";
 import { permissionMethods, sessionModeClamp } from "../permissions/methods.js";
 import { promptMethods } from "../permissions/prompt-methods.js";
 import { startPromptNotices } from "../permissions/prompt-notices.js";
@@ -81,6 +87,8 @@ import type { TerminalsOptions } from "../terminals/terminals.js";
 import { workspaceMethods } from "../workspace/methods.js";
 import { createSettleSweep } from "../sessions/settle-sweep.js";
 import { settingsMethods } from "../settings/methods.js";
+import { setupMethods } from "../setup/methods.js";
+import { environmentStateChecks } from "../setup/state-checks.js";
 import { readSettings, settingsProjector } from "../settings/settings-store.js";
 import type { SubscriptionHooks } from "../wire/subscriptions.js";
 import { createWire } from "../wire/wire.js";
@@ -239,6 +247,8 @@ export interface EnvironmentOptions {
     readonly autoAnswer?: PromptAutoAnswer;
     /** Preset: the policy resolver on the environment's permission settings (#129) and its containment probe (#133). */
     readonly resolvePolicy?: PolicySeam;
+    /** The tool gate's rules; preset: the denylist's (#132, `permissions/denylist-gate.ts`). */
+    readonly gateRules?: readonly ToolGateRule[];
   };
   /**
    * What this environment can enforce (#133), probed once as the adapter
@@ -353,6 +363,20 @@ const linkHost = (listening: readonly { readonly address: Address; readonly inte
 };
 
 /**
+ * The running user's name from the passwd database, which the denylist reads
+ * `~<name>` as the home directory for. None for a uid with no entry (a
+ * container's arbitrary `--user`), where `userInfo` throws on POSIX and no
+ * shell expands a `~<name>` either.
+ */
+const passwdName = (): string | undefined => {
+  try {
+    return userInfo().username;
+  } catch {
+    return undefined;
+  }
+};
+
+/**
  * Starts an environment: refuses root before anything is created, then runs
  * the startup steps in order. Discovery and health are routed before the bind,
  * so they answer `starting` from the first byte; readiness is `ready` only
@@ -361,8 +385,12 @@ const linkHost = (listening: readonly { readonly address: Address; readonly inte
  */
 export const startEnvironment = async (options: EnvironmentOptions = {}): Promise<EnvironmentHandle> => {
   refusePrivilegedUser(options.user ?? processUserCheck());
+  // Past the refusal, the environment does not run as root (ADR 0006): what `permissions.settings.get` answers as
+  // `isRoot`, and the not-root line the Permissions and Your machines steps' checks read from it (#141).
+  const isRoot = false;
 
-  const dataDir = options.dataDir ?? defaultDataDirectory();
+  // Absolute once, here: a relative `--data-dir` would make the denylist's data-directory preset and its exemption relative paths (#132).
+  const dataDir = absolutePath(options.dataDir ?? defaultDataDirectory());
   const clock: Clock = options.clock ?? systemClock;
   const now = () => clock.now();
   const launcher = options.launcher ?? processLauncherChannel();
@@ -441,6 +469,17 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     return { record: loaded, clientSessions: loadedClientSessions, pairings: loadedPairings, accessLog: access };
   });
 
+  // Where the denylist reads paths from (#132): the user's home for `~` (and for `~<the user's name>`), the file system's
+  // links, and the directories inside the data directory where runs work, which the data directory's preset leaves out: the
+  // containment directories (#133's) and the scratch workspaces a completions request runs in (#140, now its every call is gated).
+  const user = passwdName();
+  const denylistContext: Omit<DenylistContext, "denylist"> = {
+    home: homedir(),
+    exempt: [join(dataDir, CONTAINMENT_DIRECTORY), join(dataDir, SCRATCH_DIRECTORY)],
+    ...(user !== undefined && { user }),
+  };
+  const readDenylistNow = () => readDenylist({ all: (sql, ...params) => log.read(sql, ...params) });
+
   // The SDK session store (#137): the provider's transcripts beside the log, which every Claude run passes and resumes from.
   const providerStore: ProviderTranscriptStore = createProviderTranscriptStore({ log, clock });
 
@@ -456,8 +495,17 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     }),
   );
 
+  // Client-tool passthrough (#139): the calls runs make to a completions caller's tools, parked until the caller answers,
+  // and the `client` tool server the factory adds for a run whose request declared tools. Closed after the host, whose
+  // close ends every run (and so lets go of what each left parked).
+  const passthrough = createPassthrough({ log, clock });
+  closers.push(() => passthrough.close());
+  const seamServers = options.adapterSeams?.toolServers ?? noToolServers;
+
   // The account store and the adapter host: the adapters, the accounts' sign-in states read through their probes, the run registry.
   const { host, accounts } = await step("adapter-host", async () => {
+    // The denylist's presets on first start (#132), before any run can be gated.
+    seedDenylist({ log, stream: accessLog.stream, dataDir });
     // First the recovery sweep: a run the log left without an end was cut by the last stop, and is ended before anything can read it.
     const recovered = recoverCutRuns({ log, clock });
     if (recovered.length > 0) console.error(`The recovery sweep ended ${recovered.length} run(s) a restart cut: ${recovered.join(", ")}.`);
@@ -539,9 +587,15 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       ceilingOf: (id) => clientSessions.ceiling(id),
       // The unattended and bypass rules, and the TTL a prompt that parks is fixed with (#131).
       autoAnswer,
+      // The tool gate's rules (#132): the denylist, read as it is when each call is made.
+      gateRules: [denylistRule({ ...denylistContext, denylist: readDenylistNow })],
+      // What an unattended run projects onto its provider's own rules (#140), read as it starts.
+      providerDenylist: () => providerDenylist(readDenylistNow(), denylistContext),
       promptTtlMs: () => parkedPromptTtlMs(permissionSettings()["permissions.parkedPrompt.ttl"]),
       processIdleMinutes: options.processIdleMinutes ?? (() => settings()["providers.processIdleMinutes"]),
       ...options.adapterSeams,
+      // The seam's servers, then the caller's own tools as the `client` server (#139).
+      toolServers: (scope) => [...seamServers(scope), ...passthrough.toolServers(scope)],
     });
     // Closed before the event log, so a run the close ends has its end appended (drained when a drain's cap cut it), and
     // before the launcher's channel, so the launcher hears the environment go only once every provider process has
@@ -641,9 +695,12 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       clampSessionMode: sessionModeClamp({ host, ceilingOf: (id) => clientSessions.ceiling(id) }),
     }),
     ...runMethods({ log, host, ceilingOf: (id) => clientSessions.ceiling(id) }),
-    ...permissionMethods({ log, host, accessLog, clock, environmentId: record.id, ceilingOf: (id) => clientSessions.ceiling(id), containment }),
+    ...permissionMethods({ log, host, accessLog, clock, environmentId: record.id, ceilingOf: (id) => clientSessions.ceiling(id), containment, isRoot }),
     ...promptMethods({ log, host, environmentId: record.id }),
     ...reviewMethods({ log, environmentId: record.id }),
+    ...denylistMethods({ log, accessLog, dataDir, context: denylistContext }),
+    // Set up's health checks (ADR 0031; #141): each registered step's, on this environment.
+    ...setupMethods({ log, clock, presets: settingsPresets(), stateChecks: environmentStateChecks({ log, containment, isRoot, dataDir }) }),
     ...processMethods({ log, host }),
     ...accountMethods({ accounts, host }),
     ...usageMethods({ pool: usagePool, accounts, clock }),
@@ -665,6 +722,27 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     PAIR_PATH,
     pairRoute({ pairings, atomically: accessLog.atomically, rateLimiter: createRateLimiter({ clock }), readiness: () => readiness }),
   );
+  // The completions surface (#138): OpenAI's routes under /v1/ on the wire's port, for programs' client sessions.
+  const completions = createCompletionsSurface({
+    log,
+    host,
+    clock,
+    clientSessions,
+    readiness: () => readiness,
+    // The account store (#134): every account it holds, by its label, with what the host would run it with.
+    catalogue: {
+      accounts: () =>
+        accounts.list().flatMap((record) => {
+          const facts = accounts.facts(record.id);
+          return facts === null ? [] : [{ id: record.id, label: record.label, provider: record.provider, signedIn: facts.signedIn, models: facts.models }];
+        }),
+      defaultAccountId: () => accounts.defaultId(),
+    },
+    methods: table,
+    scratchRoot: join(dataDir, SCRATCH_DIRECTORY),
+    passthrough,
+  });
+  surface.prefix(OPENAI_PATH_PREFIX, completions.handle);
   const wire = createWire({
     environment: record,
     capabilities,
@@ -699,6 +777,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     grant.issue(loopback.address);
     return { address: loopback.address, addresses: listening.map((entry) => entry.address) };
   });
+
+  // Closed before the wire and the listeners: an answer still open ends with a final chunk, never a bare close.
+  closers.push(() => completions.close());
 
   await step("prepared", () => launcher.prepared());
   readiness = "ready";

@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "setup.check params",
+  "type": "object",
+  "properties": {
+    "step": {
+      "description": "The step to check; every registered step when absent.",
+      "type": "string",
+      "enum": [
+        "account",
+        "your-machines",
+        "permissions",
+        "appearance"
+      ]
+    }
+  }
+}

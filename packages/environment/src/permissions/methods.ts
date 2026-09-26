@@ -12,6 +12,7 @@ import {
   type ModeAvailability,
   type PermissionSettingsKey,
   type PermissionSettingsValues,
+  type ResultOf,
   type ContainmentLevel,
   type SessionContainmentSetPayload,
   type SessionModeSetPayload,
@@ -29,6 +30,7 @@ import type { Reader } from "../sessions/session-reads.js";
 import { sessionStream } from "../sessions/streams.js";
 import { presetContainmentDefault, unenforceable } from "./containment.js";
 import { readPermissionSettings, readSessionContainment, readStoredContainmentDefault } from "./permissions-store.js";
+import { denylistCounts, readDenylist } from "./denylist-store.js";
 import { clampMode, noModeAvailable } from "./resolver.js";
 
 /**
@@ -53,15 +55,28 @@ export interface PermissionMethodsOptions {
   readonly ceilingOf: (clientSessionId: string) => Mode | undefined;
   /** What this environment can enforce (#133): its probe's findings, as its adapters allow them. */
   readonly containment: ContainmentReport;
+  /** Whether the environment runs as root: what `permissions.settings.get` answers as `isRoot` (`readPermissionsReport`). */
+  readonly isRoot: boolean;
 }
+
+/**
+ * What `permissions.settings.get` answers: every permission setting (a key
+ * never set at its preset, the containment default's the environment's own),
+ * what containment can enforce here, whether the environment runs as root
+ * and the denylist's counts. The Permissions and Your machines steps' checks
+ * read the same (#141), so the not-root line is what this reports.
+ */
+export const readPermissionsReport = (reader: Reader, containment: ContainmentReport, isRoot: boolean): ResultOf<"permissions.settings.get"> => ({
+  values: readPermissionSettings(reader, { "permissions.containment.default": presetContainmentDefault(containment) }),
+  containment,
+  isRoot,
+  denylist: denylistCounts(readDenylist(reader)),
+});
 
 type PermissionMethodName = "permissions.mode.set" | "permissions.containment.set" | "permissions.settings.get" | "permissions.settings.set";
 
 /** Every mode, available: what a session with no account on this environment is clamped against, its ceiling alone. */
 const EVERY_MODE: readonly ModeAvailability[] = MODES.map((mode) => ({ mode, available: true, reason: null }));
-
-/** Denylist entries per section: none until the denylist (#132). */
-const DENYLIST_COUNTS = { browserDomains: 0, paths: 0, commandPatterns: 0, hosts: 0 } as const;
 
 /** A client session's ceiling as it is now, else the one its socket authenticated with. */
 const currentCeiling = (ceilingOf: PermissionMethodsOptions["ceilingOf"], clientSession: VerifiedClientSession): Mode =>
@@ -154,13 +169,7 @@ export const permissionMethods = (options: PermissionMethodsOptions): Required<P
       return { aggregate, result: { sessionId, ...payload }, events };
     },
 
-    "permissions.settings.get": () => ({
-      values: settings(),
-      containment: report,
-      // `serve` refuses root before anything starts (ADR 0006), so this is never true while the environment answers.
-      isRoot: false,
-      denylist: { ...DENYLIST_COUNTS },
-    }),
+    "permissions.settings.get": () => readPermissionsReport(reader, report, options.isRoot),
 
     /**
      * Any subset of the settings. The first time the unattended mode is set to

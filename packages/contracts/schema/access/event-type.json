@@ -14,7 +14,8 @@
     "scope.granted",
     "ceiling.changed",
     "bypass.acknowledged",
-    "settings.changed"
+    "settings.changed",
+    "denylist.changed"
   ],
-  "description": "The event types of the access stream: pairing created, exchanged, expired; client session created, refreshed, revoked; socket opened, closed; scope granted; ceiling changed; bypass acknowledged; settings changed."
+  "description": "The event types of the access stream: pairing created, exchanged, expired; client session created, refreshed, revoked; socket opened, closed; scope granted; ceiling changed; bypass acknowledged; settings changed; denylist changed."
 }

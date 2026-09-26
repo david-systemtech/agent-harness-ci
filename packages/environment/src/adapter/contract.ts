@@ -6,6 +6,7 @@ import type {
   ContainmentLevel,
   ContainmentMechanism,
   CredentialSpec,
+  DenylistMatch,
   InterruptCause,
   JsonObject,
   Mode,
@@ -47,6 +48,8 @@ export interface AdapterCredentialSpec extends CredentialSpec {
 export interface AccountRef {
   readonly id: string;
   readonly directory: string | null;
+  /** The account's label, for what a person reads (a run's error naming the account); absent where the caller has none. */
+  readonly label?: string;
 }
 
 /**
@@ -130,11 +133,76 @@ export type RunTarget =
   | { readonly kind: "fork"; readonly providerSessionId: string; readonly atMessageId: string | null }
   | { readonly kind: "rewind"; readonly providerSessionId: string; readonly toMessageId: string };
 
-/** A tool server the factory built for one run (memory tools, the browser, the completions surface's client tools): opaque to the host. */
-export interface ToolServer {
+/**
+ * A tool server the factory built for one run (memory tools, the browser, the
+ * completions surface's client tools): a server the provider starts from
+ * configuration of its own shape (`ConfiguredToolServer`), or tools served
+ * in the environment's own process (`InProcessToolServer`).
+ */
+export type ToolServer = ConfiguredToolServer | InProcessToolServer;
+
+/** A server the provider starts itself from its own configuration (Claude's MCP server config): opaque to the host. */
+export interface ConfiguredToolServer {
   readonly name: string;
   readonly config: unknown;
 }
+
+/**
+ * Tools the environment serves in its own process (#139): the adapter shows
+ * each to the model under the server's name and hands each call to `call`.
+ * An adapter reports a call to one in its transcript under the name
+ * `inProcessToolName` gives (`mcp__<server>__<tool>`, the name Claude's own
+ * MCP servers go by), with the provider's id for the call, which it passes
+ * to `call` as well. A session's runs share its provider process, so an
+ * adapter may serve a later run with the server a process was started with
+ * when its tools are the same (`inProcessToolKey`); a server built for one
+ * session is never handed to another.
+ */
+export interface InProcessToolServer {
+  readonly name: string;
+  readonly tools: readonly HostTool[];
+  /**
+   * The tools run outside the environment (the completions surface's caller
+   * runs its own): a call touches nothing here, so the adapter lets it go
+   * ahead without a permission prompt, and several go out side by side.
+   */
+  readonly external: boolean;
+}
+
+/** One tool of an in-process server: its name, what it does, the JSON Schema of its input as the model sees it, and what runs a call. */
+export interface HostTool {
+  readonly name: string;
+  readonly description: string;
+  readonly inputSchema: JsonObject;
+  /** Runs a call, resolving with what the model reads; it may take as long as the tool needs (a caller's tool is parked until the caller answers). */
+  call(input: JsonObject, call: HostToolCall): Promise<HostToolResult>;
+}
+
+/** A call as the adapter hands it over: the provider's id for it (as the transcript's `tool.started` names it), and a signal aborted when the provider gives up on it. */
+export interface HostToolCall {
+  readonly toolCallId: string | null;
+  readonly signal?: AbortSignal;
+}
+
+/** What a tool call answers the model: text, and whether it failed. */
+export interface HostToolResult {
+  readonly text: string;
+  readonly isError: boolean;
+}
+
+/** Whether a tool server is served in the environment's own process. */
+export const isInProcess = (server: ToolServer): server is InProcessToolServer => "tools" in server;
+
+/** The name an adapter reports a call to an in-process server's tool under in its transcript. */
+export const inProcessToolName = (server: string, tool: string): string => `mcp__${server}__${tool}`;
+
+/**
+ * What an in-process server shows the model, as one string: two servers with
+ * the same key serve the same tools, so a process started with one can serve
+ * a run handed the other.
+ */
+export const inProcessToolKey = (server: InProcessToolServer): string =>
+  JSON.stringify([server.name, server.external, server.tools.map((tool) => [tool.name, tool.description, tool.inputSchema])]);
 
 /**
  * A run's containment as its adapter enforces it (permissions spec,
@@ -165,6 +233,23 @@ export interface RunContainment {
 }
 
 /**
+ * The denylist as a provider projects it onto its own deny rules on an
+ * unattended run (permissions spec, "Provider deny rules where they must
+ * apply"; #140): what a sandboxed command may not read, and the command
+ * patterns the provider refuses by its own rules. Read when the run starts,
+ * the enabled entries only. An attended run is handed none, so a person's
+ * explicit allow of a denylisted call is never blocked by a provider rule.
+ */
+export interface RunDenylist {
+  /** The path section's enabled entries, absolute: `~` read as the environment's home directory. */
+  readonly paths: readonly string[];
+  /** The directories the path section's entries leave out (the matcher's exemption): the containment directories and the scratch workspaces. */
+  readonly exempt: readonly string[];
+  /** The command-pattern section's enabled entries, as written. */
+  readonly commandPatterns: readonly string[];
+}
+
+/**
  * Everything a run needs, resolved by the host: the session and run, the
  * account's directory, the workspace and repository, model, effort and the
  * mode the policy resolver gave it, the composed instruction text, what it continues from, the
@@ -190,6 +275,8 @@ export interface RunInput {
   readonly trusted: boolean;
   /** The run's containment (`run.policy.resolved`): the adapter maps it onto its provider's sandbox. */
   readonly containment: RunContainment;
+  /** The denylist to project onto the provider's own rules: set on an unattended run, null on an attended one (#140). */
+  readonly denylist: RunDenylist | null;
   readonly prompt: readonly PromptMessage[];
 }
 
@@ -223,6 +310,8 @@ export interface PromptDetail {
   readonly suggestions?: readonly JsonObject[];
   /** The subagent that asked. */
   readonly agentId?: string | null;
+  /** A denylist prompt's matches: each entry the call matched, the first the one it names (#132). */
+  readonly denylist?: readonly DenylistMatch[] | null;
 }
 
 /** A permission prompt or question a run asks through the broker. */
@@ -318,24 +407,34 @@ export interface PermissionBroker {
  * What a tool call does, as its adapter describes it to the tool gate, in
  * the provider's terms mapped onto the harness's: reading or writing files
  * (their paths, absolute or relative to the workspace, `~` for the home
- * directory), a shell command, fetching URLs, a web search, or anything
- * else (a tool server's call, a question). The gate rules on this, never on
- * the provider's tool names.
+ * directory), a shell command, fetching URLs, a web search (its query, and
+ * the domains it is limited to when it names any), a browser verb opening
+ * addresses, or anything else (a tool server's call, a question). The gate
+ * rules on this, never on the provider's tool names; for `other` the
+ * denylist reads the call's input.
  */
 export type ToolAccess =
   | { readonly kind: "read"; readonly paths: readonly string[] }
   | { readonly kind: "write"; readonly paths: readonly string[] }
   | { readonly kind: "shell"; readonly command: string }
   | { readonly kind: "fetch"; readonly urls: readonly string[] }
-  | { readonly kind: "search"; readonly query: string }
+  | { readonly kind: "search"; readonly query: string; readonly domains?: readonly string[] }
+  | { readonly kind: "browse"; readonly urls: readonly string[] }
   | { readonly kind: "other" };
 
-/** One tool call the gate is asked about: the provider's id and name for it, a one-line summary for people, and what it does. */
+/**
+ * One tool call the gate is asked about: the provider's id and name for it,
+ * a one-line summary for people, what it does, and the tool's input as the
+ * model gave it, which a prompt about the call records and the denylist
+ * reads for a call of kind `other` (what the harness's own tool servers
+ * receive).
+ */
 export interface GatedToolCall {
   readonly toolCallId: string;
   readonly tool: string;
   readonly summary: string;
   readonly access: ToolAccess;
+  readonly input?: JsonObject;
 }
 
 /**
@@ -348,14 +447,26 @@ export type GateDecision = { readonly decision: "allow" } | { readonly decision:
 /**
  * The tool gate (permissions spec, "Modules": the tool gate): consulted by
  * every adapter before the provider's own evaluation, for every tool call in
- * every mode, bypass included. It applies containment as a hard deny: no
- * prompt, the model told why, the decision recorded as `tool.decision` with
- * `decidedBy: containment`; widening containment is a settings change,
- * never an answer to a prompt. The denylist's matches (#132) join it. For
- * Claude it is the `PreToolUse` hook (#140).
+ * every mode, bypass included. It applies containment as a hard deny (#133:
+ * no prompt, the model told why, recorded as `tool.decision` by
+ * `containment`; widening containment is a settings change, never an answer
+ * to a prompt), then hands a denylist match to the broker as a `denylist`
+ * prompt (#132): parked for the person on an attended run, whose explicit
+ * allow lets that one call on, denied at once on an unattended one. For
+ * Claude it is asked from the SDK's `PreToolUse` hook, which the CLI runs
+ * before its own evaluation of every call (#140), and from `canUseTool` for
+ * what the hook did not let through as it is: the sandbox's ask for a host,
+ * which no hook sees, and a call another hook rewrote since; the fake
+ * adapter asks it for every call it plays.
  */
 export interface ToolGate {
-  check(call: GatedToolCall): Promise<GateDecision>;
+  /**
+   * Rules on a call. `signal` aborts when the provider gives up on the call
+   * (it cancelled the tool use, or its hook timed out): a prompt the gate
+   * parked for it is closed (`cancelled`) and the call denied, so nobody is
+   * left answering for a call that will never run.
+   */
+  check(call: GatedToolCall, signal?: AbortSignal): Promise<GateDecision>;
 }
 
 /** The types a run's events may be: the transcript types an adapter produces. The run's start and end, and the messages sent to it, are the host's. */
@@ -523,7 +634,7 @@ export interface RunContext {
   /**
    * The tool gate, asked before the provider's own evaluation for every tool
    * call; a turn the provider opened on its own asks through the gate of the
-   * run it followed, which rules under the policy of the run live then.
+   * run it followed, which rules under the run live then.
    */
   readonly gate: ToolGate;
   /** Held work on the session's provider process (the pool's port). */
@@ -536,6 +647,13 @@ export interface RunContext {
    * failed check is logged.
    */
   reportIdentity(identity: AccountIdentity): void;
+  /**
+   * The provider found the run's account unable to sign in (Claude: the
+   * refresh of an expired login before a cold resume failed, #229): the
+   * account store reads its status again at once, so the account pickers
+   * show what the provider says of it now. The host's never throws.
+   */
+  recheckAccount(): void;
   /**
    * The adoption hook: a turn the provider opened on its own is reported
    * here, and the host registers it as a run of the same session once the

@@ -486,6 +486,41 @@ describe("an unreachable environment", () => {
   });
 });
 
+describe("opening a session", () => {
+  it("Enter on a row opens it in the transcript, the composer taking the keys, and the slash forms then act on it", async () => {
+    const app = await one();
+    await focusRail(app);
+    await cursorTo(app, "Fix the rail");
+    await app.press(KEY.enter);
+    await app.waitFor("Fix the rail · /work/harness");
+    await app.waitFor("Nothing said yet.");
+    expect(app.frame()).not.toContain("The rail has the keys");
+    // The rail's cursor is put on another row, but the session open is the one in hand.
+    await app.press(KEY.tab);
+    await app.waitFor("The rail has the keys");
+    await cursorTo(app, "Spare");
+    await app.waitFor("the slash forms act on “Fix the rail”");
+    await app.press(KEY.esc);
+    await run(app, "/settle");
+    await app.waitFor("Settled “Fix the rail”.");
+    expect(sent(app, "desk", "sessions.settle").map((f) => params(f)["sessionId"])).toEqual([FIX]);
+  });
+
+  it("under 100 columns, the transcript gives way to the rail while the rail has the keys", async () => {
+    const app = await launch({ script: { environments: [desk()] }, size: { columns: 99, rows: 30 } });
+    await app.waitFor("● desk ready");
+    await app.press(KEY.tab);
+    await app.waitFor("Sessions the rail, drawn here under 100 columns");
+    await cursorTo(app, "Fix the rail");
+    await app.press(KEY.enter);
+    await app.waitFor("Nothing said yet.");
+    expect(app.frame()).not.toContain("drawn here under 100 columns");
+    await app.press(KEY.tab);
+    await app.waitFor("Sessions the rail, drawn here under 100 columns");
+    expect(app.frame()).not.toContain("Nothing said yet.");
+  });
+});
+
 describe("the slash forms", () => {
   it("issue the same commands as the keys, on the session under the rail's cursor", async () => {
     const app = await one();
@@ -624,6 +659,17 @@ describe("the filter and /search", () => {
     await app.waitFor("Search every environment");
     await app.press("~");
     await app.waitUntil(() => !app.frame().includes("Search every environment"), "the card closed");
+    expect(app.frame()).not.toContain("fix~");
+  });
+
+  it("gives a printable key remapped to the jump to what needs you to the jump, not to a typed picker's query", async () => {
+    const { keymap } = resolveKeymap({ "app.attention.next": ["~"] });
+    const app = await launch({ script: { environments: [desk()] }, keymap });
+    await app.waitFor("Fix the rail");
+    await run(app, "/search fix");
+    await app.waitFor("Search every environment");
+    await app.press("~");
+    await app.waitFor("Nothing needs you.");
     expect(app.frame()).not.toContain("fix~");
   });
 

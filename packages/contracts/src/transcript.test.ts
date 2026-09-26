@@ -59,6 +59,7 @@ const VOCABULARY = [
   "session.provider-linked",
   "session.forked",
   "session.rewound",
+  "session.rewind-undone",
   "run.ended",
 ];
 
@@ -87,11 +88,11 @@ describe("the transcript vocabulary", () => {
     expect(isListEvent("session", "prompt.answered")).toBe(true);
   });
 
-  it("fixes every transcript payload, each carrying the run's id but for the fork and the rewind, which are the session's", () => {
+  it("fixes every transcript payload, each carrying the run's id but for the fork, the rewind and its undo, which are the session's", () => {
     for (const [type, entry] of Object.entries(TRANSCRIPT_EVENT_TYPES)) {
       expect("reservedFor" in entry, type).toBe(false);
       const shape = (entry.payload as z.ZodObject).shape;
-      expect("runId" in shape, type).toBe(!["session.forked", "session.rewound"].includes(type));
+      expect("runId" in shape, type).toBe(!["session.forked", "session.rewound", "session.rewind-undone"].includes(type));
     }
   });
 

@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DenylistEntry",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "description": "The entry's id, unique in its section: a preset's is the same on every environment."
+    },
+    "pattern": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The pattern, in its section's grammar."
+    },
+    "note": {
+      "type": "string",
+      "maxLength": 500,
+      "description": "Why the entry is there, for people; empty for none."
+    },
+    "preset": {
+      "type": "boolean",
+      "description": "Whether it came from the presets (seeded on first start, or restored); an edited preset keeps it."
+    },
+    "enabled": {
+      "type": "boolean",
+      "description": "Whether it matches: a disabled entry never does."
+    }
+  },
+  "required": [
+    "id",
+    "pattern",
+    "note",
+    "preset",
+    "enabled"
+  ],
+  "description": "One entry of the denylist: its id, pattern, note, whether it is a preset, and whether it is enabled."
+}

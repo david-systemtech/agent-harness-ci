@@ -185,7 +185,8 @@ describe("a run's event stream", () => {
       trusted: false,
       prompt: [{ text: "Fix it", attachments: [] }],
     });
-    expect(toolServers).toHaveBeenCalledWith({ sessionId: t.sessionId, runId, accountId: "acct", workspace: { kind: "directory", path: "/work" } });
+    // A run no completions request started declares no tools for a caller to run (#139).
+    expect(toolServers).toHaveBeenCalledWith({ sessionId: t.sessionId, runId, accountId: "acct", workspace: { kind: "directory", path: "/work" }, clientTools: [] });
     expect(eventsOf(t)[0]?.payload).toMatchObject({ mode: { requested: "bypassPermissions", effective: "acceptEdits", clamped: true } });
     expect(eventsOf(t)[1]).toMatchObject({ type: "run.policy.resolved", payload: { runId, mode: { effective: "acceptEdits", ceiling: "acceptEdits", clampReason: "ceiling" } } });
   });
@@ -927,6 +928,7 @@ describe("the transcript delete across providers", () => {
       defaults: () => service.defaults(),
       providerOf: (id) => service.providerOf(id),
       crossCheck: (accountId, identity, runId) => service.crossCheck(accountId, identity, runId),
+      recheck: (accountId) => service.recheck(accountId),
     };
     const host = createAdapterHost({ log, clock, adapters: [first, second], accounts, ceilingOf: () => undefined });
     closers.push(() => log.close(), () => host.close("disposed"), () => service.close());

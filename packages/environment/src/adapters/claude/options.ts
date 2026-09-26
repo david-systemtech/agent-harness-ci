@@ -1,6 +1,7 @@
-import type { CanUseTool, EffortLevel, HookCallback, McpServerConfig, Options, PermissionMode, SessionStore, SettingSource } from "@anthropic-ai/claude-agent-sdk";
-import type { RunInput } from "../../adapter/contract.js";
+import type { CanUseTool, EffortLevel, HookCallback, HookCallbackMatcher, HookEvent, McpServerConfig, Options, PermissionMode, SandboxSettings, SessionStore, SettingSource } from "@anthropic-ai/claude-agent-sdk";
+import { isInProcess, type RunInput } from "../../adapter/contract.js";
 import { composeRunEnvironment, type HostEnvironment } from "./credentials.js";
+import { hostToolServer, serverRule } from "./host-tools.js";
 
 /**
  * The options a Claude run is handed (claude-adapter spec, "The Claude
@@ -27,6 +28,19 @@ export const DEFAULT_CLAUDE_MODE: ClaudeMode = "acceptEdits";
 
 /** The reasoning efforts the SDK takes; a model the provider cannot run at one degrades it itself. */
 export const CLAUDE_EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const satisfies readonly EffortLevel[];
+
+/**
+ * How long, in seconds, the CLI waits on the tool gate's `PreToolUse` hook
+ * before it gives up on the call: as long as its timer can hold. The CLI
+ * arms `setTimeout(timeout * 1000)` for a callback hook (its own default is
+ * ten minutes), and a JavaScript timer past 2^31 - 1 milliseconds fires at
+ * once, so this is the longest wait there is: 24.8 days. A denylist prompt
+ * the gate parks inside the hook waits for its TTL (a day by preset); one
+ * whose TTL is longer, or `never`, is closed when this passes: the CLI
+ * cancels the hook's request, the SDK aborts the gate's signal, and the
+ * gate closes the prompt `cancelled` and denies the call (#132's note).
+ */
+export const GATE_HOOK_TIMEOUT_SECONDS = Math.floor((2 ** 31 - 1) / 1000);
 
 /** Who the provider's User-Agent names. */
 export const CLIENT_APP = "agent-harness";
@@ -63,6 +77,8 @@ export interface RunOptionsInput {
   readonly resumePoint: ResumePoint | null;
   /** The host's broker seam, through the process's permission table. */
   readonly canUseTool: CanUseTool;
+  /** The tool gate, asked before the provider's own evaluation of every tool call (#140). */
+  readonly preToolUse: HookCallback;
   /** Called as each turn stops, with the session's scheduled jobs as the CLI lists them (`session_crons`). */
   readonly onStop?: HookCallback;
   /** The process's own spawn of the CLI, so a kill reaches the child; absent, the SDK spawns it. */
@@ -93,11 +109,85 @@ export const claudeEffort = (effort: string | null): EffortLevel | null => {
 const systemPrompt = (instructions: string): NonNullable<Options["systemPrompt"]> =>
   instructions.trim() === "" ? { type: "preset", preset: "claude_code" } : { type: "preset", preset: "claude_code", append: instructions };
 
-/** The factory's tool servers as the SDK's MCP servers, by name; their configs are the factory's (`ToolServer.config`). */
+/**
+ * The factory's tool servers as the SDK's MCP servers, by name: a configured
+ * server's config is the factory's (`ToolServer.config`); an in-process
+ * server's tools are served by an in-process MCP server (`host-tools.ts`).
+ */
 const mcpServers = (run: RunInput): Record<string, McpServerConfig> | null => {
   if (run.toolServers.length === 0) return null;
-  return Object.fromEntries(run.toolServers.map((server) => [server.name, server.config as McpServerConfig]));
+  return Object.fromEntries(run.toolServers.map((server) => [server.name, isInProcess(server) ? hostToolServer(server) : (server.config as McpServerConfig)]));
 };
+
+/**
+ * The permission rules that let an external in-process server's tools go
+ * ahead without asking (#139): a completions caller runs its own tools, so a
+ * call to one touches nothing here, and a prompt nobody present could answer
+ * would deny it on every unattended run.
+ */
+const allowedTools = (run: RunInput): string[] => run.toolServers.filter((server) => isInProcess(server) && server.external).map((server) => serverRule(server.name));
+
+/**
+ * The run's hooks: the tool gate's `PreToolUse`, matching every tool (no
+ * matcher) and waiting as long as the CLI can, and the process's `Stop`
+ * when it has one.
+ */
+const hooksOf = (preToolUse: HookCallback, onStop: HookCallback | undefined): Partial<Record<HookEvent, HookCallbackMatcher[]>> => ({
+  PreToolUse: [{ hooks: [preToolUse], timeout: GATE_HOOK_TIMEOUT_SECONDS }],
+  ...(onStop !== undefined && { Stop: [{ hooks: [onStop] }] }),
+});
+
+/**
+ * The shell side of the run's containment, as the SDK's sandbox (permissions
+ * spec, "Enforcement for Claude"): none at `off`; at both workspace levels
+ * enabled, failing the run rather than running a command unsandboxed, with
+ * no way for the model to ask its way out (`allowUnsandboxedCommands`) and no
+ * approval for being sandboxed (`autoAllowBashIfSandboxed`: containment
+ * changes where a command may reach, never whether it asks). A command may
+ * write in the run's writable set (the workspace is the CLI's working
+ * directory already). The network is open at `workspace`, local binding
+ * included; the pinned sandbox cannot name "any domain", so it asks the
+ * host about each new host, which the adapter answers itself once the gate
+ * lets the host through (`process.ts`, #140's verify note). At
+ * `workspace-no-network` it is closed: no domain, no unix socket, no local
+ * binding, and a host outside the (empty) list is refused without asking.
+ * On an unattended run the denylist's paths are unreadable to a command,
+ * the directories the denylist leaves out read again.
+ */
+export const sandboxOf = (run: Pick<RunInput, "containment" | "denylist">): SandboxSettings | null => {
+  const { containment, denylist } = run;
+  if (containment.level === "off") return null;
+  const denyRead = denylist?.paths ?? [];
+  const allowRead = denyRead.length > 0 ? (denylist?.exempt ?? []) : [];
+  return {
+    enabled: true,
+    failIfUnavailable: true,
+    allowUnsandboxedCommands: false,
+    autoAllowBashIfSandboxed: false,
+    network: containment.network
+      ? { allowLocalBinding: true }
+      : { allowedDomains: [], strictAllowlist: true, allowUnixSockets: [], allowAllUnixSockets: false, allowLocalBinding: false },
+    filesystem: {
+      allowWrite: [...containment.writable],
+      ...(denyRead.length > 0 && { denyRead: [...denyRead] }),
+      ...(allowRead.length > 0 && { allowRead: [...allowRead] }),
+    },
+  };
+};
+
+/** A rule's content as the CLI reads it back (`Tool(content)`): its backslashes and brackets escaped. */
+const ruleContent = (text: string): string => text.replaceAll("\\", "\\\\").replaceAll("(", "\\(").replaceAll(")", "\\)");
+
+/**
+ * The denylist's command patterns as the CLI's disallowed shell rules, on
+ * an unattended run only: `Bash(<pattern>)`, its white space made single
+ * spaces. A deny rule from the command line holds in every mode, bypass
+ * included. The CLI matches a rule against each sub-command from its start,
+ * where the gate matches a pattern anywhere in the line: the gate asks
+ * first, and these catch what it could not read.
+ */
+export const disallowedShell = (denylist: RunInput["denylist"]): string[] =>
+  (denylist?.commandPatterns ?? []).map((pattern) => `Bash(${ruleContent(pattern.trim().split(/\s+/).join(" "))})`);
 
 /** What the run continues from, as the SDK's resume, fork and truncation options. */
 const continuation = (run: RunInput, point: ResumePoint | null): Partial<Options> => {
@@ -130,7 +220,10 @@ export const buildRunOptions = (input: RunOptionsInput): Options => {
   const mode = claudeMode(run.mode);
   const effort = claudeEffort(run.effort);
   const servers = mcpServers(run);
+  const allowed = allowedTools(run);
   const settingSources: SettingSource[] = run.trusted ? ["project"] : [];
+  const sandbox = sandboxOf(run);
+  const disallowedTools = disallowedShell(run.denylist);
   const env = composeRunEnvironment(input.hostEnv, input.configDirectory, {
     // The harness session names the project directory, so the transcript is found whatever the working directory, and
     // the session store keys every entry by it (the SDK takes it as the project key beside CLAUDE_CONFIG_DIR, #137).
@@ -148,17 +241,20 @@ export const buildRunOptions = (input: RunOptionsInput): Options => {
     model: run.model,
     ...(effort !== null && { effort }),
     permissionMode: mode,
-    // The SDK's explicit opt-in, tied to the mode that needs it (#129 may tie it to the ceiling instead).
-    // Only under a bypass ceiling (permissions spec, the Claude mapping): a change to bypass under a lower one is refused by the provider as well as clamped.
+    // The SDK's explicit opt-in, only under a bypass ceiling (permissions spec, the Claude mapping): a change to bypass under a
+    // lower one is refused by the provider as well as clamped. With a fresh config directory it is enough on its own (#140).
     ...(run.ceiling === "bypassPermissions" && { allowDangerouslySkipPermissions: true }),
     permissionPrompts: "host",
     canUseTool: input.canUseTool,
-    ...(input.onStop !== undefined && { hooks: { Stop: [{ hooks: [input.onStop] }] } }),
+    hooks: hooksOf(input.preToolUse, input.onStop),
+    ...(sandbox !== null && { sandbox }),
+    ...(disallowedTools.length > 0 && { disallowedTools }),
     ...(input.spawnProcess !== undefined && { spawnClaudeCodeProcess: input.spawnProcess }),
     systemPrompt: systemPrompt(run.instructions),
     settingSources,
     strictMcpConfig: true,
     ...(servers !== null && { mcpServers: servers }),
+    ...(allowed.length > 0 && { allowedTools: allowed }),
     ...(input.pluginDirectory !== null && { plugins: [{ type: "local", path: input.pluginDirectory }] }),
     // The flag layer, which the CLI reads before the project's (whose own value it ignores for security) and the user's.
     ...(input.autoMemoryDirectory !== null && { settings: { autoMemoryDirectory: input.autoMemoryDirectory } }),

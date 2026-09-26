@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CompletionsClamp",
+  "type": "object",
+  "properties": {
+    "requested": {
+      "type": "string",
+      "enum": [
+        "plan",
+        "acceptEdits",
+        "auto",
+        "bypassPermissions"
+      ],
+      "description": "What an agent may do without asking during a run, in the order ceilings use: plan < acceptEdits < auto < bypassPermissions. Claude's default and dontAsk are never used."
+    },
+    "effective": {
+      "type": "string",
+      "enum": [
+        "plan",
+        "acceptEdits",
+        "auto",
+        "bypassPermissions"
+      ],
+      "description": "What an agent may do without asking during a run, in the order ceilings use: plan < acceptEdits < auto < bypassPermissions. Claude's default and dontAsk are never used."
+    },
+    "ceiling": {
+      "type": "string",
+      "enum": [
+        "plan",
+        "acceptEdits",
+        "auto",
+        "bypassPermissions"
+      ],
+      "description": "What an agent may do without asking during a run, in the order ceilings use: plan < acceptEdits < auto < bypassPermissions. Claude's default and dontAsk are never used."
+    },
+    "reason": {
+      "type": "string",
+      "enum": [
+        "ceiling",
+        "unavailable"
+      ],
+      "description": "Why a mode was lowered: ceiling (above the ceiling, lowered to it), or unavailable (the mode it would have had is one the account lists as unavailable, so the next lower available one)."
+    }
+  },
+  "required": [
+    "requested",
+    "effective",
+    "ceiling",
+    "reason"
+  ],
+  "description": "A permissionMode the turn could not have: the mode it got instead, the ceiling, and why."
+}

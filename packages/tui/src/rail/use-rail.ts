@@ -50,6 +50,8 @@ export interface RailOptions {
   ask(question: RailQuestion): void;
   /** Opens a picker as the screen's card. */
   open(picker: Picker): void;
+  /** Opens a session in the transcript (Enter on its row). */
+  openSession(target: { readonly environmentId: string; readonly sessionId: string }): void;
   /** Gives the rail the keys. */
   focus(): void;
   /** Gives the keys back to the composer. */
@@ -238,7 +240,7 @@ export const useRail = (options: RailOptions): Rail => {
 
   const open = () => {
     if (!selected) return;
-    if (selected.kind === "row") return say(`Opening ${titleOf(selected.row)} arrives with the transcript.`);
+    if (selected.kind === "row") return options.openSession({ environmentId: selected.row.environmentId, sessionId: selected.row.summary.id });
     if (selected.folded !== null) return setFolded(selected.key, !selected.folded);
     const view = views.find((v) => v.environmentId === selected.environmentId);
     if (!view || view.name === null) return say("The environment on this machine has not answered yet: there is nowhere to start a session.");
@@ -329,7 +331,7 @@ export const useRail = (options: RailOptions): Rail => {
     selected === undefined
       ? undefined
       : selected.kind === "row"
-        ? `${(["rail.archive", "rail.pin", "rail.delete", "rail.settle", "rail.snooze", "rail.tag", "rail.group"] as const).map(keys).join(" ")} act on it`
+        ? `${keys("rail.open")} opens it · ${(["rail.archive", "rail.pin", "rail.delete", "rail.settle", "rail.snooze", "rail.tag", "rail.group"] as const).map(keys).join(" ")} act on it`
         : selected.folded === null
           ? views.some((v) => v.environmentId === selected.environmentId && v.name !== null)
             ? `${keys("rail.open")} starts a session on ${selected.text}`

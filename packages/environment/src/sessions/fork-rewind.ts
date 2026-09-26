@@ -4,7 +4,9 @@ import {
   SESSION_STREAM_KIND,
   invalidParams,
   type JsonObject,
+  type SessionDraftSetPayload,
   type SessionForkedPayload,
+  type SessionRewindUndonePayload,
   type SessionRewoundPayload,
   type SessionTitleGeneratedPayload,
   type TranscriptItem,
@@ -26,10 +28,10 @@ import { generatedTitle } from "./titles.js";
 /**
  * Fork and rewind (claude-adapter spec, "Wire methods" and "Queue,
  * read-now, fork and rewind on the Claude adapter"; ADR 0022, ADR 0015), and
- * the subagent transcript read on demand: `sessions.fork`, `sessions.rewind`
- * and `sessions.subagentTranscript`, and what a session's next run
- * continues from (`runContinuation`), which the adapter host reads when a
- * run starts.
+ * the subagent transcript read on demand: `sessions.fork`, `sessions.rewind`,
+ * `sessions.undoRewind` and `sessions.subagentTranscript`, and what a
+ * session's next run continues from (`runContinuation`), which the adapter
+ * host reads when a run starts.
  *
  * A fork is a new session made through session-state's create
  * (`decideCreate`), with `session.forked` on its own stream naming the
@@ -45,7 +47,12 @@ import { generatedTitle } from "./titles.js";
  * everything after it (`runs/transcript.ts`), and the session's next run
  * resumes the provider's conversation from just before it, on a fresh
  * process (the host stops the session's process when the rewind commits).
- * Both are session events, carrying no run id (#119).
+ * An undo is `session.rewind-undone` naming the latest rewind not undone,
+ * offered until a run starts on the session after it (ADR 0022, #218): the
+ * snapshot shows what that rewind hid again, the draft the rewind replaced
+ * comes back when the draft still holds the rewind's text, and the next run
+ * continues as though that rewind had not been made. All three are session
+ * events, carrying no run id (#119).
  */
 
 /** What a session's next run continues from, and the session it was forked from when it is a fork's first. */
@@ -67,11 +74,63 @@ const forkRecord = (log: Pick<EventLog, "read">, sessionId: string): SessionFork
   return row === undefined ? null : (JSON.parse(row.payload) as SessionForkedPayload);
 };
 
+/** A rewind as the log holds it: its `session.rewound`'s sequence and command, and its payload. */
+interface RewindRecord {
+  readonly sequence: number;
+  readonly commandId: string | null;
+  readonly payload: SessionRewoundPayload;
+}
+
 /**
- * The session's latest rewind while no run has continued from it yet: no
- * run since has linked the provider session and ended `completed` (a run
- * that completed without linking one, which a provider could report, never
- * resumed the rewound history). A run that linked the provider session
+ * The session's latest rewind not undone: the latest `session.rewound` no
+ * `session.rewind-undone` names. Undoing it leaves the one before it, if
+ * that is not undone too, as the latest, so rewinds are undone one at a
+ * time, the latest first. Both events survive a compaction (#123).
+ */
+const latestRewind = (log: Pick<EventLog, "read">, sessionId: string): RewindRecord | null => {
+  const [row] = log.read<{ sequence: number; command_id: string | null; payload: string }>(
+    `SELECT r.sequence, r.command_id, r.payload FROM events r
+     WHERE r.stream_kind = '${SESSION_STREAM_KIND}' AND r.stream_id = ? AND r.type = 'session.rewound'
+       AND NOT EXISTS (SELECT 1 FROM events u WHERE u.stream_kind = r.stream_kind AND u.stream_id = r.stream_id
+                         AND u.type = 'session.rewind-undone' AND json_extract(u.payload, '$.rewindSequence') = r.sequence)
+     ORDER BY r.sequence DESC LIMIT 1`,
+    sessionId,
+  );
+  return row === undefined ? null : { sequence: row.sequence, commandId: row.command_id, payload: JSON.parse(row.payload) as SessionRewoundPayload };
+};
+
+/** The first run started on the session after `sequence`, if any: its id. */
+const runStartedAfter = (log: Pick<EventLog, "read">, sessionId: string, sequence: number): string | null => {
+  const [row] = log.read<{ runId: string }>(
+    `SELECT json_extract(payload, '$.runId') AS runId FROM events
+     WHERE stream_kind = '${SESSION_STREAM_KIND}' AND stream_id = ? AND type = 'run.started' AND sequence > ? ORDER BY sequence LIMIT 1`,
+    sessionId,
+    sequence,
+  );
+  return row?.runId ?? null;
+};
+
+/**
+ * The session's latest rewind not undone while it can still be undone: no
+ * run has started on the session since (ADR 0022). Stricter than
+ * `pendingRewind`'s "continued": a run that linked the provider session and
+ * then failed may have written a turn after the rewind's point, which a
+ * plain resume after an undo would continue from instead of from what the
+ * undo shows again. Compaction leaves such a session out
+ * (`sessions/compaction.ts`), since its fold does not keep what the rewind
+ * hid.
+ */
+export const undoableRewind = (log: Pick<EventLog, "read">, sessionId: string): RewindRecord | null => {
+  const rewind = latestRewind(log, sessionId);
+  return rewind === null || runStartedAfter(log, sessionId, rewind.sequence) !== null ? null : rewind;
+};
+
+/**
+ * The session's latest rewind not undone (`latestRewind`) while no run has
+ * continued from it yet: no run since has linked the provider session and
+ * ended `completed` (a run that completed without linking one, which a
+ * provider could report, never resumed the rewound history). A run that
+ * linked the provider session
  * and then failed does not count: it may have failed before the provider
  * wrote anything, whose latest is then still what the rewind hid, so the
  * next run is a rewind again; where the failed run did write a turn of its
@@ -81,15 +140,14 @@ const forkRecord = (log: Pick<EventLog, "read">, sessionId: string): SessionFork
  * `sessions/compaction.ts` removes only `COMPACTION_REMOVES` (the
  * assistant's items, tool calls, commands, usage and plan limits) and all
  * but each run's last `tasks.changed`, keeping `session.rewound`,
- * `session.provider-linked` and `run.ended`, so the answer is the same
- * after one.
+ * `session.rewind-undone`, `session.provider-linked` and `run.ended`, so
+ * the answer is the same after one. Once the rewind is undone, the one
+ * before it, if not undone too, is the one asked about; with none, the
+ * next run resumes as it would have before the rewind.
  */
 export const pendingRewind = (log: Pick<EventLog, "read">, sessionId: string): SessionRewoundPayload | null => {
-  const [row] = log.read<{ sequence: number; payload: string }>(
-    `SELECT sequence, payload FROM events WHERE stream_kind = '${SESSION_STREAM_KIND}' AND stream_id = ? AND type = 'session.rewound' ORDER BY sequence DESC LIMIT 1`,
-    sessionId,
-  );
-  if (row === undefined) return null;
+  const row = latestRewind(log, sessionId);
+  if (row === null) return null;
   const [continued] = log.read(
     `SELECT 1 FROM events ended WHERE ended.stream_kind = '${SESSION_STREAM_KIND}' AND ended.stream_id = ? AND ended.type = 'run.ended' AND ended.sequence > ?
        AND json_extract(ended.payload, '$.reason') = 'completed'
@@ -100,7 +158,7 @@ export const pendingRewind = (log: Pick<EventLog, "read">, sessionId: string): S
     row.sequence,
     row.sequence,
   );
-  return continued === undefined ? (JSON.parse(row.payload) as SessionRewoundPayload) : null;
+  return continued === undefined ? row.payload : null;
 };
 
 /**
@@ -174,6 +232,30 @@ export const forkRewindMethods = (options: ForkRewindMethodsOptions): MethodHand
    */
   const historyBefore = (sessionId: string, messages: readonly UserMessage[], messageId: string): boolean =>
     messages[0]?.messageId !== messageId || (forkRecord(log, sessionId)?.fromProviderSessionId ?? null) !== null;
+
+  /** A `session.draft-set` row's draft. */
+  const draftOf = (row: { payload: string } | undefined): SessionDraftSetPayload | null => (row === undefined ? null : (JSON.parse(row.payload) as SessionDraftSetPayload));
+
+  /**
+   * The draft an undo of `rewind` puts back, or undefined to leave the
+   * draft as it is: the draft from before the rewind (its latest
+   * `session.draft-set` before the rewind, else none), when the draft still
+   * holds the text the rewind wrote into it (the rewind's own
+   * `session.draft-set`, in its append); a draft changed since, by a
+   * client or anything else that writes it, is the user's and stays, as
+   * does one the rewind did not write (a message with no text).
+   */
+  const draftBefore = (sessionId: string, rewind: RewindRecord, current: string | null): string | null | undefined => {
+    // Every `session.rewound` is appended by `sessions.rewind`, a command, so it carries its command id (the completions
+    // surface's `rewindToMessageId` goes through that command too); one without, appended outside any command as nothing
+    // here does, has no `session.draft-set` that is surely its own, so the draft is left as it is.
+    if (rewind.commandId === null) return undefined;
+    const draftSets = `SELECT payload FROM events WHERE stream_kind = '${SESSION_STREAM_KIND}' AND stream_id = ? AND type = 'session.draft-set'`;
+    const wrote = draftOf(log.read<{ payload: string }>(`${draftSets} AND sequence > ? AND command_id = ? ORDER BY sequence LIMIT 1`, sessionId, rewind.sequence, rewind.commandId)[0]);
+    if (wrote === null || wrote.draft !== current) return undefined;
+    const before = draftOf(log.read<{ payload: string }>(`${draftSets} AND sequence < ? ORDER BY sequence DESC LIMIT 1`, sessionId, rewind.sequence)[0])?.draft ?? null;
+    return before === current ? undefined : before;
+  };
 
   /** The descriptor of the adapter that holds the session's conversation: its latest run's account's. */
   const descriptorOf = (sessionId: string): AdapterDescriptor | null => {
@@ -300,6 +382,44 @@ export const forkRewindMethods = (options: ForkRewindMethodsOptions): MethodHand
       if (draft !== "") events.push({ type: "session.draft-set", payload: { draft } });
       log.append(aggregate, events, { tx: context.tx, actor: context.actor, commandId: context.commandId });
       return { aggregate, result: { sessionId: id, messageId } };
+    },
+
+    "sessions.undoRewind": (params, context) => {
+      const id = params.sessionId.toLowerCase();
+      const aggregate = sessionStream(id);
+      const state = stateOf(id);
+      if (state === null || state.deleted) return { aggregate, rejected: sessionNotFound(id) };
+      const live = host.live(id);
+      if (live !== null) {
+        return {
+          aggregate,
+          rejected: { code: "conflict", message: `A run of the session ${id} is live; interrupt it before undoing its rewind.`, data: { reason: "run_active", sessionId: id, runId: live.runId } },
+        };
+      }
+      const rewind = latestRewind(log, id);
+      if (rewind === null) return { aggregate, rejected: { code: "not_found", message: `The session ${id} has no rewind to undo.`, data: { kind: "rewind", sessionId: id } } };
+      // Offered until a run starts on the session after the rewind (ADR 0022); after that the rewound branch stays hidden.
+      const since = runStartedAfter(log, id, rewind.sequence);
+      if (since !== null) {
+        return {
+          aggregate,
+          rejected: {
+            code: "conflict",
+            message: `A run has started on the session ${id} since its rewind; what the rewind hid stays hidden.`,
+            data: { reason: "run_started", sessionId: id, runId: since },
+          },
+        };
+      }
+      const { toMessageId } = rewind.payload;
+      const payload: SessionRewindUndonePayload = { toMessageId, rewindSequence: rewind.sequence };
+      const events: EventInput[] = [{ type: "session.rewind-undone", payload }];
+      const draft = draftBefore(id, rewind, state.draft);
+      if (draft !== undefined) {
+        const restored: SessionDraftSetPayload = { draft };
+        events.push({ type: "session.draft-set", payload: restored });
+      }
+      log.append(aggregate, events, { tx: context.tx, actor: context.actor, commandId: context.commandId });
+      return { aggregate, result: { sessionId: id, messageId: toMessageId, rewindSequence: rewind.sequence } };
     },
 
     "sessions.subagentTranscript": async (params) => {

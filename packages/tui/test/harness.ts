@@ -1,9 +1,14 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { cloneElement, createElement, type ReactElement } from "react";
 import { render } from "ink-testing-library";
 import { createRuntime, writable, type GrantReader, type Runtime, type Writable } from "@agent-harness/client-runtime";
 import { inMemoryPlatform, manualClock, runtimeSpeaking, type InMemoryPlatform, type ManualClock } from "@agent-harness/client-runtime/testing";
 import { flush } from "@agent-harness/client-runtime/testing/fake-wire";
-import { App, type AppProps, type ScreenFlags } from "../src/app.js";
+import { App, type AppProps, type ScreenFlags, type TerminalClipboard } from "../src/app.js";
+import type { AttentionNotice, TerminalChrome } from "../src/attention/chrome.js";
+import type { ExternalEditResult } from "../src/composer/external-editor.js";
 import { FRAME_MS } from "../src/frames.js";
 import { DEFAULT_KEYMAP, keybindingsFor, type Keymap } from "../src/keys.js";
 import type { LocalService, ServiceOutcome } from "../src/platform/services.js";
@@ -35,8 +40,71 @@ export const KEY = {
   pageDown: "\u001B[6~",
   ctrlB: "\u0002",
   ctrlC: "\u0003",
+  ctrlG: "\u0007",
+  ctrlJ: "\n",
+  ctrlO: "\u000F",
+  ctrlR: "\u0012",
+  ctrlS: "\u0013",
+  ctrlU: "\u0015",
+  ctrlV: "\u0016",
+  ctrlW: "\u0017",
   ctrlX: "\u0018",
+  ctrlBracket: "\u001D",
+  space: " ",
+  left: "\u001B[D",
+  right: "\u001B[C",
+  end: "\u001B[F",
 } as const;
+
+/** A clipboard for tests: what it holds, and what was copied to it. */
+export interface FakeClipboard extends TerminalClipboard {
+  readonly copied: string[];
+  hold(content: { readonly image?: Uint8Array; readonly text?: string }): void;
+}
+
+export const fakeClipboard = (): FakeClipboard => {
+  let held: { readonly image?: Uint8Array; readonly text?: string } = {};
+  const copied: string[] = [];
+  return {
+    copied,
+    hold(content) {
+      held = content;
+    },
+    readImage: async () => (held.image ? { bytes: held.image, mediaType: "image/png" as const } : null),
+    readText: async () => held.text ?? null,
+    copy: async (text) => {
+      copied.push(text);
+      return "osc52";
+    },
+  };
+};
+
+/**
+ * The attention seam as a test sees it: what the screen asked of the
+ * terminal's chrome, in order. No title is set and no bell rung.
+ */
+export interface RecordedChrome extends TerminalChrome {
+  /** Every title set, in order. */
+  readonly titles: string[];
+  /** Every notification asked for, in order: the bell or OSC notification it would be. */
+  readonly notices: AttentionNotice[];
+  /** How many times the title was handed back. */
+  cleared(): number;
+}
+
+export const recordedChrome = (): RecordedChrome => {
+  const titles: string[] = [];
+  const notices: AttentionNotice[] = [];
+  let cleared = 0;
+  return {
+    titles,
+    notices,
+    cleared: () => cleared,
+    setTitle: (title) => void titles.push(title),
+    clearTitle: () => void cleared++,
+    notify: (notice) => void notices.push(notice),
+  };
+};
 
 /** The frame size every test renders at: `ink-testing-library` draws 100 columns. */
 export const SIZE = { columns: 100, rows: 30 } as const;
@@ -110,12 +178,24 @@ export interface RenderOptions {
   readonly notes?: readonly string[];
   /** The protocol version the runtime speaks, to be the newer side of a mismatch; preset this build's. */
   readonly protocolVersion?: number;
+  /** The state directory the history, snippets and `@` memory live in; preset a fresh temporary one, removed on unmount. */
+  readonly stateDir?: string;
+  /** Where `/attach` and `/export` resolve a relative path; preset the state directory. */
+  readonly cwd?: string;
+  /** Preset a fake that holds nothing. */
+  readonly clipboard?: FakeClipboard;
+  /** Ctrl+G's editor; preset one that hands the text back with " (edited)" after it. */
+  readonly editText?: (text: string) => Promise<ExternalEditResult>;
   /** The client-local presentation (the rail's folds), to launch again on another app's; preset, a fresh one in memory. */
   readonly presentation?: Presentation;
 }
 
 export interface RenderedApp {
   readonly clock: ManualClock;
+  /** What the screen asked of the terminal's title and bell. */
+  readonly chrome: RecordedChrome;
+  readonly clipboard: FakeClipboard;
+  readonly stateDir: string;
   readonly platform: InMemoryPlatform;
   readonly world: ScriptedWorld;
   readonly host: RuntimeHost;
@@ -135,10 +215,16 @@ export interface RenderedApp {
   press(...keys: string[]): Promise<void>;
   /** Types `text` as one write, as a fast typist or a paste does. */
   type(text: string): Promise<void>;
+  /** Pastes `text` as a terminal with bracketed paste does. */
+  paste(text: string): Promise<void>;
+  /** The frame's rows, each trimmed at its end. */
+  rows(): string[];
   /** Moves the clock one frame (16 ms), or `count` frames, letting each land. */
   tick(count?: number): Promise<void>;
   /** Moves the clock `ms` in frames. */
   advance(ms: number): Promise<void>;
+  /** Moves the clock `ms` at once, firing what falls due on the way, then one frame: for minutes, which frames would take too long. */
+  jump(ms: number): Promise<void>;
   /** Ticks until the frame holds `text`; fails with the frame after `limit` frames. */
   waitFor(text: string | RegExp, limit?: number): Promise<void>;
   /** Ticks until `condition` holds; fails naming `what` after `limit` frames. */
@@ -164,6 +250,11 @@ const matches = (frame: string, text: string | RegExp) => {
 export interface AppUnderTest {
   readonly element: ReactElement<AppProps>;
   readonly clock: ManualClock;
+  readonly chrome: RecordedChrome;
+  readonly clipboard: FakeClipboard;
+  readonly stateDir: string;
+  /** Removes the state directory the harness made. */
+  readonly cleanup: () => void;
   readonly platform: InMemoryPlatform;
   readonly world: ScriptedWorld;
   readonly host: RuntimeHost;
@@ -196,7 +287,12 @@ export const appUnderTest = async (options: RenderOptions): Promise<AppUnderTest
   }
 
   let commandIds = 0;
+  let sessionIds = 0;
   const faults = writable<readonly Fault[]>([]);
+  const made = options.stateDir === undefined ? mkdtempSync(join(tmpdir(), "agent-harness-tui-state-")) : undefined;
+  const stateDir = options.stateDir ?? (made as string);
+  const clipboard = options.clipboard ?? fakeClipboard();
+  const chrome = recordedChrome();
   const bindings = options.keybindings && keybindingsFor({ keybindings: options.keybindings.flag }, options.keybindings.stateDir);
   const launched = bindings?.launch;
   const element = createElement(App, {
@@ -211,14 +307,23 @@ export const appUnderTest = async (options: RenderOptions): Promise<AppUnderTest
     faults,
     size: options.size ?? SIZE,
     newCommandId: () => `0199ee00-0000-7000-8000-${String(++commandIds).padStart(12, "0")}`,
+    newSessionId: () => `0199ab00-0000-4000-8000-${String(++sessionIds).padStart(12, "0")}`,
+    stateDir,
+    cwd: options.cwd ?? stateDir,
+    clipboard,
+    chrome,
+    editText: options.editText ?? (async (text: string) => ({ ok: true, text: `${text} (edited)` })),
     ...(options.presentation && { presentation: options.presentation }),
   });
-  return { element, clock, platform, world, host, service, faults };
+  const cleanup = () => {
+    if (made !== undefined) rmSync(made, { recursive: true, force: true });
+  };
+  return { element, clock, chrome, platform, world, host, service, faults, clipboard, stateDir, cleanup };
 };
 
 /** Renders the terminal UI against the scripted world through `ink-testing-library`, after `appUnderTest`. */
 export const renderApp = async (options: RenderOptions): Promise<RenderedApp> => {
-  const { element, clock, platform, world, host, service, faults } = await appUnderTest(options);
+  const { element, clock, chrome, platform, world, host, service, faults, clipboard, stateDir, cleanup } = await appUnderTest(options);
   const app = render(element);
   await settle();
 
@@ -230,6 +335,9 @@ export const renderApp = async (options: RenderOptions): Promise<RenderedApp> =>
   };
   const rendered: RenderedApp = {
     clock,
+    chrome,
+    clipboard,
+    stateDir,
     platform,
     world,
     host,
@@ -255,8 +363,18 @@ export const renderApp = async (options: RenderOptions): Promise<RenderedApp> =>
       app.stdin.write(text);
       await settle();
     },
+    async paste(text) {
+      app.stdin.write(`\u001B[200~${text}\u001B[201~`);
+      await settle();
+    },
+    rows: () => (app.lastFrame() ?? "").split("\n").map((row) => row.trimEnd()),
     tick,
     advance: (ms) => tick(Math.ceil(ms / FRAME_MS)),
+    async jump(ms) {
+      clock.advance(ms);
+      await settle();
+      await tick();
+    },
     async waitFor(text, limit = 200) {
       for (let i = 0; i < limit; i++) {
         if (matches(app.lastFrame() ?? "", text)) return;
@@ -274,6 +392,7 @@ export const renderApp = async (options: RenderOptions): Promise<RenderedApp> =>
     async unmount() {
       app.unmount();
       await host.close();
+      cleanup();
     },
   };
   return rendered;

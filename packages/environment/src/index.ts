@@ -44,6 +44,9 @@ export { acceptAnyRunParameters, type RunParameters, type RunParametersCheck, ty
 export {
   ADAPTER_EVENT_TYPES,
   PromptClosed,
+  inProcessToolKey,
+  inProcessToolName,
+  isInProcess,
   type AccountRef,
   type Adapter,
   type AdapterCredentialSpec,
@@ -52,8 +55,13 @@ export {
   type AdapterEventType,
   type AdapterRun,
   type AttachmentData,
+  type ConfiguredToolServer,
   type GateDecision,
   type GatedToolCall,
+  type HostTool,
+  type HostToolCall,
+  type HostToolResult,
+  type InProcessToolServer,
   type ModelCatalogue,
   type ModelOption,
   type PermissionBroker,
@@ -100,6 +108,7 @@ export {
   orientationPlaceholder,
   presetPolicy,
   type AutoAnswer,
+  type ClientTool,
   type AutoAnswerRequest,
   type InstructionComposer,
   type InstructionLayers,
@@ -107,6 +116,8 @@ export {
   type PolicyRequest,
   type PolicySeam,
   type PromptAutoAnswer,
+  type RuledRun,
+  type ToolGateRule,
   type ToolServerFactory,
   type ToolServerScope,
 } from "./adapter/seams.js";
@@ -169,6 +180,7 @@ export {
   type SessionDirectories,
 } from "./permissions/containment-directories.js";
 export { GATE_ACTOR, containmentDenial, createToolGate, resolvePath, type GatedRun, type ToolGateOptions } from "./permissions/gate.js";
+export type { BrokerAnswer, UnopenedReason } from "./permissions/broker.js";
 export { runMethods, type RunMethodsOptions } from "./runs/run-methods.js";
 export { foldTranscript, type TranscriptParts } from "./runs/transcript.js";
 export { SETTLE_SWEEP_ACTOR, SETTLE_SWEEP_INTERVAL_MS, createSettleSweep, type SettleSweep, type SweepOutcome } from "./sessions/settle-sweep.js";

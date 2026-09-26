@@ -1,0 +1,166 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DenylistInput",
+  "type": "object",
+  "properties": {
+    "browserDomains": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "description": "The entry's id, read within its section: the id of an entry the section holds keeps or edits that entry; the id of one of the section's presets puts it back or edits it; any other names a new entry. Minted when absent.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "pattern": {
+            "type": "string",
+            "pattern": "^(?:(?:\\*\\.)?[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?(?:\\.[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?)*|(?:[0-9A-Fa-f]{1,4}:){7}[0-9A-Fa-f]{1,4}|(?:[0-9A-Fa-f]{1,4}:){6}(?:\\d{1,3}\\.){3}\\d{1,3}|(?:[0-9A-Fa-f]{1,4}:){1,7}:|(?:[0-9A-Fa-f]{1,4}:){1,6}:[0-9A-Fa-f]{1,4}|(?:[0-9A-Fa-f]{1,4}:){1,5}(?::[0-9A-Fa-f]{1,4}){1,2}|(?:[0-9A-Fa-f]{1,4}:){1,4}(?::[0-9A-Fa-f]{1,4}){1,3}|(?:[0-9A-Fa-f]{1,4}:){1,3}(?::[0-9A-Fa-f]{1,4}){1,4}|(?:[0-9A-Fa-f]{1,4}:){1,2}(?::[0-9A-Fa-f]{1,4}){1,5}|[0-9A-Fa-f]{1,4}:(?::[0-9A-Fa-f]{1,4}){1,6}|:(?:(?::[0-9A-Fa-f]{1,4}){1,7}|:)|::(?:[0-9A-Fa-f]{1,4}:){0,5}(?:\\d{1,3}\\.){3}\\d{1,3}|(?:[0-9A-Fa-f]{1,4}:){0}[0-9A-Fa-f]{1,4}::(?:[0-9A-Fa-f]{1,4}:){0,4}(?:\\d{1,3}\\.){3}\\d{1,3}|(?:[0-9A-Fa-f]{1,4}:){1}[0-9A-Fa-f]{1,4}::(?:[0-9A-Fa-f]{1,4}:){0,3}(?:\\d{1,3}\\.){3}\\d{1,3}|(?:[0-9A-Fa-f]{1,4}:){2}[0-9A-Fa-f]{1,4}::(?:[0-9A-Fa-f]{1,4}:){0,2}(?:\\d{1,3}\\.){3}\\d{1,3}|(?:[0-9A-Fa-f]{1,4}:){3}[0-9A-Fa-f]{1,4}::(?:[0-9A-Fa-f]{1,4}:){0,1}(?:\\d{1,3}\\.){3}\\d{1,3}|(?:[0-9A-Fa-f]{1,4}:){4}[0-9A-Fa-f]{1,4}::(?:[0-9A-Fa-f]{1,4}:){0,0}(?:\\d{1,3}\\.){3}\\d{1,3})$",
+            "description": "A host name, IPv4 address or IPv6 literal, with an optional leading wildcard label (*.example.com): no scheme, port or path."
+          },
+          "note": {
+            "description": "Why the entry is there; empty when absent.",
+            "type": "string",
+            "maxLength": 500
+          },
+          "enabled": {
+            "description": "Whether it matches; true when absent.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "pattern"
+        ]
+      }
+    },
+    "paths": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "description": "The entry's id, read within its section: the id of an entry the section holds keeps or edits that entry; the id of one of the section's presets puts it back or edits it; any other names a new entry. Minted when absent.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "pattern": {
+            "type": "string",
+            "pattern": "^(?:~|~\\/[^\\0]*|\\/[^\\0]*)$",
+            "description": "An absolute or ~-relative path, with glob segments: * and ? within a segment, ** for any number of segments."
+          },
+          "note": {
+            "description": "Why the entry is there; empty when absent.",
+            "type": "string",
+            "maxLength": 500
+          },
+          "enabled": {
+            "description": "Whether it matches; true when absent.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "pattern"
+        ]
+      }
+    },
+    "commandPatterns": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "description": "The entry's id, read within its section: the id of an entry the section holds keeps or edits that entry; the id of one of the section's presets puts it back or edits it; any other names a new entry. Minted when absent.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "pattern": {
+            "type": "string",
+            "pattern": "\\S",
+            "description": "Tokens separated by white space: a bare * matches any run of tokens including none, a * inside a token anything within that token."
+          },
+          "note": {
+            "description": "Why the entry is there; empty when absent.",
+            "type": "string",
+            "maxLength": 500
+          },
+          "enabled": {
+            "description": "Whether it matches; true when absent.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "pattern"
+        ]
+      }
+    },
+    "hosts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "description": "The entry's id, read within its section: the id of an entry the section holds keeps or edits that entry; the id of one of the section's presets puts it back or edits it; any other names a new entry. Minted when absent.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "pattern": {
+            "type": "string",
+            "pattern": "^(?:(?:\\*\\.)?[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?(?:\\.[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?)*|(?:[0-9A-Fa-f]{1,4}:){7}[0-9A-Fa-f]{1,4}|(?:[0-9A-Fa-f]{1,4}:){6}(?:\\d{1,3}\\.){3}\\d{1,3}|(?:[0-9A-Fa-f]{1,4}:){1,7}:|(?:[0-9A-Fa-f]{1,4}:){1,6}:[0-9A-Fa-f]{1,4}|(?:[0-9A-Fa-f]{1,4}:){1,5}(?::[0-9A-Fa-f]{1,4}){1,2}|(?:[0-9A-Fa-f]{1,4}:){1,4}(?::[0-9A-Fa-f]{1,4}){1,3}|(?:[0-9A-Fa-f]{1,4}:){1,3}(?::[0-9A-Fa-f]{1,4}){1,4}|(?:[0-9A-Fa-f]{1,4}:){1,2}(?::[0-9A-Fa-f]{1,4}){1,5}|[0-9A-Fa-f]{1,4}:(?::[0-9A-Fa-f]{1,4}){1,6}|:(?:(?::[0-9A-Fa-f]{1,4}){1,7}|:)|::(?:[0-9A-Fa-f]{1,4}:){0,5}(?:\\d{1,3}\\.){3}\\d{1,3}|(?:[0-9A-Fa-f]{1,4}:){0}[0-9A-Fa-f]{1,4}::(?:[0-9A-Fa-f]{1,4}:){0,4}(?:\\d{1,3}\\.){3}\\d{1,3}|(?:[0-9A-Fa-f]{1,4}:){1}[0-9A-Fa-f]{1,4}::(?:[0-9A-Fa-f]{1,4}:){0,3}(?:\\d{1,3}\\.){3}\\d{1,3}|(?:[0-9A-Fa-f]{1,4}:){2}[0-9A-Fa-f]{1,4}::(?:[0-9A-Fa-f]{1,4}:){0,2}(?:\\d{1,3}\\.){3}\\d{1,3}|(?:[0-9A-Fa-f]{1,4}:){3}[0-9A-Fa-f]{1,4}::(?:[0-9A-Fa-f]{1,4}:){0,1}(?:\\d{1,3}\\.){3}\\d{1,3}|(?:[0-9A-Fa-f]{1,4}:){4}[0-9A-Fa-f]{1,4}::(?:[0-9A-Fa-f]{1,4}:){0,0}(?:\\d{1,3}\\.){3}\\d{1,3})$",
+            "description": "A host name, IPv4 address or IPv6 literal, with an optional leading wildcard label (*.example.com): no scheme, port or path."
+          },
+          "note": {
+            "description": "Why the entry is there; empty when absent.",
+            "type": "string",
+            "maxLength": 500
+          },
+          "enabled": {
+            "description": "Whether it matches; true when absent.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "pattern"
+        ]
+      }
+    }
+  },
+  "description": "The sections of the denylist to replace, at least one, each with the entries given, in their order: one section, several, or all four.",
+  "anyOf": [
+    {
+      "required": [
+        "browserDomains"
+      ],
+      "properties": {
+        "browserDomains": true
+      }
+    },
+    {
+      "required": [
+        "paths"
+      ],
+      "properties": {
+        "paths": true
+      }
+    },
+    {
+      "required": [
+        "commandPatterns"
+      ],
+      "properties": {
+        "commandPatterns": true
+      }
+    },
+    {
+      "required": [
+        "hosts"
+      ],
+      "properties": {
+        "hosts": true
+      }
+    }
+  ]
+}

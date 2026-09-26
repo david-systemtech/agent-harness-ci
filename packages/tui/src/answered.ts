@@ -1,5 +1,6 @@
 import type { ActionId, KeyActionId } from "@agent-harness/contracts";
 import { ANSWERED_COMMANDS } from "./commands/parse.js";
+import { COMPOSER_KEYS } from "./composer/use-composer.js";
 import { RAIL_KEYS } from "./rail/commands.js";
 
 /**
@@ -10,20 +11,55 @@ import { RAIL_KEYS } from "./rail/commands.js";
  * draws every other action dim with "(soon)", as Artemis drew its planned
  * rows; the screens that answer them add them here as they arrive.
  */
-export const ANSWERED_KEYS = [
+export const SCREEN_KEYS = [
   "app.focus.next",
+  "app.interrupt",
   "app.interruptOrQuit",
+  "app.pager.open",
   "app.help",
-  "composer.send",
-  "composer.backspace",
+  "transcript.pageUp",
+  "transcript.pageDown",
+  "transcript.cursor",
+  "transcript.follow",
+  "row.recall",
+  "row.copy",
+  "row.unfold",
+  "row.stop",
   ...RAIL_KEYS,
   "row.leave",
   "picker.move",
   "picker.moveVi",
   "picker.choose",
   "picker.leave",
+  "pager.line",
+  "pager.screenDown",
+  "pager.screenUp",
+  "pager.halfDown",
+  "pager.halfUp",
+  "pager.top",
+  "pager.bottom",
+  "pager.turn.next",
+  "pager.turn.prev",
+  "pager.search",
+  "pager.match",
+  "pager.close",
   "confirm.yes",
   "confirm.no",
+  "app.attention.next",
+  "permission.move",
+  "permission.choose",
+  "permission.deny",
+  "permission.note",
+  "permission.tick",
+  "permission.rule.edit",
+  "permission.scope.walk",
+  "asks.move",
+  "asks.open",
+  "asks.allow",
+  "asks.deny",
+  "asks.allowAll",
+  "asks.denyAll",
+  "asks.close",
 ] as const satisfies readonly KeyActionId[];
 
 /**
@@ -33,14 +69,10 @@ export const ANSWERED_KEYS = [
  */
 export const TYPED_KEYS = ["picker.filter"] as const satisfies readonly KeyActionId[];
 
-/**
- * The pager's keys the help overlay borrows to scroll itself. The pager (the
- * whole transcript, `app.pager.open`) is not drawn by this build, so what
- * their rows describe does not exist yet: dispatched, but drawn "(soon)".
- */
-export const OVERLAY_KEYS = ["pager.halfDown", "pager.halfUp", "pager.top", "pager.bottom", "pager.close"] as const satisfies readonly KeyActionId[];
+/** The keys the screen answers itself, beside the composer's (`COMPOSER_KEYS`, `composer/use-composer.ts`). */
+export type ScreenKey = (typeof SCREEN_KEYS)[number];
 
-export type AnsweredKey = (typeof ANSWERED_KEYS)[number] | (typeof OVERLAY_KEYS)[number];
+export const ANSWERED_KEYS: readonly KeyActionId[] = [...SCREEN_KEYS, ...COMPOSER_KEYS];
 
 export const ANSWERED: ReadonlySet<ActionId> = new Set<ActionId>([...ANSWERED_KEYS, ...TYPED_KEYS, ...ANSWERED_COMMANDS.map((name) => `command.${name}` as const)]);
 
@@ -52,8 +84,9 @@ export const ANSWERED: ReadonlySet<ActionId> = new Set<ActionId>([...ANSWERED_KE
  */
 export const BUILD_WORDS: Readonly<Partial<Record<ActionId, string>>> = {
   "app.focus.next": "Round the composer, the rail and the transcript",
-  "app.interruptOrQuit": "Clear the draft, or close the question or the card; else quit",
-  "rail.open": "Fold the heading; on an environment's, start a session there",
+  "app.interruptOrQuit": "Clear the text or close the card; else interrupt, then quit",
+  "app.attention.next": "The parked asks when more than one session waits; else the next session that needs you",
+  "composer.navigate": "The text, then history",
   // The shared list's words are Artemis's ("its folder"); the pin is the one pinned block across environments.
   // eslint-disable-next-line agent-harness/no-client-organisation-state -- an action's id, not state held here
   "rail.pin": "Pin it to the pinned block at the top, across environments; or unpin it",

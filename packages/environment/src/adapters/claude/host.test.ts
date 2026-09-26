@@ -4,7 +4,8 @@ import { manualClock } from "../../../test/clock.js";
 import { FakeSdk, sdk, type FakeQuery } from "../../../test/fake-claude-sdk.js";
 import type { ContainmentLevel, ContainmentReport, PromptAnsweredPayload, PromptOpenedPayload } from "@agent-harness/contracts";
 import type { PermissionUpdate } from "@anthropic-ai/claude-agent-sdk";
-import type { PolicySeam } from "../../adapter/seams.js";
+import type { PolicySeam, PromptAutoAnswer, ToolGateRule } from "../../adapter/seams.js";
+import type { RunDenylist } from "../../adapter/contract.js";
 import type { RunActor } from "../../permissions/resolver.js";
 
 /**
@@ -35,6 +36,14 @@ const { permissionsProjector } = await import("../../permissions/permissions-sto
 const { accountsProjector } = await import("../../accounts/account-store.js");
 const { storeAccounts } = await import("../../../test/accounts.js");
 const { resolvePolicy } = await import("../../permissions/resolver.js");
+const { createProviderTranscriptStore } = await import("../../provider-transcripts/store.js");
+const { answerEvents } = await import("../../permissions/tool-decisions.js");
+const { autoAnswer } = await import("../../permissions/auto-answer.js");
+
+/** A person's allow, as `permissions.prompts.answer` records it, for the prompt a test names. */
+const personAllows = { decision: "allow", message: null, answers: null, updatedInput: null, mode: null, remember: null, decidedBy: "cs-1", delivery: "live" } as const;
+const { denylistRule } = await import("../../permissions/denylist-gate.js");
+const { denylistPresets } = await import("@agent-harness/contracts");
 
 /** The prompts the session's runs asked, as their `prompt.opened` recorded them. */
 const openedOf = (t: { log: { readStream: (stream: { kind: string; id: string }) => { type: string; payload: unknown }[] }; sessionId: string }): PromptOpenedPayload[] =>
@@ -61,7 +70,7 @@ const created = {
   payload: { title: null, tags: [], groupId: null, workspace: { kind: "directory", path: "/work/repo" }, repositoryIdentity: null, account: null, model: null, mode: null },
 };
 
-/** What an environment whose machine and adapter can enforce both workspace levels reports: as #140's Claude adapter will. */
+/** What an environment whose machine and adapter can enforce both workspace levels reports, the Claude adapter declaring its flag (#140). */
 const ENFORCEABLE: ContainmentReport = {
   levels: [
     { level: "off", available: true, reason: null, cause: null },
@@ -72,7 +81,7 @@ const ENFORCEABLE: ContainmentReport = {
   container: { declared: false, detected: false },
 };
 
-/** The policy resolver giving every run `level`, where the environment's would give `off` to Claude until #140 declares its flag. */
+/** The policy resolver giving every run `level`, whatever this machine's probe would find. */
 const containedAt =
   (level: ContainmentLevel): PolicySeam =>
   ({ actor, requested, accountModes }) =>
@@ -86,7 +95,12 @@ const containedAt =
       enforceable: ENFORCEABLE,
     });
 
-const setup = async (policy?: PolicySeam) => {
+const setup = async (
+  policy?: PolicySeam,
+  gateRules?: readonly ToolGateRule[],
+  account: { readonly sessionStore?: boolean; readonly signedIn?: () => boolean } = {},
+  hostOptions: { readonly autoAnswer?: PromptAutoAnswer; readonly providerDenylist?: () => RunDenylist } = {},
+) => {
   const clock = manualClock();
   const log = openEventLog({ path: ":memory:", projectors: [sessionListProjector, runsProjector, permissionsProjector, accountsProjector], clock: () => clock.now() });
   const adapter = createClaudeAdapter({
@@ -94,7 +108,11 @@ const setup = async (policy?: PolicySeam) => {
     executablePath: "/sdk/claude",
     hostEnv: { PATH: "/usr/bin" },
     diagnostic: () => undefined,
-    runCommand: async () => ({ code: 0, stdout: JSON.stringify({ loggedIn: true, authMethod: "claude.ai", email: "david@example.com" }), stderr: "" }),
+    runCommand: async () =>
+      (account.signedIn?.() ?? true)
+        ? { code: 0, stdout: JSON.stringify({ loggedIn: true, authMethod: "claude.ai", email: "david@example.com" }), stderr: "" }
+        : { code: 1, stdout: JSON.stringify({ loggedIn: false, authMethod: "none" }), stderr: "" },
+    ...(account.sessionStore === true && { sessionStore: createProviderTranscriptStore({ log, clock }) }),
   });
   // The account store holds the account, read once as startup reads it.
   const accounts = await storeAccounts({ log, clock, adapters: [adapter], accounts: [{ id: "acct", provider: "claude", directory: "/data/accounts/work" }] });
@@ -105,6 +123,8 @@ const setup = async (policy?: PolicySeam) => {
     accounts,
     ceilingOf: () => undefined,
     ...(policy !== undefined && { resolvePolicy: policy }),
+    ...(gateRules !== undefined && { gateRules }),
+    ...hostOptions,
   });
   closers.push(() => log.close(), () => host.close("disposed"), () => accounts.close());
   const sessionId = randomUUID();
@@ -117,11 +137,14 @@ type Setup = Awaited<ReturnType<typeof setup>>;
 /** A client with every mode below its ceiling, as the wire's own tests start runs. */
 const clientActor: RunActor = { kind: "client", ceiling: "bypassPermissions", clientSessionId: null };
 
-const startRun = (t: Setup, text = "Go") => {
-  const facts = t.host.startFacts(t.sessionId, clientActor);
+/** A routine's actor: nobody is present for its runs. */
+const routineActor: RunActor = { kind: "routine", name: "nightly-keys", ceiling: "bypassPermissions", clientSessionId: null };
+
+const startRun = (t: Setup, text = "Go", actor: RunActor = clientActor) => {
+  const facts = t.host.startFacts(t.sessionId, actor);
   t.host.admit();
   const messageId = randomUUID();
-  const decision = decideStart(facts, { origin: "client", message: { messageId, text, attachments: [] } });
+  const decision = decideStart(facts, { origin: actor.kind === "client" ? "client" : "routine", message: { messageId, text, attachments: [] } });
   if (decision.rejected !== undefined) throw new Error(decision.rejected.message);
   t.log.append({ kind: "session", id: t.sessionId }, decision.events, { actor: "client_session:test", correlationId: decision.run.runId });
   t.host.launch(decision.run);
@@ -224,6 +247,44 @@ describe("a Claude run through the adapter host", () => {
     expect(next.options.resume).toBe(PROVIDER_SESSION);
   });
 
+  it("ends a cold resume whose account's login cannot be refreshed error, naming the account by its label, and the store reads the account expired, after one refresh (#229)", async () => {
+    let refreshes = 0;
+    let signedIn = true;
+    fake.controls = {
+      usage: {
+        name: "usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET",
+        // As 2.1.281 answers when the provider refuses the refresh: no plan limits, and the login cleared.
+        answer: async () => {
+          refreshes += 1;
+          signedIn = false;
+          return { rate_limits_available: true, rate_limits: null };
+        },
+      },
+    };
+    const t = await setup(undefined, undefined, { sessionStore: true, signedIn: () => signedIn });
+    const label = t.accounts.list()[0]?.label as string;
+    const first = startRun(t);
+    const query = await runQuery(t, 1);
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [first.messageId]), sdk.result(PROVIDER_SESSION));
+    await vi.waitFor(() => expect(eventsOf(t).filter((event) => event.type === "run.ended")).toHaveLength(1));
+    // A fresh run needs no refresh: its CLI runs in the account's own directory.
+    expect(refreshes).toBe(0);
+    t.clock.advance(30 * 60 * 1000);
+    await vi.waitFor(() => expect(query.closed).toBe(true));
+    expect(t.accounts.list()[0]?.status.state).toBe("signed-in");
+    const made = fake.queries.length;
+    const again = startRun(t, "Again");
+    await vi.waitFor(() => expect(eventsOf(t).filter((event) => event.type === "run.ended")).toHaveLength(2));
+    const ended = eventsOf(t).filter((event) => event.type === "run.ended").at(-1);
+    expect(ended?.correlationId).toBe(again.runId);
+    expect(ended?.payload).toMatchObject({ reason: "error", error: { code: "login_expired", message: expect.stringContaining(`The Claude account ${label} has an expired login`) } });
+    // No run was started: only the refresh's unsampled query was made, none resuming the session.
+    expect(fake.queries.slice(made).filter((made) => made.options.resume !== undefined)).toEqual([]);
+    await vi.waitFor(() => expect(t.accounts.list()[0]?.status.state).toBe("expired"));
+    // The status read the failure asked for asks the binary only: one refresh in all.
+    expect(refreshes).toBe(1);
+  });
+
   it("adopts the turn the provider opens with a message it held, as the session's next run", async () => {
     const t = await setup();
     const first = startRun(t, "First");
@@ -305,6 +366,7 @@ describe("a Claude run through the adapter host", () => {
       plan: null,
       suggestions: [suggestion],
       agentId: null,
+      denylist: null,
       mode: "acceptEdits",
       ceiling: "bypassPermissions",
       ttlExpiresAt: null,
@@ -452,6 +514,179 @@ describe("a Claude run through the adapter host", () => {
     abort.abort();
     expect(await asked).toMatchObject({ behavior: "deny", message: "The provider aborted this tool call." });
     expect(state()).toBe("running");
+  });
+
+  describe("with the denylist's rule on the gate (#132)", () => {
+    const denylisted = () => [denylistRule({ denylist: () => denylistPresets("/data/agent-harness"), home: "/home/test", exempt: [], resolve: (path) => path })];
+    const decisionsOf = (t: Setup) => eventsOf(t).filter((event) => event.type === "tool.decision").map((event) => event.payload as Record<string, unknown>);
+
+    it("puts a denylisted call to the person from inside canUseTool first; allowed, the provider's own prompt follows, and the call keeps the first decision", async () => {
+      const t = await setup(undefined, denylisted());
+      const { runId, messageId } = startRun(t);
+      const query = await runQuery(t, 1);
+      query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [messageId]));
+      await vi.waitFor(() => expect(eventsOf(t).map((event) => event.type)).toContain("session.provider-linked"));
+      const asked = query.canUseTool("Read", { file_path: "~/.ssh/id_rsa" }, { toolUseID: "toolu_key" });
+      await vi.waitFor(() => expect(openedOf(t)).toHaveLength(1));
+      const [denylistPrompt] = openedOf(t);
+      expect(denylistPrompt).toMatchObject({ kind: "denylist", toolCallId: "toolu_key", input: { file_path: "~/.ssh/id_rsa" } });
+      expect(denylistPrompt?.denylist?.[0]?.entry.pattern).toBe("~/.ssh");
+      t.log.atomically((tx) =>
+        t.log.append(
+          { kind: "session", id: t.sessionId },
+          answerEvents({ all: (sql, ...params) => t.log.read(sql, ...params) }, denylistPrompt!, { ...personAllows, runId, promptId: denylistPrompt!.promptId }),
+          { tx, actor: "client_session:cs-1", correlationId: runId },
+        ),
+      );
+      t.host.deliverAnswer(runId, denylistPrompt!.promptId, { decision: "allow" });
+      // Allowed past the denylist, the provider's own prompt opens under the tool use's id.
+      await vi.waitFor(() => expect(openedOf(t)).toHaveLength(2));
+      expect(openedOf(t)[1]).toMatchObject({ kind: "permission", promptId: "toolu_key" });
+      t.log.atomically((tx) =>
+        t.log.append(
+          { kind: "session", id: t.sessionId },
+          answerEvents({ all: (sql, ...params) => t.log.read(sql, ...params) }, openedOf(t)[1]!, { ...personAllows, runId, promptId: "toolu_key", decision: "deny" }),
+          { tx, actor: "client_session:cs-1", correlationId: runId },
+        ),
+      );
+      t.host.deliverAnswer(runId, "toolu_key", { decision: "deny", message: "Not now." });
+      expect(await asked).toMatchObject({ behavior: "deny", message: "Not now." });
+      expect(decisionsOf(t)).toEqual([expect.objectContaining({ toolCallId: "toolu_key", decision: "allowed", decidedBy: "person", promptId: denylistPrompt?.promptId })]);
+    });
+
+    it("closes the denylist prompt when the CLI withdraws the request (the SDK's abort signal), and denies the call", async () => {
+      const t = await setup(undefined, denylisted());
+      const { runId, messageId } = startRun(t);
+      const query = await runQuery(t, 1);
+      query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [messageId]));
+      await vi.waitFor(() => expect(eventsOf(t).map((event) => event.type)).toContain("session.provider-linked"));
+      const abort = new AbortController();
+      const asked = query.canUseTool("Read", { file_path: "~/.ssh/id_rsa" }, { toolUseID: "toolu_key", signal: abort.signal });
+      await vi.waitFor(() => expect(openedOf(t)).toHaveLength(1));
+      abort.abort();
+      expect(await asked).toMatchObject({ behavior: "deny" });
+      const answered = eventsOf(t).filter((event) => event.type === "prompt.answered").map((event) => event.payload as PromptAnsweredPayload);
+      expect(answered).toEqual([expect.objectContaining({ promptId: openedOf(t)[0]?.promptId, decidedBy: { auto: "cancelled" } })]);
+      expect(openedOf(t)).toHaveLength(1);
+      expect([...t.host.runs.runs()].find((run) => run.id === runId)?.state).toBe("running");
+    });
+  });
+
+  describe("with the gate asked from the PreToolUse hook (#140)", () => {
+    const denylisted = () => [denylistRule({ denylist: () => denylistPresets("/data/agent-harness"), home: "/home/test", exempt: [], resolve: (path) => path })];
+    const decisionsOf = (t: Setup) => eventsOf(t).filter((event) => event.type === "tool.decision").map((event) => event.payload as Record<string, unknown>);
+    const answeredOf = (t: Setup) => eventsOf(t).filter((event) => event.type === "prompt.answered").map((event) => event.payload as PromptAnsweredPayload);
+    /** The client's mode and the ceiling it runs under, as `runs.start` asked for bypassPermissions. */
+    const inBypass: PolicySeam = ({ actor, accountModes }) =>
+      resolvePolicy({ actor, requested: "bypassPermissions", ceiling: actor.ceiling, accountModes, settings: { unattendedMode: "bypassPermissions", containmentDefault: "off" }, containment: null, enforceable: ENFORCEABLE });
+
+    const opened = async (t: Setup, actor: RunActor = clientActor) => {
+      const { runId, messageId } = startRun(t, "Go", actor);
+      const query = await runQuery(t, 1);
+      query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [messageId]));
+      await vi.waitFor(() => expect(eventsOf(t).map((event) => event.type)).toContain("session.provider-linked"));
+      return { runId, query };
+    };
+
+    it("puts an attended denylist match to the person in bypassPermissions, and their allow lets the call on to the provider, which asks nothing more", async () => {
+      const t = await setup(inBypass, denylisted());
+      const { runId, query } = await opened(t);
+      expect(query.options).toMatchObject({ permissionMode: "bypassPermissions", allowDangerouslySkipPermissions: true, permissionPrompts: "host" });
+      const hooked = query.preToolUse("Read", { file_path: "~/.ssh/id_rsa" }, { toolUseID: "toolu_key" });
+      await vi.waitFor(() => expect(openedOf(t)).toHaveLength(1));
+      const [prompt] = openedOf(t);
+      expect(prompt).toMatchObject({ kind: "denylist", toolCallId: "toolu_key", mode: "bypassPermissions", reason: expect.stringContaining("~/.ssh") as unknown as string });
+      expect([...t.host.runs.runs()].find((run) => run.id === runId)?.state).toBe("parked");
+      t.log.atomically((tx) =>
+        t.log.append(
+          { kind: "session", id: t.sessionId },
+          answerEvents({ all: (sql, ...params) => t.log.read(sql, ...params) }, prompt!, { ...personAllows, runId, promptId: prompt!.promptId }),
+          { tx, actor: "client_session:cs-1", correlationId: runId },
+        ),
+      );
+      t.host.deliverAnswer(runId, prompt!.promptId, { decision: "allow" });
+      // The hook passes the call on: bypass lets it run, and nothing asks again.
+      expect(await hooked).toEqual({});
+      query.emit(sdk.toolUse("toolu_key", "Read", { file_path: "~/.ssh/id_rsa" }), sdk.toolResult("toolu_key", "ssh-rsa AAAA"), sdk.result(PROVIDER_SESSION));
+      await vi.waitFor(() => expect(eventsOf(t).map((event) => event.type)).toContain("run.ended"));
+      expect(openedOf(t)).toHaveLength(1);
+      expect(decisionsOf(t)).toEqual([expect.objectContaining({ toolCallId: "toolu_key", decision: "allowed", decidedBy: "person", promptId: prompt?.promptId })]);
+    });
+
+    it("denies an unattended match from the hook once the broker has recorded the opened and answered pair, and the run goes on", async () => {
+      const t = await setup(undefined, denylisted(), {}, { autoAnswer });
+      const { runId, query } = await opened(t, routineActor);
+      const answer = await query.preToolUse("Bash", { command: "sudo apt install jq" }, { toolUseID: "toolu_sudo" });
+      const [prompt] = openedOf(t);
+      expect(prompt).toMatchObject({ runId, kind: "denylist", toolCallId: "toolu_sudo", ttlExpiresAt: null });
+      expect(answeredOf(t)).toEqual([expect.objectContaining({ promptId: prompt?.promptId, decision: "deny", decidedBy: { auto: "unattended" } })]);
+      expect(answer).toEqual({
+        hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: "Denied: nobody is present to approve this. Continue without it and say what you could not do." },
+      });
+      expect(decisionsOf(t)).toEqual([expect.objectContaining({ toolCallId: "toolu_sudo", decision: "denied", decidedBy: "denylist", promptId: prompt?.promptId })]);
+      expect([...t.host.runs.runs()].find((run) => run.id === runId)?.state).toBe("running");
+    });
+
+    it("gates a client tool's call (mcp__client__*, #139), which the provider lets through by its allow rule, like any other: its arguments meet the denylist", async () => {
+      const t = await setup(undefined, denylisted(), {}, { autoAnswer });
+      const { query } = await opened(t, routineActor);
+      const answer = await query.preToolUse("mcp__client__read_file", { path: "~/.ssh/id_rsa" }, { toolUseID: "toolu_client" });
+      expect(answer).toMatchObject({ hookSpecificOutput: { permissionDecision: "deny" } });
+      expect(openedOf(t)).toEqual([expect.objectContaining({ kind: "denylist", toolName: "mcp__client__read_file", toolCallId: "toolu_client" })]);
+    });
+
+    it("denies a write outside the workspace from the hook at workspace, recorded by containment, asking nobody, in bypassPermissions too", async () => {
+      const t = await setup(containedAt("workspace"));
+      const { query } = await opened(t);
+      expect(await query.preToolUse("Write", { file_path: "/etc/hosts", content: "x" }, { toolUseID: "toolu_hosts" })).toMatchObject({
+        hookSpecificOutput: { permissionDecision: "deny", permissionDecisionReason: expect.stringMatching(/Denied by containment \(workspace\)/) as unknown as string },
+      });
+      expect(openedOf(t)).toEqual([]);
+      expect(decisionsOf(t)).toEqual([expect.objectContaining({ toolCallId: "toolu_hosts", decision: "denied", decidedBy: "containment" })]);
+      expect(query.options.sandbox).toMatchObject({ enabled: true, failIfUnavailable: true });
+    });
+
+    it("answers the sandbox's ask for a host at once when the gate lets it through, and puts a denylisted host to the person as a denylist prompt", async () => {
+      const metadata = { id: "metadata", pattern: "169.254.169.254", note: "", preset: false, enabled: true };
+      const hosts = () => [denylistRule({ denylist: () => ({ ...denylistPresets("/data/agent-harness"), hosts: [metadata] }), home: "/home/test", exempt: [], resolve: (path) => path })];
+      const t = await setup(containedAt("workspace"), hosts());
+      const { runId, query } = await opened(t);
+      expect(await query.canUseTool("SandboxNetworkAccess", { host: "registry.npmjs.org" }, { toolUseID: "net_npm" })).toEqual({
+        behavior: "allow",
+        updatedInput: { host: "registry.npmjs.org" },
+        toolUseID: "net_npm",
+      });
+      expect(openedOf(t)).toEqual([]);
+      const asked = query.canUseTool("SandboxNetworkAccess", { host: "169.254.169.254" }, { toolUseID: "net_metadata" });
+      await vi.waitFor(() => expect(openedOf(t)).toHaveLength(1));
+      const [prompt] = openedOf(t);
+      expect(prompt).toMatchObject({ runId, kind: "denylist", toolName: "SandboxNetworkAccess", toolCallId: "net_metadata" });
+      expect(prompt?.denylist?.[0]?.entry.pattern).toBe("169.254.169.254");
+      t.log.atomically((tx) =>
+        t.log.append(
+          { kind: "session", id: t.sessionId },
+          answerEvents({ all: (sql, ...params) => t.log.read(sql, ...params) }, prompt!, { ...personAllows, runId, promptId: prompt!.promptId, decision: "deny", message: "Not the metadata service." }),
+          { tx, actor: "client_session:cs-1", correlationId: runId },
+        ),
+      );
+      t.host.deliverAnswer(runId, prompt!.promptId, { decision: "deny", message: "Not the metadata service." });
+      expect(await asked).toEqual({ behavior: "deny", message: "Not the metadata service.", toolUseID: "net_metadata" });
+      // Neither ask opened a turn of the provider's own.
+      expect(eventsOf(t).filter((event) => event.type === "run.started")).toHaveLength(1);
+    });
+
+    it("hands an unattended run the denylist to project, and an attended one none", async () => {
+      const projection: RunDenylist = { paths: ["/home/test/.ssh"], exempt: ["/data/agent-harness/containment"], commandPatterns: ["sudo *"] };
+      const unattended = await setup(containedAt("workspace"), undefined, {}, { providerDenylist: () => projection });
+      await opened(unattended, routineActor);
+      const [routineRun] = fake.queries.slice(unattended.controlQueries);
+      expect(routineRun?.options).toMatchObject({ disallowedTools: ["Bash(sudo *)"], sandbox: { filesystem: { denyRead: ["/home/test/.ssh"], allowRead: ["/data/agent-harness/containment"] } } });
+      const attended = await setup(containedAt("workspace"), undefined, {}, { providerDenylist: () => projection });
+      await opened(attended);
+      const clientRun = fake.queries.at(-1);
+      expect(clientRun?.options).not.toHaveProperty("disallowedTools");
+      expect(clientRun?.options.sandbox?.filesystem).not.toHaveProperty("denyRead");
+    });
   });
 
   it("stops a process kept for a background task when its session is deleted, so no later turn lands on the deleted stream", async () => {

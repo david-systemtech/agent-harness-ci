@@ -51,7 +51,7 @@ export const badgesOf = (views: readonly Pick<EnvironmentView, "environmentId" |
     const abbreviation = candidates.find((c) => !taken.has(c)) ?? candidates[0] ?? "??";
     taken.add(abbreviation);
     badges.set(view.environmentId, {
-      icon: view.icon !== null && view.icon !== "" ? ([...view.icon][0] ?? DEFAULT_ICON) : DEFAULT_ICON,
+      icon: view.icon ? ([...view.icon][0] ?? DEFAULT_ICON) : DEFAULT_ICON,
       abbreviation,
       colour: view.colour ?? BADGE_COLOURS[index % BADGE_COLOURS.length] ?? "cyan",
     });

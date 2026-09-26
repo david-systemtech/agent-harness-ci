@@ -49,10 +49,13 @@ const DENIED_BECAUSE: Readonly<Record<ToolDecider, string>> = {
 
 /**
  * What decided a call through its prompt's answer: a person, else the rule
- * that answered. A denylist prompt no person could answer is the denylist's
- * denial (ADR 0006: a denylisted action with nobody present is denied); a
- * reviewer is the provider's classifier; a request the provider cancelled,
- * or a run that ended under the prompt, is the provider's doing.
+ * that answered. A denylist prompt the unattended rule or the TTL answered
+ * is the denylist's denial (ADR 0006: a denylisted action with nobody
+ * present to choose is denied; #132); a reviewer is the provider's
+ * classifier; a request the provider cancelled, or a run that ended under
+ * the prompt, is the provider's doing, whatever the prompt's kind: the
+ * denylist did not decide it, and an attended run a person interrupted
+ * under a denylist prompt does not belong in the Unattended review.
  */
 export const deciderOf = (prompt: PromptOpenedPayload, answer: PromptAnsweredPayload): ToolDecider => {
   if (typeof answer.decidedBy === "string") return "person";
@@ -62,7 +65,7 @@ export const deciderOf = (prompt: PromptOpenedPayload, answer: PromptAnsweredPay
     case "bypass":
       return "bypass";
     case "ttl":
-      return "ttl";
+      return prompt.kind === "denylist" ? "denylist" : "ttl";
     case "reviewer":
       return "classifier";
     case "run_ended":

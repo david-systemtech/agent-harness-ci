@@ -234,6 +234,8 @@ describe("a deleted session", () => {
     // A deleted session is no source to fork, and has nothing to rewind (#137).
     "sessions.fork": { sessionId, id: randomUUID() },
     "sessions.rewind": { sessionId, messageId: randomUUID() },
+    // Nor a rewind to undo (#218).
+    "sessions.undoRewind": { sessionId },
   });
 
   /**

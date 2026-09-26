@@ -1,0 +1,142 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CompletionsActivity",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "tool.started"
+        },
+        "toolCallId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "title": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "toolCallId",
+        "name",
+        "title"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "tool.ended"
+        },
+        "toolCallId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "ok",
+            "error",
+            "cancelled"
+          ],
+          "description": "How a tool call ended: ok, error, or cancelled."
+        }
+      },
+      "required": [
+        "type",
+        "toolCallId",
+        "status"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "prompt.opened"
+        },
+        "promptId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "permission",
+            "denylist",
+            "question",
+            "plan"
+          ],
+          "description": "What a prompt asks: permission (a tool call the mode does not allow without asking), denylist (a call that touches the denylist), question (the model asks its user), or plan (a plan to approve, with the mode to continue in)."
+        },
+        "summary": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "promptId",
+        "kind",
+        "summary"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "prompt.answered"
+        },
+        "promptId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "decision": {
+          "type": "string",
+          "enum": [
+            "allow",
+            "deny"
+          ],
+          "description": "Whether the call may go ahead: allow, or deny."
+        },
+        "auto": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "unattended",
+                "bypass",
+                "ttl",
+                "run_ended",
+                "reviewer",
+                "cancelled"
+              ],
+              "description": "What answered a prompt when no person did: unattended (nobody is present for the run), bypass (a residual prompt in bypassPermissions), ttl (it waited past its TTL), run_ended (its run ended on its own first), reviewer (a provider's automatic reviewer), cancelled (the provider cancelled the request, its tool call moot, while the run went on)."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The rule that answered; null when a person did."
+        }
+      },
+      "required": [
+        "type",
+        "promptId",
+        "decision",
+        "auto"
+      ]
+    }
+  ],
+  "description": "What the agent did that is not text: a tool call it started or ended, a prompt raised or answered."
+}

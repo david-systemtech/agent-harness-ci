@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { DenylistChangedPayload } from "./denylist.js";
 import { BypassAcknowledgedPayload } from "./permissions.js";
 import { SettingsChangedPayload } from "./permissions-settings.js";
 import { ClientKind, ClientSessionId, PairingId, Timestamp } from "./primitives.js";
@@ -104,7 +105,7 @@ export const CeilingChangedPayload = z
 /**
  * Every event type the access stream carries, in the order the env spec
  * lists them, then the permissions spec's: the first acknowledgement of
- * bypass, and changes to the permission settings. The specs name these on
+ * bypass, changes to the permission settings, and changes to the denylist. The specs name these on
  * the access stream `access.*`; the prefix is the stream, not the type.
  */
 export const ACCESS_EVENT_TYPES = [
@@ -120,10 +121,11 @@ export const ACCESS_EVENT_TYPES = [
   "ceiling.changed",
   "bypass.acknowledged",
   "settings.changed",
+  "denylist.changed",
 ] as const;
 export const AccessEventType = z.enum(ACCESS_EVENT_TYPES).meta({
   description:
-    "The event types of the access stream: pairing created, exchanged, expired; client session created, refreshed, revoked; socket opened, closed; scope granted; ceiling changed; bypass acknowledged; settings changed.",
+    "The event types of the access stream: pairing created, exchanged, expired; client session created, refreshed, revoked; socket opened, closed; scope granted; ceiling changed; bypass acknowledged; settings changed; denylist changed.",
 });
 export type AccessEventType = z.infer<typeof AccessEventType>;
 
@@ -141,6 +143,7 @@ export const ACCESS_EVENT_PAYLOADS = {
   "ceiling.changed": CeilingChangedPayload,
   "bypass.acknowledged": BypassAcknowledgedPayload,
   "settings.changed": SettingsChangedPayload,
+  "denylist.changed": DenylistChangedPayload,
 } as const satisfies Record<AccessEventType, z.ZodObject>;
 
 export type AccessEventPayload<T extends AccessEventType> = z.infer<(typeof ACCESS_EVENT_PAYLOADS)[T]>;
