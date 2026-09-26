@@ -77,8 +77,8 @@ const catchUp = async (client: WireClient, sessionId: string, afterSequence: num
   };
 };
 
-/** A snapshot's session without the sequence it stands at: its summary, runs, items and parked prompts. */
-const session = ({ summary, runs, items, parkedPrompts }: SessionSnapshot) => ({ summary, runs, items, parkedPrompts });
+/** A snapshot's session without the sequence it stands at: its summary, runs, items, parked prompts and rewinds standing. */
+const session = ({ summary, runs, items, parkedPrompts, rewinds }: SessionSnapshot) => ({ summary, runs, items, parkedPrompts, rewinds });
 
 /**
  * A session created and run twice in a fresh environment, which is then
@@ -240,9 +240,37 @@ describe("replay of a compacted session", () => {
   });
 });
 
+describe("a session compacted before the rewinds were carried (#260)", () => {
+  it("is served from its stored fold, which has no rewinds, as one with none standing: below the fold and at the head", async () => {
+    const { dataDir, id, stream, before } = await untouchedSession();
+    // Not yet past the window: the sweep leaves it, and the test compacts it as a build from before #260 did, its fold without rewinds.
+    const t = await start(dataDir);
+    const client = await t.client();
+    const last = stream.at(-1)?.sequence as number;
+    const { runs, items, parkedPrompts } = before;
+    const removed = stream.filter((event) => event.type === "assistant.text").map((event) => event.sequence);
+    t.env.log.atomically((tx) => t.env.log.compactStream({ kind: "session", id }, { sequence: last, payload: { runs, items, parkedPrompts }, remove: removed }, { tx }));
+    await runOnce(t, client, id, "Once more");
+
+    /** The snapshot frame's payload as sent, before the client's parse fills in anything. */
+    const sent = async (afterSequence: number): Promise<Record<string, unknown>> => {
+      const { snapshot } = await catchUp(client, id, afterSequence);
+      const frame = client.received.find((f) => f.type === "snapshot" && f.subscription === snapshot?.subscription);
+      return (frame as SnapshotFrame).payload as Record<string, unknown>;
+    };
+    // Below the fold: the stored fold itself, at its sequence.
+    const below = await sent(0);
+    expect(below).toMatchObject({ sequence: last, runs, items, parkedPrompts, rewinds: [] });
+    // At the head: the stored fold folded on with the run after it.
+    const head = await sent(t.env.log.head() + 1000);
+    expect(head["rewinds"]).toEqual([]);
+    expect((head["items"] as { text?: string }[]).map((item) => item.text)).toEqual([...items.map((item) => ("text" in item ? item.text : undefined)), "Once more", "Done: Once more"]);
+  });
+});
+
 describe("a rewound session", () => {
   /** A snapshot's items as their text. */
-  const texts = (snapshot: SessionSnapshot | undefined): string[] => (snapshot?.items ?? []).map((item) => ("text" in item ? String(item.text) : item.kind));
+  const texts = (snapshot: Pick<SessionSnapshot, "items"> | undefined): string[] => (snapshot?.items ?? []).map((item) => ("text" in item ? String(item.text) : item.kind));
   const ALL = ["One", "Done: One", "Two", "Done: Two", "Three", "Done: Three"];
 
   it("is left out while its rewind can still be undone, so the undo shows every item after the window; once a run has started after the rewind it is compacted as any other", async () => {
@@ -268,6 +296,9 @@ describe("a rewound session", () => {
     const compacted = await catchUp(client, continued.id, 0);
     expect(compacted.snapshot?.sequence).toBe(later.env.log.readStream({ kind: "session", id: continued.id }).at(-1)?.sequence);
     expect(texts(compacted.snapshot?.payload)).toEqual(["One", "Done: One", "Two, again", "Done: Two, again"]);
+    // The fold keeps the rewind standing with what it hid, though the events it was folded from are gone (#260).
+    expect(compacted.snapshot?.payload.rewinds).toMatchObject([{ toMessageId: twos[continued.id], text: "Two", undoable: false, rewinds: [] }]);
+    expect(texts(compacted.snapshot?.payload.rewinds[0])).toEqual(["Two", "Done: Two", "Three", "Done: Three"]);
 
     expect(await sessionCommand(client, "sessions.undoRewind", { sessionId: pending.id })).toMatchObject({ status: "accepted" });
     expect(texts((await catchUp(client, pending.id, later.env.log.head() + 1000)).snapshot?.payload)).toEqual(ALL);
@@ -302,6 +333,8 @@ describe("a rewound session", () => {
     const compacted = await catchUp(client, id, 0);
     expect(compacted.snapshot?.sequence).toBe(last.env.log.readStream({ kind: "session", id }).at(-1)?.sequence);
     expect(texts(compacted.snapshot?.payload)).toEqual(shown);
+    expect(compacted.snapshot?.payload.rewinds).toMatchObject([{ toMessageId: three, undoable: false, rewinds: [] }]);
+    expect(texts(compacted.snapshot?.payload.rewinds[0])).toEqual(["Three", "Done: Three"]);
   });
 
   it("undoes a rewind taken after a compaction, bringing back the items the compaction's fold holds", async () => {

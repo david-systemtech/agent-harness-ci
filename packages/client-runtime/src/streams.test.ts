@@ -374,7 +374,7 @@ describe("session handles", () => {
     const handle = runtime.subscriptions.session(wire.environmentId, a.toUpperCase());
     const stream = await subscription(wire, "sessions.subscribeSession");
     expect(stream.params).toEqual({ sessionId: a, afterSequence: 0 });
-    stream.snapshot(2, { sequence: 2, summary: summaryOf(a), runs: [], items: [], parkedPrompts: [] });
+    stream.snapshot(2, { sequence: 2, summary: summaryOf(a), runs: [], items: [], parkedPrompts: [], rewinds: [] });
     stream.synchronized(2);
     await flush();
     expect(handle.state.read()).toMatchObject({ freshness: "live", summary: { id: a }, deleted: false });
@@ -406,7 +406,7 @@ describe("session handles", () => {
     await adding;
     const handle = runtime.subscriptions.session(wire.environmentId, a);
     const first = await subscription(wire, "sessions.subscribeSession");
-    first.snapshot(4, { sequence: 4, summary: summaryOf(a), runs: [], items: [], parkedPrompts: [] });
+    first.snapshot(4, { sequence: 4, summary: summaryOf(a), runs: [], items: [], parkedPrompts: [], rewinds: [] });
     first.synchronized(4);
     await flush();
 
@@ -431,7 +431,7 @@ describe("session handles", () => {
     await adding;
     const handle = runtime.subscriptions.session(wire.environmentId, a);
     const stream = await subscription(wire, "sessions.subscribeSession");
-    stream.snapshot(2, { sequence: 2, summary: summaryOf(a), runs: [], items: [], parkedPrompts: [] });
+    stream.snapshot(2, { sequence: 2, summary: summaryOf(a), runs: [], items: [], parkedPrompts: [], rewinds: [] });
     stream.synchronized(2);
     stream.event(sessionEvent(3, { op: "remove", sessionId: a }, "session.deleted"));
     stream.end("deleted");
@@ -475,7 +475,7 @@ describe("session handles", () => {
     await adding;
     const handle = runtime.subscriptions.session(wire.environmentId, a);
     const first = await subscription(wire, "sessions.subscribeSession");
-    first.snapshot(2, { sequence: 2, summary: summaryOf(a), runs: [], items: [], parkedPrompts: [] });
+    first.snapshot(2, { sequence: 2, summary: summaryOf(a), runs: [], items: [], parkedPrompts: [], rewinds: [] });
     first.synchronized(2);
     for (let sequence = 3; sequence < 3 + SESSION_EVENTS_BOUND; sequence++) first.event(unpatchedEvent(sequence, a, "run.output"));
     await flush();
@@ -486,7 +486,7 @@ describe("session handles", () => {
     const folded = await subscription(wire, "sessions.subscribeSession");
     expect(folded.params["afterSequence"]).toBeGreaterThan(1_000_000);
     expect(wire.server.received()).toContainEqual({ type: "unsubscribe", subscription: expect.any(String) });
-    folded.snapshot(3 + SESSION_EVENTS_BOUND, { sequence: 3 + SESSION_EVENTS_BOUND, summary: summaryOf(a, { title: "Folded" }), runs: [], items: [], parkedPrompts: [] });
+    folded.snapshot(3 + SESSION_EVENTS_BOUND, { sequence: 3 + SESSION_EVENTS_BOUND, summary: summaryOf(a, { title: "Folded" }), runs: [], items: [], parkedPrompts: [], rewinds: [] });
     folded.synchronized(3 + SESSION_EVENTS_BOUND);
     await flush();
     expect(handle.state.read()).toMatchObject({ freshness: "live", summary: { title: "Folded" } });
@@ -494,7 +494,7 @@ describe("session handles", () => {
     handle.release();
   });
 
-  it("resubscribe a held session for a snapshot when a rewind is undone that its events since the snapshot do not hold, and not for one they do (#218)", async () => {
+  it("resubscribe a held session for a snapshot when a rewind is undone that neither its snapshot nor its events since hold, and not for one they do (#218, #260)", async () => {
     const { runtime, wire, list, adding } = await paired();
     const a = randomUUID();
     const message = randomUUID();
@@ -502,21 +502,25 @@ describe("session handles", () => {
     await adding;
     const handle = runtime.subscriptions.session(wire.environmentId, a);
     const first = await subscription(wire, "sessions.subscribeSession");
-    // The snapshot at 8 was taken while the rewind at 5 stood: it left out what that rewind hid.
-    first.snapshot(8, { sequence: 8, summary: summaryOf(a), runs: [], items: [], parkedPrompts: [] });
+    // The snapshot at 8 was taken while the rewind at 6 stood, and carries it with what it hid (#260).
+    const standing = { sequence: 6, toMessageId: message, text: "Again", undoable: true, items: [], rewinds: [] };
+    first.snapshot(8, { sequence: 8, summary: summaryOf(a), runs: [], items: [], parkedPrompts: [], rewinds: [standing] });
     first.synchronized(8);
     const asked = () => wire.server.received().filter((f) => f.type === "request" && f.method === "sessions.subscribeSession");
     // A rewind heard and its undo: the events hold what it hid, so nothing is asked for.
     first.event({ ...unpatchedEvent(9, a, "session.rewound"), payload: { toMessageId: message } });
     first.event({ ...unpatchedEvent(10, a, "session.rewind-undone"), payload: { toMessageId: message, rewindSequence: 9 } });
+    // The undo of the rewind the snapshot carries: it holds what that rewind hid, so nothing is asked for either.
+    first.event({ ...unpatchedEvent(11, a, "session.rewind-undone"), payload: { toMessageId: message, rewindSequence: 6 } });
     await flush();
     expect(asked()).toHaveLength(1);
 
-    first.event({ ...unpatchedEvent(11, a, "session.rewind-undone"), payload: { toMessageId: message, rewindSequence: 5 } });
+    // One that neither holds (no environment sends it: a snapshot carries every rewind standing): a fresh snapshot shows the undo.
+    first.event({ ...unpatchedEvent(12, a, "session.rewind-undone"), payload: { toMessageId: message, rewindSequence: 5 } });
     const fresh = await subscription(wire, "sessions.subscribeSession");
     expect(fresh.params["afterSequence"]).toBeGreaterThan(1_000_000);
-    fresh.snapshot(11, { sequence: 11, summary: summaryOf(a, { title: "Shown again" }), runs: [], items: [], parkedPrompts: [] });
-    fresh.synchronized(11);
+    fresh.snapshot(12, { sequence: 12, summary: summaryOf(a, { title: "Shown again" }), runs: [], items: [], parkedPrompts: [], rewinds: [] });
+    fresh.synchronized(12);
     await flush();
     expect(handle.state.read()).toMatchObject({ freshness: "live", summary: { title: "Shown again" } });
     expect(asked()).toHaveLength(2);
@@ -545,7 +549,7 @@ describe("closing and faults outside the streams", () => {
     await first.adding;
     const opened = first.runtime.subscriptions.session(first.wire.environmentId, a);
     const stream = await subscription(first.wire, "sessions.subscribeSession");
-    stream.snapshot(2, { sequence: 2, summary: summaryOf(a), runs: [], items: [], parkedPrompts: [] });
+    stream.snapshot(2, { sequence: 2, summary: summaryOf(a), runs: [], items: [], parkedPrompts: [], rewinds: [] });
     stream.synchronized(2);
     await flush();
     opened.release();
@@ -620,7 +624,7 @@ describe("closing with a delete under way", () => {
     await adding;
     const handle = runtime.subscriptions.session(wire.environmentId, a);
     const stream = await subscription(wire, "sessions.subscribeSession");
-    stream.snapshot(2, { sequence: 2, summary: summaryOf(a), runs: [], items: [], parkedPrompts: [] });
+    stream.snapshot(2, { sequence: 2, summary: summaryOf(a), runs: [], items: [], parkedPrompts: [], rewinds: [] });
     stream.synchronized(2);
     stream.end("deleted");
     await flush();
@@ -646,7 +650,7 @@ describe("offline", () => {
     await first.adding;
     const handle = first.runtime.subscriptions.session(first.wire.environmentId, a);
     const stream = await subscription(first.wire, "sessions.subscribeSession");
-    stream.snapshot(2, { sequence: 2, summary: summaryOf(a, { title: "Invoices" }), runs: [], items: [], parkedPrompts: [] });
+    stream.snapshot(2, { sequence: 2, summary: summaryOf(a, { title: "Invoices" }), runs: [], items: [], parkedPrompts: [], rewinds: [] });
     stream.synchronized(2);
     await flush();
     handle.release();
@@ -664,6 +668,53 @@ describe("offline", () => {
   });
 });
 
+describe("a cached session from before the rewinds were carried (#260)", () => {
+  /** A runtime that cached session `a` at its snapshot at 2, restarted on a copy of its documents with `edit` applied to the session's snapshot parts. */
+  const reopened = async (edit: (parts: Record<string, unknown>) => void) => {
+    const clock = manualClock();
+    const documents = inMemoryDocuments();
+    const first = await paired({ clock, documents });
+    const a = randomUUID();
+    first.list.event(sessionEvent(2, added(summaryOf(a, { title: "Invoices" }))));
+    first.list.synchronized(2);
+    await first.adding;
+    const handle = first.runtime.subscriptions.session(first.wire.environmentId, a);
+    const stream = await subscription(first.wire, "sessions.subscribeSession");
+    stream.snapshot(2, { sequence: 2, summary: summaryOf(a, { title: "Invoices" }), runs: [], items: [], parkedPrompts: [], rewinds: [] });
+    stream.synchronized(2);
+    await flush();
+    handle.release();
+    await first.runtime.close();
+
+    // The session's document: `{format, sequence, snapshot}`, the kind's stored form `{summary, snapshot, events}` in it.
+    const key = `streams.${first.wire.environmentId}.session.${a}`;
+    const document = structuredClone(documents.entries()[key]) as { sequence: number; snapshot: { snapshot: Record<string, unknown> } };
+    expect(document.sequence).toBe(2);
+    edit(document.snapshot.snapshot);
+    await documents.set(key, document);
+
+    const again = await restartedFrom({ clock, documents, secrets: first.platform.secrets, environmentId: first.wire.environmentId });
+    const opened = again.runtime.subscriptions.session(again.wire.environmentId, a);
+    onTestFinished(() => opened.release());
+    const subscribed = await subscription(again.wire, "sessions.subscribeSession");
+    return { again, afterSequence: subscribed.params["afterSequence"] };
+  };
+
+  it("does not read one with no rewinds: the session subscribes from nothing, rather than hide a fold the environment holds", async () => {
+    const { again, afterSequence } = await reopened((parts) => {
+      delete parts["rewinds"];
+    });
+    expect(afterSequence).toBe(0);
+    expect(again.platform.reported).toHaveLength(1);
+  });
+
+  it("reads one this runtime wrote, rewinds and all, and subscribes from its cursor", async () => {
+    const { again, afterSequence } = await reopened(() => undefined);
+    expect(afterSequence).toBe(2);
+    expect(again.platform.reported).toEqual([]);
+  });
+});
+
 describe("removing an environment", () => {
   it("forgets its list, its sessions, its cursors and its clock", async () => {
     const s = runtimeOn();
@@ -678,7 +729,7 @@ describe("removing an environment", () => {
     await adding;
     const handle = runtime.subscriptions.session(wire.environmentId, a);
     const stream = await subscription(wire, "sessions.subscribeSession");
-    stream.snapshot(2, { sequence: 2, summary: summaryOf(a), runs: [], items: [], parkedPrompts: [] });
+    stream.snapshot(2, { sequence: 2, summary: summaryOf(a), runs: [], items: [], parkedPrompts: [], rewinds: [] });
     stream.synchronized(2);
     await flush();
     handle.release();
@@ -725,7 +776,7 @@ describe("removing an environment while a write is under way", () => {
     await adding;
     const handle = runtime.subscriptions.session(wire.environmentId, a);
     const stream = await subscription(wire, "sessions.subscribeSession");
-    stream.snapshot(2, { sequence: 2, summary: summaryOf(a), runs: [], items: [], parkedPrompts: [] });
+    stream.snapshot(2, { sequence: 2, summary: summaryOf(a), runs: [], items: [], parkedPrompts: [], rewinds: [] });
     stream.synchronized(2);
     await flush();
     handle.release();
@@ -771,7 +822,7 @@ describe("removing an environment when a delete fails", () => {
     await adding;
     const handle = runtime.subscriptions.session(wire.environmentId, a);
     const stream = await subscription(wire, "sessions.subscribeSession");
-    stream.snapshot(2, { sequence: 2, summary: summaryOf(a), runs: [], items: [], parkedPrompts: [] });
+    stream.snapshot(2, { sequence: 2, summary: summaryOf(a), runs: [], items: [], parkedPrompts: [], rewinds: [] });
     stream.synchronized(2);
     await flush();
     handle.release();

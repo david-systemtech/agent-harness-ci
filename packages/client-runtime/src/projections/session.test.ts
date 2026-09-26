@@ -26,7 +26,7 @@ import { projectSession, reduceSession, type TranscriptEntry } from "./session.j
  * reducer on a real runtime.
  */
 
-const NO_SNAPSHOT = { runs: [], items: [], parkedPrompts: [] };
+const NO_SNAPSHOT = { runs: [], items: [], parkedPrompts: [], rewinds: [] };
 
 const reduce = (events: readonly EventEnvelope[], snapshot = NO_SNAPSHOT) => reduceSession(snapshot, events);
 const kinds = (items: readonly TranscriptEntry[]) => items.map((item) => item.kind);
@@ -192,7 +192,7 @@ describe("the queue (ADR 0022)", () => {
       heldBy: null,
       sentAt: occurredAt(2),
     };
-    const { queued } = reduceSession({ runs: [], items: [old], parkedPrompts: [] }, [sessionStreamEvent(3, "message.sent", { ...queuedBy(THIRD, "Older", "provider"), heldBy: null })]);
+    const { queued } = reduceSession({ runs: [], items: [old], parkedPrompts: [], rewinds: [] }, [sessionStreamEvent(3, "message.sent", { ...queuedBy(THIRD, "Older", "provider"), heldBy: null })]);
     expect(queued.map((message) => [message.messageId, message.heldBy])).toEqual([
       [SECOND, "environment"],
       [THIRD, "environment"],
@@ -554,14 +554,77 @@ describe("session.rewind-undone", () => {
   });
 });
 
+describe("the rewinds a snapshot carries (#260)", () => {
+  const message = (sequence: number, messageId: string, text: string) => ({
+    kind: "user-message",
+    sequence,
+    runId: FIXTURE_RUN,
+    messageId,
+    text,
+    attachments: [],
+    delivery: "prompt",
+    heldBy: null,
+    sentAt: occurredAt(sequence),
+  });
+  const said = (sequence: number, itemId: string) => ({ kind: "assistant-text", sequence, runId: FIXTURE_RUN, itemId, text: `Reply ${itemId}`, aborted: false });
+  const THIRD = "6e1f2a3b-4c5d-4e6f-8a7b-9c0d1e2f3a4b";
+  // One at 2 and its reply at 3; Two at 4 and its reply at 5, which the rewind at 9 hid; Three at 6 and its reply at 7, which the rewind at 8 hid first.
+  const inner = { sequence: 8, toMessageId: THIRD, text: "Three", undoable: true, items: [message(6, THIRD, "Three"), said(7, "i-3")], rewinds: [] };
+  const outer = { sequence: 9, toMessageId: FIXTURE_OTHER_MESSAGE, text: "Two", undoable: true, items: [message(4, FIXTURE_OTHER_MESSAGE, "Two"), said(5, "i-2")], rewinds: [inner] };
+  const snapshot = { runs: [], items: [message(2, FIXTURE_MESSAGE, "One"), said(3, "i-1")], parkedPrompts: [], rewinds: [outer] } as unknown as Parameters<typeof reduceSession>[0];
+  const sequences = (items: readonly TranscriptEntry[]): unknown[] => items.map((item) => (item.kind === "rewound" ? [item.sequence, sequences(item.items)] : item.sequence));
+
+  it("stand as folds where they cut, nested as they were stacked, the latest the rewound state", () => {
+    const { items, rewound } = reduceSession(snapshot, []);
+    expect(sequences(items)).toEqual([2, 3, [9, [4, 5, [8, [6, 7]]]]]);
+    expect(items[2]).toMatchObject({ kind: "rewound", toMessageId: FIXTURE_OTHER_MESSAGE, text: "Two", undoable: true });
+    expect(rewound).toEqual({ toMessageId: FIXTURE_OTHER_MESSAGE, sequence: 9, text: "Two", undoable: true });
+  });
+
+  it("are undone by the events after the snapshot, one at a time, and ended by a run starting", () => {
+    const later = reduceSession(snapshot, [sessionStreamEvent(10, "session.rewind-undone", { toMessageId: FIXTURE_OTHER_MESSAGE, rewindSequence: 9 })]);
+    expect(sequences(later.items)).toEqual([2, 3, 4, 5, [8, [6, 7]]]);
+    expect(later.rewound).toEqual({ toMessageId: THIRD, sequence: 8, text: "Three", undoable: true });
+    const both = reduceSession(snapshot, [
+      sessionStreamEvent(10, "session.rewind-undone", { toMessageId: FIXTURE_OTHER_MESSAGE, rewindSequence: 9 }),
+      sessionStreamEvent(11, "session.rewind-undone", { toMessageId: THIRD, rewindSequence: 8 }),
+    ]);
+    expect(sequences(both.items)).toEqual([2, 3, 4, 5, 6, 7]);
+    expect(both.rewound).toBeNull();
+    const continued = reduceSession(snapshot, [sessionStreamEvent(10, "run.started", recorded("run.started"))]);
+    expect(continued.items[2]).toMatchObject({ kind: "rewound", undoable: false, items: [{}, {}, { kind: "rewound", undoable: false }] });
+    expect(continued.rewound).toMatchObject({ sequence: 9, undoable: false });
+  });
+
+  it("hold what they hid for the events after the snapshot: a message withdrawn is taken out of its fold, and a queued one is still queued", () => {
+    const queued = { ...message(5, THIRD, "Queued"), delivery: "queued", heldBy: "environment" };
+    const held = { ...snapshot, rewinds: [{ ...outer, items: [message(4, FIXTURE_OTHER_MESSAGE, "Two"), queued], rewinds: [] }] } as typeof snapshot;
+    expect(reduceSession(held, []).queued.map((entry) => entry.messageId)).toEqual([THIRD]);
+    const withdrawn = reduceSession(held, [sessionStreamEvent(10, "message.withdrawn", { runId: FIXTURE_RUN, messageId: THIRD, heldBy: "environment" })]);
+    expect(sequences(withdrawn.items)).toEqual([2, 3, [9, [4]]]);
+    expect(withdrawn.queued).toEqual([]);
+  });
+});
+
 describe("the snapshot", () => {
-  it("is folded on: its runs, its items (an opaque one and one of an unknown kind kept opaque) and its parked prompts", () => {
+  it("is folded on: its runs, its items (an opaque one and one of an unknown kind kept opaque), its parked prompts and its rewinds", () => {
     const recordedOnce = recordedSnapshot();
     // The recorded instance gives its two runs one id; a session's runs each have their own.
     const snapshot = { ...recordedOnce, runs: [recordedOnce.runs[0]!, { ...recordedOnce.runs[1]!, runId: "5a4b3c2d-1e0f-4a9b-8c7d-6e5f4a3b2c1d" }] };
-    const { runs, items, parkedPrompts } = reduceSession(snapshot, [sessionStreamEvent(14, "prompt.answered", recorded("prompt.answered", 0, { promptId: "toolu_2" }))]);
+    const { runs, items, parkedPrompts, rewound } = reduceSession(snapshot, [sessionStreamEvent(19, "prompt.answered", recorded("prompt.answered", 0, { promptId: "toolu_2" }))]);
     expect(runs).toEqual(snapshot.runs);
-    expect(kinds(items)).toEqual(["user-message", "assistant-thinking", "tool-call", "assistant-text", "command", "tasks", "prompt", "opaque", "opaque"]);
+    expect(kinds(items)).toEqual(["user-message", "assistant-thinking", "tool-call", "assistant-text", "command", "tasks", "prompt", "opaque", "opaque", "rewound"]);
+    // The recorded rewind standing at 18, not undoable, and the one before it that it cut, nested (#260).
+    expect(items[9]).toMatchObject({
+      kind: "rewound",
+      sequence: 18,
+      undoable: false,
+      items: [
+        { kind: "user-message", sequence: 14, text: "Try the other way" },
+        { kind: "rewound", sequence: 17, text: "Then this", undoable: false, items: [{ kind: "opaque", sequence: 16, type: "plan-card" }] },
+      ],
+    });
+    expect(rewound).toMatchObject({ sequence: 18, text: "Try the other way", undoable: false });
     expect(items[7]).toEqual({ kind: "opaque", sequence: 10, type: "transcript.chunk", payload: { text: "hi" } });
     expect(items[8]).toEqual({ kind: "opaque", sequence: 11, type: "plan-card", payload: { kind: "plan-card", sequence: 11, plan: "Step one" } });
     expect(items[6]).toMatchObject({ kind: "prompt", state: "answered", promptId: "toolu_1" });
@@ -586,7 +649,7 @@ describe("the session's view", () => {
   /** The stream's state after `events`, as the session stream's kind applies them. */
   const streamed = (events: readonly EventEnvelope[]): SessionData => {
     const kind = sessionKind();
-    return events.reduce((data, event) => kind.apply(data, event), kind.fromSnapshot({ sequence: 0, summary: summary(), runs: [], items: [], parkedPrompts: [] }));
+    return events.reduce((data, event) => kind.apply(data, event), kind.fromSnapshot({ sequence: 0, summary: summary(), runs: [], items: [], parkedPrompts: [], rewinds: [] }));
   };
 
   it("carries the draft and the summary fields as the stream's patches left them", () => {

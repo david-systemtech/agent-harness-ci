@@ -622,7 +622,7 @@ describe("sessions.subscribeSession", () => {
       type: "snapshot",
       subscription,
       sequence: head,
-      payload: { sequence: head, summary: freshSummary(id, { title: "Watched", titleSource: "user" }), runs: [], items: [], parkedPrompts: [] },
+      payload: { sequence: head, summary: freshSummary(id, { title: "Watched", titleSource: "user" }), runs: [], items: [], parkedPrompts: [], rewinds: [] },
     });
     expect(await client.next((f) => "subscription" in f && f.subscription === subscription)).toEqual({
       type: "synchronized",
