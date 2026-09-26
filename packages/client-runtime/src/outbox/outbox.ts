@@ -1,4 +1,5 @@
 import {
+  MAX_DRAFT_LENGTH,
   SESSION_WRITE_COMMANDS,
   groupNameKey,
   isCommand,
@@ -12,6 +13,7 @@ import {
   type ResponseFrame,
   type ResultOf,
   type SessionWriteMethodName,
+  type Workspace,
 } from "@agent-harness/contracts";
 import { answerCapability, METHOD_FLAGS, type AbsentReason } from "../capabilities.js";
 import { SocketClosedError } from "../connections/connection.js";
@@ -136,6 +138,28 @@ export interface Commands {
    * (session-state spec, "Merged groups by name"). Answers the move.
    */
   moveToGroup(environmentId: string, sessionId: string, groupName: string | null): Promise<DispatchAnswer<"sessions.setGroup">>;
+  /**
+   * Rewinds a session to one of its user messages (ADR 0022):
+   * `sessions.rewind`; and when the environment refuses it
+   * `use_new_session` (the session's first message, with nothing before it
+   * to go back to), a new session in the same workspace with the message's
+   * text as its draft: `sessions.create` with a client-minted id, then
+   * `sessions.setDraft`, in that order. Answers the rewind's own answer, or
+   * the new session's id with the create's answer; the refusal it answers
+   * raises no notice, and a draft refused meanwhile leaves its own.
+   */
+  rewind(environmentId: string, sessionId: string, messageId: string): Promise<RewindAnswer>;
+}
+
+/** What `commands.rewind` did: the rewind (accepted, or refused for any reason but `use_new_session`), or the new session it started instead. */
+export type RewindAnswer =
+  | { readonly kind: "rewind"; readonly answer: DispatchAnswer<"sessions.rewind"> }
+  | { readonly kind: "new-session"; readonly sessionId: string; readonly answer: DispatchAnswer<"sessions.create"> };
+
+/** What a rewind refused `use_new_session` starts a new session from: the message's text and the session's workspace. */
+export interface RewindSource {
+  readonly text: string;
+  readonly workspace: Workspace;
 }
 
 export interface OutboxHost {
@@ -152,6 +176,8 @@ export interface OutboxHost {
   shown(environmentId: string): ListData | null;
   /** The environment's time now. */
   now(environmentId: string): Date;
+  /** A user message of a session the runtime holds, with the session's workspace; null when either is not held. */
+  rewindSource(environmentId: string, sessionId: string, messageId: string): RewindSource | null;
 }
 
 export interface Outbox extends Commands {
@@ -215,6 +241,8 @@ export const createOutbox = (host: OutboxHost): Outbox => {
   let expiry: { readonly due: number; readonly timer: Timer } | undefined;
   /** A sweep is under way: it sets the next timer once it is done. */
   let sweeping = false;
+  /** Refusals a composed command answers itself, by the command id they would refuse: they raise no notice. */
+  const answeredByCaller = new Map<string, (error: DispatchFailure) => boolean>();
 
   const senderOf = (environmentId: string): Sender => {
     let sender = senders.get(environmentId);
@@ -314,11 +342,13 @@ export const createOutbox = (host: OutboxHost): Outbox => {
   const fail = (entry: OutboxEntry, error: DispatchFailure) => {
     const label = labelOf(entry);
     remove(entry);
-    notices.raise(entry.environmentId, {
-      kind: "command-rejected",
-      message: `${verbOf(entry.method)} on ${label} was rejected: ${reasonOf(error.code, error.data, entry.target)}.`,
-      action: null,
-    });
+    if (answeredByCaller.get(entry.commandId)?.(error) !== true) {
+      notices.raise(entry.environmentId, {
+        kind: "command-rejected",
+        message: `${verbOf(entry.method)} on ${label} was rejected: ${reasonOf(error.code, error.data, entry.target)}.`,
+        action: null,
+      });
+    }
     answer(entry.commandId, failure(entry.commandId, error.code, error.message, error));
   };
 
@@ -706,6 +736,28 @@ export const createOutbox = (host: OutboxHost): Outbox => {
       // In this order, so the create is sent first; the move is answered, the create's answer is its notice if refused.
       void create.enqueue();
       return move.enqueue() as Promise<DispatchAnswer<"sessions.setGroup">>;
+    },
+    async rewind(environmentId, sessionId, messageId) {
+      // Read now: the session's transcript may move on while the rewind is under way.
+      const source = host.rewindSource(environmentId, sessionId, messageId);
+      const rewind = prepare(environmentId, "sessions.rewind", { sessionId, messageId });
+      if ("refused" in rewind) return { kind: "rewind", answer: rewind.refused as DispatchAnswer<"sessions.rewind"> };
+      const startsOver = (error: DispatchFailure) => error.data?.["reason"] === "use_new_session";
+      // With nothing held to start a new session from, the refusal is the caller's, with its notice.
+      if (source !== null) answeredByCaller.set(rewind.commandId, startsOver);
+      const answer = (await rewind.enqueue()) as DispatchAnswer<"sessions.rewind">;
+      answeredByCaller.delete(rewind.commandId);
+      if (answer.ok || source === null || !startsOver(answer.error)) return { kind: "rewind", answer };
+      const id = uuidv4();
+      const create = prepare(environmentId, "sessions.create", { id, workspace: source.workspace });
+      if ("refused" in create) return { kind: "new-session", sessionId: id, answer: create.refused as DispatchAnswer<"sessions.create"> };
+      // The draft holds at most MAX_DRAFT_LENGTH characters: a longer message is cut to it, as a fork's anchored draft is (#137).
+      const draft = source.text.slice(0, MAX_DRAFT_LENGTH);
+      const setDraft = draft.length === 0 ? null : prepare(environmentId, "sessions.setDraft", { sessionId: id, draft });
+      // In this order, so the create is sent first; the create is answered, the draft's answer is its notice if refused.
+      const created = create.enqueue() as Promise<DispatchAnswer<"sessions.create">>;
+      if (setDraft !== null && !("refused" in setDraft)) void setDraft.enqueue();
+      return { kind: "new-session", sessionId: id, answer: await created };
     },
     async load(environmentIds) {
       await Promise.all(environmentIds.map(load));

@@ -14,7 +14,7 @@ import { createClientCalls } from "./projections/client-calls.js";
 import { environmentsProjection } from "./projections/environments.js";
 import { modesProjection, type ModePicker } from "./projections/modes.js";
 import { createEnvironmentNotices } from "./projections/notices.js";
-import { createRuns } from "./projections/runs.js";
+import { createRuns, sessionRunsProjection, type RunsProjection } from "./projections/runs.js";
 import { sessionProjection, type SessionProjection } from "./projections/session.js";
 import { createRequestCache, createRequests, type Requests } from "./requests.js";
 import { searchProjection } from "./projections/search.js";
@@ -105,6 +105,14 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
     lists: made.lists,
     shown: (environmentId) => lists.read().get(environmentId)?.data ?? null,
     now: (environmentId) => made.now(environmentId),
+    rewindSource(environmentId, sessionId, messageId) {
+      const id = sessionId.toLowerCase();
+      // What the runtime holds of the session, read without subscribing anything.
+      const held = sessionProjections(`${environmentId} ${id}`).read();
+      const message = held.items.find((item) => item.kind === "user-message" && item.messageId.toLowerCase() === messageId.toLowerCase());
+      const workspace = lists.read().get(environmentId)?.data?.sessions.get(id)?.workspace ?? held.summary?.workspace;
+      return message?.kind === "user-message" && workspace !== undefined ? { text: message.text, workspace } : null;
+    },
   });
   const drafts = createDrafts({
     clock: platform.clock,
@@ -161,6 +169,22 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
     const [environmentId, sessionId] = key.split(" ") as [string, string];
     return sessionProjection({ lease: made.lease, peek: made.peek, outbox: outbox.view, drafts: drafts.waiting }, environmentId, sessionId);
   });
+  const sessionRuns = memo((key) => {
+    const [environmentId, sessionId] = key.split(" ") as [string, string];
+    const host = {
+      runs: runs.view,
+      session: sessionProjections(key),
+      records: registry.list,
+      providers: requestCache.cached(environmentId, "providers.list", {}),
+      accounts: requestCache.cached(environmentId, "accounts.list", {}),
+    };
+    return sessionRunsProjection(host, environmentId, sessionId);
+  });
+  const runsProjection: RunsProjection = {
+    read: () => runs.view.read(),
+    subscribe: (listener) => runs.view.subscribe(listener),
+    session: (environmentId, sessionId) => sessionRuns(`${environmentId} ${sessionId.toLowerCase()}`),
+  };
   const accountsProjections = memo((environmentId): Observable<AccountsAnswer> => answerOf(environmentId, requestCache.cached(environmentId, "accounts.list", {}), (result) => result.accounts));
   const modelsProjections = memo((environmentId): Observable<ModelsAnswer> => answerOf(environmentId, requestCache.cached(environmentId, "models.list", {}), (result) => result.catalogues));
   const modesProjections = memo((environmentId): Observable<ModePicker> => modesProjection(registry.list, environmentId));
@@ -198,7 +222,7 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
       sessionList: sessionList.view,
       search: (query) => searchProjection(sessionList.view, query),
       session: (environmentId, sessionId): Observable<SessionProjection> => sessionProjections(`${environmentId} ${sessionId.toLowerCase()}`),
-      runs: runs.view,
+      runs: runsProjection,
       accounts: (environmentId) => accountsProjections(environmentId),
       models: (environmentId) => modelsProjections(environmentId),
       usage,
@@ -210,6 +234,7 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
     commands: {
       dispatch: (environmentId, method, params) => outbox.dispatch(environmentId, method, params),
       moveToGroup: (environmentId, sessionId, groupName) => outbox.moveToGroup(environmentId, sessionId, groupName),
+      rewind: (environmentId, sessionId, messageId) => outbox.rewind(environmentId, sessionId, messageId),
     },
     drafts: {
       set: (environmentId, sessionId, draft) => drafts.set(environmentId, sessionId, draft),

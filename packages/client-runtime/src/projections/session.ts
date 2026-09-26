@@ -9,6 +9,7 @@ import {
   type MessageDeliveredPayload,
   type MessageRequeuedPayload,
   type MessageSentPayload,
+  type MessageWithdrawnPayload,
   type ParkedPrompt,
   type PromptAnsweredPayload,
   type PromptOpenedPayload,
@@ -43,8 +44,12 @@ import type { SessionLease } from "../streams/streams.js";
  * - **runs** as the snapshot's `RunSummary`, `run.started` adding one,
  *   `usage.reported` and `run.ended` completing it;
  * - **messages** (`message.sent`) with their delivery, a queued one moved
- *   by `message.delivered` and `message.requeued`; `queued` lists those
- *   still waiting to be read (ADR 0022);
+ *   by `message.delivered`, `message.requeued` (the environment holds it
+ *   now) and a `run.started` naming it among the queue it reads (read as
+ *   that run's prompt); one withdrawn (`message.withdrawn`, #228) leaves the
+ *   transcript as the environment's snapshot drops it, its text being the
+ *   draft now. `queued` lists those still waiting to be read, in the order
+ *   they were sent, whoever holds them (ADR 0022; #230);
  * - **assistant text and thinking**: the snapshot holds settled items only,
  *   so the deltas after it are applied here. A delta's fragments open (or
  *   extend) an entry per item id and fragment kind, `streaming` until its
@@ -66,19 +71,26 @@ import type { SessionLease } from "../streams/streams.js";
  *   whose `toolCallId` is the call the subagent's calls are nested under);
  * - the run's delegated-work ledger (`tasks`) and slash commands (`command`)
  *   as the snapshot has them;
- * - **`session.rewound`** hides the message rewound to and every entry
- *   after it (they stay in the log; ADR 0022), and `rewound` says so until
- *   the next run starts, while `sessions.undoRewind` is offered;
- *   **`session.rewind-undone`** (#218) shows what the rewind it names hid
- *   again, in sequence order before anything that came after the rewind,
- *   and `rewound` falls back to the rewind before it that still stands,
- *   which a run starting ends as it ends the latest. The reducer keeps what
- *   a rewind hid only for a rewind it heard: the snapshot leaves out what a
- *   rewind hid, so an undo of one that stood when the snapshot was taken has
- *   nothing to show again here; the session's stream kind sees the same
- *   undo and resubscribes for a fresh snapshot, folded past it, which does
- *   (`undoesUnheardRewind`, `streams/kinds.ts`). For the same reason a
- *   snapshot taken after a rewind gives no `rewound`;
+ * - **`session.rewound`** cuts the message rewound to and every entry after
+ *   it out of the transcript (they stay in the log; ADR 0022) into one
+ *   `rewound` fold at the rewind point (#230): the cut branch, never mixed
+ *   into the branch that continues after it, `undoable` until a run starts
+ *   on the session (while `sessions.undoRewind` is offered), and kept where
+ *   it was cut afterwards. A later rewind to a message before the fold cuts
+ *   the fold with the rest, so rewinds stacked without a run between them
+ *   nest, the latest outermost. `rewound` names the latest rewind standing,
+ *   its message's text and whether it can still be undone.
+ *   **`session.rewind-undone`** (#218) takes the fold of the rewind it names
+ *   away and puts what it held back in place, in sequence order before
+ *   anything that came after the rewind, and `rewound` falls back to the
+ *   rewind before it that still stands (undoable only if no run has started
+ *   since it, as the environment's `run_started` refusal says). The reducer
+ *   keeps what a rewind hid only for a rewind it heard: the snapshot leaves
+ *   out what a rewind hid, so an undo of one that stood when the snapshot
+ *   was taken has nothing to show again here; the session's stream kind
+ *   sees the same undo and resubscribes for a fresh snapshot, folded past
+ *   it, which does (`undoesUnheardRewind`, `streams/kinds.ts`). For the same
+ *   reason a snapshot taken after a rewind gives no fold and no `rewound`;
  * - an event of a type the contracts do not know, and one of a known type
  *   whose payload cannot be folded, is kept as an `opaque` entry naming its
  *   type, and the fold goes on (ADR 0001): an older client survives a newer
@@ -159,30 +171,91 @@ export interface OpaqueEntry {
   readonly payload: unknown;
 }
 
-export type TranscriptEntry = UserMessageEntry | AssistantEntry | ToolCallEntry | CommandEntry | TasksEntry | PromptEntry | SubagentEntry | OpaqueEntry;
+/**
+ * The branch a rewind cut (ADR 0022; #230): the message rewound to and every
+ * entry after it, folded at the rewind point, so a renderer draws it closed
+ * under the message's text and never among the entries that came after the
+ * rewind. `sessions.undoRewind` takes it away and puts what it holds back in
+ * place; after a run starts it stays, no longer undoable.
+ */
+export interface RewoundEntry {
+  readonly kind: "rewound";
+  /** The sequence of its `session.rewound`: the fold sits where the branch was cut. */
+  readonly sequence: number;
+  /** The user message rewound to: the first entry of the fold. */
+  readonly toMessageId: string;
+  /** That message's text, which the rewind put in the draft. */
+  readonly text: string;
+  /** No run has started on the session since the rewind: `sessions.undoRewind` can still bring the branch back. */
+  readonly undoable: boolean;
+  /** What the rewind cut, in the order the entries were opened; a fold an earlier rewind made among them is nested. */
+  readonly items: readonly TranscriptEntry[];
+}
 
-/** The rewind a session is at, until a run starts on it or it is undone (ADR 0022: `sessions.undoRewind` is offered until then). */
+export type TranscriptEntry = UserMessageEntry | AssistantEntry | ToolCallEntry | CommandEntry | TasksEntry | PromptEntry | SubagentEntry | RewoundEntry | OpaqueEntry;
+
+/** The latest rewind standing on a session, not undone (ADR 0022): what the rewound strip says, and what `sessions.undoRewind` would take back. */
 export interface RewoundAt {
+  /** The user message rewound to. */
   readonly toMessageId: string;
   /** The sequence of the `session.rewound`. */
   readonly sequence: number;
+  /** The message's text. */
+  readonly text: string;
+  /** No run has started since: the undo is offered. False once one has, when the environment refuses it (`run_started`). */
+  readonly undoable: boolean;
 }
 
 /** What one session's stream reduces to. */
 export interface SessionTranscript {
   /** Every run, oldest first. */
   readonly runs: readonly RunSummary[];
-  /** The transcript, in the order its entries were opened; what a rewind hid is left out. */
+  /** The transcript, in the order its entries were opened; what a rewind cut is one `rewound` fold at the rewind point. */
   readonly items: readonly TranscriptEntry[];
   /** The prompts parked on the session, unanswered, oldest first. */
   readonly parkedPrompts: readonly ParkedPrompt[];
-  /** The messages sent during a run and not yet read, in order (ADR 0022). */
+  /** The messages sent during a run and not yet read, withdrawn or carried by a run's start, in the order they were sent (ADR 0022). */
   readonly queued: readonly UserMessageEntry[];
+  /** The latest rewind standing, undoable or not; null when none stands or none was heard. */
   readonly rewound: RewoundAt | null;
 }
 
-/** An entry as the fold holds it: of a known kind, before subagents are gathered, or opaque. */
-type Held = Mutable<UserMessageEntry> | Mutable<AssistantEntry> | Mutable<ToolCallEntry> | Mutable<CommandEntry> | Mutable<TasksEntry> | Mutable<PromptEntry> | OpaqueEntry;
+/** A rewind's fold as the reduction holds it: what it cut, as held, until an undo puts it back. */
+interface HeldFold {
+  readonly kind: "rewound";
+  readonly sequence: number;
+  readonly toMessageId: string;
+  readonly text: string;
+  undoable: boolean;
+  hidden: Held[];
+}
+
+/** An entry as the fold holds it: of a known kind, before subagents are gathered, a rewind's fold, or opaque. */
+type Held =
+  | Mutable<UserMessageEntry>
+  | Mutable<AssistantEntry>
+  | Mutable<ToolCallEntry>
+  | Mutable<CommandEntry>
+  | Mutable<TasksEntry>
+  | Mutable<PromptEntry>
+  | HeldFold
+  | OpaqueEntry;
+
+const bySequence = (a: Held, b: Held): number => a.sequence - b.sequence;
+
+/** `list` without `item`, wherever it is held: at the top, or inside a rewind's fold. */
+const without = (list: Held[], item: Held): Held[] => {
+  if (list.includes(item)) return list.filter((held) => held !== item);
+  for (const held of list) if (held.kind === "rewound") held.hidden = without(held.hidden, item);
+  return list;
+};
+
+/** `list` with `fold` taken away and what it cut put back in place, wherever the fold is held. */
+const unfold = (list: Held[], fold: HeldFold): Held[] => {
+  if (list.includes(fold)) return [...list.filter((held) => held !== fold), ...fold.hidden].sort(bySequence);
+  for (const held of list) if (held.kind === "rewound") held.hidden = unfold(held.hidden, fold);
+  return list;
+};
 
 const PROMPT_ENTRY_KINDS: Readonly<Record<PromptOpenedPayload["kind"], PromptEntry["kind"]>> = {
   permission: "prompt",
@@ -242,10 +315,13 @@ export const reduceSession = (snapshot: SessionSnapshotParts, events: readonly E
   const runs = new Map<string, Mutable<RunSummary>>(snapshot.runs.map((run) => [run.runId, { ...run }]));
   let items: Held[] = snapshot.items.map(fromSnapshot);
   const parked = new Map<string, ParkedPrompt>(snapshot.parkedPrompts.map((prompt) => [prompt.promptId, prompt]));
-  /** The rewinds heard that still stand, oldest first, each with what it hid: undoable until a run starts, which ends them all. */
-  let rewinds: { readonly at: RewoundAt; readonly hidden: readonly Held[] }[] = [];
+  /** The rewinds heard that still stand (not undone), oldest first, each its fold: undoable until a run starts. */
+  let rewinds: HeldFold[] = [];
   /** The latest rewind standing: the one `sessions.undoRewind` would undo. */
-  const rewound = (): RewoundAt | null => rewinds.at(-1)?.at ?? null;
+  const rewound = (): RewoundAt | null => {
+    const latest = rewinds.at(-1);
+    return latest === undefined ? null : { toMessageId: latest.toMessageId, sequence: latest.sequence, text: latest.text, undoable: latest.undoable };
+  };
 
   // The entries later events update, by the ids those carry.
   const messages = new Map<string, Mutable<UserMessageEntry>>();
@@ -292,8 +368,13 @@ export const reduceSession = (snapshot: SessionSnapshotParts, events: readonly E
           usage: null,
           durationMs: null,
         });
-        // A run started on a rewound session: no rewind before it can be undone any more.
-        rewinds = [];
+        // The queue it reads leaves the queue here: read as this run's prompt (its message.delivered says so again).
+        for (const messageId of payload.queuedMessageIds) {
+          const message = messages.get(messageId);
+          if (message?.delivery === "queued") Object.assign(message, { delivery: "prompt", heldBy: null, runId: payload.runId });
+        }
+        // A run started on a rewound session: no rewind before it can be undone any more, and each stays where it cut.
+        for (const fold of rewinds) fold.undoable = false;
         return;
       }
       case "run.ended": {
@@ -347,6 +428,15 @@ export const reduceSession = (snapshot: SessionSnapshotParts, events: readonly E
       case "message.requeued": {
         const message = messages.get((event.payload as MessageRequeuedPayload).messageId);
         if (message !== undefined) Object.assign(message, { delivery: "queued", heldBy: "environment" });
+        return;
+      }
+      case "message.withdrawn": {
+        // Taken back before any run read it (#228): its text is the draft now, so it leaves the queue and the transcript, as
+        // the environment's snapshot drops it; the log keeps it.
+        const { messageId } = event.payload as MessageWithdrawnPayload;
+        const message = messages.get(messageId);
+        messages.delete(messageId);
+        if (message !== undefined) items = without(items, message);
         return;
       }
       case "assistant.delta": {
@@ -439,18 +529,27 @@ export const reduceSession = (snapshot: SessionSnapshotParts, events: readonly E
       case "session.rewound": {
         const { toMessageId } = event.payload as SessionRewoundPayload;
         const target = messages.get(toMessageId);
+        // Only a message the transcript shows is rewound to; one it does not hold, or one an earlier rewind cut, hides nothing.
         if (target === undefined || !items.includes(target)) return;
-        rewinds.push({ at: { toMessageId, sequence }, hidden: items.filter((item) => item.sequence >= target.sequence) });
-        items = items.filter((item) => item.sequence < target.sequence);
+        const fold: HeldFold = {
+          kind: "rewound",
+          sequence,
+          toMessageId,
+          text: target.text,
+          undoable: true,
+          hidden: items.filter((item) => item.sequence >= target.sequence),
+        };
+        items = [...items.filter((item) => item.sequence < target.sequence), fold];
+        rewinds.push(fold);
         return;
       }
       case "session.rewind-undone": {
         const { rewindSequence } = event.payload as SessionRewindUndonePayload;
-        const undone = rewinds.find((rewind) => rewind.at.sequence === rewindSequence);
+        const undone = rewinds.find((fold) => fold.sequence === rewindSequence);
         // One it did not hear (it stood when the snapshot was taken) has nothing to show again: the stream resubscribes for a fresh snapshot, which does.
         if (undone === undefined) return;
-        rewinds = rewinds.filter((rewind) => rewind !== undone);
-        items = [...items, ...undone.hidden].sort((a, b) => a.sequence - b.sequence);
+        rewinds = rewinds.filter((fold) => fold !== undone);
+        items = unfold(items, undone);
         return;
       }
       case "prompt.opened": {
@@ -482,21 +581,37 @@ export const reduceSession = (snapshot: SessionSnapshotParts, events: readonly E
     }
   }
 
-  return { runs: [...runs.values()], items: gatherSubagents(items), parkedPrompts: [...parked.values()], queued: queuedOf(items), rewound: rewound() };
+  return { runs: [...runs.values()], items: gatherSubagents(items, ledgersOf(items)), parkedPrompts: [...parked.values()], queued: queuedOf(messages), rewound: rewound() };
 };
 
-/** The messages still waiting to be read, in order. */
-const queuedOf = (items: readonly Held[]): UserMessageEntry[] =>
-  items.filter((item): item is Mutable<UserMessageEntry> => item.kind === "user-message" && item.delivery === "queued");
+/**
+ * The messages still waiting to be read, in the order they were sent: the
+ * queue is the session's, not the transcript's, so one a rewind cut is
+ * still in it (the environment's queue does not move with a rewind).
+ */
+const queuedOf = (messages: ReadonlyMap<string, Mutable<UserMessageEntry>>): UserMessageEntry[] =>
+  [...messages.values()].filter((message) => message.delivery === "queued").sort((a, b) => a.sequence - b.sequence);
 
-/** The entries with each subagent's calls gathered into one row at its first call, linked to the delegated work that started it. */
-const gatherSubagents = (items: readonly Held[]): TranscriptEntry[] => {
-  const ledgers = new Map<string, readonly DelegatedWorkRow[]>();
-  for (const item of items) if (item.kind === "tasks") ledgers.set(item.runId, item.tasks);
+/** Each run's delegated-work ledger, wherever its entry is held: a subagent's row finds its run's inside a fold or out of it. */
+const ledgersOf = (items: readonly Held[], into = new Map<string, readonly DelegatedWorkRow[]>()): Map<string, readonly DelegatedWorkRow[]> => {
+  for (const item of items) {
+    if (item.kind === "tasks") into.set(item.runId, item.tasks);
+    else if (item.kind === "rewound") ledgersOf(item.hidden, into);
+  }
+  return into;
+};
+
+/** The entries with each subagent's calls gathered into one row at its first call, linked to the delegated work that started it; a fold's own entries gathered the same way. */
+const gatherSubagents = (items: readonly Held[], ledgers: ReadonlyMap<string, readonly DelegatedWorkRow[]>): TranscriptEntry[] => {
   /** By `<run> <agent id>`: a subagent is its run's, and the contracts do not promise an agent id unique across runs. */
   const rows = new Map<string, { entry: Mutable<SubagentEntry>; calls: ToolCallEntry[] }>();
   const entries: TranscriptEntry[] = [];
   for (const item of items) {
+    if (item.kind === "rewound") {
+      const { hidden, ...fold } = item;
+      entries.push({ ...fold, items: gatherSubagents(hidden, ledgers) });
+      continue;
+    }
     if (item.kind !== "tool-call" || item.agentId === null) {
       entries.push(item);
       continue;
