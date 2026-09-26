@@ -72,8 +72,10 @@ describe("the workspace", () => {
     expect(engines("packages/environment")).toBe(">=22.16.0");
   });
 
-  it("runs the environment's test files one at a time, since each starts a listener", async () => {
-    const { default: config } = await import("../packages/environment/vitest.config.js");
-    expect(config.test?.fileParallelism).toBe(false);
+  it("runs the environment's and the client runtime's test files in parallel, since every listener takes port 0", async () => {
+    const { default: environment } = await import("../packages/environment/vitest.config.js");
+    const { default: clientRuntime } = await import("../packages/client-runtime/vitest.config.js");
+    expect(environment.test?.fileParallelism).not.toBe(false);
+    expect(clientRuntime.test?.fileParallelism).not.toBe(false);
   });
 });
