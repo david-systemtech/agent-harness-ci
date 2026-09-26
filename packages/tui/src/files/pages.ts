@@ -1,3 +1,4 @@
+import stringWidth from "string-width";
 import { colourOf, paletteColour, sameStyle, type Line, type Span } from "../transcript/lines.js";
 
 /**
@@ -5,7 +6,9 @@ import { colourOf, paletteColour, sameStyle, type Line, type Span } from "../tra
  * (docs/specs/tui.md, "The composer": `/files` reads a file in the pager;
  * "The transcript": `d` and `/diff`): lines of styled spans cut to the
  * pager's width, every character kept (a line of code is not reflowed at
- * its spaces). Pure.
+ * its spaces). Widths are terminal cells as Ink measures them
+ * (`string-width`): a wide character (CJK, most emoji) takes two, and a
+ * character is never parted from its combining marks at a wrap. Pure.
  *
  * - **A file** is plain text: tabs expanded to the next stop of eight,
  *   control bytes dropped, so nothing in it can move the cursor or recolour
@@ -19,7 +22,32 @@ import { colourOf, paletteColour, sameStyle, type Line, type Span } from "../tra
 
 const TAB = 8;
 
-/** Spans cut into lines of at most `width` characters; an empty logical line is one empty line. */
+const GRAPHEMES = new Intl.Segmenter();
+
+/** The cells of each grapheme met, remembered: a page of text meets few distinct ones. */
+const WIDTHS = new Map<string, number>();
+const widthOf = (grapheme: string): number => {
+  let cells = WIDTHS.get(grapheme);
+  if (cells === undefined) {
+    cells = stringWidth(grapheme);
+    if (WIDTHS.size < 4096) WIDTHS.set(grapheme, cells);
+  }
+  return cells;
+};
+
+/** Printable ASCII and tabs: a character a grapheme of one cell (a tab's cells are its stop's), measured without segmenting. */
+const ASCII = /^[\t -~]*$/;
+
+/** `text`'s graphemes (a character with its combining marks, an emoji sequence), each with the cells it takes. */
+const cellsOf = (text: string): { readonly grapheme: string; readonly cells: number }[] =>
+  ASCII.test(text)
+    ? Array.from(text, (grapheme) => ({ grapheme, cells: grapheme === "\t" ? 0 : 1 }))
+    : Array.from(GRAPHEMES.segment(text), ({ segment }) => ({ grapheme: segment, cells: widthOf(segment) }));
+
+/**
+ * Spans cut into lines of at most `width` cells, a grapheme never split (one wider than the width alone on its line); an
+ * empty logical line is one empty line.
+ */
 const cut = (spans: readonly Span[], width: number): Span[][] => {
   const room = Math.max(1, width);
   const out: Span[][] = [];
@@ -27,16 +55,16 @@ const cut = (spans: readonly Span[], width: number): Span[][] => {
   let used = 0;
   for (const span of spans) {
     let text = "";
-    for (const char of span.text) {
-      if (used === room) {
+    for (const { grapheme, cells } of cellsOf(span.text)) {
+      if (used > 0 && used + cells > room) {
         if (text.length > 0) line.push({ ...span, text });
         out.push(line);
         line = [];
         used = 0;
         text = "";
       }
-      text += char;
-      used++;
+      text += grapheme;
+      used += cells;
     }
     if (text.length > 0) {
       const last = line.at(-1);
@@ -48,18 +76,18 @@ const cut = (spans: readonly Span[], width: number): Span[][] => {
   return out;
 };
 
-/** `text`'s tabs expanded to the next stop, measured from the line's start, `from` columns before `text`. */
+/** `text`'s tabs expanded to the next stop, measured in cells from the line's start, `from` cells before `text`. */
 const expandTabs = (text: string, from = 0): string => {
   let out = "";
   let column = from;
-  for (const char of text) {
-    if (char === "\t") {
+  for (const { grapheme, cells } of cellsOf(text)) {
+    if (grapheme === "\t") {
       const pad = TAB - (column % TAB);
       out += " ".repeat(pad);
       column += pad;
     } else {
-      out += char;
-      column++;
+      out += grapheme;
+      column += cells;
     }
   }
   return out;
@@ -216,7 +244,7 @@ export const sgrPage = (text: string, width: number): Line[] => {
     let column = 0;
     const add = (piece: string) => {
       const clean = expandTabs(piece.replace(/\r$/, "").replace(CONTROLS_BUT_TAB, ""), column);
-      column += [...clean].length;
+      column += ASCII.test(clean) ? clean.length : stringWidth(clean);
       if (clean.length === 0) return;
       const last = spans.at(-1);
       if (last && sameStyle(last, style)) spans[spans.length - 1] = { ...last, text: last.text + clean };

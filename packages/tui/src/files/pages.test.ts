@@ -17,6 +17,25 @@ describe("a file in the pager", () => {
   });
 });
 
+describe("widths in terminal cells", () => {
+  it("wraps a line of wide characters at the pager's cells, two a character, never past the width", () => {
+    expect(texts(plainPage("日本語のテキスト", 10))).toEqual(["日本語のテ", "キスト"]);
+    expect(texts(plainPage("ab日本", 5))).toEqual(["ab日", "本"]);
+  });
+
+  it("keeps a character whole with its combining marks at a wrap, an emoji keycap and an accent alike", () => {
+    // 1 U+FE0F U+20E3 is the keycap emoji, two cells; e U+0301 is an e with its acute accent, one.
+    expect(texts(plainPage("abc1\uFE0F\u20E3x", 4))).toEqual(["abc", "1\uFE0F\u20E3x"]);
+    expect(texts(plainPage("abcde\u0301f", 5))).toEqual(["abcde\u0301", "f"]);
+  });
+
+  it("expands a tab after a wide character to the stop the cells reach, in a file and in a tool's page", () => {
+    expect(texts(plainPage("日\tx", 40))).toEqual(["日      x"]);
+    expect(texts(sgrPage("\u001B[1m日本\u001B[0m\tx", 40))).toEqual(["日本    x"]);
+    expect(texts(sgrPage("\u001B[1m日本語のテ\u001B[0mキスト", 10))).toEqual(["日本語のテ", "キスト"]);
+  });
+});
+
 describe("a diff in the pager", () => {
   it("is coloured as a diff: headers bold, hunks cyan, additions green, removals red", () => {
     const lines = diffPage("diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-old\n+new\n same", 40);
