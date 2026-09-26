@@ -123,11 +123,20 @@ describe.sequential("the rail through the real spine", () => {
     await press(KEY.enter);
     await shows("Moved “New session” into a new group Smoke.");
     await until(() => runtime.projections.sessionList.read().groups.some((g) => g.name === "Smoke"), frame);
-    const [sessions, groups] = await Promise.all([runtime.requests.call(environmentId, "sessions.list", {}), runtime.requests.call(environmentId, "groups.list", {})]);
-    if (!sessions.ok || !groups.ok) throw new Error("the lists could not be read");
-    const smoke = groups.result.groups.find((g) => g.name === "Smoke");
-    expect(smoke?.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4/);
-    const moved = sessions.result.sessions.find((s) => s.groupId === smoke?.id);
-    expect(moved?.pinnedAt).not.toBeNull();
+    // The environment's own lists, read until the move lands there: the projection is applied before the environment answers.
+    const read = async () => {
+      const [sessions, groups] = await Promise.all([runtime.requests.call(environmentId, "sessions.list", {}), runtime.requests.call(environmentId, "groups.list", {})]);
+      if (!sessions.ok || !groups.ok) throw new Error("the lists could not be read");
+      const smoke = groups.result.groups.find((g) => g.name === "Smoke");
+      return { smoke, moved: smoke && sessions.result.sessions.find((s) => s.groupId === smoke.id) };
+    };
+    const deadline = Math.min(Date.now() + WAIT_MS, ends);
+    let lists = await read();
+    while (lists.moved === undefined && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      lists = await read();
+    }
+    expect(lists.smoke?.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4/);
+    expect(lists.moved).toEqual(expect.objectContaining({ title: "New session", groupId: lists.smoke?.id, pinnedAt: expect.any(String) }));
   });
 });
