@@ -47,7 +47,10 @@ export interface OneOffOutput {
   reset(data: string): void;
   /** What came after the marker's line, whether more came than was held, and whether its start was dropped; null before the marker's line has come. */
   said(): { readonly text: string; readonly cut: boolean; readonly dropped: boolean } | null;
-  /** The tail of what came before the marker (all of it, while no marker has come). */
+  /**
+   * The tail of what came before the marker: its last `PREAMBLE_MAX_CHARS` (16K characters), since it is held to say why
+   * when the marker never comes; once the marker's line has come, that tail up to the marker.
+   */
   before(): string;
 }
 

@@ -38,6 +38,17 @@ describe("the output after the marker", () => {
     expect(heard.before()).toBe("motd\r\n$ ");
   });
 
+  it("keeps only the last 16K characters of what came before the marker, and still finds a marker arriving across the cut", () => {
+    const heard = oneOffOutput(MARKER);
+    heard.take(`${"x".repeat(20 * 1024)}motd end\r\n`);
+    expect(heard.before()).toHaveLength(16 * 1024);
+    expect(heard.before().endsWith("x".repeat(100) + "motd end\r\n")).toBe(true);
+    heard.take(`$ ${MARKER.slice(0, 5)}`);
+    heard.take(`${MARKER.slice(5)}\r\nhi\r\n`);
+    expect(heard.said()).toEqual({ text: "hi\r\n", cut: false, dropped: false });
+    expect(heard.before().endsWith("x".repeat(100) + "motd end\r\n$ ")).toBe(true);
+  });
+
   it("holds up to its limit and marks the cut", () => {
     const heard = oneOffOutput(MARKER, 4);
     heard.take(`${MARKER}\r\nabcdef`);
