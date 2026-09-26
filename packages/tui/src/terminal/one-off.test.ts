@@ -211,6 +211,16 @@ describe("a one-off command run", () => {
     expect(result).toMatchObject({ ok: true, output: "step 1\nstep 2", dropped: false });
   });
 
+  it("says a command that printed nothing and ended cleanly printed nothing, rather than send an empty fence", async () => {
+    const terminal = played();
+    const result = await run(terminal, "touch x", () => {
+      terminal.print(`${MARKER}\r\n`);
+      terminal.exit(0);
+    });
+    expect(result).toMatchObject({ ok: true, output: "", exitCode: 0, cut: false, dropped: false });
+    expect(oneOffMessage("touch x", result as Extract<typeof result, { ok: true }>)).toBe("Ran `touch x`; it printed nothing.");
+  });
+
   it("says the terminal went away when it ends with no exit after the command started, rather than send its output as a finished run", async () => {
     const terminal = played();
     const result = await run(terminal, "make", () => {

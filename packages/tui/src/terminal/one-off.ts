@@ -232,7 +232,8 @@ const seconds = (ms: number): string => `${String(Math.round(ms / 1000))}s`;
 
 /**
  * The message `!!` sends (Artemis's form): the command named, its output
- * fenced, and how it ended when that was not cleanly.
+ * fenced, and how it ended when that was not cleanly; a command that
+ * printed nothing and ended cleanly is said to have printed nothing.
  */
 export const oneOffMessage = (command: string, result: Extract<OneOffResult, { readonly ok: true }>): string => {
   const notes = [
@@ -242,5 +243,7 @@ export const oneOffMessage = (command: string, result: Extract<OneOffResult, { r
     result.signal !== null ? `killed by signal ${String(result.signal)}` : result.exitCode !== null && result.exitCode !== 0 ? `exit ${String(result.exitCode)}` : undefined,
   ].filter((note): note is string => note !== undefined);
   const body = [...(result.dropped ? ["… earlier output dropped"] : []), result.output, ...notes].filter((part) => part.length > 0).join("\n");
+  // Nothing printed and a clean end: said in words, since an empty fence reads as one blank line of output.
+  if (body.length === 0) return `Ran \`${command}\`; it printed nothing.`;
   return `Ran \`${command}\`:\n\`\`\`\n${body}\n\`\`\``;
 };
