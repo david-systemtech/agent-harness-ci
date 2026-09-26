@@ -32,6 +32,7 @@ const input = (lists: Record<string, StreamState<ListData>>, records = Object.ke
   lists: new Map(Object.entries(lists)),
   now: () => new Date(MANUAL_CLOCK_START),
   pending: new Map(),
+  awaiting: new Map(),
 });
 
 const named = (rows: readonly SessionRow[]) => rows.map((r) => r.summary.title);
@@ -43,8 +44,8 @@ describe("the session list", () => {
     const hidden = summaryOf(randomUUID(), { title: "on a disabled environment" });
     const view = sessionListView(input({ [DESK]: list([a]), [LAPTOP]: list([b]), [TOWER]: list([hidden]) }, [record(DESK), record(LAPTOP), record(TOWER, false)]));
     expect(view.rows).toEqual([
-      { environmentId: DESK, summary: a, groupName: null, pending: false },
-      { environmentId: LAPTOP, summary: b, groupName: null, pending: false },
+      { environmentId: DESK, summary: a, groupName: null, pending: false, awaitingReceipt: false },
+      { environmentId: LAPTOP, summary: b, groupName: null, pending: false, awaitingReceipt: false },
     ]);
     expect(view.environments).toEqual([
       { environmentId: DESK, freshness: "cached", fault: null },
@@ -63,6 +64,23 @@ describe("the session list", () => {
       [b.id, false],
     ]);
     expect(view.groups.map((h) => [h.name, h.pending])).toEqual([["Brand", true]]);
+  });
+
+  it("marks a row, and a heading over any of the groups it merges, awaiting a receipt whatever says pending", () => {
+    const a = summaryOf(randomUUID());
+    const b = summaryOf(randomUUID());
+    const [deskGroup, laptopGroup] = [randomUUID(), randomUUID()];
+    // Reachable environments: awaited, not pending. The laptop's group is merged under the desk's heading.
+    const awaiting = new Map([
+      [DESK, { sessions: new Set([a.id]), groups: new Set<string>() }],
+      [LAPTOP, { sessions: new Set<string>(), groups: new Set([laptopGroup]) }],
+    ]);
+    const view = sessionListView({ ...input({ [DESK]: list([a, b], [groupOf(deskGroup, "Brand")]), [LAPTOP]: list([], [groupOf(laptopGroup, "brand")]) }), awaiting });
+    expect(view.rows.map((r) => [r.summary.id, r.awaitingReceipt, r.pending])).toEqual([
+      [a.id, true, false],
+      [b.id, false, false],
+    ]);
+    expect(view.groups.map((h) => [h.name, h.awaitingReceipt, h.pending])).toEqual([["Brand", true, false]]);
   });
 
   it("shows an environment with nothing cached as empty", () => {
@@ -109,6 +127,7 @@ describe("the session list", () => {
       now: () => clock.now(),
       clock: recorded,
       pending: writable(new Map()),
+      awaiting: writable(new Map()),
     });
     const snoozed = () => named(projection.view.read().snoozed);
     expect(snoozed()).toEqual(["in a month"]);

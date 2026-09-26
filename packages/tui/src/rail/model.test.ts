@@ -44,6 +44,7 @@ const row = (environmentId: string, fields: Partial<SessionSummary> = {}, extra:
   } as SessionSummary,
   groupName: null,
   pending: false,
+  awaitingReceipt: false,
   ...extra,
 });
 
@@ -53,12 +54,13 @@ const listOf = (shelves: Partial<Pick<SessionListView, "pinned" | "active" | "sn
   return { ...all, environments: [], rows: [...all.pinned, ...all.active, ...all.snoozed, ...all.settled, ...all.archived], repositories: [] };
 };
 
-const heading = (key: string, name: string, active: SessionRow[], pending = false): MergedGroupHeading => ({
+const heading = (key: string, name: string, active: SessionRow[], awaitingReceipt = false): MergedGroupHeading => ({
   key,
   name,
   groups: [],
   shelves: { pinned: [], active, snoozed: [], settled: [], archived: [] },
-  pending,
+  pending: false,
+  awaitingReceipt,
 });
 
 const input = (fields: Partial<RailInput>): RailInput => ({
@@ -67,7 +69,6 @@ const input = (fields: Partial<RailInput>): RailInput => ({
   badges: badgesOf(fields.environments ?? [view("desk")]),
   folded: {},
   matches: null,
-  unconfirmed: new Set(),
   startingService: false,
   now: () => NOW,
   ...fields,
@@ -137,16 +138,34 @@ describe("the headings", () => {
     );
     expect(read(lines)).toEqual(["▸ Brand 1", "desk", "▾ Settled", "  Done"]);
   });
+
+  it("say pending while the runtime says a command about one of their groups awaits its receipt, or, folded, one about a row they hide", () => {
+    const [renamed, quiet] = [row("desk", { title: "In a renamed group" }, { groupName: "Brand" }), row("desk", { title: "In a quiet group" }, { groupName: "Jams" })];
+    const archived = row("desk", { title: "Archiving" }, { awaitingReceipt: true });
+    const lines = railLines(
+      input({ list: listOf({ active: [renamed, quiet], archived: [archived], groups: [heading("brand", "Brand", [renamed], true), heading("jams", "Jams", [quiet])] }) }),
+    );
+    const pending = lines.flatMap((l) => (l.kind === "heading" ? [[l.text, l.pending]] : []));
+    expect(pending).toEqual([
+      ["Brand", true],
+      ["Jams", false],
+      ["desk", false],
+      ["Archive", true],
+    ]);
+  });
 });
 
 describe("a row", () => {
-  it("carries its environment's badge, its activity glyph, its tags, and pending from the runtime or while its command waits here", () => {
-    const parked = row("laptop", { title: "Asking", tags: ["review", "wip"], activity: { state: "parked", since: NOW.toISOString() }, parkedPromptCount: 2 }, { pending: true });
-    const waiting = row("desk", { title: "Waiting" });
-    const lines = railLines(input({ environments: [view("desk"), view("laptop")], list: listOf({ active: [waiting, parked] }), unconfirmed: new Set([rowKey(waiting)]) }));
+  it("carries its environment's badge, its activity glyph, its tags, and pending while the runtime says a command about it awaits its receipt, whatever the phase", () => {
+    // Unreachable: the runtime's row is pending and awaiting. Reachable: awaiting only.
+    const parked = row("laptop", { title: "Asking", tags: ["review", "wip"], activity: { state: "parked", since: NOW.toISOString() }, parkedPromptCount: 2 }, { pending: true, awaitingReceipt: true });
+    const waiting = row("desk", { title: "Waiting" }, { awaitingReceipt: true });
+    const quiet = row("desk", { title: "Quiet" });
+    const lines = railLines(input({ environments: [view("desk"), view("laptop")], list: listOf({ active: [waiting, quiet, parked] }) }));
     const rows = lines.flatMap((l) => (l.kind === "row" ? [l] : []));
     expect(rows.map((r) => [r.row.summary.title, r.badge.abbreviation, r.glyph.text, r.tags, r.pending])).toEqual([
       ["Waiting", "DE", "·", [], true],
+      ["Quiet", "DE", "·", [], false],
       ["Asking", "LA", "?2", ["review", "wip"], true],
     ]);
   });
