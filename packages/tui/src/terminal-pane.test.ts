@@ -200,6 +200,24 @@ describe("keys in the pane", () => {
     expect(app.frame()).toContain("The terminal has the keys");
   });
 
+  it("hands the keys after the press again to the shell when they come in its read, the leave key heard on its own", async () => {
+    const { app } = await opened({}, resolveKeymap({ "terminal.leave": ["Alt+X"] }).keymap);
+    await command(app, "/terminal");
+    await app.waitFor("The terminal has the keys");
+    await app.type("\u001Bx");
+    await app.waitFor("The transcript has the keys");
+    // Ink hears this read as two keys, Alt+X and then `ls`: the pane has the keys back from the first, so `ls` is the shell's.
+    await app.type("\u001Bxls");
+    await app.waitUntil(() => written(app, FIRST) === "\u001Bxls", "the literal and the keys after it to reach the shell");
+    expect(app.frame()).toContain("The terminal has the keys");
+    // A Tab after it is the shell's as well, never the screen's walk on from where the pane was left.
+    await app.type("\u001Bx");
+    await app.waitFor("The transcript has the keys");
+    await app.type("\u001Bx\t");
+    await app.waitUntil(() => written(app, FIRST) === "\u001Bxls\u001Bx\t", "the literal and the Tab after it to reach the shell");
+    expect(app.frame()).toContain("The terminal has the keys");
+  });
+
   it("sends the literal only when Ctrl+\\ comes again within half a second of leaving", async () => {
     const { app } = await opened();
     await command(app, "/terminal");

@@ -1423,6 +1423,9 @@ export const App = (props: AppProps) => {
   );
 
   useInput((input: string, key: InkKey) => {
+    // The pane took the keys back earlier in this read (the leave key pressed again): the rest of the read is the shell's,
+    // heard by `paneKey` first, and this handler, not yet inactive until the frame, leaves it alone.
+    if (paneKeys.current) return;
     const justLeft = leftAt.current !== null && clock.now().getTime() - leftAt.current <= LEAVE_TWICE_MS;
     leftAt.current = null;
     // A key draws what the scheduler holds back, with its own echo.
@@ -1595,10 +1598,12 @@ export const App = (props: AppProps) => {
         const filter = diffFilter(mainWidth);
         showPage(filter ? `Reading the diff, through ${filter.label}…` : "Reading the diff…", () => rowDiff(runtime, target, calls, mainWidth, filter), { kind: "none" });
       },
-      // Pressed again right after it left the pane: the key goes to the shell, and the pane has the keys back.
+      // Pressed again right after it left the pane: the key goes to the shell, and the pane has the keys back, at once, so
+      // what Ink hears after it in the same read is the shell's too (as `paneTakes` does), not this handler's until the frame.
       "terminal.leave": (pressed) => {
         const bytes = keyBytes(pressed);
         if (!justLeft || !paneOpen || bytes === undefined) return false;
+        paneKeys.current = true;
         setFocus("terminal");
         terminal.key(bytes);
       },
