@@ -43,7 +43,7 @@ export interface RailHeading {
   readonly count: number;
   /** Null for an environment's heading, whose Enter starts a session rather than folding it. */
   readonly folded: boolean | null;
-  /** A command about one of its groups waits for its receipt, or, while it is folded, one about a session under it. */
+  /** A command about one of its groups awaits its receipt (the runtime's `awaitingReceipt`), or, while it is folded, one about a session under it. */
   readonly pending: boolean;
   /** Its environment cannot be reached (an environment's heading). */
   readonly dim: boolean;
@@ -63,7 +63,7 @@ export interface RailRow {
   readonly tags: readonly string[];
   /** Its environment cannot be reached: the row is the cached snapshot's. */
   readonly dim: boolean;
-  /** A command about it waits for its receipt. */
+  /** A command about it awaits its receipt: the runtime's `awaitingReceipt`, whatever the connection's phase. */
   readonly pending: boolean;
   /** When a snoozed session comes back, in short words. */
   readonly wake: string | null;
@@ -87,8 +87,6 @@ export interface RailInput {
   readonly folded: CollapsedHeadings;
   /** The rows the filter matches (`rowKey`); null while there is no filter. */
   readonly matches: ReadonlySet<string> | null;
-  /** Rows a command this terminal sent is still waiting on (`rowKey`), whatever the connection's phase. */
-  readonly unconfirmed: ReadonlySet<string>;
   /** The local environment's service is being started from here. */
   readonly startingService: boolean;
   /** Each environment's now, from the server-time skew. */
@@ -116,7 +114,7 @@ export const isReachable = (view: EnvironmentView | undefined): boolean => view?
 export const railLines = (input: RailInput): RailLine[] => {
   const { list, matches, badges } = input;
   const views = new Map(input.environments.map((v) => [v.environmentId, v]));
-  const pendingRow = (row: SessionRow) => row.pending || input.unconfirmed.has(rowKey(row));
+  const pendingRow = (row: SessionRow) => row.awaitingReceipt;
   const lines: RailLine[] = [];
 
   const rowLine = (row: SessionRow, block: RailBlock): RailRow => ({
@@ -154,7 +152,7 @@ export const railLines = (input: RailInput): RailLine[] => {
   if (list.pinned.length > 0) foldable({ key: PINNED_HEADING, heading: "pinned", text: "Pinned" }, { kind: "pinned", rows: list.pinned });
   for (const group of list.groups) {
     if (group.shelves.active.length === 0) continue;
-    foldable({ key: groupHeading(group.key), heading: "group", text: group.name, pending: group.pending }, { kind: "active", rows: group.shelves.active });
+    foldable({ key: groupHeading(group.key), heading: "group", text: group.name, pending: group.awaitingReceipt }, { kind: "active", rows: group.shelves.active });
   }
 
   for (const view of input.environments) {

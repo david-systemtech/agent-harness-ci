@@ -18,7 +18,7 @@ import { WHEN_EXAMPLES, parseWhen, presetTimes, whenWords } from "./when.js";
  * typed. Each is a function of the runtime's projections, read as drawn.
  */
 
-/** What a picker does through the rail: commands with a row's pending marker, lines, and where the cursor goes. */
+/** What a picker does through the rail: commands, lines, and where the cursor goes. */
 export interface RailActs {
   readonly runtime: Runtime;
   readonly views: readonly EnvironmentView[];
@@ -27,12 +27,13 @@ export interface RailActs {
   readonly workspace: string;
   say(line: string): void;
   /**
-   * Sends `method` through the outbox, the line `key` names pending until its
-   * answer; says `said` at once, and why when it is refused before it is
-   * kept. A rejection after is the runtime's one notice.
+   * Sends `method` through the outbox; says `said` at once, and why when it
+   * is refused before it is kept. A rejection after is the runtime's one
+   * notice. The row it is about shows pending from the runtime's
+   * `awaitingReceipt` until its receipt.
    */
-  send<N extends CommandMethodName>(environmentId: string, key: string | null, method: N, params: CommandParams<N>, said: string, done?: (answer: Extract<DispatchAnswer<N>, { readonly ok: true }>) => void): void;
-  /** `commands.moveToGroup`, with the row's pending marker. */
+  send<N extends CommandMethodName>(environmentId: string, method: N, params: CommandParams<N>, said: string, done?: (answer: Extract<DispatchAnswer<N>, { readonly ok: true }>) => void): void;
+  /** `commands.moveToGroup`. */
   move(row: SessionRow, name: string | null, said: string): void;
   /** Puts the rail's cursor on the line `key` names, opening its heading, and gives the rail the keys. */
   reveal(key: string): void;
@@ -56,7 +57,7 @@ export const whenBack = (acts: Pick<RailActs, "views">, environmentId: string): 
 };
 
 const snoozeTo = (acts: RailActs, row: SessionRow, at: Date) =>
-  acts.send(row.environmentId, rowKey(row), "sessions.snooze", { sessionId: row.summary.id, until: at.toISOString() }, `Snoozed ${titleOf(row)} until ${whenWords(at)}${whenBack(acts, row.environmentId)}.`);
+  acts.send(row.environmentId, "sessions.snooze", { sessionId: row.summary.id, until: at.toISOString() }, `Snoozed ${titleOf(row)} until ${whenWords(at)}${whenBack(acts, row.environmentId)}.`);
 
 /** `/snooze <when>`: the typed time on the session's environment's clock, or the problem. */
 export const snoozeTyped = (acts: RailActs, row: SessionRow, typed: string): void => {
@@ -89,7 +90,7 @@ export const snoozePicker = (acts: RailActs, row: SessionRow): Picker =>
       const awake = row.summary.snoozedUntil === null || Date.parse(row.summary.snoozedUntil) <= now.getTime();
       const wake: PickerRow[] = awake
         ? []
-        : [{ key: "wake", text: "Wake it now", choose: () => acts.send(row.environmentId, rowKey(row), "sessions.unsnooze", { sessionId: row.summary.id }, `Woke ${titleOf(row)}${whenBack(acts, row.environmentId)}.`) }];
+        : [{ key: "wake", text: "Wake it now", choose: () => acts.send(row.environmentId, "sessions.unsnooze", { sessionId: row.summary.id }, `Woke ${titleOf(row)}${whenBack(acts, row.environmentId)}.`) }];
       // A time typed that reads comes first; one that does not, last, where it says why.
       const reads = typed[0]?.absent === undefined;
       return reads ? [...typed, ...presets, ...wake] : [...presets, ...wake, ...typed];
@@ -107,7 +108,7 @@ export const tagPicker = (acts: RailActs, row: SessionRow): Picker =>
       const add: PickerRow[] =
         typed === "" || has
           ? []
-          : [{ key: "add", text: `Add #${typed}`, choose: () => acts.send(row.environmentId, rowKey(row), "sessions.tag", { sessionId: row.summary.id, tag: typed }, `Tagged ${titleOf(row)} #${typed}${whenBack(acts, row.environmentId)}.`) }];
+          : [{ key: "add", text: `Add #${typed}`, choose: () => acts.send(row.environmentId, "sessions.tag", { sessionId: row.summary.id, tag: typed }, `Tagged ${titleOf(row)} #${typed}${whenBack(acts, row.environmentId)}.`) }];
       const held = row.summary.tags
         .filter((tag) => tag.toLowerCase().includes(typed.toLowerCase()))
         .map(
@@ -115,7 +116,7 @@ export const tagPicker = (acts: RailActs, row: SessionRow): Picker =>
             key: `tag:${tag}`,
             text: `#${tag}`,
             detail: "Enter takes it off",
-            choose: () => acts.send(row.environmentId, rowKey(row), "sessions.untag", { sessionId: row.summary.id, tag }, `Took #${tag} off ${titleOf(row)}${whenBack(acts, row.environmentId)}.`),
+            choose: () => acts.send(row.environmentId, "sessions.untag", { sessionId: row.summary.id, tag }, `Took #${tag} off ${titleOf(row)}${whenBack(acts, row.environmentId)}.`),
           }),
         );
       return [...add, ...held];
@@ -226,7 +227,7 @@ export const restorePicker = (acts: RailActs, query: string): Picker => {
             text: d.summary.title,
             ...(acts.badges.get(d.environmentId) && { badge: acts.badges.get(d.environmentId) as Badge }),
             detail: `restorable until ${whenWords(new Date(d.summary.purgeAt))}`,
-            choose: () => acts.send(d.environmentId, `${d.environmentId}/${d.summary.id}`, "sessions.restore", { sessionId: d.summary.id }, `Restored ${title}${whenBack(acts, d.environmentId)}.`),
+            choose: () => acts.send(d.environmentId, "sessions.restore", { sessionId: d.summary.id }, `Restored ${title}${whenBack(acts, d.environmentId)}.`),
           };
         }),
     note: () => {
@@ -277,7 +278,6 @@ const createOn = (acts: RailActs, view: EnvironmentView, account: Choice, model:
   const key = `${view.environmentId}/${id}`;
   acts.send(
     view.environmentId,
-    key,
     "sessions.create",
     { id, workspace: { kind: "directory", path }, ...(account.id !== null && { account: account.id }), ...(model.id !== null && { model: model.id }) },
     `Starting a session on ${nameOf(view)} in ${path}${whenBack(acts, view.environmentId)}.`,

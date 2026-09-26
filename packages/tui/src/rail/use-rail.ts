@@ -13,12 +13,14 @@ import { movesFor } from "./reorder.js";
 
 /**
  * The rail's controller (docs/specs/tui.md, "The rail"): what the cursor is
- * on, the filter being typed, which rows this terminal is waiting on, and
- * what each of the rail's keys and slash forms does. The rail holds no
+ * on, the filter being typed, and what each of the rail's keys and slash
+ * forms does. The rail holds no
  * state of the environment's: its lines are `railLines` over the runtime's
  * projections, worked out again when one of them changes, and its keys
  * issue the session-state commands through the outbox (`commands.dispatch`,
- * `commands.moveToGroup`), whose overlay shows the effect at once. The only
+ * `commands.moveToGroup`), whose overlay shows the effect at once and whose
+ * entries mark the rows they are about until their receipt
+ * (`awaitingReceipt`). The only
  * state it keeps is client-local: the cursor, the filter, and the fold per
  * heading name (`collapsedHeadings`, in the presentation module).
  */
@@ -85,15 +87,13 @@ export const useRail = (options: RailOptions): Rail => {
   const { runtime, views, keymap, presentation, say, startingService } = options;
   const [cursor, setCursor] = useState<string | null>(null);
   const [filter, setFilter] = useState<string | null>(null);
-  // Rows a command sent from here waits on: their line shows `pending` until the answer, whatever the connection's phase.
-  const [waiting, setWaiting] = useState<ReadonlyMap<string, number>>(new Map());
   const lastAt = useRef(0);
   // The filter as it is now, for what lands after this frame (a session accepted later).
   const filterNow = useRef(filter);
   filterNow.current = filter;
   const folded = useSyncExternalStore(presentation.collapsedHeadings.subscribe, presentation.collapsedHeadings.read);
   // Read as drawn (the screen's frame scheduler follows the list and asks for the frame), and worked out again only
-  // when the list, the environments, the folds, the filter or what this terminal waits on changes.
+  // when the list, the environments, the folds or the filter changes.
   const list = runtime.projections.sessionList.read();
   const query = filter?.trim() ?? "";
   const badges = useMemo(() => badgesOf(views), [views]);
@@ -104,11 +104,10 @@ export const useRail = (options: RailOptions): Rail => {
       badges,
       folded,
       matches: query === "" ? null : new Set(runtime.projections.search(query).read().map(rowKey)),
-      unconfirmed: new Set(waiting.keys()),
       startingService,
       now: (environmentId) => runtime.environmentNow(environmentId),
     }),
-    [runtime, list, views, badges, folded, query, waiting, startingService],
+    [runtime, list, views, badges, folded, query, startingService],
   );
   const lines = useMemo(() => railLines(input), [input]);
   const selectable = lines.filter(isSelectable);
@@ -120,29 +119,14 @@ export const useRail = (options: RailOptions): Rail => {
   lastAt.current = at;
   const selected: RailHeading | RailRow | undefined = selectable[at];
 
-  const mark = (key: string | null, by: 1 | -1) => {
-    if (key === null) return;
-    setWaiting((current) => {
-      const next = new Map(current);
-      const count = (next.get(key) ?? 0) + by;
-      if (count > 0) next.set(key, count);
-      else next.delete(key);
-      return next;
-    });
-  };
-  /** Waits on a dispatched command: the line pending until its answer; a refusal before it was kept said here, a rejection after it the runtime's notice. */
-  const track = <A extends DispatchAnswer<CommandMethodName>>(key: string | null, answer: Promise<A>, done?: (accepted: Extract<A, { readonly ok: true }>) => void) => {
-    mark(key, 1);
+  /** Hears a dispatched command's answer: a refusal before it was kept said here, a rejection after it the runtime's notice. */
+  const hear = <A extends DispatchAnswer<CommandMethodName>>(answer: Promise<A>, done?: (accepted: Extract<A, { readonly ok: true }>) => void) => {
     void answer.then(
       (settled) => {
-        mark(key, -1);
         if (settled.ok) done?.(settled as Extract<A, { readonly ok: true }>);
         else if (settled.commandId === null) say(settled.error.message);
       },
-      (error: unknown) => {
-        mark(key, -1);
-        say(messageOf(error));
-      },
+      (error: unknown) => say(messageOf(error)),
     );
   };
 
@@ -167,13 +151,13 @@ export const useRail = (options: RailOptions): Rail => {
     badges,
     workspace: options.workspace,
     say,
-    send: (environmentId, key, method, params, said, done) => {
+    send: (environmentId, method, params, said, done) => {
       say(said);
-      track(key, runtime.commands.dispatch(environmentId, method, params), done);
+      hear(runtime.commands.dispatch(environmentId, method, params), done);
     },
     move: (row, name, said) => {
       say(said);
-      track(rowKey(row), runtime.commands.moveToGroup(row.environmentId, row.summary.id, name));
+      hear(runtime.commands.moveToGroup(row.environmentId, row.summary.id, name));
     },
     reveal,
     land: (key) => {
@@ -182,7 +166,7 @@ export const useRail = (options: RailOptions): Rail => {
     newId: options.newId ?? uuidv4,
   };
   const send = <N extends CommandMethodName>(row: SessionRow, method: N, params: CommandParams<N>, verb: string) =>
-    acts.send(row.environmentId, rowKey(row), method, params, `${verb} ${titleOf(row)}${whenBack(acts, row.environmentId)}.`);
+    acts.send(row.environmentId, method, params, `${verb} ${titleOf(row)}${whenBack(acts, row.environmentId)}.`);
 
   const archive = (row: SessionRow) =>
     row.summary.archivedAt === null
@@ -222,9 +206,8 @@ export const useRail = (options: RailOptions): Rail => {
     if ("edge" in answer) return say(`${titleOf(row)} is already at the ${answer.edge} of ${pinned ? "the pinned sessions" : "its heading"}.`);
     say(`Moved ${titleOf(row)} ${step < 0 ? "up" : "down"}${whenBack(acts, row.environmentId)}.`);
     for (const move of answer.moves) {
-      const key = `${move.environmentId}/${move.sessionId}`;
       const params = { sessionId: move.sessionId, orderKey: move.key };
-      track(key, pinned ? runtime.commands.dispatch(move.environmentId, "sessions.reorderPinned", params) : runtime.commands.dispatch(move.environmentId, "sessions.reorderActive", params));
+      hear(pinned ? runtime.commands.dispatch(move.environmentId, "sessions.reorderPinned", params) : runtime.commands.dispatch(move.environmentId, "sessions.reorderActive", params));
     }
   };
 
@@ -316,9 +299,9 @@ export const useRail = (options: RailOptions): Rail => {
       case "settle":
         return settle(row);
       case "title":
-        return acts.send(row.environmentId, rowKey(row), "sessions.rename", { sessionId: row.summary.id, title: text }, `Titled ${titleOf(row)} “${text}”${whenBack(acts, row.environmentId)}.`);
+        return acts.send(row.environmentId, "sessions.rename", { sessionId: row.summary.id, title: text }, `Titled ${titleOf(row)} “${text}”${whenBack(acts, row.environmentId)}.`);
       case "tag":
-        return acts.send(row.environmentId, rowKey(row), "sessions.tag", { sessionId: row.summary.id, tag: text }, `Tagged ${titleOf(row)} #${text}${whenBack(acts, row.environmentId)}.`);
+        return acts.send(row.environmentId, "sessions.tag", { sessionId: row.summary.id, tag: text }, `Tagged ${titleOf(row)} #${text}${whenBack(acts, row.environmentId)}.`);
       case "group":
         return text === "" ? options.open(groupPicker(acts, row)) : acts.move(row, text, `Moved ${titleOf(row)} into ${text}${whenBack(acts, row.environmentId)}.`);
       case "snooze":

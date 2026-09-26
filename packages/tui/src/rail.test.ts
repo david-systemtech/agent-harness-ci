@@ -354,9 +354,11 @@ describe("each row key issues its command once with a command id, the row pendin
     await app.press("z");
     await app.type("2h");
     await app.waitFor(/At \w{3} \d+ \w{3} \d\d:\d\d/);
+    // Two hours from the environment's now as the picker read the typed time: the frames drawn since the first snooze moved the clock on.
+    const typedAt = app.runtime().environmentNow(DESK_ID);
     await app.press(KEY.enter);
     await app.waitUntil(() => sent(app, "desk", "sessions.snooze").length === 2, "the typed snooze sent");
-    expect(params(sent(app, "desk", "sessions.snooze")[1])["until"]).toBe(new Date(now.getTime() + 2 * 3_600_000).toISOString());
+    expect(params(sent(app, "desk", "sessions.snooze")[1])["until"]).toBe(new Date(typedAt.getTime() + 2 * 3_600_000).toISOString());
 
     await cursorTo(app, "Later");
     await app.press("z");
