@@ -43,8 +43,9 @@ import { createScreen, type Screen } from "./screen.js";
  * - **Answers**: what the emulator answers a query with (a cursor position,
  *   device attributes) is sent back only while the pane has the keys and
  *   for output heard live, so a query in replayed scrollback is never
- *   answered twice, and two clients watching one terminal do not both
- *   answer it.
+ *   answered twice, and a client watching a terminal whose pane does not
+ *   have the keys does not answer. Both guards are this client's own:
+ *   two clients whose panes each have the keys both answer a live query.
  * - **The shell ending** closes the pane with one line and drops the
  *   terminal (`terminals.close`), so an exited one is not reopened.
  */
