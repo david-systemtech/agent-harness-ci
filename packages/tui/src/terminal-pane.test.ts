@@ -254,6 +254,48 @@ describe("a reconnect", () => {
   });
 });
 
+describe("the scripted environment's terminals", () => {
+  it("go on numbering after a cap that emptied the scrollback, so a cursor at the last chunk is replayed what came after", async () => {
+    const { app, env } = await opened();
+    await command(app, "/terminal");
+    await app.waitFor("The terminal has the keys");
+    env.terminalOutput(FIRST, "still drawn\r\n");
+    await app.waitFor("still drawn");
+    env.server.drop();
+    await app.waitFor("reconnecting");
+    env.dropScrollback(FIRST, 2);
+    env.terminalOutput(FIRST, "kept\r\n");
+    await app.waitFor("kept", 400);
+    expect(rowsWith(app, "still drawn")).toEqual(["$ still drawn"]);
+  });
+
+  it("say a snapshot of a scrollback the cap emptied was cut", async () => {
+    const { app, env } = await opened();
+    await command(app, "/terminal");
+    await app.waitFor("The terminal has the keys");
+    env.terminalOutput(FIRST, "long gone\r\n");
+    await app.waitFor("long gone");
+    env.server.drop();
+    await app.waitFor("reconnecting");
+    env.terminalOutput(FIRST, "dropped too\r\n");
+    env.dropScrollback(FIRST, 3);
+    env.terminalOutput(FIRST, "kept\r\n");
+    await app.waitFor("kept", 400);
+    expect(app.frame()).not.toContain("long gone");
+    await app.press(KEY.ctrlO);
+    await app.waitFor("Terminal scrollback · desk · earlier output dropped");
+  });
+
+  it("take an id in any case, and refuse one they never held", async () => {
+    const { app, env } = await opened({ terminals: [{ id: EXISTING.toUpperCase(), output: "earlier output\r\n$ " }] });
+    await command(app, "/terminal");
+    await app.waitFor("earlier output");
+    env.terminalOutput(EXISTING.toUpperCase(), "more output\r\n");
+    await app.waitFor("more output");
+    expect(() => env.exitTerminal(SECOND, 0)).toThrow(/never held a terminal/);
+  });
+});
+
 describe("a shell line", () => {
   const startsOf = (app: RenderedApp) => app.environment("desk").requests("runs.start").map((r) => r.params);
   const history = (app: RenderedApp) =>

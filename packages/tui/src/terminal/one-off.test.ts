@@ -81,6 +81,8 @@ const played = () => {
     runtime,
     failWrites: () => void (writeAnswer = "unreachable"),
     print: (data: string) => listener?.({ kind: "output", data, sequence: ++sequence, live: true }),
+    /** A snapshot of what the terminal's scrollback still holds, as a resubscription answered with one. */
+    reset: (data: string, truncated: boolean) => listener?.({ kind: "reset", data, sequence: ++sequence, truncated, terminal: null as never }),
     exit: (exitCode: number) => listener?.({ kind: "exited", exit: { exitCode, signal: null, cause: "exited" } }),
     deps: { runtime, clock, newCommandId: () => "c", newTerminalId: () => "t1" },
   };
@@ -103,7 +105,7 @@ describe("a one-off command run", () => {
       terminal.print(`${MARKER}\r\nhi\r\n`);
       terminal.exit(0);
     });
-    expect(result).toEqual({ ok: true, output: "hi", exitCode: 0, signal: null, timedOut: false, timeoutMs: 60_000, cut: false });
+    expect(result).toEqual({ ok: true, output: "hi", exitCode: 0, signal: null, timedOut: false, timeoutMs: 60_000, cut: false, dropped: false });
     expect(terminal.calls.map((c) => c.method)).toEqual(["terminals.open", "terminals.write", "terminals.close"]);
     expect(terminal.calls[0]?.params).toMatchObject({ id: "t1", sessionId: "session-1", cols: 120, rows: 40, env: oneOffEnv("echo hi", MARKER) });
     expect(terminal.calls[1]?.params).toMatchObject({ data: ONE_OFF_LINE });
@@ -137,7 +139,7 @@ describe("a one-off command run", () => {
     terminal.print(`${MARKER}\r\nstarted\r\n`);
     terminal.clock.advance(5_000);
     const ended = await result;
-    expect(ended).toEqual({ ok: true, output: "started", exitCode: null, signal: null, timedOut: true, timeoutMs: 5_000, cut: false });
+    expect(ended).toEqual({ ok: true, output: "started", exitCode: null, signal: null, timedOut: true, timeoutMs: 5_000, cut: false, dropped: false });
     expect(terminal.calls.at(-1)?.method).toBe("terminals.close");
     expect(oneOffMessage("sleep 100", ended as Extract<typeof ended, { ok: true }>)).toBe("Ran `sleep 100`:\n```\nstarted\ntimed out after 5s\n```");
   });
@@ -152,6 +154,43 @@ describe("a one-off command run", () => {
     });
     expect(result).toMatchObject({ ok: true, cut: true });
     expect(oneOffMessage("yes", result as Extract<typeof result, { ok: true }>)).toMatch(/… output stopped after 256K characters\n```$/);
+  });
+
+  it("keeps the first lines of output longer than a screen's scrollback, and counts every line after them", async () => {
+    const terminal = played();
+    const lines = Array.from({ length: 5000 }, (_, i) => String(i + 1));
+    const result = await run(terminal, "seq 5000", () => {
+      terminal.print(`${MARKER}\r\n`);
+      terminal.print(`${lines.join("\r\n")}\r\n`);
+      terminal.exit(0);
+    });
+    expect(result).toMatchObject({ ok: true, cut: false });
+    const output = (result as Extract<typeof result, { ok: true }>).output.split("\n");
+    expect(output.slice(0, 3)).toEqual(["1", "2", "3"]);
+    expect(output.at(-2)).toBe("200");
+    expect(output.at(-1)).toBe("… 4800 more lines");
+  });
+
+  it("reads a scrollback that no longer holds the marker, after a resubscription mid-run, as the command's, and says its start was dropped", async () => {
+    const terminal = played();
+    const result = await run(terminal, "make", () => {
+      terminal.print(`$ ${ONE_OFF_LINE}\n${MARKER}\r\nstep 1\r\n`);
+      terminal.reset("step 4000\r\nstep 4001\r\n", true);
+      terminal.print("done\r\n");
+      terminal.exit(0);
+    });
+    expect(result).toMatchObject({ ok: true, output: "step 4000\nstep 4001\ndone", exitCode: 0, dropped: true });
+    expect(oneOffMessage("make", result as Extract<typeof result, { ok: true }>)).toBe("Ran `make`:\n```\n… earlier output dropped\nstep 4000\nstep 4001\ndone\n```");
+  });
+
+  it("reads a resubscription's snapshot that still holds the marker from the marker, as before", async () => {
+    const terminal = played();
+    const result = await run(terminal, "make", () => {
+      terminal.print(`$ ${ONE_OFF_LINE}\n${MARKER}\r\nstep 1\r\n`);
+      terminal.reset(`$ ${ONE_OFF_LINE}\n${MARKER}\r\nstep 1\r\nstep 2\r\n`, false);
+      terminal.exit(0);
+    });
+    expect(result).toMatchObject({ ok: true, output: "step 1\nstep 2", dropped: false });
   });
 
   it("stops its clock when the line could not be typed, and says why", async () => {

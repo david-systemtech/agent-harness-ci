@@ -644,6 +644,9 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     rows: number;
     readonly env: Readonly<Record<string, string>>;
     readonly chunks: { readonly sequence: number; readonly data: string }[];
+    /** The newest chunk's sequence, and whether the cap has dropped any: neither goes back when the chunks kept are emptied. */
+    last: number;
+    cut: boolean;
     readonly writes: string[];
     readonly resizes: { readonly cols: number; readonly rows: number }[];
     exit: { readonly exitCode: number; readonly signal: number | null; readonly cause: TerminalExitCause; readonly sequence: number } | null;
@@ -652,7 +655,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
   }
   const terminals = new Map<string, HeldTerminal>();
   const infoOf = (t: HeldTerminal): TerminalInfo => ({ id: t.id, sessionId: t.sessionId, openedAt: t.openedAt, cols: t.cols, rows: t.rows, exitCode: t.exit?.exitCode ?? null, signal: t.exit?.signal ?? null });
-  const lastOf = (t: HeldTerminal) => t.chunks.at(-1)?.sequence ?? 0;
+  const lastOf = (t: HeldTerminal) => t.last;
   const terminalEnvelope = (t: HeldTerminal, at: number, type: string, payload: Record<string, unknown>): EventEnvelope => ({
     sequence: at,
     eventId: `0199fd00-0000-7000-8000-${String(at).padStart(12, "0")}`,
@@ -681,6 +684,8 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
       rows: fields.rows ?? 24,
       env: fields.env ?? {},
       chunks: [],
+      last: 0,
+      cut: false,
       writes: [],
       resizes: [],
       exit: null,
@@ -702,6 +707,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     const t = terminals.get(id);
     if (!t || t.exit) throw new Error(`${spec.name} holds no running terminal ${id}.`);
     const at = lastOf(t) + 1;
+    t.last = at;
     t.chunks.push({ sequence: at, data });
     for (const subscription of t.subscriptions) toSubscriber({ type: "event", subscription, sequence: at, event: terminalEnvelope(t, at, TERMINAL_OUTPUT_TYPE, { data }) });
   };
@@ -717,8 +723,11 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     t.subscriptions.clear();
   };
   for (const held of spec.terminals ?? []) {
-    const t = hold(held.id, sessions[held.session ?? 0]?.id ?? "", { cols: held.cols, rows: held.rows });
-    if (held.output !== undefined) t.chunks.push({ sequence: 1, data: held.output });
+    const t = hold(held.id.toLowerCase(), sessions[held.session ?? 0]?.id ?? "", { cols: held.cols, rows: held.rows });
+    if (held.output !== undefined) {
+      t.chunks.push({ sequence: 1, data: held.output });
+      t.last = 1;
+    }
     if (held.exitCode !== undefined) t.exit = { exitCode: held.exitCode, signal: null, cause: "exited", sequence: lastOf(t) + 1 };
   }
   const terminalReceipt = (method: string, result: Record<string, unknown>): FakeAnswer =>
@@ -809,13 +818,13 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     const after = Number(params["afterSequence"] ?? 0);
     const last = lastOf(t);
     const first = t.chunks[0]?.sequence ?? 0;
-    if (after > 0 && after >= first - 1 && after <= last) {
+    if (after > 0 && after >= (t.chunks.length === 0 ? last : first - 1) && after <= last) {
       for (const chunk of t.chunks.filter((c) => c.sequence > after)) {
         wire.server.send({ type: "event", subscription, sequence: chunk.sequence, event: terminalEnvelope(t, chunk.sequence, TERMINAL_OUTPUT_TYPE, { data: chunk.data }) });
       }
     } else {
-      // Truncated when the chunks kept no longer start at the first the terminal printed.
-      const payload = { terminal: infoOf(t), scrollback: t.chunks.map((c) => c.data).join(""), firstSequence: first, lastSequence: last, truncated: first > 1 };
+      // Truncated once the cap has dropped any chunk, as the environment's ring says.
+      const payload = { terminal: infoOf(t), scrollback: t.chunks.map((c) => c.data).join(""), firstSequence: first, lastSequence: last, truncated: t.cut };
       wire.server.send({ type: "snapshot", subscription, sequence: last, payload });
     }
     if (t.exit) {
@@ -994,12 +1003,15 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
       if (!found) throw new Error(`${spec.name} never held a terminal ${id}.`);
       return found;
     },
-    terminalOutput,
-    exitTerminal: (id, exitCode) => exitTerminal(id.toLowerCase(), exitCode),
+    terminalOutput: (id, data) => terminalOutput(id.toLowerCase(), data),
+    exitTerminal(id, exitCode) {
+      if (!terminals.has(id.toLowerCase())) throw new Error(`${spec.name} never held a terminal ${id}.`);
+      exitTerminal(id.toLowerCase(), exitCode);
+    },
     dropScrollback(id, chunks) {
       const t = terminals.get(id.toLowerCase());
       if (!t) throw new Error(`${spec.name} never held a terminal ${id}.`);
-      t.chunks.splice(0, chunks);
+      if (t.chunks.splice(0, chunks).length > 0) t.cut = true;
     },
   };
   return { handle, fetch, webSocket, wsUrl: `${wire.origin.replace(/^http/, "ws")}${WIRE_PATH}` };

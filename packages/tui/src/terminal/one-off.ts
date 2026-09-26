@@ -90,21 +90,24 @@ export const afterMarker = (raw: string, marker: string): string | null => {
   return end === -1 ? "" : raw.slice(end + 1);
 };
 
-/** The first `max` lines, and a count of the rest (Artemis's `clipOutput`). */
-export const clipOutput = (text: string, max = ONE_OFF_MAX_LINES): string => {
+/** The first `max` lines, and a count of the rest, `more` lines past `text` among them (Artemis's `clipOutput`). */
+export const clipOutput = (text: string, max = ONE_OFF_MAX_LINES, more = 0): string => {
   const rows = text.split("\n");
-  if (rows.length <= max) return text;
-  const dropped = rows.length - max;
+  const dropped = Math.max(0, rows.length - max) + more;
+  if (dropped === 0) return text;
   return [...rows.slice(0, max), `… ${String(dropped)} more line${dropped === 1 ? "" : "s"}`].join("\n");
 };
 
 /** What a `!!` terminal printed, held as it arrives: the tail of what came before the marker's line, and up to `ONE_OFF_MAX_CHARS` after it. */
 export interface OneOffOutput {
   take(data: string): void;
-  /** Starts again (a snapshot: the retained scrollback, from the start). */
-  reset(): void;
-  /** What came after the marker's line, and whether more came than was held; null before the marker's line has come. */
-  said(): { readonly text: string; readonly cut: boolean } | null;
+  /**
+   * Starts again from `data` (a snapshot: the retained scrollback). One that no longer holds the marker's line, once it
+   * had come, is all the command's, its start dropped.
+   */
+  reset(data: string): void;
+  /** What came after the marker's line, whether more came than was held, and whether its start was dropped; null before the marker's line has come. */
+  said(): { readonly text: string; readonly cut: boolean; readonly dropped: boolean } | null;
   /** The tail of what came before the marker (all of it, while no marker has come). */
   before(): string;
 }
@@ -113,34 +116,62 @@ export const oneOffOutput = (marker: string, max = ONE_OFF_MAX_CHARS): OneOffOut
   let before = "";
   let after: string | null = null;
   let cut = false;
+  let dropped = false;
   const hold = (data: string) => {
     const room = max - (after ?? "").length;
     if (data.length > room) cut = true;
     after = (after ?? "") + data.slice(0, Math.max(0, room));
   };
+  const take = (data: string) => {
+    if (after !== null) return hold(data);
+    before += data;
+    const at = before.indexOf(marker);
+    const end = at === -1 ? -1 : before.indexOf("\n", at);
+    if (end === -1) {
+      // The marker may be arriving in pieces: the tail kept is always longer than it.
+      if (before.length > PREAMBLE_MAX_CHARS) before = before.slice(-PREAMBLE_MAX_CHARS);
+      return;
+    }
+    const rest = before.slice(end + 1);
+    before = before.slice(0, at);
+    hold(rest);
+  };
   return {
-    take(data) {
-      if (after !== null) return hold(data);
-      before += data;
-      const at = before.indexOf(marker);
-      const end = at === -1 ? -1 : before.indexOf("\n", at);
-      if (end === -1) {
-        // The marker may be arriving in pieces: the tail kept is always longer than it.
-        if (before.length > PREAMBLE_MAX_CHARS) before = before.slice(-PREAMBLE_MAX_CHARS);
-        return;
-      }
-      const rest = before.slice(end + 1);
-      before = before.slice(0, at);
-      hold(rest);
-    },
-    reset() {
+    take,
+    reset(data) {
+      const started = after !== null;
       before = "";
       after = null;
       cut = false;
+      // The scrollback's cap took the marker's line after it had come: everything retained came after it.
+      dropped = started && !data.includes(marker);
+      if (dropped) after = "";
+      take(data);
     },
-    said: () => (after === null ? null : { text: after, cut }),
+    said: () => (after === null ? null : { text: after, cut, dropped }),
     before: () => before,
   };
+};
+
+/**
+ * The line feeds of output read whole through the screen: with the wrapping of what is held (at most
+ * `ONE_OFF_MAX_CHARS / ONE_OFF_SIZE.cols` rows, about 2,200) they stay inside its scrollback, so no first line is lost.
+ */
+const SHOWN_MAX_FEEDS = ONE_OFF_MAX_LINES * 8;
+
+/**
+ * `raw` as a terminal shows it, cut to its first `ONE_OFF_MAX_LINES` lines with the rest counted. Past
+ * `SHOWN_MAX_FEEDS` lines only its start is read through the screen, whose scrollback would otherwise drop its first
+ * lines, and the lines after that are counted by their line feeds.
+ */
+export const shownOutput = async (raw: string): Promise<string> => {
+  let at = -1;
+  for (let feeds = 0; feeds < SHOWN_MAX_FEEDS; feeds++) {
+    at = raw.indexOf("\n", at + 1);
+    if (at === -1) return clipOutput(await shownText(raw));
+  }
+  const rest = raw.slice(at + 1).trimEnd();
+  return clipOutput(await shownText(raw.slice(0, at + 1)), ONE_OFF_MAX_LINES, rest.length === 0 ? 0 : rest.split("\n").length);
 };
 
 /** `raw` as a terminal `ONE_OFF_SIZE` wide shows it, as text. */
@@ -165,6 +196,8 @@ export type OneOffResult =
       readonly timeoutMs: number;
       /** More came than was held. */
       readonly cut: boolean;
+      /** Its start was gone from the terminal's scrollback when its subscription started again. */
+      readonly dropped: boolean;
     }
   | { readonly ok: false; readonly line: string };
 
@@ -201,10 +234,8 @@ export const runOneOff = async (deps: OneOffDeps, target: Opened, command: strin
   const ended = new Promise<Ended>((resolve) => {
     timer = clock.setTimeout(() => resolve({ exitCode: null, signal: null, timedOut: true }), timeoutMs);
     handle = runtime.subscriptions.terminal(environmentId, id, (output) => {
-      if (output.kind === "reset") {
-        heard.reset();
-        heard.take(output.data);
-      } else if (output.kind === "output") heard.take(output.data);
+      if (output.kind === "reset") heard.reset(output.data);
+      else if (output.kind === "output") heard.take(output.data);
       else resolve({ exitCode: output.exit.exitCode, signal: output.exit.signal, timedOut: false });
     });
     // A terminal gone before it could be heard (closed by another client) says nothing more.
@@ -228,7 +259,7 @@ export const runOneOff = async (deps: OneOffDeps, target: Opened, command: strin
     const why = end.timedOut ? `within ${seconds(timeoutMs)}` : "before its terminal ended";
     return { ok: false, line: `The shell never started it ${why}${last === undefined ? "." : `; it last showed: ${last.trim()}`}` };
   }
-  return { ok: true, output: clipOutput(await shownText(said.text)), ...end, timeoutMs, cut: said.cut };
+  return { ok: true, output: await shownOutput(said.text), ...end, timeoutMs, cut: said.cut, dropped: said.dropped };
 };
 
 const seconds = (ms: number): string => `${String(Math.round(ms / 1000))}s`;
@@ -243,6 +274,6 @@ export const oneOffMessage = (command: string, result: Extract<OneOffResult, { r
     result.timedOut ? `timed out after ${seconds(result.timeoutMs)}` : undefined,
     result.signal !== null ? `killed by signal ${String(result.signal)}` : result.exitCode !== null && result.exitCode !== 0 ? `exit ${String(result.exitCode)}` : undefined,
   ].filter((note): note is string => note !== undefined);
-  const body = [result.output, ...notes].filter((part) => part.length > 0).join("\n");
+  const body = [...(result.dropped ? ["… earlier output dropped"] : []), result.output, ...notes].filter((part) => part.length > 0).join("\n");
   return `Ran \`${command}\`:\n\`\`\`\n${body}\n\`\`\``;
 };
