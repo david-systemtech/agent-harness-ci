@@ -157,9 +157,10 @@ export interface Commands {
 }
 
 /**
- * What `commands.rewind` did: the rewind's own answer, or the new session it started instead. A `use_new_session`
- * refusal is here as the rewind's answer only when no session could be started from it (the message or the
- * workspace not held, or the create refused on the spot); otherwise the new session stands for it.
+ * What `commands.rewind` did. The `rewind` kind is the rewind's own answer; a `use_new_session` refusal stays here
+ * only when the runtime could not attempt a session for it (the message or the workspace not held, or `prepare`
+ * refusing the create locally). The `new-session` kind is every attempted create, carrying the create's own answer:
+ * the session stands only when that answer is ok, and a refused create names an id no session has.
  */
 export type RewindAnswer =
   | { readonly kind: "rewind"; readonly answer: DispatchAnswer<"sessions.rewind"> }
