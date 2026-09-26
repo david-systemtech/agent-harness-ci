@@ -58,6 +58,10 @@ describe("the lint configuration", () => {
     expect(await ids("packages/environment/src/x.ts", "./../../tui/src/x.js")).toContain("no-restricted-imports");
     expect(await ids("packages/environment/src/x.ts", ".././../client-runtime/src/x.js")).toContain("no-restricted-imports");
     expect(await ids("packages/environment/src/x.ts", "../../../packages/cli/src/main.js")).toContain("no-restricted-imports");
+    // A doubled slash anywhere in the climb, which vitest and tsc read as one (path.resolve collapses it).
+    expect(await ids("packages/environment/src/x.ts", ".//../../tui/src/x.js")).toContain("no-restricted-imports");
+    expect(await ids("packages/environment/src/x.ts", "..//../cli/src/main.js")).toContain("no-restricted-imports");
+    expect(await ids("packages/environment/src/x.ts", "../..//packages//tui/src/x.js")).toContain("no-restricted-imports");
     expect(await ids("packages/environment/src/x.ts", "./terminals/x.js")).not.toContain("no-restricted-imports");
     expect(await ids("packages/environment/src/terminals/x.test.ts", "../../test/helper.js")).not.toContain("no-restricted-imports");
     expect(await ids("packages/environment/src/x.ts", "@agent-harness/contracts")).not.toContain("no-restricted-imports");
