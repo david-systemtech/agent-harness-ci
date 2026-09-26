@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { ONE_OFF_LINE } from "@agent-harness/contracts";
 import { KEY, renderApp, type RenderedApp } from "../test/harness.js";
+import { resolveKeymap, type Keymap } from "./keys.js";
 
 /**
  * The terminal pane (docs/specs/tui.md, "The terminal pane"; #148):
@@ -28,10 +29,11 @@ const EXISTING = "0a1b2c3d-0000-4000-8000-000000000009";
 /** The pane at the harness's 100 by 30: the width beside the rail, and 40% of the rows. */
 const PANE = { cols: 72, rows: 12 };
 
-const opened = async (extra: Partial<Parameters<typeof renderApp>[0]["script"]["environments"][number]> = {}) => {
+const opened = async (extra: Partial<Parameters<typeof renderApp>[0]["script"]["environments"][number]> = {}, keymap?: Keymap) => {
   const app = await renderApp({
     script: { environments: [{ name: "desk", reach: "local", sessions: [{ title: "Receipts", workspace: { kind: "directory", path: "/home/seth/receipts" } }], ...extra }] },
     flags: { session: SESSION },
+    ...(keymap && { keymap }),
   });
   apps.push(app);
   await app.waitFor("Nothing said yet.");
@@ -167,6 +169,35 @@ describe("keys in the pane", () => {
     await app.waitFor("The terminal has the keys");
     await app.type("z");
     await app.waitUntil(() => written(app, FIRST) === "\u001Cz", "the key to follow the literal");
+  });
+
+  it("takes Ctrl+\\ twice in one read as the press again: one literal to the shell, and the pane keeps the keys", async () => {
+    const { app } = await opened();
+    await command(app, "/terminal");
+    await app.waitFor("The terminal has the keys");
+    await app.type(KEY.ctrlBackslash + KEY.ctrlBackslash);
+    await app.waitUntil(() => written(app, FIRST) === "\u001C", "one literal to reach the shell");
+    expect(app.frame()).toContain("The terminal has the keys");
+    await app.type("z");
+    await app.waitUntil(() => written(app, FIRST) === "\u001Cz", "the next key to reach the shell");
+  });
+
+  it("hears Ctrl+\\ typed in one read after other keys: those go to the shell, then the pane is left", async () => {
+    const { app } = await opened();
+    await command(app, "/terminal");
+    await app.waitFor("The terminal has the keys");
+    await app.type(`ls${KEY.ctrlBackslash}`);
+    await app.waitFor("The transcript has the keys");
+    expect(written(app, FIRST)).toBe("ls");
+  });
+
+  it("takes a remapped leave key Ink hears as two keys of one read, pressed twice, as the press again", async () => {
+    const { app } = await opened({}, resolveKeymap({ "terminal.leave": ["Alt+X"] }).keymap);
+    await command(app, "/terminal");
+    await app.waitFor("The terminal has the keys");
+    await app.type("\u001Bx\u001Bx");
+    await app.waitUntil(() => written(app, FIRST) === "\u001Bx", "one literal to reach the shell");
+    expect(app.frame()).toContain("The terminal has the keys");
   });
 
   it("sends the literal only when Ctrl+\\ comes again within half a second of leaving", async () => {

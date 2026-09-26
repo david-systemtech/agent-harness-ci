@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { eventName, parseKeyName, type InkKey } from "../keys.js";
-import { forwarded, keyBytes, pasted } from "./keys.js";
+import { forwarded, heldApart, keyBytes, pasted } from "./keys.js";
 
 /**
  * What the pane sends for a key (docs/specs/tui.md, "The terminal pane"):
@@ -54,6 +54,23 @@ describe("the bytes a key name stands for", () => {
     expect(keyBytes("Esc Esc")).toBeUndefined();
     expect(keyBytes("Letters")).toBeUndefined();
     expect(keyBytes("Ctrl+Enter")).toBeUndefined();
+  });
+});
+
+describe("the pane's own keys in what one read brought", () => {
+  const held = ["\u001C", "\u000F", "\u001Bx"];
+
+  it("are cut out of the text around them, each on its own, and text without them is one piece", () => {
+    expect(heldApart("\u001C\u001C", held)).toEqual(["\u001C", "\u001C"]);
+    expect(heldApart("ls\u001Cpwd\u000F", held)).toEqual(["ls", "\u001C", "pwd", "\u000F"]);
+    expect(heldApart("ls -la", held)).toEqual(["ls -la"]);
+    expect(heldApart("\u001C", held)).toEqual(["\u001C"]);
+  });
+
+  it("leave an escape sequence whole, which Ink gives as a key of its own", () => {
+    expect(heldApart("\u001Bx", held)).toEqual(["\u001Bx"]);
+    // Alt+Q with the leave key remapped to q: the q in it is not the leave key.
+    expect(heldApart("\u001Bq", ["q"])).toEqual(["\u001Bq"]);
   });
 });
 

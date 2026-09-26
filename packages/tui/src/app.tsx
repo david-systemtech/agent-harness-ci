@@ -57,7 +57,7 @@ import { lineText, rowLines, transcriptLines, type Line as TranscriptLine } from
 import { quietFor } from "./transcript/quiet.js";
 import { lastReply, transcriptRows, type Row } from "./transcript/rows.js";
 import { editCalls, inWorkspace, rowFile } from "./transcript/targets.js";
-import { keyBytes } from "./terminal/keys.js";
+import { heldApart, keyBytes } from "./terminal/keys.js";
 import { oneOffMessage, runOneOff } from "./terminal/one-off.js";
 import { useRawInput } from "./terminal/raw-input.js";
 import { useTerminalPane } from "./terminal/use-terminal.js";
@@ -1312,25 +1312,44 @@ export const App = (props: AppProps) => {
   // but for its two actions. `terminal.leave` goes on to the next stop, where Tab would have gone had the shell not had
   // it, and `terminal.scrollback` opens the scrollback.
   const paneHasKeys = focused === "terminal" && paneOpen && !cardOpen;
-  useEffect(() => terminal.focus(paneHasKeys), [paneHasKeys]);
   const paneKeys = useRef(false);
   paneKeys.current = paneHasKeys;
   // When the pane was left with `terminal.leave`: the leave key again within `LEAVE_TWICE_MS` goes to the shell and the
-  // pane has the keys back.
+  // pane has the keys back. Left in the read being heard, the screen's handler below is not listening until the next
+  // frame, so the leave key again in that read (Ink's next key, or the same text) is heard here.
   const leftAt = useRef<number | null>(null);
-  const heldBy = (action: "terminal.leave" | "terminal.scrollback", bytes: string) => keymap.keys[action].some((name) => keyBytes(name) === bytes);
-  paneKey.current = (bytes) => {
-    if (!paneKeys.current) return;
+  const leftInRead = useRef(false);
+  useEffect(() => {
+    leftInRead.current = false;
+    terminal.focus(paneHasKeys);
+  }, [paneHasKeys]);
+  const heldBytes = (action: "terminal.leave" | "terminal.scrollback") => keymap.keys[action].flatMap((name) => keyBytes(name) ?? []);
+  const heldBy = (action: "terminal.leave" | "terminal.scrollback", bytes: string) => heldBytes(action).includes(bytes);
+  const paneTakes = (bytes: string) => {
+    if (!paneKeys.current) {
+      if (!leftInRead.current || !heldBy("terminal.leave", bytes)) return;
+      leftInRead.current = false;
+      leftAt.current = null;
+      paneKeys.current = true;
+      setFocus("terminal");
+      terminal.key(bytes);
+      return;
+    }
     scheduler.bypass();
     if (heldBy("terminal.leave", bytes)) {
-      // The keys go at once: what comes before the next frame is not the pane's.
+      // The keys go at once: what comes before the next frame is not the pane's, but the leave key again.
       paneKeys.current = false;
+      leftInRead.current = true;
       leftAt.current = clock.now().getTime();
       setFocus(nextFocus("terminal", stops));
       return;
     }
     if (heldBy("terminal.scrollback", bytes)) return openScrollback();
     terminal.key(bytes);
+  };
+  paneKey.current = (bytes) => {
+    if (!paneKeys.current && !leftInRead.current) return;
+    for (const piece of heldApart(bytes, [...heldBytes("terminal.leave"), ...heldBytes("terminal.scrollback")])) paneTakes(piece);
   };
   usePaste(
     (text) => {

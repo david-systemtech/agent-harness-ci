@@ -4,10 +4,12 @@ import type { ScreenModes } from "./screen.js";
 /**
  * What the pane sends to the terminal (docs/specs/tui.md, "The terminal
  * pane"). With focus every key goes as the bytes the user's terminal sent,
- * Ink's input parser having split them into one key each, except the two
- * `terminal` actions' keys (`terminal.leave`, `terminal.scrollback`), which
- * are recognised by the bytes their names stand for (`keyBytes`), so a
- * remapped key is recognised the same way. The user's terminal sends arrows
+ * except the two `terminal` actions' keys (`terminal.leave`,
+ * `terminal.scrollback`), which are recognised by the bytes their names
+ * stand for (`keyBytes`), so a remapped key is recognised the same way.
+ * Ink's input parser gives each escape sequence of a read as a key of its
+ * own but the text between them whole, so those keys are cut out of the
+ * text they came in (`heldApart`). The user's terminal sends arrows
  * in their normal form whatever the application in the pane asked for (Ink
  * never asks for application cursor keys), so an application that did gets
  * them translated; a paste goes wrapped when the application asked for
@@ -15,7 +17,8 @@ import type { ScreenModes } from "./screen.js";
  * terminal sends for them.
  */
 
-const CSI = "\u001B[";
+const ESC = "\u001B";
+const CSI = `${ESC}[`;
 
 /**
  * The bytes a key name (as the keymap stores it: `Ctrl+\`, `Ctrl+O`, `Esc`,
@@ -61,3 +64,28 @@ const BRACKET = /\u001B\[20[01]~/g;
  */
 export const pasted = (text: string, modes: ScreenModes): string =>
   modes.bracketedPaste ? `${CSI}200~${text.replace(BRACKET, "")}${CSI}201~` : text.replace(/\r?\n/g, "\r");
+
+/**
+ * `bytes`, one key Ink heard, cut before and after each of `held` it holds: typed text comes whole from one read, so
+ * Ctrl+\ pressed twice, or after other keys, comes with them. An escape sequence is a key of its own and never cut; a
+ * held key that is one is heard as it is.
+ */
+export const heldApart = (bytes: string, held: readonly string[]): readonly string[] => {
+  const within = held.filter((key) => key.length > 0 && !key.includes(ESC));
+  if (bytes.startsWith(ESC) || within.length === 0) return [bytes];
+  const pieces: string[] = [];
+  let from = 0;
+  for (let at = 0; at < bytes.length; ) {
+    const key = within.find((k) => bytes.startsWith(k, at));
+    if (key === undefined) {
+      at++;
+      continue;
+    }
+    if (at > from) pieces.push(bytes.slice(from, at));
+    pieces.push(key);
+    at += key.length;
+    from = at;
+  }
+  if (from < bytes.length) pieces.push(bytes.slice(from));
+  return pieces;
+};
