@@ -32,6 +32,9 @@ import type { RunSummary } from "@agent-harness/contracts";
  *   took, its tokens and dollars, and the plan windows it moved when known.
  * - **An event this version cannot show** is one dim row naming its type
  *   (ADR 0001): an older terminal survives a newer environment.
+ * - **The rewound fold** (`rewound`, #230) is not drawn yet: what a rewind
+ *   cut stays out of the rows, as it did while the runtime hid it, until
+ *   #232 draws the fold.
  *
  * Pure: the projection goes in, plain data comes out.
  */
@@ -92,6 +95,14 @@ export const transcriptRows = (view: Pick<SessionProjection, "items" | "runs">):
       case "opaque":
         rows.push({ kind: "opaque", id: `opaque:${entry.sequence}`, runId: null, entry });
         break;
+      case "rewound":
+        // The branch a rewind cut is not drawn yet: it was hidden before the runtime folded it (#230), and #232 draws the fold.
+        break;
+      default: {
+        // Every entry kind is drawn or dropped on purpose: a kind the runtime adds is a compile error here until it is.
+        const unhandled: never = entry;
+        void unhandled;
+      }
     }
   }
   return withTurns(rows, view.runs);

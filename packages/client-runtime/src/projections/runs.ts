@@ -1,21 +1,26 @@
-import type {
-  EventEnvelope,
-  InterruptCause,
-  ListedPrompt,
-  PromptKind,
-  PromptOpenedPayload,
-  RunEndReason,
-  RunEndedPayload,
-  RunStartedPayload,
-  SessionSummary,
+import {
+  registry,
+  type AdapterCapabilities,
+  type EventEnvelope,
+  type InterruptCause,
+  type ListedPrompt,
+  type PromptKind,
+  type PromptOpenedPayload,
+  type RunEndReason,
+  type RunEndedPayload,
+  type RunStartedPayload,
+  type SessionSummary,
 } from "@agent-harness/contracts";
+import { answerCapability, answerQueuedCommand, type CapabilityAnswer } from "../capabilities.js";
 import { LOCAL_PLACEHOLDER_ID, type ConnectionRecord } from "../connections/records.js";
-import { dynamic, writable, type Observable } from "../observable.js";
+import { derived, dynamic, writable, type Observable } from "../observable.js";
 import type { OutboxView } from "../outbox/overlay.js";
 import type { Clock, Timer } from "../platform.js";
 import type { CachedAnswer } from "../requests.js";
 import type { ListData } from "../streams/kinds.js";
 import type { StreamState } from "../streams/stream.js";
+import type { RewoundAt, SessionProjection } from "./session.js";
+import { sessionVerbs, type QueuedMessage, type SessionVerbs, type VerbMethod } from "./verbs.js";
 
 /**
  * `projections.runs` (docs/specs/client-runtime.md, "Projections"; ADR
@@ -55,6 +60,20 @@ import type { StreamState } from "../streams/stream.js";
  * projection is followed and a countdown is running it is recomputed every
  * second on the platform clock; at zero it stays at zero until the
  * environment answers the prompt (the TTL sweeper's `prompt.answered`).
+ *
+ * **One session's runs** (`projections.runs.session(environmentId,
+ * sessionId)`, ADR 0022; #230): its run state as above, its queue (the
+ * queued line: each message sent during a run and not yet read, in the order
+ * sent, with its text, its attachments' names and who holds it), its rewind
+ * (the rewound strip: the message rewound to, its text, and whether it can
+ * still be undone), and each verb of ADR 0022 present or absent with its
+ * reason (`verbs.ts`). Only a session's own stream carries `message.sent`
+ * and the rewinds, so following it follows `projections.session` for the
+ * session, which holds its subscription; the session's adapter is read from
+ * the request cache (`providers.list`, and `accounts.list` for the
+ * provider of the account its latest run used), the connection's scopes
+ * and phase from its record. It reads the run states alone, not the parked
+ * asks, so following it fetches no environment's list of prompts.
  */
 
 export type RunState = "idle" | "starting" | "running" | "parked" | "interrupted" | "ended";
@@ -99,6 +118,21 @@ export interface RunsView {
   readonly sessions: ReadonlyMap<string, ReadonlyMap<string, SessionRun>>;
   /** Every enabled environment's parked prompts, oldest first. */
   readonly parkedAsks: readonly ParkedAsk[];
+}
+
+/** One session's runs as `projections.runs.session` shows them: the run state, the queued line, the rewound strip and each verb. */
+export interface SessionRunsView extends SessionRun {
+  /** The messages sent during a run and not yet read, in the order sent. */
+  readonly queue: readonly QueuedMessage[];
+  /** The latest rewind standing, and whether it can still be undone; null when none stands. */
+  readonly rewound: RewoundAt | null;
+  readonly verbs: SessionVerbs;
+}
+
+/** `projections.runs`: every session's run state and the parked asks, and one session's queue, rewind and verbs. */
+export interface RunsProjection extends Observable<RunsView> {
+  /** One session's run state, queue, rewind and verbs. Following it holds the session's subscription, as `projections.session` does. */
+  session(environmentId: string, sessionId: string): Observable<SessionRunsView>;
 }
 
 /** A run the list carried starting, or ending. */
@@ -161,6 +195,8 @@ export interface RunsHost {
 
 export interface Runs {
   readonly view: Observable<RunsView>;
+  /** Each enabled environment's sessions' run states alone: what one session's runs read, without following the parked asks. */
+  readonly sessions: Observable<RunsView["sessions"]>;
   /** An event the environment's session list carried (every `list`-flagged run and prompt event of every session). */
   heard(environmentId: string, event: EventEnvelope): void;
   /** The environment said a parked prompt was resolved (`prompt.resolved`). */
@@ -240,6 +276,9 @@ export const createRuns = (host: RunsHost): Runs => {
     sessionsMemo = { inputs, value: sessions };
     return sessions;
   };
+
+  // The run states alone, over what they are computed from: following them follows no environment's list of prompts.
+  const sessions = derived([host.records, host.lists, host.outbox, version] as const, () => sessionsOf(enabled()));
 
   const asksOf = (records: readonly ConnectionRecord[]): ParkedAsk[] => {
     const lists = host.lists.read();
@@ -330,6 +369,7 @@ export const createRuns = (host: RunsHost): Runs => {
 
   return {
     view,
+    sessions,
     heard(environmentId, event) {
       const known = heardOf(environmentId);
       prune(environmentId, known);
@@ -383,4 +423,91 @@ export const createRuns = (host: RunsHost): Runs => {
       timer = undefined;
     },
   };
+};
+
+/** The run states in which a run of the session is live, or on its way: a rewind or its undo is refused `run_active`. */
+const LIVE_STATES: ReadonlySet<RunState> = new Set(["starting", "running", "parked"]);
+
+/**
+ * The connection's answer for a verb's command: `capability`'s for a
+ * `runs:drive` one, which never queues, so the environment must be
+ * reachable now; for `sessions.fork`, a `sessions:write` command the outbox
+ * keeps while the environment is unreachable, only the scope, whatever the
+ * phase, with the flag gating it, as dispatch checks them (one helper,
+ * `answerQueuedCommand`).
+ */
+export const verbConnection = (record: ConnectionRecord | undefined, method: VerbMethod): CapabilityAnswer =>
+  registry[method].scope === "sessions:write" ? answerQueuedCommand(method, record) : answerCapability(method, record, undefined);
+
+/**
+ * The session's adapter: the environment's only one, else the one of the
+ * provider of the account the session's latest run used; null while the
+ * environment's adapters are not read, or the account is not known.
+ */
+export const adapterOf = (
+  accountId: string | null,
+  accounts: readonly { readonly id: string; readonly provider: string }[] | null,
+  providers: readonly AdapterCapabilities[] | null,
+): AdapterCapabilities | null => {
+  if (providers === null) return null;
+  if (providers.length === 1) return providers[0] ?? null;
+  const provider = accountId === null ? undefined : accounts?.find((account) => account.id === accountId)?.provider;
+  return providers.find((adapter) => adapter.provider === provider) ?? null;
+};
+
+export interface SessionRunsInput {
+  readonly environmentId: string;
+  readonly sessionId: string;
+  /** The session's run state from the list; undefined when the list does not hold it. */
+  readonly run: SessionRun | undefined;
+  readonly session: SessionProjection;
+  readonly connection: (method: VerbMethod) => CapabilityAnswer;
+  readonly adapter: AdapterCapabilities | null;
+}
+
+/** One session's run state, queue, rewind and verbs. */
+export const sessionRunsOf = ({ environmentId, sessionId, run, session, connection, adapter }: SessionRunsInput): SessionRunsView => {
+  const state = run ?? { state: "idle" as const, runId: null, since: null };
+  const live = LIVE_STATES.has(state.state) || session.runs.some((summary) => summary.state === "running");
+  const rewindable = session.items.some((item) => item.kind === "user-message" && item.delivery !== "queued");
+  const { queue, verbs } = sessionVerbs({ connection, adapter, live, queued: session.queued, rewound: session.rewound, rewindable, draft: session.draft });
+  return { environmentId, sessionId, state: state.state, runId: state.runId, since: state.since, queue, rewound: session.rewound, verbs };
+};
+
+export interface SessionRunsHost {
+  /** Every session's run state (`Runs.sessions`): not the whole of `projections.runs`, whose parked asks follow every environment's list of prompts. */
+  readonly runs: Observable<RunsView["sessions"]>;
+  /** `projections.session` for the session: following it holds the session. */
+  readonly session: Observable<SessionProjection>;
+  readonly records: Observable<readonly ConnectionRecord[]>;
+  /** The request cache's `providers.list` for the session's environment. */
+  readonly providers: Observable<CachedAnswer<"providers.list">>;
+  /** The request cache's `accounts.list` for the session's environment. */
+  readonly accounts: Observable<CachedAnswer<"accounts.list">>;
+}
+
+/**
+ * The observable `projections.runs.session(environmentId, sessionId)`
+ * answers. It keeps its value while nothing it reads of the session has
+ * changed (another session's run state moving, say), so a renderer is not
+ * woken for it.
+ */
+export const sessionRunsProjection = (host: SessionRunsHost, environmentId: string, sessionId: string): Observable<SessionRunsView> => {
+  let last: { readonly inputs: readonly unknown[]; readonly value: SessionRunsView } | undefined;
+  return derived([host.runs, host.session, host.records, host.providers, host.accounts] as const, (runs, session, records, providers, accounts) => {
+    const run = runs.get(environmentId)?.get(sessionId);
+    const record = records.find((candidate) => candidate.environmentId === environmentId);
+    const inputs = [run?.state, run?.runId, run?.since, session, record, providers.result, accounts.result];
+    if (last !== undefined && last.inputs.every((input, i) => Object.is(input, inputs[i]))) return last.value;
+    const value = sessionRunsOf({
+      environmentId,
+      sessionId,
+      run,
+      session,
+      connection: (method) => verbConnection(record, method),
+      adapter: adapterOf(session.summary?.accountId ?? null, accounts.result?.accounts ?? null, providers.result?.providers ?? null),
+    });
+    last = { inputs, value };
+    return value;
+  });
 };
