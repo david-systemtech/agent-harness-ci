@@ -41,8 +41,9 @@ export const oneOffEnv = (command: string, marker: string): Record<string, strin
 export interface OneOffOutput {
   take(data: string): void;
   /**
-   * Starts again from `data` (a snapshot: the retained scrollback). One that no longer holds the marker's line, once it
-   * had come, is all the command's, its start dropped.
+   * Starts again from `data` (a snapshot: the retained scrollback, which replaces everything heard), read from nothing as
+   * the command's whole output so far. One that no longer holds the marker's line, once it had come, is all the command's,
+   * its start dropped. A cut stays: more came than was held, whatever the snapshot still holds.
    */
   reset(data: string): void;
   /** What came after the marker's line, whether more came than was held, and whether its start was dropped; null before the marker's line has come. */
@@ -84,7 +85,6 @@ export const oneOffOutput = (marker: string, max = ONE_OFF_MAX_CHARS): OneOffOut
       const started = after !== null;
       before = "";
       after = null;
-      cut = false;
       // The scrollback's cap took the marker's line after it had come: everything retained came after it.
       dropped = started && !data.includes(marker);
       if (dropped) after = "";

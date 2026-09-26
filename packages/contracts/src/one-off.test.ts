@@ -61,4 +61,31 @@ describe("the output after the marker", () => {
     heard.reset("step 4000\r\n");
     expect(heard.said()).toEqual({ text: "step 4000\r\n", cut: false, dropped: true });
   });
+
+  it("reads a snapshot from nothing, whatever part of the marker a take before it held: the whole retained scrollback replaces what was heard", () => {
+    const heard = oneOffOutput(MARKER);
+    heard.take("motd\r\n$ agent-harness-one-");
+    heard.reset(`motd\r\n$ ${MARKER}\r\nhi\r\n`);
+    expect(heard.said()).toEqual({ text: "hi\r\n", cut: false, dropped: false });
+    expect(heard.before()).toBe("motd\r\n$ ");
+  });
+
+  it("reads a snapshot that still holds the marker's line as the command's whole output so far, once, after a marker that came in pieces", () => {
+    const heard = oneOffOutput(MARKER);
+    heard.take("motd\r\n$ agent-harness-one-");
+    heard.take("off-t1\r");
+    heard.take("\nhi\r\n");
+    heard.reset(`motd\r\n$ ${MARKER}\r\nhi\r\nthere\r\n`);
+    heard.take("more\r\n");
+    expect(heard.said()).toEqual({ text: "hi\r\nthere\r\nmore\r\n", cut: false, dropped: false });
+    expect(heard.before()).toBe("motd\r\n$ ");
+  });
+
+  it("keeps the cut through a snapshot: more came than was held, whatever the snapshot still holds", () => {
+    const heard = oneOffOutput(MARKER, 4);
+    heard.take(`${MARKER}\r\nabcdef`);
+    expect(heard.said()).toEqual({ text: "abcd", cut: true, dropped: false });
+    heard.reset("ef");
+    expect(heard.said()).toEqual({ text: "ef", cut: true, dropped: true });
+  });
 });
