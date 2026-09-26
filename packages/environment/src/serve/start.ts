@@ -690,6 +690,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ...forkRewindMethods({
       log,
       host,
+      clock,
       store: providerStore,
       validateRunParameters: host.validateSessionInput,
       clampSessionMode: sessionModeClamp({ host, ceilingOf: (id) => clientSessions.ceiling(id) }),

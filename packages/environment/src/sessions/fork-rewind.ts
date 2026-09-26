@@ -15,9 +15,10 @@ import { requireCapability } from "../adapter/capabilities.js";
 import type { AdapterDescriptor, RunTarget } from "../adapter/contract.js";
 import type { AdapterHost } from "../adapter/host.js";
 import type { EventInput, EventLog, Tx } from "../event-log/event-log.js";
-import { environmentQueue, latestRun, providerSessionOf, readSessionFacts } from "../runs/run-reads.js";
+import { environmentQueue, latestRun, providerQueue, providerSessionOf, readSessionFacts } from "../runs/run-reads.js";
 import { sessionTranscript } from "../runs/transcript.js";
-import type { MethodHandlers } from "../serve/methods.js";
+import type { Clock } from "../serve/clock.js";
+import type { MethodHandler, MethodHandlers } from "../serve/methods.js";
 import { PURGED_STATE, decideCreate, sessionNotFound, type SessionState } from "./decider.js";
 import { groupExists } from "./group-reads.js";
 import { acceptAnyRunParameters, keepSessionMode, type RunParametersCheck, type SessionModeClamp } from "./run-parameters.js";
@@ -42,11 +43,14 @@ import { generatedTitle } from "./titles.js";
  * first run is a fork of that conversation, on whichever account of this
  * environment it names (the hand-off onto another account). A rewind is
  * `session.rewound` on the session, with `session.draft-set` carrying the
- * message's text, refused while a run is live or the environment holds
- * queued messages for the session: the snapshot hides the message and
+ * message's text, refused while a run is live or messages are queued for the
+ * session that a run could still read: the snapshot hides the message and
  * everything after it (`runs/transcript.ts`), and the session's next run
  * resumes the provider's conversation from just before it, on a fresh
  * process (the host stops the session's process when the rewind commits).
+ * With no run live, a rewind first waits, for at most `REWIND_WAIT_MS`, for
+ * what the host is still handing back to the queue after a run's end (#245),
+ * so the refusal names messages the environment holds.
  * An undo is `session.rewind-undone` naming the latest rewind not undone,
  * offered until a run starts on the session after it (ADR 0022, #218): the
  * snapshot shows what that rewind hid again, the draft the rewind replaced
@@ -54,6 +58,21 @@ import { generatedTitle } from "./titles.js";
  * continues as though that rewind had not been made. All three are session
  * events, carrying no run id (#119).
  */
+
+/**
+ * How long a rewind waits, on the environment's clock, for what the host is
+ * still handing back to the session's queue after a run's end (#245) before
+ * it decides on the log as it stands. Claude answers an interrupt within its
+ * 8 s interrupt timeout (then forces its process down and names nothing), a
+ * send at once, and a withdraw within its 15 s control timeout; ten seconds
+ * covers the interrupt, the one a rewind straight after a run's end meets,
+ * with room for the requeue's append. The wait holds up every later command
+ * of the same client (its outbox sends one at a time), so it is not stretched
+ * to the withdraw's: a rewind that stops waiting while a message is still
+ * being handed back is refused `queued_messages`, since the message is still
+ * the provider's on the log, and a retry decides again.
+ */
+export const REWIND_WAIT_MS = 10_000;
 
 /** What a session's next run continues from, and the session it was forked from when it is a fork's first. */
 export interface RunContinuation {
@@ -200,6 +219,8 @@ export interface ForkRewindMethodsOptions {
   readonly validateRunParameters?: RunParametersCheck;
   /** `sessions.create`'s mode clamp (#129); preset: kept as given. */
   readonly clampSessionMode?: SessionModeClamp;
+  /** The environment's clock, which bounds a rewind's wait (`REWIND_WAIT_MS`). */
+  readonly clock: Clock;
 }
 
 type UserMessage = Extract<TranscriptItem, { kind: "user-message" }>;
@@ -212,7 +233,7 @@ const messageNotFound = (sessionId: string, messageId: string) => ({
 });
 
 export const forkRewindMethods = (options: ForkRewindMethodsOptions): MethodHandlers => {
-  const { log, host } = options;
+  const { log, host, clock } = options;
   const validateRunParameters = options.validateRunParameters ?? acceptAnyRunParameters;
   const clampSessionMode = options.clampSessionMode ?? keepSessionMode;
   const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
@@ -261,6 +282,70 @@ export const forkRewindMethods = (options: ForkRewindMethodsOptions): MethodHand
   const descriptorOf = (sessionId: string): AdapterDescriptor | null => {
     const run = latestRun(reader, sessionId);
     return run === null ? null : (host.account(run.accountId)?.descriptor ?? null);
+  };
+
+  /**
+   * `sessions.rewind`'s decision, in its transaction, once what the host was
+   * handing back to the session's queue has come, or the wait for it has run
+   * out (its `prepare`, #245).
+   */
+  const rewindNow: MethodHandler<"sessions.rewind"> = (params, context) => {
+    const id = params.sessionId.toLowerCase();
+    const messageId = params.messageId.toLowerCase();
+    const aggregate = sessionStream(id);
+    const state = stateOf(id);
+    if (state === null || state.deleted) return { aggregate, rejected: sessionNotFound(id) };
+    // A turn the provider opened after the run, waiting on its mode change, counts too: it is adopted as a run after the
+    // rewind, or let go with its messages requeued after it.
+    const active = host.runActive(id);
+    if (active !== null) {
+      // The turn waiting on its mode change cannot be interrupted, and the run it followed has ended: what a client
+      // can do is wait for the change to resolve, so the message says which case this is.
+      const message =
+        host.live(id) !== null
+          ? `A run of the session ${id} is live; interrupt it before rewinding.`
+          : `A turn the provider opened on the session ${id} is waiting on its mode change; it is taken on as a run, or let go, before a rewind can land.`;
+      return { aggregate, rejected: { code: "conflict", message, data: { reason: "run_active", sessionId: id, runId: active.runId } } };
+    }
+    // The next run reads the environment's queue before its prompt: a message queued before the rewind would reach the
+    // provider after a history that hides what it was sent after, so the rewind waits for the queue to be read or withdrawn.
+    // So does a message the provider still holds after the run's end, while its process runs (a provider reading its queue
+    // opens a turn with it, adopted after the rewind) or the host may still hand it back (the wait ran out): a stopped
+    // process's, with nothing handing back, reaches no run.
+    const providerHeld = host.processes.running(id) || host.handingBack(id) ? providerQueue(reader, id) : [];
+    const queued = [...providerHeld, ...environmentQueue(reader, id).map((message) => message.messageId)];
+    if (queued.length > 0) {
+      return {
+        aggregate,
+        rejected: {
+          code: "conflict",
+          message: `The session ${id} has queued messages the next run would read; withdraw them or let a run read them before rewinding.`,
+          data: { reason: "queued_messages", sessionId: id, messageIds: queued },
+        },
+      };
+    }
+    const messages = visibleMessages(id);
+    const target = messages.find((message) => message.messageId === messageId && message.heldBy === null);
+    if (target === undefined) return { aggregate, rejected: messageNotFound(id, messageId) };
+    if (!historyBefore(id, messages, messageId)) {
+      return {
+        aggregate,
+        rejected: {
+          code: "conflict",
+          message: `The message ${messageId} is the session's first: start a new session with its text instead.`,
+          data: { reason: "use_new_session", sessionId: id, messageId },
+        },
+      };
+    }
+    const descriptor = descriptorOf(id);
+    if (descriptor !== null) requireCapability(descriptor, "rewind", ["messageId"], "rewind a session");
+    const payload: SessionRewoundPayload = { toMessageId: messageId };
+    const events: EventInput[] = [{ type: "session.rewound", payload }];
+    // The message's text becomes the draft (ADR 0022), in the same append.
+    const draft = target.text.slice(0, MAX_DRAFT_LENGTH);
+    if (draft !== "") events.push({ type: "session.draft-set", payload: { draft } });
+    log.append(aggregate, events, { tx: context.tx, actor: context.actor, commandId: context.commandId });
+    return { aggregate, result: { sessionId: id, messageId } };
   };
 
   return {
@@ -334,54 +419,23 @@ export const forkRewindMethods = (options: ForkRewindMethodsOptions): MethodHand
       return { aggregate, result: { summary } };
     },
 
-    "sessions.rewind": (params, context) => {
-      const id = params.sessionId.toLowerCase();
-      const messageId = params.messageId.toLowerCase();
-      const aggregate = sessionStream(id);
-      const state = stateOf(id);
-      if (state === null || state.deleted) return { aggregate, rejected: sessionNotFound(id) };
-      const live = host.live(id);
-      if (live !== null) {
-        return {
-          aggregate,
-          rejected: { code: "conflict", message: `A run of the session ${id} is live; interrupt it before rewinding.`, data: { reason: "run_active", sessionId: id, runId: live.runId } },
-        };
-      }
-      // The next run reads the environment's queue before its prompt: a message queued before the rewind would reach the
-      // provider after a history that hides what it was sent after, so the rewind waits for the queue to be read or withdrawn.
-      const queued = environmentQueue(reader, id);
-      if (queued.length > 0) {
-        return {
-          aggregate,
-          rejected: {
-            code: "conflict",
-            message: `The session ${id} has queued messages the next run would read; withdraw them or let a run read them before rewinding.`,
-            data: { reason: "queued_messages", sessionId: id, messageIds: queued.map((message) => message.messageId) },
-          },
-        };
-      }
-      const messages = visibleMessages(id);
-      const target = messages.find((message) => message.messageId === messageId && message.heldBy === null);
-      if (target === undefined) return { aggregate, rejected: messageNotFound(id, messageId) };
-      if (!historyBefore(id, messages, messageId)) {
-        return {
-          aggregate,
-          rejected: {
-            code: "conflict",
-            message: `The message ${messageId} is the session's first: start a new session with its text instead.`,
-            data: { reason: "use_new_session", sessionId: id, messageId },
-          },
-        };
-      }
-      const descriptor = descriptorOf(id);
-      if (descriptor !== null) requireCapability(descriptor, "rewind", ["messageId"], "rewind a session");
-      const payload: SessionRewoundPayload = { toMessageId: messageId };
-      const events: EventInput[] = [{ type: "session.rewound", payload }];
-      // The message's text becomes the draft (ADR 0022), in the same append.
-      const draft = target.text.slice(0, MAX_DRAFT_LENGTH);
-      if (draft !== "") events.push({ type: "session.draft-set", payload: { draft } });
-      log.append(aggregate, events, { tx: context.tx, actor: context.actor, commandId: context.commandId });
-      return { aggregate, result: { sessionId: id, messageId } };
+    "sessions.rewind": {
+      // What the host may still hand back to the queue after the run's end (an interrupt's answer, a send or a withdraw
+      // the provider has not answered) is waited for first, so the queue the check reads holds it and the refusal names
+      // messages the environment holds (#245). Not while a run is active, which refuses the rewind whatever comes back,
+      // and for at most `REWIND_WAIT_MS`: then the transaction decides on the log as it stands.
+      prepare: async (params) => {
+        const id = params.sessionId.toLowerCase();
+        if (host.runActive(id) !== null || !host.handingBack(id)) return rewindNow;
+        await new Promise<void>((resolve) => {
+          const timer = clock.setTimeout(resolve, REWIND_WAIT_MS);
+          void host.handedBack(id).then(() => {
+            timer.cancel();
+            resolve();
+          });
+        });
+        return rewindNow;
+      },
     },
 
     "sessions.undoRewind": (params, context) => {
