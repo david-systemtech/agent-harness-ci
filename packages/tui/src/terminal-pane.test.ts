@@ -181,6 +181,20 @@ describe("keys in the pane", () => {
     await app.waitUntil(() => written(app, FIRST) === "\u001B[200~one\ntwo\u001B[201~", "the paste to reach the terminal");
   });
 
+  it("sends a paste past the write cap in pieces, never splitting a character that takes two code units across them", async () => {
+    const { app, env } = await opened();
+    await command(app, "/terminal");
+    await app.waitFor("The terminal has the keys");
+    // 1 MiB of UTF-16 code units a write: the emoji's high surrogate is the last unit that would fit.
+    const text = `${"a".repeat(1024 * 1024 - 1)}\u{1F600}end`;
+    await app.paste(text);
+    await app.waitUntil(() => written(app, FIRST) === text, "the paste to reach the terminal", 2000);
+    const writes = env.terminal(FIRST).writes;
+    expect(writes.map((w) => w.length)).toEqual([1024 * 1024 - 1, 5]);
+    // No write ends in half a character, or starts with the other half.
+    expect(writes.filter((w) => /[\uD800-\uDBFF]$|^[\uDC00-\uDFFF]/.test(w))).toEqual([]);
+  });
+
   it("leaves the pane on Ctrl+\\ for the next stop, the transcript; pressed twice it sends the key to the shell and keeps the pane", async () => {
     const { app } = await opened();
     await command(app, "/terminal");
