@@ -54,6 +54,11 @@ describe("the lint configuration", () => {
     expect(await ids("packages/environment/src/x.ts", "@agent-harness/tui")).toContain("no-restricted-imports");
     expect(await ids("packages/environment/src/terminals/x.test.ts", "../../../tui/src/terminal/one-off.js")).toContain("no-restricted-imports");
     expect(await ids("packages/environment/test/x.ts", "../../cli/src/main.js")).toContain("no-restricted-imports");
+    // The same climbs spelled with a leading `./`, a `./` between them, or back down through `packages/`.
+    expect(await ids("packages/environment/src/x.ts", "./../../tui/src/x.js")).toContain("no-restricted-imports");
+    expect(await ids("packages/environment/src/x.ts", ".././../client-runtime/src/x.js")).toContain("no-restricted-imports");
+    expect(await ids("packages/environment/src/x.ts", "../../../packages/cli/src/main.js")).toContain("no-restricted-imports");
+    expect(await ids("packages/environment/src/x.ts", "./terminals/x.js")).not.toContain("no-restricted-imports");
     expect(await ids("packages/environment/src/terminals/x.test.ts", "../../test/helper.js")).not.toContain("no-restricted-imports");
     expect(await ids("packages/environment/src/x.ts", "@agent-harness/contracts")).not.toContain("no-restricted-imports");
   });
