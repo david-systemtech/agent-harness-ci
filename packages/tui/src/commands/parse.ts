@@ -7,10 +7,11 @@ import { actionById, isCommandId } from "@agent-harness/contracts";
  * `/pair create`, `/environment`, `/help`, `/reload`; and, carried from
  * Artemis with the transcript and the composer, `/resume`, `/new`,
  * `/attach <path>`, `/snip`, `/tasks`, `/copy`, `/export [file]`,
- * `/timeline` and `/quit`; with the terminal pane, `/terminal`, `/files
- * [path]` and `/diff` (#148). A command of the shared list this build does not
- * answer yet says so in one line, and one the list keeps absent gives its
- * reason; `/profile` is a hidden alias of `/account`. Anything else that
+ * `/timeline` and `/quit`; with the cards, `/asks` and `/notices`; with
+ * the terminal pane, `/terminal`, `/files [path]` and `/diff` (#148). A
+ * command of the shared list this build does not answer yet says so in one
+ * line, and one the list keeps absent gives its reason; `/profile` is a
+ * hidden alias of `/account`. Anything else that
  * begins with a slash is not the terminal's: it goes to the agent as typed,
  * which is how the provider's own commands are run (Artemis's rule). What
  * follows a `/` is syntax, whatever key opens the command menu.
@@ -31,6 +32,8 @@ export const ANSWERED_COMMANDS = [
   "export",
   "timeline",
   "quit",
+  "asks",
+  "notices",
   "terminal",
   "files",
   "diff",
@@ -55,6 +58,8 @@ export type Command =
   | { readonly kind: "export"; readonly file: string | null }
   | { readonly kind: "timeline" }
   | { readonly kind: "quit" }
+  | { readonly kind: "asks" }
+  | { readonly kind: "notices" }
   | { readonly kind: "terminal" }
   | { readonly kind: "files"; readonly path: string | null }
   | { readonly kind: "diff" }
@@ -114,6 +119,10 @@ export const parseCommand = (typed: string): Command => {
       return bare(rest, { kind: "timeline" }, "/timeline");
     case "quit":
       return bare(rest, { kind: "quit" }, "/quit");
+    case "asks":
+      return bare(rest, { kind: "asks" }, "/asks");
+    case "notices":
+      return bare(rest, { kind: "notices" }, "/notices");
     case "terminal":
       return bare(rest, { kind: "terminal" }, "/terminal");
     case "diff":

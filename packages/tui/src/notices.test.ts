@@ -7,7 +7,9 @@ import { KEY, renderApp, type RenderedApp } from "../test/harness.js";
  * (docs/specs/tui.md, "First launch" and "When the environment is
  * unreachable"): a protocol mismatch says to update this client, or to update
  * the environment through its self-update when its flag is present; `revoked`
- * and `expired` show the runtime's notice with its action.
+ * and `expired` show the runtime's notice with its action. The activity line
+ * shows the latest and counts the rest, and `/notices` stacks every one of
+ * `projections.notices`, newest first (#149).
  */
 
 let apps: RenderedApp[] = [];
@@ -97,5 +99,48 @@ describe("the runtime's notices", () => {
     await app.waitFor("was revoked");
     expect(activity(app)).toContain("was revoked");
     expect(app.frame()).not.toContain("Fault: the documents directory is full.");
+  });
+
+  it("counts the notices under the latest on the activity line, and stacks them all in /notices, newest first", async () => {
+    const app = await launch({
+      script: {
+        environments: [
+          { name: "laptop", reach: "paired" },
+          { name: "tower", reach: "paired", sessions: [{ title: "Deploy" }] },
+        ],
+      },
+    });
+    await app.waitFor("● laptop ready");
+    const tower = app.environment("tower");
+    const { runId } = tower.startRun(tower.sessionId(), "Ship it");
+    tower.openPrompt(tower.sessionId(), { runId, summary: "Bash: kubectl apply" });
+    await app.waitFor("Deploy is waiting on tower: Bash: kubectl apply");
+    await app.tick();
+    app.environment("laptop").bye("revoked");
+    await app.waitFor("was revoked");
+    await app.tick();
+    tower.bye("expired");
+    await app.waitFor("expired");
+    await app.waitFor("(+2 more: /notices)");
+
+    await app.type("/notices");
+    await app.press(KEY.enter);
+    await app.waitFor("Notices");
+    const rows = app.rows();
+    const at = (text: string) => rows.findIndex((row) => row.includes(text));
+    expect(at("waiting on tower")).toBeGreaterThan(-1);
+    expect(at("expired")).toBeLessThan(at("was revoked"));
+    expect(at("was revoked")).toBeLessThan(at("waiting on tower"));
+    expect(app.frame()).toContain("(/pair <link>, or /pair <address> <code>)");
+    await app.press(KEY.esc);
+    await app.waitUntil(() => !app.frame().includes("Notices"), "the card closed");
+  });
+
+  it("says there are none in /notices when nothing has been noticed", async () => {
+    const app = await launch({ script: { environments: [{ name: "laptop", reach: "paired" }] } });
+    await app.waitFor("● laptop ready");
+    await app.type("/notices");
+    await app.press(KEY.enter);
+    await app.waitFor("No notices.");
   });
 });

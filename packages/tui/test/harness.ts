@@ -7,6 +7,7 @@ import { createRuntime, writable, type GrantReader, type Runtime, type Writable 
 import { inMemoryPlatform, manualClock, runtimeSpeaking, type InMemoryPlatform, type ManualClock } from "@agent-harness/client-runtime/testing";
 import { flush } from "@agent-harness/client-runtime/testing/fake-wire";
 import { App, type AppProps, type DiffFilter, type OpenedFile, type ScreenFlags, type TerminalClipboard } from "../src/app.js";
+import type { AttentionNotice, TerminalChrome } from "../src/attention/chrome.js";
 import type { ExternalEditResult } from "../src/composer/external-editor.js";
 import { FRAME_MS } from "../src/frames.js";
 import { DEFAULT_KEYMAP, keybindingsFor, type Keymap } from "../src/keys.js";
@@ -47,6 +48,8 @@ export const KEY = {
   ctrlV: "\u0016",
   ctrlW: "\u0017",
   ctrlX: "\u0018",
+  ctrlBracket: "\u001D",
+  space: " ",
   ctrlBackslash: "\u001C",
   left: "\u001B[D",
   right: "\u001B[C",
@@ -73,6 +76,33 @@ export const fakeClipboard = (): FakeClipboard => {
       copied.push(text);
       return "osc52";
     },
+  };
+};
+
+/**
+ * The attention seam as a test sees it: what the screen asked of the
+ * terminal's chrome, in order. No title is set and no bell rung.
+ */
+export interface RecordedChrome extends TerminalChrome {
+  /** Every title set, in order. */
+  readonly titles: string[];
+  /** Every notification asked for, in order: the bell or OSC notification it would be. */
+  readonly notices: AttentionNotice[];
+  /** How many times the title was handed back. */
+  cleared(): number;
+}
+
+export const recordedChrome = (): RecordedChrome => {
+  const titles: string[] = [];
+  const notices: AttentionNotice[] = [];
+  let cleared = 0;
+  return {
+    titles,
+    notices,
+    cleared: () => cleared,
+    setTitle: (title) => void titles.push(title),
+    clearTitle: () => void cleared++,
+    notify: (notice) => void notices.push(notice),
   };
 };
 
@@ -162,6 +192,8 @@ export interface RenderOptions {
 
 export interface RenderedApp {
   readonly clock: ManualClock;
+  /** What the screen asked of the terminal's title and bell. */
+  readonly chrome: RecordedChrome;
   readonly clipboard: FakeClipboard;
   readonly stateDir: string;
   readonly platform: InMemoryPlatform;
@@ -220,6 +252,7 @@ const matches = (frame: string, text: string | RegExp) => {
 export interface AppUnderTest {
   readonly element: ReactElement<AppProps>;
   readonly clock: ManualClock;
+  readonly chrome: RecordedChrome;
   readonly clipboard: FakeClipboard;
   readonly stateDir: string;
   /** Removes the state directory the harness made. */
@@ -264,6 +297,7 @@ export const appUnderTest = async (options: RenderOptions): Promise<AppUnderTest
   const made = options.stateDir === undefined ? mkdtempSync(join(tmpdir(), "agent-harness-tui-state-")) : undefined;
   const stateDir = options.stateDir ?? (made as string);
   const clipboard = options.clipboard ?? fakeClipboard();
+  const chrome = recordedChrome();
   const bindings = options.keybindings && keybindingsFor({ keybindings: options.keybindings.flag }, options.keybindings.stateDir);
   const launched = bindings?.launch;
   const element = createElement(App, {
@@ -288,17 +322,18 @@ export const appUnderTest = async (options: RenderOptions): Promise<AppUnderTest
     stateDir,
     cwd: options.cwd ?? stateDir,
     clipboard,
+    chrome,
     editText: options.editText ?? (async (text: string) => ({ ok: true, text: `${text} (edited)` })),
   });
   const cleanup = () => {
     if (made !== undefined) rmSync(made, { recursive: true, force: true });
   };
-  return { element, clock, platform, world, host, service, faults, clipboard, stateDir, cleanup, opened };
+  return { element, clock, chrome, platform, world, host, service, faults, clipboard, stateDir, cleanup, opened };
 };
 
 /** Renders the terminal UI against the scripted world through `ink-testing-library`, after `appUnderTest`. */
 export const renderApp = async (options: RenderOptions): Promise<RenderedApp> => {
-  const { element, clock, platform, world, host, service, faults, clipboard, stateDir, cleanup, opened } = await appUnderTest(options);
+  const { element, clock, chrome, platform, world, host, service, faults, clipboard, stateDir, cleanup, opened } = await appUnderTest(options);
   const app = render(element);
   await settle();
 
@@ -310,6 +345,7 @@ export const renderApp = async (options: RenderOptions): Promise<RenderedApp> =>
   };
   const rendered: RenderedApp = {
     clock,
+    chrome,
     clipboard,
     stateDir,
     platform,

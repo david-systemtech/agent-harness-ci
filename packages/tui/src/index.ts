@@ -3,6 +3,7 @@ import { createElement } from "react";
 import { PROTOCOL_VERSION, createRuntime, writable } from "@agent-harness/client-runtime";
 import { PRODUCT_NAME } from "@agent-harness/contracts";
 import { App, mountApp, type InkRender } from "./app.js";
+import { terminalChrome } from "./attention/chrome.js";
 import { keybindingsFor } from "./keys.js";
 import { ensurePrivateDirectory } from "./platform/files.js";
 import { nodePlatform, stateDirectory, systemClock } from "./platform/node-platform.js";
@@ -88,6 +89,8 @@ export const runTui = async (options: TuiOptions): Promise<number> => {
     newSessionId: randomUUID,
     stateDir,
     cwd: process.cwd(),
+    // The title and the bell on this terminal, `AGENT_HARNESS_TUI_NO_TITLE` and `AGENT_HARNESS_TUI_NOTIFY` honoured.
+    chrome: terminalChrome({ stdout, env: process.env }),
   });
   const instance = mountApp(app, { stdin, stdout, stderr }, options.render);
   void host.start().catch((error: unknown) => report(`The runtime did not start: ${messageOf(error)}`));

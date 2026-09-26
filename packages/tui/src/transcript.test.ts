@@ -265,7 +265,8 @@ describe("prompts and plans", () => {
     env.emit(SESSION, "assistant.text", { runId, itemId: "i-2", text: "Second.", aborted: false });
     env.emit(SESSION, "prompt.opened", prompt(runId, "p-2", "question"));
     env.emit(SESSION, "prompt.opened", prompt(runId, "p-3", "plan"));
-    await app.waitFor("Bash: rm -rf build — waiting for an answer");
+    // Parked, the prompt is the card under the transcript (#149); answered, it is a row where it was asked.
+    await app.waitFor("⚿ Permission");
     env.emit(SESSION, "prompt.answered", answer(runId, "p-1", { remember: "session" }), { fields: { parkedPromptCount: 0 } });
     env.emit(SESSION, "prompt.answered", answer(runId, "p-2", { answers: { "Which database?": "Postgres" } }));
     env.emit(SESSION, "prompt.answered", answer(runId, "p-3", { mode: { requested: null, effective: "acceptEdits", ceiling: "bypassPermissions", clamped: false, clampReason: null } }));
