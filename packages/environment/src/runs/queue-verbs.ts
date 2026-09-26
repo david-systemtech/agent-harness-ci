@@ -19,7 +19,7 @@ import { providerQueue, readSentMessage, readSessionFacts } from "./run-reads.js
  * `read-now`) and starts the queue's run after its end; with none, the run
  * of the environment's queue starts in the command's own transaction.
  *
- * Withdraw is the one command that must hear from outside the log first: a
+ * Withdraw must hear from outside the log first (as `sessions.rewind` does, #245): a
  * message the provider holds is its to give back, and whether it still
  * holds it, or has read it, only the provider can say, asynchronously
  * (Claude's cancel-by-id control). So it is a prepared command

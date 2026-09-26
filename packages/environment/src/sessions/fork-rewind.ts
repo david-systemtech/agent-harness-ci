@@ -17,7 +17,7 @@ import type { AdapterHost } from "../adapter/host.js";
 import type { EventInput, EventLog, Tx } from "../event-log/event-log.js";
 import { environmentQueue, latestRun, providerSessionOf, readSessionFacts } from "../runs/run-reads.js";
 import { sessionTranscript } from "../runs/transcript.js";
-import type { MethodHandlers } from "../serve/methods.js";
+import type { MethodHandler, MethodHandlers } from "../serve/methods.js";
 import { PURGED_STATE, decideCreate, sessionNotFound, type SessionState } from "./decider.js";
 import { groupExists } from "./group-reads.js";
 import { acceptAnyRunParameters, keepSessionMode, type RunParametersCheck, type SessionModeClamp } from "./run-parameters.js";
@@ -43,10 +43,12 @@ import { generatedTitle } from "./titles.js";
  * environment it names (the hand-off onto another account). A rewind is
  * `session.rewound` on the session, with `session.draft-set` carrying the
  * message's text, refused while a run is live or the environment holds
- * queued messages for the session: the snapshot hides the message and
- * everything after it (`runs/transcript.ts`), and the session's next run
- * resumes the provider's conversation from just before it, on a fresh
- * process (the host stops the session's process when the rewind commits).
+ * queued messages for the session, read once what the host may still hand
+ * back to that queue after a run's end has come (#245): the snapshot hides
+ * the message and everything after it (`runs/transcript.ts`), and the
+ * session's next run resumes the provider's conversation from just before
+ * it, on a fresh process (the host stops the session's process when the
+ * rewind commits).
  * An undo is `session.rewind-undone` naming the latest rewind not undone,
  * offered until a run starts on the session after it (ADR 0022, #218): the
  * snapshot shows what that rewind hid again, the draft the rewind replaced
@@ -263,6 +265,72 @@ export const forkRewindMethods = (options: ForkRewindMethodsOptions): MethodHand
     return run === null ? null : (host.account(run.accountId)?.descriptor ?? null);
   };
 
+  /**
+   * `sessions.rewind`'s decision, in its transaction, once what the host was
+   * handing back to the session's queue has come (its `prepare`, #245).
+   */
+  const rewindNow: MethodHandler<"sessions.rewind"> = (params, context) => {
+    const id = params.sessionId.toLowerCase();
+    const messageId = params.messageId.toLowerCase();
+    const aggregate = sessionStream(id);
+    const state = stateOf(id);
+    if (state === null || state.deleted) return { aggregate, rejected: sessionNotFound(id) };
+    const live = host.live(id);
+    if (live !== null) {
+      return {
+        aggregate,
+        rejected: { code: "conflict", message: `A run of the session ${id} is live; interrupt it before rewinding.`, data: { reason: "run_active", sessionId: id, runId: live.runId } },
+      };
+    }
+    // Settling still, begun since the wait: its run's end has committed and it may still hand a message back.
+    const settling = host.settling(id);
+    if (settling !== null) {
+      return {
+        aggregate,
+        rejected: {
+          code: "conflict",
+          message: `A run of the session ${id} is still handing messages back to its queue; rewind again once it has.`,
+          data: { reason: "run_active", sessionId: id, runId: settling.runId },
+        },
+      };
+    }
+    // The next run reads the environment's queue before its prompt: a message queued before the rewind would reach the
+    // provider after a history that hides what it was sent after, so the rewind waits for the queue to be read or withdrawn.
+    const queued = environmentQueue(reader, id);
+    if (queued.length > 0) {
+      return {
+        aggregate,
+        rejected: {
+          code: "conflict",
+          message: `The session ${id} has queued messages the next run would read; withdraw them or let a run read them before rewinding.`,
+          data: { reason: "queued_messages", sessionId: id, messageIds: queued.map((message) => message.messageId) },
+        },
+      };
+    }
+    const messages = visibleMessages(id);
+    const target = messages.find((message) => message.messageId === messageId && message.heldBy === null);
+    if (target === undefined) return { aggregate, rejected: messageNotFound(id, messageId) };
+    if (!historyBefore(id, messages, messageId)) {
+      return {
+        aggregate,
+        rejected: {
+          code: "conflict",
+          message: `The message ${messageId} is the session's first: start a new session with its text instead.`,
+          data: { reason: "use_new_session", sessionId: id, messageId },
+        },
+      };
+    }
+    const descriptor = descriptorOf(id);
+    if (descriptor !== null) requireCapability(descriptor, "rewind", ["messageId"], "rewind a session");
+    const payload: SessionRewoundPayload = { toMessageId: messageId };
+    const events: EventInput[] = [{ type: "session.rewound", payload }];
+    // The message's text becomes the draft (ADR 0022), in the same append.
+    const draft = target.text.slice(0, MAX_DRAFT_LENGTH);
+    if (draft !== "") events.push({ type: "session.draft-set", payload: { draft } });
+    log.append(aggregate, events, { tx: context.tx, actor: context.actor, commandId: context.commandId });
+    return { aggregate, result: { sessionId: id, messageId } };
+  };
+
   return {
     "sessions.fork": (params, context) => {
       const sourceId = params.sessionId.toLowerCase();
@@ -334,54 +402,15 @@ export const forkRewindMethods = (options: ForkRewindMethodsOptions): MethodHand
       return { aggregate, result: { summary } };
     },
 
-    "sessions.rewind": (params, context) => {
-      const id = params.sessionId.toLowerCase();
-      const messageId = params.messageId.toLowerCase();
-      const aggregate = sessionStream(id);
-      const state = stateOf(id);
-      if (state === null || state.deleted) return { aggregate, rejected: sessionNotFound(id) };
-      const live = host.live(id);
-      if (live !== null) {
-        return {
-          aggregate,
-          rejected: { code: "conflict", message: `A run of the session ${id} is live; interrupt it before rewinding.`, data: { reason: "run_active", sessionId: id, runId: live.runId } },
-        };
-      }
-      // The next run reads the environment's queue before its prompt: a message queued before the rewind would reach the
-      // provider after a history that hides what it was sent after, so the rewind waits for the queue to be read or withdrawn.
-      const queued = environmentQueue(reader, id);
-      if (queued.length > 0) {
-        return {
-          aggregate,
-          rejected: {
-            code: "conflict",
-            message: `The session ${id} has queued messages the next run would read; withdraw them or let a run read them before rewinding.`,
-            data: { reason: "queued_messages", sessionId: id, messageIds: queued.map((message) => message.messageId) },
-          },
-        };
-      }
-      const messages = visibleMessages(id);
-      const target = messages.find((message) => message.messageId === messageId && message.heldBy === null);
-      if (target === undefined) return { aggregate, rejected: messageNotFound(id, messageId) };
-      if (!historyBefore(id, messages, messageId)) {
-        return {
-          aggregate,
-          rejected: {
-            code: "conflict",
-            message: `The message ${messageId} is the session's first: start a new session with its text instead.`,
-            data: { reason: "use_new_session", sessionId: id, messageId },
-          },
-        };
-      }
-      const descriptor = descriptorOf(id);
-      if (descriptor !== null) requireCapability(descriptor, "rewind", ["messageId"], "rewind a session");
-      const payload: SessionRewoundPayload = { toMessageId: messageId };
-      const events: EventInput[] = [{ type: "session.rewound", payload }];
-      // The message's text becomes the draft (ADR 0022), in the same append.
-      const draft = target.text.slice(0, MAX_DRAFT_LENGTH);
-      if (draft !== "") events.push({ type: "session.draft-set", payload: { draft } });
-      log.append(aggregate, events, { tx: context.tx, actor: context.actor, commandId: context.commandId });
-      return { aggregate, result: { sessionId: id, messageId } };
+    "sessions.rewind": {
+      // What the host may still hand back to the queue after the run's end (an interrupt's answer, a send or a withdraw
+      // the provider has not answered) is waited for first, so the queue the check reads holds it (#245). Not while a
+      // run is live, which refuses the rewind whatever comes back.
+      prepare: async (params) => {
+        const id = params.sessionId.toLowerCase();
+        if (host.live(id) === null) await host.settling(id)?.settled;
+        return rewindNow;
+      },
     },
 
     "sessions.undoRewind": (params, context) => {

@@ -3,7 +3,7 @@ import { SessionSnapshot, registry, type ParamsOf, type ResponseOf } from "@agen
 import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { manualClock } from "../../test/clock.js";
-import { end, fakeAdapter, gate, say, type FakeAdapterOptions, type Script } from "../../test/fake-adapter.js";
+import { end, fakeAdapter, gate, say, type FakeAdapterOptions, type Gate, type Script } from "../../test/fake-adapter.js";
 import { startTestEnvironment, type TestEnvironment } from "../../test/helper.js";
 import { command, create, deleteSession, get, purgeSession, refusal } from "../../test/sessions.js";
 import type { WireClient } from "../../test/wire-client.js";
@@ -360,6 +360,80 @@ describe("sessions.rewind", () => {
     // Once a run has read the queue, the rewind is taken.
     await runTo(t, client, id, "Now");
     expect((await rewind(client, id, second.messageId)).receipt.status).toBe("accepted");
+  });
+
+  describe("beside a message the host hands back after the run's end (#245)", () => {
+    /**
+     * A session whose third run, "Busy", holds a message sent during it with the provider (no steering) and then
+     * completes on its own, the provider still holding the message: what the host hands back later (`late`) arrives
+     * after that run's `run.ended` has committed.
+     */
+    const busyWithHeldMessage = async (t: TestEnvironment, client: WireClient, late: (runId: string) => Promise<unknown>) => {
+      const turn = gate();
+      const { id } = await create(client);
+      await runTo(t, client, id, "First");
+      const second = await runTo(t, client, id, "Second");
+      t.adapter.nextScripts.push(async function* () {
+        yield say("Working");
+        await turn.opened;
+        yield end();
+      });
+      const busy = registry["runs.start"].response.parse(await client.request("runs.start", { commandId: randomUUID(), sessionId: id, text: "Busy" }));
+      const runId = busy.result?.runId as string;
+      await vi.waitFor(() => expect(events(t, id).map((event) => event.type)).toContain("assistant.text"));
+      const sent = registry["runs.send"].response.parse(await client.request("runs.send", { commandId: randomUUID(), sessionId: id, text: "Sent during Busy" }));
+      expect(sent.result).toMatchObject({ delivery: "queued", heldBy: "provider" });
+      await late(runId);
+      // The turn completes before the provider's answer: its end takes nothing back, since a completing provider reads what it holds.
+      turn.open();
+      await vi.waitFor(() => expect(ended(t, id).at(-1)?.payload).toMatchObject({ runId, reason: "completed" }));
+      return { id, second, messageId: sent.result?.messageId as string };
+    };
+
+    /**
+     * A rewind sent once the run's end has committed and before the late hand-back waits for it, then is refused
+     * `queued_messages` naming the message; the next run reads it on the history it was sent after, never a rewound one.
+     */
+    const waitsThenRefuses = async (t: TestEnvironment, client: WireClient, answer: Gate, session: { id: string; second: { messageId: string }; messageId: string }) => {
+      const { id, second, messageId } = session;
+      const answering = rewind(client, id, second.messageId);
+      let answered = false;
+      void answering.then(() => (answered = true));
+      // A request after it is answered while the rewind still waits on what the provider has not handed back.
+      await get(client, id);
+      expect(events(t, id).map((event) => event.type)).not.toContain("session.rewound");
+      expect(answered).toBe(false);
+
+      answer.open();
+      expect((await answering).receipt).toMatchObject({
+        status: "rejected",
+        reason: "conflict",
+        error: { data: { reason: "queued_messages", sessionId: id, messageIds: [messageId] } },
+      });
+      const types = events(t, id).map((event) => event.type);
+      expect(types).not.toContain("session.rewound");
+      expect(types.lastIndexOf("message.requeued")).toBeGreaterThan(types.lastIndexOf("run.ended"));
+
+      await runTo(t, client, id, "Next");
+      expect(t.adapter.lastRun().input.prompt.map((message) => message.text)).toEqual(["Sent during Busy", "Next"]);
+      expect(t.adapter.lastRun().input.target).toEqual({ kind: "resume", providerSessionId: "provider-1" });
+    };
+
+    it("waits for an interrupt whose answer comes after the run's end, then refuses queued_messages", async () => {
+      const answer = gate();
+      const t = await start({ capabilities: { fork: true, rewind: true, steering: false }, holdInterruptAnswers: answer });
+      const client = await t.client();
+      const session = await busyWithHeldMessage(t, client, (runId) => client.request("runs.interrupt", { commandId: randomUUID(), runId }));
+      await waitsThenRefuses(t, client, answer, session);
+    });
+
+    it("waits for a send the provider refuses after the run's end, then refuses queued_messages", async () => {
+      const refusing = gate();
+      const t = await start({ capabilities: { fork: true, rewind: true, steering: false }, refuseSendsAfter: refusing });
+      const client = await t.client();
+      const session = await busyWithHeldMessage(t, client, async () => undefined);
+      await waitsThenRefuses(t, client, refusing, session);
+    });
   });
 
   it("is not continued by a run that linked the provider session and then failed, nor by one that completed without linking it: the next run rewinds again", async () => {

@@ -45,7 +45,10 @@ import { MANUAL_CLOCK_START } from "./clock.js";
  * own, reported through the adoption hook, as a provider reading its queue does.
  * It gives a message it still holds back on `withdraw` (#228), and says it
  * no longer holds one a turn has taken; a test can hold every withdraw on a
- * gate (`holdWithdraws`) to race it against the provider's read.
+ * gate (`holdWithdraws`) to race it against the provider's read. A test can
+ * hold an interrupt's answer (`holdInterruptAnswers`) and have every send
+ * refused late (`refuseSendsAfter`), so the run's end comes before the
+ * message is handed back (#245).
  *
  * Titles (session-state spec, "Title fallback"): the fake can declare
  * `titleRead`, answering a title of its own and recording each read, and
@@ -173,6 +176,17 @@ export interface FakeAdapterOptions {
   readonly holdWithdraws?: Gate;
   /** A gate every `withdraw` waits on after it has cancelled (or failed to find) the message, before it answers: a slow answer (#228). Preset: none. */
   readonly holdWithdrawAnswers?: Gate;
+  /**
+   * A gate every `interrupt` waits on after it has cancelled the provider's queue (what it held, which the answer names,
+   * opens no turn), before it stops the turn and answers: a slow answer, which the turn's own end may come before (#245).
+   * Preset: none.
+   */
+  readonly holdInterruptAnswers?: Gate;
+  /**
+   * A gate every `send` waits on, once recorded, before it refuses the message, as a provider whose turn ended before it
+   * took the message does: a late refusal (#245). Preset: none, every send taken.
+   */
+  readonly refuseSendsAfter?: Gate;
   /**
    * Declares `subagentTranscripts`: each subagent's transcript by agent id, the
    * same for every session (none for an id not listed); every read is
@@ -658,6 +672,12 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
       },
       send(message) {
         record.sent.push(message);
+        const refuse = options.refuseSendsAfter;
+        if (refuse !== undefined) {
+          return refuse.opened.then(() => {
+            throw new Error("The run has ended; its messages go to the next run.");
+          });
+        }
         if (descriptor.steering) push({ type: "message.delivered", payload: { messageId: message.messageId, delivery: "steered" } });
         const taker = takers.shift();
         if (taker !== undefined && descriptor.steering) taker(message);
@@ -674,8 +694,10 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
       },
       async interrupt() {
         record.interrupted = true;
-        abort.abort();
         const stillQueued = descriptor.steering ? [] : untaken.splice(0).map((message) => message.messageId);
+        // Held, the turn plays on meanwhile and may end on its own first; the end below is then a no-op.
+        if (options.holdInterruptAnswers !== undefined) await options.holdInterruptAnswers.opened;
+        abort.abort();
         push({ type: "end", reason: "interrupted", cause: "user" });
         return { stillQueued };
       },

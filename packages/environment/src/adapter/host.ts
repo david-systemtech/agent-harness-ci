@@ -334,6 +334,16 @@ export interface AdapterHost {
   nextRunBasis(sessionId: string): NextRunBasis | null;
   /** The withdraw of `messageId` has decided: a run may read the message again if it is still queued (#228). */
   settleWithdraw(messageId: string): void;
+  /**
+   * What may still hand a message back to the session's queue after its
+   * run's `run.ended` has committed (#245): an interrupt whose answer has
+   * not come (the turn can complete first, and the answer then names what
+   * the provider held), a send or a withdraw its provider has not answered.
+   * Null when nothing is; else the run the latest of it belongs to, and a
+   * promise that settles once none is left, later work included. A rewind
+   * waits on it, so the message is in the queue its check reads.
+   */
+  settling(sessionId: string): { readonly runId: string; readonly settled: Promise<void> } | null;
   /** Stops a piece of a live run's delegated work. */
   stopTask(runId: string, taskId: string): void;
   /** Changes a live run's mode through its adapter (`modeChange`), once the command that asked has committed; its resolved policy stays. */
@@ -478,8 +488,11 @@ interface ReadNow {
 
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
-/** Runs `work` and hands a promise it answers, or a throw, to `onError`; never an unhandled rejection. */
-const safely = (work: () => unknown, onError: (error: unknown) => void): void => {
+/**
+ * Runs `work` and hands a promise it answers, or a throw, to `onError`; never an unhandled rejection. Answers, when
+ * `work` answered a promise, one that settles once it and `onError` are done.
+ */
+const safely = (work: () => unknown, onError: (error: unknown) => void): Promise<void> | undefined => {
   // `onError` may throw too (a requeue whose append fails, an end whose adoption fails): that is logged, never left unhandled.
   const handle = (error: unknown): void => {
     try {
@@ -490,10 +503,11 @@ const safely = (work: () => unknown, onError: (error: unknown) => void): void =>
   };
   try {
     const answer = work();
-    if (answer instanceof Promise) answer.catch(handle);
+    if (answer instanceof Promise) return answer.then(() => undefined, handle);
   } catch (error) {
     handle(error);
   }
+  return undefined;
 };
 
 export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
@@ -563,6 +577,30 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
   const gateRequests = new Set<string>();
   const stage = options.attachmentStage;
   let closing = false;
+
+  /**
+   * By session, the work under way that may hand a message back to its
+   * queue once its run's end has committed (`settling`, #245), each with its
+   * run: an interrupt's answer, a send or a withdraw the provider has not
+   * answered. Each leaves once it has settled, its hand-back appended.
+   */
+  const handingBack = new Map<string, Map<Promise<unknown>, string>>();
+  const track = (sessionId: string, runId: string, work: Promise<unknown>): void => {
+    const pending = handingBack.get(sessionId) ?? new Map<Promise<unknown>, string>();
+    handingBack.set(sessionId, pending);
+    pending.set(work, runId);
+    const done = (): void => {
+      pending.delete(work);
+      if (pending.size === 0 && handingBack.get(sessionId) === pending) handingBack.delete(sessionId);
+    };
+    work.then(done, done);
+  };
+  /** Settles once the session has nothing handing back, work begun meanwhile included. */
+  const handedBack = async (sessionId: string): Promise<void> => {
+    for (let pending = handingBack.get(sessionId); pending !== undefined; pending = handingBack.get(sessionId)) {
+      await Promise.allSettled([...pending.keys()]);
+    }
+  };
 
   /** A run has read the message, or its session is purged: its bytes go, from memory and from disk. */
   const unstage = (messageId: string): void => {
@@ -692,6 +730,8 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     entry.interrupting = true;
     let settle!: () => void;
     entry.interruption = new Promise<void>((resolve) => (settle = resolve));
+    // Its answer may come after the run's end, with what the provider still held: a rewind waits for it (#245).
+    track(entry.sessionId, entry.runId, entry.interruption);
     safely(
       async () => {
         const { stillQueued } = await run.interrupt();
@@ -1704,6 +1744,34 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     return undefined;
   };
 
+  /** Asks the live run `entry` to take message `messageId` back, for `withdraw` (#228). */
+  const withdrawThrough = async (entry: LiveRun, run: AdapterRun, sessionId: string, messageId: string): Promise<{ readonly withdrawn: boolean }> => {
+    const withdraw = capability(entry.descriptor, "providerQueue", run.withdraw, "withdraw a queued message", "withdraw");
+    const interruption = entry.interruption;
+    // Kept out of any run that starts before the command has decided on it (let go by `settleWithdraw`): one an end
+    // starts from the queue once the message is back in it, or the run of a read-now whose interrupt took it.
+    withdrawing.add(messageId);
+    let answer: { readonly withdrawn: boolean };
+    try {
+      answer = await withdraw.call(run, messageId);
+    } catch (error) {
+      withdrawing.delete(messageId);
+      if (error instanceof WithdrawUnsupported) {
+        throw unsupported(entry.descriptor, "providerQueue", ["messageId"], "withdraw a queued message", error.message);
+      }
+      console.error(`Withdrawing message ${messageId} from the provider of run ${entry.runId} failed:`, error);
+      throw new ContractError({ code: "internal", message: `The provider could not say whether it still held message ${messageId}: ${messageOf(error)}`, data: {} });
+    }
+    if (answer.withdrawn) {
+      // The provider gave it up: the environment holds it now, in a transaction of its own, so nothing that fails after this loses it.
+      if (!closing) requeueReported(sessionId, [messageId]);
+      return answer;
+    }
+    // Not held any more while the run's interrupt is under way: the interrupt may have taken it back. Decided again on the log once it has.
+    if (interruption !== null) await interruption;
+    return answer;
+  };
+
   return {
     adapters,
     runs: registry,
@@ -1758,7 +1826,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
         return;
       }
       const run = entry.run;
-      safely(
+      const handing = safely(
         () => run?.send(send.message),
         (error) => {
           // The provider did not take it, so the environment holds it: the next run reads it (ADR 0022).
@@ -1766,6 +1834,8 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
           if (!closing) requeue(entry.sessionId, send.runId, [send.message.messageId]);
         },
       );
+      // A refusal that comes after the run's end hands the message back after it: a rewind waits for the answer (#245).
+      if (handing !== undefined) track(entry.sessionId, entry.runId, handing);
     },
     interrupt(runId) {
       const entry = byRunId(runId);
@@ -1785,38 +1855,22 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
         if (entry.readNow === pending) startReadNow(entry);
       });
     },
-    async withdraw(sessionId, messageId) {
+    withdraw(sessionId, messageId) {
       const entry = live.get(sessionId);
-      const run = entry?.run;
       // No run is live to ask: the provider's queue is read by a turn it opened, waiting to be adopted.
-      if (entry === undefined || entry.ended || run === undefined) return { withdrawn: false };
-      const withdraw = capability(entry.descriptor, "providerQueue", run.withdraw, "withdraw a queued message", "withdraw");
-      const interruption = entry.interruption;
-      // Kept out of any run that starts before the command has decided on it (let go by `settleWithdraw`): one an end
-      // starts from the queue once the message is back in it, or the run of a read-now whose interrupt took it.
-      withdrawing.add(messageId);
-      let answer: { readonly withdrawn: boolean };
-      try {
-        answer = await withdraw.call(run, messageId);
-      } catch (error) {
-        withdrawing.delete(messageId);
-        if (error instanceof WithdrawUnsupported) {
-          throw unsupported(entry.descriptor, "providerQueue", ["messageId"], "withdraw a queued message", error.message);
-        }
-        console.error(`Withdrawing message ${messageId} from the provider of run ${entry.runId} failed:`, error);
-        throw new ContractError({ code: "internal", message: `The provider could not say whether it still held message ${messageId}: ${messageOf(error)}`, data: {} });
-      }
-      if (answer.withdrawn) {
-        // The provider gave it up: the environment holds it now, in a transaction of its own, so nothing that fails after this loses it.
-        if (!closing) requeueReported(sessionId, [messageId]);
-        return answer;
-      }
-      // Not held any more while the run's interrupt is under way: the interrupt may have taken it back. Decided again on the log once it has.
-      if (interruption !== null) await interruption;
-      return answer;
+      if (entry === undefined || entry.ended || entry.run === undefined) return Promise.resolve({ withdrawn: false });
+      const asking = withdrawThrough(entry, entry.run, sessionId, messageId);
+      // The provider's answer may come after the run's end and hand the message back after it: a rewind waits for it (#245).
+      track(sessionId, entry.runId, asking);
+      return asking;
     },
     settleWithdraw(messageId) {
       withdrawing.delete(messageId);
+    },
+    settling(sessionId) {
+      const pending = handingBack.get(sessionId);
+      const runId = pending === undefined ? undefined : [...pending.values()].at(-1);
+      return runId === undefined ? null : { runId, settled: handedBack(sessionId) };
     },
     nextRunBasis: (sessionId) => basisOf(sessionId),
     holdsPrompt: (runId, promptId) => byRunId(runId)?.prompts.has(promptId) === true,
