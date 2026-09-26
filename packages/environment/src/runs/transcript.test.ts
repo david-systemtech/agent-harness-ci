@@ -1,7 +1,7 @@
 import { SessionSnapshot } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { openEventLog, type EventEnvelope } from "../event-log/event-log.js";
-import { foldTranscript, readTranscriptEvents } from "./transcript.js";
+import { foldTranscript, readTranscriptEvents, storedTranscriptParts } from "./transcript.js";
 
 /**
  * The fold that gives a session's snapshot its runs, items, parked prompts
@@ -83,7 +83,7 @@ const summary = {
 };
 
 describe("the transcript fold", () => {
-  it("folds a streamed run into its run and settled items: deltas left out, tool updates folded, a queued message delivered", () => {
+  it("folds a streamed run into its run and settled items: a delta read only for where its item opened, tool updates folded, a queued message delivered", () => {
     sequence = 0;
     const events = [
       event("session.created", { title: null }),
@@ -105,9 +105,18 @@ describe("the transcript fold", () => {
     expect(runs).toEqual([
       expect.objectContaining({ runId, state: "ended", startedAt: at(2), endedAt: at(14), reason: "completed", durationMs: 1000, usage: [expect.objectContaining({ inputTokens: 5 })] }),
     ]);
-    expect(items.map((item) => item.kind)).toEqual(["user-message", "assistant-thinking", "tool-call", "user-message", "tasks", "assistant-text"]);
-    expect(items[2]).toMatchObject({ status: "ok", update: { progress: "half" }, output: "file.txt", durationMs: 3 });
-    expect(items[3]).toMatchObject({ messageId: queued, delivery: "steered", heldBy: null });
+    // The text settled at 12 sits at 4, where its first delta opened it, as a client that heard the delta places it (#260).
+    expect(items.map((item) => [item.kind, item.sequence])).toEqual([
+      ["user-message", 3],
+      ["assistant-text", 4],
+      ["assistant-thinking", 5],
+      ["tool-call", 6],
+      ["user-message", 7],
+      ["tasks", 11],
+    ]);
+    expect(items[1]).toMatchObject({ text: "Looked.", aborted: false });
+    expect(items[3]).toMatchObject({ status: "ok", update: { progress: "half" }, output: "file.txt", durationMs: 3 });
+    expect(items[4]).toMatchObject({ messageId: queued, delivery: "steered", heldBy: null });
     expect(parkedPrompts).toEqual([]);
     expect(SessionSnapshot.safeParse({ sequence: 14, summary, runs, items, parkedPrompts, rewinds: [] }).success).toBe(true);
   });
@@ -286,10 +295,81 @@ describe("the transcript fold", () => {
       expect(continued.rewinds).toMatchObject([{ sequence: 13, undoable: false }]);
     });
 
-    it("reads a fold stored before the rewinds were carried as one with none standing", () => {
+    it("reads a fold stored before the rewinds were carried as one with none standing, and one stored since as it is", () => {
       const events = threeTurns();
       const { runs, items, parkedPrompts } = foldTranscript(events.slice(0, 6));
-      expect(foldTranscript(events.slice(6), { runs, items, parkedPrompts } as never)).toEqual(foldTranscript(events));
+      const older = JSON.parse(JSON.stringify({ runs, items, parkedPrompts })) as unknown;
+      expect(storedTranscriptParts(older)).toEqual({ runs, items, parkedPrompts, rewinds: [] });
+      expect(foldTranscript(events.slice(6), storedTranscriptParts(older))).toEqual(foldTranscript(events));
+      const since = foldTranscript([...events, event("session.rewound", { toMessageId: queued })]);
+      expect(storedTranscriptParts(JSON.parse(JSON.stringify(since)))).toEqual(since);
+    });
+
+    it("takes a withdrawn message out of the fold that holds it, and an undo does not bring it back", () => {
+      sequence = 0;
+      const events = [
+        started(runId),
+        sent(runId, first, "One"),
+        event("message.sent", { runId, messageId: queued, text: "Taken back", attachments: [], delivery: "queued", heldBy: "environment" }),
+        event("assistant.text", { runId, itemId: "i-1", text: "Reply one", aborted: false }),
+        ended(runId),
+        event("session.rewound", { toMessageId: first }),
+        event("message.withdrawn", { runId, messageId: queued, heldBy: "environment" }),
+      ];
+      const folded = foldTranscript(events);
+      expect(folded.items).toEqual([]);
+      expect(sequences(folded.rewinds[0]?.items ?? [])).toEqual([2, 4]);
+      const undone = foldTranscript([...events, event("session.rewind-undone", { toMessageId: first, rewindSequence: 6 })]);
+      expect(sequences(undone.items)).toEqual([2, 4]);
+      // The same from a fold stored while the message was still in the rewind's fold.
+      expect(foldTranscript(events.slice(6), JSON.parse(JSON.stringify(foldTranscript(events.slice(0, 6)))) as ReturnType<typeof foldTranscript>)).toEqual(folded);
+    });
+
+    it("folds on from a stored fold that holds nested rewinds as from every event: the inner rewind kept, undone in turn", () => {
+      const again = "7a9c1e3f-5b7d-4f9a-8c1e-3f5b7d9f1a3c";
+      const events = [
+        ...threeTurns(),
+        event("session.rewound", { toMessageId: second }),
+        started(runId, { promptMessageId: again }),
+        sent(runId, again, "Three, again"),
+        ended(runId),
+        event("session.rewound", { toMessageId: queued }),
+      ];
+      const stored = JSON.parse(JSON.stringify(foldTranscript(events))) as ReturnType<typeof foldTranscript>;
+      expect(stored.rewinds).toMatchObject([{ sequence: 17, rewinds: [{ sequence: 13, undoable: false }] }]);
+      const rest = [
+        event("tool.ended", { runId: secondRun, toolCallId: "t-2", status: "ok", output: "read", durationMs: 2 }),
+        event("session.rewind-undone", { toMessageId: queued, rewindSequence: 17 }),
+      ];
+      const whole = foldTranscript([...events, ...rest]);
+      expect(foldTranscript(rest, stored)).toEqual(whole);
+      // The inner rewind stands again at the top, where it cut, not undoable, with what it hid.
+      expect(whole.rewinds).toMatchObject([{ sequence: 13, toMessageId: second, undoable: false, rewinds: [] }]);
+      expect(sequences(whole.rewinds[0]?.items ?? [])).toEqual([10, 11]);
+      expect(sequences(whole.items)).toEqual([2, 3, 6, 7, 15]);
+    });
+
+    it("puts a streamed reply where its first delta opened it, so a rewind to a message sent while it streamed leaves it out of the fold", () => {
+      sequence = 0;
+      const events = [
+        started(runId),
+        sent(runId, first, "One"),
+        event("assistant.delta", { runId, itemId: "i-1", fragments: [{ kind: "text", text: "Rep" }] }),
+        event("message.sent", { runId, messageId: queued, text: "Two", attachments: [], delivery: "queued", heldBy: "environment" }),
+        event("assistant.text", { runId, itemId: "i-1", text: "Reply one", aborted: false }),
+        ended(runId),
+        started(secondRun, { promptMessageId: null, queuedMessageIds: [queued] }),
+        event("message.delivered", { runId: secondRun, messageId: queued, delivery: "prompt" }),
+        event("assistant.text", { runId: secondRun, itemId: "i-2", text: "Reply two", aborted: false }),
+        ended(secondRun),
+        event("session.rewound", { toMessageId: queued }),
+      ];
+      const folded = foldTranscript(events);
+      expect(folded.items.map((item) => [item.kind, item.sequence])).toEqual([
+        ["user-message", 2],
+        ["assistant-text", 3],
+      ]);
+      expect(sequences(folded.rewinds[0]?.items ?? [])).toEqual([4, 9]);
     });
   });
 
@@ -336,18 +416,33 @@ describe("the transcript fold", () => {
 });
 
 describe("the read the fold takes", () => {
-  it("is the session's stream in order without its deltas, which the settled text carries whole", () => {
+  it("is the session's stream in order with only the first delta of each item and fragment kind, the settled text carrying the rest", () => {
     const log = openEventLog({ path: ":memory:", projectors: [] });
     try {
       const stream = { kind: "session", id: sessionId } as const;
       const other = { kind: "session", id: "0f8fad5b-d9cb-469f-a165-70867728950e" } as const;
-      log.append(stream, [{ type: "assistant.delta", payload: { runId, itemId: "i-1", fragments: [{ kind: "text", text: "Hel" }] } }], { actor: "adapter:fake" });
-      log.append(other, [{ type: "assistant.text", payload: { runId, itemId: "i-9", text: "Elsewhere", aborted: false } }], { actor: "adapter:fake" });
+      const delta = (itemId: string, ...kinds: string[]) => ({ type: "assistant.delta", payload: { runId, itemId, fragments: kinds.map((kind) => ({ kind, text: "x" })) } });
+      log.append(stream, [delta("i-1", "text")], { actor: "adapter:fake" });
+      log.append(other, [delta("i-1", "text"), { type: "assistant.text", payload: { runId, itemId: "i-9", text: "Elsewhere", aborted: false } }], { actor: "adapter:fake" });
+      log.append(stream, [delta("i-1", "text"), delta("i-1", "text", "thinking"), delta("i-2", "text"), delta("i-2", "text")], { actor: "adapter:fake" });
       log.append(stream, [{ type: "assistant.text", payload: { runId, itemId: "i-1", text: "Hello.", aborted: false } }], { actor: "adapter:fake" });
       log.append(stream, [{ type: "plugin.said", payload: { note: "kept, opaque" } }], { actor: "adapter:fake" });
-      expect(readTranscriptEvents(log, sessionId).map((read) => [read.type, read.sequence])).toEqual([
-        ["assistant.text", 3],
-        ["plugin.said", 4],
+      const read = (after?: number) => readTranscriptEvents(log, sessionId, after).map((event) => [event.type, event.sequence]);
+      // i-1's text opened at 1, its thinking at 5; i-2 at 6. The deltas at 4 and 7 open nothing, nor does the other session's at 2.
+      expect(read()).toEqual([
+        ["assistant.delta", 1],
+        ["assistant.delta", 5],
+        ["assistant.delta", 6],
+        ["assistant.text", 8],
+        ["plugin.said", 9],
+      ]);
+      // After a compaction's sequence, the first delta after it.
+      expect(read(1)).toEqual([
+        ["assistant.delta", 4],
+        ["assistant.delta", 5],
+        ["assistant.delta", 6],
+        ["assistant.text", 8],
+        ["plugin.said", 9],
       ]);
     } finally {
       log.close();

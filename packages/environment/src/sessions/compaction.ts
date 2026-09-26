@@ -27,13 +27,13 @@ import { sessionStream } from "./streams.js";
  *   session exactly the window old is compacted at the next pass.
  * - **Not rewound with an undo still offered** (#218): a session whose
  *   latest rewind not undone has had no run started since
- *   (`undoableRewind`, `sessions/fork-rewind.ts`) is left out. #218 chose
- *   it when the fold kept nothing of what a rewind hid; since #260 the fold
- *   carries every rewind standing with what it hid (`rewinds`), so an undo
- *   after a compaction would show them again, and the skip is kept only as
- *   the narrower change. Once a run starts after the rewind the undo is gone
- *   and the session is compacted as any other, the fold keeping the rewind
- *   where it cut, not undoable, with what it hid.
+ *   (`undoableRewind`, `sessions/fork-rewind.ts`) is left out. Once a run
+ *   starts after the rewind the undo is gone and the session is compacted
+ *   as any other, the fold keeping the rewind where it cut, not undoable,
+ *   with what it hid (#260). The skip dates from when the fold kept nothing
+ *   of what a rewind hid; the fold now carries it, so an undo after a
+ *   compaction would show it again. The skip is kept to keep #260 narrow;
+ *   lifting it is owed.
  * - **Folded**: every event of the stream up to its last, organisation ones
  *   included, since the fold reads a run's start and end and a rewind; the
  *   fold goes on from an earlier compaction's snapshot.
@@ -151,10 +151,9 @@ export const createCompactionSweep = (options: CompactionSweepOptions): Compacti
       const remove = toRemove(events);
       const last = events.at(-1);
       if (remove.length === 0 || last === undefined) return false;
-      // The fold reads what the per-session snapshot does: every event but the deltas the settled items carry whole.
-      const settled = events.filter((event) => event.type !== "assistant.delta");
+      // The fold reads a delta only for where its item was opened; the settled items carry the whole text (#260).
       const from = snapshot === null ? undefined : storedTranscriptParts(snapshot.payload);
-      const payload: TranscriptParts = foldTranscript(settled, from);
+      const payload: TranscriptParts = foldTranscript(events, from);
       log.compactStream(stream, { sequence: last.sequence, payload, remove }, { tx });
       return true;
     });

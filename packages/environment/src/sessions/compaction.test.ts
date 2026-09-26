@@ -240,6 +240,34 @@ describe("replay of a compacted session", () => {
   });
 });
 
+describe("a session compacted before the rewinds were carried (#260)", () => {
+  it("is served from its stored fold, which has no rewinds, as one with none standing: below the fold and at the head", async () => {
+    const { dataDir, id, stream, before } = await untouchedSession();
+    // Not yet past the window: the sweep leaves it, and the test compacts it as a build from before #260 did, its fold without rewinds.
+    const t = await start(dataDir);
+    const client = await t.client();
+    const last = stream.at(-1)?.sequence as number;
+    const { runs, items, parkedPrompts } = before;
+    const removed = stream.filter((event) => event.type === "assistant.text").map((event) => event.sequence);
+    t.env.log.atomically((tx) => t.env.log.compactStream({ kind: "session", id }, { sequence: last, payload: { runs, items, parkedPrompts }, remove: removed }, { tx }));
+    await runOnce(t, client, id, "Once more");
+
+    /** The snapshot frame's payload as sent, before the client's parse fills in anything. */
+    const sent = async (afterSequence: number): Promise<Record<string, unknown>> => {
+      const { snapshot } = await catchUp(client, id, afterSequence);
+      const frame = client.received.find((f) => f.type === "snapshot" && f.subscription === snapshot?.subscription);
+      return (frame as SnapshotFrame).payload as Record<string, unknown>;
+    };
+    // Below the fold: the stored fold itself, at its sequence.
+    const below = await sent(0);
+    expect(below).toMatchObject({ sequence: last, runs, items, parkedPrompts, rewinds: [] });
+    // At the head: the stored fold folded on with the run after it.
+    const head = await sent(t.env.log.head() + 1000);
+    expect(head["rewinds"]).toEqual([]);
+    expect((head["items"] as { text?: string }[]).map((item) => item.text)).toEqual([...items.map((item) => ("text" in item ? item.text : undefined)), "Once more", "Done: Once more"]);
+  });
+});
+
 describe("a rewound session", () => {
   /** A snapshot's items as their text. */
   const texts = (snapshot: Pick<SessionSnapshot, "items"> | undefined): string[] => (snapshot?.items ?? []).map((item) => ("text" in item ? String(item.text) : item.kind));

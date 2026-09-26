@@ -1,6 +1,7 @@
 import {
   SESSION_STREAM_KIND,
   eventTypeEntry,
+  type AssistantDeltaPayload,
   type AssistantTextPayload,
   type CommandRanPayload,
   type MessageDeliveredPayload,
@@ -34,8 +35,11 @@ import { sessionStream } from "../sessions/streams.js";
  * gives `sessions.subscribeSession` its snapshot: the snapshot is only read
  * when replay from a client's cursor is out of bounds, and a projection of
  * items would be one more read model to rebuild. Deltas are left out, as the
- * spec says (and left out of the read, `readTranscriptEvents`): the snapshot
- * holds settled items, and a client applies deltas to the open item. The
+ * spec says: the snapshot holds settled items, and a client applies deltas
+ * to the open item. Only an item's first delta is read (the rest are left
+ * out of the read, `readTranscriptEvents`), for where the item was opened:
+ * the settled item sits at that sequence, as a client that heard the deltas
+ * places it (#260). The
  * fold is not bounded for a live session: compaction (#123) folds only
  * sessions long left untouched (ADR 0002), and a compacted session's fold
  * goes on from its compaction's snapshot (`sessionTranscript`).
@@ -71,9 +75,12 @@ type Item = { kind: string; sequence: number };
  * sequence where it cut the branch: what it hid, as held (a fold among
  * them nested), until an undo puts that back. The client runtime's reducer
  * holds a rewind the same way (`projections/session.ts`), so the snapshot's
- * rewinds are what a client that heard every event would draw. No item the
- * fold makes otherwise has this kind: the environment folds an unknown
- * event into kind `opaque`.
+ * rewinds are what a client that heard every event would draw. The two are
+ * written twice, with the same names (`Fold`, `without`, `unfold`,
+ * `listOf`, `everyItem`, `everyFold`), and the client runtime's
+ * `session-rewinds.test.ts` checks they agree. No item the fold makes
+ * otherwise has this kind: the environment folds an unknown event into kind
+ * `opaque`.
  */
 interface Fold extends Item {
   readonly kind: "rewound";
@@ -106,36 +113,43 @@ const partsOf = (list: readonly Item[]): { items: TranscriptItem[]; rewinds: Sta
   rewinds: list.filter(isFold).map(({ sequence, toMessageId, text, undoable, hidden }) => ({ sequence, toMessageId, text, undoable, ...partsOf(hidden) })),
 });
 
-/** The list a snapshot's items and rewinds make, each rewind a fold at its sequence; `folds` gathers every fold, oldest first. */
-const listOf = (items: readonly Item[], rewinds: readonly StandingRewind[], folds: Fold[]): Item[] => {
-  const held = rewinds.map(({ sequence, toMessageId, text, undoable, items: hid, rewinds: nested }): Fold => {
-    const fold: Fold = { kind: "rewound", sequence, toMessageId, text, undoable, hidden: [] };
-    fold.hidden = listOf(hid, nested, folds);
-    folds.push(fold);
-    return fold;
-  });
-  folds.sort(bySequence);
-  return [...items, ...held].sort(bySequence);
-};
+/** The list a snapshot's items and rewinds make, each rewind a fold at its sequence holding what it hid, the rewinds nested in it the same way. */
+const listOf = (items: readonly Item[], rewinds: readonly StandingRewind[]): Item[] => [
+  ...items,
+  ...rewinds.map(({ sequence, toMessageId, text, undoable, items: hid, rewinds: nested }): Fold => ({ kind: "rewound", sequence, toMessageId, text, undoable, hidden: listOf(hid, nested) })),
+].sort(bySequence);
 
 /** Every item held, at the top or in a fold, the folds left out. */
 const everyItem = (list: readonly Item[]): Item[] => list.flatMap((item) => (isFold(item) ? everyItem(item.hidden) : [item]));
+
+/** Every fold held, at the top or nested, in no order. */
+const everyFold = (list: readonly Item[]): Fold[] => list.flatMap((item) => (isFold(item) ? [...everyFold(item.hidden), item] : []));
 
 /** Whether `type` is one the session stream's table knows: organisation, prompt or transcript. */
 const knownType = (type: string): boolean => eventTypeEntry(SESSION_STREAM_KIND, type) !== undefined;
 
 /**
  * The session's events the fold reads after `afterSequence`, oldest first:
- * every event of its stream but `assistant.delta`, left out in the query,
- * since the settled `assistant.text` and `assistant.thinking` carry the
- * whole text. Still the whole stream otherwise, or what follows its
- * compaction: compaction (#123) folds only sessions long left untouched
- * (ADR 0002), so for a live session the read grows with it.
+ * every event of its stream but `assistant.delta`, since the settled
+ * `assistant.text` and `assistant.thinking` carry the whole text, except
+ * the first delta of each item and fragment kind, which says where the item
+ * was opened (#260). The rest are left out in the query. Still the whole
+ * stream otherwise, or what follows its compaction: compaction (#123) folds
+ * only sessions long left untouched (ADR 0002), so for a live session the
+ * read grows with it.
  */
 export const readTranscriptEvents = (log: Pick<EventLog, "read">, sessionId: string, afterSequence = 0): EventEnvelope[] =>
   log
     .read<EventRow>(
-      `SELECT * FROM events WHERE stream_kind = '${SESSION_STREAM_KIND}' AND stream_id = ? AND sequence > ? AND type <> 'assistant.delta' ORDER BY sequence`,
+      `SELECT * FROM events
+       WHERE stream_kind = '${SESSION_STREAM_KIND}' AND stream_id = ? AND sequence > ?
+         AND (type <> 'assistant.delta' OR sequence IN (
+           SELECT MIN(d.sequence) FROM events d, json_each(d.payload, '$.fragments') f
+           WHERE d.stream_kind = '${SESSION_STREAM_KIND}' AND d.stream_id = ? AND d.sequence > ? AND d.type = 'assistant.delta'
+           GROUP BY json_extract(d.payload, '$.itemId'), json_extract(f.value, '$.kind')))
+       ORDER BY sequence`,
+      sessionId,
+      afterSequence,
       sessionId,
       afterSequence,
     )
@@ -161,15 +175,18 @@ export const sessionTranscript = (log: Pick<EventLog, "read" | "readSnapshot">, 
  * items into the rewind's fold, where a fold an earlier rewind made among
  * them is nested; the fold is undoable until a run starts on the session,
  * and stands until an undo (`session.rewind-undone`) naming it puts what it
- * hid back, in place (#218, #260). Folding on from a fold gives what
- * folding every event would: the rewinds it carries hold what they hid.
+ * hid back, in place (#218, #260). An assistant item sits at the sequence
+ * of its first delta, where a client that heard the deltas opened it, or
+ * of its settled event when it had none. Folding on from a fold gives what
+ * folding every event would: the rewinds it carries hold what they hid. A
+ * compaction's stored fold is read through `storedTranscriptParts` first.
  */
 export const foldTranscript = (events: Iterable<EventEnvelope>, from?: TranscriptParts): TranscriptParts => {
-  const start = from === undefined ? undefined : (structuredClone(storedTranscriptParts(from)) as { runs: Mutable<RunSummary>[]; items: Item[]; parkedPrompts: ParkedPrompt[]; rewinds: StandingRewind[] });
+  const start = from === undefined ? undefined : (structuredClone(from) as { runs: Mutable<RunSummary>[]; items: Item[]; parkedPrompts: ParkedPrompt[]; rewinds: StandingRewind[] });
   const runs = new Map<string, Mutable<RunSummary>>(start?.runs.map((run) => [run.runId, run]));
+  let items: Item[] = start === undefined ? [] : listOf(start.items, start.rewinds);
   /** The rewinds standing, oldest first, each its fold. */
-  let folds: Fold[] = [];
-  let items: Item[] = start === undefined ? [] : listOf(start.items, start.rewinds, folds);
+  let folds: Fold[] = everyFold(items).sort(bySequence);
   const parked = new Map<string, ParkedPrompt>(start?.parkedPrompts.map((prompt) => [prompt.promptId, prompt]));
   /** Items to update later, by the id their events carry. */
   const messages = new Map<string, ItemOf<"user-message">>();
@@ -177,6 +194,8 @@ export const foldTranscript = (events: Iterable<EventEnvelope>, from?: Transcrip
   const ledgers = new Map<string, ItemOf<"tasks">>();
   /** Prompt items not yet answered, by prompt id. */
   const prompts = new Map<string, ItemOf<"prompt">>();
+  /** Where each assistant item not yet settled was opened: its first delta's sequence, by `<fragment kind> <item id>`. */
+  const opened = new Map<string, number>();
   // The items of the fold it goes on from that later events update, by the ids those carry, a rewind's hidden ones too.
   for (const item of everyItem(items)) {
     if (item.kind === "user-message") {
@@ -196,6 +215,13 @@ export const foldTranscript = (events: Iterable<EventEnvelope>, from?: Transcrip
 
   const push = <I extends Item>(item: I): I => {
     items.push(item);
+    return item;
+  };
+  /** `item` put among the items in sequence order: an assistant item settles after events that came after its first delta. */
+  const place = <I extends Item>(item: I): I => {
+    const after = items.findIndex((held) => held.sequence > item.sequence);
+    if (after === -1) items.push(item);
+    else items.splice(after, 0, item);
     return item;
   };
 
@@ -283,12 +309,24 @@ export const foldTranscript = (events: Iterable<EventEnvelope>, from?: Transcrip
         messages.delete(messageId);
         break;
       }
+      case "assistant.delta": {
+        // Only where the item was opened: the settled event carries the whole text.
+        const payload = event.payload as AssistantDeltaPayload;
+        for (const fragment of payload.fragments) {
+          const key = `${fragment.kind} ${payload.itemId}`;
+          if (!opened.has(key)) opened.set(key, sequence);
+        }
+        break;
+      }
       case "assistant.text":
       case "assistant.thinking": {
         const payload = event.payload as AssistantTextPayload;
-        push({
+        const key = `${event.type === "assistant.text" ? "text" : "thinking"} ${payload.itemId}`;
+        const at = opened.get(key) ?? sequence;
+        opened.delete(key);
+        place({
           kind: event.type === "assistant.text" ? "assistant-text" : "assistant-thinking",
-          sequence,
+          sequence: at,
           runId: payload.runId,
           itemId: payload.itemId,
           text: payload.text,
