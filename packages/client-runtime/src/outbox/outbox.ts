@@ -156,7 +156,11 @@ export interface Commands {
   rewind(environmentId: string, sessionId: string, messageId: string): Promise<RewindAnswer>;
 }
 
-/** What `commands.rewind` did: the rewind (accepted, or refused for any reason but `use_new_session`), or the new session it started instead. */
+/**
+ * What `commands.rewind` did: the rewind's own answer, or the new session it started instead. A `use_new_session`
+ * refusal is here as the rewind's answer only when no session could be started from it (the message or the
+ * workspace not held, or the create refused on the spot); otherwise the new session stands for it.
+ */
 export type RewindAnswer =
   | { readonly kind: "rewind"; readonly answer: DispatchAnswer<"sessions.rewind"> }
   | { readonly kind: "new-session"; readonly sessionId: string; readonly answer: DispatchAnswer<"sessions.create"> };
