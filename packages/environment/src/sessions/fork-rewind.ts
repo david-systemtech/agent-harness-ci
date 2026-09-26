@@ -299,10 +299,13 @@ export const forkRewindMethods = (options: ForkRewindMethodsOptions): MethodHand
     // rewind, or let go with its messages requeued after it.
     const active = host.runActive(id);
     if (active !== null) {
-      return {
-        aggregate,
-        rejected: { code: "conflict", message: `A run of the session ${id} is live; interrupt it before rewinding.`, data: { reason: "run_active", sessionId: id, runId: active.runId } },
-      };
+      // The turn waiting on its mode change cannot be interrupted, and the run it followed has ended: what a client
+      // can do is wait for the change to resolve, so the message says which case this is.
+      const message =
+        host.live(id) !== null
+          ? `A run of the session ${id} is live; interrupt it before rewinding.`
+          : `A turn the provider opened on the session ${id} is waiting on its mode change; it is taken on as a run, or let go, before a rewind can land.`;
+      return { aggregate, rejected: { code: "conflict", message, data: { reason: "run_active", sessionId: id, runId: active.runId } } };
     }
     // The next run reads the environment's queue before its prompt: a message queued before the rewind would reach the
     // provider after a history that hides what it was sent after, so the rewind waits for the queue to be read or withdrawn.

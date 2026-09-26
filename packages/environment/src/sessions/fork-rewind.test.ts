@@ -605,7 +605,7 @@ describe("sessions.rewind", () => {
       expect((await rewind(client, id, second.messageId)).receipt).toMatchObject({
         status: "rejected",
         reason: "conflict",
-        error: { data: { reason: "run_active", sessionId: id, runId: busy.result?.runId } },
+        error: { message: `A turn the provider opened on the session ${id} is waiting on its mode change; it is taken on as a run, or let go, before a rewind can land.`, data: { reason: "run_active", sessionId: id, runId: busy.result?.runId } },
       });
       changed?.();
       await vi.waitFor(() => expect(ended(t, id)).toHaveLength(4));
