@@ -112,6 +112,26 @@ describe("transcriptRows", () => {
     expect(started.map((row) => (row.kind === "user" || row.kind === "assistant" ? row.entry.text : row.kind))).toEqual(["Go", "Done.", "turn", "and the tests"]);
   });
 
+  it("opens a run of the queue that drew nothing before any later run's rows, not at the end of the transcript", () => {
+    // OTHER_RUN read "and the tests" as its prompt and failed before it said anything; LAST_RUN is a new prompt after it.
+    const LAST_RUN = "0199a100-0000-4000-8000-000000000003";
+    const rows = transcriptRows(
+      view(
+        [message(1, "Go"), text(2, "Looking."), message(3, "and the tests", "prompt", OTHER_RUN), message(4, "Try again", "prompt", LAST_RUN), text(5, "Trying.", LAST_RUN)],
+        [run(RUN, "ended"), run(OTHER_RUN, "ended", { reason: "error", queuedMessageIds: ["m-3"] }), run(LAST_RUN, "running")],
+      ),
+    );
+    expect(rows.map((row) => (row.kind === "user" || row.kind === "assistant" ? row.entry.text : `${row.kind}:${row.runId}`))).toEqual([
+      "Go",
+      "Looking.",
+      `turn:${RUN}`,
+      "and the tests",
+      `turn:${OTHER_RUN}`,
+      "Try again",
+      "Trying.",
+    ]);
+  });
+
   it("draws no row for a rewound fold yet, as none was drawn for what a rewind hid (#232 draws the fold)", () => {
     const fold: TranscriptEntry = { kind: "rewound", sequence: 4, toMessageId: "m-2", text: "Then", undoable: true, items: [message(2, "Then"), text(3, "Done.")] };
     const rows = transcriptRows(view([message(1, "Go"), fold, message(5, "Again")]));

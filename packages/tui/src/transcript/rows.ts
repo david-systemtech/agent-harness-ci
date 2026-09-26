@@ -25,7 +25,9 @@ import type { RunSummary } from "@agent-harness/contracts";
  *   steered or read (ADR 0022). Steered, it is a row where it was sent, in
  *   the turn it was folded into; read as the prompt of a later run (a
  *   read-now, or the run of the queue after a turn), it opens that run: its
- *   row is drawn before the run's first row, in the order the queue was sent.
+ *   row is drawn before the run's first row, in the order the queue was sent,
+ *   and before any row of a run that started after it, so a run of the queue
+ *   that drew nothing of its own still stands in its place.
  * - **Prompts, questions and plans** stand at the sequence of their
  *   `prompt.opened` (permissions spec), answered or parked; a plan draws its
  *   text in place.
@@ -63,15 +65,20 @@ export const transcriptRows = (view: Pick<SessionProjection, "items" | "runs">):
   const readBy = new Map<string, string>();
   for (const run of view.runs) for (const messageId of run.queuedMessageIds) readBy.set(messageId, run.runId);
   const opening = new Map<string, Row[]>();
+  // Where each run started among the session's runs: what a run read is released before any later run's rows, in that order.
+  const started = new Map(view.runs.map((run, index) => [run.runId, index]));
+  const startOf = (runId: string) => started.get(runId) ?? Number.POSITIVE_INFINITY;
+  /** Draws what the runs up to `runId` read and have not drawn yet: `runId`'s own, and every run's that started before it. */
   const open = (runId: string) => {
-    const waiting = opening.get(runId);
-    if (waiting === undefined) return;
-    opening.delete(runId);
-    drawn.push(...waiting);
+    const due = [...opening.keys()].filter((waiting) => waiting === runId || startOf(waiting) < startOf(runId)).sort((a, b) => startOf(a) - startOf(b));
+    for (const waiting of due) {
+      drawn.push(...(opening.get(waiting) ?? []));
+      opening.delete(waiting);
+    }
   };
-  /** Draws a row, after what its run read as its prompt when this is the run's first row. */
+  /** Draws a row, after what its run, or a run that started before it, read as its prompt and has not drawn yet. */
   const push = (row: Row) => {
-    if (row.runId !== null) open(row.runId);
+    if (row.runId !== null && opening.size > 0) open(row.runId);
     drawn.push(row);
   };
   for (const entry of view.items) {
@@ -127,8 +134,8 @@ export const transcriptRows = (view: Pick<SessionProjection, "items" | "runs">):
       }
     }
   }
-  // A run that has drawn nothing yet still opens with what it read.
-  for (const runId of [...opening.keys()]) open(runId);
+  // A run that has drawn nothing yet still opens with what it read, in the order the runs started.
+  for (const runId of [...opening.keys()].sort((a, b) => startOf(a) - startOf(b))) open(runId);
   return withTurns(drawn, view.runs);
 };
 
