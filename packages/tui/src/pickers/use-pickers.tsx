@@ -266,6 +266,7 @@ export const usePickers = (host: PickersHost): Pickers => {
 
   const handOff = (environmentId: string, account: AccountRecord) => {
     if (!opened) return host.say("No session is open to hand off: /resume opens one, /new starts one, and its account is chosen as it starts.");
+    if (environmentId !== opened.environmentId) return host.say(`Not handed off to ${nameFor(environmentId)}: ${BETWEEN_ENVIRONMENTS}.`);
     const sessionId = opened.sessionId;
     const from = sessionName();
     if (account.id === sessionAccount()) return host.say(`${from} runs on ${account.label} already.`);

@@ -389,6 +389,23 @@ describe("/handoff", () => {
     await app.waitFor("Not handed off to laptop: hand-off between environments comes in milestone 2 (ADR 0005).");
   });
 
+  it("hands off from no account card on an environment other than the open session's (PR review)", async () => {
+    // The session is open on laptop; laptop is removed, so /account falls back to desk, the one environment left.
+    const { app, env } = await launch([desk({ sessions: [] }), { ...desk(), name: "laptop", reach: "paired" }]);
+    await command(app, "/environment");
+    await app.press(KEY.down, KEY.enter);
+    await app.press(KEY.down, KEY.enter);
+    await app.waitFor("Remove laptop?");
+    await app.press("y");
+    await app.waitFor("Removed laptop");
+    await app.press(KEY.esc);
+    await command(app, "/account");
+    await app.waitFor("Accounts on desk");
+    await app.press(KEY.down, KEY.enter);
+    await app.waitFor("Not handed off to desk: hand-off between environments comes in milestone 2 (ADR 0005).");
+    expect(env.requests("sessions.fork")).toEqual([]);
+  });
+
   it("says the session is on the account already", async () => {
     const { app } = await launch();
     await command(app, "/handoff");
