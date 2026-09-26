@@ -25,7 +25,7 @@ import { EXAMPLE_SNIPPETS, SNIPPETS_FILE, Snippets, toSnippetName, type SnippetT
 import { composerOf, expandedSnippet, replaced, type CommandRow } from "./composer/state.js";
 import { composerNote, highlighted, useComposer, type ComposerClipboard } from "./composer/use-composer.js";
 import { nextFocus, stepCursor, type Focus } from "./focus.js";
-import { browse, directoryOf, type BrowseRow } from "./files/browse.js";
+import { browse, directoryOf, typedPath, type BrowseRow } from "./files/browse.js";
 import { readFile, rowDiff, sessionDiff, systemDiffFilter, type DiffFilter, type Paged } from "./files/views.js";
 import { createFrameScheduler } from "./frames.js";
 import { helpLines } from "./help.js";
@@ -640,7 +640,8 @@ export const App = (props: AppProps) => {
     scopes,
     clipboard,
     editText: async (text) => {
-      const edit = props.editText ?? ((initial: string) => runEditor(suspendTerminal, initial));
+      const edit =
+        props.editText ?? ((initial: string) => lendTerminal<ExternalEditResult>(suspendTerminal, () => editInExternalEditor(initial), { ok: false, reason: "the editor did not run" }));
       const result = await edit(text).catch((error: unknown): ExternalEditResult => ({ ok: false, reason: messageOf(error) }));
       if (result.ok) return result.text;
       say(`Could not edit the text: ${result.reason}`);
@@ -877,7 +878,8 @@ export const App = (props: AppProps) => {
     const capability = runtime.capability(opened.environmentId, "files.list");
     if (capability.status === "absent") return say(`No files: ${capability.message}`);
     if (path === null) return update({ card: { kind: "files", dir: "", cursor: 0, filter: "" } });
-    const wanted = path.trim().replace(/^(\.\/)+/, "").replace(/^\/+|\/+$/g, "");
+    const wanted = typedPath(path, projection?.summary?.workspace.path ?? "");
+    if (wanted === null) return say(`${path.trim()} is outside the session's workspace, which the environment reads files from.`);
     if (wanted === "") return update({ card: { kind: "files", dir: "", cursor: 0, filter: "" } });
     const target = opened;
     showPage(`Reading ${wanted}…`, () => readFile(runtime, target, wanted, mainWidth), { kind: "files", dir: directoryOf(wanted), cursor: 0, filter: "" }, () =>
@@ -1409,7 +1411,8 @@ export const App = (props: AppProps) => {
         // On this machine the file is the user's own, in their editor; elsewhere it is read in the pager.
         if (viewOf(opened.environmentId)?.kind === "local") {
           const path = isAbsolute(file.path) ? file.path : join(workspace, file.path);
-          const openFile = props.openFile ?? ((f: OpenedFile) => runOpen(suspendTerminal, f));
+          const openFile =
+            props.openFile ?? ((f: OpenedFile) => lendTerminal<OpenedResult>(suspendTerminal, () => openInExternalEditor(f), { ok: false, reason: "the editor did not run" }));
           void openFile({ path, ...(file.line !== undefined && { line: file.line }) }).then((result) => result.ok || say(`Could not open ${path}: ${result.reason}`));
           return;
         }
@@ -1826,20 +1829,14 @@ const NOTICE_COLOURS: Readonly<Partial<Record<Notice["kind"], string>>> = {
   "prompt-parked": "yellow",
 };
 
-/** Ctrl+G with the terminal lent to `$EDITOR`: Ink leaves the alternate screen and raw mode while it runs (`suspendTerminal`). */
-const runEditor = async (suspend: (callback: () => Promise<void>) => Promise<void>, text: string): Promise<ExternalEditResult> => {
-  let result: ExternalEditResult = { ok: false, reason: "the editor did not run" };
+/**
+ * `work` with the terminal lent to it (Ctrl+G's `$EDITOR`, `o`'s `$VISUAL` or `$EDITOR`): Ink leaves the alternate screen
+ * and raw mode while it runs (`suspendTerminal`); `unrun` is the answer when it never ran.
+ */
+const lendTerminal = async <T,>(suspend: (callback: () => Promise<void>) => Promise<void>, work: () => Promise<T>, unrun: T): Promise<T> => {
+  let result = unrun;
   await suspend(async () => {
-    result = await editInExternalEditor(text);
-  });
-  return result;
-};
-
-/** `o` with the terminal lent to `$VISUAL` or `$EDITOR`, as Ctrl+G lends it. */
-const runOpen = async (suspend: (callback: () => Promise<void>) => Promise<void>, file: OpenedFile): Promise<OpenedResult> => {
-  let result: OpenedResult = { ok: false, reason: "the editor did not run" };
-  await suspend(async () => {
-    result = await openInExternalEditor(file);
+    result = await work();
   });
   return result;
 };

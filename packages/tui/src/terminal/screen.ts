@@ -1,6 +1,6 @@
 import xterm from "@xterm/headless";
 import { TERMINAL_SCROLLBACK } from "@agent-harness/contracts";
-import { sameStyle, type Span } from "../transcript/lines.js";
+import { colourOf, sameStyle, type Span } from "../transcript/lines.js";
 
 /**
  * The terminal pane's screen model (docs/specs/tui.md, "The terminal pane"):
@@ -20,25 +20,6 @@ import { sameStyle, type Span } from "../transcript/lines.js";
  * Its `write` parses on a timer of its own, so every write here is a
  * promise that settles once the emulator has taken it in.
  */
-
-/** A cell's colour as the emulator reports it: a palette index, a 24-bit value, or the default. */
-export interface CellColour {
-  readonly palette: boolean;
-  readonly rgb: boolean;
-  readonly value: number;
-}
-
-/**
- * The colour Ink draws for a cell's: a palette entry as `ansi256(n)` (the
- * first sixteen reach the user's terminal as its own palette, and chalk
- * downsamples the rest where the terminal has fewer), a true colour as
- * `#rrggbb`, the default as nothing.
- */
-export const colourOf = (colour: CellColour): string | undefined => {
-  if (colour.palette) return `ansi256(${colour.value})`;
-  if (colour.rgb) return `#${colour.value.toString(16).padStart(6, "0")}`;
-  return undefined;
-};
 
 /** The modes an application in the terminal set that change what a key or a paste sends. */
 export interface ScreenModes {

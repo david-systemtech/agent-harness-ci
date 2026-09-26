@@ -53,6 +53,29 @@ export const sameStyle = (a: Omit<Span, "text">, b: Omit<Span, "text">): boolean
   a.inverse === b.inverse &&
   a.strikethrough === b.strikethrough;
 
+/** A terminal cell's colour as an emulator or an SGR sequence gives it: a palette index, a 24-bit value, or the default. */
+export interface CellColour {
+  readonly palette: boolean;
+  readonly rgb: boolean;
+  readonly value: number;
+}
+
+/** A palette entry's colour, as Ink draws it. */
+export const paletteColour = (value: number): string => `ansi256(${String(value)})`;
+
+/**
+ * The colour Ink draws for a cell's (the terminal pane, a diff tool's
+ * colours): a palette entry as `ansi256(n)` (the first sixteen reach the
+ * user's terminal as its own palette, and chalk downsamples the rest where
+ * the terminal has fewer), a true colour as `#rrggbb`, the default as
+ * nothing.
+ */
+export const colourOf = (colour: CellColour): string | undefined => {
+  if (colour.palette) return paletteColour(colour.value);
+  if (colour.rgb) return `#${colour.value.toString(16).padStart(6, "0")}`;
+  return undefined;
+};
+
 /** One line on screen, and the row it belongs to. */
 export interface Line {
   readonly row: string;

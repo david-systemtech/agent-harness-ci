@@ -59,9 +59,10 @@ export const rowFile = (row: Row): RowFile | null => {
 /** The ids of a row's file-editing calls, for `d`. */
 export const editCalls = (row: Row): readonly string[] => callsOf(row).filter((call) => classifyTool(call.name) === "edit").map((call) => call.toolCallId);
 
-/** `path` relative to the workspace at `root`, with forward slashes; null when it is outside it. */
+/** `path` relative to the workspace at `root`, with forward slashes; null when it is outside it, or absolute with no root known yet. */
 export const inWorkspace = (path: string, root: string): string | null => {
   const base = root.replace(/\/+$/, "");
+  if (path.startsWith("/") && base === "" && root !== "/") return null;
   const relative = path.startsWith("/") ? (path.startsWith(`${base}/`) ? path.slice(base.length + 1) : null) : path.replace(/^(\.\/)+/, "");
   if (relative === null || relative.length === 0) return null;
   return relative.split("/").includes("..") ? null : relative;

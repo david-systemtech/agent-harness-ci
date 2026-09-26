@@ -125,6 +125,19 @@ describe("/files", () => {
     expect(app.frame()).toContain("logo.png · 2.0 KB · binary");
   });
 
+  it("reads an absolute path inside the workspace as the path under it, and refuses one outside it in one line", async () => {
+    const { app } = await launch();
+    await command(app, `/files ${WORKSPACE}/README.md`);
+    await app.waitFor("Reads receipts.");
+    expect(paramsOf(app, "desk", "files.read")).toEqual([{ sessionId: SESSION, path: "README.md" }]);
+    // The page goes back to the listing it was read from, then the listing closes.
+    await app.press(KEY.esc, KEY.esc);
+    await app.waitFor("Nothing said yet.");
+    await command(app, "/files /etc/hosts");
+    await app.waitFor("/etc/hosts is outside the session's workspace, which the environment reads files from.");
+    expect(paramsOf(app, "desk", "files.read")).toHaveLength(1);
+  });
+
   it("says in one line why a path cannot be read", async () => {
     const { app } = await launch();
     await command(app, "/files nope.txt");

@@ -1,5 +1,4 @@
-import { colourOf } from "../terminal/screen.js";
-import { sameStyle, type Line, type Span } from "../transcript/lines.js";
+import { colourOf, paletteColour, sameStyle, type Line, type Span } from "../transcript/lines.js";
 
 /**
  * What the pager shows for a file, a diff, or a diff tool's answer
@@ -14,7 +13,8 @@ import { sameStyle, type Line, type Span } from "../transcript/lines.js";
  * - **A diff with no tool of the user's** is coloured as `git diff` colours
  *   one: headers bold, hunk lines cyan, additions green, removals red.
  * - **A diff tool's answer** keeps the colours and attributes it wrote
- *   (SGR); every other escape it wrote (a hyperlink, an erase) is dropped.
+ *   (SGR); every other escape it wrote (a hyperlink, an erase, a charset
+ *   switch) is dropped.
  */
 
 const TAB = 8;
@@ -93,6 +93,20 @@ const diffStyle = (line: string): Omit<Span, "text"> => {
   return {};
 };
 
+/** The SGR git writes for each of `diffStyle`'s styles (its `color.diff` defaults). */
+const GIT_SGR = (style: Omit<Span, "text">): string | undefined =>
+  style.bold === true ? "1" : style.color === "cyan" ? "36" : style.color === "green" ? "32" : style.color === "red" ? "31" : undefined;
+
+/** A unified diff coloured as `git diff --color` colours one, for a tool that reads the colours (diff-so-fancy). */
+export const colouredDiff = (text: string): string =>
+  text
+    .split("\n")
+    .map((line) => {
+      const sgr = GIT_SGR(diffStyle(line));
+      return sgr === undefined ? line : `\u001B[${sgr}m${line}\u001B[m`;
+    })
+    .join("\n");
+
 /** A unified diff, coloured as a diff. */
 export const diffPage = (text: string, width: number): Line[] =>
   pageLines(
@@ -106,35 +120,52 @@ export const diffPage = (text: string, width: number): Line[] =>
 
 type Style = { -readonly [K in keyof Omit<Span, "text">]: Span[K] };
 
-/** A palette entry's colour, as a cell's is drawn. */
-const palette = (value: number): string => `ansi256(${String(value)})`;
+/** One parameter of an SGR sequence: its code, then its colon sub-parameters (an empty one undefined). */
+type Param = readonly (number | undefined)[];
 
-/** The style after one SGR sequence's parameters, from `style`. */
-const applySgr = (style: Style, params: readonly number[]): Style => {
+/** An extended colour's arguments (after 38, 48 or 58): `5;n` a palette entry, `2;r;g;b` (or `2:[space]:r:g:b`) a true colour. */
+const extended = (args: Param): string | undefined => {
+  if (args[0] === 5) return paletteColour(args[1] ?? 0);
+  if (args[0] === 2) {
+    // The colon form may carry a colour space before the three values (`38:2::r:g:b`, `38:2:0:r:g:b`); the rest take the last three.
+    const [r = 0, g = 0, b = 0] = args.length >= 5 ? args.slice(-3) : args.slice(1, 4);
+    return colourOf({ palette: false, rgb: true, value: (r << 16) | (g << 8) | b });
+  }
+  return undefined;
+};
+
+/**
+ * The style after one SGR sequence's parameters (`raw`, as written between
+ * `CSI` and `m`), from `style`. Parameters are separated by `;`; a
+ * parameter's `:` parts are its sub-parameters (`4:3` a curly underline,
+ * `38:2::r:g:b`), never codes of their own. The extended colours' `;` form
+ * takes the parameters after it as its arguments; the underline colour (58,
+ * 59), which a cell here has no carrier for, is passed over with them.
+ */
+const applySgr = (style: Style, raw: string): Style => {
+  const params: Param[] = raw.split(";").map((param) => param.split(":").map((part) => (part === "" ? undefined : Number(part))));
   const next: Style = { ...style };
   for (let i = 0; i < params.length; i++) {
-    const p = params[i] ?? 0;
+    const param = params[i] ?? [];
+    const p = param[0] ?? 0;
+    /** The extended colour at `i`: from its sub-parameters when it has them, else from the parameters after it, which it takes. */
     const colour = (): string | undefined => {
-      // 38;5;n or 38;2;r;g;b (and the same for 48).
-      const mode = params[i + 1];
-      if (mode === 5) {
-        const value = params[i + 2] ?? 0;
-        i += 2;
-        return colourOf({ palette: true, rgb: false, value });
-      }
-      if (mode === 2) {
-        const [r = 0, g = 0, b = 0] = params.slice(i + 2, i + 5);
-        i += 4;
-        return colourOf({ palette: false, rgb: true, value: (r << 16) | (g << 8) | b });
-      }
-      return undefined;
+      if (param.length > 1) return extended(param.slice(1));
+      const mode = params[i + 1]?.[0];
+      const taken = mode === 5 ? 2 : mode === 2 ? 4 : 0;
+      const args = params.slice(i + 1, i + 1 + taken).map((q) => q[0]);
+      i += taken;
+      return extended(args);
     };
     if (p === 0) for (const key of Object.keys(next) as (keyof Style)[]) delete next[key];
     else if (p === 1) next.bold = true;
     else if (p === 2) next.dim = true;
     else if (p === 3) next.italic = true;
-    else if (p === 4) next.underline = true;
-    else if (p === 7) next.inverse = true;
+    else if (p === 4) {
+      // `4:0` is no underline; `4:1` to `4:5` are its kinds (single, double, curly, dotted, dashed), each an underline here.
+      if (param[1] === 0) delete next.underline;
+      else next.underline = true;
+    } else if (p === 7) next.inverse = true;
     else if (p === 9) next.strikethrough = true;
     else if (p === 22) {
       delete next.bold;
@@ -143,10 +174,10 @@ const applySgr = (style: Style, params: readonly number[]): Style => {
     else if (p === 24) delete next.underline;
     else if (p === 27) delete next.inverse;
     else if (p === 29) delete next.strikethrough;
-    else if (p >= 30 && p <= 37) next.color = palette(p - 30);
-    else if (p >= 90 && p <= 97) next.color = palette(p - 90 + 8);
-    else if (p >= 40 && p <= 47) next.background = palette(p - 40);
-    else if (p >= 100 && p <= 107) next.background = palette(p - 100 + 8);
+    else if (p >= 30 && p <= 37) next.color = paletteColour(p - 30);
+    else if (p >= 90 && p <= 97) next.color = paletteColour(p - 90 + 8);
+    else if (p >= 40 && p <= 47) next.background = paletteColour(p - 40);
+    else if (p >= 100 && p <= 107) next.background = paletteColour(p - 100 + 8);
     else if (p === 38) {
       const value = colour();
       if (value === undefined) delete next.color;
@@ -155,15 +186,26 @@ const applySgr = (style: Style, params: readonly number[]): Style => {
       const value = colour();
       if (value === undefined) delete next.background;
       else next.background = value;
-    } else if (p === 39) delete next.color;
+    } else if (p === 58) colour();
+    else if (p === 39) delete next.color;
     else if (p === 49) delete next.background;
   }
   return next;
 };
 
-/** An escape sequence: CSI (its final byte kept, to tell SGR), OSC (to BEL or ST), or any other two-byte one. */
+/**
+ * An escape sequence (ECMA-48): a CSI with its parameter bytes (group 1, a
+ * private marker `<=>?` among them) and intermediate bytes (group 2), and
+ * its final byte (group 3), to tell SGR; an OSC, to BEL or ST; an escape
+ * with intermediate bytes (`ESC ( B`, which `tput sgr0` writes); any other
+ * two-byte one.
+ */
 // eslint-disable-next-line no-control-regex -- escape sequences are what is being read.
-const ESCAPE = /\u001B(?:\[([0-9;:?]*)([@-~])|\][^\u0007\u001B]*(?:\u0007|\u001B\\)|[@-Z\\-_])/g;
+const ESCAPE = /\u001B(?:\[([0-?]*)([ -/]*)([@-~])|\][^\u0007\u001B]*(?:\u0007|\u001B\\)|[ -/]+[0-~]|[@-Z\\-_])/g;
+
+/** SGR: final byte `m`, no intermediate bytes, and parameters of digits, `;` and `:` only (a private marker makes it another sequence). */
+const isSgr = (params: string | undefined, intermediates: string | undefined, final: string | undefined): params is string =>
+  final === "m" && intermediates === "" && params !== undefined && /^[0-9;:]*$/.test(params);
 
 /** Text a tool coloured with escape sequences, as the pager draws it. */
 export const sgrPage = (text: string, width: number): Line[] => {
@@ -183,7 +225,7 @@ export const sgrPage = (text: string, width: number): Line[] => {
     for (const match of raw.matchAll(ESCAPE)) {
       add(raw.slice(at, match.index));
       at = match.index + match[0].length;
-      if (match[2] === "m") style = applySgr(style, (match[1] ?? "").split(/[;:]/).map((p) => (p === "" ? 0 : Number(p))));
+      if (isSgr(match[1], match[2], match[3])) style = applySgr(style, match[1]);
     }
     add(raw.slice(at));
     return spans;

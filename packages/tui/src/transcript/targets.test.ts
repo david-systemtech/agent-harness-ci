@@ -70,4 +70,9 @@ describe("a path in the workspace", () => {
     expect(inWorkspace("/etc/hosts", "/home/seth/code")).toBeNull();
     expect(inWorkspace("../x", "/home/seth/code")).toBeNull();
   });
+
+  it("places no absolute path in a workspace not known yet, where /etc/x would read as etc/x", () => {
+    expect(inWorkspace("/etc/x", "")).toBeNull();
+    expect(inWorkspace("src/a.ts", "")).toBe("src/a.ts");
+  });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { diffPage, plainPage, sgrPage } from "./pages.js";
+import { colouredDiff, diffPage, plainPage, sgrPage } from "./pages.js";
 
 /**
  * What the pager shows for a file, a diff and a diff tool's answer
@@ -44,5 +44,35 @@ describe("a diff tool's answer in the pager", () => {
   it("reads the bright colours and the resets of each attribute", () => {
     const lines = sgrPage("\u001B[91;1;3mx\u001B[22;23my\u001B[0m\u001B[104mz", 40);
     expect(lines[0]?.spans).toEqual([{ text: "x", color: "ansi256(9)", bold: true, italic: true }, { text: "y", color: "ansi256(9)" }, { text: "z", background: "ansi256(12)" }]);
+  });
+
+  it("drops escapes with an intermediate byte, as tput sgr0 writes, and a CSI with a private marker, leaving nothing of them in the page", () => {
+    // `tput sgr0` on xterm is ESC ( B then SGR 0; ESC [ > 4 ; 2 m is xterm's modifyOtherKeys, not a colour; ESC [ 1 $ p asks a mode.
+    const lines = sgrPage("\u001B[1mbold\u001B(B\u001B[m plain\u001B[>4;2m still\u001B[1$p\u001B)0 end", 60);
+    expect(lines[0]?.spans).toEqual([{ text: "bold", bold: true }, { text: " plain still end" }]);
+  });
+
+  it("reads colon sub-parameters as one parameter: a curly underline is an underline, 4:0 turns it off alone, and 38:2 skips its colour space", () => {
+    const lines = sgrPage("\u001B[1;4:3mA\u001B[4:0mB\u001B[38:2::10:20:30mC\u001B[38:5:208mD\u001B[38:2:1:2:3mE", 60);
+    expect(lines[0]?.spans).toEqual([
+      { text: "A", bold: true, underline: true },
+      { text: "B", bold: true },
+      { text: "C", bold: true, color: "#0a141e" },
+      { text: "D", bold: true, color: "ansi256(208)" },
+      { text: "E", bold: true, color: "#010203" },
+    ]);
+  });
+
+  it("passes over the underline colour (58 and 59) with its arguments, never reading them as codes", () => {
+    const lines = sgrPage("\u001B[58;5;3;1mA\u001B[0;58;2;1;2;33;4mB\u001B[0;58:2::1:2:3;59mC", 60);
+    expect(lines[0]?.spans).toEqual([{ text: "A", bold: true }, { text: "B", underline: true }, { text: "C" }]);
+  });
+});
+
+describe("a diff coloured as git colours one, for a tool that reads colour", () => {
+  it("wraps the headers in bold, the hunk lines in cyan, the additions in green and the removals in red, each reset", () => {
+    expect(colouredDiff("diff --git a/x b/x\n@@ -1 +1 @@\n-old\n+new\n same")).toBe(
+      "\u001B[1mdiff --git a/x b/x\u001B[m\n\u001B[36m@@ -1 +1 @@\u001B[m\n\u001B[31m-old\u001B[m\n\u001B[32m+new\u001B[m\n same",
+    );
   });
 });

@@ -1,3 +1,5 @@
+import { inWorkspace } from "../transcript/targets.js";
+
 /**
  * `/files`' picker (docs/specs/tui.md, "The composer": `/files [path]` opens
  * `files.list` as a browsable picker). The environment lists the workspace
@@ -13,8 +15,8 @@ export type BrowseRow =
   | { readonly kind: "dir"; readonly path: string; readonly name: string; readonly files: number }
   | { readonly kind: "file"; readonly path: string; readonly name: string };
 
-/** A path as the listing writes one: no leading `./` or `/`, no trailing `/`. */
-export const normalized = (path: string): string =>
+/** A path as the listing writes one: no leading `./` or `/`, no trailing `/`, `.` the root (""). */
+const normalized = (path: string): string =>
   path
     .trim()
     .replace(/^(\.\/)+/, "")
@@ -56,11 +58,16 @@ export const browse = (files: readonly string[], dir: string, filter: string): r
   return [...up, ...folders, ...own.sort(byName)];
 };
 
-/** What a path typed after `/files` names in the listing. */
-export const locate = (files: readonly string[], typed: string): { readonly kind: "file" | "dir" | "none"; readonly path: string } => {
-  const path = normalized(typed);
-  if (path === "") return { kind: "dir", path };
-  if (files.includes(path)) return { kind: "file", path };
-  if (files.some((file) => file.startsWith(`${path}/`))) return { kind: "dir", path };
-  return { kind: "none", path };
+/**
+ * What a path typed after `/files` names in the workspace at `root`, as the
+ * listing writes paths; an absolute one inside the workspace is the path
+ * under it. Null for an absolute path outside it.
+ */
+export const typedPath = (typed: string, root: string): string | null => {
+  const path = typed.trim();
+  if (!path.startsWith("/")) return normalized(path);
+  const bare = path.replace(/\/+$/, "");
+  if (bare === root.replace(/\/+$/, "") && bare !== "") return "";
+  const inside = inWorkspace(bare, root);
+  return inside === null ? null : normalized(inside);
 };

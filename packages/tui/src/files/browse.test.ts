@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { browse, directoryOf, locate } from "./browse.js";
+import { browse, directoryOf, typedPath } from "./browse.js";
 
 /**
  * `/files`' picker over `files.list` (docs/specs/tui.md, "The composer"): the
@@ -41,11 +41,18 @@ describe("browsing the listing", () => {
 });
 
 describe("a path typed after /files", () => {
-  it("is a file the listing holds, a directory some path is under, or neither", () => {
-    expect(locate(FILES, "src/app.tsx")).toEqual({ kind: "file", path: "src/app.tsx" });
-    expect(locate(FILES, "./src/files/")).toEqual({ kind: "dir", path: "src/files" });
-    expect(locate(FILES, "/")).toEqual({ kind: "dir", path: "" });
-    expect(locate(FILES, "nope")).toEqual({ kind: "none", path: "nope" });
+  it("is the path as the listing writes it, relative to the workspace: no leading ./, no trailing /, . the root", () => {
+    expect(typedPath("src/app.tsx", "/home/seth/code")).toBe("src/app.tsx");
+    expect(typedPath(" ./src/files/ ", "/home/seth/code")).toBe("src/files");
+    expect(typedPath(".", "/home/seth/code")).toBe("");
+  });
+
+  it("takes an absolute path inside the workspace as the path under it, and refuses one outside it", () => {
+    expect(typedPath("/home/seth/code/src/app.tsx", "/home/seth/code")).toBe("src/app.tsx");
+    expect(typedPath("/home/seth/code/src/", "/home/seth/code/")).toBe("src");
+    expect(typedPath("/home/seth/code", "/home/seth/code")).toBe("");
+    expect(typedPath("/etc/hosts", "/home/seth/code")).toBeNull();
+    expect(typedPath("/", "/home/seth/code")).toBeNull();
   });
 
   it("names a file's directory", () => {

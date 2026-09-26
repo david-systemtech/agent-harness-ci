@@ -26,6 +26,8 @@ import {
   type PipeSpawnLike,
   type PipeSpawnOptionsLike,
 } from "./diff-filter.js";
+import { colouredDiff } from "./pages.js";
+import { systemDiffFilter } from "./views.js";
 
 /** A `PATH` that holds exactly these programs. */
 const holding =
@@ -52,7 +54,7 @@ describe("externalDiffTool", () => {
 
   it("runs each tool with the arguments that keep it from paging", () => {
     expect(externalDiffTool({ env: {}, which: holding("delta") })).toEqual({ argv: ["delta", "--paging=never"], label: "delta" });
-    expect(externalDiffTool({ env: {}, which: holding("diff-so-fancy") })).toEqual({ argv: ["diff-so-fancy"], label: "diff-so-fancy" });
+    expect(externalDiffTool({ env: {}, which: holding("diff-so-fancy") })).toEqual({ argv: ["diff-so-fancy"], label: "diff-so-fancy", colouredInput: true });
     expect(externalDiffTool({ env: {}, which: holding("bat") })).toEqual({ argv: BAT_DIFF_ARGV, label: "bat" });
   });
 
@@ -185,6 +187,24 @@ function fakeFilter(behaviour: Behaviour): Fake {
   };
   return { calls, written, killed, spawn };
 }
+
+describe("the diff filter on this machine", () => {
+  const DIFF = "--- a/x\n+++ b/x\n@@ -1 +1 @@\n-old\n+new\n";
+
+  it("hands diff-so-fancy the diff coloured as git colours one, since it reads the colours to find the changed lines", async () => {
+    const filter = fakeFilter({ stdout: ["fancy"] });
+    const found = systemDiffFilter(80, { env: {}, which: holding("diff-so-fancy"), spawn: filter.spawn });
+    expect(found?.label).toBe("diff-so-fancy");
+    expect(await found?.run(DIFF)).toEqual({ ok: true, text: "fancy" });
+    expect(filter.written).toEqual([colouredDiff(DIFF)]);
+  });
+
+  it("hands every other tool the diff as it is", async () => {
+    const filter = fakeFilter({ stdout: ["delta"] });
+    await systemDiffFilter(80, { env: {}, which: holding("delta"), spawn: filter.spawn })?.run(DIFF);
+    expect(filter.written).toEqual([DIFF]);
+  });
+});
 
 describe("pipeThrough", () => {
   it("hands the diff to the tool and gives back what it wrote", async () => {

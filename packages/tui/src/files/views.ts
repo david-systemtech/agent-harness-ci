@@ -1,8 +1,8 @@
 import type { Runtime } from "@agent-harness/client-runtime";
 import { DIFF_CAP, FILES_READ_CAP, type SessionDiffFile } from "@agent-harness/contracts";
 import type { Line, Span } from "../transcript/lines.js";
-import { externalDiffTool, pipeThrough, type PipeResult } from "./diff-filter.js";
-import { diffPage, plainPage, sgrPage } from "./pages.js";
+import { externalDiffTool, pipeThrough, type DiffToolDeps, type PipeDeps, type PipeResult } from "./diff-filter.js";
+import { colouredDiff, diffPage, plainPage, sgrPage } from "./pages.js";
 
 /**
  * Files and diffs as pager pages (docs/specs/tui.md, "The composer":
@@ -32,10 +32,15 @@ export interface DiffFilter {
   run(text: string): Promise<PipeResult>;
 }
 
-/** The filter on this machine, for a pager `columns` wide: `AGENT_HARNESS_DIFF`, else a tool on `PATH`; null for none. */
-export const systemDiffFilter = (columns: number): DiffFilter | null => {
-  const tool = externalDiffTool({ columns });
-  return tool === null ? null : { label: tool.label, run: (text) => pipeThrough(tool.argv, text) };
+/**
+ * The filter on this machine, for a pager `columns` wide: `AGENT_HARNESS_DIFF`, else a tool on `PATH`; null for none. A
+ * tool that reads colours is handed the diff coloured as git colours one. `deps` stand in for this machine in tests.
+ */
+export const systemDiffFilter = (columns: number, deps: Omit<DiffToolDeps, "columns"> & Pick<PipeDeps, "spawn"> = {}): DiffFilter | null => {
+  const { spawn, ...lookup } = deps;
+  const tool = externalDiffTool({ ...lookup, columns });
+  if (tool === null) return null;
+  return { label: tool.label, run: (text) => pipeThrough(tool.argv, tool.colouredInput === true ? colouredDiff(text) : text, spawn === undefined ? {} : { spawn }) };
 };
 
 /** A page for the pager: its title and its lines. */

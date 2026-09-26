@@ -13,8 +13,13 @@ import { splitCommand } from "../composer/external-editor.js";
  *  - **The tool is a filter, never a pager.** The unified diff goes in on
  *    standard input, the colours come back on standard output, and the
  *    terminal UI's own pager scrolls it with the terminal still Ink's. So
- *    every argv here keeps the tool from paging (`--paging=never`): a tool
- *    that decided to page would fork `less` onto a terminal Ink owns.
+ *    a tool that would page is told not to (`--paging=never` for delta and
+ *    bat; diff-so-fancy never pages): one that decided to would fork `less`
+ *    onto a terminal Ink owns.
+ *  - **diff-so-fancy reads colours**: it finds the changed lines by the
+ *    colours `git diff --color` gives them, so it is handed the diff
+ *    coloured as git colours one (`colouredInput`); the others colour a
+ *    plain diff themselves.
  *  - **An override is trusted; a fallback is looked up.**
  *    `AGENT_HARNESS_DIFF` is a command line, split as `$EDITOR` is (quotes
  *    group, backslashes stay), never handed to a shell and not checked
@@ -35,6 +40,8 @@ export interface ExternalTool {
   readonly argv: readonly string[];
   /** What the person calls it: `delta`, `bat`. */
   readonly label: string;
+  /** The tool reads a diff coloured as `git diff --color` colours one, not a plain one. */
+  readonly colouredInput?: true;
 }
 
 /** Whether a bare command name can be found on `PATH`, without spawning anything. */
@@ -112,7 +119,7 @@ export function externalDiffTool(deps: DiffToolDeps = {}): ExternalTool | null {
   const chosen = override(env[DIFF_VARIABLE]);
   if (chosen !== undefined) return chosen;
   if (which("delta")) return { argv: ["delta", "--paging=never", ...widthArgument(deps.columns)], label: "delta" };
-  if (which("diff-so-fancy")) return { argv: ["diff-so-fancy"], label: "diff-so-fancy" };
+  if (which("diff-so-fancy")) return { argv: ["diff-so-fancy"], label: "diff-so-fancy", colouredInput: true };
   // `--color=always` because bat honours "is stdout a terminal" and this one never is; `--style=plain` because the diff has its own markers.
   if (which("bat")) return { argv: ["bat", "--language=diff", "--paging=never", "--style=plain", "--color=always"], label: "bat" };
   return null;

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { createScreen, colourOf } from "./screen.js";
+import { colourOf } from "../transcript/lines.js";
+import { createScreen } from "./screen.js";
 
 /**
  * The pane's screen model (docs/specs/tui.md, "The terminal pane"): a
