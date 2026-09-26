@@ -136,10 +136,12 @@ export const HelpCard = (props: { readonly lines: readonly HelpLine[]; readonly 
           );
         }
         const dim = line.state !== "answered";
+        // A conditioned row says when its keys are answered, after them, as the spec's table writes it.
+        const keys = line.condition === undefined ? line.keys : `${line.keys} (${line.condition})`;
         return (
           <Text key={index} wrap="truncate-end">
             <Text color="cyan" dimColor={dim}>
-              {line.keys.length > HELP_KEY_WIDTH ? `${line.keys}  ` : line.keys.padEnd(HELP_KEY_WIDTH + 2)}
+              {keys.length > HELP_KEY_WIDTH ? `${keys}  ` : keys.padEnd(HELP_KEY_WIDTH + 2)}
             </Text>
             <Text dimColor={dim}>
               {line.description}

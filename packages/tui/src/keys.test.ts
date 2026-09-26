@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { ACTIONS, isCommandId } from "@agent-harness/contracts";
+import { ACTIONS, isCommandId, keyClashes } from "@agent-harness/contracts";
 import {
   DEFAULT_KEYMAP,
   DEFAULT_KEYS,
@@ -73,15 +73,12 @@ describe("the default keys", () => {
     });
   });
 
-  it("give no key to two actions in one context", () => {
-    const seen = new Map<string, string>();
-    for (const [id, keys] of Object.entries(DEFAULT_KEYS)) {
-      for (const k of keys) {
-        const slot = `${contextOf(id)} ${k}`;
-        expect(seen.get(slot), `${k} in ${contextOf(id)}`).toBeUndefined();
-        seen.set(slot, id);
-      }
-    }
+  it("give no key to two actions in one context, but for ↑, withdrawLast's on an empty composer beside navigate's", () => {
+    const actions = ACTIONS.filter((a) => !isCommandId(a.id));
+    expect(keyClashes(Object.entries(DEFAULT_KEYS).map(([id, keys]) => ({ id, context: contextOf(id), keys, when: actions.find((a) => a.id === id)?.when })))).toEqual([]);
+    const seen = new Map<string, string[]>();
+    for (const [id, keys] of Object.entries(DEFAULT_KEYS)) for (const k of keys) seen.set(`${contextOf(id)} ${k}`, [...(seen.get(`${contextOf(id)} ${k}`) ?? []), id]);
+    expect([...seen].filter(([, ids]) => ids.length > 1)).toEqual([["composer ↑", ["composer.navigate", "composer.withdrawLast"]]]);
   });
 });
 
@@ -358,6 +355,54 @@ describe("what counts as remapped", () => {
     const loaded = loadKeybindings(join(tmpdir(), "no-such-dir-agent-harness", "keybindings.json"), { required: false });
     expect(loaded.missing).toBe(true);
     expect(loadKeybindings(file("{}"), { required: false }).missing).toBeUndefined();
+  });
+});
+
+describe("a conditioned action beside an unconditioned one on the same key (#231)", () => {
+  const empty = (condition: string) => condition === "composer.empty";
+  const never = () => false;
+
+  it("asks the conditioned action first while its condition holds, and the key falls to the other when it declines", () => {
+    const ran: string[] = [];
+    const handlers = { "composer.withdrawLast": () => void ran.push("withdraw"), "composer.navigate": () => void ran.push("navigate") };
+    expect(dispatch(DEFAULT_KEYMAP, ["composer"], handlers, "", key({ upArrow: true }), undefined, empty)).toBe(true);
+    const declining = { ...handlers, "composer.withdrawLast": () => false as const };
+    expect(dispatch(DEFAULT_KEYMAP, ["composer"], declining, "", key({ upArrow: true }), undefined, empty)).toBe(true);
+    expect(ran).toEqual(["withdraw", "navigate"]);
+  });
+
+  it("never asks the conditioned action while its condition does not hold, nor when nobody says it does", () => {
+    const ran: string[] = [];
+    const handlers = { "composer.withdrawLast": () => void ran.push("withdraw"), "composer.navigate": () => void ran.push("navigate") };
+    expect(dispatch(DEFAULT_KEYMAP, ["composer"], handlers, "", key({ upArrow: true }), undefined, never)).toBe(true);
+    expect(dispatch(DEFAULT_KEYMAP, ["composer"], handlers, "", key({ upArrow: true }))).toBe(true);
+    expect(ran).toEqual(["navigate", "navigate"]);
+  });
+
+  it("remaps the conditioned action apart from the other: its new key keeps the condition, and ↑ is navigate's alone", () => {
+    const loaded = resolveKeymap({ "composer.withdrawLast": ["Alt+W"] });
+    expect(loaded.problems).toEqual([]);
+    expect(loaded.keymap.keys["composer.withdrawLast"]).toEqual(["Alt+W"]);
+    expect(loaded.keymap.keys["composer.navigate"]).toEqual(["↑", "↓"]);
+    expect([...loaded.keymap.remapped]).toEqual(["composer.withdrawLast"]);
+    const ran: string[] = [];
+    const handlers = { "composer.withdrawLast": () => void ran.push("withdraw"), "composer.navigate": () => void ran.push("navigate") };
+    dispatch(loaded.keymap, ["composer"], handlers, "", key({ upArrow: true }), undefined, empty);
+    dispatch(loaded.keymap, ["composer"], handlers, "w", key({ meta: true }), undefined, empty);
+    dispatch(loaded.keymap, ["composer"], handlers, "w", key({ meta: true }), undefined, never);
+    expect(ran).toEqual(["navigate", "withdraw"]);
+  });
+
+  it("remaps the unconditioned one apart too, leaving ↑ to the conditioned one alone", () => {
+    const loaded = resolveKeymap({ "composer.navigate": ["Ctrl+P", "Ctrl+N"] });
+    expect(loaded.problems).toEqual([]);
+    expect(loaded.keymap.keys["composer.withdrawLast"]).toEqual(["↑"]);
+  });
+
+  it("still refuses a file that gives the key two unconditioned actions in one context, naming the clash", () => {
+    const loaded = resolveKeymap({ "composer.send": ["Enter", "↑"] });
+    expect(loaded.problems).toEqual([expect.stringMatching(/refused: ↑ is both composer\.(send and composer\.navigate|navigate and composer\.send) in composer/)]);
+    expect(loaded.keymap).toBe(DEFAULT_KEYMAP);
   });
 });
 
