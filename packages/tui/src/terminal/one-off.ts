@@ -78,14 +78,6 @@ const ONE_OFF_SIZE = { cols: 120, rows: 40 } as const;
 /** The variables a `!` terminal opens with: the command alone, run where a person can answer it. */
 export const shownEnv = (command: string): Record<string, string> => ({ [ONE_OFF_VARIABLE]: command });
 
-/** What came after the marker's line; null when the marker never came (the command did not run). */
-export const afterMarker = (raw: string, marker: string): string | null => {
-  const at = raw.indexOf(marker);
-  if (at === -1) return null;
-  const end = raw.indexOf("\n", at);
-  return end === -1 ? "" : raw.slice(end + 1);
-};
-
 /** The first `max` lines, and a count of the rest, `more` lines past `text` among them (Artemis's `clipOutput`). */
 export const clipOutput = (text: string, max = ONE_OFF_MAX_LINES, more = 0): string => {
   const rows = text.split("\n");

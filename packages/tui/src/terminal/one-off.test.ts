@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { writable, type Runtime, type TerminalOutput, type TerminalStreamView } from "@agent-harness/client-runtime";
 import { manualClock } from "@agent-harness/client-runtime/testing";
 import { flush } from "@agent-harness/client-runtime/testing/fake-wire";
-import { ONE_OFF_LINE, ONE_OFF_MAX_CHARS, ONE_OFF_VARIABLE, oneOffEnv } from "@agent-harness/contracts";
-import { afterMarker, clipOutput, oneOffMessage, runOneOff } from "./one-off.js";
+import { ONE_OFF_LINE, ONE_OFF_MAX_CHARS, oneOffEnv } from "@agent-harness/contracts";
+import { clipOutput, oneOffMessage, runOneOff } from "./one-off.js";
 
 /**
  * `!!`'s one-off command (docs/specs/tui.md, "The composer"): the command
@@ -16,17 +16,6 @@ import { afterMarker, clipOutput, oneOffMessage, runOneOff } from "./one-off.js"
 
 const MARKER = "agent-harness-one-off-t1";
 const TARGET = { environmentId: "env-1", sessionId: "session-1" };
-
-describe("the marker", () => {
-  it("is what the output comes after: the greeting, prompt and echo before its line are dropped", () => {
-    expect(afterMarker(`motd\r\n$  exec /bin/sh -c "$${ONE_OFF_VARIABLE}"\r\n${MARKER}\r\nhi\r\n`, MARKER)).toBe("hi\r\n");
-  });
-
-  it("is null when it never came, and nothing follows it when its line has not ended", () => {
-    expect(afterMarker("$ nu: unknown command exec\r\n", MARKER)).toBeNull();
-    expect(afterMarker(`$ ${MARKER}`, MARKER)).toBe("");
-  });
-});
 
 describe("the output cut to lines", () => {
   it("is kept whole up to the limit, and past it the first lines and a count of the rest", () => {
