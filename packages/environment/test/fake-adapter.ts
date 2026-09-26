@@ -47,8 +47,9 @@ import { MANUAL_CLOCK_START } from "./clock.js";
  * no longer holds one a turn has taken; a test can hold every withdraw on a
  * gate (`holdWithdraws`) to race it against the provider's read. A test can
  * hold an interrupt's answer (`holdInterruptAnswers`) and have every send
- * refused late (`refuseSendsAfter`), so the run's end comes before the
- * message is handed back (#245).
+ * refused late (`holdSendRefusals`), so the run's end comes before the
+ * message is handed back (#245), and can hold the turn a completed turn's
+ * queue opens (`holdTurnOpens`), so the run's end comes before that turn.
  *
  * Titles (session-state spec, "Title fallback"): the fake can declare
  * `titleRead`, answering a title of its own and recording each read, and
@@ -186,7 +187,13 @@ export interface FakeAdapterOptions {
    * A gate every `send` waits on, once recorded, before it refuses the message, as a provider whose turn ended before it
    * took the message does: a late refusal (#245). Preset: none, every send taken.
    */
-  readonly refuseSendsAfter?: Gate;
+  readonly holdSendRefusals?: Gate;
+  /**
+   * A gate a provider queue that does not steer waits on, once its turn has completed holding messages, before it opens
+   * the turn that reads them, as a CLI opens its next turn some time after its result: the run's end commits first, with
+   * the provider still holding them (#245). Preset: none, the turn opens with the end.
+   */
+  readonly holdTurnOpens?: Gate;
   /**
    * Declares `subagentTranscripts`: each subagent's transcript by agent id, the
    * same for every session (none for an id not listed); every read is
@@ -601,7 +608,11 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
         ended = true;
         events.close();
         // A provider queue that does not steer reads what it holds when the turn ends, in a turn of its own.
-        if (event.reason === "completed" && untaken.length > 0 && descriptor.providerQueue && !descriptor.steering) openTurn();
+        if (event.reason === "completed" && untaken.length > 0 && descriptor.providerQueue && !descriptor.steering) {
+          const opens = options.holdTurnOpens;
+          if (opens === undefined) openTurn();
+          else void opens.opened.then(() => untaken.length > 0 && openTurn());
+        }
       }
     };
 
@@ -672,7 +683,7 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
       },
       send(message) {
         record.sent.push(message);
-        const refuse = options.refuseSendsAfter;
+        const refuse = options.holdSendRefusals;
         if (refuse !== undefined) {
           return refuse.opened.then(() => {
             throw new Error("The run has ended; its messages go to the next run.");

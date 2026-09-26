@@ -267,6 +267,13 @@ export interface AdapterHost {
   startFacts(sessionId: string, actor: RunActor): StartFacts;
   /** The session's live run and its adapter's descriptor; null when none is live. */
   live(sessionId: string): LiveRunFacts | null;
+  /**
+   * The run the session counts as live, as a start does (`startFacts`): its
+   * live run, or, while a turn its provider opened after that run's end waits
+   * on its mode change, the run it followed, since the turn is then adopted
+   * as a run or let go with its messages requeued. Null when neither.
+   */
+  runActive(sessionId: string): LiveRunFacts | null;
   /** The live run `runId` names; null once it has ended. */
   liveRun(runId: string): LiveRunFacts | null;
   /** Whether the run ended here with its `run.ended` not in the log (two appends failed): the recovery sweep (#120) records it at the next start. */
@@ -335,15 +342,22 @@ export interface AdapterHost {
   /** The withdraw of `messageId` has decided: a run may read the message again if it is still queued (#228). */
   settleWithdraw(messageId: string): void;
   /**
-   * What may still hand a message back to the session's queue after its
-   * run's `run.ended` has committed (#245): an interrupt whose answer has
-   * not come (the turn can complete first, and the answer then names what
-   * the provider held), a send or a withdraw its provider has not answered.
-   * Null when nothing is; else the run the latest of it belongs to, and a
-   * promise that settles once none is left, later work included. A rewind
-   * waits on it, so the message is in the queue its check reads.
+   * Whether the host may still hand a message back to the session's queue
+   * after its run's `run.ended` has committed (#245): an interrupt whose
+   * answer has not come (the turn can complete first, and the answer then
+   * names what the provider held), or a send or a withdraw its provider has
+   * not answered. What comes back is a message the log says the provider
+   * holds until it does.
    */
-  settling(sessionId: string): { readonly runId: string; readonly settled: Promise<void> } | null;
+  handingBack(sessionId: string): boolean;
+  /**
+   * Settles once the session has nothing handing back (`handingBack`), work
+   * begun meanwhile included, or once a run is active on it (`runActive`),
+   * whose own work a rewind need not wait for, since that run refuses it.
+   * A rewind waits on it, so a message handed back is in the queue its check
+   * reads; it settles when the adapters' answers do (`AdapterRun`).
+   */
+  handedBack(sessionId: string): Promise<void>;
   /** Stops a piece of a live run's delegated work. */
   stopTask(runId: string, taskId: string): void;
   /** Changes a live run's mode through its adapter (`modeChange`), once the command that asked has committed; its resolved policy stays. */
@@ -580,26 +594,20 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
 
   /**
    * By session, the work under way that may hand a message back to its
-   * queue once its run's end has committed (`settling`, #245), each with its
-   * run: an interrupt's answer, a send or a withdraw the provider has not
-   * answered. Each leaves once it has settled, its hand-back appended.
+   * queue once its run's end has committed (`handingBack`, #245): an
+   * interrupt's answer, a send or a withdraw the provider has not answered.
+   * Each leaves once it has settled, its hand-back appended.
    */
-  const handingBack = new Map<string, Map<Promise<unknown>, string>>();
-  const track = (sessionId: string, runId: string, work: Promise<unknown>): void => {
-    const pending = handingBack.get(sessionId) ?? new Map<Promise<unknown>, string>();
+  const handingBack = new Map<string, Set<Promise<unknown>>>();
+  const track = (sessionId: string, work: Promise<unknown>): void => {
+    const pending = handingBack.get(sessionId) ?? new Set<Promise<unknown>>();
     handingBack.set(sessionId, pending);
-    pending.set(work, runId);
+    pending.add(work);
     const done = (): void => {
       pending.delete(work);
       if (pending.size === 0 && handingBack.get(sessionId) === pending) handingBack.delete(sessionId);
     };
     work.then(done, done);
-  };
-  /** Settles once the session has nothing handing back, work begun meanwhile included. */
-  const handedBack = async (sessionId: string): Promise<void> => {
-    for (let pending = handingBack.get(sessionId); pending !== undefined; pending = handingBack.get(sessionId)) {
-      await Promise.allSettled([...pending.keys()]);
-    }
   };
 
   /** A run has read the message, or its session is purged: its bytes go, from memory and from disk. */
@@ -731,7 +739,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     let settle!: () => void;
     entry.interruption = new Promise<void>((resolve) => (settle = resolve));
     // Its answer may come after the run's end, with what the provider still held: a rewind waits for it (#245).
-    track(entry.sessionId, entry.runId, entry.interruption);
+    track(entry.sessionId, entry.interruption);
     safely(
       async () => {
         const { stillQueued } = await run.interrupt();
@@ -775,6 +783,9 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     startFromQueue({ ...entry.plan, actor: pending.actor });
   };
 
+  /** The run the session counts as live (`AdapterHost.runActive`): a start is `run_active` while there is one. */
+  const runActive = (sessionId: string): LiveRunFacts | null => liveFacts(live.get(sessionId)) ?? changingMode.get(sessionId) ?? null;
+
   const startFacts = (sessionId: string, actor: RunActor): StartFacts => {
     const session = readSessionFacts(log, reader, sessionId);
     const accountId = session?.account ?? accounts.defaultId();
@@ -783,7 +794,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     return {
       sessionId,
       session,
-      live: liveFacts(live.get(sessionId)) ?? changingMode.get(sessionId) ?? null,
+      live: runActive(sessionId),
       accountId,
       account: facts,
       queued: queuedFor(sessionId),
@@ -1744,8 +1755,8 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     return undefined;
   };
 
-  /** Asks the live run `entry` to take message `messageId` back, for `withdraw` (#228). */
-  const withdrawThrough = async (entry: LiveRun, run: AdapterRun, sessionId: string, messageId: string): Promise<{ readonly withdrawn: boolean }> => {
+  /** Asks `run`, the live run `entry` as `withdraw` found it, to take message `messageId` back (#228). */
+  const withdrawThrough = async (entry: LiveRun, run: AdapterRun, messageId: string): Promise<{ readonly withdrawn: boolean }> => {
     const withdraw = capability(entry.descriptor, "providerQueue", run.withdraw, "withdraw a queued message", "withdraw");
     const interruption = entry.interruption;
     // Kept out of any run that starts before the command has decided on it (let go by `settleWithdraw`): one an end
@@ -1764,7 +1775,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     }
     if (answer.withdrawn) {
       // The provider gave it up: the environment holds it now, in a transaction of its own, so nothing that fails after this loses it.
-      if (!closing) requeueReported(sessionId, [messageId]);
+      if (!closing) requeueReported(entry.sessionId, [messageId]);
       return answer;
     }
     // Not held any more while the run's interrupt is under way: the interrupt may have taken it back. Decided again on the log once it has.
@@ -1783,6 +1794,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     admit: () => registry.admit(),
     startFacts,
     live: (sessionId) => liveFacts(live.get(sessionId)),
+    runActive,
     liveRun: (runId) => liveFacts(byRunId(runId)),
     unrecorded: (runId) => unrecordedRuns.has(runId),
     launch,
@@ -1835,7 +1847,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
         },
       );
       // A refusal that comes after the run's end hands the message back after it: a rewind waits for the answer (#245).
-      if (handing !== undefined) track(entry.sessionId, entry.runId, handing);
+      if (handing !== undefined) track(entry.sessionId, handing);
     },
     interrupt(runId) {
       const entry = byRunId(runId);
@@ -1859,18 +1871,20 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       const entry = live.get(sessionId);
       // No run is live to ask: the provider's queue is read by a turn it opened, waiting to be adopted.
       if (entry === undefined || entry.ended || entry.run === undefined) return Promise.resolve({ withdrawn: false });
-      const asking = withdrawThrough(entry, entry.run, sessionId, messageId);
+      const asking = withdrawThrough(entry, entry.run, messageId);
       // The provider's answer may come after the run's end and hand the message back after it: a rewind waits for it (#245).
-      track(sessionId, entry.runId, asking);
+      track(sessionId, asking);
       return asking;
     },
     settleWithdraw(messageId) {
       withdrawing.delete(messageId);
     },
-    settling(sessionId) {
-      const pending = handingBack.get(sessionId);
-      const runId = pending === undefined ? undefined : [...pending.values()].at(-1);
-      return runId === undefined ? null : { runId, settled: handedBack(sessionId) };
+    handingBack: (sessionId) => handingBack.has(sessionId),
+    async handedBack(sessionId) {
+      // Work begun meanwhile is waited for too, unless it is an active run's, which refuses the rewind whatever comes back.
+      for (let pending = handingBack.get(sessionId); pending !== undefined && runActive(sessionId) === null; pending = handingBack.get(sessionId)) {
+        await Promise.allSettled([...pending]);
+      }
     },
     nextRunBasis: (sessionId) => basisOf(sessionId),
     holdsPrompt: (runId, promptId) => byRunId(runId)?.prompts.has(promptId) === true,

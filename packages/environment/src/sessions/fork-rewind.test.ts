@@ -3,12 +3,13 @@ import { SessionSnapshot, registry, type ParamsOf, type ResponseOf } from "@agen
 import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { manualClock } from "../../test/clock.js";
-import { end, fakeAdapter, gate, say, type FakeAdapterOptions, type Gate, type Script } from "../../test/fake-adapter.js";
+import { end, fakeAdapter, gate, say, type FakeAdapter, type FakeAdapterOptions, type Gate, type Script } from "../../test/fake-adapter.js";
 import { startTestEnvironment, type TestEnvironment } from "../../test/helper.js";
 import { command, create, deleteSession, get, purgeSession, refusal } from "../../test/sessions.js";
 import type { WireClient } from "../../test/wire-client.js";
 import type { EventEnvelope } from "../event-log/event-log.js";
 import { createProviderTranscriptStore } from "../provider-transcripts/store.js";
+import { REWIND_WAIT_MS } from "./fork-rewind.js";
 
 /**
  * Fork, rewind and the subagent transcript through the primary seam
@@ -30,8 +31,11 @@ const linking =
   (providerSessionId: string): Script =>
   ({ input }) => [{ type: "session.provider-linked", payload: { providerSessionId } }, say(`Done: ${input.prompt.map((message) => message.text).join(" / ")}`), end()];
 
-const start = async (options: FakeAdapterOptions = {}): Promise<TestEnvironment> => {
-  const adapter = fakeAdapter({ capabilities: { fork: true, rewind: true }, script: linking("provider-1"), ...options });
+/** The fake adapter every test here starts with: fork and rewind declared, each run linking `provider-1`. */
+const rewindingAdapter = (options: FakeAdapterOptions = {}): FakeAdapter =>
+  fakeAdapter({ capabilities: { fork: true, rewind: true }, script: linking("provider-1"), ...options });
+
+const start = async (options: FakeAdapterOptions = {}, adapter: FakeAdapter = rewindingAdapter(options)): Promise<TestEnvironment> => {
   const t = await startTestEnvironment({
     adapter,
     accounts: [
@@ -368,7 +372,7 @@ describe("sessions.rewind", () => {
      * completes on its own, the provider still holding the message: what the host hands back later (`late`) arrives
      * after that run's `run.ended` has committed.
      */
-    const busyWithHeldMessage = async (t: TestEnvironment, client: WireClient, late: (runId: string) => Promise<unknown>) => {
+    const busyWithHeldMessage = async (t: TestEnvironment, client: WireClient, late: (runId: string, messageId: string) => Promise<unknown>) => {
       const turn = gate();
       const { id } = await create(client);
       await runTo(t, client, id, "First");
@@ -383,18 +387,19 @@ describe("sessions.rewind", () => {
       await vi.waitFor(() => expect(events(t, id).map((event) => event.type)).toContain("assistant.text"));
       const sent = registry["runs.send"].response.parse(await client.request("runs.send", { commandId: randomUUID(), sessionId: id, text: "Sent during Busy" }));
       expect(sent.result).toMatchObject({ delivery: "queued", heldBy: "provider" });
-      await late(runId);
+      const messageId = sent.result?.messageId as string;
+      await late(runId, messageId);
       // The turn completes before the provider's answer: its end takes nothing back, since a completing provider reads what it holds.
       turn.open();
       await vi.waitFor(() => expect(ended(t, id).at(-1)?.payload).toMatchObject({ runId, reason: "completed" }));
-      return { id, second, messageId: sent.result?.messageId as string };
+      return { id, second, runId, messageId };
     };
 
     /**
      * A rewind sent once the run's end has committed and before the late hand-back waits for it, then is refused
      * `queued_messages` naming the message; the next run reads it on the history it was sent after, never a rewound one.
      */
-    const waitsThenRefuses = async (t: TestEnvironment, client: WireClient, answer: Gate, session: { id: string; second: { messageId: string }; messageId: string }) => {
+    const waitsThenRefuses = async (t: TestEnvironment, client: WireClient, answer: Gate, session: Awaited<ReturnType<typeof busyWithHeldMessage>>) => {
       const { id, second, messageId } = session;
       const answering = rewind(client, id, second.messageId);
       let answered = false;
@@ -429,10 +434,183 @@ describe("sessions.rewind", () => {
 
     it("waits for a send the provider refuses after the run's end, then refuses queued_messages", async () => {
       const refusing = gate();
-      const t = await start({ capabilities: { fork: true, rewind: true, steering: false }, refuseSendsAfter: refusing });
+      const t = await start({ capabilities: { fork: true, rewind: true, steering: false }, holdSendRefusals: refusing });
       const client = await t.client();
       const session = await busyWithHeldMessage(t, client, async () => undefined);
       await waitsThenRefuses(t, client, refusing, session);
+    });
+
+    it("waits for a withdraw the provider answers after the run's end, then decides on the queue the withdraw left", async () => {
+      const answer = gate();
+      const t = await start({ capabilities: { fork: true, rewind: true, steering: false }, holdWithdrawAnswers: answer });
+      const client = await t.client();
+      let withdrawing: Promise<unknown> = Promise.resolve();
+      const { id, second } = await busyWithHeldMessage(t, client, async (_runId, messageId) => {
+        withdrawing = client.request("runs.withdraw", { commandId: randomUUID(), messageId });
+        // The provider has given the message up, so the turn's end opens no turn with it; its answer is held.
+        await vi.waitFor(() => expect(t.adapter.lastRun().withdrawals).toEqual([messageId]));
+        await new Promise((settle) => setTimeout(settle, 0));
+      });
+      const answering = rewind(client, id, second.messageId);
+      let answered = false;
+      void answering.then(() => (answered = true));
+      await get(client, id);
+      expect(answered).toBe(false);
+
+      answer.open();
+      expect(registry["runs.withdraw"].response.parse(await withdrawing).receipt.status).toBe("accepted");
+      expect((await answering).receipt.status).toBe("accepted");
+      const types = events(t, id).map((event) => event.type);
+      expect(types.indexOf("session.rewound")).toBeGreaterThan(types.lastIndexOf("message.withdrawn"));
+
+      await runTo(t, client, id, "Next");
+      expect(t.adapter.lastRun().input.prompt.map((message) => message.text)).toEqual(["Next"]);
+      expect(t.adapter.lastRun().input.target).toMatchObject({ kind: "rewind" });
+    });
+
+    it("stops waiting after REWIND_WAIT_MS and is refused queued_messages by the message still being handed back", async () => {
+      const answer = gate();
+      const t = await start({ capabilities: { fork: true, rewind: true, steering: false }, holdInterruptAnswers: answer });
+      const client = await t.client();
+      const { id, second, messageId } = await busyWithHeldMessage(t, client, (runId) => client.request("runs.interrupt", { commandId: randomUUID(), runId }));
+      const answering = rewind(client, id, second.messageId);
+      let answered = false;
+      void answering.then(() => (answered = true));
+      await get(client, id);
+      t.clock.advance(REWIND_WAIT_MS - 1);
+      await get(client, id);
+      expect(answered).toBe(false);
+
+      t.clock.advance(1);
+      await vi.waitFor(() => expect(answered).toBe(true));
+      expect((await answering).receipt).toMatchObject({
+        status: "rejected",
+        reason: "conflict",
+        error: { data: { reason: "queued_messages", sessionId: id, messageIds: [messageId] } },
+      });
+      answer.open();
+      await vi.waitFor(() => expect(events(t, id).at(-1)).toMatchObject({ type: "message.requeued", payload: { messageId } }));
+      await runTo(t, client, id, "Next");
+      expect(t.adapter.lastRun().input.prompt.map((message) => message.text)).toEqual(["Sent during Busy", "Next"]);
+      expect(t.adapter.lastRun().input.target).toEqual({ kind: "resume", providerSessionId: "provider-1" });
+    });
+
+    it("stops waiting once a run is live on the session, and is refused run_active naming it", async () => {
+      const interruptAnswer = gate();
+      const sendRefusal = gate();
+      const t = await start({ capabilities: { fork: true, rewind: true, steering: false }, holdInterruptAnswers: interruptAnswer, holdSendRefusals: sendRefusal });
+      const client = await t.client();
+      const { id } = await create(client);
+      await runTo(t, client, id, "First");
+      const second = await runTo(t, client, id, "Second");
+      // "Busy" is interrupted and completes before the answer, which is held.
+      const busyTurn = gate();
+      t.adapter.nextScripts.push(async function* () {
+        yield say("Working");
+        await busyTurn.opened;
+        yield end();
+      });
+      const busy = registry["runs.start"].response.parse(await client.request("runs.start", { commandId: randomUUID(), sessionId: id, text: "Busy" }));
+      await vi.waitFor(() => expect(events(t, id).map((event) => event.type)).toContain("assistant.text"));
+      await client.request("runs.interrupt", { commandId: randomUUID(), runId: busy.result?.runId as string });
+      busyTurn.open();
+      await vi.waitFor(() => expect(ended(t, id).at(-1)?.payload).toMatchObject({ runId: busy.result?.runId, reason: "completed" }));
+      const answering = rewind(client, id, second.messageId);
+      let answered = false;
+      void answering.then(() => (answered = true));
+      await get(client, id);
+
+      // A run starts while the rewind waits, and a message sent during it is refused late: work of the live run.
+      const nextTurn = gate();
+      t.adapter.nextScripts.push(async function* () {
+        yield say("Next working");
+        await nextTurn.opened;
+        yield end();
+      });
+      const next = registry["runs.start"].response.parse(await client.request("runs.start", { commandId: randomUUID(), sessionId: id, text: "Next" }));
+      await vi.waitFor(() => expect(events(t, id).filter((event) => event.type === "assistant.text")).toHaveLength(4));
+      await client.request("runs.send", { commandId: randomUUID(), sessionId: id, text: "Sent during Next" });
+      interruptAnswer.open();
+      await vi.waitFor(() => expect(answered).toBe(true));
+      expect((await answering).receipt).toMatchObject({
+        status: "rejected",
+        reason: "conflict",
+        error: { data: { reason: "run_active", sessionId: id, runId: next.result?.runId } },
+      });
+      sendRefusal.open();
+      nextTurn.open();
+      await vi.waitFor(() => expect(ended(t, id).map((event) => event.payload["runId"])).toContain(next.result?.runId));
+    });
+
+    it("is refused queued_messages by a message the provider holds after a completed end, until the turn it opens reads it", async () => {
+      const opens = gate();
+      const t = await start({ capabilities: { fork: true, rewind: true, steering: false }, holdTurnOpens: opens });
+      const client = await t.client();
+      const { id, second, messageId } = await busyWithHeldMessage(t, client, async () => undefined);
+      expect((await rewind(client, id, second.messageId)).receipt).toMatchObject({
+        status: "rejected",
+        reason: "conflict",
+        error: { data: { reason: "queued_messages", sessionId: id, messageIds: [messageId] } },
+      });
+
+      opens.open();
+      await vi.waitFor(() => expect(ended(t, id)).toHaveLength(4));
+      expect(t.adapter.lastRun()).toMatchObject({ adopted: true });
+      expect(t.adapter.lastRun().input.prompt.map((message) => message.text)).toEqual(["Sent during Busy"]);
+      expect(events(t, id).map((event) => event.type)).not.toContain("session.rewound");
+    });
+
+    it("is not refused by a message the provider held when its process has stopped: no turn can read it", async () => {
+      const t = await start({ capabilities: { fork: true, rewind: true, steering: false }, holdTurnOpens: gate() });
+      const client = await t.client();
+      const { id, second } = await busyWithHeldMessage(t, client, async () => undefined);
+      await client.request("providers.processes.stop", { commandId: randomUUID(), sessionId: id });
+      await vi.waitFor(() => expect(t.adapter.processes.at(-1)?.stopped).toBe(true));
+      expect((await rewind(client, id, second.messageId)).receipt.status).toBe("accepted");
+    });
+
+    it("is refused run_active while a turn the provider opened after the run waits on its mode change", async () => {
+      let changed: (() => void) | undefined;
+      const base = rewindingAdapter({ capabilities: { fork: true, rewind: true, steering: false } });
+      // The provider's own turns change mode only when told to later.
+      const adapter: FakeAdapter = {
+        ...base,
+        createRun: (input, context) =>
+          base.createRun(input, { ...context, adopt: (turn) => context.adopt({ ...turn, setMode: () => new Promise<void>((resolve) => (changed = resolve)) }) }),
+      };
+      const t = await start({}, adapter);
+      const target = await t.pair({ ceiling: "bypassPermissions" });
+      const client = await t.client({ token: target.token });
+      const { id } = await create(client);
+      await runTo(t, client, id, "First");
+      const second = await runTo(t, client, id, "Second");
+      // "Busy" runs in bypassPermissions and the provider opens a turn of its own after it, which the host adopts
+      // under the ceiling as it is by then: plan, so the turn's mode must change first.
+      const busyTurn = gate();
+      adapter.nextScripts.push(async function* ({ openTurn }) {
+        yield say("Working");
+        await busyTurn.opened;
+        openTurn();
+        yield end();
+      });
+      const busy = registry["runs.start"].response.parse(
+        await client.request("runs.start", { commandId: randomUUID(), sessionId: id, text: "Busy", mode: "bypassPermissions" }),
+      );
+      await vi.waitFor(() => expect(events(t, id).map((event) => event.type)).toContain("assistant.text"));
+      await (await t.client()).request("access.sessions.setCeiling", { commandId: randomUUID(), clientSessionId: target.clientSessionId, ceiling: "plan" });
+      busyTurn.open();
+      await vi.waitFor(() => expect(changed).toBeTypeOf("function"));
+      expect(ended(t, id).at(-1)?.payload).toMatchObject({ runId: busy.result?.runId, reason: "completed" });
+
+      expect((await rewind(client, id, second.messageId)).receipt).toMatchObject({
+        status: "rejected",
+        reason: "conflict",
+        error: { data: { reason: "run_active", sessionId: id, runId: busy.result?.runId } },
+      });
+      changed?.();
+      await vi.waitFor(() => expect(ended(t, id)).toHaveLength(4));
+      expect(t.adapter.lastRun()).toMatchObject({ adopted: true });
+      expect(events(t, id).map((event) => event.type)).not.toContain("session.rewound");
     });
   });
 
