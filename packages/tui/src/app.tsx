@@ -1507,6 +1507,12 @@ export const App = (props: AppProps) => {
     leftInRead.current = false;
     terminal.focus(paneHasKeys);
   }, [paneHasKeys]);
+  // Somebody is here, whether the key went to the screen or the shell: both bells wait again. Past three minutes of
+  // stillness the key is a return, answered with what happened meanwhile.
+  const present = () => {
+    const recap = attention.touch();
+    if (recap !== undefined) flash(recap, RECAP_FLASH_MS);
+  };
   const heldBytes = (action: "terminal.leave" | "terminal.scrollback") => keymap.keys[action].flatMap((name) => keyBytes(name) ?? []);
   const heldBy = (action: "terminal.leave" | "terminal.scrollback", bytes: string) => heldBytes(action).includes(bytes);
   const paneTakes = (bytes: string) => {
@@ -1516,10 +1522,12 @@ export const App = (props: AppProps) => {
       leftAt.current = null;
       paneKeys.current = true;
       setFocus("terminal");
+      present();
       terminal.key(bytes);
       return;
     }
     scheduler.bypass();
+    present();
     if (heldBy("terminal.leave", bytes)) {
       // The keys go at once: what comes before the next frame is not the pane's, but the leave key again.
       paneKeys.current = false;
@@ -1538,6 +1546,7 @@ export const App = (props: AppProps) => {
   usePaste(
     (text) => {
       scheduler.bypass();
+      present();
       terminal.paste(text);
     },
     { isActive: paneHasKeys },
@@ -1581,10 +1590,8 @@ export const App = (props: AppProps) => {
     leftAt.current = null;
     // A key draws what the scheduler holds back, with its own echo.
     scheduler.bypass();
-    // Somebody is here: both bells wait again. Past three minutes of stillness the key is a return, answered with what happened
-    // meanwhile; first, so a key with a line of its own has the last word.
-    const recap = attention.touch();
-    if (recap !== undefined) flash(recap, RECAP_FLASH_MS);
+    // First, so a key with a line of its own has the last word.
+    present();
     const name = eventName(input, key);
     // Where the keys are: the same key pressed again elsewhere (an Esc that closed a card, answered a question, left the
     // transcript or a search) starts nothing with this one.

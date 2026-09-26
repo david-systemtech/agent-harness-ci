@@ -143,3 +143,48 @@ describe("the away summary", () => {
     expect(app.frame()).not.toContain("while you were away");
   });
 });
+
+describe("keys typed into the terminal pane", () => {
+  // The pane takes every key as the shell's, but whoever types there is here all the same (#148).
+  const inPane = async () => {
+    const launched = await launch();
+    await launched.app.type("/terminal");
+    await launched.app.press(KEY.enter);
+    await launched.app.waitFor("The terminal has the keys");
+    return launched;
+  };
+
+  it("push the bell back as any key does", async () => {
+    const { app, desk } = await inPane();
+    const { runId } = desk.startRun(RECEIPTS, "Fix the receipts");
+    desk.emit(RECEIPTS, "assistant.text", { runId, itemId: "i-1", text: "Fixed the rounding.", aborted: false });
+    desk.endRun(RECEIPTS, runId);
+    await app.waitFor("Fixed the rounding.");
+    await app.jump(50_000);
+    await app.type("ls");
+    await app.jump(50_000);
+    expect(app.chrome.notices).toEqual([]);
+    await app.jump(10_000);
+    expect(app.chrome.notices).toEqual([{ kind: "finished", title: "Receipts", body: "Fixed the rounding." }]);
+  });
+
+  it("end three minutes of stillness as any key does, answered with what happened meanwhile", async () => {
+    const { app, desk } = await inPane();
+    await app.jump(60_000);
+    const { runId } = desk.startRun(NOTES, "Tidy the notes");
+    desk.endRun(NOTES, runId, { durationMs: 130_000 });
+    await app.jump(3 * 60_000);
+    await app.type("x");
+    await app.waitFor("while you were away: Notes finished");
+  });
+
+  it("count a paste into the pane as somebody here", async () => {
+    const { app, desk } = await inPane();
+    await app.jump(60_000);
+    const { runId } = desk.startRun(NOTES, "Tidy the notes");
+    desk.endRun(NOTES, runId, { durationMs: 130_000 });
+    await app.jump(3 * 60_000);
+    await app.paste("x");
+    await app.waitFor("while you were away: Notes finished");
+  });
+});
