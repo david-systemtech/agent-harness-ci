@@ -226,7 +226,7 @@ export const restorePicker = (acts: RailActs, query: string): Picker => {
             text: d.summary.title,
             ...(acts.badges.get(d.environmentId) && { badge: acts.badges.get(d.environmentId) as Badge }),
             detail: `restorable until ${whenWords(new Date(d.summary.purgeAt))}`,
-            choose: () => acts.send(d.environmentId, `${d.environmentId}/${d.summary.id}`, "sessions.restore", { sessionId: d.summary.id }, `Restored ${title}.`),
+            choose: () => acts.send(d.environmentId, `${d.environmentId}/${d.summary.id}`, "sessions.restore", { sessionId: d.summary.id }, `Restored ${title}${whenBack(acts, d.environmentId)}.`),
           };
         }),
     note: () => {
