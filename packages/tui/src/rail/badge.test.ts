@@ -43,9 +43,16 @@ describe("the badges of the environments listed", () => {
     expect([...badges.values()].map((b) => b.abbreviation)).toEqual(["AB", "A2", "A3"]);
   });
 
-  it("fall back to ?? for a name with no letter or digit, rather than an empty abbreviation", () => {
+  it("fall back to ?? for a name with no letter or digit, rather than an empty abbreviation, shared by every such name", () => {
     expect(badgesOf([view("---")]).get("id----")?.abbreviation).toBe("??");
     expect(abbreviationOf("···")).toBe("");
+    expect([...badgesOf([view("---"), view("···")]).values()].map((b) => b.abbreviation)).toEqual(["??", "??"]);
+  });
+
+  it("share the plain abbreviation past nine names of the same letters, the digits spent", () => {
+    const names = ["ab", "a b", "a-b", "a.b", "a_b", "AB", "Ab", "aB", "a  b", "a--b", "a..b"];
+    const badges = [...badgesOf(names.map((name) => view(name))).values()].map((b) => b.abbreviation);
+    expect(badges).toEqual(["AB", "A2", "A3", "A4", "A5", "A6", "A7", "A8", "A9", "AB", "AB"]);
   });
 });
 

@@ -13,7 +13,12 @@ import type { SessionSummary } from "@agent-harness/contracts";
 
 export interface Badge {
   readonly icon: string;
-  /** Two letters, in capitals, no other environment listed has; a digit after the first letter once the letters run out. */
+  /**
+   * Two letters, in capitals, no other environment listed has, as far as the
+   * names allow: a digit follows the first letter once its letters run out,
+   * and past nine of the same letters, or for two names with no letter at all
+   * ("??"), the badge is shared.
+   */
   readonly abbreviation: string;
   /** An Ink colour: the environment's own, or one of the terminal's. */
   readonly colour: string;
