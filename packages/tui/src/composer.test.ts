@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -226,8 +226,8 @@ describe("slash commands", () => {
     await app.waitFor("filter slow?");
     expect(app.frame()).not.toContain("everything the terminal answers");
     expect(app.frame()).toContain("Why is it slow?");
-    // Under the header, which names the open session, the list holds only the match.
-    expect(app.rows().slice(1).filter((row) => row.includes("Receipts"))).toEqual([]);
+    // Under the header, which names the open session, the list holds only the match; the rail beside it lists every session.
+    expect(app.rows().slice(1).map((row) => row.split("│").at(-1) ?? row).filter((row) => row.includes("Receipts"))).toEqual([]);
   });
 
   it("sends a command it does not know to the agent as typed", async () => {
@@ -259,14 +259,31 @@ describe("slash commands", () => {
     const { app } = await launch();
     await send(app, "/snip save explain Explain @${1:path}: what it is for, then $2.");
     await app.waitFor("Saved ;;explain.");
-    const kept = JSON.parse(readFileSync(join(app.stateDir, "snippets.json"), "utf8")) as { snippets: { name: string }[] };
-    expect(kept.snippets.map((s) => s.name)).toEqual(["explain"]);
+    // "Saved" is said before the file is written (#262), so wait on the file, not the line.
+    await app.waitUntil(() => {
+      try {
+        const kept = JSON.parse(readFileSync(join(app.stateDir, "snippets.json"), "utf8")) as { snippets: { name: string }[] };
+        return kept.snippets.map((s) => s.name).join() === "explain";
+      } catch {
+        return false;
+      }
+    }, "the snippet to be written");
     await send(app, "/snip explain");
     await app.waitFor("› Explain @path: what it is for, then .");
     await app.type("src/a.ts");
     await app.press(KEY.tab);
     await app.type("the callers");
     expect(app.frame()).toContain("› Explain @src/a.ts: what it is for, then the callers.");
+  });
+
+  it("says so when a saved snippet cannot be written, and keeps it for this run", async () => {
+    const { app } = await launch();
+    // A directory where the file should be: the read finds no snippets, the rename fails.
+    mkdirSync(join(app.stateDir, "snippets.json"));
+    await send(app, "/snip save notes Remember $1.");
+    await app.waitFor("The snippets could not be written");
+    await send(app, "/snip notes");
+    await app.waitFor("› Remember .");
   });
 
   it("lists the delegated work with /tasks and quits with /quit", async () => {

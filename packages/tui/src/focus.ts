@@ -12,7 +12,7 @@ export type Focus = "composer" | "sidebar" | "delegated" | "terminal" | "transcr
 
 /** Which stops on the ring exist right now. The composer and the transcript always do. */
 export interface FocusStops {
-  /** False on a terminal too narrow for the rail, which is then not drawn. */
+  /** False with no environment to list; under 100 columns the rail is still a stop, drawn in the pane's place (#145). */
   readonly sidebar: boolean;
   /** False whenever nothing is delegated; the strip is not drawn either. */
   readonly delegated: boolean;

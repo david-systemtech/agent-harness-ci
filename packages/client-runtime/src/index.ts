@@ -3,6 +3,8 @@ export { PROTOCOL_VERSION } from "@agent-harness/contracts";
 
 export { createRuntime, type Runtime } from "./runtime.js";
 export { derived, writable, type Observable, type Writable } from "./observable.js";
+/** The id a client mints for a session or a group it creates (the contracts' `SessionId` and `GroupId` are version 4). */
+export { uuidv4 } from "./ids.js";
 export type {
   ClientIdentity,
   Clock,

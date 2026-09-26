@@ -1,12 +1,14 @@
-import type {
-  IdleSpan,
-  SessionActiveReorderedPayload,
-  SessionSettledPayload,
-  SessionSnoozedPayload,
-  SessionSummary,
-  SessionUnsettledPayload,
-  SessionUnsnoozedPayload,
-  SettledBy,
+import {
+  addCalendarMonths,
+  snoozeLimit,
+  type IdleSpan,
+  type SessionActiveReorderedPayload,
+  type SessionSettledPayload,
+  type SessionSnoozedPayload,
+  type SessionSummary,
+  type SessionUnsettledPayload,
+  type SessionUnsnoozedPayload,
+  type SettledBy,
 } from "@agent-harness/contracts";
 import type { EventInput } from "../event-log/event-log.js";
 import { decided, present, unchanged, type Decision, type SessionState } from "./decider.js";
@@ -114,7 +116,7 @@ export const decideSnooze = (state: SessionState | null, command: SnoozeSession)
   if ("rejected" in session) return session;
   const until = new Date(command.until);
   const now = new Date(command.at);
-  const limit = addCalendarMonths(now, 12);
+  const limit = snoozeLimit(now);
   if (until.getTime() <= now.getTime() || until.getTime() > limit.getTime()) {
     const window: SnoozeWindow = { until: until.toISOString(), now: command.at, limit: limit.toISOString() };
     const message = `A snooze ends after now (${window.now}) and by ${window.limit}; ${window.until} does not.`;
@@ -135,22 +137,6 @@ export const decideUnsnooze = (state: SessionState | null, command: UnsnoozeSess
 };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-
-const daysInMonth = (year: number, month: number): number => new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
-
-/**
- * `months` calendar months after `date`, in UTC, at the same time of day: the
- * same day of the month, or the month's last day when it is shorter (January
- * 31st and one month is February 28th, or 29th in a leap year).
- */
-export const addCalendarMonths = (date: Date, months: number): Date => {
-  const target = new Date(date.getTime());
-  const day = target.getUTCDate();
-  target.setUTCDate(1);
-  target.setUTCMonth(target.getUTCMonth() + months);
-  target.setUTCDate(Math.min(day, daysInMonth(target.getUTCFullYear(), target.getUTCMonth())));
-  return target;
-};
 
 /** When a span that starts at `anchor` ends: whole days, weeks of seven days, or calendar months. */
 export const spanEnd = (anchor: Date, span: IdleSpan): Date => {
