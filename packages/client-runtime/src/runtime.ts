@@ -16,7 +16,7 @@ import type { AccountsAnswer, ModelsAnswer, UsageView } from "./projections/acco
 import type { Attention } from "./projections/attention.js";
 import type { ClientCalls } from "./projections/client-calls.js";
 import type { ModePicker } from "./projections/modes.js";
-import type { RunsView } from "./projections/runs.js";
+import type { RunsProjection } from "./projections/runs.js";
 import type { SessionProjection } from "./projections/session.js";
 
 /**
@@ -59,8 +59,14 @@ export interface Runtime {
      * reading it never subscribes.
      */
     session(environmentId: string, sessionId: string): Observable<SessionProjection>;
-    /** Each session's run state, and the parked asks of every enabled environment with their TTL countdowns. */
-    readonly runs: Observable<RunsView>;
+    /**
+     * Each session's run state, and the parked asks of every enabled
+     * environment with their TTL countdowns; `runs.session(environmentId,
+     * sessionId)` is one session's run state with its queue, its rewind and
+     * each verb of ADR 0022 present or absent with its reason, and following
+     * it holds the session's subscription.
+     */
+    readonly runs: RunsProjection;
     /** The environment's accounts, from the request cache; fetched while followed. */
     accounts(environmentId: string): Observable<AccountsAnswer>;
     /** The models the environment's accounts can use, from the request cache; fetched while followed. */
