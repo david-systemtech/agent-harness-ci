@@ -198,10 +198,11 @@ const applySgr = (style: Style, raw: string): Style => {
  * private marker `<=>?` among them) and intermediate bytes (group 2), and
  * its final byte (group 3), to tell SGR; an OSC, to BEL or ST; an escape
  * with intermediate bytes (`ESC ( B`, which `tput sgr0` writes); any other
- * two-byte one.
+ * two-byte one, its final byte anywhere in `0` to `~` (`ESC 7`, `ESC =`,
+ * `ESC c` as well as `ESC M`).
  */
 // eslint-disable-next-line no-control-regex -- escape sequences are what is being read.
-const ESCAPE = /\u001B(?:\[([0-?]*)([ -/]*)([@-~])|\][^\u0007\u001B]*(?:\u0007|\u001B\\)|[ -/]+[0-~]|[@-Z\\-_])/g;
+const ESCAPE = /\u001B(?:\[([0-?]*)([ -/]*)([@-~])|\][^\u0007\u001B]*(?:\u0007|\u001B\\)|[ -/]+[0-~]|[0-~])/g;
 
 /** SGR: final byte `m`, no intermediate bytes, and parameters of digits, `;` and `:` only (a private marker makes it another sequence). */
 const isSgr = (params: string | undefined, intermediates: string | undefined, final: string | undefined): params is string =>

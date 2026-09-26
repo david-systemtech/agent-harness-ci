@@ -52,6 +52,12 @@ describe("a diff tool's answer in the pager", () => {
     expect(lines[0]?.spans).toEqual([{ text: "bold", bold: true }, { text: " plain still end" }]);
   });
 
+  it("drops a two-byte escape whose final byte is a digit, a sign or a small letter, leaving no stray byte in the page", () => {
+    // ESC = and ESC > switch the keypad (xterm's smkx and rmkx), ESC 7 and ESC 8 save and restore the cursor, ESC c resets.
+    const lines = sgrPage("\u001B=keypad\u001B7 saved\u001B8 back\u001B> numeric\u001Bc reset", 60);
+    expect(lines[0]?.spans).toEqual([{ text: "keypad saved back numeric reset" }]);
+  });
+
   it("reads colon sub-parameters as one parameter: a curly underline is an underline, 4:0 turns it off alone, and 38:2 skips its colour space", () => {
     const lines = sgrPage("\u001B[1;4:3mA\u001B[4:0mB\u001B[38:2::10:20:30mC\u001B[38:5:208mD\u001B[38:2:1:2:3mE", 60);
     expect(lines[0]?.spans).toEqual([
