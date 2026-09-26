@@ -4,6 +4,7 @@ import {
   AccountLabel,
   BYPASS_SENTENCE,
   CONTAINMENT_LEVELS,
+  MAX_DRAFT_LENGTH,
   MODES,
   compareModes,
   lowerMode,
@@ -24,7 +25,7 @@ import { useFollow } from "../session/use-session.js";
 import { meterCells } from "../status/line.js";
 import type { RunChoice } from "../status/use-status.js";
 import { wrap, type Line, type Span } from "../transcript/lines.js";
-import { findEnvironment, isPlaceholder, knownEnvironments, nameOf } from "../view.js";
+import { findEnvironment, isPlaceholder, knownEnvironments, nameOf, type Question } from "../view.js";
 import { ListCard, LinesPanel, TypedLine, wrappedRows } from "./cards.js";
 import type { PickerCommand } from "./commands.js";
 import {
@@ -79,8 +80,10 @@ export interface PickersHost {
   /** Closes the open card while it is one of these, and, with `when`, only while `when` holds of it. */
   close(when?: (panel: Panel) => boolean): void;
   say(line: string): void;
-  ask(question: { readonly text: string; readonly yes: () => void; readonly no?: () => void }): void;
+  ask(question: Question): void;
   openSession(opened: Opened): void;
+  /** The draft a hand-off of the open session carries onto its new session (`useForkRewind`'s `carriedDraft`); preset none. */
+  carriedDraft?(): string | null;
   newCommandId(): string;
   newSessionId(): string;
   keys(action: KeyActionId): string;
@@ -274,11 +277,15 @@ export const usePickers = (host: PickersHost): Pickers => {
     const from = sessionName();
     if (account.id === sessionAccount()) return host.say(`${from} runs on ${account.label} already.`);
     const id = host.newSessionId();
+    // The environment writes a fork's draft only from an anchor, which a hand-off has none of: the source's draft is carried
+    // here, as `commands.rewind` carries a message's text onto the session it starts, once the fork is accepted.
+    const draft = host.carriedDraft?.() ?? null;
     host.close();
     host.say(`Handing ${from} off to ${account.label}…`);
     // A session cannot change its account (runs.start takes none): the hand-off onto another account is a fork on it (sessions.fork).
     void runtime.commands.dispatch(environmentId, "sessions.fork", { sessionId, id, account: account.id }).then((answer) => {
       if (!answer.ok) return host.say(`Not handed off: ${answer.error.message}`);
+      if (draft !== null && draft !== "") void runtime.commands.dispatch(environmentId, "sessions.setDraft", { sessionId: id, draft: draft.slice(0, MAX_DRAFT_LENGTH) });
       setForks((held) => new Map(held).set(keyOf({ environmentId, sessionId: id }), account.id));
       host.openSession({ environmentId, sessionId: id });
       host.say(`Handed off to ${account.label}: a new session forked from ${from} runs on it; ${from} stays as it is.`);

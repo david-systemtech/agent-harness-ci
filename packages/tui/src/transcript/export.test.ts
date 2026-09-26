@@ -86,3 +86,41 @@ describe("the text of a session", () => {
     expect(timelineLine(turn)).toMatch(/^\d\d:\d\d {2}Fix the parser · 3\.0s · 1 file · 1 command · interrupted$/);
   });
 });
+
+describe("what a rewind cut, in /export (#232)", () => {
+  const RUN_2 = "0199a100-0000-4000-8000-000000000002";
+  const said = (sequence: number, text: string, runId = RUN): TranscriptEntry => ({
+    kind: "user-message",
+    sequence,
+    runId,
+    messageId: `m-${sequence}`,
+    text,
+    attachments: [],
+    delivery: "prompt",
+    heldBy: null,
+    sentAt: "2026-09-25T10:00:00.000Z",
+  });
+  const reply = (sequence: number, text: string, runId = RUN): TranscriptEntry => ({ kind: "assistant-text", sequence, runId, itemId: `i-${sequence}`, text, aborted: false, streaming: false });
+  /** A rewind to `toMessageId`, the first message its cut holds, as the environment cuts its target with the rest. */
+  const fold = (sequence: number, toMessageId: string, text: string, cut: readonly TranscriptEntry[]): TranscriptEntry => ({ kind: "rewound", sequence, toMessageId, text, undoable: false, items: [...cut] });
+  const exported = (entries: readonly TranscriptEntry[]) => exportMarkdown({ items: [...entries], runs: [], summary: null }, { environment: "desk", at: new Date("2026-09-25T11:00:00.000Z") });
+
+  it("quotes the cut rows under a line saying what the session went back to", () => {
+    const text = exported([said(1, "Fix the parser"), fold(9, "m-2", "Add the tests", [said(2, "Add the tests", RUN_2), reply(3, "Added two.", RUN_2)])]);
+    expect(text).toContain("_Rewound to Add the tests: what the rewind cut follows._\n\n> ### You · ");
+    expect(text).toContain("> Add the tests\n>\n> Added two.");
+  });
+
+  it("quotes a fold inside the cut twice over", () => {
+    const inner = fold(8, "m-4", "Then the docs", [said(4, "Then the docs", RUN_2)]);
+    const text = exported([said(1, "Fix the parser"), fold(9, "m-2", "Add the tests", [said(2, "Add the tests", RUN_2), inner])]);
+    expect(text).toContain("> _Rewound to Then the docs: what the rewind cut follows._\n>\n> > ### You · ");
+    expect(text).toContain("> > Then the docs");
+  });
+
+  it("writes only the line for a cut with nothing in it", () => {
+    const text = exported([said(1, "Fix the parser"), fold(9, "m-2", "Add the tests", [])]);
+    expect(text.trimEnd().endsWith("_Rewound to Add the tests: what the rewind cut follows._")).toBe(true);
+    expect(text).not.toContain(">");
+  });
+});

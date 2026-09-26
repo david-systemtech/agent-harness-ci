@@ -18,6 +18,17 @@ describe("parseCommand", () => {
     expect(parseCommand("/copy two").kind).toBe("usage");
   });
 
+  it("reads /rewind and /fork with the count of prompts back (#232)", () => {
+    expect(parseCommand("/rewind")).toEqual({ kind: "rewind", back: 1 });
+    expect(parseCommand("/rewind 3")).toEqual({ kind: "rewind", back: 3 });
+    expect(parseCommand("/rewind undo")).toEqual({ kind: "rewind-undo" });
+    expect(parseCommand("/rewind 0")).toEqual({ kind: "usage", line: "Usage: /rewind [n | undo]: n prompts back, one by default; undo takes the rewind back." });
+    expect(parseCommand("/rewind undo now").kind).toBe("usage");
+    expect(parseCommand("/fork")).toEqual({ kind: "fork", back: null });
+    expect(parseCommand("/fork 2")).toEqual({ kind: "fork", back: 2 });
+    expect(parseCommand("/fork end")).toEqual({ kind: "usage", line: "Usage: /fork [n]: bare, the whole session; n, before the prompt n back." });
+  });
+
   it("reads the cards' commands, which take nothing after them", () => {
     expect(parseCommand("/asks")).toEqual({ kind: "asks" });
     expect(parseCommand("/notices")).toEqual({ kind: "notices" });
