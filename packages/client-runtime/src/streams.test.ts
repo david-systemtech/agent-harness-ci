@@ -668,6 +668,53 @@ describe("offline", () => {
   });
 });
 
+describe("a cached session from before the rewinds were carried (#260)", () => {
+  /** A runtime that cached session `a` at its snapshot at 2, restarted on a copy of its documents with `edit` applied to the session's snapshot parts. */
+  const reopened = async (edit: (parts: Record<string, unknown>) => void) => {
+    const clock = manualClock();
+    const documents = inMemoryDocuments();
+    const first = await paired({ clock, documents });
+    const a = randomUUID();
+    first.list.event(sessionEvent(2, added(summaryOf(a, { title: "Invoices" }))));
+    first.list.synchronized(2);
+    await first.adding;
+    const handle = first.runtime.subscriptions.session(first.wire.environmentId, a);
+    const stream = await subscription(first.wire, "sessions.subscribeSession");
+    stream.snapshot(2, { sequence: 2, summary: summaryOf(a, { title: "Invoices" }), runs: [], items: [], parkedPrompts: [], rewinds: [] });
+    stream.synchronized(2);
+    await flush();
+    handle.release();
+    await first.runtime.close();
+
+    // The session's document: `{format, sequence, snapshot}`, the kind's stored form `{summary, snapshot, events}` in it.
+    const key = `streams.${first.wire.environmentId}.session.${a}`;
+    const document = structuredClone(documents.entries()[key]) as { sequence: number; snapshot: { snapshot: Record<string, unknown> } };
+    expect(document.sequence).toBe(2);
+    edit(document.snapshot.snapshot);
+    await documents.set(key, document);
+
+    const again = await restartedFrom({ clock, documents, secrets: first.platform.secrets, environmentId: first.wire.environmentId });
+    const opened = again.runtime.subscriptions.session(again.wire.environmentId, a);
+    onTestFinished(() => opened.release());
+    const subscribed = await subscription(again.wire, "sessions.subscribeSession");
+    return { again, afterSequence: subscribed.params["afterSequence"] };
+  };
+
+  it("does not read one with no rewinds: the session subscribes from nothing, rather than hide a fold the environment holds", async () => {
+    const { again, afterSequence } = await reopened((parts) => {
+      delete parts["rewinds"];
+    });
+    expect(afterSequence).toBe(0);
+    expect(again.platform.reported).toHaveLength(1);
+  });
+
+  it("reads one this runtime wrote, rewinds and all, and subscribes from its cursor", async () => {
+    const { again, afterSequence } = await reopened(() => undefined);
+    expect(afterSequence).toBe(2);
+    expect(again.platform.reported).toEqual([]);
+  });
+});
+
 describe("removing an environment", () => {
   it("forgets its list, its sessions, its cursors and its clock", async () => {
     const s = runtimeOn();

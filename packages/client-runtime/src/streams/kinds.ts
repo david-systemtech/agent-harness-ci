@@ -10,6 +10,7 @@ import {
   SessionListSnapshot,
   SessionSnapshot,
   SessionSummary,
+  StandingRewind,
   SummaryPatch,
   registry,
 } from "@agent-harness/contracts";
@@ -44,7 +45,14 @@ export interface ListData {
 export type SessionSnapshotParts = Pick<SessionSnapshot, "runs" | "items" | "parkedPrompts" | "rewinds">;
 
 const NO_SNAPSHOT_PARTS: SessionSnapshotParts = { runs: [], items: [], parkedPrompts: [], rewinds: [] };
-const SnapshotParts = SessionSnapshot.pick({ runs: true, items: true, parkedPrompts: true, rewinds: true });
+/**
+ * The snapshot parts as a cache document holds them: `rewinds` required, where
+ * the wire defaults it to none for an environment from before #260. A
+ * document this runtime wrote always has them; one from before #260 has
+ * none, and reading it as none standing would hide a fold the environment
+ * holds until the next fresh snapshot, so it does not read.
+ */
+const StoredSnapshotParts = SessionSnapshot.pick({ runs: true, items: true, parkedPrompts: true }).extend({ rewinds: StandingRewind.array() });
 
 /** One session: its summary (null once it is gone), the rest of its snapshot as sent, and every event after that snapshot. */
 export interface SessionData {
@@ -181,7 +189,7 @@ export const sessionKind = (): StreamKind<SessionData> => ({
       summary: SessionSummary.nullable().parse(stored["summary"]),
       // A document from before #119 (a `transcript` field, no `snapshot`), or from before #260 (no `rewinds`), does not read: no cache, so the
       // session subscribes from nothing.
-      snapshot: SnapshotParts.parse(stored["snapshot"]),
+      snapshot: StoredSnapshotParts.parse(stored["snapshot"]),
       events,
       eventBytes: sizeOf(events),
     };

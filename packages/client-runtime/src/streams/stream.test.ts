@@ -149,6 +149,16 @@ describe("the session stream kind", () => {
     expect(kind.decode(JSON.parse(JSON.stringify(kind.encode(renamed))))).toEqual(renamed);
   });
 
+  it("reads a snapshot sent without rewinds (an environment from before #260) as none standing, but not a cached document without them", () => {
+    const kind = sessionKind();
+    const older = kind.fromSnapshot({ sequence: 3, summary: summaryOf(a), runs: [], items: [], parkedPrompts: [] });
+    expect(older.snapshot.rewinds).toEqual([]);
+    const stored = JSON.parse(JSON.stringify(kind.encode(older))) as { snapshot: Record<string, unknown> };
+    expect(kind.decode(stored)).toEqual(older);
+    delete stored.snapshot["rewinds"];
+    expect(() => kind.decode(stored)).toThrow();
+  });
+
   it("holds nothing after a bare synchronized, never a session that reads as gone, and is live once an event describes it", () => {
     const kind = sessionKind();
     const attached = step(kind, emptyStream(), { type: "attaching" }).state;
