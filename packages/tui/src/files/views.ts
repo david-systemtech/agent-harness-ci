@@ -84,6 +84,9 @@ export const diffLines = async (text: string, width: number, filter: DiffFilter 
 
 const joined = (files: readonly SessionDiffFile[]): string => files.map((file) => (file.diff.endsWith("\n") ? file.diff : `${file.diff}\n`)).join("").replace(/\n$/, "");
 
+/** Said for a diff that was cut before anything of it could be shown. */
+const CUT_LEFT_NOTHING = "The cut left nothing to show.";
+
 const cutMark = (row: string): Line => line(row, [{ text: `… cut at ${String(DIFF_CAP / MIB)} MiB: the rest is not shown.`, color: "yellow" }]);
 
 /** `d` on a row: the session's diff of the files the row's edits (`calls`, tool call ids) changed. */
@@ -119,8 +122,10 @@ export const sessionDiff = async (runtime: Runtime, target: Opened, width: numbe
 
   const sessionLines: Line[] = [heading("session", "What this session changed")];
   if (!session.ok) sessionLines.push(said("session:none", `Not read: ${session.error.message}`));
-  else if (session.result.files.length === 0) sessionLines.push(said("session:none", "Nothing yet."));
-  else {
+  else if (session.result.files.length === 0) {
+    // A cut before the first file is not the same as the session changing nothing.
+    sessionLines.push(...(session.result.truncated ? [said("session:none", CUT_LEFT_NOTHING), cutMark("session:cut")] : [said("session:none", "Nothing yet.")]));
+  } else {
     const shown = await diffLines(joined(session.result.files), width, filter);
     if (shown.problem !== null) problems.push(shown.problem);
     sessionLines.push(...shown.lines);
@@ -132,8 +137,9 @@ export const sessionDiff = async (runtime: Runtime, target: Opened, width: numbe
     const reason = tree.error.data?.["reason"];
     treeLines.push(said("tree:none", reason === "git_unavailable" ? "There is no git on the environment." : `Not read: ${tree.error.message}`));
   } else if (!tree.result.repository) treeLines.push(said("tree:none", "The workspace is in no git repository."));
-  else if (tree.result.diff.trim().length === 0) treeLines.push(said("tree:none", "Nothing changed."));
-  else {
+  else if (tree.result.diff.trim().length === 0) {
+    treeLines.push(...(tree.result.truncated ? [said("tree:none", CUT_LEFT_NOTHING), cutMark("tree:cut")] : [said("tree:none", "Nothing changed.")]));
+  } else {
     const shown = await diffLines(tree.result.diff.replace(/\n$/, ""), width, filter);
     if (shown.problem !== null && !problems.includes(shown.problem)) problems.push(shown.problem);
     treeLines.push(...shown.lines);
