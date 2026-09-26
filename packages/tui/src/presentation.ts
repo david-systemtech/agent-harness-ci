@@ -20,8 +20,12 @@ export type CollapsedHeadings = Readonly<Record<string, boolean>>;
 
 export interface Presentation {
   readonly collapsedHeadings: Observable<CollapsedHeadings>;
-  /** Folds or opens the heading named `heading`. */
-  setFolded(heading: string, folded: boolean): void;
+  /**
+   * Folds or opens the heading named `heading`. A heading `keep` refuses (a
+   * group's, once the group is gone) is dropped as the document is written,
+   * so folds of headings long gone do not pile up.
+   */
+  setFolded(heading: string, folded: boolean, keep?: (heading: string) => boolean): void;
 }
 
 /** The file in the state directory. */
@@ -31,9 +35,11 @@ const presentationOf = (initial: CollapsedHeadings, save: (value: CollapsedHeadi
   const collapsedHeadings = writable<CollapsedHeadings>(initial);
   return {
     collapsedHeadings,
-    setFolded(heading, folded) {
-      if (collapsedHeadings.read()[heading] === folded) return;
-      collapsedHeadings.update((value) => ({ ...value, [heading]: folded }));
+    setFolded(heading, folded, keep = () => true) {
+      const now = collapsedHeadings.read();
+      const kept = Object.entries(now).filter(([name]) => name === heading || keep(name));
+      if (now[heading] === folded && kept.length === Object.keys(now).length) return;
+      collapsedHeadings.set({ ...Object.fromEntries(kept), [heading]: folded });
       save(collapsedHeadings.read());
     },
   };

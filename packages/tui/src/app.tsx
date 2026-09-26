@@ -372,6 +372,7 @@ export const App = (props: AppProps) => {
     workspace: props.flags.workspace,
     say,
     ask: (asked) => update({ question: asked }),
+    asked: screen.question !== undefined,
     open: (picker) => update({ card: { kind: "picker", picker } }),
     focus: () => setFocus("sidebar"),
     leave: () => setFocus("composer"),
@@ -404,9 +405,11 @@ export const App = (props: AppProps) => {
       const row = rowAt(card.picker);
       if (!row) return;
       if (row.absent !== undefined) return say(`${row.text}: ${row.absent}.`);
-      // A step on opens the next picker; a row that is done closes the card.
+      // A step on opens the next picker, which goes back to this one as it stands, the choice highlighted; a row
+      // that is done closes the card.
       const next = row.choose?.();
-      return setScreen((s) => (s.card === card ? { ...s, card: next ? { kind: "picker", picker: next } : { kind: "none" } } : s));
+      const stepped = next && next.back !== undefined ? { ...next, back: card.picker } : next;
+      return setScreen((s) => (s.card === card ? { ...s, card: stepped ? { kind: "picker", picker: stepped } : { kind: "none" } } : s));
     }
     if (card.kind === "environments") {
       const view = views[clampCursor(card.cursor, views.length)];
@@ -563,6 +566,10 @@ export const App = (props: AppProps) => {
     const typing = composerHasKeys && screen.composer !== "";
     // A list typed at (a typed picker, the rail's filter) takes text before any key is looked up: its letters are
     // `picker.filter` and the filter's, never a letter-keyed action or a question's answer, while no question was just asked.
+    // The quit and the jump to what needs you come first even there, so neither is typed in when remapped to a
+    // printable key.
+    const first: Lookup[] = [{ context: "anywhere", only: FIRST_ANYWHERE }];
+    if (dispatch(keymap, first, handlers, input, key)) return;
     const text = printableText(input, key);
     if (!screen.question) {
       if (card.kind === "picker" && card.picker.typed && (text !== undefined || key.backspace || key.delete)) {
@@ -572,7 +579,7 @@ export const App = (props: AppProps) => {
       }
       if (card.kind === "none" && focused === "sidebar" && text !== undefined && rail.type(text)) return;
     }
-    const lookups: Lookup[] = [{ context: "anywhere", only: FIRST_ANYWHERE }];
+    const lookups: Lookup[] = [];
     if (screen.question && !typing) lookups.push("confirm");
     if (card.kind === "help") lookups.push("pager", "picker");
     else if (card.kind !== "none") lookups.push("picker");

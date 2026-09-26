@@ -35,7 +35,7 @@ describe("the terminal UI under the repository's lint", () => {
     expect(await ruleIds(file, `${source}\nexport const keep = (platform: { documents: { set(k: string, v: unknown): Promise<void> } }) => platform.documents.set("rail.archive", []);\n`)).toContain(RULE);
   });
 
-  it("passes the one presentation key, collapsedHeadings, in the presentation module, and fires on any other session-state name there or elsewhere", async () => {
+  it("lets collapsedHeadings, the one enumerated presentation key, through in the presentation module and elsewhere, and fires on another session-state name in either", async () => {
     const file = "packages/tui/src/presentation.ts";
     const source = readFileSync(join(root, file), "utf8");
     expect(await ruleIds(file, source)).not.toContain(RULE);

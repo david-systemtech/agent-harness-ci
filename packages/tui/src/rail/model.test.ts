@@ -1,6 +1,7 @@
 import type { EnvironmentView, MergedGroupHeading, SessionListView, SessionRow } from "@agent-harness/client-runtime";
 import type { SessionSummary } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
+import { badgesOf } from "./badge.js";
 import { railLines, rowKey, type RailInput, type RailLine } from "./model.js";
 import { wakeWords } from "./when.js";
 
@@ -63,6 +64,7 @@ const heading = (key: string, name: string, active: SessionRow[], pending = fals
 const input = (fields: Partial<RailInput>): RailInput => ({
   list: listOf({}),
   environments: [view("desk")],
+  badges: badgesOf(fields.environments ?? [view("desk")]),
   folded: {},
   matches: null,
   unconfirmed: new Set(),
@@ -166,11 +168,11 @@ describe("a row", () => {
     expect(lines.find((l) => l.kind === "heading" && l.text === "desk")).toMatchObject({ dim: false });
   });
 
-  it("names the section it is in, in its rendered order, for the reorder keys", () => {
+  it("names the block it is in, in its rendered order, for the reorder keys", () => {
     const [a, b] = [row("desk", { title: "a" }), row("laptop", { title: "b" })];
     const lines = railLines(input({ environments: [view("desk"), view("laptop")], list: listOf({ pinned: [a, b] }) }));
     const first = lines.find((l) => l.kind === "row");
-    expect(first?.kind === "row" && first.section).toEqual({ kind: "pinned", rows: [a, b] });
+    expect(first?.kind === "row" && first.block).toEqual({ kind: "pinned", rows: [a, b] });
   });
 });
 

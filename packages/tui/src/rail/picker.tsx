@@ -1,5 +1,5 @@
 import { Box, Text } from "ink";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import type { Observable } from "@agent-harness/client-runtime";
 import type { Badge } from "./badge.js";
 
@@ -91,7 +91,13 @@ export const PickerCard = (props: { readonly picker: Picker; readonly hint: stri
   const cursor = Math.min(Math.max(picker.cursor, 0), Math.max(rows.length - 1, 0));
   const note = picker.note?.(picker.query);
   const room = Math.max(1, props.height - 3 - (picker.chips ? 1 : 0) - (note ? 1 : 0));
-  const top = Math.max(0, Math.min(cursor - room + 1, rows.length - room));
+  // Scrolled as little as keeps the cursor in sight, from where it was (the rail's rule).
+  const scrolled = useRef(0);
+  let top = scrolled.current;
+  if (cursor < top) top = cursor;
+  if (cursor >= top + room) top = cursor - room + 1;
+  top = Math.max(0, Math.min(top, rows.length - room));
+  scrolled.current = top;
   return (
     <Box flexDirection="column" paddingX={1}>
       <Text bold wrap="truncate-end">
@@ -114,9 +120,10 @@ export const PickerCard = (props: { readonly picker: Picker; readonly hint: stri
           {picker.query === "" ? <Text dimColor>{picker.placeholder ?? "type to filter"}</Text> : picker.query}
         </Text>
       )}
-      {rows.length === 0 && <Text dimColor>{"  "}nothing matches</Text>}
-      {rows.slice(Math.max(top, 0), Math.max(top, 0) + room).map((row, i) => {
-        const selected = i + Math.max(top, 0) === cursor;
+      {/* With nothing typed there is nothing to match: the note says why the list is empty. */}
+      {rows.length === 0 && (picker.query.trim() !== "" || note === undefined) && <Text dimColor>{"  "}{picker.query.trim() !== "" ? "nothing matches" : "nothing to choose from"}</Text>}
+      {rows.slice(top, top + room).map((row, i) => {
+        const selected = i + top === cursor;
         return (
           <Text key={row.key} wrap="truncate-end" inverse={selected} dimColor={row.absent !== undefined}>
             {selected ? "› " : "  "}

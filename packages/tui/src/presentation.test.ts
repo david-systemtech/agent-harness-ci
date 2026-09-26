@@ -40,6 +40,20 @@ describe("collapsedHeadings", () => {
     expect(presentationFile(dir).collapsedHeadings.read()).toEqual({ "group:brandsolidate": true });
   });
 
+  it("drops the folds a keep refuses as it writes the document, so a gone group's fold does not stay behind", () => {
+    const dir = stateDir();
+    const presentation = presentationFile(dir);
+    presentation.setFolded("group:gone", true);
+    presentation.setFolded("group:kept", true);
+    const present = (heading: string) => !heading.startsWith("group:") || heading === "group:kept";
+    presentation.setFolded("shelf:settled", false, present);
+    expect(JSON.parse(readFileSync(join(dir, PRESENTATION_FILE), "utf8"))).toEqual({ format: 1, collapsedHeadings: { "group:kept": true, "shelf:settled": false } });
+    // A fold that changes nothing still writes the document when it drops one.
+    presentation.setFolded("group:other", true);
+    presentation.setFolded("shelf:settled", false, present);
+    expect(presentation.collapsedHeadings.read()).toEqual({ "group:kept": true, "shelf:settled": false });
+  });
+
   it("starts empty from a file it cannot read, reports it once, and never writes over it until a fold changes", () => {
     const dir = stateDir();
     writeFileSync(join(dir, PRESENTATION_FILE), "{ not json");

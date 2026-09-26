@@ -69,6 +69,13 @@ describe("a typed time", () => {
     expect(parsed("2027-12-01")).toBe("That is more than a year ahead; a snooze is at most a year.");
     expect(parsed("25:00")).toBe("Not a time: try 2h, 18:00, tomorrow, monday 9:00 or 2026-10-02 17:30.");
   });
+
+  it("takes a year as the environment does, a calendar year on in UTC: from a leap day, to the next February's last day", () => {
+    const leapDay = new Date("2028-02-29T12:00:00.000Z");
+    expect(parseWhen("2029-02-28T12:00:00Z", leapDay)).toEqual(new Date("2029-02-28T12:00:00.000Z"));
+    expect(parseWhen("2029-02-28T12:00:01Z", leapDay)).toEqual({ problem: "That is more than a year ahead; a snooze is at most a year." });
+    expect(parseWhen("2029-03-01T11:00:00Z", leapDay)).toEqual({ problem: "That is more than a year ahead; a snooze is at most a year." });
+  });
 });
 
 describe("the words for a time", () => {

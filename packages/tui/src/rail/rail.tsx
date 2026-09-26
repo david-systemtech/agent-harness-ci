@@ -7,14 +7,19 @@ import type { RailHeading, RailLine, RailRow } from "./model.js";
  * cursor in sight, beside the pane (its edge in colour while it has the
  * keys) or, under 100 columns, in the pane's place as the picker that
  * stands in for it. A row is its environment's badge, its activity glyph,
- * its title and tags, a snoozed session's wake time and `pending` while a
- * command about it waits; a down environment's rows are dim. The cursor is
+ * its title and tags, a snoozed session's wake time and the pending marker
+ * (`↻`, one column, so a snoozed row waiting on a command keeps some of its
+ * title at 28 columns; a heading says `pending` in words) while a command
+ * about it waits; a down environment's rows are dim. The cursor is
  * drawn only while the rail has the keys: `›` on a row, a heading in
  * reverse.
  */
 
 /** The rail's width beside the pane, its edge included: #143's, which leaves the pane the 72 columns its cards need at 100. */
 export const RAIL_WIDTH = 28;
+
+/** A row's pending marker: a command about it waits for its answer. */
+const PENDING_MARK = "↻";
 
 const HeadingLine = (props: { readonly line: RailHeading; readonly selected: boolean }) => {
   const { line, selected } = props;
@@ -69,7 +74,7 @@ const RowLine = (props: { readonly line: RailRow; readonly selected: boolean }) 
       )}
       {line.pending && (
         <Box flexShrink={0}>
-          <Text color="yellow"> pending</Text>
+          <Text color="yellow"> {PENDING_MARK}</Text>
         </Box>
       )}
     </Box>

@@ -1,9 +1,8 @@
-import { randomUUID } from "node:crypto";
 import { writable, type CommandParams, type DispatchAnswer, type EnvironmentView, type Runtime, type SessionRow } from "@agent-harness/client-runtime";
 import { groupNameKey, shelfOf, type CommandMethodName, type DeletedSessionSummary } from "@agent-harness/contracts";
 import { nameOf } from "../view.js";
 import type { Badge } from "./badge.js";
-import { rowKey } from "./model.js";
+import { isReachable, rowKey } from "./model.js";
 import { pickerOf, type Chip, type Picker, type PickerRow } from "./picker.js";
 import { WHEN_EXAMPLES, parseWhen, presetTimes, whenWords } from "./when.js";
 
@@ -37,14 +36,23 @@ export interface RailActs {
   move(row: SessionRow, name: string | null, said: string): void;
   /** Puts the rail's cursor on the line `key` names, opening its heading, and gives the rail the keys. */
   reveal(key: string): void;
+  /**
+   * Puts the rail's cursor on the line `key` names, for what lands later (a
+   * new session accepted): the focus and a filter being typed are left as
+   * they are, and while a filter is typed the cursor stays where it is.
+   */
+  land(key: string): void;
+  /** Mints the id of a session this terminal creates: a version 4 UUID (the runtime's `uuidv4`). */
+  newId(): string;
 }
 
-const titleOf = (row: SessionRow) => `“${row.summary.title}”`;
+/** A session's title as a line quotes it. */
+export const titleOf = (item: { readonly summary: { readonly title: string } }): string => `“${item.summary.title}”`;
 
 /** "; it applies when <environment> is back" while the environment cannot be reached. */
 export const whenBack = (acts: Pick<RailActs, "views">, environmentId: string): string => {
   const view = acts.views.find((v) => v.environmentId === environmentId);
-  return view && view.phase !== "ready" && view.phase !== "syncing" ? `; it applies when ${nameOf(view)} is back` : "";
+  return view && !isReachable(view) ? `; it applies when ${nameOf(view)} is back` : "";
 };
 
 const snoozeTo = (acts: RailActs, row: SessionRow, at: Date) =>
@@ -212,7 +220,7 @@ export const restorePicker = (acts: RailActs, query: string): Picker => {
         .sort((a, b) => Date.parse(b.summary.deletedAt) - Date.parse(a.summary.deletedAt))
         .filter((d) => d.summary.title.toLowerCase().includes(typed.trim().toLowerCase()))
         .map((d): PickerRow => {
-          const title = `“${d.summary.title}”`;
+          const title = titleOf(d);
           return {
             key: `${d.environmentId}/${d.summary.id}`,
             text: d.summary.title,
@@ -265,7 +273,7 @@ const pathsOn = (acts: RailActs, environmentId: string): { readonly path: string
 };
 
 const createOn = (acts: RailActs, view: EnvironmentView, account: Choice, model: Choice, path: string) => {
-  const id = randomUUID();
+  const id = acts.newId();
   const key = `${view.environmentId}/${id}`;
   acts.send(
     view.environmentId,
@@ -273,7 +281,8 @@ const createOn = (acts: RailActs, view: EnvironmentView, account: Choice, model:
     "sessions.create",
     { id, workspace: { kind: "directory", path }, ...(account.id !== null && { account: account.id }), ...(model.id !== null && { model: model.id }) },
     `Starting a session on ${nameOf(view)} in ${path}${whenBack(acts, view.environmentId)}.`,
-    () => acts.reveal(key),
+    // Accepted later, maybe once the keys are elsewhere: the cursor goes to it, the focus and a filter stay.
+    () => acts.land(key),
   );
 };
 

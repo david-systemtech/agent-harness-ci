@@ -1,3 +1,5 @@
+import { snoozeLimit } from "@agent-harness/contracts";
+
 /**
  * When a snoozed session comes back (docs/specs/tui.md, "The rail"): the
  * snooze picker's presets (an hour, this evening, tomorrow morning, next
@@ -5,8 +7,9 @@
  * UTC. The calendar is this terminal's (its evening, its Monday); the
  * instant it counts from is the environment's now, from the server-time
  * skew, so "an hour" is an hour on the environment that wakes the session.
- * The environment refuses a time not after its now or more than a year
- * ahead (`out_of_window`); these words refuse them first.
+ * The environment refuses a time not after its now or more than a calendar
+ * year ahead (`out_of_window`, `snoozeLimit`); these words refuse them first,
+ * by the same limit.
  */
 
 const MINUTE = 60 * 1000;
@@ -135,9 +138,7 @@ export const parseWhen = (typed: string, now: Date): Date | { readonly problem: 
   }
   if (Number.isNaN(at.getTime())) return { problem: NOT_A_TIME };
   if (at.getTime() <= now.getTime()) return { problem: "That time has passed." };
-  const yearOn = new Date(now.getTime());
-  yearOn.setFullYear(yearOn.getFullYear() + 1);
-  if (at.getTime() > yearOn.getTime()) return { problem: "That is more than a year ahead; a snooze is at most a year." };
+  if (at.getTime() > snoozeLimit(now).getTime()) return { problem: "That is more than a year ahead; a snooze is at most a year." };
   return at;
 };
 

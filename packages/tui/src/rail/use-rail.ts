@@ -1,14 +1,14 @@
-import { useRef, useState, useSyncExternalStore } from "react";
-import type { CommandParams, DispatchAnswer, EnvironmentView, Runtime, SessionRow } from "@agent-harness/client-runtime";
+import { useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { uuidv4, type CommandParams, type DispatchAnswer, type EnvironmentView, type Runtime, type SessionRow } from "@agent-harness/client-runtime";
 import type { CommandMethodName, KeyActionId } from "@agent-harness/contracts";
 import { direction, keysText, type Handler, type Keymap } from "../keys.js";
 import type { Presentation } from "../presentation.js";
 import { messageOf, nameOf } from "../view.js";
 import { badgesOf } from "./badge.js";
-import { railUsage, type RailCommand } from "./commands.js";
-import { headingOver, isFolded, isSelectable, railLines, rowKey, type RailHeading, type RailInput, type RailLine, type RailRow } from "./model.js";
+import { RAIL_KEYS, railUsage, type RailCommand, type RailKey } from "./commands.js";
+import { groupHeading, headingOver, isFolded, isSelectable, railLines, rowKey, type RailHeading, type RailInput, type RailLine, type RailRow } from "./model.js";
 import type { Picker } from "./picker.js";
-import { cwdPicker, groupPicker, restorePicker, searchPicker, snoozePicker, snoozeTyped, startPicker, tagPicker, whenBack, type RailActs } from "./pickers.js";
+import { cwdPicker, groupPicker, restorePicker, searchPicker, snoozePicker, snoozeTyped, startPicker, tagPicker, titleOf, whenBack, type RailActs } from "./pickers.js";
 import { movesFor } from "./reorder.js";
 
 /**
@@ -16,35 +16,12 @@ import { movesFor } from "./reorder.js";
  * on, the filter being typed, which rows this terminal is waiting on, and
  * what each of the rail's keys and slash forms does. The rail holds no
  * state of the environment's: its lines are `railLines` over the runtime's
- * projections, read as each frame is drawn, and its keys issue the
- * session-state commands through the outbox (`commands.dispatch`,
+ * projections, worked out again when one of them changes, and its keys
+ * issue the session-state commands through the outbox (`commands.dispatch`,
  * `commands.moveToGroup`), whose overlay shows the effect at once. The only
  * state it keeps is client-local: the cursor, the filter, and the fold per
  * heading name (`collapsedHeadings`, in the presentation module).
  */
-
-/** The rail's keys this build answers, by the shared list's ids. */
-export const RAIL_KEYS = [
-  "rail.move",
-  "rail.moveVi",
-  "rail.open",
-  "rail.filter",
-  "rail.filter.erase",
-  "rail.leave",
-  "rail.archive",
-  "rail.delete",
-  "rail.pin",
-  "rail.archive.filtering",
-  "rail.delete.filtering",
-  "rail.pin.filtering",
-  "rail.settle",
-  "rail.snooze",
-  "rail.tag",
-  "rail.group",
-  "rail.moveUp",
-  "rail.moveDown",
-] as const satisfies readonly KeyActionId[];
-export type RailKey = (typeof RAIL_KEYS)[number];
 
 /** A yes or no question on the line above the composer (the `confirm` context). */
 export interface RailQuestion {
@@ -65,6 +42,10 @@ export interface RailOptions {
   readonly workspace: string;
   /** The session a slash form acts on before the one under the cursor: the open session, once the transcript opens one. */
   readonly inHand?: { readonly environmentId: string; readonly sessionId: string } | undefined;
+  /** A question stands on the line above the composer: the rail's keys wait for its answer. */
+  readonly asked: boolean;
+  /** Mints the id of a session the rail creates; preset, the runtime's `uuidv4`. */
+  readonly newId?: () => string;
   say(line: string): void;
   ask(question: RailQuestion): void;
   /** Opens a picker as the screen's card. */
@@ -90,8 +71,6 @@ export interface Rail {
   readonly hint: string | undefined;
 }
 
-const titleOf = (row: SessionRow) => `“${row.summary.title}”`;
-
 /** Why a shelf has no manual order: the reorder keys answer absent with it. */
 const unordered = (kind: "snoozed" | "settled" | "archived"): string =>
   kind === "snoozed"
@@ -101,36 +80,43 @@ const unordered = (kind: "snoozed" | "settled" | "archived"): string =>
       : "the archive has no manual order; it is sorted by when each was archived, newest first";
 
 export const useRail = (options: RailOptions): Rail => {
-  const { runtime, views, keymap, presentation, say } = options;
+  const { runtime, views, keymap, presentation, say, startingService } = options;
   const [cursor, setCursor] = useState<string | null>(null);
   const [filter, setFilter] = useState<string | null>(null);
   // Rows a command sent from here waits on: their line shows `pending` until the answer, whatever the connection's phase.
   const [waiting, setWaiting] = useState<ReadonlyMap<string, number>>(new Map());
   const lastAt = useRef(0);
+  // The filter as it is now, for what lands after this frame (a session accepted later).
+  const filterNow = useRef(filter);
+  filterNow.current = filter;
   const folded = useSyncExternalStore(presentation.collapsedHeadings.subscribe, presentation.collapsedHeadings.read);
-  // Read as drawn: the screen's frame scheduler follows the list and asks for the frame.
+  // Read as drawn (the screen's frame scheduler follows the list and asks for the frame), and worked out again only
+  // when the list, the environments, the folds, the filter or what this terminal waits on changes.
   const list = runtime.projections.sessionList.read();
   const query = filter?.trim() ?? "";
-  const matches = query === "" ? null : new Set(runtime.projections.search(query).read().map(rowKey));
-  const input: RailInput = {
-    list,
-    environments: views,
-    folded,
-    matches,
-    unconfirmed: new Set(waiting.keys()),
-    startingService: options.startingService,
-    now: (environmentId) => runtime.environmentNow(environmentId),
-  };
-  const lines = railLines(input);
+  const badges = useMemo(() => badgesOf(views), [views]);
+  const input: RailInput = useMemo(
+    () => ({
+      list,
+      environments: views,
+      badges,
+      folded,
+      matches: query === "" ? null : new Set(runtime.projections.search(query).read().map(rowKey)),
+      unconfirmed: new Set(waiting.keys()),
+      startingService,
+      now: (environmentId) => runtime.environmentNow(environmentId),
+    }),
+    [runtime, list, views, badges, folded, query, waiting, startingService],
+  );
+  const lines = useMemo(() => railLines(input), [input]);
   const selectable = lines.filter(isSelectable);
   // The cursor follows its line; a line gone (a row moved onto a folded shelf) leaves it where it was. A filter
   // just typed puts it on the first row it matches.
   const found = selectable.findIndex((line) => line.key === cursor);
   const firstRow = Math.max(0, selectable.findIndex((line) => line.kind === "row"));
-  const at = found !== -1 ? found : cursor === null && matches !== null ? firstRow : Math.min(lastAt.current, Math.max(selectable.length - 1, 0));
+  const at = found !== -1 ? found : cursor === null && input.matches !== null ? firstRow : Math.min(lastAt.current, Math.max(selectable.length - 1, 0));
   lastAt.current = at;
   const selected: RailHeading | RailRow | undefined = selectable[at];
-  const badges = badgesOf(views);
 
   const mark = (key: string | null, by: 1 | -1) => {
     if (key === null) return;
@@ -158,10 +144,16 @@ export const useRail = (options: RailOptions): Rail => {
     );
   };
 
+  /** Folds or opens a heading; the folds of groups no longer listed are dropped as the choice is kept. */
+  const setFolded = (key: string, fold: boolean) => {
+    const groups = new Set(runtime.projections.sessionList.read().groups.map((group) => groupHeading(group.key)));
+    presentation.setFolded(key, fold, (heading) => !heading.startsWith(groupHeading("")) || groups.has(heading));
+  };
+
   const reveal = (key: string) => {
     // Opens the heading the row is under (a folded shelf, a folded group), clears the filter and puts the cursor on it.
     const over = headingOver({ ...input, list: runtime.projections.sessionList.read() }, key);
-    if (over && over.folded !== null && isFolded(presentation.collapsedHeadings.read(), over.key)) presentation.setFolded(over.key, false);
+    if (over && over.folded !== null && isFolded(presentation.collapsedHeadings.read(), over.key)) setFolded(over.key, false);
     setFilter(null);
     setCursor(key);
     options.focus();
@@ -182,6 +174,10 @@ export const useRail = (options: RailOptions): Rail => {
       track(rowKey(row), runtime.commands.moveToGroup(row.environmentId, row.summary.id, name));
     },
     reveal,
+    land: (key) => {
+      if (filterNow.current === null) setCursor(key);
+    },
+    newId: options.newId ?? uuidv4,
   };
   const send = <N extends CommandMethodName>(row: SessionRow, method: N, params: CommandParams<N>, verb: string) =>
     acts.send(row.environmentId, rowKey(row), method, params, `${verb} ${titleOf(row)}${whenBack(acts, row.environmentId)}.`);
@@ -213,12 +209,14 @@ export const useRail = (options: RailOptions): Rail => {
 
   const moveBy = (step: -1 | 1): Handler => () => {
     if (selected?.kind !== "row") return say("Put the cursor on a session first.");
-    const { section, row } = selected;
+    const { block, row } = selected;
     const moving = keysText(keymap, step < 0 ? "rail.moveUp" : "rail.moveDown");
-    if (section.kind !== "pinned" && section.kind !== "active") return say(`${moving} is absent here: ${unordered(section.kind)}.`);
-    const index = section.rows.findIndex((r) => rowKey(r) === rowKey(row));
-    const pinned = section.kind === "pinned";
-    const answer = movesFor(section.rows, index, step, (r) => (pinned ? r.summary.pinOrderKey : r.summary.activeOrderKey));
+    if (block.kind !== "pinned" && block.kind !== "active") return say(`${moving} is absent here: ${unordered(block.kind)}.`);
+    // The neighbours a move goes between may be rows the filter hides: a move waits for every row to be in sight.
+    if (input.matches !== null) return say(`${moving} is absent while the filter hides rows: ${keysText(keymap, "rail.leave")} clears it.`);
+    const index = block.rows.findIndex((r) => rowKey(r) === rowKey(row));
+    const pinned = block.kind === "pinned";
+    const answer = movesFor(block.rows, index, step, (r) => (pinned ? r.summary.pinOrderKey : r.summary.activeOrderKey));
     if ("edge" in answer) return say(`${titleOf(row)} is already at the ${answer.edge} of ${pinned ? "the pinned sessions" : "its heading"}.`);
     say(`Moved ${titleOf(row)} ${step < 0 ? "up" : "down"}${whenBack(acts, row.environmentId)}.`);
     for (const move of answer.moves) {
@@ -230,20 +228,24 @@ export const useRail = (options: RailOptions): Rail => {
 
   const step = (action: "rail.move" | "rail.moveVi"): Handler => (name) => {
     const by = direction(keymap, action, name);
-    const next = selectable[Math.min(Math.max(at + by, 0), Math.max(selectable.length - 1, 0))];
-    if (next) setCursor(next.key);
+    // From the cursor as it is when the key lands, so keys pressed faster than the frames all move it.
+    setCursor((current) => {
+      const from = selectable.findIndex((line) => line.key === current);
+      const next = selectable[Math.min(Math.max((from === -1 ? at : from) + by, 0), Math.max(selectable.length - 1, 0))];
+      return next ? next.key : current;
+    });
   };
 
   const open = () => {
     if (!selected) return;
     if (selected.kind === "row") return say(`Opening ${titleOf(selected.row)} arrives with the transcript.`);
-    if (selected.folded !== null) return presentation.setFolded(selected.key, !selected.folded);
+    if (selected.folded !== null) return setFolded(selected.key, !selected.folded);
     const view = views.find((v) => v.environmentId === selected.environmentId);
     if (!view || view.name === null) return say("The environment on this machine has not answered yet: there is nowhere to start a session.");
     options.open(startPicker(acts, view));
   };
 
-  const handlers: Record<RailKey, Handler> = {
+  const own: Record<RailKey, Handler> = {
     "rail.move": step("rail.move"),
     "rail.moveVi": step("rail.moveVi"),
     "rail.open": open,
@@ -251,7 +253,8 @@ export const useRail = (options: RailOptions): Rail => {
     "rail.filter.erase": () => {
       if (filter === null) return false;
       setCursor(selected?.key ?? null);
-      setFilter(filter === "" ? null : [...filter].slice(0, -1).join(""));
+      // From the filter as it is when the key lands, so each of several fast presses rubs a letter off.
+      setFilter((typed) => (typed === null || typed === "" ? null : [...typed].slice(0, -1).join("")));
     },
     "rail.leave": () => {
       if (filter === null) return options.leave();
@@ -272,6 +275,10 @@ export const useRail = (options: RailOptions): Rail => {
     "rail.moveUp": moveBy(-1),
     "rail.moveDown": moveBy(1),
   };
+  // While a question stands (the delete's confirm) the rail's keys wait for its answer, so no second command
+  // goes out from under it; its own keys (`confirm`) are looked up before the rail's.
+  const answerFirst: Handler = () => say(`The question waits: answer it first, ${keysText(keymap, "confirm.yes")} or ${keysText(keymap, "confirm.no")}.`);
+  const handlers = options.asked ? (Object.fromEntries(RAIL_KEYS.map((id) => [id, answerFirst])) as Record<RailKey, Handler>) : own;
 
   /**
    * The session a slash form acts on: the open one, else the one the rail's
@@ -318,7 +325,7 @@ export const useRail = (options: RailOptions): Rail => {
   };
 
   const keys = (action: KeyActionId) => keysText(keymap, action);
-  const hint =
+  const atCursor =
     selected === undefined
       ? undefined
       : selected.kind === "row"
@@ -328,6 +335,11 @@ export const useRail = (options: RailOptions): Rail => {
             ? `${keys("rail.open")} starts a session on ${selected.text}`
             : undefined
           : `${keys("rail.open")} ${selected.folded ? "unfolds" : "folds"} ${selected.text}`;
+  // The slash forms act on the session in hand, which is not the highlighted row once that row has moved away
+  // (onto a folded shelf) or a session is open: the hint names it while they differ.
+  const target = inHand();
+  const elsewhere = target !== undefined && (selected?.kind !== "row" || rowKey(selected.row) !== rowKey(target)) ? `the slash forms act on ${titleOf(target)}` : undefined;
+  const hint = atCursor !== undefined && elsewhere !== undefined ? `${atCursor} · ${elsewhere}` : (atCursor ?? elsewhere);
 
   return {
     lines,

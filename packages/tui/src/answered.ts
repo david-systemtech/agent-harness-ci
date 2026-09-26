@@ -1,6 +1,6 @@
 import type { ActionId, KeyActionId } from "@agent-harness/contracts";
 import { ANSWERED_COMMANDS } from "./commands/parse.js";
-import { RAIL_KEYS } from "./rail/use-rail.js";
+import { RAIL_KEYS } from "./rail/commands.js";
 
 /**
  * The actions of the shared list this build answers: the keys the screen
@@ -27,6 +27,13 @@ export const ANSWERED_KEYS = [
 ] as const satisfies readonly KeyActionId[];
 
 /**
+ * The actions answered as text rather than looked up as a key: a typed
+ * picker takes every printable key into its query before any key is looked
+ * up (`app.tsx`), which is `picker.filter`'s `Letters`. They have no handler.
+ */
+export const TYPED_KEYS = ["picker.filter"] as const satisfies readonly KeyActionId[];
+
+/**
  * The pager's keys the help overlay borrows to scroll itself. The pager (the
  * whole transcript, `app.pager.open`) is not drawn by this build, so what
  * their rows describe does not exist yet: dispatched, but drawn "(soon)".
@@ -35,7 +42,7 @@ export const OVERLAY_KEYS = ["pager.halfDown", "pager.halfUp", "pager.top", "pag
 
 export type AnsweredKey = (typeof ANSWERED_KEYS)[number] | (typeof OVERLAY_KEYS)[number];
 
-export const ANSWERED: ReadonlySet<ActionId> = new Set<ActionId>([...ANSWERED_KEYS, ...ANSWERED_COMMANDS.map((name) => `command.${name}` as const)]);
+export const ANSWERED: ReadonlySet<ActionId> = new Set<ActionId>([...ANSWERED_KEYS, ...TYPED_KEYS, ...ANSWERED_COMMANDS.map((name) => `command.${name}` as const)]);
 
 /**
  * What an answered action does in this build, where that is less than the
@@ -47,5 +54,8 @@ export const BUILD_WORDS: Readonly<Partial<Record<ActionId, string>>> = {
   "app.focus.next": "Round the composer, the rail and the transcript",
   "app.interruptOrQuit": "Clear the draft, or close the question or the card; else quit",
   "rail.open": "Fold the heading; on an environment's, start a session there",
+  // The shared list's words are Artemis's ("its folder"); the pin is the one pinned block across environments.
+  // eslint-disable-next-line agent-harness/no-client-organisation-state -- an action's id, not state held here
+  "rail.pin": "Pin it to the pinned block at the top, across environments; or unpin it",
   "row.leave": "Back to the composer",
 };

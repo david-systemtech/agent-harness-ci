@@ -1,7 +1,7 @@
 import type { EnvironmentView, SessionListView, SessionRow } from "@agent-harness/client-runtime";
 import type { CollapsedHeadings } from "../presentation.js";
 import { headingState, nameOf } from "../view.js";
-import { badgesOf, glyphOf, type Badge, type Glyph } from "./badge.js";
+import { glyphOf, type Badge, type Glyph } from "./badge.js";
 import { wakeWords } from "./when.js";
 
 /**
@@ -20,18 +20,22 @@ import { wakeWords } from "./when.js";
 
 export type HeadingKind = "pinned" | "group" | "environment" | "snoozed" | "settled" | "archive";
 
-/** What a row's `Shift+↑` and `Shift+↓` move it within: the pinned block or one heading's active sessions, or a shelf with no manual order. */
-export type SectionKind = "pinned" | "active" | "snoozed" | "settled" | "archived";
+/**
+ * The rows under one heading, which a row's `Shift+↑` and `Shift+↓` move it
+ * among: the pinned block, one heading's active sessions, or a shelf (the
+ * snoozed, settled or archived one), which has no manual order.
+ */
+export type BlockKind = "pinned" | "active" | "snoozed" | "settled" | "archived";
 
-export interface RailSection {
-  readonly kind: SectionKind;
+export interface RailBlock {
+  readonly kind: BlockKind;
   /** Its sessions as rendered, before any filter. */
   readonly rows: readonly SessionRow[];
 }
 
 export interface RailHeading {
   readonly kind: "heading";
-  /** The heading's name as `collapsedHeadings` keys it: `shelf:pinned`, `group:<name key>`, `environment:<id>`, `shelf:snoozed`, `shelf:settled`, `shelf:archive`. */
+  /** The heading's name as `collapsedHeadings` keys it: `block:pinned`, `group:<name key>`, `environment:<id>`, `shelf:snoozed`, `shelf:settled`, `shelf:archive`. */
   readonly key: string;
   readonly heading: HeadingKind;
   readonly text: string;
@@ -53,7 +57,7 @@ export interface RailRow {
   /** `<environment id>/<session id>`: a session is on one line. */
   readonly key: string;
   readonly row: SessionRow;
-  readonly section: RailSection;
+  readonly block: RailBlock;
   readonly badge: Badge;
   readonly glyph: Glyph;
   readonly tags: readonly string[];
@@ -78,6 +82,8 @@ export interface RailInput {
   readonly list: SessionListView;
   /** Every environment listed, in the connection list's order: the headings and the badges. */
   readonly environments: readonly EnvironmentView[];
+  /** Each environment's badge (`badgesOf` over `environments`). */
+  readonly badges: ReadonlyMap<string, Badge>;
   readonly folded: CollapsedHeadings;
   /** The rows the filter matches (`rowKey`); null while there is no filter. */
   readonly matches: ReadonlySet<string> | null;
@@ -93,7 +99,8 @@ export interface RailInput {
 
 export const rowKey = (row: Pick<SessionRow, "environmentId" | "summary">): string => `${row.environmentId}/${row.summary.id}`;
 
-export const PINNED_HEADING = "shelf:pinned";
+/** The pinned block is not a shelf (glossary: Shelf): its fold is keyed as a block. */
+export const PINNED_HEADING = "block:pinned";
 export const SNOOZED_HEADING = "shelf:snoozed";
 export const SETTLED_HEADING = "shelf:settled";
 export const ARCHIVE_HEADING = "shelf:archive";
@@ -107,60 +114,59 @@ export const isFolded = (folded: CollapsedHeadings, key: string): boolean => fol
 export const isReachable = (view: EnvironmentView | undefined): boolean => view?.phase === "ready" || view?.phase === "syncing";
 
 export const railLines = (input: RailInput): RailLine[] => {
-  const { list, matches } = input;
-  const badges = badgesOf(input.environments);
+  const { list, matches, badges } = input;
   const views = new Map(input.environments.map((v) => [v.environmentId, v]));
   const pendingRow = (row: SessionRow) => row.pending || input.unconfirmed.has(rowKey(row));
   const lines: RailLine[] = [];
 
-  const rowLine = (row: SessionRow, section: RailSection): RailRow => ({
+  const rowLine = (row: SessionRow, block: RailBlock): RailRow => ({
     kind: "row",
     key: rowKey(row),
     row,
-    section,
+    block,
     badge: badges.get(row.environmentId) ?? { icon: "●", abbreviation: "??", colour: "gray" },
     glyph: glyphOf(row.summary),
     tags: row.summary.tags,
     dim: !isReachable(views.get(row.environmentId)),
     pending: pendingRow(row),
-    wake: section.kind === "snoozed" && row.summary.snoozedUntil !== null ? wakeWords(new Date(row.summary.snoozedUntil), input.now(row.environmentId)) : null,
+    wake: block.kind === "snoozed" && row.summary.snoozedUntil !== null ? wakeWords(new Date(row.summary.snoozedUntil), input.now(row.environmentId)) : null,
   });
 
   /** A foldable heading and, unless folded, its rows; while filtering, only a heading with visible rows the filter matches. */
-  const block = (fields: { key: string; heading: HeadingKind; text: string; pending?: boolean }, section: RailSection) => {
+  const foldable = (fields: { key: string; heading: HeadingKind; text: string; pending?: boolean }, block: RailBlock) => {
     const folded = input.open !== true && isFolded(input.folded, fields.key);
-    const visible = matches === null ? section.rows : section.rows.filter((row) => matches.has(rowKey(row)));
+    const visible = matches === null ? block.rows : block.rows.filter((row) => matches.has(rowKey(row)));
     if (matches !== null && (folded || visible.length === 0)) return;
     lines.push({
       kind: "heading",
       ...fields,
-      count: section.rows.length,
+      count: block.rows.length,
       folded,
       // A folded heading speaks for the rows it hides; an open one leaves it to them.
-      pending: fields.pending === true || (folded && section.rows.some(pendingRow)),
+      pending: fields.pending === true || (folded && block.rows.some(pendingRow)),
       dim: false,
       environmentId: null,
       pendingCommands: 0,
     });
-    if (!folded) lines.push(...visible.map((row) => rowLine(row, section)));
+    if (!folded) lines.push(...visible.map((row) => rowLine(row, block)));
   };
 
-  if (list.pinned.length > 0) block({ key: PINNED_HEADING, heading: "pinned", text: "Pinned" }, { kind: "pinned", rows: list.pinned });
+  if (list.pinned.length > 0) foldable({ key: PINNED_HEADING, heading: "pinned", text: "Pinned" }, { kind: "pinned", rows: list.pinned });
   for (const group of list.groups) {
     if (group.shelves.active.length === 0) continue;
-    block({ key: groupHeading(group.key), heading: "group", text: group.name, pending: group.pending }, { kind: "active", rows: group.shelves.active });
+    foldable({ key: groupHeading(group.key), heading: "group", text: group.name, pending: group.pending }, { kind: "active", rows: group.shelves.active });
   }
 
   for (const view of input.environments) {
-    const section: RailSection = { kind: "active", rows: list.active.filter((row) => row.environmentId === view.environmentId && row.groupName === null) };
-    const visible = matches === null ? section.rows : section.rows.filter((row) => matches.has(rowKey(row)));
+    const block: RailBlock = { kind: "active", rows: list.active.filter((row) => row.environmentId === view.environmentId && row.groupName === null) };
+    const visible = matches === null ? block.rows : block.rows.filter((row) => matches.has(rowKey(row)));
     if (matches !== null && visible.length === 0) continue;
     lines.push({
       kind: "heading",
       key: environmentHeading(view.environmentId),
       heading: "environment",
       text: nameOf(view),
-      count: section.rows.length,
+      count: block.rows.length,
       folded: null,
       pending: view.pendingCommands > 0,
       dim: !isReachable(view),
@@ -174,12 +180,12 @@ export const railLines = (input: RailInput): RailLine[] => {
       if (fault !== null) lines.push({ kind: "note", key: `${view.environmentId}:fault`, text: `the list failed: ${fault}` });
       if (!list.rows.some((row) => row.environmentId === view.environmentId)) lines.push({ kind: "note", key: `${view.environmentId}:empty`, text: "no sessions" });
     }
-    lines.push(...visible.map((row) => rowLine(row, section)));
+    lines.push(...visible.map((row) => rowLine(row, block)));
   }
 
-  if (list.snoozed.length > 0) block({ key: SNOOZED_HEADING, heading: "snoozed", text: "Snoozed" }, { kind: "snoozed", rows: list.snoozed });
-  if (list.settled.length > 0) block({ key: SETTLED_HEADING, heading: "settled", text: "Settled" }, { kind: "settled", rows: list.settled });
-  if (list.archived.length > 0) block({ key: ARCHIVE_HEADING, heading: "archive", text: "Archive" }, { kind: "archived", rows: list.archived });
+  if (list.snoozed.length > 0) foldable({ key: SNOOZED_HEADING, heading: "snoozed", text: "Snoozed" }, { kind: "snoozed", rows: list.snoozed });
+  if (list.settled.length > 0) foldable({ key: SETTLED_HEADING, heading: "settled", text: "Settled" }, { kind: "settled", rows: list.settled });
+  if (list.archived.length > 0) foldable({ key: ARCHIVE_HEADING, heading: "archive", text: "Archive" }, { kind: "archived", rows: list.archived });
   return lines;
 };
 

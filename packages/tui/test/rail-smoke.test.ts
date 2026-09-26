@@ -25,14 +25,9 @@ import { KEY, SIZE } from "./harness.js";
 
 const { onCleanup, tempDir } = useCleanups();
 
+/** How long one wait may take, and the whole test: it fails with the frame before Vitest's own timeout would. */
 const WAIT_MS = 5000;
-const until = async (condition: () => boolean, what: () => string): Promise<void> => {
-  const deadline = Date.now() + WAIT_MS;
-  while (!condition()) {
-    if (Date.now() > deadline) throw new Error(`Timed out waiting: ${what()}`);
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-};
+const TEST_MS = 20_000;
 
 const noService: LocalService = {
   installed: async () => false,
@@ -42,7 +37,15 @@ const noService: LocalService = {
 };
 
 describe.sequential("the rail through the real spine", () => {
-  it("starts a session in a directory workspace from Enter on the environment's heading, then pins it and moves it into a new group", async () => {
+  it("starts a session in a directory workspace from Enter on the environment's heading, then pins it and moves it into a new group", { timeout: TEST_MS + 10_000 }, async () => {
+    const ends = Date.now() + TEST_MS;
+    const until = async (condition: () => boolean, what: () => string): Promise<void> => {
+      const deadline = Math.min(Date.now() + WAIT_MS, ends);
+      while (!condition()) {
+        if (Date.now() > deadline) throw new Error(`Timed out waiting: ${what()}`);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+    };
     const t = await startTestEnvironment({ name: "smoke-rail" });
     onCleanup(() => t.close());
     const stateDir = join(tempDir("agent-harness-tui-rail-"), "tui");
@@ -75,6 +78,8 @@ describe.sequential("the rail through the real spine", () => {
         await new Promise((resolve) => setTimeout(resolve, bytes === KEY.esc ? 40 : 15));
       }
     };
+    // What is typed goes as the key bytes a terminal sends, one key at a time.
+    const typeKeys = (text: string) => press(...text);
     const shows = (text: string) => until(() => frame().replace(/\s+/g, " ").includes(text), frame);
 
     await shows("● smoke-rail ready");
@@ -86,7 +91,7 @@ describe.sequential("the rail through the real spine", () => {
     await shows("New session on smoke-rail: its model");
     await press(KEY.enter);
     await shows("New session on smoke-rail: where it works");
-    app.stdin.write(workspace);
+    await typeKeys(workspace);
     await shows(`${workspace} typed`);
     await press(KEY.enter);
     await shows("› ●SR · New session");
@@ -104,7 +109,7 @@ describe.sequential("the rail through the real spine", () => {
     await shows("Enter starts a session on smoke-rail");
     await press(KEY.enter, KEY.enter, KEY.enter);
     await shows("where it works");
-    app.stdin.write(missing);
+    await typeKeys(missing);
     await shows(`${missing} typed`);
     await press(KEY.enter);
     await until(() => (runtime.projections.sessionList.read().rows.length === 2), frame);
@@ -113,7 +118,7 @@ describe.sequential("the rail through the real spine", () => {
     await press("p");
     await shows("Pinned “New session”.");
     await press("g");
-    app.stdin.write("Smoke");
+    await typeKeys("Smoke");
     await shows("New group Smoke");
     await press(KEY.enter);
     await shows("Moved “New session” into a new group Smoke.");

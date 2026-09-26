@@ -56,6 +56,7 @@ describe("the help lines", () => {
     expect(rowOf(lines, "command.reload")?.state).toBe("answered");
     expect(rowOf(lines, "rail.pin")?.state).toBe("answered");
     expect(rowOf(lines, "command.search")?.state).toBe("answered");
+    expect(rowOf(lines, "picker.filter")?.state).toBe("answered");
     expect(rowOf(lines, "rail.preview")?.state).toBe("soon");
     expect(rowOf(lines, "command.model")?.state).toBe("soon");
   });
@@ -70,6 +71,8 @@ describe("the help lines", () => {
     const built = helpLines(DEFAULT_KEYMAP, ANSWERED, BUILD_WORDS);
     expect(rowOf(built, "app.interruptOrQuit")?.description).toBe("Clear the draft, or close the question or the card; else quit");
     expect(rowOf(built, "composer.send")?.description).toBe(actionById("composer.send")?.description);
+    // The pin is the global pinned block, not a place in a folder.
+    expect(rowOf(built, "rail.pin")?.description).toBe("Pin it to the pinned block at the top, across environments; or unpin it");
     for (const id of Object.keys(BUILD_WORDS)) expect(ANSWERED.has(id as never), id).toBe(true);
   });
 
