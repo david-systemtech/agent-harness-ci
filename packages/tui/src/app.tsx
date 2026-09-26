@@ -351,7 +351,8 @@ export const App = (props: AppProps) => {
     const dir = props.stateDir;
     if (dir === undefined) return;
     let gone = false;
-    void Promise.all([PromptHistory.load(join(dir, HISTORY_FILE)), Snippets.load(join(dir, SNIPPETS_FILE)), Frecency.load(join(dir, MENTIONS_FILE))]).then(
+    const snippetsFailed = (error: unknown) => gone || say(`The snippets could not be written, so they last only until you quit: ${messageOf(error)}`);
+    void Promise.all([PromptHistory.load(join(dir, HISTORY_FILE)), Snippets.load(join(dir, SNIPPETS_FILE), snippetsFailed), Frecency.load(join(dir, MENTIONS_FILE))]).then(
       ([history, snippets, mentions]) => gone || setStores({ history, snippets, mentions }),
       (error: unknown) => gone || say(`The history and snippets could not be read: ${messageOf(error)}`),
     );
@@ -1060,6 +1061,10 @@ export const App = (props: AppProps) => {
           return true;
         }
         const existed = stores.snippets.get(name) !== undefined;
+        // "Saved" is said now, before the file is written (#262): the in-memory
+        // store is what this run expands from, and a person should not wait on a
+        // rename. A write that fails replaces this line with one saying so
+        // (`snippetsFailed` where the stores load), so "Saved" is never the last word on a lost snippet.
         stores.snippets.set(name, command.body);
         say(`${existed ? "Replaced" : "Saved"} ;;${name}.`);
         return true;
