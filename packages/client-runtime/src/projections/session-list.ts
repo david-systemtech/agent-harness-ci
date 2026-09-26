@@ -13,7 +13,7 @@ import {
 import type { ConnectionRecord } from "../connections/records.js";
 import { derived, writable, type Observable } from "../observable.js";
 import type { Clock, Timer } from "../platform.js";
-import type { PendingTargets } from "../outbox/overlay.js";
+import type { CommandTargets } from "../outbox/overlay.js";
 import type { ListData } from "../streams/kinds.js";
 import { emptyStream, type Freshness, type StreamState } from "../streams/stream.js";
 
@@ -21,8 +21,9 @@ import { emptyStream, type Freshness, type StreamState } from "../streams/stream
  * `projections.sessionList` (docs/specs/client-runtime.md, "Projections";
  * session-state spec, "Ordering: fractional keys" and "Merged groups by
  * name: a client obligation"): every summary across the enabled
- * environments, each row with its environment id for the badge (ADR 0005)
- * and its pending flag, and the views a sidebar renders, all sorted by the
+ * environments, each row with its environment id for the badge (ADR 0005),
+ * its pending flag and whether a command about it awaits its receipt, and
+ * the views a sidebar renders, all sorted by the
  * contracts' ordering module, so every client orders the same summaries the
  * same way: order keys compare as plain strings, ties go to the
  * environment's place in the connection list, then the id. A pure function
@@ -44,6 +45,13 @@ export interface SessionRow {
   readonly groupName: string | null;
   /** A command about it waits in the outbox while its environment is unreachable: what it shows is the command's effect, not yet the environment's word. */
   readonly pending: boolean;
+  /**
+   * A command about it is queued or in flight in the outbox, whatever the
+   * connection's phase, until its receipt (accepted or rejected) or its
+   * drop: the row's pending marker. `pending` is this while the environment
+   * cannot be reached.
+   */
+  readonly awaitingReceipt: boolean;
 }
 
 /** Sessions on each visible shelf, each sorted by its rule. */
@@ -85,6 +93,8 @@ export interface MergedGroupHeading {
   readonly shelves: SessionShelves;
   /** A command about one of its groups waits in the outbox while that group's environment is unreachable. */
   readonly pending: boolean;
+  /** A command about one of its groups is queued or in flight in the outbox, whatever the connection's phase, until its receipt or its drop. */
+  readonly awaitingReceipt: boolean;
 }
 
 /** The sessions of one repository across environments (ADR 0005): the same kind of view over `repositoryIdentity`. */
@@ -119,7 +129,9 @@ export interface SessionListInput {
   /** Each environment's time now. */
   readonly now: (environmentId: string) => Date;
   /** The sessions and groups a command waits in the outbox about, on environments that cannot be reached. */
-  readonly pending: PendingTargets;
+  readonly pending: CommandTargets;
+  /** The sessions and groups a queued or in-flight command is about, on every environment. */
+  readonly awaiting: CommandTargets;
 }
 
 type Visible = Exclude<Shelf, "hidden">;
@@ -160,7 +172,13 @@ export const sessionListView = (input: SessionListInput): SessionListView => {
     });
     for (const summary of data.sessions.values()) {
       const groupName = summary.groupId === null ? null : (data.groups.get(summary.groupId)?.name ?? null);
-      rows.push({ environmentId, summary, groupName, pending: input.pending.get(environmentId)?.sessions.has(summary.id) === true });
+      rows.push({
+        environmentId,
+        summary,
+        groupName,
+        pending: input.pending.get(environmentId)?.sessions.has(summary.id) === true,
+        awaitingReceipt: input.awaiting.get(environmentId)?.sessions.has(summary.id) === true,
+      });
     }
   }
 
@@ -200,6 +218,7 @@ export const sessionListView = (input: SessionListInput): SessionListView => {
       groups: heading.members,
       shelves: shelvesOf(heading.rows, order, shelf),
       pending: heading.members.some((member) => input.pending.get(member.environmentId)?.groups.has(member.groupId) === true),
+      awaitingReceipt: heading.members.some((member) => input.awaiting.get(member.environmentId)?.groups.has(member.groupId) === true),
     })),
     repositories: [...repositories.keys()].sort().map((repositoryIdentity) => ({
       repositoryIdentity,
@@ -229,12 +248,13 @@ export const sessionListProjection = (options: {
   readonly lists: Observable<ReadonlyMap<string, StreamState<ListData>>>;
   readonly now: (environmentId: string) => Date;
   readonly clock: Clock;
-  readonly pending: Observable<PendingTargets>;
+  readonly pending: Observable<CommandTargets>;
+  readonly awaiting: Observable<CommandTargets>;
 }): SessionListProjection => {
   const wakes = writable(0);
   let wake: Timer | undefined;
-  const view = derived([options.records, options.lists, options.pending, wakes] as const, (records, lists, pending) => {
-    const value = sessionListView({ records, lists, now: options.now, pending });
+  const view = derived([options.records, options.lists, options.pending, options.awaiting, wakes] as const, (records, lists, pending, awaiting) => {
+    const value = sessionListView({ records, lists, now: options.now, pending, awaiting });
     wake?.cancel();
     wake = undefined;
     const due = nextWake(value, options.now);

@@ -44,6 +44,7 @@ const row = (environmentId: string, fields: Partial<SessionSummary> = {}, extra:
   } as SessionSummary,
   groupName: null,
   pending: false,
+  awaitingReceipt: false,
   ...extra,
 });
 
@@ -59,6 +60,7 @@ const heading = (key: string, name: string, active: SessionRow[], pending = fals
   groups: [],
   shelves: { pinned: [], active, snoozed: [], settled: [], archived: [] },
   pending,
+  awaitingReceipt: pending,
 });
 
 const input = (fields: Partial<RailInput>): RailInput => ({

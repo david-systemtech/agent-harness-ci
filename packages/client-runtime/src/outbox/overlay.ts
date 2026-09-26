@@ -39,8 +39,8 @@ export type OutboxView = ReadonlyMap<string, EnvironmentOutbox>;
 /** The drafts typed and not yet dispatched (their second's debounce under way), by environment, then session. */
 export type WaitingDrafts = ReadonlyMap<string, ReadonlyMap<string, string | null>>;
 
-/** Commands waiting while their environment is unreachable, by environment: the sessions and groups they are about. */
-export type PendingTargets = ReadonlyMap<string, { readonly sessions: ReadonlySet<string>; readonly groups: ReadonlySet<string> }>;
+/** The sessions and groups queued or in-flight commands are about, by environment. */
+export type CommandTargets = ReadonlyMap<string, { readonly sessions: ReadonlySet<string>; readonly groups: ReadonlySet<string> }>;
 
 /** `data` with `overlays` laid over it in order, then the drafts waiting on top. */
 export const overlaid = (data: ListData, overlays: readonly OverlayRecord[], drafts: ReadonlyMap<string, string | null> | undefined): ListData => {
@@ -97,17 +97,29 @@ export const overlaidLists = (
 /** Whether the connection has a ready socket: `syncing` is ready, catching its list up. */
 export const reachable = (record: ConnectionRecord | undefined): boolean => record?.phase === "ready" || record?.phase === "syncing";
 
-/** The sessions and groups with a command waiting on an environment that cannot be reached: what carries `pending`. */
-export const pendingTargets = (records: readonly ConnectionRecord[], outbox: OutboxView): PendingTargets => {
-  const pending = new Map<string, { sessions: Set<string>; groups: Set<string> }>();
+/** The sessions and groups each environment's entries are about, of the environments `include` admits. */
+const targetsOf = (outbox: OutboxView, include: (environmentId: string) => boolean): CommandTargets => {
+  const targets = new Map<string, { sessions: Set<string>; groups: Set<string> }>();
   for (const [environmentId, { entries }] of outbox) {
-    if (entries.length === 0 || reachable(records.find((record) => record.environmentId === environmentId))) continue;
-    const targets = { sessions: new Set<string>(), groups: new Set<string>() };
+    if (entries.length === 0 || !include(environmentId)) continue;
+    const about = { sessions: new Set<string>(), groups: new Set<string>() };
     for (const { target } of entries) {
-      if (target?.kind === "session") targets.sessions.add(target.id);
-      else if (target?.kind === "group") targets.groups.add(target.id);
+      if (target?.kind === "session") about.sessions.add(target.id);
+      else if (target?.kind === "group") about.groups.add(target.id);
     }
-    pending.set(environmentId, targets);
+    targets.set(environmentId, about);
   }
-  return pending;
+  return targets;
 };
+
+/**
+ * The sessions and groups a queued or in-flight command is about, whatever
+ * the connection's phase: what carries `awaitingReceipt`. An entry leaves
+ * the outbox on its receipt, accepted or rejected, or when it is dropped,
+ * and the flag with it.
+ */
+export const awaitedTargets = (outbox: OutboxView): CommandTargets => targetsOf(outbox, () => true);
+
+/** The sessions and groups with a command waiting on an environment that cannot be reached: what carries `pending`. */
+export const pendingTargets = (records: readonly ConnectionRecord[], outbox: OutboxView): CommandTargets =>
+  targetsOf(outbox, (environmentId) => !reachable(records.find((record) => record.environmentId === environmentId)));

@@ -614,6 +614,92 @@ describe("receipts and the overlay", () => {
   });
 });
 
+describe("awaitingReceipt", () => {
+  it("flags a row while a command about it is queued or in flight, and clears it on the receipt", async () => {
+    const { runtime, wire, id, list } = await paired({ list: true });
+    const [archived, pinned, untouched] = [randomUUID(), randomUUID(), randomUUID()];
+    listed(list, 10, [summaryOf(archived, { title: "Invoices" }), summaryOf(pinned, { title: "Bills" }), summaryOf(untouched, { title: "Receipts" })]);
+    await flush();
+    const held: ((answer: FakeAnswer) => void)[] = [];
+    for (const method of ["sessions.archive", "sessions.pin"]) wire.answer(method, () => new Promise<FakeAnswer>((resolve) => held.push(resolve)));
+    const flags = () => [archived, pinned, untouched].map((sessionId) => [row(runtime, sessionId)?.awaitingReceipt, row(runtime, sessionId)?.pending]);
+
+    const answers = [runtime.commands.dispatch(id, "sessions.archive", { sessionId: archived }), runtime.commands.dispatch(id, "sessions.pin", { sessionId: pinned })];
+    await flush();
+    // The archive in flight, the pin queued behind it: both awaited, neither pending, since the environment is reachable.
+    expect(flags()).toEqual([
+      [true, false],
+      [true, false],
+      [false, false],
+    ]);
+
+    held.shift()?.(answering(accepted(11)));
+    await flush();
+    expect(flags()).toEqual([
+      [false, false],
+      [true, false],
+      [false, false],
+    ]);
+    held.shift()?.(answering(accepted(12)));
+    expect((await Promise.all(answers)).map((a) => a.ok)).toEqual([true, true]);
+    await flush();
+    expect(flags().map(([awaited]) => awaited)).toEqual([false, false, false]);
+  });
+
+  it("keeps the flag across a drop and the reconnect, and clears it on the re-sent command's receipt", async () => {
+    const { runtime, wire, clock, id, list } = await paired({ list: true });
+    const sessionId = randomUUID();
+    listed(list, 10, [summaryOf(sessionId, { title: "Invoices" })]);
+    await flush();
+    wire.answer("sessions.archive", () => undefined);
+    const answer = runtime.commands.dispatch(id, "sessions.archive", { sessionId });
+    const first = await wire.server.request("sessions.archive");
+    await flush();
+    expect(row(runtime, sessionId)).toMatchObject({ awaitingReceipt: true, pending: false });
+
+    await cut(wire);
+    expect(row(runtime, sessionId)).toMatchObject({ awaitingReceipt: true, pending: true });
+
+    await mend(wire, clock, runtime);
+    const again = await subscription(wire, "sessions.subscribe");
+    again.synchronized(10);
+    const second = await wire.server.request("sessions.archive");
+    expect(second.params["commandId"]).toBe(first.params["commandId"]);
+    await flush();
+    expect(row(runtime, sessionId)).toMatchObject({ awaitingReceipt: true, pending: false });
+
+    wire.server.send({ type: "response", id: second.id, result: { receipt: accepted(11) } });
+    expect(await answer).toMatchObject({ ok: true });
+    await flush();
+    expect(row(runtime, sessionId)).toMatchObject({ awaitingReceipt: false, pending: false });
+  });
+
+  it("clears the flag on a rejection, and flags a heading while a command about one of its groups waits", async () => {
+    const { runtime, wire, id, list } = await paired({ list: true });
+    const [sessionId, groupId] = [randomUUID(), randomUUID()];
+    listed(list, 10, [summaryOf(sessionId, { title: "Invoices", groupId })], [groupOf(groupId, "Brandsolidate")]);
+    await flush();
+    const held: ((answer: FakeAnswer) => void)[] = [];
+    for (const method of ["groups.rename", "sessions.pin"]) wire.answer(method, () => new Promise<FakeAnswer>((resolve) => held.push(resolve)));
+    const heading = () => runtime.projections.sessionList.read().groups[0];
+
+    const renamed = runtime.commands.dispatch(id, "groups.rename", { groupId, name: "Cool-Jams" });
+    const pinned = runtime.commands.dispatch(id, "sessions.pin", { sessionId });
+    await flush();
+    expect(heading()).toMatchObject({ name: "Cool-Jams", awaitingReceipt: true, pending: false });
+    expect(row(runtime, sessionId)).toMatchObject({ awaitingReceipt: true, pending: false });
+
+    held.shift()?.(answering(rejected(11, "conflict", { reason: "name_taken" })));
+    expect(await renamed).toMatchObject({ ok: false });
+    await flush();
+    expect(heading()).toMatchObject({ name: "Brandsolidate", awaitingReceipt: false });
+    held.shift()?.(answering(rejected(12, "not_found", { kind: "session", sessionId })));
+    expect(await pinned).toMatchObject({ ok: false });
+    await flush();
+    expect(row(runtime, sessionId)).toMatchObject({ awaitingReceipt: false });
+  });
+});
+
 describe("coalescing", () => {
   it("replaces a queued setter of the same method and target, and answers both with the one sent", async () => {
     const { runtime, wire, clock, id, list } = await paired({ list: true });
