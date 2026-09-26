@@ -144,9 +144,10 @@ export const createTerminalSubscriptions = (options: {
     }
   };
 
+  /** Ends the handle for good; `fault` is why, or null when nothing failed (a fault from an earlier attempt is no reason). */
   const end = (h: Held, fault: string | null) => {
     letGo(h, true);
-    set(h, { status: "ended", ...(fault !== null && { fault }) });
+    set(h, { status: "ended", fault });
   };
 
   const hear = (h: Held, token: object, message: SubscriptionMessage) => {
@@ -240,7 +241,11 @@ export const createTerminalSubscriptions = (options: {
         }
         h.answer?.cancel();
         h.answer = null;
-        if (answer.ok) return void (h.subscription = answer.subscription);
+        // Taken: whatever an earlier attempt failed with no longer stands, even when the replay ends the handle before `synchronized`.
+        if (answer.ok) {
+          h.subscription = answer.subscription;
+          return set(h, { fault: null });
+        }
         // A terminal that is not there (closed, gone with its session or a restart) will not come back; anything else is tried on the next `ready`.
         if (answer.error.code === "not_found") return end(h, answer.error.message);
         letGo(h, false);

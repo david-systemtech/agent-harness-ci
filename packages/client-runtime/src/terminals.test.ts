@@ -232,6 +232,41 @@ describe("a terminal's subscription", () => {
     expect(handle.state.read()).toMatchObject({ status: "live", fault: null });
   });
 
+  it("lets go of a fault the next subscription recovered from, when the replay it answers with is the terminal's exit", async () => {
+    // The pane says an ended terminal's fault as why it is gone; one the resubscription answered past is no reason.
+    const { wire, clock, open } = await ready();
+    const handle = open();
+    await wire.server.request("terminals.subscribe");
+    clock.advance(SUBSCRIBE_TIMEOUT_MS);
+    await flush();
+    expect(handle.state.read().fault).toMatch(/did not answer terminals.subscribe/);
+
+    wire.server.drop();
+    await flush();
+    clock.advance(1250);
+    await wire.server.accept();
+    (await subscription(wire, "sessions.subscribe")).synchronized(0);
+    const again = await subscription(wire, "terminals.subscribe");
+    again.snapshot(1, snapshot(1, "$ exit\r\n"));
+    again.event(exited(2, { exitCode: 0, signal: null, cause: "exited" }));
+    again.synchronized(2);
+    await flush();
+    expect(handle.state.read()).toMatchObject({ status: "ended", exit: { exitCode: 0 }, fault: null });
+  });
+
+  it("lets go of a fault when the environment is forgotten, which ends the handle for no failure of its own", async () => {
+    const { wire, clock, runtime, open } = await ready();
+    const handle = open();
+    await wire.server.request("terminals.subscribe");
+    clock.advance(SUBSCRIBE_TIMEOUT_MS);
+    await flush();
+    expect(handle.state.read().fault).toMatch(/did not answer terminals.subscribe/);
+
+    await runtime.connections.remove(wire.environmentId);
+    await flush();
+    expect(handle.state.read()).toMatchObject({ status: "ended", fault: null });
+  });
+
   it("waits for the environment to be ready before it subscribes", async () => {
     const { wire, clock, open } = await ready();
     wire.server.drop();
