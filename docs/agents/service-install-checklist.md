@@ -59,3 +59,21 @@ there, and a container runs `agent-harness serve` directly instead.
 3. Run it again: it reuses the unpacked version and ends ready again.
 4. With lingering off, the status says so; after `sudo loginctl enable-linger <user>`, the service stays up when the SSH session ends.
 5. `~/.local/state/agent-harness/versions/<version>/bin/agent-harness service uninstall` leaves no unit behind.
+
+## Container (the image and `scripts/compose.yaml`)
+
+The repository's `Dockerfile` and the install script's compose file
+(`scripts/compose.yaml`, #141) run the environment as the image's non-root
+user, `agent-harness` (uid and gid 10001), on named volumes that start owned
+by that user. `test/container.test.ts` reads both as text; these steps prove
+them against a real Docker (or Podman) on a Linux host. No release publishes
+the image yet, so build it from a checkout. Record the result in the pull
+request that changes either file, or list the section as not run.
+
+1. `docker build -t agent-harness .` from the checkout succeeds: `node-pty` compiles in the build stage, the `--prod` reinstall drops the devDependencies without asking, and `docker run --rm agent-harness --version` prints the version.
+2. `docker compose -f scripts/compose.yaml up -d`, then `docker compose -f scripts/compose.yaml exec environment id`: uid and gid 10001, not 0. The logs show the discovery address, not the root refusal.
+3. `docker compose -f scripts/compose.yaml exec environment ls -ldn /data /work`: both owned by 10001:10001 on fresh `data` and `work` volumes, and `/data` holds the environment's files.
+4. `docker compose -f scripts/compose.yaml exec environment agent-harness pair` prints a link and a code; a client that exchanges it reads `permissions.settings.get` with `isRoot: false` and `containment.container.declared: true`.
+5. `setup.check` from that client answers Permissions and Your machines done (under Docker's default seccomp profile only `off` is offered, and the containment default's preset is `off`).
+6. `docker compose -f scripts/compose.yaml exec environment env | grep -E 'IS_SANDBOX|CLAUDE_CODE_BUBBLEWRAP'` prints nothing.
+7. With a run under way, `docker compose -f scripts/compose.yaml stop` waits for the drain rather than killing at ten seconds (`stop_grace_period: 31m`), and the next `up` finds no run the recovery sweep had to end.

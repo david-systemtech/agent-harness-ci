@@ -14,6 +14,7 @@ import { providerMethodFixtures, providerSchemaFixtures } from "./provider-fixtu
 import { runMethodFixtures, runSchemaFixtures } from "./run-fixtures.js";
 import { sessionMethodFixtures, sessionSchemaFixtures } from "./session-fixtures.js";
 import { settingsMethodFixtures, settingsSchemaFixtures } from "./settings-fixtures.js";
+import { setupMethodFixtures, setupSchemaFixtures } from "./setup-fixtures.js";
 import { terminalMethodFixtures, terminalSchemaFixtures } from "./terminal-fixtures.js";
 import { usageMethodFixtures, usageSchemaFixtures } from "./usage-fixtures.js";
 
@@ -490,6 +491,7 @@ const methodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
   ...runMethodFixtures,
   ...providerMethodFixtures,
   ...settingsMethodFixtures,
+  ...setupMethodFixtures,
   ...permissionMethodFixtures,
   ...accountMethodFixtures,
   ...usageMethodFixtures,
@@ -791,6 +793,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
   ...runSchemaFixtures,
   ...providerSchemaFixtures,
   ...settingsSchemaFixtures,
+  ...setupSchemaFixtures,
   ...permissionSchemaFixtures,
   ...accountSchemaFixtures,
   ...usageSchemaFixtures,

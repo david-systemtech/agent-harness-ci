@@ -1187,6 +1187,22 @@
       "title": "SettingsEventType"
     },
     {
+      "path": "setup/registered-step-id.json",
+      "title": "RegisteredStepId"
+    },
+    {
+      "path": "setup/action.json",
+      "title": "SetupAction"
+    },
+    {
+      "path": "setup/step-state.json",
+      "title": "StepState"
+    },
+    {
+      "path": "setup/step-result.json",
+      "title": "StepResult"
+    },
+    {
       "path": "settings/events/settings.updated.json",
       "title": "SettingsUpdatedPayload"
     },
@@ -2515,6 +2531,18 @@
       "title": "permissions.denylist.test error"
     },
     {
+      "path": "methods/setup.check/params.json",
+      "title": "setup.check params"
+    },
+    {
+      "path": "methods/setup.check/result.json",
+      "title": "setup.check result"
+    },
+    {
+      "path": "methods/setup.check/error.json",
+      "title": "setup.check error"
+    },
+    {
       "path": "methods/terminals.open/params.json",
       "title": "terminals.open params"
     },
@@ -3434,6 +3462,15 @@
       "params": "methods/permissions.denylist.test/params.json",
       "result": "methods/permissions.denylist.test/result.json",
       "error": "methods/permissions.denylist.test/error.json"
+    },
+    {
+      "name": "setup.check",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/setup.check/params.json",
+      "result": "methods/setup.check/result.json",
+      "error": "methods/setup.check/error.json"
     },
     {
       "name": "terminals.open",

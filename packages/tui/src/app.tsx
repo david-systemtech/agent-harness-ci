@@ -3,9 +3,15 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { Box, Text, render as inkRender, useApp, useInput, usePaste, useStdout, type Instance, type RenderOptions } from "ink";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactElement } from "react";
-import type { Clock, EnvironmentView, GrantReader, Observable, PairingInput, SessionRow } from "@agent-harness/client-runtime";
-import { PRODUCT_NAME, actionById, isCommandId, type AttachmentInput, type KeyActionId } from "@agent-harness/contracts";
+import type { Clock, EnvironmentView, GrantReader, Notice, Observable, PairingInput, SessionRow } from "@agent-harness/client-runtime";
+import { PRODUCT_NAME, actionById, isCommandId, type AttachmentInput, type KeyActionId, type PromptAnswerInput, type PromptKind } from "@agent-harness/contracts";
 import { ANSWERED, BUILD_WORDS, type ScreenKey } from "./answered.js";
+import { quietChrome, type TerminalChrome } from "./attention/chrome.js";
+import { RECAP_FLASH_MS } from "./attention/policy.js";
+import { useAttention } from "./attention/use-attention.js";
+import { useAnswers } from "./cards/answers.js";
+import { askKey, askRows, decidable, inBulk, parkedSessions, promptKey, ttlWords } from "./cards/asks.js";
+import { cardFor, chosen, denied, lineClosed, lineEntered, lineOpened, lineTyped, moved, ticked, type CardState, type CardStep } from "./cards/prompt.js";
 import { applyAction, actionsFor, listClientSessions, removeEnvironment, revokeClientSession, type ClientSessionRow } from "./commands/environment.js";
 import { parseCommand } from "./commands/parse.js";
 import { mintPairing, pairingLine, type MintedLines } from "./commands/pair.js";
@@ -26,10 +32,12 @@ import { helpLines } from "./help.js";
 import { FIRST_ANYWHERE, direction, dispatch, eventName, keysText, type Handler, type InkKey, type Keymap, type LoadedKeymap, type Lookup } from "./keys.js";
 import type { LocalService } from "./platform/services.js";
 import type { RuntimeHost } from "./runtime-host.js";
+import { AsksCard } from "./screens/asks-card.js";
 import { ClientSessionsCard, EnvironmentMenu, EnvironmentsCard, HelpCard, MintedCard } from "./screens/cards.js";
 import { ComposerView } from "./screens/composer.js";
 import { Header, HintLine, Line, PairingPrompt, RAIL_MIN_COLUMNS, RAIL_WIDTH, Rail } from "./screens/layout.js";
 import { SessionsCard, SnippetsCard } from "./screens/lists.js";
+import { PromptCard } from "./screens/prompt-card.js";
 import { DelegatedStrip, LinesCard, QueuedLine, TranscriptView, maxOffset, offsetShowing } from "./screens/transcript.js";
 import { attachmentRefusal, interruptRun, isLive, sendMessage, stopCall } from "./session/send.js";
 import { useFollow, useSession, type Opened } from "./session/use-session.js";
@@ -50,6 +58,7 @@ import {
   localIsDown,
   messageOf,
   nameOf,
+  noticeLine,
   offerLine,
   type Fault,
 } from "./view.js";
@@ -140,6 +149,8 @@ export interface AppProps {
   readonly clipboard?: TerminalClipboard;
   /** Ctrl+G's editor; preset `$VISUAL` or `$EDITOR`, with the terminal lent to it. */
   readonly editText?: (text: string) => Promise<ExternalEditResult>;
+  /** The terminal's title and bell (the attention seam): preset none, so nothing is written; `runTui` hands in the terminal's. */
+  readonly chrome?: TerminalChrome;
 }
 
 type Card =
@@ -163,10 +174,12 @@ type Card =
   | { readonly kind: "sessions"; readonly cursor: number; readonly filter: string }
   /** `/snip`: the saved snippets. */
   | { readonly kind: "snippets"; readonly cursor: number }
-  /** `/tasks` or `/timeline`: lines about the session, scrolled from `top`. */
-  | { readonly kind: "lines"; readonly which: "tasks" | "timeline"; readonly top: number }
+  /** `/tasks` or `/timeline`: lines about the session; `/notices`: every notice, newest first; scrolled from `top`. */
+  | { readonly kind: "lines"; readonly which: "tasks" | "timeline" | "notices"; readonly top: number }
   /** A picker or card of accounts, models, permissions and settings (`pickers/`). */
-  | { readonly kind: "panel"; readonly panel: Panel };
+  | { readonly kind: "panel"; readonly panel: Panel }
+  /** `/asks` and `Ctrl+]`: every environment's parked prompts. */
+  | { readonly kind: "asks"; readonly cursor: number };
 
 interface Question {
   readonly text: string;
@@ -447,7 +460,10 @@ export const App = (props: AppProps) => {
   const railWidth = railDrawn && screen.card.kind !== "help" ? RAIL_WIDTH : 0;
   const mainWidth = Math.max(20, size.columns - railWidth);
   const now = clock.now().getTime();
-  const rows = useMemo(() => (projection ? transcriptRows(projection) : []), [projection]);
+  // A parked prompt is the card under the transcript until it is answered, then a row where it was asked (permissions spec,
+  // "Placement"); the pager, the whole transcript unfolded, draws it in place.
+  const allRows = useMemo(() => (projection ? transcriptRows(projection) : []), [projection]);
+  const rows = useMemo(() => allRows.filter((row) => !(row.kind === "prompt" && row.entry.state === "parked")), [allRows]);
   const transcriptFocused = focused === "transcript" && screen.card.kind === "none";
   const lineContext = {
     width: mainWidth - (transcriptFocused ? 1 : 0),
@@ -484,6 +500,66 @@ export const App = (props: AppProps) => {
     return ledger?.kind === "tasks" ? ledger.tasks.filter((task) => task.status === "running" || task.status === "pending" || task.status === "paused") : [];
   }, [projection, liveRun]);
 
+  // The parked prompts (docs/specs/tui.md, "Cards"): every environment's, from `projections.runs` (the asks card), and the open
+  // session's own, whose oldest is its card. One this terminal has answered leaves both at once (`useAnswers`).
+  const runsView = runtime.projections.runs.read();
+  const heldPrompts = projection?.parkedPrompts;
+  const parkedKeys = useMemo(
+    () =>
+      new Set([
+        ...runsView.parkedAsks.map(askKey),
+        ...(opened && heldPrompts ? heldPrompts.map((parked) => promptKey(opened.environmentId, opened.sessionId, parked.promptId)) : []),
+      ]),
+    [runsView.parkedAsks, opened, heldPrompts],
+  );
+  const answers = useAnswers(runtime, parkedKeys, say);
+  const asks = runsView.parkedAsks.filter((ask) => !answers.sent.has(askKey(ask)));
+  const waitingHere = opened && projection ? projection.parkedPrompts.filter((parked) => !answers.sent.has(promptKey(opened.environmentId, opened.sessionId, parked.promptId))) : [];
+  const shownPrompt = waitingHere[0];
+  const [promptCard, setPromptCard] = useState<CardState | undefined>(undefined);
+  // The card's own state belongs to the prompt it was made for: another prompt starts afresh, the cursor on Deny.
+  const promptState = shownPrompt === undefined ? undefined : promptCard?.promptId === shownPrompt.promptId ? promptCard : cardFor(shownPrompt.promptId);
+  const promptShown = screen.card.kind === "none" && shownPrompt !== undefined && promptState !== undefined;
+  const answerShown = (answer: PromptAnswerInput) => {
+    if (!opened || !shownPrompt) return;
+    answers.answer({ environmentId: opened.environmentId, sessionId: opened.sessionId, promptId: shownPrompt.promptId }, answer);
+  };
+  const step = (next: CardStep) => {
+    if (next.kind === "state") return setPromptCard(next.state);
+    if (next.kind === "say") return say(next.line);
+    answerShown(next.answer);
+  };
+
+  // Attention: the title, the bell and the away summary, from the runtime's attention events.
+  const chrome = useMemo(() => props.chrome ?? quietChrome(), [props.chrome]);
+  const attention = useAttention({
+    runtime,
+    clock,
+    chrome,
+    request,
+    opened,
+    title: projection?.summary?.title,
+    folder: projection?.summary?.workspace.path ?? props.flags.workspace,
+    live,
+  });
+  /** A line that goes by itself after `ms`, unless another has replaced it. */
+  const flash = (line: string, ms: number) => {
+    say(line);
+    clock.setTimeout(() => setScreen((s) => (s.line === line ? { ...s, line: undefined } : s)), ms);
+  };
+
+  // `Ctrl+]`: the asks card when more than one session is parked; else the next session that needs you, parked first.
+  const attentionNext = () => {
+    if (parkedSessions(asks).length > 1) return update({ card: { kind: "asks", cursor: 0 }, question: undefined });
+    const queue = attention.needing();
+    if (queue.length === 0) return say("Nothing needs you.");
+    const here = opened ? queue.findIndex((s) => s.environmentId === opened.environmentId && s.sessionId.toLowerCase() === opened.sessionId.toLowerCase()) : -1;
+    const next = queue[(here + 1) % queue.length];
+    if (next === undefined || (here !== -1 && queue.length === 1)) return say("Nothing else needs you.");
+    update({ card: { kind: "none" }, question: undefined });
+    open(next);
+  };
+
   // The composer.
   const files = useMemo(() => (opened ? runtime.requests.cached(opened.environmentId, "files.list", { sessionId: opened.sessionId }) : undefined), [runtime, opened]);
   const paths = files?.read().result?.files ?? null;
@@ -497,7 +573,8 @@ export const App = (props: AppProps) => {
       all,
     ];
   }, [opened, projection?.summary?.workspace.path]);
-  const cardOpen = screen.card.kind !== "none";
+  // The permission card has the keys as any card does: the composer waits under it.
+  const cardOpen = screen.card.kind !== "none" || promptShown;
   const composer = useComposer({
     keymap,
     sources: {
@@ -802,6 +879,13 @@ export const App = (props: AppProps) => {
       case "copy":
         copy(command.block);
         return true;
+      case "asks":
+        if (asks.length === 0) say("Nothing needs you.");
+        else update({ card: { kind: "asks", cursor: 0 } });
+        return true;
+      case "notices":
+        update({ card: { kind: "lines", which: "notices", top: 0 } });
+        return true;
       case "export":
         exportTo(command.file);
         return true;
@@ -971,13 +1055,36 @@ export const App = (props: AppProps) => {
 
   // The pager's lines: every row unfolded; `/tasks` and `/timeline` as lines too.
   const card = screen.card;
-  const pagerLines = card.kind === "pager" ? transcriptLines(rows, { ...lineContext, width: mainWidth, expanded: true }) : [];
+  const pagerLines = card.kind === "pager" ? transcriptLines(allRows, { ...lineContext, width: mainWidth, expanded: true }) : [];
   const cardLines: TranscriptLine[] =
     card.kind === "lines"
       ? card.which === "timeline"
         ? (projection ? turnsOf(projection) : []).map((turn) => ({ row: turn.runId, spans: [{ text: timelineLine(turn) }] }))
-        : tasksLines(projection)
+        : card.which === "notices"
+          ? noticesLines(notices, names)
+          : tasksLines(projection)
       : [];
+  // The asks card's rows: what `/asks` gathered, less what was answered from here.
+  const askList = card.kind === "asks" ? askRows(asks, views, opened) : [];
+  const askAt = card.kind === "asks" ? askList[clampCursor(card.cursor, askList.length)] : undefined;
+  const bulk = askList.filter((row) => inBulk(row.ask.kind));
+  /** `y` or `n` on the row under the cursor: a permission or denylist prompt answered in place; any other is opened to answer. */
+  const decideInPlace = (decision: "allow" | "deny"): false | void => {
+    if (!askAt) return false;
+    if (!decidable(askAt.ask.kind)) return say(`This one is answered on its own card: ${keys("asks.open")} opens it.`);
+    answers.answer(askAt.ask, { decision });
+  };
+  /** `a` or `N`: every permission row answered at once, once confirmed, and only when there are two or more. */
+  const decideAll = (decision: "allow" | "deny"): false | void => {
+    if (card.kind !== "asks" || bulk.length < 2) return false;
+    const targets = bulk.map((row) => row.ask);
+    update({
+      question: {
+        text: decision === "allow" ? `Allow all ${targets.length} permissions once? y/n` : `Deny all ${targets.length} permissions? y/n`,
+        yes: () => targets.forEach((target) => answers.answer(target, { decision })),
+      },
+    });
+  };
   const pagerMaxTop = Math.max(0, pagerLines.length - helpHeight);
   const pagerTop = card.kind === "pager" ? Math.min(card.top ?? pagerMaxTop, pagerMaxTop) : 0;
   const pagerMatches = card.kind === "pager" && card.query.length > 0 ? pagerLines.flatMap((line, index) => (lineText(line).toLowerCase().includes(card.query.toLowerCase()) ? [index] : [])) : [];
@@ -988,6 +1095,7 @@ export const App = (props: AppProps) => {
   usePaste(
     (text) => {
       scheduler.bypass();
+      attention.touch();
       composer.paste(text);
     },
     { isActive: focused === "composer" && !cardOpen },
@@ -1005,6 +1113,10 @@ export const App = (props: AppProps) => {
   useInput((input: string, key: InkKey) => {
     // A key draws what the scheduler holds back, with its own echo.
     scheduler.bypass();
+    // Somebody is here: both bells wait again. Past three minutes of stillness the key is a return, answered with what happened
+    // meanwhile; first, so a key with a line of its own has the last word.
+    const recap = attention.touch();
+    if (recap !== undefined) flash(recap, RECAP_FLASH_MS);
     const name = eventName(input, key);
     const previous = lastPress.current;
     // Text arriving in one read (a fast typist, a terminal that batches) ends on its last character: `one\` then Enter is `\ Enter`.
@@ -1013,7 +1125,7 @@ export const App = (props: AppProps) => {
     const listCard =
       card.kind === "environments" || card.kind === "menu" || card.kind === "client-sessions" || card.kind === "sessions" || card.kind === "snippets" || (card.kind === "panel" && !linesPanel);
     // A list, the help overlay, the pager and the lines cards have the keys whatever has the focus; the focus has them back when it closes.
-    const cardHasKeys = listCard || linesPanel || card.kind === "help" || card.kind === "pager" || card.kind === "lines";
+    const cardHasKeys = listCard || linesPanel || card.kind === "help" || card.kind === "pager" || card.kind === "lines" || card.kind === "asks" || promptShown;
     const composerHasKeys = focused === "composer" && !cardHasKeys;
     const composerText = composer.state.editor.text;
     const scrollCard = (to: (top: number) => number, max: number): false | void => {
@@ -1054,6 +1166,7 @@ export const App = (props: AppProps) => {
       "app.interruptOrQuit": () => {
         // The text is cleared only where it is being typed: with the rail or the transcript focused it is kept.
         if (composerText !== "" && composerHasKeys) return composer.set(composerOf(""));
+        if (promptShown && promptState.line !== null) return setPromptCard(lineClosed(promptState));
         if (screen.question) return update({ question: undefined });
         if (card.kind !== "none") return update({ card: card.kind === "help" ? card.under : { kind: "none" } });
         if (interrupt()) return;
@@ -1166,6 +1279,31 @@ export const App = (props: AppProps) => {
         if (card.kind === "pager" || card.kind === "lines" || linesPanel) return update({ card: { kind: "none" } });
         return false;
       },
+      "app.attention.next": () => attentionNext(),
+      // The permission card (`cards/prompt.ts`): its move keys are up, down pairs, as the list writes them (↑, ↓, k, j).
+      "permission.move": (pressed) => (promptShown ? setPromptCard(moved(shownPrompt.prompt, promptState, keymap.keys["permission.move"].indexOf(pressed) % 2 === 0 ? -1 : 1)) : false),
+      "permission.choose": () => (promptShown ? step(chosen(shownPrompt.prompt, promptState)) : false),
+      "permission.deny": () => (promptShown ? answerShown(denied(shownPrompt.prompt, promptState)) : false),
+      "permission.note": () => (promptShown ? setPromptCard(lineOpened(promptState)) : false),
+      "permission.tick": () => {
+        const next = promptShown ? ticked(shownPrompt.prompt, promptState) : undefined;
+        return next ? setPromptCard(next) : false;
+      },
+      "permission.rule.edit": () => (promptShown ? say(absentReason("permission.rule.edit")) : false),
+      "permission.scope.walk": () => (promptShown ? say(absentReason("permission.scope.walk")) : false),
+      // The asks card: a yes or a no answers a permission in place, Enter opens the session, Esc closes deciding nothing.
+      "asks.move": (pressed) => (card.kind === "asks" ? update({ card: { ...card, cursor: clampCursor(card.cursor + direction(keymap, "asks.move", pressed), askList.length) } }) : false),
+      "asks.open": () => {
+        if (!askAt) return false;
+        update({ card: { kind: "none" } });
+        // The session on screen is behind the card already: closing it uncovers its own card.
+        if (!askAt.here) open({ environmentId: askAt.ask.environmentId, sessionId: askAt.ask.sessionId });
+      },
+      "asks.allow": () => decideInPlace("allow"),
+      "asks.deny": () => decideInPlace("deny"),
+      "asks.allowAll": () => decideAll("allow"),
+      "asks.denyAll": () => decideAll("deny"),
+      "asks.close": () => (card.kind === "asks" ? update({ card: { kind: "none" } }) : false),
     };
     // A card taking a line has the text typed at it: Enter is its choice, Esc its way back, Backspace rubs one out; any
     // other key (Ctrl+C) is looked up as ever.
@@ -1174,6 +1312,18 @@ export const App = (props: AppProps) => {
       if (key.escape) return update({ card: back(card) });
       if (key.backspace || key.delete) return update({ card: { kind: "panel", panel: pickers.erased(card.panel) } });
       if (input !== "" && !key.ctrl && !key.meta && !key.tab) return update({ card: { kind: "panel", panel: pickers.typed(card.panel, input) } });
+    }
+    // The note's line on the permission card takes what is typed; the move keys wait while it is open, and a key it does not
+    // take (Ctrl+C, Ctrl+]) is looked up as any other.
+    if (promptShown && promptState.line !== null) {
+      const typed = (next: CardState | undefined) => void (next && setPromptCard(next));
+      if (key.return) return step(lineEntered(shownPrompt.prompt, promptState));
+      if (key.tab || key.escape) return setPromptCard(lineClosed(promptState));
+      if (key.backspace || key.delete) return typed(lineTyped(promptState, { rub: "character" }));
+      if (key.upArrow || key.downArrow || key.leftArrow || key.rightArrow) return;
+      if (key.ctrl && input === "u") return typed(lineTyped(promptState, { rub: "all" }));
+      if (key.ctrl && input === "w") return typed(lineTyped(promptState, { rub: "word" }));
+      if (input !== "" && !key.ctrl && !key.meta) return typed(lineTyped(promptState, { text: input }));
     }
     // A search being typed at the pager takes every key but Enter (done) and Esc (dropped).
     if (card.kind === "pager" && card.typing) {
@@ -1195,8 +1345,10 @@ export const App = (props: AppProps) => {
     const typing = composerHasKeys && composerText !== "";
     const lookups: Lookup[] = [{ context: "anywhere", only: FIRST_ANYWHERE }];
     if (screen.question && !typing) lookups.push("confirm");
-    if (card.kind === "help" || card.kind === "pager" || card.kind === "lines" || linesPanel) lookups.push("pager", "picker");
+    if (card.kind === "asks") lookups.push("asks");
+    else if (card.kind === "help" || card.kind === "pager" || card.kind === "lines" || linesPanel) lookups.push("pager", "picker");
     else if (card.kind !== "none") lookups.push("picker");
+    if (promptShown) lookups.push("permission");
     if (!cardHasKeys) {
       lookups.push(focused);
       // The page keys are never the composer's: with it focused they still move the transcript half a screen (Artemis's rule).
@@ -1221,15 +1373,33 @@ export const App = (props: AppProps) => {
     if (input !== "" && !key.ctrl && !key.meta && !key.escape && !key.tab && !key.return) composer.type(input);
   });
 
-  // A card that is a list of the session's needs the session: gone, it closes.
+  // A card that is a list of the session's needs the session: gone, it closes. The asks card closes with its last row.
+  const sessionCard = card.kind === "pager" || (card.kind === "lines" && card.which !== "notices");
   useEffect(() => {
-    if (!projection && (card.kind === "pager" || card.kind === "lines")) update({ card: { kind: "none" } });
-  }, [projection, card.kind]);
+    if (!projection && sessionCard) update({ card: { kind: "none" } });
+  }, [projection, sessionCard]);
+  const asksDrained = card.kind === "asks" && askList.length === 0;
+  useEffect(() => {
+    if (asksDrained) setScreen((s) => (s.card.kind === "asks" ? { ...s, card: { kind: "none" } } : s));
+  }, [asksDrained]);
 
   // The help overlay takes the width, as Artemis's did.
   const showRail = railDrawn && card.kind !== "help";
-  const cardHasKeys = card.kind !== "none" && card.kind !== "minted";
+  const cardHasKeys = (card.kind !== "none" && card.kind !== "minted") || promptShown;
   const listHint = (verb: string, leave: string) => `${keys("picker.move")} move · ${keys("picker.choose")} ${verb} · ${keys("picker.leave")} ${leave}`;
+  /** The permission card's legend: the keys the card answers, in the map in force; the note's line takes Enter, Tab and Esc as they are. */
+  const cardHint = (kind: PromptKind, lineOpen: boolean): string => {
+    const move = keymap.keys["permission.move"].slice(0, 2).join("");
+    if (kind === "question") {
+      return lineOpen
+        ? "Enter answers with this · Tab keeps it · Esc closes the line and does not skip"
+        : `${move} move · ${keys("permission.tick")} tick · ${keys("permission.choose")} confirm · ${keys("permission.note")} your own words · ${keys("permission.deny")} skips`;
+    }
+    if (lineOpen) return "Enter or Tab keeps the note · Esc closes the line and decides nothing";
+    return `${move} move · ${keys("permission.choose")} choose · ${keys("permission.note")} note · ${keys("permission.deny")} ${kind === "plan" ? "keeps planning" : "denies"}`;
+  };
+  // The permission card and the asks card have the keys as a card does; the asks card closes deciding nothing.
+  const promptsHint = promptShown ? "The card has the keys" : card.kind === "asks" ? `The card has the keys · ${keys("asks.close")} closes it, deciding nothing` : undefined;
   const menuView = card.kind === "menu" || card.kind === "client-sessions" ? viewOf(card.environmentId) : undefined;
   const activity = activityLine(faults, notices);
   const promptLine = question?.text ?? (startingService ? "Starting the environment on this machine: starting…" : undefined);
@@ -1321,14 +1491,27 @@ export const App = (props: AppProps) => {
           )}
           {card.kind === "lines" && (
             <LinesCard
-              title={card.which === "timeline" ? "Timeline" : "Tasks"}
+              title={card.which === "timeline" ? "Timeline" : card.which === "notices" ? "Notices" : "Tasks"}
               hint={`${keys("pager.close")} close`}
-              lines={cardLines.length > 0 ? cardLines : [{ row: "none", spans: [{ text: card.which === "timeline" ? "No turn yet." : "No delegated work in this session.", dim: true }] }]}
+              lines={cardLines.length > 0 ? cardLines : [{ row: "none", spans: [{ text: LINES_EMPTY[card.which], dim: true }] }]}
               top={card.top}
               height={helpHeight}
             />
           )}
           {card.kind === "panel" && pickers.render(card.panel, { width: mainWidth, height: helpHeight })}
+          {card.kind === "asks" && (
+            <AsksCard
+              rows={askList}
+              cursor={clampCursor(card.cursor, askList.length)}
+              height={Math.max(1, helpHeight - 3)}
+              hint={{
+                decidable: `${keys("asks.move")} move · ${keys("asks.open")} open · ${keys("asks.allow")} allow once · ${keys("asks.deny")} deny${
+                  bulk.length > 1 ? ` · ${keys("asks.allowAll")} allow all · ${keys("asks.denyAll")} deny all` : ""
+                } · ${keys("asks.close")} closes, deciding nothing`,
+                other: `${keys("asks.move")} move · ${keys("asks.open")} open · this one is answered on its own card · ${keys("asks.close")} closes, deciding nothing`,
+              }}
+            />
+          )}
           {card.kind === "none" && opened && (
             <TranscriptView
               lines={lines}
@@ -1342,6 +1525,20 @@ export const App = (props: AppProps) => {
           )}
           {card.kind === "none" && opened && <DelegatedStrip tasks={tasks} />}
           {card.kind === "none" && opened && projection && <QueuedLine queued={projection.queued} steers={steers} />}
+          {promptShown && (
+            <PromptCard
+              prompt={shownPrompt.prompt}
+              state={promptState}
+              place={waitingHere.length > 1 ? `1 of ${waitingHere.length} waiting` : undefined}
+              ttl={
+                opened && shownPrompt.prompt.ttlExpiresAt !== null
+                  ? ttlWords(Date.parse(shownPrompt.prompt.ttlExpiresAt) - runtime.environmentNow(opened.environmentId).getTime())
+                  : undefined
+              }
+              hint={cardHint(shownPrompt.prompt.kind, promptState.line !== null)}
+              absent={shownPrompt.prompt.kind === "permission" || shownPrompt.prompt.kind === "denylist" ? `${keys("permission.rule.edit")} ${keys("permission.scope.walk")}: rules are per session on the harness` : undefined}
+            />
+          )}
           {card.kind === "none" && !opened && started && known.length === 0 && <PairingPrompt />}
           {card.kind === "none" && !opened && !started && <Text dimColor> Connecting…</Text>}
           {card.kind === "none" && !opened && started && known.length > 0 && <Text dimColor> No session is open.</Text>}
@@ -1360,12 +1557,45 @@ export const App = (props: AppProps) => {
         note={composerNote(composer.state, keys("composer.complete"))}
       />
       <StatusLine one={status.one} two={status.two} />
-      <HintLine hint={hint} activity={activity} fallback=" " />
+      <HintLine hint={promptsHint ?? hint} activity={activity} fallback=" " />
     </Box>
   );
 };
 
 const clampCursor = (cursor: number, rows: number): number => (rows <= 0 ? 0 : Math.min(Math.max(cursor, 0), rows - 1));
+
+/** Why an action the shared list keeps absent does nothing: its reason, as the help overlay draws it. */
+const absentReason = (id: KeyActionId): string => {
+  const action = actionById(id);
+  return action?.status === "absent" ? action.reason : `${id} does nothing here.`;
+};
+
+/** What a lines card says with nothing to list. */
+const LINES_EMPTY: Readonly<Record<"tasks" | "timeline" | "notices", string>> = {
+  tasks: "No delegated work in this session.",
+  timeline: "No turn yet.",
+  notices: "No notices.",
+};
+
+/** `/notices`: every notice the runtime holds, newest first, with when, where from and what it offers. */
+const noticesLines = (notices: readonly Notice[], names: ReadonlyMap<string, string>): TranscriptLine[] =>
+  [...notices].reverse().map((notice) => ({
+    row: notice.id,
+    spans: [
+      { text: `${clockTime(notice.at)}  `, dim: true },
+      { text: `${names.get(notice.environmentId) ?? "an environment"}  `, bold: true },
+      { text: noticeLine(notice), ...(NOTICE_COLOURS[notice.kind] !== undefined && { color: NOTICE_COLOURS[notice.kind] }) },
+    ],
+  }));
+
+/** The notices worth a colour in `/notices`: what blocks a connection or a command in red, a prompt waiting in yellow. */
+const NOTICE_COLOURS: Readonly<Partial<Record<Notice["kind"], string>>> = {
+  revoked: "red",
+  expired: "red",
+  "command-rejected": "red",
+  "command-dropped": "red",
+  "prompt-parked": "yellow",
+};
 
 /** Ctrl+G with the terminal lent to `$EDITOR`: Ink leaves the alternate screen and raw mode while it runs (`suspendTerminal`). */
 const runEditor = async (suspend: (callback: () => Promise<void>) => Promise<void>, text: string): Promise<ExternalEditResult> => {

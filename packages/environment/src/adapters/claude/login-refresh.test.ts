@@ -223,6 +223,7 @@ const runInput = (directory: string, overrides: Partial<RunInput> = {}): RunInpu
     writable: ["/work/repo", "/data/containment/session/scratch", "/data/containment/session/tmp"],
     network: true,
   },
+  denylist: null,
   prompt: [{ messageId: randomUUID(), text: "Go on", attachments: [] }],
   ...overrides,
 });

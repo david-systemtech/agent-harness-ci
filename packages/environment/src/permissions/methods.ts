@@ -12,6 +12,7 @@ import {
   type ModeAvailability,
   type PermissionSettingsKey,
   type PermissionSettingsValues,
+  type ResultOf,
   type ContainmentLevel,
   type SessionContainmentSetPayload,
   type SessionModeSetPayload,
@@ -54,7 +55,23 @@ export interface PermissionMethodsOptions {
   readonly ceilingOf: (clientSessionId: string) => Mode | undefined;
   /** What this environment can enforce (#133): its probe's findings, as its adapters allow them. */
   readonly containment: ContainmentReport;
+  /** Whether the environment runs as root: what `permissions.settings.get` answers as `isRoot` (`readPermissionsReport`). */
+  readonly isRoot: boolean;
 }
+
+/**
+ * What `permissions.settings.get` answers: every permission setting (a key
+ * never set at its preset, the containment default's the environment's own),
+ * what containment can enforce here, whether the environment runs as root
+ * and the denylist's counts. The Permissions and Your machines steps' checks
+ * read the same (#141), so the not-root line is what this reports.
+ */
+export const readPermissionsReport = (reader: Reader, containment: ContainmentReport, isRoot: boolean): ResultOf<"permissions.settings.get"> => ({
+  values: readPermissionSettings(reader, { "permissions.containment.default": presetContainmentDefault(containment) }),
+  containment,
+  isRoot,
+  denylist: denylistCounts(readDenylist(reader)),
+});
 
 type PermissionMethodName = "permissions.mode.set" | "permissions.containment.set" | "permissions.settings.get" | "permissions.settings.set";
 
@@ -152,13 +169,7 @@ export const permissionMethods = (options: PermissionMethodsOptions): Required<P
       return { aggregate, result: { sessionId, ...payload }, events };
     },
 
-    "permissions.settings.get": () => ({
-      values: settings(),
-      containment: report,
-      // `serve` refuses root before anything starts (ADR 0006), so this is never true while the environment answers.
-      isRoot: false,
-      denylist: denylistCounts(readDenylist(reader)),
-    }),
+    "permissions.settings.get": () => readPermissionsReport(reader, report, options.isRoot),
 
     /**
      * Any subset of the settings. The first time the unattended mode is set to

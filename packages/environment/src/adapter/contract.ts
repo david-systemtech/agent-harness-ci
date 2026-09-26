@@ -233,6 +233,23 @@ export interface RunContainment {
 }
 
 /**
+ * The denylist as a provider projects it onto its own deny rules on an
+ * unattended run (permissions spec, "Provider deny rules where they must
+ * apply"; #140): what a sandboxed command may not read, and the command
+ * patterns the provider refuses by its own rules. Read when the run starts,
+ * the enabled entries only. An attended run is handed none, so a person's
+ * explicit allow of a denylisted call is never blocked by a provider rule.
+ */
+export interface RunDenylist {
+  /** The path section's enabled entries, absolute: `~` read as the environment's home directory. */
+  readonly paths: readonly string[];
+  /** The directories the path section's entries leave out (the matcher's exemption): the containment directories and the scratch workspaces. */
+  readonly exempt: readonly string[];
+  /** The command-pattern section's enabled entries, as written. */
+  readonly commandPatterns: readonly string[];
+}
+
+/**
  * Everything a run needs, resolved by the host: the session and run, the
  * account's directory, the workspace and repository, model, effort and the
  * mode the policy resolver gave it, the composed instruction text, what it continues from, the
@@ -258,6 +275,8 @@ export interface RunInput {
   readonly trusted: boolean;
   /** The run's containment (`run.policy.resolved`): the adapter maps it onto its provider's sandbox. */
   readonly containment: RunContainment;
+  /** The denylist to project onto the provider's own rules: set on an unattended run, null on an attended one (#140). */
+  readonly denylist: RunDenylist | null;
   readonly prompt: readonly PromptMessage[];
 }
 
@@ -434,8 +453,11 @@ export type GateDecision = { readonly decision: "allow" } | { readonly decision:
  * to a prompt), then hands a denylist match to the broker as a `denylist`
  * prompt (#132): parked for the person on an attended run, whose explicit
  * allow lets that one call on, denied at once on an unattended one. For
- * Claude it is the `PreToolUse` hook (#140), and meanwhile `canUseTool` for
- * the calls the provider asks about; the fake adapter asks it for every call.
+ * Claude it is asked from the SDK's `PreToolUse` hook, which the CLI runs
+ * before its own evaluation of every call (#140), and from `canUseTool` for
+ * what the hook did not let through as it is: the sandbox's ask for a host,
+ * which no hook sees, and a call another hook rewrote since; the fake
+ * adapter asks it for every call it plays.
  */
 export interface ToolGate {
   /**

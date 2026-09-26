@@ -361,6 +361,7 @@ describe("the method registry", () => {
       | "permissions.denylist.set"
       | "permissions.denylist.restorePresets"
       | "permissions.denylist.test"
+      | "setup.check"
       | "terminals.open"
       | "terminals.write"
       | "terminals.resize"

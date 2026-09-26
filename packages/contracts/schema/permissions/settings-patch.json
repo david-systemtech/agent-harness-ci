@@ -50,7 +50,7 @@
         {
           "type": "string",
           "const": "never",
-          "description": "A parked prompt waits until it is answered."
+          "description": "A parked prompt waits until it is answered; a denylist prompt a Claude run waits on is closed, and its call denied, after 24.8 days, the longest its tool hook can wait."
         }
       ],
       "description": "How long a parked prompt waits before it is denied and its run continues: a duration, or never."

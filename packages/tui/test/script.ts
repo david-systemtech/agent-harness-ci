@@ -49,6 +49,7 @@ import {
   SessionSummary,
   type SummaryPatch,
 } from "@agent-harness/contracts";
+import { scriptedPrompts, type ScriptedPrompts } from "./prompts.js";
 
 /**
  * The scripted fake environment (docs/specs/tui.md, "Testing Decisions"):
@@ -56,7 +57,9 @@ import {
  * with its sessions and groups, its client sessions, the receipts its
  * commands answer, how its pairing exchange refuses a code, and what its
  * discovery answers. A test drives it further through its handle: `bye`
- * reasons, a dropped socket, discovery answering `starting` or nothing.
+ * reasons, a dropped socket, discovery answering `starting` or nothing, a
+ * notice on the environment's stream, and prompts parked and answered
+ * (`prompts.ts`).
  */
 
 /** How a command is answered: accepted, or rejected with a reason (an error code) and a message. */
@@ -131,7 +134,7 @@ export interface Script {
   readonly environments: readonly ScriptedEnvironment[];
 }
 
-export interface EnvironmentHandle {
+export interface EnvironmentHandle extends ScriptedPrompts {
   readonly name: string;
   readonly environmentId: string;
   readonly wire: FakeWire;
@@ -184,6 +187,8 @@ export interface EnvironmentHandle {
   recommend(recommendation: Partial<HandoffRecommendation>): void;
   /** The settings' values the environment holds now. */
   settings(): SettingsValues;
+  /** Says a notice on the environment's own stream (`environment.subscribe`), as the environment does. */
+  notice(type: string, payload: Record<string, unknown>): void;
 }
 
 export interface ScriptedWorld {
@@ -512,6 +517,18 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     );
     if (live.get(sessionId) === runId) live.delete(sessionId);
   };
+
+  // Parked prompts and their answers (`test/prompts.ts`).
+  const { prompts, answer: answerPrompt } = scriptedPrompts({
+    clock,
+    wire,
+    emit,
+    notice,
+    summary: summaryNow,
+    liveRun: (sessionId) => live.get(sessionId),
+    nextSequence: () => ++sequence,
+  });
+  wire.answer("permissions.prompts.answer", (params) => answerPrompt(params));
 
   // The run commands, as the environment answers them (claude-adapter spec, "Wire methods"; ADR 0022): a start or a send
   // with no run live starts one; a send during a live run is queued, held by whoever the script says holds the queue; an
@@ -861,6 +878,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     "permissions.settings.set",
     "permissions.mode.set",
     "permissions.containment.set",
+    "permissions.prompts.answer",
   ]);
   for (const method of Object.keys(spec.receipts ?? {})) {
     if (ownResponders.has(method)) continue;
@@ -926,6 +944,8 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     currentSignIn: () => signIn,
     recommend,
     settings: () => values,
+    notice,
+    ...prompts,
   };
   return { handle, fetch, webSocket, wsUrl: `${wire.origin.replace(/^http/, "ws")}${WIRE_PATH}` };
 };

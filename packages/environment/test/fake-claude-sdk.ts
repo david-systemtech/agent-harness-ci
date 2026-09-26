@@ -1,4 +1,4 @@
-import type { CanUseTool, Options, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+import type { CanUseTool, HookJSONOutput, Options, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 
 /**
  * The Agent SDK's transport, scripted (claude-adapter spec, "Testing
@@ -158,6 +158,31 @@ export class FakeQuery {
     const ask = this.options.canUseTool;
     if (ask === undefined) throw new Error("The run passed no canUseTool.");
     return ask(toolName, input, { signal: new AbortController().signal, toolUseID: `toolu_${Math.random().toString(36).slice(2)}`, requestId: crypto.randomUUID(), ...extra });
+  }
+
+  /**
+   * Runs the `PreToolUse` hooks the run registered, as the CLI does before
+   * its own evaluation of a tool call, and answers what the last one said.
+   * `signal` is the one the SDK hands the callback: the CLI's cancel of the
+   * hook's request (its timeout, the turn's interrupt) aborts it.
+   */
+  async preToolUse(toolName: string, input: Record<string, unknown>, extra: { readonly toolUseID?: string; readonly signal?: AbortSignal; readonly agentId?: string } = {}): Promise<HookJSONOutput> {
+    const matchers = this.options.hooks?.PreToolUse ?? [];
+    if (matchers.length === 0) throw new Error("The run registered no PreToolUse hook.");
+    const toolUseID = extra.toolUseID ?? `toolu_${Math.random().toString(36).slice(2)}`;
+    const hookInput = {
+      hook_event_name: "PreToolUse" as const,
+      session_id: "s",
+      transcript_path: "/tmp/transcript.jsonl",
+      cwd: "/work/repo",
+      tool_name: toolName,
+      tool_input: input,
+      tool_use_id: toolUseID,
+      ...(extra.agentId !== undefined && { agent_id: extra.agentId }),
+    };
+    let output: HookJSONOutput = {};
+    for (const matcher of matchers) for (const hook of matcher.hooks) output = await hook(hookInput, toolUseID, { signal: extra.signal ?? new AbortController().signal });
+    return output;
   }
 
   // The pinned SDK's run-time signature: `interrupt(e)`, taking `{cancelQueued}` its declarations omit.

@@ -78,6 +78,7 @@ import {
   TranscriptCompactAfterDays,
 } from "./settings.js";
 import { isCommand } from "./method.js";
+import { RegisteredStepId, SetupAction, StepResult, StepState } from "./setup.js";
 import { CommandReceipt } from "./receipt.js";
 import {
   ActivityState,
@@ -504,6 +505,10 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "settings/settings-values.json", title: "SettingsValues", schema: SettingsValues },
   { path: "settings/settings-patch.json", title: "SettingsPatch", schema: SettingsPatch },
   { path: "settings/settings-event-type.json", title: "SettingsEventType", schema: SettingsEventType },
+  { path: "setup/registered-step-id.json", title: "RegisteredStepId", schema: RegisteredStepId },
+  { path: "setup/action.json", title: "SetupAction", schema: SetupAction },
+  { path: "setup/step-state.json", title: "StepState", schema: StepState },
+  { path: "setup/step-result.json", title: "StepResult", schema: StepResult },
   ...Object.entries(SETTINGS_EVENT_TYPES).map(([type, entry]) => ({
     path: `settings/events/${type}.json`,
     title: `${pascal(type)}Payload`,

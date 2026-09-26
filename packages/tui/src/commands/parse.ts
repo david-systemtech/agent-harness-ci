@@ -8,9 +8,9 @@ import { PICKER_COMMANDS, TAKES_ENVIRONMENT, isPickerCommand, type PickerCommand
  * `/pair create`, `/environment`, `/help`, `/reload`; and, carried from
  * Artemis with the transcript and the composer, `/resume`, `/new`,
  * `/attach <path>`, `/snip`, `/tasks`, `/copy`, `/export [file]`,
- * `/timeline` and `/quit`; and the accounts, models, permissions, settings
- * and Set up commands (`pickers/commands.ts`, #147). A command of the shared
- * list this build does not
+ * `/timeline` and `/quit`; the accounts, models, permissions, settings and
+ * Set up commands (`pickers/commands.ts`, #147); and, with the cards,
+ * `/asks` and `/notices`. A command of the shared list this build does not
  * answer yet says so in one line, and one the list keeps absent gives its
  * reason; `/profile` is a hidden alias of `/account`. Anything else that
  * begins with a slash is not the terminal's: it goes to the agent as typed,
@@ -34,6 +34,8 @@ export const ANSWERED_COMMANDS = [
   "timeline",
   "quit",
   ...PICKER_COMMANDS,
+  "asks",
+  "notices",
 ] as const;
 
 export type Command =
@@ -56,6 +58,8 @@ export type Command =
   | { readonly kind: "timeline" }
   | { readonly kind: "quit" }
   | { readonly kind: "picker"; readonly command: PickerCommand }
+  | { readonly kind: "asks" }
+  | { readonly kind: "notices" }
   /** A command of the shared list this build does not answer: `line` says why. */
   | { readonly kind: "not-here"; readonly name: string; readonly line: string }
   | { readonly kind: "usage"; readonly line: string }
@@ -116,6 +120,10 @@ export const parseCommand = (typed: string): Command => {
       return bare(rest, { kind: "timeline" }, "/timeline");
     case "quit":
       return bare(rest, { kind: "quit" }, "/quit");
+    case "asks":
+      return bare(rest, { kind: "asks" }, "/asks");
+    case "notices":
+      return bare(rest, { kind: "notices" }, "/notices");
     case "attach":
       return tail.length > 0 ? { kind: "attach", path: tail } : { kind: "usage", line: "Usage: /attach <path>" };
     case "export":

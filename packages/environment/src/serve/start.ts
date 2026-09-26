@@ -63,7 +63,7 @@ import { autoAnswer } from "../permissions/auto-answer.js";
 import { UNPROBED_REPORT, containmentFlags, containmentReport, failedProbeReport, presetContainmentDefault, withAdapters } from "../permissions/containment.js";
 import { CONTAINMENT_DIRECTORY, containmentDirectories } from "../permissions/containment-directories.js";
 import { probeContainment, type ContainmentProbe } from "../permissions/containment-probe.js";
-import { denylistRule, type DenylistContext } from "../permissions/denylist-gate.js";
+import { denylistRule, providerDenylist, type DenylistContext } from "../permissions/denylist-gate.js";
 import { denylistMethods } from "../permissions/denylist-methods.js";
 import { readDenylist, seedDenylist } from "../permissions/denylist-store.js";
 import { permissionMethods, sessionModeClamp } from "../permissions/methods.js";
@@ -87,6 +87,8 @@ import type { TerminalsOptions } from "../terminals/terminals.js";
 import { workspaceMethods } from "../workspace/methods.js";
 import { createSettleSweep } from "../sessions/settle-sweep.js";
 import { settingsMethods } from "../settings/methods.js";
+import { setupMethods } from "../setup/methods.js";
+import { environmentStateChecks } from "../setup/state-checks.js";
 import { readSettings, settingsProjector } from "../settings/settings-store.js";
 import type { SubscriptionHooks } from "../wire/subscriptions.js";
 import { createWire } from "../wire/wire.js";
@@ -383,6 +385,9 @@ const passwdName = (): string | undefined => {
  */
 export const startEnvironment = async (options: EnvironmentOptions = {}): Promise<EnvironmentHandle> => {
   refusePrivilegedUser(options.user ?? processUserCheck());
+  // Past the refusal, the environment does not run as root (ADR 0006): what `permissions.settings.get` answers as
+  // `isRoot`, and the not-root line the Permissions and Your machines steps' checks read from it (#141).
+  const isRoot = false;
 
   // Absolute once, here: a relative `--data-dir` would make the denylist's data-directory preset and its exemption relative paths (#132).
   const dataDir = absolutePath(options.dataDir ?? defaultDataDirectory());
@@ -465,9 +470,15 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   });
 
   // Where the denylist reads paths from (#132): the user's home for `~` (and for `~<the user's name>`), the file system's
-  // links, and the containment directories inside the data directory (#133's), which the data directory's preset leaves out.
+  // links, and the directories inside the data directory where runs work, which the data directory's preset leaves out: the
+  // containment directories (#133's) and the scratch workspaces a completions request runs in (#140, now its every call is gated).
   const user = passwdName();
-  const denylistContext: Omit<DenylistContext, "denylist"> = { home: homedir(), exempt: [join(dataDir, CONTAINMENT_DIRECTORY)], ...(user !== undefined && { user }) };
+  const denylistContext: Omit<DenylistContext, "denylist"> = {
+    home: homedir(),
+    exempt: [join(dataDir, CONTAINMENT_DIRECTORY), join(dataDir, SCRATCH_DIRECTORY)],
+    ...(user !== undefined && { user }),
+  };
+  const readDenylistNow = () => readDenylist({ all: (sql, ...params) => log.read(sql, ...params) });
 
   // The SDK session store (#137): the provider's transcripts beside the log, which every Claude run passes and resumes from.
   const providerStore: ProviderTranscriptStore = createProviderTranscriptStore({ log, clock });
@@ -577,7 +588,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       // The unattended and bypass rules, and the TTL a prompt that parks is fixed with (#131).
       autoAnswer,
       // The tool gate's rules (#132): the denylist, read as it is when each call is made.
-      gateRules: [denylistRule({ ...denylistContext, denylist: () => readDenylist({ all: (sql, ...params) => log.read(sql, ...params) }) })],
+      gateRules: [denylistRule({ ...denylistContext, denylist: readDenylistNow })],
+      // What an unattended run projects onto its provider's own rules (#140), read as it starts.
+      providerDenylist: () => providerDenylist(readDenylistNow(), denylistContext),
       promptTtlMs: () => parkedPromptTtlMs(permissionSettings()["permissions.parkedPrompt.ttl"]),
       processIdleMinutes: options.processIdleMinutes ?? (() => settings()["providers.processIdleMinutes"]),
       ...options.adapterSeams,
@@ -682,10 +695,12 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       clampSessionMode: sessionModeClamp({ host, ceilingOf: (id) => clientSessions.ceiling(id) }),
     }),
     ...runMethods({ log, host, ceilingOf: (id) => clientSessions.ceiling(id) }),
-    ...permissionMethods({ log, host, accessLog, clock, environmentId: record.id, ceilingOf: (id) => clientSessions.ceiling(id), containment }),
+    ...permissionMethods({ log, host, accessLog, clock, environmentId: record.id, ceilingOf: (id) => clientSessions.ceiling(id), containment, isRoot }),
     ...promptMethods({ log, host, environmentId: record.id }),
     ...reviewMethods({ log, environmentId: record.id }),
     ...denylistMethods({ log, accessLog, dataDir, context: denylistContext }),
+    // Set up's health checks (ADR 0031; #141): each registered step's, on this environment.
+    ...setupMethods({ log, clock, presets: settingsPresets(), stateChecks: environmentStateChecks({ log, containment, isRoot, dataDir }) }),
     ...processMethods({ log, host }),
     ...accountMethods({ accounts, host }),
     ...usageMethods({ pool: usagePool, accounts, clock }),
