@@ -115,8 +115,9 @@ describe("keys in the pane", () => {
     const { app, env } = await opened();
     await command(app, "/terminal");
     await app.waitFor("The terminal has the keys");
-    env.terminalOutput(FIRST, "\u001B[?2004h$ ");
-    await app.tick(2);
+    // Drawn once the emulator has taken the chunk in, the mode with it.
+    env.terminalOutput(FIRST, "\u001B[?2004h$ ready");
+    await app.waitFor("$ ready");
     await app.paste("one\ntwo");
     await app.waitUntil(() => written(app, FIRST) === "\u001B[200~one\ntwo\u001B[201~", "the paste to reach the terminal");
   });
