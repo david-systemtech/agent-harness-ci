@@ -188,6 +188,42 @@ describe("/diff", () => {
     expect(app.frame()).toContain("Reads receipts.");
   });
 
+  it("never covers a card the user opened while the diff was read, nor opens once that card has closed again", async () => {
+    const answers: (() => void)[] = [];
+    const filter = { label: "delta", run: (text: string) => new Promise<{ ok: true; text: string }>((resolve) => answers.push(() => resolve({ ok: true, text: `DELTA ${text}` }))) };
+    const { app } = await launch({ sessionDiff: { files: [APP_DIFF] } }, { diffFilter: filter });
+    await command(app, "/diff");
+    await app.waitFor("Reading the diff, through delta…");
+    await app.press(KEY.ctrlO);
+    await app.waitFor("Receipts j/k");
+    await app.waitUntil(() => answers.length > 0, "the diff to reach the filter");
+    for (const answer of answers) answer();
+    await app.tick(5);
+    // The transcript's pager stays, the diff not drawn over it.
+    expect(app.frame()).toContain("Receipts j/k");
+    expect(app.frame()).not.toContain("DELTA");
+    await app.press("q");
+    await app.waitUntil(() => !app.frame().includes("Receipts j/k"), "the pager to close");
+    await app.tick(5);
+    expect(app.frame()).not.toContain("DELTA");
+  });
+
+  it("lets a diff go when a card was opened and closed again while it was read, and takes back its reading line", async () => {
+    const answers: (() => void)[] = [];
+    const filter = { label: "delta", run: (text: string) => new Promise<{ ok: true; text: string }>((resolve) => answers.push(() => resolve({ ok: true, text: `DELTA ${text}` }))) };
+    const { app } = await launch({ sessionDiff: { files: [APP_DIFF] } }, { diffFilter: filter });
+    await command(app, "/diff");
+    await app.waitFor("Reading the diff, through delta…");
+    await app.press(KEY.ctrlO);
+    await app.waitFor("Receipts j/k");
+    await app.press("q");
+    await app.waitUntil(() => !app.frame().includes("Receipts j/k"), "the pager to close");
+    await app.waitUntil(() => answers.length > 0, "the diff to reach the filter");
+    for (const answer of answers) answer();
+    await app.waitUntil(() => !app.frame().includes("Reading the diff"), "the reading line to go");
+    expect(app.frame()).not.toContain("DELTA");
+  });
+
   it("says why the working tree has no diff: git refused the repository's filters", async () => {
     const { app } = await launch({ workingTree: { refused: "git_filters_refused", message: "The repository names a clean filter (lfs)." } });
     await command(app, "/diff");

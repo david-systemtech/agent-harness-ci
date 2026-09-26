@@ -400,6 +400,25 @@ describe("a shell line", () => {
     expect(startsOf(app)).toEqual([]);
   });
 
+  it("recalls with r a call's command that itself starts with ! as a ! line that runs it as it was, never as !!", async () => {
+    const { app, env } = await opened({ oneOff: () => ({ output: "" }) });
+    const { runId } = env.startRun(SESSION, "Check");
+    env.emit(SESSION, "tool.started", { runId, toolCallId: "t1", name: "Bash", input: { command: "! grep -q TODO notes.txt" }, title: null, agentId: null, parentToolCallId: null });
+    env.emit(SESSION, "tool.ended", { runId, toolCallId: "t1", status: "ok", output: "", durationMs: 5 });
+    env.endRun(SESSION, runId);
+    await app.waitFor("◆ Ran a command");
+    await app.press(KEY.tab, KEY.tab);
+    await app.waitFor("The transcript has the keys");
+    await app.press(KEY.up, KEY.up);
+    await app.press("r");
+    await app.waitFor("grep -q TODO notes.txt");
+    await app.press(KEY.enter);
+    await app.waitUntil(() => env.terminals().length === 1, "the command's terminal");
+    expect(env.terminal(FIRST).env).toEqual({ AGENT_HARNESS_ONE_OFF: "! grep -q TODO notes.txt" });
+    await app.tick(5);
+    expect(startsOf(app)).toEqual([]);
+  });
+
   it("closes a ! command's terminal when it exits, keeping what it showed in the pane until a key there closes it", async () => {
     const { app, env } = await opened({ oneOff: () => ({ output: "total 0\n" }) });
     await command(app, "!ls");

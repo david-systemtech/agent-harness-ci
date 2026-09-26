@@ -1036,15 +1036,24 @@ export const App = (props: AppProps) => {
   };
 
   // A page asked for (a file, a diff): only the last one asked opens or says why not, so a slow answer never covers a later one.
+  // It opens only over the very card it was asked from (none, the files): a card the user opened while it was read (the
+  // help, a picker, the pager), or one opened and closed again, is never covered, and the page is let go with its line.
+  // `directory`: the card to open instead when the path named a directory.
   const pages = useRef(0);
-  const showPage = (loading: string, make: () => Promise<Paged>, back: Card, directory?: () => void) => {
+  const showPage = (loading: string, make: () => Promise<Paged>, back: Card, directory?: Card) => {
     const asked = ++pages.current;
-    say(loading);
+    let over: Card | undefined;
+    setScreen((s) => {
+      over = s.card;
+      return { ...s, line: loading };
+    });
+    const open = (card: Card, line: string | undefined) =>
+      setScreen((s) => (s.card === over ? { ...s, line, card } : s.line === loading ? { ...s, line: undefined } : s));
     void make().then(
       (paged) => {
         if (pages.current !== asked || quit.signal.aborted) return;
-        if (!paged.ok) return paged.directory === true && directory ? (update({ line: undefined }), directory()) : say(paged.line);
-        setScreen((s) => ({ ...s, line: paged.note, card: { kind: "page", title: paged.page.title, lines: paged.page.lines, top: 0, query: "", typing: false, back } }));
+        if (!paged.ok) return paged.directory === true && directory ? open(directory, undefined) : say(paged.line);
+        open({ kind: "page", title: paged.page.title, lines: paged.page.lines, top: 0, query: "", typing: false, back }, paged.note);
       },
       (error: unknown) => {
         if (pages.current === asked && !quit.signal.aborted) say(messageOf(error));
@@ -1063,9 +1072,12 @@ export const App = (props: AppProps) => {
     if (wanted === null) return say(`${path.trim()} is outside the session's workspace, which the environment reads files from.`);
     if (wanted === "") return update({ card: { kind: "files", dir: "", cursor: 0, filter: "" } });
     const target = opened;
-    showPage(`Reading ${wanted}…`, () => readFile(runtime, target, wanted, mainWidth), { kind: "files", dir: directoryOf(wanted), cursor: 0, filter: "" }, () =>
-      update({ card: { kind: "files", dir: wanted, cursor: 0, filter: "" } }),
-    );
+    showPage(`Reading ${wanted}…`, () => readFile(runtime, target, wanted, mainWidth), { kind: "files", dir: directoryOf(wanted), cursor: 0, filter: "" }, {
+      kind: "files",
+      dir: wanted,
+      cursor: 0,
+      filter: "",
+    });
   };
 
   /** `/diff`: what the session changed and the working tree, through the user's diff filter. */
@@ -2301,8 +2313,9 @@ const recall = (row: Row): string | null => {
   if (row.kind !== "calls") return null;
   for (const call of [...row.calls].reverse()) {
     const command = call.input["command"] ?? call.input["cmd"];
-    // Behind `!`, as Artemis put it: Enter runs it again in the session's terminal.
-    if (typeof command === "string" && command.trim().length > 0) return `!${command}`;
+    // Behind `!`, as Artemis put it: Enter runs it again in the session's terminal. A command that itself starts with `!`
+    // (a negated one) is behind `! `, so it is never read as `!!` and runs as it was.
+    if (typeof command === "string" && command.trim().length > 0) return `!${command.startsWith("!") ? " " : ""}${command}`;
   }
   return null;
 };
