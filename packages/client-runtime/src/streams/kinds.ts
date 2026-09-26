@@ -36,13 +36,15 @@ export interface ListData {
  * What a session's snapshot holds beside its summary, as the environment
  * sends it (`SessionSnapshot`, the claude-adapter spec's): its runs, the
  * settled items of its transcript (an item of a kind this client does not
- * know kept opaque) and its parked prompts. Held and cached as sent;
- * `projections.session` (#142) folds them with the events after them.
+ * know kept opaque), its parked prompts and the rewinds standing with what
+ * each hid (#260). Held and cached as sent; `projections.session` (#142)
+ * folds them with the events after them. A cache document from before #260
+ * holds no rewinds, does not read, and is no cache.
  */
-export type SessionSnapshotParts = Pick<SessionSnapshot, "runs" | "items" | "parkedPrompts">;
+export type SessionSnapshotParts = Pick<SessionSnapshot, "runs" | "items" | "parkedPrompts" | "rewinds">;
 
-const NO_SNAPSHOT_PARTS: SessionSnapshotParts = { runs: [], items: [], parkedPrompts: [] };
-const SnapshotParts = SessionSnapshot.pick({ runs: true, items: true, parkedPrompts: true });
+const NO_SNAPSHOT_PARTS: SessionSnapshotParts = { runs: [], items: [], parkedPrompts: [], rewinds: [] };
+const SnapshotParts = SessionSnapshot.pick({ runs: true, items: true, parkedPrompts: true, rewinds: true });
 
 /** One session: its summary (null once it is gone), the rest of its snapshot as sent, and every event after that snapshot. */
 export interface SessionData {
@@ -63,13 +65,24 @@ export interface SessionData {
 export const SESSION_EVENTS_BOUND = 1000;
 export const SESSION_EVENT_BYTES_BOUND = 1024 * 1024;
 
+/** The sequences of `rewinds` and of every rewind nested in them. */
+const rewindSequences = (rewinds: SessionSnapshotParts["rewinds"], into = new Set<number>()): Set<number> => {
+  for (const rewind of rewinds) {
+    into.add(rewind.sequence);
+    rewindSequences(rewind.rewinds, into);
+  }
+  return into;
+};
+
 /**
- * Whether an undo among `events` names a rewind they do not hold (#218): one
- * that stood when the snapshot was taken, which left out what it hid, so the
- * events cannot show it again and a fresh snapshot, folded past the undo, does.
+ * Whether an undo among `events` names a rewind neither they nor `snapshot`
+ * hold (#218): then nothing here holds what it hid, and a fresh snapshot,
+ * folded past the undo, shows it. Since #260 a snapshot carries every rewind
+ * standing with what it hid, so an environment should never send such an
+ * undo; the resubscribe is kept as the fallback if one arrives anyway.
  */
-export const undoesUnheardRewind = (events: readonly EventEnvelope[]): boolean => {
-  const heard = new Set<number>();
+export const undoesUnheardRewind = (snapshot: Pick<SessionSnapshotParts, "rewinds">, events: readonly EventEnvelope[]): boolean => {
+  const heard = rewindSequences(snapshot.rewinds);
   for (const event of events) {
     if (event.type === "session.rewound") heard.add(event.sequence);
     else if (event.type === "session.rewind-undone" && !heard.has((event.payload as { rewindSequence?: unknown }).rewindSequence as number)) return true;
@@ -146,11 +159,11 @@ export const sessionKind = (): StreamKind<SessionData> => ({
   empty: () => ({ summary: null, snapshot: NO_SNAPSHOT_PARTS, events: [], eventBytes: 0 }),
   // Nothing sent is no session yet, not one that is gone.
   emptyIsState: false,
-  // Past the bound, or holding an undo of a rewind the snapshot left what it hid out of (#218): a fresh snapshot folds either.
-  outgrown: (data) => data.events.length > SESSION_EVENTS_BOUND || data.eventBytes > SESSION_EVENT_BYTES_BOUND || undoesUnheardRewind(data.events),
+  // Past the bound, or holding an undo of a rewind nothing held says what it hid (#218): a fresh snapshot folds either.
+  outgrown: (data) => data.events.length > SESSION_EVENTS_BOUND || data.eventBytes > SESSION_EVENT_BYTES_BOUND || undoesUnheardRewind(data.snapshot, data.events),
   fromSnapshot(payload) {
-    const { summary, runs, items, parkedPrompts } = SessionSnapshot.parse(payload);
-    return { summary, snapshot: { runs, items, parkedPrompts }, events: [], eventBytes: 0 };
+    const { summary, runs, items, parkedPrompts, rewinds } = SessionSnapshot.parse(payload);
+    return { summary, snapshot: { runs, items, parkedPrompts, rewinds }, events: [], eventBytes: 0 };
   },
   apply(data, event) {
     const patch = summaryPatchOf(event);
@@ -166,7 +179,8 @@ export const sessionKind = (): StreamKind<SessionData> => ({
     const events = EventEnvelope.array().parse(stored["events"]);
     return {
       summary: SessionSummary.nullable().parse(stored["summary"]),
-      // A document from before #119 (a `transcript` field, no `snapshot`) does not read: no cache, so the session subscribes from nothing.
+      // A document from before #119 (a `transcript` field, no `snapshot`), or from before #260 (no `rewinds`), does not read: no cache, so the
+      // session subscribes from nothing.
       snapshot: SnapshotParts.parse(stored["snapshot"]),
       events,
       eventBytes: sizeOf(events),

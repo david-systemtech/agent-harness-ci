@@ -141,7 +141,7 @@ describe("the stream reducer", () => {
 describe("the session stream kind", () => {
   it("takes the summary from its snapshot, keeps every event after it, and follows the summary through the patches", () => {
     const kind = sessionKind();
-    const snap = kind.fromSnapshot({ sequence: 3, summary: summaryOf(a), runs: [], items: [], parkedPrompts: [] });
+    const snap = kind.fromSnapshot({ sequence: 3, summary: summaryOf(a), runs: [], items: [], parkedPrompts: [], rewinds: [] });
     const unknown = { ...unpatchedEvent(4, a, "run.somethingNew"), payload: { future: true } };
     const renamed = kind.apply(kind.apply(snap, unknown), sessionEvent(5, { op: "set", sessionId: a, fields: { title: "Renamed" } }, "session.title-set"));
     expect(renamed.summary?.title).toBe("Renamed");
@@ -161,13 +161,13 @@ describe("the session stream kind", () => {
 
   it("has outgrown what it keeps between snapshots past the event count or the byte bound", () => {
     const kind = sessionKind();
-    let data = kind.fromSnapshot({ sequence: 1, summary: summaryOf(a), runs: [], items: [], parkedPrompts: [] });
+    let data = kind.fromSnapshot({ sequence: 1, summary: summaryOf(a), runs: [], items: [], parkedPrompts: [], rewinds: [] });
     for (let sequence = 2; sequence < 2 + SESSION_EVENTS_BOUND; sequence++) data = kind.apply(data, unpatchedEvent(sequence, a, "run.output"));
     expect(kind.outgrown?.(data)).toBe(false);
     expect(kind.outgrown?.(kind.apply(data, unpatchedEvent(2 + SESSION_EVENTS_BOUND, a, "run.output")))).toBe(true);
 
     const big = { ...unpatchedEvent(2, a, "run.output"), payload: { text: "x".repeat(SESSION_EVENT_BYTES_BOUND) } };
-    const heavy = kind.apply(kind.fromSnapshot({ sequence: 1, summary: summaryOf(a), runs: [], items: [], parkedPrompts: [] }), big);
+    const heavy = kind.apply(kind.fromSnapshot({ sequence: 1, summary: summaryOf(a), runs: [], items: [], parkedPrompts: [], rewinds: [] }), big);
     expect(kind.outgrown?.(heavy)).toBe(true);
     // The count is not stored; it is taken again from what is.
     expect(kind.decode(JSON.parse(JSON.stringify(kind.encode(heavy))))).toEqual(heavy);

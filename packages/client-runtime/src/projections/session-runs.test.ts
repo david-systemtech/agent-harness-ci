@@ -141,6 +141,10 @@ const opened = async (
     scopes?: Parameters<typeof scriptedEnvironments>[0]["environments"][0]["scopes"];
     /** The items of the session's snapshot: what the environment folded before the client subscribed. */
     items?: readonly Record<string, unknown>[];
+    /** The rewinds standing in that snapshot, with what each hid (#260). */
+    rewinds?: readonly Record<string, unknown>[];
+    /** The sequence the snapshot stands at; the events played go on after it. */
+    at?: number;
   } = {},
 ) => {
   const made = await scriptedEnvironments({ onCleanup: onTestFinished, environments: [{ name: "desk", title: "Receipts", ...(options.scopes && { scopes: options.scopes }) }] });
@@ -155,10 +159,11 @@ const opened = async (
   onTestFinished(runs.subscribe(() => undefined));
   const stream: Scripted = await subscription(wire, "sessions.subscribeSession");
   const summary: SessionSummary = summaryOf(sessionId, { title: "Receipts", accountId: options.accountId ?? null });
-  stream.snapshot(1, { sequence: 1, summary, runs: [], items: options.items ?? [], parkedPrompts: [] });
-  stream.synchronized(1);
+  const at = options.at ?? 1;
+  stream.snapshot(at, { sequence: at, summary, runs: [], items: options.items ?? [], parkedPrompts: [], rewinds: options.rewinds ?? [] });
+  stream.synchronized(at);
   await flush();
-  let sequence = 1;
+  let sequence = at;
   let listSequence = 1;
   /**
    * Plays events on the session's stream, each at the next sequence, and
@@ -434,15 +439,40 @@ describe("a queued message read as a turn's prompt", () => {
 });
 
 describe("a session opened from a snapshot taken after a rewind", () => {
-  it("shows no fold, no rewound state and no undo: the snapshot leaves out what the rewind hid and says nothing of it", async () => {
-    const kept = [
-      { kind: "user-message", sequence: 3, runId: RUN, messageId: PROMPT, text: "Fix the receipts", attachments: [], delivery: "prompt", heldBy: null, sentAt: "2026-09-24T01:02:03.456Z" },
-      { kind: "assistant-text", sequence: 4, runId: RUN, itemId: "i-1", text: "Fixed.", aborted: false },
-    ];
-    const { runs, texts } = await opened({ items: kept });
-    expect(texts()).toEqual(["Fix the receipts", "assistant-text"]);
+  const kept = [
+    { kind: "user-message", sequence: 3, runId: RUN, messageId: PROMPT, text: "Fix the receipts", attachments: [], delivery: "prompt", heldBy: null, sentAt: "2026-09-24T01:02:03.456Z" },
+    { kind: "assistant-text", sequence: 4, runId: RUN, itemId: "i-1", text: "Fixed.", aborted: false },
+  ];
+  const hid = [
+    { kind: "user-message", sequence: 7, runId: NEXT_RUN, messageId: ALSO, text: "Then the tests", attachments: [], delivery: "prompt", heldBy: null, sentAt: "2026-09-24T01:03:03.456Z" },
+    { kind: "assistant-text", sequence: 8, runId: NEXT_RUN, itemId: "i-2", text: "Tested.", aborted: false },
+  ];
+  /** The rewind to ALSO at 10, as the environment's snapshot carries it (#260). */
+  const standing = (undoable: boolean) => ({ sequence: 10, toMessageId: ALSO, text: "Then the tests", undoable, items: hid, rewinds: [] });
+
+  it("shows the fold, the rewound state and the undo as a client that heard the rewind, and the undo puts the branch back without a fresh snapshot", async () => {
+    const { runtime, wire, env, sessionId, runs, texts, session, play } = await opened({ items: kept, rewinds: [standing(true)], at: 11 });
+    expect(texts()).toEqual(["Fix the receipts", "assistant-text", "rewound: 2"]);
+    expect(session.read().items[2]).toMatchObject({ kind: "rewound", sequence: 10, toMessageId: ALSO, text: "Then the tests", undoable: true });
+    expect(runs.read().rewound).toEqual({ toMessageId: ALSO, sequence: 10, text: "Then the tests", undoable: true });
+    expect(runs.read().verbs.undoRewind).toEqual({ status: "present" });
+
+    wire.answer("sessions.undoRewind", () => answering(accepted(21), { sessionId, messageId: ALSO, rewindSequence: 10 }));
+    expect(await runtime.commands.dispatch(env, "sessions.undoRewind", { sessionId })).toMatchObject({ ok: true });
+    await play(["session.rewind-undone", { toMessageId: ALSO, rewindSequence: 10 }]);
+    expect(texts()).toEqual(["Fix the receipts", "assistant-text", "Then the tests", "assistant-text"]);
     expect(runs.read().rewound).toBeNull();
     expect(runs.read().verbs.undoRewind).toMatchObject({ status: "absent", reason: "no_rewind" });
+    // The snapshot held what the rewind hid, so the undo needs no fresh one.
+    expect(wire.server.received().filter((frame) => frame.type === "request" && frame.method === "sessions.subscribeSession")).toHaveLength(1);
+  });
+
+  it("shows a rewind a run has continued from where it cut, not undoable, and the undo absent since a run has started", async () => {
+    const { runs, texts, session } = await opened({ items: kept, rewinds: [standing(false)], at: 11 });
+    expect(texts()).toEqual(["Fix the receipts", "assistant-text", "rewound: 2"]);
+    expect(session.read().items[2]).toMatchObject({ kind: "rewound", undoable: false });
+    expect(runs.read().rewound).toEqual({ toMessageId: ALSO, sequence: 10, text: "Then the tests", undoable: false });
+    expect(runs.read().verbs.undoRewind).toMatchObject({ status: "absent", reason: "run_started" });
   });
 });
 

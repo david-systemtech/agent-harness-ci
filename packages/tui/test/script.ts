@@ -330,7 +330,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     const id = subscribed(request);
     // Live events go to the subscription only once its catch-up is sent, as an environment catching up sends them after it.
     const catchUp = () => {
-      wire.server.send({ type: "snapshot", subscription: id, sequence: log.base, payload: { sequence: log.base, summary: summaryAt(sessionId), runs: [], items: [], parkedPrompts: [] } });
+      wire.server.send({ type: "snapshot", subscription: id, sequence: log.base, payload: { sequence: log.base, summary: summaryAt(sessionId), runs: [], items: [], parkedPrompts: [], rewinds: [] } });
       for (const event of log.events) wire.server.send({ type: "event", subscription: id, sequence: event.sequence, event });
       wire.server.send({ type: "synchronized", subscription: id, sequence });
       sessionSubscriptions.set(sessionId, id);
