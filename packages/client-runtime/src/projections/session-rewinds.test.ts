@@ -268,15 +268,21 @@ describe("a session opened from the environment's snapshot and one that heard ev
     expect(heard.parkedPrompts).toEqual([]);
   });
 
+  /** A reply that streams: the split after its first delta falls while it streams. */
+  const streaming = stream([
+    ["run.started", recorded("run.started", 0, { runId: RUNS[0], promptMessageId: ONE, queuedMessageIds: [] })],
+    ["message.sent", { runId: RUNS[0], messageId: ONE, text: "One", attachments: [], delivery: "prompt", heldBy: null }],
+    ["assistant.delta", { runId: RUNS[0], itemId: "i-1", fragments: [{ kind: "text", text: "Do" }] }],
+    ["assistant.text", { runId: RUNS[0], itemId: "i-1", text: "Done: One", aborted: false }],
+  ]);
+
+  // The premise of the pin below, outside it: `it.fails` passes on any throw, so a premise that failed there would pass it.
+  it("skip the split after an item's first delta and no other: only it falls while the item streams", () => {
+    expect([0, 1, 2, 3, 4].map((at) => streamingAt(streaming, at))).toEqual([false, false, false, true, false]);
+  });
+
   // Owed: the snapshot holds settled items only, so one taken while an item streams cannot place it at its first delta.
   it.fails("differ on a snapshot taken while an item streams: the client that opened from it places the item where it settled", () => {
-    const events = stream([
-      ["run.started", recorded("run.started", 0, { runId: RUNS[0], promptMessageId: ONE, queuedMessageIds: [] })],
-      ["message.sent", { runId: RUNS[0], messageId: ONE, text: "One", attachments: [], delivery: "prompt", heldBy: null }],
-      ["assistant.delta", { runId: RUNS[0], itemId: "i-1", fragments: [{ kind: "text", text: "Do" }] }],
-      ["assistant.text", { runId: RUNS[0], itemId: "i-1", text: "Done: One", aborted: false }],
-    ]);
-    expect(streamingAt(events, 3)).toBe(true);
-    expect(reduceSession(snapshotAfter(events.slice(0, 3)), events.slice(3))).toEqual(reduceSession(NOTHING, events));
+    expect(reduceSession(snapshotAfter(streaming.slice(0, 3)), streaming.slice(3))).toEqual(reduceSession(NOTHING, streaming));
   });
 });
