@@ -225,7 +225,10 @@ const applySgr = (style: Style, raw: string): Style => {
 /**
  * An escape sequence (ECMA-48): a CSI (`ESC [` or U+009B) with its
  * parameter bytes (group 1, a private marker `<=>?` among them) and
- * intermediate bytes (group 2), and its final byte (group 3), to tell SGR;
+ * intermediate bytes (group 2), and its final byte (group 3), to tell SGR,
+ * one without a final byte (cut short by a control, whose meaning stands, or
+ * by the end of the answer) ending where its bytes do, so its parameters are
+ * never text;
  * a control string, an OSC (`ESC ]` or U+009D) to BEL or ST, a DCS, SOS, PM
  * or APC (`ESC P`, `ESC X`, `ESC ^`, `ESC _` or their C1 forms) to ST, ST
  * being `ESC \` or U+009C, the string running across lines, cut short by
@@ -236,7 +239,7 @@ const applySgr = (style: Style, raw: string): Style => {
  */
 const ESCAPE =
   // eslint-disable-next-line no-control-regex -- escape sequences are what is being read.
-  /(?:\u001B\[|\u009B)([0-?]*)([ -/]*)([@-~])|(?:\u001B\]|\u009D)[^\u0007\u001B\u009C]*(?:\u0007|\u001B\\|\u009C)?|(?:\u001B[PX^_]|[\u0090\u0098\u009E\u009F])[^\u001B\u009C]*(?:\u001B\\|\u009C)?|\u001B(?:[ -/]+[0-~]|[0-~])/g;
+  /(?:\u001B\[|\u009B)([0-?]*)([ -/]*)([@-~])?|(?:\u001B\]|\u009D)[^\u0007\u001B\u009C]*(?:\u0007|\u001B\\|\u009C)?|(?:\u001B[PX^_]|[\u0090\u0098\u009E\u009F])[^\u001B\u009C]*(?:\u001B\\|\u009C)?|\u001B(?:[ -/]+[0-~]|[0-~])/g;
 
 /** SGR: final byte `m`, no intermediate bytes, and parameters of digits, `;` and `:` only (a private marker makes it another sequence). */
 const isSgr = (params: string | undefined, intermediates: string | undefined, final: string | undefined): params is string =>

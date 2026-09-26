@@ -114,6 +114,15 @@ describe("a diff tool's answer in the pager", () => {
     expect(sgrPage("\u001B]8;;https://x\u001B[1mbold", 40)[0]?.spans).toEqual([{ text: "bold", bold: true }]);
   });
 
+  it("drops a CSI left unterminated to the end of the answer, and one a control cuts short up to the control, leaving none of its parameters", () => {
+    // A killed or capped tool can stop inside a sequence; its parameters are never text.
+    expect(sgrPage("y\u001B[31mz\u001B[38;5;", 40).map((line) => line.spans)).toEqual([[{ text: "y" }, { text: "z", color: "ansi256(1)" }]]);
+    expect(sgrPage("\u009B1;2", 40).map((line) => line.spans)).toEqual([[]]);
+    // A control inside a CSI ends it there and stands: a newline is still the next line, an escape is read as itself.
+    expect(texts(sgrPage("a\u001B[38;5\nb\u001B[1\u001B[1mc", 40))).toEqual(["a", "bc"]);
+    expect(sgrPage("\u001B[4\u001B[1mc", 40)[0]?.spans).toEqual([{ text: "c", bold: true }]);
+  });
+
   it("drops DCS, SOS, PM and APC strings whole, ESC and C1 forms alike, to their ST or the end", () => {
     expect(texts(sgrPage("a\u001BP1$r0m\u001B\\b\u001B_apc\u009Cc\u0090dcs\u001B\\d\u009Epm\u009Ce\u001BXsos to the end", 40))).toEqual(["abcde"]);
   });
