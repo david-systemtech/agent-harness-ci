@@ -161,8 +161,8 @@ export const modelRows = (models: readonly ModelEntry[], current: string | null)
   }));
 };
 
-/** A model's efforts as rows, the model's own first. */
-export const effortRows = (model: ModelEntry, current: string | null): readonly PanelRow[] => [
+/** A model's efforts as rows, the model's own first; `current` the session's (null: the model's own), undefined when the session is not on the model. */
+export const effortRows = (model: ModelEntry, current: string | null | undefined): readonly PanelRow[] => [
   { key: "", cells: [{ text: "the model's own" }], dim: false, ...(current === null && { note: { text: "this session", dim: true } }) },
   ...model.efforts.map((effort) => ({ key: effort, cells: [{ text: effort }], dim: false, ...(effort === current && { note: { text: "this session", dim: true } }) })),
 ];

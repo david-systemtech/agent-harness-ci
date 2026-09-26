@@ -112,6 +112,8 @@ export interface ScriptedEnvironment {
   readonly providers?: readonly Partial<AdapterCapabilities>[];
   /** What `accounts.list` lists, over an adopted, signed-in account on the first provider: preset none. */
   readonly accounts?: readonly Partial<AccountRecord>[];
+  /** Why `accounts.list` fails, as an `internal` error response: preset it lists `accounts`. */
+  readonly accountsError?: string;
   /** Who holds a message sent during a live run: preset the environment (ADR 0022). */
   readonly queue?: QueueHolder;
   /** Holds each session's catch-up after `subscribed`, until `releaseSessions`: the stream stays catching up. Preset false. */
@@ -627,7 +629,9 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
       ...account,
     });
   const accounts: AccountRecord[] = (spec.accounts ?? []).map(accountOf);
-  wire.answer("accounts.list", () => ({ result: { accounts: [...accounts] } }));
+  wire.answer("accounts.list", () =>
+    spec.accountsError !== undefined ? { error: { code: "internal", message: spec.accountsError, data: {} } } : { result: { accounts: [...accounts] } },
+  );
   wire.answer("models.list", () => ({
     result: { catalogues: (spec.models ?? []).map((catalogue) => checked(AccountCatalogue, { accountId: "account-1", live: false, models: [], ...catalogue })) },
   }));

@@ -324,7 +324,7 @@ export const usePickers = (host: PickersHost): Pickers => {
     const values = { [key]: value };
     const saved = (answer: { readonly ok: true; readonly result: { readonly values: Readonly<Record<string, unknown>> } | undefined } | { readonly ok: false; readonly line: string }) => {
       if (!answer.ok) return host.say(`Not saved: ${answer.line}`);
-      host.change((card) => (card.kind === "settings" ? { ...card, values: { ...card.values, ...(answer.result?.values ?? values) } } : card));
+      host.change((card) => (card.kind === "settings" && card.environmentId === environmentId ? { ...card, values: { ...card.values, ...(answer.result?.values ?? values) } } : card));
       host.say(`${key} is ${valueWords(value)}.`);
     };
     if (writer === "settings.update") {
@@ -358,8 +358,11 @@ export const usePickers = (host: PickersHost): Pickers => {
 
   // Rows.
 
+  // No row, not even the last, until the accounts are read: the card says it reads them, or why it could not.
   const accountPanelRows = (card: Extract<Panel, { kind: "accounts" }>): readonly PanelRow[] =>
-    accountRows(accountList(), card.purpose, { environmentId: card.environmentId, usage: runtime.projections.usage.read(), sessionAccount: sessionAccount() });
+    (accounts?.read().value ?? null) === null
+      ? []
+      : accountRows(accountList(), card.purpose, { environmentId: card.environmentId, usage: runtime.projections.usage.read(), sessionAccount: sessionAccount() });
 
   const accountCursor = (card: Extract<Panel, { kind: "accounts" }>): number =>
     card.cursor ?? startingAccount(accountList(), card.purpose === "handoff" ? recommendation?.read().result?.accountId : undefined, sessionAccount());
@@ -410,8 +413,11 @@ export const usePickers = (host: PickersHost): Pickers => {
     switch (card.kind) {
       case "accounts":
         return accountPanelRows(card);
-      case "models":
-        return card.model !== null ? effortRows(card.model, currentChoice()?.effort ?? null) : modelRows(modelList(card), currentChoice()?.model ?? null);
+      case "models": {
+        const choice = currentChoice();
+        if (card.model !== null) return effortRows(card.model, choice?.model === card.model.id ? choice.effort : undefined);
+        return modelRows(modelList(card), choice?.model ?? null);
+      }
       case "modes":
         return modes ? modeRows(modes.read(), projection?.summary?.mode ?? null) : [];
       case "containment": {
@@ -534,7 +540,7 @@ export const usePickers = (host: PickersHost): Pickers => {
             if (account.status.state !== "signed-in") return startSignIn(card.environmentId, account);
             return handOff(card.environmentId, account);
           }
-          if (at !== list.length) return;
+          if (at !== list.length || accountPanelRows(card).length === 0) return;
           if (card.purpose === "handoff") return host.say(`Not handed off: ${BETWEEN_ENVIRONMENTS}.`);
           const absent = lacking(card.environmentId, "accounts.add");
           if (absent !== undefined) return host.say(`Cannot add an account on ${nameFor(card.environmentId)}: ${absent}`);
@@ -682,7 +688,7 @@ export const usePickers = (host: PickersHost): Pickers => {
               width={size.width}
               title={card.purpose === "handoff" ? `Hand off ${sessionName()} on ${nameFor(card.environmentId)}` : `Accounts on ${nameFor(card.environmentId)}`}
               hint={hint}
-              rows={loaded?.value === null && loaded.error === null ? [] : rows}
+              rows={rows}
               cursor={cursor}
               height={size.height}
               empty={loaded?.error ? `The accounts could not be read: ${loaded.error.message}` : "Reading the accounts…"}

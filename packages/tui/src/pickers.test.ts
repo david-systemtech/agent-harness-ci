@@ -212,6 +212,16 @@ describe("/account", () => {
     await app.press(KEY.down, KEY.down, KEY.enter);
     await app.waitFor("Cannot add an account on desk: This client was paired with desk without the admin scope.");
   });
+
+  it("says why the accounts could not be read, offering no row, where Enter adds nothing (PR review)", async () => {
+    const { app } = await launch([desk({ accountsError: "The account store is locked." })]);
+    await command(app, "/account");
+    await app.waitFor("The accounts could not be read: The account store is locked.");
+    expect(app.frame()).not.toContain("+ Add an account");
+    await app.press(KEY.enter);
+    await app.tick();
+    expect(app.frame()).not.toContain("Label for the new account:");
+  });
 });
 
 describe("/model", () => {
@@ -251,6 +261,30 @@ describe("/model", () => {
     await app.waitFor("claude-haiku-4");
     await app.press(KEY.down, KEY.enter);
     await app.waitFor("The next run of Receipts goes out on claude-haiku-4 at its own effort.");
+  });
+
+  it("marks an effort as the session's only on the model the session is on (PR review)", async () => {
+    const sonnet = { id: "claude-sonnet-4", family: "sonnet", tier: 2, efforts: ["low", "high"], label: "Sonnet 4" };
+    const { app } = await launch([desk({ models: [{ ...models[0], models: [...(models[0]?.models ?? []), sonnet] }] })]);
+    await command(app, "/model");
+    await app.waitFor("Opus 4 (claude-opus-4)");
+    await app.press(KEY.enter);
+    await app.waitFor("Effort for Opus 4");
+    await app.press(KEY.down, KEY.down, KEY.down, KEY.enter);
+    await app.waitFor("The next run of Receipts goes out on claude-opus-4 at high effort.");
+    // The session is on Opus 4 at high: Sonnet 4's high is not the session's, nor is its own effort.
+    await command(app, "/model");
+    await app.waitFor("Sonnet 4 (claude-sonnet-4)");
+    await app.press(KEY.down, KEY.down, KEY.enter);
+    await app.waitFor("Effort for Sonnet 4");
+    expect(app.rows().find((row) => row.includes("high"))).not.toContain("this session");
+    expect(app.rows().find((row) => row.includes("the model's own"))).not.toContain("this session");
+    // Opus 4's high still is.
+    await app.press(KEY.esc);
+    await app.waitFor("Models for work on desk");
+    await app.press(KEY.up, KEY.up, KEY.enter);
+    await app.waitFor("Effort for Opus 4");
+    expect(app.rows().find((row) => row.includes("high"))).toContain("this session");
   });
 });
 
@@ -460,6 +494,45 @@ describe("/settings", () => {
     await app.press(KEY.down, KEY.enter);
     await app.waitFor("Not changed: This client was paired with desk without the admin scope.");
     expect(env.requests("settings.update")).toEqual([]);
+  });
+
+  it("takes no paste into a value being typed while a question is asked (PR review)", async () => {
+    const { app } = await launch();
+    await command(app, "/settings");
+    await app.waitFor("Settings on desk");
+    await app.press(KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.enter);
+    await app.waitFor("permissions.unattended.mode:");
+    await app.press(KEY.down, KEY.enter);
+    await app.waitFor("Make bypassPermissions the unattended mode? y/n");
+    // The question stands while the list below it opens a value to type.
+    await app.press(KEY.up, KEY.up, KEY.enter);
+    await app.waitFor("New value for providers.processIdleMinutes (now 30)");
+    expect(app.frame()).toContain("Make bypassPermissions the unattended mode? y/n");
+    await app.paste("45");
+    await app.tick();
+    expect(app.frame()).not.toMatch(/as JSON or a bare word: 45/);
+  });
+
+  it("leaves another environment's settings card alone when a write answers after its own card closed (PR review)", async () => {
+    const { app, env } = await launch([desk(), { name: "laptop", reach: "paired", sessions: [{ title: "Deploy" }] }]);
+    let saved = () => undefined as void;
+    env.wire.answer("settings.update", () => new Promise((resolve) => (saved = () => resolve({ result: { receipt: { status: "accepted", sequence: 999, changed: true } } }))));
+    await command(app, "/settings");
+    await app.waitFor("Settings on desk");
+    await app.press(KEY.down, KEY.enter);
+    await app.waitUntil(() => env.requests("settings.update").length === 1, "the switch's write on desk");
+    await app.press(KEY.esc);
+    // The laptop's session open, /settings is the laptop's.
+    await command(app, "/resume");
+    await app.type("Deploy");
+    await app.press(KEY.enter);
+    await app.waitFor("● laptop");
+    await command(app, "/settings");
+    await app.waitFor("Settings on laptop");
+    await app.waitFor(/sessions\.autoSettleOnMerge\s+off/);
+    saved();
+    await app.waitFor("sessions.autoSettleOnMerge is on.");
+    expect(app.frame()).toMatch(/sessions\.autoSettleOnMerge\s+off/);
   });
 });
 

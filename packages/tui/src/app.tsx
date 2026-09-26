@@ -1100,8 +1100,8 @@ export const App = (props: AppProps) => {
     },
     { isActive: focused === "composer" && !cardOpen },
   );
-  // A card taking a line (a label, a sign-in's code, a setting's value) takes a paste into it.
-  const panelTyping = card.kind === "panel" && pickers.takesText(card.panel);
+  // A card taking a line (a label, a sign-in's code, a setting's value) takes a paste into it, unless a question has the keys.
+  const panelTyping = card.kind === "panel" && pickers.takesText(card.panel) && !screen.question;
   usePaste(
     (text) => {
       scheduler.bypass();
