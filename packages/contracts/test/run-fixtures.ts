@@ -278,7 +278,11 @@ const items = [
   { kind: "plan-card", sequence: 11, plan: "Step one" },
 ];
 const parkedPrompt = { promptId: "toolu_2", sequence: 12, openedAt: at, prompt: { ...openedPrompt, promptId: "toolu_2", toolCallId: "toolu_2" } };
-const snapshot = { sequence: 13, summary: freshSummary, runs: [runSummary, runningSummary], items, parkedPrompts: [parkedPrompt] };
+/** A rewind standing (#260): what it hid, and a rewind stacked before it that it cut, nested. */
+const hiddenMessage = { ...userMessage, sequence: 14, messageId: "6e1f2a3b-4c5d-4e6f-8a7b-9c0d1e2f3a4b", text: "Try the other way" };
+const nestedRewind = { sequence: 17, toMessageId: "7a9c1e3f-5b7d-4f9a-8c1e-3f5b7d9f1a3c", text: "Then this", undoable: false, items: [{ kind: "plan-card", sequence: 16, plan: "Kept opaque" }], rewinds: [] };
+const standingRewind = { sequence: 18, toMessageId: hiddenMessage.messageId, text: hiddenMessage.text, undoable: false, items: [hiddenMessage], rewinds: [nestedRewind] };
+const snapshot = { sequence: 19, summary: freshSummary, runs: [runSummary, runningSummary], items, parkedPrompts: [parkedPrompt], rewinds: [standingRewind] };
 
 /** Every adapter and transcript schema the export writes, by path. */
 export const runSchemaFixtures: Record<string, Fixtures> = {
@@ -373,9 +377,25 @@ export const runSchemaFixtures: Record<string, Fixtures> = {
     ],
   },
   "transcript/parked-prompt.json": { valid: [parkedPrompt], invalid: [{ ...parkedPrompt, promptId: "" }, { ...parkedPrompt, prompt: "Allow?" }, { ...parkedPrompt, prompt: { kind: "permission", toolName: "Bash" } }] },
+  "transcript/standing-rewind.json": {
+    valid: [standingRewind, nestedRewind],
+    invalid: [
+      { ...standingRewind, toMessageId: "m-1" },
+      { ...standingRewind, undoable: null },
+      { ...standingRewind, items: [{ sequence: 1 }] },
+      { ...standingRewind, rewinds: [{ ...nestedRewind, text: null }] },
+      { sequence: 18, toMessageId: hiddenMessage.messageId, text: "", undoable: true, items: [] },
+    ],
+  },
   "transcript/session-snapshot.json": {
-    valid: [snapshot, { sequence: 0, summary: freshSummary, runs: [], items: [], parkedPrompts: [] }],
-    invalid: [{ sequence: 13, summary: freshSummary, transcript: {} }, { ...snapshot, runs: [{}] }, { ...snapshot, items: [{ sequence: 1 }] }],
+    valid: [snapshot, { sequence: 0, summary: freshSummary, runs: [], items: [], parkedPrompts: [], rewinds: [] }],
+    invalid: [
+      { sequence: 13, summary: freshSummary, transcript: {} },
+      { ...snapshot, runs: [{}] },
+      { ...snapshot, items: [{ sequence: 1 }] },
+      { sequence: 0, summary: freshSummary, runs: [], items: [], parkedPrompts: [] },
+      { ...snapshot, rewinds: [{ ...standingRewind, rewinds: [{ ...nestedRewind, items: [{ sequence: 1 }] }] }] },
+    ],
   },
 };
 
