@@ -25,6 +25,17 @@ import {
  */
 
 const commandName = (id: string) => id.slice("command.".length);
+/** Each key more than one action holds in one context, as `<context> <key>` with the actions holding it. */
+const sharedKeys = (actions: readonly { readonly id: string; readonly context: string; readonly keys: readonly string[] }[]): [string, string[]][] => {
+  const holders = new Map<string, string[]>();
+  for (const { id, context, keys } of actions) {
+    for (const key of keys) {
+      const slot = `${context} ${key}`;
+      holders.set(slot, [...(holders.get(slot) ?? []), id]);
+    }
+  }
+  return [...holders].filter(([, ids]) => ids.length > 1);
+};
 const commands = ACTIONS.filter((a) => a.id.startsWith("command."));
 const keyActions = ACTIONS.filter((a) => !a.id.startsWith("command."));
 
@@ -105,9 +116,7 @@ describe("the fixture rule", () => {
   it("lets no two actions in one context share a default key, but for a conditioned action beside an unconditioned one", () => {
     expect(keyClashes(ACTIONS)).toEqual([]);
     // The one key two actions hold in one context: ↑ in the composer, withdrawLast asked first while the composer is empty.
-    const shared = new Map<string, string[]>();
-    for (const action of ACTIONS) for (const k of action.keys) shared.set(`${action.context} ${k}`, [...(shared.get(`${action.context} ${k}`) ?? []), action.id]);
-    expect([...shared].filter(([, ids]) => ids.length > 1)).toEqual([["composer ↑", ["composer.navigate", "composer.withdrawLast"]]]);
+    expect(sharedKeys(ACTIONS)).toEqual([["composer ↑", ["composer.navigate", "composer.withdrawLast"]]]);
   });
 
   it("names no id outside the list: each id once, and every group, alias and sigil names ids of the list", () => {

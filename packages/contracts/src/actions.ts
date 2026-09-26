@@ -69,18 +69,29 @@ const ACTION_ID_PATTERN = new RegExp(`^(${Object.keys(ACTION_ID_PREFIXES).join("
 /**
  * The conditions an action's keys may be declared under (#231): each named
  * `<context>.<state>`, answered only in its own context, with the words the
- * help overlay and the tui spec's table write after the keys. A conditioned
- * action is asked for its key before an unconditioned one holding the same
- * key in the same context, and the key falls to that one when the condition
- * does not hold (the clash rule, `keyClashes`).
+ * help overlay and the tui spec's table write after the keys and what the
+ * condition means. A conditioned action is asked for its key before an
+ * unconditioned one holding the same key in the same context, and the key
+ * falls to that one when the condition does not hold (the clash rule,
+ * `keyClashes`). The JSON Schema export carries the table in the
+ * condition's description, so a client in another language draws the same
+ * words.
  */
 export const ACTION_CONDITIONS = {
-  "composer.empty": { context: "composer", words: "empty composer", description: "Nothing is typed in the composer and nothing is attached." },
+  "composer.empty": {
+    context: "composer",
+    words: "empty composer",
+    description: "Nothing is typed in the composer, nothing is attached, and no search of its history is open.",
+  },
 } as const satisfies Record<string, { readonly context: ActionContext; readonly words: string; readonly description: string }>;
 
+/** Each condition as the schema's description lists it: its id, the words written after the keys, and what it means. */
+const conditionTable = Object.entries(ACTION_CONDITIONS)
+  .map(([id, condition]) => `${id} (written "${condition.words}" after the keys, in the ${condition.context} context): ${condition.description}`)
+  .join(" ");
+
 export const ActionCondition = z.enum(Object.keys(ACTION_CONDITIONS) as [keyof typeof ACTION_CONDITIONS, ...(keyof typeof ACTION_CONDITIONS)[]]).meta({
-  description:
-    "A condition an action's keys are answered under, named <context>.<state>: composer.empty, nothing typed in the composer and nothing attached. A conditioned action is asked first for a key it shares with an unconditioned action of its context; the key falls to that one when the condition does not hold.",
+  description: `A condition an action's keys are answered under, named <context>.<state>. ${conditionTable} A conditioned action is asked first for a key it shares with an unconditioned action of its context; the key falls to that one when the condition does not hold.`,
 });
 export type ActionCondition = z.infer<typeof ActionCondition>;
 

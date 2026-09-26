@@ -5,5 +5,5 @@
   "enum": [
     "composer.empty"
   ],
-  "description": "A condition an action's keys are answered under, named <context>.<state>: composer.empty, nothing typed in the composer and nothing attached. A conditioned action is asked first for a key it shares with an unconditioned action of its context; the key falls to that one when the condition does not hold."
+  "description": "A condition an action's keys are answered under, named <context>.<state>. composer.empty (written \"empty composer\" after the keys, in the composer context): Nothing is typed in the composer, nothing is attached, and no search of its history is open. A conditioned action is asked first for a key it shares with an unconditioned action of its context; the key falls to that one when the condition does not hold."
 }
