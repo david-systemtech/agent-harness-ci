@@ -254,9 +254,9 @@ export const createTerminalSubscriptions = (options: {
       (error: unknown) => {
         if (h.attachment !== token) return;
         letGo(h, false);
-        // The socket went first: the next `ready` attaches again.
+        // The socket went first: the next `ready` attaches again, and no fault stands (an earlier attempt's is no reason for this one).
         const fault = error instanceof SocketClosedError || error instanceof NotConnectedError ? null : messageOf(error);
-        set(h, { status: "unreachable", ...(fault !== null && { fault }) });
+        set(h, { status: "unreachable", fault });
       },
     );
   };
