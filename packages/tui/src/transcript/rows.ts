@@ -22,7 +22,12 @@ import type { RunSummary } from "@agent-harness/contracts";
  *   what is running or went wrong stands under it in full. A subagent's calls
  *   are the runtime's `subagent` entry, a row of their own.
  * - **A queued message is not a row**: it is on the queued line until it is
- *   steered or read (ADR 0022), then a row where it was sent.
+ *   steered or read (ADR 0022). Steered, it is a row where it was sent, in
+ *   the turn it was folded into; read as the prompt of a later run (a
+ *   read-now, or the run of the queue after a turn), it opens that run: its
+ *   row is drawn before the run's first row, in the order the queue was sent,
+ *   and before any row of a run that started after it, so a run of the queue
+ *   that drew nothing of its own still stands in its place.
  * - **Prompts, questions and plans** stand at the sequence of their
  *   `prompt.opened` (permissions spec), answered or parked; a plan draws its
  *   text in place.
@@ -54,18 +59,42 @@ export const callsRowId = (runId: string): string => `calls:${runId}`;
 
 /** The rows of a session's projection, in the order they are drawn. */
 export const transcriptRows = (view: Pick<SessionProjection, "items" | "runs">): readonly Row[] => {
-  const rows: Row[] = [];
+  const drawn: Row[] = [];
   const groups = new Map<string, ToolCallEntry[]>();
+  // The queued messages each run read as its prompt, by message: their rows wait for the run's first row, and open it.
+  const readBy = new Map<string, string>();
+  for (const run of view.runs) for (const messageId of run.queuedMessageIds) readBy.set(messageId, run.runId);
+  const opening = new Map<string, Row[]>();
+  // Where each run started among the session's runs: what a run read is released before any later run's rows, in that order.
+  const started = new Map(view.runs.map((run, index) => [run.runId, index]));
+  const startOf = (runId: string) => started.get(runId) ?? Number.POSITIVE_INFINITY;
+  /** Draws what the runs up to `runId` read and have not drawn yet: `runId`'s own, and every run's that started before it. */
+  const open = (runId: string) => {
+    const due = [...opening.keys()].filter((waiting) => waiting === runId || startOf(waiting) < startOf(runId)).sort((a, b) => startOf(a) - startOf(b));
+    for (const waiting of due) {
+      drawn.push(...(opening.get(waiting) ?? []));
+      opening.delete(waiting);
+    }
+  };
+  /** Draws a row, after what its run, or a run that started before it, read as its prompt and has not drawn yet. */
+  const push = (row: Row) => {
+    if (row.runId !== null && opening.size > 0) open(row.runId);
+    drawn.push(row);
+  };
   for (const entry of view.items) {
     switch (entry.kind) {
-      case "user-message":
+      case "user-message": {
         // A queued message is on the queued line until a run reads it or the provider steers it.
-        if (entry.delivery !== "queued") rows.push({ kind: "user", id: `message:${entry.messageId}`, runId: entry.runId, entry });
+        if (entry.delivery === "queued") break;
+        const row: Row = { kind: "user", id: `message:${entry.messageId}`, runId: entry.runId, entry };
+        if (readBy.get(entry.messageId) === entry.runId) opening.set(entry.runId, [...(opening.get(entry.runId) ?? []), row]);
+        else push(row);
         break;
+      }
       case "assistant-text":
       case "assistant-thinking":
         if (entry.text.length > 0 || entry.streaming) {
-          rows.push({ kind: "assistant", id: `${entry.kind === "assistant-text" ? "text" : "thinking"}:${entry.itemId}`, runId: entry.runId, entry });
+          push({ kind: "assistant", id: `${entry.kind === "assistant-text" ? "text" : "thinking"}:${entry.itemId}`, runId: entry.runId, entry });
         }
         break;
       case "tool-call": {
@@ -74,26 +103,26 @@ export const transcriptRows = (view: Pick<SessionProjection, "items" | "runs">):
         else {
           const calls = [entry];
           groups.set(entry.runId, calls);
-          rows.push({ kind: "calls", id: callsRowId(entry.runId), runId: entry.runId, calls });
+          push({ kind: "calls", id: callsRowId(entry.runId), runId: entry.runId, calls });
         }
         break;
       }
       case "command":
-        rows.push({ kind: "command", id: `command:${entry.sequence}`, runId: entry.runId, entry });
+        push({ kind: "command", id: `command:${entry.sequence}`, runId: entry.runId, entry });
         break;
       case "prompt":
       case "question":
       case "plan":
-        rows.push({ kind: "prompt", id: `prompt:${entry.promptId}`, runId: entry.runId, entry });
+        push({ kind: "prompt", id: `prompt:${entry.promptId}`, runId: entry.runId, entry });
         break;
       case "subagent":
-        rows.push({ kind: "subagent", id: `subagent:${entry.runId}:${entry.agentId}`, runId: entry.runId, entry });
+        push({ kind: "subagent", id: `subagent:${entry.runId}:${entry.agentId}`, runId: entry.runId, entry });
         break;
       case "tasks":
         // Delegated work is the strip's, not a row.
         break;
       case "opaque":
-        rows.push({ kind: "opaque", id: `opaque:${entry.sequence}`, runId: null, entry });
+        push({ kind: "opaque", id: `opaque:${entry.sequence}`, runId: null, entry });
         break;
       case "rewound":
         // The branch a rewind cut is not drawn yet: it was hidden before the runtime folded it (#230), and #232 draws the fold.
@@ -105,7 +134,9 @@ export const transcriptRows = (view: Pick<SessionProjection, "items" | "runs">):
       }
     }
   }
-  return withTurns(rows, view.runs);
+  // A run that has drawn nothing yet still opens with what it read, in the order the runs started.
+  for (const runId of [...opening.keys()].sort((a, b) => startOf(a) - startOf(b))) open(runId);
+  return withTurns(drawn, view.runs);
 };
 
 /** The rows with a `turn` row after the last row of each finished run; a run with no row of its own has none. */

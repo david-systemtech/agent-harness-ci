@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { Clock, RunState, Runtime, SessionProjection } from "@agent-harness/client-runtime";
+import type { Clock, RunState, Runtime, SessionProjection, SessionRunsView } from "@agent-harness/client-runtime";
 import type { AdapterCapabilities, CommandEntry } from "@agent-harness/contracts";
 import { gaugeOf, markOf, planDelta, type PlanMark } from "../transcript/plan.js";
 import { hear, nextQuietChange, runningCalls, type QuietCalls } from "../transcript/quiet.js";
@@ -9,7 +9,8 @@ import { lockOf, type Lock } from "./send.js";
  * The session on screen (docs/specs/tui.md, "The transcript" and "The
  * composer"): which one is open, its `projections.session` followed while it
  * is (following holds its subscription; letting go starts the runtime's five
- * minutes), its run state from `projections.runs`, the composer's lock from
+ * minutes), its run state from `projections.runs`, and its queue and the
+ * verbs of ADR 0022 from `projections.runs.session`, the composer's lock from
  * `capability`, its provider's descriptor and slash commands from the request
  * cache, and how long each running call has been quiet. Which session is open
  * is client-local presentation, held in memory only.
@@ -25,6 +26,8 @@ export interface OpenSession {
   readonly projection: SessionProjection | undefined;
   /** The session's run state; undefined with none open. */
   readonly runState: RunState | undefined;
+  /** Its queue, its rewind and each verb of ADR 0022, present or absent with its reason (`projections.runs.session`); undefined with none open. */
+  readonly runs: SessionRunsView | undefined;
   /** The run a send joins and Esc interrupts: the live run the projection or the run states name. */
   readonly liveRunId: string | undefined;
   readonly lock: Lock;
@@ -51,6 +54,11 @@ export const useSession = (runtime: Runtime, clock: Clock, request: () => void):
   const view = useMemo(() => (environmentId !== undefined && sessionId !== undefined ? runtime.projections.session(environmentId, sessionId) : undefined), [runtime, environmentId, sessionId]);
   useFollow(view, request);
   useFollow(opened ? runtime.projections.runs : undefined, request);
+  const sessionRuns = useMemo(
+    () => (environmentId !== undefined && sessionId !== undefined ? runtime.projections.runs.session(environmentId, sessionId) : undefined),
+    [runtime, environmentId, sessionId],
+  );
+  useFollow(sessionRuns, request);
   const providers = useMemo(() => (environmentId !== undefined ? runtime.requests.cached(environmentId, "providers.list", {}) : undefined), [runtime, environmentId]);
   useFollow(providers, request);
 
@@ -111,6 +119,7 @@ export const useSession = (runtime: Runtime, clock: Clock, request: () => void):
     opened,
     projection,
     runState: runs?.state,
+    runs: sessionRuns?.read(),
     liveRunId: liveRun ?? (runs?.state === "running" || runs?.state === "parked" ? (runs.runId ?? undefined) : undefined),
     lock: opened ? lockOf(runtime.capability(opened.environmentId, "runs.send")) : { locked: false },
     provider,

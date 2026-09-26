@@ -76,12 +76,20 @@ describe("the help lines", () => {
     expect(rowOf(lines, "pager.editor")?.state).toBe("soon");
   });
 
-  it("draw the 1–4 keys as soon, since nothing carries the follow-ups they would take, and ↑ with what it does in this build", () => {
+  it("draw the 1–4 keys as soon, since nothing carries the follow-ups they would take, Ctrl+Enter as answered, and ↑ with what it does in this build", () => {
     const built = helpLines(DEFAULT_KEYMAP, ANSWERED, BUILD_WORDS);
     expect(rowOf(built, "composer.suggestion.take")?.state).toBe("soon");
-    expect(rowOf(built, "composer.readNow")?.state).toBe("soon");
+    expect(rowOf(built, "composer.readNow")?.state).toBe("answered");
     expect(rowOf(built, "composer.navigate")).toMatchObject({ state: "answered", description: "The text, then history" });
     expect(rowOf(built, "transcript.follow")?.state).toBe("answered");
+  });
+
+  it("draw a conditioned row with its condition after its keys, answered, and keep it when remapped (#231)", () => {
+    const built = helpLines(DEFAULT_KEYMAP, ANSWERED, BUILD_WORDS);
+    expect(rowOf(built, "composer.withdrawLast")).toMatchObject({ keys: "↑", condition: "empty composer", state: "answered", remapped: false });
+    expect(rowOf(built, "composer.navigate")?.condition).toBeUndefined();
+    const remapped = helpLines(resolveKeymap({ "composer.withdrawLast": ["Alt+W"] }).keymap, ANSWERED);
+    expect(rowOf(remapped, "composer.withdrawLast")).toMatchObject({ keys: "Alt+W", condition: "empty composer", remapped: true });
   });
 
   it("name only actions of the list as answered", () => {
