@@ -41,6 +41,7 @@ import {
   type TerminalExitCause,
   type TerminalInfo,
 } from "@agent-harness/contracts";
+import { LIST_COMMANDS, scriptedList, type ScriptedList } from "./list-server.js";
 import { scriptedPrompts, type ScriptedPrompts } from "./prompts.js";
 
 /**
@@ -179,6 +180,8 @@ export interface EnvironmentHandle extends ScriptedPrompts {
   autoAccept(on: boolean): void;
   /** The requests the client sent on its latest socket, by method. */
   requests(method?: string): readonly Extract<Frame, { readonly type: "request" }>[];
+  /** Its session list: what it holds now, a method's answers held, a change of its own accord. */
+  readonly list: ScriptedList;
   /** The id of the session the script lists `index`th (from 0). */
   sessionId(index?: number): string;
   /** A session's summary as the environment holds it now. */
@@ -374,31 +377,18 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
   const sessions = (spec.sessions ?? []).map((s, i) => summaryOf(clock, s, i));
   const groups = (spec.groups ?? []).map((g, i) => groupOf(clock, g, i));
   let sequence = 100;
-  wire.answer("sessions.list", () => ({ result: { sequence, sessions } }));
-  wire.answer("groups.list", () => ({ result: { groups } }));
-  wire.answer("sessions.get", (params) => {
-    const found = sessions.find((s) => s.id === params["sessionId"]);
-    return found ? { result: { summary: found } } : { error: { code: "not_found", message: "No such session.", data: {} } };
-  });
 
-  // The streams: the session list and each session, answered `subscribed`, then the list as it stands or the session's
-  // whole log (a snapshot at its creation and every event since), then `synchronized` at the head. What is emitted later
-  // goes to the subscriptions of the latest socket.
+  // The streams: the session list (`test/list-server.ts`) and each session, answered `subscribed`, then the list as it
+  // stands or the session's whole log (a snapshot at its creation and every event since), then `synchronized` at the
+  // head. What is emitted later goes to the subscriptions of the latest socket.
   const logs = new Map<string, { readonly base: number; readonly events: EventEnvelope[] }>(sessions.map((s) => [s.id, { base: sequence, events: [] }]));
   let subscriptions = 0;
-  let listSubscription: string | undefined;
   const sessionSubscriptions = new Map<string, string>();
   const subscribed = (request: { readonly id: string }): string => {
     const id = `${slug(spec.name)}-sub-${++subscriptions}`;
     wire.server.send({ type: "subscribed", id: request.id, subscription: id });
     return id;
   };
-  wire.answer("sessions.subscribe", (_params, request) => {
-    listSubscription = subscribed(request);
-    wire.server.send({ type: "snapshot", subscription: listSubscription, sequence, payload: { sequence, sessions, groups } });
-    wire.server.send({ type: "synchronized", subscription: listSubscription, sequence });
-    return undefined;
-  });
   wire.answer("sessions.subscribeSession", (params, request) => {
     const sessionId = String(params["sessionId"]).toLowerCase();
     const summary = sessions.find((s) => s.id === sessionId);
@@ -522,7 +512,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     followQueue(sessionId, type, checkedPayload);
     const own = sessionSubscriptions.get(sessionId);
     if (own) wire.server.send({ type: "event", subscription: own, sequence: at, event });
-    if (listSubscription && (patch || isListEvent(SESSION_STREAM_KIND, type))) wire.server.send({ type: "event", subscription: listSubscription, sequence: at, event });
+    if (patch || isListEvent(SESSION_STREAM_KIND, type)) list.publish(event);
     return event;
   };
 
@@ -710,19 +700,6 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     const draft = (params["draft"] as string | null | undefined) || null;
     emit(sessionId, "session.draft-set", { draft }, { fields: { draft } });
     return acceptedWith({ summary: summaryNow(sessionId) });
-  });
-  wire.answer("sessions.create", (params) => {
-    const refused = rejection("sessions.create");
-    if (refused) return refused;
-    const at = clock.now().toISOString();
-    const summary = summaryOf(clock, { id: String(params["id"]), workspace: params["workspace"] as SessionSummary["workspace"], createdAt: at, updatedAt: at }, sessions.length);
-    emit(
-      summary.id,
-      "session.created",
-      { title: null, tags: [], groupId: null, workspace: summary.workspace, repositoryIdentity: null, account: null, model: null, mode: null },
-      { patch: { op: "add", summary } },
-    );
-    return acceptedWith({ summary });
   });
   wire.answer("files.list", () => ({ result: { files: [...(spec.files ?? [])], truncated: spec.filesTruncated ?? false, source: "git" } }));
   wire.answer("files.read", (params) => {
@@ -1035,17 +1012,42 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     "runs.withdraw",
     "runs.stopTask",
     "sessions.setDraft",
-    "sessions.create",
     "permissions.prompts.answer",
     "terminals.open",
     "terminals.write",
     "terminals.resize",
     "terminals.close",
+    ...LIST_COMMANDS,
   ]);
   for (const method of Object.keys(spec.receipts ?? {})) {
     if (ownResponders.has(method)) continue;
     wire.answer(method, () => receiptFor(method) ?? { result: { receipt: { status: "accepted", sequence: ++sequence, changed: true } } });
   }
+  // The session list and the organisation commands (`sessions.create` among them), applied with their patches to the
+  // sessions the session streams read; a rejection the script names still stands.
+  const list = scriptedList({
+    wire,
+    clock,
+    store: {
+      all: () => sessions,
+      get: (id) => sessions.find((s) => s.id === id),
+      put: (summary) => {
+        if (!logs.has(summary.id)) {
+          created.set(summary.id, summary);
+          logs.set(summary.id, { base: sequence, events: [] });
+        }
+        setSummary(summary);
+      },
+      remove: (id) => {
+        const at = sessions.findIndex((s) => s.id === id);
+        if (at !== -1) sessions.splice(at, 1);
+      },
+    },
+    groups,
+    next: () => ++sequence,
+    head: () => sequence,
+    refusal: receiptFor,
+  });
 
   const fetch: HttpFetch = async (url, request) => {
     if (spec.pairing && url === `${wire.origin}${PAIR_PATH}` && request?.method === "POST" && discovery !== "nothing") {
@@ -1097,6 +1099,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
       wire.server
         .received()
         .filter((f): f is Extract<Frame, { readonly type: "request" }> => f.type === "request" && (method === undefined || f.method === method)),
+    list,
     sessionId(at = 0) {
       const found = sessions[at];
       if (!found) throw new Error(`${spec.name} lists no session at ${at}.`);

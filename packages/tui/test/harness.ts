@@ -12,6 +12,7 @@ import type { ExternalEditResult } from "../src/composer/external-editor.js";
 import { FRAME_MS } from "../src/frames.js";
 import { DEFAULT_KEYMAP, keybindingsFor, type Keymap } from "../src/keys.js";
 import type { LocalService, ServiceOutcome } from "../src/platform/services.js";
+import type { Presentation } from "../src/presentation.js";
 import { createRuntimeHost, type RuntimeHost } from "../src/runtime-host.js";
 import type { Fault } from "../src/view.js";
 import { scriptedWorld, type EnvironmentHandle, type Script, type ScriptedWorld } from "./script.js";
@@ -188,6 +189,8 @@ export interface RenderOptions {
   readonly editText?: (text: string) => Promise<ExternalEditResult>;
   /** The user's diff filter; preset none, so a diff is drawn as the terminal UI colours one. */
   readonly diffFilter?: DiffFilter;
+  /** The client-local presentation (the rail's folds), to launch again on another app's; preset, a fresh one in memory. */
+  readonly presentation?: Presentation;
 }
 
 export interface RenderedApp {
@@ -324,6 +327,7 @@ export const appUnderTest = async (options: RenderOptions): Promise<AppUnderTest
     clipboard,
     chrome,
     editText: options.editText ?? (async (text: string) => ({ ok: true, text: `${text} (edited)` })),
+    ...(options.presentation && { presentation: options.presentation }),
   });
   const cleanup = () => {
     if (made !== undefined) rmSync(made, { recursive: true, force: true });

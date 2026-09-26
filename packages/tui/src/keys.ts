@@ -28,7 +28,7 @@ const KEY_ACTION_IDS = Object.keys(DEFAULT_KEYS) as KeyActionId[];
  * the file must give such an action exactly two different keys. A ticket that
  * wires another direction-keyed action adds it here.
  */
-const MOVE_ACTIONS: ReadonlySet<KeyActionId> = new Set<KeyActionId>(["picker.move", "picker.moveVi", "composer.navigate", "transcript.cursor", "asks.move"]);
+const MOVE_ACTIONS: ReadonlySet<KeyActionId> = new Set<KeyActionId>(["picker.move", "picker.moveVi", "rail.move", "rail.moveVi", "composer.navigate", "transcript.cursor", "asks.move"]);
 
 /** An action's context as the shared list gives it; for an id it does not list, the part before the first dot. */
 export const contextOf = (id: string): string => actionById(id)?.context ?? id.slice(0, id.indexOf("."));
@@ -297,7 +297,7 @@ export const dispatch = (keymap: Keymap, lookups: readonly Lookup[], handlers: H
   return false;
 };
 
-/** For a move action (`picker.move`, `picker.moveVi`, `composer.navigate`, `transcript.cursor`, `asks.move`): -1 for its up key, 1 for its down key, 0 for neither. */
+/** For a move action (`picker.move`, `picker.moveVi`, `rail.move`, `rail.moveVi`, `composer.navigate`, `transcript.cursor`, `asks.move`): -1 for its up key, 1 for its down key, 0 for neither. */
 export const direction = (keymap: Keymap, action: KeyActionId, name: string): -1 | 0 | 1 => {
   const [up, down] = keymap.keys[action];
   return name === up ? -1 : name === down ? 1 : 0;

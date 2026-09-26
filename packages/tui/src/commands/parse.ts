@@ -1,5 +1,6 @@
 import type { PairingInput } from "@agent-harness/client-runtime";
 import { actionById, isCommandId } from "@agent-harness/contracts";
+import { RAIL_COMMANDS, isRailCommand, type RailCommand } from "../rail/commands.js";
 
 /**
  * The slash commands this build answers (docs/specs/tui.md, "First launch",
@@ -8,7 +9,9 @@ import { actionById, isCommandId } from "@agent-harness/contracts";
  * Artemis with the transcript and the composer, `/resume`, `/new`,
  * `/attach <path>`, `/snip`, `/tasks`, `/copy`, `/export [file]`,
  * `/timeline` and `/quit`; with the cards, `/asks` and `/notices`; with
- * the terminal pane, `/terminal`, `/files [path]` and `/diff` (#148). A
+ * the terminal pane, `/terminal`, `/files [path]` and `/diff` (#148); with
+ * the rail, `/archive`, `/pin`, `/title`, `/group`, `/tag`, `/settle`,
+ * `/snooze`, `/restore`, `/search` and `/cwd` (`rail/commands.ts`). A
  * command of the shared list this build does not answer yet says so in one
  * line, and one the list keeps absent gives its reason; `/profile` is a
  * hidden alias of `/account`. Anything else that
@@ -17,7 +20,7 @@ import { actionById, isCommandId } from "@agent-harness/contracts";
  * follows a `/` is syntax, whatever key opens the command menu.
  */
 
-/** The slash commands `parseCommand` knows, by their names in the shared action list (`command.<name>`). */
+/** The slash commands `parseCommand` knows, by their names in the shared action list (`command.<name>`); the rail's are its own (`rail/commands.ts`). */
 export const ANSWERED_COMMANDS = [
   "pair",
   "environment",
@@ -37,6 +40,7 @@ export const ANSWERED_COMMANDS = [
   "terminal",
   "files",
   "diff",
+  ...RAIL_COMMANDS,
 ] as const;
 
 export type Command =
@@ -45,6 +49,7 @@ export type Command =
   | { readonly kind: "environment" }
   | { readonly kind: "help" }
   | { readonly kind: "reload" }
+  | { readonly kind: "rail"; readonly command: RailCommand }
   | { readonly kind: "resume" }
   | { readonly kind: "new" }
   | { readonly kind: "attach"; readonly path: string }
@@ -91,6 +96,9 @@ export const parseCommand = (typed: string): Command => {
   const name = ALIASES[lowered] ?? lowered;
   // Everything after the command word, as typed: a snippet's body keeps its lines.
   const tail = text.slice(1 + word.length).trim();
+  // The rail's forms take what follows the name whole, spaces kept: a title or a group's name has several words. None of
+  // them is a name the switch below answers.
+  if (isRailCommand(name)) return { kind: "rail", command: { name, text: tail } };
   switch (name) {
     case "pair": {
       if (rest.length === 1 && rest[0] === "create") return { kind: "pair-create" };

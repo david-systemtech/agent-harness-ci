@@ -1,6 +1,7 @@
 import type { ActionId, KeyActionId } from "@agent-harness/contracts";
 import { ANSWERED_COMMANDS } from "./commands/parse.js";
 import { COMPOSER_KEYS } from "./composer/use-composer.js";
+import { RAIL_KEYS } from "./rail/commands.js";
 
 /**
  * The actions of the shared list this build answers: the keys the screen
@@ -28,7 +29,7 @@ export const SCREEN_KEYS = [
   "row.diff",
   "terminal.leave",
   "terminal.scrollback",
-  "rail.leave",
+  ...RAIL_KEYS,
   "row.leave",
   "picker.move",
   "picker.moveVi",
@@ -67,6 +68,13 @@ export const SCREEN_KEYS = [
   "composer.withdrawLast",
 ] as const satisfies readonly KeyActionId[];
 
+/**
+ * The actions answered as text rather than looked up as a key: a typed
+ * picker takes every printable key into its query before any key is looked
+ * up (`app.tsx`), which is `picker.filter`'s `Letters`. They have no handler.
+ */
+export const TYPED_KEYS = ["picker.filter"] as const satisfies readonly KeyActionId[];
+
 /** The keys the screen answers itself, beside the composer's (`COMPOSER_KEYS`, `composer/use-composer.ts`). */
 export type ScreenKey = (typeof SCREEN_KEYS)[number];
 
@@ -80,7 +88,7 @@ export const ANSWERED_KEYS: readonly KeyActionId[] = [...SCREEN_KEYS, ...COMPOSE
  */
 export const ANSWERED_SYNTAX: readonly KeyActionId[] = ["composer.shell"];
 
-export const ANSWERED: ReadonlySet<ActionId> = new Set<ActionId>([...ANSWERED_KEYS, ...ANSWERED_SYNTAX, ...ANSWERED_COMMANDS.map((name) => `command.${name}` as const)]);
+export const ANSWERED: ReadonlySet<ActionId> = new Set<ActionId>([...ANSWERED_KEYS, ...TYPED_KEYS, ...ANSWERED_SYNTAX, ...ANSWERED_COMMANDS.map((name) => `command.${name}` as const)]);
 
 /**
  * What an answered action does in this build, where that is less than the
@@ -94,6 +102,8 @@ export const BUILD_WORDS: Readonly<Partial<Record<ActionId, string>>> = {
   "app.interruptOrQuit": "Clear the text or close the card; else interrupt, then quit",
   "app.attention.next": "The parked asks when more than one session waits; else the next session that needs you",
   "composer.navigate": "The text, then history",
-  "rail.leave": "Back to the composer",
+  // The shared list's words are Artemis's ("its folder"); the pin is the one pinned block across environments.
+  // eslint-disable-next-line agent-harness/no-client-organisation-state -- an action's id, not state held here
+  "rail.pin": "Pin it to the pinned block at the top, across environments; or unpin it",
   "row.leave": "Back to the composer",
 };

@@ -1,5 +1,6 @@
 import type { EnvironmentView, ParkedAsk } from "@agent-harness/client-runtime";
 import type { PromptKind } from "@agent-harness/contracts";
+import { badgesOf, type Badge } from "../rail/badge.js";
 
 /**
  * The parked-asks card as rows (docs/specs/tui.md, "Cards: permissions,
@@ -25,29 +26,9 @@ export const promptKey = (environmentId: string, sessionId: string, promptId: st
 
 export const askKey = (ask: Pick<ParkedAsk, "environmentId" | "sessionId" | "promptId">): string => promptKey(ask.environmentId, ask.sessionId, ask.promptId);
 
-/** The environment badge (ADR 0005): two letters of its name, in a colour of its own or one of the terminal's by its place in the list. */
-export interface Badge {
-  readonly abbreviation: string;
-  readonly colour: string;
-}
-
-const BADGE_COLOURS = ["cyan", "magenta", "yellow", "green", "blue", "red"] as const;
-
-/** The first letters of its first two words, else its first two letters, in capitals; "this machine" for a name not known yet. */
-export const abbreviationOf = (name: string | null): string => {
-  const words = (name ?? "this machine").split(/[\s\-_.]+/).filter((word) => /[\p{L}\p{N}]/u.test(word));
-  const letters = (word: string) => [...word.toUpperCase()].filter((c) => /[\p{L}\p{N}]/u.test(c));
-  const [first = "", second] = words;
-  return second !== undefined ? `${letters(first)[0] ?? ""}${letters(second)[0] ?? ""}` : letters(first).slice(0, 2).join("");
-};
-
-/** An environment's badge; one not listed (never so for a parked ask, whose environment is always a listed connection) wears none of another's. */
-export const badgeOf = (views: readonly EnvironmentView[], environmentId: string): Badge => {
-  const at = views.findIndex((view) => view.environmentId === environmentId);
-  const view = views[at];
-  if (view === undefined) return { abbreviation: "??", colour: "gray" };
-  return { abbreviation: abbreviationOf(view.name) || "??", colour: view.colour ?? BADGE_COLOURS[at % BADGE_COLOURS.length] ?? "cyan" };
-};
+/** An environment's badge, the rail's (`rail/badge.ts`), so it has the same two letters here; one not listed wears none of another's. */
+export const badgeOf = (views: readonly EnvironmentView[], environmentId: string): Badge =>
+  badgesOf(views).get(environmentId) ?? { icon: "●", abbreviation: "??", colour: "gray" };
 
 /** How long a TTL has left, in words: hours and minutes, then minutes and seconds, then seconds; "expiring" at zero. */
 export const ttlWords = (remainingMs: number): string => {

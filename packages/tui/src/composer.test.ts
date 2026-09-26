@@ -226,8 +226,8 @@ describe("slash commands", () => {
     await app.waitFor("filter slow?");
     expect(app.frame()).not.toContain("everything the terminal answers");
     expect(app.frame()).toContain("Why is it slow?");
-    // Under the header, which names the open session, the list holds only the match.
-    expect(app.rows().slice(1).filter((row) => row.includes("Receipts"))).toEqual([]);
+    // Under the header, which names the open session, the list holds only the match; the rail beside it lists every session.
+    expect(app.rows().slice(1).map((row) => row.split("│").at(-1) ?? row).filter((row) => row.includes("Receipts"))).toEqual([]);
   });
 
   it("sends a command it does not know to the agent as typed", async () => {

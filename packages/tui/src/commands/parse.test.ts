@@ -24,6 +24,15 @@ describe("parseCommand", () => {
     expect(parseCommand("/asks all")).toEqual({ kind: "usage", line: "Usage: /asks" });
   });
 
+  it("reads the rail's forms, what follows the name taken whole, and leaves every other command to its own case", () => {
+    expect(parseCommand("/title Spare  parts")).toEqual({ kind: "rail", command: { name: "title", text: "Spare  parts" } });
+    expect(parseCommand("/archive")).toEqual({ kind: "rail", command: { name: "archive", text: "" } });
+    expect(parseCommand("/snooze tomorrow 9am")).toEqual({ kind: "rail", command: { name: "snooze", text: "tomorrow 9am" } });
+    for (const name of ["pair", "environment", "help", "reload", "resume", "new", "attach", "snip", "tasks", "copy", "export", "timeline", "quit", "asks", "notices"]) {
+      expect(parseCommand(`/${name}`).kind, name).not.toBe("rail");
+    }
+  });
+
   it("reads /snip's forms, a template's lines kept", () => {
     expect(parseCommand("/snip")).toEqual({ kind: "snip-list" });
     expect(parseCommand("/snip fix pnpm -w")).toEqual({ kind: "snip", name: "fix", words: ["pnpm", "-w"] });
