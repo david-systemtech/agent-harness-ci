@@ -114,7 +114,6 @@ export const isReachable = (view: EnvironmentView | undefined): boolean => view?
 export const railLines = (input: RailInput): RailLine[] => {
   const { list, matches, badges } = input;
   const views = new Map(input.environments.map((v) => [v.environmentId, v]));
-  const pendingRow = (row: SessionRow) => row.awaitingReceipt;
   const lines: RailLine[] = [];
 
   const rowLine = (row: SessionRow, block: RailBlock): RailRow => ({
@@ -126,7 +125,7 @@ export const railLines = (input: RailInput): RailLine[] => {
     glyph: glyphOf(row.summary),
     tags: row.summary.tags,
     dim: !isReachable(views.get(row.environmentId)),
-    pending: pendingRow(row),
+    pending: row.awaitingReceipt,
     wake: block.kind === "snoozed" && row.summary.snoozedUntil !== null ? wakeWords(new Date(row.summary.snoozedUntil), input.now(row.environmentId)) : null,
   });
 
@@ -141,7 +140,7 @@ export const railLines = (input: RailInput): RailLine[] => {
       count: block.rows.length,
       folded,
       // A folded heading speaks for the rows it hides; an open one leaves it to them.
-      pending: fields.pending === true || (folded && block.rows.some(pendingRow)),
+      pending: fields.pending === true || (folded && block.rows.some((row) => row.awaitingReceipt)),
       dim: false,
       environmentId: null,
       pendingCommands: 0,

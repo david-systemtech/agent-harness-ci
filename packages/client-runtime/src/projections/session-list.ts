@@ -23,13 +23,13 @@ import { emptyStream, type Freshness, type StreamState } from "../streams/stream
  * name: a client obligation"): every summary across the enabled
  * environments, each row with its environment id for the badge (ADR 0005),
  * its pending flag and whether a command about it awaits its receipt, and
- * the views a sidebar renders, all sorted by the
- * contracts' ordering module, so every client orders the same summaries the
- * same way: order keys compare as plain strings, ties go to the
- * environment's place in the connection list, then the id. A pure function
- * of the connection records, each environment's list stream and each
- * environment's clock; nothing here is stored (ADR 0003): a merged heading
- * is a view over the groups each environment owns.
+ * the views a sidebar renders, all sorted by the contracts' ordering module,
+ * so every client orders the same summaries the same way: order keys compare
+ * as plain strings, ties go to the environment's place in the connection
+ * list, then the id. A pure function of the connection records, each
+ * environment's list stream and each environment's clock; nothing here is
+ * stored (ADR 0003): a merged heading is a view over the groups each
+ * environment owns.
  *
  * Shelves read each session against its own environment's time (the skew
  * from `hello`), and the observable wakes itself when the next snooze
@@ -43,13 +43,13 @@ export interface SessionRow {
   readonly summary: SessionSummary;
   /** The name of the group the session is in on its environment; null when it is in none. */
   readonly groupName: string | null;
-  /** A command about it waits in the outbox while its environment is unreachable: what it shows is the command's effect, not yet the environment's word. */
+  /** A `sessions:write` command about it waits in the outbox while its environment is unreachable: what it shows is the command's effect, not yet the environment's word. */
   readonly pending: boolean;
   /**
-   * A command about it is queued or in flight in the outbox, whatever the
-   * connection's phase, until its receipt (accepted or rejected) or its
-   * drop: the row's pending marker. `pending` is this while the environment
-   * cannot be reached.
+   * A `sessions:write` command about it is queued or in flight in the
+   * outbox, whatever the connection's phase, until its receipt (accepted or
+   * rejected) or its drop: the row's pending marker. `pending` is this while
+   * the environment cannot be reached.
    */
   readonly awaitingReceipt: boolean;
 }
@@ -91,9 +91,9 @@ export interface MergedGroupHeading {
   /** In the connection list's order. */
   readonly groups: readonly HeadingMember[];
   readonly shelves: SessionShelves;
-  /** A command about one of its groups waits in the outbox while that group's environment is unreachable. */
+  /** A `sessions:write` command about one of its groups waits in the outbox while that group's environment is unreachable. */
   readonly pending: boolean;
-  /** A command about one of its groups is queued or in flight in the outbox, whatever the connection's phase, until its receipt or its drop. */
+  /** A `sessions:write` command about one of its groups is queued or in flight in the outbox, whatever the connection's phase, until its receipt or its drop. */
   readonly awaitingReceipt: boolean;
 }
 

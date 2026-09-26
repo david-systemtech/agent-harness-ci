@@ -367,9 +367,11 @@ describe("commands.dispatch", () => {
   });
 
   it("keeps the outbox across a restart: a runtime started again on the same storage sends the entry with its command id", async () => {
-    const first = await paired();
-    await cut(first.wire);
+    const first = await paired({ list: true });
     const sessionId = randomUUID();
+    listed(first.list, 10, [summaryOf(sessionId, { title: "Invoices" })]);
+    await flush();
+    await cut(first.wire);
     const answer = first.runtime.commands.dispatch(first.id, "sessions.archive", { sessionId });
     await flush();
     await first.runtime.close();
@@ -383,6 +385,8 @@ describe("commands.dispatch", () => {
     void runtime.start();
     await flush();
     expect(pendingCount(runtime)).toBe(1);
+    // The row, from the kept list, is marked from the kept outbox before anything is sent.
+    expect(row(runtime, sessionId)).toMatchObject({ awaitingReceipt: true, pending: true });
     await wire.server.accept();
     const sent = await wire.server.request("sessions.archive");
     expect(sent.params).toMatchObject({ sessionId });
@@ -462,17 +466,22 @@ describe("commands.dispatch", () => {
   });
 
   it("drops an entry older than seven days with a notice", async () => {
-    const { runtime, wire, clock, id } = await paired();
-    await cut(wire);
+    const { runtime, wire, clock, id, list } = await paired({ list: true });
     const sessionId = randomUUID();
+    listed(list, 10, [summaryOf(sessionId, { title: "Invoices" })]);
+    await flush();
+    await cut(wire);
     const answer = runtime.commands.dispatch(id, "sessions.archive", { sessionId });
     await flush();
     clock.advance(COMMAND_EXPIRY_MS - 1);
     await flush();
     expect(pendingCount(runtime)).toBe(1);
+    expect(row(runtime, sessionId)).toMatchObject({ awaitingReceipt: true, pending: true });
     clock.advance(1);
     expect(await answer).toMatchObject({ ok: false, error: { code: "expired" } });
     expect(pendingCount(runtime)).toBe(0);
+    await flush();
+    expect(row(runtime, sessionId)).toMatchObject({ awaitingReceipt: false, pending: false });
     expect(runtime.projections.notices.read().filter((n) => n.kind === "command-dropped")).toEqual([
       expect.objectContaining({ environmentId: id, message: expect.stringMatching(/^Archive on .* was dropped: .*seven days/) }),
     ]);
@@ -644,6 +653,27 @@ describe("awaitingReceipt", () => {
     expect((await Promise.all(answers)).map((a) => a.ok)).toEqual([true, true]);
     await flush();
     expect(flags().map(([awaited]) => awaited)).toEqual([false, false, false]);
+  });
+
+  it("flags a row for a sessions:write command only: a runs:drive command about the session marks nothing", async () => {
+    const { runtime, wire, id, list } = await paired({ list: true });
+    const sessionId = randomUUID();
+    listed(list, 10, [summaryOf(sessionId, { title: "Invoices" })]);
+    await flush();
+    for (const method of ["runs.send", "sessions.pin"]) wire.answer(method, () => undefined);
+    const before = runtime.projections.sessionList.read();
+
+    void runtime.commands.dispatch(id, "runs.send", { sessionId, text: "and the tests" });
+    await wire.server.request("runs.send");
+    await flush();
+    expect(row(runtime, sessionId)).toMatchObject({ awaitingReceipt: false, pending: false });
+    // Nothing the list shows changed, and neither did the targets, so the list is the same object.
+    expect(runtime.projections.sessionList.read()).toBe(before);
+
+    // Queued behind the send, the pin marks the row.
+    void runtime.commands.dispatch(id, "sessions.pin", { sessionId });
+    await flush();
+    expect(row(runtime, sessionId)).toMatchObject({ awaitingReceipt: true, pending: false });
   });
 
   it("keeps the flag across a drop and the reconnect, and clears it on the re-sent command's receipt", async () => {

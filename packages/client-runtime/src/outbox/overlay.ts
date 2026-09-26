@@ -1,4 +1,4 @@
-import type { Group, SessionSummary } from "@agent-harness/contracts";
+import { registry, type Group, type SessionSummary } from "@agent-harness/contracts";
 import type { ConnectionRecord } from "../connections/records.js";
 import type { ListData } from "../streams/kinds.js";
 import type { StreamState } from "../streams/stream.js";
@@ -97,29 +97,60 @@ export const overlaidLists = (
 /** Whether the connection has a ready socket: `syncing` is ready, catching its list up. */
 export const reachable = (record: ConnectionRecord | undefined): boolean => record?.phase === "ready" || record?.phase === "syncing";
 
-/** The sessions and groups each environment's entries are about, of the environments `include` admits. */
+/**
+ * The sessions and groups each environment's `sessions:write` entries are
+ * about, of the environments `include` admits. A `runs:drive` command
+ * changes nothing the list shows (it has no overlay), so it marks no row
+ * (docs/specs/client-runtime.md, "Which commands queue"). An environment
+ * with no such entry is left out.
+ */
 const targetsOf = (outbox: OutboxView, include: (environmentId: string) => boolean): CommandTargets => {
   const targets = new Map<string, { sessions: Set<string>; groups: Set<string> }>();
   for (const [environmentId, { entries }] of outbox) {
-    if (entries.length === 0 || !include(environmentId)) continue;
+    if (!include(environmentId)) continue;
     const about = { sessions: new Set<string>(), groups: new Set<string>() };
-    for (const { target } of entries) {
+    for (const { method, target } of entries) {
+      if (registry[method].scope !== "sessions:write") continue;
       if (target?.kind === "session") about.sessions.add(target.id);
       else if (target?.kind === "group") about.groups.add(target.id);
     }
-    targets.set(environmentId, about);
+    if (about.sessions.size > 0 || about.groups.size > 0) targets.set(environmentId, about);
   }
   return targets;
 };
 
 /**
- * The sessions and groups a queued or in-flight command is about, whatever
- * the connection's phase: what carries `awaitingReceipt`. An entry leaves
- * the outbox on its receipt, accepted or rejected, or when it is dropped,
- * and the flag with it.
+ * The sessions and groups a queued or in-flight `sessions:write` command is
+ * about, whatever the connection's phase: what carries `awaitingReceipt`. An
+ * entry leaves the outbox on its receipt, accepted or rejected, or when it
+ * is dropped, and the flag with it.
  */
 export const awaitedTargets = (outbox: OutboxView): CommandTargets => targetsOf(outbox, () => true);
 
 /** The sessions and groups with a command waiting on an environment that cannot be reached: what carries `pending`. */
 export const pendingTargets = (records: readonly ConnectionRecord[], outbox: OutboxView): CommandTargets =>
   targetsOf(outbox, (environmentId) => !reachable(records.find((record) => record.environmentId === environmentId)));
+
+const sameSet = (a: ReadonlySet<string>, b: ReadonlySet<string>): boolean => a.size === b.size && [...a].every((id) => b.has(id));
+
+const sameTargets = (a: CommandTargets, b: CommandTargets): boolean =>
+  a.size === b.size &&
+  [...a].every(([environmentId, about]) => {
+    const other = b.get(environmentId);
+    return other !== undefined && sameSet(about.sessions, other.sessions) && sameSet(about.groups, other.groups);
+  });
+
+/**
+ * `compute` answering the targets it answered last while the new ones name
+ * the same sessions and groups, so an observable derived through it changes
+ * only when the set does, not on each outbox change (an entry sent, an
+ * attempt counted, an overlay settled).
+ */
+export const keepingSameTargets = <A extends unknown[]>(compute: (...args: A) => CommandTargets): ((...args: A) => CommandTargets) => {
+  let last: CommandTargets | undefined;
+  return (...args) => {
+    const next = compute(...args);
+    if (last === undefined || !sameTargets(last, next)) last = next;
+    return last;
+  };
+};

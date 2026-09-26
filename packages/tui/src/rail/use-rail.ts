@@ -14,15 +14,14 @@ import { movesFor } from "./reorder.js";
 /**
  * The rail's controller (docs/specs/tui.md, "The rail"): what the cursor is
  * on, the filter being typed, and what each of the rail's keys and slash
- * forms does. The rail holds no
- * state of the environment's: its lines are `railLines` over the runtime's
- * projections, worked out again when one of them changes, and its keys
- * issue the session-state commands through the outbox (`commands.dispatch`,
- * `commands.moveToGroup`), whose overlay shows the effect at once and whose
- * entries mark the rows they are about until their receipt
- * (`awaitingReceipt`). The only
- * state it keeps is client-local: the cursor, the filter, and the fold per
- * heading name (`collapsedHeadings`, in the presentation module).
+ * forms does. The rail holds no state of the environment's: its lines are
+ * `railLines` over the runtime's projections, worked out again when one of
+ * them changes, and its keys issue the session-state commands through the
+ * outbox (`commands.dispatch`, `commands.moveToGroup`), whose overlay shows
+ * the effect at once and whose entries mark the rows they are about until
+ * their receipt (`awaitingReceipt`). The only state it keeps is
+ * client-local: the cursor, the filter, and the fold per heading name
+ * (`collapsedHeadings`, in the presentation module).
  */
 
 /** A yes or no question on the line above the composer (the `confirm` context). */
