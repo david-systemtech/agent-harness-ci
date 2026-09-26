@@ -44,7 +44,8 @@ import { generatedTitle } from "./titles.js";
  * `session.rewound` on the session, with `session.draft-set` carrying the
  * message's text, refused while a run is live or the environment holds
  * queued messages for the session: the snapshot hides the message and
- * everything after it (`runs/transcript.ts`), and the session's next run
+ * everything after it from its items and carries them with the rewind in
+ * its rewinds (`runs/transcript.ts`, #260), and the session's next run
  * resumes the provider's conversation from just before it, on a fresh
  * process (the host stops the session's process when the rewind commits).
  * An undo is `session.rewind-undone` naming the latest rewind not undone,
@@ -117,8 +118,8 @@ const runStartedAfter = (log: Pick<EventLog, "read">, sessionId: string, sequenc
  * then failed may have written a turn after the rewind's point, which a
  * plain resume after an undo would continue from instead of from what the
  * undo shows again. Compaction leaves such a session out
- * (`sessions/compaction.ts`), since its fold does not keep what the rewind
- * hid.
+ * (`sessions/compaction.ts`, #218), though its fold now carries what the
+ * rewind hid (#260).
  */
 export const undoableRewind = (log: Pick<EventLog, "read">, sessionId: string): RewindRecord | null => {
   const rewind = latestRewind(log, sessionId);

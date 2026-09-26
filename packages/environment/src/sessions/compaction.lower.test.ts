@@ -356,6 +356,6 @@ describe("the compaction snapshot and the session's deletion", () => {
     expect(log.readSnapshot(stream(old))).toBeNull();
     expect(tombstone).toMatchObject({ type: "session.purged", streamVersion: 1 });
     expect(log.readStream(stream(old))).toEqual([tombstone]);
-    expect(sessionTranscript(log, old)).toEqual({ runs: [], items: [], parkedPrompts: [] });
+    expect(sessionTranscript(log, old)).toEqual({ runs: [], items: [], parkedPrompts: [], rewinds: [] });
   });
 });

@@ -15,6 +15,7 @@ import {
   type RunSummary,
   type SessionRewindUndonePayload,
   type SessionRewoundPayload,
+  type StandingRewind,
   type TasksChangedPayload,
   type ToolEndedPayload,
   type ToolStartedPayload,
@@ -28,7 +29,7 @@ import { sessionStream } from "../sessions/streams.js";
 
 /**
  * The transcript part of a session's snapshot (claude-adapter spec, the
- * snapshot `{summary, runs, items, parkedPrompts}`), folded from the
+ * snapshot `{summary, runs, items, parkedPrompts, rewinds}`), folded from the
  * session's stream: a pure function of its events. The simplest thing that
  * gives `sessions.subscribeSession` its snapshot: the snapshot is only read
  * when replay from a client's cursor is out of bounds, and a projection of
@@ -44,13 +45,81 @@ export interface TranscriptParts {
   readonly runs: RunSummary[];
   readonly items: TranscriptItem[];
   readonly parkedPrompts: ParkedPrompt[];
+  /** The rewinds standing, with what each hid, a rewind a later one cut nested in it (#260). */
+  readonly rewinds: StandingRewind[];
 }
+
+/**
+ * The transcript parts a compaction stored: one stored before #260 carries
+ * no rewinds, and is read as one with none standing (compaction never
+ * folded a rewind that could still be undone, #218, and what an older one
+ * hid was folded away with its events).
+ */
+export const storedTranscriptParts = (payload: unknown): TranscriptParts => {
+  const parts = payload as Omit<TranscriptParts, "rewinds"> & { readonly rewinds?: StandingRewind[] };
+  return { ...parts, rewinds: parts.rewinds ?? [] };
+};
 
 type Mutable<T> = { -readonly [K in keyof T]: T[K] };
 /** An item of a known kind, as the fold builds and then updates it. */
 type ItemOf<K extends string> = Mutable<Extract<TranscriptItem, { kind: K }>>;
-/** Any item as the fold holds it: of a known kind, or opaque. */
+/** Any item as the fold holds it: of a known kind, opaque, or a rewind's fold. */
 type Item = { kind: string; sequence: number };
+
+/**
+ * A rewind standing, as the fold holds it among the items, at its own
+ * sequence where it cut the branch: what it hid, as held (a fold among
+ * them nested), until an undo puts that back. The client runtime's reducer
+ * holds a rewind the same way (`projections/session.ts`), so the snapshot's
+ * rewinds are what a client that heard every event would draw. No item the
+ * fold makes otherwise has this kind: the environment folds an unknown
+ * event into kind `opaque`.
+ */
+interface Fold extends Item {
+  readonly kind: "rewound";
+  readonly toMessageId: string;
+  readonly text: string;
+  undoable: boolean;
+  hidden: Item[];
+}
+
+const isFold = (item: Item): item is Fold => item.kind === "rewound";
+const bySequence = (a: Item, b: Item): number => a.sequence - b.sequence;
+
+/** `list` without `item`, wherever it is held: at the top, or inside a fold. */
+const without = (list: Item[], item: Item): Item[] => {
+  if (list.includes(item)) return list.filter((held) => held !== item);
+  for (const held of list) if (isFold(held)) held.hidden = without(held.hidden, item);
+  return list;
+};
+
+/** `list` with `fold` taken away and what it hid put back in place, wherever the fold is held. */
+const unfold = (list: Item[], fold: Fold): Item[] => {
+  if (list.includes(fold)) return [...list.filter((held) => held !== fold), ...fold.hidden].sort(bySequence);
+  for (const held of list) if (isFold(held)) held.hidden = unfold(held.hidden, fold);
+  return list;
+};
+
+/** The items and the rewinds of a list as the snapshot carries them: the items apart, each fold a standing rewind. */
+const partsOf = (list: readonly Item[]): { items: TranscriptItem[]; rewinds: StandingRewind[] } => ({
+  items: list.filter((item) => !isFold(item)) as unknown as TranscriptItem[],
+  rewinds: list.filter(isFold).map(({ sequence, toMessageId, text, undoable, hidden }) => ({ sequence, toMessageId, text, undoable, ...partsOf(hidden) })),
+});
+
+/** The list a snapshot's items and rewinds make, each rewind a fold at its sequence; `folds` gathers every fold, oldest first. */
+const listOf = (items: readonly Item[], rewinds: readonly StandingRewind[], folds: Fold[]): Item[] => {
+  const held = rewinds.map(({ sequence, toMessageId, text, undoable, items: hid, rewinds: nested }): Fold => {
+    const fold: Fold = { kind: "rewound", sequence, toMessageId, text, undoable, hidden: [] };
+    fold.hidden = listOf(hid, nested, folds);
+    folds.push(fold);
+    return fold;
+  });
+  folds.sort(bySequence);
+  return [...items, ...held].sort(bySequence);
+};
+
+/** Every item held, at the top or in a fold, the folds left out. */
+const everyItem = (list: readonly Item[]): Item[] => list.flatMap((item) => (isFold(item) ? everyItem(item.hidden) : [item]));
 
 /** Whether `type` is one the session stream's table knows: organisation, prompt or transcript. */
 const knownType = (type: string): boolean => eventTypeEntry(SESSION_STREAM_KIND, type) !== undefined;
@@ -80,25 +149,27 @@ export const readTranscriptEvents = (log: Pick<EventLog, "read">, sessionId: str
 export const sessionTranscript = (log: Pick<EventLog, "read" | "readSnapshot">, sessionId: string): TranscriptParts => {
   const snapshot = log.readSnapshot(sessionStream(sessionId));
   const events = readTranscriptEvents(log, sessionId, snapshot?.sequence ?? 0);
-  return snapshot === null ? foldTranscript(events) : foldTranscript(events, snapshot.payload as TranscriptParts);
+  return snapshot === null ? foldTranscript(events) : foldTranscript(events, storedTranscriptParts(snapshot.payload));
 };
 
 /**
  * Folds one session's events, oldest first, into its runs, its settled
- * items and its parked prompts; from `from`, a fold of the events before
- * them (a compaction's snapshot), when given, which it leaves unchanged.
- * A rewind hides the message it names and every item after it, and an undo
- * (`session.rewind-undone`) shows them again, in their places. Folding on
- * from a fold gives what folding every event would, but for what a rewind
- * hid before the fold: the fold does not keep it, so an event aimed at such
- * an item has nothing to update and an undo of that rewind brings nothing
- * back. Compaction therefore never folds a rewind that can still be undone
- * (`sessions/compaction.ts`).
+ * items, its parked prompts and the rewinds standing; from `from`, a fold of
+ * the events before them (a compaction's snapshot), when given, which it
+ * leaves unchanged. A rewind to a message the items show (a message a
+ * rewind hid hides nothing more) takes it and every item after it out of the
+ * items into the rewind's fold, where a fold an earlier rewind made among
+ * them is nested; the fold is undoable until a run starts on the session,
+ * and stands until an undo (`session.rewind-undone`) naming it puts what it
+ * hid back, in place (#218, #260). Folding on from a fold gives what
+ * folding every event would: the rewinds it carries hold what they hid.
  */
 export const foldTranscript = (events: Iterable<EventEnvelope>, from?: TranscriptParts): TranscriptParts => {
-  const start = from === undefined ? undefined : (structuredClone(from) as { runs: Mutable<RunSummary>[]; items: Item[]; parkedPrompts: ParkedPrompt[] });
+  const start = from === undefined ? undefined : (structuredClone(storedTranscriptParts(from)) as { runs: Mutable<RunSummary>[]; items: Item[]; parkedPrompts: ParkedPrompt[]; rewinds: StandingRewind[] });
   const runs = new Map<string, Mutable<RunSummary>>(start?.runs.map((run) => [run.runId, run]));
-  let items: Item[] = start?.items ?? [];
+  /** The rewinds standing, oldest first, each its fold. */
+  let folds: Fold[] = [];
+  let items: Item[] = start === undefined ? [] : listOf(start.items, start.rewinds, folds);
   const parked = new Map<string, ParkedPrompt>(start?.parkedPrompts.map((prompt) => [prompt.promptId, prompt]));
   /** Items to update later, by the id their events carry. */
   const messages = new Map<string, ItemOf<"user-message">>();
@@ -106,10 +177,8 @@ export const foldTranscript = (events: Iterable<EventEnvelope>, from?: Transcrip
   const ledgers = new Map<string, ItemOf<"tasks">>();
   /** Prompt items not yet answered, by prompt id. */
   const prompts = new Map<string, ItemOf<"prompt">>();
-  /** What each rewind hid, by its `session.rewound`'s sequence, until an undo shows it again. */
-  const hidden = new Map<number, Item[]>();
-  // The items of the fold it goes on from that later events update, by the ids those carry.
-  for (const item of items) {
+  // The items of the fold it goes on from that later events update, by the ids those carry, a rewind's hidden ones too.
+  for (const item of everyItem(items)) {
     if (item.kind === "user-message") {
       const message = item as unknown as ItemOf<"user-message">;
       messages.set(message.messageId, message);
@@ -153,6 +222,8 @@ export const foldTranscript = (events: Iterable<EventEnvelope>, from?: Transcrip
           usage: null,
           durationMs: null,
         });
+        // A run started on the session: no rewind standing can be undone any more (ADR 0022), and each stays where it cut.
+        for (const fold of folds) fold.undoable = false;
         break;
       }
       case "run.ended": {
@@ -208,7 +279,7 @@ export const foldTranscript = (events: Iterable<EventEnvelope>, from?: Transcrip
         // Taken back before any run read it (#228): its text is the draft now, so the queued row goes; the log keeps it.
         const { messageId } = event.payload as MessageWithdrawnPayload;
         const item = messages.get(messageId);
-        if (item !== undefined) items = items.filter((held) => held !== item);
+        if (item !== undefined) items = without(items, item);
         messages.delete(messageId);
         break;
       }
@@ -270,21 +341,23 @@ export const foldTranscript = (events: Iterable<EventEnvelope>, from?: Transcrip
         break;
       }
       case "session.rewound": {
-        // The rewound message and every item after it are hidden; they stay in the log.
+        // The rewound message and every item after it go into the rewind's fold, a fold among them nested; they stay in the log.
         const { toMessageId } = event.payload as SessionRewoundPayload;
         const target = messages.get(toMessageId);
-        if (target !== undefined) {
-          hidden.set(sequence, items.filter((item) => item.sequence >= target.sequence));
-          items = items.filter((item) => item.sequence < target.sequence);
-        }
+        // Only a message the items show is rewound to (`sessions.rewind` takes no other); one a rewind hid hides nothing more.
+        if (target === undefined || !items.includes(target)) break;
+        const fold: Fold = { kind: "rewound", sequence, toMessageId, text: target.text, undoable: true, hidden: items.filter((item) => item.sequence >= target.sequence) };
+        items = [...items.filter((item) => item.sequence < target.sequence), fold];
+        folds.push(fold);
         break;
       }
       case "session.rewind-undone": {
         // What the rewind hid is shown again where it stood, before anything that came after the rewind.
         const { rewindSequence } = event.payload as SessionRewindUndonePayload;
-        const back = hidden.get(rewindSequence);
-        if (back !== undefined) items = [...items, ...back].sort((a, b) => a.sequence - b.sequence);
-        hidden.delete(rewindSequence);
+        const undone = folds.find((fold) => fold.sequence === rewindSequence);
+        if (undone === undefined) break;
+        folds = folds.filter((fold) => fold !== undone);
+        items = unfold(items, undone);
         break;
       }
       case "prompt.opened": {
@@ -307,5 +380,6 @@ export const foldTranscript = (events: Iterable<EventEnvelope>, from?: Transcrip
         if (!knownType(event.type)) push({ kind: "opaque", sequence, type: event.type, payload: event.payload });
     }
   }
-  return { runs: [...runs.values()], items: items as unknown as TranscriptItem[], parkedPrompts: [...parked.values()] };
+  const parts = partsOf(items);
+  return { runs: [...runs.values()], items: parts.items, parkedPrompts: [...parked.values()], rewinds: parts.rewinds };
 };

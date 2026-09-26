@@ -281,6 +281,11 @@ describe("sessions.rewind", () => {
     expect((await get(client, id)).draft).toBe("Second");
     const snapshot = await snapshotOf(t, client, id);
     expect(snapshot.items.map((item) => ("text" in item ? item.text : item.kind))).toEqual(["First", "Done: First"]);
+    // The snapshot carries the rewind, with what it hid, so a client that opens from it draws the fold and offers the undo (#260).
+    expect(snapshot.rewinds).toEqual([
+      { sequence: rewound?.sequence, toMessageId: second.messageId, text: "Second", undoable: true, items: expect.any(Array), rewinds: [] },
+    ]);
+    expect(snapshot.rewinds[0]?.items.map((item) => ("text" in item ? item.text : item.kind))).toEqual(["Second", "Done: Second", "Third", "Done: Third"]);
     expect(events(t, id).filter((event) => event.type === "message.sent")).toHaveLength(3);
     await vi.waitFor(() => expect(t.adapter.processesOf(id).at(-1)?.stopped).toBe(true));
     expect((await client.request("providers.processes.list", {})).processes.find((process) => process.sessionId === id)).toMatchObject({ stopReason: "rewound" });
@@ -290,6 +295,8 @@ describe("sessions.rewind", () => {
     expect(t.adapter.processesOf(id)).toHaveLength(before + 1);
     const after = await snapshotOf(t, client, id);
     expect(after.items.map((item) => ("text" in item ? item.text : item.kind))).toEqual(["First", "Done: First", "Second, again", "Done: Second, again"]);
+    // Continued from, the rewind still stands where it cut, no longer undoable.
+    expect(after.rewinds).toMatchObject([{ sequence: rewound?.sequence, toMessageId: second.messageId, undoable: false }]);
     // Continued from: the run after it resumes as ever.
     await runTo(t, client, id, "Fourth");
     expect(t.adapter.lastRun().input.target).toEqual({ kind: "resume", providerSessionId: "provider-1" });
@@ -523,6 +530,11 @@ describe("sessions.undoRewind", () => {
     await rewind(client, id, third.messageId);
     const after = await runTo(t, client, id, "Third, again");
     await rewind(client, id, second.messageId);
+    // The later rewind cut the earlier's fold with the rest: nested in it, the earlier one no longer undoable (#260).
+    const stacked = await snapshotOf(t, client, id);
+    expect(texts(stacked)).toEqual(["First", "Done: First"]);
+    expect(stacked.rewinds).toMatchObject([{ toMessageId: second.messageId, undoable: true, rewinds: [{ toMessageId: third.messageId, text: "Third", undoable: false, rewinds: [] }] }]);
+    expect(stacked.rewinds[0]?.items.map((item) => ("text" in item ? item.text : item.kind))).toEqual(["Second", "Done: Second", "Third, again", "Done: Third, again"]);
 
     expect((await undoRewind(client, id)).result).toMatchObject({ messageId: second.messageId });
     expect((await undoRewind(client, id)).receipt).toMatchObject({
