@@ -383,11 +383,11 @@ export const useTerminalPane = (host: PaneHost): TerminalPane => {
         ...size,
         env: shownEnv(command),
       });
-      if (!opened.ok) return failed(entry, opened.error.message);
-      if (opened.result.receipt.status === "rejected") return failed(entry, opened.result.receipt.error.message);
-      entry.terminalId = id;
-      // Gone before its terminal came: the command is not run, and the terminal is not left open.
+      const refusal = !opened.ok ? opened.error.message : opened.result.receipt.status === "rejected" ? opened.result.receipt.error.message : undefined;
+      if (refusal === undefined) entry.terminalId = id;
+      // Gone before its terminal came: a refusal is nobody's news, and an opened terminal is closed, the command not run.
       if (entry.closed) return closeTerminal(entry);
+      if (refusal !== undefined) return failed(entry, refusal);
       // Keys typed in the pane while it opened go after the line, to the command, as a shell's typeahead would.
       entry.outgoing = ONE_OFF_LINE + entry.outgoing;
       attach(entry, id, size);

@@ -415,6 +415,22 @@ describe("a shell line", () => {
     await app.waitUntil(() => written(app, FIRST) === `${ONE_OFF_LINE}y\r`, "the command's line, then the keys, to reach the terminal");
   });
 
+  it("says nothing of a ! command's terminal refused after its pane was already replaced", async () => {
+    // A shell already holds the id the command will mint, so the command's open is refused as a conflict once released.
+    const { app, env } = await opened({ oneOff: () => ({ output: "" }), terminals: [{ id: FIRST, output: "$ " }] });
+    const release = env.holdTerminalOpens();
+    await command(app, "!confirm");
+    await app.waitFor("!confirm · desk");
+    // /terminal replaces the pane before that open answers; it opens a shell of its own, since the held one has a one-off's id.
+    await command(app, "/terminal");
+    await app.waitFor("terminal · desk · opening");
+    release();
+    await app.waitUntil(() => rowsWith(app, "$").includes("$"), "the new shell's prompt");
+    // The refusal was answered first. Looked for by its start: the reason wraps at the frame's width.
+    expect(app.frame()).not.toContain("No terminal on desk");
+    expect(app.frame()).toContain("terminal · desk");
+  });
+
   it("opens the session's shell on /terminal while a ! command runs, and closes that command's terminal when it exits later", async () => {
     const { app, env } = await opened({ oneOff: () => ({ output: "watching\n" }) });
     await command(app, "!watch ls");
