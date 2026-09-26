@@ -47,12 +47,17 @@ const terminalEvent = (sequence: number, type: string, payload: Record<string, u
 const output = (sequence: number, data: string) => terminalEvent(sequence, TERMINAL_OUTPUT_TYPE, { data });
 const exited = (sequence: number, payload: TerminalExitedPayload) => terminalEvent(sequence, TERMINAL_EXITED_TYPE, payload);
 
-const snapshot = (lastSequence: number, scrollback: string, truncated = false): TerminalSnapshot => ({
+/**
+ * A snapshot as the environment's scrollback builds one: `firstSequence` the
+ * oldest chunk retained (0 while there is none), so a truncated one names
+ * where its retained tail begins, past the chunks that were dropped.
+ */
+const snapshot = (lastSequence: number, scrollback: string, retained: { readonly from: number; readonly truncated: boolean } = { from: 1, truncated: false }): TerminalSnapshot => ({
   terminal: { id: TERMINAL, sessionId: SESSION, openedAt: MANUAL_CLOCK_START, cols: 80, rows: 24, exitCode: null, signal: null },
   scrollback,
-  firstSequence: lastSequence === 0 ? 0 : 1,
+  firstSequence: lastSequence === 0 ? 0 : retained.from,
   lastSequence,
-  truncated,
+  truncated: retained.truncated,
 });
 
 /** A runtime paired with the fake environment, its session list synchronized, so the connection is ready. */
@@ -138,7 +143,8 @@ describe("a terminal's subscription", () => {
     await wire.server.accept();
     (await subscription(wire, "sessions.subscribe")).synchronized(0);
     const again = await subscription(wire, "terminals.subscribe");
-    again.snapshot(900, snapshot(900, "the retained tail\r\n", true));
+    // Chunks 1 to 849 were dropped at the cap: the tail retained begins at 850, past the cursor of 1.
+    again.snapshot(900, snapshot(900, "the retained tail\r\n", { from: 850, truncated: true }));
     again.synchronized(900);
     await flush();
     expect(heard.at(-1)).toMatchObject({ kind: "reset", data: "the retained tail\r\n", sequence: 900, truncated: true });
@@ -164,6 +170,23 @@ describe("a terminal's subscription", () => {
     await flush();
     expect(wire.server.received().filter((f) => f.type === "request" && f.method === "terminals.subscribe")).toHaveLength(0);
     expect(handle.state.read().status).toBe("ended");
+  });
+
+  it("keeps the exit it heard through the end the environment sends after it, and through the environment being forgotten", async () => {
+    // The environment ends a terminal's subscription on its exit event (`endOn`): `deleted` when the session went, else `closed`.
+    const { wire, runtime, open } = await ready();
+    const handle = open();
+    const stream = await subscription(wire, "terminals.subscribe");
+    stream.snapshot(1, snapshot(1, "$ "));
+    stream.synchronized(1);
+    stream.event(exited(2, { exitCode: 129, signal: 1, cause: "deleted" }));
+    stream.end("deleted");
+    await flush();
+    expect(handle.state.read()).toMatchObject({ status: "ended", cursor: 2, exit: { exitCode: 129, signal: 1, cause: "deleted" } });
+
+    await runtime.connections.remove(wire.environmentId);
+    await flush();
+    expect(handle.state.read()).toMatchObject({ status: "ended", exit: { exitCode: 129, signal: 1, cause: "deleted" }, fault: null });
   });
 
   it("resubscribes from its cursor at once on overflow", async () => {
