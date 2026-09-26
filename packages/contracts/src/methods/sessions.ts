@@ -334,11 +334,16 @@ export const sessionsFork = defineMethod({
  * draft), the message and every item after it stay in the log and the
  * snapshot hides them, and the session's next run continues the provider
  * session from just before it. Files are never restored. While a run is
- * live it is `conflict` (reason `run_active`); while the environment holds
- * queued messages for the session it is `conflict` (reason
- * `queued_messages`: the next run would read them after a history that
- * hides the messages sent before them; withdraw them or let a run read them
- * first); a message that is not a user
+ * live it is `conflict` (reason `run_active`, naming the run; also while a
+ * turn the provider opened after the run's end waits to be taken on, which
+ * names the run it followed). With no run live, a rewind sent just after a
+ * run's end first waits, for at most ten seconds, until the environment has
+ * taken back what the provider still held; then, while messages sent to the
+ * session are queued with the environment, or with a provider that can still
+ * hand them to a run, it is `conflict` (reason `queued_messages`, naming
+ * them: the next run would read them after a history that hides the
+ * messages sent before them; withdraw them or let a run read them first);
+ * a message that is not a user
  * message of the session's visible transcript is `not_found` (data kind
  * `message`); the session's first message is `conflict` (reason
  * `use_new_session`: the client starts a new session with its text as the

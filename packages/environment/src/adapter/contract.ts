@@ -531,6 +531,17 @@ export type AdapterEvent = TranscriptEvent | ToolDenial | RunEnd;
  * with exactly one `end`; the host makes sure of it on every path (the
  * adapter throws, the stream stops without an end, the host disposes the
  * run), appending the one `run.ended` itself when the adapter could not.
+ *
+ * The promises `send`, `interrupt` and `withdraw` answer must settle in a
+ * bounded time, once the provider has taken, refused or answered, whether or
+ * not the run has ended meanwhile, and never wait on a later turn (a send
+ * that resolved only when a turn read the message would wait on a run nobody
+ * can start yet). An answer that comes after the run's end can hand a message
+ * back to the environment's queue, so the host tracks each until it settles
+ * and a rewind waits on them (`sessions.rewind`, #245), for at most
+ * `REWIND_WAIT_MS`, holding up its client's later commands meanwhile. Claude
+ * resolves a send at once and bounds the others by its interrupt and control
+ * timeouts.
  */
 export interface AdapterRun {
   readonly events: AsyncIterable<AdapterEvent>;

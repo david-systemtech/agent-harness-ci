@@ -1,4 +1,4 @@
-import { ACTION_GROUPS, isCommandId, type ActionId, type KeyActionId, type ListedAction } from "@agent-harness/contracts";
+import { ACTION_CONDITIONS, ACTION_GROUPS, isCommandId, type ActionId, type KeyActionId, type ListedAction } from "@agent-harness/contracts";
 import type { Keymap } from "./keys.js";
 
 /**
@@ -8,7 +8,10 @@ import type { Keymap } from "./keys.js";
  * `COMMANDS`. A remapped row shows its keys in force and is marked; a row the
  * harness lacks is `absent`, drawn dim with its reason on the line under it,
  * as Artemis drew `planned` rows; a row this build does not answer yet is
- * `soon`, dim, as Artemis marked a planned one. A hidden alias is left out.
+ * `soon`, dim, as Artemis marked a planned one. A row the list declares a
+ * condition for carries the condition's words, drawn after its keys as the
+ * tui spec's table writes them (`↑ (empty composer)`), remapped or not. A
+ * hidden alias is left out.
  * One line per line drawn, so the overlay scrolls by what is on screen.
  */
 export type HelpLine =
@@ -18,6 +21,8 @@ export type HelpLine =
       readonly id: ActionId;
       /** The keys in force, alternatives after commas as the table writes them; a slash command's usage line. */
       readonly keys: string;
+      /** The words of the condition its keys are answered under (`empty composer`), when the list declares one. */
+      readonly condition?: string;
       readonly description: string;
       readonly remapped: boolean;
       readonly state: "answered" | "soon" | "absent";
@@ -31,6 +36,7 @@ const rowOf = (action: ListedAction, keymap: Keymap, answered: ReadonlySet<Actio
     kind: "row",
     id: action.id,
     keys: command ? (action.usage ?? action.id) : keymap.keys[id].join(", "),
+    ...(action.when !== undefined && { condition: ACTION_CONDITIONS[action.when].words }),
     description: words[action.id] ?? action.description,
     remapped: !command && keymap.remapped.has(id),
     state: action.status === "absent" ? "absent" : answered.has(action.id) ? "answered" : "soon",

@@ -60,6 +60,8 @@ export const SCREEN_KEYS = [
   "asks.allowAll",
   "asks.denyAll",
   "asks.close",
+  "composer.readNow",
+  "composer.withdrawLast",
 ] as const satisfies readonly KeyActionId[];
 
 /**

@@ -73,6 +73,18 @@ describe("each verb's availability", () => {
     expect(sessionVerbs(input({ queued: mixed })).verbs.withdraw).toEqual(PRESENT);
   });
 
+  it("names the message the withdraw takes back: the newest a withdraw reaches, whatever the connection says, and none when none is", () => {
+    const queued = [message("m-0", "Held", "environment", 2), message("m-1", "Also the tests", "provider", 3)];
+    expect(sessionVerbs(input({ live: true, queued })).withdrawTarget).toBe("m-1");
+    // Past one the provider is opening a turn with, so both renderers take back the same message.
+    expect(sessionVerbs(input({ queued })).withdrawTarget).toBe("m-0");
+    expect(sessionVerbs(input({ queued: queued.slice(1) })).withdrawTarget).toBeNull();
+    expect(sessionVerbs(input()).withdrawTarget).toBeNull();
+    // The connection decides whether it can be taken back now, not which message it is.
+    const unreachable = (): CapabilityAnswer => ({ status: "absent", reason: "unreachable", message: "desk cannot be reached." });
+    expect(sessionVerbs(input({ connection: unreachable, live: true, queued })).withdrawTarget).toBe("m-1");
+  });
+
   it("says what the adapter cannot do, by its flag and in its name", () => {
     const codex = { ...(capabilities as AdapterCapabilities), provider: "codex", displayName: "Codex", fork: false, rewind: false };
     const { verbs } = sessionVerbs(input({ adapter: codex }));
