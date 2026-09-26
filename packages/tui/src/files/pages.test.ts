@@ -95,7 +95,7 @@ describe("a diff tool's answer in the pager", () => {
     expect(lines[0]?.spans).toEqual([{ text: "keypad saved back numeric reset" }]);
   });
 
-  it("reads colon sub-parameters as one parameter: a curly underline is an underline, 4:0 turns it off alone, and 38:2 skips its colour space", () => {
+  it("reads colon sub-parameters as one parameter: a curly underline is an underline, 4:0 turns it off alone, and the all-colon 38:2 skips its colour space", () => {
     const lines = sgrPage("\u001B[1;4:3mA\u001B[4:0mB\u001B[38:2::10:20:30mC\u001B[38:5:208mD\u001B[38:2:1:2:3mE", 60);
     expect(lines[0]?.spans).toEqual([
       { text: "A", bold: true, underline: true },
@@ -103,6 +103,17 @@ describe("a diff tool's answer in the pager", () => {
       { text: "C", bold: true, color: "#0a141e" },
       { text: "D", bold: true, color: "ansi256(208)" },
       { text: "E", bold: true, color: "#010203" },
+    ]);
+  });
+
+  it("reads the mixed form xterm accepts, 38 then its mode with the arguments as the mode's colon sub-parameters, as the other two forms read", () => {
+    // `CSI 38 ; 2 : r : g : b m` and `CSI 38 ; 5 : n m`, with or without a colour space, as xterm's parse_extended_colors reads them.
+    const lines = sgrPage("\u001B[38;2:1:2:3mA\u001B[48;2::10:20:30mB\u001B[38;5:208;1mC\u001B[0;38;2;1;2;3mD", 60);
+    expect(lines[0]?.spans).toEqual([
+      { text: "A", color: "#010203" },
+      { text: "B", color: "#010203", background: "#0a141e" },
+      { text: "C", color: "ansi256(208)", background: "#0a141e", bold: true },
+      { text: "D", color: "#010203" },
     ]);
   });
 

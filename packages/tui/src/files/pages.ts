@@ -168,7 +168,8 @@ const extended = (args: Param): string | undefined => {
  * `CSI` and `m`), from `style`. Parameters are separated by `;`; a
  * parameter's `:` parts are its sub-parameters (`4:3` a curly underline,
  * `38:2::r:g:b`), never codes of their own. The extended colours' `;` form
- * takes the parameters after it as its arguments; the underline colour (58,
+ * takes the parameters after it as its arguments, or the next one's
+ * sub-parameters when it has them (`38;2:r:g:b`); the underline colour (58,
  * 59), which a cell here has no carrier for, is passed over with them.
  */
 const applySgr = (style: Style, raw: string): Style => {
@@ -177,10 +178,20 @@ const applySgr = (style: Style, raw: string): Style => {
   for (let i = 0; i < params.length; i++) {
     const param = params[i] ?? [];
     const p = param[0] ?? 0;
-    /** The extended colour at `i`: from its sub-parameters when it has them, else from the parameters after it, which it takes. */
+    /**
+     * The extended colour at `i`: from its sub-parameters when it has them;
+     * else from the next parameter's when that has them (`38;2:r:g:b`, the
+     * mixed form xterm accepts), taking that one; else from the parameters
+     * after it, which it takes.
+     */
     const colour = (): string | undefined => {
       if (param.length > 1) return extended(param.slice(1));
-      const mode = params[i + 1]?.[0];
+      const following = params[i + 1];
+      if (following !== undefined && following.length > 1) {
+        i += 1;
+        return extended(following);
+      }
+      const mode = following?.[0];
       const taken = mode === 5 ? 2 : mode === 2 ? 4 : 0;
       const args = params.slice(i + 1, i + 1 + taken).map((q) => q[0]);
       i += taken;
