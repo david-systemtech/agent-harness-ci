@@ -354,8 +354,8 @@ export const renderApp = async (options: RenderOptions): Promise<RenderedApp> =>
     async press(...keys) {
       for (const bytes of keys) {
         app.stdin.write(bytes);
-        // Ink waits 20 ms of real time before it takes a lone Esc as the key rather than the start of a sequence.
-        if (bytes === KEY.esc) await new Promise((resolve) => setTimeout(resolve, 30));
+        // Ink waits 20 ms of real time before it takes a lone Esc (or two in one read) as the key rather than the start of a sequence.
+        if (bytes.length > 0 && [...bytes].every((byte) => byte === KEY.esc)) await new Promise((resolve) => setTimeout(resolve, 30));
         await settle();
       }
     },
