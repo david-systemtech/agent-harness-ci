@@ -810,6 +810,8 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
   // 0 (or from one before what it keeps), else as the chunks after the cursor, then live; its exit ends every subscription.
   interface HeldTerminal {
     readonly id: string;
+    /** Its place among the terminals held, from 0: its events' ids are its own, as the environment mints each chunk's. */
+    readonly index: number;
     readonly sessionId: string;
     readonly openedAt: string;
     cols: number;
@@ -830,7 +832,8 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
   const lastOf = (t: HeldTerminal) => t.last;
   const terminalEnvelope = (t: HeldTerminal, at: number, type: string, payload: Record<string, unknown>): EventEnvelope => ({
     sequence: at,
-    eventId: `0199fd00-0000-7000-8000-${String(at).padStart(12, "0")}`,
+    // Unique per terminal and chunk, and apart from the session and environment streams' (their own first group).
+    eventId: `0199fd00-${t.index.toString(16).padStart(4, "0")}-7000-8000-${String(at).padStart(12, "0")}`,
     streamKind: TERMINAL_STREAM_KIND,
     streamId: t.id,
     streamVersion: at,
@@ -850,6 +853,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
   const hold = (id: string, sessionId: string, fields: { readonly cols?: number | undefined; readonly rows?: number | undefined; readonly env?: Record<string, string> | undefined }): HeldTerminal => {
     const t: HeldTerminal = {
       id,
+      index: terminals.size,
       sessionId,
       openedAt: clock.now().toISOString(),
       cols: fields.cols ?? 80,
