@@ -229,27 +229,25 @@ export const FIRST_ANYWHERE: ReadonlySet<KeyActionId> = new Set<KeyActionId>(["a
 /** A context to look a key up in: all of it, or only the actions `only` holds, or all but `except`'s. */
 export type Lookup = ActionContext | { readonly context: ActionContext; readonly only?: ReadonlySet<KeyActionId>; readonly except?: ReadonlySet<KeyActionId> };
 
+/** What `dispatch` knows of the screen beside the key itself. */
+export interface DispatchContext {
+  /** The press before this one: keys pressed in turn (`\ Enter`, `Esc Esc`) are looked up first in each context, as the two presses, and then the key alone. */
+  readonly previous?: string | undefined;
+  /** Whether a condition the list declares holds now; unsaid, none does. */
+  readonly holds?: (condition: ActionCondition) => boolean;
+}
+
 /**
  * Dispatches the key Ink heard through the action list: in each of
  * `lookups` in turn, the action the keymap in force gives that key in that
  * context, run when `handlers` answers it. True when a handler took the key.
- * `previous` is the press before this one: keys pressed in turn (`\ Enter`,
- * `Esc Esc`) are looked up first in each context, as the two presses, and
- * then the key alone. `holds` says whether a condition the list declares
- * holds now: an action with one is asked only while it does, before the
- * unconditioned action holding the same key, which gets the key when the
- * condition does not hold or its handler declines. Nothing said, no
- * condition holds.
+ * An action the list declares a condition for is asked only while `holds`
+ * says it holds, before the unconditioned action holding the same key,
+ * which gets the key when the condition does not hold or its handler
+ * declines.
  */
-export const dispatch = (
-  keymap: Keymap,
-  lookups: readonly Lookup[],
-  handlers: Handlers,
-  input: string,
-  key: InkKey,
-  previous?: string,
-  holds: (condition: ActionCondition) => boolean = () => false,
-): boolean => {
+export const dispatch = (keymap: Keymap, lookups: readonly Lookup[], handlers: Handlers, input: string, key: InkKey, context: DispatchContext = {}): boolean => {
+  const { previous, holds = () => false } = context;
   const name = eventName(input, key);
   if (name === undefined) return false;
   const names = previous === undefined ? [name] : [`${previous} ${name}`, name];

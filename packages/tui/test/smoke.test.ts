@@ -25,7 +25,8 @@ import { SIZE } from "./harness.js";
  * rail (#143), and a send streaming through the fake provider into a
  * rendered transcript, its draft reaching a second runtime (#146); a
  * queued message withdrawn with ↑ on an empty composer, its text back in the
- * composer and in a second runtime through the draft (#231).
+ * composer and, live through the draft, in the composer of a second terminal
+ * already open on the session (#231).
  */
 
 const { onCleanup, tempDir } = useCleanups();
@@ -46,8 +47,8 @@ const noService: LocalService = {
   readiness: async () => "nothing",
 };
 
-/** One terminal UI on the real platform: its own label, a shared or own state directory. */
-const terminal = (dataDir: string, stateDir: string, tty: string) => {
+/** One terminal UI on the real platform: its own label, a shared or own state directory, and `session` opened at launch when given. */
+const terminal = (dataDir: string, stateDir: string, tty: string, session?: string) => {
   const platform = nodePlatform({ stateDir, dataDir, version: "0.0.0-smoke", identity: { user: "seth", host: "desk", tty } });
   const host = createRuntimeHost(() => createRuntime(platform));
   let ids = 0;
@@ -58,7 +59,7 @@ const terminal = (dataDir: string, stateDir: string, tty: string) => {
       services: noService,
       grant: platform.grant,
       keymap: DEFAULT_KEYMAP,
-      flags: { workspace: "~/code" },
+      flags: { workspace: "~/code", session },
       faults: writable<readonly Fault[]>([]),
       size: SIZE,
       newCommandId: () => `0199ee00-0000-7000-8000-${String(++ids).padStart(12, "0")}`,
@@ -159,7 +160,7 @@ describe.sequential("the terminal UI through the real spine", () => {
     await until(() => other.read().draft === "half a thought", () => `the draft in the second runtime: ${String(other.read().draft)}`);
   });
 
-  it("withdraws a queued message with ↑ on an empty composer: its text is back in this composer and, through the draft, in a second runtime", async () => {
+  it("withdraws a queued message with ↑ on an empty composer: its text is back in this composer and, through the draft, in a second terminal's already open", async () => {
     // A provider queue that does not steer holds the message while the turn is held open, so the withdraw takes it back from the provider.
     const t = await startTestEnvironment({ name: "smoke-withdraw", adapter: fakeAdapter({ capabilities: { steering: false } }) });
     onCleanup(() => t.close());
@@ -184,19 +185,21 @@ describe.sequential("the terminal UI through the real spine", () => {
     one.type(ENTER);
     await until(() => one.frame().includes("⧗ queued and the tests"), one.frame);
 
-    one.type(UP);
-    await until(() => one.frame().includes("› and the tests") && !one.frame().includes("⧗ queued and the tests"), one.frame);
-    expect(t.adapter.runs[0]?.withdrawals).toHaveLength(1);
-
+    // A second terminal already on the session, with its own runtime: the text reaches its composer live, through the draft.
     const runtime = one.host.current.read();
     const [local] = runtime.connections.list.read();
     const environmentId = local?.environmentId ?? "";
     const sessionId = runtime.projections.sessionList.read().rows.find((row) => row.environmentId === environmentId)?.summary.id ?? "";
-    const two = terminal(t.dataDir, join(tempDir("agent-harness-tui-smoke-"), "tui"), "pts/2");
-    await until(() => two.frame().includes("● smoke-withdraw ready"), two.frame);
+    const two = terminal(t.dataDir, join(tempDir("agent-harness-tui-smoke-"), "tui"), "pts/2", sessionId);
+    await until(() => two.frame().includes("⧗ queued and the tests"), two.frame);
+    expect(two.frame()).not.toContain("› and the tests");
+
+    one.type(UP);
+    await until(() => one.frame().includes("› and the tests") && !one.frame().includes("⧗ queued and the tests"), one.frame);
+    expect(t.adapter.runs[0]?.withdrawals).toHaveLength(1);
+    await until(() => two.frame().includes("› and the tests") && !two.frame().includes("⧗ queued and the tests"), two.frame);
     const other = two.host.current.read().projections.session(environmentId, sessionId);
-    onCleanup(other.subscribe(() => undefined));
-    await until(() => other.read().draft === "and the tests", () => `the draft in the second runtime: ${String(other.read().draft)}`);
+    expect(other.read().draft).toBe("and the tests");
     expect(other.read().queued).toEqual([]);
   });
 });

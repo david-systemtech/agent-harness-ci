@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { FakeAnswer } from "@agent-harness/client-runtime/testing/fake-wire";
 import { afterEach, describe, expect, it } from "vitest";
 import { KEY, renderApp, type RenderedApp, type ScriptedEnvironment } from "../test/harness.js";
 
@@ -11,8 +12,9 @@ import { KEY, renderApp, type RenderedApp, type ScriptedEnvironment } from "../t
  * empty composer (`composer.withdrawLast`, conditioned, beside
  * `composer.navigate` on the same key) dispatching `runs.withdraw` for the
  * newest queued message, whose text comes back through the session's draft.
- * A verb that cannot be used now refuses at once with one line, and the
- * queued line draws it dim with its reason, never hidden.
+ * A verb the runtime says cannot be used now refuses at once with one line,
+ * and the queued line draws it dim with its reason, never hidden; a refusal
+ * the environment answers is one line with its reason.
  */
 
 let apps: RenderedApp[] = [];
@@ -29,6 +31,8 @@ const SESSION = "0199aa00-0000-4000-8000-000000000001";
 const CTRL_ENTER = "\u001B[13;5u";
 /** Alt+W: Esc, then the letter. */
 const ALT_W = "\u001Bw";
+/** A queued message's id as the environment's refusals name it. */
+const SOME_MESSAGE = "0199a200-0000-4000-8000-000000000003";
 
 const launch = async (environment: Partial<ScriptedEnvironment> = {}, extra: Partial<Parameters<typeof renderApp>[0]> = {}) => {
   const app = await renderApp({
@@ -162,7 +166,15 @@ describe("↑ on an empty composer withdraws the newest queued message", () => {
   });
 
   it("says in one line that the provider read it first (not_found), and leaves the message wherever the log says it is", async () => {
-    const { app, env } = await launch({ receipts: { "runs.withdraw": { rejected: "not_found", message: "No queued message has that id.", data: { kind: "message" } } } });
+    const { app, env } = await launch({
+      receipts: {
+        "runs.withdraw": {
+          rejected: "not_found",
+          message: `No queued message ${SOME_MESSAGE} is on this environment: the provider has read it.`,
+          data: { kind: "message", messageId: SOME_MESSAGE },
+        },
+      },
+    });
     await withQueue(app, "and the tests");
     await app.press(KEY.up);
     await app.waitFor("Not withdrawn: the provider read it first.");
@@ -173,6 +185,66 @@ describe("↑ on an empty composer withdraws the newest queued message", () => {
     env.emit(SESSION, "message.delivered", { runId: message?.runId ?? "", messageId: message?.messageId ?? "", delivery: "steered" });
     await app.waitFor("▌ and the tests");
     expect(app.frame()).not.toContain("⧗ queued and the tests");
+  });
+
+  it("passes the environment's own word through for any other not_found: taken back already, by another client", async () => {
+    const already = `No queued message ${SOME_MESSAGE} is on this environment: it was withdrawn already.`;
+    const { app } = await launch({ receipts: { "runs.withdraw": { rejected: "not_found", message: already, data: { kind: "message", messageId: SOME_MESSAGE } } } });
+    await withQueue(app, "and the tests");
+    await app.press(KEY.up);
+    await app.waitFor(`Not withdrawn: ${already}`);
+    expect(app.frame()).not.toContain("the provider read it first");
+  });
+
+  it("sends one withdraw while one is on its way for the newest message, however often ↑ is pressed", async () => {
+    const { app, env } = await launch();
+    await withQueue(app, "and the tests", "and the docs");
+    const newest = env.queued(SESSION).at(-1);
+    const answers: ((answer: FakeAnswer) => void)[] = [];
+    env.wire.answer("runs.withdraw", () => new Promise<FakeAnswer>((resolve) => answers.push(resolve)));
+    await app.press(KEY.up);
+    await app.waitUntil(() => answers.length === 1, "the withdraw to reach the environment");
+    // Pressed again before anything came back: the composer is still empty and the message still queued.
+    await app.press(KEY.up);
+    // The environment takes it back as it does: the message leaves the queue and its text is the draft, then the receipt.
+    env.emit(SESSION, "message.withdrawn", { runId: newest?.runId ?? "", messageId: newest?.messageId ?? "", heldBy: "environment" });
+    const draft = env.emit(SESSION, "session.draft-set", { draft: "and the docs" }, { fields: { draft: "and the docs" } });
+    answers[0]?.({ result: { receipt: { status: "accepted", sequence: draft.sequence, changed: true }, result: { messageId: newest?.messageId, sessionId: SESSION, heldBy: "environment" } } });
+    await app.waitFor("› and the docs");
+    await app.tick(5);
+    expect(env.requests("runs.withdraw")).toHaveLength(1);
+    expect(app.frame()).not.toContain("Not withdrawn");
+    expect(app.frame()).toContain("⧗ queued and the tests");
+  });
+
+  it("sends this terminal's waiting draft before the withdraw, so the text coming back is the draft that stays", async () => {
+    const { app, env } = await launch();
+    await withQueue(app, "and the tests");
+    const sentBefore = env.requests().length;
+    await app.type("half a thought");
+    // Cleared: the empty draft waits its second, which the manual clock never passes on its own.
+    await app.press(KEY.ctrlU);
+    await app.waitUntil(() => !app.frame().includes("› half a thought"), "the composer to empty");
+    await app.press(KEY.up);
+    await app.waitFor("› and the tests");
+    await app.jump(1500);
+    const sent = env.requests().slice(sentBefore).map((request) => request.method);
+    expect(sent.filter((method) => method === "sessions.setDraft" || method === "runs.withdraw")).toEqual(["sessions.setDraft", "runs.withdraw"]);
+    expect(env.summary(SESSION).draft).toBe("and the tests");
+    expect(app.frame()).toContain("› and the tests");
+  });
+
+  it("leaves ↑ to the history when every queued message is one the provider is opening a turn with", async () => {
+    const { app, env } = await launch({ queue: "provider", provider: { providerQueue: true } });
+    await withQueue(app, "and the tests");
+    // The turn ends with the message still the provider's: a turn it opens reads it, and no withdraw reaches it.
+    env.endRun(SESSION, env.liveRun(SESSION) ?? "");
+    await app.waitUntil(() => mainText(app).includes("take the newest back (Nothing is queued to withdraw.)"), "withdraw to have nothing to reach");
+    await app.press(KEY.up);
+    // The history's newest entry, not a refusal.
+    await app.waitFor("› and the tests");
+    expect(env.requests("runs.withdraw")).toEqual([]);
+    expect(app.frame()).not.toContain("Not withdrawn");
   });
 });
 
@@ -194,7 +266,9 @@ describe("when a verb cannot be used", () => {
     expect(mainText(app)).toContain("↑ (empty composer) take the newest back (desk cannot be reached.)");
   });
 
-  it("draws withdraw dim with the adapter's reason once its adapter says it cannot, and refuses it at once from then on", async () => {
+  it("refuses in one line with the adapter's reason as the environment gives it, and asks the environment again at the next ↑", async () => {
+    // Nothing on the wire says an adapter cannot withdraw, and the environment refuses only a message the provider holds:
+    // one refusal is not kept, so a message an interrupt hands back to the environment can still be taken back.
     const reason = "The Claude adapter cannot withdraw a queued message: its CLI has no cancel-by-id control.";
     const { app, env } = await launch({
       receipts: { "runs.withdraw": { rejected: "invalid_params", message: reason, data: { reason: "unsupported", capability: "providerQueue", provider: "claude" } } },
@@ -202,12 +276,10 @@ describe("when a verb cannot be used", () => {
     await withQueue(app, "and the tests");
     await app.press(KEY.up);
     await app.waitFor(`Not withdrawn: ${reason}`);
-    await app.waitUntil(() => mainText(app).includes(`↑ (empty composer) take the newest back (${reason})`), "withdraw drawn dim with the adapter's reason");
-    // Read now is still there, and the message stays queued.
-    expect(app.rows().find((row) => row.includes("Ctrl+Enter read now"))).not.toContain("(");
+    expect(mainText(app)).toContain("Ctrl+Enter read now · ↑ (empty composer) take the newest back");
     expect(app.frame()).toContain("⧗ queued and the tests");
     await app.press(KEY.up);
-    expect(env.requests("runs.withdraw")).toHaveLength(1);
+    await app.waitUntil(() => env.requests("runs.withdraw").length === 2, "the second ↑ to ask the environment again");
   });
 });
 

@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { Box, Text, render as inkRender, useApp, useInput, usePaste, useStdout, type Instance, type RenderOptions } from "ink";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactElement } from "react";
-import type { AbsentReason, Clock, EnvironmentView, GrantReader, Notice, Observable, PairingInput, SessionRow, VerbAvailability } from "@agent-harness/client-runtime";
+import type { Clock, EnvironmentView, GrantReader, Notice, Observable, PairingInput, SessionRow, TranscriptEntry, VerbAvailability } from "@agent-harness/client-runtime";
 import {
   ACTION_CONDITIONS,
   PRODUCT_NAME,
@@ -36,7 +36,7 @@ import { composerNote, highlighted, useComposer, type ComposerClipboard } from "
 import { nextFocus, stepCursor, type Focus } from "./focus.js";
 import { createFrameScheduler } from "./frames.js";
 import { helpLines } from "./help.js";
-import { FIRST_ANYWHERE, direction, dispatch, eventName, keysText, type Handler, type InkKey, type Keymap, type LoadedKeymap, type Lookup } from "./keys.js";
+import { FIRST_ANYWHERE, conditionOf, direction, dispatch, eventName, keysText, type Handler, type InkKey, type Keymap, type LoadedKeymap, type Lookup } from "./keys.js";
 import type { LocalService } from "./platform/services.js";
 import type { RuntimeHost } from "./runtime-host.js";
 import { AsksCard } from "./screens/asks-card.js";
@@ -46,7 +46,7 @@ import { Header, HintLine, Line, PairingPrompt, RAIL_MIN_COLUMNS, RAIL_WIDTH, Ra
 import { SessionsCard, SnippetsCard } from "./screens/lists.js";
 import { PromptCard } from "./screens/prompt-card.js";
 import { DelegatedStrip, LinesCard, QueuedLine, TranscriptView, maxOffset, offsetShowing, type QueueVerb } from "./screens/transcript.js";
-import { attachmentRefusal, interruptRun, isLive, readQueueNow, sendMessage, stopCall, withdrawQueued, type VerbOutcome } from "./session/send.js";
+import { attachmentRefusal, interruptRun, isLive, readQueueNow, sendMessage, stopCall, withdrawQueued } from "./session/send.js";
 import { useFollow, useSession, type Opened } from "./session/use-session.js";
 import { codeBlocks, exportMarkdown, timelineLine, turnsOf } from "./transcript/export.js";
 import { lineText, rowLines, transcriptLines, type Line as TranscriptLine } from "./transcript/lines.js";
@@ -220,6 +220,12 @@ interface Sending {
   readonly before: ReadonlySet<string>;
 }
 
+/** Whether a send is heard back: its `message.sent` is in the transcript, by its id once the answer named it, else by its text. */
+const heard = (send: Sending, items: readonly TranscriptEntry[]): boolean =>
+  items.some(
+    (entry) => entry.kind === "user-message" && (entry.messageId === send.messageId || (send.messageId === undefined && entry.text === send.text && !send.before.has(entry.messageId))),
+  );
+
 const useObservable = <T,>(observable: Observable<T>): T => useSyncExternalStore(observable.subscribe, observable.read);
 
 /** The transcript's keys the composer lets through. */
@@ -332,14 +338,18 @@ export const App = (props: AppProps) => {
   const [viewport, setViewport] = useState(0);
   const [sending, setSending] = useState<readonly Sending[]>([]);
   const sends = useRef(0);
-  const heardMessages = useRef(new Set<string>());
   const open = (next: Opened | null) => {
     session.open(next);
     setView(FRESH_VIEW);
     setSending([]);
-    heardMessages.current = new Set();
     if (next) setFocus("composer");
   };
+  // A send heard back leaves for good, so a message withdrawn since, gone from the transcript, is never drawn as on its way
+  // again (#231). Pruned after the render that heard it, which the foot's own check below already hides it in.
+  useEffect(() => {
+    const items = projection?.items ?? [];
+    setSending((all) => (all.some((send) => heard(send, items)) ? all.filter((send) => !heard(send, items)) : all));
+  }, [projection, sending]);
 
   // The stops Tab walks that come and go: the rail, dropped on a narrow terminal or with nothing to list; the delegated
   // strip and the terminal pane are not stops in this build. A rail that goes takes the focus back to the composer.
@@ -476,18 +486,11 @@ export const App = (props: AppProps) => {
     stopKey: keys("row.stop"),
     planDeltas: session.planDeltas,
   };
-  // Every message of the open session this terminal has heard of: one heard is never drawn as on its way again, even once it
-  // is gone from the transcript (withdrawn, #231).
-  for (const entry of projection?.items ?? []) if (entry.kind === "user-message") heardMessages.current.add(entry.messageId);
   const lines: TranscriptLine[] = [
     ...transcriptLines(rows, { ...lineContext, expanded: false }, view.unfolded),
     // A message sent and not yet heard back: dim at the foot, until its `message.sent` arrives.
     ...sending
-      .filter((s) =>
-        s.messageId !== undefined
-          ? !heardMessages.current.has(s.messageId)
-          : !projection?.items.some((entry) => entry.kind === "user-message" && entry.text === s.text && !s.before.has(entry.messageId)),
-      )
+      .filter((s) => !heard(s, projection?.items ?? []))
       .flatMap((s): TranscriptLine[] => [
         { row: `sending:${s.id}`, spans: [] },
         { row: `sending:${s.id}`, spans: [{ text: "▌ ", dim: true }, { text: s.text.split("\n")[0] ?? "", dim: true }, { text: " · sending", dim: true }] },
@@ -689,45 +692,49 @@ export const App = (props: AppProps) => {
     return true;
   };
 
-  // The verbs on the queue (ADR 0022; #231): read now and withdraw, as `projections.runs.session` says they stand, with what
-  // an adapter has refused here as unsupported laid over them (its environment's refusal is the only way to learn it: no
-  // flag says so), unless the connection is the first reason. Each is drawn dim with its reason when absent, never hidden.
-  const [unsupported, setUnsupported] = useState<ReadonlyMap<string, Readonly<Partial<Record<QueueVerbName, string>>>>>(new Map());
-  const adapterKey = opened ? `${opened.environmentId} ${session.provider?.provider ?? ""}` : "";
-  const queueVerb = (name: QueueVerbName): VerbAvailability => {
-    const verb = session.runs?.verbs[name] ?? { status: "absent", reason: "no_queue", message: "Nothing is queued." };
-    if (verb.status === "absent" && CONNECTION_REASONS.has(verb.reason)) return verb;
-    const refused = unsupported.get(adapterKey)?.[name];
-    return refused === undefined ? verb : { status: "absent", reason: "adapter", message: refused };
-  };
+  // The verbs on the queue (ADR 0022; #231): read now and withdraw, as `projections.runs.session` says they stand, each drawn
+  // dim with its reason when absent, never hidden. What the environment refuses is said in one line and not kept: nothing on
+  // the wire says an adapter cannot withdraw, and the environment asks the adapter only for a message the provider holds.
+  const queueVerb = (name: "readNow" | "withdraw"): VerbAvailability => session.runs?.verbs[name] ?? { status: "absent", reason: "no_queue", message: "Nothing is queued." };
   const queue = session.runs?.queue ?? [];
-  const settled = (name: QueueVerbName) => (outcome: VerbOutcome) => {
-    if (outcome.ok) return;
-    say(outcome.line);
-    const reason = outcome.unsupported;
-    if (reason !== null) setUnsupported((known) => new Map(known).set(adapterKey, { ...known.get(adapterKey), [name]: reason }));
+  const sayRefusal = (line: string | undefined) => {
+    if (line !== undefined) say(line);
   };
+  // The messages this terminal has asked to withdraw and not heard back about: ↑ again meanwhile sends nothing more.
+  const withdrawing = useRef(new Set<string>());
   /** `Ctrl+Enter`: the live run interrupted and the next opened with the whole queue, or the run of the queue started. */
   const readNow = (): false | void => {
     if (!opened) return false;
     const verb = queueVerb("readNow");
     if (verb.status === "absent") return say(verb.reason === "no_queue" ? verb.message : `Not read now: ${verb.message}`);
-    void readQueueNow(runtime, opened.environmentId, opened.sessionId).then(settled("readNow"));
+    void readQueueNow(runtime, opened.environmentId, opened.sessionId).then(sayRefusal);
   };
-  /** `↑` on an empty composer: the newest queued message a withdraw can reach, taken back into the draft. Nothing queued, and ↑ is the composer's. */
+  /**
+   * `↑` on an empty composer: the newest queued message a withdraw can reach (the runtime's `withdrawTarget`), taken back into
+   * the draft. With none to reach, ↑ is the composer's (history). While its withdraw is on its way, ↑ does nothing: walking
+   * the history then would put text in the composer that the draft coming back could not replace.
+   */
   const withdrawLast = (): false | void => {
-    if (!opened || queue.length === 0) return false;
+    const target = session.runs?.withdrawTarget ?? null;
+    if (!opened || target === null) return false;
     const verb = queueVerb("withdraw");
     if (verb.status === "absent") return say(`Not withdrawn: ${verb.message}`);
-    const newest = queue.findLast((message) => !(message.withdraw.status === "absent" && message.withdraw.reason === "being_read"));
-    if (newest === undefined) return false;
+    if (withdrawing.current.has(target)) return;
+    withdrawing.current.add(target);
     // What this terminal typed and cleared goes first, so a late empty draft never lands over the text coming back.
     runtime.drafts.flush();
-    void withdrawQueued(runtime, opened.environmentId, newest.messageId).then(settled("withdraw"));
+    void withdrawQueued(runtime, opened.environmentId, target)
+      .then(sayRefusal)
+      .finally(() => withdrawing.current.delete(target));
   };
+  const withdrawCondition = conditionOf("composer.withdrawLast");
   const queueVerbs: readonly QueueVerb[] = [
     { keys: keys("composer.readNow"), words: "read now", availability: queueVerb("readNow") },
-    { keys: `${keys("composer.withdrawLast")} (${ACTION_CONDITIONS["composer.empty"].words})`, words: "take the newest back", availability: queueVerb("withdraw") },
+    {
+      keys: withdrawCondition === undefined ? keys("composer.withdrawLast") : `${keys("composer.withdrawLast")} (${ACTION_CONDITIONS[withdrawCondition].words})`,
+      words: "take the newest back",
+      availability: queueVerb("withdraw"),
+    },
   ];
 
   // `/new`: a session on the open one's environment, in its workspace, on its account and model (Artemis's "on the same
@@ -1334,9 +1341,10 @@ export const App = (props: AppProps) => {
       if (!screen.question && question && !typing) lookups.push("confirm");
     }
     lookups.push({ context: "anywhere", except: FIRST_ANYWHERE });
-    // The one condition the list declares: the composer is empty, nothing typed and nothing attached (`composer.withdrawLast`).
+    // The one condition the list declares (`composer.withdrawLast`'s): the composer is empty, nothing typed, nothing attached
+    // and no search of the history open.
     const composerEmpty = composerText === "" && composer.state.attached.length === 0 && composer.state.search === null;
-    if (dispatch(keymap, lookups, handlers, input, key, previous, (condition) => condition === "composer.empty" && composerEmpty)) return;
+    if (dispatch(keymap, lookups, handlers, input, key, { previous, holds: (condition) => condition === "composer.empty" && composerEmpty })) return;
     // `/resume`'s list is typed at: letters filter it, Backspace rubs one out.
     if (card.kind === "sessions") {
       if (key.backspace || key.delete) return update({ card: { ...card, filter: [...card.filter].slice(0, -1).join(""), cursor: 0 } });
@@ -1541,12 +1549,6 @@ export const App = (props: AppProps) => {
     </Box>
   );
 };
-
-/** The verbs on the queue the terminal draws on the queued line. */
-type QueueVerbName = "readNow" | "withdraw";
-
-/** A verb's reasons that are the connection's (`capability`'s): they come before anything an adapter refused. */
-const CONNECTION_REASONS: ReadonlySet<string> = new Set<AbsentReason>(["unsupported", "scope", "unreachable", "not-ready", "no-shell"]);
 
 const clampCursor = (cursor: number, rows: number): number => (rows <= 0 ? 0 : Math.min(Math.max(cursor, 0), rows - 1));
 

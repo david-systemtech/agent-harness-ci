@@ -75,35 +75,40 @@ export const interruptRun = async (runtime: Runtime, environmentId: string, runI
 /**
  * Reads the session's queue now (`runs.readNow`, ADR 0022): the live run is
  * interrupted and the next opens with the queue. The line to show when it
- * was refused, and whether the refusal was the adapter's (`invalid_params`,
- * reason `unsupported`), which the queued line then draws.
+ * was refused.
  */
-export const readQueueNow = async (runtime: Runtime, environmentId: string, sessionId: string): Promise<VerbOutcome> => {
+export const readQueueNow = async (runtime: Runtime, environmentId: string, sessionId: string): Promise<string | undefined> => {
   const answer = await runtime.commands.dispatch(environmentId, "runs.readNow", { sessionId });
-  return answer.ok ? { ok: true } : refused("Not read now", answer.error);
+  return answer.ok ? undefined : `Not read now: ${answer.error.message}`;
 };
 
 /**
- * Takes a queued message back (`runs.withdraw`, ADR 0022): its text goes to
- * the session's draft, and so into every client's composer. A message some
- * run read first is `not_found`: one line, and it stays wherever the log
- * says it is, since nothing here moved it.
+ * The environment's `not_found` for a withdraw says why the message is not
+ * queued in its message only (`run-decider.ts`'s `decideWithdraw`: "… is on
+ * this environment: the provider has read it", or "a run has read it"); the
+ * data names the message, not the why. Read that way, the refusal is said as
+ * the ticket words it; any other (withdrawn already, by another client, say)
+ * is the environment's own message, so a change of its wording falls back to
+ * that message rather than to a claim.
  */
-export const withdrawQueued = async (runtime: Runtime, environmentId: string, messageId: string): Promise<VerbOutcome> => {
+const READ_FIRST = /: (the provider|a run) has read it\.$/;
+
+/**
+ * Takes a queued message back (`runs.withdraw`, ADR 0022): its text goes to
+ * the session's draft, and so into every client's composer. The line to
+ * show when it was refused: a message the provider read first is `not_found`,
+ * said in one line, and it stays wherever the log says it is, since nothing
+ * here moved it. An adapter that cannot withdraw is the environment's
+ * refusal too (`invalid_params`, reason `unsupported`), said with its reason
+ * and not kept: the environment asks the adapter only for a message the
+ * provider holds, so the next withdraw may be one it can take back.
+ */
+export const withdrawQueued = async (runtime: Runtime, environmentId: string, messageId: string): Promise<string | undefined> => {
   const answer = await runtime.commands.dispatch(environmentId, "runs.withdraw", { messageId });
-  if (answer.ok) return { ok: true };
-  if (answer.error.code === "not_found" && answer.error.data?.["kind"] === "message") return { ok: false, line: "Not withdrawn: the provider read it first.", unsupported: null };
-  return refused("Not withdrawn", answer.error);
+  if (answer.ok) return undefined;
+  const { code, message } = answer.error;
+  return code === "not_found" && READ_FIRST.test(message) ? "Not withdrawn: the provider read it first." : `Not withdrawn: ${message}`;
 };
-
-/** How a verb of the queue went: done, or refused with one line and, when the adapter refused it as unsupported, its reason. */
-export type VerbOutcome = { readonly ok: true } | { readonly ok: false; readonly line: string; readonly unsupported: string | null };
-
-const refused = (what: string, error: { readonly code: string; readonly message: string; readonly data?: Readonly<Record<string, unknown>> | undefined }): VerbOutcome => ({
-  ok: false,
-  line: `${what}: ${error.message}`,
-  unsupported: error.code === "invalid_params" && error.data?.["reason"] === "unsupported" ? error.message : null,
-});
 
 /**
  * Stops one running call (`x`, `row.stop`): delegated work the run's ledger
