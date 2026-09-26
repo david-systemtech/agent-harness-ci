@@ -266,6 +266,8 @@ export interface EnvironmentHandle extends ScriptedPrompts {
   terminals(): readonly TerminalRecord[];
   /** A terminal it holds or held; fails for one it never did. */
   terminal(id: string): TerminalRecord;
+  /** Holds every `terminals.open` unanswered and unacted on until the function it returns is called. */
+  holdTerminalOpens(): () => void;
   /** The terminal's shell writes `data`: a `terminal.output` chunk to its subscriptions. */
   terminalOutput(id: string, data: string): void;
   /** The terminal's shell exits with `exitCode`: `terminal.exited`, then its subscriptions end. */
@@ -934,7 +936,9 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
       if (ran.exitCode !== undefined) exitTerminal(t.id, ran.exitCode);
     });
   };
-  wire.answer("terminals.open", (params) => {
+  let heldOpens: (() => void)[] | null = null;
+  wire.answer("terminals.open", (params) => (heldOpens === null ? openTerminal(params) : new Promise<FakeAnswer>((resolve) => heldOpens?.push(() => resolve(openTerminal(params))))));
+  const openTerminal = (params: Record<string, unknown>): FakeAnswer => {
     const refused = rejection("terminals.open", false);
     if (refused) return refused;
     const id = String(params["id"]).toLowerCase();
@@ -947,7 +951,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     // The login shell's prompt, a moment after it starts.
     if (t.env["AGENT_HARNESS_ONE_OFF"] === undefined) later(() => t.exit === null && t.chunks.length === 0 && terminalOutput(id, "$ "));
     return terminalReceipt({ terminal: infoOf(t) });
-  });
+  };
   wire.answer("terminals.list", (params) => ({
     result: { terminals: [...terminals.values()].filter((t) => !t.closed && t.sessionId === String(params["sessionId"]).toLowerCase()).map(infoOf) },
   }));
@@ -1392,6 +1396,14 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
       const found = terminals.get(id.toLowerCase());
       if (!found) throw new Error(`${spec.name} never held a terminal ${id}.`);
       return found;
+    },
+    holdTerminalOpens() {
+      heldOpens ??= [];
+      return () => {
+        const waiting = heldOpens ?? [];
+        heldOpens = null;
+        for (const release of waiting) release();
+      };
     },
     terminalOutput: (id, data) => terminalOutput(id.toLowerCase(), data),
     exitTerminal(id, exitCode) {

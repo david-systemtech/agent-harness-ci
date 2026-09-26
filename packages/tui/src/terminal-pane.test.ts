@@ -401,6 +401,20 @@ describe("a shell line", () => {
     expect(env.terminal(FIRST).writes).toEqual([ONE_OFF_LINE]);
   });
 
+  it("sends keys typed in a ! command's pane before its terminal is open after the command's line, in order", async () => {
+    const { app, env } = await opened({ oneOff: () => ({ output: "Continue? " }) });
+    const release = env.holdTerminalOpens();
+    await command(app, "!confirm");
+    await app.waitFor("!confirm · desk");
+    await app.press(KEY.tab, KEY.tab);
+    await app.waitFor("The terminal has the keys");
+    await app.type("y");
+    await app.press(KEY.enter);
+    expect(env.terminals()).toEqual([]);
+    release();
+    await app.waitUntil(() => written(app, FIRST) === `${ONE_OFF_LINE}y\r`, "the command's line, then the keys, to reach the terminal");
+  });
+
   it("opens the session's shell on /terminal while a ! command runs, and closes that command's terminal when it exits later", async () => {
     const { app, env } = await opened({ oneOff: () => ({ output: "watching\n" }) });
     await command(app, "!watch ls");

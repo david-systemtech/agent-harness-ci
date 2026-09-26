@@ -388,7 +388,8 @@ export const useTerminalPane = (host: PaneHost): TerminalPane => {
       entry.terminalId = id;
       // Gone before its terminal came: the command is not run, and the terminal is not left open.
       if (entry.closed) return closeTerminal(entry);
-      entry.outgoing = ONE_OFF_LINE;
+      // Keys typed in the pane while it opened go after the line, to the command, as a shell's typeahead would.
+      entry.outgoing = ONE_OFF_LINE + entry.outgoing;
       attach(entry, id, size);
     })();
     return true;
