@@ -121,6 +121,21 @@ describe("opening the pane", () => {
     expect(env.terminal(FIRST).resizes).toEqual([{ cols: 100, rows: 16 }]);
   });
 
+  it("sends the terminal no size after the environment refused one, since a refusal is the terminal's end", async () => {
+    // The environment refuses a resize only for a terminal it no longer holds or whose shell has exited; neither comes back.
+    const { app, env } = await opened({
+      terminals: [{ id: EXISTING, output: "$ ", cols: 80, rows: 24 }],
+      receipts: { "terminals.resize": { rejected: "conflict", message: "The terminal's shell has exited." } },
+    });
+    await command(app, "/terminal");
+    await app.waitFor("terminal · desk");
+    await app.waitUntil(() => env.requests("terminals.resize").length === 1, "the pane's size to be sent");
+    await app.resize({ columns: 128, rows: 40 });
+    await app.resize({ columns: 100, rows: 30 });
+    await app.tick(5);
+    expect(env.requests("terminals.resize").map((r) => ({ cols: r.params["cols"], rows: r.params["rows"] }))).toEqual([PANE]);
+  });
+
   it("refuses at once with one line while the environment cannot be reached, asking it nothing", async () => {
     const { app, env } = await opened();
     env.autoAccept(false);

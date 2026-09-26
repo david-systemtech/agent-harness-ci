@@ -114,6 +114,8 @@ interface Live {
   /** The size the environment last took for the terminal; one in flight is `sizing`. */
   sized: PaneSize | null;
   sizing: boolean;
+  /** The environment refused a size: the terminal is not there or its shell exited, so it is sent none again. */
+  unsizable: boolean;
   /** Keys not yet sent. */
   outgoing: string;
   sending: boolean;
@@ -209,16 +211,19 @@ export const useTerminalPane = (host: PaneHost): TerminalPane => {
   /** Sends the pane's size when the environment has another for the terminal; one that could not be sent waits for `live`. */
   const sizeTo = (entry: Live) => {
     const { runtime, newCommandId } = hostRef.current;
-    if (entry.terminalId === null || entry.sizing || entry.closed || sameSize(entry.sized, entry.size)) return;
+    if (entry.terminalId === null || entry.sizing || entry.closed || entry.unsizable || sameSize(entry.sized, entry.size)) return;
     const size = entry.size;
     entry.sizing = true;
     void runtime.requests
       .call(entry.target.environmentId, "terminals.resize", { commandId: newCommandId(), id: entry.terminalId, cols: size.cols, rows: size.rows })
       .then((answer) => {
         entry.sizing = false;
-        // A refusal (the terminal exited) is not tried again; an environment that could not be reached is, once it is live.
-        if (answer.ok) entry.sized = size;
-        if (!sameSize(entry.sized, entry.size) && answer.ok) sizeTo(entry);
+        // An environment that could not be reached is tried again once it is live.
+        if (!answer.ok) return;
+        // A refusal (the terminal is not there, or its shell exited) is the terminal's end: no size is sent to it again.
+        if (answer.result.receipt.status === "rejected") return void (entry.unsizable = true);
+        entry.sized = size;
+        if (!sameSize(entry.sized, entry.size)) sizeTo(entry);
       });
   };
 
@@ -313,6 +318,7 @@ export const useTerminalPane = (host: PaneHost): TerminalPane => {
       size,
       sized: null,
       sizing: false,
+      unsizable: false,
       outgoing: "",
       sending: false,
       feeding: Promise.resolve(),
