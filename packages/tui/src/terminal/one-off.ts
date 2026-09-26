@@ -74,25 +74,56 @@ export const clipOutput = (text: string, max = ONE_OFF_MAX_LINES, more = 0): str
   return [...rows.slice(0, max), `… ${String(dropped)} more line${dropped === 1 ? "" : "s"}`].join("\n");
 };
 
-/**
- * The line feeds of output read whole through the screen: with the wrapping of what is held (at most
- * `ONE_OFF_MAX_CHARS / ONE_OFF_SIZE.cols` rows, about 2,200) they stay inside its scrollback, so no first line is lost.
- */
+/** The line feeds of output read through the screen at most; the lines after them are counted by their line feeds. */
 const SHOWN_MAX_FEEDS = ONE_OFF_MAX_LINES * 8;
 
 /**
- * `raw` as a terminal shows it, cut to its first `ONE_OFF_MAX_LINES` lines with the rest counted. Past
- * `SHOWN_MAX_FEEDS` lines only its start is read through the screen, whose scrollback would otherwise drop its first
- * lines, and the lines after that are counted by their line feeds.
+ * The reader screen's scrollback: every row printed text can fill, `SHOWN_MAX_FEEDS` line feeds and the wrapping of
+ * `ONE_OFF_MAX_CHARS` characters of two cells each (the widest a character is in the emulator; a character past the
+ * basic plane is two of them), so no first line of text is lost. A program that moves down without a line feed (a
+ * vertical tab, an index) or prints by escape (a repeat) can fill more: `shownOutput` then reads less.
+ */
+const SHOWN_SCROLLBACK = SHOWN_MAX_FEEDS + 1 + Math.ceil((2 * ONE_OFF_MAX_CHARS) / ONE_OFF_SIZE.cols);
+
+/**
+ * `raw` as a terminal shows it, cut to its first `ONE_OFF_MAX_LINES` lines with the rest counted. Only its start is read
+ * through the screen, up to `SHOWN_MAX_FEEDS` line feeds, and less while the screen comes back full (its oldest lines may
+ * be gone); the lines after that are counted by their line feeds, a line cut short counted among them.
  */
 export const shownOutput = async (raw: string): Promise<string> => {
+  let end = raw.length;
   let at = -1;
   for (let feeds = 0; feeds < SHOWN_MAX_FEEDS; feeds++) {
     at = raw.indexOf("\n", at + 1);
-    if (at === -1) return clipOutput(await shownText(raw));
+    if (at === -1) break;
   }
-  const rest = raw.slice(at + 1).trimEnd();
-  return clipOutput(await shownText(raw.slice(0, at + 1)), ONE_OFF_MAX_LINES, rest.length === 0 ? 0 : rest.split("\n").length);
+  if (at !== -1) end = at + 1;
+  for (;;) {
+    const read = await readThrough(raw.slice(0, end));
+    if (read !== null) {
+      const rest = raw.slice(end).trimEnd();
+      return clipOutput(read, ONE_OFF_MAX_LINES, rest.length === 0 ? 0 : rest.split("\n").length);
+    }
+    end = shorter(raw, end);
+  }
+};
+
+/** Where to cut `raw` short of `end`: after the last line feed in the first half, else at the half, never inside a pair of surrogates. */
+const shorter = (raw: string, end: number): number => {
+  const half = Math.floor(end / 2);
+  const feed = half === 0 ? -1 : raw.lastIndexOf("\n", half - 1);
+  if (feed !== -1) return feed + 1;
+  const code = raw.charCodeAt(half - 1);
+  return code >= 0xd800 && code <= 0xdbff ? half - 1 : half;
+};
+
+/** `raw` as the reader screen shows it, as text; null when the screen came back full, so its first lines may be gone. */
+const readThrough = async (raw: string): Promise<string | null> => {
+  const screen = createScreen({ ...ONE_OFF_SIZE, scrollback: SHOWN_SCROLLBACK });
+  await screen.write(raw);
+  const text = screen.full() ? null : screen.text();
+  screen.dispose();
+  return text;
 };
 
 /** `raw` as a terminal `ONE_OFF_SIZE` wide shows it, as text. */

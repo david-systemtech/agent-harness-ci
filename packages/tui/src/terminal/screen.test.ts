@@ -91,6 +91,14 @@ describe("the screen", () => {
     expect(screen.text()).toBe("abcdefgh\nok");
   });
 
+  it("is full once it holds as many lines as its rows and scrollback, a wide character's wrap counted as the row it takes", async () => {
+    const screen = createScreen({ cols: 4, rows: 2, scrollback: 2 });
+    await screen.write("漢漢\r\n漢漢漢");
+    expect(screen.full()).toBe(false);
+    await screen.write("漢漢");
+    expect(screen.full()).toBe(true);
+  });
+
   it("starts again from a reset: what was on it goes, and the modes an app set with it", async () => {
     const screen = createScreen({ cols: 20, rows: 2 });
     await screen.write(`old${ESC}[?1h${ESC}[?2004h`);

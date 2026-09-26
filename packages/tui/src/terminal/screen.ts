@@ -43,6 +43,8 @@ export interface Screen {
   history(): readonly (readonly Span[])[];
   /** The main buffer as text, lines the width wrapped joined again, each line's trailing blanks and the trailing blank lines dropped. */
   text(): string;
+  /** Whether the main buffer holds as many lines as it can, the rows and the scrollback: a line more drops its oldest. */
+  full(): boolean;
   modes(): ScreenModes;
   /** What the emulator answers a query with (a cursor position report, device attributes), as keys to send back. */
   onAnswer(listener: (data: string) => void): () => void;
@@ -167,6 +169,7 @@ export const createScreen = (options: { readonly cols: number; readonly rows: nu
       while (trimmed.length > 0 && trimmed.at(-1) === "") trimmed.pop();
       return trimmed.join("\n");
     },
+    full: () => term.buffer.normal.length >= term.rows + (term.options.scrollback ?? 0),
     modes: () => ({ applicationCursorKeys: term.modes.applicationCursorKeysMode, bracketedPaste: term.modes.bracketedPasteMode }),
     onAnswer(listener) {
       const subscription = term.onData(listener);

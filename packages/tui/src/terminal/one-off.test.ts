@@ -157,6 +157,35 @@ describe("a one-off command run", () => {
     expect(output.at(-1)).toBe("… 4800 more lines");
   });
 
+  it("keeps the first lines of wide-character output, whose lines wrap to more rows than they are lines", async () => {
+    const terminal = played();
+    // 1,600 lines of four digits and 119 wide characters: 242 cells, three rows of 120, 4,800 rows in all, under the
+    // character cap and the line feeds read through the screen.
+    const lines = Array.from({ length: 1600 }, (_, i) => `${String(i + 1).padStart(4, "0")}${"漢".repeat(119)}`);
+    const result = await run(terminal, "cat wide.txt", () => {
+      terminal.print(`${MARKER}\r\n`);
+      terminal.print(`${lines.join("\r\n")}\r\n`);
+      terminal.exit(0);
+    });
+    expect(result).toMatchObject({ ok: true, cut: false });
+    const output = (result as Extract<typeof result, { ok: true }>).output.split("\n");
+    expect(output.slice(0, 2)).toEqual([lines[0], lines[1]]);
+    expect(output.at(-2)).toBe(lines[199]);
+    expect(output.at(-1)).toBe("… 1400 more lines");
+  });
+
+  it("keeps the first lines when what follows them moves down more rows than a screen holds without a line feed", async () => {
+    const terminal = played();
+    // A vertical tab moves down a row as a line feed does, and none of them is counted as one.
+    const result = await run(terminal, "tabs", () => {
+      terminal.print(`${MARKER}\r\n`);
+      terminal.print(`first\r\nsecond\r\n${"x\v".repeat(8000)}\r\nlast\r\n`);
+      terminal.exit(0);
+    });
+    const output = (result as Extract<typeof result, { ok: true }>).output.split("\n");
+    expect(output.slice(0, 2)).toEqual(["first", "second"]);
+  });
+
   it("reads a scrollback that no longer holds the marker, after a resubscription mid-run, as the command's, and says its start was dropped", async () => {
     const terminal = played();
     const result = await run(terminal, "make", () => {
