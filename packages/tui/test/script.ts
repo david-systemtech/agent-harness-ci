@@ -304,7 +304,6 @@ const clientSessionOf = (clock: ManualClock, partial: Partial<ClientSessionRow>,
   });
 };
 
-/** The descriptor `providers.list` answers: Claude-shaped, with `changes` over it. */
 /** A title as the environment generates one from text (`sessions/titles.ts`): its first line with words in it, collapsed, cut to 80 characters. */
 const generatedTitle = (text: string): string | null => {
   const line = text.split(/\r\n|\r|\n/).find((candidate) => candidate.trim() !== "");
@@ -312,6 +311,7 @@ const generatedTitle = (text: string): string | null => {
   return Array.from(line.replace(/\s+/g, " ").trim()).slice(0, 80).join("").trimEnd();
 };
 
+/** The descriptor `providers.list` answers: Claude-shaped, with `changes` over it. */
 const providerOf = (changes: Partial<AdapterCapabilities> = {}): AdapterCapabilities =>
   checked(AdapterCapabilities, {
     provider: "claude",
