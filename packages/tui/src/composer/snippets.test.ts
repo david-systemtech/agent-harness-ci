@@ -13,6 +13,7 @@
  * full of semicolons.
  */
 
+import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -59,6 +60,17 @@ describe("Snippets", () => {
     expect(saved).toEqual({ name: "fix-tests", body: "run `$1`", updatedAt: 1_700_000_000_000 });
     expect(snippets.get("fix-tests")).toEqual(saved);
     await snippets.flush();
+  });
+
+  it("has no file yet when set returns, and has it once flush resolves", async () => {
+    // Why the terminal's "Saved ;;name." cannot be read as "on disk" (#262):
+    // set answers before the write has begun, so a reader who goes by the line
+    // races the rename. flush is the thing to wait on.
+    const snippets = await Snippets.load(path);
+    snippets.set("fix-tests", "run `$1`");
+    expect(existsSync(path)).toBe(false);
+    await snippets.flush();
+    expect(existsSync(path)).toBe(true);
   });
 
   it("writes what was saved and reads it back through the file", async () => {
@@ -195,6 +207,28 @@ describe("Snippets", () => {
     snippets.set("notes", "a");
     await expect(snippets.flush()).resolves.toBeUndefined();
     expect(snippets.get("notes")?.body).toBe("a");
+  });
+
+  it("tells whoever opened it when a write cannot happen, once per failed write", async () => {
+    const blocked = join(dir, "a-file");
+    await mkdir(dir, { recursive: true });
+    await writeFile(blocked, "in the way", "utf8");
+
+    const failures: unknown[] = [];
+    const snippets = await Snippets.load(join(blocked, "snippets.json"), (error) => failures.push(error));
+    snippets.set("notes", "a");
+    snippets.remove("notes");
+    await snippets.flush();
+    expect(failures).toHaveLength(2);
+    expect(failures[0]).toBeInstanceOf(Error);
+  });
+
+  it("says nothing about a write that worked", async () => {
+    const failures: unknown[] = [];
+    const snippets = await Snippets.load(path, (error) => failures.push(error));
+    snippets.set("notes", "a");
+    await snippets.flush();
+    expect(failures).toEqual([]);
   });
 });
 

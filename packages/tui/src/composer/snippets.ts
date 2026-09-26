@@ -117,22 +117,29 @@ interface FileShape {
  * keystroke away from the next one, and the person typing should never wait on
  * a rename. Writes are chained so two quick changes cannot race, and
  * {@link flush} is how a test — or a process about to exit — waits for the disk
- * to catch up.
+ * to catch up. A write that fails is handed to the `onWriteFailed` given to
+ * {@link load}, since a snippet is something a person asked to keep and should
+ * hear about losing; the change stays in memory either way.
  */
 export class Snippets {
   readonly #path: string;
   readonly #snippets: Map<string, Snippet>;
+  readonly #onWriteFailed: (error: unknown) => void;
   /** Writes are chained so two quick changes cannot race each other's rename. */
   #writing: Promise<void> = Promise.resolve();
 
-  private constructor(path: string, snippets: Map<string, Snippet>) {
+  private constructor(path: string, snippets: Map<string, Snippet>, onWriteFailed: (error: unknown) => void) {
     this.#path = path;
     this.#snippets = snippets;
+    this.#onWriteFailed = onWriteFailed;
   }
 
-  /** Read the file at `path`, skipping whatever cannot be read. A missing file is no snippets. */
-  static async load(path: string): Promise<Snippets> {
-    return new Snippets(path, await readSnippets(path));
+  /**
+   * Read the file at `path`, skipping whatever cannot be read. A missing file is no snippets.
+   * `onWriteFailed` hears about each later write that could not happen.
+   */
+  static async load(path: string, onWriteFailed: (error: unknown) => void = () => undefined): Promise<Snippets> {
+    return new Snippets(path, await readSnippets(path), onWriteFailed);
   }
 
   /** Every snippet, alphabetically — the order the menu and the file are in. */
@@ -178,7 +185,10 @@ export class Snippets {
     // Snapshotted here, in order, so the queued writes agree with what was in
     // memory when each change was made however they interleave with later ones.
     const snapshot: FileShape = { version: FILE_VERSION, snippets: this.list() };
-    this.#writing = this.#writing.then(() => this.#write(snapshot)).catch(() => undefined);
+    this.#writing = this.#writing
+      .then(() => this.#write(snapshot))
+      .catch((error: unknown) => this.#onWriteFailed(error))
+      .catch(() => undefined);
   }
 
   // Owner-only, as the rest of the state directory is.
