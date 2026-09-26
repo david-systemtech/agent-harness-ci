@@ -26,9 +26,13 @@ import { OVERFLOW_WINDOW_MS, SUBSCRIBE_TIMEOUT_MS, overflowDelay } from "./attac
  *   which the renderer draws its screen again;
  * - a `terminal.output` chunk after the cursor is `output`, `live` once the
  *   subscription has synchronized (before that it is a replay of what
- *   happened while this client was away); one at or under the cursor is
- *   dropped, since the environment attaches the live feed before its
- *   catch-up;
+ *   happened while this client was away). The environment sends a
+ *   subscription's catch-up, then `synchronized`, then what its live feed
+ *   heard, each chunk once: what the feed heard during the catch-up is held
+ *   until `synchronized` and what the catch-up sent is dropped from it
+ *   (environment `wire/subscriptions.ts`). So a chunk before `synchronized`
+ *   is never live, and one at or under the cursor, which it never sends, is
+ *   dropped rather than drawn twice;
  * - `terminal.exited` is `exited`, the last thing handed over.
  *
  * When the socket goes the handle is `unreachable` and the next `ready`

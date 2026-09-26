@@ -90,7 +90,8 @@ describe("a terminal's subscription", () => {
     stream.snapshot(2, snapshot(2, "$ ls\r\nREADME.md\r\n$ "));
     stream.synchronized(2);
     stream.event(output(3, "e"));
-    // An event at or under the cursor was in the snapshot already: the environment attaches the live feed before its catch-up.
+    // An event at or under the cursor was in the snapshot already. The environment never sends one (it drops what its
+    // catch-up sent from what its live feed heard); one that came would be dropped rather than drawn twice.
     stream.event(output(2, "stale"));
     stream.event(output(4, "cho hi"));
     await flush();
