@@ -11,9 +11,8 @@ import { headingState, nameOf } from "../view.js";
  * a function of its props, which come from the runtime's projections.
  */
 
-/** Under this many columns the rail is hidden (Artemis's threshold). */
+/** Under this many columns the rail is hidden beside the pane (Artemis's threshold); `rail/rail.tsx` draws it. */
 export const RAIL_MIN_COLUMNS = 100;
-export const RAIL_WIDTH = 28;
 
 export const Header = (props: { readonly current: EnvironmentView | undefined; readonly startingService: boolean; readonly workspace: string }) => {
   const { current } = props;
@@ -35,42 +34,6 @@ export const Header = (props: { readonly current: EnvironmentView | undefined; r
     </Box>
   );
 };
-
-/**
- * The rail: one heading per environment in the runtime's order, and its
- * sessions, which the session-list ticket fills. Its edge is drawn in colour
- * while it has the keys.
- */
-export const Rail = (props: { readonly views: readonly EnvironmentView[]; readonly startingService: boolean; readonly focused: boolean }) => (
-  <Box
-    flexDirection="column"
-    width={RAIL_WIDTH}
-    flexShrink={0}
-    borderStyle="single"
-    borderTop={false}
-    borderBottom={false}
-    borderLeft={false}
-    {...(props.focused && { borderColor: "cyan" })}
-  >
-    {props.views.map((view) => {
-      const state = headingState(view, props.startingService);
-      return (
-        <Box key={view.environmentId} flexDirection="column">
-          <Text wrap="truncate-end" bold dimColor={view.phase !== "ready"}>
-            {nameOf(view)}
-          </Text>
-          {state && (
-            <Text wrap="truncate-end" dimColor>
-              {"  "}
-              {state}
-            </Text>
-          )}
-          <Text dimColor>{"  "}no sessions</Text>
-        </Box>
-      );
-    })}
-  </Box>
-);
 
 /** The screen when there is no environment at all: pair one (docs/specs/tui.md, "First launch"). */
 export const PairingPrompt = () => (

@@ -35,6 +35,15 @@ describe("the terminal UI under the repository's lint", () => {
     expect(await ruleIds(file, `${source}\nexport const keep = (platform: { documents: { set(k: string, v: unknown): Promise<void> } }) => platform.documents.set("rail.archive", []);\n`)).toContain(RULE);
   });
 
+  it("lets collapsedHeadings, the one enumerated presentation key, through in the presentation module and elsewhere, and fires on another session-state name in either", async () => {
+    const file = "packages/tui/src/presentation.ts";
+    const source = readFileSync(join(root, file), "utf8");
+    expect(await ruleIds(file, source)).not.toContain(RULE);
+    expect(await ruleIds(file, `${source}\nexport const pinnedHeadings = writable({});\n`)).toContain(RULE);
+    expect(await ruleIds("packages/tui/src/rail/use-rail.ts", "export const collapsedHeadings = writable({});\n")).not.toContain(RULE);
+    expect(await ruleIds("packages/tui/src/rail/use-rail.ts", "export const collapsedGroups = writable({});\n")).toContain(RULE);
+  });
+
   it("fires on a draft kept by the composer", async () => {
     expect(await ruleIds("packages/tui/src/app.tsx", "export const Composer = () => { const [draft, setDraft] = useState(''); return draft; };\n")).toContain(RULE);
   });
