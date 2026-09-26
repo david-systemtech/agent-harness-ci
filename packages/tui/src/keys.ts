@@ -238,6 +238,34 @@ export interface DispatchContext {
 }
 
 /**
+ * How soon a key pressed again counts as pressed twice (`Esc Esc`): a chosen
+ * default, the window #148's pane gives its leave key pressed twice. Keys
+ * pressed in turn that differ (`\ Enter`) have no window: a backslash typed a
+ * while before Enter still keeps the line open.
+ */
+export const DOUBLE_PRESS_MS = 500;
+
+/** A press as the screen heard it: its name, when, and where the keys were (the card open, the focus, a question). */
+export interface Press {
+  readonly name: string;
+  readonly at: number;
+  readonly place: string;
+}
+
+/**
+ * The press keys pressed in turn start with, for `dispatch`'s `previous`:
+ * the press before this one, when it was heard in the same place (so an Esc
+ * that closed a card, or took the cursor out of the transcript, and the Esc
+ * after it are two single presses, never `Esc Esc`), and, for the same key
+ * pressed again, no more than `DOUBLE_PRESS_MS` before it.
+ */
+export const pressedBefore = (before: Press | undefined, name: string | undefined, at: number, place: string): string | undefined => {
+  if (before === undefined || before.place !== place) return undefined;
+  if (name === before.name && at - before.at > DOUBLE_PRESS_MS) return undefined;
+  return before.name;
+};
+
+/**
  * Dispatches the key Ink heard through the action list: in each of
  * `lookups` in turn, the action the keymap in force gives that key in that
  * context, run when `handlers` answers it. True when a handler took the key.
