@@ -15,8 +15,23 @@ import {
   eventTypeEntry,
   isListEvent,
   registry,
+  AccountCatalogue,
   AccountRecord,
+  BYPASS_SENTENCE,
+  CONTAINMENT_LEVELS,
+  ContainmentReport,
+  HandoffRecommendation,
+  PERMISSION_SETTINGS_KEYS,
+  ReviewRun,
+  SignIn,
+  compareModes,
+  lowerMode,
+  presetSettings,
   type AccountUsage,
+  type ContainmentLevel,
+  type Mode,
+  type SettingsValues,
+  type SignInState,
   type AttachmentInput,
   type ByeReason,
   type CapabilityFlags,
@@ -99,10 +114,24 @@ export interface ScriptedEnvironment {
   readonly providers?: readonly Partial<AdapterCapabilities>[];
   /** What `accounts.list` lists, over an adopted, signed-in account on the first provider: preset none. */
   readonly accounts?: readonly Partial<AccountRecord>[];
+  /** Why `accounts.list` fails, as an `internal` error response: preset it lists `accounts`. */
+  readonly accountsError?: string;
   /** Who holds a message sent during a live run: preset the environment (ADR 0022). */
   readonly queue?: QueueHolder;
   /** Holds each session's catch-up after `subscribed`, until `releaseSessions`: the stream stays catching up. Preset false. */
   readonly holdSessions?: boolean;
+  /** What `models.list` answers: each account's catalogue. Preset none. */
+  readonly models?: readonly Partial<AccountCatalogue>[];
+  /** What `permissions.settings.get` reports of containment: each level's availability, over every level available. */
+  readonly containment?: Partial<ContainmentReport>;
+  /** The settings' values `settings.get` and `permissions.settings.get` answer, over the presets. */
+  readonly settings?: Partial<SettingsValues>;
+  /** What `permissions.review.list` lists: preset nothing. */
+  readonly review?: readonly Partial<ReviewRun>[];
+  /** What `accounts.handoff.recommend` answers, over no recommendation. */
+  readonly recommendation?: Partial<HandoffRecommendation>;
+  /** What `accounts.add` says of the sign-in it starts: preset it starts one. */
+  readonly addSignIn?: { readonly started: boolean; readonly message: string | null };
 }
 
 export interface Script {
@@ -142,14 +171,20 @@ export interface EnvironmentHandle extends ScriptedPrompts {
    */
   emit(sessionId: string, type: string, payload: Record<string, unknown>, change?: { readonly fields?: Partial<SessionSummary>; readonly patch?: SummaryPatch }): EventEnvelope;
   /** Starts a run as `runs.start` does: `message.sent` (a prompt) then `run.started`, the session running. */
-  startRun(sessionId: string, text: string, attachments?: readonly AttachmentInput[]): { readonly runId: string; readonly messageId: string };
+  startRun(
+    sessionId: string,
+    text: string,
+    attachments?: readonly AttachmentInput[],
+    choice?: { readonly model?: string; readonly effort?: string },
+  ): { readonly runId: string; readonly messageId: string };
   /**
    * Ends a run as the environment does (ADR 0022): at an end other than
    * `completed`, what the provider holds of the run comes back to the
    * environment's queue (`message.requeued`) before `run.ended` (reason preset
    * completed; an interrupt's cause preset `user`), the session idle; after
    * any end but an interrupt, the run of the queue starts with what the
-   * environment holds, as the environment's `startFromQueue` does.
+   * environment holds, as the environment's `startFromQueue` does, on the
+   * model and effort of the run before it.
    */
   endRun(
     sessionId: string,
@@ -164,6 +199,14 @@ export interface EnvironmentHandle extends ScriptedPrompts {
   setUsage(readings: readonly AccountUsage[]): void;
   /** Sends the catch-up of every session subscription `holdSessions` held. */
   releaseSessions(): void;
+  /** Moves the environment's sign-in to `state`, as its director does, and says so with `signin.updated`. */
+  signIn(state: SignInState, fields?: { readonly url?: string | null; readonly error?: string | null }): void;
+  /** The environment's latest sign-in; null before any. */
+  currentSignIn(): SignIn | null;
+  /** Changes what `accounts.handoff.recommend` answers, said with a `usage.updated` notice as the environment says a reading changed. */
+  recommend(recommendation: Partial<HandoffRecommendation>): void;
+  /** The settings' values the environment holds now. */
+  settings(): SettingsValues;
   /** Says a notice on the environment's own stream (`environment.subscribe`), as the environment does. */
   notice(type: string, payload: Record<string, unknown>): void;
 }
@@ -458,22 +501,40 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     attachments.map((a) => ({ kind: a.kind, name: a.name, mediaType: a.mediaType, size: Math.floor((a.data.length * 3) / 4) }));
   let runs = 0;
   const minted = (prefix: string) => `${prefix}-0000-4000-8000-${String(++runs).padStart(12, "0")}`;
+  // The account each session forked here runs on, as `sessions.fork` names it: a summary names it only once a run has used it (a created one's carries
+  // the account `sessions.create` named, `test/list-server.ts`).
+  const sessionAccounts = new Map<string, string>();
+  const ceiling = (): Mode => (hello.ceiling as Mode | undefined) ?? "bypassPermissions";
+  // The model and effort of each session's latest run: a run of the queue reads it on those, as the environment's does (ADR 0022).
+  const lastChoice = new Map<string, { readonly model?: string; readonly effort?: string }>();
   /** Starts a run with a prompt, or (`text` null) a run of the queue carrying `queued`, as the environment starts one after a read-now. */
-  const beginRun = (sessionId: string, text: string | null, attachments: readonly AttachmentInput[] | undefined, queued: readonly string[]) => {
+  const beginRun = (
+    sessionId: string,
+    text: string | null,
+    attachments: readonly AttachmentInput[] | undefined,
+    queued: readonly string[],
+    choice: { readonly model?: string; readonly effort?: string } = {},
+  ) => {
     const runId = minted("0199a100");
     const messageId = text === null ? null : minted("0199a200");
     const summary = summaryNow(sessionId);
-    if (text !== null) emit(sessionId, "message.sent", { runId, messageId, text, attachments: records(attachments), delivery: "prompt", heldBy: null, ceiling: "bypassPermissions" });
+    const accountId = sessionAccounts.get(sessionId) ?? summary.accountId ?? "account-1";
+    const model = choice.model ?? summary.model ?? "claude-fake";
+    // As the environment's run does: the session's mode asked for, clamped to the ceiling; acceptEdits when the session has none.
+    const requested = summary.mode;
+    const effective = lowerMode(requested ?? "acceptEdits", ceiling());
+    const clamped = requested !== null && compareModes(effective, requested) < 0;
+    if (text !== null) emit(sessionId, "message.sent", { runId, messageId, text, attachments: records(attachments), delivery: "prompt", heldBy: null, ceiling: ceiling() });
     emit(
       sessionId,
       "run.started",
       {
         runId,
-        accountId: summary.accountId ?? "account-1",
+        accountId,
         identity: null,
-        model: summary.model ?? "claude-fake",
-        effort: null,
-        mode: { requested: null, effective: "acceptEdits", clamped: false },
+        model,
+        effort: choice.effort ?? null,
+        mode: { requested, effective, clamped },
         workspace: summary.workspace,
         origin: "client",
         promptMessageId: messageId,
@@ -481,14 +542,16 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
         resumedFrom: null,
         forkedFrom: null,
       },
-      { fields: { activity: { state: "running", since: clock.now().toISOString() } } },
+      // As the environment's run.started does, the summary takes the run's account and model.
+      { fields: { activity: { state: "running", since: clock.now().toISOString() }, accountId, model } },
     );
     for (const id of queued) emit(sessionId, "message.delivered", { runId, messageId: id, delivery: "prompt" });
     live.set(sessionId, runId);
+    lastChoice.set(sessionId, { model, ...(choice.effort !== undefined && { effort: choice.effort }) });
     return { runId, messageId };
   };
-  const startRun: EnvironmentHandle["startRun"] = (sessionId, text, attachments) => {
-    const { runId, messageId } = beginRun(sessionId, text, attachments, []);
+  const startRun: EnvironmentHandle["startRun"] = (sessionId, text, attachments, choice = {}) => {
+    const { runId, messageId } = beginRun(sessionId, text, attachments, [], choice);
     return { runId, messageId: messageId as string };
   };
   const endRun: EnvironmentHandle["endRun"] = (sessionId, runId, end = {}) => {
@@ -524,7 +587,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
   /** Starts the run of the environment's queue, when it holds anything; the run's id, else undefined. */
   const startFromQueue = (sessionId: string): string | undefined => {
     const queued = environmentHeld(sessionId);
-    return queued.length === 0 ? undefined : beginRun(sessionId, null, undefined, queued).runId;
+    return queued.length === 0 ? undefined : beginRun(sessionId, null, undefined, queued, lastChoice.get(sessionId)).runId;
   };
 
   // Parked prompts and their answers (`test/prompts.ts`).
@@ -561,7 +624,8 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     if (live.has(sessionId)) {
       return { result: { receipt: { status: "rejected", sequence: ++sequence, changed: false, reason: "conflict", error: { code: "conflict", message: "A run is live.", data: { reason: "run_active" } } } } };
     }
-    return acceptedWith(startRun(sessionId, String(params["text"]), attachmentsOf(params)));
+    const choice = { ...(typeof params["model"] === "string" && { model: params["model"] }), ...(typeof params["effort"] === "string" && { effort: params["effort"] }) };
+    return acceptedWith(startRun(sessionId, String(params["text"]), attachmentsOf(params), choice));
   });
   wire.answer("runs.send", (params) => {
     const refused = rejection("runs.send");
@@ -571,7 +635,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     if (runId === undefined) return acceptedWith({ ...startRun(sessionId, String(params["text"]), attachmentsOf(params)), delivery: "prompt", heldBy: null });
     const messageId = minted("0199a200");
     const heldBy = spec.queue ?? "environment";
-    emit(sessionId, "message.sent", { runId, messageId, text: String(params["text"]), attachments: records(attachmentsOf(params)), delivery: "queued", heldBy, ceiling: "bypassPermissions" });
+    emit(sessionId, "message.sent", { runId, messageId, text: String(params["text"]), attachments: records(attachmentsOf(params)), delivery: "queued", heldBy, ceiling: ceiling() });
     return acceptedWith({ runId, messageId, delivery: "queued", heldBy });
   });
   wire.answer("runs.interrupt", (params) => {
@@ -636,21 +700,210 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     emit(sessionId, "session.draft-set", { draft }, { fields: { draft } });
     return acceptedWith({ summary: summaryNow(sessionId) });
   });
+  wire.answer("sessions.fork", (params) => {
+    const refused = rejection("sessions.fork");
+    if (refused) return refused;
+    const source = summaryNow(String(params["sessionId"]));
+    const at = clock.now().toISOString();
+    // On the account named, else the source's (sessions.fork).
+    const account = typeof params["account"] === "string" ? params["account"] : (sessionAccounts.get(source.id) ?? source.accountId);
+    if (account !== null) sessionAccounts.set(String(params["id"]), account);
+    const summary = summaryOf(clock, { id: String(params["id"]), title: source.title, titleSource: "generated", workspace: source.workspace, createdAt: at, updatedAt: at }, sessions.length);
+    emit(
+      summary.id,
+      "session.created",
+      { title: null, tags: [], groupId: null, workspace: summary.workspace, repositoryIdentity: null, account, model: null, mode: null },
+      { patch: { op: "add", summary } },
+    );
+    return acceptedWith({ summary });
+  });
   wire.answer("files.list", () => ({ result: { files: [...(spec.files ?? [])], truncated: false, source: "git" } }));
   wire.answer("commands.list", () => ({ result: { accountId: "account-1", commands: [...(spec.commands ?? [])] } }));
   wire.answer("providers.list", () => ({ result: { providers: (spec.providers ?? [spec.provider ?? {}]).map((p) => providerOf(p)) } }));
-  wire.answer("accounts.list", () => ({
+  const accountOf = (account: Partial<AccountRecord>, i: number): AccountRecord =>
+    checked(AccountRecord, {
+      id: `account-${i + 1}`,
+      provider: "claude",
+      label: `account ${i + 1}`,
+      directory: { kind: "adopted", path: `/home/seth/.account-${i + 1}` },
+      identity: null,
+      status: { state: "signed-in", checkedAt: null, detail: null },
+      createdAt: clock.now().toISOString(),
+      ...account,
+    });
+  const accounts: AccountRecord[] = (spec.accounts ?? []).map(accountOf);
+  wire.answer("accounts.list", () =>
+    spec.accountsError !== undefined ? { error: { code: "internal", message: spec.accountsError, data: {} } } : { result: { accounts: [...accounts] } },
+  );
+  wire.answer("models.list", () => ({
+    result: { catalogues: (spec.models ?? []).map((catalogue) => checked(AccountCatalogue, { accountId: "account-1", live: false, models: [], ...catalogue })) },
+  }));
+
+  // The sign-in director (ADR 0018): one sign-in at a time, moved by the handle as the provider's CLI would move it.
+  let signIn: SignIn | null = null;
+  const moveSignIn = (state: SignInState, fields: { readonly url?: string | null; readonly error?: string | null } = {}) => {
+    if (!signIn) throw new Error(`${spec.name} has no sign-in to move.`);
+    signIn = checked(SignIn, { ...signIn, state, ...(fields.url !== undefined && { url: fields.url }), ...(fields.error !== undefined && { error: fields.error }) });
+    if (state === "done") {
+      const at = accounts.findIndex((a) => a.id === signIn?.accountId);
+      const held = accounts[at];
+      if (held) accounts[at] = { ...held, status: { state: "signed-in", checkedAt: clock.now().toISOString(), detail: null } };
+    }
+    notice("signin.updated", { ...signIn });
+  };
+  const startSignIn = (accountId: string): SignIn => {
+    const account = accounts.find((a) => a.id === accountId);
+    const directory = account?.directory.path ?? "/home/seth/.agent-harness/accounts/new";
+    const startedAt = clock.now();
+    signIn = checked(SignIn, {
+      accountId,
+      state: "starting",
+      url: null,
+      startedAt: startedAt.toISOString(),
+      expiresAt: new Date(startedAt.getTime() + 10 * 60_000).toISOString(),
+      fallback: { posix: `CLAUDE_CONFIG_DIR='${directory}' claude auth login`, powershell: `$env:CLAUDE_CONFIG_DIR = '${directory}'; & 'claude' auth login` },
+      error: null,
+    });
+    // Announced as it started, whatever the handle moves it to before the announcement goes.
+    const started = signIn;
+    later(() => notice("signin.updated", { ...started }));
+    return signIn;
+  };
+  wire.answer("accounts.signin.get", () => ({ result: { signIn } }));
+  wire.answer("accounts.add", (params) => {
+    const refused = rejection("accounts.add");
+    if (refused) return refused;
+    const account = accountOf({ id: `account-${accounts.length + 1}`, label: String(params["label"]), directory: { kind: "owned", path: `/home/seth/.agent-harness/accounts/${accounts.length + 1}` }, status: { state: "signed-out", checkedAt: null, detail: null } }, accounts.length);
+    accounts.push(account);
+    const start = spec.addSignIn ?? { started: true, message: null };
+    if (start.started) startSignIn(account.id);
+    return acceptedWith({ account, signIn: start });
+  });
+  wire.answer("accounts.signin.start", (params) => rejection("accounts.signin.start") ?? acceptedWith({ signIn: startSignIn(String(params["accountId"])) }));
+  wire.answer("accounts.signin.code", (params) => {
+    const refused = rejection("accounts.signin.code");
+    if (refused) return refused;
+    const held: SignIn | null = signIn;
+    if (held === null || held.state !== "awaiting-code" || held.accountId !== params["accountId"]) {
+      return { result: { receipt: { status: "rejected", sequence: ++sequence, changed: false, reason: "conflict", error: { code: "conflict", message: "No sign-in of that account is waiting for a code.", data: { reason: "not_awaiting_code" } } } } };
+    }
+    moveSignIn("submitting");
+    return acceptedWith({ signIn });
+  });
+  wire.answer("accounts.signin.cancel", (params) => {
+    const refused = rejection("accounts.signin.cancel");
+    if (refused) return refused;
+    const held: SignIn | null = signIn;
+    if (held !== null && held.accountId === params["accountId"] && (held.state === "starting" || held.state === "awaiting-code" || held.state === "submitting")) moveSignIn("cancelled");
+    return acceptedWith({ signIn });
+  });
+
+  // Plan usage's hand-off recommendation, answered from what the script holds.
+  let recommendation = checked(HandoffRecommendation, {
+    accountId: null,
+    reason: "no-target",
+    message: "No other account has room.",
+    fromAccountId: null,
+    trigger: null,
+    headroom: null,
+    binding: null,
+    candidates: 0,
+    basis: null,
+    ...spec.recommendation,
+  });
+  wire.answer("accounts.handoff.recommend", (params) => ({ result: { ...recommendation, fromAccountId: (params["fromAccountId"] as string | undefined) ?? null } }));
+  const recommend = (changes: Partial<HandoffRecommendation>) => {
+    recommendation = checked(HandoffRecommendation, { ...recommendation, ...changes });
+    notice("usage.updated", { accountId: recommendation.fromAccountId ?? "account-1", identity: null });
+  };
+
+  // The settings, the permission settings among them, and the containment the probe reports.
+  let values: SettingsValues = { ...presetSettings(), ...spec.settings };
+  const containment = checked(ContainmentReport, {
+    levels: CONTAINMENT_LEVELS.map((level) => ({ level, available: true, reason: null, cause: null })),
+    mechanism: "bubblewrap",
+    container: { declared: false, detected: false },
+    ...spec.containment,
+  });
+  const permissionValues = () => Object.fromEntries(PERMISSION_SETTINGS_KEYS.map((key) => [key, values[key]]));
+  wire.answer("settings.get", (params) => {
+    const keys = (params["keys"] as readonly (keyof SettingsValues)[] | undefined) ?? (Object.keys(values) as (keyof SettingsValues)[]);
+    return { result: { values: Object.fromEntries(keys.map((key) => [key, values[key]])) } };
+  });
+  wire.answer("settings.update", (params) => {
+    const refused = rejection("settings.update");
+    if (refused) return refused;
+    values = { ...values, ...(params["values"] as Partial<SettingsValues>) };
+    return acceptedWith({ values });
+  });
+  wire.answer("permissions.settings.get", () => ({
+    result: { values: permissionValues(), containment, isRoot: false, denylist: { browserDomains: 0, paths: 0, commandPatterns: 0, hosts: 0 } },
+  }));
+  wire.answer("permissions.settings.set", (params) => {
+    const refused = rejection("permissions.settings.set");
+    if (refused) return refused;
+    const asked = params["values"] as Partial<SettingsValues>;
+    if (asked["permissions.unattended.mode"] === "bypassPermissions" && values["permissions.unattended.bypassAcknowledgedAt"] === null) {
+      if (params["acknowledgeBypass"] !== true) return { error: { code: "invalid_params", message: `acknowledgeBypass must come with the first bypassPermissions: ${BYPASS_SENTENCE}`, data: {} } };
+      values = { ...values, "permissions.unattended.bypassAcknowledgedAt": clock.now().toISOString() };
+    }
+    values = { ...values, ...asked };
+    return acceptedWith({ values: permissionValues() });
+  });
+
+  // A session's mode, clamped to this client session's ceiling, and its containment level, refused where the probe says it cannot be enforced.
+  wire.answer("permissions.mode.set", (params) => {
+    const refused = rejection("permissions.mode.set");
+    if (refused) return refused;
+    const sessionId = String(params["sessionId"]);
+    const requested = params["mode"] as Mode;
+    const effective = lowerMode(requested, ceiling());
+    const clamped = compareModes(effective, requested) < 0;
+    const mode = { requested, effective, ceiling: ceiling(), clamped, clampReason: clamped ? "ceiling" : null };
+    const running = live.get(sessionId);
+    const payload = { mode, live: running === undefined ? null : { runId: running, mode: effective } };
+    emit(sessionId, "session.mode.set", payload, { fields: { mode: effective } });
+    return acceptedWith({ sessionId, ...payload });
+  });
+  wire.answer("permissions.containment.set", (params) => {
+    const refused = rejection("permissions.containment.set");
+    if (refused) return refused;
+    const sessionId = String(params["sessionId"]);
+    const level = params["level"] as ContainmentLevel;
+    const availability = containment.levels.find((l) => l.level === level);
+    if (availability && !availability.available) {
+      return {
+        result: {
+          receipt: {
+            status: "rejected",
+            sequence: ++sequence,
+            changed: false,
+            reason: "containment_unavailable",
+            error: { code: "containment_unavailable", message: `${level} cannot be enforced here: ${availability.reason}`, data: { level, reason: availability.reason, cause: availability.cause } },
+          },
+        },
+      };
+    }
+    const payload = { containment: { requested: level, effective: level, clamped: false } };
+    emit(sessionId, "session.containment.set", payload);
+    return acceptedWith({ sessionId, ...payload });
+  });
+  wire.answer("permissions.review.list", () => ({
     result: {
-      accounts: (spec.accounts ?? []).map((account, i) =>
-        checked(AccountRecord, {
-          id: `account-${i + 1}`,
-          provider: "claude",
-          label: `account ${i + 1}`,
-          directory: { kind: "adopted", path: `/home/seth/.account-${i + 1}` },
-          identity: null,
-          status: { state: "signed-in", checkedAt: null, detail: null },
-          createdAt: clock.now().toISOString(),
-          ...account,
+      watermark: 0,
+      head: sequence,
+      runs: (spec.review ?? []).map((run, i) =>
+        checked(ReviewRun, {
+          sessionId: sessions[0]?.id ?? "0199aa00-0000-4000-8000-000000000001",
+          runId: `0199a900-0000-4000-8000-${String(i + 1).padStart(12, "0")}`,
+          ranAt: clock.now().toISOString(),
+          actor: { kind: "routine", name: "nightly" },
+          attended: false,
+          mode: { requested: null, effective: "acceptEdits", ceiling: "bypassPermissions", clamped: false, clampReason: null },
+          containment: { requested: null, effective: "workspace", mechanism: "bubblewrap", reason: null },
+          counts: { toolCalls: 0, autoApproved: 0, denied: 0, answeredByPerson: 0, expired: 0 },
+          denials: [],
+          ...run,
         }),
       ),
     },
@@ -723,6 +976,15 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     "runs.withdraw",
     "runs.stopTask",
     "sessions.setDraft",
+    "sessions.fork",
+    "accounts.add",
+    "accounts.signin.start",
+    "accounts.signin.code",
+    "accounts.signin.cancel",
+    "settings.update",
+    "permissions.settings.set",
+    "permissions.mode.set",
+    "permissions.containment.set",
     "permissions.prompts.answer",
     ...LIST_COMMANDS,
   ]);
@@ -813,6 +1075,10 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     queued: (sessionId) => queueOf(sessionId).map((m) => ({ ...m })),
     setUsage,
     releaseSessions: () => held.splice(0).forEach((catchUp) => catchUp()),
+    signIn: moveSignIn,
+    currentSignIn: () => signIn,
+    recommend,
+    settings: () => values,
     notice,
     ...prompts,
   };

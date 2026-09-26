@@ -1,4 +1,4 @@
-import type { RequestFrame, Scope } from "@agent-harness/contracts";
+import type { AccountRecord, RequestFrame, Scope } from "@agent-harness/contracts";
 import { render } from "ink-testing-library";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { KEY, appUnderTest, renderApp, type RenderedApp, type RenderOptions, type Script } from "../test/harness.js";
@@ -733,7 +733,8 @@ describe("the filter and /search", () => {
 });
 
 describe("starting a session on an environment", () => {
-  const account = {
+  // The script's, not a later answer: the status line reads the header environment's accounts as the terminal starts.
+  const account: AccountRecord = {
     id: "0199cc00-0000-4000-8000-00000000acc1",
     provider: "claude",
     label: "Work",
@@ -745,8 +746,7 @@ describe("starting a session on an environment", () => {
   const catalogue = { accountId: account.id, live: true, models: [{ id: "claude-opus-5", family: "opus", tier: 3, efforts: [], label: "Opus 5" }] };
 
   it("Enter on an environment's heading shows its environment, account and model chips, then creates a session with a client-minted id in a directory workspace its sessions use", async () => {
-    const app = await two();
-    app.environment("desk").wire.answer("accounts.list", () => ({ result: { accounts: [account] } }));
+    const app = await two({ desk: { accounts: [account] } });
     app.environment("desk").wire.answer("models.list", () => ({ result: { catalogues: [catalogue] } }));
     await focusRail(app);
     await headingTo(app, "desk");
@@ -778,8 +778,7 @@ describe("starting a session on an environment", () => {
   });
 
   it("goes back a step to the choice made there, highlighted", async () => {
-    const app = await two();
-    app.environment("desk").wire.answer("accounts.list", () => ({ result: { accounts: [account] } }));
+    const app = await two({ desk: { accounts: [account] } });
     await focusRail(app);
     await headingTo(app, "desk");
     await app.press(KEY.enter);
