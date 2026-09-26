@@ -12,6 +12,9 @@ const rendererPackages = clientPackageNames.filter((p) => p !== "client-runtime"
 /** One alternation over every client package name, for the import bans below. */
 const anyClient = clientPackageNames.join("|");
 
+/** Why the environment imports no client and not the CLI. */
+const environmentOnly = "The environment depends on contracts, never on a client or the CLI.";
+
 /** `no-restricted-imports` refusing every import whose specifier matches `regex`. */
 const forbidImports = (regex: string, message: string): Linter.RulesRecord => ({
   "no-restricted-imports": ["error", { patterns: [{ regex, message }] }],
@@ -56,13 +59,12 @@ export default defineConfig([
   },
   {
     files: ["packages/environment/**/*.ts"],
-    rules: forbidImports(
-      // A relative path into a client's or the CLI's folder is the same import, its tests included, however its climb is
-      // spelled: `./` before or between the `../`, a doubled slash anywhere in it (tsc and vitest read `//` as `/`), or back
-      // down through `packages/`.
-      `^(@agent-harness/(${anyClient})|agent-harness)(/|$)|^(\\.\\.?/+)*\\.\\./+(packages/+)?(${anyClient}|cli)(/|$)`,
-      "The environment depends on contracts, never on a client or the CLI.",
-    ),
+    rules: {
+      ...forbidImports(`^(@agent-harness/(${anyClient})|agent-harness)(/|$)`, environmentOnly),
+      // A relative path into a client's or the CLI's folder is the same import, its tests included, however it is spelled:
+      // the rule resolves it against the importing file, which no pattern over the specifier can.
+      "agent-harness/no-relative-import-into": ["error", { root: import.meta.dirname, packages: [...clientPackageNames, "cli"], because: environmentOnly }],
+    },
   },
   {
     files: rendererPackages,
