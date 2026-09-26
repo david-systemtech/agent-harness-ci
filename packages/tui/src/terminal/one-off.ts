@@ -38,13 +38,33 @@ import { createScreen } from "./screen.js";
  *   bars and colours come out as the text a person saw, cut to its first
  *   `ONE_OFF_MAX_LINES` lines with the rest counted (Artemis's `shell.ts`).
  * - **A minute at most**: past `ONE_OFF_TIMEOUT_MS` the terminal is closed
- *   and the output says so. Every way it ends, the terminal is closed, so
- *   it never counts against the session's sixteen.
+ *   and the output says so. Every way it ends, the terminal is closed (a
+ *   close the environment could not be asked is sent again once it can
+ *   be), so it never counts against the session's sixteen.
  *
  * The variables, the line and the reading of the marker are contracts'
  * (`one-off.ts` there), where the environment's tests prove them against
  * real pseudo-terminals.
  */
+
+/**
+ * Closes terminal `id` (`terminals.close`). A close the environment could not
+ * be asked (unreachable, the socket gone with it) is sent once more when it
+ * can be asked again, as the pane's size is; a refusal is a terminal already
+ * closed or not there. The environment keeps an exited terminal listed until
+ * it is closed, so a lost close would leave it counting against the session.
+ */
+export const closeTerminal = (runtime: Runtime, environmentId: string, id: string, newCommandId: () => string): void => {
+  const close = () => runtime.requests.call(environmentId, "terminals.close", { commandId: newCommandId(), id });
+  void close().then((answer) => {
+    if (answer.ok) return;
+    const stop = runtime.projections.environments.subscribe(() => {
+      if (runtime.capability(environmentId, "terminals.close").status === "absent") return;
+      stop();
+      void close();
+    });
+  });
+};
 
 /** How long a `!!` command may run before its terminal is closed. */
 export const ONE_OFF_TIMEOUT_MS = 60_000;
@@ -202,7 +222,7 @@ export const runOneOff = async (deps: OneOffDeps, target: Opened, command: strin
   timer?.cancel();
   handle?.release();
   // Closed whichever way it ended: an exited terminal stays listed until it is.
-  void runtime.requests.call(environmentId, "terminals.close", { commandId: deps.newCommandId(), id });
+  closeTerminal(runtime, environmentId, id, deps.newCommandId);
   if (!typed.ok) return { ok: false, line: typed.error.message };
   if (typed.result.receipt.status === "rejected") return { ok: false, line: typed.result.receipt.error.message };
 

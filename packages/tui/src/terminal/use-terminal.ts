@@ -4,7 +4,7 @@ import { ONE_OFF_LINE } from "@agent-harness/contracts";
 import type { Opened } from "../session/use-session.js";
 import type { Span } from "../transcript/lines.js";
 import { forwarded, pasted } from "./keys.js";
-import { shownEnv } from "./one-off.js";
+import { closeTerminal as closeById, shownEnv } from "./one-off.js";
 import { createScreen, type Screen } from "./screen.js";
 
 /**
@@ -147,7 +147,7 @@ export const useTerminalPane = (host: PaneHost): TerminalPane => {
 
   const closeTerminal = (entry: Live) => {
     const { runtime, newCommandId } = hostRef.current;
-    if (entry.terminalId !== null) void runtime.requests.call(entry.target.environmentId, "terminals.close", { commandId: newCommandId(), id: entry.terminalId });
+    if (entry.terminalId !== null) closeById(runtime, entry.target.environmentId, entry.terminalId, newCommandId);
   };
 
   const drop = (entry: Live) => {

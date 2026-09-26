@@ -44,14 +44,21 @@ const played = () => {
   const state = writable<TerminalStreamView>({ status: "live", cursor: 0, terminal: null, exit: null, fault: null });
   let sequence = 0;
   let writeAnswer: "accepted" | "unreachable" = "accepted";
+  /** Whether the environment can be asked: while it cannot, every write and close fails as the runtime fails one. */
+  let reachable = true;
+  const environments = writable<readonly unknown[]>([]);
   const runtime = {
     requests: {
       call: async (_environmentId: string, method: string, params: Record<string, unknown>) => {
         calls.push({ method, params });
-        if (method === "terminals.write" && writeAnswer === "unreachable") return { ok: false, error: { code: "unreachable", message: "desk cannot be reached." } };
+        const unreachable = { ok: false, error: { code: "unreachable", message: "desk cannot be reached." } };
+        if (method === "terminals.write" && (writeAnswer === "unreachable" || !reachable)) return unreachable;
+        if (method === "terminals.close" && !reachable) return unreachable;
         return { ok: true, result: { receipt: { status: "accepted", sequence: 1, changed: false } } };
       },
     },
+    projections: { environments },
+    capability: () => (reachable ? { status: "present" } : { status: "absent", reason: "not-ready", message: "desk cannot be reached." }),
     subscriptions: {
       terminal: (_environmentId: string, _id: string, heard: (output: TerminalOutput) => void) => {
         listener = heard;
@@ -64,6 +71,13 @@ const played = () => {
     calls,
     runtime,
     failWrites: () => void (writeAnswer = "unreachable"),
+    /** The environment drops: nothing can be asked of it until `back`. */
+    drop: () => void (reachable = false),
+    /** The environment answers again, as its connection coming back changes the environments' projection. */
+    back: () => {
+      reachable = true;
+      environments.set([]);
+    },
     print: (data: string) => listener?.({ kind: "output", data, sequence: ++sequence, live: true }),
     /** A snapshot of what the terminal's scrollback still holds, as a resubscription answered with one. */
     reset: (data: string, truncated: boolean) => listener?.({ kind: "reset", data, sequence: ++sequence, truncated, terminal: null as never }),
@@ -216,6 +230,25 @@ describe("a one-off command run", () => {
     });
     expect(result).toEqual({ ok: true, output: "step 1", exitCode: null, signal: null, timedOut: false, gone: true, timeoutMs: 60_000, cut: false, dropped: false });
     expect(oneOffMessage("make", result as Extract<typeof result, { ok: true }>)).toBe("Ran `make`:\n```\nstep 1\nthe terminal went away before the command ended\n```");
+  });
+
+  it("closes its terminal once the environment is back when the close could not be sent, so the terminal is not left open", async () => {
+    // The environment dropped after the open was answered: the line was never typed, and the close was lost with it.
+    const terminal = played();
+    terminal.drop();
+    const result = await runOneOff(terminal.deps, TARGET, "ls");
+    expect(result).toEqual({ ok: false, line: "desk cannot be reached." });
+    await flush();
+    const closes = () => terminal.calls.filter((c) => c.method === "terminals.close");
+    expect(closes()).toHaveLength(1);
+    terminal.back();
+    await flush();
+    expect(closes()).toHaveLength(2);
+    expect(closes()[1]?.params).toMatchObject({ id: "t1" });
+    // Sent once more, not on every change after.
+    terminal.back();
+    await flush();
+    expect(closes()).toHaveLength(2);
   });
 
   it("stops its clock when the line could not be typed, and says why", async () => {
