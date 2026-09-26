@@ -68,6 +68,8 @@ const played = () => {
     /** A snapshot of what the terminal's scrollback still holds, as a resubscription answered with one. */
     reset: (data: string, truncated: boolean) => listener?.({ kind: "reset", data, sequence: ++sequence, truncated, terminal: null as never }),
     exit: (exitCode: number) => listener?.({ kind: "exited", exit: { exitCode, signal: null, cause: "exited" } }),
+    /** The terminal gone with no exit said (closed by another client, lost to a restart of the environment). */
+    vanish: () => state.set({ status: "ended", cursor: sequence, terminal: null, exit: null, fault: null }),
     deps: { runtime, clock, newCommandId: () => "c", newTerminalId: () => "t1" },
   };
 };
@@ -89,7 +91,7 @@ describe("a one-off command run", () => {
       terminal.print(`${MARKER}\r\nhi\r\n`);
       terminal.exit(0);
     });
-    expect(result).toEqual({ ok: true, output: "hi", exitCode: 0, signal: null, timedOut: false, timeoutMs: 60_000, cut: false, dropped: false });
+    expect(result).toEqual({ ok: true, output: "hi", exitCode: 0, signal: null, timedOut: false, gone: false, timeoutMs: 60_000, cut: false, dropped: false });
     expect(terminal.calls.map((c) => c.method)).toEqual(["terminals.open", "terminals.write", "terminals.close"]);
     expect(terminal.calls[0]?.params).toMatchObject({ id: "t1", sessionId: "session-1", cols: 120, rows: 40, env: oneOffEnv("echo hi", MARKER) });
     expect(terminal.calls[1]?.params).toMatchObject({ data: ONE_OFF_LINE });
@@ -123,7 +125,7 @@ describe("a one-off command run", () => {
     terminal.print(`${MARKER}\r\nstarted\r\n`);
     terminal.clock.advance(5_000);
     const ended = await result;
-    expect(ended).toEqual({ ok: true, output: "started", exitCode: null, signal: null, timedOut: true, timeoutMs: 5_000, cut: false, dropped: false });
+    expect(ended).toEqual({ ok: true, output: "started", exitCode: null, signal: null, timedOut: true, gone: false, timeoutMs: 5_000, cut: false, dropped: false });
     expect(terminal.calls.at(-1)?.method).toBe("terminals.close");
     expect(oneOffMessage("sleep 100", ended as Extract<typeof ended, { ok: true }>)).toBe("Ran `sleep 100`:\n```\nstarted\ntimed out after 5s\n```");
   });
@@ -175,6 +177,16 @@ describe("a one-off command run", () => {
       terminal.exit(0);
     });
     expect(result).toMatchObject({ ok: true, output: "step 1\nstep 2", dropped: false });
+  });
+
+  it("says the terminal went away when it ends with no exit after the command started, rather than send its output as a finished run", async () => {
+    const terminal = played();
+    const result = await run(terminal, "make", () => {
+      terminal.print(`${MARKER}\r\nstep 1\r\n`);
+      terminal.vanish();
+    });
+    expect(result).toEqual({ ok: true, output: "step 1", exitCode: null, signal: null, timedOut: false, gone: true, timeoutMs: 60_000, cut: false, dropped: false });
+    expect(oneOffMessage("make", result as Extract<typeof result, { ok: true }>)).toBe("Ran `make`:\n```\nstep 1\nthe terminal went away before the command ended\n```");
   });
 
   it("stops its clock when the line could not be typed, and says why", async () => {

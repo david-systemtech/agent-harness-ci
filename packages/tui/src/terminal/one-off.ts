@@ -109,10 +109,12 @@ export type OneOffResult =
       readonly ok: true;
       /** What the command printed, as a terminal showed it, cut to its first lines. */
       readonly output: string;
-      /** Its exit code; null when it did not exit (timed out). */
+      /** Its exit code; null when it did not exit (timed out, or its terminal went away). */
       readonly exitCode: number | null;
       readonly signal: number | null;
       readonly timedOut: boolean;
+      /** Its terminal went away before it ended (closed by another client, lost to a restart of the environment): what it said is partial. */
+      readonly gone: boolean;
       /** How long it was given. */
       readonly timeoutMs: number;
       /** More came than was held. */
@@ -130,7 +132,7 @@ export interface OneOffDeps {
   readonly timeoutMs?: number;
 }
 
-type Ended = { readonly exitCode: number | null; readonly signal: number | null; readonly timedOut: boolean };
+type Ended = { readonly exitCode: number | null; readonly signal: number | null; readonly timedOut: boolean; readonly gone: boolean };
 
 /** Runs `command` for `!!` in a terminal of its own on the session's environment and reads what it printed. */
 export const runOneOff = async (deps: OneOffDeps, target: Opened, command: string): Promise<OneOffResult> => {
@@ -153,19 +155,19 @@ export const runOneOff = async (deps: OneOffDeps, target: Opened, command: strin
   let handle: TerminalHandle | undefined;
   let timer: { cancel(): void } | undefined;
   const ended = new Promise<Ended>((resolve) => {
-    timer = clock.setTimeout(() => resolve({ exitCode: null, signal: null, timedOut: true }), timeoutMs);
+    timer = clock.setTimeout(() => resolve({ exitCode: null, signal: null, timedOut: true, gone: false }), timeoutMs);
     handle = runtime.subscriptions.terminal(environmentId, id, (output) => {
       if (output.kind === "reset") heard.reset(output.data);
       else if (output.kind === "output") heard.take(output.data);
-      else resolve({ exitCode: output.exit.exitCode, signal: output.exit.signal, timedOut: false });
+      else resolve({ exitCode: output.exit.exitCode, signal: output.exit.signal, timedOut: false, gone: false });
     });
-    // A terminal gone before it could be heard (closed by another client) says nothing more.
+    // A terminal gone with no exit said (closed by another client, lost to a restart) says nothing more.
     handle.state.subscribe((view) => {
-      if (view.status === "ended" && view.exit === null) resolve({ exitCode: null, signal: null, timedOut: false });
+      if (view.status === "ended" && view.exit === null) resolve({ exitCode: null, signal: null, timedOut: false, gone: true });
     });
   });
   const typed = await runtime.requests.call(environmentId, "terminals.write", { commandId: deps.newCommandId(), id, data: ONE_OFF_LINE });
-  const end: Ended = typed.ok && typed.result.receipt.status === "accepted" ? await ended : { exitCode: null, signal: null, timedOut: false };
+  const end: Ended = typed.ok && typed.result.receipt.status === "accepted" ? await ended : { exitCode: null, signal: null, timedOut: false, gone: false };
   timer?.cancel();
   handle?.release();
   // Closed whichever way it ended: an exited terminal stays listed until it is.
@@ -193,6 +195,7 @@ export const oneOffMessage = (command: string, result: Extract<OneOffResult, { r
   const notes = [
     result.cut ? `… output stopped after ${String(ONE_OFF_MAX_CHARS / 1024)}K characters` : undefined,
     result.timedOut ? `timed out after ${seconds(result.timeoutMs)}` : undefined,
+    result.gone ? "the terminal went away before the command ended" : undefined,
     result.signal !== null ? `killed by signal ${String(result.signal)}` : result.exitCode !== null && result.exitCode !== 0 ? `exit ${String(result.exitCode)}` : undefined,
   ].filter((note): note is string => note !== undefined);
   const body = [...(result.dropped ? ["… earlier output dropped"] : []), result.output, ...notes].filter((part) => part.length > 0).join("\n");
