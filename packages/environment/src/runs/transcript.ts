@@ -81,6 +81,18 @@ type Item = { kind: string; sequence: number };
  * `session-rewinds.test.ts` checks they agree. No item the fold makes
  * otherwise has this kind: the environment folds an unknown event into kind
  * `opaque`.
+ *
+ * A fold is cut from the items settled when the rewind lands, and an
+ * assistant item settles into the top-level items (`place`), so one opened
+ * before a rewind and settled after it would sit ahead of the fold where a
+ * client, holding it from its first delta, folds it. No log has that order:
+ * a rewind is refused while a run is live (`sessions.rewind`'s `runActive`
+ * check, `sessions/fork-rewind.ts`), an adapter settles its open items
+ * before its end (`endTurn`, `adapters/claude/mapper.ts`), and the host
+ * appends nothing of a run once it has ended it (`finish` sets `ended`
+ * before `run.ended`, and `consume` drops what the stream yields after,
+ * `adapter/host.ts`). A run's settles come before its `run.ended`, and so
+ * before any rewind after its first delta.
  */
 interface Fold extends Item {
   readonly kind: "rewound";
