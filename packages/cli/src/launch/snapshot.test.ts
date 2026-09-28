@@ -37,6 +37,7 @@ const dataDirectory = (): string => {
   return dir;
 };
 
+const posix = process.platform !== "win32";
 const updateId = "7d0f2b1e-2c55-4a8e-9f0b-3a1c5d7e9b20";
 const record: OutcomeRecord = { updateId, fromVersion: "0.4.0", toVersion: "0.5.0", stage: "trial", reason: "exit" };
 
@@ -142,7 +143,8 @@ describe("the database snapshot, without a launcher", () => {
     expect(readdirSync(join(dataDir, SNAPSHOTS_DIRECTORY))).toEqual([updateId]);
   });
 
-  it("puts every copy and the staging folder on disk before the rename that completes the snapshot, and the rename after", () => {
+  // The call sequences hold the directory fsyncs, which only POSIX makes.
+  it.runIf(posix)("puts every copy and the staging folder on disk before the rename that completes the snapshot, and the rename after", () => {
     const dataDir = dataDirectory();
     writeDatabase(dataDir, ["before the update"], "open");
     const { fs, calls } = recordingFs(dataDir);
@@ -159,6 +161,8 @@ describe("the database snapshot, without a launcher", () => {
       "fsync snapshots/<id>.staging",
       "rename snapshots/<id>.staging to snapshots/<id>",
       "fsync snapshots",
+      // The snapshots folder may be new, and its own name must survive too.
+      "fsync .",
     ]);
   });
 
@@ -223,7 +227,7 @@ describe("the restore, without a launcher", () => {
     expect(readDatabase(dataDir)).toEqual(["before the update"]);
   });
 
-  it("marks the restore exclusively and on disk before it copies anything, puts the copy on disk before the outcome record, and clears the marker last", () => {
+  it.runIf(posix)("marks the restore exclusively and on disk before it copies anything, puts the copy on disk before the outcome record, and clears the marker last", () => {
     const { dataDir } = afterAFailedTrial();
     const { fs, calls } = recordingFs(dataDir);
 

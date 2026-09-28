@@ -99,6 +99,8 @@ export const takeSnapshot = (dataDir: string, updateId: string, options: Snapsho
   syncDirectory(staging, fs, platform);
   fs.renameSync(staging, snapshot);
   syncDirectory(join(dataDir, SNAPSHOTS_DIRECTORY), fs, platform);
+  // The first snapshot made the snapshots folder, whose own name is in the data directory.
+  syncDirectory(dataDir, fs, platform);
   return "taken";
 };
 
