@@ -101,7 +101,7 @@ The small set of things only a desktop app can do for a client (native dialogs, 
 _Avoid_: main process, IPC, bridge
 
 **Theme**:
-A name and seven seeds (Canvas, Accent, Machine, Thinking, Success, Warning, Danger), each one hue and chroma, from which every colour the GUI and the web tab paint is derived, and which the terminal UI maps onto its terminal's own colours; an environment setting, with Artemis's colours as the default.
+A name and seven seeds (Canvas, Accent, Machine, Thinking, Success, Warning, Danger), each one hue and chroma, from which every colour the GUI and the web tab paint is derived, and which the terminal UI maps onto its terminal's own colours; an environment setting, defaulting to a fixed pair of seeds chosen so a fresh install looks the same as it does today.
 _Avoid_: skin, palette (the derived ladder, not the setting), colour scheme (light or dark, which is the client's)
 
 **Seed**:
@@ -166,7 +166,7 @@ _Avoid_: blocklist, blacklist, guardrails
 
 **Parked prompt**:
 A permission prompt or question a run is waiting on with nobody having answered yet; shown to every client until answered; denied after its TTL unless the TTL is never.
-_Avoid_: pending approval, ask (the Artemis UI word; fine for the "Parked asks" view name)
+_Avoid_: pending approval, ask (already a UI word for permission prompts; fine for the "Parked asks" view name)
 
 **Idle**:
 The state of an environment with no run starting or running and no run started or ended in the last ten minutes; a run parked on a prompt counts as busy for ten minutes only.
@@ -194,7 +194,7 @@ _Avoid_: run (a firing is a session; its turns are runs), tick, execution
 
 **Bot**:
 An environment-owned identity with a persona, default account, model and mode, and skills, that owns routines; its chat front-ends live outside the harness.
-_Avoid_: agent (the model doing the work), persona (only the bot's instructions), profile (Hermes's word; also Artemis's retired word for an account)
+_Avoid_: agent (the model doing the work), persona (only the bot's instructions), profile (Hermes's word; also a retired word for an account)
 
 **Delivery target**:
 Where a firing's result is sent: a kind (client notice, signed webhook, later others), a target and a success or failure split.
@@ -294,7 +294,7 @@ _Avoid_: connected browser, extension instance, my Chrome (the picker's label, n
 
 **Browser relay**:
 The path a browser verb takes from the environment running a session to the client that started it, then to that client's local environment and its paired Chrome, and back with the answer.
-_Avoid_: tunnel, bridge (Artemis's word for the desktop listener), proxy
+_Avoid_: tunnel, bridge (a retired word for the desktop listener), proxy
 
 **Adapter**:
 The environment's implementation of one provider (Claude, Codex, an OpenAI-compatible server, OpenCode) behind the one contract: capabilities, credentials, runs as an event stream, sessions, usage, models, an instruction channel, tool servers, a permission broker.

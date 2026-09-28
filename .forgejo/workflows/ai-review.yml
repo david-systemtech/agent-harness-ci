@@ -115,13 +115,13 @@ jobs:
           REVIEW_DEADLINE_S: 2700
           # What the model is told the project is.
           REVIEW_PROJECT: >-
-            A server-first coding-agent harness under a working name, the
-            replacement for Artemis: a server on every machine, every client
-            (desktop, web, TUI) a remote client of a local server, one
-            renderer, with skills, memory banks, key managers and a setup
-            wizard as first-class features. It is in planning: the repository
-            holds a wayfinder map as Forgejo issues, research write-ups and
-            decision records, and no application code yet.
+            A server-first coding-agent harness under a working name: an
+            environment per machine, with every client (desktop, web, TUI) a
+            remote client of it, one renderer, with skills, memory banks, key
+            managers and a setup wizard as first-class features. It is in
+            planning: the repository holds a wayfinder map as Forgejo issues,
+            research write-ups and decision records, and no application code
+            yet.
           # Rules files, read from the base commit. Default AGENTS.md.
           # REVIEW_RULES: AGENTS.md
           # Noise on top of the lockfiles, images and fonts the script always
