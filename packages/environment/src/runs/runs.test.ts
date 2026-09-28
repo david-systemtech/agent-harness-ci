@@ -16,7 +16,7 @@ import { MANUAL_CLOCK_START } from "../../test/clock.js";
 import { DRAIN_CAP_MS } from "../serve/lifecycle.js";
 import { end, fakeAdapter, gate, say, signedInAs, type FakeAdapter, type FakeAdapterOptions, type Gate } from "../../test/fake-adapter.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
-import { create, deleteSession, listStream, patchOf, purgeSession, refusal } from "../../test/sessions.js";
+import { create, deleteSession, listStream, patchOf, purgeSession, refusal, workspace } from "../../test/sessions.js";
 import type { WireClient } from "../../test/wire-client.js";
 
 /**
@@ -112,7 +112,7 @@ describe("runs.start", () => {
         model: "sonnet",
         effort: null,
         mode: { requested: null, effective: "acceptEdits", clamped: false },
-        workspace: { kind: "directory", path: "/work/agent-harness" },
+        workspace,
         origin: "client",
         promptMessageId: messageId,
         queuedMessageIds: [],
@@ -228,7 +228,7 @@ describe("runs.start", () => {
     const { runId } = await startRun(client, id, "Plan it", { model: "opus", effort: "high" });
     const [started] = await session.until("run.ended", runId);
     expect(started?.payload).toMatchObject({ accountId: "claude-max", model: "opus", effort: "high", mode: { requested: "plan", effective: "plan", clamped: false } });
-    expect(t.adapter.lastRun().input).toMatchObject({ account: { id: "claude-max" }, model: "opus", effort: "high", mode: "plan", workspace: { kind: "directory", path: "/work/agent-harness" } });
+    expect(t.adapter.lastRun().input).toMatchObject({ account: { id: "claude-max" }, model: "opus", effort: "high", mode: "plan", workspace });
   });
 
   it("refuses a second start while a run is live, conflict run_active, and appends nothing", async () => {
@@ -785,7 +785,6 @@ describe("sessions.create", () => {
   it("delegates the account, model and mode to the adapter host, which refuses an account that cannot run and what no account offers", async () => {
     const t = await start({}, { accounts: [{ id: "claude-max", provider: "fake" }, { id: "second", provider: "fake" }] });
     const client = await t.client();
-    const workspace = { kind: "directory", path: "/work" } as const;
     // An account the store does not hold, or one not signed in, cannot run: refused in a receipt, as runs.start refuses it (#134).
     const nobody = await client.request("sessions.create", { commandId: randomUUID(), id: randomUUID(), workspace, account: "nobody" });
     expect(nobody.receipt).toMatchObject({ status: "rejected", reason: "conflict", error: { data: { reason: "account_unavailable", accountId: "nobody" } } });

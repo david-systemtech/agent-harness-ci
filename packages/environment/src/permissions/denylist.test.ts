@@ -571,7 +571,7 @@ describe("the denylist a provider projects onto its own rules (#140)", () => {
     expect(projected?.paths).toContain(t.env.dataDir);
     expect(projected?.paths).not.toContain(join(home, ".aws"));
     expect(projected?.paths.every((path) => path.startsWith("/"))).toBe(true);
-    expect(projected?.exempt).toEqual([join(t.env.dataDir, "containment"), join(t.env.dataDir, "scratch")]);
+    expect(projected?.exempt).toEqual([join(t.env.dataDir, "containment"), join(t.env.dataDir, "scratch"), join(t.env.dataDir, "worktrees")]);
     expect(projected?.commandPatterns).toContain("sudo *");
     expect(projected?.commandPatterns).toContain("terraform destroy *");
     expect(projected?.commandPatterns).not.toContain("reboot *");
@@ -628,14 +628,21 @@ describe("a client tool's call (mcp__client__*, #139)", () => {
   });
 });
 
-describe("the harness's scratch workspaces", () => {
-  it("are left out of the data directory's preset, as the containment directories are, so a completions run works in its own", async () => {
+describe("the workspace roots", () => {
+  it("are left out of the data directory's preset, as the containment directories are: scratch, worktrees and a root a later workstream declares", async () => {
+    const dataDir = join(tempDir("agent-harness-env-"), "data");
+    const banks = join(dataDir, "banks");
+    const t = await start({}, { dataDir, workspaces: { roots: [banks] } });
+    const client = await t.client();
+    for (const root of [join(dataDir, "scratch"), join(dataDir, "worktrees"), banks]) expect(await test(client, "path", join(root, randomUUID(), "notes.md")), root).toEqual([]);
+    expect(await test(client, "path", join(dataDir, "elsewhere", "notes.md"))).toEqual([expect.objectContaining({ entry: expect.objectContaining({ pattern: dataDir }) })]);
+  });
+
+  it("let a run work in its own scratch workspace, as a completions run does", async () => {
     const t = await start();
     const client = await t.client();
-    expect(await test(client, "path", join(t.env.dataDir, "scratch", randomUUID(), "notes.md"))).toEqual([]);
-    const { id } = await create(client);
+    const { id } = await create(client, { workspace: { kind: "scratch" } });
     const inside = join(t.env.dataDir, "scratch", id, "notes.md");
-    mkdirSync(join(t.env.dataDir, "scratch", id), { recursive: true });
     t.adapter.nextScripts.push(calls({ tool: "Write", summary: "Write notes.md", access: { kind: "write", paths: [inside] } }));
     const { runId } = startAsRoutine(t, id);
     await untilEnded(t, id, runId);

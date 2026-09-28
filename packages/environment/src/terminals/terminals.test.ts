@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { realpathSync } from "node:fs";
+import { realpathSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { Ceiling, registry, type EventFrame, type Scope } from "@agent-harness/contracts";
@@ -186,7 +186,10 @@ describe("terminals.open", () => {
 
   it("refuses a workspace directory that is gone conflict, reason workspace_missing", async () => {
     const { client } = await setUp();
-    const sessionId = await sessionIn(client, "/nonexistent/agent-harness-workspace");
+    // The environment refuses a session in a directory that is not there, so this one goes after the session is made.
+    const gone = tempDir("agent-harness-terminal-");
+    const sessionId = await sessionIn(client, gone);
+    rmSync(gone, { recursive: true });
     const answer = await terminalCommand(client, "terminals.open", { id: randomUUID(), sessionId });
     expect(answer.receipt).toMatchObject({ status: "rejected", reason: "conflict", error: { data: { reason: "workspace_missing" } } });
   });

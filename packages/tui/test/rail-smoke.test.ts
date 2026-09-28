@@ -18,8 +18,9 @@ import { KEY, SIZE } from "./harness.js";
  * serial: the in-process environment on a temporary data directory and
  * loopback port 0, and the terminal UI on its real platform, driven by real
  * key bytes. It is the verify-first of #145: that `sessions.create` accepts
- * a `directory` workspace from the terminal UI, and that the rail's keys
- * reach the environment's own deciders (a pin, a group created with a
+ * a `directory` workspace from the terminal UI, and refuses one the machine
+ * does not have in the step's line (#325), and that the rail's keys reach
+ * the environment's own deciders (a pin, a group created with a
  * client-minted id and the move into it).
  */
 
@@ -103,7 +104,7 @@ describe.sequential("the rail through the real spine", () => {
     if (!listed.ok) throw new Error(listed.error.message);
     expect(listed.result.sessions).toEqual([expect.objectContaining({ title: "New session", workspace: { kind: "directory", path: workspace } })]);
 
-    // A path the machine does not have is taken as given: the workspace is not checked when the session is created.
+    // A path the machine does not have is refused by the environment: the step says so in one line and stays open (#325).
     const missing = join(workspace, "not-there");
     await press(KEY.up);
     await shows("Enter starts a session on smoke-rail");
@@ -112,8 +113,15 @@ describe.sequential("the rail through the real spine", () => {
     await typeKeys(missing);
     await shows(`${missing} typed`);
     await press(KEY.enter);
-    await until(() => (runtime.projections.sessionList.read().rows.length === 2), frame);
-    expect(runtime.projections.sessionList.read().rows.map((r) => r.summary.workspace.path).sort()).toEqual([missing, workspace].sort());
+    // Cut at the pane's edge: the path is long.
+    await shows(`${missing} does not exist on`);
+    expect(frame()).toContain("New session on smoke-rail: where it works");
+    expect(runtime.projections.sessionList.read().rows.map((r) => r.summary.workspace.path)).toEqual([workspace]);
+    // Out of the step (the query, the model and account steps, the card), onto the session.
+    await press(KEY.esc, KEY.esc, KEY.esc, KEY.esc);
+    await until(() => !frame().includes("New session on smoke-rail:"), frame);
+    await press(KEY.down);
+    await shows("› ●SR · New session");
 
     await press("p");
     await shows("Pinned “New session”.");

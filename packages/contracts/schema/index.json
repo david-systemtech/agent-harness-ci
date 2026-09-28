@@ -311,6 +311,10 @@
       "title": "WorkspaceRequest"
     },
     {
+      "path": "sessions/workspace-problem.json",
+      "title": "WorkspaceProblem"
+    },
+    {
       "path": "sessions/workspace-status.json",
       "title": "WorkspaceStatus"
     },

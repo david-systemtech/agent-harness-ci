@@ -6,7 +6,6 @@ import { useCleanups } from "../../test/cleanups.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { create, get } from "../../test/sessions.js";
 import { git } from "../../test/workspaces.js";
-import { createWorkspaceResolver } from "./resolver.js";
 
 /**
  * The repository identity at creation (workspace-picker spec, "Repository
@@ -141,7 +140,6 @@ describe("sessions.create's repository identity", () => {
     expect(await identityIn(t, repository({ origin: source }))).toBeNull();
     expect(await identityIn(t, repository({ origin: `file://${source}` }))).toBeNull();
     expect(await identityIn(t, tempDir("agent-harness-plain-"))).toBeNull();
-    expect(await identityIn(t, join(tempDir("agent-harness-plain-"), "not-here"))).toBeNull();
   });
 
   it("asks git in a scrubbed environment: a GIT_DIR of the environment's own does not stand for the workspace's repository", async () => {
@@ -160,7 +158,7 @@ describe("sessions.create's repository identity", () => {
   });
 
   it("is none, and the create accepted, when git does not answer in its time", async () => {
-    const t = await start({ workspaceResolver: createWorkspaceResolver({ gitTimeoutMs: 200 }) });
+    const t = await start({ workspaces: { gitTimeoutMs: 200 } });
     const path = repository({ origin: "git@git.systemtech.dev:david/agent-harness.git" });
     const bin = tempDir("agent-harness-slow-git-");
     writeFileSync(join(bin, "git"), "#!/bin/sh\nexec sleep 30\n", { mode: 0o755 });

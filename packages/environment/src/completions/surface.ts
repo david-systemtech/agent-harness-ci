@@ -1,7 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdirSync, rmSync, statSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { isAbsolute, join } from "node:path";
 import {
   CHAT_COMPLETIONS_PATH,
   COMPLETIONS_HEARTBEAT_MS,
@@ -15,6 +13,7 @@ import {
   type Scope,
   type WireError,
   type Workspace,
+  type WorkspaceRequest,
 } from "@agent-harness/contracts";
 import type { AdapterHost } from "../adapter/host.js";
 import type { ClientSessions, VerifiedClientSession } from "../auth/client-sessions.js";
@@ -55,7 +54,7 @@ import { readTurnRequest, sameTools, withPreamble, type TurnRequest } from "./re
  *   environment drains.
  * - **A turn is an ordinary run** on an ordinary session, started in one
  *   transaction with the session it needs: a fresh session (the directory
- *   the request names, or a scratch directory of its own under the data
+ *   the request names, or a scratch workspace of its own under the data
  *   directory) or the one `sessionId` names, tagged `completions`; its run
  *   has origin `completions` and actor kind `completions`, attended only when
  *   the request says so, under the program's ceiling as it is now (#129,
@@ -96,9 +95,6 @@ export const MAX_COMPLETIONS_BODY_BYTES = 64 * 1024 * 1024;
  */
 export const MAX_BUFFERED_ANSWER_BYTES = 4 * 1024 * 1024;
 
-/** Where fresh sessions without a named workspace get their scratch directories, under the data directory. */
-export const SCRATCH_DIRECTORY = "scratch";
-
 /** The actor the log names for a completions request's run events (#131). */
 const COMPLETIONS_ACTOR = formatActor({ kind: "system", id: "completions" });
 
@@ -115,8 +111,6 @@ export interface CompletionsSurfaceOptions {
   readonly catalogue: CompletionsCatalogue;
   /** The method table, for `sessions.fork` and `sessions.rewind`, run as the program's client session. */
   readonly methods: MethodTable;
-  /** The data directory's scratch root: `<data dir>/scratch`. */
-  readonly scratchRoot: string;
   /** Client-tool passthrough (#139): the parked calls, and the tools each session's runs were served. */
   readonly passthrough: Passthrough;
   /** The resolver a fresh session's workspace goes through, as `sessions.create`'s does (#321). */
@@ -129,15 +123,6 @@ export interface CompletionsSurface {
   /** Ends every answer still open with a final error chunk; the environment is stopping. */
   close(): void;
 }
-
-/** Whether `path` is a directory the environment can see. */
-const isDirectory = (path: string): boolean => {
-  try {
-    return statSync(path).isDirectory();
-  } catch {
-    return false;
-  }
-};
 
 /** The scopes a turn needs. */
 const TURN_SCOPES: readonly Scope[] = ["sessions:write", "runs:drive"];
@@ -264,43 +249,30 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
   }
 
   /**
-   * Where a fresh session's code lives: the directory the request names, or
-   * a scratch directory of its own, asked of the resolver as a `directory`
-   * request (#321), which records it and finds its identity as it does for
-   * `sessions.create`. A refusal is a 400 naming the workspace, and leaves
-   * no scratch directory behind.
+   * Where a fresh session's code lives, asked of the resolver as
+   * `sessions.create` asks it (#325): the directory the request names, as a
+   * `directory` request, or a `scratch` request for a directory of its own
+   * under the data directory's scratch root, which the resolver makes. A
+   * refusal is a 400 naming the workspace, its code the refusal's problem (a
+   * directory the environment cannot use) or else its reason, and leaves
+   * nothing behind.
    */
   const placeFor = async (turn: TurnRequest, sessionId: string): Promise<Place> => {
     const named = turn.extension.workspace;
     const param = `${COMPLETIONS_NAMESPACE}.workspace`;
-    let path: string;
-    if (named !== null) {
-      if (!isAbsolute(named)) throw new CompletionsRefusal(400, "workspace_not_found", `The workspace is an absolute path to a directory the environment has; ${named} is not absolute.`, { param });
-      if (!isDirectory(named)) throw new CompletionsRefusal(400, "workspace_not_found", `The environment has no directory ${named}.`, { param });
-      path = named;
-    } else {
-      path = join(options.scratchRoot, sessionId);
-      mkdirSync(path, { recursive: true, mode: 0o700 });
-    }
-    const removeScratch = (): void => {
-      if (named !== null) return;
-      try {
-        rmSync(path, { recursive: true, force: true });
-      } catch (error) {
-        console.error(`Removing the scratch directory ${path} made for a turn failed:`, error);
-      }
-    };
+    const request: WorkspaceRequest = named === null ? { kind: "scratch" } : { kind: "directory", path: named };
     let resolved: Resolution;
     try {
-      resolved = await options.resolver.resolve({ kind: "directory", path }, sessionId);
+      resolved = await options.resolver.resolve(request, sessionId);
     } catch (error) {
-      removeScratch();
+      // A path this environment does not read as absolute: the request's field is at fault.
+      if (error instanceof ContractError && error.code === "invalid_params") throw new CompletionsRefusal(400, "invalid_params", error.message, { param });
       throw error;
     }
     if (resolved.refused !== undefined) {
-      removeScratch();
-      const { reason } = resolved.refused.data;
-      throw new CompletionsRefusal(400, typeof reason === "string" ? reason : resolved.refused.code, resolved.refused.message, { param });
+      const { code, message, data } = resolved.refused;
+      const specific = [data["problem"], data["reason"]].find((value): value is string => typeof value === "string") ?? code;
+      throw new CompletionsRefusal(400, specific, message, { param });
     }
     const { workspace, repositoryIdentity, undo } = resolved;
     return {
@@ -312,7 +284,6 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
         } catch (error) {
           console.error("Removing what the resolver made for a turn failed:", error);
         }
-        removeScratch();
       },
     };
   };
