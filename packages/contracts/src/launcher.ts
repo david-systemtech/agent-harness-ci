@@ -30,6 +30,15 @@ import type { BusyReason, DrainStarted, DrainTrigger, EnvironmentStatus } from "
  */
 export const LAUNCHER_PROTOCOL = 1;
 
+/**
+ * A release's version, SemVer 2.0.0 without the tag's `v`: major, minor and
+ * patch without leading zeros, then an optional prerelease and build part.
+ * The launcher names each installed version's folder by it, so it is defined
+ * here, where the launcher reads it, and the release's schema takes it from here.
+ */
+export const RELEASE_VERSION_PATTERN =
+  /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*)?(?:\+[0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*)?$/;
+
 /** The launcher's queries: whether the environment is idle, and to drain. */
 export type LauncherQuery = { readonly type: "idle?" } | { readonly type: "drain?" };
 
