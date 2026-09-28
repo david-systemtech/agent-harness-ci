@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { mkdirSync } from "node:fs";
+import { join } from "node:path";
 import { UNKNOWN_FORGE_CAPABILITIES, type ForgeCapability } from "@agent-harness/contracts";
 import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
@@ -18,7 +20,7 @@ import { scriptedResolver } from "../../test/workspaces.js";
  * fake forge was asked.
  */
 
-const { onCleanup } = useCleanups();
+const { onCleanup, tempDir } = useCleanups();
 
 const start = async (options: TestEnvironmentOptions = {}): Promise<TestEnvironment> => {
   const t = await startTestEnvironment(options);
@@ -230,5 +232,115 @@ describe("what a verification finds", () => {
       ["/api/v3/user", null],
       ["/api/v3/user/repos", "per_page=1"],
     ]);
+  });
+});
+
+describe("when a verification runs", () => {
+  it("after startup's gate, then fifteen minutes after each ends, on the environment's clock", async () => {
+    const dataDir = join(tempDir(), "data");
+    mkdirSync(dataDir, { recursive: true, mode: 0o700 });
+    const forge = await fakeForge();
+    forge.user(TOKEN, DAVID);
+    forge.repositories(TOKEN, []);
+    const first = await start({ dataDir });
+    const account = await added(await first.client(), { url: forge.origin, kind: "forgejo" });
+    await first.close();
+
+    const t = await start({ dataDir });
+    const client = await t.client();
+    // Only the add asked the forge: the start's verifications wait on the clock, which this test moves.
+    expect(forge.requests).toHaveLength(1);
+    t.clock.advance(0);
+    await vi.waitFor(async () => expect((await list(client))[0]?.capabilities.readRepository).toEqual(verifiedAt(MANUAL_CLOCK_START)));
+
+    t.clock.advance(15 * MINUTE - 1);
+    t.clock.advance(1);
+    await vi.waitFor(async () => expect((await list(client))[0]?.capabilities.readRepository).toEqual(verifiedAt(after(15 * MINUTE))));
+    expect(forge.requests.slice(1).map((request) => request.path)).toEqual(["/api/v1/user", "/api/v1/user/repos", "/api/v1/user", "/api/v1/user/repos"]);
+    expect((await list(client))[0]?.id).toBe(account.id);
+  });
+
+  it("at once when a forge account is given a credential: added with one, or its credential replaced", async () => {
+    const { t, forge, client } = await withForge();
+    forge.repositories(TOKEN, []);
+    const account = await added(client, { url: forge.origin, kind: "forgejo" });
+    t.clock.advance(0);
+    await vi.waitFor(async () => expect((await list(client))[0]?.capabilities.readRepository.state).toBe("verified"));
+
+    forge.user(OTHER_TOKEN, DAVID);
+    forge.answer(OTHER_TOKEN, "GET /api/v1/user/repos", { status: 403, body: { message: "token does not have at least one of required scope(s)" } });
+    t.clock.advance(MINUTE);
+    await update(client, { forgeAccountId: account.id, credential: pasted(OTHER_TOKEN) });
+    t.clock.advance(0);
+    await vi.waitFor(async () => expect((await list(client))[0]?.capabilities.readRepository).toEqual({ state: "failed", verifiedAt: MANUAL_CLOCK_START, status: 403 }));
+  });
+
+  it("one at a time per forge account: a second request joins the one running", async () => {
+    const { forge, client } = await withForge();
+    const account = await added(client, { url: forge.origin, kind: "forgejo" });
+    forge.repositories(TOKEN, []);
+    let answer = (): void => undefined;
+    forge.user(TOKEN, DAVID, new Promise<void>((resolve) => (answer = resolve)));
+
+    const one = verify(client, account.id);
+    const two = verify(client);
+    await vi.waitFor(() => expect(forge.requests).toHaveLength(2));
+    answer();
+
+    expect(await two).toEqual(await one);
+    expect(forge.requests.filter((request) => request.path === "/api/v1/user")).toHaveLength(2);
+  });
+
+  it("takes nothing a replaced credential found for the credential given while it ran, which is verified after it", async () => {
+    const { t, forge, client } = await withForge();
+    const account = await added(client, { url: forge.origin, kind: "forgejo" });
+    forge.repositories(TOKEN, []);
+    forge.user(OTHER_TOKEN, DAVID);
+    forge.answer(OTHER_TOKEN, "GET /api/v1/user/repos", { status: 403 });
+    let answer = (): void => undefined;
+    forge.user(TOKEN, DAVID, new Promise<void>((resolve) => (answer = resolve)));
+    const from = t.env.log.head();
+
+    const running = verify(client, account.id);
+    await vi.waitFor(() => expect(forge.requests).toHaveLength(2));
+    await update(client, { forgeAccountId: account.id, credential: pasted(OTHER_TOKEN) });
+    answer();
+    await running;
+    expect((await list(client))[0]?.capabilities.readRepository.state).toBe("unknown");
+
+    t.clock.advance(0);
+    await vi.waitFor(async () => expect((await list(client))[0]?.capabilities.readRepository).toMatchObject({ state: "failed", status: 403 }));
+    expect((await forgeEvents(client, from)).map((event) => [event.type, event.payload["capabilities"]?.readRepository?.state ?? null])).toEqual([
+      ["forge.account.updated", null],
+      ["forge.account.verified", "failed"],
+    ]);
+  });
+
+  it("within its budget, past which the forge account is unreachable and nothing else it found is taken", async () => {
+    const { forge, client } = await withForge({ forgeTimeoutMs: 300 });
+    const account = await added(client, { url: forge.origin, kind: "forgejo" });
+    forge.answer(TOKEN, "GET /api/v1/user/repos", { status: 200, body: [], after: new Promise(() => undefined) });
+
+    const [slow] = await verify(client, account.id);
+
+    expect(slow).toMatchObject({ identity: account.identity, capabilities: UNKNOWN_FORGE_CAPABILITIES, tokenInformation: null, problem: { kind: "unreachable", since: MANUAL_CLOCK_START } });
+    expect(slow?.problem?.message).toBe(`The forge at ${forge.origin} did not finish answering within 0.3 s; it is verified again later.`);
+  });
+
+  it("waits out a pause the forge asks for before its next scheduled verification", async () => {
+    const { t, forge, client } = await withForge();
+    const account = await added(client, { url: forge.origin, kind: "forgejo" });
+    forge.repositories(TOKEN, []);
+    await verify(client, account.id);
+    forge.answer(TOKEN, "GET /api/v1/user", { status: 429, headers: { "retry-after": String(60 * 60) } });
+
+    t.clock.advance(15 * MINUTE);
+    await vi.waitFor(async () => expect((await list(client))[0]?.problem).toMatchObject({ kind: "unreachable", since: after(15 * MINUTE) }));
+    forge.user(TOKEN, DAVID);
+
+    // Fifteen minutes on, the forge's hour has not passed: the verification due then waits for it.
+    t.clock.advance(15 * MINUTE);
+    t.clock.advance(45 * MINUTE);
+    await vi.waitFor(async () => expect((await list(client))[0]).toMatchObject({ problem: null, statusSince: after(75 * MINUTE) }));
   });
 });
