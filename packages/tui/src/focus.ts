@@ -1,6 +1,6 @@
 /**
- * Where Tab goes and where the transcript's cursor steps, carried from
- * Artemis's `keymap.ts` (docs/specs/tui.md, "The screen"): the ring Tab walks
+ * Where Tab goes and where the transcript's cursor steps
+ * (docs/specs/tui.md, "The screen"): the ring Tab walks
  * (`app.focus.next`) and the cursor step the transcript's ↑ and ↓ make
  * (`transcript.cursor`), both pure, so the map's rows and the code that makes
  * them true are one edit apart. The terminal pane is the one stop the harness

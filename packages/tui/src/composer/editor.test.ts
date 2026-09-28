@@ -1,6 +1,5 @@
 /**
- * The composer's buffer, carried with `editor.ts` from Artemis's
- * `apps/tui/src/editor.test.ts` at 443cf2e.
+ * The composer's buffer.
  */
 
 import { describe, expect, it } from "vitest";

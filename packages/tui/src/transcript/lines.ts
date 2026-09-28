@@ -17,7 +17,7 @@ import { folded, undoableFold, type Row } from "./rows.js";
 /**
  * How a row is drawn (docs/specs/tui.md, "The transcript"): as lines of
  * styled spans, each wrapped to the width the transcript has, in the shape
- * of Artemis's rows and of the provider CLIs' own transcripts: a marker in
+ * of the provider CLIs' own transcripts: a marker in
  * the gutter, the content hanging under it, what a call returned on a
  * connector. Lines rather than components so the viewport can anchor to the
  * bottom and scroll by lines, and the pager draw the same rows unfolded,
@@ -27,7 +27,7 @@ import { folded, undoableFold, type Row } from "./rows.js";
  * result shows its head and its tail, and what a rewind cut is one line;
  * unfolded (`expanded`, the pager and a row unfolded with Enter) nothing is
  * held back. A running call quiet for
- * `TOOL_QUIET_MS` turns amber and names the silence, Artemis's cue.
+ * `TOOL_QUIET_MS` turns amber and names the silence.
  */
 
 /** A piece of a line with one style. The last four are a terminal cell's (the pane, a diff tool's colours): Ink's `Text` carries each. */
@@ -83,10 +83,10 @@ export interface Line {
   readonly spans: readonly Span[];
 }
 
-/** How long a running call may say nothing before its row turns amber (Artemis's `TOOL_STUCK_MS`): a cue, not a verdict. */
+/** How long a running call may say nothing before its row turns amber: a cue, not a verdict. */
 export const TOOL_QUIET_MS = 3 * 60_000;
 
-/** How much of a cut result a collapsed row keeps: its first lines say which call it was, its last where it failed (Artemis's `rowVerbs.ts`). */
+/** How much of a cut result a collapsed row keeps: its first lines say which call it was, its last where it failed. */
 export const RESULT_HEAD = 2;
 export const RESULT_TAIL = 1;
 /** How much of a plan a collapsed row shows before the pager has the rest. */

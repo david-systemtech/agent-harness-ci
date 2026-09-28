@@ -2,9 +2,8 @@
  * A path on disk, or bytes already in hand, turned into something a message
  * can carry.
  *
- * Carried from Artemis's `apps/tui/src/attachments.ts` at 443cf2e
- * (docs/specs/tui.md, "Testing Decisions": the pure modules carried with their
- * tests), producing the harness's wire type instead of Artemis's.
+ * One of the pure modules carried with their tests (docs/specs/tui.md,
+ * "Testing Decisions"), producing the harness's wire type.
  *
  * A terminal takes an attachment as a path (`/attach <path>`) or from the
  * clipboard (`Ctrl+V`). This reads it, decides whether it is an image the

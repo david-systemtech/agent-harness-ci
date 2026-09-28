@@ -5,18 +5,17 @@ import type { AttentionKind, AttentionNotice, TerminalActivity } from "./chrome.
 
 /**
  * What the window chrome should say, worked out from what the sessions are
- * doing (docs/specs/tui.md, "Attention"; carried from Artemis's
- * `apps/tui/src/attention.ts` at 443cf2e): the one word a title shows for
+ * doing (docs/specs/tui.md, "Attention"): the one word a title shows for
  * every session across the environments, the two sentences a notification
  * carries, and the line that greets somebody who has been away from the
  * keyboard. Pure: none of it touches the clock, the runtime or a stream.
  *
- * Artemis reduced its pool of conversations; the harness reduces every
- * session of every enabled environment, as `projections.runs` has them, so
- * the title says what the harness is doing, not what the session on screen
- * is doing. A prompt of each kind says what it waits for, and the away
- * summary says a session "is waiting on you" whatever its prompt's kind (a
- * chosen default: Artemis had only permission requests to name).
+ * The harness reduces every session of every enabled environment, as
+ * `projections.runs` has them, so the title says what the harness is doing,
+ * not what the session on screen is doing. A prompt of each kind says what
+ * it waits for, and the away summary says a session "is waiting on you"
+ * whatever its prompt's kind (a chosen default, since a prompt can be more
+ * than a permission request).
  */
 
 /** What the title needs to know about one session: its run state, and the prompts it is parked on. */

@@ -1,8 +1,7 @@
 /**
- * `@path` completion: the ranking, the memory, and the token. Carried with
- * `mentions.ts` from Artemis's `apps/tui/src/fileIndex.test.ts` at 443cf2e,
- * without the tests of the listing, which is `files.list` on the environment
- * now and is tested there.
+ * `@path` completion: the ranking, the memory, and the token, without the
+ * tests of the listing, which is `files.list` on the environment now and is
+ * tested there.
  *
  * The failure mode of a completion is not crashing, it is offering the wrong
  * file first — which no type can catch and a person notices immediately. So the

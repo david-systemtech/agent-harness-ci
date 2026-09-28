@@ -3,9 +3,8 @@ import { titleFor } from "./chrome.js";
 import { awayRecap, noticeFor, titleStateOf, type RecapSubject, type RunEnded, type SessionActivity } from "./policy.js";
 
 /**
- * The chrome's decisions, carried from Artemis's `attention.test.ts` at
- * 443cf2e: every one of them is about a person who is not looking at the
- * screen, which is why they are worth pinning.
+ * The chrome's decisions: every one of them is about a person who is not
+ * looking at the screen, which is why they are worth pinning.
  */
 
 const idle: SessionActivity = { status: "idle", pendingPrompts: 0 };

@@ -18,8 +18,7 @@ import { classifyPaste, expandChip, pasteMarker, type PasteClassification } from
 import { expand, expandInText, snippetAt, type Expansion, type SlotRange, type SnippetTemplate, type SnippetToken } from "./snippets.js";
 
 /**
- * The composer as data (docs/specs/tui.md, "The composer"): Artemis's
- * composer (`apps/tui/src/components/Composer.tsx` at 443cf2e) with its
+ * The composer as data (docs/specs/tui.md, "The composer"): the composer's
  * rules kept and its state lifted out of the component, so every rule is a
  * function a test can call and the keys reach it through the shared action
  * list. The buffer is `editor.ts`'s; around it:
@@ -107,7 +106,7 @@ export const EMPTY_COMPOSER: ComposerState = {
 /** A composer holding `text`, the cursor at its end: a session's saved text, or a queued message given back. */
 export const composerOf = (text: string): ComposerState => ({ ...EMPTY_COMPOSER, editor: editorOf(text) });
 
-/** A paste past either stands in the text as a chip (Artemis's thresholds). */
+/** A paste past either stands in the text as a chip. */
 export const PASTE_CHIP_LINES = 3;
 export const PASTE_CHIP_CHARS = 800;
 
@@ -335,8 +334,8 @@ const withExpansion = (state: ComposerState, expansion: Expansion): ComposerStat
 
 /**
  * The stops moved to where they are in `text`, or null when the edit was not
- * one they survive: everything outside the current hole must be where it was
- * (Artemis's `stopsIn`), so the hole grew or shrank and the rest slid.
+ * one they survive: everything outside the current hole must be where it
+ * was, so the hole grew or shrank and the rest slid.
  */
 export const shifted = (stops: Stops, text: string): Stops | null => {
   if (stops.text === text) return stops;

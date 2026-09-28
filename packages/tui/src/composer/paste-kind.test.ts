@@ -1,7 +1,4 @@
 /**
- * Carried with `paste-kind.ts` from Artemis's `apps/tui/src/pasteKind.test.ts`
- * at 443cf2e.
- *
  * Every case here is a real paste, or as near as a test file can get: a trace
  * copied out of a terminal, a diff copied out of `git show`, a log with the
  * timestamps a logger actually writes. The rules are a pile of heuristics, and
@@ -32,7 +29,7 @@ import { MARKER_CHARS, SAMPLE_HEAD, SAMPLE_TAIL, classifyPaste, expandChip, fenc
 
 const NODE_TRACE = [
   "Error: connect ECONNREFUSED 127.0.0.1:5432",
-  "    at connect (/code/repos/artemis/apps/tui/src/app.tsx:1442:19)",
+  "    at connect (/code/repos/sample-app/apps/tui/src/app.tsx:1442:19)",
   "    at Socket.emit (node:events:517:28)",
   "    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1595:16)",
   "    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)",
@@ -171,7 +168,7 @@ describe("classifyPaste: stack traces", () => {
     const found = classifyPaste(NODE_TRACE);
     expect(found.kind).toBe("stack-trace");
     expect(found.label).toBe("Node stack trace from app.tsx:1442");
-    expect(found.source).toBe("/code/repos/artemis/apps/tui/src/app.tsx:1442");
+    expect(found.source).toBe("/code/repos/sample-app/apps/tui/src/app.tsx:1442");
   });
 
   it("reads a Python traceback by its File/line frames", () => {

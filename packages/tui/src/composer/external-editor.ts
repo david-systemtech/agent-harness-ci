@@ -2,9 +2,8 @@
  * Handing the composer's text to `$EDITOR` and taking it back.
  * ============================================================================
  *
- * Carried from Artemis's `apps/tui/src/externalEditor.ts` at 443cf2e
- * (docs/specs/tui.md, "Testing Decisions": the pure modules carried with their
- * tests). `Ctrl+G` is client-local and carries as it is (docs/specs/tui.md,
+ * One of the pure modules carried with their tests (docs/specs/tui.md,
+ * "Testing Decisions"). `Ctrl+G` is client-local and carries as it is (docs/specs/tui.md,
  * "The composer"); the editor runs on the machine the terminal UI runs on,
  * and what it hands back goes into the composer like anything typed.
  *
@@ -206,7 +205,7 @@ export interface OpenedFile {
 export type OpenedResult = { readonly ok: true } | { readonly ok: false; readonly reason: string };
 
 /**
- * `o` on a row (Artemis's `openInEditorAt`): the file it touched, in the
+ * `o` on a row: the file it touched, in the
  * person's editor, at `+<line>` when the row knows the line (the argument
  * vi, vim, nano, emacs and `less` agree on; an editor that does not know it
  * opens the file anyway). The same handover as Ctrl+G's, so the caller

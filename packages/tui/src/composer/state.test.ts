@@ -27,8 +27,8 @@ import {
 } from "./state.js";
 
 /**
- * The composer as data (docs/specs/tui.md, "The composer"): Artemis's
- * composer rules as functions of its state, with no terminal.
+ * The composer as data (docs/specs/tui.md, "The composer"): the composer
+ * rules as functions of its state, with no terminal.
  */
 
 const COMMANDS: CommandRow[] = [

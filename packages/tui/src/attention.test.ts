@@ -3,7 +3,7 @@ import { KEY, renderApp, type RenderedApp } from "../test/harness.js";
 
 /**
  * Attention (docs/specs/tui.md, "Attention"; #149): the runtime's attention
- * events drive Artemis's attention module. The title says what every session
+ * events drive the attention module. The title says what every session
  * across the environments is doing; the bell (or an OSC notification) rings
  * after six seconds of an unanswered prompt, or sixty after the open
  * session's turn finished, with no key pressed; a key pushes both back; and

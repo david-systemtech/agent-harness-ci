@@ -1,8 +1,7 @@
 /**
  * The user's diff tool (docs/specs/tui.md, "The transcript": `d` and `/diff`
- * read the diffs through the user's diff filter), carried with its tests
- * from Artemis's `apps/tui/src/externalTools.test.ts` at 443cf2e, the diff
- * half only, `ARTEMIS_DIFF` renamed `AGENT_HARNESS_DIFF`. The detection half
+ * read the diffs through the user's diff filter, `AGENT_HARNESS_DIFF`).
+ * The detection half
  * is pure: a fake `PATH` lookup and a fake environment decide which tool is
  * found, and every assertion is the exact argv. The `pipeThrough` half uses
  * a fake child that emits what a real filter would, so no process is

@@ -14,12 +14,12 @@ import type { RunSummary } from "@agent-harness/contracts";
 /**
  * The transcript's rows (docs/specs/tui.md, "The transcript: a projection of
  * one session"): `projections.session`'s entries in the order they were
- * opened, folded as Artemis folds them, and nothing rebuilt client-side. A
+ * opened, folded, and nothing rebuilt client-side. A
  * row is what the transcript's cursor lands on and what the pager, `/export`
  * and `/copy` read; how it is drawn is `lines.ts`'s.
  *
- * - **A run's tool calls are one row**, at the place its first call was made
- *   (Artemis's `inOrderOfStart`): its finished calls fold into one count and
+ * - **A run's tool calls are one row**, at the place its first call was made:
+ *   its finished calls fold into one count and
  *   what is running or went wrong stands under it in full. A subagent's calls
  *   are the runtime's `subagent` entry, a row of their own.
  * - **A queued message is not a row**: it is on the queued line until it is

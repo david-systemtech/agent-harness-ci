@@ -4,8 +4,7 @@ import { classifyTool, describeActivity, type ActivityCounts, type ToolCategory 
 
 /**
  * What the status line says, as words and colours (docs/specs/tui.md,
- * "Status, usage, pickers"; Artemis's `StatusBar.tsx` at 443cf2e, whose
- * badges, meter and clock are carried): pure, so the component is colours
+ * "Status, usage, pickers"): pure, so the component is colours
  * and boxes. Line one is what the next message goes out as; line two what
  * the run is doing, or the hand-off offer.
  */
@@ -19,7 +18,7 @@ export interface Styled {
 }
 
 /**
- * The mode as a badge (Artemis's `MODE_BADGE`): `⏵⏵` for the modes that do
+ * The mode as a badge: `⏵⏵` for the modes that do
  * not stop to ask, `⏸` for those that do; bypassPermissions shouts in red,
  * the one reading on the line that is a warning rather than a setting.
  */
@@ -42,7 +41,7 @@ export const containmentBadge = (level: ContainmentLevel, isDefault: boolean): S
   return { text: isDefault ? `${glyph} (default)` : glyph, ...(level === "off" && { color: "yellow" }) };
 };
 
-/** A plan window's short name, as the meter draws it (Artemis's `planMeterSlots`): `5hr`, `Week`, a model's own bucket by its name. */
+/** A plan window's short name, as the meter draws it: `5hr`, `Week`, a model's own bucket by its name. */
 export const windowLabel = (window: string): string => {
   if (window === "five_hour") return "5hr";
   if (window === "seven_day") return "Week";
@@ -57,7 +56,7 @@ export const windowLabel = (window: string): string => {
 export const windowWords = (window: string): string => (window === "five_hour" ? "5-hour" : windowLabel(window));
 
 /**
- * A window's fullness as a bar (Artemis's `meterBar`): any use lights the
+ * A window's fullness as a bar: any use lights the
  * first cell, so a started window never reads untouched, and the last cell
  * is held back until the window is full.
  */
@@ -71,7 +70,7 @@ export const meterBar = (utilisation: number, cells: number): string => {
   return "█".repeat(filled) + "░".repeat(cells - filled);
 };
 
-/** How many cells each bar gets on a line `columns` wide, or none (Artemis's `meterCells`). */
+/** How many cells each bar gets on a line `columns` wide, or none. */
 export const meterCells = (columns: number): number => (columns >= 118 ? 5 : columns >= 98 ? 4 : 0);
 
 /** Colour by pressure, the desktop's thresholds (red at 90%, yellow at 75%); a window the provider refuses is red whatever it reads. */
@@ -112,9 +111,8 @@ export const readingWords = (gauge: UsageGauge | undefined): string | undefined 
 };
 
 /**
- * Elapsed time on a line that redraws once a second (Artemis's
- * `elapsedClock`): zero-padded past the first minute so the field holds its
- * width.
+ * Elapsed time on a line that redraws once a second: zero-padded past the
+ * first minute so the field holds its width.
  */
 export const elapsedClock = (ms: number): string => {
   const total = Math.max(0, Math.floor(ms / 1000));

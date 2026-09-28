@@ -2,12 +2,11 @@ import type { UsageGauge } from "@agent-harness/client-runtime";
 
 /**
  * What a turn cost the plan (docs/specs/tui.md, "The transcript": the cost
- * line's plan-window deltas, when reported; Artemis's `planDelta` in
- * `conversation.ts` at 443cf2e). Dollars are the wrong unit for someone on a
+ * line's plan-window deltas, when reported). Dollars are the wrong unit for someone on a
  * subscription, so a finished turn is also priced in what does run out: a
  * share of the 5-hour window, a share of the week. The projection carries no
  * per-run plan reading (`plan.limit` folds into the account's usage reading,
- * #136), so the terminal takes the difference itself, as Artemis did: the
+ * #136), so the terminal takes the difference itself: the
  * session's account's windows as `projections.usage` pools them when the run
  * is first seen running, and again once a window has been observed since.
  * Only a run this terminal saw start has one. Pure.

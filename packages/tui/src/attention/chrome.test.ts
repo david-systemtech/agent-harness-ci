@@ -18,8 +18,7 @@ import {
 } from "./chrome.js";
 
 /**
- * The terminal's contract, carried from Artemis's `terminal.test.ts` at
- * 443cf2e with its variables renamed: what the title says in each state and
+ * The terminal's contract: what the title says in each state and
  * how wide it is, the exact bytes of every sequence in and out of tmux,
  * which terminal gets which route, the two variables honoured, and that the
  * bell waits for a person to stop typing. Nothing here touches a real
@@ -119,9 +118,9 @@ describe("setTitle and clearTitle", () => {
     expect(off.writes).toEqual([]);
     const on = terminal({ AGENT_HARNESS_TUI_NO_TITLE: "0" });
     expect(setTitle("◇ ready", on.deps)).toBe(true);
-    // Artemis's own name for it is not this build's.
-    const artemis = terminal({ ARTEMIS_TUI_NO_TITLE: "1" });
-    expect(setTitle("◇ ready", artemis.deps)).toBe(true);
+    // A different variable name for the same idea is not honoured.
+    const other = terminal({ OTHER_TUI_NO_TITLE: "1" });
+    expect(setTitle("◇ ready", other.deps)).toBe(true);
   });
 
   it("write nothing off a terminal, strip a control character passed straight through, and survive a broken stream", () => {
@@ -173,7 +172,7 @@ describe("notificationMethod", () => {
     expect(notificationMethod(terminal({ AGENT_HARNESS_TUI_NOTIFY: "BELL", TERM_PROGRAM: "ghostty" }).deps)).toBe("bell");
     expect(notificationMethod(terminal({ AGENT_HARNESS_TUI_NOTIFY: "osc777", TERM_PROGRAM: "iTerm.app" }).deps)).toBe("osc777");
     expect(notificationMethod(terminal({ AGENT_HARNESS_TUI_NOTIFY: "yes please", TERM_PROGRAM: "ghostty" }).deps)).toBe("osc9");
-    expect(notificationMethod(terminal({ ARTEMIS_TUI_NOTIFY: "off", TERM_PROGRAM: "ghostty" }).deps)).toBe("osc9");
+    expect(notificationMethod(terminal({ OTHER_TUI_NOTIFY: "off", TERM_PROGRAM: "ghostty" }).deps)).toBe("osc9");
   });
 });
 

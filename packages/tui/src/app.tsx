@@ -906,8 +906,8 @@ export const App = (props: AppProps) => {
     },
   ];
 
-  // `/new`: a session on the open one's environment, in its workspace, on its account and model (Artemis's "on the same
-  // account"); with none open, on the header's environment in the `--cwd` directory. It opens once the environment has it,
+  // `/new`: a session on the open one's environment, in its workspace, on its account and model; with none open,
+  // on the header's environment in the `--cwd` directory. It opens once the environment has it,
   // so its stream is never asked for before it exists.
   const newSession = () => {
     const environment = opened ? views.find((v) => v.environmentId === opened.environmentId) : current;
@@ -1675,8 +1675,8 @@ export const App = (props: AppProps) => {
       },
       "app.help": () => {
         if (card.kind === "help") return update({ card: card.under });
-        // Artemis's map: from an empty composer; with text there it is a character like any other. With the
-        // focus in the rail or the transcript nothing is being typed, so it is the map (Artemis's rail rule).
+        // The help map: from an empty composer; with text there it is a character like any other. With the
+        // focus in the rail or the transcript nothing is being typed, so it is the map.
         if (composerText !== "" && composerHasKeys) return false;
         // A list typed at takes `?` into its filter.
         if ((paged(card) && card.typing) || card.kind === "sessions" || card.kind === "files") return false;
@@ -1939,7 +1939,7 @@ export const App = (props: AppProps) => {
     if (promptShown) lookups.push("permission");
     if (!cardHasKeys) {
       lookups.push(focused);
-      // The page keys are never the composer's: with it focused they still move the transcript half a screen (Artemis's rule).
+      // The page keys are never the composer's: with it focused they still move the transcript half a screen.
       if (focused === "composer" && opened) lookups.push({ context: "transcript", only: PAGE_KEYS });
       if (!screen.question && question && !typing) lookups.push("confirm");
     }
@@ -1997,7 +1997,7 @@ export const App = (props: AppProps) => {
     if (asksDrained) setScreen((s) => (s.card.kind === "asks" ? { ...s, card: { kind: "none" } } : s));
   }, [asksDrained]);
 
-  // The help overlay takes the width, as Artemis's did.
+  // The help overlay takes the width.
   const showRail = railDrawn && card.kind !== "help";
   const cardHasKeys = (card.kind !== "none" && card.kind !== "minted") || promptShown;
   // Under 100 columns the rail, with the focus, is drawn in the pane's place (the transcript gives way to it): the picker
@@ -2320,7 +2320,7 @@ const recall = (row: Row): string | null => {
   if (row.kind !== "calls") return null;
   for (const call of [...row.calls].reverse()) {
     const command = call.input["command"] ?? call.input["cmd"];
-    // Behind `!`, as Artemis put it: Enter runs it again in the session's terminal. A command that itself starts with `!`
+    // Behind `!`: Enter runs it again in the session's terminal. A command that itself starts with `!`
     // (a negated one) is behind `! `, so it is never read as `!!` and runs as it was.
     if (typeof command === "string" && command.trim().length > 0) return `!${command.startsWith("!") ? " " : ""}${command}`;
   }

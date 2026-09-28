@@ -4,14 +4,14 @@ import { PRODUCT_NAME } from "@agent-harness/contracts";
 import { headingState, nameOf } from "../view.js";
 
 /**
- * Artemis's layout skeleton (docs/specs/tui.md, "The screen"): the header
+ * The layout skeleton (docs/specs/tui.md, "The screen"): the header
  * (logo, environment chip, workspace), the rail on the left, and on the
  * right the open card over the composer, with one line for results and one
  * for questions above it and the activity line under it. Every component is
  * a function of its props, which come from the runtime's projections.
  */
 
-/** Under this many columns the rail is hidden beside the pane (Artemis's threshold); `rail/rail.tsx` draws it. */
+/** Under this many columns the rail is hidden beside the pane; `rail/rail.tsx` draws it. */
 export const RAIL_MIN_COLUMNS = 100;
 
 export const Header = (props: { readonly current: EnvironmentView | undefined; readonly startingService: boolean; readonly workspace: string }) => {

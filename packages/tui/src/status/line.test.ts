@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { containmentBadge, elapsedClock, meterBar, meterCells, meterTone, readingWords, spendOf, windowLabel, windowOut } from "./line.js";
 
-/** The status line's words (docs/specs/tui.md, "Status, usage, pickers"; Artemis's `StatusBar.test.ts` carried where the rule is the same). */
+/** The status line's words (docs/specs/tui.md, "Status, usage, pickers"). */
 
 describe("the plan meter", () => {
   it("lights the first cell for any use and holds the last back until the window is full", () => {

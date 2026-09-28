@@ -5,7 +5,7 @@ import { editCalls, inWorkspace, rowFile } from "./targets.js";
 
 /**
  * What `o` opens and what `d` shows on a transcript row (docs/specs/tui.md,
- * "The transcript"; Artemis's `rowVerbs.ts`): a run's calls are one row, so
+ * "The transcript"): a run's calls are one row, so
  * the row's file is the last call that edited or read one, at the first
  * line its patch changed (or the line a read started at); its edits are the
  * file-editing calls, whose files `diffs.session` names.

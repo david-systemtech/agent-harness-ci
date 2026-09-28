@@ -5,7 +5,7 @@ import { KEY, renderApp, type EnvironmentHandle, type RenderedApp } from "../tes
  * The transcript (docs/specs/tui.md, "The transcript: a projection of one
  * session"; #146): opened from `--session`, streamed from
  * `projections.session` as the scripted environment appends events,
- * bottom-anchored, folded as Artemis folds a run's calls, a quiet call
+ * bottom-anchored, folding a run's calls, a quiet call
  * turning amber, prompts and plans in place, the cost line under a finished
  * turn, an unknown event as one dim row, and the freshness marker until the
  * stream is live.

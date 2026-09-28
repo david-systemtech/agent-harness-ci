@@ -1,7 +1,4 @@
 /**
- * Carried with `external-editor.ts` from Artemis's
- * `apps/tui/src/externalEditor.test.ts` at 443cf2e.
- *
  * The external editor's contract: which command line becomes which argv, what
  * the editor is handed, what comes back from it, and that the temporary
  * directory is gone whichever way the edit ended.

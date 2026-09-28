@@ -3,9 +3,8 @@ import { classifyTool } from "./format.js";
 import type { Row } from "./rows.js";
 
 /**
- * What `o` and `d` act on (docs/specs/tui.md, "The transcript"), carried
- * from Artemis's `rowVerbs.ts` (`rowTarget`, `rowDiff`) onto the harness's
- * rows, where a run's calls are one row: its file is the last call that
+ * What `o` and `d` act on (docs/specs/tui.md, "The transcript"): the
+ * harness's rows, where a run's calls are one row: its file is the last call that
  * edited or read one (a search's `path` is a directory it searched, never
  * offered), at the first line the tool's patch changed, or the line a read
  * started at; its edits are its file-editing calls, whose changes

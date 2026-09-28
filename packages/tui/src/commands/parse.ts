@@ -6,8 +6,7 @@ import { RAIL_COMMANDS, isRailCommand, type RailCommand } from "../rail/commands
 /**
  * The slash commands this build answers (docs/specs/tui.md, "First launch",
  * "The composer" and "Shortcuts"): `/pair <link>`, `/pair <address> <code>`,
- * `/pair create`, `/environment`, `/help`, `/reload`; and, carried from
- * Artemis with the transcript and the composer, `/resume`, `/new`,
+ * `/pair create`, `/environment`, `/help`, `/reload`; `/resume`, `/new`,
  * `/attach <path>`, `/snip`, `/tasks`, `/copy`, `/export [file]`,
  * `/timeline` and `/quit`; the accounts, models, permissions, settings and
  * Set up commands (`pickers/commands.ts`, #147); with the cards, `/asks`
@@ -20,7 +19,7 @@ import { RAIL_COMMANDS, isRailCommand, type RailCommand } from "../rail/commands
  * answer yet says so in one line, and one the list keeps absent gives its
  * reason; `/profile` is a hidden alias of `/account`. Anything else that
  * begins with a slash is not the terminal's: it goes to the agent as typed,
- * which is how the provider's own commands are run (Artemis's rule). What
+ * which is how the provider's own commands are run. What
  * follows a `/` is syntax, whatever key opens the command menu.
  */
 

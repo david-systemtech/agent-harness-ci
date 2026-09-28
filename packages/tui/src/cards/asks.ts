@@ -4,14 +4,13 @@ import { badgesOf, type Badge } from "../rail/badge.js";
 
 /**
  * The parked-asks card as rows (docs/specs/tui.md, "Cards: permissions,
- * questions, parked asks"; carried from Artemis's `AsksCard.tsx` at
- * 443cf2e): every environment's parked prompts from `projections.runs`,
- * oldest first on one clock, each with its environment's badge, the
- * session's title, what it asks, and how long until its TTL denies it,
- * counted on its environment's clock (the runtime's countdown); a prompt
- * with no expiry shows none.
+ * questions, parked asks"): every environment's parked prompts from
+ * `projections.runs`, oldest first on one clock, each with its
+ * environment's badge, the session's title, what it asks, and how long
+ * until its TTL denies it, counted on its environment's clock (the
+ * runtime's countdown); a prompt with no expiry shows none.
  *
- * Artemis's safety rules stand: nothing here is a default that authorises
+ * The safety rules stand: nothing here is a default that authorises
  * (Enter opens the session), Esc decides nothing, and only a yes-or-no
  * answers in place: a `permission` or `denylist` row takes `y` and `n`, a
  * question or a plan can only be opened, since its answer is an option or a
