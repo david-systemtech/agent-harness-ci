@@ -369,8 +369,11 @@ describe("following the end", () => {
 });
 
 describe("display preferences", () => {
-  it("reads the text size and reading width on each render, and keeps them and the open session across a remount", async () => {
-    const { app, transcript } = await opened();
+  it("reads the text size, reading width, reasoning shown and streaming fade on each render, and keeps them and the open session across a remount", async () => {
+    const { app, env, transcript, session } = await opened();
+    const { runId } = env.startRun(session, "Fix the receipts");
+    env.emit(session, "assistant.thinking", { runId, itemId: "r-1", text: "Summed twice.", aborted: false });
+    await within(transcript).findByRole("button", { name: /^Reasoning/ });
     // The column the rows stand in.
     const column = () => screen.getByRole("region", { name: "Transcript" }).firstElementChild as HTMLElement;
     expect(transcript.style.fontSize).toBe("14px");
@@ -379,16 +382,22 @@ describe("display preferences", () => {
     act(() => {
       app.presentation.set("textSize", 17);
       app.presentation.set("readingWidth", "wide");
+      app.presentation.set("reasoningShown", false);
+      app.presentation.set("streamingFade", false);
     });
     expect(transcript.style.fontSize).toBe("17px");
     expect(column().style.maxWidth).toBe("1280px");
     act(() => app.presentation.set("readingWidth", "full"));
     expect(column().style.maxWidth).toBe("none");
 
-    await app.remount();
-    const again = await screen.findByRole("region", { name: "Transcript" });
-    expect(again.style.fontSize).toBe("17px");
+    const again = await app.remount();
+    const reopened = await screen.findByRole("region", { name: "Transcript" });
+    expect(reopened.style.fontSize).toBe("17px");
     expect(column().style.maxWidth).toBe("none");
+    expect((await within(reopened).findByRole("button", { name: /^Reasoning/ })).getAttribute("aria-expanded")).toBe("false");
+    again.environment("desk").emit(session, "assistant.delta", { runId, itemId: "i-1", fragments: [{ kind: "text", text: "Looking at the par" }] });
+    await waitFor(() => expect(lastReply(reopened)?.textContent).toBe("Looking at the par"));
+    expect(fading(lastReply(reopened))).toEqual([]);
   });
 });
 

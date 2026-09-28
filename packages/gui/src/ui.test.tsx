@@ -11,6 +11,7 @@ import {
   Dialog,
   DialogContent,
   DialogTrigger,
+  Fold,
   Input,
   Menu,
   MenuContent,
@@ -78,6 +79,29 @@ describe("the primitives", () => {
     await user.click(control);
     expect(asked).toEqual([true]);
     expect(control.getAttribute("aria-checked")).toBe("false");
+  });
+
+  it("a fold says what it holds and whether it is open, draws what it holds only while its props say so, and asks for the other when pressed", async () => {
+    const user = userEvent.setup();
+    const asked: boolean[] = [];
+    const { rerender } = render(
+      <Fold summary="Ran 3 commands" open={false} onOpenChange={(open) => asked.push(open)}>
+        <p>pnpm test</p>
+      </Fold>,
+    );
+    const fold = screen.getByRole("button", { name: "Ran 3 commands" });
+    expect(fold.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByText("pnpm test")).toBeNull();
+
+    await user.click(fold);
+    expect(asked).toEqual([true]);
+    rerender(
+      <Fold summary="Ran 3 commands" open onOpenChange={(open) => asked.push(open)}>
+        <p>pnpm test</p>
+      </Fold>,
+    );
+    expect(fold.getAttribute("aria-expanded")).toBe("true");
+    expect(fold.getAttribute("aria-controls")).toBe(screen.getByText("pnpm test").parentElement?.id);
   });
 
   it("a menu opens from its button, runs the item chosen, and closes", async () => {
