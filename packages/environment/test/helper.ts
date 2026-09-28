@@ -126,6 +126,8 @@ export interface TestEnvironmentOptions {
   readonly keyManagers?: EnvironmentOptions["keyManagers"];
   /** The vault the environment holds; preset: the file vault in the data directory. */
   readonly vault?: EnvironmentOptions["vault"];
+  /** The command git names as its credential helper, before `git-credential <slug>`; preset none. */
+  readonly harnessCommand?: EnvironmentOptions["harnessCommand"];
   /** Reads the bundled Claude Code's version; preset: `TEST_CLAUDE_CODE_VERSION`, so no test runs the real binary. */
   readonly claudeCodeVersion?: EnvironmentOptions["claudeCodeVersion"];
 }
@@ -295,6 +297,7 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
     gh: options.gh ?? managedGh({ hostEnv: { PATH: EMPTY_PATH } }),
     ...(options.keyManagers !== undefined && { keyManagers: options.keyManagers }),
     ...(options.vault !== undefined && { vault: options.vault }),
+    ...(options.harnessCommand !== undefined && { harnessCommand: options.harnessCommand }),
     claudeCodeVersion: options.claudeCodeVersion ?? (async () => TEST_CLAUDE_CODE_VERSION),
     signInProcess: { spawn: refusingSpawn, bundled: TEST_BUNDLED_CLAUDE, managedTool: () => null, hostEnv: { PATH: "/usr/bin" }, ...options.signInProcess },
   };

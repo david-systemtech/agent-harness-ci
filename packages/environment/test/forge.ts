@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
-import type { CommandReceipt, EventEnvelope, EventFrame, ForgeAccountRecord, ParamsOf, ResponseOf } from "@agent-harness/contracts";
+import { request } from "node:http";
+import { GIT_CREDENTIAL_PATH, formatHostPort, type CommandReceipt, type EventEnvelope, type EventFrame, type ForgeAccountRecord, type ParamsOf, type ResponseOf } from "@agent-harness/contracts";
+import type { Address } from "../src/serve/http.js";
 import type { TestEnvironment } from "./helper.js";
 import { create } from "./sessions.js";
 import type { WireClient } from "./wire-client.js";
@@ -81,3 +83,47 @@ export const saidBack = async (t: TestEnvironment, values: readonly string[]): P
 
 /** The form git's Basic header carries a token in for `username`. */
 export const basicAuth = (username: string, token: string): string => Buffer.from(`${username}:${token}`).toString("base64");
+
+/** git's host attribute for an origin: the host, and its port when it has one. */
+export const gitHost = (origin: string): string => origin.replace(/^https?:\/\//, "");
+
+/** What the credential route answered: its status and its JSON body, null for none. */
+export interface RouteAnswer {
+  readonly status: number;
+  readonly body: unknown;
+}
+
+/**
+ * Asks the credential route at `address` as the helper does (#314): the
+ * secret as a bearer credential, git's attributes as the JSON body, and a
+ * Host header naming the address unless `headers` gives another.
+ */
+export const askCredentialRoute = (address: Address, secret: string | null, body: unknown, headers: Record<string, string> = {}): Promise<RouteAnswer> =>
+  new Promise((resolve, reject) => {
+    const text = typeof body === "string" ? body : JSON.stringify(body);
+    const sent = request(
+      {
+        host: address.host,
+        port: address.port,
+        method: "POST",
+        path: GIT_CREDENTIAL_PATH,
+        headers: {
+          host: formatHostPort(address.host, address.port),
+          "content-type": "application/json",
+          "content-length": Buffer.byteLength(text),
+          ...(secret !== null && { authorization: `Bearer ${secret}` }),
+          ...headers,
+        },
+      },
+      (response) => {
+        const chunks: Buffer[] = [];
+        response.on("data", (chunk: Buffer) => chunks.push(chunk));
+        response.on("end", () => {
+          const answer = Buffer.concat(chunks).toString("utf8");
+          resolve({ status: response.statusCode ?? 0, body: answer === "" ? null : (JSON.parse(answer) as unknown) });
+        });
+      },
+    );
+    sent.on("error", reject);
+    sent.end(text);
+  });
