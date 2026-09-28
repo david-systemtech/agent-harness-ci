@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { join } from "node:path";
 import { describe, expect, it, onTestFinished } from "vitest";
 import { end, gate, say, toldText, type Script } from "../../environment/test/fake-adapter.js";
 import { workspace } from "../../environment/test/sessions.js";
@@ -102,5 +103,33 @@ describe("a run the fake adapter plays", () => {
     expect(states).toEqual(["idle", "starting", "running", "parked", "running", "ended"]);
     // The runtime surfaced nothing through the shell on its own.
     expect(shell.calls).toEqual([]);
+  });
+});
+
+describe("commands.rewind to a session's first message", () => {
+  it("starts the new session in the same workspace through a session request, sharing its kind and path, with the message's text as its draft", async () => {
+    const t = await harness.environment({ name: "desk" });
+    const runtime = harness.runtime(inMemoryPlatform({ shell: fakeShell() }));
+    await runtime.start();
+    await runtime.connections.add({ link: (await t.createPairing()).link });
+    const env = t.env.id;
+    const sessionId = randomUUID();
+    // A scratch workspace: sent back as a request it would be a scratch directory of the new session's own.
+    expect(await runtime.commands.dispatch(env, "sessions.create", { id: sessionId, workspace: { kind: "scratch" }, title: "Receipts" })).toMatchObject({ ok: true });
+    const session = runtime.projections.session(env, sessionId);
+    onTestFinished(session.subscribe(() => undefined));
+    expect(await runtime.commands.dispatch(env, "runs.start", { sessionId, text: "Fix the receipts" })).toMatchObject({ ok: true });
+    await until(() => session.read().runs[0]?.state === "ended", "the run to end");
+    const [first] = session.read().items;
+    if (first?.kind !== "user-message") throw new Error("The session holds no user message.");
+
+    const answer = await runtime.commands.rewind(env, sessionId, first.messageId);
+    if (answer.kind !== "new-session") throw new Error(`The rewind answered ${JSON.stringify(answer)}.`);
+    expect(answer.answer).toMatchObject({ ok: true });
+    const [created] = t.env.log.readStream({ kind: "session", id: answer.sessionId });
+    expect(created?.payload).toMatchObject({ workspace: { kind: "scratch", path: join(t.dataDir, "scratch", sessionId) }, repositoryIdentity: null });
+    const row = () => runtime.projections.sessionList.read().rows.find((r) => r.summary.id === answer.sessionId);
+    await until(() => row()?.summary.draft === "Fix the receipts", "the draft on the new session");
+    expect(row()?.summary.workspace).toEqual({ kind: "scratch", path: join(t.dataDir, "scratch", sessionId) });
   });
 });

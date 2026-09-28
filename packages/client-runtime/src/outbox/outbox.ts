@@ -13,7 +13,6 @@ import {
   type ResponseFrame,
   type ResultOf,
   type SessionWriteMethodName,
-  type Workspace,
 } from "@agent-harness/contracts";
 import { answerCapability, answerQueuedCommand, type AbsentReason } from "../capabilities.js";
 import { SocketClosedError } from "../connections/connection.js";
@@ -143,22 +142,23 @@ export interface Commands {
    * `sessions.rewind`; and when the environment refuses it
    * `use_new_session` (the session's first message, with nothing before it
    * to go back to), a new session in the same workspace with the message's
-   * text as its draft: `sessions.create` with a client-minted id, then,
-   * once the environment has accepted it, `sessions.setDraft` (none for an
-   * empty text). Answers the new session's id with the create's answer; the
+   * text as its draft: `sessions.create` with a client-minted id and a
+   * `session` request naming the rewound session, so the environment shares
+   * its workspace, kind, path and identity (#325), then, once the
+   * environment has accepted it, `sessions.setDraft` (none for an empty
+   * text). Answers the new session's id with the create's answer; the
    * refusal it answers raises no notice, a create the environment refuses
    * leaves its own, and a draft refused leaves its own. It answers the
    * rewind's own answer, with its notice, for any other refusal, and for
-   * this one when it cannot start a session: the message or the session's
-   * workspace not held, or the connection without the scope (or flag) the
-   * create or the draft needs.
+   * this one when it cannot start a session: the message not held, or the
+   * connection without the scope (or flag) the create or the draft needs.
    */
   rewind(environmentId: string, sessionId: string, messageId: string): Promise<RewindAnswer>;
 }
 
 /**
  * What `commands.rewind` did. The `rewind` kind is the rewind's own answer; a `use_new_session` refusal stays here
- * only when the runtime could not attempt a session for it (the message or the workspace not held, or `prepare`
+ * only when the runtime could not attempt a session for it (the message not held, or `prepare`
  * refusing the create locally). The `new-session` kind is every attempted create, carrying the create's own answer:
  * the session stands only when that answer is ok, and a refused create names an id no session has.
  */
@@ -166,10 +166,9 @@ export type RewindAnswer =
   | { readonly kind: "rewind"; readonly answer: DispatchAnswer<"sessions.rewind"> }
   | { readonly kind: "new-session"; readonly sessionId: string; readonly answer: DispatchAnswer<"sessions.create"> };
 
-/** What a rewind refused `use_new_session` starts a new session from: the message's text and the session's workspace. */
+/** What a rewind refused `use_new_session` starts a new session from: the message's text. */
 export interface RewindSource {
   readonly text: string;
-  readonly workspace: Workspace;
 }
 
 export interface OutboxHost {
@@ -186,7 +185,7 @@ export interface OutboxHost {
   shown(environmentId: string): ListData | null;
   /** The environment's time now. */
   now(environmentId: string): Date;
-  /** A user message of a session the runtime holds, with the session's workspace; null when either is not held. */
+  /** A user message of a session the runtime holds; null when it is not held. */
   rewindSource(environmentId: string, sessionId: string, messageId: string): RewindSource | null;
 }
 
@@ -761,7 +760,7 @@ export const createOutbox = (host: OutboxHost): Outbox => {
       const rewind = prepare(environmentId, "sessions.rewind", { sessionId, messageId });
       if ("refused" in rewind) return { kind: "rewind", answer: rewind.refused as DispatchAnswer<"sessions.rewind"> };
       const startsOver = (error: DispatchFailure) => error.code === "conflict" && error.data?.["reason"] === "use_new_session";
-      // The refusal is answered here only when a new session can be started from it: the message and the workspace are held, and
+      // The refusal is answered here only when a new session can be started from it: the message is held, and
       // the connection admits the create and the draft. Else it is the caller's, with its notice.
       const record = host.record(environmentId);
       const admitted = ["sessions.create", "sessions.setDraft"].every((method) => answerQueuedCommand(method as CommandMethodName, record).status === "present");
@@ -775,7 +774,8 @@ export const createOutbox = (host: OutboxHost): Outbox => {
       }
       if (answer.ok || caller.notice === undefined || source === null) return { kind: "rewind", answer };
       const id = uuidv4();
-      const create = prepare(environmentId, "sessions.create", { id, workspace: source.workspace });
+      // In the rewound session's workspace, as the environment has it now: a session request, never a copy of the summary's (#325).
+      const create = prepare(environmentId, "sessions.create", { id, workspace: { kind: "session", sessionId } });
       if ("refused" in create) {
         // Refused on the spot after all (the runtime closing, the environment removed): no session is started, and the rewind's
         // refusal is the caller's, with the notice it would have raised.
