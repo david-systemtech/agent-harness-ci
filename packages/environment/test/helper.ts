@@ -93,7 +93,7 @@ export interface TestEnvironmentOptions {
   readonly subscriptionHooks?: SubscriptionHooks;
   /** Preset: whatever the machine is, reported as no container, so updates are not managed outside. */
   readonly containerDetector?: ContainerDetector;
-  /** Preset: a test launcher that says no launcher is present. */
+  /** Preset: a scripted launcher channel with no launcher present, as under a foreground `serve`. */
   readonly launcher?: TestLauncher;
   /** The adapter host's seams (the broker's automatic answers, the policy resolver, ...); preset: each seam's own. */
   readonly adapterSeams?: EnvironmentOptions["adapterSeams"];
@@ -107,6 +107,8 @@ export interface TestEnvironmentOptions {
    * real machine is never probed.
    */
   readonly containment?: ContainmentProbe | Promise<ContainmentProbe>;
+  /** The resolver a new session's workspace goes through (`test/workspaces.ts` scripts one); preset: the environment's. */
+  readonly workspaceResolver?: EnvironmentOptions["workspaceResolver"];
   /** The scrub registry the environment holds; preset: a fresh one. */
   readonly scrub?: ScrubRegistry;
 }
@@ -159,7 +161,7 @@ export interface TestEnvironment {
   readonly dataDir: string;
   /** The run registry the environment's idle rule and drain read: the test starts, parks and ends runs on it. */
   readonly runs: MemoryRunRegistry;
-  /** The launcher's channel: what the environment signalled, and its idle and drain queries. */
+  /** The scripted launcher channel: what the environment signalled and sent, its answers, and the launcher's queries. */
   readonly launcher: TestLauncher;
   /** The environment's scrub registry: the test registers values on it as a service beside the environment would. */
   readonly scrub: ScrubRegistry;
@@ -262,6 +264,7 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
     ...(options.probeTimeoutMs !== undefined && { probeTimeoutMs: options.probeTimeoutMs }),
     ...(options.usageReadTimeoutMs !== undefined && { usageReadTimeoutMs: options.usageReadTimeoutMs }),
     ...(options.terminals !== undefined && { terminals: options.terminals }),
+    ...(options.workspaceResolver !== undefined && { workspaceResolver: options.workspaceResolver }),
     signInProcess: { spawn: refusingSpawn, bundled: TEST_BUNDLED_CLAUDE, managedTool: () => null, hostEnv: { PATH: "/usr/bin" }, ...options.signInProcess },
   };
   let env: EnvironmentHandle;

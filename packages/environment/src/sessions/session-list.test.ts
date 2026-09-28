@@ -1,8 +1,12 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import { LIST_PATCH_KEY, listEventTypes } from "@agent-harness/contracts";
-import { afterEach, describe, expect, it } from "vitest";
-import { openEventLog, type EventLog } from "../event-log/event-log.js";
+import { afterEach, describe, expect, it, onTestFinished } from "vitest";
+import { openEventLog, type EventEnvelope, type EventLog, type ProjectionDb } from "../event-log/event-log.js";
 import { PROJECTED_SESSION_EVENT_TYPES, sessionListProjector } from "./session-list.js";
 import { listSummaries, type Reader } from "./session-reads.js";
+import { SESSION_LIST_TABLES } from "./session-tables.js";
 
 /**
  * The session-list projector at the lower seam: against an in-memory log,
@@ -83,6 +87,45 @@ describe("the session-list projector", () => {
       { actor: "system:test" },
     );
     expect(events.map((event) => event.metadata)).toEqual([{}, { [LIST_PATCH_KEY]: { op: "remove", sessionId: unlisted } }]);
+  });
+
+  it("sets the missing mark to the time session.workspace-status-changed says missing and clears it on present, updatedAt left where it was", () => {
+    const log = memoryLog();
+    const stream = { kind: "session", id };
+    const at = "2026-09-24T00:00:00.000Z";
+    const later = "2026-09-25T08:00:00.000Z";
+    log.append(stream, [created], { actor: "system:test" });
+    const missing = log.append(stream, [{ type: "session.workspace-status-changed", payload: { status: "missing" }, occurredAt: later }], {
+      actor: "system:workspaces",
+    });
+    expect(missing.events[0]?.metadata[LIST_PATCH_KEY]).toEqual({ op: "set", sessionId: id, fields: { workspaceMissingSince: later } });
+    const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
+    expect(listSummaries(reader)[0]).toMatchObject({ workspaceMissingSince: later, updatedAt: at });
+    const present = log.append(stream, [{ type: "session.workspace-status-changed", payload: { status: "present" } }], { actor: "system:workspaces" });
+    expect(present.events[0]?.metadata[LIST_PATCH_KEY]).toEqual({ op: "set", sessionId: id, fields: { workspaceMissingSince: null } });
+    expect(listSummaries(reader)[0]).toMatchObject({ workspaceMissingSince: null, updatedAt: at });
+  });
+
+  it("rebuilds from the log on registering over a sessions table without the missing mark, every session reading null", () => {
+    const path = join(mkdtempSync(join(tmpdir(), "agent-harness-list-")), "events.db");
+    onTestFinished(() => rmSync(dirname(path), { recursive: true, force: true }));
+    const without = SESSION_LIST_TABLES.sessions.replace(/\s*workspace_missing_since TEXT,/, "");
+    expect(without).not.toBe(SESSION_LIST_TABLES.sessions);
+    const clock = () => new Date("2026-09-24T00:00:00.000Z");
+    // The projector as it was before the mark: its tables without the column, and no patch to write (this one's reads the column).
+    const before = { ...sessionListProjector, tables: { ...SESSION_LIST_TABLES, sessions: without }, apply: (event: EventEnvelope, db: ProjectionDb) => sessionListProjector.apply(event, db, { attachMetadata: () => undefined }) };
+    const older = openEventLog({ path, clock, projectors: [before] });
+    const other = "0e1d2c3b-4a59-4687-9a6b-5c4d3e2f1a0b";
+    for (const session of [id, other]) older.append({ kind: "session", id: session }, [created], { actor: "system:test" });
+    older.close();
+
+    const log = openEventLog({ path, clock, projectors: [sessionListProjector] });
+    logs.push(log);
+    const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
+    expect(listSummaries(reader).map((summary) => [summary.id, summary.workspaceMissingSince])).toEqual([
+      [other, null],
+      [id, null],
+    ]);
   });
 
   it("leaves alone the events that are not the list's: other types on a session stream, and other streams", () => {

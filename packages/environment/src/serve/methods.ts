@@ -92,19 +92,44 @@ export type MethodHandler<N extends MethodName> = (
   context: ContextOf<Registry[N]["kind"]>,
 ) => HandlerReturn<Registry[N]["kind"], ResultOf<N>, ErrorOf<N>["code"]>;
 
+/** How to remove something a command's `prepare` made: a directory, a worktree and its new branch. */
+export type Undo = () => void | Promise<void>;
+
+/**
+ * What a `prepare` is given beyond the caller: `onUndo`, through which it
+ * says how to remove each thing it made. Dispatch runs them, newest first,
+ * when the command is not accepted: its transaction rejects (a refusal the
+ * cheap checks did not foresee, such as an id another command took meanwhile)
+ * or fails, or `prepare` itself throws after making something. They never
+ * run once a receipt under the command's key says accepted, its own or one
+ * a request under the same key stored meanwhile, whose workspace may be the
+ * very directory this one found or made.
+ */
+export interface PrepareContext extends MethodContext {
+  onUndo(undo: Undo): void;
+}
+
 /**
  * A command that must hear from outside the log before it can decide:
  * `runs.withdraw`, whether a provider still held the queued message it was
- * asked to take back (#228), and `sessions.rewind`, what the host is still
- * handing back to the session's queue after a run's end (#245). Its
+ * asked to take back (#228), `sessions.rewind`, what the host is still
+ * handing back to the session's queue after a run's end (#245), and
+ * `sessions.create`, the workspace its request resolves to (#321). Its
  * `prepare` runs first, outside any transaction, and answers the handler
  * the command then runs inside its transaction, answering at once like any
  * command's. A command id with a stored receipt is answered from the
  * receipt and `prepare` is not run; what `prepare` throws is answered as a
- * handler's throw is, storing no receipt.
+ * handler's throw is, storing no receipt. What `prepare` made is removed
+ * through the undos it registered when the command is not accepted.
+ *
+ * A `prepare` that can answer at once answers the handler itself, not a
+ * promise of it: the command then keeps its place among the requests of
+ * its socket, as a command with no `prepare` does, so a directory create
+ * pipelined before a command on the new session is applied first. One that
+ * waits lets the requests after it be applied meanwhile.
  */
 export interface PreparedCommand<N extends MethodName> {
-  readonly prepare: (params: ParamsOf<N>, context: MethodContext) => Promise<MethodHandler<N>>;
+  readonly prepare: (params: ParamsOf<N>, context: PrepareContext) => MethodHandler<N> | Promise<MethodHandler<N>>;
 }
 
 /** Handlers by contracts method name, as the environment starts with them; a command's may be prepared first. */
@@ -117,10 +142,10 @@ type StreamHandler = (params: unknown, context: MethodContext) => StreamSource |
 /** A query's handler as dispatch calls it. */
 type QueryHandler = (params: unknown, context: MethodContext) => unknown;
 /** A command's handler as dispatch calls it, inside the command's transaction. */
-type CommandHandler = (params: unknown, context: CommandContext) => CommandAnswer<unknown>;
+export type CommandHandler = (params: unknown, context: CommandContext) => CommandAnswer<unknown>;
 /** A prepared command as dispatch calls it: `prepare`, then the handler it answers, inside the command's transaction. */
 export interface PreparedCommandHandler {
-  readonly prepare: (params: unknown, context: MethodContext) => Promise<CommandHandler>;
+  readonly prepare: (params: unknown, context: PrepareContext) => CommandHandler | Promise<CommandHandler>;
 }
 
 /**

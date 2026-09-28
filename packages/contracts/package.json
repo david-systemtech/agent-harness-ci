@@ -8,6 +8,11 @@
       "@agent-harness/source": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./launcher": {
+      "@agent-harness/source": "./src/launcher.ts",
+      "types": "./dist/launcher.d.ts",
+      "default": "./dist/launcher.js"
     }
   },
   "scripts": {

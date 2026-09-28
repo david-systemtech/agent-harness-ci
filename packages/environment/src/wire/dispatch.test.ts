@@ -211,7 +211,7 @@ describe("dispatch", () => {
     const respond = (given: Answer): void => void answers.push(given);
     await dispatch(request("environment.drain", { commandId }), caller(["admin"]), respond, vi.fn());
     expect(order).toEqual(["prepare", "handle:true"]);
-    expect(prepare).toHaveBeenCalledWith({ commandId }, { clientSession: caller(["admin"]) });
+    expect(prepare).toHaveBeenCalledWith({ commandId }, { clientSession: caller(["admin"]), onUndo: expect.any(Function) });
     expect(answers[0]).toMatchObject({ result: { receipt: { status: "accepted" }, result: { trigger: "command" } } });
 
     await dispatch(request("environment.drain", { commandId }), caller(["admin"]), respond, vi.fn());
@@ -234,6 +234,77 @@ describe("dispatch", () => {
     expect(answers[2]).toEqual({ error: { code: "internal", message: "The provider did not answer.", data: {} } });
     expect(log.receipt("client_session:cs-1", other)).toBeNull();
     quiet.mockRestore();
+  });
+
+  it("runs what a prepare registered to undo when its command is not accepted, newest first, and never once a receipt under its key says accepted", async () => {
+    const quiet = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const log = memoryLog();
+    const stream = { kind: "environment", id: "e" };
+    const actor = "client_session:cs-1";
+    const accepted = { aggregate: stream, result: { drainingSince: "2026-09-24T00:00:00.000Z", trigger: "command" as const } };
+    const rejected = { aggregate: stream, rejected: { code: "conflict", message: "Not now.", data: { reason: "busy" } } };
+    const undone: string[] = [];
+    /** How the prepared command goes: what its handler answers, whether prepare throws, and a receipt another request under the key stores meanwhile. */
+    const run = async (outcome: { handler?: () => unknown; throws?: boolean; meanwhile?: "accepted" | "rejected" }) => {
+      const commandId = crypto.randomUUID();
+      const table = createMethodTable({
+        "environment.drain": {
+          prepare: (_params, context) => {
+            context.onUndo(() => void undone.push(`${commandId}:first`));
+            context.onUndo(async () => void undone.push(`${commandId}:second`));
+            if (outcome.throws === true) throw new Error("The provider went away.");
+            if (outcome.meanwhile !== undefined) {
+              const other = outcome.meanwhile === "accepted" ? accepted : { aggregate: stream, rejected: { code: "conflict", message: "m", data: {} } };
+              log.command({ actor, commandId }, () => other);
+            }
+            return (outcome.handler ?? (() => accepted)) as never;
+          },
+        },
+      });
+      await createDispatch(table, log)(request("environment.drain", { commandId }), caller(["admin"]), () => undefined, vi.fn());
+      const ran = undone.filter((entry) => entry.startsWith(commandId)).map((entry) => entry.slice(commandId.length + 1));
+      undone.length = 0;
+      return ran;
+    };
+    expect(await run({})).toEqual([]);
+    expect(await run({ handler: () => rejected })).toEqual(["second", "first"]);
+    expect(
+      await run({
+        handler: () => {
+          throw new Error("The disk is full.");
+        },
+      }),
+    ).toEqual(["second", "first"]);
+    expect(await run({ throws: true })).toEqual(["second", "first"]);
+    // Answered from a receipt another request under the key stored meanwhile: its workspace may be this prepare's, so it stays.
+    expect(await run({ meanwhile: "accepted" })).toEqual([]);
+    expect(await run({ meanwhile: "rejected" })).toEqual(["second", "first"]);
+    quiet.mockRestore();
+  });
+
+  it("keeps a prepared command's place among its socket's requests when its prepare answers at once, and lets later ones by when it waits", async () => {
+    const log = memoryLog();
+    const stream = { kind: "environment", id: "e" };
+    const order: string[] = [];
+    const handle = (name: string) => () => {
+      order.push(name);
+      return { aggregate: stream, result: { drainingSince: "2026-09-24T00:00:00.000Z", trigger: "command" as const } };
+    };
+    const table = (prepared: boolean) =>
+      createMethodTable({
+        "environment.drain": { prepare: () => (prepared ? handle("drain") : Promise.resolve(handle("drain"))) },
+        "environment.rebuildProjections": () => {
+          order.push("rebuild");
+          return { aggregate: stream, result: { projectors: [], sequence: 0 } };
+        },
+      });
+    for (const atOnce of [true, false]) {
+      const dispatch = createDispatch(table(atOnce), log);
+      const first = dispatch(request("environment.drain", { commandId: crypto.randomUUID() }), caller(["admin"]), () => undefined, vi.fn());
+      const second = dispatch(request("environment.rebuildProjections", { commandId: crypto.randomUUID() }), caller(["admin"]), () => undefined, vi.fn());
+      await Promise.all([first, second]);
+    }
+    expect(order).toEqual(["drain", "rebuild", "rebuild", "drain"]);
   });
 
   it("answers invalid_params with the issues", async () => {

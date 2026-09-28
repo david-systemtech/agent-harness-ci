@@ -159,7 +159,7 @@ describe("environment.status", () => {
 
 describe("the launcher's idle query", () => {
   it("is answered with the status document environment.status answers, idle, busy or draining", async () => {
-    const t = await start();
+    const t = await start({ launcher: testLauncher({ present: true }) });
     const client = await t.client();
     const same = async (state: string) => {
       const answer = await status(client);
@@ -300,7 +300,7 @@ describe("the drain", () => {
   });
 
   it("starts from the launcher's drain query, which is answered draining; environment.drain and SIGTERM join it, and the notice is appended once", async () => {
-    const t = await start();
+    const t = await start({ launcher: testLauncher({ present: true }) });
     const client = await t.client();
     const { subscription } = await client.subscribe("environment.subscribe", { afterSequence: 0 });
     await client.next((f) => f.type === "synchronized" && f.subscription === subscription);

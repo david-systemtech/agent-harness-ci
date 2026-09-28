@@ -38,6 +38,7 @@ export interface SessionRow {
   snooze_ended_at: string | null;
   workspace: string;
   repository_identity: string | null;
+  workspace_missing_since: string | null;
   activity: string;
   parked_prompt_count: number;
   /** The session's run live now, from its `run.started` to its `run.ended`: what a prompt's last answer goes back to. Not a summary field. */
@@ -87,6 +88,7 @@ export const SESSION_LIST_TABLES = {
     snooze_ended_at TEXT,
     workspace TEXT NOT NULL,
     repository_identity TEXT,
+    workspace_missing_since TEXT,
     activity TEXT NOT NULL,
     parked_prompt_count INTEGER NOT NULL DEFAULT 0,
     live_run_id TEXT,
@@ -150,6 +152,7 @@ export const toSummary = (reader: Reader, row: SessionRow): SessionSummary => ({
   snoozedAt: row.snoozed_at,
   workspace: JSON.parse(row.workspace) as SessionSummary["workspace"],
   repositoryIdentity: row.repository_identity,
+  workspaceMissingSince: row.workspace_missing_since,
   activity: JSON.parse(row.activity) as SessionSummary["activity"],
   parkedPromptCount: row.parked_prompt_count,
   accountId: row.account_id,

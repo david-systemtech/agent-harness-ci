@@ -52,9 +52,10 @@ export const SUMMARY_FIELD_OWNERS = {
   unsettledAt: { command: "sessions.unsettle" },
   snoozedUntil: { command: "sessions.snooze" },
   snoozedAt: { command: "sessions.snooze" },
-  // Place (ADR 0005): written once, by the creating command.
+  // Place (ADR 0005): written once, by the creating command; the missing mark is the availability watcher's (workspace-picker spec).
   workspace: { command: "sessions.create" },
   repositoryIdentity: { command: "sessions.create" },
+  workspaceMissingSince: { event: "session.workspace-status-changed" },
   // Activity: the adapter's run events (#119) and the permissions workstream's prompt events (#130).
   activity: { event: "run.started" },
   parkedPromptCount: { event: "prompt.opened" },

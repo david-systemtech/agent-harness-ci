@@ -18,6 +18,7 @@ import { useCleanups } from "../../test/cleanups.js";
 import { NO_INTERFACES, startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { WAIT_MS, type WireClient } from "../../test/wire-client.js";
 import { REPLAY_BOUND, type EventInput, type JsonObject, type StreamRef } from "../event-log/event-log.js";
+import { NO_LAUNCHER } from "../serve/launcher.js";
 import { HARNESS_VERSION, startEnvironment } from "../serve/start.js";
 import type { Outlet, SubscriptionHooks } from "./subscriptions.js";
 
@@ -717,6 +718,7 @@ describe("environment.subscribe", () => {
         present: () => true,
         prepared: () => Promise.reject(new Error("the launcher has gone")),
         onQuery: () => undefined,
+        request: () => Promise.resolve(NO_LAUNCHER),
         close: () => undefined,
       },
       interfaces: NO_INTERFACES,

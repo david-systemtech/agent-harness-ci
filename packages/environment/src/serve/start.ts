@@ -87,6 +87,7 @@ import { sessionListProjector } from "../sessions/session-list.js";
 import { createTerminalService } from "../terminals/service.js";
 import type { TerminalsOptions } from "../terminals/terminals.js";
 import { workspaceMethods } from "../workspace/methods.js";
+import { createWorkspaceResolver, type WorkspaceResolver } from "../workspace/resolver.js";
 import { createSettleSweep } from "../sessions/settle-sweep.js";
 import { settingsMethods } from "../settings/methods.js";
 import { setupMethods } from "../setup/methods.js";
@@ -152,7 +153,7 @@ export interface StartupHooks {
   beforeStep?(step: StartupStep, progress: StartupProgress): void | Promise<void>;
 }
 
-/** A startup step failed. Everything opened before it was closed, and `prepared` was never signalled. */
+/** A startup step failed. Everything opened before it was closed, and the wire never opened: `prepared` was never signalled, or never committed. */
 export class StartupError extends Error {
   readonly step: StartupStep;
 
@@ -269,6 +270,12 @@ export interface EnvironmentOptions {
   readonly probeContainment?: () => Promise<ContainmentProbe>;
   /** How terminals start: the pty, the shell, the base environment. Preset: `node-pty`, the user's login shell, the clean base (`terminals/`). */
   readonly terminals?: Omit<TerminalsOptions, "clock">;
+  /**
+   * The resolver `sessions.create` and the completions surface give a new
+   * session its workspace through (#321). Preset: the environment's
+   * (`workspace/resolver.ts`); tests script it.
+   */
+  readonly workspaceResolver?: WorkspaceResolver;
 }
 
 /** Who starts a run that no client session starts: a routine, a bot, or the completions surface. */
@@ -390,8 +397,9 @@ const passwdName = (): string | undefined => {
  * Starts an environment: refuses root before anything is created, then runs
  * the startup steps in order. Discovery and health are routed before the bind,
  * so they answer `starting` from the first byte; readiness is `ready` only
- * once `prepared` has been signalled. A failed step closes what was opened,
- * signals nothing, and rejects with a `StartupError` naming the step.
+ * once `prepared` has been signalled and, under a launcher, committed. A
+ * failed step closes what was opened, signals nothing, and rejects with a
+ * `StartupError` naming the step.
  */
 export const startEnvironment = async (options: EnvironmentOptions = {}): Promise<EnvironmentHandle> => {
   refusePrivilegedUser(options.user ?? processUserCheck());
@@ -684,6 +692,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   closers.push(() => terminalService.close());
   // The shelf's sweep (#117): started once the environment is ready; a settings change runs it from the change's commit.
   const settleSweep = createSettleSweep({ log, clock });
+  // A new session's workspace, from the request `sessions.create` or the completions surface makes (#321).
+  const workspaceResolver = options.workspaceResolver ?? createWorkspaceResolver();
   const table = createMethodTable({
     ...lifecycle.handlers,
     "environment.subscribe": () => lifecycle.source,
@@ -699,6 +709,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       log,
       clock: now,
       deletion,
+      resolver: workspaceResolver,
       validateRunParameters: host.validateSessionInput,
       clampSessionMode: sessionModeClamp({ host, ceilingOf: (id) => clientSessions.ceiling(id) }),
     }),
@@ -759,6 +770,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     methods: table,
     scratchRoot: join(dataDir, SCRATCH_DIRECTORY),
     passthrough,
+    resolver: workspaceResolver,
   });
   surface.prefix(OPENAI_PATH_PREFIX, completions.handle);
   const wire = createWire({
@@ -799,9 +811,11 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // Closed before the wire and the listeners: an answer still open ends with a final chunk, never a bare close.
   closers.push(() => completions.close());
 
-  await step("prepared", () => launcher.prepared());
+  // Under a launcher this waits for its `committed`: until then readiness stays `starting` and the wire serves no request,
+  // so a trial the launcher rolls back never served a person. With no launcher it does not wait.
+  await step("prepared", () => launcher.prepared(HARNESS_VERSION));
   readiness = "ready";
-  // Only a start the launcher accepted is noted, and before the wire opens, so a first subscriber finds it.
+  // Only a start the launcher committed is noted, and before the wire opens, so a first subscriber finds it.
   try {
     log.append(
       environmentStream,

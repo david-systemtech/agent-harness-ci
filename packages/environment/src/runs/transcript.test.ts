@@ -73,6 +73,7 @@ const summary = {
   snoozedAt: null,
   workspace: { kind: "directory", path: "/work" },
   repositoryIdentity: null,
+  workspaceMissingSince: null,
   activity: { state: "idle", since: at(0) },
   parkedPromptCount: 0,
   accountId: null,
