@@ -11,20 +11,26 @@ import {
   type ForgeAccountAddedPayload,
   type ForgeAccountRecord,
   type ForgeAccountUpdatedPayload,
+  type ForgeAddCredential,
+  type ForgeCredentialSource,
   type ForgeIdentity,
   type ForgeKind,
   type ForgeOrigin,
   type ForgeProblem,
+  type GhProbe,
   type MethodName,
+  type ParamsOf,
   type ResultOf,
 } from "@agent-harness/contracts";
 import type { EventLog, StreamRef } from "../event-log/event-log.js";
+import { noKeyManagerConnections, type KeyManagerRegistry } from "../key-managers/registry.js";
 import type { ScrubRegistry, ScrubRelease } from "../scrub/registry.js";
 import type { Clock } from "../serve/clock.js";
 import type { CommandAnswer, CommandContext, CommandRejection, MethodHandler, PrepareContext, PreparedCommand } from "../serve/methods.js";
 import type { Vault } from "../serve/vault.js";
 import type { Reader } from "../sessions/session-tables.js";
 import { forgeAccountEver, listForgeAccounts, liveForgeAccount, originHolder, primaryForgeAccount, slugHolder } from "./forge-store.js";
+import { managedGh, type ManagedGh } from "./gh.js";
 import { FORGE_CALL_TIMEOUT_MS, forgeProvider, type ForgeFetch, type IdentityAnswer } from "./providers.js";
 
 /**
@@ -49,6 +55,16 @@ import { FORGE_CALL_TIMEOUT_MS, forgeProvider, type ForgeFetch, type IdentityAns
  *   whatever an interrupted deletion left.
  * - **One primary**: the first forge account becomes primary; setting
  *   another clears it in the same event; removing the primary leaves none.
+ * - **A credential is read per operation** (`resolveCredential`, and the
+ *   identity call of an add or update): a stored token from the vault; the
+ *   environment's `gh` through `gh auth token` for the host and the source's
+ *   login, so a rotation in `gh` is followed; a reference through the
+ *   key-manager registry's resolve seam, so a rotation in the key manager is
+ *   live at once. A token `gh` or a key manager gives is registered with the
+ *   scrub registry for its operation and released when it ends, never
+ *   cached, so a read that fails never falls back to an earlier value. A
+ *   copy with no credential (`none`) is never read and never verified: it
+ *   has problem `needs-credential` until one is given.
  */
 
 /** What every vault entry holding a forge token is named with. */
@@ -72,16 +88,61 @@ export interface ForgeServiceOptions {
   readonly fetch?: ForgeFetch;
   /** How long one call to a forge may take; preset `FORGE_CALL_TIMEOUT_MS`. */
   readonly callTimeoutMs?: number;
+  /** The environment's own `gh`, behind the Managed tools seam #91's registry replaces; preset: the `gh` on this process's PATH. */
+  readonly gh?: ManagedGh;
+  /** The key-manager registry's resolve seam, which #91 fills; preset: no key-manager connection, so every reference is unavailable. */
+  readonly keyManagers?: KeyManagerRegistry;
+  /** A client session's label, which a token its client's `gh` handed over records beside its id. */
+  readonly clientSessionLabel: (clientSessionId: string) => string | undefined;
 }
 
 type Refusal<N extends MethodName> = CommandRejection<ErrorOf<N>["code"]>;
+
+/** A token the state import carried over (ADR 0036), which it adds in process: no client may send one. */
+export interface ImportedCredential {
+  readonly kind: "stored";
+  readonly provenance: "imported";
+  readonly token: string;
+}
+
+/** What `forge.accounts.add` is given: a client's params, or the state import's in process with a credential it carried over. */
+export type ForgeAddRequest = Omit<ParamsOf<"forge.accounts.add">, "credential"> & { readonly credential: ForgeAddCredential | ImportedCredential };
+
+/**
+ * `forge.accounts.add` as the ForgeService prepares it. The wire's schema
+ * lets no client send an imported token; the state import calls `prepare`
+ * in process with one and applies the handler it answers inside its own
+ * transaction.
+ */
+export interface ForgeAdd {
+  readonly prepare: (params: ForgeAddRequest, context: PrepareContext) => Promise<ForgeAddHandler>;
+}
+
+/** The handler an add's prepare answers, applied inside the command's transaction; it reads nothing of the params it is given. */
+export type ForgeAddHandler = (params: ForgeAddRequest, context: CommandContext) => CommandAnswer<ResultOf<"forge.accounts.add">, ErrorOf<"forge.accounts.add">["code"]>;
+
+/** A forge account's credential for one operation. */
+export type ForgeCredential =
+  /** The token, and the release that ends its registration for scrubbing: call it when the operation ends. */
+  | { readonly outcome: "resolved"; readonly token: string; readonly release: ScrubRelease }
+  /** No token: `needs-credential` for a copy awaiting one, `credential-unavailable` for `gh`, a key manager or the vault giving none. */
+  | { readonly outcome: "unavailable"; readonly problem: ForgeProblem };
 
 export interface ForgeService {
   /** Registers every stored token the vault holds with its forms, and deletes the forge entries no forge account holds; startup runs it once, before the wire opens. */
   start(): Promise<void>;
   /** The forge accounts, in the order they were added. */
   list(): ForgeAccountRecord[];
-  readonly add: PreparedCommand<"forge.accounts.add">;
+  /**
+   * Reads the forge account's credential for one operation, `purpose` in a
+   * few words: every harness operation on a forge reads it again, and calls
+   * the release when it ends. Null when the environment does not hold the
+   * forge account.
+   */
+  resolveCredential(forgeAccountId: string, purpose: string): Promise<ForgeCredential | null>;
+  /** What the environment's own `gh` is: installed, its version against the minimum, and who it is signed in as. */
+  probeGh(): Promise<GhProbe>;
+  readonly add: ForgeAdd;
   readonly update: PreparedCommand<"forge.accounts.update">;
   readonly remove: MethodHandler<"forge.accounts.remove">;
   readonly setPrimary: MethodHandler<"forge.accounts.setPrimary">;
@@ -90,7 +151,9 @@ export interface ForgeService {
 }
 
 export const createForgeService = (options: ForgeServiceOptions): ForgeService => {
-  const { log, clock, vault, scrub } = options;
+  const { log, clock, vault, scrub, clientSessionLabel } = options;
+  const gh = options.gh ?? managedGh();
+  const keyManagers = options.keyManagers ?? noKeyManagerConnections;
   const stream: StreamRef = { kind: ENVIRONMENT_STREAM_KIND, id: options.environmentId };
   const providerOptions = { fetch: options.fetch ?? ((url: string, init: RequestInit) => fetch(url, init)), timeoutMs: options.callTimeoutMs ?? FORGE_CALL_TIMEOUT_MS };
   // The log's query-only read: inside a command it reads that command's own transaction.
@@ -109,10 +172,11 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
     return scrub.register(token, { owner: `forge:${forgeAccountId}`, forms: username === "" ? [] : [basicAuthForm(username, token)] });
   };
 
-  /** Holds `release` as the forge account's registration, letting go of the one it replaces. */
-  const hold = (forgeAccountId: string, release: ScrubRelease): void => {
+  /** Holds `release` as the forge account's registration, letting go of the one it replaces; null holds none. */
+  const hold = (forgeAccountId: string, release: ScrubRelease | null): void => {
     held.get(forgeAccountId)?.();
-    held.set(forgeAccountId, release);
+    if (release === null) held.delete(forgeAccountId);
+    else held.set(forgeAccountId, release);
   };
 
   /** Deletes a vault entry a committed command let go of; one left behind is deleted by the next start. */
@@ -122,8 +186,69 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
 
   const identify = (kind: ForgeKind, origin: ForgeOrigin, token: string): Promise<IdentityAnswer> => forgeProvider(kind, providerOptions).identity(origin, token);
 
+  /** A problem of `kind` since now. */
+  const problemNow = (kind: ForgeProblem["kind"], message: string): ForgeProblem => ({ kind, since: clock.now().toISOString(), message });
+
   /** The problem a forge that did not answer leaves, since now. */
-  const unreachable = (message: string): ForgeProblem => ({ kind: "unreachable", since: clock.now().toISOString(), message });
+  const unreachable = (message: string): ForgeProblem => problemNow("unreachable", message);
+
+  const needsCredential = (): ForgeProblem => problemNow("needs-credential", "This forge account has no credential on this environment: give it one in Set up, Forges.");
+
+  /** The host `gh` names an origin's instance by: github.com, or an Enterprise host with its port. */
+  const ghHost = (origin: ForgeOrigin): string => origin.replace(/^https?:\/\//, "");
+
+  /** What a credential is read for: a forge account, as held or as an add or update is about to give it. */
+  interface CredentialTarget {
+    readonly id: string;
+    readonly origin: ForgeOrigin;
+    readonly kind: ForgeKind;
+    /** The login the forge knows the account by, for the Basic-auth form of a token; null until the forge has answered. */
+    readonly login: string | null;
+    readonly credential: ForgeCredentialSource;
+  }
+
+  /**
+   * Reads `target`'s credential now, for one operation. A stored token is
+   * registered while the vault holds it; one `gh` or a key manager gives is
+   * registered here, released by the answer's release.
+   */
+  const readCredential = async (target: CredentialTarget, purpose: string): Promise<ForgeCredential> => {
+    const { id, credential } = target;
+    switch (credential.kind) {
+      case "none":
+        return { outcome: "unavailable", problem: needsCredential() };
+      case "stored": {
+        let token: string | undefined;
+        try {
+          token = await vault.get(credential.entry);
+        } catch (error) {
+          console.error(`Reading the vault entry ${credential.entry} failed:`, error);
+        }
+        if (token === undefined) {
+          return { outcome: "unavailable", problem: problemNow("credential-unavailable", "The environment's vault holds no token for this forge account: give it a credential again in Set up, Forges.") };
+        }
+        return { outcome: "resolved", token, release: () => undefined };
+      }
+      case "gh": {
+        const answer = await gh.token(ghHost(target.origin), credential.login);
+        if (answer.outcome === "unavailable") return { outcome: "unavailable", problem: problemNow("credential-unavailable", answer.message) };
+        return { outcome: "resolved", token: answer.token, release: register(id, answer.token, target.kind, target.login) };
+      }
+      case "reference": {
+        const answer = await keyManagers.resolve({ reference: credential.reference, owner: `forge:${id}`, purpose });
+        if (answer.outcome === "unavailable") return { outcome: "unavailable", problem: problemNow("credential-unavailable", answer.message) };
+        const own = register(id, answer.value, target.kind, target.login);
+        return {
+          outcome: "resolved",
+          token: answer.value,
+          release: () => {
+            own();
+            answer.release();
+          },
+        };
+      }
+    }
+  };
 
   const recordOf = (forgeAccountId: string): ForgeAccountRecord => {
     const record = liveForgeAccount(reader, forgeAccountId);
@@ -152,15 +277,18 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
   const verificationFailed = (origin: ForgeOrigin, answer: Extract<IdentityAnswer, { outcome: "refused" }>) =>
     ({ code: "verification_failed", message: `${answer.message} Nothing was stored.`, data: { origin, status: answer.status } }) as const;
 
+  const sourceUnavailable = (connectionId: string, problem: ForgeProblem) =>
+    ({ code: "credential_source_unavailable", message: `${problem.message} Nothing was changed.`, data: { connectionId } }) as const;
+
   /** A command's rejection, answered as the handler it prepares. */
   const rejecting =
     <N extends MethodName>(rejected: Refusal<N>) =>
     (): CommandAnswer<ResultOf<N>, ErrorOf<N>["code"]> => ({ aggregate: stream, rejected });
 
   /**
-   * Takes a pasted token as it arrives: registered at once, released unless
-   * the command is accepted. Answers what registers it again once its login
-   * is known, which is the registration a forge account then holds.
+   * Takes a token sent once as it arrives: registered at once, released
+   * unless the command is accepted. Answers what registers it again once its
+   * login is known, which is the registration a forge account then holds.
    */
   const arrive = (forgeAccountId: string, token: string, context: PrepareContext) => {
     const arrival = scrub.register(token, { owner: `forge:${forgeAccountId}` });
@@ -181,11 +309,82 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
     return entry;
   };
 
-  const add: ForgeService["add"] = {
+  /** A stored token's source: one a client's `gh` handed over names that client session, and says it does not follow `gh`'s rotations. */
+  const storedSource = (provenance: "pasted" | "client-gh" | "imported", entry: string, context: PrepareContext): ForgeCredentialSource => {
+    if (provenance !== "client-gh") return { kind: "stored", provenance, entry };
+    const clientSessionId = context.clientSession.id;
+    return { kind: "stored", provenance, entry, handedOverBy: { clientSessionId, label: clientSessionLabel(clientSessionId) ?? "" }, followsGhRotations: false };
+  };
+
+  /** A credential given to an add or update, heard from the forge before the transaction. */
+  type Checked =
+    | { readonly rejected: CommandRejection<"verification_failed" | "credential_source_unavailable"> }
+    | {
+        readonly rejected?: undefined;
+        readonly source: ForgeCredentialSource;
+        /** Who it answered as; null when it did not reach the forge's identity endpoint or the forge did not answer. */
+        readonly identity: ForgeIdentity | null;
+        readonly problem: ForgeProblem | null;
+        /** The registration a stored token keeps while the vault holds it; null for every other source. */
+        readonly held: ScrubRelease | null;
+      };
+
+  /**
+   * Checks a given credential as the forge account `target` names it: a
+   * token sent once is asked about and written to the vault; `gh` and a
+   * reference are read for this one operation and asked about, their tokens
+   * let go again at once; none asks nothing. A refusal stores nothing; a
+   * reference that cannot be read is `credential_source_unavailable`; a `gh`
+   * that gives no token, or a forge that does not answer, leaves a problem.
+   */
+  const check = async (
+    target: Omit<CredentialTarget, "credential">,
+    given: ForgeAddCredential | ImportedCredential,
+    context: PrepareContext,
+    formed: ((kind: ForgeKind, login: string | null) => ScrubRelease) | null,
+    purpose: string,
+  ): Promise<Checked> => {
+    const { id, origin, kind } = target;
+    const answered = (answer: Exclude<IdentityAnswer, { outcome: "refused" }>) => ({
+      identity: answer.outcome === "identified" ? answer.identity : null,
+      problem: answer.outcome === "unreachable" ? unreachable(answer.message) : null,
+    });
+    if (given.kind === "none") return { source: { kind: "none" }, identity: null, problem: needsCredential(), held: null };
+    if (given.kind === "stored") {
+      const answer = await identify(kind, origin, given.token);
+      if (answer.outcome === "refused") return { rejected: verificationFailed(origin, answer) };
+      const entry = await store(id, given.token, context);
+      const { identity, problem } = answered(answer);
+      return { source: storedSource(given.provenance, entry, context), identity, problem, held: formed?.(kind, identity?.login ?? target.login) ?? null };
+    }
+    const source: ForgeCredentialSource = given.kind === "gh" ? { kind: "gh", login: given.login } : { kind: "reference", reference: given.reference };
+    const read = await readCredential({ ...target, credential: source }, purpose);
+    if (read.outcome === "unavailable") {
+      if (source.kind === "reference") return { rejected: sourceUnavailable(source.reference.connectionId, read.problem) };
+      return { source, identity: null, problem: read.problem, held: null };
+    }
+    let answer: IdentityAnswer;
+    try {
+      answer = await identify(kind, origin, read.token);
+    } finally {
+      read.release();
+    }
+    if (answer.outcome === "refused") return { rejected: verificationFailed(origin, answer) };
+    return { source, ...answered(answer), held: null };
+  };
+
+  /** Refuses `gh` and a client's `gh` for a forge account that is not GitHub's: `gh` holds GitHub tokens alone. */
+  const refuseGhOffGitHub = (given: ForgeAddCredential | ImportedCredential, kind: ForgeKind): void => {
+    if (kind === "github" || !(given.kind === "gh" || (given.kind === "stored" && given.provenance === "client-gh"))) return;
+    const message = "gh holds GitHub tokens alone: give a Forgejo or Gitea forge account a pasted token or a key-manager reference.";
+    throw new ContractError(invalidParams([{ code: "custom", path: ["credential"], message }], message));
+  };
+
+  const add: ForgeAdd = {
     async prepare(params, context) {
       const forgeAccountId = params.forgeAccountId.toLowerCase();
-      const { token } = params.credential;
-      const formed = arrive(forgeAccountId, token, context);
+      const given = params.credential;
+      const formed = given.kind === "stored" ? arrive(forgeAccountId, given.token, context) : null;
       const remote = normaliseRemote(params.url);
       if (remote === null) {
         const message = "The URL names no forge: give its https or http address, an ssh or scp-like remote, or host:port.";
@@ -197,15 +396,12 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
         const message = "Name the forge's kind (github, forgejo or gitea): only github.com is known by its name.";
         throw new ContractError(invalidParams([{ code: "custom", path: ["kind"], message }], message));
       }
+      refuseGhOffGitHub(given, kind);
       const doomed = addRefusal(forgeAccountId, origin, params.slug);
       if (doomed !== null) return rejecting<"forge.accounts.add">(doomed);
 
-      const answer = await identify(kind, origin, token);
-      if (answer.outcome === "refused") return rejecting<"forge.accounts.add">(verificationFailed(origin, answer));
-      const identity = answer.outcome === "identified" ? answer.identity : null;
-      const problem = answer.outcome === "unreachable" ? unreachable(answer.message) : null;
-      const entry = await store(forgeAccountId, token, context);
-      const release = formed(kind, identity?.login ?? null);
+      const checked = await check({ id: forgeAccountId, origin, kind, login: null }, given, context, formed, "add");
+      if (checked.rejected !== undefined) return rejecting<"forge.accounts.add">(checked.rejected);
 
       return (_params, command) => {
         // Read again in the transaction: another command may have taken the id, the origin or the slug meanwhile.
@@ -222,15 +418,15 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
           aliases: [],
           kind,
           slug,
-          identity,
-          credential: { kind: "stored", provenance: "pasted", entry },
+          identity: checked.identity,
+          credential: checked.source,
           primary,
           clearedPrimary: primary ? current : null,
-          problem,
-          copiedFrom: null,
+          problem: checked.problem,
+          copiedFrom: params.copiedFrom ?? null,
         };
         log.append(stream, [{ type: "forge.account.added", payload }], { tx: command.tx, actor: command.actor, commandId: command.commandId });
-        command.tx.afterCommit(() => hold(forgeAccountId, release));
+        command.tx.afterCommit(() => hold(forgeAccountId, checked.held));
         return { aggregate: stream, result: { account: recordOf(forgeAccountId) } };
       };
     },
@@ -254,51 +450,40 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
     return null;
   };
 
-  /** A new credential, checked and stored before the transaction. */
-  interface Replacement {
-    readonly entry: string;
-    readonly answer: Exclude<IdentityAnswer, { outcome: "refused" }>;
-    readonly release: ScrubRelease;
-  }
-
   const update: ForgeService["update"] = {
     async prepare(params, context) {
       const forgeAccountId = params.forgeAccountId.toLowerCase();
-      const token = params.credential?.token;
-      const formed = token === undefined ? null : arrive(forgeAccountId, token, context);
+      const given = params.credential;
+      const formed = given?.kind === "stored" ? arrive(forgeAccountId, given.token, context) : null;
       const doomed = updateRefusal(forgeAccountId, params.slug, null);
       if (doomed !== null) return rejecting<"forge.accounts.update">(doomed);
-      let replacement: Replacement | null = null;
-      if (token !== undefined && formed !== null) {
-        const { kind, origin } = recordOf(forgeAccountId);
-        const answer = await identify(kind, origin, token);
-        if (answer.outcome === "refused") return rejecting<"forge.accounts.update">(verificationFailed(origin, answer));
-        const mismatch = updateRefusal(forgeAccountId, params.slug, answer.outcome === "identified" ? answer.identity : null);
+      let replacement: Extract<Checked, { rejected?: undefined }> | null = null;
+      if (given !== undefined) {
+        const { kind, origin, identity } = recordOf(forgeAccountId);
+        refuseGhOffGitHub(given, kind);
+        const checked = await check({ id: forgeAccountId, origin, kind, login: identity?.login ?? null }, given, context, formed, "update");
+        if (checked.rejected !== undefined) return rejecting<"forge.accounts.update">(checked.rejected);
+        const mismatch = updateRefusal(forgeAccountId, params.slug, checked.identity);
         if (mismatch !== null) return rejecting<"forge.accounts.update">(mismatch);
-        const entry = await store(forgeAccountId, token, context);
-        replacement = { entry, answer, release: formed(kind, answer.outcome === "identified" ? answer.identity.login : null) };
+        replacement = checked;
       }
       const replacing = replacement;
 
       return (_params, command) => {
-        const found = replacing?.answer.outcome === "identified" ? replacing.answer.identity : null;
+        const found = replacing?.identity ?? null;
         const refused = updateRefusal(forgeAccountId, params.slug, found);
         if (refused !== null) return { aggregate: stream, rejected: refused };
         const current = recordOf(forgeAccountId);
         const payload: ForgeAccountUpdatedPayload = { forgeAccountId };
         const changes: Partial<ForgeAccountUpdatedPayload> = {
           ...(params.slug !== undefined && params.slug !== current.slug && { slug: params.slug }),
-          ...(replacing !== null && {
-            credential: { kind: "stored", provenance: "pasted", entry: replacing.entry },
-            ...(found !== null && { identity: found }),
-            problem: replacing.answer.outcome === "unreachable" ? unreachable(replacing.answer.message) : null,
-          }),
+          ...(replacing !== null && { credential: replacing.source, ...(found !== null && { identity: found }), problem: replacing.problem }),
         };
         if (Object.keys(changes).length === 0) return { aggregate: stream, result: { account: current } };
         log.append(stream, [{ type: "forge.account.updated", payload: { ...payload, ...changes } }], { tx: command.tx, actor: command.actor, commandId: command.commandId });
         if (replacing !== null) {
           command.tx.afterCommit(() => {
-            hold(forgeAccountId, replacing.release);
+            hold(forgeAccountId, replacing.held);
             if (current.credential.kind === "stored") deleteEntry(current.credential.entry);
           });
         }
@@ -330,6 +515,14 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
 
     list: () => listForgeAccounts(reader),
 
+    async resolveCredential(forgeAccountId, purpose) {
+      const account = liveForgeAccount(reader, forgeAccountId.toLowerCase());
+      if (account === null) return null;
+      return readCredential({ ...account, login: account.identity?.login ?? null }, purpose);
+    },
+
+    probeGh: () => gh.probe(),
+
     add,
 
     update,
@@ -340,8 +533,7 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
       if (current === null) return { aggregate: stream, rejected: notFound(forgeAccountId) };
       log.append(stream, [{ type: "forge.account.removed", payload: { forgeAccountId } }], { tx: context.tx, actor: context.actor, commandId: context.commandId });
       context.tx.afterCommit(() => {
-        held.get(forgeAccountId)?.();
-        held.delete(forgeAccountId);
+        hold(forgeAccountId, null);
         if (current.credential.kind === "stored") deleteEntry(current.credential.entry);
       });
       return { aggregate: stream, result: { forgeAccountId } };
