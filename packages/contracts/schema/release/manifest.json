@@ -1,0 +1,130 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ReleaseManifest",
+  "type": "object",
+  "properties": {
+    "version": {
+      "type": "string",
+      "pattern": "^(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)(?:-(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*)?(?:\\+[0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*)?$",
+      "description": "A release's version: a semantic version without the tag's v (0.4.2, 1.0.0-beta.2); one with a prerelease part is a prerelease, which only the beta channel follows."
+    },
+    "protocolVersion": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "description": "A wire protocol version: one integer, bumped only on a breaking change."
+    },
+    "launcherProtocol": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "description": "The launcher protocol the release's environment needs; a launcher that speaks a lower one refuses to install it."
+    },
+    "databaseSchemaVersion": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991,
+      "description": "The number of the release's last database migration: a release below the database's is never a target."
+    },
+    "bundledClaudeCodeVersion": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The version of Claude Code the release bundles, which updates with the environment."
+    },
+    "assets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The asset's file name on the release: agent-harness-linux-x64.tar.gz."
+          },
+          "kind": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]*$",
+            "description": "What an asset is: environment, desktop, install-script, compose, host-updater, schema (environment being the environment's self-contained artefact for one platform); a kind the reader does not know is a later release's, and is passed over."
+          },
+          "platform": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[a-z0-9]+-[a-z0-9]+$",
+                "description": "A platform, <os>-<arch> as Node names them: linux-x64, darwin-arm64, win32-x64; a later release may add others."
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The platform it is built for; null for one any platform takes, such as a script."
+          },
+          "format": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[a-z0-9]+(?:\\.[a-z0-9]+)*$",
+                "description": "How an asset is packed: tar.gz or zip for the environment's artefacts, zip (a macOS bundle), nsis (a Windows setup) or pacman (an Arch package) for the desktop's, as its shell reports the format it installs."
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How it is packed; null for a plain file."
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991,
+            "description": "Its size in bytes, checked with its SHA-256 before it is unpacked."
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "description": "A SHA-256 digest: 64 lowercase hexadecimal digits."
+          }
+        },
+        "required": [
+          "name",
+          "kind",
+          "platform",
+          "format",
+          "size",
+          "sha256"
+        ],
+        "description": "One asset of a release: its name, kind, platform, format, size and SHA-256."
+      },
+      "description": "Every asset the release publishes but the manifest itself and the .sha256 sidecars."
+    },
+    "image": {
+      "type": "object",
+      "properties": {
+        "reference": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The image's reference, tagged with the exact version: git.systemtech.dev:5526/david/agent-harness:0.5.0."
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "description": "The image's digest, sha256: then 64 lowercase hexadecimal digits: a pull is checked against it."
+        }
+      },
+      "required": [
+        "reference",
+        "digest"
+      ],
+      "description": "The release's container image: its exact version reference and its digest."
+    }
+  },
+  "required": [
+    "version",
+    "protocolVersion",
+    "launcherProtocol",
+    "databaseSchemaVersion",
+    "bundledClaudeCodeVersion",
+    "assets",
+    "image"
+  ],
+  "description": "The release manifest, release.json: the release's version, protocol version, launcher protocol, database schema version and bundled Claude Code version, its assets, and its container image."
+}

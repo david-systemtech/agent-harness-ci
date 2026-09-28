@@ -40,7 +40,7 @@ import {
   SharedError,
   WireError,
 } from "./errors.js";
-import { CapabilityFlag, CapabilityFlags, PROTOCOL_VERSION, ProtocolVersion } from "./flags.js";
+import { CapabilityFlag, CapabilityFlags, LauncherProtocol, PROTOCOL_VERSION, ProtocolVersion } from "./flags.js";
 import { ForgeKind, ForgeOrigin, ForgeSlug } from "./forge.js";
 import { ByeReason, EndReason, FRAME_SCHEMAS, FRAME_TYPES, Frame } from "./frames.js";
 import {
@@ -79,7 +79,16 @@ import {
   TranscriptCompactAfterDays,
 } from "./settings.js";
 import { isCommand } from "./method.js";
-import { ReleaseVersion } from "./release.js";
+import {
+  AssetFormat,
+  ReleaseAsset,
+  ReleaseAssetKind,
+  ReleaseImage,
+  ReleaseManifest,
+  ReleasePlatform,
+  ReleaseVersion,
+  Sha256,
+} from "./release.js";
 import {
   AutoUpdate,
   DeferralCapHours,
@@ -313,7 +322,15 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "auth-policy.json", title: "AuthPolicy", schema: AuthPolicy },
   { path: "discovery-document.json", title: "DiscoveryDocument", schema: DiscoveryDocument },
   { path: "health-document.json", title: "HealthDocument", schema: HealthDocument },
+  { path: "launcher-protocol.json", title: "LauncherProtocol", schema: LauncherProtocol },
   { path: "release/release-version.json", title: "ReleaseVersion", schema: ReleaseVersion },
+  { path: "release/sha256.json", title: "Sha256", schema: Sha256 },
+  { path: "release/asset-kind.json", title: "ReleaseAssetKind", schema: ReleaseAssetKind },
+  { path: "release/platform.json", title: "ReleasePlatform", schema: ReleasePlatform },
+  { path: "release/asset-format.json", title: "AssetFormat", schema: AssetFormat },
+  { path: "release/asset.json", title: "ReleaseAsset", schema: ReleaseAsset },
+  { path: "release/image.json", title: "ReleaseImage", schema: ReleaseImage },
+  { path: "release/manifest.json", title: "ReleaseManifest", schema: ReleaseManifest },
   { path: "lifecycle/busy-reason.json", title: "BusyReason", schema: BusyReason },
   { path: "lifecycle/drain-trigger.json", title: "DrainTrigger", schema: DrainTrigger },
   { path: "lifecycle/drain-started.json", title: "DrainStarted", schema: DrainStarted },

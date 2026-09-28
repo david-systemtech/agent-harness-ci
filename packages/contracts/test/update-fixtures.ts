@@ -28,8 +28,43 @@ const updateSettingsValues = {
   "updates.deferralCapHours": 24,
 };
 
+const sha = (digit: string) => digit.repeat(64);
+const artefact = { name: "agent-harness-linux-x64.tar.gz", kind: "environment", platform: "linux-x64", format: "tar.gz", size: 61_234_567, sha256: sha("a") };
+const script = { name: "install.sh", kind: "install-script", platform: null, format: null, size: 9_120, sha256: sha("b") };
+const image = { reference: "git.systemtech.dev:5526/david/agent-harness:0.5.0", digest: `sha256:${sha("0")}` };
+const manifest = {
+  version: "0.5.0",
+  protocolVersion: 1,
+  launcherProtocol: 1,
+  databaseSchemaVersion: 14,
+  bundledClaudeCodeVersion: "2.3.1",
+  assets: [artefact, script],
+  image,
+};
+
 export const updateSchemaFixtures: Record<string, Fixtures> = {
+  "launcher-protocol.json": { valid: [1, 2], invalid: [0, 1.5, "1"] },
   "release/release-version.json": versions,
+  "release/sha256.json": { valid: [sha("a"), sha("0")], invalid: [sha("A"), "abc", `sha256:${sha("a")}`] },
+  "release/asset-kind.json": { valid: ["environment", "desktop", "install-script", "sbom"], invalid: ["", "Desktop", "install script"] },
+  "release/platform.json": { valid: ["linux-x64", "darwin-arm64", "win32-x64", "linux-arm64"], invalid: ["linux", "Linux-x64", "", "linux_x64"] },
+  "release/asset-format.json": { valid: ["tar.gz", "zip", "nsis", "pacman"], invalid: ["", ".zip", "tar..gz", "ZIP"] },
+  "release/asset.json": {
+    valid: [artefact, script, { ...artefact, kind: "desktop", format: "nsis", platform: "win32-x64", name: "agent-harness-setup.exe" }],
+    invalid: [{ ...artefact, size: -1 }, { ...artefact, sha256: sha("A") }, { ...artefact, platform: undefined }, { ...script, format: "" }],
+  },
+  "release/image.json": { valid: [image], invalid: [{ reference: image.reference }, { ...image, digest: sha("0") }, { ...image, reference: "" }] },
+  "release/manifest.json": {
+    valid: [manifest, { ...manifest, version: "1.0.0-beta.2", assets: [], notes: "a later release's field" }],
+    invalid: [
+      { ...manifest, version: "v0.5.0" },
+      { ...manifest, launcherProtocol: 0 },
+      { ...manifest, databaseSchemaVersion: -1 },
+      { ...manifest, bundledClaudeCodeVersion: "" },
+      { ...manifest, image: undefined },
+      { ...manifest, assets: [{ ...artefact, sha256: undefined }] },
+    ],
+  },
   "settings/keys/updates.autoUpdate.json": { valid: [true, false], invalid: [null, "on"] },
   "settings/keys/updates.channel.json": { valid: ["stable", "beta"], invalid: ["nightly", "Stable", null] },
   "settings/keys/updates.pinnedVersion.json": { valid: [null, ...versions.valid], invalid: versions.invalid },

@@ -19,6 +19,18 @@ export const ProtocolVersion = z
   .meta({ description: "A wire protocol version: one integer, bumped only on a breaking change." });
 export type ProtocolVersion = z.infer<typeof ProtocolVersion>;
 
+/**
+ * A launcher protocol as a release manifest names it: one integer, the one
+ * a version's environment needs its launcher to speak. This build's is
+ * `LAUNCHER_PROTOCOL`, whose one definition is the launcher module
+ * (`launcher.ts`), which loads nothing at run time.
+ */
+export const LauncherProtocol = z.int().positive().meta({
+  description:
+    "A launcher protocol: one integer, raised on a change the launcher must understand; an environment runs under a launcher that speaks its protocol or a higher one.",
+});
+export type LauncherProtocol = z.infer<typeof LauncherProtocol>;
+
 /** One capability an environment offers. */
 export const CapabilityFlag = z.string().min(1).meta({ description: "One capability an environment offers." });
 export type CapabilityFlag = z.infer<typeof CapabilityFlag>;

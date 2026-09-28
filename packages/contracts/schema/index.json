@@ -87,8 +87,40 @@
       "title": "HealthDocument"
     },
     {
+      "path": "launcher-protocol.json",
+      "title": "LauncherProtocol"
+    },
+    {
       "path": "release/release-version.json",
       "title": "ReleaseVersion"
+    },
+    {
+      "path": "release/sha256.json",
+      "title": "Sha256"
+    },
+    {
+      "path": "release/asset-kind.json",
+      "title": "ReleaseAssetKind"
+    },
+    {
+      "path": "release/platform.json",
+      "title": "ReleasePlatform"
+    },
+    {
+      "path": "release/asset-format.json",
+      "title": "AssetFormat"
+    },
+    {
+      "path": "release/asset.json",
+      "title": "ReleaseAsset"
+    },
+    {
+      "path": "release/image.json",
+      "title": "ReleaseImage"
+    },
+    {
+      "path": "release/manifest.json",
+      "title": "ReleaseManifest"
     },
     {
       "path": "lifecycle/busy-reason.json",
