@@ -19,7 +19,7 @@
         "kind",
         "path"
       ],
-      "description": "A directory the environment has: recorded at its absolute path, ~ expanded to the environment's home."
+      "description": "A directory the environment has: recorded at its absolute path, ~ expanded to the environment's home, . and .. resolved as written and symlinks kept; refused workspace_unusable, with its problem, when the environment cannot use it."
     },
     {
       "type": "object",

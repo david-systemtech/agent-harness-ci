@@ -58,6 +58,7 @@ import {
   type SummaryPatch,
   type TerminalExitCause,
   type TerminalInfo,
+  type WorkspaceProblem,
 } from "@agent-harness/contracts";
 import { LIST_COMMANDS, scriptedList, type ScriptedList } from "./list-server.js";
 import { scriptedPrompts, type ScriptedPrompts } from "./prompts.js";
@@ -147,6 +148,8 @@ export interface ScriptedEnvironment {
   readonly recommendation?: Partial<HandoffRecommendation>;
   /** What `accounts.add` says of the sign-in it starts: preset it starts one. */
   readonly addSignIn?: { readonly started: boolean; readonly message: string | null };
+  /** The directories a new session is refused in, by the path as recorded (`~` read as the scripted home), each with its problem (`workspace_unusable`): preset none. */
+  readonly directories?: Readonly<Record<string, WorkspaceProblem>>;
   /** Whether `files.list` says the workspace holds more than it listed: preset false. */
   readonly filesTruncated?: boolean;
   /** What `files.read` answers, by path: its text, or a file too large or binary; any other path is `not_found`, and a directory of `files` is `not_a_file`. */
@@ -1551,6 +1554,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     next: () => ++sequence,
     head: () => sequence,
     refusal: receiptFor,
+    ...(spec.directories !== undefined && { directories: spec.directories }),
   });
 
   const fetch: HttpFetch = async (url, request) => {

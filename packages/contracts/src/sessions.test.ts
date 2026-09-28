@@ -23,7 +23,9 @@ import {
   Tag,
   UserTitle,
   WORKSPACE_KINDS,
+  WORKSPACE_PROBLEMS,
   Workspace,
+  WorkspaceProblem,
   WorkspaceRequest,
   isListEvent,
   listEventTypes,
@@ -323,6 +325,12 @@ describe("the workspace", () => {
     expect(WorkspaceRequest.safeParse({ kind: "directory", path: "~seth/code" }).success).toBe(false);
     // No path of its own: a worktree's and a scratch directory's are the environment's to choose.
     expect(WorkspaceRequest.parse({ kind: "scratch", path: "/tmp/mine" })).toEqual({ kind: "scratch" });
+  });
+
+  it("says why a directory cannot be one in a closed set of problems, kept apart so a client can say which", () => {
+    expect(WORKSPACE_PROBLEMS).toEqual(["does_not_exist", "not_a_directory", "not_readable", "reserved"]);
+    for (const problem of WORKSPACE_PROBLEMS) expect(WorkspaceProblem.parse(problem)).toBe(problem);
+    expect(WorkspaceProblem.safeParse("missing").success).toBe(false);
   });
 
   it("refuses a worktree request naming both an existing branch and a new one, at newBranch", () => {

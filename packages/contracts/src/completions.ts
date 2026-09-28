@@ -96,7 +96,10 @@ export const CompletionsExtension = z
       .string()
       .min(1)
       .nullish()
-      .meta({ description: "An absolute path to a directory the environment has, for a fresh session; with none the session gets a scratch directory of its own." }),
+      .meta({
+        description:
+          "A directory the environment has, for a fresh session: an absolute path, or one from its home (~); one it cannot use is refused 400 with its problem. With none the session gets a scratch workspace of its own.",
+      }),
     attended: z
       .boolean()
       .nullish()
