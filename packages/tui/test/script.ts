@@ -148,7 +148,7 @@ export interface ScriptedEnvironment {
   readonly recommendation?: Partial<HandoffRecommendation>;
   /** What `accounts.add` says of the sign-in it starts: preset it starts one. */
   readonly addSignIn?: { readonly started: boolean; readonly message: string | null };
-  /** The directories a new session is refused in, each with its problem (`workspace_unusable`): preset none. */
+  /** The directories a new session is refused in, by the path as recorded (`~` read as the scripted home), each with its problem (`workspace_unusable`): preset none. */
   readonly directories?: Readonly<Record<string, WorkspaceProblem>>;
   /** Whether `files.list` says the workspace holds more than it listed: preset false. */
   readonly filesTruncated?: boolean;
