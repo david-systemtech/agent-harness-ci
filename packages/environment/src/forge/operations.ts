@@ -9,8 +9,10 @@ import {
   type ForgeCapabilityName,
   type ForgeKind,
   type ForgeOrigin,
+  type SecretShapedError,
 } from "@agent-harness/contracts";
 import type { EventLog, StreamRef } from "../event-log/event-log.js";
+import { secretShapedIn } from "../scrub/refusal.js";
 import type { ScrubRegistry } from "../scrub/registry.js";
 import type { Clock } from "../serve/clock.js";
 import type { Reader } from "../sessions/session-tables.js";
@@ -66,9 +68,9 @@ import { FORGE_ACTOR, type Verifier } from "./verifier.js";
  *   only a change: a success on a capability already verified moves only
  *   when it was last verified.
  * - **Bodies are checked before they leave.** An issue's or a pull
- *   request's title or body holding a value the scrub registry holds is
- *   refused `secret_shaped`, naming the field and never the value, and
- *   nothing reaches the forge. The shape rules join this check with #363.
+ *   request's title or body holding a value the scrub registry holds, or a
+ *   shape rule's hit, is refused `secret_shaped`, naming the rule and the
+ *   field and never the value, and nothing reaches the forge.
  * - **Rate limits** an operation meets pause the forge account's
  *   scheduled verifications, as a verification's do.
  */
@@ -108,13 +110,6 @@ export interface RepositoryCreationRequest extends ForgeTarget {
   readonly description?: string;
 }
 
-/** An issue's or a pull request's title or body held a value the environment holds as a secret: named by its field, never by the value. */
-export interface SecretShapedRefusal {
-  readonly code: "secret_shaped";
-  readonly message: string;
-  readonly data: { readonly field: "title" | "body" };
-}
-
 /** An operation named no origin, and no forge account is primary. */
 export interface NoPrimaryForgeRefusal {
   readonly code: "no_primary_forge";
@@ -123,7 +118,7 @@ export interface NoPrimaryForgeRefusal {
 }
 
 /** Why an operation did not reach the forge. */
-export type ForgeRefusal = ForgeAccountMissingError | CredentialUnavailableError | SecretShapedRefusal | NoPrimaryForgeRefusal;
+export type ForgeRefusal = ForgeAccountMissingError | CredentialUnavailableError | SecretShapedError | NoPrimaryForgeRefusal;
 
 /** What an operation came to: the forge's reply, or a refusal before it reached the forge. */
 export type ForgeAnswer<T> = ForgeReply<T> | { readonly outcome: "refused"; readonly error: ForgeRefusal };
@@ -139,14 +134,14 @@ export interface ForgeOperations {
   };
   readonly issues: {
     get(request: NumberedTarget): Promise<ForgeAnswer<ForgeIssue>>;
-    /** Opens an issue (`writeIssues`); its title and body pass the scrub registry first. */
+    /** Opens an issue (`writeIssues`); its title and body pass the scrub registry's check first. */
     create(request: RepositoryTarget & IssueContent): Promise<ForgeAnswer<ForgeIssue>>;
   };
   readonly pullRequests: {
     get(request: NumberedTarget): Promise<ForgeAnswer<ForgePullRequest>>;
     /** Up to `limit` pull requests from the branch `branch` of `owner`'s repository (preset the target's owner), in every state, most recently updated first. */
     listByHead(request: RepositoryTarget & { readonly branch: string; readonly owner?: string; readonly limit: number }): Promise<ForgeAnswer<ForgePullRequest[]>>;
-    /** Opens a pull request (`pullRequests`); its title and body pass the scrub registry first. */
+    /** Opens a pull request (`pullRequests`); its title and body pass the scrub registry's check first. */
     create(request: RepositoryTarget & PullRequestOpening): Promise<ForgeAnswer<ForgePullRequest>>;
     /** Merges a pull request (`pullRequests`) by `method`, preset a merge commit. */
     merge(request: NumberedTarget & { readonly method?: MergeMethod }): Promise<ForgeAnswer<null>>;
@@ -324,15 +319,9 @@ export const createForgeOperations = (options: ForgeOperationsOptions): ForgeOpe
     return answer;
   };
 
-  /** The first of `content`'s fields holding a value the scrub registry holds, refused `secret_shaped`; null when neither does. */
-  const secretIn = (what: string, content: IssueContent): SecretShapedRefusal | null => {
-    for (const field of ["title", "body"] as const) {
-      if (scrub.scrub(content[field]) !== content[field]) {
-        return { code: "secret_shaped", message: `The ${what}'s ${field} holds a secret this environment holds: take it out. Nothing was sent to the forge.`, data: { field } };
-      }
-    }
-    return null;
-  };
+  /** The first of `content`'s title and body holding a registered value or a shape rule's hit, refused `secret_shaped`; null when neither does. */
+  const secretIn = (what: string, content: IssueContent): SecretShapedError | null =>
+    secretShapedIn(scrub, what, { title: content.title, body: content.body }, "Nothing was sent to the forge.");
 
   return {
     repositories: {
