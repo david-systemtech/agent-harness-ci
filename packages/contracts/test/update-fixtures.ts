@@ -62,13 +62,14 @@ const pendingUpdates: Fixtures = {
     { state: "ready", ...pending, image },
     { state: "draining", ...pending, cause: "cap" },
     { state: "switching", ...pending, cause: "requested" },
-    { state: "blocked", reason: "launcher", toVersion: "0.9.0" },
+    { state: "blocked", reason: "launcher", toVersion: "0.9.0", message: "Run service install from the 0.9.0 release." },
   ],
   invalid: [
     { state: "idle" },
     { state: "waiting", ...pending },
     { state: "draining", ...pending },
-    { state: "blocked", reason: "disk", toVersion: "0.9.0" },
+    { state: "blocked", reason: "disk", toVersion: "0.9.0", message: "Why." },
+    { state: "blocked", reason: "launcher", toVersion: "0.9.0" },
     { state: "ready", ...pending, image: { reference: image.reference } },
   ],
 };
@@ -253,7 +254,7 @@ export const updateSchemaFixtures: Record<string, Fixtures> = {
   },
   "updates/when.json": { valid: ["idle", "now"], invalid: ["tonight", ""] },
   "updates/conflict-reason.json": {
-    valid: ["pinned", "current", "schema", "launcher", "in_progress", "no_release_access", "unreachable", "manifest", "install", "no_launcher"],
+    valid: ["pinned", "current", "schema", "launcher", "in_progress", "no_release_access", "unreachable", "manifest", "artefact", "install", "no_launcher"],
     invalid: ["in-progress", "preflight", ""],
   },
   "updates/install-refusal.json": { valid: ["launcher-protocol", "incomplete", "preflight", "disk", "io"], invalid: ["no-launcher", "install", ""] },

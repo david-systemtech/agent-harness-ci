@@ -226,7 +226,7 @@ describe("the step registry", () => {
     expect(permissions.skippable).toBe(false);
   });
 
-  it("gives the Your machines entry the five update keys as its writes, on its home row environments.machines (ADR 0027), its not-root line and the release channel's check (#346)", () => {
+  it("gives the Your machines entry the five update keys as its writes, on its home row environments.machines (ADR 0027), its not-root line, the release channel's check (#346) and whether the machine is behind (#347)", () => {
     const machines = stepOf("your-machines");
     expect(machines.writes).toEqual(["updates.autoUpdate", "updates.channel", "updates.pinnedVersion", "updates.idleWindowMinutes", "updates.deferralCapHours"]);
     expect(machines.writes).toEqual([...UPDATE_SETTINGS_KEYS]);
@@ -236,6 +236,11 @@ describe("the step registry", () => {
     expect(machines.stateChecks).toEqual([
       { id: "your-machines.not-root", holds: "The environment runs as a non-root user.", actions: [] },
       { id: "your-machines.release-channel", holds: "Auto-update is off, or the release channel was read in the last 24 hours.", actions: ["check-again"] },
+      {
+        id: "your-machines.updates",
+        holds: "Auto-update is on or the channel's newest runs, no update is past its cap or blocked, and no failed update left this machine behind.",
+        actions: ["update"],
+      },
     ]);
   });
 
