@@ -2,24 +2,29 @@ import { randomUUID } from "node:crypto";
 import { Console } from "node:console";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
-import {
-  DISCOVERY_PATH,
-  DiscoveryDocument,
-  UNKNOWN_FORGE_CAPABILITIES,
-  type CommandReceipt,
-  type EventEnvelope,
-  type EventFrame,
-  type ForgeAccountRecord,
-  type ParamsOf,
-  type ResponseOf,
-} from "@agent-harness/contracts";
+import { DISCOVERY_PATH, DiscoveryDocument, UNKNOWN_FORGE_CAPABILITIES, type ForgeAccountRecord, type ResponseOf } from "@agent-harness/contracts";
 import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { MANUAL_CLOCK_START } from "../../test/clock.js";
 import { startFakeForge, unreachableOrigin, type FakeForge } from "../../test/fake-forge.js";
+import {
+  DAVID,
+  OTHER_TOKEN,
+  TOKEN,
+  add,
+  added,
+  basicAuth,
+  forgeEvents,
+  list,
+  pasted,
+  rejection,
+  remove,
+  saidBack,
+  setPrimary,
+  update,
+} from "../../test/forge.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
-import { create, refusal } from "../../test/sessions.js";
-import type { WireClient } from "../../test/wire-client.js";
+import { refusal } from "../../test/sessions.js";
 import { fileVault, VAULT_FILE } from "../serve/vault.js";
 
 /**
@@ -33,12 +38,6 @@ import { fileVault, VAULT_FILE } from "../serve/vault.js";
  */
 
 const { onCleanup, tempDir } = useCleanups();
-
-/** Values that stand for tokens a person pastes: nothing a secret scanner takes for a real one. */
-const TOKEN = "token-for-tests";
-const OTHER_TOKEN = "second-paste-for-tests";
-
-const DAVID = { login: "david", id: 42 } as const;
 
 const start = async (options: TestEnvironmentOptions = {}): Promise<TestEnvironment> => {
   const t = await startTestEnvironment(options);
@@ -58,67 +57,6 @@ const dataDirectory = (): string => {
   mkdirSync(dataDir, { recursive: true, mode: 0o700 });
   return dataDir;
 };
-
-const pasted = (token: string) => ({ kind: "stored", provenance: "pasted", token }) as const;
-
-type AddParams = Omit<ParamsOf<"forge.accounts.add">, "commandId" | "forgeAccountId" | "credential"> &
-  Partial<Pick<ParamsOf<"forge.accounts.add">, "forgeAccountId" | "credential">>;
-
-/** Sends `forge.accounts.add` with a fresh command id and forge account id unless given, and the test's token unless another credential is. */
-const add = (client: WireClient, params: AddParams): Promise<ResponseOf<"forge.accounts.add">> =>
-  client.request("forge.accounts.add", { commandId: randomUUID(), forgeAccountId: randomUUID(), credential: pasted(TOKEN), ...params });
-
-/** The forge account an add made; throws unless the add was accepted. */
-const added = async (client: WireClient, params: AddParams): Promise<ForgeAccountRecord> => {
-  const answer = await add(client, params);
-  if (answer.result === undefined) throw new Error(`forge.accounts.add was not applied: ${JSON.stringify(answer.receipt)}`);
-  return answer.result.account;
-};
-
-const update = (client: WireClient, params: Omit<ParamsOf<"forge.accounts.update">, "commandId">): Promise<ResponseOf<"forge.accounts.update">> =>
-  client.request("forge.accounts.update", { commandId: randomUUID(), ...params });
-
-const remove = (client: WireClient, forgeAccountId: string): Promise<ResponseOf<"forge.accounts.remove">> =>
-  client.request("forge.accounts.remove", { commandId: randomUUID(), forgeAccountId });
-
-const setPrimary = (client: WireClient, forgeAccountId: string): Promise<ResponseOf<"forge.accounts.setPrimary">> =>
-  client.request("forge.accounts.setPrimary", { commandId: randomUUID(), forgeAccountId });
-
-const list = async (client: WireClient): Promise<ForgeAccountRecord[]> => (await client.request("forge.accounts.list", {})).accounts;
-
-/** The receipt's rejection: its reason, message and data; throws unless the command was rejected. */
-const rejection = (receipt: CommandReceipt) => {
-  if (receipt.status !== "rejected") throw new Error(`The command was accepted: ${JSON.stringify(receipt)}`);
-  return { reason: receipt.reason, message: receipt.error.message, data: receipt.error.data };
-};
-
-/** The forge events a client reads on `environment.subscribe` after `afterSequence`, up to where it is synchronized. */
-const forgeEvents = async (client: WireClient, afterSequence: number): Promise<EventEnvelope[]> => {
-  const { subscription } = await client.subscribe("environment.subscribe", { afterSequence });
-  const events: EventEnvelope[] = [];
-  for (;;) {
-    const frame = await client.next((f) => "subscription" in f && f.subscription === subscription && (f.type === "event" || f.type === "synchronized"));
-    if (frame.type === "synchronized") return events.filter((event) => event.type.startsWith("forge."));
-    events.push((frame as EventFrame).event);
-  }
-};
-
-/**
- * Each of `values` as a run's provider says it back and a subscribed client
- * reads it (the fake's preset reply is `Done: <the prompt>`): `[redacted]`
- * for one the environment holds as a secret, itself for one it does not.
- */
-const saidBack = async (t: TestEnvironment, values: readonly string[]): Promise<string[]> => {
-  const client = await t.client();
-  const { id } = await create(client);
-  const { subscription } = await client.subscribe("sessions.subscribeSession", { sessionId: id, afterSequence: t.env.log.head() });
-  await client.apply("runs.start", { commandId: randomUUID(), sessionId: id, text: values.join(" ") });
-  const { event } = await client.next((f): f is EventFrame => f.type === "event" && f.subscription === subscription && f.event.type === "assistant.text");
-  return String(event.payload["text"]).replace(/^Done: /, "").split(" ");
-};
-
-/** The form git's Basic header carries a token in for `username`. */
-const basicAuth = (username: string, token: string): string => Buffer.from(`${username}:${token}`).toString("base64");
 
 /**
  * The process's standard error as it is outside the test runner, whose own
