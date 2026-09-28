@@ -1,7 +1,8 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative as relativePath } from "node:path";
 import { ContractError, PROTOCOL_VERSION, UpdatesStatus, registry } from "@agent-harness/contracts";
 import { HARNESS_VERSION } from "@agent-harness/environment";
 import { afterEach, describe, expect, it } from "vitest";
@@ -190,6 +191,92 @@ describe("agent-harness update settings", () => {
   });
 });
 
+describe("agent-harness update apply", () => {
+  /** A server artefact of `version`: a gzipped tar with `bin/agent-harness` and a file naming the version at its top. */
+  const artefact = (version: string): string => {
+    const dir = mkdtempSync(join(tmpdir(), "agent-harness-artefact-"));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    mkdirSync(join(dir, "root", "bin"), { recursive: true });
+    writeFileSync(join(dir, "root", "bin", "agent-harness"), "#!/bin/sh\n", { mode: 0o755 });
+    writeFileSync(join(dir, "root", "VERSION"), `${version}\n`);
+    execFileSync("tar", ["-czf", join(dir, "artefact.tar.gz"), "-C", join(dir, "root"), "."]);
+    return join(dir, "artefact.tar.gz");
+  };
+
+  const pendingOf = async (t: TestEnvironment) => {
+    const admin = await t.client();
+    const { pending } = await admin.request("updates.status", {});
+    await admin.close();
+    return pending;
+  };
+
+  it("takes a version and the path of its artefact, which the environment stages and its launcher installs, and says the update waits for idle", async () => {
+    let staged: string | undefined;
+    const t = await start({ harnessVersion: "0.4.1", launcher: testLauncher({ present: true, install: (request) => ((staged = request.staged), { type: "installed" }) }) });
+    t.runs.start("r1");
+    t.runs.running("r1");
+    const path = artefact("0.5.0");
+    // A relative path is the working directory's, not the environment's.
+    const relative = relativePath(process.cwd(), path);
+
+    const { code, out, err } = await run(["update", "apply", "--version", "0.5.0", "--path", relative, "--data-dir", t.dataDir]);
+
+    expect(err).toBe("");
+    expect(code).toBe(0);
+    const pending = await pendingOf(t);
+    expect(pending).toMatchObject({ state: "waiting", toVersion: "0.5.0", source: "request" });
+    expect(staged).toBe(join(t.dataDir, "staging", "0.5.0"));
+    expect(out).toBe(`Updating to 0.5.0 (update ${pending.state === "waiting" ? pending.updateId : ""}) once the environment is idle, or at its deferral cap; update status says what it waits on.\n`);
+    expect(await liveLabels(t)).not.toContain("agent-harness update apply");
+  });
+
+  it("with --now drains the environment at once, and exits 0 when the environment goes away updating before its client session's revoke is answered", async () => {
+    const t = await start({ harnessVersion: "0.4.1", launcher: testLauncher({ present: true }) });
+    // The revoke comes after the drain has closed the wire: the environment has gone to update.
+    t.env.methods.register(registry["access.sessions.revoke"], {
+      prepare: () => {
+        t.clock.advance(0);
+        return new Promise<never>(() => undefined);
+      },
+    } as never);
+
+    const { code, out, err } = await run(["update", "apply", "--version", "0.5.0", "--path", artefact("0.5.0"), "--now", "--data-dir", t.dataDir]);
+
+    expect(err).toBe("");
+    expect(code).toBe(0);
+    expect(out).toMatch(/^Updating to 0\.5\.0 \(update [0-9a-f-]{36}\) now: the environment is draining\.\n$/);
+    expect(await t.env.drained).toMatchObject({ trigger: "update" });
+    expect(t.launcher.received).toContainEqual(expect.objectContaining({ type: "switch?", version: "0.5.0" }));
+  });
+
+  it("with --now alone drains for the update that waits", async () => {
+    const t = await start({ harnessVersion: "0.4.1", launcher: testLauncher({ present: true }) });
+    t.runs.start("r1");
+    t.runs.running("r1");
+    expect((await run(["update", "apply", "--version", "0.5.0", "--path", artefact("0.5.0"), "--data-dir", t.dataDir])).code).toBe(0);
+    const { code, out } = await run(["update", "apply", "--now", "--data-dir", t.dataDir]);
+    expect(code).toBe(0);
+    expect(out).toContain("now: the environment is draining");
+    expect(t.env.readiness()).toBe("draining");
+  });
+
+  it("says what the environment refused and exits 1", async () => {
+    const t = await start({ harnessVersion: "0.4.1", launcher: testLauncher({ present: true, install: () => ({ type: "refused", reason: "preflight" }) }) });
+    const { code, out, err } = await run(["update", "apply", "--version", "0.5.0", "--path", artefact("0.5.0"), "--data-dir", t.dataDir]);
+    expect(code).toBe(1);
+    expect(out).toBe("");
+    expect(err).toBe("The environment refused the update: The launcher refused to install 0.5.0: preflight.\n");
+  });
+
+  it("prints its usage and exits 2 on a version that is not a release's, a path without its version, or a stray argument", async () => {
+    for (const args of [["--version", "v0.5.0"], ["--path", "/tmp/a.tar.gz"], ["--now", "yes"], ["--later"]]) {
+      const { code, err } = await run(["update", "apply", ...args, "--data-dir", "/nonexistent/agent-harness"]);
+      expect(code, args.join(" ")).toBe(2);
+      expect(err, args.join(" ")).toContain("agent-harness update apply");
+    }
+  });
+});
+
 describe("the status as update status prints it", () => {
   const updateId = "7d0f2b1e-2c55-4a8e-9f0b-3a1c5d7e9b20";
   const at = "2026-09-28T10:00:00.000Z";
@@ -242,7 +329,7 @@ describe("the update verbs", () => {
   it("say plainly and exit 1 when no environment runs on the data directory", async () => {
     const dir = mkdtempSync(join(tmpdir(), "agent-harness-cli-"));
     cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
-    for (const args of [["status"], ["status", "--json"], ["settings", "--channel", "beta"]]) {
+    for (const args of [["status"], ["status", "--json"], ["settings", "--channel", "beta"], ["apply", "--now"]]) {
       const { code, out, err } = await run(["update", ...args, "--data-dir", dir]);
       expect(code, args.join(" ")).toBe(1);
       expect(err, args.join(" ")).toMatch(/No environment is running on/);

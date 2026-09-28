@@ -210,6 +210,9 @@ const overWire = <T>(url: string, credential: ClientSessionCredential, net: Net,
           return send({ type: "pong" });
         case "bye": {
           if (outcome !== undefined && frame.reason === "revoked") return settle(outcome);
+          // The environment went away after the work was done (an update the work asked for drains at once): the
+          // client session goes unrevoked, and the environment revokes a local session an hour after its connection closed.
+          if (outcome !== undefined && (frame.reason === "updating" || frame.reason === "draining")) return settle(outcome);
           return fail(`The environment closed the socket (${frame.reason})${frame.message ? `: ${frame.message}` : "."}`);
         }
         case "response": {
