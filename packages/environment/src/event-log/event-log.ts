@@ -116,6 +116,13 @@ export interface EventLogOptions {
   readonly clock?: () => Date;
   /** Where a subscriber's exception goes; it never fails the append that published. */
   readonly onSubscriberError?: (error: unknown) => void;
+  /**
+   * Answers each string of an event's payload, keys included, as the append
+   * writes it: the scrub registry's (ADR 0011), so what is stored, projected
+   * and published never holds a value registered when it was appended. An
+   * event already appended is never rewritten. Preset: every string as it is.
+   */
+  readonly scrub?: (text: string) => string;
 }
 
 export interface EventLog {
@@ -249,6 +256,7 @@ export const openEventLog = (options: EventLogOptions): EventLog => {
   const clock = options.clock ?? (() => new Date());
   const onSubscriberError =
     options.onSubscriberError ?? ((error: unknown) => console.error("An event log subscriber threw:", error));
+  const { scrub } = options;
 
   const db = new DatabaseSync(options.path, { timeout: BUSY_TIMEOUT_MS });
   try {
@@ -376,7 +384,7 @@ export const openEventLog = (options: EventLogOptions): EventLog => {
         options.causationId ?? null,
         options.correlationId ?? null,
         options.actor,
-        toJson(input.payload, `The payload of a ${input.type} event`),
+        toJson(input.payload, `The payload of a ${input.type} event`, scrub),
         toJson(input.metadata ?? {}, `The metadata of a ${input.type} event`),
       ]);
 
