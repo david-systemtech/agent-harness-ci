@@ -12,10 +12,11 @@ const report = (line: Record<string, unknown>) => void process.stdout.write(`${J
 const channel = processLauncherChannel();
 try {
   await channel.prepared(process.argv[2] ?? "0.0.0");
+  report({ committed: true });
+  channel.onQuery(() => ({ type: "idle", readiness: "ready", activity: { state: "idle" }, updatesManagedOutside: false }));
+  report({ versions: await channel.request({ type: "versions?" }) });
 } catch (error) {
   report({ failed: error instanceof Error ? error.message : String(error) });
-  process.exit(1);
+  // Not process.exit: the report line must reach a pipe that flushes asynchronously (macOS) before the process ends.
+  process.exitCode = 1;
 }
-report({ committed: true });
-channel.onQuery(() => ({ type: "idle", readiness: "ready", activity: { state: "idle" }, updatesManagedOutside: false }));
-report({ versions: await channel.request({ type: "versions?" }) });
