@@ -791,9 +791,11 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     clock,
     stream: environmentStream,
     dataDir,
+    environmentName: record.name,
     harnessVersion,
     launcher,
     runs: host.runs,
+    host,
     activity: () => lifecycle.status().activity,
     deferralCapMs: () => readSettings({ all: (sql, ...params) => log.read(sql, ...params) })["updates.deferralCapHours"] * 60 * 60_000,
     drain: (cause) => void lifecycle.drain("update", cause),
@@ -944,7 +946,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     await closers.closeAll().catch((closeError: unknown) => console.error("Closing after a failed start failed:", closeError));
     throw new StartupError("prepared", error);
   }
-  // The settle (#344): the update that began last gets its outcome from the version this start runs, before any client can read the stream.
+  // The settle (#344, #345): the update that began last gets its outcome from the version this start runs, and each run it cut
+  // its mark and, where it can go on, its continuation, before any client can read the stream.
   updates.settle();
   // Deleted sessions whose grace period ran out while the environment was down go before any client can read them.
   try {

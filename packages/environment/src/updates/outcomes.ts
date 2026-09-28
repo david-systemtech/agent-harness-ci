@@ -37,8 +37,12 @@ const UNKNOWN_REASON = "unknown";
 
 /** What the log says of the updates that began. */
 export interface UpdateHistory {
-  /** The update that began last, and whether it has its outcome yet; undefined when none began. */
-  readonly latest: { readonly started: UpdateStartedPayload; readonly settled: boolean } | undefined;
+  /**
+   * The update that began last, where the log holds its start (the runs it
+   * cut ended after it, `interrupted-runs.ts`), and whether it has its
+   * outcome yet; undefined when none began.
+   */
+  readonly latest: { readonly started: UpdateStartedPayload; readonly sequence: number; readonly settled: boolean } | undefined;
   /** How the last update ended, and the versions whose update failed, as `updates.status` answers them. */
   readonly outcomes: Pick<UpdatesStatus, "lastOutcome" | "failedVersions">;
 }
@@ -49,14 +53,14 @@ export interface UpdateHistory {
  * payload that is not its event's is passed over.
  */
 export const readUpdateHistory = (log: EventLog): UpdateHistory => {
-  let latest: UpdateStartedPayload | undefined;
+  let latest: { readonly started: UpdateStartedPayload; readonly sequence: number } | undefined;
   const settled = new Set<string>();
   let lastOutcome: UpdatesStatus["lastOutcome"] = null;
   const failed = new Set<string>();
   for (const event of log.readStream({ kinds: [ENVIRONMENT_STREAM_KIND], types: [...HISTORY_TYPES] })) {
     if (event.type === "environment.update-started") {
       const started = UpdateStartedPayload.safeParse(event.payload);
-      if (started.success) latest = started.data;
+      if (started.success) latest = { started: started.data, sequence: event.sequence };
     } else if (event.type === "environment.updated") {
       const updated = EnvironmentUpdatedPayload.safeParse(event.payload);
       if (!updated.success) continue;
@@ -73,7 +77,7 @@ export const readUpdateHistory = (log: EventLog): UpdateHistory => {
     }
   }
   return {
-    latest: latest && { started: latest, settled: settled.has(latest.updateId) },
+    latest: latest && { ...latest, settled: settled.has(latest.started.updateId) },
     outcomes: { lastOutcome, failedVersions: [...failed] },
   };
 };

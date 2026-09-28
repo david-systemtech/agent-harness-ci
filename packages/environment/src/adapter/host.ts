@@ -296,7 +296,9 @@ export interface AdapterHost {
    * the actor of the run before it, resolved afresh. Nothing when a run is
    * live on the session (the answer waits for the run after it), the session
    * has never run or is deleted, the environment drains or closes, or no
-   * answer is kept any more. A person's answer starts nothing (#130).
+   * answer is kept any more. A person's answer starts nothing (#130), unless
+   * an update cut the session's latest run while it waited on a prompt: the
+   * answer then resumes it (#345).
    */
   continueSession(sessionId: string): void;
   /**
