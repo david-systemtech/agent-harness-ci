@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { REFERENCE_GUI_KEYMAP } from "../test/reference-gui-keymap.js";
 import { REFERENCE_COMMANDS, REFERENCE_KEYMAP } from "../test/reference-keymap.js";
 import {
   ACTIONS,
@@ -512,5 +513,50 @@ describe("the GUI's reserved keys (ADR 0022; the GUI spec's binding rules)", () 
     expect(reservedGuiKey("app.palette", "Alt+X")).toBeUndefined();
     expect(reservedGuiKey("app.palette", "C")).toBeUndefined();
     for (const action of ACTIONS) if (action.gui.status === "wired") for (const k of action.gui.keys) expect(reservedGuiKey(action.id, k), `${action.id} ${k}`).toBeUndefined();
+  });
+});
+
+/**
+ * The GUI keys the GUI spec's table gives that the reference GUI map has no
+ * row for, each with where it comes from; `composer.readNow` is wired with
+ * no key, so no key of it is here.
+ */
+const ADDED_GUI_KEYS: Record<string, readonly string[]> = {
+  // Story 28, added at David's request on 2026-09-28: a new session never covers one open in the grid.
+  "app.session.newInPane": ["Mod+Shift+N"],
+  // The GUI spec's composer: `@` lists files, as in the terminal UI (#400).
+  "composer.file.mention": ["@"],
+  // ADR 0022: ↑ in an empty composer withdraws the newest queued message, as in the terminal UI.
+  "composer.withdrawLast": ["↑"],
+  // The GUI spec's composer runs `!` and `!!` as the terminal UI does (#409); a decision of this build, the table not listing it.
+  "composer.shell": ["!"],
+};
+
+describe("the GUI column against the GUI map the surfaces port audit pins", () => {
+  const rows = REFERENCE_GUI_KEYMAP.flatMap((group) => group.rows.map((row) => ({ context: group.context, ...row })));
+  const guiKeyed = ACTIONS.flatMap((a) => (a.gui.status === "wired" && a.gui.keys.length > 0 ? [{ action: a, gui: a.gui }] : []));
+  const holding = (row: (typeof rows)[number]) => guiKeyed.filter(({ action, gui }) => action.context === row.context && JSON.stringify(gui.keys) === JSON.stringify(row.keys));
+
+  it("gives every row of the reference GUI map one action wired with the same keys in its context, app.interrupt's Esc off the one recorded difference", () => {
+    expect(rows).toHaveLength(26);
+    const missing = rows.filter((row) => holding(row).length !== 1).map((row) => `${row.context} ${row.keys.join(", ")}: ${holding(row).length} actions`);
+    expect(missing).toEqual([]);
+    const differing = rows.flatMap((row) => holding(row).filter(({ gui }) => gui.off === true)).map(({ action }) => action.id);
+    expect(differing).toEqual(["app.interrupt"]);
+    expect(actionById("app.interrupt")?.gui).toEqual({ status: "wired", keys: ["Esc"], off: true });
+  });
+
+  it("puts a condition on the GUI keys of each row the reference answers only in part of its place, and on no other row's", () => {
+    for (const row of rows) {
+      const [held] = holding(row);
+      expect(held?.gui.when !== undefined, `${row.context} ${row.keys.join(", ")}`).toBe(row.where !== undefined);
+    }
+  });
+
+  it("holds the reference map's rows and the keys the GUI spec adds, and no other GUI key", () => {
+    const fixtureRows = rows.map((row) => `${row.context} ${JSON.stringify(row.keys)}`);
+    const extra = guiKeyed.filter(({ action, gui }) => !fixtureRows.includes(`${action.context} ${JSON.stringify(gui.keys)}`)).map(({ action }) => action.id);
+    expect(extra.sort()).toEqual(Object.keys(ADDED_GUI_KEYS).sort());
+    for (const [id, keys] of Object.entries(ADDED_GUI_KEYS)) expect(actionById(id)?.gui, id).toMatchObject({ status: "wired", keys });
   });
 });
