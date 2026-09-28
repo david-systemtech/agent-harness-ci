@@ -21,6 +21,33 @@ const later = "2026-09-29T09:00:00.000Z";
 const v1 = "c232ab00-9414-11ec-b3c8-9f6bdeced846";
 
 const workspace = { kind: "directory", path: "/work/agent-harness" };
+const worktree = { kind: "worktree", path: "/data/worktrees/agent-harness-3f2a/agent-harness-7c9e6679", repository: "/work/agent-harness", branch: "agent-harness/7c9e6679" };
+const scratch = { kind: "scratch", path: "C:\\Users\\david\\AppData\\agent-harness\\scratch\\7c9e6679-7425-40de-944b-e07fc1f90ae7" };
+/** Every kind of workspace request, each valid. */
+const workspaceRequests = [
+  workspace,
+  { kind: "directory", path: "\\\\nas\\work" },
+  { kind: "directory", path: "~/code" },
+  { kind: "directory", path: "~" },
+  { kind: "worktree", repository: "/work/agent-harness/packages/contracts" },
+  { kind: "worktree", repository: "/work/agent-harness", branch: "main" },
+  { kind: "worktree", repository: "/work/agent-harness", newBranch: {} },
+  { kind: "worktree", repository: "/work/agent-harness", newBranch: { name: "fix/receipts", base: "origin/main" } },
+  { kind: "scratch" },
+  { kind: "session", sessionId: "3d6f9a2c-4b1e-4c8d-a5f7-2e9b0c1d4a68" },
+];
+/** Workspace requests no environment takes: relative, a kind that is not a request, both branches, a session not by its id. */
+const invalidWorkspaceRequests = [
+  { kind: "directory", path: "work/agent-harness" },
+  { kind: "directory", path: "~seth/work" },
+  { kind: "directory" },
+  { kind: "worktree" },
+  { kind: "worktree", repository: "/work/agent-harness", branch: "main", newBranch: {} },
+  { kind: "worktree", repository: "/work/agent-harness", branch: "" },
+  { kind: "session", sessionId: "s-1" },
+  { kind: "none" },
+  { kind: "bank", path: "/work/bank" },
+];
 const pullRequest = { url: "https://git.systemtech.dev:5526/david/agent-harness/pulls/167", state: "open", mergedAt: null, closedAt: null };
 const mergedPullRequest = { ...pullRequest, state: "merged", mergedAt: later };
 
@@ -46,6 +73,7 @@ export const freshSummary = {
   snoozedAt: null,
   workspace,
   repositoryIdentity: null,
+  workspaceMissingSince: null,
   activity: { state: "idle", since: at },
   parkedPromptCount: 0,
   accountId: null,
@@ -72,7 +100,9 @@ const fullSummary = {
   unsettledAt: at,
   snoozedUntil: later,
   snoozedAt: at,
+  workspace: worktree,
   repositoryIdentity: "https://git.systemtech.dev:5526/david/agent-harness",
+  workspaceMissingSince: later,
   activity: { state: "parked", since: later },
   parkedPromptCount: 2,
   accountId: "claude-max",
@@ -94,6 +124,10 @@ const invalidSummaries = [
   { ...freshSummary, activity: { state: "idle" } },
   { ...freshSummary, parkedPromptCount: -1 },
   { ...freshSummary, workspace: { kind: "none" } },
+  { ...freshSummary, workspace: { kind: "directory", path: "work/agent-harness" } },
+  { ...freshSummary, workspace: { kind: "worktree", path: "/work/agent-harness" } },
+  { ...freshSummary, workspaceMissingSince: "yesterday" },
+  { ...freshSummary, workspaceMissingSince: undefined },
   { ...freshSummary, pullRequests: [{ ...pullRequest, state: "draft" }] },
   { ...freshSummary, draft: "" },
 ];
@@ -109,6 +143,8 @@ const eventPayloads: Record<string, Fixtures> = {
     valid: [
       { title: null, tags: [], groupId: null, workspace, repositoryIdentity: null, account: null, model: null, mode: null },
       { title: "Fix it", tags: ["wip"], groupId, workspace, repositoryIdentity: null, account: "claude-max", model: "opus", mode: "plan" },
+      { title: null, tags: [], groupId: null, workspace: worktree, repositoryIdentity: "https://git.systemtech.dev/david/agent-harness", account: null, model: null, mode: null },
+      { title: null, tags: [], groupId: null, workspace: scratch, repositoryIdentity: null, account: null, model: null, mode: null },
     ],
     invalid: [
       { title: null, tags: [], groupId: null, repositoryIdentity: null, account: null, model: null, mode: null },
@@ -167,6 +203,7 @@ const eventPayloads: Record<string, Fixtures> = {
   "session.pull-request-linked": { valid: [pullRequest, mergedPullRequest], invalid: [{ ...pullRequest, url: "not a url" }, { url: pullRequest.url }] },
   "session.pull-request-unlinked": { valid: [{ url: pullRequest.url }], invalid: [{}, { url: "pulls/167" }] },
   "session.pull-request-synced": { valid: [mergedPullRequest], invalid: [{ ...pullRequest, state: "draft" }, { ...pullRequest, mergedAt: "never" }] },
+  "session.workspace-status-changed": { valid: [{ status: "missing" }, { status: "present" }], invalid: [{}, { status: "gone" }] },
   "group.created": {
     valid: [{ name: "Brandsolidate", orderKey: null }, { name: "Cool-Jams", orderKey: "m" }],
     invalid: [{ name: "Brandsolidate" }, { name: "", orderKey: null }],
@@ -201,7 +238,23 @@ export const sessionSchemaFixtures: Record<string, Fixtures> = {
   "sessions/settled-by.json": { valid: ["user", "auto-idle", "auto-merge"], invalid: ["auto", ""] },
   "sessions/unsettle-reason.json": { valid: ["user", "activity"], invalid: ["expired", ""] },
   "sessions/unsnooze-reason.json": { valid: ["user", "expired", "activity", "settled"], invalid: ["bored", ""] },
-  "sessions/workspace.json": { valid: [workspace], invalid: [{ kind: "directory" }, { kind: "none" }, { kind: "directory", path: "" }] },
+  "sessions/workspace.json": {
+    // A kind a later environment records reads as a directory at its path; without a path it is nothing a client can show.
+    valid: [workspace, worktree, scratch, { kind: "bank", path: "/work/bank" }],
+    invalid: [
+      { kind: "directory" },
+      { kind: "none" },
+      { kind: "directory", path: "" },
+      { kind: "directory", path: "work/agent-harness" },
+      { kind: "worktree", path: "/work/agent-harness" },
+      { kind: "worktree", path: "/work/wt", repository: "/work/agent-harness", branch: "" },
+      { kind: "scratch" },
+      { kind: "", path: "/work" },
+      { kind: "bank" },
+    ],
+  },
+  "sessions/workspace-request.json": { valid: workspaceRequests, invalid: invalidWorkspaceRequests },
+  "sessions/workspace-status.json": { valid: ["missing", "present"], invalid: ["gone", ""] },
   "sessions/activity-state.json": { valid: ["idle", "starting", "running", "parked"], invalid: ["busy", ""] },
   "sessions/session-activity.json": { valid: [{ state: "idle", since: at }], invalid: [{ state: "idle" }, { state: "busy", since: at }] },
   "sessions/pull-request-state.json": { valid: ["open", "closed", "merged"], invalid: ["draft", ""] },
@@ -260,6 +313,7 @@ export const sessionMethodFixtures: Record<string, { params: Fixtures; result: F
         { commandId, id: sessionId, workspace },
         { commandId, id: sessionId, title: "Fix it", tags: ["wip", "Seth"], groupId, workspace, account: "claude-max", model: "opus", mode: "plan" },
         { commandId, id: sessionId, groupId: null, workspace },
+        ...workspaceRequests.map((request) => ({ commandId, id: sessionId, workspace: request })),
       ],
       invalid: [
         { commandId, workspace },
@@ -269,7 +323,7 @@ export const sessionMethodFixtures: Record<string, { params: Fixtures; result: F
         { commandId, id: sessionId, workspace, title: "" },
         { commandId, id: sessionId, workspace, title: "x".repeat(201) },
         { commandId, id: sessionId, workspace, tags: [""] },
-        { commandId, id: sessionId, workspace: { kind: "scratch" } },
+        ...invalidWorkspaceRequests.map((request) => ({ commandId, id: sessionId, workspace: request })),
         { commandId, id: sessionId, workspace, mode: "dontAsk" },
       ],
     },

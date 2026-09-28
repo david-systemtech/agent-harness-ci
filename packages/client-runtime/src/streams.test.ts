@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { SessionSummary } from "@agent-harness/contracts";
+import type { SessionSummary, SummaryPatch } from "@agent-harness/contracts";
 import { describe, expect, it, onTestFinished } from "vitest";
 import { added, groupOf, noticeEvent, sessionEvent, summaryOf, unpatchedEvent } from "../test/events.js";
 import { subscription } from "../test/scripted.js";
@@ -201,6 +201,27 @@ describe("applying", () => {
     clock.advance(2500);
     await wire.server.accept();
     expect((await subscription(wire, "sessions.subscribe")).params).toEqual({ afterSequence: 7 });
+  });
+
+  it("reads a workspace of a kind it does not know as a directory at its path, in a snapshot, a patch and its cache, and the list never fails on it", async () => {
+    const clock = manualClock();
+    const documents = inMemoryDocuments();
+    const { runtime, wire, platform, list, adding } = await paired({ clock, documents });
+    const [a, b] = [randomUUID(), randomUUID()];
+    // What a later environment sends: summaries are built as it would, the kind one this runtime has never heard of.
+    const later = (id: string, path: string) => ({ ...summaryOf(id), workspace: { kind: "bank", path, bank: "brandsolidate" } }) as unknown as SessionSummary;
+    list.snapshot(3, { sequence: 3, sessions: [later(a, "/data/banks/brandsolidate")], groups: [] });
+    list.event(sessionEvent(4, added(later(b, "/data/banks/notes"))));
+    list.event(sessionEvent(5, { op: "set", sessionId: a, fields: { workspace: { kind: "bank", path: "/data/banks/moved" } } } as unknown as SummaryPatch, "session.workspace-set"));
+    list.synchronized(5);
+    await adding;
+    expect(phase(runtime)).toBe("ready");
+    expect(rows(runtime).sort()).toEqual([a, b].sort());
+    expect(row(runtime, a)?.workspace).toEqual({ kind: "directory", path: "/data/banks/moved" });
+    expect(row(runtime, b)?.workspace).toEqual({ kind: "directory", path: "/data/banks/notes" });
+    const restarted = await restartedFrom({ clock, documents, secrets: platform.secrets, environmentId: wire.environmentId });
+    expect(restarted.cached).toHaveLength(2);
+    expect(row(restarted.runtime, b)?.workspace).toEqual({ kind: "directory", path: "/data/banks/notes" });
   });
 
   it("never advances the cursor on an apply that fails, and asks for a snapshot instead", async () => {

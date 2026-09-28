@@ -26,6 +26,7 @@ import type { ContainerDetector } from "../src/serve/container.js";
 import { createRunRegistry, type MemoryRunRegistry } from "../src/serve/run-registry.js";
 import type { ContextOf, HandlerReturn, MethodHandler } from "../src/serve/methods.js";
 import type { SubscriptionHooks } from "../src/wire/subscriptions.js";
+import { createScrubRegistry, type ScrubRegistry } from "../src/scrub/registry.js";
 import { manualClock, type ManualClock } from "./clock.js";
 import type { ContainmentProbe } from "../src/permissions/containment-probe.js";
 import { absentProbe } from "./containment.js";
@@ -106,6 +107,10 @@ export interface TestEnvironmentOptions {
    * real machine is never probed.
    */
   readonly containment?: ContainmentProbe | Promise<ContainmentProbe>;
+  /** The resolver a new session's workspace goes through (`test/workspaces.ts` scripts one); preset: the environment's. */
+  readonly workspaceResolver?: EnvironmentOptions["workspaceResolver"];
+  /** The scrub registry the environment holds; preset: a fresh one. */
+  readonly scrub?: ScrubRegistry;
 }
 
 /** The bundled binary a test environment's sign-ins name unless told otherwise: a path that is not there. */
@@ -158,6 +163,8 @@ export interface TestEnvironment {
   readonly runs: MemoryRunRegistry;
   /** The scripted launcher channel: what the environment signalled and sent, its answers, and the launcher's queries. */
   readonly launcher: TestLauncher;
+  /** The environment's scrub registry: the test registers values on it as a service beside the environment would. */
+  readonly scrub: ScrubRegistry;
   /** The bootstrap grant file as it is now. */
   grant(): BootstrapGrant;
   /** Posts `body` to the bootstrap exchange as it is. */
@@ -242,6 +249,7 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
   const dataDir = options.dataDir ?? join(ownDir as string, "data");
   const runs = createRunRegistry({ clock });
   const launcher = options.launcher ?? testLauncher();
+  const scrub = options.scrub ?? createScrubRegistry();
 
   const passed: Partial<EnvironmentOptions> = {
     ...(options.name !== undefined && { name: options.name }),
@@ -256,6 +264,7 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
     ...(options.probeTimeoutMs !== undefined && { probeTimeoutMs: options.probeTimeoutMs }),
     ...(options.usageReadTimeoutMs !== undefined && { usageReadTimeoutMs: options.usageReadTimeoutMs }),
     ...(options.terminals !== undefined && { terminals: options.terminals }),
+    ...(options.workspaceResolver !== undefined && { workspaceResolver: options.workspaceResolver }),
     signInProcess: { spawn: refusingSpawn, bundled: TEST_BUNDLED_CLAUDE, managedTool: () => null, hostEnv: { PATH: "/usr/bin" }, ...options.signInProcess },
   };
   let env: EnvironmentHandle;
@@ -268,6 +277,7 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
       user: { isPrivileged: () => false },
       launcher,
       runs,
+      scrub,
       containerDetector: options.containerDetector ?? { inContainer: () => false },
       interfaces: options.interfaces ?? NO_INTERFACES,
       adapters: [adapter],
@@ -340,6 +350,7 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
     dataDir,
     runs,
     launcher,
+    scrub,
     grant: () => readGrant(dataDir),
     exchange: (body) => postExchange(env.address, body),
     bootstrap: (kind, label) => bootstrapExchange(env.address, dataDir, kind, label),

@@ -40,6 +40,7 @@ const command = (overrides: Partial<CreateSession> = {}): CreateSession => ({
   tags: [],
   groupId: null,
   workspace: { kind: "directory", path: "/work/repo" },
+  repositoryIdentity: null,
   account: null,
   model: null,
   mode: null,

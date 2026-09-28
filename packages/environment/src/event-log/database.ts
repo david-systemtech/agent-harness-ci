@@ -69,12 +69,18 @@ export const decodeEvent = (row: EventRow): EventEnvelope => ({
   metadata: JSON.parse(row.metadata) as JsonObject,
 });
 
+/** A string as it is: `toJson`'s preset for the strings it writes. */
+const asItIs = (text: string): string => text;
+
 /**
  * `value` as JSON text; throws for a value JSON cannot hold anywhere in it: `undefined`, a function or a
  * symbol (JSON.stringify would silently drop or null them), a non-finite number (it would write `null`),
- * a bigint or a cycle. What is read back is then always what was appended.
+ * a bigint or a cycle. What is read back is then always what was appended. Every string in it, an
+ * object's keys included, is written as `strings` answers it: the log's append passes the scrub registry.
  */
-export const toJson = (value: unknown, what: string): string => {
+export const toJson = (value: unknown, what: string, strings: (text: string) => string = asItIs): string => {
+  // One copy per object whose keys change, so an object met again (a cycle) is the same copy, which JSON.stringify refuses.
+  const copies = new Map<object, object>();
   const json = JSON.stringify(value, (key, v: unknown) => {
     const unholdable =
       (typeof v === "number" && !Number.isFinite(v)) ||
@@ -84,7 +90,15 @@ export const toJson = (value: unknown, what: string): string => {
     if (unholdable) {
       throw new TypeError(`${what} holds ${String(v)}${key ? ` at "${key}"` : ""}, which JSON cannot hold.`);
     }
-    return v;
+    if (typeof v === "string") return strings(v);
+    // An object whose keys change is written as a copy under the new keys; JSON.stringify then visits the copy's values.
+    if (typeof v !== "object" || v === null || Array.isArray(v)) return v;
+    const copy = copies.get(v);
+    if (copy !== undefined) return copy;
+    if (!Object.keys(v).some((name) => strings(name) !== name)) return v;
+    const made = Object.fromEntries(Object.entries(v).map(([name, entry]) => [strings(name), entry]));
+    copies.set(v, made);
+    return made;
   });
   if (json === undefined) throw new TypeError(`${what} is not a JSON value.`);
   return json;

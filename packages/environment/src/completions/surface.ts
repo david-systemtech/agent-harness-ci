@@ -14,6 +14,7 @@ import {
   type EnvironmentReadiness,
   type Scope,
   type WireError,
+  type Workspace,
 } from "@agent-harness/contracts";
 import type { AdapterHost } from "../adapter/host.js";
 import type { ClientSessions, VerifiedClientSession } from "../auth/client-sessions.js";
@@ -31,6 +32,7 @@ import { createSessionIn } from "../sessions/methods.js";
 import { readSessionState, type Reader } from "../sessions/session-reads.js";
 import { sessionStream } from "../sessions/streams.js";
 import { createDispatch } from "../wire/dispatch.js";
+import type { Resolution, WorkspaceResolver } from "../workspace/resolver.js";
 import { createRenderer, type AnswerEnd, type AnswerHead } from "./answer.js";
 import { CompletionsRefusal, asRefusal, fromContractError, sendRefusal, type RefusalContext } from "./errors.js";
 import { listModels, listingId, modelObject, resolveModel, type CompletionsCatalogue, type ResolvedModel } from "./models.js";
@@ -117,6 +119,8 @@ export interface CompletionsSurfaceOptions {
   readonly scratchRoot: string;
   /** Client-tool passthrough (#139): the parked calls, and the tools each session's runs were served. */
   readonly passthrough: Passthrough;
+  /** The resolver a fresh session's workspace goes through, as `sessions.create`'s does (#321). */
+  readonly resolver: WorkspaceResolver;
 }
 
 export interface CompletionsSurface {
@@ -247,18 +251,70 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
 
   // ---- a turn ----
 
-  /** Where a fresh session's code lives: the directory the request names, or a scratch directory of its own. */
-  const workspaceFor = (turn: TurnRequest, sessionId: string): { path: string; made: boolean } => {
+  /**
+   * A fresh session's place: the workspace and identity to record, and how
+   * to remove what was made for it when the turn records nothing. `discard`
+   * never throws: a removal that fails is logged, and the turn's answer
+   * stands, as a prepared command's undos leave a command's answer standing.
+   */
+  interface Place {
+    readonly workspace: Workspace;
+    readonly repositoryIdentity: string | null;
+    discard(): Promise<void>;
+  }
+
+  /**
+   * Where a fresh session's code lives: the directory the request names, or
+   * a scratch directory of its own, asked of the resolver as a `directory`
+   * request (#321), which records it and finds its identity as it does for
+   * `sessions.create`. A refusal is a 400 naming the workspace, and leaves
+   * no scratch directory behind.
+   */
+  const placeFor = async (turn: TurnRequest, sessionId: string): Promise<Place> => {
     const named = turn.extension.workspace;
+    const param = `${COMPLETIONS_NAMESPACE}.workspace`;
+    let path: string;
     if (named !== null) {
-      const param = `${COMPLETIONS_NAMESPACE}.workspace`;
       if (!isAbsolute(named)) throw new CompletionsRefusal(400, "workspace_not_found", `The workspace is an absolute path to a directory the environment has; ${named} is not absolute.`, { param });
       if (!isDirectory(named)) throw new CompletionsRefusal(400, "workspace_not_found", `The environment has no directory ${named}.`, { param });
-      return { path: named, made: false };
+      path = named;
+    } else {
+      path = join(options.scratchRoot, sessionId);
+      mkdirSync(path, { recursive: true, mode: 0o700 });
     }
-    const path = join(options.scratchRoot, sessionId);
-    mkdirSync(path, { recursive: true, mode: 0o700 });
-    return { path, made: true };
+    const removeScratch = (): void => {
+      if (named !== null) return;
+      try {
+        rmSync(path, { recursive: true, force: true });
+      } catch (error) {
+        console.error(`Removing the scratch directory ${path} made for a turn failed:`, error);
+      }
+    };
+    let resolved: Resolution;
+    try {
+      resolved = await options.resolver.resolve({ kind: "directory", path }, sessionId);
+    } catch (error) {
+      removeScratch();
+      throw error;
+    }
+    if (resolved.refused !== undefined) {
+      removeScratch();
+      const { reason } = resolved.refused.data;
+      throw new CompletionsRefusal(400, typeof reason === "string" ? reason : resolved.refused.code, resolved.refused.message, { param });
+    }
+    const { workspace, repositoryIdentity, undo } = resolved;
+    return {
+      workspace,
+      repositoryIdentity,
+      discard: async () => {
+        try {
+          await undo?.();
+        } catch (error) {
+          console.error("Removing what the resolver made for a turn failed:", error);
+        }
+        removeScratch();
+      },
+    };
   };
 
   /** The run's actor: the completions surface, attended only when the request says so, under the program's ceiling as it is now (#129, #131). */
@@ -343,105 +399,113 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
   ];
 
   /**
-   * The turn, in one transaction: a fresh session made as `sessions.create`
-   * makes one (`createSessionIn`), or the named one tagged; then the run
-   * started as `runs.start` starts one (`startRunIn`), or, when one is live,
-   * the message queued to it as `runs.send` queues one (`sendIn`). Nothing is
-   * recorded when anything refuses.
+   * The turn, in one transaction: a fresh session made in its `place` as
+   * `sessions.create` makes one (`createSessionIn`), or the named one tagged;
+   * then the run started as `runs.start` starts one (`startRunIn`), or, when
+   * one is live, the message queued to it as `runs.send` queues one
+   * (`sendIn`). Nothing is recorded when anything refuses; the caller then
+   * discards the place.
    */
-  const begin = (turn: TurnRequest, model: ResolvedModel, clientSession: VerifiedClientSession, target: { sessionId: string; fresh: boolean }): Begun => {
+  const begin = (
+    turn: TurnRequest,
+    model: ResolvedModel,
+    clientSession: VerifiedClientSession,
+    target: { sessionId: string; fresh: boolean },
+    place: Place | null,
+  ): Begun => {
     const { sessionId, fresh } = target;
     const clientActor = formatActor({ kind: "client_session", id: clientSession.id });
-    const workspace = fresh ? workspaceFor(turn, sessionId) : null;
     const ignored = [...turn.ignored];
     if (!fresh && turn.extension.workspace !== null) ignored.push(`${COMPLETIONS_NAMESPACE}.workspace`);
     const refused = (refusal: { code: string; message: string; data: Record<string, unknown> }): ContractError => new ContractError(refusal);
-    try {
-      return log.atomically((tx) => {
-        if (workspace !== null) {
-          const created = createSessionIn(
-            log,
-            { tx, actor: clientActor },
-            { id: sessionId, tags: [COMPLETIONS_TAG], workspace: { kind: "directory", path: workspace.path }, account: model.account.id, model: model.model.id },
-            // The session is given no mode of its own: the request's permissionMode is its run's alone.
-            { validateRunParameters: host.validateSessionInput, clampMode: () => null },
-          );
-          if (created.rejected !== undefined) throw refused(created.rejected);
-        } else {
-          const tagged = decideTag(readSessionState(reader, sessionId), { sessionId, tag: COMPLETIONS_TAG });
-          if (tagged.rejected === undefined) appendDecided(log, sessionStream(sessionId), tagged, { tx, actor: clientActor });
-        }
-        const actor = actorFor(turn, clientSession);
-        const facts = host.startFacts(sessionId, actor);
-        if (facts.session === null || facts.session.deleted) throw sessionNotFound(sessionId);
-        if (facts.accountId !== model.account.id) throw accountMismatch(sessionId, facts.accountId, model);
-        const text = fresh ? withPreamble(turn.earlier, turn.text) : turn.text;
-        const attachments = [...turn.extension.attachments];
+    return log.atomically((tx) => {
+      if (place !== null) {
+        const created = createSessionIn(
+          log,
+          { tx, actor: clientActor },
+          {
+            id: sessionId,
+            tags: [COMPLETIONS_TAG],
+            workspace: place.workspace,
+            repositoryIdentity: place.repositoryIdentity,
+            account: model.account.id,
+            model: model.model.id,
+          },
+          // The session is given no mode of its own: the request's permissionMode is its run's alone.
+          { validateRunParameters: host.validateSessionInput, clampMode: () => null },
+        );
+        if (created.rejected !== undefined) throw refused(created.rejected);
+      } else {
+        const tagged = decideTag(readSessionState(reader, sessionId), { sessionId, tag: COMPLETIONS_TAG });
+        if (tagged.rejected === undefined) appendDecided(log, sessionStream(sessionId), tagged, { tx, actor: clientActor });
+      }
+      const actor = actorFor(turn, clientSession);
+      const facts = host.startFacts(sessionId, actor);
+      if (facts.session === null || facts.session.deleted) throw sessionNotFound(sessionId);
+      if (facts.accountId !== model.account.id) throw accountMismatch(sessionId, facts.accountId, model);
+      const text = fresh ? withPreamble(turn.earlier, turn.text) : turn.text;
+      const attachments = [...turn.extension.attachments];
 
-        if (facts.live !== null) {
-          // A run is live: the turn is a queued message (ADR 0022), and the answer follows the run that reads it (#138).
-          const sent = sendIn(log, host, tx, { actor: COMPLETIONS_ACTOR }, { sessionId, actor, origin: "completions", text, attachments });
-          if (sent.rejected !== undefined) throw refused(sent.rejected);
-          // What a live run cannot take is said to be ignored. Its model first: whichever run reads the message runs on the
-          // live run's (the live run, a run of its queue, which takes the model of the run before it, or a turn its provider
-          // opens), so the answer names that one, by its bare id once its account has left the listing (removed mid-run),
-          // and a request naming another is told so. A live run's row is there: `run.started` wrote it, and only a purge,
-          // refused above for a deleted session, takes it away.
-          const answeredIn = modelOfRun(facts.live.runId, model.id);
-          if (answeredIn !== model.id) ignored.push("model");
-          if (turn.extension.permissionMode !== null) ignored.push(`${COMPLETIONS_NAMESPACE}.permissionMode`);
-          ignored.push(...turn.instructionSources);
-          if (turn.effortParam !== null) ignored.push(turn.effortParam);
-          if (turn.extension.attendedSet) ignored.push(`${COMPLETIONS_NAMESPACE}.attended`);
-          ignored.push(...liveToolsIgnored(turn, sessionId));
-          const { runId, messageId } = sent.result;
-          return {
-            sessionId,
-            runId,
-            messageId,
-            queued: true,
-            model: answeredIn,
-            head: { sessionId, runId, messageId, delivery: "queued", mode: facts.live.policy.mode.effective, clamped: null, ignored },
-          };
-        }
-
-        // Nothing is live to attach to: a new run starts, and `after` says nothing.
-        if (turn.extension.after !== null) ignored.push(`${COMPLETIONS_NAMESPACE}.after`);
-        const started = startRunIn(log, host, tx, { actor: COMPLETIONS_ACTOR }, {
-          sessionId,
-          actor,
-          origin: "completions",
-          text,
-          attachments,
-          model: model.model.id,
-          effort: turn.effort ?? undefined,
-          mode: turn.extension.permissionMode ?? undefined,
-          appendedInstructions: turn.appendedInstructions,
-          clientTools: turn.tools.served,
-        });
-        if (started.rejected !== undefined) throw refused(started.rejected);
-        const { mode } = started.policy;
+      if (facts.live !== null) {
+        // A run is live: the turn is a queued message (ADR 0022), and the answer follows the run that reads it (#138).
+        const sent = sendIn(log, host, tx, { actor: COMPLETIONS_ACTOR }, { sessionId, actor, origin: "completions", text, attachments });
+        if (sent.rejected !== undefined) throw refused(sent.rejected);
+        // What a live run cannot take is said to be ignored. Its model first: whichever run reads the message runs on the
+        // live run's (the live run, a run of its queue, which takes the model of the run before it, or a turn its provider
+        // opens), so the answer names that one, by its bare id once its account has left the listing (removed mid-run),
+        // and a request naming another is told so. A live run's row is there: `run.started` wrote it, and only a purge,
+        // refused above for a deleted session, takes it away.
+        const answeredIn = modelOfRun(facts.live.runId, model.id);
+        if (answeredIn !== model.id) ignored.push("model");
+        if (turn.extension.permissionMode !== null) ignored.push(`${COMPLETIONS_NAMESPACE}.permissionMode`);
+        ignored.push(...turn.instructionSources);
+        if (turn.effortParam !== null) ignored.push(turn.effortParam);
+        if (turn.extension.attendedSet) ignored.push(`${COMPLETIONS_NAMESPACE}.attended`);
+        ignored.push(...liveToolsIgnored(turn, sessionId));
+        const { runId, messageId } = sent.result;
         return {
+          sessionId,
+          runId,
+          messageId,
+          queued: true,
+          model: answeredIn,
+          head: { sessionId, runId, messageId, delivery: "queued", mode: facts.live.policy.mode.effective, clamped: null, ignored },
+        };
+      }
+
+      // Nothing is live to attach to: a new run starts, and `after` says nothing.
+      if (turn.extension.after !== null) ignored.push(`${COMPLETIONS_NAMESPACE}.after`);
+      const started = startRunIn(log, host, tx, { actor: COMPLETIONS_ACTOR }, {
+        sessionId,
+        actor,
+        origin: "completions",
+        text,
+        attachments,
+        model: model.model.id,
+        effort: turn.effort ?? undefined,
+        mode: turn.extension.permissionMode ?? undefined,
+        appendedInstructions: turn.appendedInstructions,
+        clientTools: turn.tools.served,
+      });
+      if (started.rejected !== undefined) throw refused(started.rejected);
+      const { mode } = started.policy;
+      return {
+        sessionId,
+        runId: started.runId,
+        messageId: started.messageId,
+        queued: false,
+        model: model.id,
+        head: {
           sessionId,
           runId: started.runId,
           messageId: started.messageId,
-          queued: false,
-          model: model.id,
-          head: {
-            sessionId,
-            runId: started.runId,
-            messageId: started.messageId,
-            delivery: "prompt",
-            mode: mode.effective,
-            clamped: mode.clamped && mode.requested !== null && mode.clampReason !== null ? { requested: mode.requested, effective: mode.effective, ceiling: mode.ceiling, reason: mode.clampReason } : null,
-            ignored,
-          },
-        };
-      });
-    } catch (error) {
-      if (workspace?.made === true) rmSync(workspace.path, { recursive: true, force: true });
-      throw error;
-    }
+          delivery: "prompt",
+          mode: mode.effective,
+          clamped: mode.clamped && mode.requested !== null && mode.clampReason !== null ? { requested: mode.requested, effective: mode.effective, ceiling: mode.ceiling, reason: mode.clampReason } : null,
+          ignored,
+        },
+      };
+    });
   };
 
   /** Where a queued message is now: still with the provider, waiting in the environment's queue, or read. */
@@ -558,16 +622,28 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
     if (exchange.gone) return;
     const where = await target(turn, model, clientSession);
     if (exchange.gone) return;
-    // Or while a fork or a rewind was asked for.
-    ready(true);
+    // A fresh session's place, through the resolver (#321): a wait too, after which the turn is checked again.
+    const place = where.fresh ? await placeFor(turn, where.sessionId) : null;
+    if (exchange.gone) {
+      await place?.discard();
+      return;
+    }
+    // Or while a fork or a rewind was asked for, or the place resolved.
+    try {
+      ready(true);
+    } catch (error) {
+      await place?.discard();
+      throw error;
+    }
 
     // Listen before anything is recorded, so no event of the turn is missed; what came before `after` is read back.
     const follower = follow(where.sessionId);
     let begun: Begun;
     try {
-      begun = begin(turn, model, clientSession, where);
+      begun = begin(turn, model, clientSession, where, place);
     } catch (error) {
       follower.stop();
+      await place?.discard();
       // A fresh session's id names nothing once its transaction rolled back.
       throw asRefusal(error, where.fresh ? undefined : { sessionId: where.sessionId });
     }

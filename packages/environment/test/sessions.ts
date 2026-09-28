@@ -127,6 +127,7 @@ export const freshSummary = (id: string, overrides: Partial<SessionSummary> = {}
   snoozedAt: null,
   workspace,
   repositoryIdentity: null,
+  workspaceMissingSince: null,
   activity: { state: "idle", since: MANUAL_CLOCK_START },
   parkedPromptCount: 0,
   accountId: null,
