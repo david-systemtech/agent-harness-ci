@@ -29,11 +29,12 @@ const runtimeDependencies = (m: Manifest): string[] => [
 ];
 
 describe("the workspace", () => {
-  it("holds the contracts, environment, client runtime and terminal UI packages and the CLI", () => {
+  it("holds the contracts, environment, client runtime, theme and terminal UI packages and the CLI", () => {
     expect(manifests.map((m) => m.name).sort()).toEqual([
       "@agent-harness/client-runtime",
       "@agent-harness/contracts",
       "@agent-harness/environment",
+      "@agent-harness/theme",
       "@agent-harness/tui",
       "agent-harness",
     ]);
@@ -48,6 +49,10 @@ describe("the workspace", () => {
 
   it("gives the client runtime one runtime dependency, contracts", () => {
     expect(runtimeDependencies(manifest("@agent-harness/client-runtime"))).toEqual(["@agent-harness/contracts"]);
+  });
+
+  it("gives the theme package one runtime dependency, contracts: it holds no UI and no session state (ADR 0023)", () => {
+    expect(runtimeDependencies(manifest("@agent-harness/theme"))).toEqual(["@agent-harness/contracts"]);
   });
 
   it("gives the environment no runtime dependency on a client package or the CLI", () => {

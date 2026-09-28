@@ -108,6 +108,12 @@ importers:
         specifier: 1.1.0
         version: 1.1.0
 
+  packages/theme:
+    dependencies:
+      '@agent-harness/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+
   packages/tui:
     dependencies:
       '@agent-harness/client-runtime':

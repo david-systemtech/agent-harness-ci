@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ThemeSeed",
+  "type": "object",
+  "properties": {
+    "hue": {
+      "type": "number",
+      "minimum": 0,
+      "exclusiveMaximum": 360,
+      "description": "The OKLCH hue in degrees, from 0 up to but not including 360."
+    },
+    "chroma": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 0.4,
+      "description": "The OKLCH chroma, from 0 (grey) to 0.4."
+    }
+  },
+  "required": [
+    "hue",
+    "chroma"
+  ],
+  "description": "One seed of a theme: an OKLCH hue and chroma. The theme package gives each token its lightness, keeps the chroma inside sRGB and the contrast rules, and reports the seed when it had to clamp it."
+}
