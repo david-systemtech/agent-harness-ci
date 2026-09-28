@@ -189,6 +189,21 @@ describe("a worktree request", () => {
     expect(branchesOf(checkout)).toEqual(["main", "review"]);
   });
 
+  it("checks out the branch, never a tag of the same name, whether the branch is existing or new", async () => {
+    const checkout = repository();
+    const tagged = git(checkout, "rev-parse", "HEAD").trim();
+    for (const name of ["shared", "made"]) git(checkout, "tag", name);
+    const tip = commit(checkout, { "b.txt": "b\n" });
+    git(checkout, "branch", "shared");
+    const t = await start();
+    for (const request of [{ branch: "shared" }, { newBranch: { name: "made" } }]) {
+      const made = await worktreeOf(t, { repository: checkout, ...request });
+      expect(git(made.path, "symbolic-ref", "HEAD").trim()).toBe(`refs/heads/${made.branch}`);
+      expect(git(made.path, "rev-parse", "HEAD").trim()).not.toBe(tagged);
+      expect(git(made.path, "rev-parse", "HEAD").trim()).toBe(tip);
+    }
+  });
+
   it("makes one from a bare repository, which records it as the repository", async () => {
     const source = repository();
     const bare = join(tempDir(), "app.git");

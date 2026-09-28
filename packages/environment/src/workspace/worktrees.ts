@@ -242,15 +242,16 @@ export const makeWorktree = async (request: WorktreeRequest, sessionId: string, 
     const list = join(checkout, WORKTREE_INCLUDE);
     // A regular file, as the files it names are.
     if (!(await lstat(list).then((stats) => stats.isFile(), () => false))) return;
-    // The untracked files its patterns match, then those of them git ignores.
+    // The untracked files its patterns match, then those of them git ignores. A listing stopped at the limit is a
+    // failure, whatever it wrote first; one past the byte cap is cut at its last whole name, as the 1,000 are.
     const named = await git(checkout, ["ls-files", "-z", "--others", "--ignored", `--exclude-from=${list}`], LISTING_BYTES);
-    if (!named.ok) throw failure(named, timeoutMs);
+    if (!named.ok || named.timedOut) throw failure(named, timeoutMs);
     const candidates = named.truncated ? named.stdout.subarray(0, named.stdout.lastIndexOf(0) + 1) : named.stdout;
     if (candidates.length === 0) return;
     const ignored = await git(checkout, ["check-ignore", "-z", "--stdin"], LISTING_BYTES, candidates);
     // Exit 1 with nothing listed is check-ignore's "none of them is ignored".
     if (ignored.code === 1 && ignored.stdout.length === 0) return;
-    if (!ignored.ok) throw failure(ignored, timeoutMs);
+    if (!ignored.ok || ignored.timedOut) throw failure(ignored, timeoutMs);
     const files = ignored.stdout.toString("utf8").split("\0");
     // The last is empty after the final NUL, or cut short at the cap.
     files.pop();
