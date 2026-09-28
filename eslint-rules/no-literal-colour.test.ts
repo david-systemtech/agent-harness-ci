@@ -49,10 +49,11 @@ ruleTester.run("no-literal-colour", rule, {
     { filename: gui("app.ts"), code: `const a = "#ffff";`, errors: [literal("#ffff")] },
     { filename: gui("app.ts"), code: `const a = "#a1b2c3";`, errors: [literal("#a1b2c3")] },
     { filename: gui("app.ts"), code: `const a = "#A1B2C3D4";`, errors: [literal("#A1B2C3D4")] },
-    // In a template literal, a JSX attribute and a longer value.
+    // In a template literal, a JSX attribute, a longer value and a style object.
     { filename: gui("app.ts"), code: "const a = `0 0 0 1px #000 ${inset}`;", errors: [literal("#000")] },
     { filename: gui("logo.tsx"), code: `const a = <path fill="#1a1a1a" d="M0 0" />;`, errors: [literal("#1a1a1a")] },
     { filename: gui("app.ts"), code: `const a = "1px solid #abc, 2px dashed #def";`, errors: [literal("#abc"), literal("#def")] },
+    { filename: gui("app.tsx"), code: "const a = <div style={{ color: \"#fff\", background: `#000` }} />;", errors: [literal("#fff"), literal("#000")] },
     // rgb(), hsl(), oklch(), color() and their alpha forms; the other literal colour functions.
     { filename: gui("app.ts"), code: `const a = "rgb(0 0 0)";`, errors: [literal("rgb(0 0 0)")] },
     { filename: gui("app.ts"), code: `const a = "rgba(0, 0, 0, 0.5)";`, errors: [literal("rgba(0, 0, 0, 0.5)")] },
@@ -63,6 +64,7 @@ ruleTester.run("no-literal-colour", rule, {
     { filename: gui("app.ts"), code: `const a = "color(display-p3 1 0 0 / 0.5)";`, errors: [literal("color(display-p3 1 0 0 / 0.5)")] },
     { filename: gui("app.ts"), code: `const a = ["hwb(0 0% 0%)", "lab(50% 40 59)", "lch(52% 72 50)", "oklab(0.6 0.1 0.1)"];`, errors: [literal("hwb(0 0% 0%)"), literal("lab(50% 40 59)"), literal("lch(52% 72 50)"), literal("oklab(0.6 0.1 0.1)")] },
     { filename: gui("app.tsx"), code: "const a = <div style={{ boxShadow: `0 0 4px rgba(0,0,0,${alpha})` }} />;", errors: [literal("rgba(0,0,0,")] },
+    { filename: gui("logo.tsx"), code: `const a = <stop stopColor="hsla(0 0% 0% / 0.5)" />;`, errors: [literal("hsla(0 0% 0% / 0.5)")] },
     // A token's fallback is a literal colour, and so is a relative colour from one.
     { filename: gui("app.ts"), code: `const a = "var(--beam, #3b82f6)";`, errors: [literal("#3b82f6")] },
     { filename: gui("app.ts"), code: `const a = "oklch(from #3b82f6 l c h) rgb(from red r g b)";`, errors: [literal("oklch(from #3b82f6 l c h)"), literal("rgb(from red r g b)")] },
