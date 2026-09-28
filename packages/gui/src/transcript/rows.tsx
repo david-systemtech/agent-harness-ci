@@ -1,5 +1,7 @@
-import type { TranscriptRow } from "@agent-harness/client-runtime";
-import { use } from "react";
+import { oneLine, type AssistantEntry, type TranscriptRow } from "@agent-harness/client-runtime";
+import { use, useState } from "react";
+import { Fold } from "../ui/index.js";
+import { usePresentation } from "../window-context.js";
 import { FindQuery, Marked } from "./find.js";
 import { Markdown } from "./markdown.js";
 import { StreamingText } from "./streaming-text.js";
@@ -20,7 +22,11 @@ export const TranscriptRowView = ({ row, arrived }: RowProps) => {
         </article>
       );
     case "assistant":
-      return <AssistantText text={row.entry.text} streaming={row.entry.streaming} arrived={arrived(row.entry.sequence)} />;
+      return row.entry.kind === "assistant-thinking" ? (
+        <Reasoning entry={row.entry} arrived={arrived(row.entry.sequence)} />
+      ) : (
+        <AssistantText text={row.entry.text} streaming={row.entry.streaming} arrived={arrived(row.entry.sequence)} />
+      );
     default:
       return null;
   }
@@ -41,3 +47,48 @@ const AssistantText = ({ text, streaming, arrived }: { readonly text: string; re
     </article>
   );
 };
+
+/** The marks a one-line preview of reasoning leaves out: markdown's headings, list markers, emphasis and code ticks. */
+const PREVIEW_MARKS = /^\s{0,3}(?:#{1,6}|>|[-*+]|\d+[.)])\s+|\*\*|__|~~|`/gm;
+
+/**
+ * A run's reasoning, behind a fold (docs/specs/gui.md, "A session pane"):
+ * open or shut as the reasoning-shown preference says (`reasoningShown`,
+ * presentation), and opened or shut by a click; the preference moving is an
+ * instruction about every fold, so it shuts or opens this one again. Shut,
+ * its first line says what is in it.
+ */
+const Reasoning = ({ entry, arrived }: { readonly entry: AssistantEntry; readonly arrived: boolean }) => {
+  const [shown] = usePresentation("reasoningShown");
+  const [open, setOpen] = useState(shown);
+  const [wasShown, setWasShown] = useState(shown);
+  if (wasShown !== shown) {
+    setWasShown(shown);
+    setOpen(shown);
+  }
+  const preview = oneLine(entry.text.replace(PREVIEW_MARKS, "").split("\n").find((line) => line.trim() !== "") ?? "", 80);
+  return (
+    <Fold
+      open={open}
+      onOpenChange={setOpen}
+      summary={
+        <span className="flex min-w-0 gap-1.5">
+          <span className="font-medium text-sage">Reasoning</span>
+          {!open && preview !== "" && <span className="truncate">{preview}</span>}
+        </span>
+      }
+    >
+      <div className="border-l border-hairline pl-3 text-ink-muted">
+        {entry.streaming ? (
+          <div className="whitespace-pre-wrap break-words">
+            <StreamingText text={entry.text} arrived={arrived} />
+          </div>
+        ) : (
+          <ReasoningText text={entry.text} />
+        )}
+      </div>
+    </Fold>
+  );
+};
+
+const ReasoningText = ({ text }: { readonly text: string }) => <Markdown text={text} query={use(FindQuery)} />;

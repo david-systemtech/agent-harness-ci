@@ -81,3 +81,29 @@ describe("streaming", () => {
     expect(within(code as HTMLElement).getByText("const").tagName).toBe("SPAN");
   });
 });
+
+describe("reasoning", () => {
+  it("sits behind a fold, open or shut by the reasoning-shown preference, each fold opened or shut by a click until the preference moves", async () => {
+    const { app, env, transcript, session } = await opened();
+    const { runId } = env.startRun(session, "Fix the receipts");
+    env.emit(session, "assistant.thinking", { runId, itemId: "r-1", text: "The totals are summed twice.\n\nFix the second sum.", aborted: false });
+    const fold = await within(transcript).findByRole("button", { name: /^Reasoning/ });
+    expect(fold.getAttribute("aria-expanded")).toBe("true");
+    expect(within(transcript).getByText("Fix the second sum.")).toBeDefined();
+
+    // Shut, its first line says what is in it, and the rest is not drawn.
+    act(() => app.presentation.set("reasoningShown", false));
+    expect(fold.getAttribute("aria-expanded")).toBe("false");
+    expect(fold.textContent).toContain("The totals are summed twice.");
+    expect(within(transcript).queryByText("Fix the second sum.")).toBeNull();
+
+    await app.user.click(fold);
+    expect(fold.getAttribute("aria-expanded")).toBe("true");
+    expect(within(transcript).getByText("Fix the second sum.")).toBeDefined();
+
+    // The preference moving is an instruction about every fold, the one clicked open included.
+    act(() => app.presentation.set("reasoningShown", true));
+    act(() => app.presentation.set("reasoningShown", false));
+    expect(fold.getAttribute("aria-expanded")).toBe("false");
+  });
+});
