@@ -83,13 +83,38 @@ const outcomes: Fixtures = {
     { outcome: "cancelled", updateId, fromVersion: "0.4.2", toVersion: "0.5.0", at },
   ],
 };
+const releaseSource = { origin: "https://git.systemtech.dev:5526", kind: "forgejo", repository: "david/agent-harness" };
+const releaseSources: Fixtures = {
+  valid: [releaseSource, { origin: "https://github.com", kind: "github", repository: "david-systemtech/agent-harness" }],
+  invalid: [
+    { ...releaseSource, origin: "https://git.systemtech.dev:5526/" },
+    { ...releaseSource, kind: "gitlab" },
+    { ...releaseSource, repository: "agent-harness" },
+    { ...releaseSource, repository: "david/../x" },
+    { origin: releaseSource.origin, kind: "forgejo" },
+  ],
+};
+const targets: Fixtures = {
+  valid: [{ version: "0.5.0", source: "channel" }, { version: "0.4.1", source: "pin" }],
+  invalid: [{ version: "v0.5.0", source: "channel" }, { version: "0.5.0", source: "request" }, { version: "0.5.0" }],
+};
+const passedOver: Fixtures = {
+  valid: [
+    { version: "0.3.0", source: "pin", reason: "schema", message: "Its database schema, 3, is below this database's, 6." },
+    { version: "0.5.0", source: "channel", reason: "artefact", message: "It has no artefact for linux-x64." },
+  ],
+  invalid: [{ version: "0.3.0", source: "pin", reason: "schema" }, { version: "0.3.0", source: "pin", reason: "old", message: "x" }],
+};
 const status = {
   version: "0.4.2",
   protocolVersion: 1,
   bundledClaudeCodeVersion: "2.3.1",
   manager: { kind: "launcher", launcherVersion: "0.4.0" },
+  releaseSource,
   newest: "0.5.0",
   lastCheck: { at, result: "ok" },
+  target: { version: "0.5.0", source: "channel" },
+  passedOver: null,
   pending: { state: "waiting", ...pending, waitsOn: { reason: "run-running", until: null } },
   lastOutcome: null,
   failedVersions: [],
@@ -104,13 +129,22 @@ const statuses: Fixtures = {
       manager: { kind: "outside", lastPoll: at },
       newest: null,
       lastCheck: null,
+      target: null,
+      passedOver: passedOver.valid[0],
       pending: { state: "ready", ...pending, image },
       lastOutcome: outcomes.valid[2],
       failedVersions: ["0.5.0"],
       installed: [],
     },
   ],
-  invalid: [{ ...status, manager: undefined }, { ...status, newest: "v0.5.0" }, { ...status, pending: { state: "idle" } }, { ...status, installed: "0.4.2" }],
+  invalid: [
+    { ...status, manager: undefined },
+    { ...status, newest: "v0.5.0" },
+    { ...status, pending: { state: "idle" } },
+    { ...status, installed: "0.4.2" },
+    { ...status, releaseSource: undefined },
+    { ...status, target: undefined },
+  ],
 };
 const taken: Fixtures = { valid: [{ updateId, toVersion: "0.5.0" }], invalid: [{ updateId: "u-1", toVersion: "0.5.0" }, { updateId }] };
 
@@ -126,6 +160,7 @@ export const updateSchemaFixtures: Record<string, Fixtures> = {
     invalid: [{ ...artefact, size: -1 }, { ...artefact, sha256: sha("A") }, { ...artefact, platform: undefined }, { ...script, format: "" }],
   },
   "release/image.json": { valid: [image], invalid: [{ reference: image.reference }, { ...image, digest: sha("0") }, { ...image, reference: "" }] },
+  "release/source.json": releaseSources,
   "release/manifest.json": {
     valid: [manifest, { ...manifest, version: "1.0.0-beta.2", assets: [], notes: "a later release's field" }],
     invalid: [
@@ -189,6 +224,9 @@ export const updateSchemaFixtures: Record<string, Fixtures> = {
   "updates/blocked-reason.json": { valid: ["launcher"], invalid: ["disk", ""] },
   "updates/waits-on.json": { valid: [{ reason: "parked-prompt", until: at }, { reason: "run-starting", until: null }], invalid: [{ reason: "lunch", until: null }, { reason: "run-running" }] },
   "updates/pending-update.json": pendingUpdates,
+  "updates/target.json": targets,
+  "updates/pass-over-reason.json": { valid: ["schema", "artefact", "missing"], invalid: ["failed", ""] },
+  "updates/passed-over.json": passedOver,
   "updates/outcome.json": outcomes,
   "updates/status.json": statuses,
   "update/request.json": {
@@ -215,7 +253,7 @@ export const updateSchemaFixtures: Record<string, Fixtures> = {
   },
   "updates/when.json": { valid: ["idle", "now"], invalid: ["tonight", ""] },
   "updates/conflict-reason.json": {
-    valid: ["pinned", "current", "schema", "launcher", "in_progress", "no_release_access", "install", "no_launcher"],
+    valid: ["pinned", "current", "schema", "launcher", "in_progress", "no_release_access", "unreachable", "manifest", "install", "no_launcher"],
     invalid: ["in-progress", "preflight", ""],
   },
   "updates/install-refusal.json": { valid: ["launcher-protocol", "incomplete", "preflight", "disk", "io"], invalid: ["no-launcher", "install", ""] },

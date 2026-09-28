@@ -189,6 +189,8 @@ export interface ForgeProvider {
   mergePullRequest(origin: ForgeOrigin, token: string, fullName: string, number: number, method: MergeMethod, call?: CallOptions): Promise<ForgeReply<null>>;
   /** Up to `limit` of `fullName`'s newest releases that are not drafts, page by page; with no token, anonymously. */
   releases(origin: ForgeOrigin, token: string | null, fullName: string, limit: number, call?: CallOptions): Promise<ForgeReply<ForgeRelease[]>>;
+  /** `fullName`'s release tagged `tag`; a draft there answers as not found, 404, since a draft is never read. With no token, anonymously. */
+  release(origin: ForgeOrigin, token: string | null, fullName: string, tag: string, call?: CallOptions): Promise<ForgeReply<ForgeRelease>>;
   /** Downloads a release asset of `fullName` into the file `destination`; with no token, anonymously. */
   downloadAsset(origin: ForgeOrigin, token: string | null, fullName: string, asset: ForgeReleaseAsset, destination: string, call?: CallOptions): Promise<ForgeReply<DownloadedAsset>>;
   /** Reads the file at `path` of `fullName` on the branch `ref`; with no token, anonymously. */
@@ -522,6 +524,15 @@ export const forgeProvider = (kind: ForgeKind, options: ProviderOptions): ForgeP
     async releases(origin, token, fullName, limit, call) {
       const paged = await pages(origin, `/repos/${repositoryPath(fullName)}/releases`, token, { limit, keep: (item) => field(item, "draft") === false }, call);
       return listed(origin, paged, "releases", releaseOf);
+    },
+
+    async release(origin, token, fullName, tag, call) {
+      const reply = await get(origin, `/repos/${repositoryPath(fullName)}/releases/tags/${encodeURIComponent(tag)}`, token, call);
+      // Both APIs may answer a draft to a token that can write the repository.
+      if (reply.outcome === "answered" && reply.status === 200 && field(reply.body, "draft") === true) {
+        return { outcome: "failed", status: 404, message: `The forge at ${origin} holds ${tag} as a draft, which is never read.` };
+      }
+      return replied(origin, reply, "release", releaseOf);
     },
 
     async downloadAsset(origin, token, fullName, asset, destination, call) {

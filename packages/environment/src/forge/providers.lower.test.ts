@@ -450,6 +450,31 @@ describe("releases", () => {
     }
   });
 
+  it("read a release by its tag, its tag encoded in the path, and answer a draft there as not found", async () => {
+    for (const { kind, api } of [
+      { kind: "github", api: "/api/v3" },
+      { kind: "forgejo", api: "/api/v1" },
+    ] as const) {
+      const forge = await fakeForge();
+      forge.answer("token-for-tests", `GET ${api}/repos/david/agent-harness/releases/tags/v0.2.0`, { status: 200, body: release(3, "v0.2.0") });
+      forge.answer("token-for-tests", `GET ${api}/repos/david/agent-harness/releases/tags/v0.3.0`, { status: 200, body: release(4, "v0.3.0", { draft: true }) });
+      forge.answer("token-for-tests", `GET ${api}/repos/david/agent-harness/releases/tags/v0.4.0%2Bbuild.1`, { status: 404, body: { message: "Not Found" } });
+      const provider = providerOf(forge, kind);
+
+      expect(await provider.release(forge.origin, "token-for-tests", "david/agent-harness", "v0.2.0"), kind).toEqual({
+        outcome: "done",
+        status: 200,
+        value: expect.objectContaining({ id: 3, tag: "v0.2.0", prerelease: false, assets: [expect.objectContaining({ id: 30, name: "release.json" })] }),
+      });
+      expect(await provider.release(forge.origin, "token-for-tests", "david/agent-harness", "v0.3.0"), kind).toEqual({
+        outcome: "failed",
+        status: 404,
+        message: `The forge at ${forge.origin} holds v0.3.0 as a draft, which is never read.`,
+      });
+      expect(await provider.release(forge.origin, "token-for-tests", "david/agent-harness", "v0.4.0+build.1"), kind).toMatchObject({ outcome: "failed", status: 404 });
+    }
+  });
+
   const sha256 = (text: string): string => createHash("sha256").update(text).digest("hex");
 
   it("download a GitHub asset through the API as a stream of bytes, following its redirect elsewhere without the token", async () => {
