@@ -12,7 +12,7 @@ interface Fixtures {
 }
 
 const orange = { ...DEFAULT_THEME, name: "Ember", seeds: { ...DEFAULT_THEME.seeds, accent: { hue: 55, chroma: 0.19 } } };
-const { danger: _, ...sixSeeds } = DEFAULT_THEME.seeds;
+const sixSeeds = Object.fromEntries(Object.entries(DEFAULT_THEME.seeds).filter(([name]) => name !== "danger"));
 
 export const themeSchemaFixtures: Record<string, Fixtures> = {
   "theme/theme.json": {

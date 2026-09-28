@@ -8,7 +8,7 @@ describe("a theme", () => {
   it("is a name and seven seeds, each an OKLCH hue and chroma (ADR 0023)", () => {
     expect(THEME_SEED_NAMES).toEqual(["canvas", "accent", "machine", "thinking", "success", "warning", "danger"]);
     expect(Theme.safeParse({ name: "Mine", seeds }).success).toBe(true);
-    const { danger: _, ...six } = seeds;
+    const six = Object.fromEntries(Object.entries(seeds).filter(([name]) => name !== "danger"));
     expect(Theme.safeParse({ name: "Mine", seeds: six }).success).toBe(false);
     expect(Theme.safeParse({ seeds }).success).toBe(false);
   });
