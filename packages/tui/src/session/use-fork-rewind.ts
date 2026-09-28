@@ -1,6 +1,14 @@
 import { useEffect, useRef, useState } from "react";
-import type { Clock, Runtime, SessionProjection, SessionRunsView, TranscriptEntry, UserMessageEntry, VerbAvailability } from "@agent-harness/client-runtime";
-import { oneLine } from "../transcript/format.js";
+import {
+  oneLine,
+  type Clock,
+  type Runtime,
+  type SessionProjection,
+  type SessionRunsView,
+  type TranscriptEntry,
+  type UserMessageEntry,
+  type VerbAvailability,
+} from "@agent-harness/client-runtime";
 import type { Question } from "../view.js";
 import { interruptRun } from "./send.js";
 import type { Opened } from "./use-session.js";

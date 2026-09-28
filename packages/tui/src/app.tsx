@@ -3,7 +3,23 @@ import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { Box, Text, render as inkRender, useApp, useInput, usePaste, useStdout, type Instance, type RenderOptions } from "ink";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactElement } from "react";
-import type { Clock, EnvironmentView, GrantReader, Notice, Observable, PairingInput, SessionRow, TranscriptEntry, VerbAvailability } from "@agent-harness/client-runtime";
+import {
+  lastReply,
+  liveTasks,
+  quietFor,
+  transcriptRows,
+  undoableFold,
+  type Clock,
+  type EnvironmentView,
+  type GrantReader,
+  type Notice,
+  type Observable,
+  type PairingInput,
+  type SessionRow,
+  type TranscriptEntry,
+  type TranscriptRow as Row,
+  type VerbAvailability,
+} from "@agent-harness/client-runtime";
 import {
   ACTION_CONDITIONS,
   PRODUCT_NAME,
@@ -79,8 +95,6 @@ import { codeBlocks, exportMarkdown, timelineLine, turnsOf } from "./transcript/
 import { lineText, rowLines, transcriptLines, type Line as TranscriptLine } from "./transcript/lines.js";
 import { StatusLine } from "./status/status-line.js";
 import { useStatus } from "./status/use-status.js";
-import { quietFor } from "./transcript/quiet.js";
-import { lastReply, transcriptRows, undoableFold, type Row } from "./transcript/rows.js";
 import { editCalls, inWorkspace, rowFile } from "./transcript/targets.js";
 import { heldApart, keyBytes } from "./terminal/keys.js";
 import { oneOffMessage, runOneOff } from "./terminal/one-off.js";
@@ -609,11 +623,7 @@ export const App = (props: AppProps) => {
 
   const liveRun = session.liveRunId;
   const live = isLive(session.runState) || liveRun !== undefined;
-  const tasks = useMemo(() => {
-    if (!projection || liveRun === undefined) return [];
-    const ledger = projection.items.findLast((entry) => entry.kind === "tasks" && entry.runId === liveRun);
-    return ledger?.kind === "tasks" ? ledger.tasks.filter((task) => task.status === "running" || task.status === "pending" || task.status === "paused") : [];
-  }, [projection, liveRun]);
+  const tasks = useMemo(() => (projection ? liveTasks(projection, liveRun) : []), [projection, liveRun]);
 
   // The parked prompts (docs/specs/tui.md, "Cards"): every environment's, from `projections.runs` (the asks card), and the open
   // session's own, whose oldest is its card. One this terminal has answered leaves both at once (`useAnswers`).

@@ -1,3 +1,4 @@
+import type { DelegatedWorkRow, RunSummary } from "@agent-harness/contracts";
 import type {
   AssistantEntry,
   CommandEntry,
@@ -8,22 +9,24 @@ import type {
   SubagentEntry,
   ToolCallEntry,
   UserMessageEntry,
-} from "@agent-harness/client-runtime";
-import type { RunSummary } from "@agent-harness/contracts";
+} from "../projections/session.js";
 
 /**
  * The transcript's rows (docs/specs/tui.md, "The transcript: a projection of
- * one session"): `projections.session`'s entries in the order they were
- * opened, folded, and nothing rebuilt client-side. A
- * row is what the transcript's cursor lands on and what the pager, `/export`
- * and `/copy` read; how it is drawn is `lines.ts`'s.
+ * one session"; docs/specs/gui.md, "A session pane"): `projections.session`'s
+ * entries in the order they were opened, folded, and nothing rebuilt
+ * client-side. Both renderers draw these rows, so a session folds the same
+ * way in the terminal and in the window (ADR 0004): a row is what the
+ * terminal's cursor lands on and what its pager, `/export` and `/copy` read,
+ * and what the window's transcript draws; how it is drawn is each renderer's.
  *
  * - **A run's tool calls are one row**, at the place its first call was made:
  *   its finished calls fold into one count and
  *   what is running or went wrong stands under it in full. A subagent's calls
  *   are the runtime's `subagent` entry, a row of their own.
- * - **A queued message is not a row**: it is on the queued line until it is
- *   steered or read (ADR 0022). Steered, it is a row where it was sent, in
+ * - **A queued message is not a row**: it is on the queued line (the
+ *   terminal's) or its queued row (the window's) until it is steered or read
+ *   (ADR 0022). Steered, it is a row where it was sent, in
  *   the turn it was folded into; read as the prompt of a later run (a
  *   read-now, or the run of the queue after a turn), it opens that run: its
  *   row is drawn before the run's first row, in the order the queue was sent,
@@ -32,12 +35,12 @@ import type { RunSummary } from "@agent-harness/contracts";
  * - **Prompts, questions and plans** stand at the sequence of their
  *   `prompt.opened` (permissions spec), answered or parked; a plan draws its
  *   text in place.
- * - **Delegated work** (`tasks`) is not a row: it is the strip under the
- *   transcript.
+ * - **Delegated work** (`tasks`) is not a row: the live run's live tasks
+ *   (`liveTasks`) are the strip under the transcript.
  * - **Under each finished turn**, a `turn` row: how it ended, how long it
  *   took, its tokens and dollars, and the plan windows it moved when known.
  * - **An event this version cannot show** is one dim row naming its type
- *   (ADR 0001): an older terminal survives a newer environment.
+ *   (ADR 0001): an older client survives a newer environment.
  * - **What a rewind cut** (the runtime's `rewound` fold, #230) is one row
  *   where the branch was cut, never among the rows that came after the
  *   rewind (#232): the rows it holds are made as these are, and drawn under
@@ -47,7 +50,7 @@ import type { RunSummary } from "@agent-harness/contracts";
  * Pure: the projection goes in, plain data comes out.
  */
 
-export type Row =
+export type TranscriptRow =
   | { readonly kind: "user"; readonly id: string; readonly runId: string; readonly entry: UserMessageEntry }
   | { readonly kind: "assistant"; readonly id: string; readonly runId: string; readonly entry: AssistantEntry }
   | { readonly kind: "calls"; readonly id: string; readonly runId: string; readonly calls: readonly ToolCallEntry[] }
@@ -57,7 +60,7 @@ export type Row =
   | { readonly kind: "turn"; readonly id: string; readonly runId: string; readonly run: RunSummary }
   | { readonly kind: "opaque"; readonly id: string; readonly runId: null; readonly entry: OpaqueEntry }
   /** The branch a rewind cut, folded where it was cut: the rows it holds, drawn under it when unfolded. */
-  | { readonly kind: "rewound"; readonly id: string; readonly runId: null; readonly entry: RewoundEntry; readonly rows: readonly Row[] };
+  | { readonly kind: "rewound"; readonly id: string; readonly runId: null; readonly entry: RewoundEntry; readonly rows: readonly TranscriptRow[] };
 
 /** The row a run's calls fold into: named for the run, so it keeps its id as the run makes more calls. */
 export const callsRowId = (runId: string): string => `calls:${runId}`;
@@ -68,20 +71,20 @@ export const rewoundRowId = (sequence: number): string => `rewound:${sequence}`;
 /**
  * Whether `row` is the fold whose rewind can be undone: the latest rewind
  * standing (`projections.runs.session`'s `rewound`, by its sequence), while
- * no run has started since. The fold's line, the hint line and `u` ask this
- * one question.
+ * no run has started since. Whatever offers the undo on a fold asks this one
+ * question.
  */
-export const undoableFold = (row: Row | undefined, latest: { readonly sequence: number } | null | undefined): boolean =>
+export const undoableFold = (row: TranscriptRow | undefined, latest: { readonly sequence: number } | null | undefined): boolean =>
   row?.kind === "rewound" && latest != null && latest.sequence === row.entry.sequence && row.entry.undoable;
 
 /** The rows of a session's projection, in the order they are drawn. */
-export const transcriptRows = (view: Pick<SessionProjection, "items" | "runs">): readonly Row[] => {
-  const drawn: Row[] = [];
+export const transcriptRows = (view: Pick<SessionProjection, "items" | "runs">): readonly TranscriptRow[] => {
+  const drawn: TranscriptRow[] = [];
   const groups = new Map<string, ToolCallEntry[]>();
   // The queued messages each run read as its prompt, by message: their rows wait for the run's first row, and open it.
   const readBy = new Map<string, string>();
   for (const run of view.runs) for (const messageId of run.queuedMessageIds) readBy.set(messageId, run.runId);
-  const opening = new Map<string, Row[]>();
+  const opening = new Map<string, TranscriptRow[]>();
   // Where each run started among the session's runs: what a run read is released before any later run's rows, in that order.
   const started = new Map(view.runs.map((run, index) => [run.runId, index]));
   const startOf = (runId: string) => started.get(runId) ?? Number.POSITIVE_INFINITY;
@@ -94,7 +97,7 @@ export const transcriptRows = (view: Pick<SessionProjection, "items" | "runs">):
     }
   };
   /** Draws a row, after what its run, or a run that started before it, read as its prompt and has not drawn yet. */
-  const push = (row: Row) => {
+  const push = (row: TranscriptRow) => {
     if (row.runId !== null && opening.size > 0) open(row.runId);
     drawn.push(row);
   };
@@ -103,7 +106,7 @@ export const transcriptRows = (view: Pick<SessionProjection, "items" | "runs">):
       case "user-message": {
         // A queued message is on the queued line until a run reads it or the provider steers it.
         if (entry.delivery === "queued") break;
-        const row: Row = { kind: "user", id: `message:${entry.messageId}`, runId: entry.runId, entry };
+        const row: TranscriptRow = { kind: "user", id: `message:${entry.messageId}`, runId: entry.runId, entry };
         if (readBy.get(entry.messageId) === entry.runId) opening.set(entry.runId, [...(opening.get(entry.runId) ?? []), row]);
         else push(row);
         break;
@@ -158,14 +161,14 @@ export const transcriptRows = (view: Pick<SessionProjection, "items" | "runs">):
 };
 
 /** The rows with a `turn` row after the last row of each finished run; a run with no row of its own has none. */
-const withTurns = (rows: readonly Row[], runs: readonly RunSummary[]): readonly Row[] => {
+const withTurns = (rows: readonly TranscriptRow[], runs: readonly RunSummary[]): readonly TranscriptRow[] => {
   const ended = new Map(runs.filter((run) => run.state === "ended").map((run) => [run.runId, run]));
   if (ended.size === 0) return rows;
   const last = new Map<string, number>();
   rows.forEach((row, index) => {
     if (row.runId !== null && ended.has(row.runId)) last.set(row.runId, index);
   });
-  const out: Row[] = [];
+  const out: TranscriptRow[] = [];
   rows.forEach((row, index) => {
     out.push(row);
     for (const [runId, at] of last) {
@@ -185,3 +188,10 @@ export const liveRun = (view: Pick<SessionProjection, "runs">): RunSummary | und
 /** The assistant's last reply: the last settled text of the last run that said anything. */
 export const lastReply = (view: Pick<SessionProjection, "items">): AssistantEntry | undefined =>
   view.items.findLast((entry): entry is AssistantEntry => entry.kind === "assistant-text" && entry.text.length > 0);
+
+/** The delegated work still going in the run live now (`runId`): the strip under the transcript. None with no run live. */
+export const liveTasks = (view: Pick<SessionProjection, "items">, runId: string | undefined): readonly DelegatedWorkRow[] => {
+  if (runId === undefined) return [];
+  const ledger = view.items.findLast((entry) => entry.kind === "tasks" && entry.runId === runId);
+  return ledger?.kind === "tasks" ? ledger.tasks.filter((task) => task.status === "running" || task.status === "pending" || task.status === "paused") : [];
+};

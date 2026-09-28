@@ -1,8 +1,18 @@
-import type { SessionProjection, ToolCallEntry } from "@agent-harness/client-runtime";
+import {
+  classifyTool,
+  clockTime,
+  endWords,
+  formatDuration,
+  oneLine,
+  outputText,
+  summarizeToolInput,
+  transcriptRows,
+  turnFacts,
+  type SessionProjection,
+  type ToolCallEntry,
+  type TranscriptRow as Row,
+} from "@agent-harness/client-runtime";
 import type { RunSummary } from "@agent-harness/contracts";
-import { classifyTool, clockTime, formatDuration, oneLine, outputText, summarizeToolInput } from "./format.js";
-import { endWords, turnFacts } from "./lines.js";
-import { transcriptRows, type Row } from "./rows.js";
 
 /**
  * The transcript as text for `/export`, `/copy` and `/timeline`

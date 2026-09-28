@@ -1,9 +1,8 @@
-import type { ToolCallEntry } from "@agent-harness/client-runtime";
 import { describe, expect, it } from "vitest";
-import { TOOL_QUIET_MS } from "./lines.js";
-import { hear, nextQuietChange, quietFor } from "./quiet.js";
+import type { ToolCallEntry } from "../projections/session.js";
+import { TOOL_QUIET_MS, hear, nextQuietChange, quietFor } from "./quiet.js";
 
-/** How long a running call has been quiet, measured on this terminal's clock (docs/specs/tui.md, "The transcript"). */
+/** How long a running call has been quiet, measured on the renderer's clock (docs/specs/tui.md, "The transcript"). */
 
 const running = (toolCallId: string, update: Record<string, unknown> | null = null): ToolCallEntry => ({
   kind: "tool-call",

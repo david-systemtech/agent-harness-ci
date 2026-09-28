@@ -1,8 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { Clock, RunState, Runtime, SessionProjection, SessionRunsView } from "@agent-harness/client-runtime";
+import {
+  hear,
+  nextQuietChange,
+  runningCalls,
+  type Clock,
+  type QuietCalls,
+  type RunState,
+  type Runtime,
+  type SessionProjection,
+  type SessionRunsView,
+} from "@agent-harness/client-runtime";
 import type { AdapterCapabilities, CommandEntry } from "@agent-harness/contracts";
 import { gaugeOf, markOf, planDelta, type PlanMark } from "../transcript/plan.js";
-import { hear, nextQuietChange, runningCalls, type QuietCalls } from "../transcript/quiet.js";
 import { lockOf, type Lock } from "./send.js";
 
 /**
