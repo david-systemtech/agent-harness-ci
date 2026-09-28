@@ -127,6 +127,7 @@ import {
   UpdateSettingsValues,
 } from "./update-settings.js";
 import {
+  EnvironmentUpdatedPayload,
   PendingUpdate,
   UpdateBlockedReason,
   UpdateCancelCause,
@@ -659,6 +660,7 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "updates/update-cancel-cause.json", title: "UpdateCancelCause", schema: UpdateCancelCause },
   { path: "updates/events/environment.update-pending.json", title: "UpdatePendingPayload", schema: UpdatePendingPayload },
   { path: "updates/events/environment.update-started.json", title: "UpdateStartedPayload", schema: UpdateStartedPayload },
+  { path: "updates/events/environment.updated.json", title: "EnvironmentUpdatedPayload", schema: EnvironmentUpdatedPayload },
   { path: "updates/events/environment.update-failed.json", title: "UpdateFailedPayload", schema: UpdateFailedPayload },
   { path: "updates/events/environment.update-cancelled.json", title: "UpdateCancelledPayload", schema: UpdateCancelledPayload },
   { path: "updates/manager.json", title: "UpdateManager", schema: UpdateManager },

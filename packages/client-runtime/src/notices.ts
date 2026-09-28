@@ -20,11 +20,12 @@ export const NOTICE_LIMIT = 100;
 /**
  * What a notice is about: the connection's own kinds; from
  * `environment.subscribe`, `updated` (the environment now runs another
- * harness version), `draining` (it takes no new runs until it restarts),
- * `account` (an account changed in a way worth saying: the environment's
- * warning, or its sign-in status), `prompt-parked` (a run waits for a
- * person's answer) and `prompt-resolved` (a prompt this client was told of
- * was settled with nobody answering it); and the outbox's (#128):
+ * harness version), `update-failed` (an update did not take, and the
+ * version it went from runs), `draining` (it takes no new runs until it
+ * restarts), `account` (an account changed in a way worth saying: the
+ * environment's warning, or its sign-in status), `prompt-parked` (a run
+ * waits for a person's answer) and `prompt-resolved` (a prompt this client
+ * was told of was settled with nobody answering it); and the outbox's (#128):
  * `command-rejected` (the environment refused a command, by its receipt or
  * an error) and `command-dropped` (a command left the outbox unsent,
  * whatever dropped it: seven days without reaching its environment, a run
@@ -34,6 +35,7 @@ export const NOTICE_LIMIT = 100;
 export type NoticeKind =
   | ConnectionNoticeKind
   | "updated"
+  | "update-failed"
   | "draining"
   | "account"
   | "prompt-parked"

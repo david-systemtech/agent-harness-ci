@@ -2,7 +2,18 @@ import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { SCOPES, STAGING_DIRECTORY, type EnvironmentMessage, type ParamsOf, type PromptOpenedPayload, type ResponseOf, type UpdatePendingPayload } from "@agent-harness/contracts";
+import {
+  OUTCOME_RECORD_FILE,
+  PROTOCOL_VERSION,
+  SCOPES,
+  STAGING_DIRECTORY,
+  type EnvironmentMessage,
+  type OutcomeRecord,
+  type ParamsOf,
+  type PromptOpenedPayload,
+  type ResponseOf,
+  type UpdatePendingPayload,
+} from "@agent-harness/contracts";
 import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { MANUAL_CLOCK_START } from "../../test/clock.js";
@@ -513,5 +524,160 @@ describe("updates.cancel", () => {
     await t.close();
     const again = await start({ dataDir, clock: t.clock });
     expect(await pendingOf(await again.client())).toEqual({ state: "current" });
+  });
+});
+
+/** Writes `record` in `dataDir` as the launcher writes its outcome record after rolling an update back. */
+const leaveOutcomeRecord = (dataDir: string, record: OutcomeRecord): void => writeFileSync(join(dataDir, OUTCOME_RECORD_FILE), `${JSON.stringify(record, null, 2)}\n`);
+
+/**
+ * An update to TARGET that drained and that the launcher answered
+ * `switching`: the environment it ran in has closed, and its data directory
+ * is what the launcher starts the target, or the version it went from, on.
+ */
+const switched = async () => {
+  const dataDir = join(tempDir(), "data");
+  const { t, client, updateId } = await pendingUpdate({ dataDir });
+  t.runs.end("r1");
+  await apply(client, { when: "now" });
+  t.clock.advance(0);
+  await t.env.drained;
+  return { dataDir, clock: t.clock, updateId };
+};
+
+/** The last outcome and the failed versions, as `updates.status` answers them. */
+const outcomesOf = async (t: TestEnvironment) => {
+  const { lastOutcome, failedVersions } = await (await t.client()).request("updates.status", {});
+  return { lastOutcome, failedVersions };
+};
+
+describe("the settle after the restart", () => {
+  it("appends environment.updated with the update id as a start running the update's target passes the gate, before any socket is served", async () => {
+    const { dataDir, clock, updateId } = await switched();
+
+    const t = await start({ dataDir, clock, harnessVersion: TARGET });
+
+    // Read as the start settles: the wire is open and has served no socket yet.
+    expect(t.env.sockets()).toBe(0);
+    const notices = t.env.log.readStream({ kinds: ["environment"] });
+    expect(notices.slice(-2).map(({ type, payload, actor }) => ({ type, payload, actor }))).toEqual([
+      { type: "environment.started", payload: { harnessVersion: TARGET, protocolVersion: PROTOCOL_VERSION }, actor: "system:lifecycle" },
+      { type: "environment.updated", payload: { fromVersion: RUNNING, toVersion: TARGET, updateId }, actor: "system:updates" },
+    ]);
+    expect(await outcomesOf(t)).toEqual({ lastOutcome: { outcome: "updated", updateId, fromVersion: RUNNING, toVersion: TARGET, at: clock.now().toISOString() }, failedVersions: [] });
+  });
+
+  it("appends update-failed with the outcome record's stage and reason, rolled back, as a start running the version it went from passes the gate, and deletes the record", async () => {
+    for (const [stage, reason] of [
+      ["trial", "deadline"],
+      ["crash-loop", "exit"],
+    ] as const) {
+      const { dataDir, clock, updateId } = await switched();
+      leaveOutcomeRecord(dataDir, { updateId, fromVersion: RUNNING, toVersion: TARGET, stage, reason });
+
+      const t = await start({ dataDir, clock });
+
+      expect(updateNotices(t).at(-1), stage).toEqual({
+        type: "environment.update-failed",
+        payload: { updateId, fromVersion: RUNNING, toVersion: TARGET, stage, reason, rolledBack: true },
+      });
+      expect(existsSync(join(dataDir, OUTCOME_RECORD_FILE)), stage).toBe(false);
+      expect(await outcomesOf(t), stage).toEqual({
+        lastOutcome: { outcome: "failed", updateId, fromVersion: RUNNING, toVersion: TARGET, stage, reason, rolledBack: true, at: clock.now().toISOString() },
+        failedVersions: [TARGET],
+      });
+    }
+  });
+
+  it("with no outcome record of the update, says the reason is unknown: no rollback wrote one, so the switch never came, and the version is not marked failed", async () => {
+    const { dataDir, clock, updateId } = await switched();
+    const t = await start({ dataDir, clock });
+    expect(updateNotices(t).at(-1)).toEqual({
+      type: "environment.update-failed",
+      payload: { updateId, fromVersion: RUNNING, toVersion: TARGET, stage: "switch", reason: "unknown", rolledBack: false },
+    });
+    expect(await outcomesOf(t)).toMatchObject({ lastOutcome: { outcome: "failed", stage: "switch", reason: "unknown" }, failedVersions: [] });
+  });
+
+  it("reads no outcome record of another update as this one's, and deletes it too", async () => {
+    const { dataDir, clock, updateId } = await switched();
+    leaveOutcomeRecord(dataDir, { updateId: randomUUID(), fromVersion: "0.3.0", toVersion: RUNNING, stage: "trial", reason: "deadline" });
+    const t = await start({ dataDir, clock });
+    expect(updateNotices(t).at(-1)?.payload).toMatchObject({ updateId, stage: "switch", reason: "unknown" });
+    expect(existsSync(join(dataDir, OUTCOME_RECORD_FILE))).toBe(false);
+  });
+
+  it("reads an outcome record that is not one as none, says so, and starts all the same", async () => {
+    const { dataDir, clock, updateId } = await switched();
+    writeFileSync(join(dataDir, OUTCOME_RECORD_FILE), "{");
+    const quiet = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const t = await start({ dataDir, clock });
+    expect(quiet.mock.calls.some(([line]) => /outcome record/.test(String(line)) && String(line).includes(updateId))).toBe(true);
+    quiet.mockRestore();
+    expect(t.env.readiness()).toBe("ready");
+    expect(updateNotices(t).at(-1)?.payload).toMatchObject({ updateId, stage: "switch", reason: "unknown" });
+    expect(existsSync(join(dataDir, OUTCOME_RECORD_FILE))).toBe(false);
+  });
+
+  it("gives an update that has its outcome no second one at a later start, whichever version it runs", async () => {
+    const { dataDir, clock, updateId } = await switched();
+    const target = await start({ dataDir, clock, harnessVersion: TARGET });
+    await target.close();
+    for (const harnessVersion of [TARGET, RUNNING]) {
+      const again = await start({ dataDir, clock, harnessVersion });
+      expect(updateNotices(again).filter((notice) => notice.type === "environment.updated" || notice.type === "environment.update-failed"), harnessVersion).toEqual([
+        { type: "environment.updated", payload: { fromVersion: RUNNING, toVersion: TARGET, updateId } },
+      ]);
+      await again.close();
+    }
+  });
+
+  it("gives the failure a refused switch appended for itself no second outcome", async () => {
+    const dataDir = join(tempDir(), "data");
+    const { t, client, updateId } = await pendingUpdate({ dataDir, launch: { switch: () => ({ type: "refused", reason: "io" }) } });
+    t.runs.end("r1");
+    await apply(client, { when: "now" });
+    t.clock.advance(0);
+    await t.env.drained;
+
+    const again = await start({ dataDir, clock: t.clock });
+    expect(updateNotices(again).filter((notice) => notice.type === "environment.update-failed")).toEqual([
+      { type: "environment.update-failed", payload: { updateId, fromVersion: RUNNING, toVersion: TARGET, stage: "switch", reason: "io", rolledBack: false } },
+    ]);
+    expect(await outcomesOf(again)).toMatchObject({ lastOutcome: { outcome: "failed", stage: "switch", reason: "io" }, failedVersions: [] });
+  });
+
+  it("after a stop between the outcome and the record's deletion, appends nothing twice at the next start and deletes the record", async () => {
+    const { dataDir, clock, updateId } = await switched();
+    const record: OutcomeRecord = { updateId, fromVersion: RUNNING, toVersion: TARGET, stage: "trial", reason: "exit" };
+    leaveOutcomeRecord(dataDir, record);
+    const first = await start({ dataDir, clock });
+    await first.close();
+    // As if the stop came after the outcome was appended and before the record was deleted.
+    leaveOutcomeRecord(dataDir, record);
+
+    const again = await start({ dataDir, clock });
+    expect(updateNotices(again).filter((notice) => notice.type === "environment.update-failed")).toEqual([
+      { type: "environment.update-failed", payload: { ...record, rolledBack: true } },
+    ]);
+    expect(existsSync(join(dataDir, OUTCOME_RECORD_FILE))).toBe(false);
+  });
+
+  it("keeps a failed version marked on updates.status until an update to it takes", async () => {
+    const { dataDir, clock, updateId } = await switched();
+    leaveOutcomeRecord(dataDir, { updateId, fromVersion: RUNNING, toVersion: TARGET, stage: "trial", reason: "version" });
+    const rolledBack = await start({ dataDir, clock });
+    const client = await rolledBack.client();
+    expect((await client.request("updates.status", {})).failedVersions).toEqual([TARGET]);
+
+    // Update now retries it, and this time it takes.
+    const { result } = await apply(client, { version: TARGET, artefactPath: artefact(), when: "now" });
+    rolledBack.clock.advance(0);
+    await rolledBack.env.drained;
+    const retried = await start({ dataDir, clock, harnessVersion: TARGET });
+    expect(await outcomesOf(retried)).toEqual({
+      lastOutcome: { outcome: "updated", updateId: result?.updateId, fromVersion: RUNNING, toVersion: TARGET, at: clock.now().toISOString() },
+      failedVersions: [],
+    });
   });
 });
