@@ -9,6 +9,7 @@ import { startFakeForge, type FakeForge } from "../../test/fake-forge.js";
 import { DAVID, OTHER_TOKEN, TOKEN, added, basicAuth, forgeEvents, list, pasted, saidBack, update, verify } from "../../test/forge.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { create, refusal } from "../../test/sessions.js";
+import { scriptedKeyManagers } from "../../test/key-managers.js";
 import { scriptedResolver } from "../../test/workspaces.js";
 
 /**
@@ -200,6 +201,29 @@ describe("what a verification finds", () => {
     t.clock.advance(MINUTE);
     const replaced = await update(client, { forgeAccountId: account.id, credential: pasted(OTHER_TOKEN) });
     expect(replaced.result?.account).toMatchObject({ problem: null, statusSince: after(2 * MINUTE), variables: { token: ["FORGE_127_0_0_1_TOKEN", "FORGE_TOKEN"] } });
+  });
+
+  it("reads the credential for the verification and lets it go after, and one that cannot be read is credential-unavailable until it can", async () => {
+    const keyManagers = scriptedKeyManagers();
+    const reference = { provider: "openbao", connectionId: "9b2f4c1e-3d5a-4b6c-8d7e-0f1a2b3c4d5e", mount: "personal", path: "harness/forge-work", key: "token" } as const;
+    keyManagers.answer(reference, TOKEN);
+    const { t, forge, client } = await withForge({ keyManagers: keyManagers.registry });
+    forge.repositories(TOKEN, []);
+    const account = await added(client, { url: forge.origin, kind: "forgejo", credential: { kind: "reference", reference } });
+    await verify(client, account.id);
+
+    keyManagers.answer(reference, null);
+    t.clock.advance(MINUTE);
+    const [unavailable] = await verify(client, account.id);
+    expect(unavailable?.problem).toEqual({ kind: "credential-unavailable", since: after(MINUTE), message: expect.stringContaining(reference.connectionId) });
+
+    keyManagers.answer(reference, TOKEN);
+    t.clock.advance(MINUTE);
+    const [readable] = await verify(client, account.id);
+    expect(readable).toMatchObject({ problem: null, statusSince: after(2 * MINUTE), capabilities: { readRepository: verifiedAt(after(2 * MINUTE)) } });
+    expect(keyManagers.requests.map((request) => request.purpose)).toEqual(["add", "verify", "verify", "verify"]);
+    expect(keyManagers.outstanding()).toBe(0);
+    expect(await saidBack(t, [TOKEN])).toEqual([TOKEN]);
   });
 
   it("reads a GitHub token's kind, scopes and expiry, and an expiry within thirty days is expiring", async () => {

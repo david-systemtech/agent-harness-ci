@@ -126,6 +126,9 @@ describe("aliases on forge.accounts.update", () => {
     const lan = await fakeForge();
     lan.user(TOKEN, DAVID);
     const account = await added(client, { url: forge.origin, kind: "forgejo", aliases: [tailnet.origin] });
+    // The add's own verification, done before the clock moves: the tailnet origin is asked by the add and by it.
+    await verify(client, account.id);
+    expect(tailnet.requests).toHaveLength(2);
     t.clock.advance(60_000);
     const from = t.env.log.head();
 
@@ -135,7 +138,7 @@ describe("aliases on forge.accounts.update", () => {
       { origin: tailnet.origin, verifiedAt: MANUAL_CLOCK_START },
       { origin: lan.origin, verifiedAt: later },
     ]);
-    expect(tailnet.requests).toHaveLength(1);
+    expect(tailnet.requests).toHaveLength(2);
     expect(lan.requests).toEqual([{ method: "GET", path: "/api/v1/user", scheme: "token" }]);
     const same = await update(client, { forgeAccountId: account.id, aliases: [tailnet.origin, lan.origin] });
     expect(same.receipt).toMatchObject({ status: "accepted", changed: false });
@@ -148,8 +151,7 @@ describe("aliases on forge.accounts.update", () => {
 
     const dropped = await update(client, { forgeAccountId: account.id, aliases: [] });
     expect(dropped.result?.account.aliases).toEqual([]);
-    const updated = (await forgeEvents(client, from)).filter((event) => event.type === "forge.account.updated");
-    expect(updated.map((event) => event.payload["aliases"])).toEqual([both.result?.account.aliases, []]);
+    expect((await forgeEvents(client, from)).map((event) => event.payload["aliases"])).toEqual([both.result?.account.aliases, []]);
     // A dropped alias is free for another forge account.
     expect((await added(client, { url: tailnet.origin, kind: "gitea" })).origin).toBe(tailnet.origin);
   });
