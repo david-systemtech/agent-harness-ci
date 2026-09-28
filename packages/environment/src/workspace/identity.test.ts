@@ -125,6 +125,15 @@ describe("sessions.create's repository identity", () => {
     expect(await identityIn(t, expanded)).toBe(IDENTITY);
   });
 
+  it("is read with the machine's own insteadOf too, which the scrubbed environment keeps: the owner's global git config", async () => {
+    const t = await start();
+    const path = repository({ origin: "forge:david/agent-harness.git" });
+    const home = tempDir("agent-harness-home-");
+    git(home, "config", "--file", join(home, ".gitconfig"), "url.ssh://git@git.systemtech.dev:2222/.insteadOf", "forge:");
+    setEnv("HOME", home);
+    expect(await identityIn(t, path)).toBe(IDENTITY);
+  });
+
   it("is none for a repository with no remote, a local remote, and a workspace outside any repository, and the create is accepted", async () => {
     const t = await start();
     expect(await identityIn(t, repository())).toBeNull();
