@@ -531,4 +531,25 @@ describe("the find bar", () => {
     expect(again).toHaveProperty("value", "parserz");
     expect(document.activeElement).toBe(again);
   });
+
+  it("counts again what a fold opened or shut adds or takes away while it looks", async () => {
+    const { app, env, transcript, session } = await opened();
+    const { runId } = env.startRun(session, "Fix the parser");
+    env.emit(session, "tool.started", { runId, toolCallId: "t1", name: "Bash", input: { command: "grep parser" }, title: null, agentId: null, parentToolCallId: null });
+    env.emit(session, "tool.ended", { runId, toolCallId: "t1", status: "ok", output: "src/parser.ts", durationMs: 20 });
+    env.emit(session, "assistant.text", { runId, itemId: "i-1", text: "The parser is fixed.", aborted: false });
+    env.endRun(session, runId);
+    const fold = await within(transcript).findByRole("button", { name: "Ran a command" });
+
+    await app.user.keyboard("{Control>}f{/Control}");
+    await app.user.keyboard("parser");
+    const bar = screen.getByRole("search", { name: "Find in the conversation" });
+    expect(within(bar).getByText("1 of 2")).toBeDefined();
+
+    await app.user.click(fold);
+    await waitFor(() => expect(within(bar).getByText("1 of 4")).toBeDefined());
+    expect(within(transcript).getAllByRole("mark")).toHaveLength(4);
+    await app.user.click(fold);
+    await waitFor(() => expect(within(bar).getByText("1 of 2")).toBeDefined());
+  });
 });

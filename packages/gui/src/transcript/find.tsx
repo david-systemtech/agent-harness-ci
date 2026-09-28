@@ -106,12 +106,23 @@ export const useFindBar = (column: RefObject<HTMLElement | null>, stopFollowing:
   const marked = open ? query.trim() : "";
   const at = count === 0 ? -1 : Math.min(index, count - 1);
 
-  // After every render: the marks drawn are counted, and the one the bar is on is marked current.
-  useLayoutEffect(() => {
+  // The marks drawn are counted, and the one the bar is on is marked current: after every render of the transcript, and
+  // whenever a row draws itself again on its own while the bar looks (a fold opened or shut), which the transcript never hears.
+  const recount = useCallback(() => {
     const marks = column.current?.querySelectorAll("mark") ?? [];
-    if (marks.length !== count) setCount(marks.length);
-    marks.forEach((mark, place) => (place === at ? mark.setAttribute("aria-current", "true") : mark.removeAttribute("aria-current")));
-  });
+    setCount(marks.length);
+    const current = marks.length === 0 ? -1 : Math.min(index, marks.length - 1);
+    marks.forEach((mark, place) => (place === current ? mark.setAttribute("aria-current", "true") : mark.removeAttribute("aria-current")));
+  }, [column, index]);
+  useLayoutEffect(recount);
+  useEffect(() => {
+    const content = column.current;
+    if (marked === "" || content === null) return;
+    // Only what is drawn is watched, not the attributes the count itself sets.
+    const observer = new MutationObserver(recount);
+    observer.observe(content, { childList: true, subtree: true, characterData: true });
+    return () => observer.disconnect();
+  }, [column, marked, recount]);
   // Going to a match: when what is looked for or the step changes, never when a stream draws the transcript again.
   useLayoutEffect(() => {
     if (marked === "") return;
