@@ -66,10 +66,10 @@ export interface WorktreeMakerOptions {
 }
 
 /** The file in the main checkout naming the ignored files a new worktree gets a copy of. */
-export const WORKTREE_INCLUDE = ".worktreeinclude";
+const WORKTREE_INCLUDE = ".worktreeinclude";
 
 /** The most files `.worktreeinclude` copies into one worktree. */
-export const MAX_INCLUDED_FILES = 1_000;
+const MAX_INCLUDED_FILES = 1_000;
 
 /** The most of a short git answer read: a ref, a name, a line. */
 const SMALL_BYTES = 64 * 1024;
@@ -240,6 +240,7 @@ export const makeWorktree = async (request: WorktreeRequest, sessionId: string, 
   /** Copies in the untracked, ignored files the main checkout's `.worktreeinclude` names, the first 1,000 that are regular files. */
   const copyIncluded = async (checkout: string, worktree: string): Promise<void> => {
     const list = join(checkout, WORKTREE_INCLUDE);
+    // A regular file, as the files it names are.
     if (!(await lstat(list).then((stats) => stats.isFile(), () => false))) return;
     // The untracked files its patterns match, then those of them git ignores.
     const named = await git(checkout, ["ls-files", "-z", "--others", "--ignored", `--exclude-from=${list}`], LISTING_BYTES);
@@ -260,10 +261,17 @@ export const makeWorktree = async (request: WorktreeRequest, sessionId: string, 
     }
   };
 
-  const undos: (() => Promise<unknown>)[] = [];
-  /** Removes what this create made, newest first, each step tried whatever the one before did. */
+  const undos: (() => Promise<void>)[] = [];
+  /** Removes what this create made, newest first, each step tried whatever the one before did; throws what was left behind. */
   const undo = async (): Promise<void> => {
-    for (const step of [...undos].reverse()) await step().catch(() => undefined);
+    const failures: unknown[] = [];
+    for (const step of [...undos].reverse()) await step().catch((error: unknown) => void failures.push(error));
+    if (failures.length > 0) throw new AggregateError(failures, `Removing the worktree made for the session ${sessionId} left something behind.`);
+  };
+  /** Runs a removal's git call, throwing git's complaint when it fails. */
+  const removal = async (cwd: string, args: readonly string[], what: string): Promise<void> => {
+    const answer = await git(cwd, args);
+    if (!answer.ok) throw new Error(`git could not remove ${what}: ${answer.timedOut ? "it did not finish in time" : gitComplaint(answer.stderr)}`);
   };
 
   try {
@@ -300,11 +308,12 @@ export const makeWorktree = async (request: WorktreeRequest, sessionId: string, 
       // The branch goes with the worktree only while it points where it was made: it holds no commits of anyone's.
       undos.push(async () => {
         const now = await git(repository, ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`]);
-        if (now.ok && now.stdout.toString("utf8").trim() === made) await git(repository, ["branch", "-D", "--", branch]);
+        if (now.ok && now.stdout.toString("utf8").trim() === made) await removal(repository, ["branch", "-D", "--", branch], `the branch ${branch}`);
       });
     }
     await must(repository, ["worktree", "add", "--no-checkout", "--lock", "--reason", lockReason(sessionId), "--", path, branch]);
-    undos.push(() => git(repository, ["worktree", "remove", "--force", "--force", "--", path]));
+    // Forced twice: it is locked, and it is this create's own, which no run has used.
+    undos.push(() => removal(repository, ["worktree", "remove", "--force", "--force", "--", path], `the worktree ${path}`));
 
     // Read as the new worktree sees the config, before anything is checked out that could run a filter.
     const configured = await repositoryFilters(path, timeoutMs);
@@ -322,7 +331,7 @@ export const makeWorktree = async (request: WorktreeRequest, sessionId: string, 
     const workspace: Workspace = { kind: "worktree", path, repository, branch };
     return { workspace, repositoryIdentity: await options.identityAt(path), undo };
   } catch (error) {
-    await undo();
+    await undo().catch((failed: unknown) => console.error("Removing what a refused worktree create made failed:", failed));
     if (error instanceof Refused) return { refused: error.refusal };
     throw error;
   }

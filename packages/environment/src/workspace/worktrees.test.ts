@@ -86,8 +86,11 @@ const madeUnder = (t: TestEnvironment): string[] => {
   return readdirSync(root).flatMap((repository) => readdirSync(join(root, repository)).map((branch) => `${repository}/${branch}`));
 };
 
+/** A worktree request, less its kind. */
+type Request = Omit<Extract<WorkspaceRequest, { kind: "worktree" }>, "kind">;
+
 /** Sends a worktree request; answers the path, repository and branch the summary records. */
-const worktreeOf = async (t: TestEnvironment, request: Omit<Extract<WorkspaceRequest, { kind: "worktree" }>, "kind">, id = randomUUID()) => {
+const worktreeOf = async (t: TestEnvironment, request: Request, id = randomUUID()) => {
   const client = await t.client();
   const answer = await create(client, { id, workspace: { kind: "worktree", ...request } });
   expect(answer.receipt.status, JSON.stringify(answer.receipt)).toBe("accepted");
@@ -97,10 +100,10 @@ const worktreeOf = async (t: TestEnvironment, request: Omit<Extract<WorkspaceReq
 };
 
 /** Sends a worktree request the environment refuses; answers the refusal's data, having checked it is a rejected receipt that appended nothing. */
-const refusedWorktree = async (t: TestEnvironment, request: Record<string, unknown>) => {
+const refusedWorktree = async (t: TestEnvironment, request: Request) => {
   const client = await t.client();
   const head = t.env.log.head();
-  const answer = await create(client, { workspace: { kind: "worktree", ...request } as never });
+  const answer = await create(client, { workspace: { kind: "worktree", ...request } });
   expect(answer.receipt).toMatchObject({ status: "rejected", reason: "conflict", changed: false, error: { code: "conflict" } });
   expect(answer.result).toBeUndefined();
   expect(t.env.log.head()).toBe(head);
