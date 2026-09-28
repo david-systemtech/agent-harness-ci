@@ -3,7 +3,10 @@
   "title": "ActionCondition",
   "type": "string",
   "enum": [
-    "composer.empty"
+    "composer.empty",
+    "composer.atStart",
+    "picker.queryEmpty",
+    "transcript.finding"
   ],
-  "description": "A condition an action's keys are answered under, named <context>.<state>. composer.empty (written \"empty composer\" after the keys, in the composer context): Nothing is typed in the composer, nothing is attached, and no search of its history is open. A conditioned action is asked first for a key it shares with an unconditioned action of its context; the key falls to that one when the condition does not hold."
+  "description": "A condition an action's keys are answered under, named <context>.<state>. composer.empty (written \"empty composer\" after the keys, in the composer context, within composer.atStart): Nothing is typed in the composer, nothing is attached, and no search of its history is open. composer.atStart (written \"from the start of the box\" after the keys, in the composer context): The caret is at the very start of the composer, with nothing selected. picker.queryEmpty (written \"empty query\" after the keys, in the picker context): Nothing is typed in the list's query. transcript.finding (written \"find bar\" after the keys, in the transcript context): The transcript's find bar is open and has the keys. A conditioned action is asked first for a key it shares with an action of its context under a wider condition or none; the key falls to that one when the condition does not hold."
 }
