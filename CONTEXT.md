@@ -276,6 +276,10 @@ _Avoid_: token (the credential, not the account), git account, forge connection
 The scheme, host and port a forge account is keyed by, to which every remote URL of that forge normalises; an alias is a second origin the same instance answers on, accepted only once the account's credential proves the same identity there.
 _Avoid_: host (ambiguous with the machine), base URL, remote
 
+**Credential source**:
+Where a forge account's credential comes from, never the secret itself: the environment's own `gh`, read on every operation; a token stored in the environment's vault (pasted, handed over once from a client's `gh`, imported, or from a device flow); a key-manager reference, resolved per operation; or none, a copy from another environment awaiting one.
+_Avoid_: auth method, token type, credential (the secret, not where it comes from)
+
 **Forge capability**:
 One thing a forge account may be able to do (read repositories, write issues, open pull requests, create repositories, read releases), each verified, failed or unknown; reads are probed, writes are learned from use.
 _Avoid_: scope (the provider's token setting), permission (the harness's run modes)
