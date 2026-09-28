@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { ProtocolVersion } from "./flags.js";
-import { OUTCOME_STAGES } from "./launcher.js";
+import { INSTALL_REFUSALS, OUTCOME_STAGES } from "./launcher.js";
 import { BusyReason } from "./lifecycle.js";
 import { Timestamp } from "./primitives.js";
 import { ReleaseImage, ReleaseVersion } from "./release.js";
@@ -291,12 +291,21 @@ export type UpdateWhen = z.infer<typeof UpdateWhen>;
  * Why an update is refused in `conflict` (its `data.reason`): the environment
  * is pinned to another version, already runs this one, the version's
  * database schema is below the database's, it needs a newer launcher than
- * the running one hosts, an update is draining or switching, or the
- * environment cannot read the releases.
+ * the running one hosts, an update is draining or switching, the
+ * environment cannot read the releases, the launcher refused to install the
+ * version (`data.launcherReason` says why), or no launcher runs the
+ * environment to switch it (#343).
  */
-export const UPDATE_CONFLICT_REASONS = ["pinned", "current", "schema", "launcher", "in_progress", "no_release_access"] as const;
+export const UPDATE_CONFLICT_REASONS = ["pinned", "current", "schema", "launcher", "in_progress", "no_release_access", "install", "no_launcher"] as const;
 export const UpdateConflictReason = z.enum(UPDATE_CONFLICT_REASONS).meta({
   description:
-    "Why an update was refused in conflict: pinned (another version is pinned), current (that version runs already), schema (its database schema is below the database's), launcher (it needs a newer launcher, with no stepping stone), in_progress (an update is draining or switching) or no_release_access (no forge account can read the releases).",
+    "Why an update was refused in conflict: pinned (another version is pinned), current (that version runs already), schema (its database schema is below the database's), launcher (it needs a newer launcher, with no stepping stone), in_progress (an update is draining or switching), no_release_access (no forge account can read the releases), install (the launcher refused to install the version: data.launcherReason says why) or no_launcher (no launcher runs the environment to switch its version: serve runs in the foreground).",
 });
 export type UpdateConflictReason = z.infer<typeof UpdateConflictReason>;
+
+/** The launcher's reason for refusing the install of an update's version, carried as `data.launcherReason` beside the conflict reason `install`. */
+export const UpdateInstallRefusal = z.enum(INSTALL_REFUSALS).meta({
+  description:
+    "Why the launcher refused to install the version: launcher-protocol (it needs a newer launcher protocol), incomplete (the unpacked artefact is not a whole version), preflight (its preflight failed or timed out), disk (too little free disk) or io (a write failed).",
+});
+export type UpdateInstallRefusal = z.infer<typeof UpdateInstallRefusal>;

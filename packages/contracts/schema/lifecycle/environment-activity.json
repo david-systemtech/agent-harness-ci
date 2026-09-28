@@ -13,7 +13,7 @@
       "required": [
         "state"
       ],
-      "description": "No run is starting or running, none started or ended in the last ten minutes, and none parked on a prompt in the last ten minutes: an update may proceed."
+      "description": "No run is starting or running, no terminal runs a command, none started or ended within the idle window (preset ten minutes), and none parked on a prompt within it: an update may proceed."
     },
     {
       "type": "object",
@@ -27,13 +27,14 @@
           "enum": [
             "run-starting",
             "run-running",
+            "terminal-running",
             "parked-prompt",
             "recent-activity"
           ],
-          "description": "Why the environment is busy: run-starting and run-running (a run is starting or running), parked-prompt (a run parked on a prompt in the last ten minutes), recent-activity (a run started or ended in the last ten minutes)."
+          "description": "Why the environment is busy: run-starting and run-running (a run is starting or running), terminal-running (a terminal's shell runs a command in its foreground, a build or a watcher, rather than waiting at its prompt), parked-prompt (a run parked on a prompt within the idle window, preset ten minutes), recent-activity (a run started or ended within the idle window)."
         },
         "busyUntil": {
-          "description": "When the environment stops counting as busy if nothing else happens: ten minutes after the parked prompt or the latest start or end. Absent while a run is starting or running.",
+          "description": "When the environment stops counting as busy if nothing else happens: the idle window (preset ten minutes) after the parked prompt or the latest start or end. Absent while a run is starting or running or a terminal runs a command.",
           "type": "string",
           "format": "date-time",
           "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"

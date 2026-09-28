@@ -349,6 +349,7 @@ const validActivities = [
   { state: "idle" },
   { state: "busy", reason: "run-running" },
   { state: "busy", reason: "run-starting" },
+  { state: "busy", reason: "terminal-running" },
   { state: "busy", reason: "parked-prompt", busyUntil: at },
   { state: "busy", reason: "recent-activity", busyUntil: at },
   { state: "draining", drainingSince: at },
@@ -688,8 +689,8 @@ export const schemaFixtures: Record<string, Fixtures> = {
     invalid: [{ status: "ok", version: "0.1.0" }, { status: "ready" }, { version: "0.1.0" }],
   },
   "lifecycle/busy-reason.json": {
-    valid: ["run-starting", "run-running", "parked-prompt", "recent-activity"],
-    invalid: ["idle", "parked", ""],
+    valid: ["run-starting", "run-running", "terminal-running", "parked-prompt", "recent-activity"],
+    invalid: ["idle", "parked", "terminal", ""],
   },
   "lifecycle/drain-trigger.json": { valid: ["command", "launcher", "signal", "update"], invalid: ["SIGTERM", "cron", ""] },
   "lifecycle/drain-started.json": {

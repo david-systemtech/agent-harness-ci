@@ -9,14 +9,16 @@ import { Timestamp } from "./primitives.js";
  */
 
 /**
- * Why an environment is busy: a run is starting; a run is running; a run is
- * parked on a prompt, which counts for ten minutes after it parked; a run
- * started or ended in the last ten minutes.
+ * Why an environment is busy: a run is starting; a run is running; a
+ * terminal's shell runs a command in its foreground (a build, a watcher:
+ * the shell is not at its prompt, #343); a run is parked on a prompt, which
+ * counts for the idle window after it parked; a run started or ended within
+ * the idle window.
  */
-export const BUSY_REASONS = ["run-starting", "run-running", "parked-prompt", "recent-activity"] as const;
+export const BUSY_REASONS = ["run-starting", "run-running", "terminal-running", "parked-prompt", "recent-activity"] as const;
 export const BusyReason = z.enum(BUSY_REASONS).meta({
   description:
-    "Why the environment is busy: run-starting and run-running (a run is starting or running), parked-prompt (a run parked on a prompt in the last ten minutes), recent-activity (a run started or ended in the last ten minutes).",
+    "Why the environment is busy: run-starting and run-running (a run is starting or running), terminal-running (a terminal's shell runs a command in its foreground, a build or a watcher, rather than waiting at its prompt), parked-prompt (a run parked on a prompt within the idle window, preset ten minutes), recent-activity (a run started or ended within the idle window).",
 });
 export type BusyReason = z.infer<typeof BusyReason>;
 
@@ -44,7 +46,7 @@ export type DrainStarted = z.infer<typeof DrainStarted>;
 
 const Idle = z.object({ state: z.literal("idle") }).meta({
   description:
-    "No run is starting or running, none started or ended in the last ten minutes, and none parked on a prompt in the last ten minutes: an update may proceed.",
+    "No run is starting or running, no terminal runs a command, none started or ended within the idle window (preset ten minutes), and none parked on a prompt within it: an update may proceed.",
 });
 
 const Busy = z
@@ -53,7 +55,7 @@ const Busy = z
     reason: BusyReason,
     busyUntil: Timestamp.optional().meta({
       description:
-        "When the environment stops counting as busy if nothing else happens: ten minutes after the parked prompt or the latest start or end. Absent while a run is starting or running.",
+        "When the environment stops counting as busy if nothing else happens: the idle window (preset ten minutes) after the parked prompt or the latest start or end. Absent while a run is starting or running or a terminal runs a command.",
     }),
   })
   .meta({ description: "Work is under way, or was too recently: the reason, and when it stops counting when that is known." });

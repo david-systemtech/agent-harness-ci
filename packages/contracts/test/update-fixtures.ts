@@ -197,17 +197,23 @@ export const updateSchemaFixtures: Record<string, Fixtures> = {
       { code: "forbidden", message: "Only a local client session may name an artefact path.", data: { scope: "admin", reason: "local" } },
       { code: "not_found", message: "No release 0.9.0.", data: {} },
       { code: "conflict", message: "0.5.0 runs already.", data: { reason: "current" } },
+      { code: "conflict", message: "The launcher refused to install 0.5.0: preflight.", data: { reason: "install", launcherReason: "preflight" } },
       { code: "unavailable", message: "The environment is draining.", data: { readiness: "draining" } },
     ],
     invalid: [
       { code: "conflict", message: "m", data: {} },
       { code: "conflict", message: "m", data: { reason: "busy" } },
+      { code: "conflict", message: "m", data: { reason: "install", launcherReason: "tired" } },
       { code: "rate_limited", message: "m", data: { retryAfterMs: 5 } },
       { code: "forbidden", message: "m", data: {} },
     ],
   },
   "updates/when.json": { valid: ["idle", "now"], invalid: ["tonight", ""] },
-  "updates/conflict-reason.json": { valid: ["pinned", "current", "schema", "launcher", "in_progress", "no_release_access"], invalid: ["in-progress", ""] },
+  "updates/conflict-reason.json": {
+    valid: ["pinned", "current", "schema", "launcher", "in_progress", "no_release_access", "install", "no_launcher"],
+    invalid: ["in-progress", "preflight", ""],
+  },
+  "updates/install-refusal.json": { valid: ["launcher-protocol", "incomplete", "preflight", "disk", "io"], invalid: ["no-launcher", "install", ""] },
 };
 
 /** Params and results for the `updates.*` methods. */

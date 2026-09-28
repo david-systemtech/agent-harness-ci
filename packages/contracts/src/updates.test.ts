@@ -136,8 +136,8 @@ describe("the updates methods' params and answers", () => {
     expect(result.safeParse({ updateId: "u-1", toVersion: "0.5.0" }).success).toBe(false);
   });
 
-  it("refuse an update in conflict for being pinned elsewhere, current, below the database's schema, beyond the launcher, already under way, or without release access", () => {
-    expect(UPDATE_CONFLICT_REASONS).toEqual(["pinned", "current", "schema", "launcher", "in_progress", "no_release_access"]);
+  it("refuse an update in conflict for being pinned elsewhere, current, below the database's schema, beyond the launcher, already under way, without release access, refused by the launcher's install, or with no launcher to switch", () => {
+    expect(UPDATE_CONFLICT_REASONS).toEqual(["pinned", "current", "schema", "launcher", "in_progress", "no_release_access", "install", "no_launcher"]);
   });
 
   it("cancel with a commandId alone, answered with the withdrawn update", () => {
