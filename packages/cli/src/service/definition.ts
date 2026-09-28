@@ -50,9 +50,10 @@ export interface WrittenDefinition {
 export type WriteFile = (path: string, content: string) => void;
 
 /**
- * Writes a definition file, creating its folder. Only a missing file counts
- * as "no previous definition": any other failure to read the existing one
- * fails before anything is written.
+ * Writes a file `service install` owns (a definition, the launcher entry, the
+ * shim), creating its folder. Only a missing file counts as "no previous
+ * definition": any other failure to read the existing one fails before
+ * anything is written.
  */
 export const writeDefinition = (path: string, content: string, write: WriteFile = writeFileSync): WrittenDefinition => {
   let previous: string | undefined;

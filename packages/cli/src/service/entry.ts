@@ -31,7 +31,8 @@ export interface EntrySpec {
   readonly name?: string | undefined;
 }
 
-const install = `"${PRODUCT_NAME} service install"`;
+/** The command that writes the entry, quoted as the scripts' messages name it. */
+const installCommand = `"${PRODUCT_NAME} service install"`;
 
 /** A batch file's lines end with CRLF: cmd misreads labels in a file with bare line feeds. */
 const batchFile = (lines: readonly string[]): string => `${lines.join("\r\n")}\r\n`;
@@ -41,7 +42,7 @@ const renderShEntry = ({ dataDir, port, name }: EntrySpec): string => {
   const launch = ["launch", "--data-dir", '"$data_dir"', "--port", String(port), ...(name === undefined ? [] : ["--name", shellWord(name)])];
   return [
     "#!/bin/sh",
-    `# The ${PRODUCT_NAME} launcher entry. Written by ${install};`,
+    `# The ${PRODUCT_NAME} launcher entry. Written by ${installCommand};`,
     `# "${PRODUCT_NAME} service uninstall" removes it. The service definition runs it,`,
     "# and it starts the launcher of the version the launcher version file names.",
     "# With no such version it exits 0, which the service manager leaves stopped,",
@@ -71,7 +72,7 @@ const renderCmdEntry = ({ dataDir, port, name }: EntrySpec): string => {
   const launch = ["launch", "--data-dir", batchArgument(dataDir), "--port", String(port), ...(name === undefined ? [] : ["--name", batchArgument(name)])];
   return batchFile([
     "@echo off",
-    `rem The ${PRODUCT_NAME} launcher entry. Written by ${install};`,
+    `rem The ${PRODUCT_NAME} launcher entry. Written by ${installCommand};`,
     `rem "${PRODUCT_NAME} service uninstall" removes it. The logon task runs it, and it`,
     "rem starts the launcher of the version the launcher version file names, again 5",
     "rem seconds after each non-zero exit (a crash, or a handover to a newer launcher),",
@@ -91,10 +92,10 @@ const renderCmdEntry = ({ dataDir, port, name }: EntrySpec): string => {
     "ping -n 6 127.0.0.1 >nul",
     "goto start",
     ":no_version",
-    `>>"%LOG%" echo launcher entry: "%DATA_DIR%\\${LAUNCHER_VERSION_FILE}" names no version, so no launcher starts; ${install} writes it.`,
+    `>>"%LOG%" echo launcher entry: "%DATA_DIR%\\${LAUNCHER_VERSION_FILE}" names no version, so no launcher starts; ${installCommand} writes it.`,
     "exit /b 0",
     ":not_complete",
-    `>>"%LOG%" echo launcher entry: "%VERSION%" is not complete in "%DATA_DIR%\\${VERSIONS_DIRECTORY}", so no launcher starts; ${install} puts a version there.`,
+    `>>"%LOG%" echo launcher entry: "%VERSION%" is not complete in "%DATA_DIR%\\${VERSIONS_DIRECTORY}", so no launcher starts; ${installCommand} puts a version there.`,
     "exit /b 0",
   ]);
 };

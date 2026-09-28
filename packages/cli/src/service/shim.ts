@@ -20,19 +20,20 @@ export const SHIM_DIRECTORY = "bin";
 /** The shim's file in `SHIM_DIRECTORY`, by kind: the product's name, which `cmd` finds as a command with the `.cmd` extension. */
 export const SHIM_FILES: Readonly<Record<ScriptKind, string>> = { sh: PRODUCT_NAME, cmd: `${PRODUCT_NAME}.cmd` };
 
-const install = `${PRODUCT_NAME} service install`;
+/** The command that writes the shim and the service state it reads, as the shim's messages name it. */
+const installCommand = `${PRODUCT_NAME} service install`;
 
 const renderShShim = (dataDir: string): string =>
   [
     "#!/bin/sh",
     `# ${PRODUCT_NAME}: runs the ${PRODUCT_NAME} of the version the service state below`,
     "# names active, with the arguments it was given. Written by",
-    `# "${install}"; "${PRODUCT_NAME} service uninstall" removes it.`,
+    `# "${installCommand}"; "${PRODUCT_NAME} service uninstall" removes it.`,
     `data_dir=${shellWord(dataDir)}`,
     `version=$(sed -n 's/.*"activeVersion"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p' "$data_dir/${SERVICE_STATE_FILE}" 2>/dev/null | head -n 1)`,
     "case $version in",
     "  '' | .* | *[!0-9A-Za-z.+-]*)",
-    `    echo "${PRODUCT_NAME}: the service state in $data_dir names no active version; \\\`${install}\\\` writes it." >&2`,
+    `    echo "${PRODUCT_NAME}: the service state in $data_dir names no active version; \\\`${installCommand}\\\` writes it." >&2`,
     "    exit 1",
     "    ;;",
     "esac",
@@ -52,7 +53,7 @@ const renderCmdShim = (dataDir: string): string => {
     "@echo off",
     `rem ${PRODUCT_NAME}: runs the ${PRODUCT_NAME} of the version the service state below`,
     "rem names active, with the arguments it was given. Written by",
-    `rem "${install}"; "${PRODUCT_NAME} service uninstall" removes it.`,
+    `rem "${installCommand}"; "${PRODUCT_NAME} service uninstall" removes it.`,
     "setlocal EnableExtensions DisableDelayedExpansion",
     `set "DATA_DIR=${batchSetValue(dataDir)}"`,
     'set "VERSION="',
@@ -62,7 +63,7 @@ const renderCmdShim = (dataDir: string): string => {
     `"${version}\\${versionNode("win32").join("\\")}" "${version}\\${VERSION_CLI_ENTRY.join("\\")}" %*`,
     "exit /b %ERRORLEVEL%",
     ":no_version",
-    `1>&2 echo ${PRODUCT_NAME}: the service state in "%DATA_DIR%" names no active version; "${install}" writes it.`,
+    `1>&2 echo ${PRODUCT_NAME}: the service state in "%DATA_DIR%" names no active version; "${installCommand}" writes it.`,
     "exit /b 1",
     ":not_complete",
     `1>&2 echo ${PRODUCT_NAME}: the active version "%VERSION%" is not complete in "%DATA_DIR%\\${VERSIONS_DIRECTORY}".`,

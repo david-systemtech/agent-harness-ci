@@ -7,7 +7,7 @@ import { discoverEnvironment, environmentAddress } from "../discover.js";
 import { readServiceState } from "../launch/state.js";
 import { VERSIONS_DIRECTORY } from "../launch/versions.js";
 import { NOT_READY } from "../status.js";
-import { prepareServiceDirectories, removeEmptyDirectories, writeDefinition, type WrittenDefinition } from "./definition.js";
+import { prepareServiceDirectories, removeEmptyDirectories, writeDefinition } from "./definition.js";
 import { LAUNCHER_ENTRY_FILES, renderLauncherEntry, scriptKind } from "./entry.js";
 import { ServiceError } from "./errors.js";
 import { nameVersion, placeVersion, unpackedVersionOf, type PlacedVersion } from "./layout.js";
@@ -116,9 +116,10 @@ const install = async (args: readonly string[], context: ServiceContext): Promis
       placed = placeVersion(dataDir, unpacked);
       undo.push(placed.undo, nameVersion(dataDir, placed.version));
     }
-    const written = (file: WrittenDefinition) => (undo.push(file.restore), file);
-    written(writeDefinition(spec.entry, renderLauncherEntry(kind, { dataDir, port, name })));
-    const shim = written(writeDefinition(shimPath, renderShim(kind, dataDir), writeExecutable));
+    const entry = writeDefinition(spec.entry, renderLauncherEntry(kind, { dataDir, port, name }));
+    undo.push(entry.restore);
+    const shim = writeDefinition(shimPath, renderShim(kind, dataDir), writeExecutable);
+    undo.push(shim.restore);
     installed = await platform.install(spec, { restartRunning: !launcherRuns });
     const created = [...(previous?.createdDirectories ?? []), ...installed.createdDirectories, ...dataDirectories, ...shim.createdDirectories];
     // The record is part of the install: without it status probes the wrong port, so a failed write takes the definition back out.
@@ -227,13 +228,16 @@ const serviceStatus = async (args: readonly string[], context: ServiceContext): 
   ]);
   const answer: DiscoveryAnswer =
     discovery.kind === "environment" ? discovery.document.readiness : discovery.kind === "other" ? "not-an-environment" : "nothing";
-  const notes = installed ? await platform.notes() : [];
-  if (installed && record !== undefined && record.launcherEntry === undefined) {
-    notes.push(
-      `This service runs \`${PRODUCT_NAME} serve\` without the launcher, as installed before it: ` +
-        `\`${PRODUCT_NAME} service install\` from a release with the launcher moves it to the launcher and keeps the data directory.`,
-    );
-  }
+  const beforeTheLauncher = installed && record !== undefined && record.launcherEntry === undefined;
+  const notes = [
+    ...(installed ? await platform.notes() : []),
+    ...(beforeTheLauncher
+      ? [
+          `This service runs \`${PRODUCT_NAME} serve\` without the launcher, as installed before it: ` +
+            `\`${PRODUCT_NAME} service install\` from a release with the launcher moves it to the launcher and keeps the data directory.`,
+        ]
+      : []),
+  ];
   const verdict = serviceVerdict({ installed, running, answer }, address);
   const definition = platform.definitionPath();
   const read = readServiceState(dataDir);
