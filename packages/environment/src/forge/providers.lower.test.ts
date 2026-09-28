@@ -490,6 +490,23 @@ describe("releases", () => {
     expect(elsewhere.requests).toEqual([]);
   });
 
+  it("download a Forgejo asset whose download address is relative from the forge's origin, and answer one that is no address as failed, asking nothing", async () => {
+    const forge = await fakeForge();
+    forge.answer("token-for-tests", "GET /attachments/a-uuid", { status: 200, raw: "{}" });
+    const provider = providerOf(forge, "forgejo");
+
+    const relative = { id: 50, name: "release.json", size: 2, downloadUrl: "/attachments/a-uuid" };
+    expect(await provider.downloadAsset(forge.origin, "token-for-tests", "david/agent-harness", relative, join(tempDir(), "release.json"))).toMatchObject({ outcome: "done" });
+    const requests = forge.requests.length;
+    const garbled = { id: 51, name: "release.json", size: 2, downloadUrl: "http://[not an address" };
+    expect(await provider.downloadAsset(forge.origin, "token-for-tests", "david/agent-harness", garbled, join(tempDir(), "release.json"))).toEqual({
+      outcome: "failed",
+      status: 200,
+      message: `The forge at ${forge.origin} listed the asset release.json with no download address the harness can read.`,
+    });
+    expect(forge.requests).toHaveLength(requests);
+  });
+
   it("answer a refused download as failed and leave no file behind", async () => {
     const forge = await fakeForge();
     forge.answer("token-for-tests", "GET /api/v3/repos/david/agent-harness/releases/assets/50", { status: 404, body: { message: "Not Found" } });

@@ -182,14 +182,27 @@ const ASKS_FOR_A_CREDENTIAL: ReadonlySet<number> = new Set([401, 403, 404]);
 
 const isSuccess = (status: number): boolean => status >= 200 && status < 300;
 
-/** A repository's full name: two segments, neither empty nor holding a space. */
-const FULL_NAME = /^[^/\s]+\/[^/\s]+$/;
+/** An owner's or a repository's name as the forges allow one: letters, digits, `.`, `-` and `_`, never a dot segment, which a URL would resolve away. */
+const NAME = "(?!\\.\\.?(?:/|$))[A-Za-z0-9._-]+";
+const FULL_NAME = new RegExp(`^${NAME}/${NAME}$`);
+const OWNER = new RegExp(`^${NAME}$`);
 
 const invalid = (path: string, message: string): ContractError => new ContractError(invalidParams([{ code: "custom", path: [path], message }], message));
 
 const fullNameOf = (repository: string): string => {
-  if (!FULL_NAME.test(repository)) throw invalid("repository", "The repository is owner/name.");
+  if (!FULL_NAME.test(repository)) throw invalid("repository", "The repository is owner/name, each a name the forges allow.");
   return repository;
+};
+
+const organisationOf = (organisation: string | undefined): string | undefined => {
+  if (organisation !== undefined && !OWNER.test(organisation)) throw invalid("organisation", "The organisation is a name the forges allow.");
+  return organisation;
+};
+
+/** A file's path in a repository: segments that are neither empty nor a dot segment, so the request stays under the repository's contents. */
+const filePathOf = (path: string): string => {
+  if (path.split("/").some((segment) => segment === "" || segment === "." || segment === "..")) throw invalid("path", "The path names a file under the repository, with no empty or dot segment.");
+  return path;
 };
 
 const numberOf = (number: number, name = "number"): number => {
@@ -197,11 +210,9 @@ const numberOf = (number: number, name = "number"): number => {
   return number;
 };
 
-/** A request's asset, whose download address must be an http or https URL. */
+/** A request's asset, named by its id. */
 const assetOf = (asset: ForgeReleaseAsset): ForgeReleaseAsset => {
   numberOf(asset.id, "asset's id");
-  const url = URL.parse(asset.downloadUrl);
-  if (url === null || (url.protocol !== "https:" && url.protocol !== "http:")) throw invalid("asset", "The asset's download address is an http or https URL.");
   return asset;
 };
 
@@ -333,7 +344,7 @@ export const createForgeOperations = (options: ForgeOperationsOptions): ForgeOpe
       create: async (request) =>
         write(request, async (reached) => {
           const { provider: forge, origin, token, call, account } = reached;
-          const named = request.organisation;
+          const named = organisationOf(request.organisation);
           const organisation = named === undefined || named.toLowerCase() === account.identity?.login.toLowerCase() ? null : named;
           // The user's own is the identity the verification reads; an organisation is read first.
           if (organisation !== null) {
@@ -346,7 +357,8 @@ export const createForgeOperations = (options: ForgeOperationsOptions): ForgeOpe
 
       async file(request) {
         const fullName = fullNameOf(request.repository);
-        return read(request, ({ provider: forge, origin, token, call }) => forge.file(origin, token, fullName, request.path, request.ref, call));
+        const path = filePathOf(request.path);
+        return read(request, ({ provider: forge, origin, token, call }) => forge.file(origin, token, fullName, path, request.ref, call));
       },
     },
 

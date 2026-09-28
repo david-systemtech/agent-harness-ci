@@ -168,6 +168,23 @@ describe("repositories", () => {
   });
 });
 
+describe("what an operation names", () => {
+  it("is refused invalid_params when a repository, an organisation or a file's path holds a dot segment or is not owner/name, before anything is sent", async () => {
+    const { t, forge } = await withAccount();
+    const requests = forge.requests.length;
+    const refusals = [
+      t.env.forge.repositories.get({ repository: "david/..", purpose: "check" }),
+      t.env.forge.repositories.get({ repository: "./bank", purpose: "check" }),
+      t.env.forge.issues.create({ repository: "david/bank/extra", title: "t", body: "b", purpose: "report" }),
+      t.env.forge.repositories.create({ organisation: "..", name: "bank", private: true, purpose: "create" }),
+      t.env.forge.repositories.file({ repository: "david/bank", path: "memories/../../other/secret.md", ref: "main", purpose: "check" }),
+      t.env.forge.repositories.file({ repository: "david/bank", path: "memories//a.md", ref: "main", purpose: "check" }),
+    ];
+    for (const refusal of refusals) await expect(refusal).rejects.toMatchObject({ code: "invalid_params" });
+    expect(forge.requests).toHaveLength(requests);
+  });
+});
+
 describe("an origin no forge account covers", () => {
   it("reads a public repository anonymously, sending no credential", async () => {
     const forge = await fakeForge();

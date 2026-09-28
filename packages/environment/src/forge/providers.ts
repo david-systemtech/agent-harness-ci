@@ -213,8 +213,8 @@ interface ApiDialect {
   readonly merge: (method: MergeMethod) => { readonly method: "POST" | "PUT"; readonly body: unknown };
   /** How pull requests from a head are listed: the list's query, and the items kept and pages read when the API cannot filter by head itself. */
   readonly byHead: (head: PullRequestHead) => { readonly query: string; readonly keep?: (item: unknown) => boolean; readonly maxPages?: number };
-  /** Where an asset's bytes are asked for, on the forge's own origin or its API's. */
-  readonly assetUrl: (origin: ForgeOrigin, fullName: string, asset: ForgeReleaseAsset) => string;
+  /** Where an asset's bytes are asked for, on the forge's own origin or its API's; null when the forge gave it no address that can be read. */
+  readonly assetUrl: (origin: ForgeOrigin, fullName: string, asset: ForgeReleaseAsset) => string | null;
 }
 
 /**
@@ -280,10 +280,10 @@ const GITEA_API: ApiDialect = {
     maxPages: GITEA_HEAD_SCAN_PAGES,
   }),
   // The API answers an asset's record only; its bytes are on the web routes, which take the token for a download. Its address is asked on the
-  // forge account's own origin, whatever host the forge's configuration names, so the token goes nowhere else.
+  // forge account's own origin, whatever host the forge's configuration names, so the token goes nowhere else; a relative one from there.
   assetUrl: (origin, _fullName, asset) => {
-    const { pathname, search } = new URL(asset.downloadUrl);
-    return `${origin}${pathname}${search}`;
+    const url = URL.parse(asset.downloadUrl, origin);
+    return url === null ? null : `${origin}${url.pathname}${url.search}`;
   },
 };
 
@@ -526,6 +526,7 @@ export const forgeProvider = (kind: ForgeKind, options: ProviderOptions): ForgeP
 
     async downloadAsset(origin, token, fullName, asset, destination, call) {
       const url = dialect.assetUrl(origin, fullName, asset);
+      if (url === null) return { outcome: "failed", status: 200, message: `The forge at ${origin} listed the asset ${asset.name} with no download address the harness can read.` };
       const downloaded = await forgeDownload(options, url, { ...headers(token), accept: "application/octet-stream" }, destination, call);
       if (downloaded.outcome === "unanswered") return { outcome: "unreachable", message: `The forge at ${origin} ${downloaded.message}.` };
       if (downloaded.outcome === "failed") return { outcome: "failed", status: downloaded.status, message: `The forge at ${origin} answered HTTP ${downloaded.status}${forgeLine(downloaded.body)}.` };
