@@ -316,6 +316,19 @@ describe("pull requests", () => {
     expect(await learned(client, from)).toEqual([{ forgeAccountId: account.id, capability: "pullRequests", state: "verified", operation: "open a pull request", status: 201 }]);
   });
 
+  it("learns pullRequests failed when opening one is refused 401", async () => {
+    const { t, forge, client, account } = await withAccount();
+    forge.repository(TOKEN, "david/bank");
+    forge.answer(TOKEN, "POST /api/v1/repos/david/bank/pulls", { status: 401, body: { message: "Bad credentials" } });
+    const from = t.env.log.head();
+
+    expect(await t.env.forge.pullRequests.create({ repository: "david/bank", title: "t", body: "b", head: "memory", base: "main", purpose: "land" })).toMatchObject({
+      outcome: "failed",
+      status: 401,
+    });
+    expect(await learned(client, from)).toEqual([{ forgeAccountId: account.id, capability: "pullRequests", state: "failed", operation: "open a pull request", status: 401 }]);
+  });
+
   it("fails pullRequests on a pull-request read the forge denies, and merges nothing it could not read", async () => {
     const { t, forge, client, account } = await withAccount();
     forge.answer(TOKEN, "GET /api/v1/repos/david/bank/pulls/3", { status: 403, body: { message: "token does not have at least one of required scope(s)" } });

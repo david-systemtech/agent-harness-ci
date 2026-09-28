@@ -13,8 +13,9 @@ export type { CallOptions, ForgeFetch } from "./forge-http.js";
  * bearer token; Forgejo and Gitea share one provider over the Gitea API
  * under `/api/v1`, with the `token` scheme, their kind recorded apart. A
  * read may go with no token, anonymously. Every call goes through
- * `forge-http.ts`: rate limits, entity tags and paging. Detection and
- * organisations join the interface with the ticket that uses them.
+ * `forge-http.ts`: rate limits, entity tags and paging. Detection and the
+ * list of organisations join the interface with the ticket that uses them
+ * (#313).
  */
 
 /** How long one call to a forge may take (ADR 0031's budget), past which the forge counts as unreachable. */
