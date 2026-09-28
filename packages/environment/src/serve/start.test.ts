@@ -314,7 +314,12 @@ describe("the environment record and the signing key", () => {
   it("uses the vault it is given instead of the file", async () => {
     const stored = new Map<string, string>();
     const env = await start({
-      vault: { get: async (key) => stored.get(key), set: async (key, value) => void stored.set(key, value) },
+      vault: {
+        get: async (key) => stored.get(key),
+        set: async (key, value) => void stored.set(key, value),
+        delete: async (key) => void stored.delete(key),
+        keys: async () => [...stored.keys()],
+      },
     });
     expect(Buffer.from(stored.get(SIGNING_KEY) ?? "", "base64")).toHaveLength(32);
     expect(existsSync(join(env.dataDir, "vault.json"))).toBe(false);
