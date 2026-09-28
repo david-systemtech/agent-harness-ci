@@ -588,7 +588,7 @@ describe("/settings", () => {
 });
 
 describe("/settings by row (#389)", () => {
-  /** The frame's lines from the first holding `from`, trimmed, the card's borders and cursor mark dropped. */
+  /** The frame's lines, each without its leading spaces and cursor mark or its trailing spaces. */
   const linesOf = (frame: string) => frame.split("\n").map((line) => line.replace(/^[\s›]+/, "").trimEnd());
 
   it("lists the keys under their rows' labels, the rows in the rail's order", async () => {
