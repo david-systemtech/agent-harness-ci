@@ -54,7 +54,7 @@ the lookup with "release … has no agent-harness-linux-x64.tar.gz". Containers
 without `systemd --user` are not served by the script: `service install` fails
 there, and a container runs `agent-harness serve` directly instead.
 
-1. On a fresh Linux box with Node 22.16 or later on `PATH`, as an ordinary user logged in over SSH: `AGENT_HARNESS_TOKEN=<read token> sh install.sh --dry-run`. It names the latest release, the `agent-harness-linux-<arch>.tar.gz` download and the target folder, and changes nothing.
+1. On a fresh Linux box with Node 24 or later on `PATH`, as an ordinary user logged in over SSH: `AGENT_HARNESS_TOKEN=<read token> sh install.sh --dry-run`. It names the latest release, the `agent-harness-linux-<arch>.tar.gz` download and the target folder, and changes nothing.
 2. The same without `--dry-run`. It downloads, verifies the checksum if one is published, unpacks into `~/.local/state/agent-harness/versions/<version>` (inside the data directory), installs and starts the service, and ends with `service status` ready, exit 0.
 3. Run it again: it reuses the unpacked version and ends ready again.
 4. With lingering off, the status says so; after `sudo loginctl enable-linger <user>`, the service stays up when the SSH session ends.
