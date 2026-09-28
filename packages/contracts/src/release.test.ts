@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { Ajv2020 } from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
 import { describe, expect, it } from "vitest";
+import { without } from "../test/fixtures.js";
 import {
   LAUNCHER_PROTOCOL,
   PROTOCOL_VERSION,
@@ -52,13 +53,11 @@ describe("the release manifest", () => {
   it("holds the version, protocol version, launcher protocol, database schema version and bundled Claude Code version, every asset's name, kind, platform, size and SHA-256, and the image's reference and digest", () => {
     expect(ReleaseManifest.parse(manifest)).toEqual(manifest);
     for (const field of ["version", "protocolVersion", "launcherProtocol", "databaseSchemaVersion", "bundledClaudeCodeVersion", "assets", "image"]) {
-      const { [field]: _left, ...without } = manifest as Record<string, unknown>;
-      expect(ReleaseManifest.safeParse(without).success, field).toBe(false);
+      expect(ReleaseManifest.safeParse(without(manifest, field)).success, field).toBe(false);
     }
-    const [artefact] = manifest.assets as readonly Record<string, unknown>[] as [Record<string, unknown>];
+    const [artefact] = manifest.assets as [(typeof manifest.assets)[number]];
     for (const field of ["name", "kind", "platform", "format", "size", "sha256"]) {
-      const { [field]: _left, ...without } = artefact;
-      expect(ReleaseManifest.safeParse({ ...manifest, assets: [without] }).success, field).toBe(false);
+      expect(ReleaseManifest.safeParse({ ...manifest, assets: [without(artefact, field)] }).success, field).toBe(false);
     }
     expect(ReleaseManifest.safeParse({ ...manifest, version: "v0.5.0" }).success).toBe(false);
     expect(ReleaseManifest.safeParse({ ...manifest, assets: [{ ...artefact, sha256: sha("A") }] }).success).toBe(false);

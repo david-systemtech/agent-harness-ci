@@ -82,7 +82,7 @@ const validCredential = {
 };
 
 /** A copy of `value` without its `key`. */
-const without = (value: Record<string, unknown>, key: string): Record<string, unknown> =>
+export const without = (value: Record<string, unknown>, key: string): Record<string, unknown> =>
   Object.fromEntries(Object.entries(value).filter(([k]) => k !== key));
 
 const envelopeWithoutCommandId = without(validEnvelope, "commandId");

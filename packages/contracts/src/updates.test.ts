@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { without } from "../test/fixtures.js";
 import {
   ForbiddenError,
   UPDATE_BLOCKED_REASONS,
@@ -42,8 +43,7 @@ describe("the update status document", () => {
     expect(UpdatesStatus.parse(status)).toEqual(status);
     expect(UpdatesStatus.safeParse({ ...status, bundledClaudeCodeVersion: null }).success).toBe(true);
     for (const field of ["version", "protocolVersion", "bundledClaudeCodeVersion", "manager", "newest", "lastCheck", "pending", "lastOutcome", "failedVersions", "installed"]) {
-      const { [field]: _left, ...without } = status as Record<string, unknown>;
-      expect(UpdatesStatus.safeParse(without).success, field).toBe(false);
+      expect(UpdatesStatus.safeParse(without(status, field)).success, field).toBe(false);
     }
   });
 
