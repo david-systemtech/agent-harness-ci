@@ -5,7 +5,7 @@ import { MODES, compareModes, type Mode, type PromptAnswerInput, type PromptOpen
  * "Cards: permissions, questions, parked asks"; permissions spec, "Prompts,
  * parked prompts and the TTL"): the rows a prompt of each kind offers, where
  * the cursor starts, and what a key makes of them, down to the answer
- * `permissions.prompts.answer` takes, onto the permissions names (conflict X1):
+ * `permissions.prompts.answer` takes, mapped onto the permissions names (conflict X1):
  *
  * - **An approval** (`permission`, `denylist`): Deny, Allow once, and on a
  *   `permission` prompt only "Allow for this session", which answers

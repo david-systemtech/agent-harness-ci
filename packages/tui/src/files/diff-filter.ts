@@ -7,7 +7,7 @@ import { splitCommand } from "../composer/external-editor.js";
 /**
  * The user's own diff tool (docs/specs/tui.md, "The transcript": `d` and
  * `/diff` read `diffs.session` and `diffs.workingTree` through the user's
- * diff filter, `AGENT_HARNESS_DIFF`), its diff half:
+ * diff filter, `AGENT_HARNESS_DIFF`):
  *
  *  - **The tool is a filter, never a pager.** The unified diff goes in on
  *    standard input, the colours come back on standard output, and the
