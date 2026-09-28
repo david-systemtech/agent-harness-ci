@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { chmodSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
+import { chmodSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 import {
   AccountLabel,
@@ -21,6 +21,7 @@ import { createAdapterRegistry, type AdapterRegistry } from "../adapter/registry
 import { formatActor, type EventInput, type EventLog, type StreamRef } from "../event-log/event-log.js";
 import type { AccountFacts } from "../runs/run-decider.js";
 import type { Clock, Timer } from "../serve/clock.js";
+import { isDirectory } from "../serve/files.js";
 import type { CommandAnswer, CommandContext } from "../serve/methods.js";
 import type { Reader } from "../sessions/session-tables.js";
 import {
@@ -206,14 +207,6 @@ const describeIdentity = (identity: AccountIdentity): string => (identity.organi
 
 /** Whether `path` is `root` or lies inside it. */
 const within = (path: string, root: string): boolean => path === root || path.startsWith(`${root}${sep}`);
-
-const isDirectory = (path: string): boolean => {
-  try {
-    return statSync(path).isDirectory();
-  } catch {
-    return false;
-  }
-};
 
 const notFound = (aggregate: StreamRef, accountId: string) =>
   ({ aggregate, rejected: { code: "not_found", message: `No account ${accountId} is on this environment.`, data: { kind: "account", accountId } } }) as const;
