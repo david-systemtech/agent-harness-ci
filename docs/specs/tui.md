@@ -76,7 +76,7 @@ The rail renders `projections.sessionList` and `projections.environments` (ticke
 
 ### The transcript: a projection of one session
 
-- The transcript renders `projections.session` (ticket 80): streamed messages; tool calls folded the same way (a run's finished calls as one count row, running and failed in full, a tool quiet three minutes turns amber); prompts and questions at the sequence of `prompt.opened` once answered (permissions spec); plans; delegated work as the strip; the cost line under each finished turn (tokens, dollars, plan-window deltas when the adapter reports them). An opaque event is one dim row naming its type (ADR 0001). A `cached` or `catching-up` marker heads the transcript until `synchronized` (ticket 80).
+- The transcript renders `projections.session` (ticket 80): streamed messages; tool calls folded as they are today (a run's finished calls as one count row, running and failed in full, a tool quiet three minutes turns amber); prompts and questions at the sequence of `prompt.opened` once answered (permissions spec); plans; delegated work as the strip; the cost line under each finished turn (tokens, dollars, plan-window deltas when the adapter reports them). An opaque event is one dim row naming its type (ADR 0001). A `cached` or `catching-up` marker heads the transcript until `synchronized` (ticket 80).
 - The row verbs carry: `o` opens the file in `$VISUAL` or `$EDITOR` when the environment is local, else in the pager through `files.read`; `d` and `/diff` read `diffs.session` and `diffs.workingTree` through the user's diff filter; `x` interrupts the tool through the adapter workstream's method; `r` recalls the command. The pager (`Ctrl+O`) and `/export` work over the projection.
 
 ### The composer
