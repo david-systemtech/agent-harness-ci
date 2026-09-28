@@ -36,9 +36,10 @@ import { baseEnvironment, loginShell, type ShellCommand } from "./shell.js";
  * be the start of one is held back until the output after it comes, for at
  * most fifty milliseconds by the environment's clock, and shown before the
  * terminal's exit; output whose tail could begin none is not delayed. What
- * a catch-up sends, the scrollback or the chunks it replays, is scrubbed
- * again as it is sent, so a value registered after its output was shown is
- * not sent to a client connecting later either.
+ * a catch-up sends, the scrollback or the chunks it replays (as one text,
+ * cut where the chunks were), is scrubbed again as it is sent, so a value
+ * registered after its output was shown is not sent to a client connecting
+ * later either.
  *
  * An exited terminal keeps its scrollback ten minutes by the environment's
  * clock, then only its exit code, listed until it is closed: with at most
@@ -374,7 +375,10 @@ export const createTerminals = (options: TerminalsOptions): Terminals => {
             const head = exit?.sequence ?? last;
             const replay = afterSequence > 0 && afterSequence <= head ? terminal.scrollback.after(Math.min(afterSequence, last)) : undefined;
             if (replay !== undefined && replay.length <= REPLAY_BOUND.events) {
-              return { events: [...replay.map((chunk) => outputEvent(terminal, { ...chunk, data: scrub(chunk.data) })), ...tail], sequence: last };
+              // Scrubbed as one text, cut where the chunks were: a value across two of them goes whole into the first's place.
+              const again = options.scrub.stream();
+              const scrubbed = replay.map((chunk, i) => ({ ...chunk, data: again.push(chunk.data) + (i === replay.length - 1 ? again.flush() : "") }));
+              return { events: [...scrubbed.map((chunk) => outputEvent(terminal, chunk)), ...tail], sequence: last };
             }
             return { snapshot: { sequence: last, payload: snapshotOf(terminal, scrub) }, events: tail, sequence: last };
           },

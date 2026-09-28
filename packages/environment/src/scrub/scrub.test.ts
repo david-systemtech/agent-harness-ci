@@ -328,4 +328,19 @@ describe("terminal output", () => {
     await resumed.until((v) => v.synchronized, "the replay");
     expect(chunks(resumed)).toEqual(["token [redacted]\r\n"]);
   });
+
+  it("sends a client resuming from its cursor the chunks after it scrubbed as one text, so a value printed across two of them before it was registered is not sent in pieces", async () => {
+    const { t, id, child, view } = await terminalOn();
+    child.print("$ ");
+    child.print("token alpha-sec");
+    child.print("ret-value-1\r\n$ ");
+    await view.until((v) => v.text.includes(SPLIT), "the line");
+    expect(chunks(view)).toEqual(["$ ", "token alpha-sec", "ret-value-1\r\n$ "]);
+
+    t.scrub.register(SPLIT, { owner: "test:later" });
+    const resumed = await follow(await t.client(), id, 1);
+    await resumed.until((v) => v.synchronized, "the replay");
+    expect(chunks(resumed)).toEqual(["token ", "[redacted]\r\n$ "]);
+    expect(resumed.frames.flatMap((frame) => (frame.type === "event" ? [frame.sequence] : []))).toEqual([2, 3]);
+  });
 });
