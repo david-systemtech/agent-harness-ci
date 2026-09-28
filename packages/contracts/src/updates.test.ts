@@ -7,6 +7,7 @@ import {
   UPDATE_CHECK_FAILURES,
   UPDATE_CONFLICT_REASONS,
   UPDATE_ID_PATTERN,
+  UPDATE_PASS_OVER_REASONS,
   UPDATE_STATES,
   UpdateId,
   UpdatesStatus,
@@ -33,8 +34,11 @@ const status = {
   protocolVersion: 1,
   bundledClaudeCodeVersion: "2.3.1",
   manager: { kind: "launcher", launcherVersion: "0.4.0" },
+  releaseSource: { origin: "https://git.systemtech.dev:5526", kind: "forgejo", repository: "david/agent-harness" },
   newest: "0.4.2",
   lastCheck: { at, result: "ok" },
+  target: null,
+  passedOver: null,
   pending: { state: "current" },
   lastOutcome: null,
   failedVersions: [],
@@ -61,7 +65,7 @@ describe("the update status document", () => {
   it("says what runs: the version, the protocol version and the bundled Claude Code version, null when it could not be read", () => {
     expect(UpdatesStatus.parse(status)).toEqual(status);
     expect(UpdatesStatus.safeParse({ ...status, bundledClaudeCodeVersion: null }).success).toBe(true);
-    for (const field of ["version", "protocolVersion", "bundledClaudeCodeVersion", "manager", "newest", "lastCheck", "pending", "lastOutcome", "failedVersions", "installed"]) {
+    for (const field of ["version", "protocolVersion", "bundledClaudeCodeVersion", "manager", "releaseSource", "newest", "lastCheck", "target", "passedOver", "pending", "lastOutcome", "failedVersions", "installed"]) {
       expect(UpdatesStatus.safeParse(without(status, field)).success, field).toBe(false);
     }
   });
@@ -87,6 +91,19 @@ describe("the update status document", () => {
     expect(checked({ at, result: "failed", reason: "offline", message: "x" })).toBe(false);
     expect(UpdatesStatus.safeParse({ ...status, newest: null }).success).toBe(true);
     expect(UpdatesStatus.safeParse({ ...status, newest: "v0.5.0" }).success).toBe(false);
+  });
+
+  it("carries where the releases are read, the target the last check found, the pin or the channel's newest, and a release passed over with why", () => {
+    expect(UPDATE_PASS_OVER_REASONS).toEqual(["schema", "artefact", "missing"]);
+    const targeted = (target: unknown) => UpdatesStatus.safeParse({ ...status, target }).success;
+    expect(targeted({ version: "0.5.0", source: "channel" })).toBe(true);
+    expect(targeted({ version: "0.4.1", source: "pin" })).toBe(true);
+    expect(targeted({ version: "0.5.0", source: "request" })).toBe(false);
+    const passed = (passedOver: unknown) => UpdatesStatus.safeParse({ ...status, passedOver }).success;
+    for (const reason of UPDATE_PASS_OVER_REASONS) expect(passed({ version: "0.3.0", source: "pin", reason, message: "Why." }), reason).toBe(true);
+    expect(passed({ version: "0.3.0", source: "pin", reason: "schema" })).toBe(false);
+    expect(UpdatesStatus.safeParse({ ...status, releaseSource: { origin: "https://github.com", kind: "github", repository: "owner/name" } }).success).toBe(true);
+    expect(UpdatesStatus.safeParse({ ...status, releaseSource: { origin: "https://github.com", kind: "gitlab", repository: "owner/name" } }).success).toBe(false);
   });
 
   it("carries the pending update with its state: current, staging, waiting on what, ready when managed outside, draining, switching, or blocked with the reason", () => {
@@ -154,8 +171,8 @@ describe("the updates methods' params and answers", () => {
     expect(result.safeParse({ updateId: "u-1", toVersion: "0.5.0" }).success).toBe(false);
   });
 
-  it("refuse an update in conflict for being pinned elsewhere, current, below the database's schema, beyond the launcher, already under way, without release access, refused by the launcher's install, or with no launcher to switch", () => {
-    expect(UPDATE_CONFLICT_REASONS).toEqual(["pinned", "current", "schema", "launcher", "in_progress", "no_release_access", "install", "no_launcher"]);
+  it("refuse an update or a pin in conflict for being pinned elsewhere, current, below the database's schema, beyond the launcher, already under way, without release access, a forge not answering, a manifest not its schema, refused by the launcher's install, or with no launcher to switch", () => {
+    expect(UPDATE_CONFLICT_REASONS).toEqual(["pinned", "current", "schema", "launcher", "in_progress", "no_release_access", "unreachable", "manifest", "install", "no_launcher"]);
   });
 
   it("cancel with a commandId alone, answered with the withdrawn update", () => {

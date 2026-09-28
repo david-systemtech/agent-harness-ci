@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "UpdatePassOverReason",
+  "type": "string",
+  "enum": [
+    "schema",
+    "artefact",
+    "missing"
+  ],
+  "description": "Why a release that would be the target is not: schema (its database schema is below the database's, and nothing of it is downloaded), artefact (it has no artefact for this platform) or missing (the pinned version has no release that is not a draft)."
+}

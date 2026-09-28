@@ -123,6 +123,10 @@
       "title": "ReleaseManifest"
     },
     {
+      "path": "release/source.json",
+      "title": "ReleaseSource"
+    },
+    {
       "path": "lifecycle/busy-reason.json",
       "title": "BusyReason"
     },
@@ -1601,6 +1605,18 @@
     {
       "path": "updates/pending-update.json",
       "title": "PendingUpdate"
+    },
+    {
+      "path": "updates/target.json",
+      "title": "UpdateTarget"
+    },
+    {
+      "path": "updates/pass-over-reason.json",
+      "title": "UpdatePassOverReason"
+    },
+    {
+      "path": "updates/passed-over.json",
+      "title": "UpdatePassedOver"
     },
     {
       "path": "updates/outcome.json",

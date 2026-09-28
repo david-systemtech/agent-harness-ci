@@ -184,6 +184,10 @@ _Avoid_: graceful shutdown, quiesce
 Which releases an environment follows for updates: stable (releases only) or beta (prereleases too); a pinned version follows none.
 _Avoid_: track, ring, branch, the launcher channel (the launcher's IPC connection, defined below)
 
+**Release source**:
+Where an environment reads its releases: a forge origin, its kind and the repository, compiled into each build and read only with the forge account for that origin.
+_Avoid_: feed, update server, release URL
+
 **Release manifest**:
 `release.json`, the asset every release publishes that says what the release is: its version, protocol version, launcher protocol, database schema version and bundled Claude Code version, each asset with its platform, kind, size and SHA-256, and the image's reference and digest; read before anything of the release is downloaded, and only ever added to.
 _Avoid_: release notes, feed, update index

@@ -11,7 +11,10 @@ import {
   RELEASE_MANIFEST_FILE,
   RELEASE_PLATFORMS,
   ReleaseManifest,
+  compareReleaseVersions,
   exportedSchemas,
+  isPrerelease,
+  releaseVersionOfTag,
 } from "./index.js";
 import { LAUNCHER_PROTOCOL as LAUNCHER_PROTOCOL_ALONE } from "./launcher.js";
 
@@ -99,5 +102,38 @@ describe("the launcher protocol", () => {
     expect(LAUNCHER_PROTOCOL_ALONE).toBe(LAUNCHER_PROTOCOL);
     expect(ReleaseManifest.safeParse({ ...manifest, launcherProtocol: 0 }).success).toBe(false);
     expect(ReleaseManifest.safeParse({ ...manifest, launcherProtocol: 1.5 }).success).toBe(false);
+  });
+});
+
+describe("release versions", () => {
+  it("order by SemVer precedence: numbers numerically, a prerelease below its release, identifiers numeric below alphanumeric, a longer set above its prefix", () => {
+    // SemVer 2.0.0's own example of precedence, each lower than the next.
+    const ordered = ["1.0.0-alpha", "1.0.0-alpha.1", "1.0.0-alpha.beta", "1.0.0-beta", "1.0.0-beta.2", "1.0.0-beta.11", "1.0.0-rc.1", "1.0.0", "1.0.1", "1.2.0", "1.10.0", "2.0.0"];
+    for (const [index, lower] of ordered.entries()) {
+      for (const higher of ordered.slice(index + 1)) {
+        expect(compareReleaseVersions(lower, higher), `${lower} < ${higher}`).toBeLessThan(0);
+        expect(compareReleaseVersions(higher, lower), `${higher} > ${lower}`).toBeGreaterThan(0);
+      }
+      expect(compareReleaseVersions(lower, lower), lower).toBe(0);
+    }
+  });
+
+  it("compare numbers of any length, and ignore build metadata", () => {
+    expect(compareReleaseVersions("0.0.12345678901234567890", "0.0.9")).toBeGreaterThan(0);
+    expect(compareReleaseVersions("1.0.0-rc.12345678901234567890", "1.0.0-rc.99")).toBeGreaterThan(0);
+    expect(compareReleaseVersions("1.0.0+build.2", "1.0.0+build.1")).toBe(0);
+    expect(compareReleaseVersions("1.0.0-beta+exp.sha.5114f85", "1.0.0-beta")).toBe(0);
+  });
+
+  it("are prereleases exactly when they have a prerelease part", () => {
+    expect(isPrerelease("1.0.0-beta.2")).toBe(true);
+    expect(isPrerelease("1.0.0")).toBe(false);
+    expect(isPrerelease("1.0.0+build-1")).toBe(false);
+  });
+
+  it("are read from a tag v<version>; a tag that is not one reads as none", () => {
+    expect(releaseVersionOfTag("v0.5.0")).toBe("0.5.0");
+    expect(releaseVersionOfTag("v1.0.0-beta.2+build.7")).toBe("1.0.0-beta.2+build.7");
+    for (const tag of ["0.5.0", "v0.5", "v01.0.0", "V1.0.0", "release-1.0.0", "v1.0.0 ", "vv1.0.0", ""]) expect(releaseVersionOfTag(tag), tag).toBeNull();
   });
 });

@@ -6,6 +6,7 @@ import {
   PRODUCT_NAME,
   ReleaseVersion,
   UPDATE_SETTINGS,
+  type ForgeAccountRecord,
   type PendingUpdate,
   type UpdateCheck,
   type UpdateManager,
@@ -13,6 +14,7 @@ import {
   type UpdateSettingsKey,
   type UpdateSettingsPatch,
   type UpdateSettingsValues,
+  type UpdateTarget,
   type UpdatesStatus,
 } from "@agent-harness/contracts";
 import { defaultDataDirectory } from "@agent-harness/environment";
@@ -25,21 +27,26 @@ import { LocalFailure, withLocalSession, type LocalTarget, type Net } from "./lo
  * `update status`, the `updates.status` document as text or JSON;
  * `update apply`, an update asked for through `updates.apply` (#343: a
  * version and the path of its artefact on this machine, or the update that
- * waits, when idle or at once with `--now`); and `update settings`, the five
- * update settings written from flags through `updates.settings.set`. Each
- * exchanges the bootstrap grant for a local client session and revokes it
- * after (`local-session.ts`), as `pair` does.
+ * waits, when idle or at once with `--now`); `update settings`, the five
+ * update settings written from flags through `updates.settings.set`; and
+ * `update credential --stdin`, the release token given to the environment
+ * as the forge account for its release origin (#346). Each exchanges the
+ * bootstrap grant for a local client session and revokes it after
+ * (`local-session.ts`), as `pair` does.
  */
 
 export const UPDATE_USAGE = [
   `${PRODUCT_NAME} update status [--json] [--data-dir <path>] [--port <n>]`,
   `${PRODUCT_NAME} update apply [--version <version> [--path <artefact>]] [--now] [--data-dir <path>] [--port <n>]`,
   `${PRODUCT_NAME} update settings [--auto-update <on|off>] [--channel <stable|beta>] [--pinned-version <version|none>] [--idle-window-minutes <n>] [--deferral-cap-hours <n>] [--data-dir <path>] [--port <n>]`,
+  `${PRODUCT_NAME} update credential --stdin [--data-dir <path>] [--port <n>]`,
 ] as const;
 
 export interface UpdateContext {
   readonly stdout: (text: string) => void;
   readonly stderr: (text: string) => void;
+  /** Reads all of standard input: where `update credential` takes the token from. */
+  readonly stdin: () => Promise<string>;
   readonly net: Net;
 }
 
@@ -119,6 +126,8 @@ const checkLine = (check: UpdateCheck | null): string => {
   return check.result === "ok" ? `${check.at}, ok` : `${check.at}, failed (${check.reason}): ${check.message}`;
 };
 
+const targetLine = (target: UpdateTarget | null): string => (target === null ? "none" : `${target.version} (${target.source})`);
+
 const pendingLine = (pending: PendingUpdate): string => {
   switch (pending.state) {
     case "current":
@@ -153,8 +162,11 @@ export const renderUpdatesStatus = (status: UpdatesStatus): string =>
     `Claude Code (bundled): ${status.bundledClaudeCodeVersion ?? "unknown"}`,
     `Updates: ${managerLine(status.manager)}`,
     ...(status.installed.length > 0 ? [`Installed: ${status.installed.join(", ")}`] : []),
+    `Releases: ${status.releaseSource.origin}/${status.releaseSource.repository}`,
     `Channel's newest: ${status.newest ?? "not read yet"}`,
     `Last check: ${checkLine(status.lastCheck)}`,
+    `Target: ${targetLine(status.target)}`,
+    ...(status.passedOver === null ? [] : [`Passed over: ${status.passedOver.version} (${status.passedOver.source}, ${status.passedOver.reason}): ${status.passedOver.message}`]),
     `Pending update: ${pendingLine(status.pending)}`,
     `Last update: ${outcomeLine(status.lastOutcome)}`,
     ...(status.failedVersions.length > 0 ? [`Failed versions: ${status.failedVersions.join(", ")}`] : []),
@@ -215,8 +227,62 @@ const apply = async (args: readonly string[], context: UpdateContext): Promise<n
   return 0;
 };
 
+/** `update credential`'s flags; a usage error never quotes the argument refused, which may be the token given where it does not belong. */
+const credentialOptions = (args: readonly string[]) => {
+  try {
+    return parseOptions(args, { ...TARGET_OPTIONS, stdin: { type: "boolean" } });
+  } catch (error) {
+    if (error instanceof UsageError) throw new UsageError("update credential takes --stdin, --data-dir and --port only; the token comes on standard input.");
+    throw error;
+  }
+};
+
+/** Whether `account` holds `origin`: its canonical origin, or one of its aliases. */
+const holds = (account: ForgeAccountRecord, origin: string): boolean => account.origin === origin || account.aliases.some((alias) => alias.origin === origin);
+
+/**
+ * `update credential --stdin`: gives the environment its release access.
+ * The token is read from standard input only, never from an argument, and
+ * is never printed. Unless a forge account holds the environment's release
+ * origin already, which it then names, sending nothing, the token is added
+ * as the forge account for that origin through `forge.accounts.add`, which
+ * hears from the forge before it stores anything.
+ */
+const credential = async (args: readonly string[], context: UpdateContext): Promise<number> => {
+  const values = credentialOptions(args);
+  if (values.stdin !== true) throw new UsageError("update credential reads the token from standard input only: pass --stdin and pipe the token in.");
+  const token = (await context.stdin()).trim();
+  if (token === "") throw new LocalFailure("No token came on standard input: pipe the release token in.");
+  const said = await withLocalSession(targetOf(values), context.net, `${PRODUCT_NAME} update credential`, async (call) => {
+    const { releaseSource } = await call("updates.status", {});
+    const where = `${releaseSource.origin}, where its releases are published`;
+    const held = (await call("forge.accounts.list", {})).accounts.find((account) => holds(account, releaseSource.origin));
+    if (held !== undefined) return `The forge account ${held.slug} already covers ${where}; the token was not used. Change its credential in Set up, Forges.\n`;
+    const answer = await call("forge.accounts.add", {
+      commandId: randomUUID(),
+      forgeAccountId: randomUUID(),
+      url: releaseSource.origin,
+      kind: releaseSource.kind,
+      credential: { kind: "stored", provenance: "pasted", token },
+    });
+    if (answer.receipt.status === "rejected") {
+      const { error } = answer.receipt;
+      // Another command added one meanwhile.
+      if (error.code === "conflict" && error.data["reason"] === "origin_held") return `A forge account already covers ${where}; the token was not used.\n`;
+      throw new LocalFailure(`The environment refused the token: ${error.message}`);
+    }
+    // A fresh command id always carries the result.
+    const added = answer.result?.account;
+    if (added === undefined) throw new LocalFailure("The environment answered the token without the forge account it added.");
+    const problem = added.problem === null ? "" : ` It has a problem: ${added.problem.message}`;
+    return `Added the forge account ${added.slug} for ${where}: the environment reads its releases with it.${problem}\n`;
+  });
+  context.stdout(said);
+  return 0;
+};
+
 /** The `update` verbs by name. */
-const VERBS: Readonly<Record<string, (args: readonly string[], context: UpdateContext) => Promise<number>>> = { status, apply, settings };
+const VERBS: Readonly<Record<string, (args: readonly string[], context: UpdateContext) => Promise<number>>> = { status, apply, settings, credential };
 
 /**
  * `update`: runs the verb `args` name. Exits 0 once done, 1 with a plain
@@ -226,7 +292,7 @@ const VERBS: Readonly<Record<string, (args: readonly string[], context: UpdateCo
 export const update = async (args: readonly string[], context: UpdateContext): Promise<number> => {
   const [verb, ...rest] = args;
   const run = verb === undefined || !Object.hasOwn(VERBS, verb) ? undefined : VERBS[verb];
-  if (run === undefined) throw new UsageError(verb === undefined ? "update takes a verb: status, apply or settings." : `Unknown update verb ${verb}.`);
+  if (run === undefined) throw new UsageError(verb === undefined ? "update takes a verb: status, apply, settings or credential." : `Unknown update verb ${verb}.`);
   try {
     return await run(rest, context);
   } catch (error) {

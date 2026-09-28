@@ -3,7 +3,7 @@ import { ProtocolVersion } from "./flags.js";
 import { INSTALL_REFUSALS, OUTCOME_STAGES } from "./launcher.js";
 import { BusyReason } from "./lifecycle.js";
 import { Timestamp } from "./primitives.js";
-import { ReleaseImage, ReleaseVersion } from "./release.js";
+import { ReleaseImage, ReleaseSource, ReleaseVersion } from "./release.js";
 
 /**
  * The update vocabulary (launcher-update spec, "The update coordinator" and
@@ -253,6 +253,43 @@ export const PendingUpdate = z
   .meta({ description: "The pending update with its state: current, staging, waiting on what, ready, draining, switching, or blocked with why." });
 export type PendingUpdate = z.infer<typeof PendingUpdate>;
 
+/**
+ * The release the environment would update to, as the last check that read
+ * the channel found it: the pinned version on either channel, else, with
+ * auto-update effective (on, and nothing pinned), the channel's newest when
+ * it is newer than what runs. Nothing moves backwards on its own.
+ */
+export const UpdateTarget = z
+  .object({
+    version: ReleaseVersion,
+    source: UpdateSource.extract(["channel", "pin"]).meta({ description: "Why it is the target: pin (the pinned version) or channel (the channel's newest, auto-update being on)." }),
+  })
+  .meta({ description: "The release the environment would update to: its version, and whether the pin or the channel names it." });
+export type UpdateTarget = z.infer<typeof UpdateTarget>;
+
+/**
+ * Why a release that would be the target is not: its database schema is
+ * below the database's, the release has no artefact for this platform, or
+ * the pinned version has no release.
+ */
+export const UPDATE_PASS_OVER_REASONS = ["schema", "artefact", "missing"] as const;
+export const UpdatePassOverReason = z.enum(UPDATE_PASS_OVER_REASONS).meta({
+  description:
+    "Why a release that would be the target is not: schema (its database schema is below the database's, and nothing of it is downloaded), artefact (it has no artefact for this platform) or missing (the pinned version has no release that is not a draft).",
+});
+export type UpdatePassOverReason = z.infer<typeof UpdatePassOverReason>;
+
+/** The release the last check found that would be the target and is not, with why. */
+export const UpdatePassedOver = z
+  .object({
+    version: ReleaseVersion,
+    source: UpdateTarget.shape.source,
+    reason: UpdatePassOverReason,
+    message: z.string().min(1).meta({ description: "Why, for people." }),
+  })
+  .meta({ description: "A release that would be the target and is not: its version, whether the pin or the channel names it, and why." });
+export type UpdatePassedOver = z.infer<typeof UpdatePassedOver>;
+
 const outcomePart = {
   updateId: UpdateId.nullable().meta({ description: "The update; null for one recorded before update ids." }),
   fromVersion: RecordedVersion.meta({ description: "The version the update went from." }),
@@ -278,8 +315,14 @@ export const UpdatesStatus = z
     protocolVersion: ProtocolVersion,
     bundledClaudeCodeVersion: z.string().min(1).nullable().meta({ description: "The version of Claude Code the running version bundles; null when it could not be read." }),
     manager: UpdateManager,
+    releaseSource: ReleaseSource,
     newest: ReleaseVersion.nullable().meta({ description: "The channel's newest release as the last check that read it found it; null before one did." }),
     lastCheck: UpdateCheck.nullable().meta({ description: "The last check of the channel; null before the first." }),
+    target: UpdateTarget.nullable().meta({
+      description:
+        "The release the environment would update to, as the last check that read the channel found it (a failed check leaves it); null for none: before a check read the channel, with auto-update off and nothing pinned, with nothing newer than what runs, with the pinned version running, or with the release passed over.",
+    }),
+    passedOver: UpdatePassedOver.nullable().meta({ description: "The release the last check that read the channel found would be the target and is not, with why; null for none." }),
     pending: PendingUpdate,
     lastOutcome: UpdateOutcome.nullable().meta({ description: "How the last update ended; null before any." }),
     failedVersions: z.array(RecordedVersion).meta({ description: "Versions whose update failed: never taken again automatically, though updates.apply may retry one." }),
@@ -287,7 +330,7 @@ export const UpdatesStatus = z
   })
   .meta({
     description:
-      "The environment's updates: what runs, who manages its updates, the channel's newest and the last check, the pending update with its state, the last outcome, the versions that failed and those installed.",
+      "The environment's updates: what runs, who manages its updates, where its releases are read, the channel's newest, the last check and the target it found, the pending update with its state, the last outcome, the versions that failed and those installed.",
   });
 export type UpdatesStatus = z.infer<typeof UpdatesStatus>;
 
@@ -299,18 +342,19 @@ export const UpdateWhen = z.enum(UPDATE_WHENS).meta({
 export type UpdateWhen = z.infer<typeof UpdateWhen>;
 
 /**
- * Why an update is refused in `conflict` (its `data.reason`): the environment
- * is pinned to another version, already runs this one, the version's
- * database schema is below the database's, it needs a newer launcher than
- * the running one hosts, an update is draining or switching, the
- * environment cannot read the releases, the launcher refused to install the
- * version (`data.launcherReason` says why), or no launcher runs the
- * environment to switch it (#343).
+ * Why an update, or a pin, is refused in `conflict` (its `data.reason`): the
+ * environment is pinned to another version, already runs this one, the
+ * version's database schema is below the database's, it needs a newer
+ * launcher than the running one hosts, an update is draining or switching,
+ * the environment cannot read the releases, the forge did not answer, the
+ * release's manifest is missing or not its schema (#346), the launcher
+ * refused to install the version (`data.launcherReason` says why), or no
+ * launcher runs the environment to switch it (#343).
  */
-export const UPDATE_CONFLICT_REASONS = ["pinned", "current", "schema", "launcher", "in_progress", "no_release_access", "install", "no_launcher"] as const;
+export const UPDATE_CONFLICT_REASONS = ["pinned", "current", "schema", "launcher", "in_progress", "no_release_access", "unreachable", "manifest", "install", "no_launcher"] as const;
 export const UpdateConflictReason = z.enum(UPDATE_CONFLICT_REASONS).meta({
   description:
-    "Why an update was refused in conflict: pinned (another version is pinned), current (that version runs already), schema (its database schema is below the database's), launcher (it needs a newer launcher, with no stepping stone), in_progress (an update is draining or switching), no_release_access (no forge account can read the releases), install (the launcher refused to install the version: data.launcherReason says why) or no_launcher (no launcher runs the environment to switch its version: a foreground serve, or a container whose update no host-side updater takes).",
+    "Why an update or a pin was refused in conflict: pinned (another version is pinned), current (that version runs already), schema (its database schema is below the database's), launcher (it needs a newer launcher, with no stepping stone), in_progress (an update is draining or switching), no_release_access (no forge account for the release origin, or its token was refused), unreachable (the forge did not answer, or failed: ask again), manifest (the release's manifest is missing or not its schema), install (the launcher refused to install the version: data.launcherReason says why) or no_launcher (no launcher runs the environment to switch its version: a foreground serve, or a container whose update no host-side updater takes).",
 });
 export type UpdateConflictReason = z.infer<typeof UpdateConflictReason>;
 

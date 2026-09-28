@@ -439,6 +439,19 @@ describe("releases", () => {
     expect(readFileSync(destination, "utf8")).toBe("{}");
     expect(forge.requests.at(-1)).toEqual({ method: "GET", path: "/david/agent-harness/releases/download/v0.1.0/release.json", scheme: "token" });
   });
+
+  it("reads a release by its tag through the forge account, and anonymously where none serves the origin", async () => {
+    const { t, forge } = await withAccount();
+    forge.answer(TOKEN, "GET /api/v1/repos/david/agent-harness/releases/tags/v0.1.0", { status: 200, body: releaseBody(forge, 1, "v0.1.0") });
+    const target = { origin: forge.origin, repository: "david/agent-harness", purpose: "read the release channel" };
+    expect(await t.env.forge.releases.byTag({ ...target, tag: "v0.1.0" })).toMatchObject({ outcome: "done", value: { id: 1, tag: "v0.1.0" } });
+    expect(forge.requests.at(-1)).toEqual({ method: "GET", path: "/api/v1/repos/david/agent-harness/releases/tags/v0.1.0", scheme: "token" });
+
+    const open = await fakeForge();
+    open.answer(null, "GET /api/v1/repos/david/agent-harness/releases/tags/v0.2.0", { status: 200, body: releaseBody(open, 2, "v0.2.0") });
+    expect(await t.env.forge.releases.byTag({ ...target, origin: open.origin, tag: "v0.2.0" })).toMatchObject({ outcome: "done", value: { id: 2 } });
+    expect(open.requests).toEqual([{ method: "GET", path: "/api/v1/repos/david/agent-harness/releases/tags/v0.2.0", scheme: null }]);
+  });
 });
 
 describe("a file on a branch", () => {
