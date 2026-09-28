@@ -176,8 +176,9 @@ export interface PlannedRun {
   /** The tools the caller runs (`StartCommand.clientTools`); empty for none. */
   readonly clientTools: readonly ClientTool[];
   /**
-   * The messages the run starts with, in order: the queued ones, whose
-   * attachments' bytes the host holds, then the one sent, with its bytes.
+   * The messages the run starts with, in the order it reads them: the queued
+   * ones, whose attachments' bytes the host holds, then the one sent, with
+   * its bytes; the one sent first when the command asks (`messageFirst`).
    */
   readonly prompt: readonly PromptMessage[];
 }

@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { statSync } from "node:fs";
 import {
   ENVIRONMENT_STREAM_KIND,
   SESSION_STREAM_KIND,
@@ -8,10 +7,12 @@ import {
 } from "@agent-harness/contracts";
 import type { AdapterHost } from "../adapter/host.js";
 import type { EventInput, EventLog } from "../event-log/event-log.js";
+import { parkedPrompts } from "../permissions/prompts-store.js";
 import { actorOfPolicy } from "../permissions/resolver.js";
 import { readRunPolicy } from "../permissions/review-store.js";
 import { decideStart, type PlannedRun } from "../runs/run-decider.js";
 import { latestRun, readRun, readSessionFacts } from "../runs/run-reads.js";
+import { isDirectory } from "../serve/files.js";
 import { appendRunEvents } from "../sessions/activity-companions.js";
 import type { Reader } from "../sessions/session-reads.js";
 import { sessionStream } from "../sessions/streams.js";
@@ -28,8 +29,8 @@ import { readUpdateHistory } from "./outcomes.js";
  * session, as `system:updates`, saying what became of it:
  *
  * - `next-message` when its session is deleted (`deleted`), or it was a
- *   completions request's (`completions`: its caller was answered 503
- *   `drained` and owns the retry, so it is never continued);
+ *   completions request's (`completions`: its caller was answered 503 as the
+ *   drain cut it and owns the retry, so it is never continued);
  * - `waiting-on-prompt` while a prompt of its session is parked: continuation
  *   never answers a prompt, and a person's answer resumes the session at once
  *   (`resumesOnAnswer`);
@@ -85,7 +86,7 @@ const waitsForNextMessage = (reason: UpdateInterruptReason): Verdict => ({ outco
  * a rollback) the environment runs the version it went from, so the message
  * does not say it was updated.
  */
-export const continuationMessage = (environmentName: string, toVersion: string, took: boolean): string =>
+const continuationMessage = (environmentName: string, toVersion: string, took: boolean): string =>
   `${took ? `${environmentName} was updated to ${toVersion}` : `${environmentName} was restarted for an update to ${toVersion}, which did not take,`} while you were working and your turn was cut off. Check the current state before repeating anything that may already have finished, then continue.`;
 
 /**
@@ -141,19 +142,7 @@ export const resumesOnAnswer = (reader: Reader, sessionId: string): boolean => {
   );
 };
 
-/** Whether a prompt of the session is parked. */
-const hasParkedPrompt = (reader: Reader, sessionId: string): boolean =>
-  reader.all("SELECT 1 FROM prompts WHERE session_id = ? AND answered_sequence IS NULL LIMIT 1", sessionId).length > 0;
-
-/** Whether the workspace directory at `path` is still there. */
-const isDirectory = (path: string): boolean => {
-  try {
-    return statSync(path).isDirectory();
-  } catch {
-    return false;
-  }
-};
-
+/** The runs half of the settle, as this start passes its gate: never stops the start, whatever fails (said on standard error). */
 export const settleInterruptedRuns = (options: InterruptedRunsOptions): void => {
   const { log, host, actor } = options;
   const latest = readUpdateHistory(log).latest;
@@ -171,7 +160,7 @@ export const settleInterruptedRuns = (options: InterruptedRunsOptions): void => 
     // A run with no recorded policy (a development log's, before #129) has no mode to go on in.
     if (run === null || policy === null) return waitsForNextMessage("mode");
     if (policy.actorKind === "completions") return waitsForNextMessage("completions");
-    if (hasParkedPrompt(reader, cut.sessionId)) return { outcome: "waiting-on-prompt" };
+    if (parkedPrompts(reader, cut.sessionId).length > 0) return { outcome: "waiting-on-prompt" };
     const facts = host.startFacts(cut.sessionId, actorOfPolicy(policy));
     const { account } = facts;
     if (account === null || !account.signedIn || facts.accountId !== run.accountId) return waitsForNextMessage("account");
@@ -211,7 +200,14 @@ export const settleInterruptedRuns = (options: InterruptedRunsOptions): void => 
       return verdict.run;
     });
 
-  for (const cut of unmarkedCutRuns(reader, latest.sequence)) {
+  let cuts: CutRun[];
+  try {
+    cuts = unmarkedCutRuns(reader, latest.sequence);
+  } catch (error) {
+    console.error(`Reading the runs update ${updateId} cut failed; the next start settles them:`, error);
+    return;
+  }
+  for (const cut of cuts) {
     let continuation: PlannedRun | undefined;
     try {
       continuation = mark(cut);
@@ -219,6 +215,12 @@ export const settleInterruptedRuns = (options: InterruptedRunsOptions): void => 
       console.error(`Settling run ${cut.runId}, which update ${updateId} cut, failed; the next start settles it:`, error);
       continue;
     }
-    if (continuation !== undefined) host.launch(continuation);
+    if (continuation === undefined) continue;
+    try {
+      host.launch(continuation);
+    } catch (error) {
+      // Its start is in the log: the recovery sweep ends it at the next start, and the session's next message goes on.
+      console.error(`Launching run ${continuation.runId}, which continues run ${cut.runId}, failed:`, error);
+    }
   }
 };

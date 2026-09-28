@@ -4,6 +4,7 @@ import { join } from "node:path";
 import {
   DATABASE_FILE,
   OUTCOME_RECORD_FILE,
+  SessionSnapshot,
   type MessageSentPayload,
   type OutcomeRecord,
   type PromptOpenedPayload,
@@ -192,6 +193,16 @@ describe("a run the update cut that its provider can resume", () => {
     expect(sent && { text: (sent.payload as MessageSentPayload).text, actor: sent.actor }).toEqual({ text: CONTINUATION, actor: "system:updates" });
     expect(adapter.lastRun().input.target).toEqual({ kind: "resume", providerSessionId: "provider-1" });
     expect(adapter.lastRun().input.prompt.map((message) => message.text)).toEqual([CONTINUATION]);
+    // Shown in the transcript a client opens: the continuation among the runs, its message among the items.
+    const later = await again.client();
+    const { subscription } = await later.subscribe("sessions.subscribeSession", { sessionId: id, afterSequence: again.env.log.head() + 1000 });
+    const frame = await later.next((f) => f.type === "snapshot" && f.subscription === subscription);
+    const snapshot = SessionSnapshot.parse(frame.type === "snapshot" && frame.payload);
+    expect(snapshot.runs.map(({ runId, origin }) => ({ runId, origin }))).toEqual([
+      { runId: cut, origin: "client" },
+      { runId: continuation, origin: "update" },
+    ]);
+    expect(snapshot.items).toContainEqual(expect.objectContaining({ kind: "user-message", runId: continuation, text: CONTINUATION, delivery: "prompt" }));
   });
 
   it("is continued in the model and effort it ran in", async () => {
