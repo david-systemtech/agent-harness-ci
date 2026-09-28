@@ -6,7 +6,9 @@ import {
   UPDATE_BLOCKED_REASONS,
   UPDATE_CHECK_FAILURES,
   UPDATE_CONFLICT_REASONS,
+  UPDATE_ID_PATTERN,
   UPDATE_STATES,
+  UpdateId,
   UpdatesStatus,
   registry,
 } from "./index.js";
@@ -38,6 +40,22 @@ const status = {
   failedVersions: [],
   installed: ["0.4.0", "0.4.1", "0.4.2"],
 };
+
+describe("an update's id", () => {
+  it("is what the launcher, which reads it without the schema, takes as one: a version 4 UUID", () => {
+    const candidates = [
+      updateId,
+      updateId.toUpperCase(),
+      "7d0f2b1e-2c55-1a8e-9f0b-3a1c5d7e9b20",
+      "7d0f2b1e-2c55-4a8e-cf0b-3a1c5d7e9b20",
+      "00000000-0000-0000-0000-000000000000",
+      "7d0f2b1e2c554a8e9f0b3a1c5d7e9b20",
+      ` ${updateId}`,
+      "",
+    ];
+    for (const id of candidates) expect(UPDATE_ID_PATTERN.test(id), id).toBe(UpdateId.safeParse(id).success);
+  });
+});
 
 describe("the update status document", () => {
   it("says what runs: the version, the protocol version and the bundled Claude Code version, null when it could not be read", () => {

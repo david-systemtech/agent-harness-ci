@@ -4,6 +4,7 @@ import { join, resolve as absolutePath } from "node:path";
 import {
   BOOTSTRAP_PATH,
   ContractError,
+  DATABASE_FILE,
   DISCOVERY_PATH,
   ENVIRONMENT_STREAM_KIND,
   HEALTH_PATH,
@@ -128,8 +129,8 @@ export const DEFAULT_PORT = 7433;
 /** Where each repository's auto-memory directory lives in the data directory, shared by every account (ADR 0018). */
 export const AUTO_MEMORY_DIRECTORY = "auto-memory";
 
-/** The database file in the data directory. */
-export const DATABASE_FILE = "environment.db";
+/** The database file in the data directory, named where the launcher, which snapshots it, reads it too. */
+export { DATABASE_FILE };
 
 /**
  * The startup order the env spec fixes ("Lifecycle"), after the root refusal

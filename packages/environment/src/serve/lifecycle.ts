@@ -7,6 +7,7 @@ import type {
   LauncherQuery,
   LauncherReply,
 } from "@agent-harness/contracts";
+import { DRAIN_CAP_MS } from "@agent-harness/contracts";
 import { formatActor, type EventLog, type StreamRef } from "../event-log/event-log.js";
 import type { StreamSource } from "../wire/subscriptions.js";
 import type { Clock } from "./clock.js";
@@ -19,8 +20,8 @@ import { activityOf, type RunRegistry } from "./run-registry.js";
  * drain. Runs are read through the run registry (`run-registry.ts`).
  */
 
-/** How long a drain waits for running runs before it cuts them and the environment closes (ADR 0007). */
-export const DRAIN_CAP_MS = 30 * 60_000;
+/** How long a drain waits for running runs before it cuts them and the environment closes (ADR 0007): the contracts' launcher module's, which the launcher waits a minute past. */
+export { DRAIN_CAP_MS };
 
 /**
  * How a drain ended: every run it waited for finished, the cap cut the rest,
