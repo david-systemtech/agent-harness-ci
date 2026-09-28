@@ -310,7 +310,7 @@ describe("issues", () => {
       outcome: "refused",
       error: { code: "secret_shaped", message: "The issue's body holds a GitHub token: take it out. Nothing was sent to the forge.", data: { rule: "github", field: "body" } },
     });
-    expect(SecretShapedError.parse(answer.outcome === "refused" ? answer.error : null)).toBeDefined();
+    if (answer.outcome === "refused") expect(SecretShapedError.safeParse(answer.error).success).toBe(true);
     const pull = await t.env.forge.pullRequests.create({ repository: "david/bank", title: "Rotate", body: `Authorization: Bearer ${"Fake0Test9".repeat(3)}`, head: "a", base: "main", purpose: "land" });
     expect(pull).toMatchObject({ outcome: "refused", error: { code: "secret_shaped", data: { rule: "bearer", field: "body" } } });
     expect(JSON.stringify([answer, pull])).not.toContain(shaped);

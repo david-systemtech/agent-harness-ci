@@ -71,7 +71,8 @@ export const SHAPE_RULES: readonly ShapeRule[] = [
     label: "an OpenAI-style API key",
     prefixes: ["sk-"],
     // A kind among sk-proj-, sk-svcacct-, sk-admin-, sk-None- and OpenRouter's sk-or-v1-, or a legacy key's unbroken run.
-    pattern: /sk-(?!ant-)(?:(?:proj|svcacct|admin|None|or-v1)-[A-Za-z0-9_-]{20,}|[A-Za-z0-9]{20,}[A-Za-z0-9_-]*)/,
+    // Never after a hyphen: a kebab-case name's -sk- segment (deploy-sk-<hash>) is none.
+    pattern: /(?<!-)sk-(?!ant-)(?:(?:proj|svcacct|admin|None|or-v1)-[A-Za-z0-9_-]{20,}|[A-Za-z0-9]{20,}[A-Za-z0-9_-]*)/,
   },
   {
     id: "aws",

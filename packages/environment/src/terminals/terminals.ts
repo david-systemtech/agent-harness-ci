@@ -223,7 +223,7 @@ export const createTerminals = (options: TerminalsOptions): Terminals => {
   };
 
   /** Shows what the output holds back, and stops waiting to. */
-  const release = (terminal: Terminal): void => {
+  const showHeld = (terminal: Terminal): void => {
     terminal.holding?.cancel();
     terminal.holding = undefined;
     show(terminal, terminal.output.flush());
@@ -242,7 +242,7 @@ export const createTerminals = (options: TerminalsOptions): Terminals => {
       terminal.holding?.cancel();
       terminal.holding = undefined;
     } else {
-      terminal.holding ??= options.clock.setTimeout(() => release(terminal), HOLD_BACK_MS);
+      terminal.holding ??= options.clock.setTimeout(() => showHeld(terminal), HOLD_BACK_MS);
     }
   };
 
@@ -257,7 +257,7 @@ export const createTerminals = (options: TerminalsOptions): Terminals => {
   const exited = (terminal: Terminal, exitCode: number, signalNumber: number | null): void => {
     if (terminal.exit !== undefined) return;
     flush(terminal);
-    release(terminal);
+    showHeld(terminal);
     if (terminal.killing !== undefined) clearTimeout(terminal.killing);
     terminal.killing = undefined;
     terminal.process = undefined;

@@ -66,6 +66,7 @@ const CASES: Record<ShapeRuleIdType, { readonly hits: readonly (readonly [text: 
         "the sk-learn-preprocessing-pipeline package",
         "run the task-runner-for-long-queues-and-other-work job",
         "open desk-booking-service-for-the-whole-team",
+        `kubectl rollout restart deploy/payments-sk-${fill(24, "abc0123def")}`,
         `ask${fill(30)}`,
         joined("s", "k-", fill(12)),
       ],
