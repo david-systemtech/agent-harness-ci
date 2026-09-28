@@ -40,8 +40,9 @@ See `docs/agents/domain.md`.
 ## Building
 
 A pnpm workspace (`packages/`: `contracts`, `environment`, `client-runtime`,
-`theme` (the seed-to-token maths, on contracts alone), `tui`, and `cli`, the
-`agent-harness` binary). Node 24 or later: the LTS
+`theme` (the seed-to-token maths, on contracts alone), `tui`, `gui` (the
+desktop window's renderer, a React app whose bundle runs in a browser tab
+too), and `cli`, the `agent-harness` binary). Node 24 or later: the LTS
 line, whose `node:sqlite` has the busy `timeout` option and `isTransaction` the
 event log uses. The floor was 22.16, the first 22 release with both, until
 2026-09-28, when David raised it because Node 22 ends its life in April 2027.
@@ -58,6 +59,13 @@ pnpm comes from the `packageManager` pin through `corepack enable`.
   environment loads it on the first terminal only, so such a machine runs
   everything else and `terminals.open` answers `pty_unavailable` (and the
   real-pty terminal tests fail there).
+- The GUI's tests run in jsdom through its harness (`packages/gui/test/harness.tsx`:
+  the app over the runtime on the in-memory platform, the scripted
+  environment and the recording fake shell, driven by user-event), and are
+  type-checked by `packages/gui/tsconfig.test.json`, which has the DOM's
+  types. `pnpm --filter @agent-harness/gui build` writes its static bundle to
+  `packages/gui/dist/` with Vite; never serve it or open it in a browser on
+  the shared agent box.
 - `packages/contracts/schema/` is the JSON Schema export of every contracts
   schema, committed as the release artefact for clients in other languages.
   After changing a schema run `pnpm --filter @agent-harness/contracts

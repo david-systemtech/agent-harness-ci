@@ -16,10 +16,13 @@
     "eslint-rules",
     "test",
     "packages/*/vitest.config.ts",
+    "packages/*/vite.config.ts",
     "packages/*/scripts",
     "packages/*/test",
     "packages/*/src/**/*.test.ts"
   ],
+  // The GUI's tests run in jsdom and are checked with the DOM's types in packages/gui/tsconfig.test.json.
+  "exclude": ["packages/gui/src", "packages/gui/test"],
   "references": [
     { "path": "packages/contracts" },
     { "path": "packages/environment" },

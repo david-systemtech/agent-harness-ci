@@ -1,0 +1,59 @@
+@import "tailwindcss";
+
+/*
+ * Every colour is a token (ADR 0023). The theme package derives each token from the
+ * home environment's theme and the window paints it on the root as a CSS variable
+ * (`--beam`); this inline theme names each one to Tailwind (`--color-beam`), so a
+ * utility such as `bg-beam` reads the root's variable and repaints with it. Tailwind's
+ * own palette is reset away: a colour class that names no token draws nothing.
+ * `src/tokens.test.ts` holds this list to the theme package's names.
+ */
+@theme inline {
+  --color-*: initial;
+  --color-abyss: var(--abyss);
+  --color-inset: var(--inset);
+  --color-panel: var(--panel);
+  --color-raised: var(--raised);
+  --color-float: var(--float);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
+  --color-ink-faint: var(--ink-faint);
+  --color-beam: var(--beam);
+  --color-beam-dim: var(--beam-dim);
+  --color-beam-ink: var(--beam-ink);
+  --color-beam-text: var(--beam-text);
+  --color-cyan: var(--cyan);
+  --color-sage: var(--sage);
+  --color-mint: var(--mint);
+  --color-amber: var(--amber);
+  --color-amber-ink: var(--amber-ink);
+  --color-signal: var(--signal);
+  --color-signal-ink: var(--signal-ink);
+  --color-hairline: var(--hairline);
+  --color-hairline-strong: var(--hairline-strong);
+  --color-wash: var(--wash);
+  --color-wash-strong: var(--wash-strong);
+  --color-wash-user: var(--wash-user);
+  --color-environment-red: var(--environment-red);
+  --color-environment-orange: var(--environment-orange);
+  --color-environment-amber: var(--environment-amber);
+  --color-environment-yellow: var(--environment-yellow);
+  --color-environment-lime: var(--environment-lime);
+  --color-environment-green: var(--environment-green);
+  --color-environment-teal: var(--environment-teal);
+  --color-environment-cyan: var(--environment-cyan);
+  --color-environment-blue: var(--environment-blue);
+  --color-environment-indigo: var(--environment-indigo);
+  --color-environment-violet: var(--environment-violet);
+  --color-environment-pink: var(--environment-pink);
+}
+
+/* The window's ground and ink before and around the frame, so nothing but the canvas shows while it mounts. */
+@layer base {
+  html {
+    background-color: var(--abyss);
+    color: var(--ink);
+  }
+}

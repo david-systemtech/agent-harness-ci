@@ -1,0 +1,196 @@
+import { render, screen, within } from "@testing-library/react";
+import { userEvent } from "@testing-library/user-event";
+import { useState } from "react";
+import { describe, expect, it } from "vitest";
+import {
+  Button,
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+  Dialog,
+  DialogContent,
+  DialogTrigger,
+  Input,
+  Menu,
+  MenuContent,
+  MenuItem,
+  MenuTrigger,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+  Switch,
+  Toast,
+  Toasts,
+  Tooltip,
+} from "./ui/index.js";
+
+/**
+ * The primitives (docs/specs/gui.md, "Packages and the platform"): each takes
+ * props and holds no store, so what it shows is what its props say; each is
+ * reached by role and name, as a person using assistive technology reaches
+ * it. That they draw only tokens is the literal-colour lint's to hold
+ * (`lint.test.ts`).
+ */
+describe("the primitives", () => {
+  it("a button is a button, named by its text, that never submits a form unless told to", async () => {
+    const user = userEvent.setup();
+    const pressed: string[] = [];
+    const submitted: string[] = [];
+    render(
+      <form onSubmit={(event) => (event.preventDefault(), submitted.push("form"))}>
+        <Button tone="primary" onClick={() => pressed.push("Send")}>
+          Send
+        </Button>
+        <Button type="submit">Save</Button>
+      </form>,
+    );
+    await user.click(screen.getByRole("button", { name: "Send" }));
+    expect(pressed).toEqual(["Send"]);
+    expect(submitted).toEqual([]);
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(submitted).toEqual(["form"]);
+  });
+
+  it("an input is a text field named by its label, reporting what is typed", async () => {
+    const user = userEvent.setup();
+    const Field = () => {
+      const [value, setValue] = useState("");
+      return (
+        <label>
+          Filter
+          <Input value={value} onChange={(event) => setValue(event.target.value)} />
+        </label>
+      );
+    };
+    render(<Field />);
+    await user.type(screen.getByRole("textbox", { name: "Filter" }), "rail");
+    expect(screen.getByRole("textbox", { name: "Filter" })).toHaveProperty("value", "rail");
+  });
+
+  it("a switch shows the state its props give, and asks for the other when pressed", async () => {
+    const user = userEvent.setup();
+    const asked: boolean[] = [];
+    render(<Switch aria-label="Esc stops the run" checked={false} onCheckedChange={(checked) => asked.push(checked)} />);
+    const control = screen.getByRole("switch", { name: "Esc stops the run" });
+    expect(control.getAttribute("aria-checked")).toBe("false");
+
+    await user.click(control);
+    expect(asked).toEqual([true]);
+    expect(control.getAttribute("aria-checked")).toBe("false");
+  });
+
+  it("a menu opens from its button, runs the item chosen, and closes", async () => {
+    const user = userEvent.setup();
+    const chosen: string[] = [];
+    render(
+      <Menu>
+        <MenuTrigger asChild>
+          <Button>Session</Button>
+        </MenuTrigger>
+        <MenuContent>
+          <MenuItem onSelect={() => chosen.push("Pin")}>Pin</MenuItem>
+          <MenuItem disabled>Archive</MenuItem>
+        </MenuContent>
+      </Menu>,
+    );
+    await user.click(screen.getByRole("button", { name: "Session" }));
+    expect(screen.getByRole("menu")).toBeDefined();
+    expect(screen.getByRole("menuitem", { name: "Archive" }).getAttribute("aria-disabled")).toBe("true");
+
+    await user.click(screen.getByRole("menuitem", { name: "Pin" }));
+    expect(chosen).toEqual(["Pin"]);
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
+  it("a context menu opens on a right click of what it belongs to", async () => {
+    const user = userEvent.setup();
+    const chosen: string[] = [];
+    render(
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <p>Fix the rail</p>
+        </ContextMenuTrigger>
+        <ContextMenuContent>
+          <ContextMenuItem onSelect={() => chosen.push("Rename")}>Rename</ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>,
+    );
+    expect(screen.queryByRole("menu")).toBeNull();
+    await user.pointer({ keys: "[MouseRight]", target: screen.getByText("Fix the rail") });
+    await user.click(screen.getByRole("menuitem", { name: "Rename" }));
+    expect(chosen).toEqual(["Rename"]);
+  });
+
+  it("a dialog opens from its trigger, named by its title and described by its description, and Esc closes it", async () => {
+    const user = userEvent.setup();
+    render(
+      <Dialog>
+        <DialogTrigger asChild>
+          <Button>Delete</Button>
+        </DialogTrigger>
+        <DialogContent title="Delete the session?" description="It can be restored for thirty days.">
+          <Button tone="danger">Delete it</Button>
+        </DialogContent>
+      </Dialog>,
+    );
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+    const dialog = screen.getByRole("dialog", { name: "Delete the session?" });
+    expect(dialog.getAttribute("aria-describedby")).toBe(screen.getByText("It can be restored for thirty days.").id);
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("a popover floats its content beside its trigger, and Esc closes it", async () => {
+    const user = userEvent.setup();
+    render(
+      <Popover>
+        <PopoverTrigger asChild>
+          <Button>Account</Button>
+        </PopoverTrigger>
+        <PopoverContent aria-label="Accounts">seth@desk</PopoverContent>
+      </Popover>,
+    );
+    await user.click(screen.getByRole("button", { name: "Account" }));
+    expect(screen.getByRole("dialog", { name: "Accounts" }).textContent).toBe("seth@desk");
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("a tooltip tells what its control does once the control has the focus", async () => {
+    const user = userEvent.setup();
+    render(
+      <Tooltip content="Split the focused pane to the right">
+        <Button aria-label="Split right">⇥</Button>
+      </Tooltip>,
+    );
+    expect(screen.queryByRole("tooltip")).toBeNull();
+    await user.tab();
+    expect((await screen.findByRole("tooltip")).textContent).toBe("Split the focused pane to the right");
+  });
+
+  it("a toast shows while its props say it is open, offers its action, and asks to close when dismissed", async () => {
+    const user = userEvent.setup();
+    const done: string[] = [];
+    const { rerender } = render(
+      <Toasts>
+        <Toast open title="desk updated" description="Version 0.5.0 is running." action={{ label: "Reload", run: () => done.push("Reload") }} onOpenChange={(open) => done.push(`open ${open}`)} duration={Infinity} />
+      </Toasts>,
+    );
+    const toasts = screen.getByRole("region", { name: "Notifications (F8)" });
+    expect(within(toasts).getByRole("listitem").textContent).toContain("desk updated");
+    await user.click(screen.getByRole("button", { name: "Reload" }));
+    await user.click(screen.getByRole("button", { name: "Dismiss" }));
+    expect(done).toContain("Reload");
+    expect(done).toContain("open false");
+
+    rerender(
+      <Toasts>
+        <Toast open={false} title="desk updated" onOpenChange={() => undefined} />
+      </Toasts>,
+    );
+    expect(screen.queryByText("desk updated")).toBeNull();
+  });
+});
