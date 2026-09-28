@@ -720,6 +720,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     log,
     stream: environmentStream,
     updatesManagedOutside,
+    // The idle window (#342): how long nothing may start or end, and how long a parked prompt counts as busy.
+    idleWindowMs: () => readSettings({ all: (sql, ...params) => log.read(sql, ...params) })["updates.idleWindowMinutes"] * 60_000,
     readiness: () => readiness,
     onDraining: () => {
       readiness = "draining";

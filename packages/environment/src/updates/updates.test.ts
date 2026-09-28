@@ -266,3 +266,68 @@ describe("the self-update flag", () => {
     }
   });
 });
+
+describe("the idle window", () => {
+  const MINUTE = 60_000;
+  const activity = async (client: WireClient) => (await client.request("environment.status", {})).activity;
+
+  it("set to 25 minutes, holds the environment busy 24 minutes after a run ended, and idle at 26", async () => {
+    const t = await start();
+    const client = await t.client();
+    await setUpdates(client, { "updates.idleWindowMinutes": 25 });
+    t.runs.start("r1");
+    t.runs.running("r1");
+    t.clock.advance(40 * MINUTE);
+    const endedAt = t.clock.now().getTime();
+    t.runs.end("r1");
+
+    t.clock.advance(24 * MINUTE);
+    expect(await activity(client)).toEqual({ state: "busy", reason: "recent-activity", busyUntil: new Date(endedAt + 25 * MINUTE).toISOString() });
+    t.clock.advance(2 * MINUTE);
+    expect(await activity(client)).toEqual({ state: "idle" });
+  });
+
+  it("set to 25 minutes, counts a run parked on a prompt as busy 24 minutes after it parked, and no longer at 26", async () => {
+    const t = await start();
+    const client = await t.client();
+    await setUpdates(client, { "updates.idleWindowMinutes": 25 });
+    t.runs.start("r1");
+    t.runs.running("r1");
+    t.clock.advance(60 * MINUTE);
+    const parkedAt = t.clock.now().getTime();
+    t.runs.park("r1");
+
+    t.clock.advance(24 * MINUTE);
+    expect(await activity(client)).toEqual({ state: "busy", reason: "parked-prompt", busyUntil: new Date(parkedAt + 25 * MINUTE).toISOString() });
+    t.clock.advance(2 * MINUTE);
+    expect(await activity(client)).toEqual({ state: "idle" });
+  });
+
+  it("set to 30 minutes, still counts a run that ended 25 minutes ago", async () => {
+    const t = await start();
+    const client = await t.client();
+    await setUpdates(client, { "updates.idleWindowMinutes": 30 });
+    t.runs.start("r1");
+    t.runs.running("r1");
+    t.runs.end("r1");
+    const endedAt = t.clock.now().getTime();
+
+    t.clock.advance(25 * MINUTE);
+    expect(await activity(client)).toEqual({ state: "busy", reason: "recent-activity", busyUntil: new Date(endedAt + 30 * MINUTE).toISOString() });
+    t.clock.advance(5 * MINUTE);
+    expect(await activity(client)).toEqual({ state: "idle" });
+  });
+
+  it("is what the launcher's idle query reads too", async () => {
+    const t = await start({ launcher: testLauncher({ present: true }) });
+    const client = await t.client();
+    await setUpdates(client, { "updates.idleWindowMinutes": 25 });
+    t.runs.start("r1");
+    t.runs.running("r1");
+    t.runs.end("r1");
+    t.clock.advance(24 * MINUTE);
+    expect(t.launcher.ask({ type: "idle?" })).toMatchObject({ type: "idle", activity: { state: "busy", reason: "recent-activity" } });
+    t.clock.advance(2 * MINUTE);
+    expect(t.launcher.ask({ type: "idle?" })).toMatchObject({ type: "idle", activity: { state: "idle" } });
+  });
+});
