@@ -50,8 +50,11 @@ const COLOUR_FUNCTION = /(?<![0-9a-z-])(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|co
 /** Either, ignoring case. */
 const LITERAL = new RegExp(`${HEX.source}|${COLOUR_FUNCTION.source}`, "gi");
 
-/** A relative colour's origin that is a token or `currentColor`, after the function's parenthesis: the colour is the theme's. */
-const FROM_TOKEN = /^[\s_]*from[\s_]+(?:var\(|currentcolor(?![\w-]))/i;
+/**
+ * A relative colour's origin that is a token or `currentColor`, after the function's parenthesis: the colour is the theme's.
+ * A space may be Tailwind's `_` in an arbitrary value (`rgb(from_currentColor_r_g_b)`).
+ */
+const FROM_TOKEN = /^[\s_]*from[\s_]+(?:var\(|currentcolor(?![0-9a-z-]))/i;
 
 /** A `url()`, whose argument (`url(#fade)`) names a resource, not a colour. */
 const URL = /url\([^)]*\)/gi;

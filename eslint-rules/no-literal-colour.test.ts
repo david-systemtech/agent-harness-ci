@@ -40,7 +40,10 @@ ruleTester.run("no-literal-colour", rule, {
       filename: gui("app.tsx"),
       code: `const a = <div className="bg-(--beam) text-current" style={{ color: "var(--ink)", borderColor: "currentColor", background: "color-mix(in oklch, var(--beam) 20%, transparent)", outlineColor: "oklch(from var(--beam) l c h / 50%)", boxShadow: "0 0 0 1px rgb(from currentColor r g b / 0.4)" }} />;`,
     },
-    { filename: gui("app.ts"), code: "const a = [`hsl(from var(--signal) h s calc(l - 10%))`, \"shadow-[0_0_0_1px_oklch(from_var(--line)_l_c_h)]\"];" },
+    {
+      filename: gui("app.ts"),
+      code: "const a = [`hsl(from var(--signal) h s calc(l - 10%))`, \"shadow-[0_0_0_1px_oklch(from_var(--line)_l_c_h)] ring-[rgb(from_currentColor_r_g_b/0.4)]\"];",
+    },
     { filename: gui("logo.tsx"), code: `const a = <path fill="var(--beam)" stroke="currentColor" />;` },
   ],
   invalid: [
