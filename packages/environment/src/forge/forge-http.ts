@@ -318,7 +318,8 @@ export const forgeDownload = async (
     await pipeline(Readable.fromWeb(response.body), measure, createWriteStream(destination));
     return { outcome: "downloaded", status: response.status, size, sha256: hash.digest("hex") };
   } catch (error) {
-    await rm(destination, { force: true });
+    // What was written of it goes; a file there before the forge began answering is left as it was.
+    if (finishing) await rm(destination, { force: true });
     const why = finishing ? `did not finish the download: ${whyUnanswered(error, downloadTimeoutMs)}` : `could not be reached: ${whyUnanswered(error, http.timeoutMs)}`;
     return { outcome: "unanswered", message: why };
   } finally {

@@ -1,4 +1,4 @@
-import { PRODUCT_NAME, forgeApiBase, type PullRequestState, type ForgeIdentity, type ForgeKind, type ForgeOrigin, type ForgeTokenInformation, type ForgeTokenKind } from "@agent-harness/contracts";
+import { PRODUCT_NAME, forgeApiBase, type ForgeIdentity, type ForgeKind, type ForgeOrigin, type ForgeTokenInformation, type ForgeTokenKind, type PullRequestState } from "@agent-harness/contracts";
 import { forgeCall, forgeDownload, forgeGet, forgePages, type CallOptions, type ForgeHttpOptions, type PageOptions, type Paged, type Reply } from "./forge-http.js";
 
 export type { CallOptions, ForgeFetch } from "./forge-http.js";
