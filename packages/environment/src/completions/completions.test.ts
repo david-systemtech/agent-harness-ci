@@ -1424,6 +1424,34 @@ describe("the request's instructions, parameters and fields", () => {
     expect(await listed(t)).toHaveLength(1);
   });
 
+  it("answers a turn refused after its place resolved with its own refusal, and removes the scratch directory, when what the resolver made cannot be removed", async () => {
+    const resolver = scriptedResolver(({ request }) => ({
+      workspace: { kind: "directory", path: "path" in request ? request.path : "" },
+      repositoryIdentity: null,
+      undo: () => {
+        throw new Error("The worktree is locked.");
+      },
+    }));
+    const t = await start({}, { workspaceResolver: resolver });
+    const { token } = await program(t);
+    const log = t.env.log;
+    const append = log.append.bind(log);
+    const quiet = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const spy = vi.spyOn(log, "append").mockImplementation((stream, events, options) => {
+      if (events.some((event) => event.type === "session.created")) throw new Error("The disk is full.");
+      return append(stream, events, options);
+    });
+    onCleanup(() => {
+      spy.mockRestore();
+      quiet.mockRestore();
+    });
+    expect(await refusalOf(await post(t, token, turn("Hi")))).toMatchObject({ status: 500, body: { error: { code: "internal" } } });
+    const scratch = resolver.calls[0]?.request;
+    expect(scratch).toEqual({ kind: "directory", path: expect.stringContaining(t.dataDir) });
+    expect(existsSync((scratch as { path: string }).path)).toBe(false);
+    expect(quiet).toHaveBeenCalledWith(expect.stringContaining("resolver made"), expect.objectContaining({ message: "The worktree is locked." }));
+  });
+
   it("names the field whose text passes the 200,000-character cap on the request's own instructions", async () => {
     const t = await start();
     const { token } = await program(t);

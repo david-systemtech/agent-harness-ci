@@ -251,7 +251,12 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
 
   // ---- a turn ----
 
-  /** A fresh session's place: the workspace and identity to record, and how to remove what was made for it when the turn records nothing. */
+  /**
+   * A fresh session's place: the workspace and identity to record, and how
+   * to remove what was made for it when the turn records nothing. `discard`
+   * never throws: a removal that fails is logged, and the turn's answer
+   * stands, as a prepared command's undos leave a command's answer standing.
+   */
   interface Place {
     readonly workspace: Workspace;
     readonly repositoryIdentity: string | null;
@@ -278,7 +283,12 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
       mkdirSync(path, { recursive: true, mode: 0o700 });
     }
     const removeScratch = (): void => {
-      if (named === null) rmSync(path, { recursive: true, force: true });
+      if (named !== null) return;
+      try {
+        rmSync(path, { recursive: true, force: true });
+      } catch (error) {
+        console.error(`Removing the scratch directory ${path} made for a turn failed:`, error);
+      }
     };
     let resolved: Resolution;
     try {
@@ -297,7 +307,11 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
       workspace,
       repositoryIdentity,
       discard: async () => {
-        await undo?.();
+        try {
+          await undo?.();
+        } catch (error) {
+          console.error("Removing what the resolver made for a turn failed:", error);
+        }
         removeScratch();
       },
     };
