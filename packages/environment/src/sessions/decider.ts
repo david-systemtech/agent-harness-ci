@@ -107,13 +107,15 @@ export const stampedAt = (decision: Decision, at: string): Decision => {
 export const decided = (events: readonly EventInput[], companions: readonly EventInput[]): Decision =>
   companions.length > 0 ? { events, companions } : { events };
 
-/** `sessions.create` as the decider takes it: the absent optional params filled in. */
+/** `sessions.create` as the decider takes it: the absent optional params filled in, the workspace as the resolver gave it. */
 export interface CreateSession {
   readonly id: string;
   readonly title: string | null;
   readonly tags: readonly string[];
   readonly groupId: string | null;
   readonly workspace: Workspace;
+  /** The repository identity the resolver found for the workspace, or null. */
+  readonly repositoryIdentity: string | null;
   readonly account: string | null;
   readonly model: string | null;
   readonly mode: Mode | null;
@@ -217,20 +219,37 @@ const pinReordered = (pinOrderKey: string): Decision => {
 };
 
 /**
- * Creates a session that has never existed: one `session.created`, with no
- * repository identity until the workspace workstream resolves it. An id
- * that was used before, even by a session since deleted or purged, is a
- * conflict; a group that is not on this environment is not found.
+ * Why a session cannot be created, whatever its workspace: an id that was
+ * used before, even by a session since deleted or purged, is a conflict; a
+ * group that is not on this environment is not found. Null when neither
+ * holds. `sessions.create` checks these before its workspace is made, so
+ * nothing is made for a command refused anyway, and again in its
+ * transaction.
  */
-export const decideCreate = (state: SessionState | null, command: CreateSession, context: CreateContext): Decision => {
+export const refuseCreate = (
+  state: SessionState | null,
+  command: Pick<CreateSession, "id" | "groupId">,
+  context: CreateContext,
+): { readonly rejected: Refusal } | null => {
   if (state !== null) return conflict(command.id, "exists", `A session ${command.id} exists already.`);
   if (command.groupId !== null && !context.groupExists) return { rejected: groupNotFound(command.groupId) };
+  return null;
+};
+
+/**
+ * Creates a session that has never existed: one `session.created`, with the
+ * workspace and repository identity the resolver gave; refused as
+ * `refuseCreate` says.
+ */
+export const decideCreate = (state: SessionState | null, command: CreateSession, context: CreateContext): Decision => {
+  const refused = refuseCreate(state, command, context);
+  if (refused !== null) return refused;
   const payload: SessionCreatedPayload = {
     title: userTitle(command.title),
     tags: normaliseTags(command.tags),
     groupId: command.groupId,
     workspace: command.workspace,
-    repositoryIdentity: null,
+    repositoryIdentity: command.repositoryIdentity,
     account: command.account,
     model: command.model,
     mode: command.mode,

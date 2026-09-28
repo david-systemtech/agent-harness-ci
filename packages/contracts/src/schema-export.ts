@@ -152,6 +152,8 @@ import {
   UnsnoozeReason,
   UserTitle,
   Workspace,
+  WorkspaceRequest,
+  WorkspaceStatus,
 } from "./sessions.js";
 import { SessionEventType, type EventTypeEntry } from "./event-types.js";
 import {
@@ -381,6 +383,8 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "sessions/unsettle-reason.json", title: "UnsettleReason", schema: UnsettleReason },
   { path: "sessions/unsnooze-reason.json", title: "UnsnoozeReason", schema: UnsnoozeReason },
   { path: "sessions/workspace.json", title: "Workspace", schema: Workspace },
+  { path: "sessions/workspace-request.json", title: "WorkspaceRequest", schema: WorkspaceRequest },
+  { path: "sessions/workspace-status.json", title: "WorkspaceStatus", schema: WorkspaceStatus },
   { path: "sessions/activity-state.json", title: "ActivityState", schema: ActivityState },
   { path: "sessions/session-activity.json", title: "SessionActivity", schema: SessionActivity },
   { path: "sessions/pull-request-state.json", title: "PullRequestState", schema: PullRequestState },

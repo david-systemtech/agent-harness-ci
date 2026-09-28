@@ -307,6 +307,14 @@
       "title": "Workspace"
     },
     {
+      "path": "sessions/workspace-request.json",
+      "title": "WorkspaceRequest"
+    },
+    {
+      "path": "sessions/workspace-status.json",
+      "title": "WorkspaceStatus"
+    },
+    {
       "path": "sessions/activity-state.json",
       "title": "ActivityState"
     },
@@ -449,6 +457,10 @@
     {
       "path": "sessions/events/session.pull-request-synced.json",
       "title": "SessionPullRequestSyncedPayload"
+    },
+    {
+      "path": "sessions/events/session.workspace-status-changed.json",
+      "title": "SessionWorkspaceStatusChangedPayload"
     },
     {
       "path": "sessions/events/prompt.opened.json",

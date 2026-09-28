@@ -76,6 +76,8 @@ import { createTtlSweeper } from "../permissions/ttl-sweeper.js";
 import { createProviderTranscriptStore, type ProviderTranscriptStore } from "../provider-transcripts/store.js";
 import { runMethods, startRunIn } from "../runs/run-methods.js";
 import { runsProjector } from "../runs/runs-projector.js";
+import { scrubDiagnosticOutput } from "../scrub/diagnostic-output.js";
+import { createScrubRegistry, type ScrubRegistry } from "../scrub/registry.js";
 import { createCompactionSweep } from "../sessions/compaction.js";
 import { createDeletion } from "../sessions/deletion.js";
 import { forkRewindMethods } from "../sessions/fork-rewind.js";
@@ -85,6 +87,7 @@ import { sessionListProjector } from "../sessions/session-list.js";
 import { createTerminalService } from "../terminals/service.js";
 import type { TerminalsOptions } from "../terminals/terminals.js";
 import { workspaceMethods } from "../workspace/methods.js";
+import { createWorkspaceResolver, type WorkspaceResolver } from "../workspace/resolver.js";
 import { createSettleSweep } from "../sessions/settle-sweep.js";
 import { settingsMethods } from "../settings/methods.js";
 import { setupMethods } from "../setup/methods.js";
@@ -104,7 +107,7 @@ import { createLifecycle, type DrainOutcome } from "./lifecycle.js";
 import { createMethodTable, type MethodTable } from "./methods.js";
 import type { MemoryRunRegistry } from "./run-registry.js";
 import { processUserCheck, refusePrivilegedUser, type UserCheck } from "./user.js";
-import { fileVault, VAULT_FILE, type Vault } from "./vault.js";
+import { fileVault, holdVault, VAULT_FILE, type Vault } from "./vault.js";
 
 /** The harness version the environment reports: its own package's, read from `src/` and `dist/` alike. */
 export const HARNESS_VERSION: string = (
@@ -182,7 +185,7 @@ export interface EnvironmentOptions {
   readonly user?: UserCheck;
   /** Preset: the IPC channel of a launcher that spawned the environment, else nothing (`processLauncherChannel`). */
   readonly launcher?: LauncherChannel;
-  /** Preset: the file vault in the data directory. */
+  /** Preset: the file vault in the data directory. Every entry is registered with the scrub registry while the environment holds it. */
   readonly vault?: Vault;
   /** Registered and caught up from their cursors in the `projectors` step, after the environment's own (the session list). */
   readonly projectors?: readonly Projector[];
@@ -197,6 +200,14 @@ export interface EnvironmentOptions {
   readonly subscriptionHooks?: SubscriptionHooks;
   /** The run registry the adapter host fills and the idle rule and the drain read, with the drain's admission gate. Preset: a fresh one. */
   readonly runs?: MemoryRunRegistry;
+  /**
+   * The scrub registry (ADR 0011): the values the environment holds as
+   * secrets, its vault's entries among them from start, replaced with
+   * `[redacted]` in every event payload as the log appends it and in every
+   * line written to the process's standard error while the environment
+   * runs. Preset: a fresh one.
+   */
+  readonly scrub?: ScrubRegistry;
   /** Whether this is a container; with no launcher present too, updates are managed outside. Preset: `processContainerDetector`. */
   readonly containerDetector?: ContainerDetector;
   /** The adapters the adapter host holds, one per provider. Preset: the Claude adapter, with auto memory under the data directory. */
@@ -259,6 +270,12 @@ export interface EnvironmentOptions {
   readonly probeContainment?: () => Promise<ContainmentProbe>;
   /** How terminals start: the pty, the shell, the base environment. Preset: `node-pty`, the user's login shell, the clean base (`terminals/`). */
   readonly terminals?: Omit<TerminalsOptions, "clock">;
+  /**
+   * The resolver `sessions.create` and the completions surface give a new
+   * session its workspace through (#321). Preset: the environment's
+   * (`workspace/resolver.ts`); tests script it.
+   */
+  readonly workspaceResolver?: WorkspaceResolver;
 }
 
 /** Who starts a run that no client session starts: a routine, a bot, or the completions surface. */
@@ -394,6 +411,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   const dataDir = absolutePath(options.dataDir ?? defaultDataDirectory());
   const clock: Clock = options.clock ?? systemClock;
   const now = () => clock.now();
+  const scrub = options.scrub ?? createScrubRegistry();
   const launcher = options.launcher ?? processLauncherChannel();
   const capabilities: CapabilityFlags = [];
   // Set when the listeners are bound: local-only until then, which is what binding loopback alone means.
@@ -404,7 +422,11 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   let readiness: EnvironmentReadiness = "starting";
   let address: Address | undefined;
   const closers = createCloserStack();
-  // Pushed first, so it closes last: after the listener and the event log, and after a failed start too.
+  // Pushed first, so it is let go last: every line the environment writes to its standard error passes the scrub
+  // registry from here to the end of its close, and of a failed start's (ADR 0011).
+  closers.push(scrubDiagnosticOutput((text) => scrub.scrub(text)));
+  // Pushed next, so it closes after everything else the environment opens, and only the scrub above is let go after it:
+  // after the listener and the event log, and after a failed start too.
   closers.push(() => launcher.close());
   // Concurrent closes share one attempt; a close after a failed one retries what did not close.
   let closing: Promise<void> | undefined;
@@ -423,7 +445,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   await step("data-directory", () => prepareDataDirectory(dataDir));
 
   const log: EventLog = await step("database", () => {
-    const opened = openEventLog({ path: join(dataDir, DATABASE_FILE), clock: now });
+    const opened = openEventLog({ path: join(dataDir, DATABASE_FILE), clock: now, scrub: (text) => scrub.scrub(text) });
     closers.push(() => opened.close());
     return opened;
   });
@@ -443,11 +465,13 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   const permissionSettings = () => readPermissionSettings({ all: (sql, ...params) => log.read(sql, ...params) }, settingsPresets());
 
   // The record, the signing key and the auth tables: client sessions and pairings are read once, here, into memory.
+  // The vault is taken hold of first, so every entry is registered for scrubbing before anything reads it (ADR 0011).
   const { record, clientSessions, pairings, accessLog } = await step("identity", async () => {
     const name = (options.name ?? hostname()).trim();
     if (!name) throw new Error("An environment's name cannot be empty.");
     const loaded: EnvironmentRecord = loadOrCreateRecord(dataDir, name, now);
-    const key = await ensureSigningKey(options.vault ?? fileVault(join(dataDir, VAULT_FILE)));
+    const vault = await holdVault(options.vault ?? fileVault(join(dataDir, VAULT_FILE)), scrub);
+    const key = await ensureSigningKey(vault);
     const access = createAccessLog(log, loaded.id);
     const loadedClientSessions: ClientSessions = createClientSessions({
       table: log.clientSessions,
@@ -668,6 +692,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   closers.push(() => terminalService.close());
   // The shelf's sweep (#117): started once the environment is ready; a settings change runs it from the change's commit.
   const settleSweep = createSettleSweep({ log, clock });
+  // A new session's workspace, from the request `sessions.create` or the completions surface makes (#321).
+  const workspaceResolver = options.workspaceResolver ?? createWorkspaceResolver();
   const table = createMethodTable({
     ...lifecycle.handlers,
     "environment.subscribe": () => lifecycle.source,
@@ -683,6 +709,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       log,
       clock: now,
       deletion,
+      resolver: workspaceResolver,
       validateRunParameters: host.validateSessionInput,
       clampSessionMode: sessionModeClamp({ host, ceilingOf: (id) => clientSessions.ceiling(id) }),
     }),
@@ -743,6 +770,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     methods: table,
     scratchRoot: join(dataDir, SCRATCH_DIRECTORY),
     passthrough,
+    resolver: workspaceResolver,
   });
   surface.prefix(OPENAI_PATH_PREFIX, completions.handle);
   const wire = createWire({

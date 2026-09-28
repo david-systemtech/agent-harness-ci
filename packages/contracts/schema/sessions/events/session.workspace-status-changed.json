@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SessionWorkspaceStatusChangedPayload",
+  "type": "object",
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": [
+        "missing",
+        "present"
+      ],
+      "description": "Whether a session's workspace is there: missing (the environment found it gone) or present (it is back, or was given anew)."
+    }
+  },
+  "required": [
+    "status"
+  ],
+  "description": "session.workspace-status-changed: the environment found the session's workspace gone (missing) or back (present), appended only on a change; its occurredAt is workspaceMissingSince, and updatedAt stays."
+}

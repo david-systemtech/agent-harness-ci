@@ -19,6 +19,7 @@ import {
   type SessionTitleGeneratedPayload,
   type SessionTitleSetPayload,
   type SessionUntaggedPayload,
+  type SessionWorkspaceStatusChangedPayload,
   type SummaryPatch,
 } from "@agent-harness/contracts";
 import type { EventEnvelope, ProjectionDb, Projector, SqlValue } from "../event-log/event-log.js";
@@ -109,6 +110,12 @@ const SESSION_PROJECTIONS: Partial<Record<string, Projection>> = {
     );
     insertTags(db, event.streamId, payload.tags);
   },
+  // The availability watcher's mark (workspace-picker spec, "Missing workspaces"): since when the workspace is gone, cleared when
+  // it is back. The system's finding, not an organisation change, so `updatedAt` stays.
+  "session.workspace-status-changed": (event, db) =>
+    setColumns(event, db, {
+      workspace_missing_since: (event.payload as SessionWorkspaceStatusChangedPayload).status === "missing" ? event.occurredAt : null,
+    }),
   // The mode the permissions workstream gave the session (#129, #179); not an organisation change, so `updatedAt` stays.
   "session.mode.set": (event, db) => setColumns(event, db, { mode: (event.payload as SessionModeSetPayload).mode.effective }),
   "session.title-set": (event, db) => {

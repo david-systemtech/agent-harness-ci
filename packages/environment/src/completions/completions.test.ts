@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdirSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, statSync } from "node:fs";
 import { connect } from "node:net";
 import { join } from "node:path";
 import {
@@ -41,6 +41,7 @@ import type { StartupStep } from "../serve/start.js";
 import type { Address } from "../serve/http.js";
 import { accountSlug } from "./models.js";
 import { create, workspace } from "../../test/sessions.js";
+import { scriptedResolver } from "../../test/workspaces.js";
 import { isInProcess, type AdapterEvent, type HostToolResult } from "../adapter/contract.js";
 import { EXPIRED_RESULT } from "./passthrough.js";
 import type { EventEnvelope } from "../event-log/event-log.js";
@@ -1392,6 +1393,63 @@ describe("the request's instructions, parameters and fields", () => {
     });
     mkdirSync(join(named, "relative"));
     expect((await refusalOf(await post(t, token, turn("Hi", { "agent-harness": { workspace: "relative" } })))).status).toBe(400);
+  });
+
+  it("asks the resolver for a fresh session's workspace as a directory request, records what it answers, and turns its refusal into a 400 naming the workspace", async () => {
+    let refuse = false;
+    const resolver = scriptedResolver(({ request }) =>
+      refuse
+        ? { refused: { code: "conflict", message: "That directory is reserved.", data: { reason: "workspace_unusable", problem: "reserved" } } }
+        : { workspace: { kind: "scratch", path: "path" in request ? request.path : "" }, repositoryIdentity: "https://git.systemtech.dev/david/notes" },
+    );
+    const t = await start({}, { workspaceResolver: resolver });
+    const { token } = await program(t);
+    const named = tempDir();
+    const answered = await complete(t, token, turn("Hi", { "agent-harness": { workspace: named } }));
+    const sessionId = answered["agent-harness"].sessionId as string;
+    expect(resolver.calls).toEqual([{ request: { kind: "directory", path: named }, sessionId }]);
+    expect((await listed(t)).find((summary) => summary.id === sessionId)).toMatchObject({
+      workspace: { kind: "scratch", path: named },
+      repositoryIdentity: "https://git.systemtech.dev/david/notes",
+    });
+    refuse = true;
+    expect(await refusalOf(await post(t, token, turn("Hi")))).toMatchObject({
+      status: 400,
+      body: { error: { code: "workspace_unusable", message: "That directory is reserved.", param: "agent-harness.workspace" } },
+    });
+    // The scratch directory made for it went with the refusal, and nothing was recorded.
+    const scratch = resolver.calls[1]?.request;
+    expect(scratch).toEqual({ kind: "directory", path: expect.stringContaining(t.dataDir) });
+    expect(existsSync((scratch as { path: string }).path)).toBe(false);
+    expect(await listed(t)).toHaveLength(1);
+  });
+
+  it("answers a turn refused after its place resolved with its own refusal, and removes the scratch directory, when what the resolver made cannot be removed", async () => {
+    const resolver = scriptedResolver(({ request }) => ({
+      workspace: { kind: "directory", path: "path" in request ? request.path : "" },
+      repositoryIdentity: null,
+      undo: () => {
+        throw new Error("The worktree is locked.");
+      },
+    }));
+    const t = await start({}, { workspaceResolver: resolver });
+    const { token } = await program(t);
+    const log = t.env.log;
+    const append = log.append.bind(log);
+    const quiet = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const spy = vi.spyOn(log, "append").mockImplementation((stream, events, options) => {
+      if (events.some((event) => event.type === "session.created")) throw new Error("The disk is full.");
+      return append(stream, events, options);
+    });
+    onCleanup(() => {
+      spy.mockRestore();
+      quiet.mockRestore();
+    });
+    expect(await refusalOf(await post(t, token, turn("Hi")))).toMatchObject({ status: 500, body: { error: { code: "internal" } } });
+    const scratch = resolver.calls[0]?.request;
+    expect(scratch).toEqual({ kind: "directory", path: expect.stringContaining(t.dataDir) });
+    expect(existsSync((scratch as { path: string }).path)).toBe(false);
+    expect(quiet).toHaveBeenCalledWith(expect.stringContaining("resolver made"), expect.objectContaining({ message: "The worktree is locked." }));
   });
 
   it("names the field whose text passes the 200,000-character cap on the request's own instructions", async () => {

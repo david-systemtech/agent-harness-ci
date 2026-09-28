@@ -1,26 +1,101 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Workspace",
-  "oneOf": [
+  "anyOf": [
     {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "directory"
+            },
+            "path": {
+              "type": "string",
+              "pattern": "^(?:\\/|[A-Za-z]:[\\\\/]|\\\\\\\\)",
+              "description": "The directory on the environment's machine."
+            }
+          },
+          "required": [
+            "kind",
+            "path"
+          ],
+          "description": "A directory the environment has; the harness never makes, moves or removes it outside a workspace root."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "worktree"
+            },
+            "path": {
+              "type": "string",
+              "pattern": "^(?:\\/|[A-Za-z]:[\\\\/]|\\\\\\\\)",
+              "description": "The worktree's directory, which the environment chose and made."
+            },
+            "repository": {
+              "type": "string",
+              "pattern": "^(?:\\/|[A-Za-z]:[\\\\/]|\\\\\\\\)",
+              "description": "The main checkout (or bare repository) the worktree was made from."
+            },
+            "branch": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The branch the worktree was made on; not read again when a run switches branch."
+            }
+          },
+          "required": [
+            "kind",
+            "path",
+            "repository",
+            "branch"
+          ],
+          "description": "A git worktree the environment made from a repository it has."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "scratch"
+            },
+            "path": {
+              "type": "string",
+              "pattern": "^(?:\\/|[A-Za-z]:[\\\\/]|\\\\\\\\)",
+              "description": "The scratch directory, under the data directory's scratch root."
+            }
+          },
+          "required": [
+            "kind",
+            "path"
+          ],
+          "description": "A scratch directory the environment made for the session that asked for it."
+        }
+      ]
+    },
+    {
+      "description": "A workspace of a kind a later environment records: read as a directory at its path.",
       "type": "object",
       "properties": {
         "kind": {
           "type": "string",
-          "const": "directory"
+          "minLength": 1,
+          "pattern": "^(?!(?:directory|worktree|scratch)$)",
+          "description": "A kind this version does not know."
         },
         "path": {
           "type": "string",
-          "minLength": 1,
-          "description": "The directory on the environment's machine."
+          "pattern": "^(?:\\/|[A-Za-z]:[\\\\/]|\\\\\\\\)",
+          "description": "An absolute path as the environment's operating system writes it: from /, a drive (C:\\) or a share (\\\\)."
         }
       },
       "required": [
         "kind",
         "path"
-      ],
-      "description": "A directory the environment has."
+      ]
     }
   ],
-  "description": "Where a session's code lives on its environment: its kind and path."
+  "description": "Where a session's code lives on its environment: a directory, a worktree or a scratch directory, each with an absolute path. A kind a client does not know reads as a directory at its path."
 }

@@ -329,6 +329,7 @@ const summaryOf = (clock: ManualClock, partial: Partial<SessionSummary>, index: 
     snoozedAt: null,
     workspace: { kind: "directory", path: "/home/seth/code" },
     repositoryIdentity: null,
+    workspaceMissingSince: null,
     activity: { state: "idle", since: at },
     parkedPromptCount: 0,
     accountId: null,

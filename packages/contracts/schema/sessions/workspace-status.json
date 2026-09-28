@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "WorkspaceStatus",
+  "type": "string",
+  "enum": [
+    "missing",
+    "present"
+  ],
+  "description": "Whether a session's workspace is there: missing (the environment found it gone) or present (it is back, or was given anew)."
+}

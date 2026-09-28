@@ -26,6 +26,7 @@
     "session.pull-request-linked",
     "session.pull-request-unlinked",
     "session.pull-request-synced",
+    "session.workspace-status-changed",
     "prompt.opened",
     "prompt.answered",
     "run.started",
