@@ -17,8 +17,9 @@ import {
 /**
  * The step registry's contract test (ADR 0016; session-state spec,
  * "Auto-settle: rules and settings"): every settings key names a
- * registered step that writes it and links to its band, and every step
- * writes only settings keys, each with a health check; the steps stand in
+ * registered step that writes it, and every step writes only settings keys,
+ * each with a health check (the row each key sits on and each step's home
+ * row are the row registry's test, `settings-rows.test.ts`); the steps stand in
  * the milestone-1 order, link only to steps of it, write state only through
  * registered methods, confirm only keys they write, and name their state
  * checks for themselves (#141). The Permissions entry names every settings
@@ -28,7 +29,7 @@ import {
  */
 
 /** A settings table as the check reads it, typed loosely so a broken one can be written. */
-type LooseSettings = Readonly<Record<string, { readonly step: { readonly id: string; readonly band: string } }>>;
+type LooseSettings = Readonly<Record<string, { readonly step: { readonly id: string; readonly row: string } }>>;
 
 /** A step as the check reads it, typed loosely so a broken one can be written. */
 interface LooseStep {
@@ -38,12 +39,9 @@ interface LooseStep {
   readonly confirms?: readonly { readonly key: string; readonly value: unknown; readonly sentence: string; readonly acknowledgement: string; readonly records: string }[];
   readonly checks: readonly { readonly key: string; readonly check: (value: unknown) => true | string }[];
   readonly stateChecks: readonly { readonly id: string; readonly holds: string; readonly actions: readonly string[] }[];
-  readonly links: readonly ({ readonly pane: string; readonly band: string } | { readonly step: string })[];
+  readonly links: readonly ({ readonly row: string } | { readonly step: string })[];
   readonly skippable: boolean;
 }
-
-/** The pane links of a step, without its links to other steps. */
-const paneLinks = (step: LooseStep) => step.links.filter((link): link is { pane: string; band: string } => "pane" in link);
 
 /** What is wrong with the two tables together. */
 const stepRegistryProblems = (settings: LooseSettings, steps: readonly LooseStep[]): string[] => {
@@ -57,9 +55,6 @@ const stepRegistryProblems = (settings: LooseSettings, steps: readonly LooseStep
     if (writers.length === 0) problems.push(`${key}: no step writes it`);
     else if (writers.length > 1) problems.push(`${key}: written by ${writers.join(", ")}`);
     else if (named !== undefined && writers[0] !== named.id) problems.push(`${key}: names ${named.id} but ${writers[0]} writes it`);
-    if (named !== undefined && !paneLinks(named).some((link) => link.band === place.band)) {
-      problems.push(`${key}: ${named.id} links to no ${place.band} band`);
-    }
   }
   for (const step of steps) {
     for (const key of step.writes) {
@@ -151,7 +146,7 @@ const sessionSettings = Object.fromEntries(
 ) as LooseSettings;
 
 describe("the step registry", () => {
-  it("has every settings key named by, written by and linked from one registered step, each written key checked", () => {
+  it("has every settings key named by and written by one registered step, each written key checked", () => {
     expect(stepRegistryProblems(settings, steps)).toEqual([]);
     expect(stepShapeProblems(steps)).toEqual([]);
   });
@@ -173,16 +168,16 @@ describe("the step registry", () => {
     expect(STEP_REGISTRY.map((step) => step.id)).toEqual(["account", "your-machines", "permissions", "appearance"]);
   });
 
-  it("puts both auto-settle keys and the transcript compaction window under the Appearance entry's Sessions band", () => {
+  it("puts both auto-settle keys and the transcript compaction window under the Appearance entry, on environments.service", () => {
     expect(appearance.writes).toEqual(["sessions.autoSettleAfterIdle", "sessions.autoSettleOnMerge", "sessions.transcriptCompactAfterDays"]);
-    expect(appearance.links).toEqual([{ pane: "appearance", band: "sessions" }]);
-    for (const key of AUTO_SETTLE_KEYS) expect(SETTINGS[key].step, key).toEqual({ id: "appearance", band: "sessions" });
+    expect(appearance.links).toEqual([{ row: "environments.service" }]);
+    for (const key of AUTO_SETTLE_KEYS) expect(SETTINGS[key].step, key).toEqual({ id: "appearance", row: "environments.service" });
   });
 
-  it("puts the five permission keys under the Permissions entry, in the Access band (ADR 0027: access.permissions)", () => {
+  it("puts the five permission keys under the Permissions entry, on its home row access.permissions (ADR 0027)", () => {
     expect(permissions.writes).toEqual([...PERMISSION_SETTINGS_KEYS]);
-    expect(paneLinks(permissions)).toEqual([{ pane: "permissions", band: "access" }]);
-    for (const key of PERMISSION_SETTINGS_KEYS) expect(SETTINGS[key].step, key).toEqual({ id: "permissions", band: "access" });
+    expect(STEP_REGISTRY.find((step) => step.id === "permissions")?.home).toBe("access.permissions");
+    for (const key of PERMISSION_SETTINGS_KEYS) expect(SETTINGS[key].step, key).toEqual({ id: "permissions", row: "access.permissions" });
   });
 
   it("stands the Permissions entry directly after Browser and before Appearance: ninth of ADR 0016's ten, tenth of the eleven since ADR 0020's Forges", () => {
@@ -222,7 +217,7 @@ describe("the step registry", () => {
   });
 
   it("links the Permissions entry to the Your machines step, checks containment, the denylist's presets and not-root, and is never skipped", () => {
-    expect(permissions.links).toEqual([{ pane: "permissions", band: "access" }, { step: "your-machines" }]);
+    expect(permissions.links).toEqual([{ step: "your-machines" }]);
     expect(permissions.stateChecks.map((check) => [check.id, check.actions])).toEqual([
       ["permissions.containment", []],
       ["permissions.denylist", ["restore"]],
@@ -231,13 +226,13 @@ describe("the step registry", () => {
     expect(permissions.skippable).toBe(false);
   });
 
-  it("gives the Your machines entry the five update keys as its writes, in the Environments band (ADR 0027: environments.machines), and its not-root line", () => {
+  it("gives the Your machines entry the five update keys as its writes, on its home row environments.machines (ADR 0027), and its not-root line", () => {
     const machines = stepOf("your-machines");
     expect(machines.writes).toEqual(["updates.autoUpdate", "updates.channel", "updates.pinnedVersion", "updates.idleWindowMinutes", "updates.deferralCapHours"]);
     expect(machines.writes).toEqual([...UPDATE_SETTINGS_KEYS]);
     expect(machines.checks.map((check) => check.key)).toEqual(machines.writes);
-    expect(machines).toMatchObject({ links: [{ pane: "machines", band: "environments" }], skippable: false });
-    for (const key of UPDATE_SETTINGS_KEYS) expect(SETTINGS[key].step, key).toEqual({ id: "your-machines", band: "environments" });
+    expect(machines).toMatchObject({ home: "environments.machines", links: [], skippable: false });
+    for (const key of UPDATE_SETTINGS_KEYS) expect(SETTINGS[key].step, key).toEqual({ id: "your-machines", row: "environments.machines" });
     expect(machines.stateChecks).toEqual([{ id: "your-machines.not-root", holds: "The environment runs as a non-root user.", actions: [] }]);
   });
 
@@ -276,11 +271,11 @@ describe("the step registry", () => {
     ]);
   });
 
-  it("puts the default account, model family and effort and providers.processIdleMinutes under the Account entry's Default account and model band, each checked done on any valid value", () => {
+  it("puts the default account, model family and effort and providers.processIdleMinutes under the Account entry, on accounts.default-model, each checked done on any valid value", () => {
     const keys = ["accounts.defaultAccount", "accounts.defaultModelFamily", "accounts.defaultEffort", "providers.processIdleMinutes"] as const;
     expect(account.writes).toEqual(keys);
-    expect(account.links).toEqual([{ pane: "accounts", band: "default-model" }]);
-    for (const key of keys) expect(SETTINGS[key].step, key).toEqual({ id: "account", band: "default-model" });
+    expect(account.links).toEqual([{ row: "accounts.default-model" }]);
+    for (const key of keys) expect(SETTINGS[key].step, key).toEqual({ id: "account", row: "accounts.default-model" });
     const checkOf = (key: string) => (account.checks.find((entry) => entry.key === key) as LooseStep["checks"][number]).check;
     for (const key of keys.slice(0, 3)) {
       expect(checkOf(key)(null), key).toBe(true);
@@ -294,12 +289,12 @@ describe("the step registry", () => {
   });
 
   it("fails when a settings key names no entry, or no entry writes it", () => {
-    const added = { ...settings, "sessions.autoArchive": { step: { id: "housekeeping", band: "sessions" } } };
+    const added = { ...settings, "sessions.autoArchive": { step: { id: "housekeeping", row: "environments.service" } } };
     expect(stepRegistryProblems(added, steps)).toEqual([
       "sessions.autoArchive: names the step housekeeping, which is not registered",
       "sessions.autoArchive: no step writes it",
     ]);
-    const unwritten = { ...settings, "sessions.autoArchive": { step: { id: "appearance", band: "sessions" } } };
+    const unwritten = { ...settings, "sessions.autoArchive": { step: { id: "appearance", row: "environments.service" } } };
     expect(stepRegistryProblems(unwritten, steps)).toEqual(["sessions.autoArchive: no step writes it"]);
   });
 
@@ -315,7 +310,7 @@ describe("the step registry", () => {
     ]);
   });
 
-  it("fails when a step writes a key that is not a setting, writes a key it does not check, or links to no band a key sits in", () => {
+  it("fails when a step writes a key that is not a setting, or writes a key it does not check", () => {
     expect(stepRegistryProblems(sessionSettings, [{ ...appearance, writes: [...appearance.writes, "appearance.theme"] }])).toEqual([
       "appearance: writes appearance.theme, which is not a setting",
       "appearance: needs one health check of appearance.theme",
@@ -324,11 +319,6 @@ describe("the step registry", () => {
       "appearance: needs one health check of sessions.autoSettleAfterIdle",
       "appearance: needs one health check of sessions.autoSettleOnMerge",
       "appearance: needs one health check of sessions.transcriptCompactAfterDays",
-    ]);
-    expect(stepRegistryProblems(sessionSettings, [{ ...appearance, links: [{ pane: "appearance", band: "theme" }] }])).toEqual([
-      "sessions.autoSettleAfterIdle: appearance links to no sessions band",
-      "sessions.autoSettleOnMerge: appearance links to no sessions band",
-      "sessions.transcriptCompactAfterDays: appearance links to no sessions band",
     ]);
     expect(stepRegistryProblems(sessionSettings, [appearance, appearance])).toEqual([
       "appearance: registered twice",

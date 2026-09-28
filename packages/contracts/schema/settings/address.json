@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SettingsAddress",
+  "type": "string",
+  "enum": [
+    "profiles",
+    "models",
+    "runs",
+    "agents",
+    "skills",
+    "memory-banks",
+    "cerebro",
+    "permissions",
+    "browser",
+    "secrets",
+    "server",
+    "remote",
+    "routines",
+    "advanced",
+    "appearance",
+    "about"
+  ],
+  "description": "One of the sixteen existing settings addresses, each of which opens the row the address table maps it to."
+}

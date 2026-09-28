@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "StepId",
+  "type": "string",
+  "enum": [
+    "account",
+    "carry-over",
+    "your-machines",
+    "forges",
+    "key-manager",
+    "memory-bank",
+    "skills",
+    "instructions",
+    "browser",
+    "permissions",
+    "appearance"
+  ],
+  "description": "A step of the milestone-1 checklist, registered or not: account, carry-over, your-machines, forges, key-manager, memory-bank, skills, instructions, browser, permissions, appearance."
+}
