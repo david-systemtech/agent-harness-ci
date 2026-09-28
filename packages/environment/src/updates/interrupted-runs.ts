@@ -16,7 +16,7 @@ import { isDirectory } from "../serve/files.js";
 import { appendRunEvents } from "../sessions/activity-companions.js";
 import type { Reader } from "../sessions/session-reads.js";
 import { sessionStream } from "../sessions/streams.js";
-import { readUpdateHistory } from "./outcomes.js";
+import { readUpdateHistory, type UpdateHistory } from "./outcomes.js";
 
 /**
  * The runs half of the settle (launcher-update spec, "The update
@@ -145,9 +145,17 @@ export const resumesOnAnswer = (reader: Reader, sessionId: string): boolean => {
 /** The runs half of the settle, as this start passes its gate: never stops the start, whatever fails (said on standard error). */
 export const settleInterruptedRuns = (options: InterruptedRunsOptions): void => {
   const { log, host, actor } = options;
-  const latest = readUpdateHistory(log).latest;
-  if (latest === undefined) return;
   const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
+  let latest: UpdateHistory["latest"];
+  let cuts: CutRun[];
+  try {
+    latest = readUpdateHistory(log).latest;
+    cuts = latest === undefined ? [] : unmarkedCutRuns(reader, latest.sequence);
+  } catch (error) {
+    console.error("Reading the runs the latest update cut failed; the next start settles them:", error);
+    return;
+  }
+  if (latest === undefined) return;
   const { updateId, toVersion } = latest.started;
   const text = continuationMessage(options.environmentName, toVersion, options.harnessVersion === toVersion);
 
@@ -200,13 +208,6 @@ export const settleInterruptedRuns = (options: InterruptedRunsOptions): void => 
       return verdict.run;
     });
 
-  let cuts: CutRun[];
-  try {
-    cuts = unmarkedCutRuns(reader, latest.sequence);
-  } catch (error) {
-    console.error(`Reading the runs update ${updateId} cut failed; the next start settles them:`, error);
-    return;
-  }
   for (const cut of cuts) {
     let continuation: PlannedRun | undefined;
     try {
