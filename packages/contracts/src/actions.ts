@@ -282,7 +282,7 @@ interface Row<Id extends string> {
 }
 
 /** A GUI column that wires `keys`: with the condition they are answered under, or written `off` until turned on. */
-const gui = (keys: readonly string[], more: { readonly when?: ActionCondition; readonly off?: true } = {}): GuiColumn => ({ status: "wired", keys: [...keys], ...more });
+const inGui = (keys: readonly string[], more: { readonly when?: ActionCondition; readonly off?: true } = {}): GuiColumn => ({ status: "wired", keys: [...keys], ...more });
 
 /** A GUI column absent with its reason. */
 const notInGui = (reason: string): GuiColumn => ({ status: "absent", reason });
@@ -336,7 +336,7 @@ const command = <const Name extends string>(
   usage,
   ...(more.absent === undefined ? { status: "wired" as const } : { status: "absent" as const, reason: more.absent }),
   ...(more.aliasOf !== undefined && { aliasOf: more.aliasOf }),
-  gui: more.guiAbsent === undefined ? gui([]) : notInGui(more.guiAbsent),
+  gui: more.guiAbsent === undefined ? inGui([]) : notInGui(more.guiAbsent),
 });
 
 /** A group of the list: a title the help overlay draws, one context, and its actions in order. */
@@ -390,7 +390,7 @@ export const ACTION_GROUPS = [
   group("Anywhere", "anywhere", [
     key("app.focus.next", ["Tab"], "Round the composer, the list, the strip and the rows", notInGui("The GUI focuses a pane with a click, and Tab walks the window's controls.")),
     key("app.mode.step", ["Shift+Tab"], "Step the permission mode on", notInGui("The GUI steps the mode from the mode badge on the status line.")),
-    key("app.interrupt", ["Esc"], "Interrupt; or follow the end again", gui(["Esc"], { off: true })),
+    key("app.interrupt", ["Esc"], "Interrupt; or follow the end again", inGui(["Esc"], { off: true })),
     key("app.prompt.back", ["Esc Esc"], "Go back to an earlier prompt", FORK_REWIND),
     key(
       "app.interruptOrQuit",
@@ -413,30 +413,30 @@ export const ACTION_GROUPS = [
       notInGui("The GUI hands over from the status line's offer and Fork onto another account under a message."),
     ),
     key("app.help", ["?"], "Open this map, from an empty composer", notInGui("Typed as text in the GUI: the Keyboard shortcuts pane in Settings lists the keys.")),
-    guiOnly("app.palette", "Open the command palette", gui(["Mod+K"])),
-    guiOnly("app.find", "Find in the conversation", gui(["Mod+F"])),
-    guiOnly("app.session.new", "Start a new session in the focused pane", gui(["Mod+N"])),
-    guiOnly("app.session.newInPane", "Start a new session in a new pane", gui(["Mod+Shift+N"])),
-    guiOnly("app.sidebar.toggle", "Show or hide the sidebar", gui(["Mod+B"])),
-    guiOnly("app.terminal.toggle", "Show or hide the terminal", gui(["Mod+J"])),
-    guiOnly("app.browser.toggle", "Show or hide the browser", gui(["Mod+Shift+B"])),
-    guiOnly("app.pane.splitRight", "Split the focused pane to the right", gui(["Mod+\\"])),
-    guiOnly("app.pane.splitDown", "Split the focused pane downwards", gui(["Mod+Shift+\\"])),
-    guiOnly("app.settings.toggle", "Open or close Settings", gui(["Mod+,"])),
-    guiOnly("app.runInfo.toggle", "Show or hide the run's details", gui(["Mod+I"])),
+    guiOnly("app.palette", "Open the command palette", inGui(["Mod+K"])),
+    guiOnly("app.find", "Find in the conversation", inGui(["Mod+F"])),
+    guiOnly("app.session.new", "Start a new session in the focused pane", inGui(["Mod+N"])),
+    guiOnly("app.session.newInPane", "Start a new session in a new pane", inGui(["Mod+Shift+N"])),
+    guiOnly("app.sidebar.toggle", "Show or hide the sidebar", inGui(["Mod+B"])),
+    guiOnly("app.terminal.toggle", "Show or hide the terminal", inGui(["Mod+J"])),
+    guiOnly("app.browser.toggle", "Show or hide the browser", inGui(["Mod+Shift+B"])),
+    guiOnly("app.pane.splitRight", "Split the focused pane to the right", inGui(["Mod+\\"])),
+    guiOnly("app.pane.splitDown", "Split the focused pane downwards", inGui(["Mod+Shift+\\"])),
+    guiOnly("app.settings.toggle", "Open or close Settings", inGui(["Mod+,"])),
+    guiOnly("app.runInfo.toggle", "Show or hide the run's details", inGui(["Mod+I"])),
   ]),
   group("Writing a message", "composer", [
-    key("composer.send", ["Enter"], "Send it, steer a turn, run a row, send a failed check", gui(["Enter"])),
-    key("composer.newline", ["Shift+Enter", "Ctrl+J"], "A newline instead of sending", gui(["Shift+Enter"])),
+    key("composer.send", ["Enter"], "Send it, steer a turn, run a row, send a failed check", inGui(["Enter"])),
+    key("composer.newline", ["Shift+Enter", "Ctrl+J"], "A newline instead of sending", inGui(["Shift+Enter"])),
     key("composer.continueLine", ["\\ Enter"], "A backslash keeps the line open", notInGui("Typed as text in the GUI, where Shift+Enter breaks the line.")),
-    key("composer.navigate", ["↑", "↓"], "The text, then the queue, then history", gui(["↑", "↓"], { when: "composer.atStart" })),
-    key("composer.command.menu", ["/"], "Start a command, and see the menu", gui(["/"])),
-    key("composer.file.mention", ["@"], "Name a file, and see the paths", gui(["@"])),
+    key("composer.navigate", ["↑", "↓"], "The text, then the queue, then history", inGui(["↑", "↓"], { when: "composer.atStart" })),
+    key("composer.command.menu", ["/"], "Start a command, and see the menu", inGui(["/"])),
+    key("composer.file.mention", ["@"], "Name a file, and see the paths", inGui(["@"])),
     key("composer.snippet.expand", [";;"], "Expand a saved snippet; Tab walks its slots", NO_SNIPPETS),
-    key("composer.complete", ["Tab"], "Fill in the highlighted row, or the next slot", gui(["Tab"])),
+    key("composer.complete", ["Tab"], "Fill in the highlighted row, or the next slot", inGui(["Tab"])),
     key("composer.slot.back", ["Shift+Tab"], "Back to the slot before, in a snippet", NO_SNIPPETS),
-    key("composer.shell", ["!"], "Run a shell command; !! sends the output", gui(["!"])),
-    key("composer.paste", ["Ctrl+V"], "Paste an image, or the text there", gui(["Mod+V"])),
+    key("composer.shell", ["!"], "Run a shell command; !! sends the output", inGui(["!"])),
+    key("composer.paste", ["Ctrl+V"], "Paste an image, or the text there", inGui(["Mod+V"])),
     key("composer.editor", ["Ctrl+G"], "Edit the draft in $EDITOR", notInGui("The GUI edits the draft in its composer, and opens no $EDITOR.")),
     key(
       "composer.suggestion.take",
@@ -444,8 +444,8 @@ export const ACTION_GROUPS = [
       "Take one of the follow-ups the agent offered",
       notInGui("The GUI draws no follow-up chips: nothing carries the follow-ups (#146)."),
     ),
-    key("composer.readNow", ["Ctrl+Enter"], "Have the queued message read now, mid-turn", gui([])),
-    key("composer.withdrawLast", ["↑"], "Take the newest queued message back to edit", gui(["↑"], { when: "composer.empty" }), "composer.empty"),
+    key("composer.readNow", ["Ctrl+Enter"], "Have the queued message read now, mid-turn", inGui([])),
+    key("composer.withdrawLast", ["↑"], "Take the newest queued message back to edit", inGui(["↑"], { when: "composer.empty" }), "composer.empty"),
   ]),
   group("Moving and editing", "composer", [
     key("composer.line.start", ["Ctrl+A", "Home"], "The start of the line", TEXT_FIELD),
@@ -481,9 +481,9 @@ export const ACTION_GROUPS = [
     key("transcript.pageDown", ["PgDn", "Shift+↓", "Ctrl+↓"], "Half a screen on", SCROLL_BAR),
     key("transcript.cursor", ["↑", "↓"], "The cursor’s row here; a line, from the box", ROW_POINTER),
     key("transcript.follow", ["End"], "Back to the end, and follow it", SCROLL_BAR),
-    guiOnly("transcript.findNext", "The next match", gui(["Enter"], { when: "transcript.finding" })),
-    guiOnly("transcript.findPrevious", "The match before", gui(["Shift+Enter"], { when: "transcript.finding" })),
-    guiOnly("transcript.findClose", "Close the find bar", gui(["Esc"], { when: "transcript.finding" })),
+    guiOnly("transcript.findNext", "The next match", inGui(["Enter"], { when: "transcript.finding" })),
+    guiOnly("transcript.findPrevious", "The match before", inGui(["Shift+Enter"], { when: "transcript.finding" })),
+    guiOnly("transcript.findClose", "Close the find bar", inGui(["Esc"], { when: "transcript.finding" })),
   ]),
   group("A row of the conversation", "transcript", [
     key("row.open", ["o"], "Open the file it touched, at the line", ROW_POINTER),
@@ -528,27 +528,27 @@ export const ACTION_GROUPS = [
     key("delegated.leave", ["Esc"], "Back to the composer", TASKS_PANE),
   ]),
   group("A list to choose from", "picker", [
-    key("picker.move", ["↑", "↓"], "Move the cursor", gui(["↑", "↓"])),
+    key("picker.move", ["↑", "↓"], "Move the cursor", inGui(["↑", "↓"])),
     key("picker.moveVi", ["k", "j"], "The same, in a list that is not typed at", TYPED_AT),
     key("picker.filter", ["Letters"], "Type to filter a long list", TEXT_FIELD),
-    key("picker.choose", ["Enter"], "Choose the row under the cursor", gui(["Enter"])),
+    key("picker.choose", ["Enter"], "Choose the row under the cursor", inGui(["Enter"])),
     key("picker.preview", ["Space"], "Preview it without opening it", TYPED_AT),
     key("picker.rename", ["Ctrl+R"], "Rename the conversation under the cursor", CONTEXT_MENU),
     key("picker.archive", ["Ctrl+A"], "Archive it", CONTEXT_MENU),
     key("picker.pin", ["Ctrl+P"], "Pin it", CONTEXT_MENU),
-    key("picker.leave", ["Esc"], "Clear the query; then close the list", gui(["Esc"])),
+    key("picker.leave", ["Esc"], "Clear the query; then close the list", inGui(["Esc"])),
     key("picker.branch", ["b"], "Branch a new session here, in the prompt picker", FORK_REWIND),
-    guiOnly("picker.back", "Back out of a page of the list", gui(["Backspace"], { when: "picker.queryEmpty" })),
+    guiOnly("picker.back", "Back out of a page of the list", inGui(["Backspace"], { when: "picker.queryEmpty" })),
   ]),
   group("A permission card", "permission", [
     key("permission.move", ["↑", "↓", "k", "j"], "Move down the answers", CARD_CONTROLS),
     key("permission.choose", ["Enter"], "Choose the one under the cursor", notInGui("A bare Enter never approves in the GUI: Mod+Enter allows, and each answer is a button.")),
-    key("permission.deny", ["Esc"], "Deny it; on a question, skip it", gui(["Esc"])),
+    key("permission.deny", ["Esc"], "Deny it; on a question, skip it", inGui(["Esc"])),
     key("permission.note", ["Tab"], "A line: why, or what to do after", CARD_CONTROLS),
     absent("permission.rule.edit", ["e"], "Edit the rule that row would save", RULES_PER_SESSION, notInGui(RULES_PER_SESSION)),
     absent("permission.scope.walk", ["s"], "Walk the scope it is saved at", RULES_PER_SESSION, notInGui(RULES_PER_SESSION)),
     key("permission.tick", ["Space"], "Tick one of several options", CARD_CONTROLS),
-    guiOnly("permission.allow", "Allow it once, send the answer, or approve the plan", gui(["Mod+Enter"])),
+    guiOnly("permission.allow", "Allow it once, send the answer, or approve the plan", inGui(["Mod+Enter"])),
   ]),
   group("The whole transcript", "pager", [
     key("pager.line", ["j", "k", "↑", "↓"], "A line", NO_PAGER),
