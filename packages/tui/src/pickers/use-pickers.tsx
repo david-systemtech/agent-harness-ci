@@ -7,6 +7,7 @@ import {
   MAX_DRAFT_LENGTH,
   MODES,
   compareModes,
+  isSettingsRowId,
   lowerMode,
   settingForm,
   type AccountRecord,
@@ -45,7 +46,7 @@ import {
   type Panel,
   type PanelRow,
 } from "./panel.js";
-import { EDITOR_KEYS, describeKey, parseTyped, valueWords, writerOf } from "./settings.js";
+import { describeKey, editorKeys, editorRows, noKeysLine, noRowLine, parseTyped, valueWords, writerOf } from "./settings.js";
 
 /**
  * The accounts, models, permissions, settings and Set up commands wired to
@@ -410,22 +411,31 @@ export const usePickers = (host: PickersHost): Pickers => {
     return Math.max(0, CONTAINMENT_LEVELS.indexOf(own ?? fallback ?? "off"));
   };
 
+  /** The key under the settings card's cursor; none on a row that holds no key. */
+  const settingsKey = (card: Extract<Panel, { kind: "settings" }>): SettingsKey | undefined => editorKeys(card.row)[card.cursor];
+
   const settingsRows = (card: Extract<Panel, { kind: "settings" }>): readonly PanelRow[] => {
+    const key = settingsKey(card);
     if (card.edit?.kind === "choice") {
-      const form = settingForm(EDITOR_KEYS[card.cursor] as SettingsKey);
-      const current = card.values?.[EDITOR_KEYS[card.cursor] as string];
-      return form.kind === "choice"
+      const form = key === undefined ? undefined : settingForm(key);
+      const current = key === undefined ? undefined : card.values?.[key];
+      return form?.kind === "choice"
         ? form.options.map((option) => ({ key: String(option), cells: [{ text: valueWords(option) }], dim: false, ...(option === current && { note: { text: "now", dim: true } }) }))
         : [];
     }
     if (card.values === null) return [];
-    const width = Math.max(...EDITOR_KEYS.map((k) => k.length)) + 2;
-    return EDITOR_KEYS.map((key) => ({
-      key,
-      cells: [{ text: key.padEnd(width) }, { text: valueWords(card.values?.[key]) }],
-      dim: false,
-      ...(writerOf(key) === null && { note: { text: "read-only", dim: true } }),
-    }));
+    const listed = editorRows(card.row);
+    const width = Math.max(0, ...listed.flatMap((row) => row.keys.map((k) => k.length))) + 2;
+    // Each row's label over its first key: the cursor moves over the keys alone.
+    return listed.flatMap((row) =>
+      row.keys.map((k, at) => ({
+        key: k,
+        cells: [{ text: k.padEnd(width) }, { text: valueWords(card.values?.[k]) }],
+        dim: false,
+        ...(at === 0 && { heading: { text: row.label, bold: true } }),
+        ...(writerOf(k) === null && { note: { text: "read-only", dim: true } }),
+      })),
+    );
   };
 
   const rowsOf = (card: Panel): readonly PanelRow[] => {
@@ -517,11 +527,15 @@ export const usePickers = (host: PickersHost): Pickers => {
             host.open({ kind: "review", environmentId: view.environmentId, top: 0, answer: null, failed: null });
             readReview(view.environmentId);
           });
-        case "settings":
+        case "settings": {
+          // ADR 0027: the terminal UI opens its editor by row id, with no rail.
+          const row = command.argument === "" ? null : command.argument;
+          if (row !== null && !isSettingsRowId(row)) return host.say(noRowLine(row));
           return withEnvironment((view) => {
-            host.open({ kind: "settings", environmentId: view.environmentId, cursor: 0, values: null, failed: null, edit: null });
+            host.open({ kind: "settings", environmentId: view.environmentId, row, cursor: 0, values: null, failed: null, edit: null });
             readSettings(view.environmentId);
           });
+        }
         case "setup":
           // ADR 0031: a step's health is `setup.check`'s to run and the `setup` subscription's to carry; neither is on the wire yet (#88).
           return withEnvironment(
@@ -598,8 +612,8 @@ export const usePickers = (host: PickersHost): Pickers => {
           return setContainment({ environmentId: card.environmentId, sessionId: card.sessionId }, level);
         }
         case "settings": {
-          if (card.values === null) return;
-          const key = EDITOR_KEYS[card.cursor] as SettingsKey;
+          const key = settingsKey(card);
+          if (card.values === null || key === undefined) return;
           const absent = lacking(card.environmentId, "settings.update");
           if (absent !== undefined) return host.say(`Not changed: ${absent}`);
           if (writerOf(key) === null) return host.say(`${key} is recorded by the environment itself; nothing sets it.`);
@@ -793,13 +807,13 @@ export const usePickers = (host: PickersHost): Pickers => {
           return <LinesCard title={`To review on ${nameFor(card.environmentId)}`} hint={hint} lines={lines} top={Math.min(card.top, Math.max(0, lines.length - size.height))} height={size.height} />;
         }
         case "settings": {
-          const key = EDITOR_KEYS[card.cursor] as SettingsKey;
+          const key = settingsKey(card);
           const absent = lacking(card.environmentId, "settings.update");
-          const typedPrompt = (edited: SettingsKey) => `New value for ${edited} (now ${valueWords(card.values?.[edited])}), as JSON or a bare word:`;
+          const typedPrompt = (edited: SettingsKey | undefined) => `New value for ${edited} (now ${valueWords(edited === undefined ? undefined : card.values?.[edited])}), as JSON or a bare word:`;
           const footer: (readonly Span[])[] =
             card.edit?.kind === "text"
               ? [...(card.edit.error !== null ? [[{ text: card.edit.error, color: "red" }]] : [])]
-              : card.values !== null && card.edit === null
+              : card.values !== null && card.edit === null && key !== undefined
                 ? [[{ text: describeKey(key), dim: true }]]
                 : [];
           return (
@@ -812,7 +826,9 @@ export const usePickers = (host: PickersHost): Pickers => {
               cursor={card.edit?.kind === "text" ? 0 : cursor}
               height={size.height}
               {...(card.edit?.kind === "text" && { childRows: wrappedRows(`${typedPrompt(key)} ${card.edit.text} `, size.width) })}
-              empty={card.failed !== null ? `The settings could not be read: ${card.failed}` : "Reading the settings…"}
+              empty={
+                card.row !== null && key === undefined ? noKeysLine(card.row) : card.failed !== null ? `The settings could not be read: ${card.failed}` : "Reading the settings…"
+              }
               footer={footer}
             >
               {card.edit?.kind === "text" && <TypedLine prompt={typedPrompt(key)} text={card.edit.text} />}

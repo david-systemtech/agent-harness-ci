@@ -466,27 +466,25 @@ describe("/settings", () => {
     await command(app, "/settings");
     await app.waitFor("Settings on desk");
     const frame = app.frame();
-    expect(frame).toMatch(/sessions\.autoSettleAfterIdle\s+14 days/);
-    expect(frame).toMatch(/sessions\.autoSettleOnMerge\s+on/);
     expect(frame).toMatch(/accounts\.defaultAccount\s+none/);
     expect(frame).toMatch(/providers\.processIdleMinutes\s+30/);
     expect(frame).toMatch(/permissions\.defaultCeiling\s+acceptEdits/);
     expect(frame).toMatch(/permissions\.parkedPrompt\.ttl\s+24 hours/);
     expect(frame).toMatch(/permissions\.unattended\.bypassAcknowledgedAt\s+none\s+read-only/);
+    // Down to the Service row's keys, past the four, five and five of the rows above it.
+    await app.press(...Array.from({ length: 14 }, () => KEY.down));
+    await app.waitFor(/sessions\.autoSettleAfterIdle\s+14 days/);
+    expect(app.frame()).toMatch(/sessions\.autoSettleOnMerge\s+on/);
     // The key under the cursor says what it is.
-    expect(frame).toContain("How long a session is quiet before auto-settle settles it");
+    expect(app.frame()).toContain("How long a session is quiet before auto-settle settles it");
   });
 
   it("flips a switch, picks a choice and takes a typed value, each through the method that writes the key", async () => {
     const { app, env } = await launch();
     await command(app, "/settings");
     await app.waitFor("Settings on desk");
-    // A switch flips on Enter.
-    await app.press(KEY.down, KEY.enter);
-    await app.waitFor("sessions.autoSettleOnMerge is on.");
-    expect(env.settings()["sessions.autoSettleOnMerge"]).toBe(true);
     // A typed value, checked against the key's schema before it is sent.
-    await app.press(KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.enter);
+    await app.press(KEY.down, KEY.down, KEY.down, KEY.enter);
     await app.waitFor("New value for providers.processIdleMinutes (now 30)");
     // The value being typed holds its key: ↓ moves nothing.
     await app.press(KEY.down);
@@ -505,14 +503,18 @@ describe("/settings", () => {
     await app.press(KEY.down, KEY.enter);
     await app.waitFor("permissions.defaultCeiling is auto.");
     expect(env.requests("permissions.settings.set").map((r) => r.params)).toEqual([expect.objectContaining({ values: { "permissions.defaultCeiling": "auto" } })]);
+    // A switch flips on Enter: down past the rest of Permissions and Your machines to the Service row's second key.
+    await app.press(...Array.from({ length: 11 }, () => KEY.down), KEY.enter);
+    await app.waitFor("sessions.autoSettleOnMerge is on.");
+    expect(env.settings()["sessions.autoSettleOnMerge"]).toBe(true);
   });
 
   it("writes an update key through updates.settings.set, the one method that writes it (#335)", async () => {
     const { app, env } = await launch();
-    await command(app, "/settings");
+    await command(app, "/settings environments.machines");
     await app.waitFor("Settings on desk");
-    // Past the seven generic keys and the five permission keys: updates.autoUpdate, then updates.channel.
-    await app.press(...Array.from({ length: 13 }, () => KEY.down), KEY.enter);
+    // The Your machines row: updates.autoUpdate, then updates.channel.
+    await app.press(KEY.down, KEY.enter);
     await app.waitFor("updates.channel:");
     await app.press(KEY.down, KEY.enter);
     await app.waitFor("updates.channel is beta.");
@@ -523,9 +525,9 @@ describe("/settings", () => {
 
   it("asks with the bypass sentence before the unattended mode becomes bypassPermissions", async () => {
     const { app, env } = await launch();
-    await command(app, "/settings");
+    await command(app, "/settings access.permissions");
     await app.waitFor("Settings on desk");
-    await app.press(KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.enter);
+    await app.press(KEY.down, KEY.enter);
     await app.waitFor("permissions.unattended.mode:");
     await app.press(KEY.down, KEY.enter);
     await app.waitFor(`${BYPASS} Make bypassPermissions the unattended mode? y/n`);
@@ -549,7 +551,7 @@ describe("/settings", () => {
     const { app } = await launch();
     await command(app, "/settings");
     await app.waitFor("Settings on desk");
-    await app.press(KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.enter);
+    await app.press(KEY.down, KEY.down, KEY.down, KEY.down, KEY.down, KEY.enter);
     await app.waitFor("permissions.unattended.mode:");
     await app.press(KEY.down, KEY.enter);
     await app.waitFor("Make bypassPermissions the unattended mode? y/n");
@@ -566,7 +568,7 @@ describe("/settings", () => {
     const { app, env } = await launch([desk(), { name: "laptop", reach: "paired", sessions: [{ title: "Deploy" }] }]);
     let saved = () => undefined as void;
     env.wire.answer("settings.update", () => new Promise((resolve) => (saved = () => resolve({ result: { receipt: { status: "accepted", sequence: 999, changed: true } } }))));
-    await command(app, "/settings");
+    await command(app, "/settings environments.service");
     await app.waitFor("Settings on desk");
     await app.press(KEY.down, KEY.enter);
     await app.waitUntil(() => env.requests("settings.update").length === 1, "the switch's write on desk");
@@ -576,12 +578,77 @@ describe("/settings", () => {
     await app.type("Deploy");
     await app.press(KEY.enter);
     await app.waitFor("● laptop");
-    await command(app, "/settings");
+    await command(app, "/settings environments.service");
     await app.waitFor("Settings on laptop");
     await app.waitFor(/sessions\.autoSettleOnMerge\s+off/);
     saved();
     await app.waitFor("sessions.autoSettleOnMerge is on.");
     expect(app.frame()).toMatch(/sessions\.autoSettleOnMerge\s+off/);
+  });
+});
+
+describe("/settings by row (#389)", () => {
+  /** The frame's lines from the first holding `from`, trimmed, the card's borders and cursor mark dropped. */
+  const linesOf = (frame: string) => frame.split("\n").map((line) => line.replace(/^[\s›]+/, "").trimEnd());
+
+  it("lists the keys under their rows' labels, the rows in the rail's order", async () => {
+    const { app } = await launch();
+    await command(app, "/settings");
+    await app.waitFor("Settings on desk");
+    // The first row with keys heads the list, the key under the cursor described.
+    expect(app.frame()).toMatch(/Default account and model\n.*accounts\.defaultAccount\s+none/);
+    expect(app.frame()).toContain("The account a session with none of its own runs on");
+    // Down the list, each row's label over its keys: Permissions, then Your machines, then Service.
+    await app.press(...Array.from({ length: 16 }, () => KEY.down));
+    await app.waitFor(/sessions\.transcriptCompactAfterDays\s+90/);
+    const lines = linesOf(app.frame());
+    const at = (text: string) => lines.findIndex((line) => line.startsWith(text));
+    expect(at("Your machines")).toBeGreaterThan(-1);
+    expect(at("updates.autoUpdate")).toBe(at("Your machines") + 1);
+    expect(at("Service")).toBeGreaterThan(at("updates.deferralCapHours"));
+    expect(lines.slice(at("Service") + 1, at("Service") + 4).map((line) => line.split(/\s+/)[0])).toEqual([
+      "sessions.autoSettleAfterIdle",
+      "sessions.autoSettleOnMerge",
+      "sessions.transcriptCompactAfterDays",
+    ]);
+  });
+
+  it("opens on a row's keys alone by its id, each written through the method that writes it", async () => {
+    const { app, env } = await launch();
+    await command(app, "/settings access.permissions");
+    await app.waitFor("Settings on desk");
+    await app.waitFor(/permissions\.defaultCeiling\s+acceptEdits/);
+    const frame = app.frame();
+    expect(frame).toContain("Permissions");
+    expect(frame).toMatch(/permissions\.containment\.default\s+off/);
+    expect(frame).not.toContain("accounts.defaultAccount");
+    expect(frame).not.toContain("updates.channel");
+    // The cursor starts on the row's first key.
+    await app.press(KEY.enter);
+    await app.waitFor("permissions.defaultCeiling:");
+    await app.press(KEY.down, KEY.enter);
+    await app.waitFor("permissions.defaultCeiling is auto.");
+    expect(env.requests("permissions.settings.set").map((r) => r.params)).toEqual([expect.objectContaining({ values: { "permissions.defaultCeiling": "auto" } })]);
+  });
+
+  it("opens the Service row on the session keys the Appearance step writes, and flips one there", async () => {
+    const { app, env } = await launch();
+    await command(app, "/settings environments.service");
+    await app.waitFor(/sessions\.autoSettleOnMerge\s+off/);
+    await app.press(KEY.down, KEY.enter);
+    await app.waitFor("sessions.autoSettleOnMerge is on.");
+    expect(env.settings()["sessions.autoSettleOnMerge"]).toBe(true);
+  });
+
+  it("says when a row holds no settings key, and when no row has the id, naming those that hold keys", async () => {
+    const { app } = await launch();
+    await command(app, "/settings about.about");
+    await app.waitFor("About holds no settings key.");
+    await app.press(KEY.esc);
+    await command(app, "/settings secrets");
+    await app.waitFor(
+      "No settings row is named secrets. The rows holding settings: accounts.default-model, access.permissions, environments.machines, environments.service.",
+    );
   });
 });
 

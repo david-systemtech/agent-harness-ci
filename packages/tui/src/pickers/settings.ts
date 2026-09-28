@@ -1,16 +1,50 @@
-import { BYPASS_ACKNOWLEDGED_KEY, SETTINGS, SETTINGS_KEYS, isGenericSettingsKey, settingForm, type SettingsKey } from "@agent-harness/contracts";
+import {
+  BYPASS_ACKNOWLEDGED_KEY,
+  SETTINGS,
+  SETTINGS_KEYS,
+  SETTINGS_ROWS,
+  isGenericSettingsKey,
+  settingForm,
+  settingsRow,
+  type SettingsKey,
+  type SettingsRowId,
+} from "@agent-harness/contracts";
 
 /**
  * `/settings`, the generic editor (docs/specs/tui.md, "Status, usage,
  * pickers"; the session-state spec's `settings.get` and `settings.update`):
- * every key of the contracts' settings table, its value drawn by the key's
- * form (`settingForm`: a switch, a choice, typed text) and written through
- * the method that writes the key. Pure: the words, the writer, and what a
- * typed value parses to.
+ * every key of the contracts' settings table under the label of the row it
+ * sits on (ADR 0027: the terminal UI needs no rail, and opens its editor by
+ * row id), its value drawn by the key's form (`settingForm`: a switch, a
+ * choice, typed text) and written through the method that writes the key.
+ * Pure: the rows and their keys, the words, the writer, and what a typed
+ * value parses to.
  */
 
-/** Every key, in the table's order: the editor's rows. */
-export const EDITOR_KEYS: readonly SettingsKey[] = SETTINGS_KEYS;
+/** A row of Settings as the editor lists it: its id and label, and the keys that sit on it in the table's order. */
+export interface EditorRow {
+  readonly id: SettingsRowId;
+  readonly label: string;
+  readonly keys: readonly SettingsKey[];
+}
+
+const EDITOR_ROWS: readonly EditorRow[] = SETTINGS_ROWS.map((row) => ({ id: row.id, label: row.label, keys: SETTINGS_KEYS.filter((key) => SETTINGS[key].step.row === row.id) }));
+
+/** The rows that hold keys, in the rail's order: what `/settings` lists. */
+export const ROWS_WITH_KEYS: readonly SettingsRowId[] = EDITOR_ROWS.filter((row) => row.keys.length > 0).map((row) => row.id);
+
+/** What the editor lists: every row holding keys, or the one row asked for by its id, keys or none. */
+export const editorRows = (id: SettingsRowId | null): readonly EditorRow[] =>
+  id === null ? EDITOR_ROWS.filter((row) => row.keys.length > 0) : EDITOR_ROWS.filter((row) => row.id === id);
+
+/** The keys the editor lists, in its order: what its cursor moves over. */
+export const editorKeys = (id: SettingsRowId | null): readonly SettingsKey[] => editorRows(id).flatMap((row) => row.keys);
+
+/** What the editor says when the row asked for holds no key. */
+export const noKeysLine = (row: SettingsRowId): string => `${settingsRow(row).label} holds no settings key.`;
+
+/** What `/settings <id>` says when no row has the id. */
+export const noRowLine = (typed: string): string => `No settings row is named ${typed}. The rows holding settings: ${ROWS_WITH_KEYS.join(", ")}.`;
 
 /** A unit's name for `amount` of it: `1 day`, `14 days`. */
 const unitWords = (amount: number, unit: string): string => `${amount} ${amount === 1 && unit.endsWith("s") ? unit.slice(0, -1) : unit}`;

@@ -611,7 +611,7 @@ export const ACTION_GROUPS = [
     command("pair", "/pair <link> | <address> <code> | create", "Pair with an environment, or create a code for another client"),
     command("containment", "/containment", "Set how contained this session's runs are"),
     command("setup", "/setup [environment]", "How far Set up is on an environment, and where to run it"),
-    command("settings", "/settings", "Every environment setting, in a generic editor"),
+    command("settings", "/settings [row]", "Every environment setting under its row, in a generic editor; a row's id opens that row"),
     command("review", "/review", "Runs to review: unattended ones, and what was denied"),
     command("archive", "/archive", "Archive this session, or unarchive it"),
     command("group", "/group [name]", "Put this session in a group, or a new one"),

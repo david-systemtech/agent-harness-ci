@@ -10,6 +10,7 @@ import {
   type Mode,
   type ModelEntry,
   type ResultOf,
+  type SettingsRowId,
   type SignIn,
 } from "@agent-harness/contracts";
 import { gaugeOf } from "../transcript/plan.js";
@@ -67,6 +68,8 @@ export type Panel =
   | {
       readonly kind: "settings";
       readonly environmentId: string;
+      /** The row `/settings <id>` opened on, its keys alone; null for every row holding keys. */
+      readonly row: SettingsRowId | null;
       readonly cursor: number;
       /** What `settings.get` answered, and every write's answer since; null until it answered. */
       readonly values: Readonly<Record<string, unknown>> | null;
@@ -74,13 +77,15 @@ export type Panel =
       readonly edit: SettingsEdit | null;
     };
 
-/** One row of a list card: its cells, dim when it cannot be chosen, with a note after them and a line under it. */
+/** One row of a list card: its cells, dim when it cannot be chosen, with a note after them, a line under it and a heading over it. */
 export interface PanelRow {
   readonly key: string;
   readonly cells: readonly Span[];
   readonly dim: boolean;
   readonly note?: Span;
   readonly under?: Span;
+  /** A line over the row, which the cursor passes over: a settings row's label over the first of its keys. */
+  readonly heading?: Span;
 }
 
 const STATUS_WORDS: Readonly<Record<AccountStatusState, string>> = {
