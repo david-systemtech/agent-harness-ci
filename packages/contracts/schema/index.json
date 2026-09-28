@@ -2711,6 +2711,12 @@
       "title": "diffs.session error"
     }
   ],
+  "cases": [
+    {
+      "path": "cases/repository-identity.json",
+      "title": "Repository identity"
+    }
+  ],
   "methods": [
     {
       "name": "environment.status",

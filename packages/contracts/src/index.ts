@@ -25,6 +25,7 @@ export * from "./permissions.js";
 export * from "./permissions-modes.js";
 export * from "./permissions-settings.js";
 export * from "./prompts.js";
+export * from "./repository-identity.js";
 export {
   METHOD_KINDS,
   commandParams,
