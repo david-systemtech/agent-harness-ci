@@ -44,6 +44,31 @@ describe("the presentation", () => {
     expect(reported).toHaveLength(2);
   });
 
+  it("holds the session the pane shows and the transcript's display preferences, each read back only when it is one this build can show", async () => {
+    const documents = inMemoryDocuments();
+    const first = await openPresentation(documents);
+    expect(first.values.read()).toMatchObject({ paneLayout: { session: null }, textSize: 14, readingWidth: "comfortable", reasoningShown: true, streamingFade: true });
+    first.set("paneLayout", { session: { environmentId: "env-1", sessionId: "session-1" } });
+    first.set("textSize", 17);
+    first.set("readingWidth", "full");
+    first.set("reasoningShown", false);
+    first.set("streamingFade", false);
+    await first.close();
+    expect((await openPresentation(documents)).values.read()).toMatchObject({
+      paneLayout: { session: { environmentId: "env-1", sessionId: "session-1" } },
+      textSize: 17,
+      readingWidth: "full",
+      reasoningShown: false,
+      streamingFade: false,
+    });
+
+    const reported: unknown[] = [];
+    const odd = inMemoryDocuments();
+    await odd.set("presentation", { format: 1, paneLayout: { session: { environmentId: 7 } }, textSize: 90, readingWidth: "vast", reasoningShown: "yes", streamingFade: null });
+    expect((await openPresentation(odd, (error) => reported.push(error))).values.read()).toEqual(PRESENTATION_DEFAULTS);
+    expect(String(reported[0])).toContain("paneLayout, textSize, readingWidth, reasoningShown, streamingFade");
+  });
+
   it("holds only keys on the organisation-state lint's presentation list", () => {
     for (const key of Object.keys(PRESENTATION_DEFAULTS)) expect(PRESENTATION_KEYS).toContain(key);
   });

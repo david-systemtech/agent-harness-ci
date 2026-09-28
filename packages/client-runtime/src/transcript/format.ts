@@ -1,9 +1,12 @@
+import type { ModelUsage, RunSummary } from "@agent-harness/contracts";
+
 /**
  * What a tool call was, in words, and the numbers a transcript prints
- * (docs/specs/tui.md, "Testing Decisions": the fold's pure
- * helpers). A run's finished calls fold into one sentence ("Ran 36
- * commands, read 6 files"), and this is where a tool name becomes one of its
- * clauses.
+ * (docs/specs/tui.md, "Testing Decisions": the fold's pure helpers), in the
+ * terminal and in the window alike. A run's finished calls fold into one
+ * sentence ("Ran 36 commands, read 6 files"), and this is where a tool name
+ * becomes one of its clauses; a finished turn's cost line says its time,
+ * tokens and dollars, and how it ended when it did not complete.
  *
  * A closed set of categories, because tool names are provider vocabulary:
  * Claude says `Bash` and `Edit`, Codex says `shell` and `apply_patch`, and an
@@ -159,4 +162,33 @@ export const outputText = (output: unknown): string => {
 export const clockTime = (iso: string): string => {
   const at = new Date(iso);
   return `${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}`;
+};
+
+/** All the tokens a run spent, and its dollars when the provider said. */
+const spend = (usage: readonly ModelUsage[] | null): { readonly input: number; readonly output: number; readonly dollars: number | null } => {
+  let input = 0;
+  let output = 0;
+  let dollars: number | null = null;
+  for (const model of usage ?? []) {
+    input += model.inputTokens + model.cacheReadTokens + model.cacheWriteTokens;
+    output += model.outputTokens;
+    if (model.costUsd !== null) dollars = (dollars ?? 0) + model.costUsd;
+  }
+  return { input, output, dollars };
+};
+
+/** The cost line's facts for a finished run: its time, its tokens in and out, its dollars. */
+export const turnFacts = (run: RunSummary): string[] => {
+  const { input, output, dollars } = spend(run.usage);
+  return [
+    ...(run.durationMs !== null ? [formatDuration(run.durationMs)] : []),
+    ...(run.usage !== null ? [`${formatTokens(input)} in`, `${formatTokens(output)} out`] : []),
+    ...(dollars !== null ? [formatUsd(dollars)] : []),
+  ];
+};
+
+/** How a run ended, in words, when it did not simply complete. */
+export const endWords = (run: RunSummary): string => {
+  if (run.reason === "interrupted") return run.cause === "read-now" ? "Interrupted to read the queue" : "Interrupted";
+  return (run.reason ?? "ended").replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
 };
