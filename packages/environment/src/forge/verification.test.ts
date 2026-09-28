@@ -334,7 +334,8 @@ describe("when a verification runs", () => {
 
     t.clock.advance(0);
     await vi.waitFor(async () => expect((await list(client))[0]?.capabilities.readRepository).toMatchObject({ state: "failed", status: 403 }));
-    expect((await forgeEvents(client, from)).map((event) => [event.type, event.payload["capabilities"]?.readRepository?.state ?? null])).toEqual([
+    const readRepositoryIn = (payload: Record<string, unknown>) => (payload["capabilities"] as { readRepository: ForgeCapability } | undefined)?.readRepository.state ?? null;
+    expect((await forgeEvents(client, from)).map((event) => [event.type, readRepositoryIn(event.payload)])).toEqual([
       ["forge.account.updated", null],
       ["forge.account.verified", "failed"],
     ]);

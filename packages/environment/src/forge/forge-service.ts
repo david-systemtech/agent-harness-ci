@@ -660,30 +660,22 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
       if (aliasesHeld !== null) return rejecting<"forge.accounts.update">(aliasesHeld);
       // An alias the forge account has verified already keeps its verification; every other named is asked about.
       const toCheck = (origins ?? []).filter((origin) => !held.aliases.some((alias) => alias.origin === origin && alias.verifiedAt !== null));
-      let replacement: Accepted | null = null;
-      let checkedAliases: readonly ForgeAlias[] = [];
-      if (given !== undefined) {
-        const { kind, origin, identity } = held;
-        refuseGhOffGitHub(given, kind);
-        const checked = await check({
-          target: { id: forgeAccountId, origin, kind, login: identity?.login ?? null },
-          given,
-          context,
-          formed,
-          purpose: "update",
-          refuse: (found) => updateRefusal(forgeAccountId, params.slug, found, []),
-          aliases: toCheck,
-        });
-        if (checked.rejected !== undefined) return rejecting<"forge.accounts.update">(checked.rejected);
-        replacement = checked;
-        checkedAliases = checked.aliases;
-      } else {
-        const checked = await checkHeldAliases(held, toCheck);
-        if (checked.rejected !== undefined) return rejecting<"forge.accounts.update">(checked.rejected);
-        checkedAliases = checked.aliases;
-      }
-      const replacing = replacement;
-      const aliasesChecked = checkedAliases;
+      if (given !== undefined) refuseGhOffGitHub(given, held.kind);
+      const checked =
+        given === undefined
+          ? await checkHeldAliases(held, toCheck)
+          : await check({
+              target: { id: forgeAccountId, origin: held.origin, kind: held.kind, login: held.identity?.login ?? null },
+              given,
+              context,
+              formed,
+              purpose: "update",
+              refuse: (found) => updateRefusal(forgeAccountId, params.slug, found, []),
+              aliases: toCheck,
+            });
+      if (checked.rejected !== undefined) return rejecting<"forge.accounts.update">(checked.rejected);
+      const replacing = "source" in checked ? checked : null;
+      const aliasesChecked = checked.aliases;
 
       return (_params, command) => {
         const found = replacing?.identity ?? null;
