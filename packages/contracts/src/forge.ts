@@ -288,3 +288,47 @@ export const forgeVariableNames = (account: { readonly slug: ForgeSlug; readonly
   const names = (role: string): string[] => [`FORGE_${account.slug.toUpperCase()}_${role}`, ...(account.primary ? [`FORGE_${role}`] : [])];
   return { url: names("URL"), token: [...names("TOKEN"), ...(account.origin === GITHUB_ORIGIN ? ["GH_TOKEN"] : [])], kind: names("KIND") };
 };
+
+// Per kind ----------------------------------------------------------------------
+
+/** What each forge kind derives on its own (ADR 0020; forge spec, "Providers"). */
+interface ForgeKindRules {
+  /** git's username over https, with the token as the password: fixed per kind, or the forge account's login. */
+  readonly gitUsername: (login: string) => string;
+  /** The base of the forge's REST API on an origin. */
+  readonly apiBase: (origin: ForgeOrigin) => string;
+}
+
+/** Forgejo and Gitea share one provider over the Gitea API. */
+const GITEA_API: ForgeKindRules = {
+  gitUsername: (login) => login,
+  apiBase: (origin) => `${origin}/api/v1`,
+};
+
+const KIND_RULES: Readonly<Record<ForgeKind, ForgeKindRules>> = {
+  github: {
+    gitUsername: () => "x-access-token",
+    apiBase: (origin) => (origin === GITHUB_ORIGIN ? "https://api.github.com" : `${origin}/api/v3`),
+  },
+  forgejo: GITEA_API,
+  gitea: GITEA_API,
+  // Milestone 2's (ADR 0033): git takes any username, and oauth2 is GitLab's own advice.
+  gitlab: {
+    gitUsername: () => "oauth2",
+    apiBase: (origin) => `${origin}/api/v4`,
+  },
+};
+
+/**
+ * git's username for a forge account, derived and never stored (ADR 0020):
+ * `x-access-token` for GitHub, the login for Forgejo and Gitea, `oauth2` for
+ * the reserved GitLab.
+ */
+export const forgeGitUsername = (kind: ForgeKind, login: string): string => KIND_RULES[kind].gitUsername(login);
+
+/**
+ * The base of a forge's REST API on its origin: `https://api.github.com` for
+ * github.com and `/api/v3` on an Enterprise origin, `/api/v1` for Forgejo
+ * and Gitea, and `/api/v4` for the reserved GitLab.
+ */
+export const forgeApiBase = (kind: ForgeKind, origin: ForgeOrigin): string => KIND_RULES[kind].apiBase(origin);

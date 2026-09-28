@@ -5,6 +5,8 @@ import {
   ForgeOrigin,
   ForgeSlug,
   deriveForgeSlug,
+  forgeApiBase,
+  forgeGitUsername,
   forgeVariableNames,
   forgeOriginHost,
   matchForgeAccount,
@@ -270,5 +272,30 @@ describe("the variable names", () => {
 
   it.each(table)("are %s", (_, account, expected) => {
     expect(forgeVariableNames(account)).toEqual(expected);
+  });
+});
+
+describe("the git username", () => {
+  it.each([
+    ["github", "x-access-token"],
+    ["forgejo", "david"],
+    ["gitea", "david"],
+    ["gitlab", "oauth2"],
+  ] as const)("for %s is %s", (kind, username) => {
+    expect(forgeGitUsername(kind, "david")).toBe(username);
+  });
+});
+
+describe("the API base", () => {
+  it.each([
+    ["github", "https://github.com", "https://api.github.com"],
+    ["github", "https://ghe.example.com", "https://ghe.example.com/api/v3"],
+    ["github", "https://ghe.example.com:8443", "https://ghe.example.com:8443/api/v3"],
+    ["forgejo", "https://git.systemtech.dev:5526", "https://git.systemtech.dev:5526/api/v1"],
+    ["forgejo", "http://100.101.102.103:3000", "http://100.101.102.103:3000/api/v1"],
+    ["gitea", "https://gitea.com", "https://gitea.com/api/v1"],
+    ["gitlab", "https://gitlab.com", "https://gitlab.com/api/v4"],
+  ] as const)("for %s on %s is %s", (kind, origin, base) => {
+    expect(forgeApiBase(kind, origin)).toBe(base);
   });
 });
