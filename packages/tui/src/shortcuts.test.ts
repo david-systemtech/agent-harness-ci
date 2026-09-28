@@ -118,6 +118,27 @@ describe("the help overlay", () => {
     expect(rowsWith(app.frame(), "Open the conversation in your editor")[0]).toContain("(soon)");
   });
 
+  it("leaves out every action only the GUI answers, on ? and on /help, from the top of the map to its slash commands (#388)", async () => {
+    const app = await launch(DESK);
+    await app.waitFor("● desk ready");
+    const GUI_ONLY = ["Open the command palette", "Split the focused pane to the right", "Allow it once, send the answer, or approve the plan", "Close the find bar", "Back out of a page of the list"];
+    for (const open of [() => app.press("?"), () => run(app, "/help")]) {
+      await open();
+      await app.waitFor(HELP_ROW);
+      const seen = [app.frame()];
+      for (let i = 0; i < 40 && !app.frame().includes("/rewind"); i++) {
+        await app.press(KEY.pageDown);
+        seen.push(app.frame());
+      }
+      const map = seen.join("\n");
+      expect(map).toContain("/rewind");
+      expect(map).toContain("Deny it; on a question, skip it");
+      for (const words of GUI_ONLY) expect(map, words).not.toContain(words);
+      await app.press(KEY.esc);
+      expect(app.frame()).not.toContain(HELP_ROW);
+    }
+  });
+
   it("shows the effective map: a remapped row with its new key, marked", async () => {
     const app = await launchWith(keybindings({ "app.help": ["Ctrl+X"] }));
     await app.press(KEY.ctrlX);

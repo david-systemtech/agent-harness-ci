@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { ACTIONS, actionById, isActionId, isCommandId, keyClashes, type ActionCondition, type ActionContext, type KeyActionId } from "@agent-harness/contracts";
+import { ACTIONS, actionById, isActionId, isCommandId, isGuiOnly, keyClashes, type ActionCondition, type ActionContext, type KeyActionId } from "@agent-harness/contracts";
 
 /**
  * Keys as named actions (docs/specs/tui.md, "Shortcuts: the shared action
@@ -17,7 +17,11 @@ import { ACTIONS, actionById, isActionId, isCommandId, keyClashes, type ActionCo
  * one, while the screen says its condition holds.
  */
 
-/** The list's default keys for every action pressed rather than typed. A move action's keys are up, then down. */
+/**
+ * The list's default keys for every action pressed rather than typed. A move
+ * action's keys are up, then down; an action only the GUI answers has none
+ * here, and the keybindings file cannot give it any.
+ */
 export const DEFAULT_KEYS: Readonly<Record<KeyActionId, readonly string[]>> = Object.fromEntries(
   ACTIONS.filter((action) => !isCommandId(action.id)).map((action) => [action.id, action.keys]),
 ) as unknown as Record<KeyActionId, readonly string[]>;
@@ -376,7 +380,8 @@ const standing = (previous: Keymap) => (previous === DEFAULT_KEYMAP ? "the defau
 /**
  * The keymap from a parsed keybindings object, read against the defaults:
  * unknown ids and key names reported and ignored, a slash command's id
- * reported (a command is typed, not pressed), an action left with no key or
+ * reported (a command is typed, not pressed), as is an action only the GUI
+ * answers (it has no terminal column), an action left with no key or
  * a move action given other than two different keys (up, then down) keeping
  * its defaults, and a clash, one key given to two actions in one context of
  * the shared list (beyond the one conditioned action the contracts' rule
@@ -398,6 +403,10 @@ export const resolveKeymap = (mapping: unknown, source = "keybindings.json", pre
     }
     if (isCommandId(id)) {
       problems.push(`${source}: ${id} is a slash command, typed rather than pressed; ignored.`);
+      continue;
+    }
+    if (isGuiOnly({ id, keys: DEFAULT_KEYS[id] })) {
+      problems.push(`${source}: ${id} is the GUI's alone, with no terminal keys; ignored.`);
       continue;
     }
     if (!Array.isArray(written) || !written.every((k): k is string => typeof k === "string")) {

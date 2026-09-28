@@ -265,7 +265,7 @@ export const Action = z
 export type Action = z.infer<typeof Action>;
 
 /** Whether only the GUI answers `action`: pressed, with an empty terminal column, which the terminal UI's help leaves out. */
-export const isGuiOnly = (action: Pick<Action, "id" | "keys">): boolean => !action.id.startsWith("command.") && action.keys.length === 0;
+export const isGuiOnly = (action: { readonly id: string; readonly keys: readonly string[] }): boolean => !action.id.startsWith("command.") && action.keys.length === 0;
 
 /* ------------------------------------------------------------------------------------------------------------ */
 

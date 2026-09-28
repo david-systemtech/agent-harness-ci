@@ -250,6 +250,13 @@ describe("the keybindings file over the whole list", () => {
     expect(loaded.keymap.keys["app.help"]).toEqual(["Ctrl+X"]);
   });
 
+  it("reports an action only the GUI answers and ignores it: it has no terminal column to remap (#388)", () => {
+    const loaded = resolveKeymap({ "app.palette": ["Ctrl+K"], "app.help": ["Ctrl+X"] });
+    expect(loaded.problems).toEqual([expect.stringContaining("app.palette is the GUI's alone")]);
+    expect(loaded.keymap.keys["app.palette"]).toEqual([]);
+    expect(loaded.keymap.keys["app.help"]).toEqual(["Ctrl+X"]);
+  });
+
   it("checks a clash in the list's context, whatever the id's first word: row and transcript are one context", () => {
     const loaded = resolveKeymap({ "transcript.follow": ["o"] });
     expect(loaded.problems).toEqual([expect.stringMatching(/refused: o is both transcript\.follow and row\.open in transcript|refused: o is both row\.open and transcript\.follow in transcript/)]);

@@ -1,4 +1,4 @@
-import { ACTIONS, ACTION_GROUPS, SLASH_COMMANDS_TITLE, actionById, isCommandId, type KeyActionId } from "@agent-harness/contracts";
+import { ACTIONS, ACTION_GROUPS, SLASH_COMMANDS_TITLE, actionById, isCommandId, isGuiOnly, type KeyActionId } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { ANSWERED, BUILD_WORDS } from "./answered.js";
 import { helpLines, type HelpLine } from "./help.js";
@@ -19,17 +19,27 @@ describe("the help lines", () => {
 
   it("draw every group of the list as a heading with its actions under it, in the list's order", () => {
     expect(lines.filter((line) => line.kind === "heading").map((line) => line.kind === "heading" && line.text)).toEqual(ACTION_GROUPS.map((g) => g.title));
-    expect(rows(lines).map((line) => line.id)).toEqual(ACTIONS.filter((a) => a.aliasOf === undefined).map((a) => a.id));
+    expect(rows(lines).map((line) => line.id)).toEqual(ACTIONS.filter((a) => a.aliasOf === undefined && !isGuiOnly(a)).map((a) => a.id));
     expect(lines[0]).toEqual({ kind: "heading", text: "Anywhere" });
   });
 
-  it("give every action of the list a default binding and a help line: its keys, or a slash command's usage line; only a hidden alias goes undrawn", () => {
-    for (const action of ACTIONS) {
+  it("give every action of the list with a terminal column a default binding and a help line: its keys, or a slash command's usage line; only a hidden alias goes undrawn", () => {
+    for (const action of ACTIONS.filter((a) => !isGuiOnly(a))) {
       const binding = isCommandId(action.id) ? action.usage : DEFAULT_KEYMAP.keys[action.id as KeyActionId].join(", ");
       expect(binding, action.id).toBeTruthy();
       if (action.aliasOf === undefined) expect(rowOf(lines, action.id), action.id).toMatchObject({ keys: binding, description: action.description });
       else expect(rowOf(lines, action.id), action.id).toBeUndefined();
     }
+  });
+
+  it("leave out every action whose terminal column is empty: the actions only the GUI answers, in whichever group they sit (#388)", () => {
+    const guiOnly = ACTIONS.filter(isGuiOnly).map((a) => a.id);
+    expect(guiOnly).toEqual(expect.arrayContaining(["app.palette", "app.pane.splitRight", "permission.allow", "picker.back", "transcript.findClose"]));
+    for (const id of guiOnly) expect(rowOf(lines, id), id).toBeUndefined();
+    expect(lines.some((line) => line.kind === "reason" && guiOnly.includes(line.id))).toBe(false);
+    // Their groups stay, with the actions the terminal answers.
+    expect(rowOf(lines, "app.help")).toBeDefined();
+    expect(rowOf(lines, "permission.deny")).toBeDefined();
   });
 
   it("echo the slash commands from the list: each command's usage line and description, and no hidden alias", () => {
