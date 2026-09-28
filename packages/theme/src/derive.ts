@@ -1,6 +1,6 @@
 import { ENVIRONMENT_COLOURS, type EnvironmentColour, type Theme, type ThemeSeed, type ThemeSeedName } from "@agent-harness/contracts";
 import { separateHues } from "./hues.js";
-import { contrastRatio, inGamut, type Oklch } from "./oklch.js";
+import { contrastRatio, inGamut, mixOklab, type Oklch } from "./oklch.js";
 import type { LadderName, TokenName } from "./tokens.js";
 
 /**
@@ -41,6 +41,8 @@ export interface Ladder {
   readonly tokens: Readonly<Record<TokenName, Oklch>>;
   /** An environment's badge and name, drawn as text on the ladder's grounds. */
   readonly environment: Readonly<Record<EnvironmentColour, Oklch>>;
+  /** For a truecolour terminal: the backgrounds of a diff's added and removed lines, the canvas ground tinted toward Success and Danger. */
+  readonly diff: { readonly added: Oklch; readonly removed: Oklch };
 }
 
 /** Both ladders of a theme, and every clamp the derivation made to hold the rules. */
@@ -158,6 +160,8 @@ interface LadderPlan {
   readonly roles: Readonly<Record<Role, { readonly lightness: number; readonly share: number; readonly ink?: FillInk }>>;
   /** Where every environment colour starts, at its name's hue. */
   readonly environment: { readonly lightness: number; readonly chroma: number };
+  /** How far a diff background is tinted from the ground toward the status colour. */
+  readonly diffTint: number;
 }
 
 const DARK: LadderPlan = {
@@ -176,6 +180,8 @@ const DARK: LadderPlan = {
     danger: { lightness: 70, share: 1, ink: { token: "signal-ink", l: 16, c: 0.03 } },
   },
   environment: { lightness: 75, chroma: 0.13 },
+  // A quarter: as dark as the tints diff views commonly draw on a dark terminal (#213a2b, #4a221d).
+  diffTint: 0.25,
 };
 
 const LIGHT: LadderPlan = {
@@ -195,6 +201,8 @@ const LIGHT: LadderPlan = {
     danger: { lightness: 52, share: 0.19 / 0.18, ink: { token: "signal-ink", l: 98, c: 0.005 } },
   },
   environment: { lightness: 50, chroma: 0.12 },
+  // Lighter on paper: a band the line reads through, not a fill.
+  diffTint: 0.15,
 };
 
 const PLANS: Readonly<Record<LadderName, LadderPlan>> = { light: LIGHT, dark: DARK };
@@ -302,6 +310,10 @@ const ladderOf = (ladder: LadderName, seeds: Theme["seeds"], moved: readonly The
   const environment = Object.fromEntries(
     ENVIRONMENT_COLOURS.map((name) => [name, place(plan.environment.lightness, plan.environment.chroma, ENVIRONMENT_HUES[name], plan.away, [readable]).colour]),
   ) as Record<EnvironmentColour, Oklch>;
+  const tinted = (status: Oklch) => {
+    const mixed = mixOklab(abyss, status, plan.diffTint);
+    return fit(mixed.l, mixed.c, mixed.h);
+  };
 
   return {
     tokens: {
@@ -331,6 +343,7 @@ const ladderOf = (ladder: LadderName, seeds: Theme["seeds"], moved: readonly The
       "wash-user": alpha(beam, 0.24),
     },
     environment,
+    diff: { added: tinted(success.colour), removed: tinted(danger.colour) },
     clamps,
   };
 };
@@ -357,6 +370,6 @@ export const derive = (theme: Theme): DerivedTheme => {
   const { seeds, moved } = separateHues(theme.seeds);
   const light = ladderOf("light", seeds, moved);
   const dark = ladderOf("dark", seeds, moved);
-  const ladder = ({ tokens, environment }: Ladder): Ladder => ({ tokens, environment });
+  const ladder = ({ tokens, environment, diff }: Ladder): Ladder => ({ tokens, environment, diff });
   return { light: ladder(light), dark: ladder(dark), clamps: [...light.clamps, ...dark.clamps] };
 };

@@ -35,6 +35,21 @@ const toLinearSrgb = ({ l, c, h }: Oklch): [number, number, number] => {
 
 const clamp01 = (value: number): number => Math.min(1, Math.max(0, value));
 
+/**
+ * The colour `amount` of the way from `from` to `to`, mixed in OKLab (the
+ * lightness and the two opponent axes each), as a CSS `color-mix(in oklab,
+ * ...)` of the two opaque colours would give it.
+ */
+export const mixOklab = (from: Oklch, to: Oklch, amount: number): Oklch => {
+  const axes = ({ c, h }: Oklch) => [c * Math.cos((h * Math.PI) / 180), c * Math.sin((h * Math.PI) / 180)] as const;
+  const [fromA, fromB] = axes(from);
+  const [toA, toB] = axes(to);
+  const a = fromA + (toA - fromA) * amount;
+  const b = fromB + (toB - fromB) * amount;
+  const c = Math.hypot(a, b);
+  return { l: from.l + (to.l - from.l) * amount, c, h: c === 0 ? from.h : (((Math.atan2(b, a) * 180) / Math.PI) % 360 + 360) % 360 };
+};
+
 /** Whether an sRGB screen can show the colour. The epsilon absorbs floating-point noise at the boundary (white lands a few ulps above 1). */
 export const inGamut = (colour: Oklch): boolean => toLinearSrgb(colour).every((v) => v >= -1e-4 && v <= 1 + 1e-4);
 
