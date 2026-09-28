@@ -71,7 +71,9 @@ export const fileVault = (path: string): Vault => {
  * written, and a value it replaces released once the write is done; a deleted
  * entry is released once the delete is done; a read that finds an entry
  * changed or gone outside the environment registers what it finds and lets
- * the old value go.
+ * the old value go. The calls on one key run one at a time, in the order they
+ * were made, so a read that began before a write never answers after it with
+ * the value the write replaced.
  */
 export const holdVault = async (vault: Vault, registry: ScrubRegistry): Promise<Vault> => {
   interface Held {
@@ -91,28 +93,42 @@ export const holdVault = async (vault: Vault, registry: ScrubRegistry): Promise<
   const found = (key: string, value: string | undefined): void => {
     if (held.get(key)?.value !== value) replace(key, value === undefined ? undefined : register(key, value));
   };
+  /** The last call on each key still running: the next waits for it, whether it succeeded or failed. */
+  const running = new Map<string, Promise<unknown>>();
+  const inTurn = <T>(key: string, work: () => Promise<T>): Promise<T> => {
+    const answer = (running.get(key) ?? Promise.resolve()).then(work, work);
+    const settled = answer.catch(() => undefined);
+    running.set(key, settled);
+    void settled.then(() => {
+      if (running.get(key) === settled) running.delete(key);
+    });
+    return answer;
+  };
   for (const key of await vault.keys()) found(key, await vault.get(key));
 
   return {
-    get: async (key) => {
-      const value = await vault.get(key);
-      found(key, value);
-      return value;
-    },
-    set: async (key, value) => {
-      const next = register(key, value);
-      try {
-        await vault.set(key, value);
-      } catch (error) {
-        next.release();
-        throw error;
-      }
-      replace(key, next);
-    },
-    delete: async (key) => {
-      await vault.delete(key);
-      replace(key, undefined);
-    },
+    get: (key) =>
+      inTurn(key, async () => {
+        const value = await vault.get(key);
+        found(key, value);
+        return value;
+      }),
+    set: (key, value) =>
+      inTurn(key, async () => {
+        const next = register(key, value);
+        try {
+          await vault.set(key, value);
+        } catch (error) {
+          next.release();
+          throw error;
+        }
+        replace(key, next);
+      }),
+    delete: (key) =>
+      inTurn(key, async () => {
+        await vault.delete(key);
+        replace(key, undefined);
+      }),
     keys: () => vault.keys(),
   };
 };

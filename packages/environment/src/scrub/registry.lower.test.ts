@@ -68,7 +68,7 @@ describe("the scrub registry", () => {
 
   it("holds each encoded form of a short value to the rule by its own length", () => {
     const registry = createScrubRegistry();
-    // Seven characters; percent-encoded it is eleven, and matched anywhere.
+    // Seven characters; percent-encoded it is thirteen, a%2Fb%20c%2Fd, and matched anywhere.
     registry.register("a/b c/d", { owner: "test:short-encoded" });
     expect(registry.scrub("xa/b c/dx")).toBe("xa/b c/dx");
     expect(registry.scrub("q=xa%2Fb%20c%2Fdx")).toBe("q=x[redacted]x");

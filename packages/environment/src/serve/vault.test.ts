@@ -144,6 +144,33 @@ describe("the vault as the environment holds it", () => {
     expect(registry.scrub(`${FIRST} ${SECOND}`)).toBe(`${FIRST} [redacted]`);
   });
 
+  it("keeps the value a set wrote registered when a read of the entry that began before the set answers after it", async () => {
+    const registry = createScrubRegistry();
+    const stored = new Map([["forge-a", FIRST]]);
+    // A keychain whose read takes the value as it is, then answers once `reads` lets it.
+    let reads: Promise<void> = Promise.resolve();
+    const slow: Vault = {
+      get: async (key) => {
+        const value = stored.get(key);
+        await reads;
+        return value;
+      },
+      set: async (key, value) => void stored.set(key, value),
+      delete: async (key) => void stored.delete(key),
+      keys: async () => [...stored.keys()],
+    };
+    const vault = await holdVault(slow, registry);
+    let answer!: () => void;
+    reads = new Promise((resolve) => (answer = resolve));
+
+    const reading = vault.get("forge-a");
+    const setting = vault.set("forge-a", SECOND);
+    answer();
+    expect(await reading).toBe(FIRST);
+    await setting;
+    expect(registry.scrub(`${FIRST} ${SECOND}`)).toBe(`${FIRST} [redacted]`);
+  });
+
   it("leaves a value whose write failed unregistered, and the entry it would have replaced registered", async () => {
     const registry = createScrubRegistry();
     const stored = new Map([["forge-a", FIRST]]);
