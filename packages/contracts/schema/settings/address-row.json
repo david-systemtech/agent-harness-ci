@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SettingsAddressRow",
+  "type": "object",
+  "properties": {
+    "address": {
+      "type": "string",
+      "enum": [
+        "profiles",
+        "models",
+        "runs",
+        "agents",
+        "skills",
+        "memory-banks",
+        "cerebro",
+        "permissions",
+        "browser",
+        "secrets",
+        "server",
+        "remote",
+        "routines",
+        "advanced",
+        "appearance",
+        "about"
+      ],
+      "description": "One of the sixteen existing settings addresses, each of which opens the row the address table maps it to."
+    },
+    "row": {
+      "type": "string",
+      "enum": [
+        "setup.checklist",
+        "accounts.accounts",
+        "accounts.default-model",
+        "accounts.usage",
+        "knowledge.banks",
+        "knowledge.skills",
+        "knowledge.instructions",
+        "access.permissions",
+        "access.browser",
+        "access.key-managers",
+        "access.forges",
+        "routines.routines",
+        "routines.bots",
+        "environments.machines",
+        "environments.access",
+        "environments.service",
+        "appearance.theme",
+        "appearance.shortcuts",
+        "about.about"
+      ],
+      "description": "A row of Settings, by its id (band.row): setup.checklist, accounts.accounts, accounts.default-model, accounts.usage, knowledge.banks, knowledge.skills, knowledge.instructions, access.permissions, access.browser, access.key-managers, access.forges, routines.routines, routines.bots, environments.machines, environments.access, environments.service, appearance.theme, appearance.shortcuts, about.about."
+    }
+  },
+  "required": [
+    "address",
+    "row"
+  ],
+  "description": "One line of the address table: an existing settings address and the row it opens."
+}

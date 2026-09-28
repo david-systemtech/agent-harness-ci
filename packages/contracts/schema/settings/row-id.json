@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SettingsRowId",
+  "type": "string",
+  "enum": [
+    "setup.checklist",
+    "accounts.accounts",
+    "accounts.default-model",
+    "accounts.usage",
+    "knowledge.banks",
+    "knowledge.skills",
+    "knowledge.instructions",
+    "access.permissions",
+    "access.browser",
+    "access.key-managers",
+    "access.forges",
+    "routines.routines",
+    "routines.bots",
+    "environments.machines",
+    "environments.access",
+    "environments.service",
+    "appearance.theme",
+    "appearance.shortcuts",
+    "about.about"
+  ],
+  "description": "A row of Settings, by its id (band.row): setup.checklist, accounts.accounts, accounts.default-model, accounts.usage, knowledge.banks, knowledge.skills, knowledge.instructions, access.permissions, access.browser, access.key-managers, access.forges, routines.routines, routines.bots, environments.machines, environments.access, environments.service, appearance.theme, appearance.shortcuts, about.about."
+}

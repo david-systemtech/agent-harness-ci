@@ -1495,6 +1495,34 @@
       "title": "SettingsEventType"
     },
     {
+      "path": "settings/band-id.json",
+      "title": "SettingsBandId"
+    },
+    {
+      "path": "settings/band.json",
+      "title": "SettingsBand"
+    },
+    {
+      "path": "settings/row-scope.json",
+      "title": "SettingsRowScope"
+    },
+    {
+      "path": "settings/row-id.json",
+      "title": "SettingsRowId"
+    },
+    {
+      "path": "settings/row.json",
+      "title": "SettingsRow"
+    },
+    {
+      "path": "settings/address.json",
+      "title": "SettingsAddress"
+    },
+    {
+      "path": "settings/address-row.json",
+      "title": "SettingsAddressRow"
+    },
+    {
       "path": "updates/update-id.json",
       "title": "UpdateId"
     },
@@ -1589,6 +1617,10 @@
     {
       "path": "updates/settings-patch.json",
       "title": "UpdateSettingsPatch"
+    },
+    {
+      "path": "setup/step-id.json",
+      "title": "StepId"
     },
     {
       "path": "setup/registered-step-id.json",
@@ -3307,6 +3339,23 @@
     {
       "path": "cases/repository-identity.json",
       "title": "Repository identity"
+    }
+  ],
+  "data": [
+    {
+      "path": "data/settings-bands.json",
+      "title": "Settings bands",
+      "schema": "settings/band.json"
+    },
+    {
+      "path": "data/settings-rows.json",
+      "title": "Settings rows",
+      "schema": "settings/row.json"
+    },
+    {
+      "path": "data/settings-addresses.json",
+      "title": "Settings addresses",
+      "schema": "settings/address-row.json"
     }
   ],
   "methods": [
