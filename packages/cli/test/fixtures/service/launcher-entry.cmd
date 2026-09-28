@@ -12,6 +12,7 @@ set "DATA_DIR=C:\Users\david\AppData\Local\agent-harness"
 set "LOG=%DATA_DIR%\logs\service.log"
 :start
 set "VERSION="
+if exist "%DATA_DIR%\launcher-version" findstr /r /v /x "[0-9A-Za-z.+-]*" "%DATA_DIR%\launcher-version" >nul && goto no_version
 if exist "%DATA_DIR%\launcher-version" for /f "usebackq delims=" %%V in ("%DATA_DIR%\launcher-version") do if not defined VERSION set "VERSION=%%V"
 if not defined VERSION goto no_version
 if not exist "%DATA_DIR%\versions\%VERSION%\.complete" goto not_complete

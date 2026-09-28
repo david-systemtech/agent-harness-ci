@@ -85,6 +85,8 @@ const renderCmdEntry = ({ dataDir, port, name }: EntrySpec): string => {
     `set "LOG=%DATA_DIR%\\${LOG_DIRECTORY}\\${LOG_FILE}"`,
     ":start",
     'set "VERSION="',
+    // findstr reads the file itself, so a line holding a quote or an ampersand is refused before cmd ever expands it.
+    `if exist "%DATA_DIR%\\${LAUNCHER_VERSION_FILE}" findstr /r /v /x "[0-9A-Za-z.+-]*" "%DATA_DIR%\\${LAUNCHER_VERSION_FILE}" >nul && goto no_version`,
     `if exist "%DATA_DIR%\\${LAUNCHER_VERSION_FILE}" for /f "usebackq delims=" %%V in ("%DATA_DIR%\\${LAUNCHER_VERSION_FILE}") do if not defined VERSION set "VERSION=%%V"`,
     "if not defined VERSION goto no_version",
     `if not exist "${version}\\${VERSION_SENTINEL}" goto not_complete`,
