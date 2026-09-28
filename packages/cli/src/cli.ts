@@ -14,8 +14,10 @@ import {
 import { parseOptions, parsePort, UsageError } from "./args.js";
 import { launch, LAUNCH_USAGE } from "./launch/verb.js";
 import { processContext, type ProcessContext } from "./process-context.js";
+import { resolveProgram } from "./service/spec.js";
 import { service, type ServiceSeams } from "./service/verbs.js";
 import { status } from "./status.js";
+import { GIT_CREDENTIAL_USAGE, gitCredential, readStandardInput } from "./git-credential.js";
 import { LocalFailure, type Net } from "./local-session.js";
 import { mintPairing, renderPairing, type PairArgs } from "./pair.js";
 import { TUI_USAGE, tui, type RunTui } from "./tui.js";
@@ -32,6 +34,7 @@ const USAGE = [
   `       ${PRODUCT_NAME} service status [--data-dir <path>] [--port <n>] [--json]`,
   `       ${PRODUCT_NAME} pair [--scopes <a,b>] [--ceiling <mode>] [--data-dir <path>] [--port <n>]`,
   ...UPDATE_USAGE.map((line) => `       ${line}`),
+  `       ${GIT_CREDENTIAL_USAGE}`,
   `       ${TUI_USAGE}`,
   "",
 ].join("\n");
@@ -51,6 +54,12 @@ export interface CliContext extends ProcessContext {
   readonly net?: Net;
   /** The terminal UI `tui` runs; a seam for tests. Preset: the terminal UI package's `runTui`. */
   readonly tui?: RunTui;
+  /** What `git-credential` reads git's attributes from; preset: the process's standard input. */
+  readonly stdin?: () => Promise<string>;
+  /** The variables `git-credential` reads; preset: the process's own. */
+  readonly env?: Readonly<Record<string, string | undefined>>;
+  /** How long `git-credential` waits on the environment; preset fifteen seconds. A seam for tests. */
+  readonly gitCredentialTimeoutMs?: number;
 }
 
 const parseServe = (args: readonly string[]): Pick<EnvironmentOptions, "dataDir" | "port" | "name"> => {
@@ -127,7 +136,8 @@ const serve = async (args: readonly string[], context: CliContext): Promise<numb
   let environment: EnvironmentHandle;
   try {
     refusePrivilegedUser(user);
-    environment = await startEnvironment({ ...parseServe(args), ...context.environment, user });
+    // git names the command this process runs as, with git-credential, as its credential helper (#314); #338's shim replaces it.
+    environment = await startEnvironment({ ...parseServe(args), harnessCommand: resolveProgram(), ...context.environment, user });
   } catch (error) {
     if (error instanceof RootRefusedError) {
       context.stderr(`${error.message}\n`);
@@ -173,6 +183,15 @@ export const runCli = async (args: readonly string[], overrides: Partial<CliCont
       });
     }
     if (args[0] === "pair") return await pair(args.slice(1), context);
+    if (args[0] === "git-credential") {
+      return await gitCredential(args.slice(1), {
+        stdin: context.stdin ?? readStandardInput,
+        stdout: context.stdout,
+        stderr: context.stderr,
+        env: context.env ?? process.env,
+        ...(context.gitCredentialTimeoutMs !== undefined && { timeoutMs: context.gitCredentialTimeoutMs }),
+      });
+    }
     if (args[0] === "update") return await update(args.slice(1), { stdout: context.stdout, stderr: context.stderr, net: netOf(context) });
     if (args[0] === "tui") {
       return await tui(args.slice(1), {
