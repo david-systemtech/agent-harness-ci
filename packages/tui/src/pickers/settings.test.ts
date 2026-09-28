@@ -14,9 +14,11 @@ describe("a setting's value in words", () => {
 });
 
 describe("the method that writes a key", () => {
-  it("is settings.update for a generic key, permissions.settings.set for a permission key, and nothing for the acknowledgement's time", () => {
+  it("is settings.update for a generic key, permissions.settings.set for a permission key, updates.settings.set for an update key, and nothing for the acknowledgement's time", () => {
     expect(writerOf("providers.processIdleMinutes")).toBe("settings.update");
     expect(writerOf("permissions.defaultCeiling")).toBe("permissions.settings.set");
+    expect(writerOf("updates.channel")).toBe("updates.settings.set");
+    expect(writerOf("updates.pinnedVersion")).toBe("updates.settings.set");
     expect(writerOf("permissions.unattended.bypassAcknowledgedAt")).toBeNull();
   });
 });
