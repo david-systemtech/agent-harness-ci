@@ -13,6 +13,7 @@ import {
   type KeyActionId,
   type PromptAnswerInput,
   type PromptKind,
+  type WorkspaceRequest,
 } from "@agent-harness/contracts";
 import { ANSWERED, BUILD_WORDS, type ScreenKey } from "./answered.js";
 import { quietChrome, type TerminalChrome } from "./attention/chrome.js";
@@ -906,16 +907,17 @@ export const App = (props: AppProps) => {
     },
   ];
 
-  // `/new`: a session on the open one's environment, in its workspace, on its account and model; with none open,
-  // on the header's environment in the `--cwd` directory. It opens once the environment has it,
-  // so its stream is never asked for before it exists.
+  // `/new`: a session on the open one's environment, in its workspace (a `session` request naming it, so the environment
+  // shares its workspace as it has it, #325), on its account and model; with none open, on the header's environment in
+  // the `--cwd` directory. It opens once the environment has it, so its stream is never asked for before it exists.
   const newSession = () => {
     const environment = opened ? views.find((v) => v.environmentId === opened.environmentId) : current;
     if (!environment || isPlaceholder(environment)) return say("There is no environment to start a session on: /pair one first.");
     const sessionId = props.newSessionId?.() ?? crypto.randomUUID();
     const summary = projection?.summary;
-    const workspace = summary?.workspace ?? { kind: "directory" as const, path: props.flags.workspace };
-    say(`Starting a session on ${nameOf(environment)} in ${workspace.path}…`);
+    const workspace: WorkspaceRequest = opened ? { kind: "session", sessionId: opened.sessionId } : { kind: "directory", path: props.flags.workspace };
+    const where = opened ? (summary?.workspace.path ?? "the open session's workspace") : props.flags.workspace;
+    say(`Starting a session on ${nameOf(environment)} in ${where}…`);
     void runtime.commands
       .dispatch(environment.environmentId, "sessions.create", {
         id: sessionId,
@@ -926,7 +928,7 @@ export const App = (props: AppProps) => {
       .then((answer) => {
         if (!answer.ok) return say(`No session was started: ${answer.error.message}`);
         open({ environmentId: environment.environmentId, sessionId });
-        say(`A new session on ${nameOf(environment)} in ${workspace.path}.`);
+        say(`A new session on ${nameOf(environment)} in ${answer.result?.summary.workspace.path ?? where}.`);
       });
   };
 

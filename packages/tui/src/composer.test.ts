@@ -244,12 +244,14 @@ describe("slash commands", () => {
     expect(paramsOf(app, "runs.start")).toEqual([]);
   });
 
-  it("starts a session with /new on the same environment and workspace", async () => {
+  it("starts a session with /new on the same environment, in the open session's workspace through a session request", async () => {
     const { app } = await launch();
     await send(app, "/new");
     await app.waitFor("A new session on desk in /home/seth/receipts.");
     await app.waitFor("Nothing said yet.");
-    expect(paramsOf(app, "sessions.create")).toEqual([expect.objectContaining({ workspace: { kind: "directory", path: "/home/seth/receipts" } })]);
+    expect(paramsOf(app, "sessions.create")).toEqual([expect.objectContaining({ workspace: { kind: "session", sessionId: SESSION } })]);
+    const created = String(paramsOf(app, "sessions.create")[0]?.["id"]);
+    expect(app.environment("desk").list.summaries().find((summary) => summary.id === created)?.workspace).toEqual({ kind: "directory", path: "/home/seth/receipts" });
     await send(app, "Hello");
     await app.waitUntil(() => paramsOf(app, "runs.start").length === 1, "a start");
     expect(paramsOf(app, "runs.start")[0]).toMatchObject({ sessionId: paramsOf(app, "sessions.create")[0]?.["id"], text: "Hello" });

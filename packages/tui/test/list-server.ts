@@ -12,6 +12,9 @@ import {
   type Group,
   type GroupPatch,
   type SummaryPatch,
+  type Workspace,
+  type WorkspaceProblem,
+  type WorkspaceRequest,
 } from "@agent-harness/contracts";
 
 /**
@@ -60,7 +63,12 @@ export interface ScriptedListOptions {
   readonly head: () => number;
   /** The script's rejection of `method`, if it rejects it. */
   readonly refusal: (method: string) => FakeAnswer | undefined;
+  /** The directories a create's `directory` request is refused with, each with its problem: preset none, every path taken as sent. */
+  readonly directories?: Readonly<Record<string, WorkspaceProblem>>;
 }
+
+/** The home a scripted environment's `~` stands for. */
+export const SCRIPTED_HOME = "/home/seth";
 
 /** The commands the list applies; `sessions.listDeleted` is its one query beyond `sessions.list` and `groups.list`. */
 export const LIST_COMMANDS = [
@@ -125,6 +133,31 @@ export const scriptedList = (options: ScriptedListOptions): ScriptedList => {
   });
   const noSession = () => rejected("not_found", "No such session.", { kind: "session" });
 
+  /**
+   * The workspace a create's request gives, as the environment's resolver
+   * gives it (#325): a directory as sent, `~` read as `SCRIPTED_HOME`, unless
+   * the script refuses it; scratch under a data directory; another session's
+   * shared. Or the refusal.
+   */
+  const resolved = (request: WorkspaceRequest, id: string): { readonly workspace: Workspace; readonly repositoryIdentity: string | null } | FakeAnswer => {
+    switch (request.kind) {
+      case "directory": {
+        const path = request.path === "~" ? SCRIPTED_HOME : request.path.replace(/^~[\\/]/, `${SCRIPTED_HOME}/`);
+        const problem = options.directories?.[path];
+        if (problem !== undefined) return rejected("conflict", `The scripted environment refuses ${path}: ${problem}.`, { reason: "workspace_unusable", problem, path });
+        return { workspace: { kind: "directory", path }, repositoryIdentity: null };
+      }
+      case "scratch":
+        return { workspace: { kind: "scratch", path: `/data/scratch/${id}` }, repositoryIdentity: null };
+      case "session": {
+        const source = store.get(request.sessionId.toLowerCase());
+        return source ? { workspace: source.workspace, repositoryIdentity: source.repositoryIdentity } : rejected("not_found", "No such session.", { kind: "session", sessionId: request.sessionId });
+      }
+      default:
+        return rejected("conflict", "The scripted environment makes no worktree.", { reason: "kind_not_served", kind: request.kind });
+    }
+  };
+
   /** Sets `fields` on the session, publishing the patch; answers the summary as it now is. */
   const set = (id: string, fields: Partial<SessionSummary>, commandId: string | null, type: string): FakeAnswer => {
     const before = store.get(id);
@@ -150,6 +183,8 @@ export const scriptedList = (options: ScriptedListOptions): ScriptedList => {
     const wake = { snoozedUntil: null, snoozedAt: null };
     switch (method) {
       case "sessions.create": {
+        const place = resolved(params["workspace"] as WorkspaceRequest, String(params["id"]));
+        if (!("workspace" in place)) return place;
         const summary = SessionSummary.parse({
           id: params["id"],
           createdAt: now,
@@ -169,8 +204,8 @@ export const scriptedList = (options: ScriptedListOptions): ScriptedList => {
           unsettledAt: null,
           snoozedUntil: null,
           snoozedAt: null,
-          workspace: params["workspace"],
-          repositoryIdentity: null,
+          workspace: place.workspace,
+          repositoryIdentity: place.repositoryIdentity,
           workspaceMissingSince: null,
           activity: { state: "idle", since: now },
           parkedPromptCount: 0,
