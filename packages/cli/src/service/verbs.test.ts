@@ -1,10 +1,11 @@
-import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, sep } from "node:path";
 import { DISCOVERY_PATH, PROTOCOL_VERSION } from "@agent-harness/contracts";
 import { defaultDataDirectory, HARNESS_VERSION, ROOT_REFUSAL } from "@agent-harness/environment";
 import { afterEach, describe, expect, it } from "vitest";
 import { bundledVersion, installContextAt, makeTempDir, snapshot, stubRunner, tree, type Answer } from "../../test/service-helpers.js";
 import { runCli, type CliContext } from "../cli.js";
+import { writeServiceState } from "../launch/state.js";
 
 let cleanups: (() => void)[] = [];
 afterEach(() => {
@@ -254,9 +255,53 @@ describe("agent-harness service status", () => {
         `Installed: yes (${unitPath(cli.home)})`,
         "Running: yes",
         "Ready: yes",
+        "Active version: 0.5.0",
+        "Launcher version: 0.5.0",
+        "Pending update: none",
         "The service is running and the environment at http://127.0.0.1:7433 is ready.",
         "",
       ].join("\n"),
+    );
+  });
+
+  it("reads the active and launcher versions and a pending update from the service state", async () => {
+    const cli = harness("linux", { answer: active, fetch: answering("ready") });
+    await cli.run("service", "install");
+    const dataDir = join(cli.home, ".local", "state", "agent-harness");
+    const pendingUpdate = { updateId: "5b1f3c1e-7d5a-4c2b-9e8f-1a2b3c4d5e6f", fromVersion: "0.5.0", toVersion: "0.6.0" };
+    writeServiceState(dataDir, { activeVersion: "0.5.0", previousVersion: "0.4.0", launcherVersion: "0.4.0", pendingUpdate, watchDeadline: null });
+    expect(await cli.run("service", "status")).toBe(0);
+    expect(cli.out()).toContain(
+      ["Active version: 0.5.0", "Launcher version: 0.4.0", "Pending update: 0.5.0 to 0.6.0 (update 5b1f3c1e-7d5a-4c2b-9e8f-1a2b3c4d5e6f)", ""].join("\n"),
+    );
+    expect(await cli.run("service", "status", "--json")).toBe(0);
+    const json = cli.out().slice(cli.out().lastIndexOf("\n{\n") + 1);
+    expect(JSON.parse(json)).toMatchObject({ activeVersion: "0.5.0", launcherVersion: "0.4.0", pendingUpdate, serviceStateProblem: null });
+  });
+
+  it("says why the versions are unknown when the service is installed with no service state it can use", async () => {
+    const cli = harness("linux", { answer: active, fetch: answering("ready") });
+    await cli.run("service", "install");
+    const state = join(cli.home, ".local", "state", "agent-harness", "service-state.json");
+    writeFileSync(state, "{ not json");
+    await cli.run("service", "status");
+    expect(cli.out()).toContain(`Versions: unknown (the service state at ${state} is not valid: it is not JSON)\n`);
+    expect(await cli.run("service", "status", "--json")).toBe(0);
+    const json = cli.out().slice(cli.out().lastIndexOf("\n{\n") + 1);
+    expect(JSON.parse(json)).toMatchObject({ activeVersion: null, launcherVersion: null, pendingUpdate: null, serviceStateProblem: expect.stringContaining("not JSON") });
+  });
+
+  it("says that a service from before the launcher runs serve directly and moves to the launcher with one install", async () => {
+    const cli = harness("linux", { answer: active, fetch: answering("ready") });
+    const dataDir = join(cli.home, ".local", "state", "agent-harness");
+    mkdirSync(dataDir, { recursive: true });
+    mkdirSync(dirname(unitPath(cli.home)), { recursive: true });
+    writeFileSync(unitPath(cli.home), "[Service]\nExecStart=/usr/bin/node /opt/agent-harness/dist/main.js serve\n");
+    writeFileSync(join(dataDir, "service.json"), JSON.stringify({ platform: "systemd", definitionPath: unitPath(cli.home), port: 7433, createdDirectories: [] }));
+    await cli.run("service", "status");
+    expect(cli.out()).toContain(`Versions: unknown (there is no service state at ${join(dataDir, "service-state.json")})\n`);
+    expect(cli.out()).toContain(
+      "This service runs `agent-harness serve` without the launcher, as installed before it: `agent-harness service install` from a release with the launcher moves it to the launcher and keeps the data directory.\n",
     );
   });
 

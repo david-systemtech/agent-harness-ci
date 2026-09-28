@@ -4,6 +4,7 @@ import { PRODUCT_NAME } from "@agent-harness/contracts";
 import { DEFAULT_PORT, defaultDataDirectory, refusePrivilegedUser, RootRefusedError, type UserCheck } from "@agent-harness/environment";
 import { parseName, parseOptions, parsePort, UsageError } from "../args.js";
 import { discoverEnvironment, environmentAddress } from "../discover.js";
+import { readServiceState } from "../launch/state.js";
 import { VERSIONS_DIRECTORY } from "../launch/versions.js";
 import { NOT_READY } from "../status.js";
 import { prepareServiceDirectories, removeEmptyDirectories, writeDefinition, type WrittenDefinition } from "./definition.js";
@@ -208,13 +209,16 @@ const start = async (args: readonly string[], context: ServiceContext): Promise<
 /**
  * `service status`: installed and running from the service manager, ready
  * from the discovery URL on the port the service was installed on (from the
- * record; `--port` overrides, `DEFAULT_PORT` when there is no record). Exits
- * 0 only when all three hold, else `NOT_READY`.
+ * record; `--port` overrides, `DEFAULT_PORT` when there is no record), and
+ * the active and launcher versions and a pending update from the service
+ * state. Exits 0 only when installed, running and ready all hold, else
+ * `NOT_READY`.
  */
 const serviceStatus = async (args: readonly string[], context: ServiceContext): Promise<number> => {
   const values = parseOptions(args, { "data-dir": { type: "string" }, port: { type: "string" }, json: { type: "boolean" } });
   const { platform, dataDir } = resolveService(context, values["data-dir"]);
-  const port = parsePort(values.port, 1) ?? servicePort(dataDir);
+  const record = readServiceRecord(dataDir);
+  const port = parsePort(values.port, 1) ?? record?.port ?? DEFAULT_PORT;
   const address = environmentAddress(port);
   const [installed, running, discovery] = await Promise.all([
     platform.isInstalled(),
@@ -224,19 +228,52 @@ const serviceStatus = async (args: readonly string[], context: ServiceContext): 
   const answer: DiscoveryAnswer =
     discovery.kind === "environment" ? discovery.document.readiness : discovery.kind === "other" ? "not-an-environment" : "nothing";
   const notes = installed ? await platform.notes() : [];
+  if (installed && record !== undefined && record.launcherEntry === undefined) {
+    notes.push(
+      `This service runs \`${PRODUCT_NAME} serve\` without the launcher, as installed before it: ` +
+        `\`${PRODUCT_NAME} service install\` from a release with the launcher moves it to the launcher and keeps the data directory.`,
+    );
+  }
   const verdict = serviceVerdict({ installed, running, answer }, address);
   const definition = platform.definitionPath();
+  const read = readServiceState(dataDir);
+  const state = "state" in read ? read.state : undefined;
 
   if (values.json) {
     const readiness = discovery.kind === "environment" ? discovery.document.readiness : null;
-    const report = { installed, running, readiness, ready: verdict.ready, definition, address, summary: verdict.summary, notes };
+    const report = {
+      installed,
+      running,
+      readiness,
+      ready: verdict.ready,
+      definition,
+      address,
+      activeVersion: state?.activeVersion ?? null,
+      launcherVersion: state?.launcherVersion ?? null,
+      pendingUpdate: state?.pendingUpdate ?? null,
+      serviceStateProblem: "problem" in read ? read.problem : null,
+      summary: verdict.summary,
+      notes,
+    };
     context.stdout(`${JSON.stringify(report, null, 2)}\n`);
   } else {
+    const pending = state?.pendingUpdate;
+    const versions =
+      state !== undefined
+        ? [
+            `Active version: ${state.activeVersion}`,
+            `Launcher version: ${state.launcherVersion}`,
+            `Pending update: ${pending ? `${pending.fromVersion} to ${pending.toVersion} (update ${pending.updateId})` : "none"}`,
+          ]
+        : installed && "problem" in read
+          ? [`Versions: unknown (${read.problem})`]
+          : [];
     context.stdout(
       [
         `Installed: ${installed ? `yes (${definition})` : "no"}`,
         `Running: ${running ? "yes" : "no"}`,
         `Ready: ${verdict.readyLine}`,
+        ...versions,
         verdict.summary,
         ...notes,
         "",
