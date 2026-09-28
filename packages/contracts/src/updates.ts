@@ -99,6 +99,17 @@ export const UpdateStartedPayload = z
   .meta({ description: "An update began: the environment drains before the switch; from and to which version, and what made it go." });
 export type UpdateStartedPayload = z.infer<typeof UpdateStartedPayload>;
 
+/** `environment.updated`: the update took, and the version it went to runs; appended as that version's start settles it (#344). */
+export const EnvironmentUpdatedPayload = z
+  .object({
+    fromVersion: z.string().min(1).meta({ description: "The harness version that ran before the update." }),
+    toVersion: z.string().min(1).meta({ description: "The harness version the environment was updated to." }),
+    // Optional: an event appended before update ids existed carries none, and still parses.
+    updateId: UpdateId.optional().meta({ description: "The update that took; absent from an event older than update ids." }),
+  })
+  .meta({ description: "An update took: from which harness version, to which, and by which update." });
+export type EnvironmentUpdatedPayload = z.infer<typeof EnvironmentUpdatedPayload>;
+
 /** `environment.update-failed`: an update did not take, and the version it went from runs. */
 export const UpdateFailedPayload = z
   .object({

@@ -19,10 +19,10 @@ import type { UpdateCoordinator } from "./coordinator.js";
  * The update methods this environment serves (launcher-update spec,
  * "Settings, methods, notices and flags"): `updates.status`, what runs here,
  * who manages its updates, the pending update as the update coordinator
- * holds it and the versions installed; `updates.settings.set`, the one way
- * to write the five update settings; and the coordinator's `updates.apply`
- * and `updates.cancel` (#343). The status's channel and outcome stay empty
- * until the tickets that read the channel and settle an update fill them.
+ * holds it, how the last update ended (#344) and the versions installed;
+ * `updates.settings.set`, the one way to write the five update settings;
+ * and the coordinator's `updates.apply` and `updates.cancel` (#343). The
+ * status's channel stays empty until the tickets that read it fill it.
  */
 
 /** Why nothing manages the updates of an environment `serve` runs in the foreground, for people. */
@@ -43,8 +43,8 @@ export interface UpdateMethodsOptions {
   readonly managedOutside: boolean;
   /** Reads the bundled Claude Code's version; called once, the first time it is asked for. */
   readonly claudeCodeVersion: () => Promise<string | null>;
-  /** The update coordinator: the pending update, and `updates.apply` and `updates.cancel`. */
-  readonly coordinator: Pick<UpdateCoordinator, "pending" | "handlers">;
+  /** The update coordinator: the pending update, how the updates ended, and `updates.apply` and `updates.cancel`. */
+  readonly coordinator: Pick<UpdateCoordinator, "pending" | "outcomes" | "handlers">;
 }
 
 /** The update settings as they are now, each key never set at its preset. */
@@ -86,8 +86,7 @@ export const updateMethods = (options: UpdateMethodsOptions): MethodHandlers => 
         newest: null,
         lastCheck: null,
         pending: options.coordinator.pending(),
-        lastOutcome: null,
-        failedVersions: [],
+        ...options.coordinator.outcomes(),
         installed,
       };
     },

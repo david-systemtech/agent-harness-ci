@@ -159,6 +159,11 @@ export const updateSchemaFixtures: Record<string, Fixtures> = {
     valid: [{ updateId, fromVersion: "0.4.2", toVersion: "0.5.0", cause: "requested" }],
     invalid: [{ updateId, fromVersion: "0.4.2", toVersion: "0.5.0" }, { updateId: "u-1", fromVersion: "0.4.2", toVersion: "0.5.0", cause: "idle" }],
   },
+  "updates/events/environment.updated.json": {
+    // The second is an event appended before update ids, which still reads.
+    valid: [{ fromVersion: "0.4.2", toVersion: "0.5.0", updateId }, { fromVersion: "0.4.2", toVersion: "0.5.0" }],
+    invalid: [{ fromVersion: "0.4.2", toVersion: "" }, { fromVersion: "0.4.2", toVersion: "0.5.0", updateId: "u-1" }, { toVersion: "0.5.0", updateId }],
+  },
   "updates/events/environment.update-failed.json": {
     valid: [
       { updateId, fromVersion: "0.4.2", toVersion: "0.5.0", stage: "switch", reason: "disk", rolledBack: false },

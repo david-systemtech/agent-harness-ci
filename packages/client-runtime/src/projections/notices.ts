@@ -10,6 +10,8 @@ import type { Notice, NoticeInput, Notices } from "../notices.js";
  * renderer says the same:
  *
  * - `environment.updated`: `updated`, "<name> was updated from A to B." (#127);
+ * - `environment.update-failed`: `update-failed`, "<name> could not be
+ *   updated to B (<stage>: <reason>). It is running A." (#344);
  * - `environment.draining`: `draining`;
  * - `account.updated`: `account`, when the environment gives a warning (a
  *   login that reads as another identity, a sign-in refused as a duplicate)
@@ -27,10 +29,12 @@ import type { Notice, NoticeInput, Notices } from "../notices.js";
  * `signin.updated`, `signin.executable-chosen`, `environment.started` and
  * `usage.updated` (#136) raise none: the sign-in flow shows its own state, a
  * start is the connection's phase, and plan usage is `projections.usage`'s.
- * An update's pending, started, failed and cancelled notices (#335) raise
- * none yet: the failed update's notice is owed (#344). A routine's client-notice delivery (ADR 0008) and a
- * key manager's failed verification (ADR 0011) are owed: no event on the
- * environment's stream carries them yet (#92, #91).
+ * An update's pending, started and cancelled notices (#335) raise none:
+ * they change the card and About, which follow `updates.status` as the
+ * request cache fetches it again on every update notice (#344). A
+ * routine's client-notice delivery (ADR 0008) and a key manager's failed
+ * verification (ADR 0011) are owed: no event on the environment's stream
+ * carries them yet (#92, #91).
  */
 
 export interface EnvironmentNoticeContext {
@@ -91,6 +95,11 @@ export const createEnvironmentNotices = (notices: Notices): EnvironmentNotices =
         case "environment.updated":
           raise({ kind: "updated", message: `${name} was updated from ${notice.payload.fromVersion} to ${notice.payload.toVersion}.`, action: null });
           return;
+        case "environment.update-failed": {
+          const { fromVersion, toVersion, stage, reason } = notice.payload;
+          raise({ kind: "update-failed", message: `${name} could not be updated to ${toVersion} (${stage}: ${reason}). It is running ${fromVersion}.`, action: null });
+          return;
+        }
         case "environment.draining":
           raise({ kind: "draining", message: `${name} is draining: it takes no new runs until it restarts.`, action: null });
           return;
@@ -128,9 +137,10 @@ export const createEnvironmentNotices = (notices: Notices): EnvironmentNotices =
         case "signin.updated":
         case "signin.executable-chosen":
         case "usage.updated":
+          return;
+        // An update's other steps change the card and About, which follow `updates.status` in the request cache (#344).
         case "environment.update-pending":
         case "environment.update-started":
-        case "environment.update-failed":
         case "environment.update-cancelled":
           return;
         // The forge's rows (a failed capability, a new problem, a git rejection, a missing origin) are #320's.
