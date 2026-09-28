@@ -1,6 +1,6 @@
 # Routine: upstream watch
 
-Decided on map ticket #31 (2026-09-23). Runs weekly as an Artemis server routine on SYSTEM-SERVER until the harness exists, then becomes the first routine the milestone-1 environment runs on itself. The research behind every rule is `docs/research/upstream-watch-feeds.md` on branch `research/upstream-watch-feeds`.
+Decided on map ticket #31 (2026-09-23). Runs weekly as a routine on the routines server on SYSTEM-SERVER until the harness exists, then becomes the first routine the milestone-1 environment runs on itself. The research behind every rule is `docs/research/upstream-watch-feeds.md` on branch `research/upstream-watch-feeds`.
 
 ## Definition (the YAML a harness routine imports)
 
@@ -13,7 +13,7 @@ model: opus[1m]
 effort: high
 mode: acceptEdits
 skills: []
-pre-check:                                    # harness routines only; the Artemis routine does this in its first step
+pre-check:                                    # harness routines only; the routines-server routine does this in its first step
   kind: script
   path: scripts/upstream-watch-probe.sh       # exits 0 with unchanged output when no source has a new stable id
 silent-marker: "[SILENT]"
@@ -23,7 +23,7 @@ delivery:
 instructions: see below
 ```
 
-Hand-off between the pre-check and the instructions: under the harness, the pre-check script performs steps 1 to 3 below (load the ledger, probe, diff) and, on a quiet week, rewrites `checked_at`, comments "quiet week" and ends the firing before any model run; the model receives the pre-check's candidate list and starts at step 4. Under the Artemis routine there is no pre-check, so the model performs every step itself.
+Hand-off between the pre-check and the instructions: under the harness, the pre-check script performs steps 1 to 3 below (load the ledger, probe, diff) and, on a quiet week, rewrites `checked_at`, comments "quiet week" and ends the firing before any model run; the model receives the pre-check's candidate list and starts at step 4. Under the routines-server routine there is no pre-check, so the model performs every step itself.
 
 ## Instructions (the prompt each firing sends)
 
@@ -42,6 +42,6 @@ You are the weekly upstream watch for the agent-harness. Work in `/work/SYSTEM-S
 
 Open the week's digest with `/triage`-style help: for each new gap decide **roadmap** (create an issue from the per-feature shape, labelled `needs-triage`, and mention it on the digest) or **skip**; a gap already on the roadmap gets a comment on that issue instead. Close the digest when every item has an answer.
 
-## The Artemis routine (until milestone 1)
+## The routine on the routines server (until milestone 1)
 
-Created 2026-09-23 as routine `oa9YJpNDk68` through `POST /api/v0/routines` (body wrapped in `draft`) on the Artemis server (`http://100.109.204.54:6472`, connection `SYSTEM-SERVER`, workspace `/work/SYSTEM-SERVER`): weekly, Monday 03:00 machine-local; account `davidabusiewiez@gmail.com` (Claude); model `opus[1m]`, effort `high`; mode `acceptEdits`; instructions as above. The Artemis server delivers nothing, so the digest issue is the delivery; the run's transcript is on the server. Run it by hand with `POST /api/v0/routines/<id>/run-now`.
+Created 2026-09-23 as routine `oa9YJpNDk68` through `POST /api/v0/routines` (body wrapped in `draft`) on the routines server (`http://100.109.204.54:6472`, connection `SYSTEM-SERVER`, workspace `/work/SYSTEM-SERVER`): weekly, Monday 03:00 machine-local; account `davidabusiewiez@gmail.com` (Claude); model `opus[1m]`, effort `high`; mode `acceptEdits`; instructions as above. The routines server delivers nothing, so the digest issue is the delivery; the run's transcript is on the server. Run it by hand with `POST /api/v0/routines/<id>/run-now`.
