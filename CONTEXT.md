@@ -233,12 +233,24 @@ A git-backed, self-describing collection of memories (a `BANK.md` manifest namin
 _Avoid_: memory store, knowledge base, vault (the key manager)
 
 **Orientation facts**:
-The few memories a bank marks as always loaded, regardless of relevance, under a cap the bank respects when authoring: where the key vault is, which forge is primary, which banks exist.
+The few memories a bank marks as always loaded, regardless of relevance, under a cap the bank respects when authoring, holding only what the bank itself knows (its accounts or brands, its secrets layout, where its work is tracked); the key vault, the forges and the attached banks come from the orientation block.
 _Avoid_: pinned (a user's session-time choice), summary, README
 
 **Bank registry**:
 The environment's record of which banks it carries, each with a role, an enabled flag, an account scope, a repository scope and the account's default write target.
 _Avoid_: memory-banks.json, cerebro config, catalogue
+
+**Team bank**:
+A bank of kind team: a private repository on any forge the team can reach, shared by everyone who joins it, holding the team's facts and no personal ones or secrets.
+_Avoid_: shared bank (fine in prose), org bank, company memory
+
+**Bank owner**:
+A forge login a bank's manifest lists as able to approve its reviewed changes (orientation, decisions, a status, the manifest); a sole owner merges those changes themselves.
+_Avoid_: admin, maintainer, code owner (the forge's own mechanism)
+
+**Scope folder**:
+A bank folder at one of the three levels every bank has, `projects/{org}/{project}/{area}/`: an org (a person's own work, a company, a team or a department), a project inside it, and an optional area inside the project; memories live at a project or an area. Project here names a bank folder, never the repository a session works in.
+_Avoid_: system (the old name for an area), brand (a project that happens to be a brand), category
 
 **Key manager**:
 A secrets service an environment is connected to (OpenBao or Vault, Doppler, 1Password, Bitwarden Secrets Manager) whose credential the environment keeps in its own vault and whose environment block it injects into runs.
@@ -285,7 +297,7 @@ An index line that points at a folder or topic rather than a memory: its pointer
 _Avoid_: crumb (fine in prose, not in the contract), heading, category
 
 **Topic**:
-An authored sub-folder inside a scope folder's memories, declared in the parent's PROJECT.md or SYSTEM.md, used once the folder's index would exceed forty lines.
+An authored sub-folder inside a scope folder's memories, declared in the parent's PROJECT.md or AREA.md, used once the folder's index would exceed forty lines.
 _Avoid_: subfolder, tag, cluster (the harness's proposal, not the result)
 
 **Pointer**:

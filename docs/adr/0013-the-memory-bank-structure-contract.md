@@ -20,3 +20,4 @@ Decided 2026-09-23 on the map ticket "Decision: the memory bank structure contra
 - An index line is `name — description`; the bank, folder path and file template sit once in the section header.
 - Orientation facts are written fresh as short pointers to the long memories; the orientation list in `BANK.md` changes through a reviewed pull request by default, and a per-bank setting lets a user auto-merge memories and decisions if they choose.
 - Bringing cortex and brandsolidate onto the contract (nesting the five over-cap folders, fixing two unparsable `PROJECT.md` files, adding `line:` keys, topics, kind, purpose, entities and orientation, migrating 187 directory-name scopes to repository identities) is part of the feature's build, not a separate ticket.
+- Amended by ADR 0037: root breadcrumbs are one per project or area holding memories, grouped under a header per org, and the org header is the pointer that may replace its group.
