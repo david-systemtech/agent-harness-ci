@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DISCOVERY_PATH, PROTOCOL_VERSION, type DiscoveryDocument } from "@agent-harness/contracts";
-import { HARNESS_VERSION, startEnvironment } from "@agent-harness/environment";
+import { HARNESS_VERSION, NO_LAUNCHER, startEnvironment } from "@agent-harness/environment";
 import { afterEach, describe, expect, it } from "vitest";
 import { runCli, type CliContext } from "./cli.js";
 import { discoverEnvironment } from "./discover.js";
@@ -151,7 +151,7 @@ describe("agent-harness status", () => {
       port: 0,
       name: "status-test",
       user: { isPrivileged: () => false },
-      launcher: { prepared: () => undefined, close: () => undefined, present: () => false, onQuery: () => undefined },
+      launcher: { prepared: () => undefined, close: () => undefined, present: () => false, onQuery: () => undefined, request: () => Promise.resolve(NO_LAUNCHER) },
     });
     cleanups.push(() => env.close());
 

@@ -92,7 +92,7 @@ export interface TestEnvironmentOptions {
   readonly subscriptionHooks?: SubscriptionHooks;
   /** Preset: whatever the machine is, reported as no container, so updates are not managed outside. */
   readonly containerDetector?: ContainerDetector;
-  /** Preset: a test launcher that says no launcher is present. */
+  /** Preset: a scripted launcher channel with no launcher present, as under a foreground `serve`. */
   readonly launcher?: TestLauncher;
   /** The adapter host's seams (the broker's automatic answers, the policy resolver, ...); preset: each seam's own. */
   readonly adapterSeams?: EnvironmentOptions["adapterSeams"];
@@ -156,7 +156,7 @@ export interface TestEnvironment {
   readonly dataDir: string;
   /** The run registry the environment's idle rule and drain read: the test starts, parks and ends runs on it. */
   readonly runs: MemoryRunRegistry;
-  /** The launcher's channel: what the environment signalled, and its idle and drain queries. */
+  /** The scripted launcher channel: what the environment signalled and sent, its answers, and the launcher's queries. */
   readonly launcher: TestLauncher;
   /** The bootstrap grant file as it is now. */
   grant(): BootstrapGrant;

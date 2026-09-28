@@ -1,10 +1,11 @@
 import { execFile, fork } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { HARNESS_VERSION, PREPARED_MESSAGE, ROOT_REFUSAL } from "@agent-harness/environment";
+import { BOOTSTRAP_GRANT_FILE, BootstrapGrant, DISCOVERY_PATH } from "@agent-harness/contracts";
+import { HARNESS_VERSION, ROOT_REFUSAL } from "@agent-harness/environment";
 import { afterEach, describe, expect, it } from "vitest";
 
 const spawnCli = promisify(execFile);
@@ -84,8 +85,9 @@ describe("agent-harness serve, as a privileged user", () => {
 
 // Windows has no SIGTERM handling: kill() terminates the child outright, so the exit code proves nothing there.
 describe.skipIf(runningAsRoot || process.platform === "win32")("agent-harness serve, as the ordinary user running this test", () => {
-  it("tells the launcher it is prepared over IPC, prints the discovery address, and exits 0 on SIGTERM", async () => {
-    const child = fork(entry, ["serve", "--data-dir", join(tempDir(), "data"), "--port", "0"], {
+  it("tells the launcher it is prepared with its version over IPC, serves once committed, prints the discovery address, and exits 0 on SIGTERM", async () => {
+    const dataDir = join(tempDir(), "data");
+    const child = fork(entry, ["serve", "--data-dir", dataDir, "--port", "0"], {
       execArgv: ["--conditions=@agent-harness/source", "--import", tsx],
       stdio: ["ignore", "pipe", "pipe", "ipc"],
     });
@@ -100,7 +102,12 @@ describe.skipIf(runningAsRoot || process.platform === "win32")("agent-harness se
       }),
     );
 
-    expect(await prepared).toEqual(PREPARED_MESSAGE);
+    expect(await prepared).toEqual({ type: "prepared", version: HARNESS_VERSION });
+    // Until the launcher commits, the environment answers starting and prints nothing.
+    const { address: bound } = BootstrapGrant.parse(JSON.parse(readFileSync(join(dataDir, BOOTSTRAP_GRANT_FILE), "utf8")));
+    expect(await (await fetch(`http://${bound.host}:${bound.port}${DISCOVERY_PATH}`)).json()).toMatchObject({ readiness: "starting" });
+    expect(stdout).toBe("");
+    child.send({ type: "committed" });
     const address = await printed;
     expect(await (await fetch(address)).json()).toMatchObject({ readiness: "ready" });
     child.kill("SIGTERM");
@@ -110,8 +117,15 @@ describe.skipIf(runningAsRoot || process.platform === "win32")("agent-harness se
   it("answers the launcher's idle query over IPC, and drains and exits 0 on its drain query", async () => {
     const child = fork(entry, ["serve", "--data-dir", join(tempDir(), "data"), "--port", "0"], {
       execArgv: ["--conditions=@agent-harness/source", "--import", tsx],
-      stdio: ["ignore", "ignore", "pipe", "ipc"],
+      stdio: ["ignore", "pipe", "pipe", "ipc"],
     });
+    let stdout = "";
+    const ready = new Promise<void>((resolve) =>
+      child.stdout?.on("data", (chunk: Buffer) => {
+        stdout += chunk.toString("utf8");
+        if (stdout.endsWith("\n")) resolve();
+      }),
+    );
     cleanups.push(() => void child.kill("SIGKILL"));
     const exited = new Promise<number | null>((resolve) => child.on("exit", (code) => resolve(code)));
     const received: unknown[] = [];
@@ -127,7 +141,9 @@ describe.skipIf(runningAsRoot || process.platform === "win32")("agent-harness se
         look();
       });
 
-    expect(await nth(0)).toEqual(PREPARED_MESSAGE);
+    expect(await nth(0)).toEqual({ type: "prepared", version: HARNESS_VERSION });
+    child.send({ type: "committed" });
+    await ready;
     child.send({ type: "idle?" });
     // A launcher is present, so updates are not managed outside, container or not.
     expect(await nth(1)).toEqual({ type: "idle", readiness: "ready", activity: { state: "idle" }, updatesManagedOutside: false });

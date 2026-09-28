@@ -1,0 +1,179 @@
+import { readFileSync } from "node:fs";
+import { describe, expect, it } from "vitest";
+import {
+  INSTALL_REFUSALS,
+  LAUNCHER_PROTOCOL,
+  OUTCOME_RECORD_FILE,
+  STAGING_DIRECTORY,
+  SWITCH_REFUSALS,
+  answersRequest,
+  isOutcomeRecord,
+  parseEnvironmentMessage,
+  parseLauncherMessage,
+  type EnvironmentMessage,
+  type LauncherMessage,
+  type OutcomeRecord,
+} from "./launcher.js";
+
+/** A message as it arrives on the other side of the IPC channel, which carries JSON. */
+const overIpc = (message: unknown): unknown => JSON.parse(JSON.stringify(message)) as unknown;
+
+const status = { readiness: "ready", activity: { state: "busy", reason: "run-running" }, updatesManagedOutside: false } as const;
+
+/** Every message the environment sends the launcher, one of each kind. */
+const fromEnvironment: readonly EnvironmentMessage[] = [
+  { type: "prepared", version: "0.4.0" },
+  { type: "install?", id: 1, version: "0.5.0-beta.1", staged: "/home/david/.local/state/agent-harness/staging/0.5.0-beta.1" },
+  { type: "switch?", id: 2, updateId: "7d0f2b1e-2c55-4a8e-9f0b-3a1c5d7e9b20", version: "0.5.0" },
+  { type: "versions?", id: 3 },
+  { type: "idle", ...status },
+  { type: "idle", readiness: "draining", activity: { state: "draining", drainingSince: "2026-09-28T10:00:00.000Z" }, updatesManagedOutside: false },
+  { type: "draining", drainingSince: "2026-09-28T10:00:00.000Z", trigger: "launcher" },
+];
+
+/** Every message the launcher sends the environment, one of each kind, each refusal reason included. */
+const fromLauncher: readonly LauncherMessage[] = [
+  { type: "committed" },
+  { type: "installed", id: 1 },
+  ...INSTALL_REFUSALS.map((reason) => ({ type: "refused", id: 1, reason }) as const),
+  { type: "switching", id: 2 },
+  ...SWITCH_REFUSALS.map((reason) => ({ type: "refused", id: 2, reason }) as const),
+  { type: "versions", id: 3, installed: ["0.3.0", "0.4.0"], launcherVersion: "0.3.0", launcherProtocol: 1 },
+  { type: "idle?" },
+  { type: "drain?" },
+];
+
+describe("the launcher channel's messages", () => {
+  it("are read on the launcher's side as the environment sent them", () => {
+    for (const message of fromEnvironment) expect(parseEnvironmentMessage(overIpc(message)), message.type).toEqual(message);
+  });
+
+  it("are read on the environment's side as the launcher sent them", () => {
+    for (const message of fromLauncher) expect(parseLauncherMessage(overIpc(message)), message.type).toEqual(message);
+  });
+
+  it("drop fields neither side defines, so a newer sender's additions are read as the message both know", () => {
+    expect(parseLauncherMessage({ type: "committed", at: "2026-09-28T10:00:00.000Z" })).toEqual({ type: "committed" });
+    expect(parseEnvironmentMessage({ type: "prepared", version: "0.4.0", pid: 4242 })).toEqual({ type: "prepared", version: "0.4.0" });
+  });
+
+  it("read a message either side does not know as nothing to answer, never as an error", () => {
+    const unknownToEither: unknown[] = [
+      null,
+      undefined,
+      "committed",
+      42,
+      [],
+      [{ type: "committed" }],
+      {},
+      { kind: "committed" },
+      { type: "commit" },
+      { type: "status?" },
+    ];
+    for (const message of unknownToEither) {
+      expect(parseLauncherMessage(message), JSON.stringify(message)).toBeUndefined();
+      expect(parseEnvironmentMessage(message), JSON.stringify(message)).toBeUndefined();
+    }
+    const malformedFromLauncher: unknown[] = [
+      { type: "installed" },
+      { type: "installed", id: 0 },
+      { type: "installed", id: 1.5 },
+      { type: "installed", id: "1" },
+      { type: "refused", id: 1 },
+      { type: "refused", id: 1, reason: "no-launcher" },
+      { type: "refused", id: 1, reason: "tired" },
+      { type: "versions", id: 3, installed: "0.4.0", launcherVersion: "0.3.0", launcherProtocol: 1 },
+      { type: "versions", id: 3, installed: ["0.4.0", ""], launcherVersion: "0.3.0", launcherProtocol: 1 },
+      { type: "versions", id: 3, installed: [], launcherVersion: "", launcherProtocol: 1 },
+      { type: "versions", id: 3, installed: [], launcherVersion: "0.3.0", launcherProtocol: 0 },
+      { type: "versions", id: 3, installed: [], launcherVersion: "0.3.0" },
+    ];
+    for (const message of malformedFromLauncher) expect(parseLauncherMessage(message), JSON.stringify(message)).toBeUndefined();
+    const malformedFromEnvironment: unknown[] = [
+      { type: "prepared" },
+      { type: "prepared", version: "" },
+      { type: "install?", id: 1, version: "0.5.0" },
+      { type: "install?", version: "0.5.0", staged: "/staging/0.5.0" },
+      { type: "switch?", id: 2, version: "0.5.0" },
+      { type: "versions?" },
+      { type: "idle", readiness: "ready", updatesManagedOutside: false },
+      { type: "idle", ...status, activity: { state: "asleep" } },
+      { type: "draining", trigger: "launcher" },
+    ];
+    for (const message of malformedFromEnvironment) expect(parseEnvironmentMessage(message), JSON.stringify(message)).toBeUndefined();
+  });
+
+  it("are each read by one side only: what the launcher sends means nothing to the launcher, and the reverse", () => {
+    for (const message of fromLauncher) expect(parseEnvironmentMessage(overIpc(message)), message.type).toBeUndefined();
+    for (const message of fromEnvironment) expect(parseLauncherMessage(overIpc(message)), message.type).toBeUndefined();
+  });
+
+  it("pair each request with the answers it takes: install? installed or an install refusal, switch? switching or a switch refusal, versions? versions", () => {
+    const answers = (message: LauncherMessage) => ({
+      "install?": answersRequest("install?", message),
+      "switch?": answersRequest("switch?", message),
+      "versions?": answersRequest("versions?", message),
+    });
+    expect(answers({ type: "installed", id: 1 })).toEqual({ "install?": true, "switch?": false, "versions?": false });
+    expect(answers({ type: "refused", id: 1, reason: "preflight" })).toEqual({ "install?": true, "switch?": false, "versions?": false });
+    expect(answers({ type: "refused", id: 1, reason: "launcher-protocol" })).toEqual({ "install?": true, "switch?": false, "versions?": false });
+    expect(answers({ type: "switching", id: 1 })).toEqual({ "install?": false, "switch?": true, "versions?": false });
+    expect(answers({ type: "refused", id: 1, reason: "not-installed" })).toEqual({ "install?": false, "switch?": true, "versions?": false });
+    expect(answers({ type: "refused", id: 1, reason: "disk" })).toEqual({ "install?": true, "switch?": true, "versions?": false });
+    expect(answers({ type: "versions", id: 1, installed: [], launcherVersion: "0.3.0", launcherProtocol: 1 })).toEqual({
+      "install?": false,
+      "switch?": false,
+      "versions?": true,
+    });
+    expect(answers({ type: "committed" })).toEqual({ "install?": false, "switch?": false, "versions?": false });
+  });
+
+  it("refuse an install for the five reasons the spec names", () => {
+    expect([...INSTALL_REFUSALS]).toEqual(["launcher-protocol", "incomplete", "preflight", "disk", "io"]);
+  });
+
+  it("are launcher protocol 1", () => {
+    expect(LAUNCHER_PROTOCOL).toBe(1);
+  });
+
+  it("load nothing at run time, so the launcher reads them on Node's built-ins alone: every import is a type", () => {
+    const source = readFileSync(new URL("./launcher.ts", import.meta.url), "utf8");
+    const imports = source.match(/^(?:import|export)\b[^;]*?\bfrom\s*["'][^"']+["']/gm) ?? [];
+    expect(imports.length).toBeGreaterThan(0);
+    for (const statement of imports) expect(statement).toMatch(/^(import|export) type\b/);
+    expect(source).not.toMatch(/^import\s*["']/m);
+    expect(source).not.toMatch(/\bimport\(/);
+  });
+});
+
+describe("the files the environment and the launcher share in the data directory", () => {
+  const record: OutcomeRecord = {
+    updateId: "7d0f2b1e-2c55-4a8e-9f0b-3a1c5d7e9b20",
+    fromVersion: "0.4.0",
+    toVersion: "0.5.0",
+    stage: "trial",
+    reason: "deadline",
+  };
+
+  it("are the staging area and the outcome record, each named once", () => {
+    expect(STAGING_DIRECTORY).toBe("staging");
+    expect(OUTCOME_RECORD_FILE).toBe("update-outcome.json");
+  });
+
+  it("take an outcome record with the update id, the from and to versions, the stage and the reason", () => {
+    expect(isOutcomeRecord(overIpc(record))).toBe(true);
+    expect(isOutcomeRecord({ ...record, stage: "crash-loop", reason: "exits" })).toBe(true);
+  });
+
+  it("refuse an outcome record missing any of its parts, or with a stage no rollback has", () => {
+    for (const key of Object.keys(record)) {
+      const partial: Record<string, unknown> = { ...record };
+      delete partial[key];
+      expect(isOutcomeRecord(partial), key).toBe(false);
+      expect(isOutcomeRecord({ ...record, [key]: "" }), key).toBe(false);
+    }
+    for (const invalid of [null, [], "trial", { ...record, stage: "switch" }, { ...record, reason: 3 }]) {
+      expect(isOutcomeRecord(invalid), JSON.stringify(invalid)).toBe(false);
+    }
+  });
+});
