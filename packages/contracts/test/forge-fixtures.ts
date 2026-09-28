@@ -55,6 +55,7 @@ const record = {
   capabilities,
   primary: true,
   problem: null,
+  statusSince: at,
   tokenInformation,
   variables,
   createdAt: at,
@@ -188,6 +189,8 @@ export const forgeSchemaFixtures: Record<string, Fixtures> = {
       { ...record, slug: "Git" },
       { ...record, primary: "yes" },
       { ...record, variables: undefined },
+      { ...record, statusSince: undefined },
+      { ...record, statusSince: "since the add" },
       { id: forgeAccountId },
     ],
   },
@@ -222,6 +225,16 @@ export const forgeSchemaFixtures: Record<string, Fixtures> = {
     valid: [{ code: "credential_source_unavailable", message: "No key-manager connection holds this reference.", data: { connectionId } }],
     invalid: [{ code: "credential_source_unavailable", message: "m", data: {} }, { code: "credential_source_unavailable", message: "m", data: { connectionId: "openbao" } }],
   },
+  "errors/alias_identity_mismatch.json": {
+    valid: [
+      { code: "alias_identity_mismatch", message: "m", data: { origin: "http://100.101.102.103:3000", expected: identity, found: { login: "someone", userId: "7" }, status: 200 } },
+      { code: "alias_identity_mismatch", message: "m", data: { origin: "http://100.101.102.103:3000", expected: identity, found: null, status: 401 } },
+    ],
+    invalid: [
+      { code: "alias_identity_mismatch", message: "m", data: { origin: "http://100.101.102.103:3000", expected: identity, found: null } },
+      { code: "alias_identity_mismatch", message: "m", data: { origin: "100.101.102.103:3000", expected: identity, found: null, status: 401 } },
+    ],
+  },
   "errors/identity_mismatch.json": {
     valid: [{ code: "identity_mismatch", message: "m", data: { forgeAccountId, expected: identity, found: { login: "someone", userId: "7" } } }],
     invalid: [{ code: "identity_mismatch", message: "m", data: { forgeAccountId, expected: identity } }, { code: "identity_mismatch", message: "m", data: {} }],
@@ -246,6 +259,7 @@ export const forgeMethodFixtures: Record<string, { params: Fixtures; result: Fix
         { commandId, forgeAccountId, url: "https://github.com", credential: handed },
         { commandId, forgeAccountId, url: origin, kind: "forgejo", credential: reference, copiedFrom: { environmentId, environmentName: "SYSTEM-SERVER" } },
         { commandId, forgeAccountId, url: origin, kind: "forgejo", primary: true, credential: { kind: "none" }, copiedFrom: { environmentId, environmentName: "SYSTEM-SERVER" } },
+        { commandId, forgeAccountId, url: origin, kind: "forgejo", aliases: ["http://100.101.102.103:3000"], credential: pasted },
       ],
       invalid: [
         { commandId, forgeAccountId, url: "https://github.com", credential: { ...pasted, provenance: "imported" } },
@@ -255,6 +269,7 @@ export const forgeMethodFixtures: Record<string, { params: Fixtures; result: Fix
         { commandId, forgeAccountId, url: "https://gitlab.com", kind: "gitlab", credential: pasted },
         { commandId, forgeAccountId, url: "https://github.com", slug: "Work", credential: pasted },
         { commandId, forgeAccountId: "github", url: "https://github.com", credential: pasted },
+        { commandId, forgeAccountId, url: origin, kind: "forgejo", aliases: "http://100.101.102.103:3000", credential: pasted },
         { forgeAccountId, url: "https://github.com", credential: pasted },
       ],
     },
@@ -269,8 +284,16 @@ export const forgeMethodFixtures: Record<string, { params: Fixtures; result: Fix
         { commandId, forgeAccountId, credential: handed },
         { commandId, forgeAccountId, credential: gh },
         { commandId, forgeAccountId, credential: reference },
+        { commandId, forgeAccountId, aliases: [] },
+        { commandId, forgeAccountId, aliases: ["http://100.101.102.103:3000"], credential: pasted },
       ],
-      invalid: [{ commandId }, { commandId, forgeAccountId, slug: "" }, { commandId, forgeAccountId, credential: stored }, { commandId, forgeAccountId, credential: { kind: "none" } }],
+      invalid: [
+        { commandId },
+        { commandId, forgeAccountId, slug: "" },
+        { commandId, forgeAccountId, credential: stored },
+        { commandId, forgeAccountId, credential: { kind: "none" } },
+        { commandId, forgeAccountId, aliases: [""] },
+      ],
     },
     result: { valid: [{ account: record }], invalid: [{}, { account: null }] },
   },
@@ -281,6 +304,10 @@ export const forgeMethodFixtures: Record<string, { params: Fixtures; result: Fix
   "forge.accounts.setPrimary": {
     params: { valid: [{ commandId, forgeAccountId }], invalid: [{ commandId }, { commandId, forgeAccountId: null }] },
     result: { valid: [{ account: record }], invalid: [{}, { account: { ...record, primary: 1 } }] },
+  },
+  "forge.accounts.verify": {
+    params: { valid: [{}, { forgeAccountId }], invalid: [[], { forgeAccountId: "github" }] },
+    result: { valid: [{ accounts: [] }, { accounts: [record, unreachableCopy] }], invalid: [{}, { accounts: [{ ...record, credential: pasted }] }] },
   },
   "forge.gh.probe": {
     params: { valid: [{}], invalid: [[], "gh"] },

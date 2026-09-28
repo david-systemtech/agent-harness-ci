@@ -8,8 +8,9 @@ import { commandParams, defineMethod } from "../method.js";
 
 /**
  * The forge account methods (forge spec, "Wire methods"; ADR 0012, ADR
- * 0020): the list at `read`, and add, update, remove and setPrimary at
- * `admin`, each a command whose events go on the environment stream. A
+ * 0020): the list at `read`, add, update, remove and setPrimary at
+ * `admin`, each a command whose events go on the environment stream, and
+ * verify, an `admin` query that records what it finds there. A
  * forge account the environment does not hold is rejected `not_found`
  * (data `kind: forge_account`). A pasted token crosses the wire once, in add
  * or update, and is never answered back: not in a result, a receipt, an
@@ -19,6 +20,10 @@ import { commandParams, defineMethod } from "../method.js";
  * endpoint before their transaction, as `runs.withdraw` hears from the
  * provider. The token is written to the environment's vault before the
  * transaction and removed again when the command is rejected.
+ *
+ * Aliases are verified on their own origin as the canonical origin is, and
+ * accepted only for the same login and user id (`alias_identity_mismatch`);
+ * an alias another forge account holds is `conflict` (reason `origin_held`).
  *
  * A credential is read for the identity call as it is for every operation
  * (forge spec, "Credentials"): the environment's `gh` runs `gh auth token`
@@ -48,6 +53,21 @@ export const IdentityMismatchError = errorSchema(
 ).meta({ description: "The new credential answered with another user id than the forge account's: nothing was changed. data names both identities." });
 export type IdentityMismatchError = z.infer<typeof IdentityMismatchError>;
 
+/** An alias's origin answered as someone else than the forge account's identity, or refused the credential. */
+export const AliasIdentityMismatchError = errorSchema(
+  "alias_identity_mismatch",
+  z.object({
+    origin: ForgeOrigin.meta({ description: "The alias's origin." }),
+    expected: ForgeIdentity.meta({ description: "The identity the credential answers as on the forge account's canonical origin." }),
+    found: ForgeIdentity.nullable().meta({ description: "The identity the credential answered as on the alias; null when the alias refused it." }),
+    status: z.int().meta({ description: "The HTTP status the alias's identity endpoint answered." }),
+  }),
+).meta({
+  description:
+    "An alias was not accepted: on its own origin the credential answered as another login or user id than on the forge account's canonical origin, or was refused there, so it is not the same instance. Nothing was changed; data names the alias, both identities and the status.",
+});
+export type AliasIdentityMismatchError = z.infer<typeof AliasIdentityMismatchError>;
+
 /** A key-manager reference could not be read: no key-manager connection holds it, or it answered no value. */
 export const CredentialSourceUnavailableError = errorSchema(
   "credential_source_unavailable",
@@ -64,6 +84,17 @@ const AddableKind = ForgeKind.exclude(["gitlab"]).meta({
 });
 
 const forgeAccountResult = z.object({ account: ForgeAccountRecord });
+
+/** The most aliases a forge account takes. */
+export const MAX_FORGE_ALIASES = 16;
+
+/** Alias origins, each given as `url` is: only its origin is kept. */
+const Aliases = z
+  .array(z.string().min(1).max(2048))
+  .max(MAX_FORGE_ALIASES)
+  .meta({
+    description: `Other origins the same forge instance answers on (a tailnet or LAN address), each in any form url takes, of which only the origin is kept; at most ${MAX_FORGE_ALIASES}. Each is verified on its own origin with the credential and accepted only when it answers as the same login and user id; one that cannot be reached yet waits unverified, and is not served until a verification accepts it.`,
+  });
 
 /** Every forge account the environment holds, in the order they were added, each with the exact variable names it injects; never a secret. */
 export const forgeAccountsList = defineMethod({
@@ -107,12 +138,13 @@ export const forgeAccountsAdd = defineMethod({
     url: z.string().min(1).max(2048).meta({ description: "The forge's URL in any form git takes, or a repository's on it: only its origin is kept." }),
     kind: AddableKind.optional(),
     slug: ForgeSlug.optional().meta({ description: "The slug its variables are named by; derived from the host when absent." }),
+    aliases: Aliases.optional(),
     primary: z.boolean().optional().meta({ description: "Make it the primary forge, clearing the one that is. The first forge account is primary whatever this says." }),
     credential: ForgeAddCredential,
     copiedFrom: ForgeCopiedFrom.optional().meta({ description: "The environment a copy was made from, which the record keeps; absent for a forge account added here." }),
   }),
   result: forgeAccountResult,
-  errors: [VerificationFailedError, CredentialSourceUnavailableError],
+  errors: [VerificationFailedError, AliasIdentityMismatchError, CredentialSourceUnavailableError],
 });
 
 /**
@@ -135,10 +167,11 @@ export const forgeAccountsUpdate = defineMethod({
   params: commandParams({
     forgeAccountId: ForgeAccountId,
     slug: ForgeSlug.optional().meta({ description: "The new slug." }),
+    aliases: Aliases.optional().meta({ description: "The aliases the forge account keeps from now on, replacing its list: one it already has keeps its verification; a new one, or one not yet verified, is verified with the credential." }),
     credential: ForgeCredentialInput.optional().meta({ description: "The new credential, which must answer as the forge account's identity." }),
   }),
   result: forgeAccountResult,
-  errors: [VerificationFailedError, IdentityMismatchError, CredentialSourceUnavailableError],
+  errors: [VerificationFailedError, IdentityMismatchError, AliasIdentityMismatchError, CredentialSourceUnavailableError],
 });
 
 /** Removes a forge account (`forge.account.removed`); its stored token's vault entry is deleted once the removal has committed. A primary one leaves none primary until a person chooses. */
@@ -158,6 +191,26 @@ export const forgeAccountsSetPrimary = defineMethod({
   kind: "command",
   params: commandParams({ forgeAccountId: ForgeAccountId }),
   result: forgeAccountResult,
+  errors: [],
+});
+
+/**
+ * Verifies one forge account now, or every one (forge spec, "Verification";
+ * ADR 0020): its credential read, the identity endpoint called, the token's
+ * kind, scopes and expiry read, and the two read capabilities probed, then
+ * what changed recorded as `forge.account.verified`, as `accounts.refresh`
+ * records its reads; a forge account being verified already is joined, not
+ * verified twice. Answers every forge account's record after it. A copy
+ * with no credential, and one whose credential answers as another user
+ * until that credential is replaced, is not verified. At `admin`, since it
+ * calls the forges with the environment's credentials.
+ */
+export const forgeAccountsVerify = defineMethod({
+  name: "forge.accounts.verify",
+  scope: "admin",
+  kind: "query",
+  params: z.object({ forgeAccountId: ForgeAccountId.optional().meta({ description: "The forge account to verify; every one when absent." }) }),
+  result: z.object({ accounts: z.array(ForgeAccountRecord) }),
   errors: [],
 });
 

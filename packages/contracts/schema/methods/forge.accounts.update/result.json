@@ -693,6 +693,12 @@
           ],
           "description": "What is wrong, or null."
         },
+        "statusSince": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+          "description": "When the forge account's status last changed: the problem's since-time while it has one, else when it was last found without one (added, or cleared of a problem). A verification that finds nothing new never moves it, so the orientation block can say how long a status has held."
+        },
         "tokenInformation": {
           "anyOf": [
             {
@@ -833,12 +839,13 @@
         "capabilities",
         "primary",
         "problem",
+        "statusSince",
         "tokenInformation",
         "variables",
         "createdAt",
         "copiedFrom"
       ],
-      "description": "A forge account the environment holds: its origin and aliases, kind, slug, identity, credential source, capabilities, primary flag, problem, token information, the variables it injects, when it was added and where it was copied from. Never a secret."
+      "description": "A forge account the environment holds: its origin and aliases, kind, slug, identity, credential source, capabilities, primary flag, problem and since when its status holds, token information, the variables it injects, when it was added and where it was copied from. Never a secret."
     }
   },
   "required": [

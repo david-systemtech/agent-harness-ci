@@ -1667,6 +1667,10 @@
       "title": "IdentityMismatchError"
     },
     {
+      "path": "errors/alias_identity_mismatch.json",
+      "title": "AliasIdentityMismatchError"
+    },
+    {
       "path": "errors/credential_source_unavailable.json",
       "title": "CredentialSourceUnavailableError"
     },
@@ -2797,6 +2801,18 @@
     {
       "path": "methods/forge.accounts.setPrimary/error.json",
       "title": "forge.accounts.setPrimary error"
+    },
+    {
+      "path": "methods/forge.accounts.verify/params.json",
+      "title": "forge.accounts.verify params"
+    },
+    {
+      "path": "methods/forge.accounts.verify/result.json",
+      "title": "forge.accounts.verify result"
+    },
+    {
+      "path": "methods/forge.accounts.verify/error.json",
+      "title": "forge.accounts.verify error"
     },
     {
       "path": "methods/forge.gh.probe/params.json",
@@ -3963,6 +3979,15 @@
       "result": "methods/forge.accounts.setPrimary/result.json",
       "response": "methods/forge.accounts.setPrimary/response.json",
       "error": "methods/forge.accounts.setPrimary/error.json"
+    },
+    {
+      "name": "forge.accounts.verify",
+      "scope": "admin",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/forge.accounts.verify/params.json",
+      "result": "methods/forge.accounts.verify/result.json",
+      "error": "methods/forge.accounts.verify/error.json"
     },
     {
       "name": "forge.gh.probe",

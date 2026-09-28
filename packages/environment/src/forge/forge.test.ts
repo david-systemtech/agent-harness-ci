@@ -105,6 +105,7 @@ describe("forge.accounts.add", () => {
       capabilities: UNKNOWN_FORGE_CAPABILITIES,
       primary: true,
       problem: null,
+      statusSince: MANUAL_CLOCK_START,
       tokenInformation: null,
       variables: { url: ["FORGE_127_0_0_1_URL", "FORGE_URL"], token: ["FORGE_127_0_0_1_TOKEN", "FORGE_TOKEN"], kind: ["FORGE_127_0_0_1_KIND", "FORGE_KIND"] },
       createdAt: MANUAL_CLOCK_START,

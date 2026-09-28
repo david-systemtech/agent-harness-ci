@@ -100,6 +100,40 @@ describe("the forge account store's projector", () => {
     });
   });
 
+  it("keeps when the status last changed: the problem's since-time, else when it was last cleared, unmoved by findings that keep the problem's kind", () => {
+    const { log, clock, read } = storeWithOne();
+    const since = "2026-09-24T00:00:00.000Z";
+    expect(read()[0]?.statusSince).toBe(since);
+    const verified = (problem: ForgeAccountVerifiedPayload["problem"], login = "david"): ForgeAccountVerifiedPayload => ({
+      forgeAccountId,
+      identity: { login, userId: "42" },
+      capabilities: UNKNOWN_FORGE_CAPABILITIES,
+      tokenInformation: null,
+      problem,
+    });
+
+    // Still unreachable, found again later: the status has held since the add.
+    clock.advance(60_000);
+    log.append(environment, [{ type: "forge.account.verified", payload: verified({ kind: "unreachable", since, message: "Still no answer." }) }], { actor });
+    expect(read()[0]?.statusSince).toBe(since);
+    // Cleared: verified since now, and a later change of login keeps it.
+    clock.advance(60_000);
+    log.append(environment, [{ type: "forge.account.verified", payload: verified(null) }], { actor });
+    expect(read()[0]?.statusSince).toBe("2026-09-24T00:02:00.000Z");
+    clock.advance(60_000);
+    log.append(environment, [{ type: "forge.account.verified", payload: verified(null, "david-renamed") }], { actor });
+    expect(read()[0]?.statusSince).toBe("2026-09-24T00:02:00.000Z");
+    // A new problem: its own since-time, which a replaced credential's answer clears again.
+    const expiring = { kind: "expiring", since: "2026-09-24T00:03:30.000Z", message: "The token expires soon." } as const;
+    log.append(environment, [{ type: "forge.account.verified", payload: verified(expiring) }], { actor });
+    expect(read()[0]?.statusSince).toBe(expiring.since);
+    clock.advance(120_000);
+    log.append(environment, [{ type: "forge.account.updated", payload: { forgeAccountId, slug: "work" } }], { actor });
+    expect(read()[0]?.statusSince).toBe(expiring.since);
+    log.append(environment, [{ type: "forge.account.updated", payload: { forgeAccountId, credential: addedPayload.credential, problem: null } }], { actor });
+    expect(read()[0]?.statusSince).toBe("2026-09-24T00:05:00.000Z");
+  });
+
   it("marks a capability an operation showed verified at the event's time, or failed with its status keeping when it was last verified", () => {
     const { log, clock, read } = storeWithOne();
     const learned = (state: "verified" | "failed", status: number | null): ForgeAccountCapabilityLearnedPayload => ({
