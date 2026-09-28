@@ -979,6 +979,18 @@
       "title": "KeyManagerReference"
     },
     {
+      "path": "scrub/shape-rule-id.json",
+      "title": "ShapeRuleId"
+    },
+    {
+      "path": "scrub/secret-rule.json",
+      "title": "SecretRule"
+    },
+    {
+      "path": "errors/secret_shaped.json",
+      "title": "SecretShapedError"
+    },
+    {
       "path": "theme/theme.json",
       "title": "Theme"
     },

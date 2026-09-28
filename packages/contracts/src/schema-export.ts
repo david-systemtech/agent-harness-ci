@@ -287,6 +287,7 @@ import {
 import { ContainmentUnavailableError } from "./methods/permissions.js";
 import { AliasIdentityMismatchError, CredentialSourceUnavailableError, ForgeAccountMissingError, IdentityMismatchError, VerificationFailedError } from "./methods/forge.js";
 import { BitwardenReference, DopplerReference, KeyManagerConnectionId, KeyManagerProvider, KeyManagerReference, OnePasswordReference, OpenBaoReference } from "./key-managers.js";
+import { SecretRule, SecretShapedError, ShapeRuleId } from "./shape-rules.js";
 import {
   ClampReason,
   ContainmentAvailability,
@@ -540,6 +541,9 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "key-managers/onepassword-reference.json", title: "OnePasswordReference", schema: OnePasswordReference },
   { path: "key-managers/bitwarden-reference.json", title: "BitwardenReference", schema: BitwardenReference },
   { path: "key-managers/reference.json", title: "KeyManagerReference", schema: KeyManagerReference },
+  { path: "scrub/shape-rule-id.json", title: "ShapeRuleId", schema: ShapeRuleId },
+  { path: "scrub/secret-rule.json", title: "SecretRule", schema: SecretRule },
+  { path: "errors/secret_shaped.json", title: "SecretShapedError", schema: SecretShapedError },
   { path: "theme/theme.json", title: "Theme", schema: Theme },
   { path: "theme/name.json", title: "ThemeName", schema: ThemeName },
   { path: "theme/seed.json", title: "ThemeSeed", schema: ThemeSeed },
