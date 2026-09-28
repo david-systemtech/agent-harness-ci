@@ -5,13 +5,13 @@ import { join } from "node:path";
 import { registry, type EventEnvelope, type EventFrame, type ParamsOf } from "@agent-harness/contracts";
 import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
-import { SIGNING_KEY } from "../serve/identity.js";
-import { fileVault, VAULT_FILE } from "../serve/vault.js";
-import { createScrubRegistry } from "./registry.js";
 import { end, fakeAdapter, say, type Script } from "../../test/fake-adapter.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { create } from "../../test/sessions.js";
 import type { WireClient } from "../../test/wire-client.js";
+import { SIGNING_KEY } from "../serve/identity.js";
+import { fileVault, VAULT_FILE } from "../serve/vault.js";
+import { createScrubRegistry } from "./registry.js";
 
 /**
  * The scrub registry through the primary seam (key-managers spec, "Testing

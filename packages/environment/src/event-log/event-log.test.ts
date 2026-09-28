@@ -2,11 +2,11 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { createScrubRegistry } from "../scrub/registry.js";
 import type { EventInput, JsonObject, StreamRef } from "./envelope.js";
 import { openEventLog, REPLAY_BOUND, type EventLog, type Projector } from "./event-log.js";
 import { MIGRATIONS } from "./migrations.js";
 import { loadSqlite } from "./sqlite.js";
-import { createScrubRegistry } from "../scrub/registry.js";
 
 const DAY = 24 * 60 * 60 * 1000;
 
