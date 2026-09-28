@@ -53,6 +53,19 @@ const commit = (checkout: string, files: Record<string, string>, message = "more
   return git(checkout, "rev-parse", "HEAD").trim();
 };
 
+/**
+ * Gives the environment's git a global config of the test's own, as the
+ * machine's owner would write one: `HOME`, which the scrubbed environment
+ * keeps, is pointed at a directory whose `.gitconfig` holds `entries`.
+ */
+const machineGitConfig = (entries: Record<string, string>): void => {
+  const home = tempDir("agent-harness-home-");
+  for (const [key, value] of Object.entries(entries)) git(home, "config", "--file", join(home, ".gitconfig"), key, value);
+  const before = process.env["HOME"];
+  process.env["HOME"] = home;
+  onCleanup(() => void (before === undefined ? delete process.env["HOME"] : (process.env["HOME"] = before)));
+};
+
 /** The branch a new worktree gets for the session `id` when none is named. */
 const presetBranch = (id: string): string => `agent-harness/${id.slice(0, 8)}`;
 
@@ -380,14 +393,22 @@ describe("the environment's git making a worktree", () => {
     expect(existsSync(marker)).toBe(false);
   });
 
+  it("runs a filter the machine's own config names, in a scrubbed environment holding none of the environment's own variables", async () => {
+    const marker = join(tempDir(), "ran");
+    const checkout = repository({ ".gitattributes": "*.txt filter=spy\n", "a.txt": "a\n" });
+    machineGitConfig({ "filter.spy.smudge": `sh -c 'echo "[$AGENT_HARNESS_TEST_SECRET]" >> ${marker}; cat'` });
+    process.env["AGENT_HARNESS_TEST_SECRET"] = "the environment's own";
+    onCleanup(() => void delete process.env["AGENT_HARNESS_TEST_SECRET"]);
+    const t = await start();
+    const made = await worktreeOf(t, { repository: checkout });
+    expect(readFileSync(join(made.path, "a.txt"), "utf8")).toBe("a\n");
+    expect(readFileSync(marker, "utf8").trim().split("\n")).toEqual(["[]"]);
+  });
+
   it("stops a git that takes longer than its limit, git_failed, and leaves nothing behind", async () => {
     const checkout = repository({ ".gitattributes": "*.txt filter=slow\n", "a.txt": "a\n" });
     // A filter the machine's config names runs (#212's rule): this one outlasts the limit.
-    const home = tempDir("agent-harness-home-");
-    git(home, "config", "--file", join(home, ".gitconfig"), "filter.slow.smudge", "sleep 3; cat");
-    const before = process.env["HOME"];
-    process.env["HOME"] = home;
-    onCleanup(() => void (before === undefined ? delete process.env["HOME"] : (process.env["HOME"] = before)));
+    machineGitConfig({ "filter.slow.smudge": "sleep 3; cat" });
     const t = await start({ workspaces: { gitTimeoutMs: 1_000 } });
     const refused = await refusedWorktree(t, { repository: checkout });
     expect(refused.data).toEqual({ reason: "git_failed" });
