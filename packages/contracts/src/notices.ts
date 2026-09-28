@@ -15,7 +15,7 @@ import { DrainStarted } from "./lifecycle.js";
 import { DecidedBy, PromptDecisionValue, PromptKind, PROMPT_SUMMARY_MAX } from "./prompts.js";
 import { RunId } from "./adapter.js";
 import { SessionId } from "./sessions.js";
-import { UpdateCancelledPayload, UpdateFailedPayload, UpdateId, UpdatePendingPayload, UpdateStartedPayload } from "./updates.js";
+import { EnvironmentUpdatedPayload, UpdateCancelledPayload, UpdateFailedPayload, UpdatePendingPayload, UpdateStartedPayload } from "./updates.js";
 import { UsageUpdatedPayload } from "./usage.js";
 
 /**
@@ -85,15 +85,7 @@ const EnvironmentStarted = z
   .meta({ description: "The environment finished starting and accepts work: which version started." });
 
 const EnvironmentUpdated = z
-  .object({
-    type: z.literal("environment.updated"),
-    payload: z.object({
-      fromVersion: z.string().min(1).meta({ description: "The harness version that ran before the update." }),
-      toVersion: z.string().min(1).meta({ description: "The harness version the environment was updated to." }),
-      // Optional: an event appended before update ids existed carries none, and still parses.
-      updateId: UpdateId.optional().meta({ description: "The update that took; absent from an event older than update ids." }),
-    }),
-  })
+  .object({ type: z.literal("environment.updated"), payload: EnvironmentUpdatedPayload })
   .meta({ description: "The environment now runs another harness version: from which, to which, and by which update." });
 
 const EnvironmentDraining = z

@@ -66,7 +66,8 @@
           "required": [
             "fromVersion",
             "toVersion"
-          ]
+          ],
+          "description": "An update took: from which harness version, to which, and by which update."
         }
       },
       "required": [
