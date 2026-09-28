@@ -12,9 +12,9 @@ import {
   type EnvironmentOptions,
 } from "@agent-harness/environment";
 import { parseOptions, parsePort, UsageError } from "./args.js";
+import { harnessCommand } from "./harness-command.js";
 import { launch, LAUNCH_USAGE } from "./launch/verb.js";
 import { processContext, type ProcessContext } from "./process-context.js";
-import { resolveProgram } from "./service/spec.js";
 import { service, type ServiceSeams } from "./service/verbs.js";
 import { status } from "./status.js";
 import { GIT_CREDENTIAL_USAGE, gitCredential, readStandardInput } from "./git-credential.js";
@@ -136,8 +136,11 @@ const serve = async (args: readonly string[], context: CliContext): Promise<numb
   let environment: EnvironmentHandle;
   try {
     refusePrivilegedUser(user);
-    // git names the command this process runs as, with git-credential, as its credential helper (#314); #338's shim replaces it.
-    environment = await startEnvironment({ ...parseServe(args), harnessCommand: resolveProgram(), ...context.environment, user });
+    const options = parseServe(args);
+    // git names this command, with git-credential, as its credential helper (#314): under a launcher, the shim (#459).
+    const underLauncher = context.environment?.launcher?.present() ?? typeof process.send === "function";
+    const command = harnessCommand(options.dataDir ?? defaultDataDirectory(), underLauncher);
+    environment = await startEnvironment({ ...options, harnessCommand: command, ...context.environment, user });
   } catch (error) {
     if (error instanceof RootRefusedError) {
       context.stderr(`${error.message}\n`);

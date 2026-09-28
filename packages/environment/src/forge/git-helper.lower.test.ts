@@ -35,6 +35,15 @@ describe("the credential helper's value", () => {
     expect(filled).toContain("password=--flag=a b git-credential git_example_com get\n");
   });
 
+  it("names a launcher's shim alone, the one agent-harness path that outlives every version (#459), a macOS data directory's space quoted", () => {
+    expect(credentialHelper(["/Users/david/Library/Application Support/agent-harness/bin/agent-harness"], "github", "darwin")).toBe(
+      "!'/Users/david/Library/Application Support/agent-harness/bin/agent-harness' git-credential github",
+    );
+    expect(credentialHelper(["C:\\Users\\david\\AppData\\Local\\agent-harness\\bin\\agent-harness.cmd"], "github", "win32")).toBe(
+      "!C:/Users/david/AppData/Local/agent-harness/bin/agent-harness.cmd git-credential github",
+    );
+  });
+
   it("quotes each word for sh and writes a Windows path with forward slashes, which Git for Windows' sh runs", () => {
     expect(credentialHelper(["/opt/agent-harness/bin/agent-harness"], "github", "linux")).toBe("!/opt/agent-harness/bin/agent-harness git-credential github");
     expect(credentialHelper(["C:\\Program Files\\agent-harness\\node.exe", "C:\\Users\\David\\main.js"], "github", "win32")).toBe(
