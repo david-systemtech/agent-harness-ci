@@ -169,3 +169,32 @@ export const normaliseRemote = (remote: string): ForgeRemote | null => {
   const scheme = URL_FORM.exec(text)?.[1];
   return scheme === undefined ? schemelessRemote(text) : urlRemote(text, scheme.toLowerCase());
 };
+
+// Matching --------------------------------------------------------------------
+
+/** An origin's host: lower case, without its port; an IPv6 literal keeps its brackets. */
+export const forgeOriginHost = (origin: ForgeOrigin): string => new URL(origin).hostname;
+
+/** What matching reads of a forge account: its canonical origin and its verified aliases. */
+export interface ForgeAccountOrigins {
+  readonly origin: ForgeOrigin;
+  readonly aliases: readonly ForgeOrigin[];
+}
+
+/** The one account of `candidates`, or null for none or several. */
+const soleAccount = <A>(candidates: readonly A[]): A | null => (candidates.length === 1 ? (candidates[0] as A) : null);
+
+/**
+ * The forge account a remote belongs to (forge spec, "The normaliser"). An
+ * http or https remote matches the account whose canonical origin or alias
+ * is its origin. An ssh-derived one names no web port, so it matches by
+ * host: the account whose canonical origin is on that host, else the one
+ * with an alias there; while two remain at either step it matches nothing.
+ */
+export const matchForgeAccount = <A extends ForgeAccountOrigins>(remote: ForgeRemote, accounts: readonly A[]): A | null => {
+  if (!remote.sshDerived) return accounts.find((account) => account.origin === remote.origin || account.aliases.includes(remote.origin)) ?? null;
+  const host = forgeOriginHost(remote.origin);
+  const canonical = accounts.filter((account) => forgeOriginHost(account.origin) === host);
+  if (canonical.length > 0) return soleAccount(canonical);
+  return soleAccount(accounts.filter((account) => account.aliases.some((alias) => forgeOriginHost(alias) === host)));
+};

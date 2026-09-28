@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FORGE_KINDS, ForgeKind, ForgeOrigin, normaliseRemote, type ForgeRemote } from "./index.js";
+import { FORGE_KINDS, ForgeKind, ForgeOrigin, forgeOriginHost, matchForgeAccount, normaliseRemote, type ForgeRemote } from "./index.js";
 
 /**
  * Forge origins, slugs and variable names (forge spec, "The forge account
@@ -101,5 +101,66 @@ describe("the normaliser", () => {
       const origin = normaliseRemote(input)?.origin;
       if (origin !== undefined) expect(ForgeOrigin.safeParse(origin).success, origin).toBe(true);
     }
+  });
+});
+
+describe("an origin's host", () => {
+  it.each([
+    ["https://github.com", "github.com"],
+    ["https://git.systemtech.dev:5526", "git.systemtech.dev"],
+    ["http://100.101.102.103:3000", "100.101.102.103"],
+    ["http://[fd7a:115c:a1e0::1]:3000", "[fd7a:115c:a1e0::1]"],
+  ])("of %s is %s, without its port", (origin, host) => {
+    expect(forgeOriginHost(origin)).toBe(host);
+  });
+});
+
+describe("matching a remote to a forge account", () => {
+  /** Forge accounts by name: canonical origin and verified aliases. */
+  const accounts = [
+    { name: "forgejo", origin: "https://git.systemtech.dev:5526", aliases: ["http://100.101.102.103:3000"] },
+    { name: "github", origin: "https://github.com", aliases: [] },
+    { name: "enterprise", origin: "https://ghe.example.com", aliases: [] },
+    // Two instances on one host.
+    { name: "two-a", origin: "https://two.example.com", aliases: [] },
+    { name: "two-b", origin: "https://two.example.com:8443", aliases: [] },
+    // A canonical origin on a host another account holds only as an alias.
+    { name: "shared", origin: "https://shared.example.net", aliases: [] },
+    { name: "other", origin: "https://other.example.net", aliases: ["http://shared.example.net:3000"] },
+    // Two aliases on one host, neither canonical there.
+    { name: "lan-a", origin: "https://a.example.org", aliases: ["http://lan.example.org:3000"] },
+    { name: "lan-b", origin: "https://b.example.org", aliases: ["http://lan.example.org:4000"] },
+  ];
+
+  const table: [string, string, string | null][] = [
+    // http and https: the canonical origin or an alias, exactly.
+    ["https on the canonical origin", "https://git.systemtech.dev:5526/david/agent-harness.git", "forgejo"],
+    ["http on an alias", "http://100.101.102.103:3000/david/agent-harness.git", "forgejo"],
+    ["https on the host without the canonical origin's port", "https://git.systemtech.dev/david/agent-harness", null],
+    ["http on the canonical origin's host and port", "http://git.systemtech.dev:5526/david/agent-harness", null],
+    ["https on github.com with a token in it", "https://x-access-token:t@github.com/david/agent-harness", "github"],
+    ["https on an Enterprise origin", "https://ghe.example.com/team/app.git", "enterprise"],
+    ["https on one of two instances on a host", "https://two.example.com:8443/team/app", "two-b"],
+    ["https on an origin no account holds", "https://gitlab.com/david/agent-harness", null],
+    // ssh-derived: by host, canonical origins first, nothing while two remain.
+    ["scp on the canonical origin's host", "git@git.systemtech.dev:david/agent-harness.git", "forgejo"],
+    ["ssh with sshd's port on the canonical origin's host", "ssh://git@git.systemtech.dev:2222/david/agent-harness.git", "forgejo"],
+    ["scp on an alias's host", "git@100.101.102.103:david/agent-harness.git", "forgejo"],
+    ["scp on ssh.github.com", "git@ssh.github.com:david/agent-harness.git", "github"],
+    ["git:// on github.com", "git://github.com/david/agent-harness.git", "github"],
+    ["scp on a host two canonical origins share", "git@two.example.com:team/app.git", null],
+    ["scp on a host one account holds as canonical and another as an alias", "git@shared.example.net:team/app.git", "shared"],
+    ["scp on a host two accounts hold only as aliases", "git@lan.example.org:team/app.git", null],
+    ["scp on a host no account holds", "git@gitlab.com:david/agent-harness.git", null],
+  ];
+
+  it.each(table)("matches %s", (_, input, expected) => {
+    const read = normaliseRemote(input);
+    expect(read).not.toBeNull();
+    expect(matchForgeAccount(read as ForgeRemote, accounts)?.name ?? null).toBe(expected);
+  });
+
+  it("matches nothing among no forge accounts", () => {
+    expect(matchForgeAccount(normaliseRemote("https://github.com/david/agent-harness") as ForgeRemote, [])).toBeNull();
   });
 });
