@@ -36,7 +36,7 @@ import type { Reader } from "../sessions/session-tables.js";
 import { forgeAccountEver, listForgeAccounts, liveForgeAccount, originHolder, primaryForgeAccount, slugHolder, type MissingOrigin } from "./forge-store.js";
 import { managedGh, type ManagedGh } from "./gh.js";
 import { keepSince } from "./verification.js";
-import { createVerifier } from "./verifier.js";
+import { FORGE_ACTOR, createVerifier } from "./verifier.js";
 import { createEntityTags } from "./forge-http.js";
 import { FORGE_CALL_TIMEOUT_MS, forgeProvider, type ForgeFetch, type IdentityAnswer, type ProviderOptions } from "./providers.js";
 import { createHarnessGit, type ForgeGitAnswer, type ForgeGitRequest } from "./harness-git.js";
@@ -218,6 +218,13 @@ export interface ForgeService {
    * asks for a credential refuses it `forge_account_missing`.
    */
   git(request: ForgeGitRequest): Promise<ForgeGitAnswer>;
+  /**
+   * git refused the credential the helper gave for `origin` (its `erase`):
+   * `forge.account.git-rejected` as `system:forge`, then a verification of
+   * the forge account. Nothing is forgotten; one the environment no longer
+   * holds records nothing.
+   */
+  gitRejected(forgeAccountId: string, origin: ForgeOrigin): void;
   /** The origins a harness operation was refused on that count now, for the Forges step's coverage check: recorded within seven days, and covered by no forge account since. */
   missingOrigins(): MissingOrigin[];
   /** Stops the verifications, voids every run-scoped secret and lets go of every token's registration. */
@@ -828,6 +835,15 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
     git,
 
     missingOrigins: () => missing.counted(),
+
+    gitRejected(forgeAccountId, origin) {
+      const recorded = log.atomically((tx) => {
+        if (liveForgeAccount(reader, forgeAccountId) === null) return false;
+        log.append(stream, [{ type: "forge.account.git-rejected", payload: { forgeAccountId, origin } }], { tx, actor: FORGE_ACTOR });
+        return true;
+      });
+      if (recorded) void verifier.verify(forgeAccountId);
+    },
 
     close() {
       verifier.close();

@@ -2,10 +2,10 @@ import { mkdirSync } from "node:fs";
 import { networkInterfaces } from "node:os";
 import { join } from "node:path";
 import { GitCredentialAnswer, GitCredentialError, type ForgeAccountRecord } from "@agent-harness/contracts";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { startFakeForge, type FakeForge } from "../../test/fake-forge.js";
-import { DAVID, OTHER_TOKEN, TOKEN, added, askCredentialRoute as ask, gitHost, pasted, remove, saidBack, update, type RouteAnswer } from "../../test/forge.js";
+import { DAVID, OTHER_TOKEN, TOKEN, added, askCredentialRoute as ask, forgeEvents, gitHost, pasted, remove, saidBack, update, type RouteAnswer } from "../../test/forge.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 
 /**
@@ -114,6 +114,32 @@ describe("the credential route", () => {
 
     secret.release();
     expect((await ask(t.address, secret.value, getFor(account))).status).toBe(401);
+  });
+
+  it("reports an erase and forgets nothing: forge.account.git-rejected, then a verification, and the token still served", async () => {
+    const { t, forge } = await withForge();
+    const client = await t.client();
+    const account = await added(client, { url: forge.origin, kind: "forgejo" });
+    const secret = t.env.forge.secrets.mint([account.id], "a test's git");
+    onCleanup(secret.release);
+    // The add's own verification, which the environment's clock starts.
+    t.clock.advance(0);
+    const identityCalls = () => forge.requests.filter((request) => request.path === "/api/v1/user").length;
+    await vi.waitFor(() => expect(identityCalls()).toBe(2));
+    const before = t.env.log.head();
+
+    const erased = await ask(t.address, secret.value, { ...getFor(account), action: "erase" });
+    expect(erased).toEqual({ status: 204, body: null });
+    const events = await forgeEvents(client, before);
+    expect(events.map((event) => [event.type, event.payload, event.actor])).toEqual([
+      ["forge.account.git-rejected", { forgeAccountId: account.id, origin: forge.origin }, { kind: "system", id: "forge" }],
+    ]);
+    await vi.waitFor(() => expect(identityCalls()).toBe(3));
+    expect(GitCredentialAnswer.parse((await ask(t.address, secret.value, getFor(account))).body).password).toBe(TOKEN);
+
+    const outside = await ask(t.address, secret.value, { action: "erase", slug: "github", protocol: "https", host: "github.com" });
+    expect(outside.status).toBe(401);
+    expect((await forgeEvents(client, before)).filter((event) => event.type === "forge.account.git-rejected")).toHaveLength(1);
   });
 
   it("answers credential_unavailable, naming the origin, for a forge account with no credential to give", async () => {

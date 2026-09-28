@@ -24,7 +24,9 @@ import { servedOrigins } from "./git-helper.js";
  * serves the canonical origins and verified aliases of the forge accounts
  * the secret names and the environment still holds, reading the credential
  * on every request, so a replaced token is served at once and a removed
- * forge account is not. Everything else is `unauthorized`.
+ * forge account is not. `erase`, git's word that it was refused the
+ * credential, is reported and verified again, and nothing is forgotten.
+ * Everything else is `unauthorized`.
  */
 
 /** The most a request's body may be: git's attributes are a few short lines. */
@@ -39,7 +41,7 @@ const MAX_REQUEST_BYTES = 4 * 1024;
 export const CREDENTIAL_ROUTE_RATE = { capacity: 300, windowMs: 60_000 } as const;
 
 /** What the route reads of the ForgeService. */
-export type CredentialRouteForge = Pick<ForgeService, "secrets" | "list" | "resolveCredential">;
+export type CredentialRouteForge = Pick<ForgeService, "secrets" | "list" | "resolveCredential" | "gitRejected">;
 
 export interface CredentialRouteOptions {
   readonly forge: CredentialRouteForge;
@@ -103,6 +105,12 @@ export const createCredentialRoute = ({ forge, clock }: CredentialRouteOptions):
     const account = origin === undefined ? null : servedOn(held.forgeAccountIds, origin);
     if (origin === undefined || account === null) {
       return answer(response, 401, unauthorized(`No forge account this secret names serves ${protocol}://${host}.`));
+    }
+
+    if (parsed.data.action === "erase") {
+      forge.gitRejected(account.id, origin);
+      response.writeHead(204, { "cache-control": "no-store" });
+      return void response.end();
     }
 
     const credential = await forge.resolveCredential(account.id, "git");
