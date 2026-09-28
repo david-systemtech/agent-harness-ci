@@ -20,6 +20,14 @@ const permissionPresets = {
   "permissions.parkedPrompt.ttl": { amount: 24, unit: "hours" },
   "permissions.containment.default": "off",
 };
+/** The update keys (#335) at their presets: every value set holds them too. */
+const updatePresets = {
+  "updates.autoUpdate": true,
+  "updates.channel": "stable",
+  "updates.pinnedVersion": null,
+  "updates.idleWindowMinutes": 10,
+  "updates.deferralCapHours": 24,
+};
 const presets = {
   "sessions.autoSettleAfterIdle": { amount: 14, unit: "days" },
   "sessions.autoSettleOnMerge": false,
@@ -29,6 +37,7 @@ const presets = {
   "accounts.defaultEffort": null,
   "providers.processIdleMinutes": 30,
   ...permissionPresets,
+  ...updatePresets,
 };
 const changed = {
   "sessions.autoSettleAfterIdle": null,
@@ -57,6 +66,7 @@ const patches: Fixtures = {
     { "sessions.transcriptCompactAfterDays": null },
     { "providers.processIdleMinutes": 0 },
     { "accounts.defaultEffort": "" },
+    { "updates.pinnedVersion": "v0.4.2" },
     { theme: "invalid-theme" },
     [],
   ],
@@ -73,8 +83,9 @@ export const settingsSchemaFixtures: Record<string, Fixtures> = {
       "accounts.defaultEffort",
       "providers.processIdleMinutes",
       "permissions.defaultCeiling",
+      "updates.channel",
     ],
-    invalid: ["theme", ""],
+    invalid: ["theme", "updates.theme", ""],
   },
   "settings/idle-span-unit.json": { valid: ["days", "weeks", "months"], invalid: ["years", "Days"] },
   "settings/idle-span.json": idleSpans,
@@ -83,14 +94,19 @@ export const settingsSchemaFixtures: Record<string, Fixtures> = {
   "settings/keys/sessions.transcriptCompactAfterDays.json": { valid: [1, 90, 3650], invalid: [0, 3651, 1.5, null, "90"] },
   "settings/keys/providers.processIdleMinutes.json": { valid: [1, 30, 1440], invalid: [0, 1441, 1.5, "30"] },
   "settings/settings-values.json": {
-    valid: [presets, { ...permissionPresets, ...changed }],
+    valid: [presets, { ...permissionPresets, ...updatePresets, ...changed }],
     invalid: [{}, { "sessions.autoSettleOnMerge": false }, { ...presets, theme: "invalid-theme" }, changed],
   },
   "settings/settings-patch.json": patches,
   "settings/settings-event-type.json": { valid: ["settings.updated"], invalid: ["setting.updated", ""] },
   "settings/events/settings.updated.json": {
-    valid: [{ values: changed }, { values: { "sessions.autoSettleOnMerge": true } }, { values: { "permissions.parkedPrompt.ttl": "never" } }],
-    invalid: [{}, { values: { theme: "invalid-theme" } }],
+    valid: [
+      { values: changed },
+      { values: { "sessions.autoSettleOnMerge": true } },
+      { values: { "permissions.parkedPrompt.ttl": "never" } },
+      { values: { "updates.channel": "beta", "updates.pinnedVersion": "0.4.2" } },
+    ],
+    invalid: [{}, { values: { theme: "invalid-theme" } }, { values: { "updates.deferralCapHours": 0 } }],
   },
 };
 
@@ -113,6 +129,7 @@ export const settingsMethodFixtures: Record<string, { params: Fixtures; result: 
         { commandId, values: { "sessions.autoSettleOnMerge": "yes" } },
         { commandId, values: { theme: "invalid-theme" } },
         { commandId, values: { "permissions.unattended.mode": "bypassPermissions" } },
+        { commandId, values: { "updates.channel": "beta" } },
       ],
     },
     result: { valid: [{ values: presets }], invalid: [{ values: {} }, {}] },

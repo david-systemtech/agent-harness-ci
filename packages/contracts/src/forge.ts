@@ -213,18 +213,26 @@ export interface ForgeAccountOrigins {
 const soleAccount = <A>(candidates: readonly A[]): A | null => (candidates.length === 1 ? (candidates[0] as A) : null);
 
 /**
- * The forge account a remote belongs to (forge spec, "The normaliser"). An
- * http or https remote matches the account whose canonical origin or alias
- * is its origin. An ssh-derived one names no web port, so it matches by
- * host: the account whose canonical origin is on that host, else the one
- * with an alias there; while two remain at either step it matches nothing.
+ * The forge account a host belongs to when no port says which: the account
+ * whose canonical origin is on the host, else the one with an alias there;
+ * while two remain at either step, none. `host` is lower case, as
+ * `forgeOriginHost` gives it.
  */
-export const matchForgeAccount = <A extends ForgeAccountOrigins>(remote: ForgeRemote, accounts: readonly A[]): A | null => {
-  if (!remote.sshDerived) return accounts.find((account) => account.origin === remote.origin || account.aliases.includes(remote.origin)) ?? null;
-  const host = forgeOriginHost(remote.origin);
+export const forgeAccountOnHost = <A extends ForgeAccountOrigins>(host: string, accounts: readonly A[]): A | null => {
   const canonical = accounts.filter((account) => forgeOriginHost(account.origin) === host);
   if (canonical.length > 0) return soleAccount(canonical);
   return soleAccount(accounts.filter((account) => account.aliases.some((alias) => forgeOriginHost(alias) === host)));
+};
+
+/**
+ * The forge account a remote belongs to (forge spec, "The normaliser"). An
+ * http or https remote matches the account whose canonical origin or alias
+ * is its origin. An ssh-derived one names no web port, so it matches by
+ * host (`forgeAccountOnHost`).
+ */
+export const matchForgeAccount = <A extends ForgeAccountOrigins>(remote: ForgeRemote, accounts: readonly A[]): A | null => {
+  if (!remote.sshDerived) return accounts.find((account) => account.origin === remote.origin || account.aliases.includes(remote.origin)) ?? null;
+  return forgeAccountOnHost(forgeOriginHost(remote.origin), accounts);
 };
 
 // Slugs -----------------------------------------------------------------------

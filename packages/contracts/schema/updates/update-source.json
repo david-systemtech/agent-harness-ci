@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "UpdateSource",
+  "type": "string",
+  "enum": [
+    "channel",
+    "pin",
+    "request",
+    "desktop"
+  ],
+  "description": "Where a pending update comes from: channel (the channel's newest release, auto-update being on), pin (the pinned version), request (updates.apply or POST /api/update by version) or desktop (the artefact a desktop handed its local environment)."
+}

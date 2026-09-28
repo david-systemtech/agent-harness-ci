@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "UpdateConflictReason",
+  "type": "string",
+  "enum": [
+    "pinned",
+    "current",
+    "schema",
+    "launcher",
+    "in_progress",
+    "no_release_access"
+  ],
+  "description": "Why an update was refused in conflict: pinned (another version is pinned), current (that version runs already), schema (its database schema is below the database's), launcher (it needs a newer launcher, with no stepping stone), in_progress (an update is draining or switching) or no_release_access (no forge account can read the releases)."
+}

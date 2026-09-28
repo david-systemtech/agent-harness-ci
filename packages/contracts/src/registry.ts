@@ -85,6 +85,15 @@ import {
 } from "./methods/accounts.js";
 import { diffsSession, diffsWorkingTree } from "./methods/diffs.js";
 import { forgeAccountsAdd, forgeAccountsList, forgeAccountsRemove, forgeAccountsSetPrimary, forgeAccountsUpdate } from "./methods/forge.js";
+import {
+  updatesApply,
+  updatesBegin,
+  updatesCancel,
+  updatesCheck,
+  updatesDesktopStage,
+  updatesSettingsSet,
+  updatesStatus,
+} from "./methods/updates.js";
 import { filesList, filesRead } from "./methods/files.js";
 import {
   terminalsClose,
@@ -197,6 +206,13 @@ export const methods = [
   filesRead,
   diffsWorkingTree,
   diffsSession,
+  updatesStatus,
+  updatesCheck,
+  updatesApply,
+  updatesCancel,
+  updatesSettingsSet,
+  updatesBegin,
+  updatesDesktopStage,
 ] as const;
 
 type Registered = (typeof methods)[number];
@@ -206,13 +222,21 @@ export type CommandMethodName = Extract<Registered, { readonly kind: "command" }
 
 /**
  * Registered methods the environment does not serve yet, each with the
- * ticket that owes its handler. They are registered ahead of it because the
- * session summary's field table names them (#114); a method leaves this
- * list in the change that serves it, and the wire's test refuses a
+ * ticket that owes its handler. They are registered ahead of it so the
+ * tickets that read their shapes need not queue behind it (the session
+ * summary's field table, #114; the update vocabulary, #335); a method leaves
+ * this list in the change that serves it, and the wire's test refuses a
  * registered method that is neither served nor owed here.
  */
 export const OWED_HANDLERS = {
-  // Every registered method is served.
+  // The update vocabulary (#335) is registered ahead of the launcher tickets that serve it.
+  "updates.status": "#342",
+  "updates.settings.set": "#342",
+  "updates.apply": "#343",
+  "updates.cancel": "#343",
+  "updates.check": "#346",
+  "updates.begin": "#348",
+  "updates.desktop.stage": "#354",
 } as const satisfies { readonly [N in MethodName]?: `#${number}` };
 export type Registry = { readonly [M in Registered as M["name"]]: M };
 

@@ -1,0 +1,7 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ReleaseAssetKind",
+  "type": "string",
+  "pattern": "^[a-z][a-z0-9-]*$",
+  "description": "What an asset is: environment, desktop, install-script, compose, host-updater, schema (environment being the environment's self-contained artefact for one platform); a kind the reader does not know is a later release's, and is passed over."
+}

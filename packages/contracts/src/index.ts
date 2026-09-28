@@ -26,6 +26,7 @@ export * from "./permissions.js";
 export * from "./permissions-modes.js";
 export * from "./permissions-settings.js";
 export * from "./prompts.js";
+export * from "./repository-identity.js";
 export {
   METHOD_KINDS,
   commandParams,
@@ -72,6 +73,7 @@ export {
 } from "./methods/providers.js";
 export { CommandReceipt, commandResponse, type CommandResponseSchema } from "./receipt.js";
 export * from "./registry.js";
+export * from "./release.js";
 export * from "./schema-export.js";
 export * from "./scopes.js";
 export * from "./sessions.js";
@@ -81,5 +83,8 @@ export * from "./steps.js";
 export * from "./summary-fields.js";
 export * from "./terminals.js";
 export * from "./transcript.js";
+export * from "./update-route.js";
+export * from "./update-settings.js";
+export * from "./updates.js";
 export * from "./usage.js";
 export * from "./write-commands.js";

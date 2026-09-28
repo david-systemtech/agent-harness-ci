@@ -15,6 +15,7 @@ import { DrainStarted } from "./lifecycle.js";
 import { DecidedBy, PromptDecisionValue, PromptKind, PROMPT_SUMMARY_MAX } from "./prompts.js";
 import { RunId } from "./adapter.js";
 import { SessionId } from "./sessions.js";
+import { UpdateCancelledPayload, UpdateFailedPayload, UpdateId, UpdatePendingPayload, UpdateStartedPayload } from "./updates.js";
 import { UsageUpdatedPayload } from "./usage.js";
 
 /**
@@ -29,8 +30,10 @@ export const ENVIRONMENT_STREAM_KIND = "environment";
 
 /**
  * The notices there are: the environment finished starting; it was updated
- * from one harness version to another (appended by the launcher ticket); it
- * began to drain (appended by the lifecycle ticket, #112); an account
+ * from one harness version to another (appended by the settle after the
+ * restart, #344); it began to drain (appended by the lifecycle ticket,
+ * #112); an update became pending, began, failed or was withdrawn (the
+ * update coordinator: the launcher-update spec's notices, #335); an account
  * changed (the account store, #134), appended once the change has committed;
  * the sign-in changed state, carrying the sign-in (the sign-in director,
  * #135); the executable sign-ins run was chosen, once per environment and
@@ -46,6 +49,10 @@ export const ENVIRONMENT_NOTICE_TYPES = [
   "environment.started",
   "environment.updated",
   "environment.draining",
+  "environment.update-pending",
+  "environment.update-started",
+  "environment.update-failed",
+  "environment.update-cancelled",
   "account.updated",
   "signin.updated",
   "signin.executable-chosen",
@@ -63,7 +70,7 @@ export const ENVIRONMENT_NOTICE_TYPES = [
 ] as const;
 export const EnvironmentNoticeType = z.enum(ENVIRONMENT_NOTICE_TYPES).meta({
   description:
-    "An environment notice's event type: environment.started (startup finished), environment.updated (a new harness version now runs), environment.draining (new runs are refused before a restart), account.updated (an account changed; a client refreshes what it caches of the accounts), signin.updated (the sign-in changed state: the verification URL, the end), signin.executable-chosen (which executable sign-ins run, recorded once), prompt.parked (a run waits for a person's answer), prompt.resolved (a parked prompt was answered), usage.updated (an account's plan-usage reading changed; a client refreshes what it caches of the readings), and the forge's: forge.account.added, forge.account.updated, forge.account.primary-set, forge.account.verified, forge.account.capability-learned, forge.account.git-rejected, forge.account.removed and forge.origin-missing (a client refreshes what it caches of the forge accounts).",
+    "An environment notice's event type: environment.started (startup finished), environment.updated (a new harness version now runs), environment.draining (new runs are refused before a restart), environment.update-pending (an update waits for idle, the cap or a request), environment.update-started (an update began its drain), environment.update-failed (an update did not take, and the version it went from runs), environment.update-cancelled (a pending update was withdrawn), account.updated (an account changed; a client refreshes what it caches of the accounts), signin.updated (the sign-in changed state: the verification URL, the end), signin.executable-chosen (which executable sign-ins run, recorded once), prompt.parked (a run waits for a person's answer), prompt.resolved (a parked prompt was answered), usage.updated (an account's plan-usage reading changed; a client refreshes what it caches of the readings), and the forge's: forge.account.added, forge.account.updated, forge.account.primary-set, forge.account.verified, forge.account.capability-learned, forge.account.git-rejected, forge.account.removed and forge.origin-missing (a client refreshes what it caches of the forge accounts).",
 });
 export type EnvironmentNoticeType = z.infer<typeof EnvironmentNoticeType>;
 
@@ -83,9 +90,11 @@ const EnvironmentUpdated = z
     payload: z.object({
       fromVersion: z.string().min(1).meta({ description: "The harness version that ran before the update." }),
       toVersion: z.string().min(1).meta({ description: "The harness version the environment was updated to." }),
+      // Optional: an event appended before update ids existed carries none, and still parses.
+      updateId: UpdateId.optional().meta({ description: "The update that took; absent from an event older than update ids." }),
     }),
   })
-  .meta({ description: "The environment now runs another harness version: from which, to which." });
+  .meta({ description: "The environment now runs another harness version: from which, to which, and by which update." });
 
 const EnvironmentDraining = z
   .object({
@@ -93,6 +102,22 @@ const EnvironmentDraining = z
     payload: DrainStarted,
   })
   .meta({ description: "The environment refuses new runs and lets running ones finish before a restart: since when, and what started it." });
+
+const EnvironmentUpdatePending = z
+  .object({ type: z.literal("environment.update-pending"), payload: UpdatePendingPayload })
+  .meta({ description: "An update is pending: installed, it waits for idle, the deferral cap, or a request." });
+
+const EnvironmentUpdateStarted = z
+  .object({ type: z.literal("environment.update-started"), payload: UpdateStartedPayload })
+  .meta({ description: "An update began its drain before the switch: from and to which version, and why now." });
+
+const EnvironmentUpdateFailed = z
+  .object({ type: z.literal("environment.update-failed"), payload: UpdateFailedPayload })
+  .meta({ description: "An update did not take: the stage, the reason and whether it was rolled back; the version it went from runs." });
+
+const EnvironmentUpdateCancelled = z
+  .object({ type: z.literal("environment.update-cancelled"), payload: UpdateCancelledPayload })
+  .meta({ description: "A pending update was withdrawn before its drain." });
 
 const AccountUpdated = z
   .object({
@@ -176,6 +201,10 @@ export const EnvironmentNotice = z
     EnvironmentStarted,
     EnvironmentUpdated,
     EnvironmentDraining,
+    EnvironmentUpdatePending,
+    EnvironmentUpdateStarted,
+    EnvironmentUpdateFailed,
+    EnvironmentUpdateCancelled,
     AccountUpdated,
     SignInUpdated,
     SignInExecutableChosen,

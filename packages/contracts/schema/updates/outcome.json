@@ -1,0 +1,122 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "UpdateOutcome",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "outcome": {
+          "type": "string",
+          "const": "updated"
+        },
+        "updateId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+              "description": "An update's id: a version 4 UUID the environment mints when it takes a target, named by each of the update's notices, the launcher's switch, its database snapshot and its outcome record; a newer release replacing the target gets a new one."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The update; null for one recorded before update ids."
+        },
+        "fromVersion": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The version the update went from."
+        },
+        "toVersion": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The version the update went to."
+        },
+        "at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+          "description": "When the outcome was recorded."
+        }
+      },
+      "required": [
+        "outcome",
+        "updateId",
+        "fromVersion",
+        "toVersion",
+        "at"
+      ],
+      "description": "The update took: the environment runs its target."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "outcome": {
+          "type": "string",
+          "const": "failed"
+        },
+        "updateId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+              "description": "An update's id: a version 4 UUID the environment mints when it takes a target, named by each of the update's notices, the launcher's switch, its database snapshot and its outcome record; a newer release replacing the target gets a new one."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The update; null for one recorded before update ids."
+        },
+        "fromVersion": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The version the update went from."
+        },
+        "toVersion": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The version the update went to."
+        },
+        "at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+          "description": "When the outcome was recorded."
+        },
+        "stage": {
+          "type": "string",
+          "enum": [
+            "switch",
+            "trial",
+            "crash-loop"
+          ],
+          "description": "Where an update failed: switch (the launcher refused the switch, or a container's stop never came, and the same version runs on), trial (the new version did not pass its startup gate) or crash-loop (it exited three times within ten minutes of its commit)."
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "description": "A short code naming the failure: the launcher's refusal of the switch, the outcome record's reason (deadline for a trial that missed its gate), or unknown when no record was left."
+        },
+        "rolledBack": {
+          "type": "boolean",
+          "description": "Whether the database snapshot was restored: true after a trial or a crash loop, false after a refused switch, which changed nothing."
+        }
+      },
+      "required": [
+        "outcome",
+        "updateId",
+        "fromVersion",
+        "toVersion",
+        "at",
+        "stage",
+        "reason",
+        "rolledBack"
+      ],
+      "description": "The update failed: at which stage, why, and whether it was rolled back."
+    }
+  ],
+  "description": "How the last update ended: updated, or failed with its stage, reason and rollback."
+}

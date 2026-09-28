@@ -17,6 +17,7 @@ import { sessionMethodFixtures, sessionSchemaFixtures } from "./session-fixtures
 import { settingsMethodFixtures, settingsSchemaFixtures } from "./settings-fixtures.js";
 import { setupMethodFixtures, setupSchemaFixtures } from "./setup-fixtures.js";
 import { terminalMethodFixtures, terminalSchemaFixtures } from "./terminal-fixtures.js";
+import { updateMethodFixtures, updateSchemaFixtures } from "./update-fixtures.js";
 import { usageMethodFixtures, usageSchemaFixtures } from "./usage-fixtures.js";
 
 const uuid = "0f8fad5b-d9cb-469f-a165-70867728950e";
@@ -81,7 +82,7 @@ const validCredential = {
 };
 
 /** A copy of `value` without its `key`. */
-const without = (value: Record<string, unknown>, key: string): Record<string, unknown> =>
+export const without = (value: Record<string, unknown>, key: string): Record<string, unknown> =>
   Object.fromEntries(Object.entries(value).filter(([k]) => k !== key));
 
 const envelopeWithoutCommandId = without(validEnvelope, "commandId");
@@ -330,6 +331,8 @@ const methodErrorFixtures: Fixtures = {
     ...Object.values(sharedErrors),
     // #180: the scope is held, but the call would grant a ceiling above the caller's own.
     { code: "forbidden", message: "A pairing at bypassPermissions is above this client session's own ceiling.", data: { scope: "admin", reason: "ceiling", ceiling: "acceptEdits" } },
+    // #335: the scope is held, but only a local client session may ask this.
+    { code: "forbidden", message: "Only a local client session may name an artefact path.", data: { scope: "admin", reason: "local" } },
   ],
   invalid: [
     { code: "no_such_error", message: "m", data: {} },
@@ -498,6 +501,7 @@ const methodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
   ...forgeMethodFixtures,
   ...usageMethodFixtures,
   ...terminalMethodFixtures,
+  ...updateMethodFixtures,
 };
 
 /** Receipts as a command's response carries them: accepted with a change, a no-op, and a rejection. */
@@ -686,7 +690,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
     valid: ["run-starting", "run-running", "parked-prompt", "recent-activity"],
     invalid: ["idle", "parked", ""],
   },
-  "lifecycle/drain-trigger.json": { valid: ["command", "launcher", "signal"], invalid: ["SIGTERM", "cron", ""] },
+  "lifecycle/drain-trigger.json": { valid: ["command", "launcher", "signal", "update"], invalid: ["SIGTERM", "cron", ""] },
   "lifecycle/drain-started.json": {
     valid: [{ drainingSince: at, trigger: "command" }, { drainingSince: at, trigger: "signal" }],
     invalid: [{}, { drainingSince: at }, { trigger: "launcher" }, { drainingSince: "soon", trigger: "launcher" }],
@@ -698,14 +702,34 @@ export const schemaFixtures: Record<string, Fixtures> = {
     invalid: [envelopeWithoutCommandId, { ...validEnvelope, sequence: 0 }, { ...validEnvelope, payload: [] }],
   },
   "notices/environment-notice-type.json": {
-    valid: ["environment.started", "environment.updated", "environment.draining", "account.updated", "signin.updated", "signin.executable-chosen", "prompt.parked", "prompt.resolved", "usage.updated"],
+    valid: [
+      "environment.started",
+      "environment.updated",
+      "environment.draining",
+      "environment.update-pending",
+      "environment.update-started",
+      "environment.update-failed",
+      "environment.update-cancelled",
+      "account.updated",
+      "signin.updated",
+      "signin.executable-chosen",
+      "prompt.parked",
+      "prompt.resolved",
+      "usage.updated",
+    ],
     invalid: ["environment.stopped", "session.created", "signin.started", "prompt.opened", ""],
   },
   "notices/environment-notice.json": {
     valid: [
       { type: "environment.started", payload: { harnessVersion: "0.1.0", protocolVersion: 1 } },
       { type: "environment.updated", payload: { fromVersion: "0.1.0", toVersion: "0.2.0" } },
+      { type: "environment.updated", payload: { fromVersion: "0.1.0", toVersion: "0.2.0", updateId: uuid } },
       { type: "environment.draining", payload: { drainingSince: at, trigger: "launcher" } },
+      { type: "environment.draining", payload: { drainingSince: at, trigger: "update" } },
+      { type: "environment.update-pending", payload: { updateId: uuid, toVersion: "0.2.0", source: "channel", since: at, deferUntil: at } },
+      { type: "environment.update-started", payload: { updateId: uuid, fromVersion: "0.1.0", toVersion: "0.2.0", cause: "cap" } },
+      { type: "environment.update-failed", payload: { updateId: uuid, fromVersion: "0.1.0", toVersion: "0.2.0", stage: "trial", reason: "deadline", rolledBack: true } },
+      { type: "environment.update-cancelled", payload: { updateId: uuid, toVersion: "0.2.0", cause: "requested" } },
       { type: "account.updated", payload: { accountId: "claude-max", change: "status-changed", warning: null } },
       {
         type: "signin.updated",
@@ -732,6 +756,11 @@ export const schemaFixtures: Record<string, Fixtures> = {
       { type: "environment.started", payload: { harnessVersion: "", protocolVersion: 1 } },
       { type: "environment.started", payload: { harnessVersion: "0.1.0" } },
       { type: "environment.updated", payload: { toVersion: "0.2.0" } },
+      { type: "environment.updated", payload: { fromVersion: "0.1.0", toVersion: "0.2.0", updateId: "u-1" } },
+      { type: "environment.update-pending", payload: { updateId: uuid, toVersion: "0.2.0", source: "channel", since: at } },
+      { type: "environment.update-started", payload: { updateId: uuid, fromVersion: "0.1.0", toVersion: "0.2.0", cause: "now" } },
+      { type: "environment.update-failed", payload: { updateId: uuid, fromVersion: "0.1.0", toVersion: "0.2.0", stage: "trial", reason: "deadline" } },
+      { type: "environment.update-cancelled", payload: { updateId: uuid, toVersion: "0.2.0", cause: "superseded" } },
       { type: "environment.draining", payload: { drainingSince: "soon", trigger: "signal" } },
       { type: "environment.draining", payload: { drainingSince: at } },
       { type: "environment.stopped", payload: {} },
@@ -808,5 +837,6 @@ export const schemaFixtures: Record<string, Fixtures> = {
   ...usageSchemaFixtures,
   ...terminalSchemaFixtures,
   ...completionsSchemaFixtures,
+  ...updateSchemaFixtures,
   ...methodSchemaFixtures,
 };

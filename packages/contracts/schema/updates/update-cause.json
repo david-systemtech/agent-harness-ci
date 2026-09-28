@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "UpdateCause",
+  "type": "string",
+  "enum": [
+    "idle",
+    "cap",
+    "requested"
+  ],
+  "description": "What made a pending update drain: idle (nothing started or ended within the idle window), cap (the deferral cap passed while busy) or requested (updates.apply with when now). Managed outside, the cause that made the update ready is the one updates.begin records."
+}

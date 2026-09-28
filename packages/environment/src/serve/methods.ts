@@ -124,9 +124,10 @@ export interface PrepareContext extends MethodContext {
  *
  * A `prepare` that can answer at once answers the handler itself, not a
  * promise of it: the command then keeps its place among the requests of
- * its socket, as a command with no `prepare` does, so a directory create
- * pipelined before a command on the new session is applied first. One that
- * waits lets the requests after it be applied meanwhile.
+ * its socket, as a command with no `prepare` does. One that waits (a create
+ * whose workspace git is asked about, #324) lets the requests after it be
+ * applied meanwhile: a client that must have one command applied before the
+ * next waits for its receipt, as the outbox does.
  */
 export interface PreparedCommand<N extends MethodName> {
   readonly prepare: (params: ParamsOf<N>, context: PrepareContext) => MethodHandler<N> | Promise<MethodHandler<N>>;

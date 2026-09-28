@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "UpdateWhen",
+  "type": "string",
+  "enum": [
+    "idle",
+    "now"
+  ],
+  "description": "When an asked-for update drains: idle (under the idle rules and the deferral cap, as Update now and a newer client's offer do) or now (at once, cutting running runs at the drain's cap)."
+}

@@ -1,0 +1,6 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AutoUpdate",
+  "type": "boolean",
+  "description": "Whether the environment updates itself to its channel's newest release; preset on. While a version is pinned, auto-update is off."
+}

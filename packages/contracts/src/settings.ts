@@ -4,6 +4,7 @@ import type { EventTypeEntry } from "./event-types.js";
 import { ReviewSeenPayload } from "./permissions.js";
 import { PERMISSION_SETTINGS } from "./permissions-settings.js";
 import { PROCESS_IDLE_MINUTES_PRESET, ProcessIdleMinutes } from "./methods/providers.js";
+import { UPDATE_SETTINGS } from "./update-settings.js";
 
 /**
  * The environment's settings (session-state spec, "Commands" and "Auto-settle:
@@ -80,8 +81,9 @@ export interface SettingDefinition<S extends z.ZodType = z.ZodType> {
   /**
    * The one method that writes the key, when a rule guards it (the
    * permission settings: `permissions.settings.set`, with the bypass
-   * acknowledgement, #129): the generic `settings.update` refuses it. Absent,
-   * `settings.update` writes it.
+   * acknowledgement, #129; the update settings: `updates.settings.set`, which
+   * checks a pin against the releases, #335): the generic `settings.update`
+   * refuses it. Absent, `settings.update` writes it.
    */
   readonly writtenBy?: `${string}.${string}`;
 }
@@ -99,7 +101,8 @@ const setting = <const S extends z.ZodType>(definition: SettingDefinition<S>): S
  * model band of the Accounts pane (ADR 0027's `accounts.default-model` row,
  * which folds together what were separate Models and Runs panes).
  * The permission keys (#129) are the Permissions step's, written through
- * `permissions.settings.set` only.
+ * `permissions.settings.set` only, and the update keys (#335) the Your
+ * machines step's, written through `updates.settings.set` only.
  */
 export const SETTINGS = {
   "sessions.autoSettleAfterIdle": setting({
@@ -138,6 +141,7 @@ export const SETTINGS = {
     step: { id: "account", band: "default-model" },
   }),
   ...PERMISSION_SETTINGS,
+  ...UPDATE_SETTINGS,
 } as const;
 
 export type SettingsKey = keyof typeof SETTINGS;
