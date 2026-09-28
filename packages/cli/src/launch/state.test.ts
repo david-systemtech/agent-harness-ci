@@ -130,6 +130,23 @@ describe("the service state", () => {
     expect(readdirSync(dataDir)).toEqual([SERVICE_STATE_FILE]);
   });
 
+  it("keeps the state it had, and leaves no temporary file, when writing or fsyncing the temporary file fails", () => {
+    const dataDir = dataDirectory();
+    writeServiceState(dataDir, state);
+    const { fs } = recordingFs(dataDir);
+    const failing = (step: "writeFileSync" | "fsyncSync"): DurableFs => ({
+      ...fs,
+      [step]: () => {
+        throw Object.assign(new Error("input/output error"), { code: "EIO" });
+      },
+    });
+    for (const step of ["writeFileSync", "fsyncSync"] as const) {
+      expect(() => writeServiceState(dataDir, { ...state, activeVersion: "0.6.0" }, failing(step)), step).toThrow("input/output error");
+      expect(readServiceState(dataDir), step).toEqual({ state });
+      expect(readdirSync(dataDir), step).toEqual([SERVICE_STATE_FILE]);
+    }
+  });
+
   it("is missing when no file is there, and says where it looked", () => {
     const dataDir = dataDirectory();
     expect(readServiceState(dataDir)).toEqual({ problem: `there is no service state at ${join(dataDir, SERVICE_STATE_FILE)}` });

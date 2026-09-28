@@ -13,15 +13,20 @@ export interface DurableFs {
   rmSync(path: string, options: { readonly force: true; readonly recursive?: boolean }): void;
 }
 
-/** Writes `text` to a new temporary file beside `path` and puts it on disk, answering the temporary file's path. */
+/** Writes `text` to a new temporary file beside `path` and puts it on disk, answering the temporary file's path; a failure removes it. */
 const writeTemporary = (path: string, text: string, fs: DurableFs): string => {
   const temporary = join(dirname(path), `.${basename(path)}.${randomUUID()}.tmp`);
   const fd = fs.openSync(temporary, "wx", 0o600);
   try {
-    fs.writeFileSync(fd, text);
-    fs.fsyncSync(fd);
-  } finally {
-    fs.closeSync(fd);
+    try {
+      fs.writeFileSync(fd, text);
+      fs.fsyncSync(fd);
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch (error) {
+    fs.rmSync(temporary, { force: true });
+    throw error;
   }
   return temporary;
 };
