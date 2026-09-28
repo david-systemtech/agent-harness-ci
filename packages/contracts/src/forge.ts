@@ -297,25 +297,30 @@ interface ForgeKindRules {
   readonly gitUsername: (login: string) => string;
   /** The base of the forge's REST API on an origin. */
   readonly apiBase: (origin: ForgeOrigin) => string;
+  /** The segment of a pull request's web URL between its repository and its number; null for a kind whose pull requests nothing reads yet. */
+  readonly pullRequestSegment: string | null;
 }
 
 /** Forgejo and Gitea share one provider over the Gitea API. */
 const GITEA_API: ForgeKindRules = {
   gitUsername: (login) => login,
   apiBase: (origin) => `${origin}/api/v1`,
+  pullRequestSegment: "pulls",
 };
 
 const KIND_RULES: Readonly<Record<ForgeKind, ForgeKindRules>> = {
   github: {
     gitUsername: () => "x-access-token",
     apiBase: (origin) => (origin === GITHUB_ORIGIN ? "https://api.github.com" : `${origin}/api/v3`),
+    pullRequestSegment: "pull",
   },
   forgejo: GITEA_API,
   gitea: GITEA_API,
-  // Milestone 2's (ADR 0033): git takes any username, and oauth2 is GitLab's own advice.
+  // Milestone 2's (ADR 0033): git takes any username, and oauth2 is GitLab's own advice; its merge requests are milestone 2's to read.
   gitlab: {
     gitUsername: () => "oauth2",
     apiBase: (origin) => `${origin}/api/v4`,
+    pullRequestSegment: null,
   },
 };
 
@@ -332,3 +337,36 @@ export const forgeGitUsername = (kind: ForgeKind, login: string): string => KIND
  * and Gitea, and `/api/v4` for the reserved GitLab.
  */
 export const forgeApiBase = (kind: ForgeKind, origin: ForgeOrigin): string => KIND_RULES[kind].apiBase(origin);
+
+/** A pull request as its web URL names it. */
+export interface PullRequestReference {
+  /** The forge origin the URL is on. */
+  readonly origin: ForgeOrigin;
+  readonly owner: string;
+  readonly repository: string;
+  readonly number: number;
+}
+
+/** An owner's or a repository's name in a web URL: letters, digits, `.`, `-` and `_`, never a dot segment. */
+const NAME_SEGMENT = /^(?!\.\.?$)[A-Za-z0-9._-]+$/;
+/** A pull request's number: a positive integer without leading zeros. */
+const NUMBER_SEGMENT = /^[1-9][0-9]*$/;
+
+/**
+ * Reads a pull request's web URL on a forge of `kind` (forge spec,
+ * "Providers"): GitHub's `/<owner>/<repository>/pull/<number>` on
+ * github.com or an Enterprise origin, Forgejo's and Gitea's
+ * `/<owner>/<repository>/pulls/<number>`, either followed by any page of it
+ * (`/files`), a query or a fragment. Any other URL, and every URL for the
+ * reserved GitLab, is null. Userinfo in the URL is never part of the answer.
+ */
+export const parsePullRequestUrl = (kind: ForgeKind, url: string): PullRequestReference | null => {
+  const segment = KIND_RULES[kind].pullRequestSegment;
+  const parts = urlParts(url.trim());
+  if (segment === null || parts === null || !isOriginScheme(parts.scheme)) return null;
+  const origin = originOf(parts.scheme, parts.host, parts.port);
+  const [, owner = "", repository = "", marker, number = ""] = parts.path.split("/");
+  if (origin === null || !NAME_SEGMENT.test(owner) || !NAME_SEGMENT.test(repository) || marker !== segment || !NUMBER_SEGMENT.test(number)) return null;
+  const value = Number(number);
+  return Number.isSafeInteger(value) ? { origin, owner, repository, number: value } : null;
+};

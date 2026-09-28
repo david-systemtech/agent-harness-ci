@@ -11,7 +11,9 @@ import {
   forgeOriginHost,
   matchForgeAccount,
   normaliseRemote,
+  parsePullRequestUrl,
   type ForgeRemote,
+  type PullRequestReference,
   type ForgeVariableNames,
 } from "./index.js";
 
@@ -297,5 +299,45 @@ describe("the API base", () => {
     ["gitlab", "https://gitlab.com", "https://gitlab.com/api/v4"],
   ] as const)("for %s on %s is %s", (kind, origin, base) => {
     expect(forgeApiBase(kind, origin)).toBe(base);
+  });
+});
+
+describe("the pull-request URL parser", () => {
+  const pr = (origin: string, owner: string, repository: string, number: number): PullRequestReference => ({ origin, owner, repository, number });
+
+  const table: [string, ForgeKind, string, PullRequestReference | null][] = [
+    // GitHub: /owner/repository/pull/number, on github.com or an Enterprise origin.
+    ["a github.com pull request", "github", "https://github.com/david/agent-harness/pull/12", pr("https://github.com", "david", "agent-harness", 12)],
+    ["a page of one, with a query and a fragment", "github", "https://github.com/david/agent-harness/pull/12/files?diff=split#r3", pr("https://github.com", "david", "agent-harness", 12)],
+    ["one with a trailing slash", "github", "https://github.com/david/agent-harness/pull/12/", pr("https://github.com", "david", "agent-harness", 12)],
+    ["one on an Enterprise origin with a port", "github", "https://GHE.Example.com:8443/team/app.web/pull/7", pr("https://ghe.example.com:8443", "team", "app.web", 7)],
+    ["one with userinfo, which is left out", "github", "https://x-access-token:t0ken@github.com/david/agent-harness/pull/12", pr("https://github.com", "david", "agent-harness", 12)],
+    ["Forgejo's shape on GitHub", "github", "https://github.com/david/agent-harness/pulls/12", null],
+    ["an issue", "github", "https://github.com/david/agent-harness/issues/12", null],
+    ["a repository", "github", "https://github.com/david/agent-harness", null],
+    ["the pull request list", "github", "https://github.com/david/agent-harness/pulls", null],
+    ["number 0", "github", "https://github.com/david/agent-harness/pull/0", null],
+    ["a number with a leading zero", "github", "https://github.com/david/agent-harness/pull/012", null],
+    ["a number past the safe integers", "github", "https://github.com/david/agent-harness/pull/9007199254740993", null],
+    ["a word for a number", "github", "https://github.com/david/agent-harness/pull/new", null],
+    ["an empty owner", "github", "https://github.com//agent-harness/pull/12", null],
+    ["a dot-segment owner", "github", "https://github.com/../agent-harness/pull/12", null],
+    ["an ssh remote", "github", "git@github.com:david/agent-harness.git", null],
+    ["another scheme", "github", "ftp://github.com/david/agent-harness/pull/12", null],
+    ["no URL at all", "github", "pull request 12", null],
+    // Forgejo and Gitea: /owner/repository/pulls/number.
+    ["a Forgejo pull request", "forgejo", "https://git.systemtech.dev:5526/david/agent-harness/pulls/309", pr("https://git.systemtech.dev:5526", "david", "agent-harness", 309)],
+    ["a Forgejo one's files on a tailnet alias", "forgejo", "http://100.101.102.103:3000/david/agent-harness/pulls/3/files", pr("http://100.101.102.103:3000", "david", "agent-harness", 3)],
+    ["GitHub's shape on Forgejo", "forgejo", "https://git.systemtech.dev:5526/david/agent-harness/pull/309", null],
+    ["a Forgejo issue", "forgejo", "https://git.systemtech.dev:5526/david/agent-harness/issues/309", null],
+    ["a Gitea pull request", "gitea", "https://gitea.com/gitea/tea/pulls/42", pr("https://gitea.com", "gitea", "tea", 42)],
+    ["GitHub's shape on Gitea", "gitea", "https://gitea.com/gitea/tea/pull/42", null],
+    // GitLab is reserved: its merge requests are milestone 2's.
+    ["a GitLab merge request", "gitlab", "https://gitlab.com/group/project/-/merge_requests/5", null],
+    ["GitHub's shape on the reserved GitLab", "gitlab", "https://gitlab.com/group/project/pull/5", null],
+  ];
+
+  it.each(table)("reads %s", (_, kind, url, expected) => {
+    expect(parsePullRequestUrl(kind, url)).toEqual(expected);
   });
 });
