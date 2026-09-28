@@ -370,6 +370,23 @@ describe("when a verification runs", () => {
   });
 });
 
+describe("a credential given while the forge asks for a pause", () => {
+  it("is verified at once all the same: the pause was the replaced credential's", async () => {
+    const { t, forge, client } = await withForge();
+    const account = await added(client, { url: forge.origin, kind: "forgejo" });
+    forge.answer(TOKEN, "GET /api/v1/user", { status: 429, headers: { "retry-after": String(60 * 60) } });
+    await verify(client, account.id);
+    forge.user(OTHER_TOKEN, DAVID);
+    forge.repositories(OTHER_TOKEN, []);
+
+    t.clock.advance(MINUTE);
+    await update(client, { forgeAccountId: account.id, credential: pasted(OTHER_TOKEN) });
+    t.clock.advance(0);
+
+    await vi.waitFor(async () => expect((await list(client))[0]?.capabilities.readRepository).toEqual(verifiedAt(after(MINUTE))));
+  });
+});
+
 describe("the state import's credential probe", () => {
   it("answers the identity and capabilities a credential has, on the repository its URL names, storing and recording nothing", async () => {
     const { t, forge, client } = await withForge();

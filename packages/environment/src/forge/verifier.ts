@@ -27,7 +27,8 @@ import { NOTHING_KNOWN, reconcile, verifyCredential, type Found, type Reconciled
  *   credential to the last answer, past which the forge account is
  *   `unreachable` and nothing else it found is taken.
  * - **Rate limits** a forge asks for pause the forge account's scheduled
- *   verifications until then; a request that is asked for still runs.
+ *   verifications until then; a request that is asked for still runs, and
+ *   a credential given ends the pause its predecessor drew.
  * - **Recorded only on a change.** `forge.account.verified`, as
  *   `system:forge` with no command id, when the identity, a capability, the
  *   token information or the problem's kind changed; `forge.account.updated`
@@ -262,6 +263,8 @@ export const createVerifier = (options: VerifierOptions): Verifier => {
     credentialGiven(forgeAccountId) {
       timers.get(forgeAccountId)?.cancel();
       timers.delete(forgeAccountId);
+      // A pause was asked of the credential replaced: the one given is verified at once, and a forge that limits it asks again.
+      pausedUntil.delete(forgeAccountId);
       arm(forgeAccountId, 0);
     },
     removed(forgeAccountId) {
