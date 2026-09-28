@@ -29,11 +29,16 @@ import { SessionId, SessionSummary, SummaryPatch, Workspace } from "./sessions.j
  * Every other transcript type changes nothing a client lists, and is not.
  */
 
-/** Where a run came from: a client's `runs.start` or `runs.send`, a routine's firing, the completions surface, or a turn the provider opened itself. */
-export const RUN_ORIGINS = ["client", "routine", "completions", "provider"] as const;
+/**
+ * Where a run came from: a client's `runs.start` or `runs.send`, a routine's
+ * firing, the completions surface, a turn the provider opened itself, or the
+ * turn that continues a run an update cut (launcher-update spec, "Interrupted
+ * runs and parked prompts").
+ */
+export const RUN_ORIGINS = ["client", "routine", "completions", "provider", "update"] as const;
 export const RunOrigin = z.enum(RUN_ORIGINS).meta({
   description:
-    "Where a run came from: client (runs.start or runs.send, or the environment's queue after a client's run), routine, completions, or provider (a turn the provider opened itself, adopted as a run).",
+    "Where a run came from: client (runs.start or runs.send, or the environment's queue after a client's run), routine, completions, provider (a turn the provider opened itself, adopted as a run), or update (the turn that continues a run an update cut, started as system:updates).",
 });
 export type RunOrigin = z.infer<typeof RunOrigin>;
 

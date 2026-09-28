@@ -104,9 +104,10 @@
           "enum": [
             "command",
             "launcher",
-            "signal"
+            "signal",
+            "update"
           ],
-          "description": "What started a drain: command (environment.drain from a client session), launcher (the launcher's drain query), signal (SIGTERM or SIGINT)."
+          "description": "What started a drain: command (environment.drain from a client session), launcher (the launcher's drain query), signal (SIGTERM or SIGINT), update (the update coordinator, before the switch to a new version)."
         }
       },
       "required": [

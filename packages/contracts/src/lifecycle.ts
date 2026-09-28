@@ -20,11 +20,15 @@ export const BusyReason = z.enum(BUSY_REASONS).meta({
 });
 export type BusyReason = z.infer<typeof BusyReason>;
 
-/** What starts a drain: `environment.drain`, the launcher's drain query, or SIGTERM or SIGINT. */
-export const DRAIN_TRIGGERS = ["command", "launcher", "signal"] as const;
+/**
+ * What starts a drain: `environment.drain`, the launcher's drain query,
+ * SIGTERM or SIGINT, or the update coordinator draining for an update
+ * (launcher-update spec, "Draining"), which ends with `bye: updating`.
+ */
+export const DRAIN_TRIGGERS = ["command", "launcher", "signal", "update"] as const;
 export const DrainTrigger = z.enum(DRAIN_TRIGGERS).meta({
   description:
-    "What started a drain: command (environment.drain from a client session), launcher (the launcher's drain query), signal (SIGTERM or SIGINT).",
+    "What started a drain: command (environment.drain from a client session), launcher (the launcher's drain query), signal (SIGTERM or SIGINT), update (the update coordinator, before the switch to a new version).",
 });
 export type DrainTrigger = z.infer<typeof DrainTrigger>;
 

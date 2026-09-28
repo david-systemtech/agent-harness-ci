@@ -335,7 +335,7 @@ export const runSchemaFixtures: Record<string, Fixtures> = {
   "adapter/delegated-work-status.json": { valid: ["pending", "running", "paused", "completed", "failed", "stopped"], invalid: ["done", ""] },
   "adapter/delegated-work-row.json": { valid: [task, settledTask], invalid: [{ ...task, status: "done" }, { ...task, taskId: "" }, { ...task, startedAt: "now" }] },
   "adapter/run-suggestion.json": { valid: [{ runId, suggestion: "Now run the tests" }], invalid: [{ runId, suggestion: "" }, { suggestion: "x" }] },
-  "transcript/run-origin.json": { valid: ["client", "routine", "completions", "provider"], invalid: ["tui", ""] },
+  "transcript/run-origin.json": { valid: ["client", "routine", "completions", "provider", "update"], invalid: ["tui", ""] },
   "transcript/run-end-reason.json": { valid: ["completed", "error", "interrupted", "disposed", "drained"], invalid: ["cancelled", ""] },
   "transcript/interrupt-cause.json": { valid: ["user", "read-now", "restart", "parked"], invalid: ["drain", ""] },
   "transcript/attachment-kind.json": { valid: ["image", "file"], invalid: ["audio", ""] },
