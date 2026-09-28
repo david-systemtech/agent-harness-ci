@@ -14,6 +14,7 @@ export * from "./event-types.js";
 export * from "./errors.js";
 export * from "./flags.js";
 export * from "./frames.js";
+export * from "./launcher.js";
 export * from "./lifecycle.js";
 export * from "./notices.js";
 export * from "./one-off.js";

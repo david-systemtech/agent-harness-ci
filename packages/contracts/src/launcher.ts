@@ -1,0 +1,244 @@
+import type { EnvironmentReadiness } from "./discovery.js";
+import type { BusyReason, DrainStarted, DrainTrigger, EnvironmentStatus } from "./lifecycle.js";
+
+/**
+ * What the environment and its launcher share (launcher-update spec, "The
+ * channel" and "Versions and the launcher"): the messages on the IPC channel
+ * the launcher spawns the environment with, and the files in the data
+ * directory both of them touch. This is their one definition. It is plain
+ * data and loads nothing at run time (every import above is a type), so the
+ * launcher, which runs on Node's built-ins, reads it alone through
+ * `@agent-harness/contracts/launcher`.
+ *
+ * The channel carries requests both ways, each answered once. The launcher
+ * asks `idle?` (answered `idle` with the status document) and `drain?`
+ * (answered `draining` with how the drain began). The environment says
+ * `prepared {version}` once its startup gate is passed, and the launcher
+ * answers `committed`; it asks `install? {version, staged}` (answered
+ * `installed` or `refused`), `switch? {updateId, version}` (`switching` or
+ * `refused`) and `versions?` (`versions`). The environment's requests carry
+ * an id their answer repeats, since several may be outstanding at once. A
+ * message either side does not know is read as nothing and ignored, never an
+ * error.
+ */
+
+/**
+ * The launcher protocol these messages and files are: one integer, raised on
+ * a change a launcher must understand. Each release's environment runs under
+ * the previous release's launcher, so a breaking change ships across two
+ * releases, and `install?` refuses a version that needs a higher one.
+ */
+export const LAUNCHER_PROTOCOL = 1;
+
+/** The launcher's queries: whether the environment is idle, and to drain. */
+export type LauncherQuery = { readonly type: "idle?" } | { readonly type: "drain?" };
+
+/** The environment's reply to a `LauncherQuery`: its status document, or how the drain began (or the one under way). */
+export type LauncherReply = ({ readonly type: "idle" } & EnvironmentStatus) | ({ readonly type: "draining" } & DrainStarted);
+
+/** The environment's startup gate is passed, running `version`: the launcher answers `committed` once it has committed that version. */
+export interface PreparedMessage {
+  readonly type: "prepared";
+  readonly version: string;
+}
+
+/** The launcher has committed the version that said `prepared`: the environment may now serve. */
+export interface CommittedMessage {
+  readonly type: "committed";
+}
+
+/**
+ * What the environment asks the launcher: to install the version unpacked at
+ * `staged` in the staging area, to switch to an installed version for an
+ * update, or which versions are installed.
+ */
+export type EnvironmentRequest =
+  | { readonly type: "install?"; readonly version: string; readonly staged: string }
+  | { readonly type: "switch?"; readonly updateId: string; readonly version: string }
+  | { readonly type: "versions?" };
+
+/**
+ * Why the launcher refuses an install: the version needs a higher launcher
+ * protocol than it speaks, the staged folder is not a whole version, its
+ * preflight failed or timed out, the disk is too full, or a write failed.
+ */
+export const INSTALL_REFUSALS = ["launcher-protocol", "incomplete", "preflight", "disk", "io"] as const;
+export type InstallRefusal = (typeof INSTALL_REFUSALS)[number];
+
+/**
+ * Why the launcher refuses a switch: the version is not installed, the disk
+ * has no room for the database's snapshot, or a write failed.
+ */
+export const SWITCH_REFUSALS = ["not-installed", "disk", "io"] as const;
+export type SwitchRefusal = (typeof SWITCH_REFUSALS)[number];
+
+/** The launcher's answer to `install?`. */
+export type InstallAnswer = { readonly type: "installed" } | { readonly type: "refused"; readonly reason: InstallRefusal };
+
+/** The launcher's answer to `switch?`: after `switching` the environment closes, the channel last. */
+export type SwitchAnswer = { readonly type: "switching" } | { readonly type: "refused"; readonly reason: SwitchRefusal };
+
+/** The launcher's answer to `versions?`: the versions installed, and the launcher's own version and protocol. */
+export interface VersionsAnswer {
+  readonly type: "versions";
+  readonly installed: readonly string[];
+  readonly launcherVersion: string;
+  readonly launcherProtocol: number;
+}
+
+/** The answer each request takes. */
+export interface RequestAnswers {
+  readonly "install?": InstallAnswer;
+  readonly "switch?": SwitchAnswer;
+  readonly "versions?": VersionsAnswer;
+}
+
+/** Any answer to an environment request. */
+export type LauncherAnswer = RequestAnswers[keyof RequestAnswers];
+
+/** On the channel, a request and its answer carry the id the environment gave the request. */
+export type Numbered<T> = T & { readonly id: number };
+
+/** Everything the environment sends the launcher. */
+export type EnvironmentMessage = PreparedMessage | Numbered<EnvironmentRequest> | LauncherReply;
+
+/** Everything the launcher sends the environment. */
+export type LauncherMessage = CommittedMessage | Numbered<LauncherAnswer> | LauncherQuery;
+
+/** Whether `message` answers a request of `type`: the answer kinds it takes, a refusal only for a reason it can be refused for. */
+export const answersRequest = (type: EnvironmentRequest["type"], message: LauncherMessage): boolean => {
+  switch (type) {
+    case "install?":
+      return message.type === "installed" || (message.type === "refused" && isOneOf(INSTALL_REFUSALS, message.reason));
+    case "switch?":
+      return message.type === "switching" || (message.type === "refused" && isOneOf(SWITCH_REFUSALS, message.reason));
+    case "versions?":
+      return message.type === "versions";
+  }
+};
+
+type Fields = Readonly<Record<string, unknown>>;
+
+const isFields = (value: unknown): value is Fields => typeof value === "object" && value !== null && !Array.isArray(value);
+const isText = (value: unknown): value is string => typeof value === "string" && value.length > 0;
+const isCount = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) > 0;
+const isOneOf = <T extends string>(values: readonly T[], value: unknown): value is T => values.includes(value as T);
+/** The keys of a record over a contracts enum, which a new member of that enum makes the compiler ask for here. */
+const keysOf = <T extends string>(members: Record<T, true>): readonly T[] => Object.keys(members) as T[];
+
+const READINESS = keysOf<EnvironmentReadiness>({ starting: true, ready: true, draining: true });
+const BUSY_REASONS = keysOf<BusyReason>({ "run-starting": true, "run-running": true, "parked-prompt": true, "recent-activity": true });
+const DRAIN_TRIGGERS = keysOf<DrainTrigger>({ command: true, launcher: true, signal: true });
+const REFUSALS: readonly (InstallRefusal | SwitchRefusal)[] = [...new Set([...INSTALL_REFUSALS, ...SWITCH_REFUSALS])];
+
+const activityOf = (value: unknown): EnvironmentStatus["activity"] | undefined => {
+  if (!isFields(value)) return undefined;
+  if (value["state"] === "idle") return { state: "idle" };
+  if (value["state"] === "draining") return isText(value["drainingSince"]) ? { state: "draining", drainingSince: value["drainingSince"] } : undefined;
+  if (value["state"] !== "busy" || !isOneOf(BUSY_REASONS, value["reason"])) return undefined;
+  const busyUntil = value["busyUntil"];
+  if (busyUntil === undefined) return { state: "busy", reason: value["reason"] };
+  return isText(busyUntil) ? { state: "busy", reason: value["reason"], busyUntil } : undefined;
+};
+
+/**
+ * The launcher's message `value` is, as the environment reads it: a message
+ * it does not know, or one missing what its kind needs, is undefined, and
+ * fields no kind defines are dropped.
+ */
+export const parseLauncherMessage = (value: unknown): LauncherMessage | undefined => {
+  if (!isFields(value)) return undefined;
+  const { type, id } = value;
+  switch (type) {
+    case "committed":
+    case "idle?":
+    case "drain?":
+      return { type };
+    case "installed":
+    case "switching":
+      return isCount(id) ? { type, id } : undefined;
+    case "refused": {
+      const { reason } = value;
+      if (!isCount(id) || !isOneOf(REFUSALS, reason)) return undefined;
+      return { type, id, reason };
+    }
+    case "versions": {
+      const { installed, launcherVersion, launcherProtocol } = value;
+      if (!isCount(id) || !Array.isArray(installed) || !installed.every(isText)) return undefined;
+      if (!isText(launcherVersion) || !isCount(launcherProtocol)) return undefined;
+      return { type, id, installed: [...installed], launcherVersion, launcherProtocol };
+    }
+    default:
+      return undefined;
+  }
+};
+
+/**
+ * The environment's message `value` is, as the launcher reads it: a message
+ * it does not know, or one missing what its kind needs, is undefined, and
+ * fields no kind defines are dropped.
+ */
+export const parseEnvironmentMessage = (value: unknown): EnvironmentMessage | undefined => {
+  if (!isFields(value)) return undefined;
+  const { type, id, version } = value;
+  switch (type) {
+    case "prepared":
+      return isText(version) ? { type, version } : undefined;
+    case "install?":
+      return isCount(id) && isText(version) && isText(value["staged"]) ? { type, id, version, staged: value["staged"] } : undefined;
+    case "switch?":
+      return isCount(id) && isText(version) && isText(value["updateId"]) ? { type, id, updateId: value["updateId"], version } : undefined;
+    case "versions?":
+      return isCount(id) ? { type, id } : undefined;
+    case "idle": {
+      const { readiness, updatesManagedOutside } = value;
+      const activity = activityOf(value["activity"]);
+      if (!isOneOf(READINESS, readiness) || activity === undefined || typeof updatesManagedOutside !== "boolean") return undefined;
+      return { type, readiness, activity, updatesManagedOutside };
+    }
+    case "draining": {
+      const { drainingSince, trigger } = value;
+      return isText(drainingSince) && isOneOf(DRAIN_TRIGGERS, trigger) ? { type, drainingSince, trigger } : undefined;
+    }
+    default:
+      return undefined;
+  }
+};
+
+/**
+ * The staging area, a directory in the data directory: where the environment
+ * unpacks a version before `install?` names its folder. Of the files the
+ * launcher owns there, the environment writes only this.
+ */
+export const STAGING_DIRECTORY = "staging";
+
+/**
+ * The outcome record, a file in the data directory: written by whoever rolled
+ * an update back (the launcher after a failed trial or a crash loop, the
+ * container's `update restore`), read by the environment as it settles that
+ * update, and deleted by it once settled.
+ */
+export const OUTCOME_RECORD_FILE = "update-outcome.json";
+
+/** Where an update failed and was rolled back: its trial (the startup gate), or the crash-loop watch after its commit. */
+export const OUTCOME_STAGES = ["trial", "crash-loop"] as const;
+export type OutcomeStage = (typeof OUTCOME_STAGES)[number];
+
+/** The outcome record's contents: which update was rolled back, from and to which versions, at which stage, and why. */
+export interface OutcomeRecord {
+  readonly updateId: string;
+  readonly fromVersion: string;
+  readonly toVersion: string;
+  readonly stage: OutcomeStage;
+  /** A short code the writer names the failure with, such as `deadline` for a trial that missed its gate. */
+  readonly reason: string;
+}
+
+/** Whether `value` is an outcome record: every part present, the stage one a rollback has. */
+export const isOutcomeRecord = (value: unknown): value is OutcomeRecord =>
+  isFields(value) &&
+  isText(value["updateId"]) &&
+  isText(value["fromVersion"]) &&
+  isText(value["toVersion"]) &&
+  isOneOf(OUTCOME_STAGES, value["stage"]) &&
+  isText(value["reason"]);
