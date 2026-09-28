@@ -417,7 +417,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // Pushed first, so it is let go last: every line the environment writes to its standard error passes the scrub
   // registry from here to the end of its close, and of a failed start's (ADR 0011).
   closers.push(scrubDiagnosticOutput((text) => scrub.scrub(text)));
-  // Pushed next, so it closes after everything else: after the listener and the event log, and after a failed start too.
+  // Pushed next, so it closes after everything else the environment opens, and only the scrub above is let go after it:
+  // after the listener and the event log, and after a failed start too.
   closers.push(() => launcher.close());
   // Concurrent closes share one attempt; a close after a failed one retries what did not close.
   let closing: Promise<void> | undefined;
