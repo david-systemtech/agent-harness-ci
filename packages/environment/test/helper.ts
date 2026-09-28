@@ -130,7 +130,16 @@ export interface TestEnvironmentOptions {
   readonly harnessCommand?: EnvironmentOptions["harnessCommand"];
   /** Reads the bundled Claude Code's version; preset: `TEST_CLAUDE_CODE_VERSION`, so no test runs the real binary. */
   readonly claudeCodeVersion?: EnvironmentOptions["claudeCodeVersion"];
+  /**
+   * Where the release channel is read (`test/release-source.ts` makes a fake
+   * one); preset `NO_RELEASE_SOURCE`, which refuses every connection, so no
+   * test reads the project's own releases.
+   */
+  readonly releaseSource?: EnvironmentOptions["releaseSource"];
 }
+
+/** The release source a test environment reads unless told otherwise: a loopback port nothing listens on, so a check fails at once, unreachable. */
+export const NO_RELEASE_SOURCE = { origin: "http://127.0.0.1:1", kind: "forgejo", repository: "david/agent-harness" } as const;
 
 /** A PATH with nothing on it: where a test environment looks for `gh` unless the test gives it one. */
 export const EMPTY_PATH = "/nonexistent/agent-harness-test-path";
@@ -299,6 +308,7 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
     ...(options.vault !== undefined && { vault: options.vault }),
     ...(options.harnessCommand !== undefined && { harnessCommand: options.harnessCommand }),
     claudeCodeVersion: options.claudeCodeVersion ?? (async () => TEST_CLAUDE_CODE_VERSION),
+    releaseSource: options.releaseSource ?? NO_RELEASE_SOURCE,
     signInProcess: { spawn: refusingSpawn, bundled: TEST_BUNDLED_CLAUDE, managedTool: () => null, hostEnv: { PATH: "/usr/bin" }, ...options.signInProcess },
   };
   let env: EnvironmentHandle;
