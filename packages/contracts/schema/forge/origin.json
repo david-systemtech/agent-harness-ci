@@ -1,0 +1,7 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ForgeOrigin",
+  "type": "string",
+  "pattern": "^(?:https:\\/\\/(?:[a-z0-9_-]+(?:\\.[a-z0-9_-]+)*|\\[[0-9a-f:.]+\\])(?::(?!443$)(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?|http:\\/\\/(?:[a-z0-9_-]+(?:\\.[a-z0-9_-]+)*|\\[[0-9a-f:.]+\\])(?::(?!80$)(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?)$",
+  "description": "A forge origin: https, or http for a LAN or tailnet instance, then the host in lower case and a port only when it is not the scheme's default (https://git.example.com:5526); no userinfo, path or trailing slash."
+}

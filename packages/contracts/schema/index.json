@@ -735,6 +735,18 @@
       "title": "SignInExecutableChosenPayload"
     },
     {
+      "path": "forge/kind.json",
+      "title": "ForgeKind"
+    },
+    {
+      "path": "forge/origin.json",
+      "title": "ForgeOrigin"
+    },
+    {
+      "path": "forge/slug.json",
+      "title": "ForgeSlug"
+    },
+    {
       "path": "usage/verdict.json",
       "title": "UsageVerdict"
     },

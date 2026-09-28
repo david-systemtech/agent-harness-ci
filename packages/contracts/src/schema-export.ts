@@ -41,6 +41,7 @@ import {
   WireError,
 } from "./errors.js";
 import { CapabilityFlag, CapabilityFlags, PROTOCOL_VERSION, ProtocolVersion } from "./flags.js";
+import { ForgeKind, ForgeOrigin, ForgeSlug } from "./forge.js";
 import { ByeReason, EndReason, FRAME_SCHEMAS, FRAME_TYPES, Frame } from "./frames.js";
 import {
   ClientKind,
@@ -390,6 +391,9 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "accounts/sign-in-code.json", title: "SignInCode", schema: SignInCode },
   { path: "accounts/sign-in-executable-source.json", title: "SignInExecutableSource", schema: SignInExecutableSource },
   { path: "accounts/sign-in-executable-chosen.json", title: "SignInExecutableChosenPayload", schema: SignInExecutableChosenPayload },
+  { path: "forge/kind.json", title: "ForgeKind", schema: ForgeKind },
+  { path: "forge/origin.json", title: "ForgeOrigin", schema: ForgeOrigin },
+  { path: "forge/slug.json", title: "ForgeSlug", schema: ForgeSlug },
   { path: "usage/verdict.json", title: "UsageVerdict", schema: UsageVerdict },
   { path: "usage/window.json", title: "UsageWindow", schema: UsageWindow },
   { path: "usage/account-usage.json", title: "AccountUsage", schema: AccountUsage },
