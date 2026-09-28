@@ -25,8 +25,10 @@ export type ForgeKind = z.infer<typeof ForgeKind>;
 
 /** One host label as an origin writes it: lower case, digits, `-` and `_`. */
 const LABEL = "[a-z0-9_-]+";
-/** A host as an origin writes it: a lower-case name or IPv4 address, or a bracketed IPv6 literal. */
-const HOST = `(?:${LABEL}(?:\\.${LABEL})*|\\[[0-9a-f:.]+\\])`;
+/** A host name or IPv4 address. */
+const NAME = `${LABEL}(?:\\.${LABEL})*`;
+/** A bracketed IPv6 literal, as written. */
+const IPV6 = "\\[[0-9a-f:.]+\\]";
 /** A port from 1 to 65535, without leading zeros. */
 const PORT = "(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])";
 
@@ -38,18 +40,43 @@ const PORT = "(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|65
  */
 export const ForgeOrigin = z
   .string()
-  .regex(new RegExp(`^(?:https://${HOST}(?::(?!443$)${PORT})?|http://${HOST}(?::(?!80$)${PORT})?)$`))
+  .regex(new RegExp(`^(?:https://(?:${NAME}|${IPV6})(?::(?!443$)${PORT})?|http://(?:${NAME}|${IPV6})(?::(?!80$)${PORT})?)$`))
   .meta({
     description:
       "A forge origin: https, or http for a LAN or tailnet instance, then the host in lower case and a port only when it is not the scheme's default (https://git.example.com:5526); no userinfo, path or trailing slash.",
   });
 export type ForgeOrigin = z.infer<typeof ForgeOrigin>;
 
-/** The canonical origin of an `http` or `https` URL, or null when its host is not one an origin can hold. */
-const originOf = (url: URL): ForgeOrigin | null => {
-  const origin = url.origin;
-  return ForgeOrigin.safeParse(origin).success ? origin : null;
+/** An origin's two schemes, each with its default port. */
+const DEFAULT_PORTS = { https: 443, http: 80 } as const;
+type OriginScheme = keyof typeof DEFAULT_PORTS;
+const isOriginScheme = (scheme: string): scheme is OriginScheme => Object.hasOwn(DEFAULT_PORTS, scheme);
+
+/** A host as a remote may spell it: a name or IPv4 address in any case, or a bracketed IPv6 literal. */
+const REMOTE_HOST = new RegExp(`^(?:${NAME}|${IPV6})$`, "i");
+
+/**
+ * The origin of a scheme, a host and a port (digits, or empty for none) as a
+ * remote spells them: the host lower-cased, the port read as a number and
+ * left out when it is the scheme's default; null for a host an origin cannot
+ * hold or a port out of range.
+ */
+const originOf = (scheme: OriginScheme, host: string, port: string): ForgeOrigin | null => {
+  if (!REMOTE_HOST.test(host)) return null;
+  const number = port === "" ? DEFAULT_PORTS[scheme] : Number(port);
+  if (number < 1 || number > 65535) return null;
+  return `${scheme}://${host.toLowerCase()}${number === DEFAULT_PORTS[scheme] ? "" : `:${number}`}`;
 };
+
+/** An origin's parts: its host and its port, empty for the default. */
+const ORIGIN_PARTS = /^https?:\/\/(\[[^\]]+\]|[^:]+)(?::(\d+))?$/;
+const originParts = (origin: ForgeOrigin): { readonly host: string; readonly port: string } => {
+  const [, host = "", port = ""] = ORIGIN_PARTS.exec(origin) ?? [];
+  return { host, port };
+};
+
+/** An origin's host: lower case, without its port; an IPv6 literal keeps its brackets. Empty for a string that is no origin. */
+export const forgeOriginHost = (origin: ForgeOrigin): string => originParts(origin).host;
 
 // The normaliser ----------------------------------------------------------------
 
@@ -65,8 +92,29 @@ export interface ForgeRemote {
   readonly userinfoDropped: boolean;
 }
 
-/** A URL form's scheme: letters, digits, `+`, `-` and `.`, then `://`. */
-const URL_FORM = /^([a-z][a-z0-9+.-]*):\/\//i;
+/** A URL: its scheme, then `//`, the authority, and the path before any query or fragment. */
+const URL_FORM = /^([a-z][a-z0-9+.-]*):\/\/([^/?#]*)([^?#]*)/is;
+/** An authority: userinfo up to its last `@`, the host, and a port. */
+const AUTHORITY = /^(?:(.*)@)?(\[[^\]]*\]|[^:]*)(?::(\d*))?$/s;
+
+/** A URL's parts, or null for text that is no URL. */
+interface UrlParts {
+  readonly scheme: string;
+  /** The userinfo, or null when there is no `@`. */
+  readonly userinfo: string | null;
+  readonly host: string;
+  /** The port's digits, or empty for none. */
+  readonly port: string;
+  readonly path: string;
+}
+const urlParts = (text: string): UrlParts | null => {
+  const url = URL_FORM.exec(text);
+  const authority = AUTHORITY.exec(url?.[2] ?? "");
+  if (url === null || authority === null) return null;
+  const [, scheme = "", , path = ""] = url;
+  const [, userinfo = null, host = "", port = ""] = authority;
+  return { scheme: scheme.toLowerCase(), userinfo, host, port, path };
+};
 
 /** A path's segments without empty ones, the last without one trailing `.git`; null when none remain. */
 const repositoryPath = (path: string): string | null => {
@@ -74,13 +122,6 @@ const repositoryPath = (path: string): string | null => {
   const last = segments.pop()?.replace(/\.git$/i, "");
   if (last !== undefined && last !== "") segments.push(last);
   return segments.length === 0 ? null : segments.join("/");
-};
-
-/** An `http` or `https` remote. */
-const webRemote = (url: URL): ForgeRemote | null => {
-  const origin = originOf(url);
-  if (origin === null) return null;
-  return { origin, path: repositoryPath(url.pathname), sshDerived: false, userinfoDropped: url.username !== "" || url.password !== "" };
 };
 
 /** The URL schemes git reaches a host over ssh or its own protocol with; each maps to the host's `https` origin. */
@@ -96,15 +137,21 @@ const GITHUB_HOST = "github.com";
  * `ssh.github.com` read as `github.com`.
  */
 const sshDerivedRemote = (host: string, path: string, userinfoDropped: boolean): ForgeRemote | null => {
-  const lower = host.toLowerCase();
-  let url: URL;
-  try {
-    url = new URL(`https://${lower === GITHUB_SSH_HOST ? GITHUB_HOST : lower}`);
-  } catch {
-    return null;
-  }
-  const origin = originOf(url);
+  const origin = originOf("https", host.toLowerCase() === GITHUB_SSH_HOST ? GITHUB_HOST : host, "");
   return origin === null ? null : { origin, path: repositoryPath(path), sshDerived: true, userinfoDropped };
+};
+
+/**
+ * A URL-form remote: `https` and `http` keep their scheme and port, and any
+ * userinfo is reported; ssh's three spellings and `git://` are ssh-derived,
+ * reporting only a password; any other scheme is not a remote.
+ */
+const urlRemote = ({ scheme, userinfo, host, port, path }: UrlParts): ForgeRemote | null => {
+  if (isOriginScheme(scheme)) {
+    const origin = originOf(scheme, host, port);
+    return origin === null ? null : { origin, path: repositoryPath(path), sshDerived: false, userinfoDropped: userinfo !== null };
+  }
+  return SSH_DERIVED_SCHEMES.has(scheme) ? sshDerivedRemote(host, path, userinfo?.includes(":") ?? false) : null;
 };
 
 /**
@@ -113,10 +160,7 @@ const sshDerivedRemote = (host: string, path: string, userinfoDropped: boolean):
  * drive (`C:\repo`) or a bare word before a colon stays a local path.
  */
 const SCP_FORM = /^(?:([^@/]*)@)?(\[[0-9a-f:.]+\]|[^@/:[\]]+):(.*)$/is;
-const SCP_HOST = /^(?:[a-z0-9_-]+(?:\.[a-z0-9_-]+)+|localhost|\[[0-9a-f:.]+\])$/i;
-
-/** The rest of a bare `host:port`: the port, then nothing or a path. */
-const BARE_PORT = /^(\d{1,5})(?:\/(.*))?$/s;
+const SCP_HOST = new RegExp(`^(?:${LABEL}(?:\\.${LABEL})+|localhost|${IPV6})$`, "i");
 
 /**
  * A bare `host:port[/path]`, as a URL is pasted without its scheme: `https`
@@ -124,17 +168,10 @@ const BARE_PORT = /^(\d{1,5})(?:\/(.*))?$/s;
  * first segment is a number, a remote no forge serves; with a user, or a
  * port out of range, it stays git's scp form.
  */
+const BARE_PORT = /^(\d{1,5})(?:\/(.*))?$/s;
 const bareHostPortRemote = (host: string, rest: string): ForgeRemote | null => {
-  const bare = BARE_PORT.exec(rest);
-  if (bare === null) return null;
-  const [, port = "", path = ""] = bare;
-  let url: URL;
-  try {
-    url = new URL(`https://${host}:${port}`);
-  } catch {
-    return null;
-  }
-  const origin = originOf(url);
+  const [, port, path = ""] = BARE_PORT.exec(rest) ?? [];
+  const origin = port === undefined ? null : originOf("https", host, port);
   return origin === null ? null : { origin, path: repositoryPath(path), sshDerived: false, userinfoDropped: false };
 };
 
@@ -147,33 +184,18 @@ const schemelessRemote = (text: string): ForgeRemote | null => {
   return (user === undefined ? bareHostPortRemote(host, rest) : null) ?? sshDerivedRemote(host, rest, user?.includes(":") ?? false);
 };
 
-/** A URL-form remote: `https`, `http`, ssh's three spellings or `git://`; any other scheme is not a remote. */
-const urlRemote = (text: string, scheme: string): ForgeRemote | null => {
-  let url: URL;
-  try {
-    url = new URL(text);
-  } catch {
-    return null;
-  }
-  if (scheme === "https" || scheme === "http") return webRemote(url);
-  if (SSH_DERIVED_SCHEMES.has(scheme) && url.hostname !== "") return sshDerivedRemote(url.hostname, url.pathname, url.password !== "");
-  return null;
-};
-
 /**
- * Maps a remote, in any spelling git takes, to its forge origin and
- * repository path; null for anything that is not a remote (a local path).
+ * Maps a remote, in any spelling git takes (https, http, ssh, `git://`,
+ * scp-like, a bare `host:port`), to its forge origin and repository path;
+ * null for anything that is not a remote, a local path above all.
  */
 export const normaliseRemote = (remote: string): ForgeRemote | null => {
   const text = remote.trim();
-  const scheme = URL_FORM.exec(text)?.[1];
-  return scheme === undefined ? schemelessRemote(text) : urlRemote(text, scheme.toLowerCase());
+  const url = urlParts(text);
+  return url === null ? schemelessRemote(text) : urlRemote(url);
 };
 
 // Matching --------------------------------------------------------------------
-
-/** An origin's host: lower case, without its port; an IPv6 literal keeps its brackets. */
-export const forgeOriginHost = (origin: ForgeOrigin): string => new URL(origin).hostname;
 
 /** What matching reads of a forge account: its canonical origin and its verified aliases. */
 export interface ForgeAccountOrigins {
@@ -232,10 +254,9 @@ const cut = (text: string, length: number): string => text.slice(0, length).repl
  */
 export const deriveForgeSlug = (origin: ForgeOrigin, taken: Iterable<string>): ForgeSlug => {
   const used = new Set(taken);
-  const host = forgeOriginHost(origin);
+  const { host, port } = originParts(origin);
   // Only the unspecified IPv6 address has no letter or digit to keep.
   const base = host === GITHUB_HOST ? "github" : host.replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "forge";
-  const { port } = new URL(origin);
   const withPort = port === "" ? "" : `_${port}`;
   const slugWith = (suffix: string): string => `${cut(base, FORGE_SLUG_MAX - suffix.length)}${suffix}`;
   for (const suffix of ["", withPort]) if (!used.has(slugWith(suffix))) return slugWith(suffix);
