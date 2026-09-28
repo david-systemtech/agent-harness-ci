@@ -17,6 +17,7 @@ import { sessionMethodFixtures, sessionSchemaFixtures } from "./session-fixtures
 import { settingsMethodFixtures, settingsSchemaFixtures } from "./settings-fixtures.js";
 import { setupMethodFixtures, setupSchemaFixtures } from "./setup-fixtures.js";
 import { terminalMethodFixtures, terminalSchemaFixtures } from "./terminal-fixtures.js";
+import { updateSchemaFixtures } from "./update-fixtures.js";
 import { usageMethodFixtures, usageSchemaFixtures } from "./usage-fixtures.js";
 
 const uuid = "0f8fad5b-d9cb-469f-a165-70867728950e";
@@ -807,5 +808,6 @@ export const schemaFixtures: Record<string, Fixtures> = {
   ...usageSchemaFixtures,
   ...terminalSchemaFixtures,
   ...completionsSchemaFixtures,
+  ...updateSchemaFixtures,
   ...methodSchemaFixtures,
 };

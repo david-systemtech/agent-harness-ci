@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ReleaseChannel",
+  "type": "string",
+  "enum": [
+    "stable",
+    "beta"
+  ],
+  "description": "Which releases the environment follows: stable (the newest release without a prerelease part) or beta (the newest of all, prereleases included); a pinned version follows neither."
+}

@@ -87,6 +87,10 @@
       "title": "HealthDocument"
     },
     {
+      "path": "release/release-version.json",
+      "title": "ReleaseVersion"
+    },
+    {
       "path": "lifecycle/busy-reason.json",
       "title": "BusyReason"
     },
@@ -1195,6 +1199,26 @@
       "title": "ProcessIdleMinutes"
     },
     {
+      "path": "settings/keys/updates.autoUpdate.json",
+      "title": "AutoUpdate"
+    },
+    {
+      "path": "settings/keys/updates.channel.json",
+      "title": "ReleaseChannel"
+    },
+    {
+      "path": "settings/keys/updates.pinnedVersion.json",
+      "title": "PinnedVersion"
+    },
+    {
+      "path": "settings/keys/updates.idleWindowMinutes.json",
+      "title": "IdleWindowMinutes"
+    },
+    {
+      "path": "settings/keys/updates.deferralCapHours.json",
+      "title": "DeferralCapHours"
+    },
+    {
       "path": "settings/settings-values.json",
       "title": "SettingsValues"
     },
@@ -1205,6 +1229,14 @@
     {
       "path": "settings/settings-event-type.json",
       "title": "SettingsEventType"
+    },
+    {
+      "path": "updates/settings-values.json",
+      "title": "UpdateSettingsValues"
+    },
+    {
+      "path": "updates/settings-patch.json",
+      "title": "UpdateSettingsPatch"
     },
     {
       "path": "setup/registered-step-id.json",

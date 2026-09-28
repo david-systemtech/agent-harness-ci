@@ -79,6 +79,16 @@ import {
   TranscriptCompactAfterDays,
 } from "./settings.js";
 import { isCommand } from "./method.js";
+import { ReleaseVersion } from "./release.js";
+import {
+  AutoUpdate,
+  DeferralCapHours,
+  IdleWindowMinutes,
+  PinnedVersion,
+  ReleaseChannel,
+  UpdateSettingsPatch,
+  UpdateSettingsValues,
+} from "./update-settings.js";
 import { RegisteredStepId, SetupAction, StepResult, StepState } from "./setup.js";
 import { CommandReceipt } from "./receipt.js";
 import {
@@ -290,6 +300,7 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "auth-policy.json", title: "AuthPolicy", schema: AuthPolicy },
   { path: "discovery-document.json", title: "DiscoveryDocument", schema: DiscoveryDocument },
   { path: "health-document.json", title: "HealthDocument", schema: HealthDocument },
+  { path: "release/release-version.json", title: "ReleaseVersion", schema: ReleaseVersion },
   { path: "lifecycle/busy-reason.json", title: "BusyReason", schema: BusyReason },
   { path: "lifecycle/drain-trigger.json", title: "DrainTrigger", schema: DrainTrigger },
   { path: "lifecycle/drain-started.json", title: "DrainStarted", schema: DrainStarted },
@@ -509,9 +520,16 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "settings/keys/accounts.defaultModelFamily.json", title: "DefaultModelFamily", schema: DefaultModelFamily },
   { path: "settings/keys/accounts.defaultEffort.json", title: "DefaultEffort", schema: DefaultEffort },
   { path: "settings/keys/providers.processIdleMinutes.json", title: "ProcessIdleMinutes", schema: ProcessIdleMinutes },
+  { path: "settings/keys/updates.autoUpdate.json", title: "AutoUpdate", schema: AutoUpdate },
+  { path: "settings/keys/updates.channel.json", title: "ReleaseChannel", schema: ReleaseChannel },
+  { path: "settings/keys/updates.pinnedVersion.json", title: "PinnedVersion", schema: PinnedVersion },
+  { path: "settings/keys/updates.idleWindowMinutes.json", title: "IdleWindowMinutes", schema: IdleWindowMinutes },
+  { path: "settings/keys/updates.deferralCapHours.json", title: "DeferralCapHours", schema: DeferralCapHours },
   { path: "settings/settings-values.json", title: "SettingsValues", schema: SettingsValues },
   { path: "settings/settings-patch.json", title: "SettingsPatch", schema: SettingsPatch },
   { path: "settings/settings-event-type.json", title: "SettingsEventType", schema: SettingsEventType },
+  { path: "updates/settings-values.json", title: "UpdateSettingsValues", schema: UpdateSettingsValues },
+  { path: "updates/settings-patch.json", title: "UpdateSettingsPatch", schema: UpdateSettingsPatch },
   { path: "setup/registered-step-id.json", title: "RegisteredStepId", schema: RegisteredStepId },
   { path: "setup/action.json", title: "SetupAction", schema: SetupAction },
   { path: "setup/step-state.json", title: "StepState", schema: StepState },

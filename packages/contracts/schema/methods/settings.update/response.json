@@ -256,6 +256,43 @@
                 "workspace-no-network"
               ],
               "description": "The containment level of a run whose session names none."
+            },
+            "updates.autoUpdate": {
+              "type": "boolean",
+              "description": "Whether the environment updates itself to its channel's newest release; preset on. While a version is pinned, auto-update is off."
+            },
+            "updates.channel": {
+              "type": "string",
+              "enum": [
+                "stable",
+                "beta"
+              ],
+              "description": "Which releases the environment follows: stable (the newest release without a prerelease part) or beta (the newest of all, prereleases included); a pinned version follows neither."
+            },
+            "updates.pinnedVersion": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)(?:-(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*)?(?:\\+[0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*)?$",
+                  "description": "A release's version: a semantic version without the tag's v (0.4.2, 1.0.0-beta.2); one with a prerelease part is a prerelease, which only the beta channel follows."
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "An exact version to run on any channel, without the tag's v, or null for none. While one is set auto-update is off; clearing it returns to the auto-update switch."
+            },
+            "updates.idleWindowMinutes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 120,
+              "description": "The idle window, in minutes: the environment is idle once no run has started or ended within it, and a run parked on a prompt counts as busy for it only; 1 to 120, preset 10."
+            },
+            "updates.deferralCapHours": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 168,
+              "description": "The deferral cap, in hours: how long busy work may hold a pending update before the environment drains for it anyway; 1 to 168, preset 24, with no never."
             }
           },
           "required": [
@@ -270,7 +307,12 @@
             "permissions.unattended.mode",
             "permissions.unattended.bypassAcknowledgedAt",
             "permissions.parkedPrompt.ttl",
-            "permissions.containment.default"
+            "permissions.containment.default",
+            "updates.autoUpdate",
+            "updates.channel",
+            "updates.pinnedVersion",
+            "updates.idleWindowMinutes",
+            "updates.deferralCapHours"
           ],
           "additionalProperties": false,
           "description": "Every setting's value, by key; a key never set holds its preset."
