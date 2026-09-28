@@ -1,6 +1,15 @@
 import { randomBytes } from "node:crypto";
-import { closeSync, fsyncSync, openSync, readFileSync, renameSync, rmSync, writeSync } from "node:fs";
+import { closeSync, fsyncSync, openSync, readFileSync, renameSync, rmSync, statSync, writeSync } from "node:fs";
 import { dirname } from "node:path";
+
+/** Whether `path` is a directory that is there now; false for anything else, or nothing. */
+export const isDirectory = (path: string): boolean => {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+};
 
 /**
  * Replaces `path` with `content` all at once: a reader sees the old file or

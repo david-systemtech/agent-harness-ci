@@ -58,7 +58,7 @@ export {
   Timestamp,
 } from "./primitives.js";
 export type { MintedPairing } from "./methods/access.js";
-export { CredentialSourceUnavailableError, ForgeAccountMissingError, IdentityMismatchError, VerificationFailedError } from "./methods/forge.js";
+export { AliasIdentityMismatchError, CredentialSourceUnavailableError, ForgeAccountMissingError, IdentityMismatchError, MAX_FORGE_ALIASES, VerificationFailedError } from "./methods/forge.js";
 export { ContainmentUnavailableError, REVIEW_LIST_LIMIT, REVIEW_LIST_MAX } from "./methods/permissions.js";
 export { AttachmentInput, MAX_ATTACHMENT_BYTES } from "./methods/runs.js";
 export {

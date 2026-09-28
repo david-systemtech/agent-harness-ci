@@ -96,6 +96,7 @@ import { forkRewindMethods } from "../sessions/fork-rewind.js";
 import { groupMethods } from "../sessions/group-methods.js";
 import { sessionMethods } from "../sessions/methods.js";
 import { sessionListProjector } from "../sessions/session-list.js";
+import { knownRepositoryIdentities } from "../sessions/session-tables.js";
 import { createTerminalService } from "../terminals/service.js";
 import type { TerminalsOptions } from "../terminals/terminals.js";
 import { workspaceMethods } from "../workspace/methods.js";
@@ -306,6 +307,8 @@ export interface EnvironmentOptions {
   readonly workspaces?: WorkspaceSettings;
   /** How the ForgeService reaches a forge (#310). Preset: the global `fetch`; tests route github.com's API to their fake forge. */
   readonly forgeFetch?: ForgeFetch;
+  /** How long one call to a forge, and one verification of a forge account, may take (#311). Preset: `FORGE_CALL_TIMEOUT_MS`, ADR 0031's ten seconds. */
+  readonly forgeTimeoutMs?: number;
   /**
    * The environment's own `gh`, behind the Managed tools seam the registry
    * (#91) replaces (#312). Preset: the `gh` on this process's PATH; tests
@@ -563,6 +566,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       scrub,
       clientSessionLabel: (id) => loadedClientSessions.list({ live: false }).find((session) => session.id === id)?.label,
       ...(options.forgeFetch !== undefined && { fetch: options.forgeFetch }),
+      ...(options.forgeTimeoutMs !== undefined && { callTimeoutMs: options.forgeTimeoutMs }),
+      knownRepositories: () => knownRepositoryIdentities({ all: (sql, ...params) => log.read(sql, ...params) }),
       ...(options.gh !== undefined && { gh: options.gh }),
       ...(options.keyManagers !== undefined && { keyManagers: options.keyManagers }),
     });
@@ -793,9 +798,11 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     clock,
     stream: environmentStream,
     dataDir,
+    environmentName: record.name,
     harnessVersion,
     launcher,
     runs: host.runs,
+    host,
     activity: () => lifecycle.status().activity,
     deferralCapMs: () => readSettings({ all: (sql, ...params) => log.read(sql, ...params) })["updates.deferralCapHours"] * 60 * 60_000,
     drain: (cause) => void lifecycle.drain("update", cause),
@@ -948,7 +955,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     await closers.closeAll().catch((closeError: unknown) => console.error("Closing after a failed start failed:", closeError));
     throw new StartupError("prepared", error);
   }
-  // The settle (#344): the update that began last gets its outcome from the version this start runs, before any client can read the stream.
+  // The settle (#344, #345): the update that began last gets its outcome from the version this start runs, and each run it cut
+  // its mark and, where it can go on, its continuation, before any client can read the stream.
   updates.settle();
   // Deleted sessions whose grace period ran out while the environment was down go before any client can read them.
   try {
@@ -974,6 +982,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   closers.push(createCompactionSweep({ log, clock }).start());
   wire.open();
   launcher.onQuery((query) => lifecycle.answer(query));
+  // The forge accounts' verifications (#311): each now, past the gate, then every fifteen minutes.
+  forge.startVerifying();
   // The pending update's wait: every run-registry change, every minute, and its deferral cap (#343).
   closers.push(updates.start());
   // The minute sweep: expired pairings, idle `tui` local client sessions, receipts past their 30 days, and

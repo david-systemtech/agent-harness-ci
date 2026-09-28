@@ -381,6 +381,7 @@ describe("the method registry", () => {
       | "forge.accounts.update"
       | "forge.accounts.remove"
       | "forge.accounts.setPrimary"
+      | "forge.accounts.verify"
       | "forge.gh.probe"
       | "settings.get"
       | "settings.update"

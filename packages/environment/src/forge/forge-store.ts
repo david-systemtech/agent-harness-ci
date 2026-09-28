@@ -49,6 +49,7 @@ export const FORGE_ACCOUNTS_TABLES = {
     capabilities TEXT NOT NULL,
     is_primary INTEGER NOT NULL DEFAULT 0 CHECK (is_primary IN (0, 1)),
     problem TEXT,
+    status_since TEXT NOT NULL,
     token_information TEXT,
     copied_from TEXT,
     created_at TEXT NOT NULL,
@@ -78,11 +79,24 @@ const makePrimary = (db: ProjectionDb, forgeAccountId: string): void => {
 
 const json = (value: unknown): string => JSON.stringify(value);
 const jsonOrNull = (value: unknown): string | null => (value === null ? null : JSON.stringify(value));
+const parsed = <T>(text: string | null): T | null => (text === null ? null : (JSON.parse(text) as T));
+
+/**
+ * When a forge account's status changes: a problem of another kind than it
+ * had (none counting as a kind) starts a status, since the problem's
+ * since-time, or since the event for no problem. Findings that keep the
+ * problem's kind keep when the status began.
+ */
+const statusMoves = (db: ProjectionDb, event: EventEnvelope, forgeAccountId: string, problem: ForgeProblem | null): void => {
+  const [row] = db.all<{ problem: string | null }>("SELECT problem FROM forge_accounts WHERE id = ?", forgeAccountId);
+  if (row === undefined || parsed<ForgeProblem>(row.problem)?.kind === problem?.kind) return;
+  db.run("UPDATE forge_accounts SET status_since = ? WHERE id = ?", problem?.since ?? event.occurredAt, forgeAccountId);
+};
 
 const added = (db: ProjectionDb, event: EventEnvelope, payload: ForgeAccountAddedPayload): void => {
   db.run(
-    `INSERT INTO forge_accounts (id, position, origin, aliases, kind, slug, identity, credential, capabilities, problem, copied_from, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO forge_accounts (id, position, origin, aliases, kind, slug, identity, credential, capabilities, problem, status_since, copied_from, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     payload.forgeAccountId,
     event.sequence,
     payload.origin,
@@ -93,6 +107,7 @@ const added = (db: ProjectionDb, event: EventEnvelope, payload: ForgeAccountAdde
     json(payload.credential),
     json(UNKNOWN_FORGE_CAPABILITIES),
     jsonOrNull(payload.problem),
+    payload.problem?.since ?? event.occurredAt,
     jsonOrNull(payload.copiedFrom),
     event.occurredAt,
   );
@@ -100,12 +115,15 @@ const added = (db: ProjectionDb, event: EventEnvelope, payload: ForgeAccountAdde
   if (payload.primary) makePrimary(db, payload.forgeAccountId);
 };
 
-const updated = (db: ProjectionDb, payload: ForgeAccountUpdatedPayload): void => {
+const updated = (db: ProjectionDb, event: EventEnvelope, payload: ForgeAccountUpdatedPayload): void => {
   const { forgeAccountId } = payload;
   if (payload.slug !== undefined) db.run("UPDATE forge_accounts SET slug = ? WHERE id = ?", payload.slug, forgeAccountId);
   if (payload.credential !== undefined) db.run("UPDATE forge_accounts SET credential = ? WHERE id = ?", json(payload.credential), forgeAccountId);
   if (payload.identity !== undefined) db.run("UPDATE forge_accounts SET identity = ? WHERE id = ?", json(payload.identity), forgeAccountId);
-  if (payload.problem !== undefined) db.run("UPDATE forge_accounts SET problem = ? WHERE id = ?", jsonOrNull(payload.problem), forgeAccountId);
+  if (payload.problem !== undefined) {
+    statusMoves(db, event, forgeAccountId, payload.problem);
+    db.run("UPDATE forge_accounts SET problem = ? WHERE id = ?", jsonOrNull(payload.problem), forgeAccountId);
+  }
   if (payload.aliases !== undefined) {
     db.run("UPDATE forge_accounts SET aliases = ? WHERE id = ?", json(payload.aliases), forgeAccountId);
     const [row] = db.all<{ origin: string }>("SELECT origin FROM forge_accounts WHERE id = ?", forgeAccountId);
@@ -113,7 +131,8 @@ const updated = (db: ProjectionDb, payload: ForgeAccountUpdatedPayload): void =>
   }
 };
 
-const verified = (db: ProjectionDb, payload: ForgeAccountVerifiedPayload): void => {
+const verified = (db: ProjectionDb, event: EventEnvelope, payload: ForgeAccountVerifiedPayload): void => {
+  statusMoves(db, event, payload.forgeAccountId, payload.problem);
   db.run(
     "UPDATE forge_accounts SET identity = ?, capabilities = ?, token_information = ?, problem = ? WHERE id = ?",
     jsonOrNull(payload.identity),
@@ -155,11 +174,11 @@ export const forgeAccountsProjector: Projector = {
       case "forge.account.added":
         return added(db, event, event.payload as ForgeAccountAddedPayload);
       case "forge.account.updated":
-        return updated(db, event.payload as ForgeAccountUpdatedPayload);
+        return updated(db, event, event.payload as ForgeAccountUpdatedPayload);
       case "forge.account.primary-set":
         return makePrimary(db, (event.payload as ForgeAccountPrimarySetPayload).forgeAccountId);
       case "forge.account.verified":
-        return verified(db, event.payload as ForgeAccountVerifiedPayload);
+        return verified(db, event, event.payload as ForgeAccountVerifiedPayload);
       case "forge.account.capability-learned":
         return capabilityLearned(db, event, event.payload as ForgeAccountCapabilityLearnedPayload);
       case "forge.account.removed":
@@ -180,15 +199,14 @@ interface ForgeAccountRow {
   capabilities: string;
   is_primary: number;
   problem: string | null;
+  status_since: string;
   token_information: string | null;
   copied_from: string | null;
   created_at: string;
   removed_at: string | null;
 }
 
-const COLUMNS = "id, origin, aliases, kind, slug, identity, credential, capabilities, is_primary, problem, token_information, copied_from, created_at, removed_at";
-
-const parsed = <T>(text: string | null): T | null => (text === null ? null : (JSON.parse(text) as T));
+const COLUMNS = "id, origin, aliases, kind, slug, identity, credential, capabilities, is_primary, problem, status_since, token_information, copied_from, created_at, removed_at";
 
 /** The problems that keep a forge account out of every injection (forge spec, "The injected set"). */
 const NOT_INJECTED: ReadonlySet<ForgeProblem["kind"]> = new Set(["identity-changed", "needs-credential"]);
@@ -212,6 +230,7 @@ const recordOf = (row: ForgeAccountRow): ForgeAccountRecord => {
     capabilities: JSON.parse(row.capabilities) as ForgeCapabilities,
     primary: row.is_primary === 1,
     problem: parsed<ForgeProblem>(row.problem),
+    statusSince: row.status_since,
     tokenInformation: parsed<ForgeTokenInformation>(row.token_information),
     createdAt: row.created_at,
     copiedFrom: parsed<ForgeCopiedFrom>(row.copied_from),

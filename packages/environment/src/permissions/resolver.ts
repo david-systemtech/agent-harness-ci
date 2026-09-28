@@ -63,6 +63,22 @@ export type RunActor = PolicyActor & {
   readonly clientSessionId: string | null;
 };
 
+/**
+ * Who started a run, as its recorded policy names them (`run.policy.resolved`),
+ * under the ceiling it was resolved under and with no client session behind
+ * it, since the log does not say which: the actor a run the environment
+ * starts after a restart is resolved for, the queue's (#131) and an update's
+ * continuation (#345) alike. A ceiling lowered since is therefore not read.
+ */
+export const actorOfPolicy = (policy: RunPolicy): RunActor => {
+  const ceiling = policy.mode.ceiling;
+  return policy.actorKind === "completions"
+    ? { kind: "completions", attended: policy.attended, ceiling, clientSessionId: null }
+    : policy.actorKind === "client"
+      ? { kind: "client", ceiling, clientSessionId: null }
+      : { kind: policy.actorKind, name: policy.actorName, ceiling, clientSessionId: null };
+};
+
 /** The settings the resolver reads. */
 export interface PolicySettings {
   readonly unattendedMode: UnattendedMode;

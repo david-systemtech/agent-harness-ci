@@ -84,7 +84,7 @@ import {
   modelsList,
 } from "./methods/accounts.js";
 import { diffsSession, diffsWorkingTree } from "./methods/diffs.js";
-import { forgeAccountsAdd, forgeAccountsList, forgeAccountsRemove, forgeAccountsSetPrimary, forgeAccountsUpdate, forgeGhProbe } from "./methods/forge.js";
+import { forgeAccountsAdd, forgeAccountsList, forgeAccountsRemove, forgeAccountsSetPrimary, forgeAccountsUpdate, forgeAccountsVerify, forgeGhProbe } from "./methods/forge.js";
 import {
   updatesApply,
   updatesBegin,
@@ -181,6 +181,7 @@ export const methods = [
   forgeAccountsUpdate,
   forgeAccountsRemove,
   forgeAccountsSetPrimary,
+  forgeAccountsVerify,
   forgeGhProbe,
   settingsGet,
   settingsUpdate,

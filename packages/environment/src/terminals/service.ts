@@ -1,4 +1,3 @@
-import { statSync } from "node:fs";
 import {
   ContractError,
   DEFAULT_TERMINAL_SIZE,
@@ -9,6 +8,7 @@ import {
 } from "@agent-harness/contracts";
 import { RECEIPT_RETENTION_MS, type EventLog, type StreamRef } from "../event-log/event-log.js";
 import type { Clock } from "../serve/clock.js";
+import { isDirectory } from "../serve/files.js";
 import type { CommandContext, CommandRejection, MethodHandlers } from "../serve/methods.js";
 import { sessionNotFound } from "../sessions/decider.js";
 import { requireSessionWorkspace, sessionWorkspace } from "../workspace/session.js";
@@ -57,14 +57,6 @@ const conflict = (reason: string, message: string, data: Record<string, unknown>
   message,
   data: { reason, ...data },
 });
-
-const isDirectory = (path: string): boolean => {
-  try {
-    return statSync(path).isDirectory();
-  } catch {
-    return false;
-  }
-};
 
 /** The open terminal a command on `id` acts on, or its rejection: not open, or (unless `exitedToo`) exited. */
 const target = (terminals: Terminals, id: string, exitedToo = false): { info: TerminalInfo } | { rejected: Refusal } => {

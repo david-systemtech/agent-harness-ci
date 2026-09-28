@@ -271,7 +271,7 @@ import {
   WorkspacePath,
 } from "./terminals.js";
 import { ContainmentUnavailableError } from "./methods/permissions.js";
-import { CredentialSourceUnavailableError, ForgeAccountMissingError, IdentityMismatchError, VerificationFailedError } from "./methods/forge.js";
+import { AliasIdentityMismatchError, CredentialSourceUnavailableError, ForgeAccountMissingError, IdentityMismatchError, VerificationFailedError } from "./methods/forge.js";
 import { BitwardenReference, DopplerReference, KeyManagerConnectionId, KeyManagerProvider, KeyManagerReference, OnePasswordReference, OpenBaoReference } from "./key-managers.js";
 import {
   ClampReason,
@@ -708,6 +708,7 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "errors/containment_unavailable.json", title: "ContainmentUnavailableError", schema: ContainmentUnavailableError },
   { path: "errors/verification_failed.json", title: "VerificationFailedError", schema: VerificationFailedError },
   { path: "errors/identity_mismatch.json", title: "IdentityMismatchError", schema: IdentityMismatchError },
+  { path: "errors/alias_identity_mismatch.json", title: "AliasIdentityMismatchError", schema: AliasIdentityMismatchError },
   { path: "errors/credential_source_unavailable.json", title: "CredentialSourceUnavailableError", schema: CredentialSourceUnavailableError },
   { path: "errors/forge_account_missing.json", title: "ForgeAccountMissingError", schema: ForgeAccountMissingError },
   { path: "frames/frame.json", title: "Frame", schema: Frame },
