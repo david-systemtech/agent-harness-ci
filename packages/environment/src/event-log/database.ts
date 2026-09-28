@@ -79,6 +79,8 @@ const asItIs = (text: string): string => text;
  * object's keys included, is written as `strings` answers it: the log's append passes the scrub registry.
  */
 export const toJson = (value: unknown, what: string, strings: (text: string) => string = asItIs): string => {
+  // One copy per object whose keys change, so an object met again (a cycle) is the same copy, which JSON.stringify refuses.
+  const copies = new Map<object, object>();
   const json = JSON.stringify(value, (key, v: unknown) => {
     const unholdable =
       (typeof v === "number" && !Number.isFinite(v)) ||
@@ -90,10 +92,13 @@ export const toJson = (value: unknown, what: string, strings: (text: string) => 
     }
     if (typeof v === "string") return strings(v);
     // An object whose keys change is written as a copy under the new keys; JSON.stringify then visits the copy's values.
-    if (typeof v === "object" && v !== null && !Array.isArray(v) && Object.keys(v).some((name) => strings(name) !== name)) {
-      return Object.fromEntries(Object.entries(v).map(([name, entry]) => [strings(name), entry]));
-    }
-    return v;
+    if (typeof v !== "object" || v === null || Array.isArray(v)) return v;
+    const copy = copies.get(v);
+    if (copy !== undefined) return copy;
+    if (!Object.keys(v).some((name) => strings(name) !== name)) return v;
+    const made = Object.fromEntries(Object.entries(v).map(([name, entry]) => [strings(name), entry]));
+    copies.set(v, made);
+    return made;
   });
   if (json === undefined) throw new TypeError(`${what} is not a JSON value.`);
   return json;

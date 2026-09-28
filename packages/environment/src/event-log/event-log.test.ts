@@ -351,6 +351,28 @@ describe("the scrub at the append", () => {
     expect(published).toEqual([{ text: "said [redacted]" }]);
   });
 
+  it("refuses a payload whose cycle runs through a key the scrub changes, as it refuses any cycle, and writes nothing", () => {
+    const scrub = createScrubRegistry();
+    scrub.register(HELD, { owner: "test:held" });
+    const log = memoryLog({ scrub: (text) => scrub.scrub(text) });
+    const cyclic: Record<string, unknown> = {};
+    cyclic[`under ${HELD}`] = cyclic;
+    expect(() => log.append(s1, [{ type: "bad", payload: cyclic }], { actor: "system:test" })).toThrow(/circular/);
+    const nested: Record<string, unknown> = { list: [] };
+    (nested["list"] as unknown[]).push({ [HELD]: nested });
+    expect(() => log.append(s1, [{ type: "bad", payload: nested }], { actor: "system:test" })).toThrow(/circular/);
+    expect(log.readStream(s1)).toEqual([]);
+  });
+
+  it("writes an object the payload holds twice, with a key the scrub changes, both times", () => {
+    const scrub = createScrubRegistry();
+    scrub.register(HELD, { owner: "test:held" });
+    const log = memoryLog({ scrub: (text) => scrub.scrub(text) });
+    const shared = { [HELD]: "twice" };
+    const [appended] = log.append(s1, [{ type: "note.added", payload: { first: shared, second: shared } }], { actor: "system:test" }).events;
+    expect(appended?.payload).toEqual({ first: { "[redacted]": "twice" }, second: { "[redacted]": "twice" } });
+  });
+
   it("never rewrites an event appended before its value was registered", () => {
     const scrub = createScrubRegistry();
     const log = memoryLog({ scrub: (text) => scrub.scrub(text) });

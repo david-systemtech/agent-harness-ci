@@ -35,14 +35,15 @@ const scrubbedChunk = (chunk: unknown, hook: Hook): unknown => {
 /**
  * Passes every write to the environment's diagnostic output, the process's
  * standard error, through `scrub` until the answer is called (ADR 0011;
- * key-managers spec, "Where it applies": the logger). What the console and
- * anything else in the process write there is scrubbed as one write, so a
- * line keeps whole what a console call printed, an error's message and
- * stack with it. The stream is shared by every environment in the process,
- * each adding its registry's scrub; the stream's own write is put back once
- * the last lets go, unless something has wrapped it since, when the scrub
- * stays in place and passes every write on as it is. `stream` is a seam for
- * the lower tests.
+ * key-managers spec, "Where it applies": the logger). Each write is scrubbed
+ * on its own. A console call is one write, so every line the environment
+ * logs is scrubbed whole, an error's message and stack with it. A writer
+ * that splits a value across two writes, or bytes across a character, is
+ * not: nothing is held back between writes, as terminal output's is (#363).
+ * The stream is shared by every environment in the process, each adding its
+ * registry's scrub; the stream's own write is put back once the last lets
+ * go, unless something has wrapped it since, when the scrub stays in place
+ * and passes every write on as it is. `stream` is a seam for the lower tests.
  */
 export const scrubDiagnosticOutput = (scrub: (text: string) => string, stream: DiagnosticStream = process.stderr): (() => void) => {
   let hook = hooks.get(stream);
