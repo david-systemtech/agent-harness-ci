@@ -106,6 +106,8 @@ export interface TestEnvironmentOptions {
    * real machine is never probed.
    */
   readonly containment?: ContainmentProbe | Promise<ContainmentProbe>;
+  /** The resolver a new session's workspace goes through (`test/workspaces.ts` scripts one); preset: the environment's. */
+  readonly workspaceResolver?: EnvironmentOptions["workspaceResolver"];
 }
 
 /** The bundled binary a test environment's sign-ins name unless told otherwise: a path that is not there. */
@@ -256,6 +258,7 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
     ...(options.probeTimeoutMs !== undefined && { probeTimeoutMs: options.probeTimeoutMs }),
     ...(options.usageReadTimeoutMs !== undefined && { usageReadTimeoutMs: options.usageReadTimeoutMs }),
     ...(options.terminals !== undefined && { terminals: options.terminals }),
+    ...(options.workspaceResolver !== undefined && { workspaceResolver: options.workspaceResolver }),
     signInProcess: { spawn: refusingSpawn, bundled: TEST_BUNDLED_CLAUDE, managedTool: () => null, hostEnv: { PATH: "/usr/bin" }, ...options.signInProcess },
   };
   let env: EnvironmentHandle;

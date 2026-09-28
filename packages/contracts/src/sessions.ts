@@ -142,21 +142,127 @@ export const SettledBy = z.enum(SETTLED_BY).meta({
 export type SettledBy = z.infer<typeof SettledBy>;
 
 /**
- * Where a session's code lives on its environment (ADR 0005). Phase A fills
- * the `directory` kind from the creating command; the workspace workstream
- * adds the worktree and scratch kinds.
+ * A path as the environment's operating system writes an absolute one:
+ * from the root (`/`), a drive (`C:\` or `C:/`) or a share (`\\`). A
+ * workspace is never relative to a client.
+ */
+const AbsolutePath = z
+  .string()
+  .regex(/^(?:\/|[A-Za-z]:[\\/]|\\\\)/)
+  .meta({ description: "An absolute path as the environment's operating system writes it: from /, a drive (C:\\) or a share (\\\\)." });
+
+/**
+ * The recorded workspace (workspace-picker spec, "Workspace kinds, as the
+ * summary records them"; ADR 0005): where a session's code lives on its
+ * environment, a union on `kind` whose every member has an absolute `path`,
+ * so a client that knows no kind but the path still has what it needs.
  */
 const DirectoryWorkspace = z
   .object({
     kind: z.literal("directory"),
-    path: z.string().min(1).meta({ description: "The directory on the environment's machine." }),
+    path: AbsolutePath.meta({ description: "The directory on the environment's machine." }),
   })
-  .meta({ description: "A directory the environment has." });
+  .meta({ description: "A directory the environment has; the harness never makes, moves or removes it outside a workspace root." });
+
+const WorktreeWorkspace = z
+  .object({
+    kind: z.literal("worktree"),
+    path: AbsolutePath.meta({ description: "The worktree's directory, which the environment chose and made." }),
+    repository: AbsolutePath.meta({ description: "The main checkout (or bare repository) the worktree was made from." }),
+    branch: z.string().min(1).meta({ description: "The branch the worktree was made on; not read again when a run switches branch." }),
+  })
+  .meta({ description: "A git worktree the environment made from a repository it has." });
+
+const ScratchWorkspace = z
+  .object({
+    kind: z.literal("scratch"),
+    path: AbsolutePath.meta({ description: "The scratch directory, under the data directory's scratch root." }),
+  })
+  .meta({ description: "A scratch directory the environment made for the session that asked for it." });
+
+/** The workspace kinds this version of the contracts knows. */
+export const WORKSPACE_KINDS = ["directory", "worktree", "scratch"] as const;
+
+/**
+ * A kind a newer environment records that this version does not know: read
+ * as a directory at its path (workspace-picker spec), as a client keeps an
+ * event of an unknown type opaque (ADR 0001), so the session list never
+ * fails on it. The pattern is zod's half and the export's alike.
+ */
+const LaterWorkspace = z
+  .object({
+    kind: z
+      .string()
+      .min(1)
+      .regex(new RegExp(`^(?!(?:${WORKSPACE_KINDS.join("|")})$)`))
+      .meta({ description: "A kind this version does not know." }),
+    path: AbsolutePath,
+  })
+  .transform(({ path }): z.infer<typeof DirectoryWorkspace> => ({ kind: "directory", path }))
+  .meta({ description: "A workspace of a kind a later environment records: read as a directory at its path." });
 
 export const Workspace = z
-  .discriminatedUnion("kind", [DirectoryWorkspace])
-  .meta({ description: "Where a session's code lives on its environment: its kind and path." });
+  .union([z.discriminatedUnion("kind", [DirectoryWorkspace, WorktreeWorkspace, ScratchWorkspace]), LaterWorkspace])
+  .meta({
+    description:
+      "Where a session's code lives on its environment: a directory, a worktree or a scratch directory, each with an absolute path. A kind a client does not know reads as a directory at its path.",
+  });
 export type Workspace = z.infer<typeof Workspace>;
+
+/** The branch a `worktree` request makes: named, else `agent-harness/` and the session id's first eight characters; from `base`, else the main checkout's `HEAD`. */
+const NewBranch = z
+  .object({
+    name: z.string().min(1).optional().meta({ description: "The new branch's name; agent-harness/ and the session id's first eight characters when absent." }),
+    base: z.string().min(1).optional().meta({ description: "The ref the branch starts from, any ref; the main checkout's HEAD when absent." }),
+  })
+  .meta({ description: "A branch the worktree is made on, made with it." });
+
+/** `worktree`: both `branch` and `newBranch` is refused; the refinement is zod's half, the `not` the same rule in the export. */
+const WorktreeRequest = z
+  .object({
+    kind: z.literal("worktree"),
+    repository: AbsolutePath.meta({ description: "Any path inside the repository; the worktree is made from its main checkout." }),
+    branch: z.string().min(1).optional().meta({ description: "An existing local branch to check out in the worktree." }),
+    newBranch: NewBranch.optional(),
+  })
+  .refine((request) => request.branch === undefined || request.newBranch === undefined, {
+    message: "Name an existing branch or a new one, not both.",
+    path: ["newBranch"],
+  })
+  .meta({
+    description: "A worktree the environment makes from a repository it has: on an existing branch, or on a new one (the new branch with its presets when neither is named).",
+    not: { required: ["branch", "newBranch"], properties: { branch: true, newBranch: true } },
+  });
+
+/** A directory as a request names it: an absolute path, or one from the environment's home (`~`, `~/code`), which the environment expands. */
+const DirectoryRequest = z
+  .object({
+    kind: z.literal("directory"),
+    path: z
+      .string()
+      .regex(/^(?:~(?:[\\/]|$)|\/|[A-Za-z]:[\\/]|\\\\)/)
+      .meta({ description: "The directory on the environment's machine: an absolute path, or one starting ~ for the environment's home." }),
+  })
+  .meta({ description: "A directory the environment has: recorded at its absolute path, ~ expanded to the environment's home." });
+
+const ScratchRequest = z.object({ kind: z.literal("scratch") }).meta({ description: "A scratch directory of the session's own." });
+
+const SessionWorkspaceRequest = z
+  .object({ kind: z.literal("session"), sessionId: SessionId.meta({ description: "The session on this environment whose workspace to share." }) })
+  .meta({ description: "Another session's recorded workspace on this environment, shared: its kind, path and repository identity." });
+
+/**
+ * The workspace request `sessions.create` takes (workspace-picker spec,
+ * "Workspace requests"): a worktree's path and a scratch directory are the
+ * environment's to choose, so a client asks for one and the summary records
+ * what the environment made. A recorded `directory` is also a request, so
+ * a client that sends the directory it chose keeps working; a request may
+ * also name one from the environment's home.
+ */
+export const WorkspaceRequest = z
+  .discriminatedUnion("kind", [DirectoryRequest, WorktreeRequest, ScratchRequest, SessionWorkspaceRequest])
+  .meta({ description: "Where a new session's code is to live: a directory, a new worktree, a scratch directory, or another session's workspace." });
+export type WorkspaceRequest = z.infer<typeof WorkspaceRequest>;
 
 /** What a session's runs are doing: nothing, a run starting, a run running, a run parked on a prompt. */
 export const ACTIVITY_STATES = ["idle", "starting", "running", "parked"] as const;
@@ -227,6 +333,10 @@ export const SessionSummary = z
     workspace: Workspace,
     repositoryIdentity: z.string().min(1).nullable().meta({
       description: "The canonical remote URL of the repository the workspace belongs to; null outside a repository or until it is resolved.",
+    }),
+    workspaceMissingSince: Timestamp.nullable().meta({
+      description:
+        "When the environment found the workspace gone; null while it is present. A missing session lists and opens as ever, and runs nothing until it is given a new workspace.",
     }),
     // Activity.
     activity: SessionActivity,
@@ -451,6 +561,22 @@ export const SessionPurgedPayload = z
     description:
       "session.purged: the session is gone. The tombstone: the only event left on its stream, so a client replaying from an older cursor drops the id.",
   });
+
+/** Whether a session's workspace is there: gone (`missing`) or back (`present`). */
+export const WORKSPACE_STATUSES = ["missing", "present"] as const;
+export const WorkspaceStatus = z.enum(WORKSPACE_STATUSES).meta({
+  description: "Whether a session's workspace is there: missing (the environment found it gone) or present (it is back, or was given anew).",
+});
+export type WorkspaceStatus = z.infer<typeof WorkspaceStatus>;
+
+export const SessionWorkspaceStatusChangedPayload = z
+  .object({ status: WorkspaceStatus })
+  .meta({
+    description:
+      "session.workspace-status-changed: the environment found the session's workspace gone (missing) or back (present), appended only on a change; its occurredAt is workspaceMissingSince, and updatedAt stays.",
+  });
+export type SessionWorkspaceStatusChangedPayload = z.infer<typeof SessionWorkspaceStatusChangedPayload>;
+
 export const SessionPullRequestLinkedPayload = PullRequest.meta({
   description: "session.pull-request-linked: a pull request was linked to the session (the forge workstream's).",
 });
@@ -504,6 +630,7 @@ export const SESSION_EVENT_TYPES = {
   "session.pull-request-linked": listed(SessionPullRequestLinkedPayload, SummaryPatch),
   "session.pull-request-unlinked": listed(SessionPullRequestUnlinkedPayload, SummaryPatch),
   "session.pull-request-synced": listed(SessionPullRequestSyncedPayload, SummaryPatch),
+  "session.workspace-status-changed": listed(SessionWorkspaceStatusChangedPayload, SummaryPatch),
 } as const satisfies Record<string, EventTypeEntry>;
 
 /** The event types of the `group` stream, every one `list`-flagged with a `GroupPatch`. */

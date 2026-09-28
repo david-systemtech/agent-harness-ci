@@ -55,18 +55,101 @@
             },
             "path": {
               "type": "string",
-              "minLength": 1,
-              "description": "The directory on the environment's machine."
+              "pattern": "^(?:~(?:[\\\\/]|$)|\\/|[A-Za-z]:[\\\\/]|\\\\\\\\)",
+              "description": "The directory on the environment's machine: an absolute path, or one starting ~ for the environment's home."
             }
           },
           "required": [
             "kind",
             "path"
           ],
-          "description": "A directory the environment has."
+          "description": "A directory the environment has: recorded at its absolute path, ~ expanded to the environment's home."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "worktree"
+            },
+            "repository": {
+              "type": "string",
+              "pattern": "^(?:\\/|[A-Za-z]:[\\\\/]|\\\\\\\\)",
+              "description": "Any path inside the repository; the worktree is made from its main checkout."
+            },
+            "branch": {
+              "description": "An existing local branch to check out in the worktree.",
+              "type": "string",
+              "minLength": 1
+            },
+            "newBranch": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "description": "The new branch's name; agent-harness/ and the session id's first eight characters when absent.",
+                  "type": "string",
+                  "minLength": 1
+                },
+                "base": {
+                  "description": "The ref the branch starts from, any ref; the main checkout's HEAD when absent.",
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "description": "A branch the worktree is made on, made with it."
+            }
+          },
+          "required": [
+            "kind",
+            "repository"
+          ],
+          "description": "A worktree the environment makes from a repository it has: on an existing branch, or on a new one (the new branch with its presets when neither is named).",
+          "not": {
+            "required": [
+              "branch",
+              "newBranch"
+            ],
+            "properties": {
+              "branch": true,
+              "newBranch": true
+            }
+          }
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "scratch"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "description": "A scratch directory of the session's own."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "session"
+            },
+            "sessionId": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+              "description": "The session on this environment whose workspace to share."
+            }
+          },
+          "required": [
+            "kind",
+            "sessionId"
+          ],
+          "description": "Another session's recorded workspace on this environment, shared: its kind, path and repository identity."
         }
       ],
-      "description": "Where a session's code lives on its environment: its kind and path."
+      "description": "Where a new session's code is to live: a directory, a new worktree, a scratch directory, or another session's workspace."
     },
     "account": {
       "description": "The account the session's runs use, one the environment holds and is signed in; the environment's default account at each run when absent.",
