@@ -161,11 +161,11 @@ const ask = async (action: GitCredentialAction, slug: string, attributes: Map<st
   }
 };
 
-/** The one line a person reads when git gets no credential for `origin`: why, and where to fix it. */
-const line = (origin: string, reason: string, reporting: boolean): string => {
+/** The one line a person reads: what did not happen (`git gets no credential for <origin>`), why, and where to fix it. */
+const line = (what: string, reason: string): string => {
   const said = reason.replace(/\s+/g, " ").replace(/\.$/, "");
   const fix = said.includes("Set up, Forges") ? "" : ". Fix it in Set up, Forges";
-  return reporting ? `${PRODUCT_NAME}: could not report git's refusal for ${origin}: ${said}${fix}.\n` : `${PRODUCT_NAME}: git gets no credential for ${origin}: ${said}${fix}.\n`;
+  return `${PRODUCT_NAME}: ${what}: ${said}${fix}.\n`;
 };
 
 /** Runs the helper on `args` (`<slug> <verb>`); resolves to its exit code, 0 whenever it spoke git's protocol. */
@@ -184,8 +184,9 @@ export const gitCredential = async (args: readonly string[], context: GitCredent
   let attributes = new Map<string, string>();
   /** Tells git to stop at this helper (on `get`), and a person why. */
   const refuse = (reason: string): number => {
+    const origin = `${attributes.get("protocol") ?? "?"}://${attributes.get("host") ?? "?"}`;
     if (verb === "get") context.stdout("quit=1\n");
-    context.stderr(line(`${attributes.get("protocol") ?? "?"}://${attributes.get("host") ?? "?"}`, reason, verb === "erase"));
+    context.stderr(line(verb === "get" ? `git gets no credential for ${origin}` : `could not report git's refusal for ${origin}`, reason));
     return 0;
   };
   try {
