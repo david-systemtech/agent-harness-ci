@@ -725,6 +725,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   const updatesManagedOutside = detector.inContainer() && !launcher.present();
   // The purge: `sessions.purge` runs it at once, the minute sweep for every session past its grace period.
   const deletion = createDeletion({ log, transcripts: host.transcripts, providerStore });
+  // The terminals (#124): their output never enters the log; closed before the log is, and on a session's deletion.
+  const terminalService = createTerminalService({ log, clock, ...options.terminals });
+  closers.push(() => terminalService.close());
   const lifecycle = createLifecycle({
     clock,
     runs: host.runs,
@@ -733,6 +736,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     updatesManagedOutside,
     // The idle window (#342): how long nothing may start or end, and how long a parked prompt counts as busy.
     idleWindowMs: () => readSettings({ all: (sql, ...params) => log.read(sql, ...params) })["updates.idleWindowMinutes"] * 60_000,
+    // A terminal whose shell runs a command holds the environment busy as a run does (#343).
+    terminalRunning: () => terminalService.terminals.commandRunning(),
     readiness: () => readiness,
     onDraining: () => {
       readiness = "draining";
@@ -747,9 +752,6 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     },
     close: () => close(),
   });
-  // The terminals (#124): their output never enters the log; closed before the log is, and on a session's deletion.
-  const terminalService = createTerminalService({ log, clock, ...options.terminals });
-  closers.push(() => terminalService.close());
   // The shelf's sweep (#117): started once the environment is ready; a settings change runs it from the change's commit.
   const settleSweep = createSettleSweep({ log, clock });
   // A new session's workspace, from the request `sessions.create` or the completions surface makes (#321).

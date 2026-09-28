@@ -129,15 +129,23 @@ type WindowReason = Extract<BusyReason, "parked-prompt" | "recent-activity">;
 
 /**
  * The idle rule (ADR 0007, the glossary's Idle), a pure function of the
- * runs, the time and the idle window: busy while a run is starting or
- * running; otherwise busy until the window has passed since the latest start
- * or end of any run (`recent-activity`, which a parked run holds too, from
- * its start) or since the parking of a run still parked (`parked-prompt`),
- * with `busyUntil` the later of them and the reason the one that holds
- * longest (a parked prompt on a tie); otherwise idle. A window ends at its
- * instant: once it has passed, the run no longer counts.
+ * runs, the time, the idle window and whether a terminal runs a command:
+ * busy while a run is starting or running, then while a terminal's shell
+ * runs a command in its foreground (`terminal-running`, #343: a build or a
+ * watcher counts as a run does, with no end known; a shell at its prompt
+ * counts for nothing); otherwise busy until the window has passed since the
+ * latest start or end of any run (`recent-activity`, which a parked run
+ * holds too, from its start) or since the parking of a run still parked
+ * (`parked-prompt`), with `busyUntil` the later of them and the reason the
+ * one that holds longest (a parked prompt on a tie); otherwise idle. A
+ * window ends at its instant: once it has passed, the run no longer counts.
  */
-export const activityOf = (runs: Iterable<RunRecord>, now: Date, windowMs: number): Exclude<EnvironmentActivity, { state: "draining" }> => {
+export const activityOf = (
+  runs: Iterable<RunRecord>,
+  now: Date,
+  windowMs: number,
+  terminalRunning = false,
+): Exclude<EnvironmentActivity, { state: "draining" }> => {
   const at = now.getTime();
   let starting = false;
   let running = false;
@@ -160,6 +168,7 @@ export const activityOf = (runs: Iterable<RunRecord>, now: Date, windowMs: numbe
   }
   if (starting) return { state: "busy", reason: "run-starting" };
   if (running) return { state: "busy", reason: "run-running" };
+  if (terminalRunning) return { state: "busy", reason: "terminal-running" };
   if (reason) return { state: "busy", reason, busyUntil: new Date(until).toISOString() };
   return { state: "idle" };
 };

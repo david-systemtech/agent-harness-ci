@@ -66,6 +66,15 @@ describe("the idle rule", () => {
     const running: RunRecord = { id: "r", state: "running", startedAt: ago(90 * MINUTE) };
     expect(activityOf([parked, ended, running], now, WINDOW)).toEqual({ state: "busy", reason: "run-running" });
   });
+
+  it("is busy while a terminal runs a command, over any window and under a run starting or running, and idle again once it no longer does (#343)", () => {
+    const parked: RunRecord = { id: "p", state: "parked", startedAt: ago(60 * MINUTE), parkedSince: ago(MINUTE) };
+    expect(activityOf([], now, WINDOW, true)).toEqual({ state: "busy", reason: "terminal-running" });
+    expect(activityOf([parked], now, WINDOW, true)).toEqual({ state: "busy", reason: "terminal-running" });
+    expect(activityOf([{ id: "s", state: "starting", startedAt: ago(MINUTE) }], now, WINDOW, true)).toEqual({ state: "busy", reason: "run-starting" });
+    expect(activityOf([{ id: "r", state: "running", startedAt: ago(MINUTE) }], now, WINDOW, true)).toEqual({ state: "busy", reason: "run-running" });
+    expect(activityOf([], now, WINDOW, false)).toEqual({ state: "idle" });
+  });
 });
 
 describe("the in-memory run registry", () => {

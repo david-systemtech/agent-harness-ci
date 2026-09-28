@@ -97,6 +97,12 @@ export interface Terminals {
   source(id: string): FeedSource<TerminalSnapshot> | undefined;
   /** Closes every terminal: the environment is stopping. */
   closeAll(): void;
+  /**
+   * Whether any open terminal's shell runs a command in its foreground (a
+   * build, a watcher), which holds the environment busy as a run does; a
+   * shell at its prompt holds nothing (#343).
+   */
+  commandRunning(): boolean;
 }
 
 interface Exit {
@@ -336,5 +342,15 @@ export const createTerminals = (options: TerminalsOptions): Terminals => {
     closeAll() {
       for (const id of [...open.keys()]) close(id, "closed");
     },
+    commandRunning: () =>
+      [...open.values()].some((terminal) => {
+        if (terminal.exit !== undefined || terminal.closing !== undefined) return false;
+        try {
+          return terminal.process?.commandRunning() ?? false;
+        } catch (error) {
+          console.error(`Reading whether terminal ${terminal.id} runs a command failed:`, error);
+          return false;
+        }
+      }),
   };
 };

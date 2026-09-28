@@ -53,6 +53,8 @@ export interface LifecycleOptions {
   readonly updatesManagedOutside: boolean;
   /** The idle window, in milliseconds, read each time the activity is: the environment's `updates.idleWindowMinutes`. */
   readonly idleWindowMs: () => number;
+  /** Whether a terminal's shell runs a command in its foreground, read each time the activity is: busy as a run is (#343). */
+  readonly terminalRunning: () => boolean;
   readonly readiness: () => EnvironmentReadiness;
   /** Called once, as a drain begins: readiness turns `draining`. */
   readonly onDraining: () => void;
@@ -101,7 +103,9 @@ export const createLifecycle = (options: LifecycleOptions): Lifecycle => {
   drained.catch(() => undefined);
 
   const activity = (): EnvironmentActivity =>
-    current ? { state: "draining", drainingSince: current.drainingSince } : activityOf(runs.runs(), clock.now(), options.idleWindowMs());
+    current
+      ? { state: "draining", drainingSince: current.drainingSince }
+      : activityOf(runs.runs(), clock.now(), options.idleWindowMs(), options.terminalRunning());
   const status = (): EnvironmentStatus => ({
     readiness: options.readiness(),
     activity: activity(),
