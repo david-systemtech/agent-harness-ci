@@ -170,3 +170,15 @@ export const toGroup = (row: GroupRow): Group => ({
   createdAt: row.created_at,
   updatedAt: row.updated_at,
 });
+
+/**
+ * The repository identities of the sessions the environment holds, most
+ * recently updated first, each once: the repositories this environment
+ * knows, which a forge account's verification probes its reads on (#311).
+ */
+export const knownRepositoryIdentities = (reader: Reader): string[] =>
+  reader
+    .all<{ repository_identity: string }>(
+      "SELECT repository_identity FROM sessions WHERE deleted_at IS NULL AND repository_identity IS NOT NULL GROUP BY repository_identity ORDER BY MAX(updated_at) DESC, repository_identity",
+    )
+    .map((row) => row.repository_identity);

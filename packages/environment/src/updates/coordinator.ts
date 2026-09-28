@@ -15,12 +15,14 @@ import {
   type UpdateSource,
   type UpdatesStatus,
 } from "@agent-harness/contracts";
+import type { AdapterHost } from "../adapter/host.js";
 import { formatActor, type EventInput, type EventLog, type JsonObject, type StreamRef } from "../event-log/event-log.js";
 import type { Clock, Timer } from "../serve/clock.js";
 import type { LauncherChannel } from "../serve/launcher.js";
 import type { DrainCause } from "../serve/lifecycle.js";
 import type { CommandContext, CommandRejection, MethodHandler, MethodHandlers, PrepareContext } from "../serve/methods.js";
 import type { RunRegistry } from "../serve/run-registry.js";
+import { settleInterruptedRuns } from "./interrupted-runs.js";
 import { readUpdateHistory, settleLatestUpdate } from "./outcomes.js";
 import { StagingError, stageArtefact, tarUnpack, unstage, type Unpack } from "./staging.js";
 
@@ -43,7 +45,9 @@ import { StagingError, stageArtefact, tarUnpack, unstage, type Unpack } from "./
  * the same version again. `updates.cancel` withdraws an update not yet
  * draining. As the next start passes its gate, the coordinator settles the
  * update that began last: updated when that start runs its target, else
- * failed as the outcome record says (`outcomes.ts`, #344).
+ * failed as the outcome record says (`outcomes.ts`, #344); and, whatever
+ * the outcome, marks each run that update cut and continues it where it
+ * can (`interrupted-runs.ts`, #345).
  *
  * A pending update is read back from the log as the environment starts, so
  * it is still pending after a restart, with its `since`: when an update
@@ -63,11 +67,15 @@ export interface UpdateCoordinatorOptions {
   readonly stream: StreamRef;
   /** The data directory, whose staging area an artefact is unpacked into. */
   readonly dataDir: string;
+  /** The environment's name, which the continuation of a run an update cut says. */
+  readonly environmentName: string;
   /** The harness version the environment runs: every update goes from it. */
   readonly harnessVersion: string;
   readonly launcher: LauncherChannel;
   /** The run registry, whose every change the coordinator hears. */
   readonly runs: Pick<RunRegistry, "onChange">;
+  /** Where the continuation of a run an update cut starts, as the settle marks it. */
+  readonly host: Pick<AdapterHost, "startFacts" | "launch">;
   /** The environment's activity now: idle, busy with why, or draining. */
   readonly activity: () => EnvironmentActivity;
   /** The deferral cap in milliseconds, read each time it is needed: the environment's `updates.deferralCapHours`. */
@@ -85,9 +93,11 @@ export interface UpdateCoordinator {
   outcomes(): Pick<UpdatesStatus, "lastOutcome" | "failedVersions">;
   /**
    * The settle, once this start has passed its gate and before the wire
-   * serves anyone: the update that began last gets its outcome, when it has
-   * none yet, from the version this start runs and the outcome record, which
-   * is deleted after (`outcomes.ts`).
+   * serves anyone, in two parts each idempotent on its own: the update that
+   * began last gets its outcome, when it has none yet, from the version this
+   * start runs and the outcome record, which is deleted after
+   * (`outcomes.ts`); then each run it cut that has no mark yet gets one, and
+   * a continuation where it can go on (`interrupted-runs.ts`).
    */
   settle(): void;
   readonly handlers: Required<Pick<MethodHandlers, "updates.apply" | "updates.cancel">>;
@@ -353,7 +363,10 @@ export const createUpdateCoordinator = (options: UpdateCoordinatorOptions): Upda
 
     outcomes: () => readUpdateHistory(log).outcomes,
 
-    settle: () => settleLatestUpdate({ log, stream, dataDir: options.dataDir, harnessVersion, actor: UPDATES_ACTOR }),
+    settle() {
+      settleLatestUpdate({ log, stream, dataDir: options.dataDir, harnessVersion, actor: UPDATES_ACTOR });
+      settleInterruptedRuns({ log, host: options.host, environmentName: options.environmentName, harnessVersion, actor: UPDATES_ACTOR });
+    },
 
     handlers: {
       "updates.apply": { prepare: prepareApply },

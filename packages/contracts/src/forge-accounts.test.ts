@@ -31,7 +31,7 @@ const reference = { kind: "reference", reference: { provider: "openbao", connect
 const copiedFrom = { environmentId: "1b4e28ba-2fa1-41d2-883f-0016d3cca427", environmentName: "SYSTEM-SERVER" };
 
 describe("the forge account methods", () => {
-  it("have one scope each: the list and the gh probe at read, add, update, remove and setPrimary as admin commands", () => {
+  it("have one scope each: the list and the gh probe at read, add, update, remove and setPrimary as admin commands, verify an admin query", () => {
     const owned = methods.filter((m) => m.name.startsWith("forge."));
     expect(Object.fromEntries(owned.map((m) => [m.name, [m.kind, m.scope]]))).toEqual({
       "forge.accounts.list": ["query", "read"],
@@ -39,8 +39,30 @@ describe("the forge account methods", () => {
       "forge.accounts.update": ["command", "admin"],
       "forge.accounts.remove": ["command", "admin"],
       "forge.accounts.setPrimary": ["command", "admin"],
+      "forge.accounts.verify": ["query", "admin"],
       "forge.gh.probe": ["query", "read"],
     });
+  });
+
+  it("verify takes one forge account or none, for every one, and answers the records", () => {
+    const verify = registry["forge.accounts.verify"];
+    expect(verify.params.safeParse({}).success).toBe(true);
+    expect(verify.params.safeParse({ forgeAccountId }).success).toBe(true);
+    expect(verify.params.safeParse({ forgeAccountId: "github" }).success).toBe(false);
+    expect(verify.result.safeParse({ accounts: [] }).success).toBe(true);
+    expect(verify.result.safeParse({}).success).toBe(false);
+  });
+
+  it("add and update take aliases, each a URL in any form whose origin is kept", () => {
+    const add = registry["forge.accounts.add"].params;
+    const update = registry["forge.accounts.update"].params;
+    const aliases = ["http://100.101.102.103:3000", "git.systemtech.lan:3000/david/agent-harness"];
+    expect(add.safeParse({ commandId, forgeAccountId, url: "https://git.systemtech.dev:5526", kind: "forgejo", credential: pasted, aliases }).success).toBe(true);
+    expect(update.safeParse({ commandId, forgeAccountId, aliases }).success).toBe(true);
+    expect(update.safeParse({ commandId, forgeAccountId, aliases: [] }).success).toBe(true);
+    for (const bad of [[""], "http://100.101.102.103:3000", Array.from({ length: 17 }, (_, at) => `http://10.0.0.${at}:3000`)]) {
+      expect(update.safeParse({ commandId, forgeAccountId, aliases: bad }).success, JSON.stringify(bad)).toBe(false);
+    }
   });
 
   it("add takes an id, a URL in any form, a kind that may be left out, a slug under the slug rule, a primary flag and a credential", () => {
@@ -73,10 +95,10 @@ describe("the forge account methods", () => {
     expect(add.safeParse({ ...base, credential: { kind: "gh", login: "--hostname" } }).success).toBe(false);
   });
 
-  it("errors with verification_failed and credential_source_unavailable on add and update, identity_mismatch on update alone", () => {
+  it("errors with verification_failed, alias_identity_mismatch and credential_source_unavailable on add and update, identity_mismatch on update alone", () => {
     const own = (name: "forge.accounts.add" | "forge.accounts.update") => registry[name].errors.map((member) => member.shape.code.value);
-    expect(own("forge.accounts.add")).toEqual(["verification_failed", "credential_source_unavailable"]);
-    expect(own("forge.accounts.update")).toEqual(["verification_failed", "identity_mismatch", "credential_source_unavailable"]);
+    expect(own("forge.accounts.add")).toEqual(["verification_failed", "alias_identity_mismatch", "credential_source_unavailable"]);
+    expect(own("forge.accounts.update")).toEqual(["verification_failed", "identity_mismatch", "alias_identity_mismatch", "credential_source_unavailable"]);
   });
 
   it("probe gh against the minimum 2.40, the first whose gh auth token takes a user", () => {
@@ -97,6 +119,7 @@ describe("the forge account record", () => {
       "capabilities",
       "primary",
       "problem",
+      "statusSince",
       "tokenInformation",
       "variables",
       "createdAt",

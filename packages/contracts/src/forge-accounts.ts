@@ -281,6 +281,10 @@ export const ForgeAccountRecord = z
     capabilities: ForgeCapabilities,
     primary: z.boolean().meta({ description: "Whether this is the primary forge: at most one forge account on an environment is." }),
     problem: ForgeProblem.nullable().meta({ description: "What is wrong, or null." }),
+    statusSince: Timestamp.meta({
+      description:
+        "When the forge account's status last changed: the problem's since-time while it has one, else when it was last found without one (added, or cleared of a problem). A verification that finds nothing new never moves it, so the orientation block can say how long a status has held.",
+    }),
     tokenInformation: ForgeTokenInformation.nullable().meta({ description: "What a verification read of the token; null until one has." }),
     variables: ForgeVariables,
     createdAt: Timestamp.meta({ description: "When the forge account was added." }),
@@ -288,7 +292,7 @@ export const ForgeAccountRecord = z
   })
   .meta({
     description:
-      "A forge account the environment holds: its origin and aliases, kind, slug, identity, credential source, capabilities, primary flag, problem, token information, the variables it injects, when it was added and where it was copied from. Never a secret.",
+      "A forge account the environment holds: its origin and aliases, kind, slug, identity, credential source, capabilities, primary flag, problem and since when its status holds, token information, the variables it injects, when it was added and where it was copied from. Never a secret.",
   });
 export type ForgeAccountRecord = z.infer<typeof ForgeAccountRecord>;
 

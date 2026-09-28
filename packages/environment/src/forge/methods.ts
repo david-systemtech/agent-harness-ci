@@ -6,7 +6,8 @@ import type { ForgeService } from "./forge-service.js";
  * methods"): `forge.accounts.list` and `forge.gh.probe` at `read`;
  * `forge.accounts.add` and `update`, prepared commands that hear from the
  * forge first, and `remove` and `setPrimary`, at `admin`, each appending to
- * the environment stream. The rules are the ForgeService's.
+ * the environment stream; `forge.accounts.verify`, an `admin` query that
+ * records what it finds there. The rules are the ForgeService's.
  */
 export const forgeMethods = (forge: ForgeService): MethodHandlers => ({
   "forge.accounts.list": () => ({ accounts: forge.list() }),
@@ -14,5 +15,6 @@ export const forgeMethods = (forge: ForgeService): MethodHandlers => ({
   "forge.accounts.update": forge.update,
   "forge.accounts.remove": forge.remove,
   "forge.accounts.setPrimary": forge.setPrimary,
+  "forge.accounts.verify": async (params) => ({ accounts: await forge.verify(params.forgeAccountId) }),
   "forge.gh.probe": () => forge.probeGh(),
 });

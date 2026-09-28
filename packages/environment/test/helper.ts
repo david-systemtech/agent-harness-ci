@@ -118,6 +118,8 @@ export interface TestEnvironmentOptions {
   readonly scrub?: ScrubRegistry;
   /** How the ForgeService reaches a forge (`test/fake-forge.ts` routes github.com's API to a fake one); preset: the environment's. */
   readonly forgeFetch?: EnvironmentOptions["forgeFetch"];
+  /** How long a forge call and a forge account's verification may take; preset: the environment's ten seconds. */
+  readonly forgeTimeoutMs?: EnvironmentOptions["forgeTimeoutMs"];
   /** The environment's own `gh` (`test/fake-gh.ts` puts a fake one on a PATH); preset: a PATH with no `gh`, so a test never runs a real one. */
   readonly gh?: EnvironmentOptions["gh"];
   /** The key-manager registry's resolve seam (`test/key-managers.ts` scripts one); preset: the environment's, with no connection. */
@@ -289,6 +291,7 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
     ...(options.workspaceResolver !== undefined && { workspaceResolver: options.workspaceResolver }),
     ...(options.workspaces !== undefined && { workspaces: options.workspaces }),
     ...(options.forgeFetch !== undefined && { forgeFetch: options.forgeFetch }),
+    ...(options.forgeTimeoutMs !== undefined && { forgeTimeoutMs: options.forgeTimeoutMs }),
     gh: options.gh ?? managedGh({ hostEnv: { PATH: EMPTY_PATH } }),
     ...(options.keyManagers !== undefined && { keyManagers: options.keyManagers }),
     ...(options.vault !== undefined && { vault: options.vault }),

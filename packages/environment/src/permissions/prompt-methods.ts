@@ -18,6 +18,7 @@ import { sessionNotFound } from "../sessions/decider.js";
 import type { MethodHandlers } from "../serve/methods.js";
 import type { Reader } from "../sessions/session-reads.js";
 import { sessionStream } from "../sessions/streams.js";
+import { resumesOnAnswer } from "../updates/interrupted-runs.js";
 import { parkedPrompts, readPrompt } from "./prompts-store.js";
 import { clampMode, noModeAvailable } from "./resolver.js";
 import { answerEvents } from "./tool-decisions.js";
@@ -31,7 +32,9 @@ import { answerEvents } from "./tool-decisions.js";
  * run, in the command's transaction, then hands it to the run once it has
  * committed (`AdapterHost.deliverAnswer`) when the run still waits on it, or
  * leaves it for the session's next run, whose first message it becomes
- * (ADR 0007), when a restart or a stop took the run.
+ * (ADR 0007), when a restart or a stop took the run. That next run starts at
+ * once when an update cut the session's latest run while it waited on a
+ * prompt (`resumesOnAnswer`, #345); otherwise a late answer starts nothing.
  */
 
 export interface PromptMethodsOptions {
@@ -160,6 +163,16 @@ export const promptMethods = ({ log, host, environmentId }: PromptMethodsOptions
           live: live ? { runId, mode: sessionMode.effective } : null,
         };
         log.append(aggregate, [{ type: "session.mode.set", payload: modeSet }], attribution);
+      }
+      if (!live && resumesOnAnswer(reader, sessionId)) {
+        // The update stopped the run, not the person, so their answer resumes it (#345): through the TTL's continuation (#131).
+        context.tx.afterCommit(() => {
+          try {
+            host.continueSession(sessionId);
+          } catch (error) {
+            console.error(`Resuming session ${sessionId} after prompt ${promptId} was answered failed; its next run reads the answer:`, error);
+          }
+        });
       }
       if (live) {
         const decision: PromptDecision = {

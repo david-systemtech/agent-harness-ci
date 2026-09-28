@@ -1,6 +1,5 @@
-import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   OUTCOME_RECORD_FILE,
@@ -15,6 +14,7 @@ import {
   type UpdatePendingPayload,
 } from "@agent-harness/contracts";
 import { describe, expect, it, vi } from "vitest";
+import { serverArtefact } from "../../test/artefacts.js";
 import { useCleanups } from "../../test/cleanups.js";
 import { MANUAL_CLOCK_START } from "../../test/clock.js";
 import { ask, fakeAdapter, gate } from "../../test/fake-adapter.js";
@@ -55,20 +55,8 @@ const start = async (options: TestEnvironmentOptions & { readonly launch?: TestL
   return t;
 };
 
-/**
- * A server artefact of `version` as a release publishes it: a gzipped tar
- * holding `bin/agent-harness` and a file naming the version, at the top.
- */
-const artefact = (version: string = TARGET): string => {
-  const dir = tempDir("agent-harness-artefact-");
-  const root = join(dir, "root");
-  mkdirSync(join(root, "bin"), { recursive: true });
-  writeFileSync(join(root, "bin", "agent-harness"), "#!/bin/sh\n", { mode: 0o755 });
-  writeFileSync(join(root, "VERSION"), `${version}\n`);
-  const path = join(dir, `agent-harness-linux-x64-${version}.tar.gz`);
-  execFileSync("tar", ["-czf", path, "-C", root, "."]);
-  return path;
-};
+/** A server artefact of `version` as a release publishes it (`test/artefacts.ts`), in a directory of its own. */
+const artefact = (version: string = TARGET): string => serverArtefact(tempDir("agent-harness-artefact-"), version);
 
 /** Asks for an update with a fresh command id (unless one is given); resolves with the response. */
 const apply = (client: WireClient, params: Omit<ParamsOf<"updates.apply">, "commandId"> & { commandId?: string }): Promise<ResponseOf<"updates.apply">> =>

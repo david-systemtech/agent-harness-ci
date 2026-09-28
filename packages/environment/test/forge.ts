@@ -44,6 +44,10 @@ export const setPrimary = (client: WireClient, forgeAccountId: string): Promise<
 
 export const list = async (client: WireClient): Promise<ForgeAccountRecord[]> => (await client.request("forge.accounts.list", {})).accounts;
 
+/** Sends `forge.accounts.verify` for one forge account, or every one; answers the records it answers. */
+export const verify = async (client: WireClient, forgeAccountId?: string): Promise<ForgeAccountRecord[]> =>
+  (await client.request("forge.accounts.verify", forgeAccountId === undefined ? {} : { forgeAccountId })).accounts;
+
 /** The receipt's rejection: its reason, message and data; throws unless the command was rejected. */
 export const rejection = (receipt: CommandReceipt) => {
   if (receipt.status !== "rejected") throw new Error(`The command was accepted: ${JSON.stringify(receipt)}`);

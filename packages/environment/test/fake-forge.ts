@@ -9,9 +9,13 @@ import type { ForgeFetch } from "../src/forge/providers.js";
  * providers use, each token's answer scripted per route. GitHub's routes
  * take a bearer token and the Gitea API's the `token` scheme; a request
  * whose token has no answer on its route, or comes in the other scheme, is
- * refused 401, as a forge refuses a token it does not know. Every request
- * is recorded, its scheme and not its token. Later tickets extend it
- * (read probes, detection, organisations, git's smart HTTP).
+ * refused 401, as a forge refuses a token it does not know. A route is
+ * scripted with its query for an answer to that query alone (a page of a
+ * list), else without one for every query. An answer with an `etag` header
+ * answers 304 to a request whose `If-None-Match` names it, as a forge
+ * answers a conditional re-read. Every request is recorded, its scheme and
+ * not its token. Later tickets extend it (detection, organisations, git's
+ * smart HTTP).
  */
 
 /** What a route answers a token. */
@@ -27,8 +31,12 @@ export interface FakeForgeAnswer {
 export interface FakeForgeRequest {
   readonly method: string;
   readonly path: string;
+  /** The query after `?`, present only when the request had one. */
+  readonly query?: string;
   /** The `Authorization` header's scheme (`Bearer`, `token`); null without one. */
   readonly scheme: string | null;
+  /** The entity tag a conditional request named in `If-None-Match`, present only when it named one. */
+  readonly ifNoneMatch?: string;
 }
 
 /** A user as both APIs' user endpoints answer one. */
@@ -40,10 +48,14 @@ export interface FakeForgeUser {
 export interface FakeForge {
   /** Where it listens: `http://127.0.0.1:<port>`, an origin as a LAN forge has one. */
   readonly origin: string;
-  /** Scripts what `route` (`GET /api/v1/user`) answers `token`, replacing what it answered before. */
+  /** Scripts what `route` (`GET /api/v1/user`, or with a query, `GET /api/v1/user/repos?page=2`) answers `token`, replacing what it answered before. */
   answer(token: string, route: string, answer: FakeForgeAnswer): void;
   /** Scripts both APIs' user endpoints to answer `token` as `user`, once `after` settles when it is given. */
   user(token: string, user: FakeForgeUser, after?: Promise<unknown>): void;
+  /** Scripts both APIs to let `token` read the repository `fullName` (`owner/name`) and its releases, which are none. */
+  repository(token: string, fullName: string): void;
+  /** Scripts both APIs' repository listings to answer `token` with the repositories `fullNames`, on one page. */
+  repositories(token: string, fullNames: readonly string[]): void;
   /** Every request so far, in order. */
   readonly requests: readonly FakeForgeRequest[];
   /**
@@ -72,16 +84,24 @@ export const startFakeForge = async (): Promise<FakeForge> => {
     response.end(body);
   };
 
+  /** The answer itself, or 304 with its headers and no body when the request names its entity tag. */
+  const conditional = (answer: FakeForgeAnswer, ifNoneMatch: string | undefined): FakeForgeAnswer => {
+    const etag = answer.headers?.["etag"];
+    return etag !== undefined && etag === ifNoneMatch ? { status: 304, ...(answer.headers !== undefined && { headers: answer.headers }) } : answer;
+  };
+
   const server = createServer((request: IncomingMessage, response: ServerResponse) => {
     const method = request.method ?? "GET";
-    const path = (request.url ?? "/").split("?")[0] ?? "/";
+    const [path = "/", query = ""] = (request.url ?? "/").split("?", 2);
     const [scheme = null, token = ""] = (request.headers.authorization ?? "").split(" ", 2);
-    requests.push({ method, path, scheme: scheme === "" ? null : scheme });
+    const ifNoneMatch = request.headers["if-none-match"];
+    requests.push({ method, path, ...(query !== "" && { query }), scheme: scheme === "" ? null : scheme, ...(ifNoneMatch !== undefined && { ifNoneMatch }) });
     request.resume();
-    const scripted = answers.get(keyOf(token, `${method} ${path}`));
+    const scripted = (query === "" ? undefined : answers.get(keyOf(token, `${method} ${path}?${query}`))) ?? answers.get(keyOf(token, `${method} ${path}`));
     if (scripted === undefined || scheme !== schemeFor(path)) return respond(response, { status: 401, body: { message: "Bad credentials" } });
-    if (scripted.after === undefined) return respond(response, scripted);
-    void scripted.after.then(() => respond(response, scripted));
+    const answer = conditional(scripted, ifNoneMatch);
+    if (scripted.after === undefined) return respond(response, answer);
+    void scripted.after.then(() => respond(response, answer));
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const { port } = server.address() as AddressInfo;
@@ -95,10 +115,23 @@ export const startFakeForge = async (): Promise<FakeForge> => {
         answers.set(keyOf(token, route), { status: 200, body: { ...user, full_name: "", email: "" }, ...(after !== undefined && { after }) });
       }
     },
+    repository(token, fullName) {
+      for (const api of ["/api/v3", "/api/v1"]) {
+        answers.set(keyOf(token, `GET ${api}/repos/${fullName}`), { status: 200, body: { full_name: fullName, private: true } });
+        answers.set(keyOf(token, `GET ${api}/repos/${fullName}/releases`), { status: 200, body: [] });
+      }
+    },
+    repositories(token, fullNames) {
+      for (const api of ["/api/v3", "/api/v1"]) {
+        answers.set(keyOf(token, `GET ${api}/user/repos`), { status: 200, body: fullNames.map((fullName) => ({ full_name: fullName })) });
+      }
+    },
     requests,
     fetch: (url, init) => fetch(url.startsWith(`${GITHUB_API}/`) ? `${origin}/api/v3${url.slice(GITHUB_API.length)}` : url, init),
     close: () =>
       new Promise<void>((resolve, reject) => {
+        // Closing twice is closing once: a test may close it to have the forge stop answering, before its cleanup does.
+        if (!server.listening) return resolve();
         server.closeAllConnections();
         server.close((error) => (error ? reject(error) : resolve()));
       }),

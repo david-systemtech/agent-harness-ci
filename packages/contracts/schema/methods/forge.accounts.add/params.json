@@ -35,6 +35,16 @@
       "type": "string",
       "pattern": "^[a-z0-9_]{1,40}$"
     },
+    "aliases": {
+      "maxItems": 16,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2048
+      },
+      "description": "Other origins the same forge instance answers on (a tailnet or LAN address), each in any form url takes, of which only the origin is kept; at most 16. Each is verified on its own origin with the credential and accepted only when it answers as the same login and user id; one that cannot be reached yet waits unverified, and is not served until a verification accepts it."
+    },
     "primary": {
       "description": "Make it the primary forge, clearing the one that is. The first forge account is primary whatever this says.",
       "type": "boolean"

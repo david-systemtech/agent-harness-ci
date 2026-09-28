@@ -352,6 +352,94 @@
       "properties": {
         "code": {
           "type": "string",
+          "const": "alias_identity_mismatch"
+        },
+        "message": {
+          "type": "string"
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "origin": {
+              "type": "string",
+              "pattern": "^(?:https:\\/\\/(?:[a-z0-9_-]+(?:\\.[a-z0-9_-]+)*|\\[[0-9a-f:.]+\\])(?::(?!443$)(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?|http:\\/\\/(?:[a-z0-9_-]+(?:\\.[a-z0-9_-]+)*|\\[[0-9a-f:.]+\\])(?::(?!80$)(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?)$",
+              "description": "The alias's origin."
+            },
+            "expected": {
+              "type": "object",
+              "properties": {
+                "login": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The login the forge's user endpoint answered, which may change while the user id stays."
+                },
+                "userId": {
+                  "type": "string",
+                  "pattern": "^[0-9]+$",
+                  "description": "The forge's numeric user id as decimal digits, a string so that no JSON reader rounds it: what makes a credential the same identity."
+                }
+              },
+              "required": [
+                "login",
+                "userId"
+              ],
+              "description": "The identity the credential answers as on the forge account's canonical origin."
+            },
+            "found": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "login": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "The login the forge's user endpoint answered, which may change while the user id stays."
+                    },
+                    "userId": {
+                      "type": "string",
+                      "pattern": "^[0-9]+$",
+                      "description": "The forge's numeric user id as decimal digits, a string so that no JSON reader rounds it: what makes a credential the same identity."
+                    }
+                  },
+                  "required": [
+                    "login",
+                    "userId"
+                  ],
+                  "description": "Who a forge account's credential answers as: its login and the forge's user id."
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The identity the credential answered as on the alias; null when the alias refused it."
+            },
+            "status": {
+              "type": "integer",
+              "minimum": -9007199254740991,
+              "maximum": 9007199254740991,
+              "description": "The HTTP status the alias's identity endpoint answered."
+            }
+          },
+          "required": [
+            "origin",
+            "expected",
+            "found",
+            "status"
+          ]
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "data"
+      ],
+      "description": "An alias was not accepted: on its own origin the credential answered as another login or user id than on the forge account's canonical origin, or was refused there, so it is not the same instance. Nothing was changed; data names the alias, both identities and the status."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
           "const": "credential_source_unavailable"
         },
         "message": {
