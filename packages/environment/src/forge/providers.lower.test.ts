@@ -216,7 +216,7 @@ describe("repositories", () => {
       expect(await providerOf(forge, kind).repository(forge.origin, "token-for-tests", "david/bank"), kind).toEqual({
         outcome: "done",
         status: 200,
-        value: { fullName: "david/bank", private: true, defaultBranch: "trunk", url: `${forge.origin}/david/bank` },
+        value: { origin: forge.origin, fullName: "david/bank", private: true, defaultBranch: "trunk", url: `${forge.origin}/david/bank` },
       });
     }
   });
@@ -235,7 +235,7 @@ describe("repositories", () => {
       expect(await provider.createRepository(forge.origin, "token-for-tests", { organisation: null, name: "bank", private: true }), kind).toEqual({
         outcome: "done",
         status: 201,
-        value: { fullName: "david/bank", private: true, defaultBranch: "main", url: `${forge.origin}/david/bank` },
+        value: { origin: forge.origin, fullName: "david/bank", private: true, defaultBranch: "main", url: `${forge.origin}/david/bank` },
       });
       expect(
         await provider.createRepository(forge.origin, "token-for-tests", { organisation: "systemtech", name: "team-bank", private: false, description: "The team's bank" }),

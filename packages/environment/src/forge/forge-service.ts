@@ -42,6 +42,7 @@ import { FORGE_CALL_TIMEOUT_MS, forgeProvider, type ForgeFetch, type IdentityAns
 import { createHarnessGit, type ForgeGitAnswer, type ForgeGitRequest } from "./harness-git.js";
 import { createMissingOrigins } from "./missing-origins.js";
 import { createRunSecrets, type RunSecrets } from "./run-secrets.js";
+import { createForgeOperations, type ForgeOperations } from "./operations.js";
 
 /**
  * The ForgeService's forge account store (forge spec, "The forge account
@@ -90,6 +91,9 @@ import { createRunSecrets, type RunSecrets } from "./run-secrets.js";
  *   serves the origin and anonymously where none does; the origins found
  *   missing (`missing-origins.ts`); and git's rejections, each reported and
  *   verified again.
+ * - **Operations** (#316): repositories, issues, pull requests, releases
+ *   and a file on a branch (`operations.ts`), each reading the credential
+ *   for itself, and each write teaching its capability.
  */
 
 /** What every vault entry holding a forge token is named with. */
@@ -185,7 +189,7 @@ export type ForgeCredential =
   /** No token: `needs-credential` for a copy awaiting one, `credential-unavailable` for `gh`, a key manager or the vault giving none. */
   | { readonly outcome: "unavailable"; readonly problem: ForgeProblem };
 
-export interface ForgeService {
+export interface ForgeService extends ForgeOperations {
   /** Registers every stored token the vault holds with its forms, and deletes the forge entries no forge account holds; startup runs it once, before the wire opens. */
   start(): Promise<void>;
   /** The forge accounts, in the order they were added. */
@@ -351,16 +355,31 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
     }
   };
 
+  /** Reads a held forge account's credential for one operation, with the login the forge knows it by. */
+  const readHeld = (account: ForgeAccountRecord, purpose: string): Promise<ForgeCredential> => readCredential({ ...account, login: account.identity?.login ?? null }, purpose);
+
   const verifier = createVerifier({
     log,
     clock,
     stream,
     reader,
     provider: (kind) => forgeProvider(kind, providerOptions),
-    readCredential: (account, purpose) => readCredential({ ...account, login: account.identity?.login ?? null }, purpose),
+    readCredential: readHeld,
     knownRepositories: options.knownRepositories ?? (() => []),
     budgetMs: providerOptions.timeoutMs,
     loginChanged: (account) => void holdStored(account),
+  });
+
+  const operations = createForgeOperations({
+    log,
+    clock,
+    stream,
+    reader,
+    scrub,
+    provider: (kind) => forgeProvider(kind, providerOptions),
+    readCredential: readHeld,
+    verifier,
+    originMissing: (origin, operation) => missing.record(origin, operation),
   });
 
   /** Holds a stored token's registration again with its forms for the forge account as it is now: a changed login names another Basic-auth form. */
@@ -783,7 +802,7 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
     async resolveCredential(forgeAccountId, purpose) {
       const account = liveForgeAccount(reader, forgeAccountId.toLowerCase());
       if (account === null) return null;
-      return readCredential({ ...account, login: account.identity?.login ?? null }, purpose);
+      return readHeld(account, purpose);
     },
 
     probeGh: () => gh.probe(),
@@ -835,6 +854,8 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
       log.append(stream, [{ type: "forge.account.primary-set", payload: { forgeAccountId, cleared } }], { tx: context.tx, actor: context.actor, commandId: context.commandId });
       return { aggregate: stream, result: { account: recordOf(forgeAccountId) } };
     },
+
+    ...operations,
 
     secrets,
 

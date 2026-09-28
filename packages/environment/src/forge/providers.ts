@@ -55,6 +55,8 @@ export type ForgeReply<T> =
 
 /** A repository as the harness reads one. */
 export interface ForgeRepository {
+  /** The origin it is on. */
+  readonly origin: ForgeOrigin;
   /** `owner/name`. */
   readonly fullName: string;
   readonly private: boolean;
@@ -308,15 +310,17 @@ const field = (value: unknown, name: string): unknown => (typeof value === "obje
 
 const text = (value: unknown): string | null => (typeof value === "string" ? value : null);
 
-/** A repository as both APIs answer one; null for an answer that is none. */
-const repositoryOf = (body: unknown): ForgeRepository | null => {
-  const fullName = fullNameOf(body);
-  const isPrivate = field(body, "private");
-  const defaultBranch = text(field(body, "default_branch"));
-  const url = text(field(body, "html_url"));
-  if (fullName === null || typeof isPrivate !== "boolean" || defaultBranch === null || url === null) return null;
-  return { fullName, private: isPrivate, defaultBranch, url };
-};
+/** A repository on `origin` as both APIs answer one; null for an answer that is none. */
+const repositoryOn =
+  (origin: ForgeOrigin) =>
+  (body: unknown): ForgeRepository | null => {
+    const fullName = fullNameOf(body);
+    const isPrivate = field(body, "private");
+    const defaultBranch = text(field(body, "default_branch"));
+    const url = text(field(body, "html_url"));
+    if (fullName === null || typeof isPrivate !== "boolean" || defaultBranch === null || url === null) return null;
+    return { origin, fullName, private: isPrivate, defaultBranch, url };
+  };
 
 /** The most of a forge's own error line an answer quotes. */
 const FORGE_LINE_MAX = 200;
@@ -483,14 +487,14 @@ export const forgeProvider = (kind: ForgeKind, options: ProviderOptions): ForgeP
 
     repositories,
 
-    repository: async (origin, token, fullName, call) => replied(origin, await get(origin, `/repos/${repositoryPath(fullName)}`, token, call), "repository", repositoryOf),
+    repository: async (origin, token, fullName, call) => replied(origin, await get(origin, `/repos/${repositoryPath(fullName)}`, token, call), "repository", repositoryOn(origin)),
 
     organisation: async (origin, token, name, call) => acknowledged(origin, await get(origin, `/orgs/${encodeURIComponent(name)}`, token, call)),
 
     async createRepository(origin, token, creation, call) {
       const path = creation.organisation === null ? "/user/repos" : `/orgs/${encodeURIComponent(creation.organisation)}/repos`;
       const body = { name: creation.name, private: creation.private, ...(creation.description !== undefined && { description: creation.description }) };
-      return replied(origin, await send(origin, "POST", path, token, body, call), "repository", repositoryOf);
+      return replied(origin, await send(origin, "POST", path, token, body, call), "repository", repositoryOn(origin));
     },
 
     issue: async (origin, token, fullName, number, call) => replied(origin, await get(origin, `/repos/${repositoryPath(fullName)}/issues/${number}`, token, call), "issue", issueOf),
