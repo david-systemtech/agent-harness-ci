@@ -139,7 +139,8 @@ const install = async (args: readonly string[], context: ServiceContext): Promis
     // A running launcher was left alone, so its definition stays; otherwise the definition just written is taken back out.
     if (installed && !launcherRuns) await platform.uninstall().catch(() => undefined);
     putBack(undo);
-    // Both the folders the platform made for its definition and the data-directory ones, as the success path records.
+    // The folders the platform made for its definition and the data directory's; those the entry and shim writes made
+    // (the shim's `bin`) went with their put-backs above, as `writeDefinition`'s restore removes what it created.
     removeEmptyDirectories([...(installed?.createdDirectories ?? []), ...dataDirectories]);
     throw error;
   }
