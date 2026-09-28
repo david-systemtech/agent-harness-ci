@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
 import { connect } from "node:net";
 import { join } from "node:path";
 import {
@@ -1374,7 +1374,7 @@ describe("the request's instructions, parameters and fields", () => {
     expect(message?.attachments.map((attachment) => [attachment.name, attachment.mediaType, [...attachment.data]])).toEqual([["shot.png", "image/png", [0x89, 0x50, 0x4e, 0x47]]]);
   });
 
-  it("gives a fresh session the directory the request names, or a scratch directory of its own", async () => {
+  it("gives a fresh session the directory the request names, or a scratch workspace of its own, and refuses a directory it cannot use 400 naming the workspace and the problem", async () => {
     const t = await start();
     const { token } = await program(t);
     const named = tempDir();
@@ -1382,25 +1382,26 @@ describe("the request's instructions, parameters and fields", () => {
     expect(t.adapter.lastRun().input.workspace).toEqual({ kind: "directory", path: named });
     expect(inNamed["agent-harness"].sessionId).toBeDefined();
     const scratch = await complete(t, token, turn("Hi"));
-    const { workspace } = t.adapter.lastRun().input;
-    expect(workspace.path.startsWith(t.dataDir)).toBe(true);
-    expect(workspace.path).toContain(scratch["agent-harness"].sessionId as string);
-    expect(statSync(workspace.path).isDirectory()).toBe(true);
-    const missing = join(named, "not-here");
-    expect(await refusalOf(await post(t, token, turn("Hi", { "agent-harness": { workspace: missing } })))).toMatchObject({
+    const sessionId = scratch["agent-harness"].sessionId as string;
+    expect(t.adapter.lastRun().input.workspace).toEqual({ kind: "scratch", path: join(t.dataDir, "scratch", sessionId) });
+    expect(statSync(join(t.dataDir, "scratch", sessionId)).isDirectory()).toBe(true);
+    const refused = async (workspace: string) => refusalOf(await post(t, token, turn("Hi", { "agent-harness": { workspace } })));
+    expect(await refused(join(named, "not-here"))).toMatchObject({
       status: 400,
-      body: { error: { code: "workspace_not_found", param: "agent-harness.workspace" } },
+      body: { error: { type: "invalid_request_error", code: "does_not_exist", message: expect.stringContaining(join(named, "not-here")), param: "agent-harness.workspace" } },
     });
+    expect(await refused(t.dataDir)).toMatchObject({ status: 400, body: { error: { code: "reserved", param: "agent-harness.workspace" } } });
     mkdirSync(join(named, "relative"));
-    expect((await refusalOf(await post(t, token, turn("Hi", { "agent-harness": { workspace: "relative" } })))).status).toBe(400);
+    expect(await refused("relative")).toMatchObject({ status: 400, body: { error: { code: "invalid_params", param: "agent-harness.workspace" } } });
+    expect(t.adapter.runs).toHaveLength(2);
   });
 
-  it("asks the resolver for a fresh session's workspace as a directory request, records what it answers, and turns its refusal into a 400 naming the workspace", async () => {
+  it("asks the resolver for a fresh session's workspace, a directory request for one named and a scratch request for none, records what it answers, and turns its refusal into a 400 naming the workspace and the problem", async () => {
     let refuse = false;
-    const resolver = scriptedResolver(({ request }) =>
+    const resolver = scriptedResolver(({ request, sessionId }) =>
       refuse
         ? { refused: { code: "conflict", message: "That directory is reserved.", data: { reason: "workspace_unusable", problem: "reserved" } } }
-        : { workspace: { kind: "scratch", path: "path" in request ? request.path : "" }, repositoryIdentity: "https://git.systemtech.dev/david/notes" },
+        : { workspace: { kind: "scratch", path: request.kind === "directory" ? request.path : `/data/scratch/${sessionId}` }, repositoryIdentity: "https://git.systemtech.dev/david/notes" },
     );
     const t = await start({}, { workspaceResolver: resolver });
     const { token } = await program(t);
@@ -1412,21 +1413,37 @@ describe("the request's instructions, parameters and fields", () => {
       workspace: { kind: "scratch", path: named },
       repositoryIdentity: "https://git.systemtech.dev/david/notes",
     });
+    const fresh = await complete(t, token, turn("Hi"));
+    expect(resolver.calls[1]).toEqual({ request: { kind: "scratch" }, sessionId: fresh["agent-harness"].sessionId });
     refuse = true;
     expect(await refusalOf(await post(t, token, turn("Hi")))).toMatchObject({
       status: 400,
-      body: { error: { code: "workspace_unusable", message: "That directory is reserved.", param: "agent-harness.workspace" } },
+      body: { error: { code: "reserved", message: "That directory is reserved.", param: "agent-harness.workspace" } },
     });
-    // The scratch directory made for it went with the refusal, and nothing was recorded.
-    const scratch = resolver.calls[1]?.request;
-    expect(scratch).toEqual({ kind: "directory", path: expect.stringContaining(t.dataDir) });
-    expect(existsSync((scratch as { path: string }).path)).toBe(false);
-    expect(await listed(t)).toHaveLength(1);
+    expect(await listed(t)).toHaveLength(2);
   });
 
-  it("answers a turn refused after its place resolved with its own refusal, and removes the scratch directory, when what the resolver made cannot be removed", async () => {
-    const resolver = scriptedResolver(({ request }) => ({
-      workspace: { kind: "directory", path: "path" in request ? request.path : "" },
+  it("removes the scratch workspace it asked for when the turn records nothing", async () => {
+    const t = await start();
+    const { token } = await program(t);
+    const log = t.env.log;
+    const append = log.append.bind(log);
+    const quiet = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const spy = vi.spyOn(log, "append").mockImplementation((stream, events, options) => {
+      if (events.some((event) => event.type === "session.created")) throw new Error("The disk is full.");
+      return append(stream, events, options);
+    });
+    onCleanup(() => {
+      spy.mockRestore();
+      quiet.mockRestore();
+    });
+    expect(await refusalOf(await post(t, token, turn("Hi")))).toMatchObject({ status: 500, body: { error: { code: "internal" } } });
+    expect(existsSync(join(t.dataDir, "scratch")) ? readdirSync(join(t.dataDir, "scratch")) : []).toEqual([]);
+  });
+
+  it("answers a turn refused after its place resolved with its own refusal when what the resolver made cannot be removed, and logs the failed removal", async () => {
+    const resolver = scriptedResolver(() => ({
+      workspace: { kind: "scratch", path: "/data/scratch/held" },
       repositoryIdentity: null,
       undo: () => {
         throw new Error("The worktree is locked.");
@@ -1446,9 +1463,7 @@ describe("the request's instructions, parameters and fields", () => {
       quiet.mockRestore();
     });
     expect(await refusalOf(await post(t, token, turn("Hi")))).toMatchObject({ status: 500, body: { error: { code: "internal" } } });
-    const scratch = resolver.calls[0]?.request;
-    expect(scratch).toEqual({ kind: "directory", path: expect.stringContaining(t.dataDir) });
-    expect(existsSync((scratch as { path: string }).path)).toBe(false);
+    expect(resolver.calls).toEqual([{ request: { kind: "scratch" }, sessionId: expect.any(String) }]);
     expect(quiet).toHaveBeenCalledWith(expect.stringContaining("resolver made"), expect.objectContaining({ message: "The worktree is locked." }));
   });
 

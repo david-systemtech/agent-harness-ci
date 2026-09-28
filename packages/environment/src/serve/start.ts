@@ -42,7 +42,7 @@ import { formatActor, openEventLog, type EventLog, type Projector } from "../eve
 import type { Adapter } from "../adapter/contract.js";
 import { createClaudeAdapter } from "../adapters/claude/index.js";
 import { createPassthrough } from "../completions/passthrough.js";
-import { SCRATCH_DIRECTORY, createCompletionsSurface } from "../completions/surface.js";
+import { createCompletionsSurface } from "../completions/surface.js";
 import { createAdapterHost } from "../adapter/host.js";
 import { ACCOUNTS_DIRECTORY, createAccountService, type AccountService, type ConfiguredAccount } from "../accounts/account-service.js";
 import { accountsProjector } from "../accounts/account-store.js";
@@ -87,7 +87,8 @@ import { sessionListProjector } from "../sessions/session-list.js";
 import { createTerminalService } from "../terminals/service.js";
 import type { TerminalsOptions } from "../terminals/terminals.js";
 import { workspaceMethods } from "../workspace/methods.js";
-import { createWorkspaceResolver, type WorkspaceResolver } from "../workspace/resolver.js";
+import { createWorkspaceResolver, type WorkspaceResolver, type WorkspaceSettings } from "../workspace/resolver.js";
+import { workspaceRoots } from "../workspace/roots.js";
 import { createSettleSweep } from "../sessions/settle-sweep.js";
 import { settingsMethods } from "../settings/methods.js";
 import { setupMethods } from "../setup/methods.js";
@@ -276,6 +277,14 @@ export interface EnvironmentOptions {
    * (`workspace/resolver.ts`); tests script it.
    */
   readonly workspaceResolver?: WorkspaceResolver;
+  /**
+   * What the environment's resolver reads beyond its data directory (#325):
+   * the workspace roots later workstreams declare beside the data
+   * directory's scratch and worktrees, which are exempt from the denylist's
+   * data-directory preset as they are; the home `~` stands for; whether a
+   * directory can be read; how long git gets. Each has a preset.
+   */
+  readonly workspaces?: WorkspaceSettings;
 }
 
 /** Who starts a run that no client session starts: a routine, a bot, or the completions surface. */
@@ -496,11 +505,13 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
 
   // Where the denylist reads paths from (#132): the user's home for `~` (and for `~<the user's name>`), the file system's
   // links, and the directories inside the data directory where runs work, which the data directory's preset leaves out: the
-  // containment directories (#133's) and the scratch workspaces a completions request runs in (#140, now its every call is gated).
+  // containment directories (#133's) and every workspace root, the scratch workspaces a completions request runs in (#140,
+  // now its every call is gated), the worktrees and any root a later workstream declares (#325).
   const user = passwdName();
+  const roots = workspaceRoots(dataDir, options.workspaces?.roots);
   const denylistContext: Omit<DenylistContext, "denylist"> = {
     home: homedir(),
-    exempt: [join(dataDir, CONTAINMENT_DIRECTORY), join(dataDir, SCRATCH_DIRECTORY)],
+    exempt: [join(dataDir, CONTAINMENT_DIRECTORY), ...roots.all],
     ...(user !== undefined && { user }),
   };
   const readDenylistNow = () => readDenylist({ all: (sql, ...params) => log.read(sql, ...params) });
@@ -693,7 +704,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // The shelf's sweep (#117): started once the environment is ready; a settings change runs it from the change's commit.
   const settleSweep = createSettleSweep({ log, clock });
   // A new session's workspace, from the request `sessions.create` or the completions surface makes (#321).
-  const workspaceResolver = options.workspaceResolver ?? createWorkspaceResolver();
+  const workspaceResolver = options.workspaceResolver ?? createWorkspaceResolver({ ...options.workspaces, log, dataDir, roots });
   const table = createMethodTable({
     ...lifecycle.handlers,
     "environment.subscribe": () => lifecycle.source,
@@ -768,7 +779,6 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       defaultAccountId: () => accounts.defaultId(),
     },
     methods: table,
-    scratchRoot: join(dataDir, SCRATCH_DIRECTORY),
     passthrough,
     resolver: workspaceResolver,
   });

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { tmpdir } from "node:os";
 import {
   ContractError,
   DEFAULT_TITLE,
@@ -23,8 +24,12 @@ import type { WireClient } from "./wire-client.js";
  * it, the patch an event carries, and a client's reduction of the list.
  */
 
-/** The workspace every test session is created in. */
-export const workspace = { kind: "directory", path: "/work/agent-harness" } as const;
+/**
+ * The workspace every test session is created in: a directory every machine
+ * has, since the environment refuses one that is not there (#325), and in no
+ * repository, so a session made in it has no identity.
+ */
+export const workspace = { kind: "directory", path: tmpdir() } as const;
 
 type CreateParams = Omit<ParamsOf<"sessions.create">, "commandId" | "id" | "workspace"> & {
   id?: string;

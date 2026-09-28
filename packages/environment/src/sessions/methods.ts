@@ -42,7 +42,7 @@ import { acceptAnyRunParameters, keepSessionMode, type RunParametersCheck, type 
 import { listDeleted, listSummaries, readDeletion, readSessionState, readSummary, type Reader } from "./session-reads.js";
 import { sessionTranscript, storedTranscriptParts } from "../runs/transcript.js";
 import { sessionStream } from "./streams.js";
-import { createWorkspaceResolver, type Resolution, type WorkspaceResolver } from "../workspace/resolver.js";
+import type { Resolution, WorkspaceResolver } from "../workspace/resolver.js";
 
 /**
  * The session-organisation handlers on the method table (session-state
@@ -73,8 +73,8 @@ export interface SessionMethodsOptions {
   readonly clock?: () => Date;
   /** The purge `sessions.purge` runs; preset: one over `log` whose adapter cannot delete a transcript. The environment shares its own with the sweep. */
   readonly deletion?: Deletion;
-  /** What `sessions.create` resolves its workspace request with (#321); preset: the environment's (`workspace/resolver.ts`). */
-  readonly resolver?: WorkspaceResolver;
+  /** What `sessions.create` resolves its workspace request with (#321): the environment's (`workspace/resolver.ts`), or a test's. */
+  readonly resolver: WorkspaceResolver;
 }
 
 /** The streams and event types the session list carries: the `list`-flagged events of every session and group stream. */
@@ -178,7 +178,7 @@ export const sessionMethods = (options: SessionMethodsOptions): MethodHandlers =
   const clampSessionMode = options.clampSessionMode ?? keepSessionMode;
   const clock = options.clock ?? (() => new Date());
   const deletion = options.deletion ?? createDeletion({ log });
-  const resolver = options.resolver ?? createWorkspaceResolver();
+  const { resolver } = options;
   // The log's query-only read: inside a command it reads that command's own transaction.
   const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
 
@@ -264,7 +264,7 @@ export const sessionMethods = (options: SessionMethodsOptions): MethodHandlers =
             return { aggregate, result: { summary: summaryAfter(id) } };
           };
         };
-        // A resolver's answer given at once, a refusal of a kind not served, keeps the create's place among its socket's requests.
+        // A resolver's answer given at once (a scratch directory, a kind not served) keeps the create's place among its socket's requests.
         const resolved = resolver.resolve(request, id);
         return resolved instanceof Promise ? resolved.then(handlerFor) : handlerFor(resolved);
       },
