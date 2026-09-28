@@ -21,6 +21,18 @@ const entry = `forge:${forgeAccountId}:${otherId}`;
 const identity = { login: "david", userId: "42" };
 const stored = { kind: "stored", provenance: "pasted", entry };
 const pasted = { kind: "stored", provenance: "pasted", token: "token-for-tests" };
+const handed = { kind: "stored", provenance: "client-gh", token: "token-for-tests" };
+const handedOverBy = { clientSessionId: otherId, label: "David's laptop" };
+const handedStored = { kind: "stored", provenance: "client-gh", entry, handedOverBy, followsGhRotations: false };
+const gh = { kind: "gh", login: "david" };
+const connectionId = "9b2f4c1e-3d5a-4b6c-8d7e-0f1a2b3c4d5e";
+const openbao = { provider: "openbao", connectionId, mount: "personal", path: "harness/forge-github", key: "token" };
+const doppler = { provider: "doppler", connectionId, name: "FORGE_GITHUB_TOKEN" };
+const onepassword = { provider: "onepassword", connectionId, vault: "Harness", item: "forge-github", field: "credential" };
+const bitwarden = { provider: "bitwarden", connectionId, secretId: otherId, key: "forge-github" };
+const reference = { kind: "reference", reference: openbao };
+const signedIn = { host: "github.com", login: "david", active: true, tokenKind: "oauth", scopes: ["gist", "read:org", "repo"] };
+const probe = { installed: true, version: "2.63.2", minimum: "2.40.0", meetsMinimum: true, accounts: [signedIn, { ...signedIn, login: "david-work", active: false, tokenKind: "fine-grained", scopes: null }] };
 const unknown = { state: "unknown", verifiedAt: null, status: null };
 const capabilities = {
   readRepository: { state: "verified", verifiedAt: at, status: null },
@@ -101,14 +113,56 @@ export const forgeSchemaFixtures: Record<string, Fixtures> = {
   "forge/alias.json": { valid: [{ origin, verifiedAt: null }, { origin, verifiedAt: at }], invalid: [{ origin: "git.systemtech.dev", verifiedAt: null }, { origin }] },
   "forge/stored-token-provenance.json": { valid: ["pasted", "client-gh", "imported", "oauth"], invalid: ["gh", "Pasted", ""] },
   "forge/vault-entry.json": { valid: [entry], invalid: ["token-for-tests", `forge:${forgeAccountId}`, `vault:${forgeAccountId}:${otherId}`, ""] },
+  "forge/gh-login.json": { valid: ["david", "x-bot", "david_corp", "7"], invalid: ["", "-david", "da vid", "david\n", "x".repeat(101)] },
+  "forge/handing-client.json": { valid: [handedOverBy], invalid: [{ clientSessionId: "", label: "laptop" }, { clientSessionId: otherId }] },
   "forge/credential-source.json": {
-    valid: [{ kind: "gh" }, stored, { ...stored, provenance: "imported" }, { kind: "reference" }, { kind: "none" }],
-    invalid: [{ kind: "stored", provenance: "pasted" }, pasted, { kind: "stored", provenance: "typed", entry }, { kind: "keychain" }, {}],
+    valid: [gh, stored, { ...stored, provenance: "imported" }, { ...stored, provenance: "oauth" }, handedStored, reference, { kind: "reference", reference: bitwarden }, { kind: "none" }],
+    invalid: [
+      { kind: "gh" },
+      { kind: "gh", login: "--user" },
+      { kind: "stored", provenance: "pasted" },
+      pasted,
+      { kind: "stored", provenance: "typed", entry },
+      { ...stored, provenance: "client-gh" },
+      { ...handedStored, followsGhRotations: true },
+      { kind: "reference" },
+      { kind: "reference", reference: { ...openbao, connectionId: "vault" } },
+      { kind: "keychain" },
+      {},
+    ],
   },
   "forge/token.json": { valid: ["token-for-tests", "token+for/tests=", "x"], invalid: ["", "two words", "trailing\n", "tökén", "x".repeat(4097)] },
   "forge/credential-input.json": {
-    valid: [pasted],
-    invalid: [{ ...pasted, token: "" }, { ...pasted, provenance: "client-gh" }, { kind: "stored", provenance: "pasted" }, stored, { kind: "gh" }],
+    valid: [pasted, handed, gh, reference],
+    invalid: [{ ...pasted, token: "" }, { ...pasted, provenance: "imported" }, { kind: "stored", provenance: "pasted" }, stored, { kind: "gh" }, { kind: "none" }, { kind: "reference", reference: {} }],
+  },
+  "forge/add-credential.json": {
+    valid: [pasted, handed, gh, reference, { kind: "none" }],
+    invalid: [{ ...pasted, provenance: "imported" }, { ...pasted, provenance: "oauth" }, handedStored, { kind: "gh", login: "" }, { kind: "reference", reference: null }, {}],
+  },
+  "forge/gh-signed-in-account.json": {
+    valid: [signedIn, { ...signedIn, tokenKind: "classic", scopes: [] }, { ...signedIn, host: "ghe.example.com", tokenKind: "unknown", scopes: null }],
+    invalid: [{ ...signedIn, login: "-x" }, { ...signedIn, tokenKind: "pat" }, { ...signedIn, scopes: "repo" }, { ...signedIn, active: undefined }],
+  },
+  "forge/gh-probe.json": {
+    valid: [probe, { installed: false, version: null, minimum: "2.40.0", meetsMinimum: false, accounts: [] }, { ...probe, version: "2.39.2", meetsMinimum: false }],
+    invalid: [{ ...probe, accounts: undefined }, { ...probe, version: "" }, { ...probe, installed: "yes" }, { ...probe, accounts: [{ ...signedIn, token: "token-for-tests", login: "" }] }],
+  },
+  "key-managers/provider.json": { valid: ["openbao", "doppler", "onepassword", "bitwarden"], invalid: ["vault", "1password", ""] },
+  "key-managers/connection-id.json": { valid: [connectionId], invalid: ["openbao", "", "c232ab00-9414-11ec-b3c8-9f6bdeced846"] },
+  "key-managers/openbao-reference.json": {
+    valid: [openbao, { ...openbao, mount: "secret/team", path: "a/b/c" }],
+    invalid: [{ ...openbao, mount: "/personal" }, { ...openbao, path: "harness//forge" }, { ...openbao, path: "harness/" }, { ...openbao, key: "" }, { ...openbao, key: "two\nlines" }, { ...openbao, connectionId: undefined }],
+  },
+  "key-managers/doppler-reference.json": {
+    valid: [doppler, { ...doppler, project: "harness", config: "prd" }],
+    invalid: [{ ...doppler, name: "forge_github_token" }, { ...doppler, name: "1TOKEN" }, { ...doppler, project: "" }],
+  },
+  "key-managers/onepassword-reference.json": { valid: [onepassword], invalid: [{ ...onepassword, field: undefined }, { ...onepassword, vault: "" }] },
+  "key-managers/bitwarden-reference.json": { valid: [bitwarden], invalid: [{ ...bitwarden, secretId: "forge-github" }, { ...bitwarden, key: undefined }] },
+  "key-managers/reference.json": {
+    valid: [openbao, doppler, onepassword, bitwarden],
+    invalid: [{ ...openbao, provider: "vault" }, { ...doppler, provider: "bitwarden" }, { provider: "openbao", connectionId }, {}],
   },
   "forge/capability-name.json": { valid: ["readRepository", "writeIssues", "pullRequests", "createRepository", "readReleases"], invalid: ["read_repository", "repo", ""] },
   "forge/capability-state.json": { valid: ["verified", "failed", "unknown"], invalid: ["passed", ""] },
@@ -164,6 +218,10 @@ export const forgeSchemaFixtures: Record<string, Fixtures> = {
     valid: [{ code: "verification_failed", message: "The forge refused the token.", data: { origin, status: 401 } }],
     invalid: [{ code: "verification_failed", message: "m", data: { origin } }, { code: "verification_failed", message: "m", data: { origin: "nowhere", status: 401 } }, { code: "identity_mismatch", message: "m", data: { origin, status: 401 } }],
   },
+  "errors/credential_source_unavailable.json": {
+    valid: [{ code: "credential_source_unavailable", message: "No key-manager connection holds this reference.", data: { connectionId } }],
+    invalid: [{ code: "credential_source_unavailable", message: "m", data: {} }, { code: "credential_source_unavailable", message: "m", data: { connectionId: "openbao" } }],
+  },
   "errors/identity_mismatch.json": {
     valid: [{ code: "identity_mismatch", message: "m", data: { forgeAccountId, expected: identity, found: { login: "someone", userId: "7" } } }],
     invalid: [{ code: "identity_mismatch", message: "m", data: { forgeAccountId, expected: identity } }, { code: "identity_mismatch", message: "m", data: {} }],
@@ -174,15 +232,24 @@ export const forgeSchemaFixtures: Record<string, Fixtures> = {
 export const forgeMethodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
   "forge.accounts.list": {
     params: { valid: [{}], invalid: [[], "all"] },
-    result: { valid: [{ accounts: [] }, { accounts: [record, unreachableCopy] }], invalid: [{}, { accounts: [{ id: forgeAccountId }] }, { accounts: [{ ...record, credential: pasted }] }] },
+    result: {
+      valid: [{ accounts: [] }, { accounts: [record, unreachableCopy] }, { accounts: [{ ...record, credential: gh }, { ...record, credential: handedStored }, { ...record, credential: reference }] }],
+      invalid: [{}, { accounts: [{ id: forgeAccountId }] }, { accounts: [{ ...record, credential: pasted }] }, { accounts: [{ ...record, credential: handed }] }],
+    },
   },
   "forge.accounts.add": {
     params: {
       valid: [
         { commandId, forgeAccountId, url: "https://github.com", credential: pasted },
         { commandId, forgeAccountId, url: "git@git.systemtech.dev:david/agent-harness.git", kind: "forgejo", slug: "work", primary: true, credential: pasted },
+        { commandId, forgeAccountId, url: "https://github.com", credential: gh },
+        { commandId, forgeAccountId, url: "https://github.com", credential: handed },
+        { commandId, forgeAccountId, url: origin, kind: "forgejo", credential: reference, copiedFrom: { environmentId, environmentName: "SYSTEM-SERVER" } },
+        { commandId, forgeAccountId, url: origin, kind: "forgejo", primary: true, credential: { kind: "none" }, copiedFrom: { environmentId, environmentName: "SYSTEM-SERVER" } },
       ],
       invalid: [
+        { commandId, forgeAccountId, url: "https://github.com", credential: { ...pasted, provenance: "imported" } },
+        { commandId, forgeAccountId, url: "https://github.com", credential: { kind: "none" }, copiedFrom: { environmentId: "laptop", environmentName: "laptop" } },
         { commandId, forgeAccountId, url: "https://github.com" },
         { commandId, forgeAccountId, url: "", credential: pasted },
         { commandId, forgeAccountId, url: "https://gitlab.com", kind: "gitlab", credential: pasted },
@@ -195,8 +262,15 @@ export const forgeMethodFixtures: Record<string, { params: Fixtures; result: Fix
   },
   "forge.accounts.update": {
     params: {
-      valid: [{ commandId, forgeAccountId }, { commandId, forgeAccountId, slug: "work" }, { commandId, forgeAccountId, credential: pasted }],
-      invalid: [{ commandId }, { commandId, forgeAccountId, slug: "" }, { commandId, forgeAccountId, credential: stored }],
+      valid: [
+        { commandId, forgeAccountId },
+        { commandId, forgeAccountId, slug: "work" },
+        { commandId, forgeAccountId, credential: pasted },
+        { commandId, forgeAccountId, credential: handed },
+        { commandId, forgeAccountId, credential: gh },
+        { commandId, forgeAccountId, credential: reference },
+      ],
+      invalid: [{ commandId }, { commandId, forgeAccountId, slug: "" }, { commandId, forgeAccountId, credential: stored }, { commandId, forgeAccountId, credential: { kind: "none" } }],
     },
     result: { valid: [{ account: record }], invalid: [{}, { account: null }] },
   },
@@ -207,5 +281,9 @@ export const forgeMethodFixtures: Record<string, { params: Fixtures; result: Fix
   "forge.accounts.setPrimary": {
     params: { valid: [{ commandId, forgeAccountId }], invalid: [{ commandId }, { commandId, forgeAccountId: null }] },
     result: { valid: [{ account: record }], invalid: [{}, { account: { ...record, primary: 1 } }] },
+  },
+  "forge.gh.probe": {
+    params: { valid: [{}], invalid: [[], "gh"] },
+    result: { valid: [probe], invalid: [{}, { ...probe, meetsMinimum: undefined }] },
   },
 };

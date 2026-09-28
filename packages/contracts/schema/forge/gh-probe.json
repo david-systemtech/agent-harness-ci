@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "GhProbe",
+  "type": "object",
+  "properties": {
+    "installed": {
+      "type": "boolean",
+      "description": "Whether gh is on the environment's PATH and runs."
+    },
+    "version": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The version gh reports, as 2.63.2; null when it is not installed or its version could not be read."
+    },
+    "minimum": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The oldest gh a gh credential source runs: 2.40.0."
+    },
+    "meetsMinimum": {
+      "type": "boolean",
+      "description": "Whether the version is the minimum or later; false when gh is not installed or its version could not be read."
+    },
+    "accounts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "host": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The host gh is signed in to, as gh names it: github.com, or an Enterprise host."
+          },
+          "login": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*$",
+            "description": "A login gh is signed in as on a host: letters, digits, dashes and underscores, starting with a letter or digit."
+          },
+          "active": {
+            "type": "boolean",
+            "description": "Whether it is the host's active account, the one gh uses when no account is named."
+          },
+          "tokenKind": {
+            "type": "string",
+            "enum": [
+              "classic",
+              "fine-grained",
+              "oauth",
+              "unknown"
+            ],
+            "description": "The token's kind by its prefix: classic (ghp_), fine-grained (github_pat_), oauth (gho_, what gh auth login mints) or unknown."
+          },
+          "scopes": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The scopes gh reports for the token, a hint only: empty when it has none; null when gh reports none, as for a fine-grained token."
+          }
+        },
+        "required": [
+          "host",
+          "login",
+          "active",
+          "tokenKind",
+          "scopes"
+        ],
+        "description": "An account gh is signed in as on a host: its login, whether it is active, and its token's kind and scopes. Never the token."
+      },
+      "description": "Every account gh auth status reports signed in with a token it could use, host by host, in gh's order; empty when gh is not installed."
+    }
+  },
+  "required": [
+    "installed",
+    "version",
+    "minimum",
+    "meetsMinimum",
+    "accounts"
+  ],
+  "description": "The environment's gh: whether it is installed, its version against the minimum, and per signed-in host the login, whether it is active, and its token's kind and scopes."
+}
