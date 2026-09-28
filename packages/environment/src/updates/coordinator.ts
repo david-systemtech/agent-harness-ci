@@ -41,7 +41,9 @@ import { StagingError, stageArtefact, tarUnpack, unstage, type Unpack } from "./
  * (`switchOver`); a refused switch is `environment.update-failed` at stage
  * `switch`, appended before the environment closes, and the launcher starts
  * the same version again. `updates.cancel` withdraws an update not yet
- * draining.
+ * draining. As the next start passes its gate, the coordinator settles the
+ * update that began last: updated when that start runs its target, else
+ * failed as the outcome record says (`outcomes.ts`, #344).
  *
  * A pending update is read back from the log as the environment starts, so
  * it is still pending after a restart, with its `since`: when an update

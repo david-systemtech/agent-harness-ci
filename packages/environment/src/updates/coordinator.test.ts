@@ -612,7 +612,7 @@ describe("the settle after the restart", () => {
     writeFileSync(join(dataDir, OUTCOME_RECORD_FILE), "{");
     const quiet = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const t = await start({ dataDir, clock });
-    expect(quiet.mock.calls.some(([line]) => String(line).includes(`outcome record of update ${updateId}`))).toBe(true);
+    expect(quiet.mock.calls.some(([line]) => /outcome record/.test(String(line)) && String(line).includes(updateId))).toBe(true);
     quiet.mockRestore();
     expect(t.env.readiness()).toBe("ready");
     expect(updateNotices(t).at(-1)?.payload).toMatchObject({ updateId, stage: "switch", reason: "unknown" });

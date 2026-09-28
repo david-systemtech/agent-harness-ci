@@ -33,7 +33,7 @@ const HISTORY_TYPES = ["environment.update-started", "environment.updated", "env
 const VERSION_FAILURES: readonly UpdateFailureStage[] = ["trial", "crash-loop"];
 
 /** The reason a failure is given when no outcome record says why. */
-export const UNKNOWN_REASON = "unknown";
+const UNKNOWN_REASON = "unknown";
 
 /** What the log says of the updates that began. */
 export interface UpdateHistory {
@@ -96,7 +96,7 @@ const recordOf = (dataDir: string, updateId: string): OutcomeRecord | undefined 
   try {
     record = readOutcomeRecord(dataDir);
   } catch (error) {
-    console.error(`The outcome record of update ${updateId} could not be read; its reason is ${UNKNOWN_REASON}:`, error);
+    console.error(`The outcome record could not be read, so update ${updateId} is settled with the reason ${UNKNOWN_REASON}:`, error);
     return undefined;
   }
   return record?.updateId.toLowerCase() === updateId.toLowerCase() ? record : undefined;
