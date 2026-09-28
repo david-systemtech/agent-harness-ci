@@ -35,9 +35,9 @@ const scrubbedChunk = (chunk: unknown, hook: Hook): unknown => {
 /**
  * Passes every write to the environment's diagnostic output, the process's
  * standard error, through `scrub` until the answer is called (ADR 0011;
- * key-managers spec, "Where it applies": the logger, whose `scrub` replaces
- * registered values and then shape-rule hits). Each write is scrubbed on its
- * own. A console call is one write, so every line the environment logs is
+ * key-managers spec, "Where it applies": the logger, to which the
+ * environment's start passes the registry's `scrubOutput`, registered values
+ * and then shape-rule hits). Each write is scrubbed on its own. A console call is one write, so every line the environment logs is
  * scrubbed whole, an error's message and stack with it. A writer that splits
  * a value across two writes, or bytes across a character, is not: nothing
  * is held back between writes, as terminal output's tail is.

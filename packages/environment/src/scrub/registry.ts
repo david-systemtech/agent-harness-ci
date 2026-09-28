@@ -65,11 +65,14 @@ export interface ScrubRegistry {
   scrub(text: string): string;
   /**
    * `text` with every registered value and every shape rule's hit replaced
-   * with `[redacted]`, overlapping ones as one: what the logger writes, and
-   * what the harness keeps of captured output (git's standard error, a
-   * verify command's, a tool run's, a pre-check's) and of error text before
-   * it becomes a status line or a wire error's message. A rule that names
-   * its secret (a key assigned inline, a bearer token) replaces only that.
+   * with `[redacted]`, overlapping ones as one: what the logger writes
+   * (`serve/start.ts`) and what the harness keeps of captured output (git's
+   * standard error from the forge's operations) and of error text before it
+   * becomes a status line or a wire error's message. The captured output of
+   * verify commands (#375), tool runs (#376) and pre-checks (#92), and a
+   * key-manager provider's error text (#366), pass it as those are built. A
+   * rule that names its secret (a key assigned inline, a bearer token)
+   * replaces only that.
    */
   scrubOutput(text: string): string;
   /**
