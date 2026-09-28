@@ -24,6 +24,9 @@ const { onCleanup, tempDir } = useCleanups();
 
 const HELD = "a-value-a-forge-holds";
 
+/** A GitHub-shaped token the environment never registered, put together at run time so no line here looks like a key to a secret scanner. */
+const GITHUB_SHAPED = ["gh", "p_", "Fake0Test9".repeat(4).slice(0, 36)].join("");
+
 const start = async (options: TestEnvironmentOptions = {}): Promise<TestEnvironment> => {
   const t = await startTestEnvironment(options);
   onCleanup(() => t.close());
@@ -103,6 +106,37 @@ describe("the event log's append", () => {
     expect(read.json).not.toContain(HELD);
   });
 
+  it("keeps a shape-matching string in the prompt, the model's text and a tool's output as written, while a registered value beside it is redacted", async () => {
+    const t = await start({
+      adapter: fakeAdapter({
+        script: () => [
+          say(`Found ${GITHUB_SHAPED} beside ${HELD}.`),
+          { type: "tool.started", payload: { toolCallId: "toolu_shape", name: "Bash", input: { command: "cat .env" }, title: null, agentId: null, parentToolCallId: null } },
+          { type: "tool.ended", payload: { toolCallId: "toolu_shape", status: "ok", output: `GITHUB_TOKEN=${GITHUB_SHAPED}\nFORGE=${HELD}`, durationMs: 1 } },
+          end(),
+        ],
+      }),
+    });
+    t.scrub.register(HELD, { owner: "test:forge" });
+    const client = await t.client();
+    const { id } = await create(client);
+
+    const { subscription } = await client.subscribe("sessions.subscribeSession", { sessionId: id, afterSequence: t.env.log.head() });
+    const params: ParamsOf<"runs.start"> = { commandId: randomUUID(), sessionId: id, text: `Is ${GITHUB_SHAPED} the one, or ${HELD}?` };
+    await client.request("runs.start", params);
+    const events: EventEnvelope[] = [];
+    while (!events.some((event) => event.type === "run.ended")) {
+      events.push((await client.next((f): f is EventFrame => f.type === "event" && f.subscription === subscription)).event);
+    }
+
+    const read = readBack(events);
+    const prompt = events.find((event) => event.type === "message.sent")?.payload["text"];
+    expect(prompt).toBe(`Is ${GITHUB_SHAPED} the one, or [redacted]?`);
+    expect(read.said).toEqual([`Found ${GITHUB_SHAPED} beside [redacted].`]);
+    expect(read.output).toBe(`GITHUB_TOKEN=${GITHUB_SHAPED}\nFORGE=[redacted]`);
+    expect(read.json).not.toContain(HELD);
+  });
+
   it("leaves an event appended before its value was registered as it was: the log is never rewritten", async () => {
     const t = await start({ adapter: fakeAdapter({ script: leakingScript(HELD) }) });
     const client = await t.client();
@@ -177,6 +211,21 @@ describe("the diagnostic output", () => {
     await vi.waitFor(() => expect(stderr()).toContain("An event log subscriber threw"));
     expect(stderr()).toContain("a subscriber read [redacted] and [redacted]");
     expect(stderr()).not.toContain(key);
+    expect(stderr()).not.toContain(HELD);
+  });
+
+  it("replaces registered values and then shape-rule hits in every line the environment logs", async () => {
+    const stderr = captureStandardError();
+    const t = await start();
+    t.scrub.register(HELD, { owner: "test:forge" });
+    t.env.log.subscribe(() => {
+      throw new Error(`the forge refused ${GITHUB_SHAPED} and ${HELD}; Authorization: Bearer ${HELD}-longer`);
+    });
+    await create(await t.client());
+
+    await vi.waitFor(() => expect(stderr()).toContain("An event log subscriber threw"));
+    expect(stderr()).toContain("the forge refused [redacted] and [redacted]; Authorization: Bearer [redacted]");
+    expect(stderr()).not.toContain(GITHUB_SHAPED);
     expect(stderr()).not.toContain(HELD);
   });
 
