@@ -775,11 +775,14 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     // An update's drain that waited its runs out ends with bye: updating to every client and the launcher's switch (#343);
     // one the environment's close cut short closes as any drain does.
     close: async (ended) => {
-      if (ended.trigger === "update" && ended.endedBy !== "closed") {
-        await wire.close({ reason: "updating", message: "The environment is updating to a new version and will be back shortly." });
-        await updates.switchOver();
+      try {
+        if (ended.trigger === "update" && ended.endedBy !== "closed") {
+          await wire.close({ reason: "updating", message: "The environment is updating to a new version and will be back shortly." });
+          await updates.switchOver();
+        }
+      } finally {
+        await close();
       }
-      await close();
     },
   });
   // The update coordinator (#343): the pending update, read back from the log, its wait, its drain and the switch.

@@ -225,7 +225,7 @@ describe("the pending update", () => {
     expect(updateNotices(t)).toEqual([{ type: "environment.update-pending", payload: expect.objectContaining({ updateId: result?.updateId, source: "desktop" }) }]);
   });
 
-  it("is staging on updates.status while its artefact is installed, then waiting, with what it waits on and until when it is deferred", async () => {
+  it("is staging on updates.status while its artefact is installed, when no other can be staged, then waiting, with what it waits on and until when it is deferred", async () => {
     const installing = gate();
     const t = await start({ launch: { install: async () => (await installing.opened, { type: "installed" }) } });
     const client = await t.client();
@@ -235,6 +235,11 @@ describe("the pending update", () => {
     const answer = apply(client, { version: TARGET, artefactPath: artefact(), when: "idle" });
     await vi.waitFor(() => expect(t.launcher.received.some((message) => message.type === "install?")).toBe(true));
     expect(await pendingOf(watcher)).toEqual({ state: "staging", updateId: expect.any(String) as unknown as string, toVersion: TARGET, source: "request" });
+    // One artefact is staged at a time.
+    expect((await apply(watcher, { version: "0.5.1", artefactPath: artefact("0.5.1"), when: "idle" })).receipt).toMatchObject({
+      status: "rejected",
+      error: { code: "conflict", data: { reason: "in_progress" } },
+    });
     installing.open();
     const { result } = await answer;
 

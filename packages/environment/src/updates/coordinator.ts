@@ -278,6 +278,8 @@ export const createUpdateCoordinator = (options: UpdateCoordinatorOptions): Upda
       return refuse(conflict("no_release_access", "This environment reads no releases yet: name the version with the path of its artefact on this machine."));
     }
     if (!launcher.present()) return refuse(noLauncher());
+    // One artefact is staged at a time, so no two installs share the staging area.
+    if (staging !== undefined) return refuse(conflict("in_progress", `The artefact of ${staging.toVersion} is being staged and installed; ask again once it is.`));
     const source: UpdateSource = context.clientSession.kind === "desktop" ? "desktop" : "request";
     return install({ updateId: randomUUID(), toVersion: version, source }, artefactPath, when);
   };
@@ -310,7 +312,8 @@ export const createUpdateCoordinator = (options: UpdateCoordinatorOptions): Upda
   const noLauncher = (): Refusal =>
     conflict("no_launcher", "No launcher runs this environment to switch its version: serve runs in the foreground; `service install` runs the environment under one.");
 
-  const partOf = (update: Update) => ({
+  /** What every state with an update shows of it: `deferUntil` read with the cap as it is set now, and no image, which only a container's update has. */
+  const pendingParts = (update: Update) => ({
     updateId: update.updateId,
     toVersion: update.toVersion,
     source: update.source,
@@ -327,11 +330,11 @@ export const createUpdateCoordinator = (options: UpdateCoordinatorOptions): Upda
         case "waiting": {
           const activity = options.activity();
           const waitsOn = activity.state === "busy" ? { reason: activity.reason, until: activity.busyUntil ?? null } : null;
-          return { state: "waiting", ...partOf(held.update), waitsOn };
+          return { state: "waiting", ...pendingParts(held.update), waitsOn };
         }
         case "draining":
         case "switching":
-          return { state: held.state, ...partOf(held.update), cause: held.cause };
+          return { state: held.state, ...pendingParts(held.update), cause: held.cause };
       }
     },
 

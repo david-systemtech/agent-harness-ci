@@ -308,7 +308,6 @@ export const createWire = (options: WireOptions): Wire => {
     }
   });
 
-
   /** Says `bye` to every socket and closes it, cutting what has not closed after the grace, then stops taking upgrades. */
   const closeAll = async (bye: GoingAway): Promise<void> => {
     closed = true;
@@ -330,7 +329,8 @@ export const createWire = (options: WireOptions): Wire => {
     await Promise.all(closing);
     await new Promise<void>((resolve) => server.close(() => resolve()));
   };
-  let closing: Promise<void> | undefined;
+  /** The one close, once asked for. */
+  let goingAway: Promise<void> | undefined;
 
   return {
     upgrade(request, rawSocket, head) {
@@ -362,8 +362,8 @@ export const createWire = (options: WireOptions): Wire => {
 
     // A drain's last step (serve/lifecycle.ts): its runs have finished or been cut, and every socket hears the same bye.
     close(bye = STOPPING) {
-      closing ??= closeAll(bye);
-      return closing;
+      goingAway ??= closeAll(bye);
+      return goingAway;
     },
   };
 };
