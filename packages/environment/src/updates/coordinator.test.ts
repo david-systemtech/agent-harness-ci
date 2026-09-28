@@ -206,7 +206,7 @@ describe("updates.apply's refusals", () => {
     });
   });
 
-  it("with no artefact and nothing pending, is conflict no_release_access: this environment reads no releases yet", async () => {
+  it("with no artefact and nothing pending, is conflict no_release_access: this environment downloads no release to update from yet", async () => {
     const t = await start();
     const client = await t.client();
     for (const params of [{ when: "idle" as const }, { version: TARGET, when: "now" as const }]) {

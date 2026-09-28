@@ -179,10 +179,12 @@
                 "launcher",
                 "in_progress",
                 "no_release_access",
+                "unreachable",
+                "manifest",
                 "install",
                 "no_launcher"
               ],
-              "description": "Why an update was refused in conflict: pinned (another version is pinned), current (that version runs already), schema (its database schema is below the database's), launcher (it needs a newer launcher, with no stepping stone), in_progress (an update is draining or switching), no_release_access (no forge account can read the releases), install (the launcher refused to install the version: data.launcherReason says why) or no_launcher (no launcher runs the environment to switch its version: a foreground serve, or a container whose update no host-side updater takes)."
+              "description": "Why an update or a pin was refused in conflict: pinned (another version is pinned), current (that version runs already), schema (its database schema is below the database's), launcher (it needs a newer launcher, with no stepping stone), in_progress (an update is draining or switching), no_release_access (no forge account for the release origin, or its token was refused), unreachable (the forge did not answer, or failed: ask again), manifest (the release's manifest is missing or not its schema), install (the launcher refused to install the version: data.launcherReason says why) or no_launcher (no launcher runs the environment to switch its version: a foreground serve, or a container whose update no host-side updater takes)."
             },
             "launcherReason": {
               "description": "With reason install: why the launcher refused to install the version.",

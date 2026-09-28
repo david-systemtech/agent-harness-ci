@@ -154,6 +154,8 @@ export interface ForgeOperations {
   readonly releases: {
     /** Up to `limit` of the newest releases that are not drafts. */
     list(request: RepositoryTarget & { readonly limit: number }): Promise<ForgeAnswer<ForgeRelease[]>>;
+    /** The release tagged `tag`; one that is a draft, or none, is a 404. */
+    byTag(request: RepositoryTarget & { readonly tag: string }): Promise<ForgeAnswer<ForgeRelease>>;
     /** Downloads a release's asset into the file `destination`, answering its size and SHA-256; a download cut short leaves no file. */
     download(request: RepositoryTarget & { readonly asset: ForgeReleaseAsset; readonly destination: string; readonly signal?: AbortSignal }): Promise<ForgeAnswer<DownloadedAsset>>;
   };
@@ -429,6 +431,12 @@ export const createForgeOperations = (options: ForgeOperationsOptions): ForgeOpe
         const fullName = fullNameOf(request.repository);
         const limit = numberOf(request.limit, "limit");
         return read(request, ({ provider: forge, origin, token, call }) => forge.releases(origin, token, fullName, limit, call));
+      },
+
+      async byTag(request) {
+        const fullName = fullNameOf(request.repository);
+        if (request.tag === "") throw invalid("tag", "The tag names a release.");
+        return read(request, ({ provider: forge, origin, token, call }) => forge.release(origin, token, fullName, request.tag, call));
       },
 
       async download(request) {

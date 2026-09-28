@@ -3,9 +3,10 @@ import { join } from "node:path";
 import { DISCOVERY_PATH, HEALTH_PATH, PROTOCOL_VERSION, presetSettings, type Frame, type UpdateSettingsPatch } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
-import { TEST_CLAUDE_CODE_VERSION, startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
+import { NO_RELEASE_SOURCE, TEST_CLAUDE_CODE_VERSION, startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { MANUAL_CLOCK_START } from "../../test/clock.js";
 import { testLauncher } from "../../test/launcher.js";
+import { startFakeReleaseSource } from "../../test/release-source.js";
 import { refusal } from "../../test/sessions.js";
 import type { WireClient } from "../../test/wire-client.js";
 import type { Address } from "../serve/http.js";
@@ -100,8 +101,11 @@ describe("updates.status", () => {
       protocolVersion: PROTOCOL_VERSION,
       bundledClaudeCodeVersion: TEST_CLAUDE_CODE_VERSION,
       manager: { kind: "none", reason: expect.stringMatching(/foreground/) as unknown as string },
+      releaseSource: NO_RELEASE_SOURCE,
       newest: null,
       lastCheck: null,
+      target: null,
+      passedOver: null,
       pending: { state: "current" },
       lastOutcome: null,
       failedVersions: [],
@@ -179,14 +183,19 @@ describe("updates.settings.set", () => {
 
   it("sets a pin and clears it, and keeps each key across a restart on the same data directory", async () => {
     const dataDir = join(tempDir(), "data");
-    const first = await startTestEnvironment({ dataDir });
+    // A pin is checked against its release (#346): the fake release source publishes both.
+    const fake = await startFakeReleaseSource();
+    onCleanup(() => fake.forge.close());
+    fake.publish({ version: "0.4.2" }, { version: "1.0.0-rc.1" });
+    const first = await startTestEnvironment({ dataDir, releaseSource: fake.source, forgeFetch: fake.forge.fetch });
     const client = await first.client();
+    await fake.grantAccess(client);
     await setUpdates(client, { "updates.pinnedVersion": "0.4.2", "updates.autoUpdate": false, "updates.deferralCapHours": 168 });
     expect((await setUpdates(client, { "updates.pinnedVersion": null })).result?.values).toMatchObject({ "updates.pinnedVersion": null, "updates.autoUpdate": false });
     await setUpdates(client, { "updates.pinnedVersion": "1.0.0-rc.1" });
     await first.close();
 
-    const second = await start({ dataDir });
+    const second = await start({ dataDir, releaseSource: fake.source, forgeFetch: fake.forge.fetch });
     const again = await second.client();
     expect((await setUpdates(again, {})).result?.values).toEqual({
       ...UPDATE_PRESETS,

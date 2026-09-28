@@ -36,7 +36,11 @@ export const updatesStatus = defineMethod({
   errors: [],
 });
 
-/** A check of the channel now, then the status. At most one a minute: a repeat within it answers the last check's result without reading the forge. */
+/**
+ * A check of the channel now, then the status. At most one a minute: a
+ * repeat within a minute of the last check's start, whatever started it,
+ * answers that check's result without reading the forge.
+ */
 export const updatesCheck = defineMethod({
   name: "updates.check",
   scope: "read",
@@ -89,7 +93,9 @@ export const updatesCancel = defineMethod({
  * write them (the generic `settings.update` refuses them). A value out of
  * its range is `invalid_params`; a pin with no such release or no artefact
  * for this platform is `not_found`, and one whose database schema is below
- * the database's `conflict` with reason `schema`. Answered with all five.
+ * the database's `conflict` with reason `schema`; a pin whose release cannot
+ * be read is `conflict` with the check's reason (`no_release_access`,
+ * `unreachable`, `manifest`). Answered with all five.
  */
 export const updatesSettingsSet = defineMethod({
   name: "updates.settings.set",

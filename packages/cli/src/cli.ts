@@ -54,7 +54,7 @@ export interface CliContext extends ProcessContext {
   readonly net?: Net;
   /** The terminal UI `tui` runs; a seam for tests. Preset: the terminal UI package's `runTui`. */
   readonly tui?: RunTui;
-  /** What `git-credential` reads git's attributes from; preset: the process's standard input. */
+  /** What `git-credential` reads git's attributes from, and `update credential` the token; preset: the process's standard input. */
   readonly stdin?: () => Promise<string>;
   /** The variables `git-credential` reads; preset: the process's own. */
   readonly env?: Readonly<Record<string, string | undefined>>;
@@ -192,7 +192,7 @@ export const runCli = async (args: readonly string[], overrides: Partial<CliCont
         ...(context.gitCredentialTimeoutMs !== undefined && { timeoutMs: context.gitCredentialTimeoutMs }),
       });
     }
-    if (args[0] === "update") return await update(args.slice(1), { stdout: context.stdout, stderr: context.stderr, net: netOf(context) });
+    if (args[0] === "update") return await update(args.slice(1), { stdout: context.stdout, stderr: context.stderr, stdin: context.stdin ?? readStandardInput, net: netOf(context) });
     if (args[0] === "tui") {
       return await tui(args.slice(1), {
         fetch: context.fetch ?? fetch,
