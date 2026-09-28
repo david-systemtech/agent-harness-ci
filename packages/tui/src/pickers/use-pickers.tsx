@@ -809,7 +809,7 @@ export const usePickers = (host: PickersHost): Pickers => {
         case "settings": {
           const key = settingsKey(card);
           const absent = lacking(card.environmentId, "settings.update");
-          const typedPrompt = (edited: SettingsKey | undefined) => `New value for ${edited} (now ${valueWords(edited === undefined ? undefined : card.values?.[edited])}), as JSON or a bare word:`;
+          const typedPrompt = key === undefined ? "" : `New value for ${key} (now ${valueWords(card.values?.[key])}), as JSON or a bare word:`;
           const footer: (readonly Span[])[] =
             card.edit?.kind === "text"
               ? [...(card.edit.error !== null ? [[{ text: card.edit.error, color: "red" }]] : [])]
@@ -825,13 +825,17 @@ export const usePickers = (host: PickersHost): Pickers => {
               rows={card.edit?.kind === "text" ? rows.filter((_, at) => at === card.cursor) : rows}
               cursor={card.edit?.kind === "text" ? 0 : cursor}
               height={size.height}
-              {...(card.edit?.kind === "text" && { childRows: wrappedRows(`${typedPrompt(key)} ${card.edit.text} `, size.width) })}
+              {...(card.edit?.kind === "text" && { childRows: wrappedRows(`${typedPrompt} ${card.edit.text} `, size.width) })}
               empty={
-                card.row !== null && key === undefined ? noKeysLine(card.row) : card.failed !== null ? `The settings could not be read: ${card.failed}` : "Reading the settings…"
+                card.row !== null && editorKeys(card.row).length === 0
+                  ? noKeysLine(card.row)
+                  : card.failed !== null
+                    ? `The settings could not be read: ${card.failed}`
+                    : "Reading the settings…"
               }
               footer={footer}
             >
-              {card.edit?.kind === "text" && <TypedLine prompt={typedPrompt(key)} text={card.edit.text} />}
+              {card.edit?.kind === "text" && <TypedLine prompt={typedPrompt} text={card.edit.text} />}
             </ListCard>
           );
         }

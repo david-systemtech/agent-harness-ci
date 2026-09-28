@@ -11,6 +11,7 @@ import {
   STEP_REGISTRY,
   SettingsRow,
   UPDATE_SETTINGS_KEYS,
+  isSettingsAddress,
   readStoredRow,
   rowOfAddress,
   type SettingsAddress,
@@ -205,7 +206,7 @@ describe("keys and steps on rows", () => {
 
   it("fails a step without a home row, on no registered row, on a row not home to it, or linking to no row", () => {
     const account = stepOf("account");
-    const { home: _home, ...homeless } = account;
+    const homeless: LooseStep = { id: account.id, links: account.links };
     expect(rowProblems(rows, [homeless, ...steps.slice(1)], settings)).toEqual(["account: names no home row"]);
     expect(rowProblems(rows, [{ ...account, home: "accounts.profiles" }, ...steps.slice(1)], settings)).toEqual(["account: lives on accounts.profiles, which is not a row"]);
     expect(rowProblems(rows, [{ ...account, home: "accounts.default-model" }, ...steps.slice(1)], settings)).toEqual([
@@ -271,17 +272,21 @@ describe("the sixteen settings addresses", () => {
     expect(Object.keys(ADDRESS_ROWS)).toEqual([...SETTINGS_ADDRESSES]);
   });
 
+  it("tell a stored section that is one of them from one that is not, for the state import to map", () => {
+    expect(SETTINGS_ADDRESSES.every((address) => isSettingsAddress(address))).toBe(true);
+    for (const other of ["settings", "key-managers", "access.key-managers", "Secrets", "", null, 3]) expect(isSettingsAddress(other), JSON.stringify(other)).toBe(false);
+  });
+
   it("are mapped exhaustively at compile time: a table missing an address, or naming one that is not, does not compile", () => {
     type Table = { readonly [A in SettingsAddress]: SettingsRowId };
     expectTypeOf(ADDRESS_ROWS).toExtend<Table>();
-    const { about: _about, ...missing } = ADDRESS_ROWS;
-    // @ts-expect-error: the table lacks `about`.
-    const short: Table = missing;
+    // A table lacking `about` is not one.
+    expectTypeOf<Omit<typeof ADDRESS_ROWS, "about">>().not.toExtend<Table>();
     // @ts-expect-error: `settings` is not one of the sixteen addresses.
     const long: Table = { ...ADDRESS_ROWS, settings: "about.about" };
     // @ts-expect-error: an address maps to a registered row.
     const wrong: Table = { ...ADDRESS_ROWS, about: "about.version" };
-    expect([short, long, wrong]).toHaveLength(3);
+    expect([long, wrong]).toHaveLength(2);
   });
 
   it("are search terms of the rows they map to, the split parts on their second rows too: secrets finds Key managers and cerebro Memory banks", () => {

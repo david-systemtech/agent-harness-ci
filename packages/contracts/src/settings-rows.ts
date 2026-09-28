@@ -49,7 +49,7 @@ export const SettingsRowScope = z.enum(SETTINGS_ROW_SCOPES).meta({
 export type SettingsRowScope = z.infer<typeof SettingsRowScope>;
 
 /** What the Set up row is home to: the whole checklist rather than a step of it. */
-export const CHECKLIST = "checklist";
+export const WHOLE_CHECKLIST = "checklist";
 
 /** One row as the registry writes it; `SettingsRow` is its schema. */
 interface RowEntry {
@@ -58,7 +58,7 @@ interface RowEntry {
   readonly label: string;
   readonly hint: string;
   readonly scope: SettingsRowScope;
-  readonly homeOf: typeof CHECKLIST | readonly StepId[];
+  readonly homeOf: typeof WHOLE_CHECKLIST | readonly StepId[];
   readonly terms: readonly string[];
   readonly dim?: string;
 }
@@ -78,7 +78,7 @@ export const SETTINGS_ROWS = [
     label: "Set up",
     hint: "Every step of the checklist on the environment picked, with its health and a link to the row it lives on.",
     scope: "environment",
-    homeOf: CHECKLIST,
+    homeOf: WHOLE_CHECKLIST,
     terms: ["checklist", "wizard"],
   },
   {
@@ -265,7 +265,7 @@ export const SettingsRow = z
     hint: z.string().min(1).meta({ description: "One line saying what the row holds, under its label and in search." }),
     scope: SettingsRowScope,
     homeOf: z.union([
-      z.literal(CHECKLIST).meta({ description: "The Set up row: home to the whole checklist, its dot the worst of every step's." }),
+      z.literal(WHOLE_CHECKLIST).meta({ description: "The Set up row: home to the whole checklist, its dot the worst of every step's." }),
       z.array(StepId).meta({ description: "The steps whose home row this is, whose health its dot shows; empty for a row no step lives on." }),
     ]),
     terms: z.array(z.string().min(1)).meta({ description: "What else search finds the row by: the old settings addresses that map onto it and the names of the sections it absorbed." }),
