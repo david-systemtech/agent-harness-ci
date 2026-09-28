@@ -20,6 +20,16 @@
       "type": "string",
       "pattern": "^[a-z0-9_]{1,40}$"
     },
+    "aliases": {
+      "description": "The aliases the forge account keeps from now on, replacing its list: one it already has keeps its verification; a new one, or one not yet verified, is verified with the credential.",
+      "maxItems": 16,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2048
+      }
+    },
     "credential": {
       "description": "The new credential, which must answer as the forge account's identity.",
       "oneOf": [

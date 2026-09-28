@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { GH_MINIMUM_VERSION, GhLogin, ForgeToken, type ForgeTokenKind, type GhProbe, type GhSignedInAccount } from "@agent-harness/contracts";
 import type { HostEnvironment } from "../adapters/claude/credentials.js";
+import { githubTokenKind } from "./providers.js";
 
 /**
  * The environment's own `gh` (forge spec, "Credentials"; ADR 0026, ADR
@@ -72,14 +73,6 @@ const meetsMinimum = (version: readonly [number, number, number]): boolean => {
   return true;
 };
 
-/**
- * A token's kind by the prefix `gh auth status` shows of it (it masks the
- * rest): `ghp_` classic, `github_pat_` fine-grained, `gho_` the OAuth token
- * `gh auth login` mints; anything else unknown.
- */
-const tokenKindOf = (masked: string): ForgeTokenKind =>
-  masked.startsWith("github_pat_") ? "fine-grained" : masked.startsWith("ghp_") ? "classic" : masked.startsWith("gho_") ? "oauth" : "unknown";
-
 /** `'gist', 'read:org', 'repo'` as `gh` lists scopes; `none` for none. */
 const scopesOf = (listed: string): string[] =>
   listed.trim() === "none"
@@ -126,7 +119,7 @@ export const parseGhAuthStatus = (text: string): GhSignedInAccount[] => {
     const active = ACTIVE.exec(line);
     if (active !== null) current.active = active[1] === "true";
     const token = TOKEN.exec(line);
-    if (token !== null) current.tokenKind = tokenKindOf(token[1] ?? "");
+    if (token !== null) current.tokenKind = githubTokenKind(token[1] ?? "");
     const scopes = SCOPES.exec(line);
     if (scopes !== null) current.scopes = scopesOf(scopes[1] ?? "");
   }

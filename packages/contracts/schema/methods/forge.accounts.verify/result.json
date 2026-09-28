@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "forge.accounts.list result",
+  "title": "forge.accounts.verify result",
   "type": "object",
   "properties": {
     "accounts": {

@@ -22,6 +22,7 @@ import {
   saidBack,
   setPrimary,
   update,
+  verify,
 } from "../../test/forge.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { refusal } from "../../test/sessions.js";
@@ -105,6 +106,7 @@ describe("forge.accounts.add", () => {
       capabilities: UNKNOWN_FORGE_CAPABILITIES,
       primary: true,
       problem: null,
+      statusSince: MANUAL_CLOCK_START,
       tokenInformation: null,
       variables: { url: ["FORGE_127_0_0_1_URL", "FORGE_URL"], token: ["FORGE_127_0_0_1_TOKEN", "FORGE_TOKEN"], kind: ["FORGE_127_0_0_1_KIND", "FORGE_KIND"] },
       createdAt: MANUAL_CLOCK_START,
@@ -450,6 +452,24 @@ describe("forge.accounts.update", () => {
 
     const replaced = await update(client, { forgeAccountId: account.id, credential: pasted(OTHER_TOKEN) });
     expect(replaced.result?.account).toMatchObject({ identity: { login: "david", userId: "42" }, problem: null });
+  });
+});
+
+describe("a problem kept across a replaced credential", () => {
+  it("keeps its since-time, and so the status's, when the new credential leaves the forge account with a problem of the kind it had", async () => {
+    const { t, forge, client } = await withForge();
+    forge.answer(TOKEN, "GET /api/v1/user", { status: 503 });
+    const account = await added(client, { url: forge.origin, kind: "forgejo" });
+    // Its own verification, done before the clock moves: still unreachable.
+    await verify(client, account.id);
+    forge.answer(OTHER_TOKEN, "GET /api/v1/user", { status: 502 });
+    t.clock.advance(60_000);
+
+    const replaced = await update(client, { forgeAccountId: account.id, credential: pasted(OTHER_TOKEN) });
+
+    expect(replaced.result?.account).toMatchObject({ problem: { kind: "unreachable", since: MANUAL_CLOCK_START }, statusSince: MANUAL_CLOCK_START });
+    expect(replaced.result?.account.problem?.message).toContain("HTTP 502");
+    expect((await list(client))[0]).toEqual(replaced.result?.account);
   });
 });
 
