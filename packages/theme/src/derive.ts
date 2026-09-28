@@ -1,4 +1,4 @@
-import type { Theme, ThemeSeed, ThemeSeedName } from "@agent-harness/contracts";
+import { ENVIRONMENT_COLOURS, type EnvironmentColour, type Theme, type ThemeSeed, type ThemeSeedName } from "@agent-harness/contracts";
 import { separateHues } from "./hues.js";
 import { contrastRatio, inGamut, type Oklch } from "./oklch.js";
 import type { LadderName, TokenName } from "./tokens.js";
@@ -36,9 +36,11 @@ export interface Clamp {
   readonly token: TokenName;
 }
 
-/** One ladder: every token's colour. */
+/** One ladder: every token's colour, and each environment colour's. */
 export interface Ladder {
   readonly tokens: Readonly<Record<TokenName, Oklch>>;
+  /** An environment's badge and name, drawn as text on the ladder's grounds. */
+  readonly environment: Readonly<Record<EnvironmentColour, Oklch>>;
 }
 
 /** Both ladders of a theme, and every clamp the derivation made to hold the rules. */
@@ -73,35 +75,38 @@ const fit = (l: number, chroma: number, h: number): Oklch => {
   return { l, c, h };
 };
 
-/** What a token is owed: a contrast rule against some colours, with the ratio a walk aims at. */
+/** What a colour is owed: a contrast rule against some colours, with the ratio a walk aims at. */
 interface Owed {
   readonly rule: "text-contrast" | "component-contrast";
-  /** The token the rule is about: the token placed, or the ink that sits on it. */
-  readonly token: TokenName;
   readonly floor: number;
   readonly target: number;
   /** What the candidate is measured against: the grounds, or the ink drawn on it. */
   readonly against: (candidate: Oklch) => readonly Oklch[];
 }
 
+/** What a seed's token is owed, naming the token a clamp for it names: the token placed, or the ink that sits on it. */
+interface OwedBySeed extends Owed {
+  readonly token: TokenName;
+}
+
 const holds = (candidate: Oklch, owed: Owed, ratio: number): boolean =>
   owed.against(candidate).every((other) => contrastRatio(candidate, other) >= ratio);
 
-/** A token placed: its colour, whether its chroma had to shrink into sRGB, and the rules its starting point broke. */
-interface Placed {
+/** A colour placed: the colour, whether its chroma had to shrink into sRGB, and what its starting point broke. */
+interface Placed<O extends Owed> {
   readonly colour: Oklch;
   readonly clipped: boolean;
-  readonly broke: readonly Pick<Owed, "rule" | "token">[];
+  readonly broke: readonly O[];
 }
 
 /**
- * The token at the lightness nearest `start` (in half steps, `away` first
+ * The colour at the lightness nearest `start` (in half steps, `away` first
  * on a tie: away from the grounds) at which, with its chroma fitted into
  * sRGB there, it meets every target it is owed.
  */
-const place = (start: number, chroma: number, hue: number, away: 1 | -1, owed: readonly Owed[]): Placed => {
+const place = <O extends Owed>(start: number, chroma: number, hue: number, away: 1 | -1, owed: readonly O[]): Placed<O> => {
   const at = (l: number) => fit(l, chroma, hue);
-  const broke = owed.filter((o) => !holds(at(start), o, o.floor)).map(({ rule, token }) => ({ rule, token }));
+  const broke = owed.filter((o) => !holds(at(start), o, o.floor));
   for (let apart = 0; apart <= 100; apart += LIGHTNESS_STEP) {
     for (const l of apart === 0 ? [start] : [start + apart * away, start - apart * away]) {
       if (l < 0 || l > 100) continue;
@@ -151,6 +156,8 @@ interface LadderPlan {
     readonly ink: Omit<FillInk, "token">;
   };
   readonly roles: Readonly<Record<Role, { readonly lightness: number; readonly share: number; readonly ink?: FillInk }>>;
+  /** Where every environment colour starts, at its name's hue. */
+  readonly environment: { readonly lightness: number; readonly chroma: number };
 }
 
 const DARK: LadderPlan = {
@@ -168,6 +175,7 @@ const DARK: LadderPlan = {
     warning: { lightness: 85, share: 1, ink: { token: "amber-ink", l: 18, c: 0.045 } },
     danger: { lightness: 70, share: 1, ink: { token: "signal-ink", l: 16, c: 0.03 } },
   },
+  environment: { lightness: 75, chroma: 0.13 },
 };
 
 const LIGHT: LadderPlan = {
@@ -186,9 +194,30 @@ const LIGHT: LadderPlan = {
     warning: { lightness: 50, share: 0.098 / 0.155, ink: { token: "amber-ink", l: 98, c: 0.005 } },
     danger: { lightness: 52, share: 0.19 / 0.18, ink: { token: "signal-ink", l: 98, c: 0.005 } },
   },
+  environment: { lightness: 50, chroma: 0.12 },
 };
 
 const PLANS: Readonly<Record<LadderName, LadderPlan>> = { light: LIGHT, dark: DARK };
+
+/**
+ * Each environment colour's hue, the name on the OKLCH wheel. Environment
+ * colours are data, not theme (ADR 0023): the theme moves them only as far
+ * as its grounds need for them to read.
+ */
+const ENVIRONMENT_HUES: Readonly<Record<EnvironmentColour, number>> = {
+  red: 25,
+  orange: 55,
+  amber: 80,
+  yellow: 100,
+  lime: 125,
+  green: 150,
+  teal: 180,
+  cyan: 210,
+  blue: 255,
+  indigo: 280,
+  violet: 305,
+  pink: 350,
+};
 
 /** The accent's text on a dark ground: its hue at no more than this chroma, as deep as it can go and still read. */
 const ACCENT_TEXT_CHROMA = 0.14;
@@ -196,7 +225,7 @@ const ACCENT_TEXT_LIGHTEST = 75;
 const ACCENT_TEXT_DEEPEST = 50;
 
 /** One ladder of the theme, and the clamps it needed. */
-const ladderOf = (ladder: LadderName, seeds: Theme["seeds"], moved: readonly ThemeSeedName[]): { tokens: Record<TokenName, Oklch>; clamps: Clamp[] } => {
+const ladderOf = (ladder: LadderName, seeds: Theme["seeds"], moved: readonly ThemeSeedName[]): Ladder & { clamps: Clamp[] } => {
   const plan = PLANS[ladder];
   const clamps: Clamp[] = moved.map((seed) => ({ seed, ladder, rule: "hue-separation", token: SEED_TOKENS[seed] }));
   /** One clamp per seed and rule in a ladder, naming the first token that showed it. */
@@ -204,7 +233,7 @@ const ladderOf = (ladder: LadderName, seeds: Theme["seeds"], moved: readonly The
     if (!clamps.some((c) => c.seed === seed && c.rule === rule)) clamps.push({ seed, ladder, rule, token });
   };
   /** A placed token's colour, with its clamps: gamut judged on the token its seed paints first, whose chroma is the seed's own. */
-  const report = (seed: ThemeSeedName, token: TokenName, placed: Placed): Oklch => {
+  const report = (seed: ThemeSeedName, token: TokenName, placed: Placed<OwedBySeed>): Oklch => {
     if (placed.clipped && SEED_TOKENS[seed] === token) clamp(seed, "gamut", token);
     for (const broken of placed.broke) clamp(seed, broken.rule, broken.token);
     return placed.colour;
@@ -217,8 +246,8 @@ const ladderOf = (ladder: LadderName, seeds: Theme["seeds"], moved: readonly The
   if (abyss.c < toThousandths(canvas.chroma)) clamp("canvas", "gamut", "abyss");
   const panel = surface(plan.surfaces.panel);
   const grounds = [abyss, panel];
-  const onGrounds = (rule: Owed["rule"], token: TokenName, floor: number, target: number): Owed => ({ rule, token, floor, target, against: () => grounds });
-  const inkOn = (token: TokenName, ink: (fill: Oklch) => Oklch): Owed => ({ rule: "text-contrast", token, floor: TEXT, target: TEXT, against: (fill) => [ink(fill)] });
+  const onGrounds = (rule: Owed["rule"], token: TokenName, floor: number, target: number): OwedBySeed => ({ rule, token, floor, target, against: () => grounds });
+  const inkOn = (token: TokenName, ink: (fill: Oklch) => Oklch): OwedBySeed => ({ rule: "text-contrast", token, floor: TEXT, target: TEXT, against: (fill) => [ink(fill)] });
 
   // Neutral inks and the strong edge hold on any canvas the rules allow; where a tinted one breaks them, the canvas is clamped.
   const neutral = (token: TokenName, l: number, floor: number) =>
@@ -268,6 +297,11 @@ const ladderOf = (ladder: LadderName, seeds: Theme["seeds"], moved: readonly The
   const danger = roleColour("danger");
   const beamDim = fit(beam.l - 8, beam.c * 0.85, beam.h);
   const alpha = (colour: Oklch, value: number): Oklch => ({ ...colour, alpha: value });
+  // Environment colours are no seed's, so nothing is reported for them: each walks from where every name starts until it reads.
+  const readable: Owed = { rule: "text-contrast", floor: TEXT, target: ROLE_TEXT_TARGET, against: () => grounds };
+  const environment = Object.fromEntries(
+    ENVIRONMENT_COLOURS.map((name) => [name, place(plan.environment.lightness, plan.environment.chroma, ENVIRONMENT_HUES[name], plan.away, [readable]).colour]),
+  ) as Record<EnvironmentColour, Oklch>;
 
   return {
     tokens: {
@@ -296,6 +330,7 @@ const ladderOf = (ladder: LadderName, seeds: Theme["seeds"], moved: readonly The
       "wash-strong": alpha(inks.ink, 0.08),
       "wash-user": alpha(beam, 0.24),
     },
+    environment,
     clamps,
   };
 };
@@ -306,9 +341,9 @@ const ladderOf = (ladder: LadderName, seeds: Theme["seeds"], moved: readonly The
  * grounds (a deep fill cannot be read at 13px, so its text is its own
  * token); where not even 75% holds, the nearest lighter step that does.
  */
-const accentText = (accent: ThemeSeed, grounds: readonly Oklch[], report: (placed: Placed) => Oklch): Oklch => {
+const accentText = (accent: ThemeSeed, grounds: readonly Oklch[], report: (placed: Placed<OwedBySeed>) => Oklch): Oklch => {
   const chroma = Math.min(accent.chroma, ACCENT_TEXT_CHROMA);
-  const owed: Owed = { rule: "text-contrast", token: "beam-text", floor: TEXT, target: ACCENT_TEXT_TARGET, against: () => grounds };
+  const owed: OwedBySeed = { rule: "text-contrast", token: "beam-text", floor: TEXT, target: ACCENT_TEXT_TARGET, against: () => grounds };
   const at = (l: number) => fit(l, chroma, accent.hue);
   if (!holds(at(ACCENT_TEXT_LIGHTEST), owed, owed.target)) return report(place(ACCENT_TEXT_LIGHTEST, chroma, accent.hue, 1, [owed]));
   let l = ACCENT_TEXT_LIGHTEST;
@@ -322,5 +357,6 @@ export const derive = (theme: Theme): DerivedTheme => {
   const { seeds, moved } = separateHues(theme.seeds);
   const light = ladderOf("light", seeds, moved);
   const dark = ladderOf("dark", seeds, moved);
-  return { light: { tokens: light.tokens }, dark: { tokens: dark.tokens }, clamps: [...light.clamps, ...dark.clamps] };
+  const ladder = ({ tokens, environment }: Ladder): Ladder => ({ tokens, environment });
+  return { light: ladder(light), dark: ladder(dark), clamps: [...light.clamps, ...dark.clamps] };
 };
