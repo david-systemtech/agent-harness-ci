@@ -123,6 +123,20 @@ describe("the lint configuration", () => {
     });
   });
 
+  it("keeps the GUI's source to what a browser tab runs: no Electron, no Node built-in, no environment", async () => {
+    const ids = async (file: string, source: string) => ruleIds(file, `import { x } from "${source}";\nexport { x };\n`);
+    for (const source of ["electron", "electron/renderer", "node:fs", "fs", "path", "node:sqlite", "@agent-harness/environment"]) {
+      expect(await ids("packages/gui/src/frame/frame.tsx", source)).toContain("no-restricted-imports");
+      expect(await ids("packages/web/src/main.ts", source)).toContain("no-restricted-imports");
+    }
+    for (const source of ["@agent-harness/client-runtime", "@agent-harness/contracts", "@agent-harness/theme", "react", "@radix-ui/react-dialog", "./frame.js", "fs-extra-in-name-only"]) {
+      expect(await ids("packages/gui/src/frame/frame.tsx", source)).not.toContain("no-restricted-imports");
+    }
+    // A test reads files and runs builds under Node; it still never imports the environment.
+    expect(await ids("packages/gui/src/bundle.test.ts", "node:fs")).not.toContain("no-restricted-imports");
+    expect(await ids("packages/gui/src/bundle.test.ts", "@agent-harness/environment")).toContain("no-restricted-imports");
+  });
+
   it("keeps the client runtime's imports to contracts", async () => {
     const ids = async (source: string) =>
       ruleIds("packages/client-runtime/src/x.ts", `import { x } from "${source}";\nexport { x };\n`);

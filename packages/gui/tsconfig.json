@@ -1,0 +1,15 @@
+{
+  // The renderer's source: the DOM, React's JSX and Vite's client types (the stylesheet import), and no Node, since the
+  // same bundle runs in a browser tab (docs/specs/gui.md, "Packages and the platform"). Vite builds the bundle; tsc only
+  // checks it and writes the declarations the tests' project reads.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "../../.tsbuild/gui",
+    "emitDeclarationOnly": true,
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "types": ["vite/client"]
+  },
+  "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx"],
+  "references": [{ "path": "../contracts" }, { "path": "../client-runtime" }, { "path": "../theme" }]
+}

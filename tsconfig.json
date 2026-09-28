@@ -8,6 +8,8 @@
     { "path": "packages/client-runtime" },
     { "path": "packages/theme" },
     { "path": "packages/tui" },
+    { "path": "packages/gui" },
+    { "path": "packages/gui/tsconfig.test.json" },
     { "path": "packages/cli" },
     { "path": "tsconfig.tooling.json" }
   ]

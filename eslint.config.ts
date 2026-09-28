@@ -1,6 +1,7 @@
 import css from "@eslint/css";
 import eslint from "@eslint/js";
 import type { Linter } from "eslint";
+import { builtinModules } from "node:module";
 import { defineConfig, globalIgnores } from "eslint/config";
 import tseslint from "typescript-eslint";
 import { plugin } from "./eslint-rules/index.js";
@@ -26,6 +27,14 @@ const tokenPackages = ["gui", "desktop", "web"];
  * xterm's fallback theme, the terminal pane's colours before the theme is read, and the preview frame's content, a document's own colours.
  */
 const literalColourAllowed = ["**/xterm-fallback-theme.ts", "**/preview-frame-content.{ts,tsx,css}"];
+
+/**
+ * The renderers whose one bundle runs in a browser tab (the desktop window loads it too): the GUI, and the browser tab's
+ * own package when it exists (docs/specs/gui.md, "Packages and the platform").
+ */
+const browserPackages = ["gui", "web"];
+/** Every Node built-in as an import names it, bare (`fs`, `fs/promises`) or `node:`-prefixed (`node:sqlite`, which is only that). */
+const nodeBuiltins = `node:.*|(${builtinModules.map((name) => name.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&")).join("|")})(/.*)?`;
 
 /** Why the environment imports no client and not the CLI. */
 const environmentOnly = "The environment depends on contracts, never on a client or the CLI.";
@@ -110,6 +119,15 @@ export default defineConfig([
     rules: forbidImports(
       "^(@agent-harness/environment|agent-harness)(/|$)",
       "A renderer is a pure client: it renders from the client runtime and runs no environment.",
+    ),
+  },
+  // Its tests read files and build under Node; its source runs in a browser tab, so it takes no Electron and no Node either.
+  {
+    files: browserPackages.map((p) => `packages/${p}/src/**/*.{ts,tsx}`),
+    ignores: ["**/*.test.{ts,tsx}"],
+    rules: forbidImports(
+      `^((@agent-harness/environment|agent-harness|electron)(/|$)|(${nodeBuiltins})$)`,
+      "The GUI's bundle runs in a browser tab too (milestone 2): it imports the client runtime, contracts and theme, never Electron, a Node built-in or the environment.",
     ),
   },
 ]);
