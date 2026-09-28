@@ -285,8 +285,8 @@ export type { PromptKind };
 
 /**
  * What a provider asks, mapped by its adapter onto the harness's fields
- * (permissions spec, "Prompts": Artemis's `PermissionRequest`), which the
- * broker records on `prompt.opened`. Every field is optional: the broker
+ * (permissions spec, "Prompts"), which the broker records on
+ * `prompt.opened`. Every field is optional: the broker
  * records what is absent as null (a summary it derives from the rest).
  */
 export interface PromptDetail {
@@ -614,8 +614,8 @@ export interface ProviderTurn extends AdapterRun {
 
 /**
  * The port through which an adapter tells the pool (`pool.ts`) what holds
- * the session's provider process from its idle stop (Artemis's retention
- * rule): a live background task or a schedule registered in the session,
+ * the session's provider process from its idle stop (the retention rule): a
+ * live background task or a schedule registered in the session,
  * each under its id. A hold outlives the run that took it: the port stays
  * valid for the life of the process it was handed with, and does nothing
  * once that process has stopped. Holding what is held already, or letting

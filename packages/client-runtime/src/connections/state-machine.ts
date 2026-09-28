@@ -29,7 +29,7 @@ export const BACKOFF_JITTER = 0.25;
 export const HEALTHY_RESET_MS = 30_000;
 /** How long an attempt may take: to answer discovery, and from opening the socket to `hello`. */
 export const ESTABLISH_TIMEOUT_MS = 15_000;
-/** Silence after the first `ping` for this long is a dead socket (the environment pings every 15 seconds; Artemis's measured numbers). */
+/** Silence after the first `ping` for this long is a dead socket (the environment pings every 15 seconds; a measured margin). */
 export const WATCHDOG_MS = 45_000;
 /** How long a foreground wakeup's probe waits for its answer. A chosen default. */
 export const PROBE_TIMEOUT_MS = 5000;

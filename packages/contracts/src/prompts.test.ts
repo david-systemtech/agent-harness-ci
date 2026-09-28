@@ -73,7 +73,7 @@ describe("the prompt vocabulary", () => {
     expect(Object.hasOwn(EVENT_TYPES.session, "prompt.raised")).toBe(false);
   });
 
-  it("carries Artemis's fields on a prompt: tool, input, summary, blocked path, reason, questions, plan, remember-suggestions", () => {
+  it("carries a prompt's fields: tool, input, summary, blocked path, reason, questions, plan, remember-suggestions", () => {
     expect(PromptOpenedPayload.parse(opened)).toEqual(opened);
     const question = {
       ...opened,

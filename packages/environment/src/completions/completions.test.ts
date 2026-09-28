@@ -748,19 +748,6 @@ describe("session continuity", () => {
     expect(payloadsOf<RunStartedPayload>(t, sessionId, "run.started")).toHaveLength(2);
   });
 
-  it("accepts the artemis namespace, and the agent-harness key wins a field both set", async () => {
-    const t = await start();
-    const { token } = await program(t);
-    const a = (await complete(t, token, turn("One")))["agent-harness"].sessionId as string;
-    const b = (await complete(t, token, turn("Two")))["agent-harness"].sessionId as string;
-    const viaAlias = await complete(t, token, turn("Three", { artemis: { sessionId: a } }));
-    expect(viaAlias["agent-harness"].sessionId).toBe(a);
-    const both = await complete(t, token, turn("Four", { artemis: { sessionId: a, thinking: "low" }, "agent-harness": { sessionId: b } }));
-    expect(both["agent-harness"].sessionId).toBe(b);
-    // A field only the alias sets still applies.
-    expect(payloadsOf<RunStartedPayload>(t, b, "run.started").at(-1)?.effort).toBe("low");
-  });
-
   it("refuses a session it does not have 404, and one on another account than the model's 409", async () => {
     const t = await start({}, { accounts: [{ id: "claude-max", provider: "fake" }, { id: "work", provider: "fake" }] });
     const { token } = await program(t);
@@ -1359,9 +1346,8 @@ describe("the request's instructions, parameters and fields", () => {
       model: "claude-max/opus",
       messages: [{ role: "user", content: [{ type: "text", text: "What is this?" }, { type: "image_url", image_url: { url: "data:," } }] }],
       "agent-harness": { ignoreUnsupported: true, browser: "on" },
-      artemis: { remote: { permissions: true } },
     });
-    expect(answer["agent-harness"].ignored).toEqual(["agent-harness.browser", "artemis.remote", "messages.0.content.1"]);
+    expect(answer["agent-harness"].ignored).toEqual(["agent-harness.browser", "messages.0.content.1"]);
   });
 
   it("takes thinking, and reasoning_effort as its alias, as the run's effort, refusing one the model does not take", async () => {

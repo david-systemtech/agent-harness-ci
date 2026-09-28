@@ -40,7 +40,7 @@ export { CLAUDE_PROVIDER };
  * without one declares them, and fork, false (`descriptorFor`); transcript delete
  * removes the CLI's own files for the session. Session listing is not
  * offered: every conversation the harness runs is a harness session already.
- * File attachments wait on the staging Artemis does.
+ * File attachments wait on staging not yet ported here.
  */
 export const CLAUDE_DESCRIPTOR: AdapterDescriptor = {
   provider: CLAUDE_PROVIDER,

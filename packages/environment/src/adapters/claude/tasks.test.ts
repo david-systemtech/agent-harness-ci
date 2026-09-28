@@ -3,10 +3,10 @@ import { manualClock } from "../../../test/clock.js";
 import { SETTLED_LIMIT, TaskLedger } from "./tasks.js";
 
 /**
- * The delegated-work ledger (Artemis's `taskLedger.ts`, ported to the
- * contracts' `DelegatedWorkRow`): five SDK messages merged into one row per
- * task, the whole ledger emitted after each change as `tasks.changed`.
- * Cases ported from Artemis's `taskLedger.test.ts`, the vocabulary renamed.
+ * The delegated-work ledger (ported to the contracts' `DelegatedWorkRow`):
+ * five SDK messages merged into one row per task, the whole ledger emitted
+ * after each change as `tasks.changed`. The cases here are ported, with the
+ * vocabulary renamed.
  */
 
 const level = (...tasks: { task_id: string; task_type?: string; description?: string }[]) => ({ type: "system", subtype: "background_tasks_changed", tasks });

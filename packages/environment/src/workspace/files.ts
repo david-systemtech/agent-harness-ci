@@ -9,11 +9,10 @@ import { resolveInWorkspace } from "./paths.js";
  * `files.list` and `files.read` (tui spec, "Terminals, files and diffs"),
  * read-only. The listing is git's when the workspace is in a repository
  * (`ls-files --cached --others --exclude-standard`: what the project
- * considers its own, ignored files left out), else a bounded walk with
- * Artemis's skip list, carried from its terminal's `@` completion
- * (`apps/tui/src/fileIndex.ts`): `.git`, `node_modules`, `dist`, `out`,
- * `.tsbuild` and every other dot-directory are never entered, and a symlink
- * is neither listed nor followed. Either way at most 20,000 paths, and the
+ * considers its own, ignored files left out), else a bounded walk with a
+ * fixed skip list: `.git`, `node_modules`, `dist`, `out`, `.tsbuild` and
+ * every other dot-directory are never entered, and a symlink is neither
+ * listed nor followed. Either way at most 20,000 paths, and the
  * walk enters at most 20,000 directories, so a tree of empty directories is
  * bounded too. Where there is no git, or git cannot answer (not a
  * repository, a broken index), the listing is the walk's.
@@ -27,7 +26,7 @@ export interface ListOptions {
   readonly maxDirectories?: number;
 }
 
-/** Directories the walk never enters, beside every dot-directory (Artemis's list). */
+/** Directories the walk never enters, beside every dot-directory (a fixed list). */
 export const SKIPPED_DIRECTORIES: ReadonlySet<string> = new Set([".git", "node_modules", "dist", "out", ".tsbuild"]);
 
 /** Enough of git's NUL-separated listing for well past 20,000 paths of any sane length. */

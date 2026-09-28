@@ -4,8 +4,8 @@ import { composeRunEnvironment, type HostEnvironment } from "./credentials.js";
 import { CLIENT_APP } from "./options.js";
 
 /**
- * A query that is never sampled (Artemis's `fetchClaudeModels` and plan-usage
- * read, one helper here): the SDK serves its control requests (the usage
+ * A query that is never sampled (the models fetch and the plan-usage read,
+ * one helper here): the SDK serves its control requests (the usage
  * read, `accountInfo`, `supportedModels`, `supportedCommands`) only over a
  * streaming session, so the cheapest legal path is a query whose prompt
  * never yields, asked on the control channel and torn down. No turn starts,

@@ -1,8 +1,8 @@
 import { CLAUDE_CONFIG_DIR } from "./credentials.js";
 
 /**
- * The config-directory queue (claude-adapter spec, "Modules and ownership";
- * Artemis's `withClaudeConfigDir`, ported): the SDK's standalone helpers
+ * The config-directory queue (claude-adapter spec, "Modules and ownership"):
+ * the SDK's standalone helpers
  * (`listSessions`, `getSessionMessages`, `getSessionInfo`, `renameSession`,
  * `deleteSession`, `forkSession`, `getSubagentMessages`) take a project
  * directory and a store, never a config directory: they read

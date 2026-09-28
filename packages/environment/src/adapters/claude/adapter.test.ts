@@ -25,12 +25,12 @@ import {
 /**
  * The Claude adapter with the SDK transport scripted (claude-adapter spec,
  * "Testing Decisions", the adapter seam): the SDK module is replaced through
- * `vi.hoisted` and `vi.mock` as Artemis's `claude.test.ts` and host test do,
- * so nothing is spawned and no credential is used, and every path under test
- * is the real adapter: the options `query()` received, the prompt pump, the
- * permission table on the broker seam, the process kept across turns, the
- * turn the provider opens on its own, the interrupt, and the reads on
- * unsampled queries. Artemis's cases, ported with the vocabulary renamed.
+ * `vi.hoisted` and `vi.mock`, so nothing is spawned and no credential is
+ * used, and every path under test is the real adapter: the options `query()`
+ * received, the prompt pump, the permission table on the broker seam, the
+ * process kept across turns, the turn the provider opens on its own, the
+ * interrupt, and the reads on unsampled queries. The cases here are ported,
+ * with the vocabulary renamed.
  */
 
 const hooks = vi.hoisted(() => ({ sdk: undefined as undefined | { query: (params: never) => unknown; getSessionMessages: (id: string, options: unknown) => unknown } }));

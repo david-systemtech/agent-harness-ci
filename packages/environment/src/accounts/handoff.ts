@@ -2,39 +2,34 @@ import type { AccountUsage, HandoffBasis, UsageWindow } from "@agent-harness/con
 
 /**
  * The hand-off policy (claude-adapter spec, "Wire methods":
- * `accounts.handoff.recommend`; ADR 0005), ported from Artemis at 443cf2e,
- * where the core port audit found it pure, host-free and well tested:
+ * `accounts.handoff.recommend`; ADR 0005), an implementation the port audit
+ * write-up (core) found pure, host-free and well tested:
  *
- * - **Thresholds** (`packages/protocol/src/handoff.ts`): when an account is
- *   near enough its limit that the work should be handed on, per window
- *   rather than on the worst one, since the 5-hour window refills within
- *   the day and the weekly one does not.
- * - **Load** (`packages/protocol/src/planLoad.ts`): what the runs already
- *   on an account are going to spend, reserved before ranking so the next
- *   session does not herd onto the account a reading still shows as
- *   emptiest.
- * - **Recommendation** (`recommendProfile` and what it stands on in
- *   `packages/protocol/src/usage.ts`): the account with the most room, on
- *   fresh readings only, never a metered one, ties to the caller's order.
+ * - **Thresholds**: when an account is near enough its limit that the work
+ *   should be handed on, per window rather than on the worst one, since the
+ *   5-hour window refills within the day and the weekly one does not.
+ * - **Load**: what the runs already on an account are going to spend,
+ *   reserved before ranking so the next session does not herd onto the
+ *   account a reading still shows as emptiest.
+ * - **Recommendation**: the account with the most room, on fresh readings
+ *   only, never a metered one, ties to the caller's order.
  *
- * What changed in the port: a reading is the wire's `AccountUsage`, so
- * utilisation is a fraction (Artemis's percentages divided by 100, the
- * thresholds and the reservation included), a window is named by its
- * `window` and carries its own `observedAt` (Artemis's `at`), and a verdict
- * is `allowed` where Artemis said `ok`; a reading is available when it has
- * no `unavailableReason`. `handoffTrigger` takes the time, so a window that
- * has rolled over since it was read meets no threshold. `recommendAccount`
- * takes `minCandidates` (Artemis's two), so a hand-off from one account to
- * the only other is still a choice, and never names an account with no room
- * (a refused window, or a full one): Artemis kept a refused account in the
- * ranking at zero, where a tie with another at zero fell to list order and
- * named it, and recommended a full account when every one was full.
+ * Notes on the shape here: a reading is the wire's `AccountUsage`, so
+ * utilisation is a fraction (a percentage divided by 100, the thresholds and
+ * the reservation included), a window is named by its `window` and carries
+ * its own `observedAt`, and a verdict is `allowed`; a reading is available
+ * when it has no `unavailableReason`. `handoffTrigger` takes the time, so a
+ * window that has rolled over since it was read meets no threshold.
+ * `recommendAccount` takes `minCandidates` (two), so a hand-off from one
+ * account to the only other is still a choice, and never names an account
+ * with no room (a refused window, or a full one): both still count toward
+ * `candidates`, but neither is ever `best`, so a set that is every account
+ * full or refused answers no recommendation.
  * Freshness is one rule (`isFresh`): under six minutes old, so a reading
- * ages out at six minutes exactly, as the pool reads it again then, where
- * Artemis excluded only past six. The plan-weight table
- * (`planCapacity.ts`) is not ported: no reading carries a plan tier yet, so
- * an entry's `plan` is the caller's to give and the environment gives none,
- * which makes every basis `percentage` until one does.
+ * ages out at six minutes exactly, as the pool reads it again then. No
+ * reading carries a plan tier yet, so an entry's `plan` is the caller's to
+ * give and the environment gives none, which makes every basis `percentage`
+ * until one does.
  */
 
 // Thresholds.
@@ -164,8 +159,8 @@ export interface LiveRunLoad {
 }
 
 /*
- * THE CONSTANTS BELOW ARE ARTEMIS'S INFORMED GUESS AND HAVE NOT BEEN
- * CALIBRATED AGAINST REAL CONSUMPTION. They encode an ordering believed
+ * THE CONSTANTS BELOW ARE AN INFORMED GUESS AND HAVE NOT BEEN CALIBRATED
+ * AGAINST REAL CONSUMPTION. They encode an ordering believed
  * correct and magnitudes that are plausible; the tests assert the ordering
  * and the invariants, so better numbers can be dropped in.
  * `BASELINE_RESERVATION` is the one knob.
@@ -182,7 +177,7 @@ export const ULTRACODE_MULTIPLIER = 2;
 
 /**
  * The share of a baseline plan's binding window one Sonnet run at medium
- * effort is expected to use: Artemis's 0.75 percentage points, as a fraction.
+ * effort is expected to use: 0.75 percentage points, as a fraction.
  */
 export const BASELINE_RESERVATION = 0.0075;
 
@@ -220,7 +215,7 @@ export const reservationFor = (runs: readonly LiveRunLoad[] | undefined): number
 
 // Recommendation.
 
-/** How old a reading may be and still be recommended on: six minutes, Artemis's number, and the pool's (`usage-pool.ts`). */
+/** How old a reading may be and still be recommended on: six minutes, and the pool's (`usage-pool.ts`). */
 export const USAGE_MAX_AGE_MS = 6 * 60_000;
 
 /**
@@ -272,8 +267,9 @@ export const bindingWindow = (reading: AccountUsage | null | undefined, now: num
 
 /**
  * How much of the plan is left, 0 to 1, in its tightest window; 0 when
- * refused, and when the provider reports the window beyond its limit (Artemis
- * went below zero there); null with nothing to answer from. The ranking
+ * refused, and when the provider reports the window beyond its limit
+ * (clamped here, rather than going negative); null with nothing to answer
+ * from. The ranking
  * reckons its own room, and never names an account with none.
  */
 export const planHeadroom = (reading: AccountUsage | null | undefined, now: number): number | null => {
@@ -284,9 +280,9 @@ export const planHeadroom = (reading: AccountUsage | null | undefined, now: numb
   return Math.max(0, 1 - binding.utilisation);
 };
 
-/** A plan's size against its provider's baseline, when one is known: Artemis's resolved plan weight. */
+/** A plan's size against its provider's baseline, when one is known: the resolved plan weight. */
 export interface PlanWeight {
-  /** `<provider>:<plan>`, as Artemis's plan table names it. */
+  /** `<provider>:<plan>`, as the plan table names it. */
   readonly id: string;
   /** The multiple of the provider's baseline plan; null for a plan sold as no multiple (Team, Enterprise). */
   readonly weight: number | null;
@@ -376,14 +372,13 @@ export interface Ranking {
 /**
  * Ranks the accounts. A candidate is an account with plan limits (never a
  * metered one), a fresh reading by its newest observation, and a usable
- * number; `candidates` counts these and nothing else, as Artemis's
- * `recommendProfile` counts its ranked set, so an account never read, one
- * unavailable, one stale, or one whose every window has rolled over is not
- * one. Fewer than `minCandidates` candidates is no recommendation. A
- * refused account and a full one count among the candidates but never win:
- * no account with no room is named, so all of them full or refused is no
- * recommendation. Ties keep the caller's order, so the answer does not swap
- * between asks.
+ * number; `candidates` counts these and nothing else, so an account never
+ * read, one unavailable, one stale, or one whose every window has rolled
+ * over is not one. Fewer than `minCandidates` candidates is no
+ * recommendation. A refused account and a full one count among the
+ * candidates but never win: no account with no room is named, so all of them
+ * full or refused is no recommendation. Ties keep the caller's order, so the
+ * answer does not swap between asks.
  */
 export const rankAccounts = (entries: readonly AccountPlanUsage[], options: RankOptions): Ranking => {
   const ranked: Ranked[] = [];

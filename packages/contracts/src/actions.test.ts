@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ARTEMIS_COMMANDS, ARTEMIS_KEYMAP } from "../test/artemis-keymap.js";
+import { REFERENCE_COMMANDS, REFERENCE_KEYMAP } from "../test/reference-keymap.js";
 import {
   ACTIONS,
   ACTION_CONTEXTS,
@@ -17,11 +17,11 @@ import {
 
 /**
  * The shared action list (ADR 0004, the tui spec's "Shortcuts"; ADR 0017's
- * shortcut contract test). The fixture holds Artemis's `KEYMAP` rows and
- * `COMMANDS` entries at 443cf2e as data; the list must carry every one with
- * the same keys and context, every command with the same usage line, claim
- * no key twice in one context, and name no id outside itself. Artemis's own
- * honesty checks on its map carry as well.
+ * shortcut contract test). The fixture holds the reference keymap's rows and
+ * commands entries as data; the list must carry every one with the same keys
+ * and context, every command with the same usage line, claim no key twice in
+ * one context, and name no id outside itself. The reference map's own
+ * honesty checks carry as well.
  */
 
 const commandName = (id: string) => id.slice("command.".length);
@@ -39,7 +39,7 @@ const sharedKeys = (actions: readonly { readonly id: string; readonly context: s
 const commands = ACTIONS.filter((a) => a.id.startsWith("command."));
 const keyActions = ACTIONS.filter((a) => !a.id.startsWith("command."));
 
-/** The actions the harness adds to Artemis's rows, with their chosen defaults (the tui spec's list under the table). */
+/** The actions the harness adds to the reference rows, with their chosen defaults (the tui spec's list under the table). */
 const ADDED_KEYS: Record<string, readonly string[]> = {
   "composer.readNow": ["Ctrl+Enter"],
   "composer.withdrawLast": ["↑"],
@@ -91,8 +91,8 @@ const ADDED_COMMANDS = [
 ];
 
 describe("the fixture rule", () => {
-  it("gives every row of Artemis's KEYMAP one action with the same keys and context, described in Artemis's words", () => {
-    const rows = ARTEMIS_KEYMAP.flatMap((group) => group.rows.map((row) => ({ context: group.context, ...row })));
+  it("gives every row of the reference keymap one action with the same keys and context, described in the fixture's own words", () => {
+    const rows = REFERENCE_KEYMAP.flatMap((group) => group.rows.map((row) => ({ context: group.context, ...row })));
     expect(rows).toHaveLength(98);
     const missing: string[] = [];
     for (const row of rows) {
@@ -103,9 +103,9 @@ describe("the fixture rule", () => {
     expect(missing).toEqual([]);
   });
 
-  it("gives every entry of Artemis's COMMANDS its command.<name> with the same usage line", () => {
-    expect(ARTEMIS_COMMANDS).toHaveLength(22);
-    for (const entry of ARTEMIS_COMMANDS) {
+  it("gives every entry of the reference commands its command.<name> with the same usage line", () => {
+    expect(REFERENCE_COMMANDS).toHaveLength(22);
+    for (const entry of REFERENCE_COMMANDS) {
       const action = actionById(`command.${entry.name}`);
       expect(action, entry.name).toBeDefined();
       expect(action?.usage, entry.name).toBe(entry.usage);
@@ -128,12 +128,12 @@ describe("the fixture rule", () => {
     expect(isActionId("rail.fly")).toBe(false);
   });
 
-  it("holds Artemis's rows, the harness's added keys and the slash commands, and nothing else", () => {
-    const fixtureRows = ARTEMIS_KEYMAP.flatMap((g) => g.rows.map((row) => `${g.context} ${JSON.stringify(row.keys)}`));
+  it("holds the reference rows, the harness's added keys and the slash commands, and nothing else", () => {
+    const fixtureRows = REFERENCE_KEYMAP.flatMap((g) => g.rows.map((row) => `${g.context} ${JSON.stringify(row.keys)}`));
     const extra = keyActions.filter((a) => !fixtureRows.includes(`${a.context} ${JSON.stringify(a.keys)}`)).map((a) => a.id);
     expect(extra.sort()).toEqual(Object.keys(ADDED_KEYS).sort());
     for (const [id, keys] of Object.entries(ADDED_KEYS)) expect(actionById(id)?.keys, id).toEqual(keys);
-    expect(commands.map((a) => commandName(a.id)).sort()).toEqual([...ARTEMIS_COMMANDS.map((c) => c.name), ...ADDED_COMMANDS].sort());
+    expect(commands.map((a) => commandName(a.id)).sort()).toEqual([...REFERENCE_COMMANDS.map((c) => c.name), ...ADDED_COMMANDS].sort());
   });
 });
 
@@ -161,7 +161,7 @@ describe("the action list's shape", () => {
     for (const entry of refused) expect(Action.safeParse(entry).success, JSON.stringify(entry)).toBe(false);
   });
 
-  it("has eleven contexts, Artemis's eight and the terminal pane, the parked asks and the yes or no offers", () => {
+  it("has eleven contexts: the reference keymap's eight, the terminal pane, the parked asks and the yes or no offers", () => {
     expect([...ACTION_CONTEXTS].sort()).toEqual(
       ["anywhere", "composer", "transcript", "sidebar", "delegated", "picker", "permission", "pager", "terminal", "asks", "confirm"].sort(),
     );
@@ -262,7 +262,7 @@ describe("conditions", () => {
   });
 });
 
-describe("Artemis's honesty checks", () => {
+describe("the reference map's honesty checks", () => {
   it("gives every group a title and rows, names each group once, and puts every action in its group's context", () => {
     expect(ACTION_GROUPS.length).toBeGreaterThan(0);
     const titles = ACTION_GROUPS.map((g) => g.title);
@@ -278,9 +278,9 @@ describe("Artemis's honesty checks", () => {
     }
   });
 
-  it("keeps Artemis's groups, with their titles and contexts, in its order", () => {
-    const carried = ACTION_GROUPS.filter((g) => ARTEMIS_KEYMAP.some((a) => a.title === g.title));
-    expect(carried.map((g) => [g.title, g.context])).toEqual(ARTEMIS_KEYMAP.map((g) => [g.title, g.context]));
+  it("keeps the reference keymap's groups, with their titles and contexts, in its order", () => {
+    const carried = ACTION_GROUPS.filter((g) => REFERENCE_KEYMAP.some((a) => a.title === g.title));
+    expect(carried.map((g) => [g.title, g.context])).toEqual(REFERENCE_KEYMAP.map((g) => [g.title, g.context]));
   });
 
   it("echoes the slash commands from the list: the last group is every command, in the list's order", () => {
@@ -288,7 +288,7 @@ describe("Artemis's honesty checks", () => {
     expect(last?.title).toBe(SLASH_COMMANDS_TITLE);
     expect(last?.context).toBe("composer");
     expect(last?.actions.map((a) => a.id)).toEqual(commands.map((a) => a.id));
-    // Artemis's commands first, in its order; the harness's after them.
-    expect(commands.slice(0, ARTEMIS_COMMANDS.length).map((a) => commandName(a.id))).toEqual(ARTEMIS_COMMANDS.map((c) => c.name));
+    // The reference commands first, in their order; the harness's after them.
+    expect(commands.slice(0, REFERENCE_COMMANDS.length).map((a) => commandName(a.id))).toEqual(REFERENCE_COMMANDS.map((c) => c.name));
   });
 });

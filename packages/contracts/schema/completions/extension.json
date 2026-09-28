@@ -184,5 +184,5 @@
       ]
     }
   },
-  "description": "The harness's fields on a completions request, under agent-harness (or its alias artemis)."
+  "description": "The harness's fields on a completions request, under agent-harness."
 }

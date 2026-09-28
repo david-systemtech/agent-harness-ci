@@ -76,7 +76,7 @@ export const CLAUDE_STRIPPED_VARIABLES = [
 
 /**
  * What else never reaches a Claude process from the host's environment
- * (Artemis's composer, widened to prefixes): anything that would
+ * (a list widened here to prefixes): anything that would
  * authenticate, retarget the account at another backend or endpoint, or
  * point it at another config directory, and the variable that puts the CLI
  * in bare mode. Scrubbed by name and by family:

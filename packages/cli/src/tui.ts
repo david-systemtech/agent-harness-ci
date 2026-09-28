@@ -12,7 +12,7 @@ import { service, serviceInstalled, servicePort, type ServiceContext } from "./s
  * This parses its flags and hands the terminal UI what only the CLI knows:
  * the local environment's data directory (where its grant file is), the
  * harness version, and the CLI's own `service` verbs (#113), which `y` on
- * the service-down offer runs. Artemis's `-p` and `ls` are not carried.
+ * the service-down offer runs. The `-p` and `ls` flags are not carried.
  */
 
 export const TUI_USAGE = `${PRODUCT_NAME} tui [--environment <name or id>] [--session <id> | -c] [--cwd <path>] [--keybindings <file>]`;

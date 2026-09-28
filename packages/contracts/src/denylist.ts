@@ -199,8 +199,7 @@ const BANK = "A large bank, by name: a start, not a fence.";
 const RECOVERY = "Account recovery and security settings.";
 
 /**
- * Artemis's browser list (`DEFAULT_BLOCKED_SITES` in its protocol's browser
- * driver at 443cf2e), in its order: password managers, payments and money
+ * The browser preset list, in order: password managers, payments and money
  * movement, the large banks by name, account recovery.
  */
 const BROWSER_DOMAIN_PRESETS: readonly PresetSeed[] = [

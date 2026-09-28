@@ -97,7 +97,7 @@ const setting = <const S extends z.ZodType>(definition: SettingDefinition<S>): S
  * account, model family and effort, #134) and `providers.processIdleMinutes`
  * (#120) sit under the Account step's entry, in the Default account and
  * model band of the Accounts pane (ADR 0027's `accounts.default-model` row,
- * which absorbs Artemis's Models pane and its Runs pane).
+ * which folds together what were separate Models and Runs panes).
  * The permission keys (#129) are the Permissions step's, written through
  * `permissions.settings.set` only.
  */

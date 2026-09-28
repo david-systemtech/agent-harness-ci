@@ -674,7 +674,7 @@ describe("verify first: an outbox run chaining groups.create and sessions.setGro
     const groupId = randomUUID();
     const sessionId = randomUUID();
     const run: [string, Record<string, unknown>][] = [
-      ["groups.create", { commandId: uuidv7(), id: groupId, name: "Imported from Artemis" }],
+      ["groups.create", { commandId: uuidv7(), id: groupId, name: "Imported conversations" }],
       ["sessions.create", { commandId: uuidv7(), id: sessionId, groupId, workspace }],
       ["sessions.setGroup", { commandId: uuidv7(), sessionId: existing, groupId }],
     ];

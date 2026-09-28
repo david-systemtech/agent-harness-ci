@@ -103,7 +103,7 @@ describe("the denylist's sections", () => {
 describe("the presets", () => {
   const patterns = (section: DenylistSection) => presets[section].map((held) => held.pattern);
 
-  it("are Artemis's extension list for browser domains: password managers, payment processors, the large banks by name", () => {
+  it("are the browser-domain preset list: password managers, payment processors, the large banks by name", () => {
     expect(patterns("browserDomains")).toEqual([
       "*.1password.com",
       "*.bitwarden.com",

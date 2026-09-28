@@ -37,7 +37,7 @@ export const PromptQuestionOption = z
   .meta({ description: "One option of a question: its label and what it means." });
 export type PromptQuestionOption = z.infer<typeof PromptQuestionOption>;
 
-/** One question of a question prompt (Artemis's question set). */
+/** One question of a question prompt. */
 export const PromptQuestion = z
   .object({
     header: z.string().meta({ description: "A short label for the question, shown as a chip; empty when the provider gives none." }),

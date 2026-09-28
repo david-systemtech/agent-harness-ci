@@ -44,9 +44,9 @@ import { worktreeCheckout } from "./workspace.js";
 
 /**
  * The Claude process (claude-adapter spec, "Environment-owned provider
- * processes" and "The Claude adapter": Artemis's prompt pump, permission
- * table, task ledger and settle grace, moved out of the run into the
- * process). `query()` takes its streaming input once and answers one
+ * processes" and "The Claude adapter": the prompt pump, permission table,
+ * task ledger and settle grace, moved out of the run into the process).
+ * `query()` takes its streaming input once and answers one
  * `Query`, so the input, the transport, the abort controller and the
  * `canUseTool` callback are fixed at spawn and belong to the process; a turn
  * (`turn.ts`) is one run. The process serves turns one at a time, as the CLI
@@ -65,13 +65,13 @@ import { worktreeCheckout } from "./workspace.js";
  * own, adopted, and the waiting run keeps waiting behind it, except a
  * delivery failure the SDK leaves unnamed, which is the one waiting run's
  * when nothing else is owed. A run the CLI never opens is ended by a
- * watchdog. A CLI that does not narrate is read as Artemis did before it
- * did: a waiting run's prompt opens the next turn.
+ * watchdog. A CLI that does not narrate falls back on a simpler rule: a
+ * waiting run's prompt opens the next turn.
  *
  * The pool (`adapter/pool.ts`, #120) decides when it stops: `release()`
  * keeps it for the next run, `stopProcess` stops it (or kills its child at
  * once), and what holds it from the pool's idle stop is told through the
- * run context's `process` port (Artemis's retention rule): a `task` hold per
+ * run context's `process` port (the retention rule): a `task` hold per
  * live background task, by the provider's task id, and one `schedule` hold,
  * under a synthetic id, while a cron job or a wakeup is registered. A
  * process that dies on its own tells the port it `exited`.
@@ -109,11 +109,11 @@ export interface ProcessDeps {
 }
 
 export interface ProcessTimings {
-  /** How long a settled background task holds the process for the provider's turn about it (Artemis: 2 s). */
+  /** How long a settled background task holds the process for the provider's turn about it (2 s). */
   readonly settleGraceMs: number;
-  /** How long an interrupt waits for the control channel before the transport is forced down (Artemis: 8 s). */
+  /** How long an interrupt waits for the control channel before the transport is forced down (8 s). */
   readonly interruptTimeoutMs: number;
-  /** How long a prompt waits for the pump to learn whose turn the CLI opened (Artemis: 500 ms). */
+  /** How long a prompt waits for the pump to learn whose turn the CLI opened (500 ms). */
   readonly decisionSettleMs: number;
   /** How long a model, mode or effort change on a kept process may take before the run fails. */
   readonly controlTimeoutMs: number;
@@ -123,7 +123,7 @@ export interface ProcessTimings {
 
 /**
  * The tools that leave a job in the process that only fires while it idles
- * (Artemis's list): a process holding one is kept. Each is counted when its
+ * (a fixed list): a process holding one is kept. Each is counted when its
  * call ends `ok`, never when it starts, since a call may still be denied or
  * fail: a cron job until `CronDelete` removes one; a wakeup until a turn of
  * the provider's own opens with no message behind it, which is the wakeup
@@ -399,7 +399,7 @@ export class ClaudeProcess implements TurnControl {
   /** The permission table: prompts parked on the broker, by prompt id, answerable here too, with the turn that asked. */
   readonly #permissions = new Map<string, { readonly answer: (decision: PromptDecision) => void; readonly turn: ClaudeTurn }>();
 
-  /** Live background tasks by id, from the level alone (Artemis: retention reads the level, never the ledger), each held on the port. */
+  /** Live background tasks by id, from the level alone (retention reads the level, never the ledger), each held on the port. */
   readonly #liveTasks = new Set<string>();
   #crons = 0;
   #wakeups = 0;
@@ -855,7 +855,7 @@ export class ClaudeProcess implements TurnControl {
       this.#holdSchedule();
     }
     if (turn.state.providerSessionId !== null) this.#providerSessionId = turn.state.providerSessionId;
-    // Work that changed between turns is reported by the next turn to hear anything (Artemis's `#flushTasks`).
+    // Work that changed between turns is reported by the next turn to hear anything.
     if (!turn.ended && this.#ledger.dirty) turn.emit({ type: "tasks.changed", payload: { tasks: this.#ledger.snapshot() } });
     if (turn.ended && this.#current === turn) {
       this.#current = undefined;

@@ -49,7 +49,6 @@ const request = {
   tools: [tool],
   tool_choice: "auto",
   "agent-harness": { sessionId },
-  artemis: { permissionMode: "plan" },
 };
 const toolResults = {
   model: "claude-max/opus",
@@ -138,7 +137,6 @@ export const completionsSchemaFixtures: Record<string, Fixtures> = {
       { messages: [{ role: "user", content: "Hi" }] },
       { model: "opus", messages: [] },
       { ...request, "agent-harness": { permissionMode: "default" } },
-      { ...request, artemis: { sessionId: "s-1" } },
       { ...request, stop: ["a", "b", "c", "d", "e"] },
       { ...request, max_tokens: 0 },
       { ...request, tools: [{ type: "function", function: { name: "get weather" } }] },

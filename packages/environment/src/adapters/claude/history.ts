@@ -14,7 +14,7 @@ import type { ResumePoint } from "./options.js";
 /**
  * The stored chain, read for where a fork or a rewind re-enters it
  * (claude-adapter spec, "Queue, read-now, fork and rewind on the Claude
- * adapter"; Artemis's `history.ts`, the part a run needs). A client points
+ * adapter"). A client points
  * at a user message by the id the harness minted, which is the uuid the
  * prompt was stamped with; a truncating resume re-enters at the entry
  * before it, and only the stored chain knows which entry that is.

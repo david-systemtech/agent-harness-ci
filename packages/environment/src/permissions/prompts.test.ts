@@ -124,7 +124,7 @@ const question = {
 const plan = { toolName: "ExitPlanMode", input: { plan: "1. Read the receipts\n2. Fix them" }, plan: "1. Read the receipts\n2. Fix them" };
 
 describe("a prompt", () => {
-  it("is opened on its session's stream with its kind and Artemis's fields, parks the run, and is answered once by a person, whose answer reaches the run", async () => {
+  it("is opened on its session's stream with its kind and fields, parks the run, and is answered once by a person, whose answer reaches the run", async () => {
     const t = await start({ script: ask("permission", permission, { promptId: "toolu_1" }) });
     const client = await t.client();
     const { id } = await create(client);

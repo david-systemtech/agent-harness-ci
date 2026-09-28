@@ -22,16 +22,15 @@ import type { UsagePool } from "./usage-pool.js";
  * client asking at the same moment gets the same answer: the candidates are
  * the signed-in accounts in the store's order (the tie-break), each with the
  * pool's reading and the runs live on it. Asked with no account, it names
- * the account with the most room of two or more (Artemis's
- * `recommendProfile`). Asked from an account, it says which threshold that
- * account has met (`handoffTrigger`, on a window observed under six minutes
- * ago, or one the provider is refusing whatever its age: a percentage goes
- * stale, a refusal does not) and names the other account with the most
- * room, one being a choice, never one whose tightest window the provider is
- * refusing. No account with no room is ever named, though one counts among
- * the `candidates`: the accounts ranked (`rankAccounts`), as Artemis's
- * `recommendProfile` counts them. No plan weights are known yet, so the basis
- * is `percentage`.
+ * the account with the most room of two or more. Asked from an account, it
+ * says which threshold that account has met (`handoffTrigger`, on a window
+ * observed under six minutes ago, or one the provider is refusing whatever
+ * its age: a percentage goes stale, a refusal does not) and names the other
+ * account with the most room, one being a choice, never one whose tightest
+ * window the provider is refusing. No account with no room is ever named,
+ * though one counts among the `candidates`: the accounts ranked
+ * (`rankAccounts`). No plan weights are known yet, so the basis is
+ * `percentage`.
  */
 
 export interface UsageMethodsOptions {

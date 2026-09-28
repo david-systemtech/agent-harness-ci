@@ -1,12 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  COMPLETIONS_NAMESPACE,
-  COMPLETIONS_NAMESPACE_ALIAS,
-  ChatCompletionRequest,
-  CompletionsExtension,
-  MAX_SYSTEM_PROMPT_CHARS,
-  MODES,
-} from "./index.js";
+import { COMPLETIONS_NAMESPACE, ChatCompletionRequest, CompletionsExtension, MAX_SYSTEM_PROMPT_CHARS, MODES } from "./index.js";
 
 /**
  * The completions surface's request schemas (claude-adapter spec, "The
@@ -15,9 +8,8 @@ import {
  */
 
 describe("the completions extension schema", () => {
-  it("is named agent-harness, with artemis as its alias", () => {
+  it("is named agent-harness", () => {
     expect(COMPLETIONS_NAMESPACE).toBe("agent-harness");
-    expect(COMPLETIONS_NAMESPACE_ALIAS).toBe("artemis");
   });
 
   it("takes each of the four modes and rejects every other, Claude's default and dontAsk included", () => {
@@ -27,11 +19,10 @@ describe("the completions extension schema", () => {
     }
   });
 
-  it("rejects a mode outside the four under either namespace of a request", () => {
+  it("rejects a mode outside the four under the request's namespace", () => {
     const base = { model: "opus", messages: [{ role: "user", content: "Hi" }] };
     expect(ChatCompletionRequest.safeParse({ ...base, [COMPLETIONS_NAMESPACE]: { permissionMode: "dontAsk" } }).success).toBe(false);
-    expect(ChatCompletionRequest.safeParse({ ...base, [COMPLETIONS_NAMESPACE_ALIAS]: { permissionMode: "default" } }).success).toBe(false);
-    expect(ChatCompletionRequest.safeParse({ ...base, [COMPLETIONS_NAMESPACE_ALIAS]: { permissionMode: "plan" } }).success).toBe(true);
+    expect(ChatCompletionRequest.safeParse({ ...base, [COMPLETIONS_NAMESPACE]: { permissionMode: "plan" } }).success).toBe(true);
   });
 
   it("caps systemPrompt at 200,000 characters", () => {

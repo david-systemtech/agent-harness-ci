@@ -3,9 +3,8 @@ import type { AccountRef, UsageReading, UsageWindow } from "../../adapter/contra
 import type { Clock } from "../../serve/clock.js";
 
 /**
- * Plan usage for a Claude account (claude-adapter spec, "Plan usage";
- * Artemis's `planUsage.ts` and its server's shared read, ported). The read
- * costs no tokens: it is a control request on a query whose prompt never
+ * Plan usage for a Claude account (claude-adapter spec, "Plan usage"). The
+ * read costs no tokens: it is a control request on a query whose prompt never
  * yields, so the model is never sampled and the cost is one spawn under the
  * account's directory (`control-query.ts`). The method is reached by a
  * tolerant name lookup, since the SDK marks it experimental; a rename
@@ -21,7 +20,7 @@ import type { Clock } from "../../serve/clock.js";
  */
 export const USAGE_METHOD_NAMES = ["usage", "getUsage", "usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET"] as const;
 
-/** How long a reading answers before it is read again (Artemis's `PLAN_USAGE_MAX_AGE_MS`). */
+/** How long a reading answers before it is read again. */
 export const PLAN_USAGE_MAX_AGE_MS = 6 * 60 * 1000;
 
 /** What asking a query for its usage came to. */

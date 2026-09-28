@@ -38,7 +38,7 @@
         "description": {
           "type": "string",
           "minLength": 1,
-          "description": "What the action does, in one line; Artemis's words for the rows it carries."
+          "description": "What the action does, in one line; the reference fixture's words for the rows it carries."
         },
         "usage": {
           "description": "A slash command's usage line, as the help overlay and the command menu print it; absent for a key.",
@@ -107,7 +107,7 @@
         "description": {
           "type": "string",
           "minLength": 1,
-          "description": "What the action does, in one line; Artemis's words for the rows it carries."
+          "description": "What the action does, in one line; the reference fixture's words for the rows it carries."
         },
         "usage": {
           "description": "A slash command's usage line, as the help overlay and the command menu print it; absent for a key.",
@@ -144,7 +144,7 @@
         "status",
         "reason"
       ],
-      "description": "An action the harness keeps the keys of but does not answer: drawn dim with its reason, as Artemis drew its planned rows."
+      "description": "An action the harness keeps the keys of but does not answer: drawn dim with its reason."
     }
   ],
   "description": "One named action of the shared list: its id, context, default keys and description, a condition its keys are answered under where it has one, and wired or absent with a reason. The id's first word names its context (row is transcript, rail is sidebar, app is anywhere, command is composer); a slash command has a usage line and no keys or condition, any other action keys and no usage line, a condition is one of the action's own context, and only a slash command is an alias: rules the decoder keeps and this schema cannot state."
