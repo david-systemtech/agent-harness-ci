@@ -75,14 +75,18 @@ pnpm comes from the `packageManager` pin through `corepack enable`.
   (`scripts/compose.yaml`) run the environment as a non-root user and are read
   as text by `test/container.test.ts`; building and running them is the
   checklist's Container section. Never build or run an image on the shared agent box.
-- Three local lint rules live in `eslint-rules/`. Two enforce ADR 0003 and 0004:
+- Four local lint rules live in `eslint-rules/`. Two enforce ADR 0003 and 0004:
   `agent-harness/no-client-organisation-state` (its allowlisted modules and the
   enumerated presentation keys are constants at the top of the rule) and
   `agent-harness/no-session-types-in-shell`. The third,
   `agent-harness/no-relative-import-into`, refuses a relative import that
   resolves into a named workspace package however it is spelled (the
-  environment reaching into a client's or the CLI's folder).
-  `eslint.config.ts` scopes all three.
+  environment reaching into a client's or the CLI's folder). The fourth,
+  `agent-harness/no-literal-colour` (ADR 0023), refuses a literal colour in
+  the packages that paint with the theme's tokens (`gui`, `desktop`, `web`),
+  their stylesheets included through ESLint's CSS language (`@eslint/css`);
+  its two allowlisted modules are named in the configuration.
+  `eslint.config.ts` scopes all four, and keeps the JavaScript rules to scripts.
 
 ## Merging
 
