@@ -29,15 +29,18 @@ import type { EventLog, StreamRef } from "../event-log/event-log.js";
 import { noKeyManagerConnections, type KeyManagerRegistry } from "../key-managers/registry.js";
 import type { ScrubRegistry, ScrubRelease } from "../scrub/registry.js";
 import type { Clock } from "../serve/clock.js";
+import type { Address } from "../serve/http.js";
 import type { CommandAnswer, CommandContext, CommandRejection, MethodHandler, PrepareContext, PreparedCommand } from "../serve/methods.js";
 import type { Vault } from "../serve/vault.js";
 import type { Reader } from "../sessions/session-tables.js";
-import { forgeAccountEver, listForgeAccounts, liveForgeAccount, originHolder, primaryForgeAccount, slugHolder } from "./forge-store.js";
+import { forgeAccountEver, listForgeAccounts, liveForgeAccount, originHolder, primaryForgeAccount, slugHolder, type MissingOrigin } from "./forge-store.js";
 import { managedGh, type ManagedGh } from "./gh.js";
 import { keepSince } from "./verification.js";
 import { createVerifier } from "./verifier.js";
 import { createEntityTags } from "./forge-http.js";
 import { FORGE_CALL_TIMEOUT_MS, forgeProvider, type ForgeFetch, type IdentityAnswer, type ProviderOptions } from "./providers.js";
+import { createHarnessGit, type ForgeGitAnswer, type ForgeGitRequest } from "./harness-git.js";
+import { createMissingOrigins } from "./missing-origins.js";
 import { createRunSecrets, type RunSecrets } from "./run-secrets.js";
 
 /**
@@ -115,6 +118,15 @@ export interface ForgeServiceOptions {
    * which a verification probes its reads on: a session's now, banks and skill sources when they exist. Preset: none.
    */
   readonly knownRepositories?: () => readonly string[];
+  /**
+   * The command line that runs the `agent-harness` binary before its verb,
+   * which git names as its credential helper (`git-credential <slug>`): the
+   * one `serve` runs as. Absent, the harness's git refuses an origin a forge
+   * account covers, having no helper to name.
+   */
+  readonly harnessCommand?: readonly string[];
+  /** The environment's loopback address, where the helper asks; undefined until it listens. */
+  readonly address?: () => Address | undefined;
 }
 
 type Refusal<N extends MethodName> = CommandRejection<ErrorOf<N>["code"]>;
@@ -199,6 +211,15 @@ export interface ForgeService {
   readonly setPrimary: MethodHandler<"forge.accounts.setPrimary">;
   /** The run-scoped secrets the credential route serves (#314): minted per harness git operation, provider process or terminal. */
   readonly secrets: RunSecrets;
+  /**
+   * The harness's own git on a forge (#314): a clone, fetch or push against
+   * the canonical origin's URL, through the credential helper on an origin a
+   * forge account serves, anonymously on one none covers, where a forge that
+   * asks for a credential refuses it `forge_account_missing`.
+   */
+  git(request: ForgeGitRequest): Promise<ForgeGitAnswer>;
+  /** The origins a harness operation was refused on that count now, for the Forges step's coverage check: recorded within seven days, and covered by no forge account since. */
+  missingOrigins(): MissingOrigin[];
   /** Stops the verifications, voids every run-scoped secret and lets go of every token's registration. */
   close(): void;
 }
@@ -220,6 +241,14 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
   /** The scrub registration of each stored token the environment holds, by forge account. */
   const held = new Map<string, ScrubRelease>();
   const secrets = createRunSecrets(scrub);
+  const missing = createMissingOrigins({ log, clock, stream, reader, accounts: () => listForgeAccounts(reader) });
+  const git = createHarnessGit({
+    accounts: () => listForgeAccounts(reader),
+    secrets,
+    command: options.harnessCommand,
+    address: options.address ?? (() => undefined),
+    originMissing: (origin, operation) => missing.record(origin, operation),
+  });
 
   /**
    * Registers `token` for its forge account with the form git's Basic
@@ -795,6 +824,10 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
     },
 
     secrets,
+
+    git,
+
+    missingOrigins: () => missing.counted(),
 
     close() {
       verifier.close();

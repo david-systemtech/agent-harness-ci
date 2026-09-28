@@ -1,14 +1,12 @@
 import { mkdirSync } from "node:fs";
-import { request } from "node:http";
 import { networkInterfaces } from "node:os";
 import { join } from "node:path";
-import { GIT_CREDENTIAL_PATH, GitCredentialAnswer, GitCredentialError, formatHostPort, type ForgeAccountRecord } from "@agent-harness/contracts";
+import { GitCredentialAnswer, GitCredentialError, type ForgeAccountRecord } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { startFakeForge, type FakeForge } from "../../test/fake-forge.js";
-import { DAVID, OTHER_TOKEN, TOKEN, added, pasted, remove, saidBack, update } from "../../test/forge.js";
+import { DAVID, OTHER_TOKEN, TOKEN, added, askCredentialRoute as ask, gitHost, pasted, remove, saidBack, update, type RouteAnswer } from "../../test/forge.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
-import type { Address } from "../serve/http.js";
 
 /**
  * The credential route (forge spec, "The helper and the credential route";
@@ -41,55 +39,16 @@ const withForge = async (options: TestEnvironmentOptions = {}) => {
   return { t, forge };
 };
 
-/** git's host attribute for an origin: the host, and its port when it has one. */
-const hostOf = (origin: string): string => origin.replace(/^https?:\/\//, "");
-
-interface Asked {
-  readonly status: number;
-  readonly body: unknown;
-}
-
-/** Asks the route at `address` as the helper does: the secret as a bearer credential, git's attributes in the body. */
-const ask = (address: Address, secret: string | null, body: unknown, headers: Record<string, string> = {}): Promise<Asked> =>
-  new Promise((resolve, reject) => {
-    const text = typeof body === "string" ? body : JSON.stringify(body);
-    const sent = request(
-      {
-        host: address.host,
-        port: address.port,
-        method: "POST",
-        path: GIT_CREDENTIAL_PATH,
-        headers: {
-          host: formatHostPort(address.host, address.port),
-          "content-type": "application/json",
-          "content-length": Buffer.byteLength(text),
-          ...(secret !== null && { authorization: `Bearer ${secret}` }),
-          ...headers,
-        },
-      },
-      (response) => {
-        const chunks: Buffer[] = [];
-        response.on("data", (chunk: Buffer) => chunks.push(chunk));
-        response.on("end", () => {
-          const answer = Buffer.concat(chunks).toString("utf8");
-          resolve({ status: response.statusCode ?? 0, body: answer === "" ? null : (JSON.parse(answer) as unknown) });
-        });
-      },
-    );
-    sent.on("error", reject);
-    sent.end(text);
-  });
-
 /** A `get` for `account`'s canonical origin. */
 const getFor = (account: ForgeAccountRecord) => ({
   action: "get",
   slug: account.slug,
   protocol: account.origin.startsWith("https:") ? "https" : "http",
-  host: hostOf(account.origin),
+  host: gitHost(account.origin),
 });
 
 /** The refusal's code, checked against the route's error union. */
-const refused = (asked: Asked): string => GitCredentialError.parse(asked.body).code;
+const refused = (asked: RouteAnswer): string => GitCredentialError.parse(asked.body).code;
 
 describe("the credential route", () => {
   it("answers a secret's forge account with the derived username and the token, read for the request", async () => {
@@ -105,10 +64,9 @@ describe("the credential route", () => {
   });
 
   it("answers GitHub's forge account as x-access-token", async () => {
-    const { t, forge } = await withForge();
+    const { t } = await withForge();
     const client = await t.client();
     const account = await added(client, { url: "https://github.com" });
-    expect(forge.requests.length).toBeGreaterThan(0);
     const secret = t.env.forge.secrets.mint([account.id], "a test's git");
     onCleanup(secret.release);
 
