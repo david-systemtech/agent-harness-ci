@@ -80,13 +80,19 @@ export type ForgeCredentialSource = z.infer<typeof ForgeCredentialSource>;
 /** The longest token a person may paste. */
 export const MAX_FORGE_TOKEN = 4096;
 
-/** A token as a client sends it, once: in `forge.accounts.add` or `update`, never answered back. */
+/**
+ * A token as a client sends it, once: in `forge.accounts.add` or `update`,
+ * never answered back. Printable ASCII, as every forge's tokens are and as
+ * an HTTP header carries it.
+ */
 export const ForgeToken = z
   .string()
   .min(1)
   .max(MAX_FORGE_TOKEN)
-  .regex(/^\S+$/)
-  .meta({ description: `A forge token as pasted, trimmed: 1 to ${MAX_FORGE_TOKEN} characters with no white space. It crosses the wire once and is never answered back.` });
+  .regex(/^[\x21-\x7e]+$/)
+  .meta({
+    description: `A forge token as pasted, trimmed: 1 to ${MAX_FORGE_TOKEN} printable ASCII characters with no space. It crosses the wire once and is never answered back.`,
+  });
 
 /**
  * A credential as `forge.accounts.add` and `update` take it: a token pasted

@@ -105,7 +105,7 @@ export const forgeSchemaFixtures: Record<string, Fixtures> = {
     valid: [{ kind: "gh" }, stored, { ...stored, provenance: "imported" }, { kind: "reference" }, { kind: "none" }],
     invalid: [{ kind: "stored", provenance: "pasted" }, pasted, { kind: "stored", provenance: "typed", entry }, { kind: "keychain" }, {}],
   },
-  "forge/token.json": { valid: ["token-for-tests", "x"], invalid: ["", "two words", "trailing\n", "x".repeat(4097)] },
+  "forge/token.json": { valid: ["token-for-tests", "token+for/tests=", "x"], invalid: ["", "two words", "trailing\n", "tökén", "x".repeat(4097)] },
   "forge/credential-input.json": {
     valid: [pasted],
     invalid: [{ ...pasted, token: "" }, { ...pasted, provenance: "client-gh" }, { kind: "stored", provenance: "pasted" }, stored, { kind: "gh" }],

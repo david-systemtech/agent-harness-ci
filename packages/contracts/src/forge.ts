@@ -134,8 +134,8 @@ const SSH_DERIVED_SCHEMES = new Set(["ssh", "git+ssh", "ssh+git", "git"]);
 /** GitHub's ssh-over-443 host, which serves github.com's repositories. */
 const GITHUB_SSH_HOST = "ssh.github.com";
 const GITHUB_HOST = "github.com";
-/** github.com's origin: not an Enterprise one. */
-const GITHUB_ORIGIN = `https://${GITHUB_HOST}`;
+/** github.com's origin: not an Enterprise one. The one origin whose kind is known by its name. */
+export const GITHUB_ORIGIN = `https://${GITHUB_HOST}`;
 
 /**
  * An ssh, scp or `git://` remote: `https` on the same host with no port,
