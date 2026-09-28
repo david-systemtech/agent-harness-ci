@@ -402,7 +402,7 @@ describe("the Your machines step's release channel check", () => {
     const { fake, client } = await withChannel("0.5.0");
     fake.publish({ version: "0.4.2" });
     await setUpdates(client, { "updates.autoUpdate": false });
-    expect(await result(client)).toMatchObject({ state: "done", reason: "The environment runs as a non-root user. Auto-update is off, or the release channel was read in the last 24 hours." });
+    expect(await result(client)).toMatchObject({ state: "done", reason: "The environment runs as a non-root user. Auto-update is off, or the release channel was read in the last 24 hours. Auto-update is on or the channel's newest runs, no update is past its cap or blocked, and no failed update left this machine behind." });
     await setUpdates(client, { "updates.autoUpdate": true, "updates.pinnedVersion": "0.4.2" });
     expect(await result(client)).toMatchObject({ state: "done" });
   });

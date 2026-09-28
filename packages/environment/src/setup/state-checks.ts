@@ -8,12 +8,14 @@ import type { StateCheckers } from "./check.js";
 
 /**
  * How this environment answers every state check the step registry names
- * (#141): the Your machines step's not-root line and release channel
- * (#346), and the Permissions step's three checks, each read when it runs.
+ * (#141): the Your machines step's not-root line, release channel (#346)
+ * and whether the machine is behind (#347), and the Permissions step's
+ * three checks, each read when it runs.
  * Not-root and the containment default are read from what
  * `permissions.settings.get` answers (`readPermissionsReport`), the
  * denylist from its read model beside the presets for this environment's
- * data directory, the release channel from its checks (`updates/checks.ts`).
+ * data directory, the release channel from its checks (`updates/checks.ts`),
+ * and the updates from the update coordinator (`updates/coordinator.ts`).
  */
 
 export interface StateChecksOptions {
@@ -26,6 +28,8 @@ export interface StateChecksOptions {
   readonly dataDir: string;
   /** Whether auto-update is off or the release channel was read in the last 24 hours (#346). */
   readonly releaseChannel: () => StateCheckAnswer;
+  /** Whether auto-update is effective or the channel's newest runs, no update is past its cap or blocked, and no failed update left the machine behind (#347). */
+  readonly updates: () => StateCheckAnswer;
 }
 
 export const environmentStateChecks = (options: StateChecksOptions): StateCheckers => {
@@ -35,6 +39,7 @@ export const environmentStateChecks = (options: StateChecksOptions): StateChecke
   return {
     "your-machines.not-root": () => runsAsNonRoot(report().isRoot),
     "your-machines.release-channel": options.releaseChannel,
+    "your-machines.updates": options.updates,
     "permissions.containment": () => {
       const { values, containment } = report();
       return containmentDefaultHolds(values["permissions.containment.default"], containment);

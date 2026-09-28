@@ -15,7 +15,7 @@ import type { LauncherChannel } from "../serve/launcher.js";
 import type { MethodHandler, MethodHandlers } from "../serve/methods.js";
 import type { Reader } from "../sessions/session-tables.js";
 import { readSettings } from "../settings/settings-store.js";
-import type { ReleaseChannelReader } from "./channel.js";
+import type { ChannelSettings, ReleaseChannelReader } from "./channel.js";
 import type { ChannelChecks } from "./checks.js";
 import type { UpdateCoordinator } from "./coordinator.js";
 
@@ -49,8 +49,8 @@ export interface UpdateMethodsOptions {
   readonly managedOutside: boolean;
   /** Reads the bundled Claude Code's version; called once, the first time it is asked for. */
   readonly claudeCodeVersion: () => Promise<string | null>;
-  /** The update coordinator: the pending update, how the updates ended, and `updates.apply` and `updates.cancel`. */
-  readonly coordinator: Pick<UpdateCoordinator, "pending" | "outcomes" | "handlers">;
+  /** The update coordinator: the pending update, how the updates ended, `updates.apply` and `updates.cancel`, and what a settings change withdraws. */
+  readonly coordinator: Pick<UpdateCoordinator, "pending" | "outcomes" | "handlers" | "settingsChanging">;
   /** Where the releases are read. */
   readonly releaseSource: ReleaseSource;
   /** The release channel: why a version cannot be pinned. */
@@ -61,6 +61,13 @@ export interface UpdateMethodsOptions {
 
 /** The settings the target follows: a change to any of them has the channel checked again. */
 const TARGET_KEYS: ReadonlySet<UpdateSettingsKey> = new Set(["updates.autoUpdate", "updates.channel", "updates.pinnedVersion"]);
+
+/** The settings the target follows, of `values`. */
+const channelSettingsOf = (values: UpdateSettingsValues): ChannelSettings => ({
+  autoUpdate: values["updates.autoUpdate"],
+  channel: values["updates.channel"],
+  pinnedVersion: values["updates.pinnedVersion"],
+});
 
 /** The update settings as they are now, each key never set at its preset. */
 const readUpdateSettings = (reader: Reader): UpdateSettingsValues => {
@@ -107,9 +114,10 @@ export const updateMethods = (options: UpdateMethodsOptions): MethodHandlers => 
    * The wire has checked each value against its key's schema and range, and
    * refused any other key. The keys whose value changes are one
    * `settings.updated` on the settings stream, in the command's transaction
-   * with its receipt; a command that changes nothing appends nothing. Once
-   * a change to a setting the target follows commits, the channel is
-   * checked again.
+   * with its receipt; a command that changes nothing appends nothing. A
+   * waiting update the channel called for that the change stops calling for
+   * is withdrawn in the same transaction (#347). Once a change to a setting
+   * the target follows commits, the channel is checked again.
    */
   const setSettings: MethodHandler<"updates.settings.set"> = ({ values: asked }, context) => {
     const held = readUpdateSettings(reader);
@@ -117,7 +125,10 @@ export const updateMethods = (options: UpdateMethodsOptions): MethodHandlers => 
     const values = { ...held, ...asked } as UpdateSettingsValues;
     const keys = UPDATE_SETTINGS_KEYS.filter((key) => !isDeepStrictEqual(held[key], values[key]));
     if (keys.length === 0) return { aggregate: settingsStream, result: { values } };
-    if (keys.some((key) => TARGET_KEYS.has(key))) context.tx.afterCommit(() => options.checks.settingsChanged());
+    if (keys.some((key) => TARGET_KEYS.has(key))) {
+      options.coordinator.settingsChanging(channelSettingsOf(held), channelSettingsOf(values), context);
+      context.tx.afterCommit(() => options.checks.settingsChanged());
+    }
     const updated: SettingsUpdatedPayload = { values: Object.fromEntries(keys.map((key) => [key, values[key]])) };
     return { aggregate: settingsStream, result: { values }, events: [{ type: "settings.updated", payload: updated }] };
   };
