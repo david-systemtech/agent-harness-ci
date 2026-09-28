@@ -270,6 +270,8 @@ export const createVerifier = (options: VerifierOptions): Verifier => {
       .catch((error: unknown) => console.error(`Verifying the forge account ${account.slug} failed:`, error))
       .finally(() => {
         if (runs.get(forgeAccountId)?.done === done) runs.delete(forgeAccountId);
+        // Closed meanwhile (the environment closing for an update, say): the log may be closed too, and nothing is armed again.
+        if (closed) return;
         const after = liveForgeAccount(reader, forgeAccountId);
         if (after !== null && verifiable(after)) arm(forgeAccountId, VERIFY_INTERVAL_MS);
       });
