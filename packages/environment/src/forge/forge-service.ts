@@ -31,7 +31,7 @@ import type { Vault } from "../serve/vault.js";
 import type { Reader } from "../sessions/session-tables.js";
 import { forgeAccountEver, listForgeAccounts, liveForgeAccount, originHolder, primaryForgeAccount, slugHolder } from "./forge-store.js";
 import { managedGh, type ManagedGh } from "./gh.js";
-import { FORGE_CALL_TIMEOUT_MS, forgeProvider, type ForgeFetch, type IdentityAnswer } from "./providers.js";
+import { FORGE_CALL_TIMEOUT_MS, createEntityTags, forgeProvider, type ForgeFetch, type IdentityAnswer, type ProviderOptions } from "./providers.js";
 
 /**
  * The ForgeService's forge account store (forge spec, "The forge account
@@ -155,7 +155,12 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
   const gh = options.gh ?? managedGh();
   const keyManagers = options.keyManagers ?? noKeyManagerConnections;
   const stream: StreamRef = { kind: ENVIRONMENT_STREAM_KIND, id: options.environmentId };
-  const providerOptions = { fetch: options.fetch ?? ((url: string, init: RequestInit) => fetch(url, init)), timeoutMs: options.callTimeoutMs ?? FORGE_CALL_TIMEOUT_MS };
+  const providerOptions: ProviderOptions = {
+    fetch: options.fetch ?? ((url: string, init: RequestInit) => fetch(url, init)),
+    timeoutMs: options.callTimeoutMs ?? FORGE_CALL_TIMEOUT_MS,
+    now: () => clock.now(),
+    entityTags: createEntityTags(),
+  };
   // The log's query-only read: inside a command it reads that command's own transaction.
   const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
 
