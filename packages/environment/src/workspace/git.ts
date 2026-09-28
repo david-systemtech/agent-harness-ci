@@ -42,6 +42,8 @@ export interface GitAnswer {
   readonly stdout: Buffer;
   /** Whether git wrote more than `maxBytes`, or was stopped at the timeout with output kept. */
   readonly truncated: boolean;
+  /** Whether git was stopped at the timeout. */
+  readonly timedOut: boolean;
   /** Whether there is no git to run at all: none on the PATH. */
   readonly missing: boolean;
   /** The exit code; null when git could not start, or was stopped. */
@@ -69,6 +71,7 @@ export const runGit = (cwd: string, args: readonly string[], options: GitOptions
     const chunks: Buffer[] = [];
     let kept = 0;
     let truncated = false;
+    let timedOut = false;
     let settled = false;
     const child = spawn("git", ["--no-optional-locks", ...HARDENING, ...args], {
       cwd,
@@ -89,7 +92,10 @@ export const runGit = (cwd: string, args: readonly string[], options: GitOptions
     };
     const timer = setTimeout(() => {
       truncated = true;
+      timedOut = true;
       child.kill("SIGKILL");
+      // A process git started (a filter, a helper) can hold the pipes open past git's own end: the answer does not wait for it.
+      for (const stream of [child.stdin, child.stdout, child.stderr]) stream?.destroy();
     }, options.timeoutMs ?? GIT_TIMEOUT_MS);
     const errors: Buffer[] = [];
     let errorBytes = 0;
@@ -114,12 +120,24 @@ export const runGit = (cwd: string, args: readonly string[], options: GitOptions
     });
     // A spawn that fails ENOENT is git missing from the PATH, unless the working directory is what is missing.
     child.on("error", (error: NodeJS.ErrnoException) =>
-      finish({ ok: false, stdout: Buffer.alloc(0), truncated: false, missing: error.code === "ENOENT" && existsSync(cwd), code: null, stderr: error.message }),
+      finish({ ok: false, stdout: Buffer.alloc(0), truncated: false, timedOut: false, missing: error.code === "ENOENT" && existsSync(cwd), code: null, stderr: error.message }),
     );
     child.on("close", (code) =>
-      finish({ ok: code === 0 || (truncated && kept > 0), stdout: Buffer.concat(chunks), truncated, missing: false, code, stderr: stderr() }),
+      finish({ ok: code === 0 || (truncated && kept > 0), stdout: Buffer.concat(chunks), truncated, timedOut, missing: false, code, stderr: stderr() }),
     );
   });
+
+/**
+ * The line that says why git failed: its `fatal:` line when it wrote one
+ * (its `error:` lines come first and say less), else its first.
+ */
+export const gitComplaint = (stderr: string): string => {
+  const lines = stderr
+    .split("\n")
+    .map((text) => text.trim())
+    .filter((text) => text !== "");
+  return lines.find((text) => text.startsWith("fatal:")) ?? lines[0] ?? "git exited without saying why";
+};
 
 /** The config scopes that are the machine's, not the repository's: its filters are the owner's and run. */
 const MACHINE_SCOPES: ReadonlySet<string> = new Set(["system", "global"]);
@@ -133,14 +151,19 @@ const FILTER_COMMANDS = String.raw`^filter\..+\.(clean|smudge|process)$`;
  * once: every scope but the machine's (the repository's `config`, its
  * worktree's, and whatever file either includes, which git reports under the
  * including scope), whether or not an attribute points a path at them. Read
- * with `git config --show-scope` (git 2.26 or later), which runs nothing.
- * `failed` is git's complaint when it could not say (a config it cannot
- * parse, a git too old for `--show-scope`).
+ * with `git config --show-scope` (git 2.26 or later), which runs nothing,
+ * given `timeoutMs` (preset: `GIT_TIMEOUT_MS`). `failed` is git's complaint
+ * when it could not say (a config it cannot parse, a git too old for
+ * `--show-scope`).
  */
-export const repositoryFilters = async (cwd: string): Promise<{ readonly filters: readonly string[] } | { readonly failed: string }> => {
-  const answer = await runGit(cwd, ["config", "--show-scope", "--name-only", "-z", "--get-regexp", FILTER_COMMANDS], { maxBytes: 1024 * 1024 });
+export const repositoryFilters = async (cwd: string, timeoutMs?: number): Promise<{ readonly filters: readonly string[] } | { readonly failed: string }> => {
+  const answer = await runGit(cwd, ["config", "--show-scope", "--name-only", "-z", "--get-regexp", FILTER_COMMANDS], {
+    maxBytes: 1024 * 1024,
+    ...(timeoutMs !== undefined && { timeoutMs }),
+  });
   // Exit 1 with nothing listed and nothing said is git config's "no such key".
   if (answer.code === 1 && answer.stdout.length === 0 && answer.stderr.trim() === "") return { filters: [] };
+  if (answer.timedOut) return { failed: "git config did not finish in time" };
   if (answer.truncated) return { failed: "git config listed more than 1 MiB of filters" };
   if (!answer.ok) return { failed: answer.stderr };
   // Scope and name, each ended by a NUL.
@@ -151,4 +174,10 @@ export const repositoryFilters = async (cwd: string): Promise<{ readonly filters
     if (!MACHINE_SCOPES.has(scope)) names.add(key.slice("filter.".length, key.lastIndexOf(".")));
   }
   return { filters: [...names].sort() };
+};
+
+/** The repository's filters as a refusal names them: `a clean, smudge or process filter, "lfs"`, or the plural with each named. */
+export const filtersNamed = (filters: readonly string[]): string => {
+  const named = filters.map((name) => `"${name}"`).join(", ");
+  return filters.length === 1 ? `a clean, smudge or process filter, ${named}` : `clean, smudge or process filters, ${named}`;
 };

@@ -305,6 +305,15 @@ describe("git on a workspace", () => {
 });
 
 describe("runGit", () => {
+  it("answers at its timeout, stopped, even when a process git started still holds its output open", async () => {
+    const root = tempDir();
+    const started = Date.now();
+    // An alias starting with ! runs through a shell: a process of git's own, which the kill does not reach.
+    const answer = await runGit(root, ["-c", "alias.slow=!sleep 5", "slow"], { timeoutMs: 300, maxBytes: 1024 });
+    expect(Date.now() - started).toBeLessThan(2_500);
+    expect(answer).toMatchObject({ ok: false, timedOut: true, missing: false, code: null });
+  });
+
   it("does not read a working directory that is gone as git missing from the PATH", async () => {
     const gone = join(tempDir("agent-harness-gone-"), "gone");
     const answer = await runGit(gone, ["--version"], { timeoutMs: 5_000, maxBytes: 1024 });
