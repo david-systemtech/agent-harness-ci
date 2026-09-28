@@ -135,7 +135,7 @@ const pendingLine = (pending: PendingUpdate): string => {
     case "staging":
       return `${pending.toVersion} (${pending.source}), staging`;
     case "blocked":
-      return `${pending.toVersion}, blocked (${pending.reason})`;
+      return `${pending.toVersion}, blocked (${pending.reason}): ${pending.message}`;
     case "waiting": {
       const on = pending.waitsOn === null ? "" : `; busy: ${pending.waitsOn.reason}${pending.waitsOn.until === null ? "" : ` until ${pending.waitsOn.until}`}`;
       return `${pending.toVersion} (${pending.source}), waiting since ${pending.since}, forced at ${pending.deferUntil}${on}`;

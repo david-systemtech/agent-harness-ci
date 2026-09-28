@@ -348,7 +348,10 @@ describe("the status as update status prints it", () => {
       [{ state: "waiting", ...pending, waitsOn: { reason: "run-running", until: null } }, `0.5.1 (channel), waiting since ${at}, forced at ${later}; busy: run-running`],
       [{ state: "ready", ...pending }, `0.5.1 (channel), ready for the host-side updater since ${at}`],
       [{ state: "draining", ...pending, cause: "cap" }, "0.5.1 (channel), draining (cap)"],
-      [{ state: "blocked", reason: "launcher", toVersion: "0.9.0" }, "0.9.0, blocked (launcher)"],
+      [
+        { state: "blocked", reason: "launcher", toVersion: "0.9.0", message: "Run agent-harness service install from the 0.9.0 release." },
+        "0.9.0, blocked (launcher): Run agent-harness service install from the 0.9.0 release.",
+      ],
     ];
     for (const [state, line] of lines) expect(renderUpdatesStatus({ ...base, pending: state })).toContain(`Pending update: ${line}\n`);
     expect(renderUpdatesStatus({ ...base, lastOutcome: { outcome: "updated", updateId: null, fromVersion: "0.4.1", toVersion: "0.4.2", at } })).toContain(
