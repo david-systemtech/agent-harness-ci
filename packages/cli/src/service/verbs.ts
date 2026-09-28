@@ -131,7 +131,8 @@ const install = async (args: readonly string[], context: ServiceContext): Promis
       createdDirectories: [...new Set(created)],
     });
   } catch (error) {
-    if (installed) await platform.uninstall().catch(() => undefined);
+    // A running launcher was left alone, so its definition stays; otherwise the definition just written is taken back out.
+    if (installed && !launcherRuns) await platform.uninstall().catch(() => undefined);
     putBack(undo);
     // Both the folders the platform made for its definition and the data-directory ones, as the success path records.
     removeEmptyDirectories([...(installed?.createdDirectories ?? []), ...dataDirectories]);

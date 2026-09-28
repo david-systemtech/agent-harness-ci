@@ -201,7 +201,7 @@ The stable script the service definition runs, which starts the launcher of the 
 _Avoid_: wrapper, bootstrap, the launcher (the process it starts)
 
 **Launcher version file**:
-The one-line file in the data directory that names the version whose launcher the launcher entry starts, written by the launcher at a handover and by the entry when it falls back.
+The one-line file in the data directory that names the version whose launcher the launcher entry starts, written by `service install` when no launcher runs, by the launcher at a handover and by the entry when it falls back.
 _Avoid_: pointer (a place in a bank), current link
 
 **Shim**:

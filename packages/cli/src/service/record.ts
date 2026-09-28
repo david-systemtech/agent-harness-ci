@@ -55,8 +55,15 @@ export const readServiceRecord = (dataDir: string): ServiceRecord | undefined =>
   return parsed;
 };
 
+/** Writes the record in `dataDir`; a write that fails is a `ServiceError`. */
 export const writeServiceRecord = (dataDir: string, record: ServiceRecord): void => {
-  writeFileSync(join(dataDir, SERVICE_RECORD_FILE), `${JSON.stringify(record, null, 2)}\n`);
+  const path = join(dataDir, SERVICE_RECORD_FILE);
+  try {
+    writeFileSync(path, `${JSON.stringify(record, null, 2)}\n`);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new ServiceError(`Could not write ${path}, so the install was taken back: ${reason}`, { cause: error });
+  }
 };
 
 export const removeServiceRecord = (dataDir: string): void => {

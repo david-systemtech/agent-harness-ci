@@ -50,6 +50,15 @@ describe("the launcher entry", () => {
     );
   });
 
+  it("ends the cmd line that runs the launcher in its own exits, so install can replace the file while cmd waits on that line", () => {
+    // cmd reads a batch file by offset, line after line: after the launcher returns it reads nothing more by offset,
+    // only a label scan (goto), which finds the label in whichever file is there by then.
+    const lines = renderLauncherEntry("cmd", { dataDir: "C:\\data", port: 7433 }).split("\r\n");
+    const launch = lines.findIndex((line) => line.includes(" launch "));
+    expect(lines[launch]).toMatch(/ >>"%LOG%" 2>&1 && exit \/b 0 \|\| goto restart$/);
+    expect(lines[launch + 1]).toBe(":restart");
+  });
+
   it("passes no --name when it was given none, so an existing environment keeps its own and a new one takes the hostname", () => {
     for (const kind of ["sh", "cmd"] as const) {
       const entry = renderLauncherEntry(kind, { dataDir: "/data", port: 7500 });

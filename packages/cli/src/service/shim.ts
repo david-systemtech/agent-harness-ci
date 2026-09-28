@@ -57,7 +57,7 @@ const renderCmdShim = (dataDir: string): string => {
     "setlocal EnableExtensions DisableDelayedExpansion",
     `set "DATA_DIR=${batchSetValue(dataDir)}"`,
     'set "VERSION="',
-    `if exist "${state}" for /f "usebackq tokens=2 delims=:, " %%V in (\`findstr /l /c:"activeVersion" "${state}"\`) do if not defined VERSION set "VERSION=%%~V"`,
+    `if exist "${state}" for /f "usebackq tokens=2 delims={:, " %%V in (\`findstr /l /c:"activeVersion" "${state}"\`) do if not defined VERSION set "VERSION=%%~V"`,
     "if not defined VERSION goto no_version",
     `if not exist "${version}\\${VERSION_SENTINEL}" goto not_complete`,
     `"${version}\\${versionNode("win32").join("\\")}" "${version}\\${VERSION_CLI_ENTRY.join("\\")}" %*`,

@@ -5,7 +5,7 @@ rem "agent-harness service install"; "agent-harness service uninstall" removes i
 setlocal EnableExtensions DisableDelayedExpansion
 set "DATA_DIR=C:\Users\david\AppData\Local\agent-harness"
 set "VERSION="
-if exist "%DATA_DIR%\service-state.json" for /f "usebackq tokens=2 delims=:, " %%V in (`findstr /l /c:"activeVersion" "%DATA_DIR%\service-state.json"`) do if not defined VERSION set "VERSION=%%~V"
+if exist "%DATA_DIR%\service-state.json" for /f "usebackq tokens=2 delims={:, " %%V in (`findstr /l /c:"activeVersion" "%DATA_DIR%\service-state.json"`) do if not defined VERSION set "VERSION=%%~V"
 if not defined VERSION goto no_version
 if not exist "%DATA_DIR%\versions\%VERSION%\.complete" goto not_complete
 "%DATA_DIR%\versions\%VERSION%\node\node.exe" "%DATA_DIR%\versions\%VERSION%\packages\cli\dist\main.js" %*

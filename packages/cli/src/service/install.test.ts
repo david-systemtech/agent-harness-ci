@@ -263,6 +263,26 @@ describe("agent-harness service install over a running launcher", () => {
     expect(cli.out()).not.toContain("Copied");
   });
 
+  it("leaves the running launcher running, and puts its entry and shim back, when a step after the service manager's fails", async () => {
+    const { home, dataDir } = await installedHome();
+    const record = join(dataDir, "service.json");
+    const entryBefore = readFileSync(join(dataDir, "launcher-entry.sh"), "utf8");
+    // The record, read at the start, cannot be written at the end: a folder takes its place while systemd reloads.
+    const cli = harness("linux", {
+      home,
+      answer: (command, args) => {
+        if (args.includes("daemon-reload")) {
+          rmSync(record, { force: true });
+          mkdirSync(record, { recursive: true });
+        }
+        return active(command, args);
+      },
+    });
+    expect(await cli.run("service", "install", "--name", "second")).toBe(1);
+    expect(cli.calls.filter((call) => call.includes("disable") || call.includes("stop") || call.includes("restart"))).toEqual([]);
+    expect(readFileSync(join(dataDir, "launcher-entry.sh"), "utf8")).toBe(entryBefore);
+  });
+
   it("does not need to run from a release's artefact, since it lays out no version", async () => {
     const { home } = await installedHome();
     const entry = join(home, "checkout", ...VERSION_CLI_ENTRY);
