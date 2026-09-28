@@ -15,9 +15,9 @@ import { git, makeDirectory, scriptedResolver } from "../../test/workspaces.js";
  * `sessions.create` taking a workspace request (workspace-picker spec,
  * "Workspace requests" and "The resolver"; #321), through the primary seam:
  * an in-process environment and a real client. A scripted resolver behind
- * the seam stands in for the kinds the environment does not make yet, so
- * the prepared command's undo and the methods that read a workspace by its
- * path are shown on what later tickets make.
+ * the seam holds or answers a prepare as the test says, so the prepared
+ * command's undo and the methods that read a workspace by its path are
+ * shown whatever the kind. Worktrees are `worktrees.test.ts`'s (#326).
  */
 
 const { onCleanup, tempDir } = useCleanups();
@@ -228,26 +228,6 @@ describe("sessions.create's workspace request", () => {
       reason: "conflict",
       error: { code: "conflict", data: { reason: "workspace_missing", sessionId: source.id, path: moved } },
     });
-  });
-
-  it("rejects a worktree request in its receipt as a kind not served yet, and answers a replay from that receipt", async () => {
-    const t = await start();
-    const client = await t.client();
-    const head = t.env.log.head();
-    const commandId = randomUUID();
-    const workspace = { kind: "worktree", repository: "/work/agent-harness" } as const;
-    const answer = await create(client, { commandId, workspace });
-    expect(answer.receipt).toEqual({
-      status: "rejected",
-      sequence: head,
-      changed: false,
-      reason: "conflict",
-      error: { code: "conflict", message: expect.any(String), data: { reason: "kind_not_served", kind: "worktree" } },
-    });
-    expect(answer.result).toBeUndefined();
-    expect(await create(client, { commandId, id: answer.id, workspace })).toEqual({ id: answer.id, receipt: answer.receipt });
-    expect(t.env.log.head()).toBe(head);
-    expect(await refusal(get(client, answer.id))).toMatchObject({ code: "not_found" });
   });
 
   it("refuses a worktree request naming both an existing branch and a new one invalid_params, and a relative directory, storing no receipt", async () => {
