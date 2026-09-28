@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "UpdatePendingPayload",
+  "type": "object",
+  "properties": {
+    "updateId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "An update's id: a version 4 UUID the environment mints when the update becomes pending, named by each of its notices, the launcher's switch, its database snapshot and its outcome record."
+    },
+    "toVersion": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The version the update goes to."
+    },
+    "source": {
+      "type": "string",
+      "enum": [
+        "channel",
+        "pin",
+        "request",
+        "desktop"
+      ],
+      "description": "Where a pending update comes from: channel (the channel's newest release, auto-update being on), pin (the pinned version), request (updates.apply or POST /api/update by version) or desktop (the artefact a desktop handed its local environment)."
+    },
+    "since": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+      "description": "When an update first became pending: kept when a newer release replaces the target, and across restarts, so frequent releases never reset the cap's clock."
+    },
+    "deferUntil": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+      "description": "since plus the deferral cap: past it, busy work no longer holds the update."
+    }
+  },
+  "required": [
+    "updateId",
+    "toVersion",
+    "source",
+    "since",
+    "deferUntil"
+  ],
+  "description": "An update is pending: its id, the version it goes to, where it comes from, since when, and when the deferral cap forces it."
+}

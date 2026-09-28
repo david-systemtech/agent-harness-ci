@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "UpdateFailedPayload",
+  "type": "object",
+  "properties": {
+    "updateId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "An update's id: a version 4 UUID the environment mints when the update becomes pending, named by each of its notices, the launcher's switch, its database snapshot and its outcome record."
+    },
+    "fromVersion": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The version the update went from, which runs again."
+    },
+    "toVersion": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The version the update went to, which failed."
+    },
+    "stage": {
+      "type": "string",
+      "enum": [
+        "switch",
+        "trial",
+        "crash-loop"
+      ],
+      "description": "Where an update failed: switch (the launcher refused the switch, or a container's stop never came, and the same version runs on), trial (the new version did not pass its startup gate) or crash-loop (it exited three times within ten minutes of its commit)."
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1,
+      "description": "A short code naming the failure: the launcher's refusal of the switch, the outcome record's reason (deadline for a trial that missed its gate), or unknown when no record was left."
+    },
+    "rolledBack": {
+      "type": "boolean",
+      "description": "Whether the database snapshot was restored: true after a trial or a crash loop, false after a refused switch, which changed nothing."
+    }
+  },
+  "required": [
+    "updateId",
+    "fromVersion",
+    "toVersion",
+    "stage",
+    "reason",
+    "rolledBack"
+  ],
+  "description": "An update failed and the environment runs the version it went from: at which stage, why, and whether it was rolled back."
+}

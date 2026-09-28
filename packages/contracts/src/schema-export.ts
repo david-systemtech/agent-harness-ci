@@ -89,6 +89,17 @@ import {
   UpdateSettingsPatch,
   UpdateSettingsValues,
 } from "./update-settings.js";
+import {
+  UpdateCancelCause,
+  UpdateCancelledPayload,
+  UpdateCause,
+  UpdateFailedPayload,
+  UpdateFailureStage,
+  UpdateId,
+  UpdatePendingPayload,
+  UpdateSource,
+  UpdateStartedPayload,
+} from "./updates.js";
 import { RegisteredStepId, SetupAction, StepResult, StepState } from "./setup.js";
 import { CommandReceipt } from "./receipt.js";
 import {
@@ -528,6 +539,15 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "settings/settings-values.json", title: "SettingsValues", schema: SettingsValues },
   { path: "settings/settings-patch.json", title: "SettingsPatch", schema: SettingsPatch },
   { path: "settings/settings-event-type.json", title: "SettingsEventType", schema: SettingsEventType },
+  { path: "updates/update-id.json", title: "UpdateId", schema: UpdateId },
+  { path: "updates/update-source.json", title: "UpdateSource", schema: UpdateSource },
+  { path: "updates/update-cause.json", title: "UpdateCause", schema: UpdateCause },
+  { path: "updates/update-failure-stage.json", title: "UpdateFailureStage", schema: UpdateFailureStage },
+  { path: "updates/update-cancel-cause.json", title: "UpdateCancelCause", schema: UpdateCancelCause },
+  { path: "updates/events/environment.update-pending.json", title: "UpdatePendingPayload", schema: UpdatePendingPayload },
+  { path: "updates/events/environment.update-started.json", title: "UpdateStartedPayload", schema: UpdateStartedPayload },
+  { path: "updates/events/environment.update-failed.json", title: "UpdateFailedPayload", schema: UpdateFailedPayload },
+  { path: "updates/events/environment.update-cancelled.json", title: "UpdateCancelledPayload", schema: UpdateCancelledPayload },
   { path: "updates/settings-values.json", title: "UpdateSettingsValues", schema: UpdateSettingsValues },
   { path: "updates/settings-patch.json", title: "UpdateSettingsPatch", schema: UpdateSettingsPatch },
   { path: "setup/registered-step-id.json", title: "RegisteredStepId", schema: RegisteredStepId },

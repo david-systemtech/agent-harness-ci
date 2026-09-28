@@ -1231,6 +1231,42 @@
       "title": "SettingsEventType"
     },
     {
+      "path": "updates/update-id.json",
+      "title": "UpdateId"
+    },
+    {
+      "path": "updates/update-source.json",
+      "title": "UpdateSource"
+    },
+    {
+      "path": "updates/update-cause.json",
+      "title": "UpdateCause"
+    },
+    {
+      "path": "updates/update-failure-stage.json",
+      "title": "UpdateFailureStage"
+    },
+    {
+      "path": "updates/update-cancel-cause.json",
+      "title": "UpdateCancelCause"
+    },
+    {
+      "path": "updates/events/environment.update-pending.json",
+      "title": "UpdatePendingPayload"
+    },
+    {
+      "path": "updates/events/environment.update-started.json",
+      "title": "UpdateStartedPayload"
+    },
+    {
+      "path": "updates/events/environment.update-failed.json",
+      "title": "UpdateFailedPayload"
+    },
+    {
+      "path": "updates/events/environment.update-cancelled.json",
+      "title": "UpdateCancelledPayload"
+    },
+    {
       "path": "updates/settings-values.json",
       "title": "UpdateSettingsValues"
     },

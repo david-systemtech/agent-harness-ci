@@ -16,6 +16,10 @@ const versions: Fixtures = {
   invalid: ["v0.4.2", "0.4", "01.2.3", "1.2.3-", "latest", ""],
 };
 
+const updateId = "7d0f2b1e-2c55-4a8e-9f0b-3a1c5d7e9b20";
+const at = "2026-09-28T10:00:00.000Z";
+const later = "2026-09-29T10:00:00.000Z";
+
 const updateSettingsValues = {
   "updates.autoUpdate": true,
   "updates.channel": "stable",
@@ -34,6 +38,33 @@ export const updateSchemaFixtures: Record<string, Fixtures> = {
   "updates/settings-values.json": {
     valid: [updateSettingsValues, { ...updateSettingsValues, "updates.autoUpdate": false, "updates.pinnedVersion": "0.4.2" }],
     invalid: [{}, { ...updateSettingsValues, "updates.channel": "nightly" }, { ...updateSettingsValues, "sessions.autoSettleOnMerge": true }],
+  },
+  "updates/update-id.json": { valid: [updateId], invalid: ["u-1", "", "7d0f2b1e-2c55-1a8e-9f0b-3a1c5d7e9b20"] },
+  "updates/update-source.json": { valid: ["channel", "pin", "request", "desktop"], invalid: ["cron", ""] },
+  "updates/update-cause.json": { valid: ["idle", "cap", "requested"], invalid: ["now", ""] },
+  "updates/update-failure-stage.json": { valid: ["switch", "trial", "crash-loop"], invalid: ["preflight", ""] },
+  "updates/update-cancel-cause.json": { valid: ["requested", "settings"], invalid: ["superseded", ""] },
+  "updates/events/environment.update-pending.json": {
+    valid: [{ updateId, toVersion: "0.5.0", source: "pin", since: at, deferUntil: later }],
+    invalid: [{ updateId, toVersion: "0.5.0", source: "pin", since: at }, { updateId, toVersion: "", source: "pin", since: at, deferUntil: later }],
+  },
+  "updates/events/environment.update-started.json": {
+    valid: [{ updateId, fromVersion: "0.4.2", toVersion: "0.5.0", cause: "requested" }],
+    invalid: [{ updateId, fromVersion: "0.4.2", toVersion: "0.5.0" }, { updateId: "u-1", fromVersion: "0.4.2", toVersion: "0.5.0", cause: "idle" }],
+  },
+  "updates/events/environment.update-failed.json": {
+    valid: [
+      { updateId, fromVersion: "0.4.2", toVersion: "0.5.0", stage: "switch", reason: "disk", rolledBack: false },
+      { updateId, fromVersion: "0.4.2", toVersion: "0.5.0", stage: "crash-loop", reason: "unknown", rolledBack: true },
+    ],
+    invalid: [
+      { updateId, fromVersion: "0.4.2", toVersion: "0.5.0", stage: "trial", reason: "deadline" },
+      { updateId, fromVersion: "0.4.2", toVersion: "0.5.0", stage: "watch", reason: "deadline", rolledBack: true },
+    ],
+  },
+  "updates/events/environment.update-cancelled.json": {
+    valid: [{ updateId, toVersion: "0.5.0", cause: "settings" }],
+    invalid: [{ updateId, toVersion: "0.5.0" }, { updateId, cause: "requested" }],
   },
   "updates/settings-patch.json": {
     valid: [{}, { "updates.channel": "beta" }, { "updates.pinnedVersion": null, "updates.idleWindowMinutes": 25 }],

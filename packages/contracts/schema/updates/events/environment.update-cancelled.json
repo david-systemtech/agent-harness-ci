@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "UpdateCancelledPayload",
+  "type": "object",
+  "properties": {
+    "updateId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "An update's id: a version 4 UUID the environment mints when the update becomes pending, named by each of its notices, the launcher's switch, its database snapshot and its outcome record."
+    },
+    "toVersion": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The version the withdrawn update went to."
+    },
+    "cause": {
+      "type": "string",
+      "enum": [
+        "requested",
+        "settings"
+      ],
+      "description": "Why a pending update was withdrawn: requested (updates.cancel) or settings (auto-update was turned off, the channel changed, or a pin names another version, for an update the channel called for)."
+    }
+  },
+  "required": [
+    "updateId",
+    "toVersion",
+    "cause"
+  ],
+  "description": "A pending update was withdrawn before its drain: which, and why."
+}

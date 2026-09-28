@@ -55,6 +55,12 @@
               "type": "string",
               "minLength": 1,
               "description": "The harness version the environment was updated to."
+            },
+            "updateId": {
+              "description": "The update that took; absent from an event older than update ids.",
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$"
             }
           },
           "required": [
@@ -67,7 +73,7 @@
         "type",
         "payload"
       ],
-      "description": "The environment now runs another harness version: from which, to which."
+      "description": "The environment now runs another harness version: from which, to which, and by which update."
     },
     {
       "type": "object",
@@ -108,6 +114,223 @@
         "payload"
       ],
       "description": "The environment refuses new runs and lets running ones finish before a restart: since when, and what started it."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "environment.update-pending"
+        },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "updateId": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+              "description": "An update's id: a version 4 UUID the environment mints when the update becomes pending, named by each of its notices, the launcher's switch, its database snapshot and its outcome record."
+            },
+            "toVersion": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The version the update goes to."
+            },
+            "source": {
+              "type": "string",
+              "enum": [
+                "channel",
+                "pin",
+                "request",
+                "desktop"
+              ],
+              "description": "Where a pending update comes from: channel (the channel's newest release, auto-update being on), pin (the pinned version), request (updates.apply or POST /api/update by version) or desktop (the artefact a desktop handed its local environment)."
+            },
+            "since": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+              "description": "When an update first became pending: kept when a newer release replaces the target, and across restarts, so frequent releases never reset the cap's clock."
+            },
+            "deferUntil": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+              "description": "since plus the deferral cap: past it, busy work no longer holds the update."
+            }
+          },
+          "required": [
+            "updateId",
+            "toVersion",
+            "source",
+            "since",
+            "deferUntil"
+          ],
+          "description": "An update is pending: its id, the version it goes to, where it comes from, since when, and when the deferral cap forces it."
+        }
+      },
+      "required": [
+        "type",
+        "payload"
+      ],
+      "description": "An update is pending: installed, it waits for idle, the deferral cap, or a request."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "environment.update-started"
+        },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "updateId": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+              "description": "An update's id: a version 4 UUID the environment mints when the update becomes pending, named by each of its notices, the launcher's switch, its database snapshot and its outcome record."
+            },
+            "fromVersion": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The version running when the update began."
+            },
+            "toVersion": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The version the update goes to."
+            },
+            "cause": {
+              "type": "string",
+              "enum": [
+                "idle",
+                "cap",
+                "requested"
+              ],
+              "description": "What made a pending update drain: idle (nothing started or ended within the idle window), cap (the deferral cap passed while busy) or requested (updates.apply with when now). Managed outside, the cause that made the update ready is the one updates.begin records."
+            }
+          },
+          "required": [
+            "updateId",
+            "fromVersion",
+            "toVersion",
+            "cause"
+          ],
+          "description": "An update began: the environment drains before the switch; from and to which version, and what made it go."
+        }
+      },
+      "required": [
+        "type",
+        "payload"
+      ],
+      "description": "An update began its drain before the switch: from and to which version, and why now."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "environment.update-failed"
+        },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "updateId": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+              "description": "An update's id: a version 4 UUID the environment mints when the update becomes pending, named by each of its notices, the launcher's switch, its database snapshot and its outcome record."
+            },
+            "fromVersion": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The version the update went from, which runs again."
+            },
+            "toVersion": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The version the update went to, which failed."
+            },
+            "stage": {
+              "type": "string",
+              "enum": [
+                "switch",
+                "trial",
+                "crash-loop"
+              ],
+              "description": "Where an update failed: switch (the launcher refused the switch, or a container's stop never came, and the same version runs on), trial (the new version did not pass its startup gate) or crash-loop (it exited three times within ten minutes of its commit)."
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1,
+              "description": "A short code naming the failure: the launcher's refusal of the switch, the outcome record's reason (deadline for a trial that missed its gate), or unknown when no record was left."
+            },
+            "rolledBack": {
+              "type": "boolean",
+              "description": "Whether the database snapshot was restored: true after a trial or a crash loop, false after a refused switch, which changed nothing."
+            }
+          },
+          "required": [
+            "updateId",
+            "fromVersion",
+            "toVersion",
+            "stage",
+            "reason",
+            "rolledBack"
+          ],
+          "description": "An update failed and the environment runs the version it went from: at which stage, why, and whether it was rolled back."
+        }
+      },
+      "required": [
+        "type",
+        "payload"
+      ],
+      "description": "An update did not take: the stage, the reason and whether it was rolled back; the version it went from runs."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "environment.update-cancelled"
+        },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "updateId": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+              "description": "An update's id: a version 4 UUID the environment mints when the update becomes pending, named by each of its notices, the launcher's switch, its database snapshot and its outcome record."
+            },
+            "toVersion": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The version the withdrawn update went to."
+            },
+            "cause": {
+              "type": "string",
+              "enum": [
+                "requested",
+                "settings"
+              ],
+              "description": "Why a pending update was withdrawn: requested (updates.cancel) or settings (auto-update was turned off, the channel changed, or a pin names another version, for an update the channel called for)."
+            }
+          },
+          "required": [
+            "updateId",
+            "toVersion",
+            "cause"
+          ],
+          "description": "A pending update was withdrawn before its drain: which, and why."
+        }
+      },
+      "required": [
+        "type",
+        "payload"
+      ],
+      "description": "A pending update was withdrawn before its drain."
     },
     {
       "type": "object",
