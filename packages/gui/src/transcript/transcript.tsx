@@ -1,8 +1,8 @@
-import { transcriptRows, type SessionProjection } from "@agent-harness/client-runtime";
-import { useMemo, useState } from "react";
+import { hear, nextQuietChange, quietFor, runningCalls, transcriptRows, type QuietCalls, type SessionProjection } from "@agent-harness/client-runtime";
+import { useEffect, useMemo, useReducer, useState } from "react";
 import { THIS_MACHINE } from "../frame/sidebar-region.js";
-import { useObservable, useRuntime } from "../window-context.js";
-import { TranscriptRowView } from "./rows.js";
+import { useClock, useObservable, useRuntime } from "../window-context.js";
+import { TranscriptRowView, type RowFacts } from "./rows.js";
 
 export interface TranscriptProps {
   readonly environmentId: string;
@@ -11,6 +11,27 @@ export interface TranscriptProps {
 
 /** The latest sequence the transcript holds: where what arrives after it begins. */
 const headOf = (projection: SessionProjection): number => projection.items.reduce((head, entry) => Math.max(head, entry.sequence), 0);
+
+/**
+ * How long each running call has said nothing, on the window's clock: heard
+ * afresh on every render, and drawn again when one turns amber or its
+ * minutes move on.
+ */
+const useQuietCalls = (projection: SessionProjection): ((toolCallId: string) => number) => {
+  const clock = useClock();
+  const [, redraw] = useReducer((count: number) => count + 1, 0);
+  const [heard, setHeard] = useState<QuietCalls>(new Map());
+  const now = clock.now().getTime();
+  const current = hear(heard, runningCalls(projection), now);
+  if (current !== heard) setHeard(current);
+  const due = nextQuietChange(current, now);
+  useEffect(() => {
+    if (due === undefined) return;
+    const timer = clock.setTimeout(redraw, Math.max(0, due - clock.now().getTime()));
+    return () => timer.cancel();
+  }, [clock, due]);
+  return (toolCallId) => quietFor(current, toolCallId, now);
+};
 
 /**
  * A session's conversation (docs/specs/gui.md, "A session pane"; #399):
@@ -30,7 +51,8 @@ export const Transcript = ({ environmentId, sessionId }: TranscriptProps) => {
   // What the stream held when it first went live was written before this transcript was watching: only what comes after arrives.
   const [liveFrom, setLiveFrom] = useState<number | null>(null);
   if (liveFrom === null && projection.freshness === "live") setLiveFrom(headOf(projection));
-  const arrived = (sequence: number) => liveFrom !== null && sequence > liveFrom;
+  const quietMs = useQuietCalls(projection);
+  const facts: RowFacts = { arrived: (sequence) => liveFrom !== null && sequence > liveFrom, quietMs };
   const name = environments.find((environment) => environment.environmentId === environmentId)?.name ?? THIS_MACHINE;
   return (
     <section aria-label="Transcript" className="min-h-0 flex-1 overflow-y-auto">
@@ -44,7 +66,7 @@ export const Transcript = ({ environmentId, sessionId }: TranscriptProps) => {
           <p className="text-sm text-ink-faint">{projection.deleted ? "This session was deleted." : "Nothing said yet."}</p>
         )}
         {rows.map((row) => (
-          <TranscriptRowView key={row.id} row={row} arrived={arrived} />
+          <TranscriptRowView key={row.id} row={row} facts={facts} />
         ))}
       </div>
     </section>

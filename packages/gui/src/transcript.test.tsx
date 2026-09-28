@@ -1,4 +1,5 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
+import { TOOL_QUIET_MS } from "@agent-harness/client-runtime";
 import { describe, expect, it } from "vitest";
 import { renderApp, type ScriptedEnvironment } from "../test/harness.js";
 
@@ -105,5 +106,58 @@ describe("reasoning", () => {
     act(() => app.presentation.set("reasoningShown", true));
     act(() => app.presentation.set("reasoningShown", false));
     expect(fold.getAttribute("aria-expanded")).toBe("false");
+  });
+});
+
+describe("tool calls", () => {
+  /** A run on the opened session, and its calls as the environment says them. */
+  const calling = async () => {
+    const opening = await opened();
+    const { env, session } = opening;
+    const { runId } = env.startRun(session, "Fix the receipts");
+    const started = (toolCallId: string, name: string, input: Record<string, unknown>) =>
+      env.emit(session, "tool.started", { runId, toolCallId, name, input, title: null, agentId: null, parentToolCallId: null });
+    const ended = (toolCallId: string, status: "ok" | "error", output: unknown) => env.emit(session, "tool.ended", { runId, toolCallId, status, output, durationMs: 20 });
+    return { ...opening, runId, started, ended };
+  };
+
+  it("folds a run's finished calls into one count row, and shows running and failed calls in full", async () => {
+    const { app, transcript, started, ended } = await calling();
+    started("t1", "Bash", { command: "ls" });
+    ended("t1", "ok", "receipts.ts");
+    started("t2", "Read", { file_path: "receipts.ts" });
+    ended("t2", "ok", "export const total = 0;");
+    started("t3", "Bash", { command: "pnpm test" });
+    ended("t3", "error", "FAIL totals\nexpected 3, got 6");
+    started("t4", "Edit", { file_path: "totals.ts" });
+
+    const count = await within(transcript).findByRole("button", { name: "Ran a command, read a file" });
+    expect(count.getAttribute("aria-expanded")).toBe("false");
+    expect(within(transcript).queryByRole("group", { name: "Bash: ls" })).toBeNull();
+    const failed = within(transcript).getByRole("group", { name: "Bash: pnpm test" });
+    expect(failed.textContent).toContain("expected 3, got 6");
+    expect(within(transcript).getByRole("group", { name: "Edit: totals.ts" }).textContent).toContain("Running");
+
+    await app.user.click(count);
+    expect(count.getAttribute("aria-expanded")).toBe("true");
+    expect(within(transcript).getByRole("group", { name: "Bash: ls" }).textContent).toContain("receipts.ts");
+    expect(within(transcript).getByRole("group", { name: "Read: receipts.ts" })).toBeDefined();
+  });
+
+  it("turns a call quiet for three minutes amber, the minutes moving on, until it says something again", async () => {
+    const { app, env, session, runId, transcript, started } = await calling();
+    started("t1", "Bash", { command: "pnpm test" });
+    const call = await within(transcript).findByRole("group", { name: "Bash: pnpm test" });
+    act(() => app.clock.advance(TOOL_QUIET_MS - 1000));
+    expect(call.textContent).not.toContain("No output");
+    act(() => app.clock.advance(1000));
+    expect(call.textContent).toContain("No output for 3 min");
+    act(() => app.clock.advance(60_000));
+    expect(call.textContent).toContain("No output for 4 min");
+
+    env.emit(session, "tool.updated", { runId, toolCallId: "t1", update: { elapsedSeconds: 240 } });
+    await waitFor(() => expect(call.textContent).not.toContain("No output"));
+    act(() => app.clock.advance(TOOL_QUIET_MS));
+    expect(call.textContent).toContain("No output for 3 min");
   });
 });

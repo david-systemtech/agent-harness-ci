@@ -2,18 +2,22 @@ import { oneLine, type AssistantEntry, type TranscriptRow } from "@agent-harness
 import { use, useState } from "react";
 import { Fold } from "../ui/index.js";
 import { usePresentation } from "../window-context.js";
+import { CallsRow } from "./calls.js";
 import { FindQuery, Marked } from "./find.js";
 import { Markdown } from "./markdown.js";
 import { StreamingText } from "./streaming-text.js";
 
-export interface RowProps {
-  readonly row: TranscriptRow;
+/** What the transcript knows of its rows beyond the projection: what arrived while it watched, and how long each running call has been quiet. */
+export interface RowFacts {
   /** Whether the entry at `sequence` arrived while the transcript was watching, rather than being there when it opened. */
-  readonly arrived: (sequence: number) => boolean;
+  arrived(sequence: number): boolean;
+  /** How long a running call has said nothing, in milliseconds. */
+  quietMs(toolCallId: string): number;
 }
 
 /** One row of the transcript, drawn by its kind. */
-export const TranscriptRowView = ({ row, arrived }: RowProps) => {
+export const TranscriptRowView = ({ row, facts }: { readonly row: TranscriptRow; readonly facts: RowFacts }) => {
+  const { arrived } = facts;
   switch (row.kind) {
     case "user":
       return (
@@ -27,6 +31,8 @@ export const TranscriptRowView = ({ row, arrived }: RowProps) => {
       ) : (
         <AssistantText text={row.entry.text} streaming={row.entry.streaming} arrived={arrived(row.entry.sequence)} />
       );
+    case "calls":
+      return <CallsRow calls={row.calls} quietMs={facts.quietMs} />;
     default:
       return null;
   }
