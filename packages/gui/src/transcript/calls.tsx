@@ -95,7 +95,7 @@ export const CallCard = ({ call, quietMs }: { readonly call: ToolCallEntry; read
       role="group"
       aria-label={name}
       className={classes(
-        "flex min-w-0 flex-col gap-1 rounded-md border px-2.5 py-1.5 text-xs",
+        "flex min-w-0 flex-col gap-1 rounded-md border px-2.5 py-1.5 text-[0.85em]",
         quiet ? "border-amber text-amber" : call.status === "error" ? "border-signal" : "border-hairline",
       )}
     >

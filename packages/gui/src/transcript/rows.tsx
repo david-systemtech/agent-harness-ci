@@ -36,7 +36,7 @@ export const TranscriptRowView = ({ row, facts }: { readonly row: TranscriptRow;
       return <Prompt entry={row.entry} />;
     case "command":
       return (
-        <article aria-label="Command" className="flex flex-col gap-1 text-xs text-ink-muted">
+        <article aria-label="Command" className="flex flex-col gap-1 text-[0.85em] text-ink-muted">
           <span className="font-mono">
             <Marked text={`/${row.entry.name}${row.entry.args.length > 0 ? ` ${row.entry.args}` : ""}`} />
           </span>
@@ -51,7 +51,7 @@ export const TranscriptRowView = ({ row, facts }: { readonly row: TranscriptRow;
       return <CostLine run={row.run} />;
     case "opaque":
       return (
-        <p className="text-xs text-ink-faint">
+        <p className="text-[0.85em] text-ink-faint">
           <Marked text={`${row.entry.type}: an event this version does not show`} />
         </p>
       );
@@ -69,7 +69,7 @@ export const TranscriptRowView = ({ row, facts }: { readonly row: TranscriptRow;
 const UserMessage = ({ entry }: { readonly entry: UserMessageEntry }) => (
   <article aria-label="Your message" className="flex max-w-[85%] flex-col gap-1.5 self-end rounded-lg bg-wash-user px-3 py-2 text-ink">
     {entry.attachments.length > 0 && (
-      <ul className="flex flex-wrap justify-end gap-1.5 text-xs text-ink-muted">
+      <ul className="flex flex-wrap justify-end gap-1.5 text-[0.85em] text-ink-muted">
         {entry.attachments.map((attachment, index) => (
           <li key={index} className="rounded-md border border-hairline px-2 py-0.5 font-mono">
             {`${attachment.name} · ${Math.max(1, Math.round(attachment.size / 1024))} KB`}
@@ -93,7 +93,7 @@ const CostLine = ({ run }: { readonly run: RunSummary }) => {
   const completed = run.reason === "completed";
   const line = (completed ? facts : [endWords(run), ...facts]).join(" · ");
   return (
-    <div className={completed ? "text-xs text-ink-faint" : run.reason === "error" ? "text-xs text-signal" : "text-xs text-amber"}>
+    <div className={completed ? "text-[0.85em] text-ink-faint" : run.reason === "error" ? "text-[0.85em] text-signal" : "text-[0.85em] text-amber"}>
       <p>
         <Marked text={line} />
       </p>
@@ -200,7 +200,7 @@ const Prompt = ({ entry }: { readonly entry: PromptEntry }) => {
       answer === null ? "Waiting for an answer" : answer.decision === "allow" ? `Approved${answer.mode ? `, continuing in ${answer.mode.effective}` : ""}` : "Kept planning";
     return (
       <article aria-label="Plan" className="flex flex-col gap-2 rounded-md border border-hairline px-3 py-2">
-        <p className="text-xs">
+        <p className="text-[0.85em]">
           <span className="font-semibold text-ink">Plan</span> <span className={answer === null ? "text-amber" : "text-ink-muted"}>· {verdict}</span>
         </p>
         <PromptMarkdown text={prompt.plan ?? ""} />
@@ -210,7 +210,7 @@ const Prompt = ({ entry }: { readonly entry: PromptEntry }) => {
   if (entry.kind === "question") {
     const questions = prompt.questions ?? [];
     return (
-      <article aria-label="Question" className="flex flex-col gap-1 text-sm">
+      <article aria-label="Question" className="flex flex-col gap-1">
         {(questions.length > 0 ? questions.map((question) => question.question) : [prompt.summary]).map((question) => {
           const given = answer?.answers?.[question];
           const said = answer === null ? WAITING : (given ?? (answer.decision === "deny" ? "skipped" : "answered"));
@@ -234,7 +234,7 @@ const Prompt = ({ entry }: { readonly entry: PromptEntry }) => {
       ? WAITING
       : `${answer.decision === "allow" ? "allowed" : "denied"}${answer.remember === "session" ? " for this session" : ""}${answer.message ? `: ${oneLine(answer.message, 120)}` : ""}`;
   return (
-    <article aria-label="Permission" className={answer === null ? "text-sm text-amber" : "text-sm text-ink-muted"}>
+    <article aria-label="Permission" className={answer === null ? "text-amber" : "text-ink-muted"}>
       <Marked text={prompt.summary} />
       {" — "}
       <Marked text={verdict} />

@@ -25,7 +25,7 @@ export const Fold = ({ summary, open, onOpenChange, children, className }: FoldP
         aria-expanded={open}
         aria-controls={open ? id : undefined}
         onClick={() => onOpenChange(!open)}
-        className="flex min-w-0 items-center gap-1.5 self-start rounded-sm text-left text-xs text-ink-muted outline-none hover:text-ink focus-visible:outline-2 focus-visible:outline-beam"
+        className="flex min-w-0 items-center gap-1.5 self-start rounded-sm text-left text-[0.85em] text-ink-muted outline-none hover:text-ink focus-visible:outline-2 focus-visible:outline-beam"
       >
         <span aria-hidden="true" className={classes("inline-block transition-transform", open && "rotate-90")}>
           ›

@@ -1,4 +1,4 @@
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { TOOL_QUIET_MS } from "@agent-harness/client-runtime";
 import { describe, expect, it } from "vitest";
 import { renderApp, type ScriptedEnvironment } from "../test/harness.js";
@@ -311,5 +311,83 @@ describe("an entry this version does not know", () => {
     const { env, transcript, session } = await opened();
     env.emit(session, "weird.new-thing", { anything: true });
     expect(await within(transcript).findByText("weird.new-thing: an event this version does not show")).toBeDefined();
+  });
+});
+
+describe("freshness", () => {
+  it("heads the transcript with a catching-up marker until the stream is live, and a cached one while its environment is not answering", async () => {
+    const app = await renderApp({ environments: [{ name: "desk", reach: "local", sessions: [{ title: "Receipts" }], holdSessions: true }] });
+    const env = app.environment("desk");
+    app.open("desk");
+    const transcript = await screen.findByRole("region", { name: "Transcript" });
+    const marker = await within(transcript).findByText("Catching up…");
+    expect(within(transcript).getAllByText(/./)[0]).toBe(marker);
+
+    env.releaseSessions();
+    await within(transcript).findByText("Nothing said yet.");
+    expect(within(transcript).queryByText("Catching up…")).toBeNull();
+
+    env.autoAccept(false);
+    env.discovery("nothing");
+    env.server.drop();
+    const cached = await within(transcript).findByText("Cached: what this window last saw of it; desk is not answering");
+    expect(within(transcript).getAllByText(/./)[0]).toBe(cached);
+  });
+});
+
+describe("following the end", () => {
+  it("renders bottom-anchored, following new output until David scrolls up, with a way back to the end", async () => {
+    const { app, env, transcript, session } = await opened();
+    // jsdom lays nothing out: the transcript's box is given a height, and what it holds grows as the test says.
+    let height = 1000;
+    Object.defineProperty(transcript, "clientHeight", { configurable: true, value: 400 });
+    Object.defineProperty(transcript, "scrollHeight", { configurable: true, get: () => height });
+    const { runId } = env.startRun(session, "Fix the receipts");
+    await within(transcript).findByRole("article", { name: "Your message" });
+    expect(transcript.scrollTop).toBe(1000);
+
+    height = 1600;
+    env.emit(session, "assistant.delta", { runId, itemId: "i-1", fragments: [{ kind: "text", text: "Looking at " }] });
+    await waitFor(() => expect(transcript.scrollTop).toBe(1600));
+
+    // Scrolled up to read: the end is no longer followed, and a way back to it is offered.
+    transcript.scrollTop = 300;
+    fireEvent.scroll(transcript);
+    const back = await screen.findByRole("button", { name: "Jump to the latest" });
+    height = 2200;
+    env.emit(session, "assistant.delta", { runId, itemId: "i-1", fragments: [{ kind: "text", text: "the parser. " }] });
+    await waitFor(() => expect(lastReply(transcript)?.textContent).toBe("Looking at the parser. "));
+    expect(transcript.scrollTop).toBe(300);
+
+    await app.user.click(back);
+    expect(transcript.scrollTop).toBe(2200);
+    expect(screen.queryByRole("button", { name: "Jump to the latest" })).toBeNull();
+    height = 2600;
+    env.emit(session, "assistant.delta", { runId, itemId: "i-1", fragments: [{ kind: "text", text: "Found it. " }] });
+    await waitFor(() => expect(transcript.scrollTop).toBe(2600));
+  });
+});
+
+describe("display preferences", () => {
+  it("reads the text size and reading width on each render, and keeps them and the open session across a remount", async () => {
+    const { app, transcript } = await opened();
+    // The column the rows stand in.
+    const column = () => screen.getByRole("region", { name: "Transcript" }).firstElementChild as HTMLElement;
+    expect(transcript.style.fontSize).toBe("14px");
+    expect(column().style.maxWidth).toBe("920px");
+
+    act(() => {
+      app.presentation.set("textSize", 17);
+      app.presentation.set("readingWidth", "wide");
+    });
+    expect(transcript.style.fontSize).toBe("17px");
+    expect(column().style.maxWidth).toBe("1280px");
+    act(() => app.presentation.set("readingWidth", "full"));
+    expect(column().style.maxWidth).toBe("none");
+
+    await app.remount();
+    const again = await screen.findByRole("region", { name: "Transcript" });
+    expect(again.style.fontSize).toBe("17px");
+    expect(column().style.maxWidth).toBe("none");
   });
 });
