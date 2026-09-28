@@ -1,7 +1,7 @@
 import { PRODUCT_NAME, forgeApiBase, type ForgeIdentity, type ForgeKind, type ForgeOrigin, type ForgeTokenInformation, type ForgeTokenKind } from "@agent-harness/contracts";
 import { forgeGet, forgePages, type CallOptions, type ForgeHttpOptions } from "./forge-http.js";
 
-export { createEntityTags, type CallOptions, type EntityTags, type ForgeFetch } from "./forge-http.js";
+export type { CallOptions, ForgeFetch } from "./forge-http.js";
 
 /**
  * The forge providers (forge spec, "Providers"; ADR 0012): one per kind

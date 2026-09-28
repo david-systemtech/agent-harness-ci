@@ -35,7 +35,8 @@ import type { Reader } from "../sessions/session-tables.js";
 import { forgeAccountEver, listForgeAccounts, liveForgeAccount, originHolder, primaryForgeAccount, slugHolder } from "./forge-store.js";
 import { managedGh, type ManagedGh } from "./gh.js";
 import { createVerifier } from "./verifier.js";
-import { FORGE_CALL_TIMEOUT_MS, createEntityTags, forgeProvider, type ForgeFetch, type IdentityAnswer, type ProviderOptions } from "./providers.js";
+import { createEntityTags } from "./forge-http.js";
+import { FORGE_CALL_TIMEOUT_MS, forgeProvider, type ForgeFetch, type IdentityAnswer, type ProviderOptions } from "./providers.js";
 
 /**
  * The ForgeService's forge account store (forge spec, "The forge account
