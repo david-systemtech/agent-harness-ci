@@ -16,13 +16,17 @@ import type { Runtime } from "../runtime.js";
 import type { Shell } from "../shell.js";
 import { standardWebSocketFactory } from "../web-socket.js";
 
+export { fakeShell, type FakeShell, type ScriptableShellFunction, type ShellCall, type ShellFunctionName, type ShellFunctions } from "./fake-shell.js";
+
 /**
  * The in-memory platform the runtime's tests run on, and any client's
  * (docs/specs/client-runtime.md, "Testing Decisions"): documents and secrets
  * in memory, a clock that moves only when told, a network signal the test
- * toggles, a seeded jitter source, and a fake shell. It talks to a real
+ * toggles, a seeded jitter source, and the recording fake shell
+ * (`fake-shell.ts`) when a test is a desktop's. It talks to a real
  * environment over the global `fetch` and `WebSocket` unless given others;
- * `fake-wire.ts` gives it a scripted one.
+ * `fake-wire.ts` gives it a scripted one, and `scripted-environment.ts` a
+ * scripted world of one or two.
  */
 
 /** A clock that stands still until `advance` moves it; timers run as it passes them. */
@@ -127,65 +131,6 @@ export const inMemoryNetwork = (): InMemoryNetwork => {
   };
 };
 
-/** A shell with every member, each recording its call as `[member path, argument]` and answering something plain. */
-export type FakeShell = Required<Shell> & { readonly calls: [string, unknown][] };
-
-export const fakeShell = (): FakeShell => {
-  const calls: [string, unknown][] = [];
-  const record =
-    <A extends unknown[], R>(member: string, answer: R) =>
-    (...args: A): R => {
-      calls.push([member, args[0]]);
-      return answer;
-    };
-  return {
-    calls,
-    dialogs: {
-      openFile: record("dialogs.openFile", Promise.resolve([])),
-      openDirectory: record("dialogs.openDirectory", Promise.resolve(undefined)),
-      save: record("dialogs.save", Promise.resolve(undefined)),
-    },
-    window: {
-      setTitle: record("window.setTitle", undefined),
-      focus: record("window.focus", undefined),
-      setBadge: record("window.setBadge", undefined),
-      setBackgroundColour: record("window.setBackgroundColour", undefined),
-    },
-    notifications: { show: record("notifications.show", Promise.resolve()), onActivate: record("notifications.onActivate", () => undefined) },
-    tray: { setTooltip: record("tray.setTooltip", undefined), onClick: record("tray.onClick", () => undefined) },
-    deepLinks: { onOpen: record("deepLinks.onOpen", () => undefined) },
-    webView: {
-      create: record("webView.create", Promise.resolve("view-1")),
-      attach: record("webView.attach", undefined),
-      navigate: record("webView.navigate", Promise.resolve()),
-      destroy: record("webView.destroy", undefined),
-    },
-    preview: { grant: record("preview.grant", Promise.resolve("agent-harness-preview://fake/1")) },
-    installer: {},
-    update: { check: record("update.check", Promise.resolve({ available: false })), install: record("update.install", Promise.resolve()) },
-    service: {
-      install: record("service.install", Promise.resolve()),
-      start: record("service.start", Promise.resolve()),
-      status: record("service.status", Promise.resolve({ installed: true, running: true, ready: true })),
-    },
-    clipboard: {
-      readText: record("clipboard.readText", Promise.resolve("")),
-      writeText: record("clipboard.writeText", Promise.resolve()),
-      readImage: record("clipboard.readImage", Promise.resolve(undefined)),
-    },
-    openExternal: record("openExternal", Promise.resolve()),
-    localGrant: { read: record("localGrant.read", Promise.resolve(undefined)) },
-    secrets: inMemorySecrets(),
-    // Nothing answers the fake's HTTP: a test that needs an answer hands the platform a `fetch`.
-    http: (url) => {
-      calls.push(["http", url]);
-      return Promise.reject(new TypeError("fetch failed"));
-    },
-    network: { allow: record("network.allow", Promise.resolve()) },
-    system: record("system", Promise.resolve({ platform: "linux" as const, architecture: "x64", hostname: "desk", user: "seth" })),
-  };
-};
-
 /** Node's global `WebSocket`, the one a browser has too. */
 export const globalWebSocket = (): WebSocketFactory =>
   standardWebSocketFactory((globalThis as unknown as { WebSocket: new (url: string) => unknown }).WebSocket);
@@ -204,6 +149,7 @@ export interface InMemoryPlatformOptions {
   /** Preset `0.0.0-test`. */
   readonly version?: string;
   readonly grant?: GrantReader;
+  /** Preset none, as the terminal UI and the browser tab have; a desktop's test hands in `fakeShell()`. */
   readonly shell?: Shell;
   /** Pass another platform's stores to start a runtime again on what it saved. */
   readonly documents?: InMemoryDocumentStore;

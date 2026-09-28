@@ -2,8 +2,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, expectTypeOf, it } from "vitest";
 import { derived, dynamic, writable } from "./observable.js";
-import { SHELL_MEMBERS, hasShellMember, type Shell, type ShellDeepLinks, type ShellNotification, type ShellNotifications } from "./shell.js";
-import { fakeShell, inMemoryPlatform, manualClock } from "./testing/in-memory-platform.js";
+import { hasShellMember, type Shell, type ShellDeepLinks, type ShellNotification, type ShellNotifications } from "./shell.js";
+import { inMemoryPlatform, manualClock } from "./testing/in-memory-platform.js";
 
 describe("the package", () => {
   it("depends on contracts alone at run time", () => {
@@ -176,13 +176,6 @@ describe("the in-memory platform", () => {
     expect(JSON.stringify(documents.entries())).not.toContain("s3cret");
     await secrets.delete("env");
     expect(await secrets.get("env")).toBeUndefined();
-  });
-
-  it("ships a fake shell with every member, recording what it is asked", async () => {
-    const shell = fakeShell();
-    for (const member of SHELL_MEMBERS) expect(hasShellMember(shell, member), member).toBe(true);
-    await shell.notifications?.show?.({ title: "Run ended", body: "desk" });
-    expect(shell.calls).toEqual([["notifications.show", { title: "Run ended", body: "desk" }]]);
   });
 });
 
