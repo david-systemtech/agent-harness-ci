@@ -50,6 +50,25 @@ describe("the normaliser", () => {
     ["scp with a port-like first segment and a user, as git reads it", "git@git.systemtech.dev:2222/david/agent-harness.git", remote("https://git.systemtech.dev", "2222/david/agent-harness", true)],
     ["git://", "git://git.kernel.org/pub/scm/git/git.git", remote("https://git.kernel.org", "pub/scm/git/git", true)],
     ["git:// with a port", "git://git.systemtech.dev:9418/david/agent-harness.git", remote("https://git.systemtech.dev", "david/agent-harness", true)],
+    // A bare host and port, as a URL is pasted without its scheme: https on that port.
+    ["a bare host:port", "git.systemtech.dev:5526", remote("https://git.systemtech.dev:5526", null)],
+    ["a bare host:port with a path", "Git.SystemTech.dev:5526/david/agent-harness.git", remote("https://git.systemtech.dev:5526", "david/agent-harness")],
+    ["a bare host on https's default port", "github.com:443/david/agent-harness", remote("https://github.com", "david/agent-harness")],
+    ["a bare localhost:port", "localhost:3000/david/agent-harness", remote("https://localhost:3000", "david/agent-harness")],
+    ["a bare host with a port out of range, which git reads as scp", "git.systemtech.dev:70000/agent-harness", remote("https://git.systemtech.dev", "70000/agent-harness", true)],
+    // Local paths and the rest: not remotes.
+    ["an absolute path", "/home/david/agent-harness", null],
+    ["a relative path", "../agent-harness.git", null],
+    ["a dot-relative path with a colon after a slash", "./backup:agent-harness", null],
+    ["a home-relative path", "~/agent-harness", null],
+    ["a bare word", "agent-harness", null],
+    ["a host and path without a scheme, which git reads as a local path", "github.com/david/agent-harness", null],
+    ["a Windows drive with backslashes", "C:\\Users\\david\\agent-harness", null],
+    ["a Windows drive with slashes", "C:/Users/david/agent-harness", null],
+    ["a Windows share", "\\\\nas\\git\\agent-harness.git", null],
+    ["file://", "file:///home/david/agent-harness.git", null],
+    ["a word before a colon, with no dot to make it a host", "backup:agent-harness", null],
+    ["nothing", "   ", null],
   ];
 
   it.each(table)("reads %s", (_, input, expected) => {

@@ -115,11 +115,36 @@ const sshDerivedRemote = (host: string, path: string, userinfoDropped: boolean):
 const SCP_FORM = /^(?:([^@/]*)@)?(\[[0-9a-f:.]+\]|[^@/:[\]]+):(.*)$/is;
 const SCP_HOST = /^(?:[a-z0-9_-]+(?:\.[a-z0-9_-]+)+|localhost|\[[0-9a-f:.]+\])$/i;
 
-const scpRemote = (text: string): ForgeRemote | null => {
+/** The rest of a bare `host:port`: the port, then nothing or a path. */
+const BARE_PORT = /^(\d{1,5})(?:\/(.*))?$/s;
+
+/**
+ * A bare `host:port[/path]`, as a URL is pasted without its scheme: `https`
+ * on that port, not ssh-derived. git would read it as scp with a path whose
+ * first segment is a number, a remote no forge serves; with a user, or a
+ * port out of range, it stays git's scp form.
+ */
+const bareHostPortRemote = (host: string, rest: string): ForgeRemote | null => {
+  const bare = BARE_PORT.exec(rest);
+  if (bare === null) return null;
+  const [, port = "", path = ""] = bare;
+  let url: URL;
+  try {
+    url = new URL(`https://${host}:${port}`);
+  } catch {
+    return null;
+  }
+  const origin = originOf(url);
+  return origin === null ? null : { origin, path: repositoryPath(path), sshDerived: false, userinfoDropped: false };
+};
+
+/** A remote without a scheme: a bare `host:port`, else git's scp form; else a local path, which is none. */
+const schemelessRemote = (text: string): ForgeRemote | null => {
   const scp = SCP_FORM.exec(text);
   if (scp === null) return null;
-  const [, user = "", host = "", path = ""] = scp;
-  return SCP_HOST.test(host) ? sshDerivedRemote(host, path, user.includes(":")) : null;
+  const [, user, host = "", rest = ""] = scp;
+  if (!SCP_HOST.test(host)) return null;
+  return (user === undefined ? bareHostPortRemote(host, rest) : null) ?? sshDerivedRemote(host, rest, user?.includes(":") ?? false);
 };
 
 /** A URL-form remote: `https`, `http`, ssh's three spellings or `git://`; any other scheme is not a remote. */
@@ -142,5 +167,5 @@ const urlRemote = (text: string, scheme: string): ForgeRemote | null => {
 export const normaliseRemote = (remote: string): ForgeRemote | null => {
   const text = remote.trim();
   const scheme = URL_FORM.exec(text)?.[1];
-  return scheme === undefined ? scpRemote(text) : urlRemote(text, scheme.toLowerCase());
+  return scheme === undefined ? schemelessRemote(text) : urlRemote(text, scheme.toLowerCase());
 };
