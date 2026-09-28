@@ -7,10 +7,11 @@
  * child report there, one JSON line each. Its version is its package's, as
  * `serve` reports its own.
  */
-import { appendFileSync, existsSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { parseLauncherMessage, type EnvironmentMessage } from "@agent-harness/contracts/launcher";
-import { CHILD_REPORT_FILE, CHILD_SCRIPT_FILE, type ChildEvent, type ChildStart } from "./launcher-fixtures.js";
+import { SERVICE_STATE_FILE } from "../src/launch/state.js";
+import { CHILD_REPORT_FILE, CHILD_SCRIPT_FILE, writeDatabase, type ChildEvent, type ChildStart, type ScriptedStart } from "./launcher-fixtures.js";
 
 const args = process.argv.slice(2);
 const dataDir = args[args.indexOf("--data-dir") + 1] ?? ".";
@@ -21,10 +22,14 @@ const readLines = (path: string): string[] => (existsSync(path) ? readFileSync(p
 const start = readLines(reportPath).filter((line) => (JSON.parse(line) as ChildEvent).event === "started").length;
 const scriptPath = join(dataDir, CHILD_SCRIPT_FILE);
 const script = existsSync(scriptPath) ? (JSON.parse(readFileSync(scriptPath, "utf8")) as ChildStart[]) : [];
-const behaviour: ChildStart = script[start] ?? "serve";
+const scripted = script[start] ?? "serve";
+const { behaviour = "serve", writes, preparedAs, switchTo }: ScriptedStart = typeof scripted === "string" ? { behaviour: scripted } : scripted;
 
 const report = (event: string, detail: Record<string, unknown> = {}) =>
   appendFileSync(reportPath, `${JSON.stringify({ start, pid: process.pid, version, event, ...detail })}\n`);
+
+/** The service state as it is on disk now. */
+const serviceState = (): Record<string, unknown> => JSON.parse(readFileSync(join(dataDir, SERVICE_STATE_FILE), "utf8")) as Record<string, unknown>;
 
 /** Sends `message` to the launcher, then calls `after`. */
 const send = (message: EnvironmentMessage, after: () => void = () => undefined) => process.send?.(message, undefined, {}, () => after());
@@ -35,11 +40,14 @@ const leave = (code: number) => {
   if (process.connected) process.disconnect();
 };
 
-report("started", { args, behaviour });
+report("started", { args, behaviour, dataFiles: readdirSync(dataDir).sort() });
+if (writes !== undefined) writeDatabase(dataDir, writes, "open");
 
 if (behaviour === "crash") process.exit(1);
 if (behaviour === "exit-0") process.exit(0);
 
+/** The id of the `switch?` it asks. */
+const SWITCH_ID = 2;
 let committed = false;
 let drainsPassedOver = 0;
 process.on("message", (raw) => {
@@ -54,7 +62,7 @@ process.on("message", (raw) => {
         report("drained", { trigger: "signal" });
         leave(0);
       });
-      report("committed");
+      report("committed", { state: serviceState() });
       if (behaviour === "drain") {
         report("drained", { trigger: "command" });
         return leave(0);
@@ -62,7 +70,14 @@ process.on("message", (raw) => {
       if (behaviour === "crash-after-commit") process.exit(3);
       // Something the launcher does not know goes first: it must pass it over and still answer.
       process.send?.({ type: "no-such-message" });
+      if (switchTo !== undefined) return send({ type: "switch?", id: SWITCH_ID, updateId: switchTo.updateId, version: switchTo.version });
       return send({ type: "versions?", id: 1 });
+    case "switching":
+    case "refused":
+      if (message.id !== SWITCH_ID) return;
+      if (message.type === "switching") report("switching", { pendingUpdate: serviceState()["pendingUpdate"] });
+      if (message.type === "switching" && switchTo?.lingers) return;
+      return leave(0);
     case "idle?":
       return send({ type: "idle", readiness: "ready", activity: { state: "idle" }, updatesManagedOutside: false });
     case "drain?":
@@ -74,4 +89,4 @@ process.on("message", (raw) => {
   }
 });
 
-if (behaviour !== "silent") send({ type: "prepared", version });
+if (behaviour !== "silent") send({ type: "prepared", version: preparedAs ?? version });

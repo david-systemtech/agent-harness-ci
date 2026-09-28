@@ -1,13 +1,27 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BOOTSTRAP_GRANT_FILE, BootstrapGrant, DISCOVERY_PATH } from "@agent-harness/contracts";
 import { LAUNCHER_PROTOCOL } from "@agent-harness/contracts/launcher";
 import { HARNESS_VERSION } from "@agent-harness/environment";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { childReport, fakeTimer, installVersion, scriptChild, until, type ChildEvent, type FakeTimer } from "../../test/launcher-fixtures.js";
+import {
+  childReport,
+  databaseFilesIn,
+  fakeTimer,
+  installVersion,
+  readDatabase,
+  scriptChild,
+  until,
+  writeDatabase,
+  type ChildEvent,
+  type ChildStart,
+  type FakeTimer,
+  type ScriptedStart,
+} from "../../test/launcher-fixtures.js";
 import { LAUNCHER_VERSION, startLauncher, type Launcher } from "./launcher.js";
-import { SERVICE_STATE_FILE, writeServiceState, type ServiceState } from "./state.js";
+import { hasSnapshot, snapshotDirectory } from "./snapshot.js";
+import { readServiceState, SERVICE_STATE_FILE, writeServiceState, type ServiceState } from "./state.js";
 
 /**
  * The launcher (launcher-update spec, "Versions and the launcher"; #337)
@@ -55,8 +69,12 @@ interface Running {
   events(event: string, count?: number): Promise<ChildEvent[]>;
 }
 
-/** A launcher on `dataDir` (preset: a fresh one with 0.5.0 installed and active), logging to memory, on a fake timer. */
-const launch = (options: { dataDir?: string; port?: number } = {}): Running => {
+/**
+ * A launcher on `dataDir` (preset: a fresh one with 0.5.0 installed and
+ * active), logging to memory, on a fake timer, finding `freeBytes` free on
+ * the disk (preset: a terabyte).
+ */
+const launch = (options: { dataDir?: string; port?: number; freeBytes?: (dataDir: string) => number } = {}): Running => {
   const dataDir = options.dataDir ?? dataDirectory();
   if (options.dataDir === undefined) {
     installVersion(dataDir, "0.5.0");
@@ -64,7 +82,7 @@ const launch = (options: { dataDir?: string; port?: number } = {}): Running => {
   }
   const timer = fakeTimer();
   const lines: string[] = [];
-  const launcher = startLauncher({ dataDir, port: options.port, log: (line) => lines.push(line), timer });
+  const launcher = startLauncher({ dataDir, port: options.port, log: (line) => lines.push(line), timer, freeBytes: options.freeBytes ?? (() => 2 ** 40) });
   cleanups.push(async () => {
     await launcher.stop();
     // A child still there after the test (one it never let go) is ended, so no process outlives the file.
@@ -380,6 +398,159 @@ describe.runIf(posix)("the launcher", () => {
       await Promise.all([running.launcher.stop(), running.launcher.stop()]);
       expect(running.log().filter((line) => line.startsWith("launcher: stopping"))).toEqual(["launcher: stopping: draining 0.5.0"]);
     });
+  });
+});
+
+const updateId = "7d0f2b1e-2c55-4a8e-9f0b-3a1c5d7e9b20";
+/** The update the tests below switch for: 0.4.0 to 0.5.0. */
+const update = { updateId, fromVersion: "0.4.0", toVersion: "0.5.0" } as const;
+
+/** A start of 0.4.0 that asks to switch to `version` (preset 0.5.0) for the update once it is committed. */
+const switching = (switchTo: Partial<NonNullable<ScriptedStart["switchTo"]>> = {}): ChildStart => ({ switchTo: { updateId, version: "0.5.0", ...switchTo } });
+
+/** A data directory running 0.4.0 with 0.5.0 installed beside it, a database 0.4.0 wrote and closed, and `starts` scripted. */
+const beforeAnUpdate = (starts: readonly ChildStart[]): string => {
+  const dataDir = dataDirectory();
+  installVersion(dataDir, "0.4.0");
+  installVersion(dataDir, "0.5.0");
+  writeServiceState(dataDir, state("0.4.0"));
+  writeDatabase(dataDir, ["before the update"], "closed");
+  scriptChild(dataDir, starts);
+  return dataDir;
+};
+
+/** The service state in `dataDir` now. */
+const stateIn = (dataDir: string): ServiceState | undefined => {
+  const read = readServiceState(dataDir);
+  return "state" in read ? read.state : undefined;
+};
+
+/** What a child heard, by the type of each message. */
+const heardBy = (running: Running, start: number): string[] =>
+  running
+    .report()
+    .filter((line) => line.start === start && line.event === "heard")
+    .map((line) => (line["message"] as { type: string }).type);
+
+describe.runIf(posix)("the launcher switching versions for an update", () => {
+  it("answers switch? for an installed version by writing the pending-update record, and only then switching", async () => {
+    const running = launch({ dataDir: beforeAnUpdate([switching()]) });
+    const [heard] = await running.events("switching");
+    expect(heard).toMatchObject({ version: "0.4.0", pendingUpdate: update });
+    expect(running.log()).toContain(`launcher: switching from 0.4.0 to 0.5.0 for update ${updateId}`);
+  });
+
+  describe("refusing a switch", () => {
+    it("refuses a version that is not installed, or not complete, not-installed, writing nothing, and the child it refused restarts", async () => {
+      for (const [version, spoil] of [["0.6.0", () => undefined], ["0.5.0", (dataDir: string) => rmSync(join(dataDir, "versions", "0.5.0", ".complete"))]] as const) {
+        const dataDir = beforeAnUpdate([switching({ version })]);
+        spoil(dataDir);
+        const running = launch({ dataDir });
+        await until("the refusal is heard", () => heardBy(running, 0).includes("refused"));
+        expect(running.report().find((line) => (line["message"] as { type?: string } | undefined)?.type === "refused")?.["message"]).toEqual({
+          type: "refused",
+          id: 2,
+          reason: "not-installed",
+        });
+        expect(stateIn(dataDir)).toEqual(state("0.4.0"));
+        expect(running.log()).toContain(`launcher: refuses switch? to ${version} for update ${updateId}: not-installed, as ${version} is not complete in ${join(dataDir, "versions")}`);
+        // The refused environment closes, as one does after appending its failed update, and the same version is back at once.
+        const [, again] = await running.events("started", 2);
+        expect(again).toMatchObject({ version: "0.4.0" });
+        expect(hasSnapshot(dataDir, updateId)).toBe(false);
+      }
+    });
+
+    it("refuses disk, before the child is told to go, with less free space than the database's size plus 256 MiB", async () => {
+      const dataDir = beforeAnUpdate([switching()]);
+      const needed = statSync(join(dataDir, "environment.db")).size + 256 * 1024 * 1024;
+      const refused = launch({ dataDir, freeBytes: () => needed - 1 });
+      await until("the refusal is heard", () => heardBy(refused, 0).includes("refused"));
+      expect(refused.report().filter((line) => line.event === "heard").at(-1)?.["message"]).toEqual({ type: "refused", id: 2, reason: "disk" });
+      expect(refused.log()).toContain(`launcher: refuses switch? to 0.5.0 for update ${updateId}: disk, as ${needed - 1} bytes are free and a snapshot needs ${needed}`);
+      expect(stateIn(dataDir)).toEqual(state("0.4.0"));
+      await refused.launcher.stop();
+
+      const room = launch({ dataDir: beforeAnUpdate([switching()]), freeBytes: () => needed });
+      await room.events("switching");
+    });
+
+    it("refuses io when the free space cannot be read or the pending-update record cannot be written, and writes nothing", async () => {
+      const unread = beforeAnUpdate([switching()]);
+      const running = launch({
+        dataDir: unread,
+        freeBytes: () => {
+          throw new Error("statfs failed");
+        },
+      });
+      await until("the refusal is heard", () => heardBy(running, 0).includes("refused"));
+      expect(running.report().filter((line) => line.event === "heard").at(-1)?.["message"]).toEqual({ type: "refused", id: 2, reason: "io" });
+      expect(running.log()).toContain(`launcher: refuses switch? to 0.5.0 for update ${updateId}: io, as statfs failed`);
+      expect(stateIn(unread)).toEqual(state("0.4.0"));
+
+      const unwritable = beforeAnUpdate([switching()]);
+      const spoiled = launch({
+        dataDir: unwritable,
+        // The free space is read last before the record is written: a folder in the state's place takes no rename.
+        freeBytes: () => {
+          rmSync(join(unwritable, SERVICE_STATE_FILE));
+          mkdirSync(join(unwritable, SERVICE_STATE_FILE, "in-the-way"), { recursive: true });
+          return 2 ** 40;
+        },
+      });
+      await until("the refusal is heard", () => heardBy(spoiled, 0).includes("refused"));
+      expect(spoiled.report().filter((line) => line.event === "heard").at(-1)?.["message"]).toEqual({ type: "refused", id: 2, reason: "io" });
+      expect(spoiled.report().some((line) => line.event === "switching")).toBe(false);
+    });
+  });
+
+  it("waits for the child to exit after switching, and ends it at the drain cap plus a minute", async () => {
+    const running = launch({ dataDir: beforeAnUpdate([switching({ lingers: true })]) });
+    await running.events("switching");
+    await until("the switch is logged", () => running.log().some((line) => line.includes("switching from")));
+    expect(running.timer.pending()).toEqual([31 * 60_000]);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(running.report().filter((line) => line.event === "started")).toHaveLength(1);
+    expect(hasSnapshot(running.dataDir, updateId)).toBe(false);
+
+    running.timer.runNext();
+
+    const [, trial] = await running.events("started", 2);
+    expect(trial).toMatchObject({ version: "0.5.0" });
+    expect(running.log()).toContain("launcher: 0.4.0 has not exited 31 minutes after switching, so it is ended");
+    expect(running.log()).toContain("launcher: 0.4.0 was ended by SIGKILL");
+  });
+
+  it("snapshots the database once the child has exited, starts the target as a trial, and commits its prepared durably before answering committed", async () => {
+    const dataDir = beforeAnUpdate([switching()]);
+    const before = databaseFilesIn(dataDir);
+    const running = launch({ dataDir });
+    const [, trial] = await running.events("started", 2);
+    expect(trial).toMatchObject({ version: "0.5.0", dataFiles: expect.arrayContaining(["snapshots"]) });
+    expect(databaseFilesIn(snapshotDirectory(dataDir, updateId))).toEqual(before);
+
+    const [, committed] = await running.events("committed", 2);
+    expect(committed).toMatchObject({ version: "0.5.0" });
+    expect(committed?.["state"]).toEqual({
+      activeVersion: "0.5.0",
+      previousVersion: "0.4.0",
+      launcherVersion: "0.4.0",
+      pendingUpdate: null,
+      watchDeadline: "2026-09-28T12:10:00.000Z",
+    });
+    await until("the commit is logged", () => running.log().length >= 7);
+    expect(running.log()).toEqual([
+      `launcher: spawned 0.4.0 as pid ${running.report()[0]?.pid}`,
+      "launcher: 0.4.0 committed",
+      `launcher: switching from 0.4.0 to 0.5.0 for update ${updateId}`,
+      "launcher: 0.4.0 exited with code 0",
+      `launcher: snapshot of update ${updateId} taken`,
+      `launcher: spawned 0.5.0 as pid ${trial?.pid}, the trial of update ${updateId}`,
+      `launcher: 0.5.0 committed: update ${updateId} from 0.4.0, watched until 2026-09-28T12:10:00.000Z`,
+    ]);
+    // The trial's deadline went with its commit.
+    expect(running.timer.pending()).toEqual([]);
+    expect(heardBy(running, 1)).toContain("committed");
   });
 });
 

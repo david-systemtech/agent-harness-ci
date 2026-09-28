@@ -24,7 +24,7 @@ export const CHILD_REPORT_FILE = "child-report.jsonl";
 
 /**
  * What the scripted child does at one start:
- * - `serve`: says `prepared`, and once committed reports `committed`, asks `versions?`, answers `idle?`, and drains on `drain?` or SIGTERM
+ * - `serve`: says `prepared`, and once committed reports `committed` with the service state it then finds, asks `versions?`, answers `idle?`, and drains on `drain?` or SIGTERM
  * - `drain`: as `serve`, but drains by itself as soon as it is committed, as `environment.drain` does
  * - `crash-after-commit`: as `serve`, but exits 3 as soon as it is committed
  * - `deaf-once`: as `serve`, but passes over the first `drain?`, as a child not yet answering queries does
@@ -32,9 +32,28 @@ export const CHILD_REPORT_FILE = "child-report.jsonl";
  * - `exit-0`: exits 0 at once, before `prepared`
  * - `silent`: never says `prepared`, and stays until it is ended
  */
-export type ChildStart = "serve" | "drain" | "crash-after-commit" | "deaf-once" | "crash" | "exit-0" | "silent";
+export type ChildBehaviour = "serve" | "drain" | "crash-after-commit" | "deaf-once" | "crash" | "exit-0" | "silent";
 
-/** One line of the scripted child's report: which start, as which process, of which version, and what happened. */
+/** A start that does more than its behaviour (preset `serve`) says. */
+export interface ScriptedStart {
+  readonly behaviour?: ChildBehaviour;
+  /** Written to the database before anything else, which is then left open, as a version's migrations write and a crash leaves them. */
+  readonly writes?: readonly string[];
+  /** The version it says `prepared` for, in place of its own. */
+  readonly preparedAs?: string;
+  /**
+   * Once committed, asks `switch?` for this update in place of `versions?`,
+   * as an environment does once its drain has ended. It reports `switching`
+   * with the pending-update record it then finds in the service state, and
+   * after either answer closes its channel and exits 0, unless it `lingers`,
+   * staying until it is ended.
+   */
+  readonly switchTo?: { readonly updateId: string; readonly version: string; readonly lingers?: true };
+}
+
+export type ChildStart = ChildBehaviour | ScriptedStart;
+
+/** One line of the scripted child's report: which start, as which process, of which version, and what happened. Each start reports `started` first, with the names in the data directory as it found them. */
 export interface ChildEvent {
   readonly start: number;
   readonly pid: number;

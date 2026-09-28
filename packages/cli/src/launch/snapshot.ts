@@ -107,6 +107,10 @@ export const discardSnapshot = (dataDir: string, updateId: string): void => {
   for (const folder of [stagingDirectory(dataDir, updateId), snapshotDirectory(dataDir, updateId)]) nodeFs.rmSync(folder, { force: true, recursive: true });
 };
 
+/** Writes `record` as the outcome record in `dataDir`, durably, for the environment to settle its update from. */
+export const writeOutcomeRecord = (dataDir: string, record: OutcomeRecord, options: SnapshotOptions = {}): void =>
+  writeFileDurably(join(dataDir, OUTCOME_RECORD_FILE), `${JSON.stringify(record, null, 2)}\n`, options.fs, options.platform);
+
 /** Throws unless the snapshot of `updateId` is complete: restoring from nothing would remove the database. */
 const needSnapshot = (dataDir: string, updateId: string): void => {
   if (!hasSnapshot(dataDir, updateId)) throw new Error(`There is no snapshot of update ${updateId} in ${join(dataDir, SNAPSHOTS_DIRECTORY)} to restore.`);
@@ -127,7 +131,7 @@ const finish = (dataDir: string, record: OutcomeRecord, options: RestoreOptions)
     syncFile(join(dataDir, name), fs);
   }
   syncDirectory(dataDir, fs, platform);
-  writeFileDurably(join(dataDir, OUTCOME_RECORD_FILE), `${JSON.stringify(record, null, 2)}\n`, fs, platform);
+  writeOutcomeRecord(dataDir, record, options);
   whileMarked?.(record);
   fs.rmSync(join(dataDir, RESTORE_MARKER_FILE), { force: true });
   syncDirectory(dataDir, fs, platform);
