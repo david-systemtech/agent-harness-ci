@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { without } from "../test/fixtures.js";
 import {
   ForbiddenError,
+  PendingUpdate,
   UPDATE_BLOCKED_REASONS,
   UPDATE_CHECK_FAILURES,
   UPDATE_CONFLICT_REASONS,
@@ -72,6 +73,7 @@ describe("the update status document", () => {
 
   it("carries the pending update with its state: current, staging, waiting on what, ready when managed outside, draining, switching, or blocked with the reason", () => {
     expect(UPDATE_STATES).toEqual(["current", "staging", "waiting", "ready", "draining", "switching", "blocked"]);
+    expect(PendingUpdate.options.map((option) => option.shape.state.value)).toEqual([...UPDATE_STATES]);
     expect(UPDATE_BLOCKED_REASONS).toEqual(["launcher"]);
     const states = [
       { state: "current" },
