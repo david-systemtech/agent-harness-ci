@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
+import { Console } from "node:console";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { registry, type EventEnvelope, type EventFrame, type ParamsOf } from "@agent-harness/contracts";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { SIGNING_KEY } from "../serve/identity.js";
 import { fileVault, VAULT_FILE } from "../serve/vault.js";
@@ -27,6 +28,27 @@ const start = async (options: TestEnvironmentOptions = {}): Promise<TestEnvironm
   const t = await startTestEnvironment(options);
   onCleanup(() => t.close());
   return t;
+};
+
+/**
+ * The process's standard error as it is outside the test runner, whose own
+ * console writes elsewhere: a Node console on it for the test's length, and
+ * every write kept rather than printed. Taken before the environment starts,
+ * so the environment's close comes first.
+ */
+const captureStandardError = (): (() => string) => {
+  const written: string[] = [];
+  const write = vi.spyOn(process.stderr, "write").mockImplementation((chunk: string | Uint8Array) => {
+    written.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"));
+    return true;
+  });
+  const runnerConsole = globalThis.console;
+  globalThis.console = new Console({ stdout: process.stdout, stderr: process.stderr });
+  onCleanup(() => {
+    globalThis.console = runnerConsole;
+    write.mockRestore();
+  });
+  return () => written.join("");
 };
 
 /** A run that says `secret` in its text and passes it to a tool, whose output carries it back. */
@@ -137,5 +159,33 @@ describe("the vault's entries", () => {
     expect(read.said).toEqual(["The token is [redacted]."]);
     expect(read.output).toBe('{"token":"[redacted]","scopes":["repo"]}');
     expect(read.json).not.toContain(key);
+  });
+});
+
+describe("the diagnostic output", () => {
+  it("passes every line the environment writes to its standard error through the registry: neither the signing key nor a registered value appears in one", async () => {
+    const stderr = captureStandardError();
+    const t = await start();
+    const key = (await fileVault(join(t.dataDir, VAULT_FILE)).get(SIGNING_KEY)) as string;
+    t.scrub.register(HELD, { owner: "test:forge" });
+    // A subscriber that throws is a line the event log writes, the error and its stack with it.
+    t.env.log.subscribe(() => {
+      throw new Error(`a subscriber read ${key} and ${encodeURIComponent(HELD)}`);
+    });
+    await create(await t.client());
+
+    await vi.waitFor(() => expect(stderr()).toContain("An event log subscriber threw"));
+    expect(stderr()).toContain("a subscriber read [redacted] and [redacted]");
+    expect(stderr()).not.toContain(key);
+    expect(stderr()).not.toContain(HELD);
+  });
+
+  it("lets the process's standard error go when the environment closes", async () => {
+    const stderr = captureStandardError();
+    const t = await start();
+    t.scrub.register(HELD, { owner: "test:forge" });
+    await t.close();
+    console.error(`after the close: ${HELD}`);
+    expect(stderr()).toContain(`after the close: ${HELD}`);
   });
 });

@@ -76,6 +76,7 @@ import { createTtlSweeper } from "../permissions/ttl-sweeper.js";
 import { createProviderTranscriptStore, type ProviderTranscriptStore } from "../provider-transcripts/store.js";
 import { runMethods, startRunIn } from "../runs/run-methods.js";
 import { runsProjector } from "../runs/runs-projector.js";
+import { scrubDiagnosticOutput } from "../scrub/diagnostic-output.js";
 import { createScrubRegistry, type ScrubRegistry } from "../scrub/registry.js";
 import { createCompactionSweep } from "../sessions/compaction.js";
 import { createDeletion } from "../sessions/deletion.js";
@@ -201,8 +202,9 @@ export interface EnvironmentOptions {
   /**
    * The scrub registry (ADR 0011): the values the environment holds as
    * secrets, its vault's entries among them from start, replaced with
-   * `[redacted]` in every event payload as the log appends it. Preset: a
-   * fresh one.
+   * `[redacted]` in every event payload as the log appends it and in every
+   * line written to the process's standard error while the environment
+   * runs. Preset: a fresh one.
    */
   readonly scrub?: ScrubRegistry;
   /** Whether this is a container; with no launcher present too, updates are managed outside. Preset: `processContainerDetector`. */
@@ -412,7 +414,10 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   let readiness: EnvironmentReadiness = "starting";
   let address: Address | undefined;
   const closers = createCloserStack();
-  // Pushed first, so it closes last: after the listener and the event log, and after a failed start too.
+  // Pushed first, so it is let go last: every line the environment writes to its standard error passes the scrub
+  // registry from here to the end of its close, and of a failed start's (ADR 0011).
+  closers.push(scrubDiagnosticOutput((text) => scrub.scrub(text)));
+  // Pushed next, so it closes after everything else: after the listener and the event log, and after a failed start too.
   closers.push(() => launcher.close());
   // Concurrent closes share one attempt; a close after a failed one retries what did not close.
   let closing: Promise<void> | undefined;
