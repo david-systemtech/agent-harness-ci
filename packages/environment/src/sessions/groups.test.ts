@@ -667,7 +667,7 @@ describe("verify first: an outbox run chaining groups.create and sessions.setGro
   const sendAll = (client: WireClient, requests: readonly [string, Record<string, unknown>][]) =>
     Promise.all(requests.map(([method, params]) => client.call(method, params)));
 
-  it("applies a queued groups.create, then sessions.create and sessions.setGroup naming the not-yet-acknowledged ids, in order", async () => {
+  it("applies a queued groups.create, then sessions.create and sessions.setGroup naming the not-yet-acknowledged ids, each once", async () => {
     const t = await start();
     const client = await t.client();
     const { id: existing } = await create(client);
@@ -683,11 +683,15 @@ describe("verify first: an outbox run chaining groups.create and sessions.setGro
 
     const receipts = answers.map((answer) => (answer.type === "response" ? (answer.result as { receipt: unknown }).receipt : answer));
     const head = t.env.log.head();
-    expect(receipts).toEqual([
-      { status: "accepted", sequence: head - 2, changed: true },
-      { status: "accepted", sequence: head - 1, changed: true },
-      { status: "accepted", sequence: head, changed: true },
-    ]);
+    const [grouped, ...rest] = receipts;
+    expect(grouped).toEqual({ status: "accepted", sequence: head - 2, changed: true });
+    // The create waits for git to find its workspace's repository (#324), so the setGroup sent after it may apply first (serve/methods.ts).
+    expect(rest).toEqual(
+      expect.arrayContaining([
+        { status: "accepted", sequence: head - 1, changed: true },
+        { status: "accepted", sequence: head, changed: true },
+      ]),
+    );
     expect((await get(client, sessionId)).groupId).toBe(groupId);
     expect((await get(client, existing)).groupId).toBe(groupId);
 

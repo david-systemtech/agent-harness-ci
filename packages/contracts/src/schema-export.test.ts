@@ -45,14 +45,17 @@ describe("the JSON Schema export", () => {
     for (const [name, schema] of packageSchemas) expect(exported.has(schema as z.ZodType), name).toBe(true);
   });
 
-  it("indexes every schema file and every method with its scope", () => {
+  it("indexes every schema file, every case table and every method with its scope", () => {
     const index = readJson("index.json") as {
       protocolVersion: number;
       schemas: { path: string; title: string }[];
+      cases: { path: string; title: string }[];
       methods: { name: string; scope: string; kind: string; stream: boolean; params: string; result: string; response?: string; error: string }[];
     };
     expect(index.protocolVersion).toBe(contracts.PROTOCOL_VERSION);
-    expect(index.schemas.map((s) => s.path).sort()).toEqual(filesOnDisk().filter((p) => p !== "index.json"));
+    expect(index.cases).toEqual([{ path: "cases/repository-identity.json", title: "Repository identity" }]);
+    const casePaths = new Set(index.cases.map((c) => c.path));
+    expect(index.schemas.map((s) => s.path).sort()).toEqual(filesOnDisk().filter((p) => p !== "index.json" && !casePaths.has(p)));
     expect(index.methods).toEqual(
       methods.map((m) => ({
         name: m.name,
@@ -65,6 +68,30 @@ describe("the JSON Schema export", () => {
         error: methodPath(m.name, "error"),
       })),
     );
+  });
+
+  it("publishes the repository identity rule's cases, which a client reading only the file can run the rule against", () => {
+    const published = readJson("cases/repository-identity.json") as {
+      title: string;
+      description: string;
+      cases: { note: string; remote: string; forgeAccounts: { origin: string; aliases: string[] }[]; identity: string | null }[];
+    };
+    expect(published.title).toBe("Repository identity");
+    expect(published.description).toContain("repositoryIdentityOf");
+    expect(published.cases).toHaveLength(contracts.REPOSITORY_IDENTITY_CASES.length);
+    expect(published.cases).toContainEqual({
+      note: "ssh with sshd's port",
+      remote: "ssh://git@git.systemtech.dev:2222/david/agent-harness.git",
+      forgeAccounts: [],
+      identity: "https://git.systemtech.dev/david/agent-harness",
+    });
+    expect(published.cases).toContainEqual({
+      note: "ssh to the alias's host",
+      remote: "ssh://git@100.101.102.103:2222/david/agent-harness.git",
+      forgeAccounts: [{ origin: "https://git.systemtech.dev:5526", aliases: ["http://100.101.102.103:3000"] }],
+      identity: "https://git.systemtech.dev/david/agent-harness",
+    });
+    for (const entry of published.cases) expect(contracts.repositoryIdentityOf(entry.remote, entry.forgeAccounts), entry.note).toBe(entry.identity);
   });
 
   it("describes every enum, so a client developer knows what each set of values is", () => {
