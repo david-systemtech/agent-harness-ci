@@ -213,7 +213,7 @@ The launcher's file in the data directory naming the active, previous and launch
 _Avoid_: service record (what `service install` wrote, for `status` and `uninstall`), launcher state
 
 **Update coordinator**:
-The environment's module that holds the update policy: it reads the channel, stages the target, waits for idle or the deferral cap, drains, asks the launcher to switch and settles the outcome after the restart; it knows runs, which the launcher never does.
+The environment's module that holds the update policy: it reads the channel, stages the target, waits for idle or the deferral cap, drains, asks the launcher to switch and, after the restart, settles the outcome and marks and continues the runs the update cut; it knows runs, which the launcher never does.
 _Avoid_: updater (the host-side updater or the desktop's), update manager, the launcher
 
 **Update id**:

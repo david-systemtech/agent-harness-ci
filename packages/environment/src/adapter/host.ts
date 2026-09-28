@@ -39,7 +39,7 @@ import {
 } from "../permissions/broker.js";
 import { answersFor, hasKeptAnswer, parkedPromptsOfRun } from "../permissions/prompts-store.js";
 import { readRunPolicy } from "../permissions/review-store.js";
-import type { RunActor } from "../permissions/resolver.js";
+import { actorOfPolicy, type RunActor } from "../permissions/resolver.js";
 import { answerEvents, runToolCalls, type RunToolCalls } from "../permissions/tool-decisions.js";
 import {
   environmentQueue,
@@ -296,7 +296,9 @@ export interface AdapterHost {
    * the actor of the run before it, resolved afresh. Nothing when a run is
    * live on the session (the answer waits for the run after it), the session
    * has never run or is deleted, the environment drains or closes, or no
-   * answer is kept any more. A person's answer starts nothing (#130).
+   * answer is kept any more. A person's answer starts nothing (#130), unless
+   * an update cut the session's latest run while it waited on a prompt: the
+   * answer then resumes it (#345).
    */
   continueSession(sessionId: string): void;
   /**
@@ -1317,14 +1319,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     const run = latestRun(reader, sessionId);
     const policy = run === null ? null : readRunPolicy(reader, run.runId);
     if (run === null || policy === null) return null;
-    const ceiling = policy.mode.ceiling;
-    const actor: RunActor =
-      policy.actorKind === "completions"
-        ? { kind: "completions", attended: policy.attended, ceiling, clientSessionId: null }
-        : policy.actorKind === "client"
-          ? { kind: "client", ceiling, clientSessionId: null }
-          : { kind: policy.actorKind, name: policy.actorName, ceiling, clientSessionId: null };
-    return { sessionId, actor, model: run.model, effort: null, appendedInstructions: null, clientTools: [] };
+    return { sessionId, actor: actorOfPolicy(policy), model: run.model, effort: null, appendedInstructions: null, clientTools: [] };
   };
 
   /** `actor` with its client session's ceiling as it is now; undefined once that client session is revoked or expired. */

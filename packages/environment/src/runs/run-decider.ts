@@ -132,6 +132,13 @@ export interface StartCommand {
    * and nothing queued it still has something to read.
    */
   readonly keptAnswers?: boolean;
+  /**
+   * The run reads its message before the queued ones, which follow it: an
+   * update's continuation (#345), whose message tells the run why it goes
+   * on before the session's queue does. Preset: the queue first, as it was
+   * sent first.
+   */
+  readonly messageFirst?: boolean;
 }
 
 /** Where a run an actor starts comes from: a client session's is `client`, the completions surface's `completions`, a routine's or a bot's `routine` (ADR 0008: bots own routines). */
@@ -169,8 +176,9 @@ export interface PlannedRun {
   /** The tools the caller runs (`StartCommand.clientTools`); empty for none. */
   readonly clientTools: readonly ClientTool[];
   /**
-   * The messages the run starts with, in order: the queued ones, whose
-   * attachments' bytes the host holds, then the one sent, with its bytes.
+   * The messages the run starts with, in the order it reads them: the queued
+   * ones, whose attachments' bytes the host holds, then the one sent, with
+   * its bytes; the one sent first when the command asks (`messageFirst`).
    */
   readonly prompt: readonly PromptMessage[];
 }
@@ -309,6 +317,8 @@ export const decideStart = (facts: StartFacts, command: StartCommand): StartDeci
     resumedFrom: facts.target.kind === "fresh" ? null : facts.target.providerSessionId,
     forkedFrom: facts.forkedFrom,
   };
+  const queued: PromptMessage[] = facts.queued.map((message) => ({ messageId: message.messageId, text: message.text, attachments: [] }));
+  const sent: PromptMessage[] = command.message === null ? [] : [{ messageId: command.message.messageId, text: command.message.text, attachments: attachments.data }];
   const events: EventInput[] = [{ type: "run.started", payload: started }, policyResolvedEvent(runId, policy)];
   for (const messageId of queuedIds) {
     const delivered: MessageDeliveredPayload = { runId, messageId, delivery: "prompt" };
@@ -334,10 +344,7 @@ export const decideStart = (facts: StartFacts, command: StartCommand): StartDeci
       policy,
       appendedInstructions: command.appendedInstructions === undefined || command.appendedInstructions.trim() === "" ? null : command.appendedInstructions,
       clientTools: command.clientTools ?? [],
-      prompt: [
-        ...facts.queued.map((queued) => ({ messageId: queued.messageId, text: queued.text, attachments: [] })),
-        ...(command.message === null ? [] : [{ messageId: command.message.messageId, text: command.message.text, attachments: attachments.data }]),
-      ],
+      prompt: command.messageFirst === true ? [...sent, ...queued] : [...queued, ...sent],
     },
   };
 };
