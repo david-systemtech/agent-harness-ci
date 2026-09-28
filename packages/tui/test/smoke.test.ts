@@ -1,5 +1,5 @@
 import { readdirSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { createElement } from "react";
 import { render } from "ink-testing-library";
 import { createRuntime, writable } from "@agent-harness/client-runtime";
@@ -47,7 +47,12 @@ const noService: LocalService = {
   readiness: async () => "nothing",
 };
 
-/** One terminal UI on the real platform: its own label, a shared or own state directory, and `session` opened at launch when given. */
+/**
+ * One terminal UI on the real platform: its own label, a shared or own state
+ * directory, and `session` opened at launch when given. Its `--cwd` is the
+ * directory the state directory is made in, which the machine has, as the
+ * environment's check of a new session's directory wants (#325).
+ */
 const terminal = (dataDir: string, stateDir: string, tty: string, session?: string) => {
   const platform = nodePlatform({ stateDir, dataDir, version: "0.0.0-smoke", identity: { user: "seth", host: "desk", tty } });
   const host = createRuntimeHost(() => createRuntime(platform));
@@ -59,7 +64,7 @@ const terminal = (dataDir: string, stateDir: string, tty: string, session?: stri
       services: noService,
       grant: platform.grant,
       keymap: DEFAULT_KEYMAP,
-      flags: { workspace: "~/code", session },
+      flags: { workspace: dirname(stateDir), session },
       faults: writable<readonly Fault[]>([]),
       size: SIZE,
       newCommandId: () => `0199ee00-0000-7000-8000-${String(++ids).padStart(12, "0")}`,
@@ -93,7 +98,7 @@ describe.sequential("the terminal UI through the real spine", () => {
 
     await until(() => one.frame().includes("● smoke-desk ready"), one.frame);
     const rows = one.frame().split("\n");
-    expect(rows[0]).toContain("agent-harness · ● smoke-desk ready · ~/code");
+    expect(rows[0]).toContain(`agent-harness · ● smoke-desk ready · ${dirname(stateDir)}`);
     expect(rows[1]).toMatch(/^smoke-desk\s+│/);
     expect(rows[2]).toMatch(/^\s+no sessions\s+│/);
     expect(one.host.current.read().connections.list.read()).toMatchObject([{ kind: "local", phase: "ready", scopes: expect.arrayContaining(["admin"]) }]);

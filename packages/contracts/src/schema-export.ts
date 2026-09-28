@@ -176,6 +176,7 @@ import {
   UnsnoozeReason,
   UserTitle,
   Workspace,
+  WorkspaceProblem,
   WorkspaceRequest,
   WorkspaceStatus,
 } from "./sessions.js";
@@ -410,6 +411,7 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "sessions/unsnooze-reason.json", title: "UnsnoozeReason", schema: UnsnoozeReason },
   { path: "sessions/workspace.json", title: "Workspace", schema: Workspace },
   { path: "sessions/workspace-request.json", title: "WorkspaceRequest", schema: WorkspaceRequest },
+  { path: "sessions/workspace-problem.json", title: "WorkspaceProblem", schema: WorkspaceProblem },
   { path: "sessions/workspace-status.json", title: "WorkspaceStatus", schema: WorkspaceStatus },
   { path: "sessions/activity-state.json", title: "ActivityState", schema: ActivityState },
   { path: "sessions/session-activity.json", title: "SessionActivity", schema: SessionActivity },

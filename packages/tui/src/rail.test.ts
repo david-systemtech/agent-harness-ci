@@ -790,7 +790,7 @@ describe("starting a session on an environment", () => {
     expect(paneOf(app.frame()).some((line) => line.includes("› Work"))).toBe(true);
   });
 
-  it("puts the cursor on a session accepted late, leaving the keys where they are and a filter as typed", async () => {
+  it("keeps the step open until the environment answers, then puts the cursor on the session, leaving the keys where they are and a filter as typed", async () => {
     const app = await two();
     await focusRail(app);
     await headingTo(app, "laptop");
@@ -800,6 +800,11 @@ describe("starting a session on an environment", () => {
     await app.type("/srv/train");
     await app.press(KEY.enter);
     await app.waitFor("Starting a session on laptop in /srv/train.");
+    await app.waitFor("Waiting for laptop's answer…");
+    expect(app.frame()).toContain("New session on laptop: where it works");
+    // Esc leaves the step while the create waits: the query, the model step, the account step, then the card.
+    await app.press(KEY.esc, KEY.esc, KEY.esc, KEY.esc);
+    await app.waitUntil(() => !app.frame().includes("New session on laptop"), "the steps closed");
     await app.press("/");
     await app.type("train");
     await app.waitFor("/train");
@@ -819,33 +824,70 @@ describe("starting a session on an environment", () => {
     await app.waitFor("Starting a session on desk in /srv/other.");
     again();
     await app.waitUntil(() => app.environment("desk").list.summaries().some((s) => s.workspace.path === "/srv/other"), "the second session created");
+    await app.waitUntil(() => !app.frame().includes("where it works"), "the step closed once the session was made");
     await app.tick(10);
     expect(app.frame()).toContain("Ctrl+C quits");
     expect(app.frame()).not.toContain("The rail has the keys");
   });
 
-  it("takes a typed path, refuses one that is not a full path, and goes back a step on Esc; /cwd opens the same picker on the header's environment", async () => {
+  it("sends a typed path as typed, ~ and all, and leaves it to the environment: a relative one is refused in the step's line; Esc goes back a step; /cwd opens the same picker on the header's environment", async () => {
     const app = await two();
     await focusRail(app);
     await headingTo(app, "laptop");
     await app.press(KEY.enter, KEY.enter, KEY.enter);
     await app.waitFor("New session on laptop: where it works");
     await app.type("src/app");
-    await app.waitFor("a workspace is a full path on laptop");
+    await app.waitFor("src/app typed");
+    await app.press(KEY.enter);
+    await app.waitFor("A workspace is a full path on laptop, or one from its home (~).");
+    expect(app.frame()).toContain("New session on laptop: where it works");
+    expect(sent(app, "laptop", "sessions.create")).toEqual([]);
     await app.press(KEY.esc);
-    await app.waitUntil(() => !app.frame().includes("src/app"), "the query cleared");
+    await app.waitUntil(() => !paneOf(app.frame()).some((row) => row.includes("src/app")), "the query cleared");
     await app.press(KEY.esc);
     await app.waitFor("New session on laptop: its model");
     await app.press(KEY.enter);
-    await app.type("/srv/train");
+    await app.type("~/code");
     await app.press(KEY.enter);
     await app.waitUntil(() => sent(app, "laptop", "sessions.create").length === 1, "the create sent");
-    expect(params(sent(app, "laptop", "sessions.create")[0])).toEqual({ commandId: expect.stringMatching(UUIDV7), id: expect.stringMatching(UUIDV4), workspace: { kind: "directory", path: "/srv/train" } });
+    expect(params(sent(app, "laptop", "sessions.create")[0])).toEqual({ commandId: expect.stringMatching(UUIDV7), id: expect.stringMatching(UUIDV4), workspace: { kind: "directory", path: "~/code" } });
+    await app.waitUntil(() => app.environment("laptop").list.summaries().some((s) => s.workspace.path === "/home/seth/code"), "the session created");
+    await app.waitUntil(() => !app.frame().includes("where it works"), "the step closed");
 
     await app.press(KEY.esc);
     await run(app, "/cwd");
     await app.waitFor("New session on desk: where it works");
     expect(flat(app.frame())).toContain("environment ●DE desk · account default · model default");
+  });
+
+  it("names the environment's refusal of a path in one line on the step, which stays open for another path", async () => {
+    const directories = { "/srv/gone": "does_not_exist", "/srv/notes.md": "not_a_directory", "/srv/locked": "not_readable", "/data/vault": "reserved" } as const;
+    const app = await two({ laptop: { directories } });
+    await focusRail(app);
+    await headingTo(app, "laptop");
+    await app.press(KEY.enter, KEY.enter, KEY.enter);
+    await app.waitFor("New session on laptop: where it works");
+    const lines = {
+      "/srv/gone": "/srv/gone does not exist on laptop.",
+      "/srv/notes.md": "/srv/notes.md is not a directory on laptop.",
+      "/srv/locked": "laptop cannot list or enter /srv/locked.",
+      "/data/vault": "/data/vault is inside laptop's data directory.",
+    } as const;
+    for (const [path, line] of Object.entries(lines)) {
+      await app.type(path);
+      await app.press(KEY.enter);
+      await app.waitFor(line);
+      // One line on the step, which stays open with the path typed.
+      expect(paneOf(app.frame()).filter((row) => row.includes(line))).toHaveLength(1);
+      expect(app.frame()).toContain("New session on laptop: where it works");
+      await app.press(KEY.esc);
+      await app.waitUntil(() => !paneOf(app.frame()).some((row) => row.includes(`${path} typed`)), "the query cleared");
+    }
+    expect(app.environment("laptop").list.summaries().some((s) => Object.keys(directories).includes(s.workspace.path))).toBe(false);
+    await app.type("/srv/train");
+    await app.press(KEY.enter);
+    await app.waitUntil(() => app.environment("laptop").list.summaries().some((s) => s.workspace.path === "/srv/train"), "the session created");
+    await app.waitUntil(() => !app.frame().includes("where it works"), "the step closed");
   });
 });
 

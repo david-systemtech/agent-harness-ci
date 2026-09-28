@@ -579,12 +579,12 @@ describe("the environment's refusals", () => {
 });
 
 describe("a rewind to the first prompt", () => {
-  it("starts a new session in the same workspace with its text as the draft, through the runtime", async () => {
+  it("starts a new session in the same workspace, a session request naming the rewound one, with its text as the draft, through the runtime", async () => {
     const { app, env } = await launch();
     await converse(app, env, "Fix the receipts", "Add the tests");
     await command(app, "/rewind 2");
     await app.waitFor("Fix the receipts was the first prompt");
-    expect(params(env, "sessions.create")).toEqual([expect.objectContaining({ workspace: { kind: "directory", path: "/home/seth/receipts" } })]);
+    expect(params(env, "sessions.create")).toEqual([expect.objectContaining({ workspace: { kind: "session", sessionId: SESSION } })]);
     await app.waitFor("Nothing said yet.");
     await app.waitUntil(() => composerRow(app).includes("Fix the receipts"), "the first prompt as the new session's draft");
     expect(app.frame()).toContain("/home/seth/receipts");

@@ -109,6 +109,8 @@ export interface TestEnvironmentOptions {
   readonly containment?: ContainmentProbe | Promise<ContainmentProbe>;
   /** The resolver a new session's workspace goes through (`test/workspaces.ts` scripts one); preset: the environment's. */
   readonly workspaceResolver?: EnvironmentOptions["workspaceResolver"];
+  /** What the environment's resolver reads beyond its data directory: roots declared, the home, the readable check, git's time. */
+  readonly workspaces?: EnvironmentOptions["workspaces"];
   /** The scrub registry the environment holds; preset: a fresh one. */
   readonly scrub?: ScrubRegistry;
   /** How the ForgeService reaches a forge (`test/fake-forge.ts` routes github.com's API to a fake one); preset: the environment's. */
@@ -267,6 +269,7 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
     ...(options.usageReadTimeoutMs !== undefined && { usageReadTimeoutMs: options.usageReadTimeoutMs }),
     ...(options.terminals !== undefined && { terminals: options.terminals }),
     ...(options.workspaceResolver !== undefined && { workspaceResolver: options.workspaceResolver }),
+    ...(options.workspaces !== undefined && { workspaces: options.workspaces }),
     ...(options.forgeFetch !== undefined && { forgeFetch: options.forgeFetch }),
     signInProcess: { spawn: refusingSpawn, bundled: TEST_BUNDLED_CLAUDE, managedTool: () => null, hostEnv: { PATH: "/usr/bin" }, ...options.signInProcess },
   };

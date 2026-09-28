@@ -327,8 +327,8 @@ describe("commands.rewind", () => {
   const requests = (wire: FakeWire, method: string) =>
     wire.server.received().flatMap((frame) => (frame.type === "request" && frame.method === method ? [frame.params] : []));
 
-  it("on use_new_session starts a new session in the same workspace with the message's text as its draft, and answers its id", async () => {
-    const { runtime, wire, env, sessionId, summary, play } = await opened();
+  it("on use_new_session starts a new session in the same workspace, a session request naming the rewound one, with the message's text as its draft, and answers its id", async () => {
+    const { runtime, wire, env, sessionId, play } = await opened();
     await play(...firstRun);
     wire.answer("sessions.rewind", () => answering(rejected(20, "conflict", { reason: "use_new_session", sessionId, messageId: PROMPT })));
     wire.answer("sessions.create", () => answering(accepted(21)));
@@ -337,7 +337,7 @@ describe("commands.rewind", () => {
     expect(answer).toMatchObject({ kind: "new-session", sessionId: expect.stringMatching(/^[0-9a-f-]{36}$/), answer: { ok: true } });
     const created = answer.kind === "new-session" ? answer.sessionId : "";
     await flush();
-    expect(requests(wire, "sessions.create")).toEqual([expect.objectContaining({ id: created, workspace: summary.workspace })]);
+    expect(requests(wire, "sessions.create")).toEqual([expect.objectContaining({ id: created, workspace: { kind: "session", sessionId } })]);
     expect(requests(wire, "sessions.setDraft")).toEqual([expect.objectContaining({ sessionId: created, draft: "Fix the receipts" })]);
     // The refusal is the helper's to answer: no notice says the rewind was rejected.
     expect(runtime.projections.notices.read().filter((notice) => notice.kind === "command-rejected")).toEqual([]);

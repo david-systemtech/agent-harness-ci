@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { uuidv4, type CommandParams, type DispatchAnswer, type EnvironmentView, type Runtime, type SessionRow } from "@agent-harness/client-runtime";
+import { uuidv4, type CommandParams, type DispatchAnswer, type DispatchFailure, type EnvironmentView, type Runtime, type SessionRow } from "@agent-harness/client-runtime";
 import type { CommandMethodName, KeyActionId } from "@agent-harness/contracts";
 import { direction, keysText, type Handler, type Keymap } from "../keys.js";
 import type { Presentation } from "../presentation.js";
@@ -51,6 +51,8 @@ export interface RailOptions {
   ask(question: RailQuestion): void;
   /** Opens a picker as the screen's card. */
   open(picker: Picker): void;
+  /** Closes the card when it still shows `picker` (a step whose session was made); leaves any other card. */
+  close(picker: Picker): void;
   /** Opens a session in the transcript (Enter on its row). */
   openSession(target: { readonly environmentId: string; readonly sessionId: string }): void;
   /** Gives the rail the keys. */
@@ -118,11 +120,20 @@ export const useRail = (options: RailOptions): Rail => {
   lastAt.current = at;
   const selected: RailHeading | RailRow | undefined = selectable[at];
 
-  /** Hears a dispatched command's answer: a refusal before it was kept said here, a rejection after it the runtime's notice. */
-  const hear = <A extends DispatchAnswer<CommandMethodName>>(answer: Promise<A>, done?: (accepted: Extract<A, { readonly ok: true }>) => void) => {
+  /**
+   * Hears a dispatched command's answer: a refusal before it was kept said
+   * here, a rejection after it the runtime's notice; `refused`, when given,
+   * hears both instead.
+   */
+  const hear = <A extends DispatchAnswer<CommandMethodName>>(
+    answer: Promise<A>,
+    done?: (accepted: Extract<A, { readonly ok: true }>) => void,
+    refused?: (failure: DispatchFailure) => void,
+  ) => {
     void answer.then(
       (settled) => {
         if (settled.ok) done?.(settled as Extract<A, { readonly ok: true }>);
+        else if (refused) refused(settled.error);
         else if (settled.commandId === null) say(settled.error.message);
       },
       (error: unknown) => say(messageOf(error)),
@@ -150,15 +161,16 @@ export const useRail = (options: RailOptions): Rail => {
     badges,
     workspace: options.workspace,
     say,
-    send: (environmentId, method, params, said, done) => {
+    send: (environmentId, method, params, said, done, refused) => {
       say(said);
-      hear(runtime.commands.dispatch(environmentId, method, params), done);
+      hear(runtime.commands.dispatch(environmentId, method, params), done, refused);
     },
     move: (row, name, said) => {
       say(said);
       hear(runtime.commands.moveToGroup(row.environmentId, row.summary.id, name));
     },
     reveal,
+    close: options.close,
     land: (key) => {
       if (filterNow.current === null) setCursor(key);
     },

@@ -13,6 +13,7 @@ import {
   type KeyActionId,
   type PromptAnswerInput,
   type PromptKind,
+  type WorkspaceRequest,
 } from "@agent-harness/contracts";
 import { ANSWERED, BUILD_WORDS, type ScreenKey } from "./answered.js";
 import { quietChrome, type TerminalChrome } from "./attention/chrome.js";
@@ -58,7 +59,7 @@ import {
 } from "./keys.js";
 import type { LocalService } from "./platform/services.js";
 import { inMemoryPresentation, type Presentation } from "./presentation.js";
-import { PickerCard, erasedFrom, movedBy, printableText, rowAt, typedInto, type Picker } from "./rail/picker.js";
+import { PickerCard, STAYS, erasedFrom, movedBy, printableText, rowAt, typedInto, type Picker } from "./rail/picker.js";
 import { RAIL_WIDTH, RailView } from "./rail/rail.js";
 import { useRail } from "./rail/use-rail.js";
 import type { RuntimeHost } from "./runtime-host.js";
@@ -906,16 +907,17 @@ export const App = (props: AppProps) => {
     },
   ];
 
-  // `/new`: a session on the open one's environment, in its workspace, on its account and model; with none open,
-  // on the header's environment in the `--cwd` directory. It opens once the environment has it,
-  // so its stream is never asked for before it exists.
+  // `/new`: a session on the open one's environment, in its workspace (a `session` request naming it, so the environment
+  // shares its workspace as it has it, #325), on its account and model; with none open, on the header's environment in
+  // the `--cwd` directory. It opens once the environment has it, so its stream is never asked for before it exists.
   const newSession = () => {
     const environment = opened ? views.find((v) => v.environmentId === opened.environmentId) : current;
     if (!environment || isPlaceholder(environment)) return say("There is no environment to start a session on: /pair one first.");
     const sessionId = props.newSessionId?.() ?? crypto.randomUUID();
     const summary = projection?.summary;
-    const workspace = summary?.workspace ?? { kind: "directory" as const, path: props.flags.workspace };
-    say(`Starting a session on ${nameOf(environment)} in ${workspace.path}…`);
+    const workspace: WorkspaceRequest = opened ? { kind: "session", sessionId: opened.sessionId } : { kind: "directory", path: props.flags.workspace };
+    const where = opened ? (summary?.workspace.path ?? "the open session's workspace") : props.flags.workspace;
+    say(`Starting a session on ${nameOf(environment)} in ${where}…`);
     void runtime.commands
       .dispatch(environment.environmentId, "sessions.create", {
         id: sessionId,
@@ -926,7 +928,7 @@ export const App = (props: AppProps) => {
       .then((answer) => {
         if (!answer.ok) return say(`No session was started: ${answer.error.message}`);
         open({ environmentId: environment.environmentId, sessionId });
-        say(`A new session on ${nameOf(environment)} in ${workspace.path}.`);
+        say(`A new session on ${nameOf(environment)} in ${answer.result?.summary.workspace.path ?? where}.`);
       });
   };
 
@@ -1266,6 +1268,8 @@ export const App = (props: AppProps) => {
     ask: (asked) => update({ question: asked }),
     asked: screen.question !== undefined,
     open: (picker) => update({ card: { kind: "picker", picker } }),
+    // The card is closed only while it still shows that picker, as typed at and moved since: its rows name it.
+    close: (picker) => setScreen((s) => (s.card.kind === "picker" && s.card.picker.rows === picker.rows ? { ...s, card: { kind: "none" } } : s)),
     openSession: (target) => open(target),
     focus: () => setFocus("sidebar"),
     leave: () => setFocus("composer"),
@@ -1317,8 +1321,9 @@ export const App = (props: AppProps) => {
       if (!row) return;
       if (row.absent !== undefined) return say(`${row.text}: ${row.absent}.`);
       // A step on opens the next picker, which goes back to this one as it stands, the choice highlighted; a row
-      // that is done closes the card.
+      // that is done closes the card; one that waits on an answer leaves it as it is.
       const next = row.choose?.();
+      if (next === STAYS) return;
       const stepped = next && next.back !== undefined ? { ...next, back: card.picker } : next;
       return setScreen((s) => (s.card === card ? { ...s, card: stepped ? { kind: "picker", picker: stepped } : { kind: "none" } } : s));
     }

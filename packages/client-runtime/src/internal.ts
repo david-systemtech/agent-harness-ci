@@ -107,12 +107,10 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
     shown: (environmentId) => lists.read().get(environmentId)?.data ?? null,
     now: (environmentId) => made.now(environmentId),
     rewindSource(environmentId, sessionId, messageId) {
-      const id = sessionId.toLowerCase();
       // What the runtime holds of the session, read without subscribing anything.
-      const held = sessionProjections(`${environmentId} ${id}`).read();
+      const held = sessionProjections(`${environmentId} ${sessionId.toLowerCase()}`).read();
       const message = held.items.find((item) => item.kind === "user-message" && item.messageId.toLowerCase() === messageId.toLowerCase());
-      const workspace = lists.read().get(environmentId)?.data?.sessions.get(id)?.workspace ?? held.summary?.workspace;
-      return message?.kind === "user-message" && workspace !== undefined ? { text: message.text, workspace } : null;
+      return message?.kind === "user-message" ? { text: message.text } : null;
     },
   });
   const drafts = createDrafts({

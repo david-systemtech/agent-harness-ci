@@ -12,8 +12,10 @@ import type { Badge } from "./badge.js";
  * picker takes every printable key into its query (`picker.filter`, the
  * table's `Letters`) before any letter-keyed action, so `k` and `j` move
  * only a list that is not typed at, as their row says. Choosing a row runs
- * it: it answers the next picker (a step on), or nothing, and the picker
- * closes. Esc clears the query, then goes back a step, then closes.
+ * it: it answers the next picker (a step on), nothing, and the picker
+ * closes, or `STAYS`, and the picker stays open until what it waits on
+ * closes it. A picker keeps its `rows` through typing and moving, so they
+ * name it. Esc clears the query, then goes back a step, then closes.
  */
 
 export interface PickerRow {
@@ -24,9 +26,16 @@ export interface PickerRow {
   readonly badge?: Badge;
   /** Why it cannot be chosen now: drawn dim, and said when chosen. */
   readonly absent?: string;
-  /** What choosing it does: the next picker, or nothing when it is done. */
-  readonly choose?: () => Picker | void;
+  /**
+   * What choosing it does: the next picker, nothing when it is done, or
+   * `STAYS` when the picker stays as it is, waiting on an answer its own
+   * note follows (a session the environment is asked to make).
+   */
+  readonly choose?: () => Picker | typeof STAYS | void;
 }
+
+/** A choice that keeps its picker open as it is: query, cursor and all. */
+export const STAYS = "stays";
 
 /** A chip over a step: environment, account, model, in that order (ADR 0005). */
 export interface Chip {
