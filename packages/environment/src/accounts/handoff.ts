@@ -22,9 +22,9 @@ import type { AccountUsage, HandoffBasis, UsageWindow } from "@agent-harness/con
  * window that has rolled over since it was read meets no threshold.
  * `recommendAccount` takes `minCandidates` (two), so a hand-off from one
  * account to the only other is still a choice, and never names an account
- * with no room (a refused window, or a full one): a refused account still
- * ranks at zero, where a tie with another at zero falls to list order and is
- * named, and a full account is recommended when every one is full.
+ * with no room (a refused window, or a full one): both still count toward
+ * `candidates`, but neither is ever `best`, so a set that is every account
+ * full or refused answers no recommendation.
  * Freshness is one rule (`isFresh`): under six minutes old, so a reading
  * ages out at six minutes exactly, as the pool reads it again then. No
  * reading carries a plan tier yet, so an entry's `plan` is the caller's to
