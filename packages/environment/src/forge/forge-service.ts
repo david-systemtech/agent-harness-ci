@@ -12,6 +12,7 @@ import {
   type ForgeAccountRecord,
   type ForgeAccountUpdatedPayload,
   type ForgeAddCredential,
+  type ForgeAlias,
   type ForgeCredentialSource,
   type ForgeIdentity,
   type ForgeKind,
@@ -308,12 +309,75 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
     return holder === null || holder === except ? null : conflict("slug_taken", `The slug ${slug} is taken by another forge account on this environment.`, { slug, forgeAccountId: holder });
   };
 
-  /** Why an add cannot go ahead as the store is now: an id used before, an origin held, a slug taken; null when it can. */
-  const addRefusal = (forgeAccountId: string, origin: ForgeOrigin, slug: string | undefined): Refusal<"forge.accounts.add"> | null => {
+  /** The first of `origins` another forge account than `except` holds, as its canonical origin or an alias, refused `origin_held`; null for none. */
+  const originHeld = (origins: readonly ForgeOrigin[], except?: string) => {
+    for (const origin of origins) {
+      const holder = originHolder(reader, origin);
+      if (holder !== null && holder !== except) return conflict("origin_held", `${origin} is already held by another forge account on this environment.`, { origin, forgeAccountId: holder });
+    }
+    return null;
+  };
+
+  /** Why an add cannot go ahead as the store is now: an id used before, an origin or alias held, a slug taken; null when it can. */
+  const addRefusal = (forgeAccountId: string, origins: readonly ForgeOrigin[], slug: string | undefined): Refusal<"forge.accounts.add"> | null => {
     if (forgeAccountEver(reader, forgeAccountId)) return conflict("exists", `A forge account ${forgeAccountId} was added already.`, { forgeAccountId });
-    const holder = originHolder(reader, origin);
-    if (holder !== null) return conflict("origin_held", `${origin} is already held by another forge account on this environment.`, { origin, forgeAccountId: holder });
-    return slug === undefined ? null : slugTaken(slug);
+    return originHeld(origins) ?? (slug === undefined ? null : slugTaken(slug));
+  };
+
+  /** An alias whose origin answered as someone else than the forge account, or refused its credential. */
+  const aliasMismatch = (origin: ForgeOrigin, expected: ForgeIdentity, found: ForgeIdentity | null, status: number) =>
+    ({
+      code: "alias_identity_mismatch",
+      message:
+        found === null
+          ? `${origin} refused the credential (HTTP ${status}) that answers as ${expected.login} on the forge account's origin: it is not the same forge. Nothing was changed.`
+          : `${origin} answers the credential as ${found.login} (user ${found.userId}), not ${expected.login} (user ${expected.userId}): it is not the same forge. Nothing was changed.`,
+      data: { origin, expected, found, status },
+    }) as const;
+
+  /**
+   * The alias origins a command names, each given as a URL in any form:
+   * only the origin kept, each once, in the order given; `invalid_params`
+   * for one that names no forge or is the forge account's own origin.
+   */
+  const aliasOrigins = (given: readonly string[] | undefined, origin: ForgeOrigin): ForgeOrigin[] | undefined => {
+    if (given === undefined) return undefined;
+    const origins: ForgeOrigin[] = [];
+    given.forEach((text, index) => {
+      const alias = normaliseRemote(text)?.origin;
+      const problem = alias === undefined ? "names no forge: give its https or http address" : alias === origin ? "is the forge account's own origin, not an alias of it" : null;
+      if (problem !== null) {
+        const message = `The alias ${index + 1} ${problem}.`;
+        throw new ContractError(invalidParams([{ code: "custom", path: ["aliases", index], message }], message));
+      }
+      if (alias !== undefined && !origins.includes(alias)) origins.push(alias);
+    });
+    return origins;
+  };
+
+  /**
+   * Asks each of `origins` who `token` is, the credential having answered
+   * as `identity` on the forge account's own origin: one answering as the
+   * same login and user id is verified now; one that does not answer, or
+   * any while the identity is not known, waits unverified; another identity
+   * or a refusal is `alias_identity_mismatch`.
+   */
+  const checkAliases = async (kind: ForgeKind, token: string, identity: ForgeIdentity | null, origins: readonly ForgeOrigin[]) => {
+    const at = clock.now().toISOString();
+    const aliases: ForgeAlias[] = [];
+    for (const origin of origins) {
+      const answer = identity === null ? null : await identify(kind, origin, token);
+      if (identity === null || answer === null || answer.outcome === "unreachable") {
+        aliases.push({ origin, verifiedAt: null });
+        continue;
+      }
+      const found = answer.outcome === "identified" ? answer.identity : null;
+      if (found?.login !== identity.login || found.userId !== identity.userId) {
+        return { rejected: aliasMismatch(origin, identity, found, answer.outcome === "refused" ? answer.status : 200) };
+      }
+      aliases.push({ origin, verifiedAt: at });
+    }
+    return { aliases };
   };
 
   const verificationFailed = (origin: ForgeOrigin, answer: Extract<IdentityAnswer, { outcome: "refused" }>) =>
@@ -360,7 +424,7 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
 
   /** A credential given to an add or update, heard from the forge before the transaction; `Code` is the refusals the caller adds. */
   type Checked<Code extends string> =
-    | { readonly rejected: CommandRejection<Code | "verification_failed" | "credential_source_unavailable"> }
+    | { readonly rejected: CommandRejection<Code | "verification_failed" | "alias_identity_mismatch" | "credential_source_unavailable"> }
     | Accepted;
 
   interface Accepted {
@@ -371,6 +435,8 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
     readonly problem: ForgeProblem | null;
     /** The registration a stored token keeps while the vault holds it; null for every other source. */
     readonly held: ScrubRelease | null;
+    /** The aliases it was asked about, each verified now or waiting unverified. */
+    readonly aliases: readonly ForgeAlias[];
   }
 
   /** What `check` is given. */
@@ -385,6 +451,8 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
     readonly purpose: string;
     /** The caller's refusal of the identity the credential answered as, if any, heard before a token is stored. */
     readonly refuse: (found: ForgeIdentity | null) => CommandRejection<Code> | null;
+    /** The alias origins to ask about with the credential. */
+    readonly aliases: readonly ForgeOrigin[];
   }
 
   /**
@@ -396,19 +464,23 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
    * read is `credential_source_unavailable`; a `gh` that gives no token, or a
    * forge that does not answer, leaves a problem.
    */
-  const check = async <Code extends string>({ target, given, context, formed, purpose, refuse }: CheckRequest<Code>): Promise<Checked<Code>> => {
+  const check = async <Code extends string>({ target, given, context, formed, purpose, refuse, aliases }: CheckRequest<Code>): Promise<Checked<Code>> => {
     const { id, origin, kind } = target;
-    if (given.kind === "none") return { source: { kind: "none" }, identity: null, problem: needsCredential(), held: null };
-    /** What the forge's answer leaves: a refusal, the caller's refusal of who answered, or the identity and problem to record. */
-    const answered = (answer: IdentityAnswer): Checked<Code> | Omit<Accepted, "source" | "held"> => {
+    const unverified = aliases.map((alias): ForgeAlias => ({ origin: alias, verifiedAt: null }));
+    if (given.kind === "none") return { source: { kind: "none" }, identity: null, problem: needsCredential(), held: null, aliases: unverified };
+    /** What the forge answers `token`: a refusal, the caller's refusal of who answered, an alias's mismatch, or the identity, problem and aliases to record. */
+    const heardWith = async (token: string): Promise<Checked<Code> | Omit<Accepted, "source" | "held">> => {
+      const answer = await identify(kind, origin, token);
       if (answer.outcome === "refused") return { rejected: verificationFailed(origin, answer) };
       const identity = answer.outcome === "identified" ? answer.identity : null;
       const refused = refuse(identity);
       if (refused !== null) return { rejected: refused };
-      return { identity, problem: answer.outcome === "unreachable" ? unreachable(answer.message) : null };
+      const checked = await checkAliases(kind, token, identity, aliases);
+      if (checked.rejected !== undefined) return checked;
+      return { identity, problem: answer.outcome === "unreachable" ? unreachable(answer.message) : null, aliases: checked.aliases };
     };
     if (given.kind === "stored") {
-      const heard = answered(await identify(kind, origin, given.token));
+      const heard = await heardWith(given.token);
       if (heard.rejected !== undefined) return heard;
       const entry = await store(id, given.token, context);
       return { ...heard, source: storedSource(given.provenance, entry, context), held: formed?.(kind, heard.identity?.login ?? target.login) ?? null };
@@ -417,16 +489,30 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
     const read = await readCredential({ ...target, credential: source }, purpose);
     if (read.outcome === "unavailable") {
       if (source.kind === "reference") return { rejected: sourceUnavailable(source.reference.connectionId, read.problem) };
-      return { source, identity: null, problem: read.problem, held: null };
+      return { source, identity: null, problem: read.problem, held: null, aliases: unverified };
     }
-    let answer: IdentityAnswer;
     try {
-      answer = await identify(kind, origin, read.token);
+      const heard = await heardWith(read.token);
+      return heard.rejected !== undefined ? heard : { ...heard, source, held: null };
     } finally {
       read.release();
     }
-    const heard = answered(answer);
-    return heard.rejected !== undefined ? heard : { ...heard, source, held: null };
+  };
+
+  /**
+   * Asks `origins` about the credential the forge account holds, for an
+   * update that names new aliases and no new credential: waiting unverified
+   * when it cannot be read or has never answered.
+   */
+  const checkHeldAliases = async (account: ForgeAccountRecord, origins: readonly ForgeOrigin[]) => {
+    if (origins.length === 0 || account.identity === null) return { aliases: origins.map((origin): ForgeAlias => ({ origin, verifiedAt: null })) };
+    const read = await readCredential({ ...account, login: account.identity.login }, "update");
+    if (read.outcome === "unavailable") return { aliases: origins.map((origin): ForgeAlias => ({ origin, verifiedAt: null })) };
+    try {
+      return await checkAliases(account.kind, read.token, account.identity, origins);
+    } finally {
+      read.release();
+    }
   };
 
   /** Refuses `gh` and a client's `gh` for a forge account that is not GitHub's: `gh` holds GitHub tokens alone. */
@@ -453,15 +539,16 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
         throw new ContractError(invalidParams([{ code: "custom", path: ["kind"], message }], message));
       }
       refuseGhOffGitHub(given, kind);
-      const doomed = addRefusal(forgeAccountId, origin, params.slug);
+      const aliases = aliasOrigins(params.aliases, origin) ?? [];
+      const doomed = addRefusal(forgeAccountId, [origin, ...aliases], params.slug);
       if (doomed !== null) return rejecting<"forge.accounts.add">(doomed);
 
-      const checked = await check<never>({ target: { id: forgeAccountId, origin, kind, login: null }, given, context, formed, purpose: "add", refuse: () => null });
+      const checked = await check<never>({ target: { id: forgeAccountId, origin, kind, login: null }, given, context, formed, purpose: "add", refuse: () => null, aliases });
       if (checked.rejected !== undefined) return rejecting<"forge.accounts.add">(checked.rejected);
 
       return (_params, command) => {
-        // Read again in the transaction: another command may have taken the id, the origin or the slug meanwhile.
-        const refused = addRefusal(forgeAccountId, origin, params.slug);
+        // Read again in the transaction: another command may have taken the id, an origin or the slug meanwhile.
+        const refused = addRefusal(forgeAccountId, [origin, ...aliases], params.slug);
         if (refused !== null) return { aggregate: stream, rejected: refused };
         const accounts = listForgeAccounts(reader);
         const slug = params.slug ?? deriveForgeSlug(origin, accounts.map((account) => account.slug));
@@ -471,7 +558,7 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
         const payload: ForgeAccountAddedPayload = {
           forgeAccountId,
           origin,
-          aliases: [],
+          aliases: [...checked.aliases],
           kind,
           slug,
           identity: checked.identity,
@@ -500,25 +587,46 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
     }) as const;
 
   /** Why an update cannot go ahead as the store is now; null when it can. */
-  const updateRefusal = (forgeAccountId: string, slug: string | undefined, found: ForgeIdentity | null): Refusal<"forge.accounts.update"> | null => {
+  const updateRefusal = (forgeAccountId: string, slug: string | undefined, found: ForgeIdentity | null, aliases: readonly ForgeOrigin[]): Refusal<"forge.accounts.update"> | null => {
     const current = liveForgeAccount(reader, forgeAccountId);
     if (current === null) return notFound(forgeAccountId);
-    const taken = slug === undefined ? null : slugTaken(slug, forgeAccountId);
+    const taken = (slug === undefined ? null : slugTaken(slug, forgeAccountId)) ?? originHeld(aliases, forgeAccountId);
     if (taken !== null) return taken;
     if (found !== null && current.identity !== null && found.userId !== current.identity.userId) return identityMismatch(forgeAccountId, current.identity, found);
     return null;
   };
+
+  /**
+   * The aliases an update leaves, in the order given: one the forge account
+   * has verified already keeps its verification; any other is as the
+   * update's check found it.
+   */
+  const aliasesAfter = (current: ForgeAccountRecord, origins: readonly ForgeOrigin[], checked: readonly ForgeAlias[]): ForgeAlias[] =>
+    origins.map(
+      (origin) =>
+        current.aliases.find((alias) => alias.origin === origin && alias.verifiedAt !== null) ??
+        checked.find((alias) => alias.origin === origin) ?? { origin, verifiedAt: null },
+    );
+
+  const sameAliases = (one: readonly ForgeAlias[], other: readonly ForgeAlias[]): boolean => JSON.stringify(one) === JSON.stringify(other);
 
   const update: ForgeService["update"] = {
     async prepare(params, context) {
       const forgeAccountId = params.forgeAccountId.toLowerCase();
       const given = params.credential;
       const formed = given?.kind === "stored" ? arrive(forgeAccountId, given.token, context) : null;
-      const doomed = updateRefusal(forgeAccountId, params.slug, null);
+      const doomed = updateRefusal(forgeAccountId, params.slug, null, []);
       if (doomed !== null) return rejecting<"forge.accounts.update">(doomed);
+      const held = recordOf(forgeAccountId);
+      const origins = aliasOrigins(params.aliases, held.origin);
+      const aliasesHeld = origins === undefined ? null : originHeld(origins, forgeAccountId);
+      if (aliasesHeld !== null) return rejecting<"forge.accounts.update">(aliasesHeld);
+      // An alias the forge account has verified already keeps its verification; every other named is asked about.
+      const toCheck = (origins ?? []).filter((origin) => !held.aliases.some((alias) => alias.origin === origin && alias.verifiedAt !== null));
       let replacement: Accepted | null = null;
+      let checkedAliases: readonly ForgeAlias[] = [];
       if (given !== undefined) {
-        const { kind, origin, identity } = recordOf(forgeAccountId);
+        const { kind, origin, identity } = held;
         refuseGhOffGitHub(given, kind);
         const checked = await check({
           target: { id: forgeAccountId, origin, kind, login: identity?.login ?? null },
@@ -526,21 +634,30 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
           context,
           formed,
           purpose: "update",
-          refuse: (found) => updateRefusal(forgeAccountId, params.slug, found),
+          refuse: (found) => updateRefusal(forgeAccountId, params.slug, found, []),
+          aliases: toCheck,
         });
         if (checked.rejected !== undefined) return rejecting<"forge.accounts.update">(checked.rejected);
         replacement = checked;
+        checkedAliases = checked.aliases;
+      } else {
+        const checked = await checkHeldAliases(held, toCheck);
+        if (checked.rejected !== undefined) return rejecting<"forge.accounts.update">(checked.rejected);
+        checkedAliases = checked.aliases;
       }
       const replacing = replacement;
+      const aliasesChecked = checkedAliases;
 
       return (_params, command) => {
         const found = replacing?.identity ?? null;
-        const refused = updateRefusal(forgeAccountId, params.slug, found);
+        const refused = updateRefusal(forgeAccountId, params.slug, found, origins ?? []);
         if (refused !== null) return { aggregate: stream, rejected: refused };
         const current = recordOf(forgeAccountId);
+        const aliases = origins === undefined ? current.aliases : aliasesAfter(current, origins, aliasesChecked);
         const payload: ForgeAccountUpdatedPayload = { forgeAccountId };
         const changes: Partial<ForgeAccountUpdatedPayload> = {
           ...(params.slug !== undefined && params.slug !== current.slug && { slug: params.slug }),
+          ...(!sameAliases(aliases, current.aliases) && { aliases }),
           ...(replacing !== null && { credential: replacing.source, ...(found !== null && { identity: found }), problem: replacing.problem }),
         };
         if (Object.keys(changes).length === 0) return { aggregate: stream, result: { account: current } };
