@@ -49,15 +49,13 @@ export class LocalFailure extends Error {
   }
 }
 
-/** The environment answered a call with an error: the method, and the error as the wire carried it. */
+/** The environment answered a call with an error: the error as the wire carried it. */
 export class LocalRefusal extends LocalFailure {
-  readonly method: string;
   readonly error: WireError;
 
   constructor(method: string, error: WireError) {
     super(`The environment refused ${method}: ${error.message}`);
     this.name = "LocalRefusal";
-    this.method = method;
     this.error = error;
   }
 }

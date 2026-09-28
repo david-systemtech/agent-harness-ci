@@ -24,10 +24,10 @@ import { readSettings } from "../settings/settings-store.js";
  */
 
 /** Why nothing manages the updates of an environment `serve` runs in the foreground, for people. */
-export const FOREGROUND_REASON = "serve runs in the foreground, with no launcher to switch versions; `service install` runs the environment under one.";
+const FOREGROUND_REASON = "serve runs in the foreground, with no launcher to switch versions; `service install` runs the environment under one.";
 
 /** Why nothing manages the updates of an environment whose launcher went, for people. */
-export const LAUNCHER_GONE_REASON = "The launcher that started this environment no longer answers.";
+const LAUNCHER_GONE_REASON = "the launcher that started the environment no longer answers.";
 
 export interface UpdateMethodsOptions {
   readonly log: EventLog;
@@ -44,7 +44,7 @@ export interface UpdateMethodsOptions {
 }
 
 /** The update settings as they are now, each key never set at its preset. */
-export const readUpdateSettings = (reader: Reader): UpdateSettingsValues => {
+const readUpdateSettings = (reader: Reader): UpdateSettingsValues => {
   const values = readSettings(reader);
   return Object.fromEntries(UPDATE_SETTINGS_KEYS.map((key) => [key, values[key]])) as UpdateSettingsValues;
 };

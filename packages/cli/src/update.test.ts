@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { TEST_CLAUDE_CODE_VERSION, startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../environment/test/helper.js";
 import { testLauncher } from "../../environment/test/launcher.js";
 import { runCli, type CliContext } from "./cli.js";
+import { renderUpdatesStatus } from "./update.js";
 
 /**
  * The `update` verbs that reach the local environment (launcher-update spec,
@@ -186,6 +187,54 @@ describe("agent-harness update settings", () => {
       expect(code, args.join(" ")).toBe(2);
       expect(err, args.join(" ")).toContain("agent-harness update settings");
     }
+  });
+});
+
+describe("the status as update status prints it", () => {
+  const updateId = "7d0f2b1e-2c55-4a8e-9f0b-3a1c5d7e9b20";
+  const at = "2026-09-28T10:00:00.000Z";
+  const later = "2026-09-29T10:00:00.000Z";
+  const base: UpdatesStatus = {
+    version: "0.4.2",
+    protocolVersion: 1,
+    bundledClaudeCodeVersion: null,
+    manager: { kind: "outside", lastPoll: at },
+    newest: "0.5.0",
+    lastCheck: { at, result: "failed", reason: "unreachable", message: "The forge did not answer." },
+    pending: { state: "current" },
+    lastOutcome: { outcome: "failed", updateId, fromVersion: "0.4.2", toVersion: "0.5.0", at, stage: "trial", reason: "deadline", rolledBack: true },
+    failedVersions: ["0.5.0"],
+    installed: [],
+  };
+  const pending = { updateId, toVersion: "0.5.1", source: "channel", since: at, deferUntil: later, image: null } as const;
+
+  it("says each part the document can carry, the channel, pending and outcome parts later tickets fill included", () => {
+    expect(renderUpdatesStatus(base).split("\n")).toEqual([
+      "Version: agent-harness 0.4.2, protocol 1",
+      "Claude Code (bundled): unknown",
+      `Updates: managed outside, by a host-side updater; last polled at ${at}`,
+      "Channel's newest: 0.5.0",
+      `Last check: ${at}, failed (unreachable): The forge did not answer.`,
+      "Pending update: none",
+      `Last update: 0.4.2 to 0.5.0, failed at ${at} (trial: deadline), rolled back`,
+      "Failed versions: 0.5.0",
+      "",
+    ]);
+    const lines: [UpdatesStatus["pending"], string][] = [
+      [{ state: "staging", updateId, toVersion: "0.5.1", source: "request" }, "0.5.1 (request), staging"],
+      [{ state: "waiting", ...pending, waitsOn: { reason: "parked-prompt", until: later } }, `0.5.1 (channel), waiting since ${at}, forced at ${later}; busy: parked-prompt until ${later}`],
+      [{ state: "waiting", ...pending, waitsOn: { reason: "run-running", until: null } }, `0.5.1 (channel), waiting since ${at}, forced at ${later}; busy: run-running`],
+      [{ state: "ready", ...pending }, `0.5.1 (channel), ready for the host-side updater since ${at}`],
+      [{ state: "draining", ...pending, cause: "cap" }, "0.5.1 (channel), draining (cap)"],
+      [{ state: "blocked", reason: "launcher", toVersion: "0.9.0" }, "0.9.0, blocked (launcher)"],
+    ];
+    for (const [state, line] of lines) expect(renderUpdatesStatus({ ...base, pending: state })).toContain(`Pending update: ${line}\n`);
+    expect(renderUpdatesStatus({ ...base, lastOutcome: { outcome: "updated", updateId: null, fromVersion: "0.4.1", toVersion: "0.4.2", at } })).toContain(
+      `Last update: 0.4.1 to 0.4.2, updated at ${at}\n`,
+    );
+    expect(renderUpdatesStatus({ ...base, manager: { kind: "outside", lastPoll: null }, lastCheck: null, newest: null })).toMatch(
+      /Updates: managed outside, by a host-side updater; it has not polled yet\nChannel's newest: not read yet\nLast check: never\n/,
+    );
   });
 });
 
