@@ -448,6 +448,25 @@ describe("the drain for an update", () => {
     expect(await pendingOf(await again.client())).toEqual({ state: "current" });
   });
 
+  it("takes a new update id for the same version asked for again after its switch, so the launcher never switches one update twice (#443)", async () => {
+    const dataDir = join(tempDir(), "data");
+    const { t, client, updateId } = await pendingUpdate({ dataDir });
+    t.runs.end("r1");
+    await apply(client, { when: "now" });
+    t.clock.advance(0);
+    await t.env.drained;
+    expect(switches(t)).toEqual([{ updateId, version: TARGET }]);
+
+    // The launcher rolled the trial back and starts the version the update went from, which is asked for the same version again.
+    const again = await start({ dataDir, clock: t.clock });
+    const later = await again.client();
+    const retried = (await apply(later, { version: TARGET, artefactPath: artefact(), when: "now" })).result?.updateId;
+    again.clock.advance(0);
+    await again.env.drained;
+    expect(retried).not.toBe(updateId);
+    expect(switches(again)).toEqual([{ updateId: retried, version: TARGET }]);
+  });
+
   it("refuses another updates.apply in_progress while it drains, and updates.status says draining with its cause", async () => {
     const { t, client, updateId } = await pendingUpdate();
     await apply(client, { when: "now" });
