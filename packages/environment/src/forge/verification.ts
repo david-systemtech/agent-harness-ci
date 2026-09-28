@@ -1,4 +1,13 @@
-import type { ForgeAlias, ForgeCapabilities, ForgeCapability, ForgeIdentity, ForgeOrigin, ForgeProblem, ForgeTokenInformation } from "@agent-harness/contracts";
+import {
+  UNKNOWN_FORGE_CAPABILITIES,
+  type ForgeAlias,
+  type ForgeCapabilities,
+  type ForgeCapability,
+  type ForgeIdentity,
+  type ForgeOrigin,
+  type ForgeProblem,
+  type ForgeTokenInformation,
+} from "@agent-harness/contracts";
 import type { CallOptions, ForgeProvider, IdentityAnswer, ReadAnswer } from "./providers.js";
 
 /**
@@ -81,6 +90,9 @@ export interface Known {
   readonly problem: ForgeProblem | null;
   readonly aliases: readonly ForgeAlias[];
 }
+
+/** Nothing known: a credential no forge account holds, as the state import's probe asks about it. */
+export const NOTHING_KNOWN: Known = { identity: null, capabilities: UNKNOWN_FORGE_CAPABILITIES, tokenInformation: null, problem: null, aliases: [] };
 
 /** What a verification makes of what was known. */
 export interface Reconciled extends Known {

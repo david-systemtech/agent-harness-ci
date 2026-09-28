@@ -1,11 +1,12 @@
 import { forgeAccountOnHost, type ForgeAccountRecord, type ForgeAccountUpdatedPayload, type ForgeAccountVerifiedPayload, type ForgeKind } from "@agent-harness/contracts";
+import type { ForgeOrigin } from "@agent-harness/contracts";
 import { formatActor, type EventLog, type StreamRef } from "../event-log/event-log.js";
 import type { Clock, Timer } from "../serve/clock.js";
 import type { Reader } from "../sessions/session-tables.js";
 import type { ForgeCredential } from "./forge-service.js";
 import { listForgeAccounts, liveForgeAccount } from "./forge-store.js";
 import type { ForgeProvider } from "./providers.js";
-import { reconcile, verifyCredential, type Found, type Reconciled } from "./verification.js";
+import { NOTHING_KNOWN, reconcile, verifyCredential, type Found, type Reconciled } from "./verification.js";
 
 /**
  * The forge accounts' verification schedule and its record (forge spec,
@@ -71,8 +72,18 @@ export interface Verifier {
   removed(forgeAccountId: string): void;
   /** `record` with the verified-at times kept beside it. */
   seen(record: ForgeAccountRecord): ForgeAccountRecord;
+  /** One verification of a token no forge account holds, within the budget, recording nothing: what it makes of nothing known. */
+  probe(request: ProbeRequest): Promise<Reconciled>;
   /** Stops the schedule; a verification still running records nothing. */
   close(): void;
+}
+
+/** A token to verify with no forge account: the origin and kind it is for, and a repository there (`owner/name`) to probe the reads on, or null. */
+export interface ProbeRequest {
+  readonly origin: ForgeOrigin;
+  readonly kind: ForgeKind;
+  readonly token: string;
+  readonly repository: string | null;
 }
 
 /** When each read and alias of a forge account was last found verified, beside its record. */
@@ -127,11 +138,11 @@ export const createVerifier = (options: VerifierOptions): Verifier => {
   };
 
   /** Settles as `work` does, or as unreachable once the budget has passed, when the work's signal is aborted too. */
-  const withinBudget = async (account: ForgeAccountRecord, work: (signal: AbortSignal) => Promise<Found>): Promise<Found> => {
+  const withinBudget = async (origin: ForgeOrigin, work: (signal: AbortSignal) => Promise<Found>): Promise<Found> => {
     const controller = new AbortController();
     const overrun = new Promise<Found>((resolve) => {
       controller.signal.addEventListener("abort", () =>
-        resolve({ outcome: "unreachable", message: `The forge at ${account.origin} did not finish answering within ${budgetMs / 1000} s; it is verified again later.` }),
+        resolve({ outcome: "unreachable", message: `The forge at ${origin} did not finish answering within ${budgetMs / 1000} s; it is verified again later.` }),
       );
     });
     // On the wall clock, never the environment's, which a test may hold still.
@@ -204,7 +215,7 @@ export const createVerifier = (options: VerifierOptions): Verifier => {
     timers.delete(forgeAccountId);
     const account = liveForgeAccount(reader, forgeAccountId);
     if (account === null || !verifiable(account) || closed) return;
-    const found = await withinBudget(account, (signal) => ask(account, signal));
+    const found = await withinBudget(account.origin, (signal) => ask(account, signal));
     if (closed) return;
     record(forgeAccountId, credentialOf(account), found);
   };
@@ -260,6 +271,12 @@ export const createVerifier = (options: VerifierOptions): Verifier => {
       seenTimes.delete(forgeAccountId);
     },
     seen,
+    async probe({ origin, kind, token, repository }) {
+      const found = await withinBudget(origin, (signal) =>
+        verifyCredential(options.provider(kind), { origin, token, expected: null, repository, aliases: [] }, { signal }),
+      );
+      return reconcile(NOTHING_KNOWN, found, clock.now());
+    },
     close() {
       closed = true;
       for (const timer of timers.values()) timer.cancel();

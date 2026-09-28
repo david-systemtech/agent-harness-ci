@@ -344,3 +344,34 @@ describe("when a verification runs", () => {
     await vi.waitFor(async () => expect((await list(client))[0]).toMatchObject({ problem: null, statusSince: after(75 * MINUTE) }));
   });
 });
+
+describe("the state import's credential probe", () => {
+  it("answers the identity and capabilities a credential has, on the repository its URL names, storing and recording nothing", async () => {
+    const { t, forge, client } = await withForge();
+    forge.repository(TOKEN, "david/bank");
+    const from = t.env.log.head();
+
+    const probe = await t.env.forge.probeCredential({ url: `${forge.origin}/david/bank.git`, kind: "forgejo", token: TOKEN });
+
+    expect(probe).toEqual({
+      origin: forge.origin,
+      identity: { login: "david", userId: "42" },
+      capabilities: { ...UNKNOWN_FORGE_CAPABILITIES, readRepository: verifiedAt(MANUAL_CLOCK_START), readReleases: verifiedAt(MANUAL_CLOCK_START) },
+      tokenInformation: { kind: "unknown", scopes: null, expiresAt: null },
+      problem: null,
+    });
+    expect(forge.requests.map((request) => request.path)).toEqual(["/api/v1/user", "/api/v1/repos/david/bank", "/api/v1/repos/david/bank/releases"]);
+    expect(await list(client)).toEqual([]);
+    expect(await forgeEvents(client, from)).toEqual([]);
+    expect(await saidBack(t, [TOKEN])).toEqual([TOKEN]);
+  });
+
+  it("answers a credential the forge refuses with problem credential-rejected, and one on a forge that does not answer with unreachable", async () => {
+    const { t, forge } = await withForge();
+    const refused = await t.env.forge.probeCredential({ url: forge.origin, kind: "gitea", token: "token-nobody-knows" });
+    expect(refused).toMatchObject({ identity: null, capabilities: UNKNOWN_FORGE_CAPABILITIES, tokenInformation: null, problem: { kind: "credential-rejected", since: MANUAL_CLOCK_START } });
+    await forge.close();
+    const unreachable = await t.env.forge.probeCredential({ url: forge.origin, kind: "gitea", token: TOKEN });
+    expect(unreachable).toMatchObject({ identity: null, problem: { kind: "unreachable" } });
+  });
+});

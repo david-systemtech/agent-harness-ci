@@ -13,11 +13,13 @@ import {
   type ForgeAccountUpdatedPayload,
   type ForgeAddCredential,
   type ForgeAlias,
+  type ForgeCapabilities,
   type ForgeCredentialSource,
   type ForgeIdentity,
   type ForgeKind,
   type ForgeOrigin,
   type ForgeProblem,
+  type ForgeTokenInformation,
   type GhProbe,
   type MethodName,
   type ParamsOf,
@@ -128,6 +130,24 @@ export interface ForgeAdd {
 /** The handler an add's prepare answers, applied inside the command's transaction; it reads nothing of the params it is given. */
 export type ForgeAddHandler = (params: ForgeAddRequest, context: CommandContext) => CommandAnswer<ResultOf<"forge.accounts.add">, ErrorOf<"forge.accounts.add">["code"]>;
 
+/** What the state import asks of a credential it carried over, in process (#56, ADR 0036): nothing is stored or recorded. */
+export interface CredentialProbeRequest {
+  /** The forge's URL in any form, or a repository's on it (a bank's remote), whose reads are then probed on that repository. */
+  readonly url: string;
+  /** The forge's kind; optional for github.com. */
+  readonly kind?: Exclude<ForgeKind, "gitlab">;
+  readonly token: string;
+}
+
+/** What a credential probe found: who the token is, what it may read, what it says of itself, and what is wrong. */
+export interface CredentialProbe {
+  readonly origin: ForgeOrigin;
+  readonly identity: ForgeIdentity | null;
+  readonly capabilities: ForgeCapabilities;
+  readonly tokenInformation: ForgeTokenInformation | null;
+  readonly problem: ForgeProblem | null;
+}
+
 /** A forge account's credential for one operation. */
 export type ForgeCredential =
   /** The token, and the release that ends its registration for scrubbing: call it when the operation ends. */
@@ -153,6 +173,14 @@ export interface ForgeService {
   startVerifying(): void;
   /** Verifies one forge account now, or every one (`forge.accounts.verify`), and answers every record after; `not_found` for one the environment does not hold. */
   verify(forgeAccountId?: string): Promise<ForgeAccountRecord[]>;
+  /**
+   * The state import's in-process credential probe: one verification of a
+   * token it carried over, without a record, answering identity and
+   * capabilities. The token is held as a secret while it runs, and nothing
+   * is stored. `invalid_params` for a URL that names no forge, or no kind
+   * for one other than github.com.
+   */
+  probeCredential(request: CredentialProbeRequest): Promise<CredentialProbe>;
   readonly add: ForgeAdd;
   readonly update: PreparedCommand<"forge.accounts.update">;
   readonly remove: MethodHandler<"forge.accounts.remove">;
@@ -522,22 +550,31 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
     throw new ContractError(invalidParams([{ code: "custom", path: ["credential"], message }], message));
   };
 
+  /**
+   * The forge a URL in any form names, and the repository path it names
+   * there, if any; its kind as given, or GitHub for github.com, which alone
+   * is known by its name. `invalid_params` otherwise.
+   */
+  const forgeOf = (url: string, given: ForgeKind | undefined) => {
+    const remote = normaliseRemote(url);
+    if (remote === null) {
+      const message = "The URL names no forge: give its https or http address, an ssh or scp-like remote, or host:port.";
+      throw new ContractError(invalidParams([{ code: "custom", path: ["url"], message }], message));
+    }
+    const kind = given ?? (remote.origin === GITHUB_ORIGIN ? "github" : undefined);
+    if (kind === undefined) {
+      const message = "Name the forge's kind (github, forgejo or gitea): only github.com is known by its name.";
+      throw new ContractError(invalidParams([{ code: "custom", path: ["kind"], message }], message));
+    }
+    return { origin: remote.origin, kind, path: remote.path };
+  };
+
   const add: ForgeAdd = {
     async prepare(params, context) {
       const forgeAccountId = params.forgeAccountId.toLowerCase();
       const given = params.credential;
       const formed = given.kind === "stored" ? arrive(forgeAccountId, given.token, context) : null;
-      const remote = normaliseRemote(params.url);
-      if (remote === null) {
-        const message = "The URL names no forge: give its https or http address, an ssh or scp-like remote, or host:port.";
-        throw new ContractError(invalidParams([{ code: "custom", path: ["url"], message }], message));
-      }
-      const { origin } = remote;
-      const kind = params.kind ?? (origin === GITHUB_ORIGIN ? "github" : undefined);
-      if (kind === undefined) {
-        const message = "Name the forge's kind (github, forgejo or gitea): only github.com is known by its name.";
-        throw new ContractError(invalidParams([{ code: "custom", path: ["kind"], message }], message));
-      }
+      const { origin, kind } = forgeOf(params.url, params.kind);
       refuseGhOffGitHub(given, kind);
       const aliases = aliasOrigins(params.aliases, origin) ?? [];
       const doomed = addRefusal(forgeAccountId, [origin, ...aliases], params.slug);
@@ -700,6 +737,18 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
     probeGh: () => gh.probe(),
 
     startVerifying: () => verifier.start(),
+
+    async probeCredential(request) {
+      const { origin, kind, path } = forgeOf(request.url, request.kind);
+      // Held as a secret while it is asked about, never stored.
+      const release = register("probe", request.token, kind, null);
+      try {
+        const found = await verifier.probe({ origin, kind, token: request.token, repository: path !== null && /^[^/]+\/[^/]+$/.test(path) ? path : null });
+        return { origin, identity: found.identity, capabilities: found.capabilities, tokenInformation: found.tokenInformation, problem: found.problem };
+      } finally {
+        release();
+      }
+    },
 
     async verify(forgeAccountId) {
       const id = forgeAccountId?.toLowerCase();
