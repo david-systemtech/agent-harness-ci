@@ -254,10 +254,10 @@ export const PendingUpdate = z
 export type PendingUpdate = z.infer<typeof PendingUpdate>;
 
 /**
- * The release the environment would update to, read at the last check: the
- * pinned version on either channel, else, with auto-update effective (on,
- * and nothing pinned), the channel's newest when it is newer than what runs.
- * Nothing moves backwards on its own.
+ * The release the environment would update to, as the last check that read
+ * the channel found it: the pinned version on either channel, else, with
+ * auto-update effective (on, and nothing pinned), the channel's newest when
+ * it is newer than what runs. Nothing moves backwards on its own.
  */
 export const UpdateTarget = z
   .object({
@@ -319,9 +319,10 @@ export const UpdatesStatus = z
     newest: ReleaseVersion.nullable().meta({ description: "The channel's newest release as the last check that read it found it; null before one did." }),
     lastCheck: UpdateCheck.nullable().meta({ description: "The last check of the channel; null before the first." }),
     target: UpdateTarget.nullable().meta({
-      description: "The release the environment would update to, as the last check found it; null for none: before a check, with auto-update off and nothing pinned, with nothing newer than what runs, or with the release passed over.",
+      description:
+        "The release the environment would update to, as the last check that read the channel found it (a failed check leaves it); null for none: before a check read the channel, with auto-update off and nothing pinned, with nothing newer than what runs, with the pinned version running, or with the release passed over.",
     }),
-    passedOver: UpdatePassedOver.nullable().meta({ description: "The release the last check found that would be the target and is not, with why; null for none." }),
+    passedOver: UpdatePassedOver.nullable().meta({ description: "The release the last check that read the channel found would be the target and is not, with why; null for none." }),
     pending: PendingUpdate,
     lastOutcome: UpdateOutcome.nullable().meta({ description: "How the last update ended; null before any." }),
     failedVersions: z.array(RecordedVersion).meta({ description: "Versions whose update failed: never taken again automatically, though updates.apply may retry one." }),

@@ -240,7 +240,7 @@
           "type": "null"
         }
       ],
-      "description": "The release the environment would update to, as the last check found it; null for none: before a check, with auto-update off and nothing pinned, with nothing newer than what runs, or with the release passed over."
+      "description": "The release the environment would update to, as the last check that read the channel found it (a failed check leaves it); null for none: before a check read the channel, with auto-update off and nothing pinned, with nothing newer than what runs, with the pinned version running, or with the release passed over."
     },
     "passedOver": {
       "anyOf": [
@@ -287,7 +287,7 @@
           "type": "null"
         }
       ],
-      "description": "The release the last check found that would be the target and is not, with why; null for none."
+      "description": "The release the last check that read the channel found would be the target and is not, with why; null for none."
     },
     "pending": {
       "oneOf": [
