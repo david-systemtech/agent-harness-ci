@@ -103,7 +103,7 @@
             "kind",
             "repository"
           ],
-          "description": "A worktree the environment makes from a repository it has: on an existing branch, or on a new one (the new branch with its presets when neither is named).",
+          "description": "A worktree the environment makes from a repository it has: from its main checkout (or bare repository), under the environment's worktrees root, locked for the session, with the ignored files the checkout's .worktreeinclude names copied in; on an existing branch, or on a new one (the new branch with its presets when neither is named), nothing fetched. Refused with the reason git's answer gives: not_a_repository, git_unavailable, no_commits, git_filters_refused, branch_exists, branch_not_found, branch_checked_out or git_failed.",
           "not": {
             "required": [
               "branch",
