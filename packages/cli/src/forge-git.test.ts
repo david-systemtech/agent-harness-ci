@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { useCleanups } from "../../environment/test/cleanups.js";
 import { startFakeForge } from "../../environment/test/fake-forge.js";
@@ -26,7 +27,7 @@ const cliCommand = [
   "--conditions=@agent-harness/source",
   "--import",
   createRequire(import.meta.url).resolve("tsx"),
-  new URL("./main.ts", import.meta.url).pathname,
+  fileURLToPath(new URL("./main.ts", import.meta.url)),
 ];
 
 /** git in the test's own name, outside the machine's configuration. */
