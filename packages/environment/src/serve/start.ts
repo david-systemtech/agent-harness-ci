@@ -7,6 +7,7 @@ import {
   DATABASE_FILE,
   DISCOVERY_PATH,
   ENVIRONMENT_STREAM_KIND,
+  GIT_CREDENTIAL_PATH,
   HEALTH_PATH,
   OPENAI_PATH_PREFIX,
   PAIR_PATH,
@@ -86,6 +87,7 @@ import { createCompactionSweep } from "../sessions/compaction.js";
 import { createDeletion } from "../sessions/deletion.js";
 import { createForgeService, type ForgeService } from "../forge/forge-service.js";
 import { forgeAccountsProjector } from "../forge/forge-store.js";
+import { createCredentialRoute } from "../forge/credential-route.js";
 import { forgeMethods } from "../forge/methods.js";
 import type { ManagedGh } from "../forge/gh.js";
 import type { ForgeFetch } from "../forge/providers.js";
@@ -870,6 +872,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     PAIR_PATH,
     pairRoute({ pairings, atomically: accessLog.atomically, rateLimiter: createRateLimiter({ clock }), readiness: () => readiness }),
   );
+  // The credential route (#314): what git's credential helper asks, over loopback, with a run-scoped secret; no client session.
+  surface.route("POST", GIT_CREDENTIAL_PATH, createCredentialRoute({ forge, clock }));
   // The completions surface (#138): OpenAI's routes under /v1/ on the wire's port, for programs' client sessions.
   const completions = createCompletionsSurface({
     log,

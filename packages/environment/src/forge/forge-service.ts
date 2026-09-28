@@ -32,6 +32,7 @@ import type { Reader } from "../sessions/session-tables.js";
 import { forgeAccountEver, listForgeAccounts, liveForgeAccount, originHolder, primaryForgeAccount, slugHolder } from "./forge-store.js";
 import { managedGh, type ManagedGh } from "./gh.js";
 import { FORGE_CALL_TIMEOUT_MS, forgeProvider, type ForgeFetch, type IdentityAnswer } from "./providers.js";
+import { createRunSecrets, type RunSecrets } from "./run-secrets.js";
 
 /**
  * The ForgeService's forge account store (forge spec, "The forge account
@@ -146,7 +147,9 @@ export interface ForgeService {
   readonly update: PreparedCommand<"forge.accounts.update">;
   readonly remove: MethodHandler<"forge.accounts.remove">;
   readonly setPrimary: MethodHandler<"forge.accounts.setPrimary">;
-  /** Lets go of every token's registration. */
+  /** The run-scoped secrets the credential route serves (#314): minted per harness git operation, provider process or terminal. */
+  readonly secrets: RunSecrets;
+  /** Voids every run-scoped secret and lets go of every token's registration. */
   close(): void;
 }
 
@@ -161,6 +164,7 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
 
   /** The scrub registration of each stored token the environment holds, by forge account. */
   const held = new Map<string, ScrubRelease>();
+  const secrets = createRunSecrets(scrub);
 
   /**
    * Registers `token` for its forge account with the form git's Basic
@@ -568,7 +572,10 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
       return { aggregate: stream, result: { account: recordOf(forgeAccountId) } };
     },
 
+    secrets,
+
     close() {
+      secrets.close();
       for (const release of held.values()) release();
       held.clear();
     },
