@@ -1,4 +1,5 @@
 import type { Theme, ThemeSeed, ThemeSeedName } from "@agent-harness/contracts";
+import { separateHues } from "./hues.js";
 import { contrastRatio, inGamut, type Oklch } from "./oklch.js";
 import type { LadderName, TokenName } from "./tokens.js";
 
@@ -195,9 +196,9 @@ const ACCENT_TEXT_LIGHTEST = 75;
 const ACCENT_TEXT_DEEPEST = 50;
 
 /** One ladder of the theme, and the clamps it needed. */
-const ladderOf = (ladder: LadderName, seeds: Theme["seeds"]): { tokens: Record<TokenName, Oklch>; clamps: Clamp[] } => {
+const ladderOf = (ladder: LadderName, seeds: Theme["seeds"], moved: readonly ThemeSeedName[]): { tokens: Record<TokenName, Oklch>; clamps: Clamp[] } => {
   const plan = PLANS[ladder];
-  const clamps: Clamp[] = [];
+  const clamps: Clamp[] = moved.map((seed) => ({ seed, ladder, rule: "hue-separation", token: SEED_TOKENS[seed] }));
   /** One clamp per seed and rule in a ladder, naming the first token that showed it. */
   const clamp = (seed: ThemeSeedName, rule: Rule, token: TokenName) => {
     if (!clamps.some((c) => c.seed === seed && c.rule === rule)) clamps.push({ seed, ladder, rule, token });
@@ -317,7 +318,9 @@ const accentText = (accent: ThemeSeed, grounds: readonly Oklch[], report: (place
 
 /** Both ladders of a theme, and every clamp made to hold the rules. */
 export const derive = (theme: Theme): DerivedTheme => {
-  const light = ladderOf("light", theme.seeds);
-  const dark = ladderOf("dark", theme.seeds);
+  // Hues come first: both ladders paint the same six, held apart.
+  const { seeds, moved } = separateHues(theme.seeds);
+  const light = ladderOf("light", seeds, moved);
+  const dark = ladderOf("dark", seeds, moved);
   return { light: { tokens: light.tokens }, dark: { tokens: dark.tokens }, clamps: [...light.clamps, ...dark.clamps] };
 };

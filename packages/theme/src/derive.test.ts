@@ -104,3 +104,63 @@ describe("the rules", () => {
     }
   });
 });
+
+describe("hue separation", () => {
+  const hues = (theme: Theme) => {
+    const { tokens } = derive(theme).dark;
+    return { accent: tokens.beam.h, machine: tokens.cyan.h, thinking: tokens.sage.h, success: tokens.mint.h, warning: tokens.amber.h, danger: tokens.signal.h };
+  };
+
+  it("keeps the accent where it is and moves a hue within 40° of it to the nearest hue clear of every other, reported in both ladders", () => {
+    const teal = withSeeds({ accent: { hue: 200, chroma: 0.08 } });
+    expect(hues(teal)).toEqual({ accent: 200, machine: 240, thinking: 310, success: 150, warning: 85, danger: 25 });
+    expect(derive(teal).clamps).toEqual([
+      { seed: "machine", ladder: "light", rule: "hue-separation", token: "cyan" },
+      { seed: "machine", ladder: "dark", rule: "hue-separation", token: "cyan" },
+    ]);
+    for (const ladder of LADDERS) expect(broken(derive(teal)[ladder]), ladder).toEqual([]);
+  });
+
+  it("gives an orange accent its orange: danger and warning each step to the nearest hue 40° from it (ADR 0023's example)", () => {
+    const orange = withSeeds({ accent: { hue: 55, chroma: 0.19 } });
+    expect(hues(orange)).toEqual({ accent: 55, machine: 210, thinking: 310, success: 150, warning: 95, danger: 15 });
+    expect(derive(orange).clamps.filter((c) => c.rule === "hue-separation")).toEqual([
+      { seed: "warning", ladder: "light", rule: "hue-separation", token: "amber" },
+      { seed: "danger", ladder: "light", rule: "hue-separation", token: "signal" },
+      { seed: "warning", ladder: "dark", rule: "hue-separation", token: "amber" },
+      { seed: "danger", ladder: "dark", rule: "hue-separation", token: "signal" },
+    ]);
+  });
+
+  it("spaces all six 60° apart from the accent, in their order round the circle, when no hue is left clear for the last", () => {
+    const crowded = withSeeds({
+      accent: { hue: 0, chroma: 0.1 },
+      danger: { hue: 72, chroma: 0.1 },
+      warning: { hue: 144, chroma: 0.1 },
+      success: { hue: 216, chroma: 0.1 },
+      machine: { hue: 288, chroma: 0.1 },
+      thinking: { hue: 300, chroma: 0.03 },
+    });
+    expect(hues(crowded)).toEqual({ accent: 0, danger: 60, warning: 120, success: 180, machine: 240, thinking: 300 });
+    expect(derive(crowded).clamps.filter((c) => c.ladder === "dark").map((c) => `${c.seed} ${c.rule}`)).toEqual([
+      "machine hue-separation",
+      "success hue-separation",
+      "warning hue-separation",
+      "danger hue-separation",
+    ]);
+  });
+
+  it("holds every rule on any theme: two hundred themes of random seeds", () => {
+    let state = 385;
+    const random = () => {
+      state = (state * 1664525 + 1013904223) % 4294967296;
+      return state / 4294967296;
+    };
+    for (let i = 0; i < 200; i++) {
+      const seeds = Object.fromEntries(THEME_SEED_NAMES.map((name) => [name, { hue: Math.floor(random() * 3600) / 10, chroma: Math.floor(random() * 400) / 1000 }]));
+      const theme = withSeeds(seeds);
+      const derived = derive(theme);
+      for (const ladder of LADDERS) expect(broken(derived[ladder]), `${JSON.stringify(seeds)} ${ladder}`).toEqual([]);
+    }
+  });
+});
