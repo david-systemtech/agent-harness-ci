@@ -63,7 +63,7 @@ export interface ScriptedListOptions {
   readonly head: () => number;
   /** The script's rejection of `method`, if it rejects it. */
   readonly refusal: (method: string) => FakeAnswer | undefined;
-  /** The directories a create's `directory` request is refused with, each with its problem: preset none, every path taken as sent. */
+  /** The directories a create's `directory` request is refused in, by the path as recorded (`~` read as `SCRIPTED_HOME`), each with its problem: preset none. */
   readonly directories?: Readonly<Record<string, WorkspaceProblem>>;
 }
 
