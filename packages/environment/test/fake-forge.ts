@@ -28,7 +28,10 @@ import type { ForgeFetch } from "../src/forge/providers.js";
 /** What a route answers a token. */
 export interface FakeForgeAnswer {
   readonly status: number;
+  /** Sent as JSON. */
   readonly body?: unknown;
+  /** Sent as it is, in place of a JSON body: an asset's bytes. */
+  readonly raw?: string | Uint8Array;
   readonly headers?: Readonly<Record<string, string>>;
   /** Answered only once this settles: a test holds a call in flight while it sends another. */
   readonly after?: Promise<unknown>;
@@ -44,7 +47,12 @@ export interface FakeForgeRequest {
   readonly scheme: string | null;
   /** The entity tag a conditional request named in `If-None-Match`, present only when it named one. */
   readonly ifNoneMatch?: string;
+  /** The JSON body the request sent, present only when it sent one. */
+  readonly body?: unknown;
 }
+
+/** What a route answers: an answer, or one made from the request, as a forge answers a write it carries out. */
+export type FakeForgeScript = FakeForgeAnswer | ((request: FakeForgeRequest) => FakeForgeAnswer);
 
 /** A request git made of the smart HTTP, as the fake forge saw it. */
 export interface FakeGitRequest {
@@ -66,11 +74,14 @@ export interface FakeForgeUser {
 export interface FakeForge {
   /** Where it listens: `http://127.0.0.1:<port>`, an origin as a LAN forge has one. */
   readonly origin: string;
-  /** Scripts what `route` (`GET /api/v1/user`, or with a query, `GET /api/v1/user/repos?page=2`) answers `token`, replacing what it answered before. */
-  answer(token: string, route: string, answer: FakeForgeAnswer): void;
+  /**
+   * Scripts what `route` (`GET /api/v1/user`, or with a query, `GET /api/v1/user/repos?page=2`) answers `token`,
+   * or a request with no token for `null`, replacing what it answered before.
+   */
+  answer(token: string | null, route: string, answer: FakeForgeScript): void;
   /** Scripts both APIs' user endpoints to answer `token` as `user`, once `after` settles when it is given. */
   user(token: string, user: FakeForgeUser, after?: Promise<unknown>): void;
-  /** Scripts both APIs to let `token` read the repository `fullName` (`owner/name`) and its releases, which are none. */
+  /** Scripts both APIs to let `token` read the repository `fullName` (`owner/name`), private on `main`, and its releases, which are none. */
   repository(token: string, fullName: string): void;
   /** Scripts both APIs' repository listings to answer `token` with the repositories `fullNames`, on one page. */
   repositories(token: string, fullNames: readonly string[]): void;
@@ -78,10 +89,11 @@ export interface FakeForge {
   readonly requests: readonly FakeForgeRequest[];
   /**
    * Makes a bare repository served at `<origin>/<path>.git` (`david/bank`),
-   * holding one commit on `main` with `files`; a private one answers nothing
-   * without a credential. Answers where its bare repository is.
+   * holding one commit on `main` with `files`, or none when it is `empty`,
+   * as a repository just created is; a private one answers nothing without a
+   * credential. Answers where its bare repository is.
    */
-  gitRepository(path: string, options?: { readonly private?: boolean; readonly files?: Readonly<Record<string, string>> }): string;
+  gitRepository(path: string, options?: { readonly private?: boolean; readonly empty?: boolean; readonly files?: Readonly<Record<string, string>> }): string;
   /** Accepts `username` and `password` as git's basic auth on every repository. */
   gitCredential(username: string, password: string): void;
   /** Every request git made of the smart HTTP so far, in order. */
@@ -95,8 +107,20 @@ export interface FakeForge {
   close(): Promise<void>;
 }
 
-/** The API a path belongs to, and the scheme its token takes. */
-const schemeFor = (path: string): string | null => (path.startsWith("/api/v3/") ? "Bearer" : path.startsWith("/api/v1/") ? "token" : null);
+/** The scheme a path's token takes: GitHub's API a bearer token, the Gitea API and its web routes the `token` scheme. */
+const schemeFor = (path: string): string => (path.startsWith("/api/v3/") ? "Bearer" : "token");
+
+/** What an answer scripted for a request with no token is kept under: no token is a line break. */
+const ANONYMOUS = "\n";
+
+/** A request's body as JSON, or as the text it is when it is not JSON. */
+const parseBody = (text: string): unknown => {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
+};
 
 const GITHUB_API = "https://api.github.com";
 
@@ -146,9 +170,15 @@ const basicCredential = (header: string | undefined): { readonly username: strin
 
 /** Starts a fake forge; the caller closes it. */
 export const startFakeForge = async (): Promise<FakeForge> => {
-  const answers = new Map<string, FakeForgeAnswer>();
-  const requests: FakeForgeRequest[] = [];
+  const answers = new Map<string, FakeForgeScript>();
   const keyOf = (token: string, route: string): string => `${token}\n${route}`;
+  /** Every route scripted for any caller, without its query: one outside `/api/` is answered as scripted, never as git's. */
+  const scriptedRoutes = new Set<string>();
+  const script = (caller: string, route: string, answer: FakeForgeScript): void => {
+    answers.set(keyOf(caller, route), answer);
+    scriptedRoutes.add(route.split("?", 1)[0] ?? route);
+  };
+  const requests: FakeForgeRequest[] = [];
   const root = mkdtempSync(join(tmpdir(), "agent-harness-fake-forge-"));
   const gitRepositories = new Map<string, { readonly private: boolean }>();
   const gitCredentials = new Set<string>();
@@ -209,6 +239,10 @@ export const startFakeForge = async (): Promise<FakeForge> => {
   };
 
   const respond = (response: ServerResponse, answer: FakeForgeAnswer): void => {
+    if (answer.raw !== undefined) {
+      response.writeHead(answer.status, { "content-type": "application/octet-stream", ...answer.headers });
+      return void response.end(answer.raw);
+    }
     const body = answer.body === undefined ? "" : JSON.stringify(answer.body);
     response.writeHead(answer.status, { "content-type": "application/json", ...answer.headers });
     response.end(body);
@@ -220,19 +254,40 @@ export const startFakeForge = async (): Promise<FakeForge> => {
     return etag !== undefined && etag === ifNoneMatch ? { status: 304, ...(answer.headers !== undefined && { headers: answer.headers }) } : answer;
   };
 
+  /** What `route` is scripted to answer the caller holding `token` (null for none): the answer for its query first, else the route's. */
+  const scriptFor = (token: string | null, method: string, path: string, query: string): FakeForgeScript | undefined => {
+    const caller = token ?? ANONYMOUS;
+    return (query === "" ? undefined : answers.get(keyOf(caller, `${method} ${path}?${query}`))) ?? answers.get(keyOf(caller, `${method} ${path}`));
+  };
+
   const server = createServer((request: IncomingMessage, response: ServerResponse) => {
     const method = request.method ?? "GET";
     const [path = "/", query = ""] = (request.url ?? "/").split("?", 2);
-    if (!path.startsWith("/api/")) return serveGit(request, response, method, path, query);
-    const [scheme = null, token = ""] = (request.headers.authorization ?? "").split(" ", 2);
+    const authorization = request.headers.authorization;
+    const [scheme = null, token = ""] = (authorization ?? "").split(" ", 2);
+    const script = scriptFor(authorization === undefined ? null : token, method, path, query);
+    if (!path.startsWith("/api/") && !scriptedRoutes.has(`${method} ${path}`)) return serveGit(request, response, method, path, query);
     const ifNoneMatch = request.headers["if-none-match"];
-    requests.push({ method, path, ...(query !== "" && { query }), scheme: scheme === "" ? null : scheme, ...(ifNoneMatch !== undefined && { ifNoneMatch }) });
-    request.resume();
-    const scripted = (query === "" ? undefined : answers.get(keyOf(token, `${method} ${path}?${query}`))) ?? answers.get(keyOf(token, `${method} ${path}`));
-    if (scripted === undefined || scheme !== schemeFor(path)) return respond(response, { status: 401, body: { message: "Bad credentials" } });
-    const answer = conditional(scripted, ifNoneMatch);
-    if (scripted.after === undefined) return respond(response, answer);
-    void scripted.after.then(() => respond(response, answer));
+    const chunks: Buffer[] = [];
+    request.on("data", (chunk: Buffer) => chunks.push(chunk));
+    request.on("end", () => {
+      const text = Buffer.concat(chunks).toString("utf8");
+      const seen: FakeForgeRequest = {
+        method,
+        path,
+        ...(query !== "" && { query }),
+        scheme: scheme === "" ? null : scheme,
+        ...(ifNoneMatch !== undefined && { ifNoneMatch }),
+        ...(text !== "" && { body: parseBody(text) }),
+      };
+      requests.push(seen);
+      // A token in the other API's scheme is one the forge does not know.
+      if (script === undefined || (authorization !== undefined && scheme !== schemeFor(path))) return respond(response, { status: 401, body: { message: "Bad credentials" } });
+      const scripted = typeof script === "function" ? script(seen) : script;
+      const answer = conditional(scripted, ifNoneMatch);
+      if (scripted.after === undefined) return respond(response, answer);
+      void scripted.after.then(() => respond(response, answer));
+    });
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const { port } = server.address() as AddressInfo;
@@ -240,21 +295,22 @@ export const startFakeForge = async (): Promise<FakeForge> => {
 
   return {
     origin,
-    answer: (token, route, answer) => void answers.set(keyOf(token, route), answer),
+    answer: (token, route, answer) => script(token ?? ANONYMOUS, route, answer),
     user(token, user, after) {
       for (const route of ["GET /api/v3/user", "GET /api/v1/user"]) {
-        answers.set(keyOf(token, route), { status: 200, body: { ...user, full_name: "", email: "" }, ...(after !== undefined && { after }) });
+        script(token, route, { status: 200, body: { ...user, full_name: "", email: "" }, ...(after !== undefined && { after }) });
       }
     },
     repository(token, fullName) {
       for (const api of ["/api/v3", "/api/v1"]) {
-        answers.set(keyOf(token, `GET ${api}/repos/${fullName}`), { status: 200, body: { full_name: fullName, private: true } });
-        answers.set(keyOf(token, `GET ${api}/repos/${fullName}/releases`), { status: 200, body: [] });
+        const body = { full_name: fullName, private: true, default_branch: "main", html_url: `${origin}/${fullName}` };
+        script(token, `GET ${api}/repos/${fullName}`, { status: 200, body });
+        script(token, `GET ${api}/repos/${fullName}/releases`, { status: 200, body: [] });
       }
     },
     repositories(token, fullNames) {
       for (const api of ["/api/v3", "/api/v1"]) {
-        answers.set(keyOf(token, `GET ${api}/user/repos`), { status: 200, body: fullNames.map((fullName) => ({ full_name: fullName })) });
+        script(token, `GET ${api}/user/repos`, { status: 200, body: fullNames.map((fullName) => ({ full_name: fullName })) });
       }
     },
     requests,
@@ -263,6 +319,8 @@ export const startFakeForge = async (): Promise<FakeForge> => {
       const bare = join(root, repository);
       mkdirSync(dirname(bare), { recursive: true });
       ownGit(root, "init", "--quiet", "--bare", "--initial-branch=main", bare);
+      gitRepositories.set(repository, { private: options.private ?? false });
+      if (options.empty === true) return bare;
       const work = mkdtempSync(join(tmpdir(), "agent-harness-fake-forge-work-"));
       try {
         ownGit(work, "init", "--quiet", "--initial-branch=main");
@@ -273,7 +331,6 @@ export const startFakeForge = async (): Promise<FakeForge> => {
       } finally {
         rmSync(work, { recursive: true, force: true });
       }
-      gitRepositories.set(repository, { private: options.private ?? false });
       return bare;
     },
     gitCredential: (username, password) => void gitCredentials.add(keyOf(username, password)),

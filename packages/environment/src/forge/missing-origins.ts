@@ -1,4 +1,4 @@
-import type { ForgeAccountRecord, ForgeOrigin } from "@agent-harness/contracts";
+import type { ForgeAccountMissingError, ForgeAccountRecord, ForgeOrigin } from "@agent-harness/contracts";
 import type { EventLog, StreamRef } from "../event-log/event-log.js";
 import type { Clock } from "../serve/clock.js";
 import type { Reader } from "../sessions/session-tables.js";
@@ -14,6 +14,13 @@ import { FORGE_ACTOR } from "./verifier.js";
  * seven days after its last record, until a forge account covers it (chosen
  * defaults; a day and a week are rolling, from the last record).
  */
+
+/** The refusal of a harness operation on `origin`, which no forge account covers, for the reason `why`: naming the origin and the Forges step. */
+export const forgeAccountMissing = (origin: ForgeOrigin, why: string): ForgeAccountMissingError => ({
+  code: "forge_account_missing",
+  message: `No forge account on this environment covers ${origin}, and ${why}: add one in Set up, Forges.`,
+  data: { origin, step: "forges" },
+});
 
 /** How long after an origin's last record another refusal there records nothing. */
 export const MISSING_ORIGIN_RECORD_MS = 24 * 60 * 60_000;

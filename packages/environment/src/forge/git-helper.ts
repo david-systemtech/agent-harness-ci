@@ -1,4 +1,4 @@
-import type { ForgeAccountRecord, ForgeOrigin } from "@agent-harness/contracts";
+import { matchForgeAccount, type ForgeAccountRecord, type ForgeOrigin, type ForgeRemote } from "@agent-harness/contracts";
 
 /**
  * git's side of the credential helper (forge spec, "Runs: the injection" and
@@ -16,6 +16,13 @@ export const servedOrigins = (account: Pick<ForgeAccountRecord, "origin" | "alia
   account.origin,
   ...account.aliases.filter((alias) => alias.verifiedAt !== null).map((alias) => alias.origin),
 ];
+
+/** The forge account of `accounts` serving `remote`: on its canonical origin or a verified alias, by host for an ssh-derived remote; null for none. */
+export const servingAccount = (remote: ForgeRemote, accounts: readonly ForgeAccountRecord[]): ForgeAccountRecord | null =>
+  matchForgeAccount(
+    remote,
+    accounts.map((account) => ({ account, origin: account.origin, aliases: servedOrigins(account).slice(1) })),
+  )?.account ?? null;
 
 /** A word as POSIX `sh` reads it: as it is when it holds only characters the shell leaves alone, else single-quoted. */
 const shellWord = (word: string): string => (/^[A-Za-z0-9_@%+=:,./-]+$/.test(word) ? word : `'${word.replaceAll("'", `'\\''`)}'`);
