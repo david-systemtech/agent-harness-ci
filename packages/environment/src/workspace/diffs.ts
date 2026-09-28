@@ -2,7 +2,7 @@ import { copyFile, mkdir, mkdtemp, rm, stat, utimes } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, normalize, relative, resolve, sep } from "node:path";
 import { ContractError, DIFF_CAP, type SessionDiffChange, type SessionDiffFile, type TranscriptItem } from "@agent-harness/contracts";
-import { repositoryFilters, runGit } from "./git.js";
+import { UNTRANSLATED, filtersNamed, gitComplaint, repositoryFilters, runGit } from "./git.js";
 
 /**
  * `diffs.workingTree` and `diffs.session` (tui spec, "Terminals, files and
@@ -69,30 +69,22 @@ const DIFF_FLAGS = [
 
 /**
  * Git ran and failed (a filter that fails, a corrupt object store):
- * `conflict`, reason `git_failed`, with the line that says why: git's
- * `fatal:` line when it wrote one (its `error:` lines come first and say less),
- * else its first.
+ * `conflict`, reason `git_failed`, with the line that says why (`gitComplaint`).
  */
-const gitFailed = (stderr: string): ContractError => {
-  const lines = stderr.split("\n").map((text) => text.trim()).filter((text) => text !== "");
-  const line = lines.find((text) => text.startsWith("fatal:")) ?? lines[0] ?? "git exited without saying why";
-  return new ContractError({ code: "conflict", message: `git could not diff the workspace: ${line}`, data: { reason: "git_failed" } });
-};
+const gitFailed = (stderr: string): ContractError =>
+  new ContractError({ code: "conflict", message: `git could not diff the workspace: ${gitComplaint(stderr)}`, data: { reason: "git_failed" } });
 
 /**
  * The repository's own config names filters, which this git would run
  * outside any containment: `conflict`, reason `git_filters_refused`, with
  * their names (permissions spec, #212).
  */
-const filtersRefused = (filters: readonly string[]): ContractError => {
-  const named = filters.map((name) => `"${name}"`).join(", ");
-  const which = filters.length === 1 ? `a clean, smudge or process filter, ${named}, which` : `clean, smudge or process filters, ${named}, which`;
-  return new ContractError({
+const filtersRefused = (filters: readonly string[]): ContractError =>
+  new ContractError({
     code: "conflict",
-    message: `The workspace's repository configures ${which} the environment will not run for a diff: its own git runs outside the session's containment. The session's diff (diffs.session) still answers.`,
+    message: `The workspace's repository configures ${filtersNamed(filters)}, which the environment will not run for a diff: its own git runs outside the session's containment. The session's diff (diffs.session) still answers.`,
     data: { reason: "git_filters_refused", filters: [...filters] },
   });
-};
 
 export interface WorkingTreeDiff {
   readonly diff: string;
@@ -103,7 +95,7 @@ export interface WorkingTreeDiff {
 /** The workspace's diff against HEAD, untracked files as new: see the module comment. */
 export const workingTreeDiff = async (root: string): Promise<WorkingTreeDiff> => {
   const small = { maxBytes: 64 * 1024 };
-  const inside = await runGit(root, ["rev-parse", "--is-inside-work-tree"], small);
+  const inside = await runGit(root, ["rev-parse", "--is-inside-work-tree"], { ...small, env: UNTRANSLATED });
   if (inside.missing) {
     throw new ContractError({ code: "conflict", message: "There is no git on this environment to diff with.", data: { reason: "git_unavailable" } });
   }

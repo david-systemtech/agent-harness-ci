@@ -60,12 +60,19 @@ const sessionCommand = <const N extends `sessions.${string}`>(name: N) =>
  * `workspace_unusable`, with its `problem` (`WorkspaceProblem`) and `path`;
  * a `session` request naming a session that is not here or is deleted is
  * `not_found` (data kind `session`), and one whose workspace is gone
- * `conflict`, reason `workspace_missing`; a kind it does not serve yet is
- * reason `kind_not_served`. A `scratch` request is a directory of the
- * session's own under the data directory's scratch root; a `session` request
- * shares the named session's workspace, kind, path and identity. A directory
- * path the environment's operating system does not read as absolute (a
- * drive path on Linux) is `invalid_params`, as a relative one is.
+ * `conflict`, reason `workspace_missing`. A `worktree` request is refused
+ * `conflict` with the reason git's answer gives: `not_a_repository` (data
+ * `path`), `git_unavailable`, `no_commits`, `git_filters_refused` (the
+ * repository's own filters named in `filters`, which the environment will
+ * not run), `branch_exists`, `branch_not_found`, `branch_checked_out` (data
+ * `worktree` and, when the harness made it, `sessionId`) or `git_failed`
+ * (git's `fatal:` line in the message). A `scratch` request is a directory
+ * of the session's own under the data directory's scratch root; a `worktree`
+ * request a worktree under its worktrees root, made from the repository's
+ * main checkout and locked for the session; a `session` request shares the
+ * named session's workspace, kind, path and identity. A directory path the
+ * environment's operating system does not read as absolute (a drive path on
+ * Linux) is `invalid_params`, as a relative one is.
  */
 export const sessionsCreate = defineMethod({
   name: "sessions.create",

@@ -10,6 +10,7 @@ import { readSummary, type Reader } from "../sessions/session-reads.js";
 import { readRepositoryIdentity } from "./identity.js";
 import { isInside } from "./paths.js";
 import type { WorkspaceRoots } from "./roots.js";
+import { makeWorktree } from "./worktrees.js";
 
 /**
  * The resolver (workspace-picker spec, "The resolver"; #321): the one
@@ -41,7 +42,11 @@ import type { WorkspaceRoots } from "./roots.js";
  *   as a fork shares them (ADR 0022); a session not here or deleted is
  *   `not_found` (kind `session`), and one whose workspace is gone `conflict`,
  *   reason `workspace_missing`. Nothing is made.
- * - **Worktree**: not served yet (#326).
+ * - **Worktree**: a worktree of the repository holding the requested path,
+ *   made from its main checkout (or bare repository) on a new or existing
+ *   branch under the worktrees root, locked for the session, with the
+ *   ignored files its `.worktreeinclude` names copied in; refused with the
+ *   reason git's answer gives (`worktrees.ts`, #326).
  */
 
 /** What the resolver answers: the workspace and identity to record, with how to remove what it made; or a refusal. */
@@ -78,7 +83,7 @@ export interface WorkspaceSettings {
    * root scripts it.
    */
   readonly readable?: (path: string) => Promise<boolean>;
-  /** How long each git call finding a repository identity gets; preset: the hardened runner's 15 seconds. */
+  /** How long each git call finding a repository identity or making a worktree gets; preset: the hardened runner's 15 seconds. */
   readonly gitTimeoutMs?: number;
 }
 
@@ -89,15 +94,6 @@ export interface WorkspaceResolverOptions extends Omit<WorkspaceSettings, "roots
   readonly dataDir: string;
   readonly roots: WorkspaceRoots;
 }
-
-/** The refusal of a request of a kind this environment does not make yet: `conflict`, reason `kind_not_served`. */
-const notServed = (kind: WorkspaceRequest["kind"]): Resolution => ({
-  refused: {
-    code: "conflict",
-    message: `This environment does not give a session a ${kind} workspace yet; ask for a directory, scratch or another session's.`,
-    data: { reason: "kind_not_served", kind },
-  },
-});
 
 /** What each problem says of the directory at `path`. */
 const PROBLEM_MESSAGES: Readonly<Record<WorkspaceProblem, (path: string) => string>> = {
@@ -240,17 +236,31 @@ export const createWorkspaceResolver = (options: WorkspaceResolverOptions): Work
     return { workspace, repositoryIdentity };
   };
 
+  /** The session whose recorded workspace is the worktree at `path`: the first made there, a deleted one in its grace included. */
+  const sessionAt = (path: string): string | null => {
+    const [row] = reader.all<{ id: string }>(
+      "SELECT id FROM sessions WHERE json_extract(workspace, '$.kind') = 'worktree' AND json_extract(workspace, '$.path') = ? ORDER BY created_at, id LIMIT 1",
+      path,
+    );
+    return row?.id ?? null;
+  };
+
   return {
     resolve: (request, sessionId) => {
       switch (request.kind) {
         case "directory":
           return directory(request.path);
+        case "worktree":
+          return makeWorktree(request, sessionId, {
+            root: roots.worktrees,
+            sessionAt,
+            identityAt,
+            ...(options.gitTimeoutMs !== undefined && { timeoutMs: options.gitTimeoutMs }),
+          });
         case "scratch":
           return scratch(sessionId);
         case "session":
           return shared(request.sessionId);
-        default:
-          return notServed(request.kind);
       }
     },
   };

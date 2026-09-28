@@ -1,12 +1,13 @@
 import { randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AccountIdentity } from "@agent-harness/contracts";
 import type { Options, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { manualClock, type ManualClock } from "../../../test/clock.js";
 import { FakeSdk, sdk, type FakeQuery } from "../../../test/fake-claude-sdk.js";
+import { git } from "../../../test/workspaces.js";
 import {
   WithdrawUnsupported,
   type AdapterEvent,
@@ -319,6 +320,26 @@ describe("a run", () => {
       pathToClaudeCodeExecutable: "/sdk/claude-agent-sdk-linux-x64/claude",
     });
     expect(typeof options.canUseTool).toBe("function");
+  });
+});
+
+describe("a run in a worktree", () => {
+  it("takes the project settings of the worktree's main checkout when the repository is trusted, and none when it is not", async () => {
+    const root = mkdtempSync(join(tmpdir(), "agent-harness-repository-"));
+    try {
+      const checkout = join(root, "app");
+      git(root, "init", "-q", checkout);
+      git(checkout, "commit", "-q", "--allow-empty", "-m", "first");
+      const worktree = join(root, "worktree");
+      git(checkout, "worktree", "add", "-q", "-b", "fix", worktree);
+      const workspace = { kind: "worktree", path: worktree, repository: checkout, branch: "fix" } as const;
+      adapterWith().createRun(runInput({ trusted: true, workspace }), contextWith());
+      expect((await started()).options).toMatchObject({ cwd: worktree, projectConfigRoot: checkout });
+      adapterWith().createRun(runInput({ trusted: false, workspace }), contextWith());
+      expect((await started(2)).options).not.toHaveProperty("projectConfigRoot");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 

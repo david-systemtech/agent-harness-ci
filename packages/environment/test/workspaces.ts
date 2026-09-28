@@ -6,8 +6,8 @@ import type { Resolution, WorkspaceResolver } from "../src/workspace/resolver.js
 /**
  * A scripted resolver behind the workspace seam (#321): each call is
  * recorded, and answered as the test says, so a suite can make a directory
- * in `prepare`, hold it there, or record a kind the environment does not
- * make yet.
+ * in `prepare`, hold it there, or record any kind of workspace without
+ * making it.
  */
 
 /** One call the resolver took: the request and the session it is for. */

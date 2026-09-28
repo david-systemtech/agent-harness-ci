@@ -1,10 +1,10 @@
-import { createHash } from "node:crypto";
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SessionId, type AccountIdentity, type AuthStatus } from "@agent-harness/contracts";
 import type { AccountRef, Adapter, AdapterDescriptor, PromptMessage, ProviderCommand, RunInput } from "../../adapter/contract.js";
 import { systemClock, type Clock } from "../../serve/clock.js";
+import { hashedName } from "../../workspace/directory-names.js";
 import { configDirQueue as processQueue, type ConfigDirQueue } from "./config-dir-queue.js";
 import { withControlQuery } from "./control-query.js";
 import { CLAUDE_PROVIDER, ambientConfigDirectory, claudeCredentials, readClaudeStatus, type CommandRunner, type HostEnvironment } from "./credentials.js";
@@ -123,14 +123,7 @@ export interface ClaudeAdapter extends Adapter {
  */
 export const autoMemoryDirectory = (root: string, input: Pick<RunInput, "repositoryIdentity" | "workspace">): string => {
   const key = input.repositoryIdentity ?? input.workspace.path;
-  const slug =
-    key
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(-48)
-      .replace(/^-+/, "") || "workspace";
-  return join(root, `${slug}-${createHash("sha256").update(key).digest("hex").slice(0, 12)}`);
+  return join(root, hashedName(key, key, "workspace"));
 };
 
 /**
