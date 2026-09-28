@@ -130,6 +130,8 @@ const SSH_DERIVED_SCHEMES = new Set(["ssh", "git+ssh", "ssh+git", "git"]);
 /** GitHub's ssh-over-443 host, which serves github.com's repositories. */
 const GITHUB_SSH_HOST = "ssh.github.com";
 const GITHUB_HOST = "github.com";
+/** github.com's origin: not an Enterprise one. */
+const GITHUB_ORIGIN = `https://${GITHUB_HOST}`;
 
 /**
  * An ssh, scp or `git://` remote: `https` on the same host with no port,
@@ -261,4 +263,28 @@ export const deriveForgeSlug = (origin: ForgeOrigin, taken: Iterable<string>): F
   const slugWith = (suffix: string): string => `${cut(base, FORGE_SLUG_MAX - suffix.length)}${suffix}`;
   for (const suffix of ["", withPort]) if (!used.has(slugWith(suffix))) return slugWith(suffix);
   for (let counter = 2; ; counter++) if (!used.has(slugWith(`${withPort}_${counter}`))) return slugWith(`${withPort}_${counter}`);
+};
+
+// Variables -------------------------------------------------------------------
+
+/** The variables a forge account's injection sets (ADR 0020), by what each carries. */
+export interface ForgeVariableNames {
+  /** Those holding the canonical origin. */
+  readonly url: readonly string[];
+  /** Those holding the token. */
+  readonly token: readonly string[];
+  /** Those holding the kind. */
+  readonly kind: readonly string[];
+}
+
+/**
+ * The variables a forge account injects (forge spec, "Runs: the
+ * injection"): `FORGE_<SLUG>_URL`, `FORGE_<SLUG>_TOKEN` and
+ * `FORGE_<SLUG>_KIND` with the slug upper-cased; the primary's also bare as
+ * `FORGE_URL`, `FORGE_TOKEN` and `FORGE_KIND`; and `GH_TOKEN` for the
+ * github.com forge account alone, never an Enterprise origin.
+ */
+export const forgeVariableNames = (account: { readonly slug: ForgeSlug; readonly origin: ForgeOrigin; readonly primary: boolean }): ForgeVariableNames => {
+  const names = (role: string): string[] => [`FORGE_${account.slug.toUpperCase()}_${role}`, ...(account.primary ? [`FORGE_${role}`] : [])];
+  return { url: names("URL"), token: [...names("TOKEN"), ...(account.origin === GITHUB_ORIGIN ? ["GH_TOKEN"] : [])], kind: names("KIND") };
 };

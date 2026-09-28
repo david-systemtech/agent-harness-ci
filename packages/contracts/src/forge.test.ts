@@ -5,10 +5,12 @@ import {
   ForgeOrigin,
   ForgeSlug,
   deriveForgeSlug,
+  forgeVariableNames,
   forgeOriginHost,
   matchForgeAccount,
   normaliseRemote,
   type ForgeRemote,
+  type ForgeVariableNames,
 } from "./index.js";
 
 /**
@@ -221,5 +223,52 @@ describe("the slug", () => {
   it("accepts an edited slug only in that alphabet and length", () => {
     for (const slug of ["github", "work", "a", "git_systemtech_dev", "0", "x".repeat(40)]) expect(ForgeSlug.safeParse(slug).success, slug).toBe(true);
     for (const slug of ["", "x".repeat(41), "GitHub", "git-systemtech", "git.systemtech", "forge/work", "..", "work ", "ü"]) expect(ForgeSlug.safeParse(slug).success, slug).toBe(false);
+  });
+});
+
+describe("the variable names", () => {
+  const table: [string, { slug: string; origin: string; primary: boolean }, ForgeVariableNames][] = [
+    [
+      "a forge account's, with its slug upper-cased",
+      { slug: "git_systemtech_dev", origin: "https://git.systemtech.dev:5526", primary: false },
+      { url: ["FORGE_GIT_SYSTEMTECH_DEV_URL"], token: ["FORGE_GIT_SYSTEMTECH_DEV_TOKEN"], kind: ["FORGE_GIT_SYSTEMTECH_DEV_KIND"] },
+    ],
+    [
+      "the primary's, also bare",
+      { slug: "git_systemtech_dev", origin: "https://git.systemtech.dev:5526", primary: true },
+      {
+        url: ["FORGE_GIT_SYSTEMTECH_DEV_URL", "FORGE_URL"],
+        token: ["FORGE_GIT_SYSTEMTECH_DEV_TOKEN", "FORGE_TOKEN"],
+        kind: ["FORGE_GIT_SYSTEMTECH_DEV_KIND", "FORGE_KIND"],
+      },
+    ],
+    [
+      "github.com's, with GH_TOKEN",
+      { slug: "github", origin: "https://github.com", primary: false },
+      { url: ["FORGE_GITHUB_URL"], token: ["FORGE_GITHUB_TOKEN", "GH_TOKEN"], kind: ["FORGE_GITHUB_KIND"] },
+    ],
+    [
+      "github.com's as the primary",
+      { slug: "github", origin: "https://github.com", primary: true },
+      { url: ["FORGE_GITHUB_URL", "FORGE_URL"], token: ["FORGE_GITHUB_TOKEN", "FORGE_TOKEN", "GH_TOKEN"], kind: ["FORGE_GITHUB_KIND", "FORGE_KIND"] },
+    ],
+    [
+      "an Enterprise origin's, never with GH_TOKEN",
+      { slug: "ghe_example_com", origin: "https://ghe.example.com", primary: true },
+      {
+        url: ["FORGE_GHE_EXAMPLE_COM_URL", "FORGE_URL"],
+        token: ["FORGE_GHE_EXAMPLE_COM_TOKEN", "FORGE_TOKEN"],
+        kind: ["FORGE_GHE_EXAMPLE_COM_KIND", "FORGE_KIND"],
+      },
+    ],
+    [
+      "a forge account on github.com's host over http, which is not github.com's origin",
+      { slug: "github_2", origin: "http://github.com", primary: false },
+      { url: ["FORGE_GITHUB_2_URL"], token: ["FORGE_GITHUB_2_TOKEN"], kind: ["FORGE_GITHUB_2_KIND"] },
+    ],
+  ];
+
+  it.each(table)("are %s", (_, account, expected) => {
+    expect(forgeVariableNames(account)).toEqual(expected);
   });
 });
