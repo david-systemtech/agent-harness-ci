@@ -8,6 +8,7 @@ import { HARNESS_VERSION } from "@agent-harness/environment";
 import { afterEach, describe, expect, it } from "vitest";
 import { TEST_CLAUDE_CODE_VERSION, startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../environment/test/helper.js";
 import { testLauncher } from "../../environment/test/launcher.js";
+import { startFakeReleaseSource, type FakeReleaseSource } from "../../environment/test/release-source.js";
 import { runCli, type CliContext } from "./cli.js";
 import { renderUpdatesStatus } from "./update.js";
 
@@ -32,22 +33,41 @@ const start = async (options: TestEnvironmentOptions = {}): Promise<TestEnvironm
   return t;
 };
 
-/** The CLI in-process, its output captured. */
-const harness = () => {
+/** The CLI in-process, its output captured, `input` on its standard input. */
+const harness = (input = "") => {
   let out = "";
   let err = "";
   const context: Partial<CliContext> = {
     stdout: (text) => void (out += text),
     stderr: (text) => void (err += text),
+    stdin: async () => input,
     net: { fetch: globalThis.fetch, WebSocket: globalThis.WebSocket },
   };
   return { context, out: () => out, err: () => err };
 };
 
-const run = async (args: readonly string[]) => {
-  const cli = harness();
+const run = async (args: readonly string[], input?: string) => {
+  const cli = harness(input);
   const code = await runCli(args, cli.context);
   return { code, out: cli.out(), err: cli.err() };
+};
+
+/** A fake release source publishing `versions`, closed after the test. */
+const releaseSource = async (...versions: string[]): Promise<FakeReleaseSource> => {
+  const fake = await startFakeReleaseSource();
+  cleanups.push(() => fake.forge.close());
+  fake.publish(...versions.map((version) => ({ version })));
+  return fake;
+};
+
+/** An environment whose fake release source publishes `versions`, with the forge account for its origin. */
+const withReleases = async (...versions: string[]) => {
+  const fake = await releaseSource(...versions);
+  const t = await start({ releaseSource: fake.source, forgeFetch: fake.forge.fetch });
+  const admin = await t.client();
+  await fake.grantAccess(admin);
+  await admin.close();
+  return { fake, t };
 };
 
 /** The labels of the client sessions still live on `t`. */
@@ -114,7 +134,7 @@ describe("agent-harness update status", () => {
 
 describe("agent-harness update settings", () => {
   it("sets any of the five update settings from flags through updates.settings.set, and prints all five", async () => {
-    const t = await start();
+    const { t } = await withReleases("0.4.2");
     const { code, out, err } = await run([
       "update",
       "settings",
@@ -151,8 +171,18 @@ describe("agent-harness update settings", () => {
     expect(updated).toMatchObject({ type: "settings.updated", payload: { values: expected } });
   });
 
+  it("says why a pin was refused and exits 1, setting nothing", async () => {
+    const { fake, t } = await withReleases("0.4.2");
+    fake.absent("0.9.9");
+    const { code, out, err } = await run(["update", "settings", "--pinned-version", "0.9.9", "--channel", "beta", "--data-dir", t.dataDir]);
+    expect(code).toBe(1);
+    expect(out).toBe("");
+    expect(err).toBe("The environment refused the update settings: 0.9.9 cannot be pinned: No release 0.9.9 is published, or it is a draft.\n");
+    expect(t.env.log.readStream({ kinds: ["settings"] })).toEqual([]);
+  });
+
   it("sets one key alone, leaving the others as they were, and clears a pin with none", async () => {
-    const t = await start();
+    const { t } = await withReleases("0.4.2");
     expect((await run(["update", "settings", "--pinned-version", "0.4.2", "--data-dir", t.dataDir])).code).toBe(0);
     const { code, out } = await run(["update", "settings", "--pinned-version", "none", "--data-dir", t.dataDir]);
     expect(code).toBe(0);
@@ -286,8 +316,11 @@ describe("the status as update status prints it", () => {
     protocolVersion: 1,
     bundledClaudeCodeVersion: null,
     manager: { kind: "outside", lastPoll: at },
+    releaseSource: { origin: "https://git.example.com", kind: "forgejo", repository: "david/agent-harness" },
     newest: "0.5.0",
     lastCheck: { at, result: "failed", reason: "unreachable", message: "The forge did not answer." },
+    target: { version: "0.5.0", source: "channel" },
+    passedOver: null,
     pending: { state: "current" },
     lastOutcome: { outcome: "failed", updateId, fromVersion: "0.4.2", toVersion: "0.5.0", at, stage: "trial", reason: "deadline", rolledBack: true },
     failedVersions: ["0.5.0"],
@@ -300,8 +333,10 @@ describe("the status as update status prints it", () => {
       "Version: agent-harness 0.4.2, protocol 1",
       "Claude Code (bundled): unknown",
       `Updates: managed outside, by a host-side updater; last polled at ${at}`,
+      "Releases: https://git.example.com/david/agent-harness",
       "Channel's newest: 0.5.0",
       `Last check: ${at}, failed (unreachable): The forge did not answer.`,
+      "Target: 0.5.0 (channel)",
       "Pending update: none",
       `Last update: 0.4.2 to 0.5.0, failed at ${at} (trial: deadline), rolled back`,
       "Failed versions: 0.5.0",
@@ -319,9 +354,75 @@ describe("the status as update status prints it", () => {
     expect(renderUpdatesStatus({ ...base, lastOutcome: { outcome: "updated", updateId: null, fromVersion: "0.4.1", toVersion: "0.4.2", at } })).toContain(
       `Last update: 0.4.1 to 0.4.2, updated at ${at}\n`,
     );
-    expect(renderUpdatesStatus({ ...base, manager: { kind: "outside", lastPoll: null }, lastCheck: null, newest: null })).toMatch(
-      /Updates: managed outside, by a host-side updater; it has not polled yet\nChannel's newest: not read yet\nLast check: never\n/,
+    expect(renderUpdatesStatus({ ...base, manager: { kind: "outside", lastPoll: null }, lastCheck: null, newest: null, target: null })).toMatch(
+      /Updates: managed outside, by a host-side updater; it has not polled yet\nReleases: .*\nChannel's newest: not read yet\nLast check: never\nTarget: none\n/,
     );
+    expect(renderUpdatesStatus({ ...base, target: null, passedOver: { version: "0.3.0", source: "pin", reason: "schema", message: "Its schema is below the database's." } })).toContain(
+      "Target: none\nPassed over: 0.3.0 (pin, schema): Its schema is below the database's.\nPending update: none\n",
+    );
+  });
+});
+
+describe("agent-harness update credential", () => {
+  /** A token the fake forge answers as David; nothing a secret scanner takes for a real one. */
+  const RELEASE_TOKEN = "release-token-for-tests";
+
+  it("reads the token from standard input and adds it as the forge account for the release origin through the forge's add method, never printing it", async () => {
+    const fake = await releaseSource("0.5.0");
+    fake.forge.user(RELEASE_TOKEN, { login: "david", id: 42 });
+    fake.forge.answer(RELEASE_TOKEN, "GET /api/v1/repos/david/agent-harness/releases", { status: 200, body: [] });
+    const t = await start({ releaseSource: fake.source, forgeFetch: fake.forge.fetch });
+
+    const { code, out, err } = await run(["update", "credential", "--stdin", "--data-dir", t.dataDir], `${RELEASE_TOKEN}\n`);
+
+    expect(err).toBe("");
+    expect(code).toBe(0);
+    const admin = await t.client();
+    const { accounts } = await admin.request("forge.accounts.list", {});
+    expect(accounts).toEqual([expect.objectContaining({ origin: fake.source.origin, kind: "forgejo", credential: expect.objectContaining({ kind: "stored", provenance: "pasted" }) as unknown })]);
+    expect(out).toBe(`Added the forge account ${accounts[0]?.slug ?? ""} for ${fake.source.origin}, where its releases are published: the environment reads its releases with it.\n`);
+    expect(`${out}${err}`).not.toContain(RELEASE_TOKEN);
+    // The identity call heard the token before anything was stored.
+    expect(fake.forge.requests).toContainEqual({ method: "GET", path: "/api/v1/user", scheme: "token" });
+    expect((await admin.request("updates.check", {})).lastCheck).toMatchObject({ result: "ok" });
+    expect(await liveLabels(t)).not.toContain("agent-harness update credential");
+  });
+
+  it("says so and uses nothing when a forge account covers the release origin already", async () => {
+    const { fake, t } = await withReleases("0.5.0");
+    const before = fake.forge.requests.length;
+    const { code, out, err } = await run(["update", "credential", "--stdin", "--data-dir", t.dataDir], RELEASE_TOKEN);
+    expect(err).toBe("");
+    expect(code).toBe(0);
+    expect(out).toMatch(new RegExp(`^The forge account \\S+ already covers ${fake.source.origin.replace(/[.]/g, "\\.")}, where its releases are published; the token was not used\\.`));
+    expect(out).not.toContain(RELEASE_TOKEN);
+    expect(fake.forge.requests.length).toBe(before);
+    const admin = await t.client();
+    expect((await admin.request("forge.accounts.list", {})).accounts).toHaveLength(1);
+  });
+
+  it("says what the environment refused and exits 1 when the forge refuses the token, storing nothing and never printing it", async () => {
+    const fake = await releaseSource("0.5.0");
+    const t = await start({ releaseSource: fake.source, forgeFetch: fake.forge.fetch });
+    const { code, out, err } = await run(["update", "credential", "--stdin", "--data-dir", t.dataDir], RELEASE_TOKEN);
+    expect(code).toBe(1);
+    expect(out).toBe("");
+    expect(err).toMatch(/^The environment refused the token: /);
+    expect(err).not.toContain(RELEASE_TOKEN);
+    const admin = await t.client();
+    expect((await admin.request("forge.accounts.list", {})).accounts).toEqual([]);
+  });
+
+  it("takes the token from standard input only: without --stdin it prints its usage and exits 2, and with nothing piped in it says so and exits 1", async () => {
+    const t = await start();
+    for (const args of [[], ["--token", RELEASE_TOKEN], [RELEASE_TOKEN]]) {
+      const { code, err } = await run(["update", "credential", ...args, "--data-dir", t.dataDir], RELEASE_TOKEN);
+      expect(code, args.join(" ")).toBe(2);
+      expect(err, args.join(" ")).toContain("agent-harness update credential --stdin");
+      expect(err, args.join(" ")).not.toContain(RELEASE_TOKEN);
+    }
+    const empty = await run(["update", "credential", "--stdin", "--data-dir", t.dataDir], "  \n");
+    expect(empty).toMatchObject({ code: 1, out: "", err: "No token came on standard input: pipe the release token in.\n" });
   });
 });
 
