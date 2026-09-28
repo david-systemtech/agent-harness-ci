@@ -507,6 +507,20 @@ describe("/settings", () => {
     expect(env.requests("permissions.settings.set").map((r) => r.params)).toEqual([expect.objectContaining({ values: { "permissions.defaultCeiling": "auto" } })]);
   });
 
+  it("writes an update key through updates.settings.set, the one method that writes it (#335)", async () => {
+    const { app, env } = await launch();
+    await command(app, "/settings");
+    await app.waitFor("Settings on desk");
+    // Past the seven generic keys and the five permission keys: updates.autoUpdate, then updates.channel.
+    await app.press(...Array.from({ length: 13 }, () => KEY.down), KEY.enter);
+    await app.waitFor("updates.channel:");
+    await app.press(KEY.down, KEY.enter);
+    await app.waitFor("updates.channel is beta.");
+    expect(env.requests("updates.settings.set").map((r) => r.params)).toEqual([expect.objectContaining({ values: { "updates.channel": "beta" } })]);
+    expect(env.requests("settings.update")).toEqual([]);
+    expect(env.settings()["updates.channel"]).toBe("beta");
+  });
+
   it("asks with the bypass sentence before the unattended mode becomes bypassPermissions", async () => {
     const { app, env } = await launch();
     await command(app, "/settings");

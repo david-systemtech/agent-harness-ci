@@ -157,7 +157,8 @@ describe("auth and hello", () => {
     expect(client.hello).toEqual({
       type: "hello",
       protocolVersion: PROTOCOL_VERSION,
-      capabilities: [],
+      // The forge accounts (#310); the containment flags only where the probe found a level enforceable.
+      capabilities: ["forge"],
       environmentId: t.env.id,
       environmentName: "desk",
       clientSessionId: credential.clientSessionId,

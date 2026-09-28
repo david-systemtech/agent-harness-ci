@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "UpdateInterruptReason",
+  "type": "string",
+  "enum": [
+    "no-resume",
+    "account",
+    "mode",
+    "workspace",
+    "deleted",
+    "completions"
+  ],
+  "description": "Why a run an update cut was not continued on its own: no-resume (its adapter cannot resume, or no provider session was linked), account (the session's account is another now, or signed out), mode (the mode resolved now differs from the run's), workspace (the workspace is gone), deleted (the session is deleted) or completions (the caller was answered 503 drained and owns the retry)."
+}

@@ -9,7 +9,7 @@ const GenericSettingsPatch = z
   .partial()
   .meta({
     description:
-      "Some settings' values by key, each valid for its key; a key that is not a setting, or that a method of its own writes (the permissions.* keys: permissions.settings.set), is refused.",
+      "Some settings' values by key, each valid for its key; a key that is not a setting, or that a method of its own writes (the permissions.* keys: permissions.settings.set; the updates.* keys: updates.settings.set), is refused.",
   });
 
 /**
@@ -37,8 +37,9 @@ export const settingsGet = defineMethod({
  * value that is not valid, or a key that is not a setting, is
  * `invalid_params` with the offending key in the issue's path (or, for an
  * unknown key, its `keys`). A key a method of its own writes (`writtenBy`:
- * the permission keys, through `permissions.settings.set`) is refused the
- * same way. A value a key already holds changes nothing.
+ * the permission keys, through `permissions.settings.set`; the update keys,
+ * through `updates.settings.set`) is refused the same way. A value a key
+ * already holds changes nothing.
  * Answered with every setting's value after it.
  */
 export const settingsUpdate = defineMethod({

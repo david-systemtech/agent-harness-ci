@@ -201,7 +201,8 @@ export const sessionKind = (): StreamKind<SessionData> => ({
  * and colour would be too: they come from the environment, never the client
  * (ADR 0005), from `environment.status` and an environment-updated notice.
  * As built neither carries them: the notices are `environment.started`,
- * `environment.updated` (harness versions), `environment.draining`,
+ * `environment.updated` (harness versions), `environment.draining`, an
+ * update's pending, started, failed and cancelled (#335),
  * `account.updated` (the account store, #134), `signin.updated` and
  * `signin.executable-chosen` (the sign-in director, #135), `prompt.parked`
  * and `prompt.resolved` (the permission broker, #130), `usage.updated` (plan
@@ -236,9 +237,26 @@ export const environmentKind = (): StreamKind<EnvironmentData> => ({
       case "signin.executable-chosen":
       case "usage.updated":
         return data;
+      // An update's steps (#335): the status holds none of them, `updates.status` does (#342), and the notices queue says
+      // what is news (#344). The drain an update began is `environment.draining`'s.
+      case "environment.update-pending":
+      case "environment.update-started":
+      case "environment.update-failed":
+      case "environment.update-cancelled":
+        return data;
       // A prompt's notices change no status: the parked asks (`projections.runs`) and the notices queue read them (#142).
       case "prompt.parked":
       case "prompt.resolved":
+        return data;
+      // The forge's events (#310) change no status: the forge accounts' cache and notices are #320's.
+      case "forge.account.added":
+      case "forge.account.updated":
+      case "forge.account.primary-set":
+      case "forge.account.verified":
+      case "forge.account.capability-learned":
+      case "forge.account.git-rejected":
+      case "forge.account.removed":
+      case "forge.origin-missing":
         return data;
     }
   },

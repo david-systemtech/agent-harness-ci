@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ForgeCapabilityState",
+  "type": "string",
+  "enum": [
+    "verified",
+    "failed",
+    "unknown"
+  ],
+  "description": "Whether a forge account can do something: verified (a probe or an operation succeeded), failed (refused) or unknown (not tried yet)."
+}

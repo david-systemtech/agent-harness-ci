@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "updates.apply params",
+  "type": "object",
+  "properties": {
+    "commandId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+      "description": "The client-generated UUID every command takes; a retry with the same id applies once."
+    },
+    "version": {
+      "description": "The version to update to; absent, the channel's newest, or the pinned version.",
+      "type": "string",
+      "pattern": "^(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)(?:-(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*)?(?:\\+[0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*)?$"
+    },
+    "artefactPath": {
+      "description": "The path of an artefact of that version on the environment's machine, from a local client session only: the desktop's bundled one, or update apply's.",
+      "type": "string",
+      "minLength": 1
+    },
+    "when": {
+      "type": "string",
+      "enum": [
+        "idle",
+        "now"
+      ],
+      "description": "When an asked-for update drains: idle (under the idle rules and the deferral cap, as Update now and a newer client's offer do) or now (at once, cutting running runs at the drain's cap)."
+    }
+  },
+  "required": [
+    "commandId",
+    "when"
+  ]
+}

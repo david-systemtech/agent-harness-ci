@@ -344,6 +344,10 @@ export const usePickers = (host: PickersHost): Pickers => {
       void admin(() => runtime.requests.call(environmentId, "settings.update", { commandId, values: values as ParamsOf<"settings.update">["values"] })).then(saved);
       return;
     }
+    if (writer === "updates.settings.set") {
+      void admin(() => runtime.requests.call(environmentId, "updates.settings.set", { commandId, values: values as ParamsOf<"updates.settings.set">["values"] })).then(saved);
+      return;
+    }
     void admin(() =>
       runtime.requests.call(environmentId, "permissions.settings.set", {
         commandId,

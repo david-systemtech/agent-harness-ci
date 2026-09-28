@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "StoredTokenProvenance",
+  "type": "string",
+  "enum": [
+    "pasted",
+    "client-gh",
+    "imported",
+    "oauth"
+  ],
+  "description": "Where a stored token came from: pasted (a person pasted it), client-gh (the attending client handed over its own gh's token once, which does not follow gh's rotations), imported (the state import carried it over) or oauth (a device flow, milestone 3)."
+}

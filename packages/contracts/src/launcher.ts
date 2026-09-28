@@ -128,7 +128,7 @@ const keysOf = <T extends string>(members: Record<T, true>): readonly T[] => Obj
 
 const READINESS = keysOf<EnvironmentReadiness>({ starting: true, ready: true, draining: true });
 const BUSY_REASONS = keysOf<BusyReason>({ "run-starting": true, "run-running": true, "parked-prompt": true, "recent-activity": true });
-const DRAIN_TRIGGERS = keysOf<DrainTrigger>({ command: true, launcher: true, signal: true });
+const DRAIN_TRIGGERS = keysOf<DrainTrigger>({ command: true, launcher: true, signal: true, update: true });
 const REFUSALS: readonly (InstallRefusal | SwitchRefusal)[] = [...new Set([...INSTALL_REFUSALS, ...SWITCH_REFUSALS])];
 
 const activityOf = (value: unknown): EnvironmentStatus["activity"] | undefined => {

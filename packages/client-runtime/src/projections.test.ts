@@ -26,7 +26,7 @@ describe("projections.environments", () => {
         icon: null,
         colour: null,
         version: HARNESS_VERSION,
-        flags: [],
+        flags: ["forge"],
         scopes: [...SCOPES],
         ceiling: TOP_CEILING,
         enabled: true,

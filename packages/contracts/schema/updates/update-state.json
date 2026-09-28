@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "UpdateState",
+  "type": "string",
+  "enum": [
+    "current",
+    "staging",
+    "waiting",
+    "ready",
+    "draining",
+    "switching",
+    "blocked"
+  ],
+  "description": "Where the environment's update is: current (nothing to do), staging (downloading and installing its target), waiting (installed, for idle, the deferral cap or a request), ready (managed outside: for the host-side updater's updates.begin), draining, switching (the launcher is switching versions), or blocked (it cannot go on by itself, for the reason given)."
+}

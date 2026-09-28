@@ -146,6 +146,31 @@ describe("the method registry", () => {
     });
   });
 
+  it("gives the updates methods the launcher-update spec's scopes: the status and the check at read, the rest at admin, the desktop's stage a query", () => {
+    const updateMethods = methods.filter((m) => m.name.startsWith("updates."));
+    expect(Object.fromEntries(updateMethods.map((m) => [m.name, [m.kind, m.scope]]))).toEqual({
+      "updates.status": ["query", "read"],
+      "updates.check": ["query", "read"],
+      "updates.apply": ["command", "admin"],
+      "updates.cancel": ["command", "admin"],
+      "updates.settings.set": ["command", "admin"],
+      "updates.begin": ["command", "admin"],
+      "updates.desktop.stage": ["query", "admin"],
+    });
+  });
+
+  it("owes each updates method's handler to the launcher ticket that builds it (#335 registers them with none)", () => {
+    expect(Object.fromEntries(Object.entries(OWED_HANDLERS).filter(([name]) => name.startsWith("updates.")))).toEqual({
+      "updates.status": "#342",
+      "updates.settings.set": "#342",
+      "updates.apply": "#343",
+      "updates.cancel": "#343",
+      "updates.check": "#346",
+      "updates.begin": "#348",
+      "updates.desktop.stage": "#354",
+    });
+  });
+
   it("owes a handler only for a registered method, each to a named ticket", () => {
     for (const [name, ticket] of Object.entries(OWED_HANDLERS)) {
       expect(isMethodName(name), name).toBe(true);
@@ -194,6 +219,10 @@ describe("the method registry", () => {
       "accounts.signin.start",
       "accounts.signin.code",
       "accounts.signin.cancel",
+      "forge.accounts.add",
+      "forge.accounts.update",
+      "forge.accounts.remove",
+      "forge.accounts.setPrimary",
       "settings.update",
       "permissions.mode.set",
       "permissions.containment.set",
@@ -206,6 +235,10 @@ describe("the method registry", () => {
       "terminals.write",
       "terminals.resize",
       "terminals.close",
+      "updates.apply",
+      "updates.cancel",
+      "updates.settings.set",
+      "updates.begin",
     ]);
   });
 
@@ -347,6 +380,11 @@ describe("the method registry", () => {
       | "accounts.handoff.recommend"
       | "models.list"
       | "commands.list"
+      | "forge.accounts.list"
+      | "forge.accounts.add"
+      | "forge.accounts.update"
+      | "forge.accounts.remove"
+      | "forge.accounts.setPrimary"
       | "settings.get"
       | "settings.update"
       | "permissions.mode.set"
@@ -372,6 +410,13 @@ describe("the method registry", () => {
       | "files.read"
       | "diffs.workingTree"
       | "diffs.session"
+      | "updates.status"
+      | "updates.check"
+      | "updates.apply"
+      | "updates.cancel"
+      | "updates.settings.set"
+      | "updates.begin"
+      | "updates.desktop.stage"
     >();
     expectTypeOf<ParamsOf<"access.sessions.revoke">>().toEqualTypeOf<{ commandId: string; clientSessionId: string }>();
   });

@@ -1,0 +1,8 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "LauncherProtocol",
+  "type": "integer",
+  "exclusiveMinimum": 0,
+  "maximum": 9007199254740991,
+  "description": "A launcher protocol: one integer, raised on a change the launcher must understand; an environment runs under a launcher that speaks its protocol or a higher one."
+}

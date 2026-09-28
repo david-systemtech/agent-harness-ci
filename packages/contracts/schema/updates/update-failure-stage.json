@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "UpdateFailureStage",
+  "type": "string",
+  "enum": [
+    "switch",
+    "trial",
+    "crash-loop"
+  ],
+  "description": "Where an update failed: switch (the launcher refused the switch, or a container's stop never came, and the same version runs on), trial (the new version did not pass its startup gate) or crash-loop (it exited three times within ten minutes of its commit)."
+}

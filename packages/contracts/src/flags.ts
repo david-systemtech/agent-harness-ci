@@ -19,6 +19,18 @@ export const ProtocolVersion = z
   .meta({ description: "A wire protocol version: one integer, bumped only on a breaking change." });
 export type ProtocolVersion = z.infer<typeof ProtocolVersion>;
 
+/**
+ * A launcher protocol as a release manifest names it: one integer, the one
+ * a version's environment needs its launcher to speak. This build's is
+ * `LAUNCHER_PROTOCOL`, whose one definition is the launcher module
+ * (`launcher.ts`), which loads nothing at run time.
+ */
+export const LauncherProtocol = z.int().positive().meta({
+  description:
+    "A launcher protocol: one integer, raised on a change the launcher must understand; an environment runs under a launcher that speaks its protocol or a higher one.",
+});
+export type LauncherProtocol = z.infer<typeof LauncherProtocol>;
+
 /** One capability an environment offers. */
 export const CapabilityFlag = z.string().min(1).meta({ description: "One capability an environment offers." });
 export type CapabilityFlag = z.infer<typeof CapabilityFlag>;
@@ -44,6 +56,7 @@ export const supports = (flags: readonly CapabilityFlag[], flag: CapabilityFlag)
  *
  * - `self-update`: the environment can update itself to a client's version (the launcher workstream, ADR 0007).
  * - `containment:workspace`, `containment:no-network`: the containment levels the environment can enforce (the permissions workstream).
+ * - `forge`: the environment holds forge accounts and answers the `forge.*` methods (the forge workstream); without it a client shows Forges absent-with-reason.
  */
-export const CAPABILITY_FLAG_LIST = ["self-update", "containment:workspace", "containment:no-network"] as const;
+export const CAPABILITY_FLAG_LIST = ["self-update", "containment:workspace", "containment:no-network", "forge"] as const;
 export type KnownCapabilityFlag = (typeof CAPABILITY_FLAG_LIST)[number];

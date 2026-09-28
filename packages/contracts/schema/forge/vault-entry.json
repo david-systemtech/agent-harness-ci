@@ -1,0 +1,7 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ForgeVaultEntry",
+  "type": "string",
+  "pattern": "^forge:[0-9a-f-]+:[0-9a-f-]+$",
+  "description": "The environment's vault entry holding a stored token, one per credential it was given: forge:<forge account id>:<entry id>. Never the token itself."
+}

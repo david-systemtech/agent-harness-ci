@@ -14,6 +14,7 @@ export * from "./event-types.js";
 export * from "./errors.js";
 export * from "./flags.js";
 export * from "./forge.js";
+export * from "./forge-accounts.js";
 export * from "./frames.js";
 export * from "./launcher.js";
 export * from "./lifecycle.js";
@@ -53,6 +54,7 @@ export {
   Timestamp,
 } from "./primitives.js";
 export type { MintedPairing } from "./methods/access.js";
+export { IdentityMismatchError, VerificationFailedError } from "./methods/forge.js";
 export { ContainmentUnavailableError, REVIEW_LIST_LIMIT, REVIEW_LIST_MAX } from "./methods/permissions.js";
 export { AttachmentInput, MAX_ATTACHMENT_BYTES } from "./methods/runs.js";
 export {
@@ -71,6 +73,7 @@ export {
 } from "./methods/providers.js";
 export { CommandReceipt, commandResponse, type CommandResponseSchema } from "./receipt.js";
 export * from "./registry.js";
+export * from "./release.js";
 export * from "./schema-export.js";
 export * from "./scopes.js";
 export * from "./sessions.js";
@@ -80,5 +83,8 @@ export * from "./steps.js";
 export * from "./summary-fields.js";
 export * from "./terminals.js";
 export * from "./transcript.js";
+export * from "./update-route.js";
+export * from "./update-settings.js";
+export * from "./updates.js";
 export * from "./usage.js";
 export * from "./write-commands.js";

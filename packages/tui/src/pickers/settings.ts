@@ -30,15 +30,21 @@ export const valueWords = (value: unknown): string => {
 /**
  * The method that writes `key`: the generic `settings.update`, or the one a
  * key's rule gives it (`writtenBy`, #117: the permission keys'
- * `permissions.settings.set`, with its bypass acknowledgement); null for the
- * one only the environment records, the bypass acknowledgement's time.
+ * `permissions.settings.set`, with its bypass acknowledgement; the update
+ * keys' `updates.settings.set`, #335); null for the one only the environment
+ * records, the bypass acknowledgement's time.
  */
-export type SettingsWriter = "settings.update" | "permissions.settings.set";
+export type SettingsWriter = "settings.update" | "permissions.settings.set" | "updates.settings.set";
+
+/** The methods of their own that write keys, of those `writtenBy` names. */
+const OWN_WRITERS = ["permissions.settings.set", "updates.settings.set"] as const satisfies readonly SettingsWriter[];
+const isOwnWriter = (method: string | undefined): method is (typeof OWN_WRITERS)[number] => (OWN_WRITERS as readonly (string | undefined)[]).includes(method);
 
 export const writerOf = (key: SettingsKey): SettingsWriter | null => {
   if (key === BYPASS_ACKNOWLEDGED_KEY) return null;
   if (isGenericSettingsKey(key)) return "settings.update";
-  return SETTINGS[key].writtenBy === "permissions.settings.set" ? "permissions.settings.set" : null;
+  const own = SETTINGS[key].writtenBy;
+  return isOwnWriter(own) ? own : null;
 };
 
 /** What a key is for, in its schema's words. */

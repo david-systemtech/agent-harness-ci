@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ForgeAccountPrimarySetPayload",
+  "type": "object",
+  "properties": {
+    "forgeAccountId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "A forge account's id: a version 4 UUID the adding client mints, kept in lowercase."
+    },
+    "cleared": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+          "description": "A forge account's id: a version 4 UUID the adding client mints, kept in lowercase."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The forge account that was primary until now; null when none was."
+    }
+  },
+  "required": [
+    "forgeAccountId",
+    "cleared"
+  ],
+  "description": "forge.account.primary-set: a forge account became the primary forge, and the one that was is no longer."
+}

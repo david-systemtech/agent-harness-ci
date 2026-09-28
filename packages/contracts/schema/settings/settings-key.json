@@ -14,7 +14,12 @@
     "permissions.unattended.mode",
     "permissions.unattended.bypassAcknowledgedAt",
     "permissions.parkedPrompt.ttl",
-    "permissions.containment.default"
+    "permissions.containment.default",
+    "updates.autoUpdate",
+    "updates.channel",
+    "updates.pinnedVersion",
+    "updates.idleWindowMinutes",
+    "updates.deferralCapHours"
   ],
-  "description": "A settings key: sessions.autoSettleAfterIdle, sessions.autoSettleOnMerge, sessions.transcriptCompactAfterDays, accounts.defaultAccount, accounts.defaultModelFamily, accounts.defaultEffort, providers.processIdleMinutes, permissions.defaultCeiling, permissions.unattended.mode, permissions.unattended.bypassAcknowledgedAt, permissions.parkedPrompt.ttl, permissions.containment.default."
+  "description": "A settings key: sessions.autoSettleAfterIdle, sessions.autoSettleOnMerge, sessions.transcriptCompactAfterDays, accounts.defaultAccount, accounts.defaultModelFamily, accounts.defaultEffort, providers.processIdleMinutes, permissions.defaultCeiling, permissions.unattended.mode, permissions.unattended.bypassAcknowledgedAt, permissions.parkedPrompt.ttl, permissions.containment.default, updates.autoUpdate, updates.channel, updates.pinnedVersion, updates.idleWindowMinutes, updates.deferralCapHours."
 }

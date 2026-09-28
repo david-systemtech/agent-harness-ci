@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ForgeTokenInformation",
+  "type": "object",
+  "properties": {
+    "kind": {
+      "type": "string",
+      "enum": [
+        "classic",
+        "fine-grained",
+        "oauth",
+        "unknown"
+      ],
+      "description": "What kind of token a credential is: classic, fine-grained, oauth, or unknown (a Forgejo or Gitea token, which does not say)."
+    },
+    "scopes": {
+      "anyOf": [
+        {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The scopes the forge's scope header named, a hint only; null when it sent none."
+    },
+    "expiresAt": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+          "description": "An instant as an ISO 8601 UTC timestamp."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "When the token expires, when the forge says; null otherwise."
+    }
+  },
+  "required": [
+    "kind",
+    "scopes",
+    "expiresAt"
+  ],
+  "description": "What a verification read of a forge account's token: its kind, the scope header as a hint, and its expiry."
+}

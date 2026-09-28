@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "forge.accounts.remove result",
+  "type": "object",
+  "properties": {
+    "forgeAccountId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "A forge account's id: a version 4 UUID the adding client mints, kept in lowercase."
+    }
+  },
+  "required": [
+    "forgeAccountId"
+  ]
+}

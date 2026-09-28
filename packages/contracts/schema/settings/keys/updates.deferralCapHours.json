@@ -1,0 +1,8 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DeferralCapHours",
+  "type": "integer",
+  "minimum": 1,
+  "maximum": 168,
+  "description": "The deferral cap, in hours: how long busy work may hold a pending update before the environment drains for it anyway; 1 to 168, preset 24, with no never."
+}

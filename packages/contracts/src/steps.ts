@@ -125,7 +125,8 @@ export const anyValidValue =
 /**
  * Every step registered so far, in the milestone-1 order: Account, for the
  * default account, model family and effort (#134) and the process idle time
- * (#120); Your machines, whose not-root line #141 adds; Permissions (#129's
+ * (#120); Your machines, for the update settings (#335), whose not-root line
+ * #141 adds; Permissions (#129's
  * keys, #141's entry); and Appearance, for the auto-settle keys in its
  * Sessions band (session-state spec, "Auto-settle: rules and settings") and
  * the transcript compaction window beside them (#123). The other steps
@@ -150,12 +151,20 @@ export const STEP_REGISTRY = [
   },
   {
     // The Your machines step (ADR 0025), in the Environments band's Your machines row (ADR 0027:
-    // environments.machines). It writes no setting yet; its health line reports not-root, read from what
-    // permissions.settings.get answers as isRoot (#141). The rest of its check (the discovery URL reachable and
-    // ready, the name, the version against the channel) is Set up's (#88).
+    // environments.machines). It writes the five update keys (#335), through updates.settings.set alone (their
+    // writtenBy), and a preference step's checks pass on any valid value; its health line reports not-root, read
+    // from what permissions.settings.get answers as isRoot (#141). Its update state checks are the launcher
+    // tickets' (#346, #347, #348), and the rest of its check (the discovery URL reachable and ready, the name) is
+    // Set up's (#88).
     id: "your-machines",
-    writes: [],
-    checks: [],
+    writes: ["updates.autoUpdate", "updates.channel", "updates.pinnedVersion", "updates.idleWindowMinutes", "updates.deferralCapHours"],
+    checks: [
+      { key: "updates.autoUpdate", check: anyValidValue("updates.autoUpdate") },
+      { key: "updates.channel", check: anyValidValue("updates.channel") },
+      { key: "updates.pinnedVersion", check: anyValidValue("updates.pinnedVersion") },
+      { key: "updates.idleWindowMinutes", check: anyValidValue("updates.idleWindowMinutes") },
+      { key: "updates.deferralCapHours", check: anyValidValue("updates.deferralCapHours") },
+    ],
     stateChecks: [{ id: "your-machines.not-root", holds: "The environment runs as a non-root user.", actions: [] }],
     links: [{ pane: "machines", band: "environments" }],
     skippable: false,

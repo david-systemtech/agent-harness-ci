@@ -13,6 +13,7 @@ import { JsonObject, Sequence, Timestamp } from "./primitives.js";
 import { ParkedPrompt, PromptAnsweredPayload, PromptOpenedPayload } from "./prompts.js";
 import { Ceiling } from "./scopes.js";
 import { SessionId, SessionSummary, SummaryPatch, Workspace } from "./sessions.js";
+import { UpdateId } from "./updates.js";
 
 /**
  * The transcript vocabulary (claude-adapter spec, "The transcript event
@@ -29,11 +30,16 @@ import { SessionId, SessionSummary, SummaryPatch, Workspace } from "./sessions.j
  * Every other transcript type changes nothing a client lists, and is not.
  */
 
-/** Where a run came from: a client's `runs.start` or `runs.send`, a routine's firing, the completions surface, or a turn the provider opened itself. */
-export const RUN_ORIGINS = ["client", "routine", "completions", "provider"] as const;
+/**
+ * Where a run came from: a client's `runs.start` or `runs.send`, a routine's
+ * firing, the completions surface, a turn the provider opened itself, or the
+ * turn that continues a run an update cut (launcher-update spec, "Interrupted
+ * runs and parked prompts").
+ */
+export const RUN_ORIGINS = ["client", "routine", "completions", "provider", "update"] as const;
 export const RunOrigin = z.enum(RUN_ORIGINS).meta({
   description:
-    "Where a run came from: client (runs.start or runs.send, or the environment's queue after a client's run), routine, completions, or provider (a turn the provider opened itself, adopted as a run).",
+    "Where a run came from: client (runs.start or runs.send, or the environment's queue after a client's run), routine, completions, provider (a turn the provider opened itself, adopted as a run), or update (the turn that continues a run an update cut, started as system:updates).",
 });
 export type RunOrigin = z.infer<typeof RunOrigin>;
 
@@ -341,6 +347,56 @@ export const SessionRewindUndonePayload = z
   });
 export type SessionRewindUndonePayload = z.infer<typeof SessionRewindUndonePayload>;
 
+/**
+ * What became of a run an update cut (launcher-update spec, "Interrupted runs
+ * and parked prompts"): one run continued it, a prompt of its session is
+ * still parked (answering it resumes the session; continuation never answers
+ * a prompt), or it waits for the session's next message.
+ */
+export const UPDATE_INTERRUPT_OUTCOMES = ["continued", "waiting-on-prompt", "next-message"] as const;
+export const UpdateInterruptOutcome = z.enum(UPDATE_INTERRUPT_OUTCOMES).meta({
+  description:
+    "What became of a run an update cut: continued (one run, origin update, resumed it), waiting-on-prompt (a prompt of the session is still parked, and answering it resumes the session) or next-message (it goes on when the session is next sent a message, for the reason given).",
+});
+export type UpdateInterruptOutcome = z.infer<typeof UpdateInterruptOutcome>;
+
+/** Why a run an update cut was not continued on its own, and waits for the session's next message. */
+export const UPDATE_INTERRUPT_REASONS = ["no-resume", "account", "mode", "workspace", "deleted", "completions"] as const;
+export const UpdateInterruptReason = z.enum(UPDATE_INTERRUPT_REASONS).meta({
+  description:
+    "Why a run an update cut was not continued on its own: no-resume (its adapter cannot resume, or no provider session was linked), account (the session's account is another now, or signed out), mode (the mode resolved now differs from the run's), workspace (the workspace is gone), deleted (the session is deleted) or completions (the caller was answered 503 drained and owns the retry).",
+});
+export type UpdateInterruptReason = z.infer<typeof UpdateInterruptReason>;
+
+const interruptedPart = {
+  ...runPart,
+  updateId: UpdateId,
+  toVersion: z.string().min(1).meta({ description: "The version the update that cut the run went to." }),
+};
+
+export const RunUpdateInterruptedPayload = z
+  .discriminatedUnion("outcome", [
+    z
+      .object({
+        ...interruptedPart,
+        outcome: z.literal("continued"),
+        reason: z.null(),
+        continuationRunId: RunId.meta({ description: "The run that continued it, as system:updates with the origin update." }),
+      })
+      .meta({ description: "The run was continued by one run of its own session, which resumed its provider session." }),
+    z
+      .object({ ...interruptedPart, outcome: z.literal("waiting-on-prompt"), reason: z.null(), continuationRunId: z.null() })
+      .meta({ description: "A prompt of the session is still parked: answering it resumes the session." }),
+    z
+      .object({ ...interruptedPart, outcome: z.literal("next-message"), reason: UpdateInterruptReason, continuationRunId: z.null() })
+      .meta({ description: "The run goes on when the session is next sent a message: why it did not on its own." }),
+  ])
+  .meta({
+    description:
+      "run.update-interrupted: an update cut the run (it ended drained after the update began); which update, the version it went to, and what became of the run, once per run whatever the update's outcome.",
+  });
+export type RunUpdateInterruptedPayload = z.infer<typeof RunUpdateInterruptedPayload>;
+
 const unlisted = <const P extends z.ZodType>(payload: P) => ({ list: false, payload }) as const;
 
 /**
@@ -370,6 +426,8 @@ export const TRANSCRIPT_EVENT_TYPES = {
   "session.rewound": unlisted(SessionRewoundPayload),
   "session.rewind-undone": unlisted(SessionRewindUndonePayload),
   "run.ended": { list: true, payload: RunEndedPayload, patch: SummaryPatch },
+  // The settle after an update marks each run the update cut (#335; the launcher-update spec), on the run's session.
+  "run.update-interrupted": unlisted(RunUpdateInterruptedPayload),
 } as const satisfies Record<string, EventTypeEntry>;
 
 export type TranscriptEventType = keyof typeof TRANSCRIPT_EVENT_TYPES;

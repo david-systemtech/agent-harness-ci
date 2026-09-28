@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "UpdateRequest",
+  "type": "object",
+  "properties": {
+    "version": {
+      "type": "string",
+      "pattern": "^(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)(?:-(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*)?(?:\\+[0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*)?$",
+      "description": "The version to update to: the asking client's own, for a newer client's offer."
+    },
+    "artefactPath": {
+      "description": "The path of an artefact of that version on the environment's machine; from a local client session only.",
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "required": [
+    "version"
+  ],
+  "description": "A client's request that the environment update itself to a version, when idle."
+}
