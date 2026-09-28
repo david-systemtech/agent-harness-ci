@@ -1,6 +1,5 @@
-import type { ToolCallEntry } from "@agent-harness/client-runtime";
+import type { ToolCallEntry, TranscriptRow as Row } from "@agent-harness/client-runtime";
 import { describe, expect, it } from "vitest";
-import type { Row } from "./rows.js";
 import { editCalls, inWorkspace, rowFile } from "./targets.js";
 
 /**

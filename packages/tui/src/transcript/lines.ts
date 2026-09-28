@@ -1,18 +1,22 @@
-import type { ToolCallEntry, VerbAvailability } from "@agent-harness/client-runtime";
-import type { ModelUsage, RunSummary } from "@agent-harness/contracts";
 import {
+  TOOL_QUIET_MS,
   classifyTool,
   describeActivity,
+  endWords,
+  folded,
   formatDuration,
-  formatTokens,
-  formatUsd,
   oneLine,
   outputText,
   summarizeToolInput,
+  turnFacts,
+  undoableFold,
   type ActivityCounts,
+  type ToolCallEntry,
   type ToolCategory,
-} from "./format.js";
-import { folded, undoableFold, type Row } from "./rows.js";
+  type TranscriptRow as Row,
+  type VerbAvailability,
+} from "@agent-harness/client-runtime";
+import type { RunSummary } from "@agent-harness/contracts";
 
 /**
  * How a row is drawn (docs/specs/tui.md, "The transcript"): as lines of
@@ -82,9 +86,6 @@ export interface Line {
   readonly row: string;
   readonly spans: readonly Span[];
 }
-
-/** How long a running call may say nothing before its row turns amber: a cue, not a verdict. */
-export const TOOL_QUIET_MS = 3 * 60_000;
 
 /** How much of a cut result a collapsed row keeps: its first lines say which call it was, its last where it failed. */
 export const RESULT_HEAD = 2;
@@ -262,35 +263,6 @@ const callsLines = (row: string, calls: readonly ToolCallEntry[], context: LineC
   if (summary.length > 0) lines.push(...block(row, { text: TOOL, color: context.expanded ? "gray" : "green" }, [[{ text: summary, dim: context.expanded }]], context.width, true));
   shown.forEach((call, index) => lines.push(...callLines(row, call, context, context.expanded, summary.length === 0 && index === 0)));
   return lines;
-};
-
-/** All the tokens a run spent, and its dollars when the provider said. */
-const spend = (usage: readonly ModelUsage[] | null): { readonly input: number; readonly output: number; readonly dollars: number | null } => {
-  let input = 0;
-  let output = 0;
-  let dollars: number | null = null;
-  for (const model of usage ?? []) {
-    input += model.inputTokens + model.cacheReadTokens + model.cacheWriteTokens;
-    output += model.outputTokens;
-    if (model.costUsd !== null) dollars = (dollars ?? 0) + model.costUsd;
-  }
-  return { input, output, dollars };
-};
-
-/** The cost line's facts for a finished run: its time, its tokens in and out, its dollars. */
-export const turnFacts = (run: RunSummary): string[] => {
-  const { input, output, dollars } = spend(run.usage);
-  return [
-    ...(run.durationMs !== null ? [formatDuration(run.durationMs)] : []),
-    ...(run.usage !== null ? [`${formatTokens(input)} in`, `${formatTokens(output)} out`] : []),
-    ...(dollars !== null ? [formatUsd(dollars)] : []),
-  ];
-};
-
-/** How a run ended, in words, when it did not simply complete. */
-export const endWords = (run: RunSummary): string => {
-  if (run.reason === "interrupted") return run.cause === "read-now" ? "Interrupted to read the queue" : "Interrupted";
-  return (run.reason ?? "ended").replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
 };
 
 /** The cost line under a finished turn; a turn that did not complete says how it ended, in amber, or red for an error. */

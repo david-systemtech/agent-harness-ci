@@ -1,6 +1,4 @@
-import type { ToolCallEntry } from "@agent-harness/client-runtime";
-import { classifyTool } from "./format.js";
-import type { Row } from "./rows.js";
+import { classifyTool, type ToolCallEntry, type TranscriptRow as Row } from "@agent-harness/client-runtime";
 
 /**
  * What `o` and `d` act on (docs/specs/tui.md, "The transcript"): the

@@ -1,18 +1,15 @@
-import type { SessionProjection, ToolCallEntry, TranscriptEntry } from "@agent-harness/client-runtime";
+import { TOOL_QUIET_MS, transcriptRows, turnFacts, type SessionProjection, type ToolCallEntry, type TranscriptEntry } from "@agent-harness/client-runtime";
 import type { RunSummary } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
-import { formatDuration } from "./format.js";
-import { TOOL_QUIET_MS, lineText, rowLines, transcriptLines, turnFacts, wrap, type LineContext } from "./lines.js";
-import { transcriptRows } from "./rows.js";
+import { lineText, rowLines, transcriptLines, wrap, type LineContext } from "./lines.js";
 
 /**
- * The fold as a pure function (docs/specs/tui.md, "Testing Decisions": the
- * fold carried as a pure module): `projections.session`'s entries in, rows
- * and lines out.
+ * How the terminal draws the transcript's rows (docs/specs/tui.md, "Testing
+ * Decisions": the fold carried as a pure module): the runtime's rows of
+ * `projections.session`'s entries in, lines out.
  */
 
 const RUN = "0199a100-0000-4000-8000-000000000001";
-const OTHER_RUN = "0199a100-0000-4000-8000-000000000002";
 
 const message = (sequence: number, text: string, delivery: "prompt" | "queued" | "steered" = "prompt", runId = RUN): TranscriptEntry => ({
   kind: "user-message",
@@ -66,80 +63,7 @@ const view = (items: readonly TranscriptEntry[], runs: readonly RunSummary[] = [
 const CONTEXT: LineContext = { width: 80, expanded: false };
 const shown = (lines: ReturnType<typeof transcriptLines>) => lines.map(lineText).filter((line) => line.length > 0);
 
-describe("transcriptRows", () => {
-  it("folds a run's calls into one row at its first call, keeping every other entry where it was opened", () => {
-    const rows = transcriptRows(view([message(1, "Go"), text(2, "Looking."), call(3, "Bash", "ok"), text(4, "Found it."), call(5, "Read", "ok")]));
-    expect(rows.map((row) => row.kind)).toEqual(["user", "assistant", "calls", "assistant"]);
-    const calls = rows[2];
-    expect(calls?.kind === "calls" && calls.calls.map((c) => c.toolCallId)).toEqual(["t-3", "t-5"]);
-  });
-
-  it("gives each run its own fold", () => {
-    const rows = transcriptRows(view([call(1, "Bash", "ok"), message(2, "Next", "prompt", OTHER_RUN), call(3, "Bash", "ok", {}, OTHER_RUN)]));
-    expect(rows.map((row) => `${row.kind} ${row.runId}`)).toEqual([`calls ${RUN}`, `user ${OTHER_RUN}`, `calls ${OTHER_RUN}`]);
-  });
-
-  it("leaves a queued message to the queued line and the delegated work to the strip", () => {
-    const tasks: TranscriptEntry = { kind: "tasks", sequence: 3, runId: RUN, tasks: [] };
-    const rows = transcriptRows(view([message(1, "Go"), message(2, "and this", "queued"), tasks, message(4, "steered in", "steered")]));
-    expect(rows.map((row) => (row.kind === "user" ? row.entry.text : row.kind))).toEqual(["Go", "steered in"]);
-  });
-
-  it("puts a turn row after the last row of each finished run, and none under a run still going", () => {
-    const rows = transcriptRows(view([message(1, "Go"), text(2, "Done."), message(3, "More", "prompt", OTHER_RUN), text(4, "Working", OTHER_RUN)], [run(RUN, "ended"), run(OTHER_RUN, "running")]));
-    expect(rows.map((row) => row.kind)).toEqual(["user", "assistant", "turn", "user", "assistant"]);
-  });
-
-  it("opens a run with the queued messages it read as its prompt, in the order sent, after the turn they were sent during (#231)", () => {
-    // Sent during RUN, which went on talking; OTHER_RUN, a read-now's run of the queue, read both as its prompt.
-    const rows = transcriptRows(
-      view(
-        [message(1, "Go"), text(2, "Looking."), message(3, "and the tests", "prompt", OTHER_RUN), text(4, "Still looking."), message(5, "and the docs", "prompt", OTHER_RUN), text(6, "On the tests.", OTHER_RUN)],
-        [run(RUN, "ended", { reason: "interrupted", cause: "read-now" }), run(OTHER_RUN, "running", { queuedMessageIds: ["m-3", "m-5"] })],
-      ),
-    );
-    expect(rows.map((row) => (row.kind === "user" || row.kind === "assistant" ? row.entry.text : row.kind))).toEqual([
-      "Go",
-      "Looking.",
-      "Still looking.",
-      "turn",
-      "and the tests",
-      "and the docs",
-      "On the tests.",
-    ]);
-    // A run of the queue that has drawn nothing yet still opens with it.
-    const started = transcriptRows(view([message(1, "Go"), message(2, "and the tests", "prompt", OTHER_RUN), text(3, "Done.")], [run(RUN, "ended"), run(OTHER_RUN, "running", { queuedMessageIds: ["m-2"] })]));
-    expect(started.map((row) => (row.kind === "user" || row.kind === "assistant" ? row.entry.text : row.kind))).toEqual(["Go", "Done.", "turn", "and the tests"]);
-  });
-
-  it("opens a run of the queue that drew nothing before any later run's rows, not at the end of the transcript", () => {
-    // OTHER_RUN read "and the tests" as its prompt and failed before it said anything; LAST_RUN is a new prompt after it.
-    const LAST_RUN = "0199a100-0000-4000-8000-000000000003";
-    const rows = transcriptRows(
-      view(
-        [message(1, "Go"), text(2, "Looking."), message(3, "and the tests", "prompt", OTHER_RUN), message(4, "Try again", "prompt", LAST_RUN), text(5, "Trying.", LAST_RUN)],
-        [run(RUN, "ended"), run(OTHER_RUN, "ended", { reason: "error", queuedMessageIds: ["m-3"] }), run(LAST_RUN, "running")],
-      ),
-    );
-    expect(rows.map((row) => (row.kind === "user" || row.kind === "assistant" ? row.entry.text : `${row.kind}:${row.runId}`))).toEqual([
-      "Go",
-      "Looking.",
-      `turn:${RUN}`,
-      "and the tests",
-      `turn:${OTHER_RUN}`,
-      "Try again",
-      "Trying.",
-    ]);
-  });
-
-  it("draws what a rewind cut as one fold at the rewind point, holding the cut rows, never among what came after (#232)", () => {
-    const fold: TranscriptEntry = { kind: "rewound", sequence: 4, toMessageId: "m-2", text: "Then", undoable: true, items: [message(2, "Then"), text(3, "Done.")] };
-    const rows = transcriptRows(view([message(1, "Go"), fold, message(5, "Again")]));
-    expect(rows.map((row) => (row.kind === "user" ? row.entry.text : row.kind))).toEqual(["Go", "rewound", "Again"]);
-    const folded = rows[1];
-    expect(folded?.kind === "rewound" && folded.rows.map((row) => (row.kind === "user" ? row.entry.text : row.kind))).toEqual(["Then", "assistant"]);
-  });
-
+describe("an opaque row's line", () => {
   it("keeps an entry it cannot show as an opaque row", () => {
     const rows = transcriptRows(view([{ kind: "opaque", sequence: 1, type: "weird.new-thing", payload: {} }]));
     expect(shown(transcriptLines(rows, CONTEXT))).toEqual(["  · weird.new-thing: an event this version does not show"]);
@@ -250,16 +174,5 @@ describe("wrap", () => {
   it("keeps each span's style across the break", () => {
     const lines = wrap([{ text: "bold words", bold: true }, { text: " plain" }], 11);
     expect(lines.map((line) => line.map((s) => `${s.bold ? "*" : ""}${s.text}`).join("|"))).toEqual(["*bold words", "plain"]);
-  });
-});
-
-describe("formatDuration", () => {
-  it("never says 60 seconds: a duration that rounds up to a minute says the minute", () => {
-    expect(formatDuration(900)).toBe("900ms");
-    expect(formatDuration(4200)).toBe("4.2s");
-    expect(formatDuration(59_400)).toBe("59s");
-    expect(formatDuration(59_500)).toBe("1m 0s");
-    expect(formatDuration(119_500)).toBe("2m 0s");
-    expect(formatDuration(61_000)).toBe("1m 1s");
   });
 });

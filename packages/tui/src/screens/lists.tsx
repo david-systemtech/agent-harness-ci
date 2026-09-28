@@ -1,9 +1,8 @@
 import { Box, Text } from "ink";
-import type { SessionRow, UserMessageEntry, VerbAvailability } from "@agent-harness/client-runtime";
+import { oneLine, type SessionRow, type UserMessageEntry, type VerbAvailability } from "@agent-harness/client-runtime";
 import type { SnippetTemplate } from "../composer/snippets.js";
 import { ListCard } from "../pickers/cards.js";
 import { messageWords } from "../session/use-fork-rewind.js";
-import { oneLine } from "../transcript/format.js";
 import type { Span } from "../transcript/lines.js";
 import { clockTime } from "../view.js";
 

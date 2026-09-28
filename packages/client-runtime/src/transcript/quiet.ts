@@ -1,22 +1,24 @@
-import type { SessionProjection, ToolCallEntry } from "@agent-harness/client-runtime";
-import { TOOL_QUIET_MS } from "./lines.js";
+import type { SessionProjection, ToolCallEntry } from "../projections/session.js";
 
 /**
  * How long each running tool call has said nothing (docs/specs/tui.md, "The
- * transcript": a tool quiet three minutes turns amber). The projection
- * carries no time for a call, so the terminal measures the silence itself,
- * on its own clock: a call is heard when it first shows running and again
- * each time its latest `tool.updated` changes; the silence is the time since
- * it was last heard. A call already running when this terminal opened the
- * session is heard from then (a chosen default: the terminal cannot know
- * what it did not see). Pure: the last state and the projection go in, the
- * next state comes out.
+ * transcript", and docs/specs/gui.md, "A session pane": a tool quiet three
+ * minutes turns amber). The projection carries no time for a call, so the
+ * renderer measures the silence itself, on its own clock: a call is heard
+ * when it first shows running and again each time its latest `tool.updated`
+ * changes; the silence is the time since it was last heard. A call already
+ * running when the renderer opened the session is heard from then (a chosen
+ * default: a client cannot know what it did not see). Pure: the last state
+ * and the projection go in, the next state comes out.
  */
+
+/** How long a running call may say nothing before its row turns amber: a cue, not a verdict. */
+export const TOOL_QUIET_MS = 3 * 60_000;
 
 export interface Heard {
   /** What the call last said: its update, as JSON. */
   readonly said: string;
-  /** When this terminal heard it, in milliseconds on its clock. */
+  /** When the renderer heard it, in milliseconds on its clock. */
   readonly at: number;
 }
 
@@ -46,7 +48,7 @@ export const quietFor = (calls: QuietCalls, toolCallId: string, now: number): nu
 };
 
 /**
- * When the screen next has to be drawn for a silence: a call turning amber,
+ * When the transcript next has to be drawn for a silence: a call turning amber,
  * or an amber one's minute count moving on; undefined when no call is
  * running.
  */

@@ -1,6 +1,5 @@
-import type { RunState } from "@agent-harness/client-runtime";
+import { formatDuration, formatUsd, type RunState } from "@agent-harness/client-runtime";
 import { PRODUCT_NAME, type PromptKind } from "@agent-harness/contracts";
-import { formatDuration, formatUsd } from "../transcript/format.js";
 import type { AttentionKind, AttentionNotice, TerminalActivity } from "./chrome.js";
 
 /**

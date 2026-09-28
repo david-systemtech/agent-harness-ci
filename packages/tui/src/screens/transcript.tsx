@@ -1,8 +1,7 @@
 import { Box, Text, useBoxMetrics, type DOMElement } from "ink";
 import { useEffect, useRef } from "react";
-import type { QueuedMessage, VerbAvailability } from "@agent-harness/client-runtime";
+import { oneLine, type QueuedMessage, type VerbAvailability } from "@agent-harness/client-runtime";
 import type { DelegatedWorkRow } from "@agent-harness/contracts";
-import { oneLine } from "../transcript/format.js";
 import type { Line, Span } from "../transcript/lines.js";
 
 /**

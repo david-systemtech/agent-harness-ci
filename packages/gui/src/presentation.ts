@@ -15,6 +15,29 @@ import { writable, type DocumentStore, type Observable } from "@agent-harness/cl
  * window closing.
  */
 
+/** A session as a pane shows it: the environment it is on, and its id there. */
+export interface PaneSession {
+  readonly environmentId: string;
+  readonly sessionId: string;
+}
+
+/**
+ * The session pane region's layout (glossary: Pane): its one session pane
+ * and the session it shows, null while it shows none. The grid (#407) lays
+ * out up to eight.
+ */
+export interface PaneLayout {
+  readonly session: PaneSession | null;
+}
+
+/** How wide the transcript's column may grow: a comfortable measure, wider, or the whole pane. */
+export const READING_WIDTHS = ["comfortable", "wide", "full"] as const;
+export type ReadingWidth = (typeof READING_WIDTHS)[number];
+
+/** The transcript's text size in CSS pixels: the least and the most it may be, so a stored value can never make the window unreadable. */
+export const TEXT_SIZE_LEAST = 11;
+export const TEXT_SIZE_MOST = 24;
+
 /** Every key the presentation holds, and its value. */
 export interface PresentationValues {
   /**
@@ -23,12 +46,28 @@ export interface PresentationValues {
    * frame's preset width holds.
    */
   readonly sidebarWidth: number | null;
+  readonly paneLayout: PaneLayout;
+  /** The transcript's text size, in CSS pixels (`TEXT_SIZE_LEAST` to `TEXT_SIZE_MOST`). */
+  readonly textSize: number;
+  /** How wide the transcript's column may grow. */
+  readonly readingWidth: ReadingWidth;
+  /** Whether a run's reasoning is unfolded when it is drawn. */
+  readonly reasoningShown: boolean;
+  /** Whether text still streaming fades in word by word. */
+  readonly streamingFade: boolean;
 }
 
 export type PresentationKey = keyof PresentationValues;
 
 /** What each key holds before anything is set. */
-export const PRESENTATION_DEFAULTS: PresentationValues = Object.freeze({ sidebarWidth: null });
+export const PRESENTATION_DEFAULTS: PresentationValues = Object.freeze({
+  sidebarWidth: null,
+  paneLayout: Object.freeze({ session: null }),
+  textSize: 14,
+  readingWidth: "comfortable",
+  reasoningShown: true,
+  streamingFade: true,
+});
 
 /** The document the presentation is kept in, and the format this build writes. */
 const DOCUMENT = "presentation";
@@ -37,6 +76,17 @@ const FORMAT = 1;
 /** How each key's stored value is read back: undefined for a value this build cannot read, which takes the default. */
 const READERS: { readonly [K in PresentationKey]: (stored: unknown) => PresentationValues[K] | undefined } = {
   sidebarWidth: (stored) => (stored === null || (typeof stored === "number" && stored > 0 && stored < 100) ? stored : undefined),
+  paneLayout: (stored) => {
+    if (typeof stored !== "object" || stored === null || !("session" in stored)) return undefined;
+    const { session } = stored;
+    if (session === null) return { session: null };
+    const ids = session as { readonly environmentId?: unknown; readonly sessionId?: unknown } | undefined;
+    return typeof ids?.environmentId === "string" && typeof ids.sessionId === "string" ? { session: { environmentId: ids.environmentId, sessionId: ids.sessionId } } : undefined;
+  },
+  textSize: (stored) => (typeof stored === "number" && stored >= TEXT_SIZE_LEAST && stored <= TEXT_SIZE_MOST ? stored : undefined),
+  readingWidth: (stored) => READING_WIDTHS.find((width) => width === stored),
+  reasoningShown: (stored) => (typeof stored === "boolean" ? stored : undefined),
+  streamingFade: (stored) => (typeof stored === "boolean" ? stored : undefined),
 };
 
 export interface Presentation {

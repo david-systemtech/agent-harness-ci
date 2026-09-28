@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useRef } from "react";
-import type { Clock, ParkedAsk, RunsView, Runtime, SessionListView } from "@agent-harness/client-runtime";
+import { lastReply, type Clock, type ParkedAsk, type RunsView, type Runtime, type SessionListView } from "@agent-harness/client-runtime";
 import { askKey } from "../cards/asks.js";
 import { useFollow, type Opened } from "../session/use-session.js";
-import { lastReply } from "../transcript/rows.js";
 import { AttentionTimer, titleFor, type TerminalChrome } from "./chrome.js";
 import { AWAY_MS, awayRecap, noticeFor, titleStateOf, type RecapSubject, type RunEnded } from "./policy.js";
 
