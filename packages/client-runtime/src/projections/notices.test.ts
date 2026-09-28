@@ -64,6 +64,19 @@ describe("the notices from the environment's stream", () => {
     ]);
   });
 
+  it("say an update failed, once for each update-failed, with its stage and reason and the version running (#344)", async () => {
+    const { runtime, desk, env } = await oneEnvironment();
+    const failed = (sequence: number, stage: string, reason: string, toVersion: string) =>
+      noticeEvent(sequence, env, "environment.update-failed", { updateId: randomUUID(), fromVersion: "0.1.0", toVersion, stage, reason, rolledBack: stage !== "switch" });
+    desk.notices.event(failed(1, "trial", "deadline", "0.2.0"));
+    desk.notices.event(failed(2, "switch", "disk", "0.2.1"));
+    await flush();
+    expect(runtime.projections.notices.read().map(({ environmentId, kind, message, action }) => ({ environmentId, kind, message, action }))).toEqual([
+      { environmentId: env, kind: "update-failed", message: "desk could not be updated to 0.2.0 (trial: deadline). It is running 0.1.0.", action: null },
+      { environmentId: env, kind: "update-failed", message: "desk could not be updated to 0.2.1 (switch: disk). It is running 0.1.0.", action: null },
+    ]);
+  });
+
   it("take a parked prompt's notice back once it is resolved, and say so when nobody answered it", async () => {
     const { runtime, desk, env } = await oneEnvironment();
     const parked = (promptId: string, sequence: number) =>
