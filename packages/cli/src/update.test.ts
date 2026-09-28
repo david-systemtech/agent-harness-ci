@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { createServer, type AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { PROTOCOL_VERSION, UpdatesStatus } from "@agent-harness/contracts";
+import { ContractError, PROTOCOL_VERSION, UpdatesStatus, registry } from "@agent-harness/contracts";
 import { HARNESS_VERSION } from "@agent-harness/environment";
 import { afterEach, describe, expect, it } from "vitest";
 import { TEST_CLAUDE_CODE_VERSION, startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../environment/test/helper.js";
@@ -199,6 +199,18 @@ describe("the update verbs", () => {
       expect(err, args.join(" ")).toMatch(/No environment is running on/);
       expect(out, args.join(" ")).toBe("");
     }
+  });
+
+  it("say what the environment refused and exit 1, and still revoke their local client session", async () => {
+    const t = await start();
+    t.env.methods.register(registry["updates.status"], () => {
+      throw new ContractError({ code: "unavailable", message: "The environment is draining.", data: { readiness: "draining" } });
+    });
+    const { code, out, err } = await run(["update", "status", "--data-dir", t.dataDir]);
+    expect(code).toBe(1);
+    expect(out).toBe("");
+    expect(err).toBe("The environment refused updates.status: The environment is draining.\n");
+    expect(await liveLabels(t)).not.toContain("agent-harness update status");
   });
 
   it("say plainly and exit 1 when the environment does not answer on the port", async () => {
