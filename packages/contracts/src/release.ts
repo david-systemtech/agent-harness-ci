@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { LauncherProtocol, ProtocolVersion } from "./flags.js";
+import { ForgeOrigin } from "./forge.js";
 import { RELEASE_VERSION_PATTERN } from "./launcher.js";
 
 /**
@@ -17,6 +18,76 @@ export const ReleaseVersion = z.string().regex(RELEASE_VERSION_PATTERN).meta({
     "A release's version: a semantic version without the tag's v (0.4.2, 1.0.0-beta.2); one with a prerelease part is a prerelease, which only the beta channel follows.",
 });
 export type ReleaseVersion = z.infer<typeof ReleaseVersion>;
+
+/** A release version's parts: its three numbers, its prerelease identifiers (none for a release), its build metadata left out. */
+const partsOf = (version: string): { readonly numbers: readonly string[]; readonly prerelease: readonly string[] } => {
+  const core = version.split("+", 1)[0] ?? "";
+  const dash = core.indexOf("-");
+  const numbers = (dash === -1 ? core : core.slice(0, dash)).split(".");
+  return { numbers, prerelease: dash === -1 ? [] : core.slice(dash + 1).split(".") };
+};
+
+const NUMERIC = /^\d+$/;
+
+/** Two digit strings without leading zeros, compared as numbers of any length. */
+const compareNumbers = (a: string, b: string): number => a.length - b.length || (a < b ? -1 : a > b ? 1 : 0);
+
+/** Two prerelease identifiers: numbers numerically and below any alphanumeric one, which compare in ASCII order. */
+const compareIdentifiers = (a: string, b: string): number => {
+  const [numericA, numericB] = [NUMERIC.test(a), NUMERIC.test(b)];
+  if (numericA && numericB) return compareNumbers(a, b);
+  if (numericA !== numericB) return numericA ? -1 : 1;
+  return a < b ? -1 : a > b ? 1 : 0;
+};
+
+/**
+ * Two release versions by SemVer precedence: below zero when `a` comes
+ * before `b`, above when after, zero when they are equal in precedence
+ * (build metadata is ignored). A prerelease comes before its release; its
+ * identifiers compare one by one, and a longer set comes after its prefix.
+ * Both must be release versions (`ReleaseVersion`).
+ */
+export const compareReleaseVersions = (a: string, b: string): number => {
+  const [left, right] = [partsOf(a), partsOf(b)];
+  for (let index = 0; index < 3; index++) {
+    const order = compareNumbers(left.numbers[index] ?? "0", right.numbers[index] ?? "0");
+    if (order !== 0) return order;
+  }
+  if (left.prerelease.length === 0 || right.prerelease.length === 0) return right.prerelease.length - left.prerelease.length;
+  for (let index = 0; index < Math.min(left.prerelease.length, right.prerelease.length); index++) {
+    const order = compareIdentifiers(left.prerelease[index] ?? "", right.prerelease[index] ?? "");
+    if (order !== 0) return order;
+  }
+  return left.prerelease.length - right.prerelease.length;
+};
+
+/** Whether a release version has a prerelease part: only the beta channel follows one. */
+export const isPrerelease = (version: string): boolean => partsOf(version).prerelease.length > 0;
+
+/** The release version a release's tag names (`v0.5.0`), or null for a tag that is not `v` and a release version. */
+export const releaseVersionOfTag = (tag: string): string | null => {
+  const version = tag.startsWith("v") ? tag.slice(1) : null;
+  return version !== null && RELEASE_VERSION_PATTERN.test(version) ? version : null;
+};
+
+/**
+ * Where an environment reads its releases (launcher-update spec, "The
+ * release"): the forge's origin and kind, and the repository on it. Compiled
+ * into each build, so a move to GitHub changes it in one release (ADR 0007);
+ * the environment reads it through the ForgeService with the forge account
+ * for that origin.
+ */
+export const ReleaseSource = z
+  .object({
+    origin: ForgeOrigin,
+    kind: z.enum(["github", "forgejo", "gitea"]).meta({ description: "The kind of forge the origin is, which the releases are read with." }),
+    repository: z
+      .string()
+      .regex(/^(?!\.\.?\/)[A-Za-z0-9._-]+\/(?!\.\.?$)[A-Za-z0-9._-]+$/)
+      .meta({ description: "The repository the releases are published on, owner/name." }),
+  })
+  .meta({ description: "Where the environment reads its releases: the forge's origin and kind, and the repository, owner/name; compiled into each build." });
+export type ReleaseSource = z.infer<typeof ReleaseSource>;
 
 /** The release manifest's file name among the release's assets. */
 export const RELEASE_MANIFEST_FILE = "release.json";

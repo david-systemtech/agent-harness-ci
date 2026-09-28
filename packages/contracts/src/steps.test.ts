@@ -231,14 +231,17 @@ describe("the step registry", () => {
     expect(permissions.skippable).toBe(false);
   });
 
-  it("gives the Your machines entry the five update keys as its writes, in the Environments band (ADR 0027: environments.machines), and its not-root line", () => {
+  it("gives the Your machines entry the five update keys as its writes, in the Environments band (ADR 0027: environments.machines), its not-root line and the release channel's check (#346)", () => {
     const machines = stepOf("your-machines");
     expect(machines.writes).toEqual(["updates.autoUpdate", "updates.channel", "updates.pinnedVersion", "updates.idleWindowMinutes", "updates.deferralCapHours"]);
     expect(machines.writes).toEqual([...UPDATE_SETTINGS_KEYS]);
     expect(machines.checks.map((check) => check.key)).toEqual(machines.writes);
     expect(machines).toMatchObject({ links: [{ pane: "machines", band: "environments" }], skippable: false });
     for (const key of UPDATE_SETTINGS_KEYS) expect(SETTINGS[key].step, key).toEqual({ id: "your-machines", band: "environments" });
-    expect(machines.stateChecks).toEqual([{ id: "your-machines.not-root", holds: "The environment runs as a non-root user.", actions: [] }]);
+    expect(machines.stateChecks).toEqual([
+      { id: "your-machines.not-root", holds: "The environment runs as a non-root user.", actions: [] },
+      { id: "your-machines.release-channel", holds: "Auto-update is off, or the release channel was read in the last 24 hours.", actions: ["check-again"] },
+    ]);
   });
 
   it("holds the Your machines entry's update keys done on any value their schemas take, a pin included", () => {

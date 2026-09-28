@@ -97,6 +97,36 @@
       ],
       "description": "Who manages the environment's updates: launcher with its version, outside with the host-side updater's last poll, or none with why."
     },
+    "releaseSource": {
+      "type": "object",
+      "properties": {
+        "origin": {
+          "type": "string",
+          "pattern": "^(?:https:\\/\\/(?:[a-z0-9_-]+(?:\\.[a-z0-9_-]+)*|\\[[0-9a-f:.]+\\])(?::(?!443$)(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?|http:\\/\\/(?:[a-z0-9_-]+(?:\\.[a-z0-9_-]+)*|\\[[0-9a-f:.]+\\])(?::(?!80$)(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?)$",
+          "description": "A forge origin: https, or http for a LAN or tailnet instance, then the host in lower case and a port only when it is not the scheme's default (https://git.example.com:5526); no userinfo, path or trailing slash."
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "github",
+            "forgejo",
+            "gitea"
+          ],
+          "description": "The kind of forge the origin is, which the releases are read with."
+        },
+        "repository": {
+          "type": "string",
+          "pattern": "^(?!\\.\\.?\\/)[A-Za-z0-9._-]+\\/(?!\\.\\.?$)[A-Za-z0-9._-]+$",
+          "description": "The repository the releases are published on, owner/name."
+        }
+      },
+      "required": [
+        "origin",
+        "kind",
+        "repository"
+      ],
+      "description": "Where the environment reads its releases: the forge's origin and kind, and the repository, owner/name; compiled into each build."
+    },
     "newest": {
       "anyOf": [
         {
@@ -180,6 +210,84 @@
         }
       ],
       "description": "The last check of the channel; null before the first."
+    },
+    "target": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "string",
+              "pattern": "^(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)(?:-(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*)?(?:\\+[0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*)?$",
+              "description": "A release's version: a semantic version without the tag's v (0.4.2, 1.0.0-beta.2); one with a prerelease part is a prerelease, which only the beta channel follows."
+            },
+            "source": {
+              "type": "string",
+              "enum": [
+                "channel",
+                "pin"
+              ],
+              "description": "Why it is the target: pin (the pinned version) or channel (the channel's newest, auto-update being on)."
+            }
+          },
+          "required": [
+            "version",
+            "source"
+          ],
+          "description": "The release the environment would update to: its version, and whether the pin or the channel names it."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The release the environment would update to, as the last check found it; null for none: before a check, with auto-update off and nothing pinned, with nothing newer than what runs, or with the release passed over."
+    },
+    "passedOver": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "string",
+              "pattern": "^(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)(?:-(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*)?(?:\\+[0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*)?$",
+              "description": "A release's version: a semantic version without the tag's v (0.4.2, 1.0.0-beta.2); one with a prerelease part is a prerelease, which only the beta channel follows."
+            },
+            "source": {
+              "type": "string",
+              "enum": [
+                "channel",
+                "pin"
+              ],
+              "description": "Why it is the target: pin (the pinned version) or channel (the channel's newest, auto-update being on)."
+            },
+            "reason": {
+              "type": "string",
+              "enum": [
+                "schema",
+                "artefact",
+                "missing"
+              ],
+              "description": "Why a release that would be the target is not: schema (its database schema is below the database's, and nothing of it is downloaded), artefact (it has no artefact for this platform) or missing (the pinned version has no release that is not a draft)."
+            },
+            "message": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Why, for people."
+            }
+          },
+          "required": [
+            "version",
+            "source",
+            "reason",
+            "message"
+          ],
+          "description": "A release that would be the target and is not: its version, whether the pin or the channel names it, and why."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The release the last check found that would be the target and is not, with why; null for none."
     },
     "pending": {
       "oneOf": [
@@ -797,12 +905,15 @@
     "protocolVersion",
     "bundledClaudeCodeVersion",
     "manager",
+    "releaseSource",
     "newest",
     "lastCheck",
+    "target",
+    "passedOver",
     "pending",
     "lastOutcome",
     "failedVersions",
     "installed"
   ],
-  "description": "The environment's updates: what runs, who manages its updates, the channel's newest and the last check, the pending update with its state, the last outcome, the versions that failed and those installed."
+  "description": "The environment's updates: what runs, who manages its updates, where its releases are read, the channel's newest, the last check and the target it found, the pending update with its state, the last outcome, the versions that failed and those installed."
 }

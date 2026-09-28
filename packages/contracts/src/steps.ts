@@ -153,9 +153,9 @@ export const STEP_REGISTRY = [
     // The Your machines step (ADR 0025), in the Environments band's Your machines row (ADR 0027:
     // environments.machines). It writes the five update keys (#335), through updates.settings.set alone (their
     // writtenBy), and a preference step's checks pass on any valid value; its health line reports not-root, read
-    // from what permissions.settings.get answers as isRoot (#141). Its update state checks are the launcher
-    // tickets' (#346, #347, #348), and the rest of its check (the discovery URL reachable and ready, the name) is
-    // Set up's (#88).
+    // from what permissions.settings.get answers as isRoot (#141), and whether the release channel is read (#346).
+    // Its other update state checks are the launcher tickets' (#347, #348), and the rest of its check (the discovery
+    // URL reachable and ready, the name) is Set up's (#88).
     id: "your-machines",
     writes: ["updates.autoUpdate", "updates.channel", "updates.pinnedVersion", "updates.idleWindowMinutes", "updates.deferralCapHours"],
     checks: [
@@ -165,7 +165,14 @@ export const STEP_REGISTRY = [
       { key: "updates.idleWindowMinutes", check: anyValidValue("updates.idleWindowMinutes") },
       { key: "updates.deferralCapHours", check: anyValidValue("updates.deferralCapHours") },
     ],
-    stateChecks: [{ id: "your-machines.not-root", holds: "The environment runs as a non-root user.", actions: [] }],
+    stateChecks: [
+      { id: "your-machines.not-root", holds: "The environment runs as a non-root user.", actions: [] },
+      {
+        id: "your-machines.release-channel",
+        holds: "Auto-update is off, or the release channel was read in the last 24 hours.",
+        actions: ["check-again"],
+      },
+    ],
     links: [{ pane: "machines", band: "environments" }],
     skippable: false,
   },
