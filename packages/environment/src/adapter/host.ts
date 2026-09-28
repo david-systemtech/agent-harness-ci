@@ -39,7 +39,7 @@ import {
 } from "../permissions/broker.js";
 import { answersFor, hasKeptAnswer, parkedPromptsOfRun } from "../permissions/prompts-store.js";
 import { readRunPolicy } from "../permissions/review-store.js";
-import type { RunActor } from "../permissions/resolver.js";
+import { actorOfPolicy, type RunActor } from "../permissions/resolver.js";
 import { answerEvents, runToolCalls, type RunToolCalls } from "../permissions/tool-decisions.js";
 import {
   environmentQueue,
@@ -1317,14 +1317,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     const run = latestRun(reader, sessionId);
     const policy = run === null ? null : readRunPolicy(reader, run.runId);
     if (run === null || policy === null) return null;
-    const ceiling = policy.mode.ceiling;
-    const actor: RunActor =
-      policy.actorKind === "completions"
-        ? { kind: "completions", attended: policy.attended, ceiling, clientSessionId: null }
-        : policy.actorKind === "client"
-          ? { kind: "client", ceiling, clientSessionId: null }
-          : { kind: policy.actorKind, name: policy.actorName, ceiling, clientSessionId: null };
-    return { sessionId, actor, model: run.model, effort: null, appendedInstructions: null, clientTools: [] };
+    return { sessionId, actor: actorOfPolicy(policy), model: run.model, effort: null, appendedInstructions: null, clientTools: [] };
   };
 
   /** `actor` with its client session's ceiling as it is now; undefined once that client session is revoked or expired. */
