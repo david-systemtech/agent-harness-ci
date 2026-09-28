@@ -23,6 +23,7 @@ import type { Address } from "../src/serve/http.js";
 import type { InterfaceDetector } from "../src/serve/interfaces.js";
 import { startEnvironment, type EnvironmentHandle, type EnvironmentOptions, type StartupHooks } from "../src/serve/start.js";
 import type { ContainerDetector } from "../src/serve/container.js";
+import { createScrubRegistry, type ScrubRegistry } from "../src/scrub/registry.js";
 import { createRunRegistry, type MemoryRunRegistry } from "../src/serve/run-registry.js";
 import type { ContextOf, HandlerReturn, MethodHandler } from "../src/serve/methods.js";
 import type { SubscriptionHooks } from "../src/wire/subscriptions.js";
@@ -106,6 +107,8 @@ export interface TestEnvironmentOptions {
    * real machine is never probed.
    */
   readonly containment?: ContainmentProbe | Promise<ContainmentProbe>;
+  /** The scrub registry the environment holds; preset: a fresh one. */
+  readonly scrub?: ScrubRegistry;
 }
 
 /** The bundled binary a test environment's sign-ins name unless told otherwise: a path that is not there. */
@@ -158,6 +161,8 @@ export interface TestEnvironment {
   readonly runs: MemoryRunRegistry;
   /** The launcher's channel: what the environment signalled, and its idle and drain queries. */
   readonly launcher: TestLauncher;
+  /** The environment's scrub registry: the test registers values on it as a service beside the environment would. */
+  readonly scrub: ScrubRegistry;
   /** The bootstrap grant file as it is now. */
   grant(): BootstrapGrant;
   /** Posts `body` to the bootstrap exchange as it is. */
@@ -242,6 +247,7 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
   const dataDir = options.dataDir ?? join(ownDir as string, "data");
   const runs = createRunRegistry({ clock });
   const launcher = options.launcher ?? testLauncher();
+  const scrub = options.scrub ?? createScrubRegistry();
 
   const passed: Partial<EnvironmentOptions> = {
     ...(options.name !== undefined && { name: options.name }),
@@ -268,6 +274,7 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
       user: { isPrivileged: () => false },
       launcher,
       runs,
+      scrub,
       containerDetector: options.containerDetector ?? { inContainer: () => false },
       interfaces: options.interfaces ?? NO_INTERFACES,
       adapters: [adapter],
@@ -340,6 +347,7 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
     dataDir,
     runs,
     launcher,
+    scrub,
     grant: () => readGrant(dataDir),
     exchange: (body) => postExchange(env.address, body),
     bootstrap: (kind, label) => bootstrapExchange(env.address, dataDir, kind, label),

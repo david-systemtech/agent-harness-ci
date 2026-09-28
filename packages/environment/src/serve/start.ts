@@ -76,6 +76,7 @@ import { createTtlSweeper } from "../permissions/ttl-sweeper.js";
 import { createProviderTranscriptStore, type ProviderTranscriptStore } from "../provider-transcripts/store.js";
 import { runMethods, startRunIn } from "../runs/run-methods.js";
 import { runsProjector } from "../runs/runs-projector.js";
+import { createScrubRegistry, type ScrubRegistry } from "../scrub/registry.js";
 import { createCompactionSweep } from "../sessions/compaction.js";
 import { createDeletion } from "../sessions/deletion.js";
 import { forkRewindMethods } from "../sessions/fork-rewind.js";
@@ -197,6 +198,12 @@ export interface EnvironmentOptions {
   readonly subscriptionHooks?: SubscriptionHooks;
   /** The run registry the adapter host fills and the idle rule and the drain read, with the drain's admission gate. Preset: a fresh one. */
   readonly runs?: MemoryRunRegistry;
+  /**
+   * The scrub registry (ADR 0011): the values the environment holds as
+   * secrets, replaced with `[redacted]` in every event payload as the log
+   * appends it. Preset: a fresh one.
+   */
+  readonly scrub?: ScrubRegistry;
   /** Whether this is a container; with no launcher present too, updates are managed outside. Preset: `processContainerDetector`. */
   readonly containerDetector?: ContainerDetector;
   /** The adapters the adapter host holds, one per provider. Preset: the Claude adapter, with auto memory under the data directory. */
@@ -393,6 +400,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   const dataDir = absolutePath(options.dataDir ?? defaultDataDirectory());
   const clock: Clock = options.clock ?? systemClock;
   const now = () => clock.now();
+  const scrub = options.scrub ?? createScrubRegistry();
   const launcher = options.launcher ?? processLauncherChannel();
   const capabilities: CapabilityFlags = [];
   // Set when the listeners are bound: local-only until then, which is what binding loopback alone means.
@@ -422,7 +430,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   await step("data-directory", () => prepareDataDirectory(dataDir));
 
   const log: EventLog = await step("database", () => {
-    const opened = openEventLog({ path: join(dataDir, DATABASE_FILE), clock: now });
+    const opened = openEventLog({ path: join(dataDir, DATABASE_FILE), clock: now, scrub: (text) => scrub.scrub(text) });
     closers.push(() => opened.close());
     return opened;
   });
