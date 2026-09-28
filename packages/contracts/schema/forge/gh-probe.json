@@ -72,7 +72,7 @@
                 "type": "null"
               }
             ],
-            "description": "The scopes gh reports for the token, a hint only: empty when it has none; null when gh reports none, as for a fine-grained token."
+            "description": "The scopes gh reports for the token, a hint only: empty when gh's token scopes line says none (a classic or OAuth token granted no scope); null when gh prints no token scopes line at all, as for a fine-grained token, whose permissions are not scopes."
           }
         },
         "required": [

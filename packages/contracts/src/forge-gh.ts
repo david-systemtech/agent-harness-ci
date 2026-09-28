@@ -25,7 +25,10 @@ export const GhSignedInAccount = z
     scopes: z
       .array(z.string().min(1))
       .nullable()
-      .meta({ description: "The scopes gh reports for the token, a hint only: empty when it has none; null when gh reports none, as for a fine-grained token." }),
+      .meta({
+        description:
+          "The scopes gh reports for the token, a hint only: empty when gh's token scopes line says none (a classic or OAuth token granted no scope); null when gh prints no token scopes line at all, as for a fine-grained token, whose permissions are not scopes.",
+      }),
   })
   .meta({ description: "An account gh is signed in as on a host: its login, whether it is active, and its token's kind and scopes. Never the token." });
 export type GhSignedInAccount = z.infer<typeof GhSignedInAccount>;
