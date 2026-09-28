@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join, relative as relativePath } from "node:path";
@@ -8,7 +8,7 @@ import { HARNESS_VERSION } from "@agent-harness/environment";
 import { afterEach, describe, expect, it } from "vitest";
 import { TEST_CLAUDE_CODE_VERSION, startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../environment/test/helper.js";
 import { testLauncher } from "../../environment/test/launcher.js";
-import { startFakeReleaseSource, type FakeReleaseSource } from "../../environment/test/release-source.js";
+import { ARTEFACT, startFakeReleaseSource, type FakeReleaseSource } from "../../environment/test/release-source.js";
 import { runCli, type CliContext } from "./cli.js";
 import { renderUpdatesStatus } from "./update.js";
 
@@ -288,6 +288,32 @@ describe("agent-harness update apply", () => {
     expect(code).toBe(0);
     expect(out).toContain("now: the environment is draining");
     expect(t.env.readiness()).toBe("draining");
+  });
+
+  it("takes a version alone, which the environment downloads from its release through the forge account, stages and installs as any update (#347)", async () => {
+    const fake = await startFakeReleaseSource();
+    cleanups.push(() => fake.forge.close());
+    fake.publish({ version: "0.5.0", artefact: readFileSync(artefact("0.5.0")) });
+    fake.absent("0.9.9");
+    const t = await start({ harnessVersion: "0.4.1", launcher: testLauncher({ present: true }), releaseSource: fake.source, forgeFetch: fake.forge.fetch });
+    const admin = await t.client();
+    await fake.grantAccess(admin);
+    await admin.close();
+    t.runs.start("r1");
+    t.runs.running("r1");
+
+    const { code, out, err } = await run(["update", "apply", "--version", "0.5.0", "--data-dir", t.dataDir]);
+
+    expect(err).toBe("");
+    expect(code).toBe(0);
+    const pending = await pendingOf(t);
+    expect(pending).toMatchObject({ state: "waiting", toVersion: "0.5.0", source: "request" });
+    expect(out).toContain(`Updating to 0.5.0 (update ${pending.state === "waiting" ? pending.updateId : ""}) once the environment is idle`);
+    expect(fake.reads().map((request) => request.path)).toContain(`/david/agent-harness/releases/download/v0.5.0/${ARTEFACT}`);
+
+    const missing = await run(["update", "apply", "--version", "0.9.9", "--data-dir", t.dataDir]);
+    expect(missing.code).toBe(1);
+    expect(missing.err).toBe("The environment refused the update: Cannot update to 0.9.9: No release 0.9.9 is published, or it is a draft.\n");
   });
 
   it("says what the environment refused and exits 1", async () => {
