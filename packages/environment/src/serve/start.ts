@@ -944,6 +944,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     await closers.closeAll().catch((closeError: unknown) => console.error("Closing after a failed start failed:", closeError));
     throw new StartupError("prepared", error);
   }
+  // The settle (#344): the update that began last gets its outcome from the version this start runs, before any client can read the stream.
+  updates.settle();
   // Deleted sessions whose grace period ran out while the environment was down go before any client can read them.
   try {
     deletion.purgeDue(clock.now());

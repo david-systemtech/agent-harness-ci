@@ -13,6 +13,7 @@ import {
   type UpdateConflictReason,
   type UpdateFailedPayload,
   type UpdateSource,
+  type UpdatesStatus,
 } from "@agent-harness/contracts";
 import { formatActor, type EventInput, type EventLog, type JsonObject, type StreamRef } from "../event-log/event-log.js";
 import type { Clock, Timer } from "../serve/clock.js";
@@ -20,6 +21,7 @@ import type { LauncherChannel } from "../serve/launcher.js";
 import type { DrainCause } from "../serve/lifecycle.js";
 import type { CommandContext, CommandRejection, MethodHandler, MethodHandlers, PrepareContext } from "../serve/methods.js";
 import type { RunRegistry } from "../serve/run-registry.js";
+import { readUpdateHistory, settleLatestUpdate } from "./outcomes.js";
 import { StagingError, stageArtefact, tarUnpack, unstage, type Unpack } from "./staging.js";
 
 /**
@@ -77,6 +79,15 @@ export interface UpdateCoordinatorOptions {
 export interface UpdateCoordinator {
   /** The pending update with its state, and what a waiting one waits on: what `updates.status` answers as `pending`. */
   pending(): PendingUpdate;
+  /** How the last update ended, and the versions whose update failed, read from the log: what `updates.status` answers of them. */
+  outcomes(): Pick<UpdatesStatus, "lastOutcome" | "failedVersions">;
+  /**
+   * The settle, once this start has passed its gate and before the wire
+   * serves anyone: the update that began last gets its outcome, when it has
+   * none yet, from the version this start runs and the outcome record, which
+   * is deleted after (`outcomes.ts`).
+   */
+  settle(): void;
   readonly handlers: Required<Pick<MethodHandlers, "updates.apply" | "updates.cancel">>;
   /** Starts hearing the run registry, the minute and the cap; returns the stop. Called once the wire is open. */
   start(): () => void;
@@ -337,6 +348,10 @@ export const createUpdateCoordinator = (options: UpdateCoordinatorOptions): Upda
           return { state: held.state, ...pendingParts(held.update), cause: held.cause };
       }
     },
+
+    outcomes: () => readUpdateHistory(log).outcomes,
+
+    settle: () => settleLatestUpdate({ log, stream, dataDir: options.dataDir, harnessVersion, actor: UPDATES_ACTOR }),
 
     handlers: {
       "updates.apply": { prepare: prepareApply },
