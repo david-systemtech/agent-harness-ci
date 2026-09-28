@@ -525,7 +525,8 @@ describe(".worktreeinclude", () => {
     write(checkout, { ...files, ".worktreeinclude": "cache/\n" });
     const t = await start();
     const made = await worktreeOf(t, { repository: checkout });
-    expect(readdirSync(join(made.path, "cache"))).toHaveLength(1_000);
+    // The first 1,000 in git's order, the rest left out.
+    expect(readdirSync(join(made.path, "cache")).sort()).toEqual(Object.keys(files).slice(0, 1_000).map((path) => path.slice("cache/".length)));
   });
 
   it("is read from the main checkout when the request names another worktree", async () => {

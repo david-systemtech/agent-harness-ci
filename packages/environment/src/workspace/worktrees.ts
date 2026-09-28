@@ -1,5 +1,5 @@
 import { constants, createWriteStream } from "node:fs";
-import { lstat, mkdir, open, realpath, rm, stat } from "node:fs/promises";
+import { lstat, mkdir, open, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join, relative } from "node:path";
 import { pipeline } from "node:stream/promises";
 import type { Workspace, WorkspaceRequest } from "@agent-harness/contracts";
@@ -134,31 +134,43 @@ const errorCode = (error: unknown): string | undefined => (error as NodeJS.Errno
 /** Opens a file without following a link at its last step; where the platform has no such flag, the `lstat` before it is the check. */
 const NO_FOLLOW = constants.O_RDONLY | (process.platform === "win32" ? 0 : constants.O_NOFOLLOW);
 
+/** The largest file copied by reading it whole; a larger one is streamed. */
+const READ_WHOLE_BYTES = 8 * 1024 * 1024;
+
+/** How many `.worktreeinclude` files are copied at once. */
+const COPIES_AT_ONCE = 16;
+
 /**
  * Copies the regular file `file` (relative, forward slashes) from the
- * checkout `from` into the worktree `to`, making its directories there;
+ * checkout `from` into the worktree `to`, making its directories there
+ * (`made` holds those already checked, shared by one worktree's copies);
  * answers whether it copied. Nothing is followed through a link on either
  * side, and nothing already in the worktree is written over.
  */
-const copyInto = async (from: string, to: string, file: string): Promise<boolean> => {
+const copyInto = async (from: string, to: string, file: string, made: Set<string>): Promise<boolean> => {
   const segments = file.split("/");
   const name = segments.pop() as string;
   try {
     let directory = to;
     for (const segment of segments) {
       directory = join(directory, segment);
+      if (made.has(directory)) continue;
       await mkdir(directory).catch((error: unknown) => {
         if (errorCode(error) !== "EEXIST") throw error;
       });
       // A link the branch checked out, or a file, where a directory would go.
       if (!(await lstat(directory)).isDirectory()) return false;
+      made.add(directory);
     }
     const source = join(from, file);
     if (!(await lstat(source)).isFile()) return false;
     const handle = await open(source, NO_FOLLOW);
     try {
-      const { mode } = await handle.stat();
-      await pipeline(handle.createReadStream({ autoClose: false }), createWriteStream(join(directory, name), { flags: "wx", mode: mode & 0o777 }));
+      const { mode, size } = await handle.stat();
+      const target = join(directory, name);
+      const options = { mode: mode & 0o777 };
+      if (size <= READ_WHOLE_BYTES) await writeFile(target, await handle.readFile(), { ...options, flag: "wx" });
+      else await pipeline(handle.createReadStream({ autoClose: false }), createWriteStream(target, { ...options, flags: "wx" }));
       return true;
     } finally {
       await handle.close();
@@ -255,10 +267,14 @@ export const makeWorktree = async (request: WorktreeRequest, sessionId: string, 
     const files = ignored.stdout.toString("utf8").split("\0");
     // The last is empty after the final NUL, or cut short at the cap.
     files.pop();
+    // A few at a time, each batch no bigger than the room left: the first 1,000 that can be copied are, in order.
+    const made = new Set<string>();
     let copied = 0;
-    for (const file of files) {
-      if (copied === MAX_INCLUDED_FILES) return;
-      if (await copyInto(checkout, worktree, file)) copied += 1;
+    for (let next = 0; copied < MAX_INCLUDED_FILES && next < files.length; ) {
+      const batch = files.slice(next, next + Math.min(MAX_INCLUDED_FILES - copied, COPIES_AT_ONCE));
+      next += batch.length;
+      const results = await Promise.all(batch.map((file) => copyInto(checkout, worktree, file, made)));
+      copied += results.filter(Boolean).length;
     }
   };
 
