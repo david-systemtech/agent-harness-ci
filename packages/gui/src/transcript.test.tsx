@@ -73,6 +73,20 @@ describe("streaming", () => {
     expect(lastReply(transcript)?.textContent).toBe("Looking at the parser. Found it. ");
   });
 
+  it("keeps what is already shown, a half word included, when the fade is turned on, and fades in only what arrives after", async () => {
+    const { app, env, transcript, session } = await opened();
+    act(() => app.presentation.set("streamingFade", false));
+    const { runId } = env.startRun(session, "Fix the receipts");
+    env.emit(session, "assistant.delta", { runId, itemId: "i-1", fragments: [{ kind: "text", text: "Looking at the par" }] });
+    await waitFor(() => expect(lastReply(transcript)?.textContent).toBe("Looking at the par"));
+
+    act(() => app.presentation.set("streamingFade", true));
+    expect(lastReply(transcript)?.textContent).toBe("Looking at the par");
+    env.emit(session, "assistant.delta", { runId, itemId: "i-1", fragments: [{ kind: "text", text: "ser. Found " }] });
+    await waitFor(() => expect(lastReply(transcript)?.textContent).toBe("Looking at the parser. Found "));
+    expect(fading(lastReply(transcript))).toEqual(["ser. ", "Found "]);
+  });
+
   it("keeps whitespace that arrives on its own, a paragraph's break included, while the fade is on", async () => {
     const { env, transcript, session } = await opened();
     const { runId } = env.startRun(session, "Fix the receipts");

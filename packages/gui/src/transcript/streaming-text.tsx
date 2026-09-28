@@ -18,7 +18,8 @@ import { FindQuery, Marked } from "./find.js";
  * into one plain text node, so an answer of thousands of words is one node
  * and the few words still fading. What was there before the transcript was
  * watching (a session opened mid-run), or when the fade was turned on, was
- * not seen arriving: it is shown as it is, never replayed. While the find
+ * not seen arriving: it is shown whole as it is, a half word included, and
+ * never replayed; only what comes after it fades in. While the find
  * bar looks for something the text is drawn whole, its matches marked. A
  * finished text is the markdown's to draw.
  */
@@ -64,11 +65,8 @@ const wholeThrough = (text: string, from: number): number => {
   return from;
 };
 
-/** `text` shown as it is, the fragment after its last whole word held: nothing fading. */
-const adopt = (text: string, fade: boolean, nextKey = 0): Reveal => {
-  const shown = wholeThrough(text, 0);
-  return { text, fade, settled: text.slice(0, shown), shown, batches: [], ended: new Set(), nextKey };
-};
+/** `text` shown whole as it is, a half word included, nothing fading: it was there before, not seen arriving. */
+const adopt = (text: string, fade: boolean, nextKey = 0): Reveal => ({ text, fade, settled: text, shown: text.length, batches: [], ended: new Set(), nextKey });
 
 /** The reveal once `text` has arrived: what is new and whole fades in as one batch. */
 const advance = (reveal: Reveal, text: string): Reveal => {
