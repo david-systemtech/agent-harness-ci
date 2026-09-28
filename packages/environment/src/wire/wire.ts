@@ -58,9 +58,19 @@ export interface Wire {
   sockets(): number;
   /** How many subscriptions are open, across every socket. */
   subscriptions(): number;
-  /** Says `bye: draining` to every socket, closes it (1001), and refuses new ones. */
-  close(): Promise<void>;
+  /**
+   * Says `bye` to every socket (preset: `draining`, the environment is
+   * stopping), closes it (1001), and refuses new ones. A second call gets
+   * the first's close, whatever bye it names: an update's drain says
+   * `updating` before the environment's own close comes round to the wire.
+   */
+  close(bye?: GoingAway): Promise<void>;
 }
+
+/** Why every socket is closed as the environment goes away: it is stopping, or updating to another version. */
+export type GoingAway = Omit<ByeFrame, "type"> & { readonly reason: "draining" | "updating" };
+
+const STOPPING: GoingAway = { reason: "draining", message: "The environment is stopping." };
 
 /** A text frame, decoded once: the frame, or why it is not one. */
 type Decoded = { readonly ok: true; readonly frame: Frame } | { readonly ok: false; readonly error: ContractError };
@@ -298,6 +308,30 @@ export const createWire = (options: WireOptions): Wire => {
     }
   });
 
+  /** Says `bye` to every socket and closes it, cutting what has not closed after the grace, then stops taking upgrades. */
+  const closeAll = async (bye: GoingAway): Promise<void> => {
+    closed = true;
+    stopRevoked();
+    const closing = [...open].map(
+      (socket) =>
+        new Promise<void>((resolve) => {
+          if (socket.ws.readyState === socket.ws.CLOSED) return resolve();
+          socket.ws.once("close", () => resolve());
+          if (socket.phase === "closing") return;
+          closeWith(socket, bye, CLOSE.goingAway);
+        }),
+    );
+    let grace: Timer | undefined;
+    await Promise.race([Promise.all(closing), new Promise<void>((resolve) => (grace = clock.setTimeout(resolve, CLOSE_GRACE_MS)))]);
+    grace?.cancel();
+    // Cut what has not finished, and wait for its close too, so every socket's close is recorded before the log closes.
+    for (const socket of open) socket.ws.terminate();
+    await Promise.all(closing);
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  };
+  /** The one close, once asked for. */
+  let goingAway: Promise<void> | undefined;
+
   return {
     upgrade(request, rawSocket, head) {
       if (closed) return refuseUpgrade(rawSocket, 503, { error: "closing", message: "The environment is stopping." });
@@ -327,25 +361,9 @@ export const createWire = (options: WireOptions): Wire => {
     subscriptions: () => subscriptions.count(),
 
     // A drain's last step (serve/lifecycle.ts): its runs have finished or been cut, and every socket hears the same bye.
-    async close() {
-      closed = true;
-      stopRevoked();
-      const closing = [...open].map(
-        (socket) =>
-          new Promise<void>((resolve) => {
-            if (socket.ws.readyState === socket.ws.CLOSED) return resolve();
-            socket.ws.once("close", () => resolve());
-            if (socket.phase === "closing") return;
-            closeWith(socket, { reason: "draining", message: "The environment is stopping." }, CLOSE.goingAway);
-          }),
-      );
-      let grace: Timer | undefined;
-      await Promise.race([Promise.all(closing), new Promise<void>((resolve) => (grace = clock.setTimeout(resolve, CLOSE_GRACE_MS)))]);
-      grace?.cancel();
-      // Cut what has not finished, and wait for its close too, so every socket's close is recorded before the log closes.
-      for (const socket of open) socket.ws.terminate();
-      await Promise.all(closing);
-      await new Promise<void>((resolve) => server.close(() => resolve()));
+    close(bye = STOPPING) {
+      goingAway ??= closeAll(bye);
+      return goingAway;
     },
   };
 };

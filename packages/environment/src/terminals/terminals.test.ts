@@ -3,7 +3,7 @@ import { realpathSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { Ceiling, registry, type EventFrame, type Scope } from "@agent-harness/contracts";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { MANUAL_CLOCK_START } from "../../test/clock.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
@@ -453,6 +453,36 @@ describe("a terminal's end", () => {
     expect(open.receipt).toMatchObject({ status: "rejected", sequence: head, reason: "not_found", error: { data: { kind: "session", sessionId } } });
     const write = await terminalCommand(client, "terminals.write", { id: two.id, data: "ls\r" });
     expect(write.receipt).toMatchObject({ status: "rejected", reason: "not_found", error: { data: { kind: "terminal" } } });
+  });
+});
+
+describe("a terminal and the idle rule", () => {
+  /** The environment's activity once `condition` holds of it, polled in real time: a shell takes its time to start a command, and to stop it. */
+  const activityOnce = async (client: WireClient, condition: (activity: unknown) => boolean) => {
+    let activity: unknown;
+    await vi.waitFor(
+      async () => {
+        activity = (await client.request("environment.status", {})).activity;
+        expect(condition(activity)).toBe(true);
+      },
+      { timeout: 10_000, interval: 50 },
+    );
+    return activity;
+  };
+
+  it("holds the environment busy while its shell runs a command in its foreground, and nothing once the shell is back at its prompt", async () => {
+    const { client, sessionId } = await setUp();
+    const { id } = await openTerminal(client, sessionId);
+    await typeInto(client, id, "echo ready-$((1+1))\r");
+    await waitForOutput(client, id, "ready-2");
+    expect((await client.request("environment.status", {})).activity).toEqual({ state: "idle" });
+
+    await typeInto(client, id, "sleep 30\r");
+    expect(await activityOnce(client, (activity) => JSON.stringify(activity) !== JSON.stringify({ state: "idle" }))).toEqual({ state: "busy", reason: "terminal-running" });
+
+    // Interrupted, the command ends and the shell holds its prompt again.
+    await typeInto(client, id, "\u0003");
+    expect(await activityOnce(client, (activity) => JSON.stringify(activity) === JSON.stringify({ state: "idle" }))).toEqual({ state: "idle" });
   });
 });
 

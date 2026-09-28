@@ -77,6 +77,7 @@ import { reviewMethods } from "../permissions/review-methods.js";
 import { createTtlSweeper } from "../permissions/ttl-sweeper.js";
 import { createProviderTranscriptStore, type ProviderTranscriptStore } from "../provider-transcripts/store.js";
 import { runMethods, startRunIn } from "../runs/run-methods.js";
+import { createUpdateCoordinator } from "../updates/coordinator.js";
 import { updateMethods } from "../updates/methods.js";
 import { runsProjector } from "../runs/runs-projector.js";
 import { scrubDiagnosticOutput } from "../scrub/diagnostic-output.js";
@@ -746,6 +747,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   const updatesManagedOutside = detector.inContainer() && !launcher.present();
   // The purge: `sessions.purge` runs it at once, the minute sweep for every session past its grace period.
   const deletion = createDeletion({ log, transcripts: host.transcripts, providerStore });
+  // The terminals (#124): their output never enters the log; closed before the log is, and on a session's deletion.
+  const terminalService = createTerminalService({ log, clock, ...options.terminals });
+  closers.push(() => terminalService.close());
   const lifecycle = createLifecycle({
     clock,
     runs: host.runs,
@@ -754,6 +758,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     updatesManagedOutside,
     // The idle window (#342): how long nothing may start or end, and how long a parked prompt counts as busy.
     idleWindowMs: () => readSettings({ all: (sql, ...params) => log.read(sql, ...params) })["updates.idleWindowMinutes"] * 60_000,
+    // A terminal whose shell runs a command holds the environment busy as a run does (#343).
+    terminalRunning: () => terminalService.terminals.commandRunning(),
     readiness: () => readiness,
     onDraining: () => {
       readiness = "draining";
@@ -766,11 +772,32 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
         console.error("Stopping the idle provider processes for the drain failed; the drain goes on:", error);
       }
     },
-    close: () => close(),
+    // An update's drain that waited its runs out ends with bye: updating to every client and the launcher's switch (#343);
+    // one the environment's close cut short closes as any drain does.
+    close: async (ended) => {
+      try {
+        if (ended.trigger === "update" && ended.endedBy !== "closed") {
+          await wire.close({ reason: "updating", message: "The environment is updating to a new version and will be back shortly." });
+          await updates.switchOver();
+        }
+      } finally {
+        await close();
+      }
+    },
   });
-  // The terminals (#124): their output never enters the log; closed before the log is, and on a session's deletion.
-  const terminalService = createTerminalService({ log, clock, ...options.terminals });
-  closers.push(() => terminalService.close());
+  // The update coordinator (#343): the pending update, read back from the log, its wait, its drain and the switch.
+  const updates = createUpdateCoordinator({
+    log,
+    clock,
+    stream: environmentStream,
+    dataDir,
+    harnessVersion,
+    launcher,
+    runs: host.runs,
+    activity: () => lifecycle.status().activity,
+    deferralCapMs: () => readSettings({ all: (sql, ...params) => log.read(sql, ...params) })["updates.deferralCapHours"] * 60 * 60_000,
+    drain: (cause) => void lifecycle.drain("update", cause),
+  });
   // The shelf's sweep (#117): started once the environment is ready; a settings change runs it from the change's commit.
   const settleSweep = createSettleSweep({ log, clock });
   // A new session's workspace, from the request `sessions.create` or the completions surface makes (#321).
@@ -824,6 +851,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       harnessVersion,
       launcher,
       managedOutside: updatesManagedOutside,
+      coordinator: updates,
       claudeCodeVersion: options.claudeCodeVersion ?? (() => readClaudeCodeVersion({ executable: bundledExecutable() })),
     }),
   });
@@ -940,6 +968,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   closers.push(createCompactionSweep({ log, clock }).start());
   wire.open();
   launcher.onQuery((query) => lifecycle.answer(query));
+  // The pending update's wait: every run-registry change, every minute, and its deferral cap (#343).
+  closers.push(updates.start());
   // The minute sweep: expired pairings, idle `tui` local client sessions, receipts past their 30 days, and
   // deleted sessions past their grace period, each part tried even when one before it fails, and named when it does.
   const sweep = clock.setInterval(() => {

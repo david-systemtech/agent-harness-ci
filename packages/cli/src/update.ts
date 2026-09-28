@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto";
+import { resolve as absolutePath } from "node:path";
 import {
   DEFERRAL_CAP_HOURS,
   IDLE_WINDOW_MINUTES,
   PRODUCT_NAME,
+  ReleaseVersion,
   UPDATE_SETTINGS,
   type PendingUpdate,
   type UpdateCheck,
@@ -20,14 +22,18 @@ import { LocalFailure, withLocalSession, type LocalTarget, type Net } from "./lo
 /**
  * The `update` verbs that reach the environment on this machine
  * (launcher-update spec, "Settings, methods, notices and flags": CLI verbs):
- * `update status`, the `updates.status` document as text or JSON, and
- * `update settings`, the five update settings written from flags through
- * `updates.settings.set`. Each exchanges the bootstrap grant for a local
- * client session and revokes it after (`local-session.ts`), as `pair` does.
+ * `update status`, the `updates.status` document as text or JSON;
+ * `update apply`, an update asked for through `updates.apply` (#343: a
+ * version and the path of its artefact on this machine, or the update that
+ * waits, when idle or at once with `--now`); and `update settings`, the five
+ * update settings written from flags through `updates.settings.set`. Each
+ * exchanges the bootstrap grant for a local client session and revokes it
+ * after (`local-session.ts`), as `pair` does.
  */
 
 export const UPDATE_USAGE = [
   `${PRODUCT_NAME} update status [--json] [--data-dir <path>] [--port <n>]`,
+  `${PRODUCT_NAME} update apply [--version <version> [--path <artefact>]] [--now] [--data-dir <path>] [--port <n>]`,
   `${PRODUCT_NAME} update settings [--auto-update <on|off>] [--channel <stable|beta>] [--pinned-version <version|none>] [--idle-window-minutes <n>] [--deferral-cap-hours <n>] [--data-dir <path>] [--port <n>]`,
 ] as const;
 
@@ -178,14 +184,49 @@ const settings = async (args: readonly string[], context: UpdateContext): Promis
 };
 
 /**
+ * `update apply`: asks for the update to `--version` from the artefact at
+ * `--path`, a path of this machine read from the working directory, or for
+ * the update that waits when neither is given; when the environment is
+ * idle, or at once with `--now`. Says which update it took, and when it goes.
+ */
+const apply = async (args: readonly string[], context: UpdateContext): Promise<number> => {
+  const values = parseOptions(args, { ...TARGET_OPTIONS, version: { type: "string" }, path: { type: "string" }, now: { type: "boolean" } });
+  const version = values.version === undefined ? undefined : ReleaseVersion.safeParse(values.version);
+  if (version !== undefined && !version.success) throw new UsageError(`--version takes a release version without its v, such as 0.4.2; got ${values.version || "nothing"}.`);
+  if (values.path !== undefined && version === undefined) throw new UsageError("--path takes the version its artefact holds: give --version too.");
+  const when = values.now ? "now" : "idle";
+  const answer = await withLocalSession(targetOf(values), context.net, `${PRODUCT_NAME} update apply`, (call) =>
+    call("updates.apply", {
+      commandId: randomUUID(),
+      ...(version !== undefined && { version: version.data }),
+      ...(values.path !== undefined && { artefactPath: absolutePath(values.path) }),
+      when,
+    }),
+  );
+  if (answer.receipt.status === "rejected") throw new LocalFailure(`The environment refused the update: ${answer.receipt.error.message}`);
+  // A fresh command id always carries the result.
+  if (answer.result === undefined) throw new LocalFailure("The environment answered the update without saying which it took.");
+  const { updateId, toVersion } = answer.result;
+  context.stdout(
+    when === "now"
+      ? `Updating to ${toVersion} (update ${updateId}) now: the environment is draining.\n`
+      : `Updating to ${toVersion} (update ${updateId}) once the environment is idle, or at its deferral cap; update status says what it waits on.\n`,
+  );
+  return 0;
+};
+
+/** The `update` verbs by name. */
+const VERBS: Readonly<Record<string, (args: readonly string[], context: UpdateContext) => Promise<number>>> = { status, apply, settings };
+
+/**
  * `update`: runs the verb `args` name. Exits 0 once done, 1 with a plain
  * sentence when no environment answers or it refuses, and 2 (the CLI's usage
  * error) on arguments it cannot parse.
  */
 export const update = async (args: readonly string[], context: UpdateContext): Promise<number> => {
   const [verb, ...rest] = args;
-  const run = verb === "status" ? status : verb === "settings" ? settings : undefined;
-  if (run === undefined) throw new UsageError(verb === undefined ? "update takes a verb: status or settings." : `Unknown update verb ${verb}.`);
+  const run = verb === undefined || !Object.hasOwn(VERBS, verb) ? undefined : VERBS[verb];
+  if (run === undefined) throw new UsageError(verb === undefined ? "update takes a verb: status, apply or settings." : `Unknown update verb ${verb}.`);
   try {
     return await run(rest, context);
   } catch (error) {

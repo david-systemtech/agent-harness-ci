@@ -1555,6 +1555,10 @@
       "title": "UpdateConflictReason"
     },
     {
+      "path": "updates/install-refusal.json",
+      "title": "UpdateInstallRefusal"
+    },
+    {
       "path": "updates/settings-values.json",
       "title": "UpdateSettingsValues"
     },
