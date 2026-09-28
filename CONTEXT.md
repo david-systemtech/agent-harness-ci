@@ -204,6 +204,14 @@ _Avoid_: wrapper, bootstrap, the launcher (the process it starts)
 The one-line file in the data directory that names the version whose launcher the launcher entry starts, written by the launcher at a handover and by the entry when it falls back.
 _Avoid_: pointer (a place in a bank), current link
 
+**Versions directory**:
+The folder in the data directory holding one folder per installed version, named by the version; a folder counts as a version only once its sentinel, written last, is in it.
+_Avoid_: install folder, releases folder, runtime
+
+**Service state**:
+The launcher's file in the data directory naming the active, previous and launcher versions, the pending-update record and the watch deadline; every write is durable, and a service state the launcher cannot read or trust stops it starting anything.
+_Avoid_: service record (what `service install` wrote, for `status` and `uninstall`), launcher state
+
 **Update coordinator**:
 The environment's module that holds the update policy: it reads the channel, stages the target, waits for idle or the deferral cap, drains, asks the launcher to switch and settles the outcome after the restart; it knows runs, which the launcher never does.
 _Avoid_: updater (the host-side updater or the desktop's), update manager, the launcher
