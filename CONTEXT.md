@@ -324,6 +324,10 @@ _Avoid_: dependency, prerequisite, binary
 The one list of values the harness has resolved or injected, consulted by transcripts, the event log, tool outputs, logs and renders so none of those values is ever shown or stored; secrets the model handles on its own are not in it.
 _Avoid_: redaction list, filter, mask
 
+**Shape rule**:
+A pattern for a secret the harness never registered, anchored on a recognisable prefix (`ghp_`, `hvs.`, `sk-ant-`, a key's name before `=`) and never on how random a string looks; applied beside the scrub registry's values to the harness's own log lines, captured output and error text, and checked on what it sends out, but never to a session's content.
+_Avoid_: secret detector, entropy check, pattern
+
 **Forge account**:
 An environment's one identity on one forge origin (GitHub, Forgejo, Gitea; GitLab later), with any verified alias origins, a slug, its credential source and its capabilities; the only thing banks, skill sources, the tracker, pull requests, releases and repository creation authenticate with on that origin.
 _Avoid_: token (the credential, not the account), git account, forge connection
