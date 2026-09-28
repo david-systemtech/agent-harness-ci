@@ -316,4 +316,3 @@ export const FORGE_EVENT_PAYLOADS = {
   "forge.account.removed": ForgeAccountRemovedPayload,
   "forge.origin-missing": ForgeOriginMissingPayload,
 } as const;
-export type ForgeEventType = keyof typeof FORGE_EVENT_PAYLOADS;
