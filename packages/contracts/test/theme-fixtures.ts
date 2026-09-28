@@ -27,7 +27,7 @@ export const themeSchemaFixtures: Record<string, Fixtures> = {
   },
   "theme/name.json": {
     valid: ["Default", "D", "x".repeat(40), "Night shift", "🌙".repeat(40)],
-    invalid: ["", " ", " Default", "Default ", "x".repeat(41), "a\tb", "a​b", 7],
+    invalid: ["", " ", " Default", "Default ", "x".repeat(41), "a\tb", "a\u200bb", "a\u2028b", "a\u2029b", 7],
   },
   "theme/seed.json": {
     valid: [{ hue: 0, chroma: 0 }, { hue: 359.5, chroma: 0.4 }, { hue: 264, chroma: 0.21 }],

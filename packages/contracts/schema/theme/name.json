@@ -2,6 +2,6 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "ThemeName",
   "type": "string",
-  "pattern": "^[^\\s\\p{Cc}\\p{Cf}](?:[^\\p{Cc}\\p{Cf}]{0,38}[^\\s\\p{Cc}\\p{Cf}])?$",
+  "pattern": "^[^\\s\\p{Cc}\\p{Cf}](?:[^\\p{Cc}\\p{Cf}\\p{Zl}\\p{Zp}]{0,38}[^\\s\\p{Cc}\\p{Cf}])?$",
   "description": "A theme's name: 1 to 40 characters counted as code points, on one line, with no control or format character and no white space at either end."
 }

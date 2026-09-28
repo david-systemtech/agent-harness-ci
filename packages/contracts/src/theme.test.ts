@@ -13,12 +13,12 @@ describe("a theme", () => {
     expect(Theme.safeParse({ seeds }).success).toBe(false);
   });
 
-  it("takes a name of 1 to 40 characters, counted as code points, with no control or format character", () => {
+  it("takes a name of 1 to 40 characters, counted as code points, on one line, with no control or format character", () => {
     expect(ThemeName.safeParse("D").success).toBe(true);
     expect(ThemeName.safeParse("x".repeat(40)).success).toBe(true);
     expect(ThemeName.safeParse("🌙".repeat(40)).success).toBe(true);
     expect(ThemeName.safeParse("Night shift").success).toBe(true);
-    for (const bad of ["", "   ", "x".repeat(41), "a\u0000b", "a​b", "​"]) expect(ThemeName.safeParse(bad).success, JSON.stringify(bad)).toBe(false);
+    for (const bad of ["", "   ", "x".repeat(41), "a\u0000b", "a\u200bb", "\u200b", "a\nb", "a\u2028b", "a\u2029b"]) expect(ThemeName.safeParse(bad).success, JSON.stringify(bad)).toBe(false);
   });
 
   it("takes a hue from 0 up to 360 degrees and a chroma from 0 to 0.4", () => {

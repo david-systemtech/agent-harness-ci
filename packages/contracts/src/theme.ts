@@ -12,14 +12,14 @@ import { z } from "zod";
 export const THEME_SEED_NAMES = ["canvas", "accent", "machine", "thinking", "success", "warning", "danger"] as const;
 export type ThemeSeedName = (typeof THEME_SEED_NAMES)[number];
 
-/** The most chroma a seed may carry: past it no sRGB colour exists at any lightness. */
+/** The most chroma a seed may carry: already past every sRGB colour (magenta, the most chromatic, is about 0.32), so the derivation clamps it in. */
 export const MAX_SEED_CHROMA = 0.4;
 
 /** A theme's name: 1 to 40 characters counted as code points, on one line, with no control or format character and no white space at either end. */
 export const ThemeName = z
   .string()
-  // The first and last characters are neither white space, control nor format; those between are neither control nor format. With the `u` flag the cap counts code points.
-  .regex(/^[^\s\p{Cc}\p{Cf}](?:[^\p{Cc}\p{Cf}]{0,38}[^\s\p{Cc}\p{Cf}])?$/u)
+  // The first and last characters are neither white space, control nor format; those between are neither control, format, nor a line or paragraph separator (Zl, Zp: white space that is not a control character). With the `u` flag the cap counts code points.
+  .regex(/^[^\s\p{Cc}\p{Cf}](?:[^\p{Cc}\p{Cf}\p{Zl}\p{Zp}]{0,38}[^\s\p{Cc}\p{Cf}])?$/u)
   .meta({
     description: "A theme's name: 1 to 40 characters counted as code points, on one line, with no control or format character and no white space at either end.",
   });
