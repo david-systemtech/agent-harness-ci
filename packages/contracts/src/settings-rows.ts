@@ -279,3 +279,87 @@ export const SettingsRow = z
       "One row of Settings: its id (band.row, the band its first part), band, label, one-line hint, scope, the steps it is home to (or the whole checklist, for Set up), the search terms that find it, and why it is dim when it is a placeholder.",
   });
 export type SettingsRow = z.infer<typeof SettingsRow>;
+
+/** The row Settings opens on when nothing better is known: Set up, the first row, which cannot be hidden (ADR 0027). */
+export const FIRST_ROW = "setup.checklist" satisfies SettingsRowId;
+
+/** Whether `value` is the id of a row the registry holds. */
+export const isSettingsRowId = (value: unknown): value is SettingsRowId => (SETTINGS_ROW_IDS as readonly unknown[]).includes(value);
+
+/**
+ * A stored row id (the last row opened, kept by a client) read against the
+ * registry: the row it names, or Set up when the registry does not hold it,
+ * so no allowlist of rows can drift from the registry (ADR 0027).
+ */
+export const readStoredRow = (stored: unknown): SettingsRowId => (isSettingsRowId(stored) ? stored : FIRST_ROW);
+
+/** The registry's entry for a row. */
+export const settingsRow = (id: SettingsRowId): (typeof SETTINGS_ROWS)[number] => SETTINGS_ROWS.find((row) => row.id === id) as (typeof SETTINGS_ROWS)[number];
+
+/**
+ * The existing settings addresses: the sixteen the settings dialog answered
+ * before the rail (fifteen panes and the legacy `cerebro`), a closed union
+ * that stays so every deep link and stored section keeps landing (ADR 0027).
+ */
+export const SETTINGS_ADDRESSES = [
+  "profiles",
+  "models",
+  "runs",
+  "agents",
+  "skills",
+  "memory-banks",
+  "cerebro",
+  "permissions",
+  "browser",
+  "secrets",
+  "server",
+  "remote",
+  "routines",
+  "advanced",
+  "appearance",
+  "about",
+] as const;
+export type SettingsAddress = (typeof SETTINGS_ADDRESSES)[number];
+
+export const SettingsAddress = z.enum(SETTINGS_ADDRESSES).meta({
+  description: "One of the sixteen existing settings addresses, each of which opens the row the address table maps it to.",
+});
+
+/**
+ * The address table (ADR 0027; the GUI spec's table): the row each existing
+ * address opens, total over the closed union, so an address added without a
+ * row does not compile. Two addresses were split: `runs` opens Usage (spend,
+ * hand-off) with its speed on `accounts.default-model`, and `advanced` opens
+ * Your machines (updates, folders) with its service verbs on
+ * `environments.service`; both are search terms of the second row too. The
+ * state import (#94) maps a stored settings section through this table.
+ */
+export const ADDRESS_ROWS = {
+  profiles: "accounts.accounts",
+  models: "accounts.default-model",
+  runs: "accounts.usage",
+  agents: "knowledge.instructions",
+  skills: "knowledge.skills",
+  "memory-banks": "knowledge.banks",
+  cerebro: "knowledge.banks",
+  permissions: "access.permissions",
+  browser: "access.browser",
+  secrets: "access.key-managers",
+  server: "environments.access",
+  remote: "environments.machines",
+  routines: "routines.routines",
+  advanced: "environments.machines",
+  appearance: "appearance.theme",
+  about: "about.about",
+} as const satisfies { readonly [A in SettingsAddress]: SettingsRowId };
+
+/** Whether `value` is one of the sixteen existing settings addresses. */
+export const isSettingsAddress = (value: unknown): value is SettingsAddress => (SETTINGS_ADDRESSES as readonly unknown[]).includes(value);
+
+/** The row an existing settings address opens. */
+export const rowOfAddress = (address: SettingsAddress): SettingsRowId => ADDRESS_ROWS[address];
+
+export const SettingsAddressRow = z
+  .object({ address: SettingsAddress, row: SettingsRowId })
+  .meta({ description: "One line of the address table: an existing settings address and the row it opens." });
+export type SettingsAddressRow = z.infer<typeof SettingsAddressRow>;

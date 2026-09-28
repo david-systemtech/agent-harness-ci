@@ -1,14 +1,20 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 import {
+  ADDRESS_ROWS,
   AUTO_SETTLE_KEYS,
   PERMISSION_SETTINGS_KEYS,
   SETTINGS,
+  SETTINGS_ADDRESSES,
   SETTINGS_BANDS,
   SETTINGS_ROWS,
   STEP_ORDER,
   STEP_REGISTRY,
   SettingsRow,
   UPDATE_SETTINGS_KEYS,
+  readStoredRow,
+  rowOfAddress,
+  type SettingsAddress,
+  type SettingsRowId,
 } from "./index.js";
 
 /**
@@ -221,5 +227,79 @@ describe("keys and steps on rows", () => {
     expect(rowProblems(withHome("routines.routines", ["routines"]), steps, settings)).toEqual(["routines.routines: home to routines, which is not a step of the milestone-1 order"]);
     expect(rowProblems(withHome("about.about", "everything"), steps, settings)).toEqual(["about.about: home to everything, which is not the checklist"]);
     expect(rowProblems([...rows, { id: "about.about", homeOf: [] }], steps, settings)).toEqual(["about.about: registered twice"]);
+  });
+});
+
+describe("the sixteen settings addresses", () => {
+  it("are a closed union of the existing addresses, mapped to rows as the GUI spec's table maps them", () => {
+    expect(SETTINGS_ADDRESSES).toEqual([
+      "profiles",
+      "models",
+      "runs",
+      "agents",
+      "skills",
+      "memory-banks",
+      "cerebro",
+      "permissions",
+      "browser",
+      "secrets",
+      "server",
+      "remote",
+      "routines",
+      "advanced",
+      "appearance",
+      "about",
+    ]);
+    expect(Object.fromEntries(SETTINGS_ADDRESSES.map((address) => [address, rowOfAddress(address)]))).toEqual({
+      profiles: "accounts.accounts",
+      models: "accounts.default-model",
+      runs: "accounts.usage",
+      agents: "knowledge.instructions",
+      skills: "knowledge.skills",
+      "memory-banks": "knowledge.banks",
+      cerebro: "knowledge.banks",
+      permissions: "access.permissions",
+      browser: "access.browser",
+      secrets: "access.key-managers",
+      server: "environments.access",
+      remote: "environments.machines",
+      routines: "routines.routines",
+      advanced: "environments.machines",
+      appearance: "appearance.theme",
+      about: "about.about",
+    });
+    expect(Object.keys(ADDRESS_ROWS)).toEqual([...SETTINGS_ADDRESSES]);
+  });
+
+  it("are mapped exhaustively at compile time: a table missing an address, or naming one that is not, does not compile", () => {
+    type Table = { readonly [A in SettingsAddress]: SettingsRowId };
+    expectTypeOf(ADDRESS_ROWS).toExtend<Table>();
+    const { about: _about, ...missing } = ADDRESS_ROWS;
+    // @ts-expect-error: the table lacks `about`.
+    const short: Table = missing;
+    // @ts-expect-error: `settings` is not one of the sixteen addresses.
+    const long: Table = { ...ADDRESS_ROWS, settings: "about.about" };
+    // @ts-expect-error: an address maps to a registered row.
+    const wrong: Table = { ...ADDRESS_ROWS, about: "about.version" };
+    expect([short, long, wrong]).toHaveLength(3);
+  });
+
+  it("are search terms of the rows they map to, the split parts on their second rows too: secrets finds Key managers and cerebro Memory banks", () => {
+    const termsOf = (id: string) => (SETTINGS_ROWS.find((row) => row.id === id)?.terms ?? []) as readonly string[];
+    for (const address of SETTINGS_ADDRESSES) expect(termsOf(rowOfAddress(address)), address).toContain(address);
+    expect(termsOf("access.key-managers")).toContain("secrets");
+    expect(termsOf("knowledge.banks")).toContain("cerebro");
+    // Runs' speed moved to Default account and model, and Advanced's service verbs to Service (ADR 0027).
+    expect(termsOf("accounts.default-model")).toContain("runs");
+    expect(termsOf("environments.service")).toContain("advanced");
+  });
+});
+
+describe("a stored row id", () => {
+  it("reads as the row it names when the registry holds it, and as setup.checklist otherwise", () => {
+    for (const row of SETTINGS_ROWS) expect(readStoredRow(row.id)).toBe(row.id);
+    for (const stored of ["accounts.models", "secrets", "", "Access.Permissions", null, undefined, 3, { id: "access.permissions" }]) {
+      expect(readStoredRow(stored), JSON.stringify(stored)).toBe("setup.checklist");
+    }
   });
 });
