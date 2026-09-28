@@ -172,8 +172,10 @@ export const createWorkspaceResolver = (options: WorkspaceResolverOptions): Work
    * is reserved: it holds every session's directories, none of them its own.
    */
   const reserved = async (path: string): Promise<boolean> => {
-    const inReserve = (at: string, data: string, rootsAt: readonly string[]): boolean =>
-      isInside(folded(data), folded(at)) && !rootsAt.some((root) => folded(at) !== folded(root) && isInside(folded(root), folded(at)));
+    const inReserve = (at: string, data: string, rootsAt: readonly string[]): boolean => {
+      const where = folded(at);
+      return isInside(folded(data), where) && !rootsAt.map(folded).some((root) => where !== root && isInside(root, where));
+    };
     if (inReserve(path, dataDir, roots.all)) return true;
     const [real, realData, realRoots] = await Promise.all([followed(path), followed(dataDir), Promise.all(roots.all.map(followed))]);
     return inReserve(real, realData, realRoots);
