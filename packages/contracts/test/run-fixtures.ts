@@ -98,6 +98,9 @@ const runStarted = {
 };
 const runEnded = { runId, reason: "completed", cause: null, error: null, usage: [usage], durationMs: 4200, turnCount: 2, resultText: "Done." };
 
+/** A run an update cut: the run, the update and the version it went to. */
+const interrupted = { runId, updateId: "7d0f2b1e-2c55-4a8e-9f0b-3a1c5d7e9b20", toVersion: "0.5.0" };
+
 /** A valid then an invalid instance of every transcript payload. */
 const payloads: Record<string, Fixtures> = {
   "run.started": {
@@ -217,6 +220,19 @@ const payloads: Record<string, Fixtures> = {
   "session.rewind-undone": {
     valid: [{ toMessageId: messageId, rewindSequence: 42 }],
     invalid: [{ toMessageId: messageId }, { rewindSequence: 42 }, { toMessageId: "m-1", rewindSequence: 42 }, { toMessageId: messageId, rewindSequence: -1 }],
+  },
+  "run.update-interrupted": {
+    valid: [
+      { ...interrupted, outcome: "continued", reason: null, continuationRunId: "5a4b3c2d-1e0f-4a9b-8c7d-6e5f4a3b2c1d" },
+      { ...interrupted, outcome: "waiting-on-prompt", reason: null, continuationRunId: null },
+      { ...interrupted, outcome: "next-message", reason: "completions", continuationRunId: null },
+    ],
+    invalid: [
+      { ...interrupted, outcome: "continued", reason: null, continuationRunId: null },
+      { ...interrupted, outcome: "next-message", reason: null, continuationRunId: null },
+      { ...interrupted, outcome: "waiting-on-prompt", reason: "mode", continuationRunId: null },
+      { runId, outcome: "waiting-on-prompt", reason: null, continuationRunId: null },
+    ],
   },
 };
 
@@ -338,6 +354,8 @@ export const runSchemaFixtures: Record<string, Fixtures> = {
   "transcript/run-origin.json": { valid: ["client", "routine", "completions", "provider", "update"], invalid: ["tui", ""] },
   "transcript/run-end-reason.json": { valid: ["completed", "error", "interrupted", "disposed", "drained"], invalid: ["cancelled", ""] },
   "transcript/interrupt-cause.json": { valid: ["user", "read-now", "restart", "parked"], invalid: ["drain", ""] },
+  "transcript/update-interrupt-outcome.json": { valid: ["continued", "waiting-on-prompt", "next-message"], invalid: ["dropped", ""] },
+  "transcript/update-interrupt-reason.json": { valid: ["no-resume", "account", "mode", "workspace", "deleted", "completions"], invalid: ["restart", ""] },
   "transcript/attachment-kind.json": { valid: ["image", "file"], invalid: ["audio", ""] },
   "transcript/attachment-record.json": { valid: [attachment], invalid: [{ ...attachment, size: 1.5 }, { ...attachment, kind: "audio" }] },
   "transcript/attachment-input.json": {

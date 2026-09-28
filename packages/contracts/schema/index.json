@@ -495,6 +495,10 @@
       "title": "RunEndedPayload"
     },
     {
+      "path": "sessions/events/run.update-interrupted.json",
+      "title": "RunUpdateInterruptedPayload"
+    },
+    {
       "path": "sessions/events/run.policy.resolved.json",
       "title": "RunPolicyResolvedPayload"
     },
@@ -781,6 +785,14 @@
     {
       "path": "transcript/interrupt-cause.json",
       "title": "InterruptCause"
+    },
+    {
+      "path": "transcript/update-interrupt-outcome.json",
+      "title": "UpdateInterruptOutcome"
+    },
+    {
+      "path": "transcript/update-interrupt-reason.json",
+      "title": "UpdateInterruptReason"
     },
     {
       "path": "transcript/attachment-kind.json",

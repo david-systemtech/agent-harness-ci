@@ -193,6 +193,8 @@ import {
   TRANSCRIPT_EVENT_TYPES,
   ToolStatus,
   TranscriptItem,
+  UpdateInterruptOutcome,
+  UpdateInterruptReason,
 } from "./transcript.js";
 import { OrderKey } from "./ordering.js";
 import { methods } from "./registry.js";
@@ -423,6 +425,8 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "transcript/run-origin.json", title: "RunOrigin", schema: RunOrigin },
   { path: "transcript/run-end-reason.json", title: "RunEndReason", schema: RunEndReason },
   { path: "transcript/interrupt-cause.json", title: "InterruptCause", schema: InterruptCause },
+  { path: "transcript/update-interrupt-outcome.json", title: "UpdateInterruptOutcome", schema: UpdateInterruptOutcome },
+  { path: "transcript/update-interrupt-reason.json", title: "UpdateInterruptReason", schema: UpdateInterruptReason },
   { path: "transcript/attachment-kind.json", title: "AttachmentKind", schema: AttachmentKind },
   { path: "transcript/attachment-record.json", title: "AttachmentRecord", schema: AttachmentRecord },
   { path: "transcript/attachment-input.json", title: "AttachmentInput", schema: AttachmentInput },

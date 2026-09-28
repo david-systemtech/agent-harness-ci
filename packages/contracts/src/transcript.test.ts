@@ -21,6 +21,8 @@ import {
   TRANSCRIPT_EVENT_TYPES,
   TRANSCRIPT_EVENT_TYPE_NAMES,
   TranscriptItem,
+  UPDATE_INTERRUPT_OUTCOMES,
+  UPDATE_INTERRUPT_REASONS,
   eventTypeEntry,
   exportedSchemas,
   isListEvent,
@@ -66,9 +68,9 @@ const VOCABULARY = [
 ];
 
 describe("the transcript vocabulary", () => {
-  it("is on the session stream: every type the spec lists, message.requeued for ADR 0022's interrupt and message.withdrawn for its withdraw", () => {
+  it("is on the session stream: every type the spec lists, message.requeued for ADR 0022's interrupt and message.withdrawn for its withdraw, and run.update-interrupted for a run an update cut (#335)", () => {
     for (const type of VOCABULARY) expect(eventTypeEntry("session", type), type).toBeDefined();
-    expect([...TRANSCRIPT_EVENT_TYPE_NAMES].sort()).toEqual([...VOCABULARY, "message.requeued", "message.withdrawn"].sort());
+    expect([...TRANSCRIPT_EVENT_TYPE_NAMES].sort()).toEqual([...VOCABULARY, "message.requeued", "message.withdrawn", "run.update-interrupted"].sort());
     for (const type of TRANSCRIPT_EVENT_TYPE_NAMES) {
       expect(SessionEventType.safeParse(type).success, type).toBe(true);
       expect(eventTypeEntry("group", type), type).toBeUndefined();
@@ -93,8 +95,10 @@ describe("the transcript vocabulary", () => {
   it("fixes every transcript payload, each carrying the run's id but for the fork, the rewind and its undo, which are the session's", () => {
     for (const [type, entry] of Object.entries(TRANSCRIPT_EVENT_TYPES)) {
       expect("reservedFor" in entry, type).toBe(false);
-      const shape = (entry.payload as z.ZodObject).shape;
-      expect("runId" in shape, type).toBe(!["session.forked", "session.rewound", "session.rewind-undone"].includes(type));
+      // A payload that is a union of shapes carries the run's id in every one.
+      const payload: z.ZodType = entry.payload;
+      const shapes = payload instanceof z.ZodDiscriminatedUnion ? (payload.options as z.ZodObject[]).map((option) => option.shape) : [(payload as z.ZodObject).shape];
+      for (const shape of shapes) expect("runId" in shape, type).toBe(!["session.forked", "session.rewound", "session.rewind-undone"].includes(type));
     }
   });
 
@@ -125,6 +129,27 @@ describe("the transcript vocabulary", () => {
     expect(ended.safeParse(base).success).toBe(true);
     expect(ended.safeParse({ ...base, cause: "read-now" }).success).toBe(true);
     expect(ended.safeParse({ ...base, reason: "cancelled" }).success).toBe(false);
+  });
+
+  it("marks a run an update cut, unflagged, with its update, the version it went to, and what became of the run: continued by a run it names, waiting on a parked prompt, or left for the next message with the reason", () => {
+    expect(isListEvent("session", "run.update-interrupted")).toBe(false);
+    expect(UPDATE_INTERRUPT_OUTCOMES).toEqual(["continued", "waiting-on-prompt", "next-message"]);
+    expect(UPDATE_INTERRUPT_REASONS).toEqual(["no-resume", "account", "mode", "workspace", "deleted", "completions"]);
+    const interrupted = TRANSCRIPT_EVENT_TYPES["run.update-interrupted"].payload;
+    const cut = { runId, updateId: "7d0f2b1e-2c55-4a8e-9f0b-3a1c5d7e9b20", toVersion: "0.5.0" };
+    const continuationRunId = "5a4b3c2d-1e0f-4a9b-8c7d-6e5f4a3b2c1d";
+    expect(interrupted.safeParse({ ...cut, outcome: "continued", reason: null, continuationRunId }).success).toBe(true);
+    expect(interrupted.safeParse({ ...cut, outcome: "waiting-on-prompt", reason: null, continuationRunId: null }).success).toBe(true);
+    for (const reason of UPDATE_INTERRUPT_REASONS) {
+      expect(interrupted.safeParse({ ...cut, outcome: "next-message", reason, continuationRunId: null }).success, reason).toBe(true);
+    }
+    // Continued names its run and no reason; the others name no run, and only the next message gives a reason.
+    expect(interrupted.safeParse({ ...cut, outcome: "continued", reason: null, continuationRunId: null }).success).toBe(false);
+    expect(interrupted.safeParse({ ...cut, outcome: "continued", reason: "no-resume", continuationRunId }).success).toBe(false);
+    expect(interrupted.safeParse({ ...cut, outcome: "waiting-on-prompt", reason: "account", continuationRunId: null }).success).toBe(false);
+    expect(interrupted.safeParse({ ...cut, outcome: "next-message", reason: null, continuationRunId: null }).success).toBe(false);
+    expect(interrupted.safeParse({ ...cut, outcome: "next-message", reason: "no-resume", continuationRunId }).success).toBe(false);
+    expect(interrupted.safeParse({ ...cut, outcome: "dropped", reason: null, continuationRunId: null }).success).toBe(false);
   });
 
   it("sends a message as a prompt or queued, and delivers a queued one steered or as a prompt", () => {
