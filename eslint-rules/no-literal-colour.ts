@@ -14,8 +14,8 @@ import { createRule } from "./create-rule.js";
  *   function (`COLOUR_FUNCTION`: `rgb()`, `hsl()`, `oklch()`, `color()`, their
  *   alpha forms, and `hwb()`, `lab()`, `lch()` and `oklab()`), in every string
  *   and template literal (a JSX attribute's and a style object's included) and
- *   in every declaration of a stylesheet, custom properties and a token's
- *   fallback included;
+ *   in a stylesheet's every declaration (custom properties and a token's
+ *   fallback included) and `@apply`;
  * - Tailwind's palette classes (a colour utility of `COLOUR_UTILITIES` with a
  *   `TAILWIND_HUES` hue and a `TAILWIND_SHADES` shade), the `black` and `white`
  *   utilities, and an arbitrary value or property holding a named colour
@@ -23,8 +23,8 @@ import { createRule } from "./create-rule.js";
  *   class string, joined by a class helper or held in a variable, is one) and
  *   in a stylesheet's `@apply`; a hex or colour function in an arbitrary value
  *   is refused as a literal; and the same palette through Tailwind's theme
- *   variables (`var(--color-red-500)`, `bg-(--color-white)`), in every string
- *   and declaration;
+ *   variables (`var(--color-red-500)`, `bg-(--color-white)`), in every string,
+ *   declaration and `@apply`;
  * - a named colour keyword (`NAMED_COLOURS`) in a style: a stylesheet's
  *   declaration, a style object's values (a `style` attribute's, an object it
  *   names through a variable or spreads, one typed `CSSProperties`, and the
@@ -199,6 +199,9 @@ const tailwindColours = (classes: string): Found[] =>
     .filter(isTailwindColour)
     .map((colour) => ({ colour, messageId: "tailwind" }));
 
+/** The colours in a string that may hold classes (a script's string, a stylesheet's `@apply`): Tailwind's, its palette variables and the literals. */
+const classStringColours = (text: string): Found[] => [...tailwindColours(text), ...paletteVariables(text), ...literalsIn(text).found];
+
 // Scripts.
 
 /** A type naming a style object: `CSSProperties`, `React.CSSProperties`. */
@@ -275,7 +278,7 @@ const scriptVisitors = (context: Context): TSESLint.RuleListener => {
     }
   };
   const checkString = (node: TSESTree.Node, text: string) => {
-    for (const found of [...tailwindColours(text), ...paletteVariables(text), ...literalsIn(text).found]) report(node, found);
+    for (const found of classStringColours(text)) report(node, found);
   };
   return {
     Literal(node) {
@@ -329,7 +332,7 @@ const stylesheetVisitors = (context: Context, sourceCode: CSSSourceCode): TSESLi
     },
     Atrule(node: Atrule) {
       if (node.name.toLowerCase() !== "apply" || !node.prelude) return;
-      for (const found of tailwindColours(sourceCode.getText(node.prelude))) report(node.prelude, found);
+      for (const found of classStringColours(sourceCode.getText(node.prelude))) report(node.prelude, found);
     },
   };
 };

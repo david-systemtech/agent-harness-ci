@@ -177,5 +177,10 @@ body { background: var(--abyss); color: var(--ink); border-color: currentColor; 
     { code: `.a { color: var(--color-zinc-900); border-color: theme(--color-black); }`, errors: [tailwind("--color-zinc-900"), tailwind("--color-black")] },
     // Tailwind's colour classes applied in a stylesheet.
     { code: `.a { @apply rounded bg-red-500 hover:text-white; }`, errors: [tailwind("bg-red-500"), tailwind("hover:text-white")] },
+    // An @apply prelude is a class string: the palette through its variables, and a literal in an arbitrary value, as in a script.
+    {
+      code: `.a { @apply bg-[#fff] bg-(--color-red-500) text-[var(--color-white)] shadow-[0_0_0_1px_rgb(0_0_0)]; }`,
+      errors: [tailwind("--color-red-500"), tailwind("--color-white"), literal("#fff"), literal("rgb(0_0_0)")],
+    },
   ],
 });
