@@ -101,7 +101,7 @@ The small set of things only a desktop app can do for a client (native dialogs, 
 _Avoid_: main process, IPC, bridge
 
 **Theme**:
-A name and seven seeds (Canvas, Accent, Machine, Thinking, Success, Warning, Danger), each one hue and chroma, from which every colour the GUI and the web tab paint is derived, and which the terminal UI maps onto its terminal's own colours; an environment setting, defaulting to a fixed pair of seeds chosen so a fresh install looks the same as it does today.
+A name and seven seeds (Canvas, Accent, Machine, Thinking, Success, Warning, Danger), each one hue and chroma, from which every colour the GUI and the web tab paint is derived, and which the terminal UI maps onto its terminal's own colours; an environment setting, its shipped defaults matching today's colours exactly.
 _Avoid_: skin, palette (the derived ladder, not the setting), colour scheme (light or dark, which is the client's)
 
 **Seed**:
