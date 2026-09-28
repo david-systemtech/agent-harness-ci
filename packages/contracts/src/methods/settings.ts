@@ -1,11 +1,29 @@
 import { z } from "zod";
 import { commandParams, defineMethod } from "../method.js";
 import { setOf } from "../primitives.js";
-import { GENERIC_SETTINGS_KEYS, SETTINGS, SettingsKeyName, SettingsPatch, SettingsValues } from "../settings.js";
+import { GENERIC_SETTINGS_KEYS, SETTINGS, SETTINGS_KEYS, SettingsKeyName, SettingsPatch, SettingsValues, type SettingDefinition, type SettingsKey } from "../settings.js";
 
-/** What `settings.update` takes: some values of the keys it writes, each valid for its key; a key a single method owns (`writtenBy`) is refused like an unknown one. */
+/** The method of its own that writes `key` (`writtenBy`), or undefined for a generic key or one that is no setting. */
+const ownWriter = (key: string): string | undefined =>
+  (SETTINGS_KEYS as readonly string[]).includes(key) ? (SETTINGS[key as SettingsKey] as SettingDefinition).writtenBy : undefined;
+
+/**
+ * The message of `settings.update`'s refusal of keys it does not write, when
+ * a method of its own writes one of them: each such key with that method, so
+ * a client knows where to send it. Otherwise zod's own.
+ */
+const refusedKeys = (issue: { readonly code?: string; readonly keys?: readonly string[] }): string | undefined => {
+  if (issue.code !== "unrecognized_keys" || !issue.keys?.some((key) => ownWriter(key) !== undefined)) return undefined;
+  const reasons = issue.keys.map((key) => {
+    const writer = ownWriter(key);
+    return writer === undefined ? `${key} is not a setting` : `${key} is written by ${writer}, not settings.update`;
+  });
+  return `${reasons.join("; ")}.`;
+};
+
+/** What `settings.update` takes: some values of the keys it writes, each valid for its key; a key a single method owns (`writtenBy`) is refused like an unknown one, its message naming that method. */
 const GenericSettingsPatch = z
-  .strictObject(Object.fromEntries(GENERIC_SETTINGS_KEYS.map((key) => [key, SETTINGS[key].schema])))
+  .strictObject(Object.fromEntries(GENERIC_SETTINGS_KEYS.map((key) => [key, SETTINGS[key].schema])), { error: refusedKeys })
   .partial()
   .meta({
     description:
@@ -38,8 +56,8 @@ export const settingsGet = defineMethod({
  * `invalid_params` with the offending key in the issue's path (or, for an
  * unknown key, its `keys`). A key a method of its own writes (`writtenBy`:
  * the permission keys, through `permissions.settings.set`; the update keys,
- * through `updates.settings.set`) is refused the same way. A value a key
- * already holds changes nothing.
+ * through `updates.settings.set`) is refused the same way, the issue's
+ * message naming that method. A value a key already holds changes nothing.
  * Answered with every setting's value after it.
  */
 export const settingsUpdate = defineMethod({

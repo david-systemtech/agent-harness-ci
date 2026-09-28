@@ -230,8 +230,6 @@ export type CommandMethodName = Extract<Registered, { readonly kind: "command" }
  */
 export const OWED_HANDLERS = {
   // The update vocabulary (#335) is registered ahead of the launcher tickets that serve it.
-  "updates.status": "#342",
-  "updates.settings.set": "#342",
   "updates.apply": "#343",
   "updates.cancel": "#343",
   "updates.check": "#346",

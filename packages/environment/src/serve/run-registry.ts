@@ -1,4 +1,4 @@
-import { ContractError, type BusyReason, type EnvironmentActivity } from "@agent-harness/contracts";
+import { ContractError, IDLE_WINDOW_MINUTES, type BusyReason, type EnvironmentActivity } from "@agent-harness/contracts";
 import type { Clock } from "./clock.js";
 
 /**
@@ -7,11 +7,21 @@ import type { Clock } from "./clock.js";
  * fills, and the idle rule over them.
  */
 
-/** A run that started or ended this recently keeps the environment busy (ADR 0007). */
-export const IDLE_WINDOW_MS = 10 * 60_000;
+const MINUTE_MS = 60_000;
 
-/** A run parked on a prompt counts as busy for this long after it parked, and no longer (ADR 0007). */
-export const PARKED_PROMPT_WINDOW_MS = 10 * 60_000;
+/**
+ * The idle window at its preset (the glossary's Idle; ADR 0007): a run that
+ * started or ended this recently keeps the environment busy, and a run
+ * parked on a prompt counts as busy for this long after it parked. The
+ * environment reads the window from `updates.idleWindowMinutes`.
+ */
+export const PRESET_IDLE_WINDOW_MS = IDLE_WINDOW_MINUTES.preset * MINUTE_MS;
+
+/**
+ * How long the registry keeps a run that ended: the longest idle window the
+ * setting can name, so a window raised after a run ended still counts it.
+ */
+export const ENDED_RUN_KEPT_MS = IDLE_WINDOW_MINUTES.max * MINUTE_MS;
 
 /** One run as the registry reports it: its state, and the instants the idle rule reads. */
 export type RunRecord =
@@ -22,7 +32,7 @@ export type RunRecord =
 /**
  * What the lifecycle needs of the adapter host's runs, and the drain's
  * admission gate. `runs` lists every run not ended, and every run that ended
- * within `IDLE_WINDOW_MS`; `onChange` hears every change of state. The host
+ * within `ENDED_RUN_KEPT_MS`; `onChange` hears every change of state. The host
  * calls `admit` before it starts a run: once the drain has called
  * `refuseNewRuns`, `admit` throws `unavailable {readiness: draining}`, which
  * the request that asked for the run is answered with.
@@ -39,7 +49,7 @@ export interface RunRegistry {
  * The in-memory registry: the one the adapter host records its runs in, as
  * they start, run and end, and the one tests drive directly. Each change is
  * stamped with the clock and heard by every listener. An ended run is
- * forgotten once it no longer counts.
+ * forgotten once no idle window the setting can name would count it.
  */
 export interface MemoryRunRegistry extends RunRegistry {
   /** A new run, starting: admitted first, so it is refused while the environment drains. */
@@ -89,7 +99,7 @@ export const createRunRegistry = (options: { readonly clock: Pick<Clock, "now"> 
     runs() {
       const now = clock.now().getTime();
       for (const run of [...runs.values()]) {
-        if (run.state === "ended" && run.endedAt.getTime() + IDLE_WINDOW_MS <= now) runs.delete(run.id);
+        if (run.state === "ended" && run.endedAt.getTime() + ENDED_RUN_KEPT_MS <= now) runs.delete(run.id);
       }
       return [...runs.values()];
     },
@@ -118,22 +128,22 @@ export const createRunRegistry = (options: { readonly clock: Pick<Clock, "now"> 
 type WindowReason = Extract<BusyReason, "parked-prompt" | "recent-activity">;
 
 /**
- * The idle rule (ADR 0007, the glossary's Idle), a pure function of the runs
- * and the time: busy while a run is starting or running; otherwise busy
- * until ten minutes after the latest start or end of any run
- * (`recent-activity`, which a parked run holds too, from its start) or after
- * the parking of a run still parked (`parked-prompt`), with `busyUntil` the
- * later of them and the reason the one that holds longest (a parked prompt
- * on a tie); otherwise idle. A window ends at its instant: ten minutes on,
- * the run no longer counts.
+ * The idle rule (ADR 0007, the glossary's Idle), a pure function of the
+ * runs, the time and the idle window: busy while a run is starting or
+ * running; otherwise busy until the window has passed since the latest start
+ * or end of any run (`recent-activity`, which a parked run holds too, from
+ * its start) or since the parking of a run still parked (`parked-prompt`),
+ * with `busyUntil` the later of them and the reason the one that holds
+ * longest (a parked prompt on a tie); otherwise idle. A window ends at its
+ * instant: once it has passed, the run no longer counts.
  */
-export const activityOf = (runs: Iterable<RunRecord>, now: Date): Exclude<EnvironmentActivity, { state: "draining" }> => {
+export const activityOf = (runs: Iterable<RunRecord>, now: Date, windowMs: number): Exclude<EnvironmentActivity, { state: "draining" }> => {
   const at = now.getTime();
   let starting = false;
   let running = false;
   let until = -Infinity;
   let reason: WindowReason | undefined;
-  const hold = (instant: Date, windowMs: number, why: WindowReason): void => {
+  const hold = (instant: Date, why: WindowReason): void => {
     const end = instant.getTime() + windowMs;
     if (end <= at) return;
     if (end > until || (end === until && why === "parked-prompt")) {
@@ -144,9 +154,9 @@ export const activityOf = (runs: Iterable<RunRecord>, now: Date): Exclude<Enviro
   for (const run of runs) {
     if (run.state === "starting") starting = true;
     if (run.state === "running") running = true;
-    hold(run.startedAt, IDLE_WINDOW_MS, "recent-activity");
-    if (run.state === "ended") hold(run.endedAt, IDLE_WINDOW_MS, "recent-activity");
-    if (run.state === "parked") hold(run.parkedSince, PARKED_PROMPT_WINDOW_MS, "parked-prompt");
+    hold(run.startedAt, "recent-activity");
+    if (run.state === "ended") hold(run.endedAt, "recent-activity");
+    if (run.state === "parked") hold(run.parkedSince, "parked-prompt");
   }
   if (starting) return { state: "busy", reason: "run-starting" };
   if (running) return { state: "busy", reason: "run-running" };
