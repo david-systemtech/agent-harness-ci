@@ -1,10 +1,10 @@
 /**
- * The palette the surfaces port audit records: every token of the reference
- * desktop's token stylesheet at the commit the audit pins, transcribed from
- * its dark (`:root`) and light (`.light`) blocks as written there. The five
- * washes are declared there as `color-mix(in srgb, var(--ink) 7%,
- * transparent)` and the like, which is that token at that alpha. The
- * preset, "Default", must derive these within rounding.
+ * The palette the surfaces port audit records: every token of the token
+ * stylesheet it pins, transcribed from the dark (`:root`) and light
+ * (`.light`) blocks as written there. The five washes are declared there as
+ * `color-mix(in srgb, var(--ink) 7%, transparent)` and the like, which is
+ * that token at that alpha. The preset, "Default", must derive these within
+ * rounding.
  */
 
 interface Recorded {
