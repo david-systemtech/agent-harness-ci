@@ -1,7 +1,4 @@
 /**
- * Carried with `clipboard.ts` from Artemis's `apps/tui/src/clipboard.test.ts`
- * at 443cf2e.
- *
  * The clipboard's contract: which program is run on which platform, with which
  * arguments; what the exact bytes of an OSC 52 copy are, in tmux and out of it;
  * and that every way a clipboard can disappoint is `null` rather than a throw.

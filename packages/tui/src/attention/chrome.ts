@@ -2,16 +2,14 @@ import type { Clock, Timer } from "@agent-harness/client-runtime";
 
 /**
  * What the terminal says while nobody is looking at it (docs/specs/tui.md,
- * "Cards" and "Attention"; carried from Artemis's `apps/tui/src/terminal.ts`
- * at 443cf2e): the window title, a notification or the bell, and the timer
+ * "Cards" and "Attention"): the window title, a notification or the bell, and the timer
  * that waits until a person has stopped typing before either rings. This is
  * all of the bytes and none of the policy; `policy.ts` says what to say and
  * `use-attention.ts` when.
  *
- * Carried as Artemis wrote it, with its variables renamed
- * (`AGENT_HARNESS_TUI_NO_TITLE`, `AGENT_HARNESS_TUI_NOTIFY`), its timer on
- * the platform's clock, and the taskbar light (`progressState`) left out,
- * since the terminal UI's attention is the title and the bell:
+ * Its variables are `AGENT_HARNESS_TUI_NO_TITLE` and `AGENT_HARNESS_TUI_NOTIFY`,
+ * its timer runs on the platform's clock, and the taskbar light (`progressState`)
+ * is left out, since the terminal UI's attention is the title and the bell:
  *
  * - Nothing here throws, and nothing is written off a terminal: every write
  *   goes through one guard that requires a TTY and swallows the write's own

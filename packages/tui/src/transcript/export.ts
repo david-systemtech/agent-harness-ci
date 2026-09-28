@@ -6,8 +6,7 @@ import { transcriptRows, type Row } from "./rows.js";
 
 /**
  * The transcript as text for `/export`, `/copy` and `/timeline`
- * (docs/specs/tui.md, "The transcript"; Artemis's `exportTranscript.ts` and
- * `timeline.ts` at 443cf2e, rewritten over `projections.session`): the same
+ * (docs/specs/tui.md, "The transcript"; over `projections.session`): the same
  * rows the screen draws, read whole, so the file, the clipboard and the
  * ledger never say something the transcript does not. Pure.
  */

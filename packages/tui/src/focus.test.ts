@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { nextFocus, stepCursor } from "./focus.js";
 
 /**
- * The ring Tab walks and the transcript cursor's step, carried from Artemis's
- * `keymap.ts` (docs/specs/tui.md, "The screen"): pure, so the focus walk and
+ * The ring Tab walks and the transcript cursor's step (docs/specs/tui.md,
+ * "The screen"): pure, so the focus walk and
  * the cursor step are decisions with no state. The terminal pane is the one
  * stop the harness adds, between the delegated strip and the transcript.
  */
@@ -19,7 +19,7 @@ describe("nextFocus", () => {
     expect(nextFocus("transcript", all)).toBe("composer");
   });
 
-  it("walks Artemis's four stops when no pane is open", () => {
+  it("walks the four stops when no pane is open", () => {
     const stops = { sidebar: true, delegated: true, terminal: false };
     expect(nextFocus("composer", stops)).toBe("sidebar");
     expect(nextFocus("sidebar", stops)).toBe("delegated");

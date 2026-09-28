@@ -3,7 +3,7 @@ import type { RunSummary } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { codeBlocks, exportMarkdown, timelineLine, turnsOf } from "./export.js";
 
-/** `/export`, `/copy` and `/timeline` over the projection (Artemis's `exportTranscript.ts` and `timeline.ts`, rewritten). */
+/** `/export`, `/copy` and `/timeline` over the projection. */
 
 const RUN = "0199a100-0000-4000-8000-000000000001";
 const items: TranscriptEntry[] = [

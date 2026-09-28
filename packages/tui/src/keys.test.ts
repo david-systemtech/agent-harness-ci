@@ -36,7 +36,7 @@ const sharedKeys = (bindings: readonly { readonly id: string; readonly context: 
 
 /**
  * The keys this build wires (docs/specs/tui.md, "Shortcuts"): named actions
- * with Artemis's default keys, the keybindings file that remaps them (an
+ * with default keys, the keybindings file that remaps them (an
  * unknown id or key name reported and ignored, a clash in one context
  * refused whole with the clash named), and the names of the keys Ink hears.
  */
@@ -75,7 +75,7 @@ const file = (text: string) => {
 };
 
 describe("the default keys", () => {
-  it("carry Artemis's keys for the actions this build wires", () => {
+  it("carry the default keys for the actions this build wires", () => {
     expect(DEFAULT_KEYS).toMatchObject({
       "app.interruptOrQuit": ["Ctrl+C"],
       "composer.send": ["Enter"],

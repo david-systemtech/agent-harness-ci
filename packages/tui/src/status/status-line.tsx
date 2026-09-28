@@ -3,7 +3,7 @@ import type { Reading, Styled } from "./line.js";
 
 /**
  * The status line's two rows under the composer (docs/specs/tui.md, "Status,
- * usage, pickers"; Artemis's `StatusBar.tsx`): line one, what the next
+ * usage, pickers"): line one, what the next
  * message goes out as, with the plan windows at the right; line two, what
  * the run is doing and the keys, or the yellow hand-off offer. Each half
  * truncates rather than wraps, so the line keeps its height. It draws its

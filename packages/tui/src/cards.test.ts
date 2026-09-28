@@ -5,7 +5,7 @@ import type { ScriptedPrompt } from "../test/prompts.js";
 /**
  * The permission and question cards (docs/specs/tui.md, "Cards:
  * permissions, questions, parked asks"; #149): a parked prompt of the open
- * session is Artemis's card below the transcript and above the composer,
+ * session is the card below the transcript and above the composer,
  * the cursor on Deny so a bare Enter never authorises; Tab adds a note, Space
  * ticks a question's options, `e` and `s` keep their keys and say why they
  * do nothing; the "for this session" row answers `remember: 'session'` on a

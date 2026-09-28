@@ -2,8 +2,8 @@
  * What was typed, remembered across launches.
  * ============================================================================
  *
- * Carried from Artemis's `apps/tui/src/history.ts` at 443cf2e (docs/specs/tui.md,
- * "Testing Decisions": the pure modules carried with their tests). The file is
+ * One of the pure modules carried with their tests (docs/specs/tui.md,
+ * "Testing Decisions"). The file is
  * `HISTORY_FILE` in the terminal UI's state directory (`stateDirectory` in
  * `platform/node-platform.ts`), which the caller joins and hands to
  * `PromptHistory.load`: history is client-local presentation, never a session

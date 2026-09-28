@@ -127,7 +127,7 @@ export const withdrawQueued = async (runtime: Runtime, environmentId: string, me
  * Stops one running call (`x`, `row.stop`): delegated work the run's ledger
  * names for the call is stopped by `runs.stopTask`; any other call is the
  * run's, since no provider stops one call and leaves the turn going, so it
- * is the interrupt (Artemis's rule).
+ * is the interrupt.
  */
 export const stopCall = async (runtime: Runtime, environmentId: string, runId: string, taskId: string | undefined): Promise<string | undefined> => {
   if (taskId === undefined) return interruptRun(runtime, environmentId, runId);

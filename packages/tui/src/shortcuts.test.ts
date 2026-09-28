@@ -82,7 +82,7 @@ describe("the help overlay", () => {
     expect(app.frame()).not.toContain(HELP_ROW);
   });
 
-  it("types ? into a composer with text in it, as Artemis's map says: only from an empty composer", async () => {
+  it("types ? into a composer with text in it, since the help map opens only from an empty composer", async () => {
     const app = await launch(DESK);
     await app.waitFor("● desk ready");
     await app.type("why");

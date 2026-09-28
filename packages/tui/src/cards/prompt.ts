@@ -5,14 +5,13 @@ import { MODES, compareModes, type Mode, type PromptAnswerInput, type PromptOpen
  * "Cards: permissions, questions, parked asks"; permissions spec, "Prompts,
  * parked prompts and the TTL"): the rows a prompt of each kind offers, where
  * the cursor starts, and what a key makes of them, down to the answer
- * `permissions.prompts.answer` takes. Carried from Artemis's
- * `PermissionCard.tsx` at 443cf2e, onto the permissions names (conflict X1):
+ * `permissions.prompts.answer` takes, onto the permissions names (conflict X1):
  *
  * - **An approval** (`permission`, `denylist`): Deny, Allow once, and on a
  *   `permission` prompt only "Allow for this session", which answers
  *   `remember: 'session'`; a `denylist` prompt is never remembered. The
  *   cursor starts on Deny, so a bare Enter never authorises; Esc denies.
- *   Artemis's rows for rules to save are gone: a prompt never saves a rule
+ *   The rows for rules to save are gone: a prompt never saves a rule
  *   (`e` and `s` answer absent, `RULES_PER_SESSION` in the action list).
  * - **A plan**: Keep planning (the cursor's start; Esc too), then an approval
  *   per mode to continue in: the first, acceptEdits, sends no mode, so the
@@ -99,7 +98,7 @@ export const currentQuestion = (prompt: PromptOpenedPayload, state: CardState): 
 const rowCount = (prompt: PromptOpenedPayload, state: CardState): number =>
   isQuestion(prompt) ? (currentQuestion(prompt, state)?.options.length ?? 0) : choiceRows(prompt).length;
 
-/** Moves the cursor a step, clamped to the rows (Artemis's cards wrapped; a clamp never lands a step on Deny from the last row). */
+/** Moves the cursor a step, clamped to the rows (never wraps; a clamp never lands a step on Deny from the last row). */
 export const moved = (prompt: PromptOpenedPayload, state: CardState, step: number): CardState => {
   const count = rowCount(prompt, state);
   return { ...state, cursor: count === 0 ? 0 : Math.min(Math.max(state.cursor + step, 0), count - 1) };

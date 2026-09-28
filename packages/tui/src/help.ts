@@ -4,11 +4,11 @@ import type { Keymap } from "./keys.js";
 /**
  * The help overlay's lines (docs/specs/tui.md, "Shortcuts"): the effective
  * map, drawn from the shared action list and nothing else, group by group in
- * the list's order, the slash commands echoed from it as Artemis echoed
- * `COMMANDS`. A remapped row shows its keys in force and is marked; a row the
- * harness lacks is `absent`, drawn dim with its reason on the line under it,
- * as Artemis drew `planned` rows; a row this build does not answer yet is
- * `soon`, dim, as Artemis marked a planned one. A row the list declares a
+ * the list's order, the slash commands echoed from it. A remapped row shows
+ * its keys in force and is marked; a row the
+ * harness lacks is `absent`, drawn dim with its reason on the line under it;
+ * a row this build does not answer yet is
+ * `soon`, dim. A row the list declares a
  * condition for carries the condition's words, drawn after its keys as the
  * tui spec's table writes them (`↑ (empty composer)`), remapped or not. A
  * hidden alias is left out.

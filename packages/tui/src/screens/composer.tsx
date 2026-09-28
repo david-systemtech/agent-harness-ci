@@ -3,7 +3,7 @@ import { cursorPosition, editorWindow, lines as editorLines, type EditorState } 
 import type { Popup } from "../composer/state.js";
 
 /**
- * The composer on screen (docs/specs/tui.md, "The composer"): Artemis's box,
+ * The composer on screen (docs/specs/tui.md, "The composer"): a box,
  * growing with the text to eight lines and then scrolling, the cursor drawn
  * as an inverse cell while it has the keys, the popup under it (commands,
  * `@` paths, snippets), the reverse search's row, and a dim note (a history

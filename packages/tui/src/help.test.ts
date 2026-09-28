@@ -8,8 +8,7 @@ import { DEFAULT_KEYMAP, resolveKeymap } from "./keys.js";
  * The help overlay's lines (docs/specs/tui.md, "Shortcuts"): the effective
  * map drawn from the shared action list, group by group, the slash commands
  * echoed from the list, remapped rows marked, `absent` rows dim with their
- * reason as Artemis drew `planned` rows, and a row this build does not answer
- * yet dim with "(soon)", as Artemis marked a planned row.
+ * reason, and a row this build does not answer yet dim with "(soon)".
  */
 
 const rows = (lines: readonly HelpLine[]) => lines.flatMap((line) => (line.kind === "row" ? [line] : []));

@@ -8,8 +8,8 @@ import { RAIL_KEYS } from "./rail/commands.js";
  * dispatches (the handler table in `app.tsx` is typed by these lists, so a
  * key here without a handler, or a handler without its key here, does not
  * compile) and the slash commands `parseCommand` knows. The help overlay
- * draws every other action dim with "(soon)", as Artemis drew its planned
- * rows; the screens that answer them add them here as they arrive.
+ * draws every other action dim with "(soon)"; the screens that answer them
+ * add them here as they arrive.
  */
 export const SCREEN_KEYS = [
   "app.focus.next",
@@ -99,7 +99,7 @@ export const ANSWERED: ReadonlySet<ActionId> = new Set<ActionId>([...ANSWERED_KE
 
 /**
  * What an answered action does in this build, where that is less than the
- * list's words (Artemis's): the help overlay draws these instead, so it never
+ * list's words: the help overlay draws these instead, so it never
  * promises what the build does not do. Each goes as the screens grow into
  * the list's words.
  */
@@ -109,7 +109,7 @@ export const BUILD_WORDS: Readonly<Partial<Record<ActionId, string>>> = {
   "app.interruptOrQuit": "Clear the text or close the card; else interrupt, then quit",
   "app.attention.next": "The parked asks when more than one session waits; else the next session that needs you",
   "composer.navigate": "The text, then history",
-  // The shared list's words are Artemis's ("its folder"); the pin is the one pinned block across environments.
+  // The shared list's words say "its folder"; the pin is the one pinned block across environments.
   // eslint-disable-next-line agent-harness/no-client-organisation-state -- an action's id, not state held here
   "rail.pin": "Pin it to the pinned block at the top, across environments; or unpin it",
   "row.leave": "Back to the composer",

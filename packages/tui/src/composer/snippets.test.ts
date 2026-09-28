@@ -1,8 +1,7 @@
 /**
- * What a snippet promises. Carried with `snippets.ts` from Artemis's
- * `apps/tui/src/snippets.test.ts` at 443cf2e; the default path went with
- * Artemis's state directory, so a test of the file name the caller joins
- * stands in for it, beside one of the owner-only mode.
+ * What a snippet promises. The default path points at the terminal UI's
+ * real state directory, so a test of the file name the caller joins stands
+ * in for it, beside one of the owner-only mode.
  *
  * Three things, and they fail in three different ways. The file has to survive
  * being hand-edited, being half-written and being from another version, because

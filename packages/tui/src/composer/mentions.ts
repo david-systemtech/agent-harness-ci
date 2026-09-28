@@ -2,9 +2,8 @@
  * `@path` mentions: what to offer, and in what order.
  * ============================================================================
  *
- * Carried from Artemis's `apps/tui/src/fileIndex.ts` at 443cf2e
- * (docs/specs/tui.md, "Testing Decisions": the pure modules carried with their
- * tests), all of it but the listing.
+ * One of the pure modules carried with their tests (docs/specs/tui.md,
+ * "Testing Decisions"), all of it but the listing.
  *
  * Naming a file to the agent is the most common thing anyone types into the
  * composer, and typing it out in full is the slowest. So `@` starts a
@@ -20,9 +19,9 @@
  *  - **The list of paths is the environment's.** It comes from `files.list` on
  *    the session's environment (docs/specs/tui.md, "The composer" and
  *    "Terminals, files and diffs"): git's own listing in a repository, which
- *    already knows what the project ignores, else a bounded walk with
- *    Artemis's skip list, relative to the session's workspace with forward
- *    slashes. Artemis ran that listing and its directory walk here, beside a
+ *    already knows what the project ignores, else a bounded walk with a
+ *    skip list, relative to the session's workspace with forward
+ *    slashes. That listing and its directory walk used to run here, beside a
  *    workspace on the same disk; the workspace is now wherever the
  *    environment is, so only the scorer, the memory and the token rules stay.
  *  - **The scorer is a small dynamic program, not a greedy scan.** The cheap

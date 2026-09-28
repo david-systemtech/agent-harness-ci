@@ -2,9 +2,9 @@
  * What a paste is, read off the paste itself.
  * ============================================================================
  *
- * Carried from Artemis's `apps/tui/src/pasteKind.ts` at 443cf2e (docs/specs/tui.md,
- * "Testing Decisions": the pure modules carried with their tests). Paste chips
- * are client-local and carry as they are (docs/specs/tui.md, "The composer").
+ * One of the pure modules carried with their tests (docs/specs/tui.md,
+ * "Testing Decisions"). Paste chips are client-local and carry as they are
+ * (docs/specs/tui.md, "The composer").
  *
  * Every terminal that collapses a long paste collapses it to the same thing:
  * `[Pasted text #1 +120 lines]`. The number of lines is the only fact in it,
@@ -362,9 +362,9 @@ function asLog(sample: Sample): PasteClassification | null {
 /* ------------------------------------------------------------------------ */
 
 /*
- * The highlighter (Artemis's `render/highlight.ts`, which the spec carries as
- * well) has a keyword set per language, but it keeps them to itself — it
- * exports one function, over a fence tag somebody else already decided. Rather than prise that open for a guess, this is its own small
+ * The highlighter has a keyword set per language, but it keeps them to
+ * itself — it exports one function, over a fence tag somebody else already
+ * decided. Rather than prise that open for a guess, this is its own small
  * table: a handful of cues per language, weighted by how little else they
  * could be. `func (r *Repo) Get(` is Go and nothing else; `const` is every
  * language written this decade.

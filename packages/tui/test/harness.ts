@@ -27,7 +27,7 @@ export { scriptedWorld, type Script, type ScriptedEnvironment, type EnvironmentH
  * What a test asserts is the frame: rows a person would see.
  */
 
-/** The bytes a terminal sends for the keys the tests press (Artemis's `Composer.test.tsx` names them). */
+/** The bytes a terminal sends for the keys the tests press. */
 export const KEY = {
   enter: "\r",
   esc: "\u001B",

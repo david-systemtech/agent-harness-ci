@@ -107,8 +107,8 @@ export const MintedCard = (props: { readonly lines: MintedLines; readonly hint: 
 const HELP_KEY_WIDTH = 24;
 
 /**
- * `/help` and `?`: the effective map, `height` lines of it from `top`, as
- * Artemis's help overlay drew it: a heading per group, a row per action with
+ * `/help` and `?`: the effective map, `height` lines of it from `top`:
+ * a heading per group, a row per action with
  * its keys and what it does, a remapped row marked, a row not answered yet
  * dim with "(soon)", an absent row dim with its reason under it.
  */

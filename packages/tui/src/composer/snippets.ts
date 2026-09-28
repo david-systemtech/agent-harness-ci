@@ -2,8 +2,8 @@
  * Saved prompts, with holes in them.
  * ============================================================================
  *
- * Carried from Artemis's `apps/tui/src/snippets.ts` at 443cf2e (docs/specs/tui.md,
- * "Testing Decisions": the pure modules carried with their tests). The file is
+ * One of the pure modules carried with their tests (docs/specs/tui.md,
+ * "Testing Decisions"). The file is
  * `SNIPPETS_FILE` in the terminal UI's state directory (`stateDirectory` in
  * `platform/node-platform.ts`), which the caller joins and hands to
  * `Snippets.load`: snippets are client-local presentation, never a session

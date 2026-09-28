@@ -5,7 +5,7 @@ import { oneLine } from "../transcript/format.js";
 
 /**
  * The permission, question and plan card on screen (docs/specs/tui.md,
- * "Cards"; Artemis's `PermissionCard.tsx` at 443cf2e): a bordered box below
+ * "Cards"): a bordered box below
  * the transcript and above the composer, in the colour of its kind, with
  * what is asked, the call's input, a denylist prompt's matches, a plan's
  * text, the rows with the cursor, the note, and a hint line in the keys of

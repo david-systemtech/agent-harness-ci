@@ -2,8 +2,8 @@ import { Box, Text } from "ink";
 import { asksHeading, decidable, type AskRow } from "../cards/asks.js";
 
 /**
- * The parked-asks card on screen (docs/specs/tui.md, "Cards"; Artemis's
- * `AsksCard.tsx` at 443cf2e): a heading counting the prompts, a row each
+ * The parked-asks card on screen (docs/specs/tui.md, "Cards"): a heading
+ * counting the prompts, a row each
  * with a two-cell gutter for the cursor, the environment's badge, the
  * session's title (`(here)` for the one on screen), what it asks in the
  * colour of the card it opens into, and its TTL countdown; the legend under

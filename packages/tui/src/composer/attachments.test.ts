@@ -1,7 +1,6 @@
 /**
- * Carried with `attachments.ts` from Artemis's `apps/tui/src/attachments.test.ts`
- * at 443cf2e, and held to the harness's wire type: every attachment built here
- * is one `AttachmentInput` from `@agent-harness/contracts` accepts.
+ * Held to the harness's wire type: every attachment built here is one
+ * `AttachmentInput` from `@agent-harness/contracts` accepts.
  */
 
 import { chmod, mkdtemp, rm, truncate, writeFile } from "node:fs/promises";

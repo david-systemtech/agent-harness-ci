@@ -1,7 +1,6 @@
 /**
- * What a tool call was, in words, and the numbers a transcript prints:
- * carried from Artemis's `packages/transcript/src/tools.ts` and `format.ts`
- * at 443cf2e (docs/specs/tui.md, "Testing Decisions": the fold's pure
+ * What a tool call was, in words, and the numbers a transcript prints
+ * (docs/specs/tui.md, "Testing Decisions": the fold's pure
  * helpers). A run's finished calls fold into one sentence ("Ran 36
  * commands, read 6 files"), and this is where a tool name becomes one of its
  * clauses.

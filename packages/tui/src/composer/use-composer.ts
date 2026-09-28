@@ -185,7 +185,7 @@ export const useComposer = (host: ComposerHost): Composer => {
     const chosen = scopes[scope]?.scope;
     return history === undefined || chosen === undefined ? [] : history.search(query, chosen);
   };
-  /** The prompts ↑ walks: the first scope that has any, as Artemis falls through from the folder to everything. */
+  /** The prompts ↑ walks: the first scope that has any, falling through from the folder to everything. */
   const walkTexts = (): readonly string[] => {
     const { history, scopes } = latest.current;
     if (history === undefined) return [];

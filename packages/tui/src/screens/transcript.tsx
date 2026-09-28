@@ -135,7 +135,7 @@ export const TranscriptView = (props: TranscriptViewProps) => {
   );
 };
 
-/** Delegated work still going in the live run: one line per task, Artemis's strip, under the transcript. */
+/** Delegated work still going in the live run: one line per task, the strip under the transcript. */
 export const DelegatedStrip = (props: { readonly tasks: readonly DelegatedWorkRow[] }) => (
   <Box flexDirection="column" flexShrink={0}>
     {props.tasks.map((task) => (

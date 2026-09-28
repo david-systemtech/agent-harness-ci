@@ -7,8 +7,8 @@ import { AttentionTimer, titleFor, type TerminalChrome } from "./chrome.js";
 import { AWAY_MS, awayRecap, noticeFor, titleStateOf, type RecapSubject, type RunEnded } from "./policy.js";
 
 /**
- * Attention (docs/specs/tui.md, "Attention"; Artemis's chrome effects at
- * 443cf2e): the runtime's attention events drive Artemis's attention module.
+ * Attention (docs/specs/tui.md, "Attention"): the runtime's attention events
+ * drive the attention module.
  *
  * - **The title** says what every session of every enabled environment is
  *   doing (`projections.runs`), with the open session's name and workspace;

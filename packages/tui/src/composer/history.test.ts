@@ -1,8 +1,8 @@
 /**
- * What the composer remembers, and what it refuses to remember. Carried with
- * `history.ts` from Artemis's `apps/tui/src/history.test.ts` at 443cf2e; the
- * default path went with Artemis's state directory, so a test of the file name
- * the caller joins stands in for it, beside one of the owner-only mode.
+ * What the composer remembers, and what it refuses to remember. The
+ * default path points at the terminal UI's real state directory, so a test
+ * of the file name the caller joins stands in for it, beside one of the
+ * owner-only mode.
  *
  * Reported as: everything typed is gone the moment it is sent. These pin the
  * promises that answer it — what was appended is read back, including the

@@ -2,9 +2,8 @@
  * The clipboard, which is four different programs wearing one name.
  * ============================================================================
  *
- * Carried from Artemis's `apps/tui/src/clipboard.ts` at 443cf2e
- * (docs/specs/tui.md, "Testing Decisions": the pure modules carried with their
- * tests). `Ctrl+V` images and `/copy` are client-local and carry as they are
+ * One of the pure modules carried with their tests (docs/specs/tui.md,
+ * "Testing Decisions"). `Ctrl+V` images and `/copy` are client-local and carry as they are
  * (docs/specs/tui.md, "The composer"): the clipboard is the machine the
  * terminal UI runs on, whichever environment the session is on.
  *

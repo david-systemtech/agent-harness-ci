@@ -12,8 +12,7 @@ import { eventName, type InkKey } from "./keys.js";
  * pressed in turn (`Esc Esc`, `\ Enter`) and the classes (`;;`, `1–4`,
  * `Letters`) are read by the components that answer them, not here.
  * `Shift+Enter` and `Ctrl+Enter` are the kitty keyboard protocol's bytes: a
- * terminal without it sends a bare carriage return for both, as it did for
- * Artemis.
+ * terminal without it sends a bare carriage return for both.
  */
 const BYTES: Readonly<Record<string, string>> = {
   Tab: "\t",

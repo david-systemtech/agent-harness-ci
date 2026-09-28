@@ -2,7 +2,7 @@ import type { UsageGauge } from "@agent-harness/client-runtime";
 import { describe, expect, it } from "vitest";
 import { gaugeOf, markOf, planDelta } from "./plan.js";
 
-/** What a turn cost the plan (docs/specs/tui.md, "The transcript"; Artemis's `planDelta`). */
+/** What a turn cost the plan (docs/specs/tui.md, "The transcript"). */
 
 const gauge = (utilisation: number | null, observedAt: string, window = "five_hour"): UsageGauge => ({
   identity: { provider: "claude", email: "seth@example.com", organisation: null },

@@ -1,7 +1,6 @@
 /**
- * The composer's text buffer, carried from Artemis's `apps/tui/src/editor.ts`
- * at 443cf2e (docs/specs/tui.md, "Testing Decisions": the pure modules carried
- * with their tests).
+ * The composer's text buffer (docs/specs/tui.md, "Testing Decisions": the
+ * pure modules carried with their tests).
  *
  * A prompt worth writing is often more than one line — a pasted stack trace, a
  * list of paths, a sentence someone wants to break themselves — so the box you

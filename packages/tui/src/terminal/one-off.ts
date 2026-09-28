@@ -16,7 +16,7 @@ import { createScreen } from "./screen.js";
  *   fish read alike, so no quoting of the command can go wrong in the
  *   user's shell. It starts with a space, which keeps it out of the history
  *   of fish, of bash with `ignorespace` and of zsh with `HIST_IGNORE_SPACE`.
- *   `sh` rather than the login shell, as Artemis's `!` ran it: a command,
+ *   `sh` rather than the login shell: a command,
  *   not a session. The terminal's exit is the command's: `exec` replaced the
  *   shell with `sh`, whose status is its last command's.
  * - **`!`** (`shownEnv`) is the command alone: it runs in the pane, where a
@@ -36,7 +36,7 @@ import { createScreen } from "./screen.js";
  * - **It is read as a terminal would show it**: the output goes through the
  *   same headless emulator the pane draws with, so carriage-return progress
  *   bars and colours come out as the text a person saw, cut to its first
- *   `ONE_OFF_MAX_LINES` lines with the rest counted (Artemis's `shell.ts`).
+ *   `ONE_OFF_MAX_LINES` lines with the rest counted.
  * - **A minute at most**: past `ONE_OFF_TIMEOUT_MS` the terminal is closed
  *   and the output says so. Every way it ends, the terminal is closed (a
  *   close the environment could not be asked is sent again once it can
@@ -78,7 +78,7 @@ const ONE_OFF_SIZE = { cols: 120, rows: 40 } as const;
 /** The variables a `!` terminal opens with: the command alone, run where a person can answer it. */
 export const shownEnv = (command: string): Record<string, string> => ({ [ONE_OFF_VARIABLE]: command });
 
-/** The first `max` lines, and a count of the rest, `more` lines past `text` among them (Artemis's `clipOutput`). */
+/** The first `max` lines, and a count of the rest, `more` lines past `text` among them. */
 export const clipOutput = (text: string, max = ONE_OFF_MAX_LINES, more = 0): string => {
   const rows = text.split("\n");
   const dropped = Math.max(0, rows.length - max) + more;
@@ -231,7 +231,7 @@ export const runOneOff = async (deps: OneOffDeps, target: Opened, command: strin
 const seconds = (ms: number): string => `${String(Math.round(ms / 1000))}s`;
 
 /**
- * The message `!!` sends (Artemis's form): the command named, its output
+ * The message `!!` sends: the command named, its output
  * fenced, and how it ended when that was not cleanly; a command that
  * printed nothing and ended cleanly is said to have printed nothing.
  */
