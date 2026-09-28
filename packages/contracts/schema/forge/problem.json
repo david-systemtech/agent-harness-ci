@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ForgeProblem",
+  "type": "object",
+  "properties": {
+    "kind": {
+      "type": "string",
+      "enum": [
+        "needs-credential",
+        "credential-rejected",
+        "credential-unavailable",
+        "identity-changed",
+        "unreachable",
+        "expiring"
+      ],
+      "description": "What is wrong with a forge account: needs-credential (a copy with none), credential-rejected (401 on its identity), credential-unavailable (the key manager or gh signed out, or the vault entry missing), identity-changed (another user id answered; unused until the credential is replaced), unreachable (the forge did not answer) or expiring (the token expires within thirty days)."
+    },
+    "since": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+      "description": "Since when the forge account has had this problem."
+    },
+    "message": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[^\\n]*$",
+      "description": "One line for people: what is wrong and what to do."
+    }
+  },
+  "required": [
+    "kind",
+    "since",
+    "message"
+  ],
+  "description": "A forge account's problem: which, since when, and one line saying what to do."
+}

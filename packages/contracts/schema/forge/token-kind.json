@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ForgeTokenKind",
+  "type": "string",
+  "enum": [
+    "classic",
+    "fine-grained",
+    "oauth",
+    "unknown"
+  ],
+  "description": "What kind of token a credential is: classic, fine-grained, oauth, or unknown (a Forgejo or Gitea token, which does not say)."
+}

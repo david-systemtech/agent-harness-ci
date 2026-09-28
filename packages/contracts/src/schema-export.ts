@@ -42,6 +42,28 @@ import {
 } from "./errors.js";
 import { CapabilityFlag, CapabilityFlags, LauncherProtocol, PROTOCOL_VERSION, ProtocolVersion } from "./flags.js";
 import { ForgeKind, ForgeOrigin, ForgeSlug } from "./forge.js";
+import {
+  FORGE_EVENT_PAYLOADS,
+  ForgeAccountId,
+  ForgeAccountRecord,
+  ForgeAlias,
+  ForgeCapabilities,
+  ForgeCapability,
+  ForgeCapabilityName,
+  ForgeCapabilityState,
+  ForgeCopiedFrom,
+  ForgeCredentialInput,
+  ForgeCredentialSource,
+  ForgeIdentity,
+  ForgeProblem,
+  ForgeProblemKind,
+  ForgeToken,
+  ForgeTokenInformation,
+  ForgeTokenKind,
+  ForgeVariables,
+  ForgeVaultEntry,
+  StoredTokenProvenance,
+} from "./forge-accounts.js";
 import { EnvironmentColour } from "./environment-colours.js";
 import { Theme, ThemeName, ThemeSeed } from "./theme.js";
 import { ByeReason, EndReason, FRAME_SCHEMAS, FRAME_TYPES, Frame } from "./frames.js";
@@ -242,6 +264,7 @@ import {
   WorkspacePath,
 } from "./terminals.js";
 import { ContainmentUnavailableError } from "./methods/permissions.js";
+import { IdentityMismatchError, VerificationFailedError } from "./methods/forge.js";
 import {
   ClampReason,
   ContainmentAvailability,
@@ -453,6 +476,30 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "forge/kind.json", title: "ForgeKind", schema: ForgeKind },
   { path: "forge/origin.json", title: "ForgeOrigin", schema: ForgeOrigin },
   { path: "forge/slug.json", title: "ForgeSlug", schema: ForgeSlug },
+  { path: "forge/account-id.json", title: "ForgeAccountId", schema: ForgeAccountId },
+  { path: "forge/identity.json", title: "ForgeIdentity", schema: ForgeIdentity },
+  { path: "forge/alias.json", title: "ForgeAlias", schema: ForgeAlias },
+  { path: "forge/stored-token-provenance.json", title: "StoredTokenProvenance", schema: StoredTokenProvenance },
+  { path: "forge/vault-entry.json", title: "ForgeVaultEntry", schema: ForgeVaultEntry },
+  { path: "forge/credential-source.json", title: "ForgeCredentialSource", schema: ForgeCredentialSource },
+  { path: "forge/token.json", title: "ForgeToken", schema: ForgeToken },
+  { path: "forge/credential-input.json", title: "ForgeCredentialInput", schema: ForgeCredentialInput },
+  { path: "forge/capability-name.json", title: "ForgeCapabilityName", schema: ForgeCapabilityName },
+  { path: "forge/capability-state.json", title: "ForgeCapabilityState", schema: ForgeCapabilityState },
+  { path: "forge/capability.json", title: "ForgeCapability", schema: ForgeCapability },
+  { path: "forge/capabilities.json", title: "ForgeCapabilities", schema: ForgeCapabilities },
+  { path: "forge/problem-kind.json", title: "ForgeProblemKind", schema: ForgeProblemKind },
+  { path: "forge/problem.json", title: "ForgeProblem", schema: ForgeProblem },
+  { path: "forge/token-kind.json", title: "ForgeTokenKind", schema: ForgeTokenKind },
+  { path: "forge/token-information.json", title: "ForgeTokenInformation", schema: ForgeTokenInformation },
+  { path: "forge/copied-from.json", title: "ForgeCopiedFrom", schema: ForgeCopiedFrom },
+  { path: "forge/variables.json", title: "ForgeVariables", schema: ForgeVariables },
+  { path: "forge/account-record.json", title: "ForgeAccountRecord", schema: ForgeAccountRecord },
+  ...Object.entries(FORGE_EVENT_PAYLOADS).map(([type, payload]) => ({
+    path: `forge/events/${type}.json`,
+    title: `${pascal(type)}Payload`,
+    schema: payload as z.ZodType,
+  })),
   { path: "theme/theme.json", title: "Theme", schema: Theme },
   { path: "theme/name.json", title: "ThemeName", schema: ThemeName },
   { path: "theme/seed.json", title: "ThemeSeed", schema: ThemeSeed },
@@ -631,6 +678,8 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "errors/pairing_used.json", title: "PairingUsedError", schema: PairingUsedError },
   { path: "errors/protocol_mismatch.json", title: "ProtocolMismatchError", schema: ProtocolMismatchError },
   { path: "errors/containment_unavailable.json", title: "ContainmentUnavailableError", schema: ContainmentUnavailableError },
+  { path: "errors/verification_failed.json", title: "VerificationFailedError", schema: VerificationFailedError },
+  { path: "errors/identity_mismatch.json", title: "IdentityMismatchError", schema: IdentityMismatchError },
   { path: "frames/frame.json", title: "Frame", schema: Frame },
   ...FRAME_TYPES.map((kind) => ({ path: `frames/${kind}.json`, title: `${pascal(kind)}Frame`, schema: FRAME_SCHEMAS[kind] })),
   { path: "frames/end-reason.json", title: "EndReason", schema: EndReason },

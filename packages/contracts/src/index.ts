@@ -15,6 +15,7 @@ export * from "./event-types.js";
 export * from "./errors.js";
 export * from "./flags.js";
 export * from "./forge.js";
+export * from "./forge-accounts.js";
 export * from "./frames.js";
 export * from "./launcher.js";
 export * from "./lifecycle.js";
@@ -54,6 +55,7 @@ export {
   Timestamp,
 } from "./primitives.js";
 export type { MintedPairing } from "./methods/access.js";
+export { IdentityMismatchError, VerificationFailedError } from "./methods/forge.js";
 export { ContainmentUnavailableError, REVIEW_LIST_LIMIT, REVIEW_LIST_MAX } from "./methods/permissions.js";
 export { AttachmentInput, MAX_ATTACHMENT_BYTES } from "./methods/runs.js";
 export {

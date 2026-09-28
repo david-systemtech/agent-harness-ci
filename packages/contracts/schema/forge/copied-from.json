@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ForgeCopiedFrom",
+  "type": "object",
+  "properties": {
+    "environmentId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+      "description": "An environment's persistent id: a UUID made on its first start, kept across address changes."
+    },
+    "environmentName": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The source environment's name when the copy was made."
+    }
+  },
+  "required": [
+    "environmentId",
+    "environmentName"
+  ],
+  "description": "The environment a forge account was copied from."
+}

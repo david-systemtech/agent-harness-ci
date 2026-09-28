@@ -799,6 +799,114 @@
       "title": "ForgeSlug"
     },
     {
+      "path": "forge/account-id.json",
+      "title": "ForgeAccountId"
+    },
+    {
+      "path": "forge/identity.json",
+      "title": "ForgeIdentity"
+    },
+    {
+      "path": "forge/alias.json",
+      "title": "ForgeAlias"
+    },
+    {
+      "path": "forge/stored-token-provenance.json",
+      "title": "StoredTokenProvenance"
+    },
+    {
+      "path": "forge/vault-entry.json",
+      "title": "ForgeVaultEntry"
+    },
+    {
+      "path": "forge/credential-source.json",
+      "title": "ForgeCredentialSource"
+    },
+    {
+      "path": "forge/token.json",
+      "title": "ForgeToken"
+    },
+    {
+      "path": "forge/credential-input.json",
+      "title": "ForgeCredentialInput"
+    },
+    {
+      "path": "forge/capability-name.json",
+      "title": "ForgeCapabilityName"
+    },
+    {
+      "path": "forge/capability-state.json",
+      "title": "ForgeCapabilityState"
+    },
+    {
+      "path": "forge/capability.json",
+      "title": "ForgeCapability"
+    },
+    {
+      "path": "forge/capabilities.json",
+      "title": "ForgeCapabilities"
+    },
+    {
+      "path": "forge/problem-kind.json",
+      "title": "ForgeProblemKind"
+    },
+    {
+      "path": "forge/problem.json",
+      "title": "ForgeProblem"
+    },
+    {
+      "path": "forge/token-kind.json",
+      "title": "ForgeTokenKind"
+    },
+    {
+      "path": "forge/token-information.json",
+      "title": "ForgeTokenInformation"
+    },
+    {
+      "path": "forge/copied-from.json",
+      "title": "ForgeCopiedFrom"
+    },
+    {
+      "path": "forge/variables.json",
+      "title": "ForgeVariables"
+    },
+    {
+      "path": "forge/account-record.json",
+      "title": "ForgeAccountRecord"
+    },
+    {
+      "path": "forge/events/forge.account.added.json",
+      "title": "ForgeAccountAddedPayload"
+    },
+    {
+      "path": "forge/events/forge.account.updated.json",
+      "title": "ForgeAccountUpdatedPayload"
+    },
+    {
+      "path": "forge/events/forge.account.primary-set.json",
+      "title": "ForgeAccountPrimarySetPayload"
+    },
+    {
+      "path": "forge/events/forge.account.verified.json",
+      "title": "ForgeAccountVerifiedPayload"
+    },
+    {
+      "path": "forge/events/forge.account.capability-learned.json",
+      "title": "ForgeAccountCapabilityLearnedPayload"
+    },
+    {
+      "path": "forge/events/forge.account.git-rejected.json",
+      "title": "ForgeAccountGitRejectedPayload"
+    },
+    {
+      "path": "forge/events/forge.account.removed.json",
+      "title": "ForgeAccountRemovedPayload"
+    },
+    {
+      "path": "forge/events/forge.origin-missing.json",
+      "title": "ForgeOriginMissingPayload"
+    },
+    {
       "path": "theme/theme.json",
       "title": "Theme"
     },
@@ -1493,6 +1601,14 @@
     {
       "path": "errors/containment_unavailable.json",
       "title": "ContainmentUnavailableError"
+    },
+    {
+      "path": "errors/verification_failed.json",
+      "title": "VerificationFailedError"
+    },
+    {
+      "path": "errors/identity_mismatch.json",
+      "title": "IdentityMismatchError"
     },
     {
       "path": "frames/frame.json",
@@ -2545,6 +2661,82 @@
     {
       "path": "methods/commands.list/error.json",
       "title": "commands.list error"
+    },
+    {
+      "path": "methods/forge.accounts.list/params.json",
+      "title": "forge.accounts.list params"
+    },
+    {
+      "path": "methods/forge.accounts.list/result.json",
+      "title": "forge.accounts.list result"
+    },
+    {
+      "path": "methods/forge.accounts.list/error.json",
+      "title": "forge.accounts.list error"
+    },
+    {
+      "path": "methods/forge.accounts.add/params.json",
+      "title": "forge.accounts.add params"
+    },
+    {
+      "path": "methods/forge.accounts.add/result.json",
+      "title": "forge.accounts.add result"
+    },
+    {
+      "path": "methods/forge.accounts.add/response.json",
+      "title": "forge.accounts.add response"
+    },
+    {
+      "path": "methods/forge.accounts.add/error.json",
+      "title": "forge.accounts.add error"
+    },
+    {
+      "path": "methods/forge.accounts.update/params.json",
+      "title": "forge.accounts.update params"
+    },
+    {
+      "path": "methods/forge.accounts.update/result.json",
+      "title": "forge.accounts.update result"
+    },
+    {
+      "path": "methods/forge.accounts.update/response.json",
+      "title": "forge.accounts.update response"
+    },
+    {
+      "path": "methods/forge.accounts.update/error.json",
+      "title": "forge.accounts.update error"
+    },
+    {
+      "path": "methods/forge.accounts.remove/params.json",
+      "title": "forge.accounts.remove params"
+    },
+    {
+      "path": "methods/forge.accounts.remove/result.json",
+      "title": "forge.accounts.remove result"
+    },
+    {
+      "path": "methods/forge.accounts.remove/response.json",
+      "title": "forge.accounts.remove response"
+    },
+    {
+      "path": "methods/forge.accounts.remove/error.json",
+      "title": "forge.accounts.remove error"
+    },
+    {
+      "path": "methods/forge.accounts.setPrimary/params.json",
+      "title": "forge.accounts.setPrimary params"
+    },
+    {
+      "path": "methods/forge.accounts.setPrimary/result.json",
+      "title": "forge.accounts.setPrimary result"
+    },
+    {
+      "path": "methods/forge.accounts.setPrimary/response.json",
+      "title": "forge.accounts.setPrimary response"
+    },
+    {
+      "path": "methods/forge.accounts.setPrimary/error.json",
+      "title": "forge.accounts.setPrimary error"
     },
     {
       "path": "methods/settings.get/params.json",
@@ -3650,6 +3842,55 @@
       "params": "methods/commands.list/params.json",
       "result": "methods/commands.list/result.json",
       "error": "methods/commands.list/error.json"
+    },
+    {
+      "name": "forge.accounts.list",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/forge.accounts.list/params.json",
+      "result": "methods/forge.accounts.list/result.json",
+      "error": "methods/forge.accounts.list/error.json"
+    },
+    {
+      "name": "forge.accounts.add",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/forge.accounts.add/params.json",
+      "result": "methods/forge.accounts.add/result.json",
+      "response": "methods/forge.accounts.add/response.json",
+      "error": "methods/forge.accounts.add/error.json"
+    },
+    {
+      "name": "forge.accounts.update",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/forge.accounts.update/params.json",
+      "result": "methods/forge.accounts.update/result.json",
+      "response": "methods/forge.accounts.update/response.json",
+      "error": "methods/forge.accounts.update/error.json"
+    },
+    {
+      "name": "forge.accounts.remove",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/forge.accounts.remove/params.json",
+      "result": "methods/forge.accounts.remove/result.json",
+      "response": "methods/forge.accounts.remove/response.json",
+      "error": "methods/forge.accounts.remove/error.json"
+    },
+    {
+      "name": "forge.accounts.setPrimary",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/forge.accounts.setPrimary/params.json",
+      "result": "methods/forge.accounts.setPrimary/result.json",
+      "response": "methods/forge.accounts.setPrimary/response.json",
+      "error": "methods/forge.accounts.setPrimary/error.json"
     },
     {
       "name": "settings.get",

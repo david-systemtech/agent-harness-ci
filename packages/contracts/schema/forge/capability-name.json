@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ForgeCapabilityName",
+  "type": "string",
+  "enum": [
+    "readRepository",
+    "writeIssues",
+    "pullRequests",
+    "createRepository",
+    "readReleases"
+  ],
+  "description": "One thing a forge account may be able to do: readRepository, writeIssues, pullRequests (read and write), createRepository or readReleases. Reads are probed at verification; writes are learned from use."
+}
