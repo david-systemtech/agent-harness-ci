@@ -341,6 +341,29 @@ describe("when a verification runs", () => {
     ]);
   });
 
+  it("reads nothing from the log once the environment has closed: a verification still running as it closes ends with no rejection (#479)", async () => {
+    const rejections: unknown[] = [];
+    const heard = (reason: unknown): void => void rejections.push(reason);
+    process.on("unhandledRejection", heard);
+    onCleanup(() => void process.off("unhandledRejection", heard));
+    const { t, forge, client } = await withForge();
+    const account = await added(client, { url: forge.origin, kind: "forgejo" });
+    forge.repositories(TOKEN, []);
+    await verify(client, account.id);
+    let answer = (): void => undefined;
+    forge.user(TOKEN, DAVID, new Promise<void>((resolve) => (answer = resolve)));
+    const asked = forge.requests.length;
+
+    // The scheduled verification fifteen minutes on is still running as the environment closes.
+    t.clock.advance(15 * MINUTE);
+    await vi.waitFor(() => expect(forge.requests.length).toBeGreaterThan(asked));
+    await t.close();
+    answer();
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(rejections).toEqual([]);
+  });
+
   it("within its budget, past which the forge account is unreachable and nothing else it found is taken", async () => {
     const { forge, client } = await withForge({ forgeTimeoutMs: 300 });
     const account = await added(client, { url: forge.origin, kind: "forgejo" });
