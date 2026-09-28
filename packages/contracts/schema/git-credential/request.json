@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "GitCredentialRequest",
+  "type": "object",
+  "properties": {
+    "action": {
+      "type": "string",
+      "enum": [
+        "get",
+        "erase"
+      ],
+      "description": "What git asked the helper: get a credential, or erase one it was refused, which the environment reports and verifies again, forgetting nothing."
+    },
+    "slug": {
+      "type": "string",
+      "pattern": "^[a-z0-9_]{1,40}$",
+      "description": "The slug git's configuration named the helper with, which the environment's answers name."
+    },
+    "protocol": {
+      "type": "string",
+      "enum": [
+        "https",
+        "http"
+      ],
+      "description": "git's protocol attribute: the helper serves git's http transport alone."
+    },
+    "host": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 300,
+      "pattern": "^[^\\s/@\\\\?#]+$",
+      "description": "git's host attribute: the host, with its port when the URL had one."
+    }
+  },
+  "required": [
+    "action",
+    "slug",
+    "protocol",
+    "host"
+  ],
+  "additionalProperties": false,
+  "description": "What the credential helper asks the environment: git's verb, its own slug, and git's protocol and host."
+}

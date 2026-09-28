@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "GitCredentialAction",
+  "type": "string",
+  "enum": [
+    "get",
+    "erase"
+  ],
+  "description": "What git asked the helper: get a credential, or erase one it was refused, which the environment reports and verifies again, forgetting nothing."
+}

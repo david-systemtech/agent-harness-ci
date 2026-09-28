@@ -183,6 +183,26 @@
       "title": "UpdateError"
     },
     {
+      "path": "git-credential/action.json",
+      "title": "GitCredentialAction"
+    },
+    {
+      "path": "git-credential/request.json",
+      "title": "GitCredentialRequest"
+    },
+    {
+      "path": "git-credential/answer.json",
+      "title": "GitCredentialAnswer"
+    },
+    {
+      "path": "git-credential/error.json",
+      "title": "GitCredentialError"
+    },
+    {
+      "path": "errors/credential_unavailable.json",
+      "title": "CredentialUnavailableError"
+    },
+    {
       "path": "access/event-type.json",
       "title": "AccessEventType"
     },
@@ -1673,6 +1693,10 @@
     {
       "path": "errors/credential_source_unavailable.json",
       "title": "CredentialSourceUnavailableError"
+    },
+    {
+      "path": "errors/forge_account_missing.json",
+      "title": "ForgeAccountMissingError"
     },
     {
       "path": "frames/frame.json",

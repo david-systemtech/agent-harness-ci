@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "GitCredentialAnswer",
+  "type": "object",
+  "properties": {
+    "username": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[^\\n\\r\\0]+$",
+      "description": "git's username, derived per kind: x-access-token for GitHub, the login for Forgejo and Gitea."
+    },
+    "password": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[^\\n\\r\\0]+$",
+      "description": "The forge account's token, read for this request."
+    }
+  },
+  "required": [
+    "username",
+    "password"
+  ],
+  "description": "The credential git gets for the origin: the derived username and the token."
+}

@@ -222,6 +222,38 @@ export const forgeSchemaFixtures: Record<string, Fixtures> = {
     valid: [{ code: "credential_source_unavailable", message: "No key-manager connection holds this reference.", data: { connectionId } }],
     invalid: [{ code: "credential_source_unavailable", message: "m", data: {} }, { code: "credential_source_unavailable", message: "m", data: { connectionId: "openbao" } }],
   },
+  "errors/forge_account_missing.json": {
+    valid: [{ code: "forge_account_missing", message: "No forge account covers https://codeberg.org: add one in Set up, Forges.", data: { origin: "https://codeberg.org", step: "forges" } }],
+    invalid: [{ code: "forge_account_missing", message: "m", data: { origin: "https://codeberg.org" } }, { code: "forge_account_missing", message: "m", data: { origin: "codeberg.org", step: "forges" } }],
+  },
+  "errors/credential_unavailable.json": {
+    valid: [{ code: "credential_unavailable", message: "gh is not signed in to github.com as david.", data: { origin: "https://github.com" } }],
+    invalid: [{ code: "credential_unavailable", message: "m", data: {} }, { code: "credential_unavailable", message: "m", data: { origin: "github.com" } }],
+  },
+  "git-credential/action.json": { valid: ["get", "erase"], invalid: ["store", "fill"] },
+  "git-credential/request.json": {
+    valid: [
+      { action: "get", slug: "github", protocol: "https", host: "github.com" },
+      { action: "erase", slug: "git_systemtech_dev", protocol: "http", host: "100.64.0.7:3000" },
+    ],
+    invalid: [
+      { action: "get", slug: "github", protocol: "ssh", host: "github.com" },
+      { action: "get", slug: "github", protocol: "https", host: "github.com", password: "token-for-tests" },
+      { action: "get", slug: "github", protocol: "https", host: "github.com/david" },
+    ],
+  },
+  "git-credential/answer.json": {
+    valid: [{ username: "x-access-token", password: "token-for-tests" }],
+    invalid: [{ username: "david" }, { username: "david", password: "token-for-tests\nquit=1" }],
+  },
+  "git-credential/error.json": {
+    valid: [
+      { code: "unauthorized", message: "The run-scoped secret is not one the environment holds.", data: {} },
+      { code: "rate_limited", message: "m", data: { retryAfterMs: 200 } },
+      { code: "credential_unavailable", message: "m", data: { origin } },
+    ],
+    invalid: [{ code: "forbidden", message: "m", data: { scope: "admin" } }, { code: "credential_unavailable", message: "m", data: {} }],
+  },
   "errors/identity_mismatch.json": {
     valid: [{ code: "identity_mismatch", message: "m", data: { forgeAccountId, expected: identity, found: { login: "someone", userId: "7" } } }],
     invalid: [{ code: "identity_mismatch", message: "m", data: { forgeAccountId, expected: identity } }, { code: "identity_mismatch", message: "m", data: {} }],

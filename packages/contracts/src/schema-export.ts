@@ -70,6 +70,7 @@ import {
 import { EnvironmentColour } from "./environment-colours.js";
 import { Theme, ThemeName, ThemeSeed } from "./theme.js";
 import { ByeReason, EndReason, FRAME_SCHEMAS, FRAME_TYPES, Frame } from "./frames.js";
+import { CredentialUnavailableError, GitCredentialAction, GitCredentialAnswer, GitCredentialError, GitCredentialRequest } from "./git-credential.js";
 import {
   ClientKind,
   ClientSessionId,
@@ -270,7 +271,7 @@ import {
   WorkspacePath,
 } from "./terminals.js";
 import { ContainmentUnavailableError } from "./methods/permissions.js";
-import { CredentialSourceUnavailableError, IdentityMismatchError, VerificationFailedError } from "./methods/forge.js";
+import { CredentialSourceUnavailableError, ForgeAccountMissingError, IdentityMismatchError, VerificationFailedError } from "./methods/forge.js";
 import { BitwardenReference, DopplerReference, KeyManagerConnectionId, KeyManagerProvider, KeyManagerReference, OnePasswordReference, OpenBaoReference } from "./key-managers.js";
 import {
   ClampReason,
@@ -393,6 +394,11 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "update/request.json", title: "UpdateRequest", schema: UpdateRequest },
   { path: "update/answer.json", title: "UpdateAnswer", schema: UpdateAnswer },
   { path: "update/error.json", title: "UpdateError", schema: UpdateError },
+  { path: "git-credential/action.json", title: "GitCredentialAction", schema: GitCredentialAction },
+  { path: "git-credential/request.json", title: "GitCredentialRequest", schema: GitCredentialRequest },
+  { path: "git-credential/answer.json", title: "GitCredentialAnswer", schema: GitCredentialAnswer },
+  { path: "git-credential/error.json", title: "GitCredentialError", schema: GitCredentialError },
+  { path: "errors/credential_unavailable.json", title: "CredentialUnavailableError", schema: CredentialUnavailableError },
   { path: "access/event-type.json", title: "AccessEventType", schema: AccessEventType },
   { path: "access/client-session-origin.json", title: "ClientSessionOrigin", schema: ClientSessionOrigin },
   { path: "access/revocation-reason.json", title: "RevocationReason", schema: RevocationReason },
@@ -703,6 +709,7 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "errors/verification_failed.json", title: "VerificationFailedError", schema: VerificationFailedError },
   { path: "errors/identity_mismatch.json", title: "IdentityMismatchError", schema: IdentityMismatchError },
   { path: "errors/credential_source_unavailable.json", title: "CredentialSourceUnavailableError", schema: CredentialSourceUnavailableError },
+  { path: "errors/forge_account_missing.json", title: "ForgeAccountMissingError", schema: ForgeAccountMissingError },
   { path: "frames/frame.json", title: "Frame", schema: Frame },
   ...FRAME_TYPES.map((kind) => ({ path: `frames/${kind}.json`, title: `${pascal(kind)}Frame`, schema: FRAME_SCHEMAS[kind] })),
   { path: "frames/end-reason.json", title: "EndReason", schema: EndReason },
