@@ -1,24 +1,26 @@
-import type { GrantReader, SecretStore } from "./platform.js";
+import type { GrantReader, HttpFetch, SecretStore } from "./platform.js";
 
 /**
  * The desktop shell interface: what only a desktop app can do for a client,
  * each member optional (docs/specs/client-runtime.md, "The desktop shell
- * seam"). A member the platform does not provide is a capability absent with
- * reason `no-shell` (see `capability`); the terminal UI and the browser tab
- * provide none.
+ * seam"; docs/specs/gui.md, "The desktop shell"). A member the platform does
+ * not provide is a capability absent with reason `no-shell` (see
+ * `capability`); the terminal UI and the browser tab provide none.
  *
  * Nothing about sessions, runs or organisation passes through it (ADR 0004):
  * a deep link delivers a string the runtime parses, a notification takes a
- * title and body the renderer composed. The lint rule
- * `agent-harness/no-session-types-in-shell` holds this module to that.
+ * title and body the renderer composed and a tag it reads back on a click.
+ * The lint rule `agent-harness/no-session-types-in-shell` holds this module
+ * to that.
  */
 export interface Shell {
   readonly dialogs?: ShellDialogs;
   readonly window?: ShellWindow;
-  readonly notifications?: { readonly show?: (notification: ShellNotification) => Promise<void> };
+  readonly notifications?: ShellNotifications;
   readonly tray?: ShellTray;
-  readonly deepLinks?: { readonly onOpen?: (listener: (url: string) => void) => () => void };
+  readonly deepLinks?: ShellDeepLinks;
   readonly webView?: ShellWebView;
+  readonly preview?: ShellPreview;
   readonly installer?: ShellInstaller;
   readonly update?: ShellUpdate;
   readonly service?: ShellService;
@@ -27,6 +29,16 @@ export interface Shell {
   readonly localGrant?: GrantReader;
   /** The OS keychain: where the runtime keeps client session tokens on a desktop. */
   readonly secrets?: SecretStore;
+  /**
+   * HTTP made by the desktop's main process rather than the page, so an
+   * environment needs no cross-origin headers: discovery, the pairing and
+   * bootstrap exchanges and the update route. The desktop's platform hands
+   * it to the runtime as its `fetch`.
+   */
+  readonly http?: HttpFetch;
+  readonly network?: ShellNetwork;
+  /** The machine and the user the desktop runs as, for the client's label (`<user>@<hostname>`) and the platform's keys. */
+  readonly system?: () => Promise<ShellSystem>;
 }
 
 /**
@@ -37,9 +49,11 @@ export const SHELL_MEMBERS = [
   "shell.dialogs",
   "shell.window",
   "shell.notifications.show",
+  "shell.notifications.onActivate",
   "shell.tray",
   "shell.deepLinks.onOpen",
   "shell.webView",
+  "shell.preview",
   "shell.installer",
   "shell.update",
   "shell.service",
@@ -47,6 +61,9 @@ export const SHELL_MEMBERS = [
   "shell.openExternal",
   "shell.localGrant.read",
   "shell.secrets",
+  "shell.http",
+  "shell.network",
+  "shell.system",
 ] as const;
 export type ShellMember = (typeof SHELL_MEMBERS)[number];
 
@@ -77,12 +94,40 @@ export interface ShellWindow {
   focus(): void;
   /** The dock or taskbar badge: a count, a short text, or undefined to clear it. */
   setBadge(badge: number | string | undefined): void;
+  /**
+   * The colour behind the renderer, `#rrggbb` as the theme package's
+   * `windowBackground` gives the Canvas: the desktop keeps the last one set
+   * and opens the window on it, before any CSS has loaded (ADR 0023).
+   */
+  setBackgroundColour(colour: string): void;
 }
 
 /** A notification the renderer composed. */
 export interface ShellNotification {
   readonly title: string;
   readonly body: string;
+  /** A string of the renderer's own (a deep link, say) that `onActivate` hands back when the notification is clicked. */
+  readonly tag?: string;
+}
+
+/** OS notifications, and the clicks on them. */
+export interface ShellNotifications {
+  readonly show?: (notification: ShellNotification) => Promise<void>;
+  /** Hears a click on a notification shown with a tag, handed the tag; one shown without a tag is not handed on. Answers the unsubscribe. */
+  readonly onActivate?: (listener: (tag: string) => void) => () => void;
+}
+
+/** The app's own links (`agent-harness://`), opened from outside or by a second launch. */
+export interface ShellDeepLinks {
+  /** Hears each link opened, as the string the runtime parses. Answers the unsubscribe. */
+  readonly onOpen?: (listener: (url: string) => void) => () => void;
+}
+
+/** Bytes with their media type: what the preview serves, or an image the clipboard holds. */
+export interface ShellContent {
+  readonly bytes: Uint8Array;
+  /** `image/png`, `text/html`, `image/svg+xml`. */
+  readonly mediaType: string;
 }
 
 export interface ShellTray {
@@ -96,6 +141,12 @@ export interface ShellWebView {
   attach(viewId: string, bounds: { readonly x: number; readonly y: number; readonly width: number; readonly height: number }): void;
   navigate(viewId: string, url: string): Promise<void>;
   destroy(viewId: string): void;
+}
+
+/** The preview scheme (`agent-harness-preview:`): content served from memory, with no network, to a frame sandboxed with scripts and without same-origin. */
+export interface ShellPreview {
+  /** Serves `content` and answers its URL on the preview scheme. */
+  grant(content: ShellContent): Promise<string>;
 }
 
 /**
@@ -122,4 +173,34 @@ export interface ShellService {
 export interface ShellClipboard {
   readText(): Promise<string>;
   writeText(text: string): Promise<void>;
+  /** The image the clipboard holds, for pasting as an attachment; undefined when it holds none. */
+  readImage(): Promise<ShellContent | undefined>;
+}
+
+/**
+ * The renderer's side of the desktop's network lockdown (docs/specs/gui.md,
+ * "The desktop shell"): Chromium cancels a WebSocket to any address the
+ * renderer has not declared.
+ */
+export interface ShellNetwork {
+  /**
+   * Declares the addresses the renderer may open a WebSocket to, each as a
+   * connection keeps its address (`http://host:port`). Each call names the
+   * whole list and replaces the one before, so a forgotten connection's
+   * address is closed again.
+   */
+  allow(addresses: readonly string[]): Promise<void>;
+}
+
+/** The operating systems the desktop is built for, as Node names them. */
+export type ShellPlatform = "darwin" | "linux" | "win32";
+
+/** The machine and the user the desktop runs as. */
+export interface ShellSystem {
+  readonly platform: ShellPlatform;
+  /** As Node names it: `x64`, `arm64`. */
+  readonly architecture: string;
+  readonly hostname: string;
+  /** The OS user's login name. */
+  readonly user: string;
 }

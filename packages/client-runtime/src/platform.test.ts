@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, expectTypeOf, it } from "vitest";
 import { derived, dynamic, writable } from "./observable.js";
-import { SHELL_MEMBERS, hasShellMember, type Shell } from "./shell.js";
+import { SHELL_MEMBERS, hasShellMember, type Shell, type ShellDeepLinks, type ShellNotification, type ShellNotifications } from "./shell.js";
 import { fakeShell, inMemoryPlatform, manualClock } from "./testing/in-memory-platform.js";
 
 describe("the package", () => {
@@ -204,8 +204,19 @@ describe("the shell interface", () => {
       | "openExternal"
       | "localGrant"
       | "secrets"
+      | "preview"
+      | "http"
+      | "network"
+      | "system"
     >();
     expect(hasShellMember({}, "shell.dialogs")).toBe(false);
     expect(hasShellMember(undefined, "shell.dialogs")).toBe(false);
+  });
+
+  it("carries strings where a session might have passed: a notification's tag, handed back on a click, and a deep link", () => {
+    expectTypeOf<ShellNotification["tag"]>().toEqualTypeOf<string | undefined>();
+    expectTypeOf<Parameters<NonNullable<ShellNotifications["onActivate"]>>[0]>().toEqualTypeOf<(tag: string) => void>();
+    expectTypeOf<Parameters<NonNullable<ShellDeepLinks["onOpen"]>>[0]>().toEqualTypeOf<(url: string) => void>();
+    expect(hasShellMember({ notifications: { show: async () => undefined } }, "shell.notifications.onActivate")).toBe(false);
   });
 });

@@ -145,8 +145,13 @@ export const fakeShell = (): FakeShell => {
       openDirectory: record("dialogs.openDirectory", Promise.resolve(undefined)),
       save: record("dialogs.save", Promise.resolve(undefined)),
     },
-    window: { setTitle: record("window.setTitle", undefined), focus: record("window.focus", undefined), setBadge: record("window.setBadge", undefined) },
-    notifications: { show: record("notifications.show", Promise.resolve()) },
+    window: {
+      setTitle: record("window.setTitle", undefined),
+      focus: record("window.focus", undefined),
+      setBadge: record("window.setBadge", undefined),
+      setBackgroundColour: record("window.setBackgroundColour", undefined),
+    },
+    notifications: { show: record("notifications.show", Promise.resolve()), onActivate: record("notifications.onActivate", () => undefined) },
     tray: { setTooltip: record("tray.setTooltip", undefined), onClick: record("tray.onClick", () => undefined) },
     deepLinks: { onOpen: record("deepLinks.onOpen", () => undefined) },
     webView: {
@@ -155,6 +160,7 @@ export const fakeShell = (): FakeShell => {
       navigate: record("webView.navigate", Promise.resolve()),
       destroy: record("webView.destroy", undefined),
     },
+    preview: { grant: record("preview.grant", Promise.resolve("agent-harness-preview://fake/1")) },
     installer: {},
     update: { check: record("update.check", Promise.resolve({ available: false })), install: record("update.install", Promise.resolve()) },
     service: {
@@ -162,10 +168,21 @@ export const fakeShell = (): FakeShell => {
       start: record("service.start", Promise.resolve()),
       status: record("service.status", Promise.resolve({ installed: true, running: true, ready: true })),
     },
-    clipboard: { readText: record("clipboard.readText", Promise.resolve("")), writeText: record("clipboard.writeText", Promise.resolve()) },
+    clipboard: {
+      readText: record("clipboard.readText", Promise.resolve("")),
+      writeText: record("clipboard.writeText", Promise.resolve()),
+      readImage: record("clipboard.readImage", Promise.resolve(undefined)),
+    },
     openExternal: record("openExternal", Promise.resolve()),
     localGrant: { read: record("localGrant.read", Promise.resolve(undefined)) },
     secrets: inMemorySecrets(),
+    // Nothing answers the fake's HTTP: a test that needs an answer hands the platform a `fetch`.
+    http: (url) => {
+      calls.push(["http", url]);
+      return Promise.reject(new TypeError("fetch failed"));
+    },
+    network: { allow: record("network.allow", Promise.resolve()) },
+    system: record("system", Promise.resolve({ platform: "linux" as const, architecture: "x64", hostname: "desk", user: "seth" })),
   };
 };
 
