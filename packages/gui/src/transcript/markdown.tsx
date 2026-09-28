@@ -1,4 +1,4 @@
-import { memo, use, useMemo, type ComponentPropsWithoutRef } from "react";
+import { createContext, memo, use, useMemo, type ComponentPropsWithoutRef } from "react";
 import ReactMarkdown, { defaultUrlTransform, type Components, type ExtraProps, type Options } from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import remarkGfm from "remark-gfm";
@@ -11,8 +11,8 @@ import { FindQuery, findMarks } from "./find.js";
  * guessed: a wrong guess reads worse than plain text), in the theme's tokens
  * (`styles.css`). Raw HTML in the text is shown as text, never rendered. An
  * image is drawn from the text itself (a `data:` URL of a picture); one
- * elsewhere is a link to it, never fetched on its own. The find bar's
- * query is marked where it matches (`find.tsx`).
+ * elsewhere is a link to it, never fetched on its own, or inside a link its
+ * words alone. The find bar's query is marked where it matches (`find.tsx`).
  */
 
 const REMARK_PLUGINS: Options["remarkPlugins"] = [remarkGfm];
@@ -24,19 +24,24 @@ const DATA_IMAGE = /^data:image\/(png|jpeg|gif|webp);base64,[a-z0-9+/=\s]+$/i;
 /** A URL as the text may carry it: a `data:` picture for an image's source, else what react-markdown keeps (http, https, mailto and the like). */
 const urlTransform: Options["urlTransform"] = (url, key) => (key === "src" && DATA_IMAGE.test(url) ? url : defaultUrlTransform(url));
 
+/** Whether what is drawn sits inside a link: a picture there is named by its words, never a second link. */
+const InLink = createContext(false);
+
 const Image = ({ src, alt }: ComponentPropsWithoutRef<"img"> & ExtraProps) => {
+  const inLink = use(InLink);
   if (typeof src === "string" && DATA_IMAGE.test(src)) return <img src={src} alt={alt ?? ""} className="max-h-96 max-w-full rounded-md border border-hairline object-contain" />;
-  if (typeof src !== "string" || src === "") return <span>{alt}</span>;
+  const words = alt === undefined || alt === "" ? (typeof src === "string" ? src : "") : alt;
+  if (inLink || typeof src !== "string" || src === "") return <span>{words}</span>;
   return (
     <a href={src} target="_blank" rel="noreferrer">
-      {alt === undefined || alt === "" ? src : alt}
+      {words}
     </a>
   );
 };
 
 const Link = ({ href, children }: ComponentPropsWithoutRef<"a"> & ExtraProps) => (
   <a href={href} target="_blank" rel="noreferrer">
-    {children}
+    <InLink value>{children}</InLink>
   </a>
 );
 

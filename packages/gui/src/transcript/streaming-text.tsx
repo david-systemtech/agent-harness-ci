@@ -53,6 +53,8 @@ interface Reveal {
   /** How much of `text` is shown, settled or fading: the rest is held. */
   readonly shown: number;
   readonly batches: readonly Batch[];
+  /** The batches whose fade has ended while one before them still fades: folded once every batch before them is. */
+  readonly ended: ReadonlySet<number>;
   readonly nextKey: number;
 }
 
@@ -65,7 +67,7 @@ const wholeThrough = (text: string, from: number): number => {
 /** `text` shown as it is, the fragment after its last whole word held: nothing fading. */
 const adopt = (text: string, fade: boolean, nextKey = 0): Reveal => {
   const shown = wholeThrough(text, 0);
-  return { text, fade, settled: text.slice(0, shown), shown, batches: [], nextKey };
+  return { text, fade, settled: text.slice(0, shown), shown, batches: [], ended: new Set(), nextKey };
 };
 
 /** The reveal once `text` has arrived: what is new and whole fades in as one batch. */
@@ -83,11 +85,18 @@ const advance = (reveal: Reveal, text: string): Reveal => {
   return { ...reveal, text, shown: through, batches: [...reveal.batches, { key: reveal.nextKey, words, stagger }], nextKey: reveal.nextKey + 1 };
 };
 
-/** The reveal with the batch `key` done fading, its words folded into the settled text with every batch before it. */
+/**
+ * The reveal with the batch `key` done fading: folded into the settled text
+ * with every batch after it whose fade has ended too, once no batch before it
+ * still fades (a short delta can end its fade before a long one before it).
+ */
 const retire = (reveal: Reveal, key: number): Reveal => {
-  const done = reveal.batches.filter((batch) => batch.key <= key);
-  if (done.length === 0) return reveal;
-  return { ...reveal, settled: reveal.settled + done.flatMap((batch) => batch.words).join(""), batches: reveal.batches.filter((batch) => batch.key > key) };
+  const ended = new Set(reveal.ended).add(key);
+  let done = 0;
+  while (done < reveal.batches.length && ended.has((reveal.batches[done] as Batch).key)) ended.delete((reveal.batches[done++] as Batch).key);
+  if (done === 0) return { ...reveal, ended };
+  const folded = reveal.batches.slice(0, done);
+  return { ...reveal, settled: reveal.settled + folded.flatMap((batch) => batch.words).join(""), batches: reveal.batches.slice(done), ended };
 };
 
 const reducedMotion = (): boolean => typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;

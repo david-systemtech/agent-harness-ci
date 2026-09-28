@@ -23,6 +23,15 @@ const opened = async (more: Partial<ScriptedEnvironment> = {}) => {
 /** The last reply in the transcript, as it reads. */
 const lastReply = (transcript: HTMLElement) => within(transcript).getAllByRole("article", { name: "Reply" }).at(-1);
 
+/**
+ * A word's fade ends, as the browser says it: jsdom has no `AnimationEvent`, so React hears the prefixed name there, and
+ * both are said (a word hears one of them).
+ */
+const fadeEnds = (word: HTMLElement) => {
+  fireEvent.animationEnd(word);
+  fireEvent(word, new Event("webkitAnimationEnd", { bubbles: true }));
+};
+
 /** The words of `element` still fading in, each as it arrived. */
 const fading = (element: HTMLElement | undefined) => [...(element?.querySelectorAll("span") ?? [])].filter((span) => span.style.animationName === "word-in").map((span) => span.textContent);
 
@@ -78,6 +87,23 @@ describe("streaming", () => {
       env.emit(session, "assistant.delta", { runId, itemId: "i-1", fragments: [{ kind: "text", text }] });
       await waitFor(() => expect(lastReply(transcript)?.textContent).toBe(shown));
     }
+  });
+
+  it("folds a word back into the settled text once its fade has ended, never while a word before it is still fading", async () => {
+    const { env, transcript, session } = await opened();
+    const { runId } = env.startRun(session, "Fix the receipts");
+    env.emit(session, "assistant.delta", { runId, itemId: "i-1", fragments: [{ kind: "text", text: "One two three " }] });
+    await waitFor(() => expect(fading(lastReply(transcript))).toEqual(["One ", "two ", "three "]));
+    env.emit(session, "assistant.delta", { runId, itemId: "i-1", fragments: [{ kind: "text", text: "four " }] });
+    await waitFor(() => expect(fading(lastReply(transcript))).toEqual(["One ", "two ", "three ", "four "]));
+    const word = (text: string) => [...(lastReply(transcript)?.querySelectorAll("span") ?? [])].find((span) => span.textContent === text) as HTMLElement;
+
+    // The later, shorter delta ends its fade first: the words before it are still fading, so nothing is folded yet.
+    fadeEnds(word("four "));
+    expect(fading(lastReply(transcript))).toEqual(["One ", "two ", "three ", "four "]);
+    fadeEnds(word("three "));
+    expect(fading(lastReply(transcript))).toEqual([]);
+    expect(lastReply(transcript)?.textContent).toBe("One two three four ");
   });
 
   it("renders settled text as markdown, its fenced code highlighted", async () => {
@@ -312,6 +338,16 @@ describe("images", () => {
     // A picture elsewhere is a link to it, never fetched on its own.
     expect(within(transcript).queryByRole("img", { name: "a remote one" })).toBeNull();
     expect(within(transcript).getByRole("link", { name: "a remote one" }).getAttribute("href")).toBe("https://example.com/c.png");
+  });
+
+  it("names a picture elsewhere inside a link by its words, the link leading where it leads, never one link inside another", async () => {
+    const { env, transcript, session } = await opened();
+    const { runId } = env.startRun(session, "Where is it?");
+    env.emit(session, "assistant.text", { runId, itemId: "i-1", text: "See [![the dashboard](https://example.com/d.png)](https://example.com/dashboard).", aborted: false });
+    const link = await within(transcript).findByRole("link", { name: "the dashboard" });
+    expect(link.getAttribute("href")).toBe("https://example.com/dashboard");
+    expect(within(transcript).getAllByRole("link")).toHaveLength(1);
+    expect(within(transcript).queryByRole("img")).toBeNull();
   });
 
   it("names an image sent with a message, whose bytes the log never holds", async () => {
