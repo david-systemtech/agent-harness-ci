@@ -1,9 +1,11 @@
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
-import { startFakeForge, type FakeForge } from "../../test/fake-forge.js";
+import { startFakeForge, unreachableOrigin, type FakeForge } from "../../test/fake-forge.js";
 import { createEntityTags } from "./forge-http.js";
 import { forgeProvider, type ForgeProvider } from "./providers.js";
 
@@ -500,6 +502,30 @@ describe("releases", () => {
       message: `The forge at ${forge.origin} answered HTTP 404: Not Found.`,
     });
     expect(existsSync(destination)).toBe(false);
+  });
+});
+
+describe("a download cut short", () => {
+  it("leaves nothing of what it wrote, and leaves a file there before the forge began answering as it was", async () => {
+    // A forge that sends the headers and part of the bytes, then drops the connection.
+    const server = createServer((_request, response) => {
+      response.writeHead(200, { "content-type": "application/octet-stream", "content-length": "1000" });
+      response.write("part of it", () => response.destroy());
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    onCleanup(() => new Promise<void>((resolve) => server.close(() => resolve())));
+    const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    const provider = forgeProvider("forgejo", { fetch: (url, init) => fetch(url, init), timeoutMs: 5_000, now: () => NOW, entityTags: createEntityTags() });
+    const asset = { id: 1, name: "a.tgz", size: 1000, downloadUrl: `${origin}/david/x/releases/download/v1/a.tgz` };
+
+    const cut = join(tempDir(), "a.tgz");
+    expect(await provider.downloadAsset(origin, "token-for-tests", "david/x", asset, cut)).toMatchObject({ outcome: "unreachable", message: expect.stringContaining("did not finish the download") });
+    expect(existsSync(cut)).toBe(false);
+
+    const kept = join(tempDir(), "a.tgz");
+    writeFileSync(kept, "what was there");
+    expect(await provider.downloadAsset(await unreachableOrigin(), "token-for-tests", "david/x", asset, kept)).toMatchObject({ outcome: "unreachable" });
+    expect(readFileSync(kept, "utf8")).toBe("what was there");
   });
 });
 
