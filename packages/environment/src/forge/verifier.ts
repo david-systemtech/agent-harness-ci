@@ -156,8 +156,11 @@ export const createVerifier = (options: VerifierOptions): Verifier => {
     }
   };
 
-  const pause = (forgeAccountId: string, until: Date): void => {
-    pausedUntil.set(forgeAccountId, Math.max(pausedUntil.get(forgeAccountId) ?? 0, until.getTime()));
+  /** Holds the forge account's scheduled verifications until `until`, as the forge asked of `account`'s credential; a credential replaced since draws none. */
+  const pause = (account: ForgeAccountRecord, until: Date): void => {
+    const current = liveForgeAccount(reader, account.id);
+    if (current === null || credentialOf(current) !== credentialOf(account)) return;
+    pausedUntil.set(account.id, Math.max(pausedUntil.get(account.id) ?? 0, until.getTime()));
   };
 
   /** What the forge answers of the forge account's credential now. */
@@ -168,7 +171,7 @@ export const createVerifier = (options: VerifierOptions): Verifier => {
       return await verifyCredential(
         options.provider(account.kind),
         { origin: account.origin, token: credential.token, expected: account.identity, repository: knownRepository(account), aliases: account.aliases.map((alias) => alias.origin) },
-        { signal, onPause: (until) => pause(account.id, until) },
+        { signal, onPause: (until) => pause(account, until) },
       );
     } finally {
       credential.release();

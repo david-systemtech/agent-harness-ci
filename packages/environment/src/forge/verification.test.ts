@@ -387,6 +387,28 @@ describe("a credential given while the forge asks for a pause", () => {
   });
 });
 
+describe("a pause the replaced credential draws after it was replaced", () => {
+  it("is not the forge account's: the new credential's scheduled verifications keep their fifteen minutes", async () => {
+    const { t, forge, client } = await withForge();
+    const account = await added(client, { url: forge.origin, kind: "forgejo" });
+    forge.user(OTHER_TOKEN, DAVID);
+    forge.repositories(OTHER_TOKEN, []);
+    let answer = (): void => undefined;
+    forge.answer(TOKEN, "GET /api/v1/user", { status: 429, headers: { "retry-after": String(60 * 60) }, after: new Promise<void>((resolve) => (answer = resolve)) });
+
+    const running = verify(client, account.id);
+    await vi.waitFor(() => expect(forge.requests).toHaveLength(2));
+    await update(client, { forgeAccountId: account.id, credential: pasted(OTHER_TOKEN) });
+    answer();
+    await running;
+    t.clock.advance(0);
+    await vi.waitFor(async () => expect((await list(client))[0]?.capabilities.readRepository).toEqual(verifiedAt(MANUAL_CLOCK_START)));
+
+    t.clock.advance(15 * MINUTE);
+    await vi.waitFor(async () => expect((await list(client))[0]?.capabilities.readRepository).toEqual(verifiedAt(after(15 * MINUTE))));
+  });
+});
+
 describe("the state import's credential probe", () => {
   it("answers the identity and capabilities a credential has, on the repository its URL names, storing and recording nothing", async () => {
     const { t, forge, client } = await withForge();
