@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { chmodSync, existsSync, mkdirSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { registry, type Workspace } from "@agent-harness/contracts";
 import { describe, expect, it, vi } from "vitest";
@@ -8,10 +7,9 @@ import { useCleanups } from "../../test/cleanups.js";
 import { fakeAdapter, gate } from "../../test/fake-adapter.js";
 import { fakePty } from "../../test/fake-pty.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
-import { create, get, refusal } from "../../test/sessions.js";
+import { create, deleteSession, get, refusal } from "../../test/sessions.js";
 import { openTerminal } from "../../test/terminals.js";
 import { git, makeDirectory, scriptedResolver } from "../../test/workspaces.js";
-import { createWorkspaceResolver } from "./resolver.js";
 
 /**
  * `sessions.create` taking a workspace request (workspace-picker spec,
@@ -24,6 +22,9 @@ import { createWorkspaceResolver } from "./resolver.js";
 
 const { onCleanup, tempDir } = useCleanups();
 
+/** Whether this test runs as root, which can read any directory. */
+const RUNNING_AS_ROOT = process.getuid?.() === 0;
+
 const start = async (options: TestEnvironmentOptions = {}): Promise<TestEnvironment> => {
   const t = await startTestEnvironment(options);
   onCleanup(() => t.close());
@@ -31,42 +32,217 @@ const start = async (options: TestEnvironmentOptions = {}): Promise<TestEnvironm
 };
 
 describe("sessions.create's workspace request", () => {
-  it("records a directory request as it came, with no repository identity and no missing mark: a phase-A create unchanged", async () => {
+  it("records a directory at its path, . and .. resolved as written and a symlink kept, with no repository identity and no missing mark", async () => {
     const t = await start();
     const client = await t.client();
-    const path = tempDir();
-    const { id, receipt, result } = await create(client, { workspace: { kind: "directory", path } });
+    const root = tempDir();
+    mkdirSync(join(root, "code", "app", "src"), { recursive: true });
+    symlinkSync(join(root, "code", "app"), join(root, "link"));
+    const { id, receipt, result } = await create(client, { workspace: { kind: "directory", path: join(root, "code") } });
     expect(receipt).toMatchObject({ status: "accepted", changed: true });
-    expect(result?.summary).toMatchObject({ id, workspace: { kind: "directory", path }, repositoryIdentity: null, workspaceMissingSince: null });
-    // Any full path, there or not, as phase A took it.
-    const gone = await create(client, { workspace: { kind: "directory", path: join(path, "not-here") } });
-    expect(gone.result?.summary.workspace).toEqual({ kind: "directory", path: join(path, "not-here") });
+    expect(result?.summary).toMatchObject({ id, workspace: { kind: "directory", path: join(root, "code") }, repositoryIdentity: null, workspaceMissingSince: null });
+    const recorded = async (path: string) => (await create(client, { workspace: { kind: "directory", path } })).result?.summary.workspace;
+    expect(await recorded(`${root}/code/./app/../app/`)).toEqual({ kind: "directory", path: join(root, "code", "app") });
+    // A link is kept as written, and a .. after it read as written too: link/.. is the root, where following the link
+    // would give its target's parent, code.
+    expect(await recorded(`${root}/link/src`)).toEqual({ kind: "directory", path: join(root, "link", "src") });
+    expect(await recorded(`${root}/link/..`)).toEqual({ kind: "directory", path: root });
   });
 
-  it("records a directory from the environment's home at its absolute path, as a phase-A client sending ~/code gets", async () => {
+  it("records a directory from the environment's home at its absolute path: ~, ~/ and ~\\ read from the home, . and .. after it as written", async () => {
+    const home = tempDir("agent-harness-home-");
+    mkdirSync(join(home, "code"));
+    const t = await start({ workspaces: { home } });
+    const client = await t.client();
+    const recorded = async (path: string) => (await create(client, { workspace: { kind: "directory", path } })).result?.summary.workspace;
+    expect(await recorded("~")).toEqual({ kind: "directory", path: home });
+    expect(await recorded("~/code")).toEqual({ kind: "directory", path: join(home, "code") });
+    expect(await recorded("~\\code")).toEqual({ kind: "directory", path: join(home, "code") });
+    expect(await recorded("~/code/../code/.")).toEqual({ kind: "directory", path: join(home, "code") });
+    expect((await create(client, { workspace: { kind: "directory", path: "~/nowhere" } })).receipt).toMatchObject({
+      status: "rejected",
+      error: { data: { reason: "workspace_unusable", problem: "does_not_exist", path: join(home, "nowhere") } },
+    });
+  });
+
+  it("refuses a directory it cannot use in the receipt, workspace_unusable with its problem and path, each problem kept apart, and records nothing", async () => {
+    const root = tempDir();
+    const locked = join(root, "locked");
+    mkdirSync(locked, { mode: 0o000 });
+    chmodSync(locked, 0o000);
+    onCleanup(() => chmodSync(locked, 0o700));
+    writeFileSync(join(root, "notes.md"), "# notes\n");
+    // Root reads any directory, and the environment never runs as root (ADR 0006): a test running as root says which it cannot.
+    const t = await start(RUNNING_AS_ROOT ? { workspaces: { readable: async (path) => path !== locked } } : {});
+    const client = await t.client();
+    const head = t.env.log.head();
+    const cases = [
+      [join(root, "gone"), "does_not_exist"],
+      [join(root, "gone", "deeper"), "does_not_exist"],
+      [join(root, "notes.md", "inside"), "does_not_exist"],
+      [join(root, "notes.md"), "not_a_directory"],
+      [locked, "not_readable"],
+      [t.dataDir, "reserved"],
+    ] as const;
+    for (const [path, problem] of cases) {
+      const commandId = randomUUID();
+      const answer = await create(client, { commandId, workspace: { kind: "directory", path } });
+      expect(answer.receipt, path).toEqual({
+        status: "rejected",
+        sequence: head,
+        changed: false,
+        reason: "conflict",
+        error: { code: "conflict", message: expect.any(String), data: { reason: "workspace_unusable", problem, path } },
+      });
+      expect(answer.result).toBeUndefined();
+      // A replay of the command id is answered from the receipt: the outbox retires it.
+      expect(await create(client, { commandId, id: answer.id, workspace: { kind: "directory", path } })).toEqual({ id: answer.id, receipt: answer.receipt });
+    }
+    expect(t.env.log.head()).toBe(head);
+    expect(await client.request("sessions.list", {})).toMatchObject({ sessions: [] });
+  });
+
+  it("reserves the data directory outside its workspace roots, however the path reaches it, and allows a directory inside a root", async () => {
+    const dataDir = join(tempDir("agent-harness-env-"), "data");
+    const banks = join(dataDir, "banks");
+    const t = await start({ dataDir, workspaces: { roots: [banks] } });
+    const client = await t.client();
+    const problemOf = async (path: string) => {
+      const answer = await create(client, { workspace: { kind: "directory", path } });
+      return answer.receipt.status === "accepted" ? answer.result?.summary.workspace.path : answer.receipt.error.data["problem"];
+    };
+    for (const inside of ["scratch", "worktrees", "banks"]) mkdirSync(join(dataDir, inside, "held"), { recursive: true });
+    mkdirSync(join(dataDir, "elsewhere"));
+    const outside = tempDir();
+    symlinkSync(join(dataDir, "elsewhere"), join(outside, "into-data"));
+    expect(await problemOf(dataDir)).toBe("reserved");
+    expect(await problemOf(join(dataDir, "elsewhere"))).toBe("reserved");
+    expect(await problemOf(`${dataDir}/scratch/../elsewhere`)).toBe("reserved");
+    // A link from outside into the data directory reaches the same directory.
+    expect(await problemOf(join(outside, "into-data"))).toBe("reserved");
+    // A root itself holds every session's directories: none is a session's workspace.
+    expect(await problemOf(join(dataDir, "scratch"))).toBe("reserved");
+    expect(await problemOf(join(dataDir, "worktrees"))).toBe("reserved");
+    for (const inside of ["scratch", "worktrees", "banks"]) expect(await problemOf(join(dataDir, inside, "held"))).toBe(join(dataDir, inside, "held"));
+  });
+
+  it.skipIf(process.platform === "win32")("refuses a directory this operating system does not read as absolute invalid_params, storing no receipt", async () => {
     const t = await start();
     const client = await t.client();
-    const { result } = await create(client, { workspace: { kind: "directory", path: "~/code" } });
-    expect(result?.summary.workspace).toEqual({ kind: "directory", path: join(homedir(), "code") });
-    expect((await create(client, { workspace: { kind: "directory", path: "~" } })).result?.summary.workspace).toEqual({ kind: "directory", path: homedir() });
+    const head = t.env.log.head();
+    for (const path of ["C:\\work\\agent-harness", "\\\\nas\\work"]) {
+      expect(await refusal(client.request("sessions.create", { commandId: randomUUID(), id: randomUUID(), workspace: { kind: "directory", path } })), path).toMatchObject({
+        code: "invalid_params",
+        data: { issues: [expect.objectContaining({ path: ["workspace", "path"] })] },
+      });
+    }
+    expect(t.env.log.head()).toBe(head);
   });
 
-  it.each([
-    ["worktree", { kind: "worktree", repository: "/work/agent-harness" }],
-    ["scratch", { kind: "scratch" }],
-    ["session", { kind: "session", sessionId: "3d6f9a2c-4b1e-4c8d-a5f7-2e9b0c1d4a68" }],
-  ] as const)("rejects a %s request in its receipt as a kind not served yet, and answers a replay from that receipt", async (kind, workspace) => {
+  it("gives a scratch request a directory of the session's own under the data directory's scratch root, 0700, recorded as scratch with no identity", async () => {
+    const t = await start();
+    const client = await t.client();
+    const { id, result } = await create(client, { workspace: { kind: "scratch" } });
+    const path = join(t.dataDir, "scratch", id);
+    expect(result?.summary).toMatchObject({ workspace: { kind: "scratch", path }, repositoryIdentity: null, workspaceMissingSince: null });
+    expect(statSync(path).isDirectory()).toBe(true);
+    if (process.platform !== "win32") expect(statSync(path).mode & 0o777).toBe(0o700);
+    expect(readdirSync(path)).toEqual([]);
+    const other = await create(client, { workspace: { kind: "scratch" } });
+    expect(other.result?.summary.workspace).toEqual({ kind: "scratch", path: join(t.dataDir, "scratch", other.id) });
+  });
+
+  it("leaves no scratch directory behind for a create whose transaction fails, and one sent again makes it anew", async () => {
+    const t = await start();
+    const client = await t.client();
+    const log = t.env.log;
+    const append = log.append.bind(log);
+    let failed = false;
+    const quiet = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const spy = vi.spyOn(log, "append").mockImplementation((stream, events, options) => {
+      if (!failed && events.some((event) => event.type === "session.created")) {
+        failed = true;
+        throw new Error("The disk is full.");
+      }
+      return append(stream, events, options);
+    });
+    onCleanup(() => {
+      spy.mockRestore();
+      quiet.mockRestore();
+    });
+    const id = randomUUID();
+    const commandId = randomUUID();
+    expect(await refusal(client.request("sessions.create", { commandId, id, workspace: { kind: "scratch" } }))).toMatchObject({ code: "internal" });
+    expect(existsSync(join(t.dataDir, "scratch", id))).toBe(false);
+    expect((await create(client, { commandId, id, workspace: { kind: "scratch" } })).receipt.status).toBe("accepted");
+    expect(existsSync(join(t.dataDir, "scratch", id))).toBe(true);
+  });
+
+  it("shares another session's workspace on a session request, kind, path and identity, as a fork does, making nothing", async () => {
+    const t = await start();
+    const client = await t.client();
+    const checkout = tempDir("agent-harness-repository-");
+    git(checkout, "init", "-q");
+    git(checkout, "remote", "add", "origin", "git@git.systemtech.dev:david/agent-harness.git");
+    const source = await create(client, { workspace: { kind: "directory", path: checkout } });
+    expect(source.result?.summary.repositoryIdentity).toBe("https://git.systemtech.dev/david/agent-harness");
+    // The remote goes: the shared identity is the one recorded, not read again.
+    git(checkout, "remote", "remove", "origin");
+    const shared = await create(client, { workspace: { kind: "session", sessionId: source.id.toUpperCase() } });
+    const forked = await client.apply("sessions.fork", { commandId: randomUUID(), sessionId: source.id, id: randomUUID() });
+    for (const summary of [shared.result?.summary, forked.summary]) {
+      expect(summary).toMatchObject({ workspace: { kind: "directory", path: checkout }, repositoryIdentity: "https://git.systemtech.dev/david/agent-harness" });
+    }
+
+    const scratch = await create(client, { workspace: { kind: "scratch" } });
+    const beside = await create(client, { workspace: { kind: "session", sessionId: scratch.id } });
+    expect(beside.result?.summary.workspace).toEqual({ kind: "scratch", path: join(t.dataDir, "scratch", scratch.id) });
+    expect(readdirSync(join(t.dataDir, "scratch"))).toEqual([scratch.id]);
+  });
+
+  it("refuses a session request naming a session not here or deleted not_found, kind session, and one whose workspace is gone workspace_missing", async () => {
+    const t = await start();
+    const client = await t.client();
+    const head = t.env.log.head();
+    const absent = randomUUID();
+    expect((await create(client, { workspace: { kind: "session", sessionId: absent } })).receipt).toMatchObject({
+      status: "rejected",
+      reason: "not_found",
+      error: { code: "not_found", data: { kind: "session", sessionId: absent } },
+    });
+    expect(t.env.log.head()).toBe(head);
+
+    const deleted = await create(client, { workspace: { kind: "scratch" } });
+    await deleteSession(client, deleted.id);
+    expect((await create(client, { workspace: { kind: "session", sessionId: deleted.id } })).receipt).toMatchObject({
+      status: "rejected",
+      reason: "not_found",
+      error: { data: { kind: "session", sessionId: deleted.id } },
+    });
+
+    const moved = tempDir();
+    const source = await create(client, { workspace: { kind: "directory", path: moved } });
+    rmSync(moved, { recursive: true });
+    expect((await create(client, { workspace: { kind: "session", sessionId: source.id } })).receipt).toMatchObject({
+      status: "rejected",
+      reason: "conflict",
+      error: { code: "conflict", data: { reason: "workspace_missing", sessionId: source.id, path: moved } },
+    });
+  });
+
+  it("rejects a worktree request in its receipt as a kind not served yet, and answers a replay from that receipt", async () => {
     const t = await start();
     const client = await t.client();
     const head = t.env.log.head();
     const commandId = randomUUID();
+    const workspace = { kind: "worktree", repository: "/work/agent-harness" } as const;
     const answer = await create(client, { commandId, workspace });
     expect(answer.receipt).toEqual({
       status: "rejected",
       sequence: head,
       changed: false,
       reason: "conflict",
-      error: { code: "conflict", message: expect.any(String), data: { reason: "kind_not_served", kind } },
+      error: { code: "conflict", message: expect.any(String), data: { reason: "kind_not_served", kind: "worktree" } },
     });
     expect(answer.result).toBeUndefined();
     expect(await create(client, { commandId, id: answer.id, workspace })).toEqual({ id: answer.id, receipt: answer.receipt });
@@ -89,21 +265,6 @@ describe("sessions.create's workspace request", () => {
       data: { issues: [expect.objectContaining({ path: ["workspace", "path"] })] },
     });
     expect(t.env.log.head()).toBe(head);
-  });
-});
-
-describe("the environment's resolver", () => {
-  it("reads ~, ~/ and ~\\ from the environment's home and takes no other ~ form for one, whoever calls it", async () => {
-    const resolver = createWorkspaceResolver({ home: "/home/seth" });
-    const recorded = async (path: string) => {
-      const resolved = await resolver.resolve({ kind: "directory", path }, "7c9e6679-7425-40de-944b-e07fc1f90ae7");
-      return resolved.refused === undefined ? resolved.workspace.path : resolved.refused;
-    };
-    expect(await recorded("~")).toBe("/home/seth");
-    expect(await recorded("~/code")).toBe("/home/seth/code");
-    expect(await recorded("~\\code")).toBe("/home/seth/code");
-    // An in-process caller's ~user path, which the wire's schema refuses, is not rewritten into the home.
-    expect(await recorded("~alice/code")).toBe("~alice/code");
   });
 });
 

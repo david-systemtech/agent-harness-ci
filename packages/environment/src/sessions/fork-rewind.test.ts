@@ -5,7 +5,7 @@ import { useCleanups } from "../../test/cleanups.js";
 import { manualClock } from "../../test/clock.js";
 import { end, fakeAdapter, gate, say, type FakeAdapter, type FakeAdapterOptions, type Gate, type Script } from "../../test/fake-adapter.js";
 import { startTestEnvironment, type TestEnvironment } from "../../test/helper.js";
-import { command, create, deleteSession, get, purgeSession, refusal } from "../../test/sessions.js";
+import { command, create, deleteSession, get, purgeSession, refusal, workspace } from "../../test/sessions.js";
 import type { WireClient } from "../../test/wire-client.js";
 import type { EventEnvelope } from "../event-log/event-log.js";
 import { createProviderTranscriptStore } from "../provider-transcripts/store.js";
@@ -94,7 +94,7 @@ describe("sessions.fork", () => {
     expect(answer.receipt).toMatchObject({ status: "accepted", changed: true });
     expect(answer.result?.summary).toMatchObject({ id, title: "Fix the receipt sweep", titleSource: "generated", tags: ["wip"], groupId: group.result?.group.id, archivedAt: null, pinnedAt: null });
     expect(events(t, id).map((event) => [event.type, event.payload])).toEqual([
-      ["session.created", expect.objectContaining({ workspace: { kind: "directory", path: "/work/agent-harness" }, account: null, tags: ["wip"] })],
+      ["session.created", expect.objectContaining({ workspace, account: null, tags: ["wip"] })],
       ["session.title-generated", { title: "Fix the receipt sweep", source: "prompt" }],
       ["session.forked", { fromSessionId: source.id, atMessageId: null, fromProviderSessionId: "provider-1" }],
     ]);

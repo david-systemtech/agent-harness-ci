@@ -243,7 +243,10 @@ const DirectoryRequest = z
       .regex(/^(?:~(?:[\\/]|$)|\/|[A-Za-z]:[\\/]|\\\\)/)
       .meta({ description: "The directory on the environment's machine: an absolute path, or one starting ~ for the environment's home." }),
   })
-  .meta({ description: "A directory the environment has: recorded at its absolute path, ~ expanded to the environment's home." });
+  .meta({
+    description:
+      "A directory the environment has: recorded at its absolute path, ~ expanded to the environment's home, . and .. resolved as written and symlinks kept; refused workspace_unusable, with its problem, when the environment cannot use it.",
+  });
 
 const ScratchRequest = z.object({ kind: z.literal("scratch") }).meta({ description: "A scratch directory of the session's own." });
 
@@ -263,6 +266,19 @@ export const WorkspaceRequest = z
   .discriminatedUnion("kind", [DirectoryRequest, WorktreeRequest, ScratchRequest, SessionWorkspaceRequest])
   .meta({ description: "Where a new session's code is to live: a directory, a new worktree, a scratch directory, or another session's workspace." });
 export type WorkspaceRequest = z.infer<typeof WorkspaceRequest>;
+
+/**
+ * Why a directory cannot be a session's workspace (workspace-picker spec,
+ * "The resolver"): the `problem` of a `workspace_unusable` refusal, each kept
+ * apart so a client can say which. `reserved` is a directory inside the
+ * environment's data directory and outside every workspace root.
+ */
+export const WORKSPACE_PROBLEMS = ["does_not_exist", "not_a_directory", "not_readable", "reserved"] as const;
+export const WorkspaceProblem = z.enum(WORKSPACE_PROBLEMS).meta({
+  description:
+    "Why a directory cannot be a session's workspace: does_not_exist, not_a_directory, not_readable (the environment's user cannot list or enter it), or reserved (inside the environment's data directory, outside every workspace root).",
+});
+export type WorkspaceProblem = z.infer<typeof WorkspaceProblem>;
 
 /** What a session's runs are doing: nothing, a run starting, a run running, a run parked on a prompt. */
 export const ACTIVITY_STATES = ["idle", "starting", "running", "parked"] as const;
