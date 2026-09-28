@@ -131,12 +131,8 @@ const SEED_TOKENS: Readonly<Record<ThemeSeedName, TokenName>> = {
   danger: "signal",
 };
 
-/** A near-black or near-white ink drawn on a fill, tinted with the fill's hue. */
-interface FillInk {
-  readonly token: TokenName;
-  readonly l: number;
-  readonly c: number;
-}
+/** The inks drawn on the three fills. */
+type FillInk = "beam-ink" | "amber-ink" | "signal-ink";
 
 /**
  * How one ladder is built: the lightness of each surface, ink and role, and
@@ -154,9 +150,10 @@ interface LadderPlan {
     readonly chroma: (seed: number) => number;
     /** On paper the fill is deep enough to read, and doubles as the accent's text; on a dark ground it cannot, and the text is its own token. */
     readonly fillIsText: boolean;
-    readonly ink: Omit<FillInk, "token">;
   };
-  readonly roles: Readonly<Record<Role, { readonly lightness: number; readonly share: number; readonly ink?: FillInk }>>;
+  readonly roles: Readonly<Record<Role, { readonly lightness: number; readonly share: number }>>;
+  /** Each ink on a fill: near black or near white, with a breath of the fill's hue. */
+  readonly fillInks: Readonly<Record<FillInk, { readonly l: number; readonly c: number }>>;
   /** Where every environment colour starts, at its name's hue. */
   readonly environment: { readonly lightness: number; readonly chroma: number };
   /** How far a diff background is tinted from the ground toward the status colour. */
@@ -169,15 +166,17 @@ const DARK: LadderPlan = {
   surfaces: { abyss: 15.5, inset: 17, panel: 19.5, raised: 22.5, float: 25, line: 33.5 },
   lineStrong: 56.5,
   inks: { ink: 96, "ink-muted": 77, "ink-faint": 62 },
-  accent: { lightness: 52, chroma: (seed) => seed, fillIsText: false, ink: { l: 97, c: 0.014 } },
+  accent: { lightness: 52, chroma: (seed) => seed, fillIsText: false },
   roles: {
     machine: { lightness: 80, share: 1 },
     // Deliberately the dimmest: the model talking to itself.
     thinking: { lightness: 64, share: 1 },
     success: { lightness: 84, share: 1 },
-    warning: { lightness: 85, share: 1, ink: { token: "amber-ink", l: 18, c: 0.045 } },
-    danger: { lightness: 70, share: 1, ink: { token: "signal-ink", l: 16, c: 0.03 } },
+    warning: { lightness: 85, share: 1 },
+    danger: { lightness: 70, share: 1 },
   },
+  // Light text on the deep accent; dark text on the bright status fills.
+  fillInks: { "beam-ink": { l: 97, c: 0.014 }, "amber-ink": { l: 18, c: 0.045 }, "signal-ink": { l: 16, c: 0.03 } },
   environment: { lightness: 75, chroma: 0.13 },
   // A quarter: as dark as the tints diff views commonly draw on a dark terminal (#213a2b, #4a221d).
   diffTint: 0.25,
@@ -190,15 +189,17 @@ const LIGHT: LadderPlan = {
   lineStrong: 64,
   inks: { ink: 22, "ink-muted": 43, "ink-faint": 52 },
   // Four points deeper and 0.02 less chroma than the dark fill.
-  accent: { lightness: 48, chroma: (seed) => Math.max(0, seed - 0.02), fillIsText: true, ink: { l: 98, c: 0.005 } },
+  accent: { lightness: 48, chroma: (seed) => Math.max(0, seed - 0.02), fillIsText: true },
   // Mid lightness on paper has less room for chroma than a light ink on a dark ground: each role keeps the recorded light share of its seed's.
   roles: {
     machine: { lightness: 48, share: 0.08 / 0.1 },
     thinking: { lightness: 50, share: 0.03 / 0.035 },
     success: { lightness: 50, share: 0.13 / 0.17 },
-    warning: { lightness: 50, share: 0.098 / 0.155, ink: { token: "amber-ink", l: 98, c: 0.005 } },
-    danger: { lightness: 52, share: 0.19 / 0.18, ink: { token: "signal-ink", l: 98, c: 0.005 } },
+    warning: { lightness: 50, share: 0.098 / 0.155 },
+    danger: { lightness: 52, share: 0.19 / 0.18 },
   },
+  // Every fill is mid lightness on paper, so every ink on one is near white.
+  fillInks: { "beam-ink": { l: 98, c: 0.005 }, "amber-ink": { l: 98, c: 0.005 }, "signal-ink": { l: 98, c: 0.005 } },
   environment: { lightness: 50, chroma: 0.12 },
   // Lighter on paper: a band the line reads through, not a fill.
   diffTint: 0.15,
@@ -232,7 +233,7 @@ const ACCENT_TEXT_LIGHTEST = 75;
 const ACCENT_TEXT_DEEPEST = 50;
 
 /** One ladder of the theme, and the clamps it needed. */
-const ladderOf = (ladder: LadderName, seeds: Theme["seeds"], moved: readonly ThemeSeedName[]): Ladder & { clamps: Clamp[] } => {
+const ladderOf = (ladder: LadderName, seeds: Theme["seeds"], moved: readonly ThemeSeedName[]): { ladder: Ladder; clamps: Clamp[] } => {
   const plan = PLANS[ladder];
   const clamps: Clamp[] = moved.map((seed) => ({ seed, ladder, rule: "hue-separation", token: SEED_TOKENS[seed] }));
   /** One clamp per seed and rule in a ladder, naming the first token that showed it. */
@@ -254,54 +255,46 @@ const ladderOf = (ladder: LadderName, seeds: Theme["seeds"], moved: readonly The
   const panel = surface(plan.surfaces.panel);
   const grounds = [abyss, panel];
   const onGrounds = (rule: Owed["rule"], token: TokenName, floor: number, target: number): OwedBySeed => ({ rule, token, floor, target, against: () => grounds });
-  const inkOn = (token: TokenName, ink: (fill: Oklch) => Oklch): OwedBySeed => ({ rule: "text-contrast", token, floor: TEXT, target: TEXT, against: (fill) => [ink(fill)] });
+  /** An ink on a fill, as it is drawn on a candidate for that fill. */
+  const fillInk = (token: FillInk) => (fill: Oklch) => fit(plan.fillInks[token].l, plan.fillInks[token].c, fill.h);
+  const readsOn = (token: FillInk): OwedBySeed => ({ rule: "text-contrast", token, floor: TEXT, target: TEXT, against: (fill) => [fillInk(token)(fill)] });
 
   // Neutral inks and the strong edge hold on any canvas the rules allow; where a tinted one breaks them, the canvas is clamped.
-  const neutral = (token: TokenName, l: number, floor: number) =>
-    report("canvas", token, place(l, 0, 0, plan.away, [onGrounds(floor === TEXT ? "text-contrast" : "component-contrast", token, floor, floor)]));
+  const neutral = (token: TokenName, l: number) => report("canvas", token, place(l, 0, 0, plan.away, [onGrounds("text-contrast", token, TEXT, TEXT)]));
   const lineStrong = report(
     "canvas",
     "line-strong",
     place(plan.lineStrong, canvas.chroma, canvas.hue, plan.away, [onGrounds("component-contrast", "line-strong", COMPONENT, COMPONENT)]),
   );
   const inks = {
-    ink: neutral("ink", plan.inks.ink, TEXT),
-    "ink-muted": neutral("ink-muted", plan.inks["ink-muted"], TEXT),
-    "ink-faint": neutral("ink-faint", plan.inks["ink-faint"], TEXT),
+    ink: neutral("ink", plan.inks.ink),
+    "ink-muted": neutral("ink-muted", plan.inks["ink-muted"]),
+    "ink-faint": neutral("ink-faint", plan.inks["ink-faint"]),
   };
 
   // The accent: a fill owed 3:1 (and on paper, where it is also the text, 4.5:1), with light text on it.
-  const beamInk = (fill: Oklch) => fit(plan.accent.ink.l, plan.accent.ink.c, fill.h);
   const beam = report(
     "accent",
     "beam",
     place(plan.accent.lightness, plan.accent.chroma(accent.chroma), accent.hue, plan.away, [
       plan.accent.fillIsText ? onGrounds("text-contrast", "beam", TEXT, ACCENT_TEXT_TARGET) : onGrounds("component-contrast", "beam", COMPONENT, COMPONENT),
-      inkOn("beam-ink", beamInk),
+      readsOn("beam-ink"),
     ]),
   );
   const beamText = plan.accent.fillIsText ? beam : accentText(accent, grounds, (placed) => report("accent", "beam-text", placed));
 
-  const roleColour = (role: Role): { colour: Oklch; ink?: Oklch } => {
+  /** A role or status colour where its role puts it, read as text on the grounds, and by the ink on it where it is a fill. */
+  const roleColour = (role: Role, ...fill: OwedBySeed[]): Oklch => {
     const seed = seeds[role];
-    const { lightness, share, ink } = plan.roles[role];
-    const inkColour = ink && ((fill: Oklch) => fit(ink.l, ink.c, fill.h));
+    const { lightness, share } = plan.roles[role];
     const token = SEED_TOKENS[role];
-    const colour = report(
-      role,
-      token,
-      place(lightness, seed.chroma * share, seed.hue, plan.away, [
-        onGrounds("text-contrast", token, TEXT, ROLE_TEXT_TARGET),
-        ...(ink && inkColour ? [inkOn(ink.token, inkColour)] : []),
-      ]),
-    );
-    return { colour, ...(inkColour && { ink: inkColour(colour) }) };
+    return report(role, token, place(lightness, seed.chroma * share, seed.hue, plan.away, [onGrounds("text-contrast", token, TEXT, ROLE_TEXT_TARGET), ...fill]));
   };
-  const machine = roleColour("machine");
-  const thinking = roleColour("thinking");
-  const success = roleColour("success");
-  const warning = roleColour("warning");
-  const danger = roleColour("danger");
+  const cyan = roleColour("machine");
+  const sage = roleColour("thinking");
+  const mint = roleColour("success");
+  const amber = roleColour("warning", readsOn("amber-ink"));
+  const signal = roleColour("danger", readsOn("signal-ink"));
   const beamDim = fit(beam.l - 8, beam.c * 0.85, beam.h);
   const alpha = (colour: Oklch, value: number): Oklch => ({ ...colour, alpha: value });
   // Environment colours are no seed's, so nothing is reported for them: each walks from where every name starts until it reads.
@@ -314,37 +307,33 @@ const ladderOf = (ladder: LadderName, seeds: Theme["seeds"], moved: readonly The
     return fit(mixed.l, mixed.c, mixed.h);
   };
 
-  return {
-    tokens: {
-      abyss,
-      inset: surface(plan.surfaces.inset),
-      panel,
-      raised: surface(plan.surfaces.raised),
-      float: surface(plan.surfaces.float),
-      line: surface(plan.surfaces.line),
-      "line-strong": lineStrong,
-      ...inks,
-      beam,
-      "beam-dim": beamDim,
-      "beam-ink": beamInk(beam),
-      "beam-text": beamText,
-      cyan: machine.colour,
-      sage: thinking.colour,
-      mint: success.colour,
-      amber: warning.colour,
-      "amber-ink": warning.ink ?? warning.colour,
-      signal: danger.colour,
-      "signal-ink": danger.ink ?? danger.colour,
-      hairline: alpha(inks.ink, 0.07),
-      "hairline-strong": alpha(inks.ink, 0.12),
-      wash: alpha(inks.ink, 0.035),
-      "wash-strong": alpha(inks.ink, 0.08),
-      "wash-user": alpha(beam, 0.24),
-    },
-    environment,
-    diff: { added: tinted(success.colour), removed: tinted(danger.colour) },
-    clamps,
+  const tokens: Record<TokenName, Oklch> = {
+    abyss,
+    inset: surface(plan.surfaces.inset),
+    panel,
+    raised: surface(plan.surfaces.raised),
+    float: surface(plan.surfaces.float),
+    line: surface(plan.surfaces.line),
+    "line-strong": lineStrong,
+    ...inks,
+    beam,
+    "beam-dim": beamDim,
+    "beam-ink": fillInk("beam-ink")(beam),
+    "beam-text": beamText,
+    cyan,
+    sage,
+    mint,
+    amber,
+    "amber-ink": fillInk("amber-ink")(amber),
+    signal,
+    "signal-ink": fillInk("signal-ink")(signal),
+    hairline: alpha(inks.ink, 0.07),
+    "hairline-strong": alpha(inks.ink, 0.12),
+    wash: alpha(inks.ink, 0.035),
+    "wash-strong": alpha(inks.ink, 0.08),
+    "wash-user": alpha(beam, 0.24),
   };
+  return { ladder: { tokens, environment, diff: { added: tinted(mint), removed: tinted(signal) } }, clamps };
 };
 
 /**
@@ -369,6 +358,5 @@ export const derive = (theme: Theme): DerivedTheme => {
   const { seeds, moved } = separateHues(theme.seeds);
   const light = ladderOf("light", seeds, moved);
   const dark = ladderOf("dark", seeds, moved);
-  const ladder = ({ tokens, environment, diff }: Ladder): Ladder => ({ tokens, environment, diff });
-  return { light: ladder(light), dark: ladder(dark), clamps: [...light.clamps, ...dark.clamps] };
+  return { light: light.ladder, dark: dark.ladder, clamps: [...light.clamps, ...dark.clamps] };
 };
