@@ -138,4 +138,22 @@ export type {
 } from "./projections/session-list.js";
 export type { Freshness } from "./streams/stream.js";
 export { SESSION_LINGER_MS, type SessionHandle, type SessionView } from "./streams/session-handles.js";
+export { callsRowId, folded, lastReply, liveRun, liveTasks, rewoundRowId, transcriptRows, undoableFold, type TranscriptRow } from "./transcript/rows.js";
+export {
+  TOOL_CATEGORIES,
+  classifyTool,
+  clockTime,
+  describeActivity,
+  endWords,
+  formatDuration,
+  formatTokens,
+  formatUsd,
+  oneLine,
+  outputText,
+  summarizeToolInput,
+  turnFacts,
+  type ActivityCounts,
+  type ToolCategory,
+} from "./transcript/format.js";
+export { TOOL_QUIET_MS, hear, nextQuietChange, quietFor, runningCalls, type Heard, type QuietCalls } from "./transcript/quiet.js";
 export type { TerminalHandle, TerminalOutput, TerminalStatus, TerminalStreamView } from "./streams/terminals.js";

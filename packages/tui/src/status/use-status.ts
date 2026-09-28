@@ -1,9 +1,8 @@
 import { useEffect, useMemo } from "react";
-import type { Clock, EnvironmentView, RunState, Runtime, SessionProjection } from "@agent-harness/client-runtime";
+import { formatTokens, formatUsd, type Clock, type EnvironmentView, type RunState, type Runtime, type SessionProjection } from "@agent-harness/client-runtime";
 import { lowerMode, type ContainmentLevel, type KeyActionId } from "@agent-harness/contracts";
 import type { Opened } from "../session/use-session.js";
 import { useFollow } from "../session/use-session.js";
-import { formatTokens, formatUsd } from "../transcript/format.js";
 import { gaugeOf } from "../transcript/plan.js";
 import { nameOf } from "../view.js";
 import { MODE_BADGES, containmentBadge, elapsedClock, meterCells, readingsOf, spendOf, windowOut, workingWords, type Styled } from "./line.js";
