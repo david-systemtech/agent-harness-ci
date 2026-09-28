@@ -401,7 +401,7 @@ The re-runnable checklist of steps; graphical clients show it as the whole windo
 _Avoid_: wizard (fine in prose; the surface's name is Set up), onboarding, installer
 
 **Step**:
-One entry of the checklist: the settings it writes on an environment, the health check that says whether they hold, the settings pane it links to. Optional or skippable, never absent for a feature that has settings.
+One entry of the checklist: the settings it writes on an environment, the health check that says whether they hold, the row of Settings it lives on. Optional or skippable, never absent for a feature that has settings.
 _Avoid_: page, screen, stage
 
 **Health check**:

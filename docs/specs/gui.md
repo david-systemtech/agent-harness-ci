@@ -260,7 +260,7 @@ The GUI renders everything on the terminal UI's parity list (tui spec) with the 
 **Owed by this workstream's build**:
 
 - To the terminal UI: adopt `commands.fork`, stop-first rewind and the `forked` entry in place of its own; drive its tests from the script's new home; leave GUI-only actions out of `/help` (paid by #388); whether to list `projections.documents` is David's.
-- With 88: this build turns the step registry's pane links into home row ids and each settings key's band into a row, since the rail reads them first; 88 then serves the `setup` subscription and fills this frame with the step cards.
+- With 88: this build turns the step registry's pane links into home row ids and each settings key's band into a row, since the rail reads them first (paid by #389); 88 then serves the `setup` subscription and fills this frame with the step cards.
 - To 93: the browser dock as a driver and the relay's handler registration on the runtime. To 91: Managed tools rows in About.
 
 - Verified in the GUI column's build (#388): the fixture transcribed from the GUI map the surfaces port audit pins (`packages/contracts/test/reference-gui-keymap.ts`, the reference renderer at 443cf2e: the window's hotkey map, the composer's handlers, the three cards, the find bar and the palette) matches the table row for row: its 26 rows are the table's keys in the same places, Esc's stop the one row changed (`off`). The table's other rows are additions the reference lacks: `app.session.newInPane` (story 28), `composer.file.mention` (`@`, the composer section), `composer.withdrawLast` and `composer.readNow` (ADR 0022). The reference recalls on ↑ only from an empty box or one holding a recalled prompt; the table's "from the start of the box" is wider, and `composer.withdrawLast` now takes the empty box first. Not keys of the five places, and left out: the composer's Esc (the window's again), the slash menu's own keys, the sidebar context menu's letters.
@@ -278,5 +278,14 @@ The GUI renders everything on the terminal UI's parity list (tui spec) with the 
   - **Every string is read for Tailwind's colour classes**, as Tailwind's own scanner reads every string, so a class string held in a variable is caught as one in `className` is. Tailwind's palette through its theme variables (`var(--color-red-500)`) is refused with the classes.
   - **An SVG element's colour attributes** (`fill`, `stroke`, `stop-color` and the like) are style, so a named colour there is refused (logos use `currentColor`); a component's `color` prop is data. The named colours are CSS's 148; system colours such as `Canvas` are not refused.
   - **Stylesheets are parsed tolerantly**, so Tailwind 4's at-rules and the `--color-*: initial` reset parse; the JavaScript rules read scripts only.
+
+- Chosen defaults not decided on a ticket, from the row registry's build (#389):
+  - **A row's home** is `homeOf`: the steps of the milestone-1 order it is home to, empty on a row no step lives on, or `checklist` on `setup.checklist`, which is home to the whole checklist. Every step of the order has exactly one home row whether or not it is registered yet, so a step registered later finds its row waiting.
+  - **A step names `home`**, and its `links` hold further rows (`{ row }`) beside its links to other steps: every row a step's keys sit on is its home or one of those, so the Account step links `accounts.default-model` and the Appearance step `environments.service`.
+  - **`routines.routines` is `everywhere`**, as the routines spec chose and the ticket says; the table above still reads `environment` until #301 aligns it.
+  - **`routines.bots`** carries `dim`, the reason it is dim ("Bots arrive in milestone 2, with the Bot object."); no other row does.
+  - **The split addresses** open one row each, `runs` Usage and `advanced` Your machines; the row in brackets in the address table has the address as a search term instead of a second entry. Each row's terms carry every address that opens it and the names of the sections ADR 0027 says it absorbed; its hint is one line of this build's words.
+  - **Published data**: `schema/data/settings-bands.json`, `settings-rows.json` and `settings-addresses.json`, listed in `index.json` under `data`, each naming the exported schema its entries are valid against.
+  - **The terminal UI's `/settings`** lists only the rows that hold keys; `/settings <row id>` lists that row's keys alone, and says so when it holds none.
 
 **For domain-modeling**: session pane, side column, pane grid, home environment, row, row registry and band are used here and are not glossary terms; "Esc stops the run" is a switch, not a mode, and "mode" stays the permission mode (the light or dark choice is called a preference here to keep it so).
