@@ -29,11 +29,12 @@ const runtimeDependencies = (m: Manifest): string[] => [
 ];
 
 describe("the workspace", () => {
-  it("holds the contracts, environment, client runtime, theme and terminal UI packages and the CLI", () => {
+  it("holds the contracts, environment, client runtime, theme, terminal UI and GUI packages and the CLI", () => {
     expect(manifests.map((m) => m.name).sort()).toEqual([
       "@agent-harness/client-runtime",
       "@agent-harness/contracts",
       "@agent-harness/environment",
+      "@agent-harness/gui",
       "@agent-harness/theme",
       "@agent-harness/tui",
       "agent-harness",
@@ -63,6 +64,13 @@ describe("the workspace", () => {
   it("gives the terminal UI no runtime dependency on the environment or the CLI", () => {
     const deps = runtimeDependencies(manifest("@agent-harness/tui"));
     expect(deps.filter((d) => d === "@agent-harness/environment" || d === "agent-harness")).toEqual([]);
+  });
+
+  it("gives the GUI three workspace dependencies, the client runtime, contracts and theme, and neither Electron nor the environment nor the CLI: its bundle runs in a browser tab", () => {
+    const workspace = new Set(manifests.map((m) => m.name));
+    const deps = runtimeDependencies(manifest("@agent-harness/gui"));
+    expect(deps.filter((d) => workspace.has(d)).sort()).toEqual(["@agent-harness/client-runtime", "@agent-harness/contracts", "@agent-harness/theme"]);
+    expect(deps.filter((d) => d === "electron" || d.startsWith("@electron/"))).toEqual([]);
   });
 
   it("ships the terminal UI in the CLI's artefact, so one install gives serve and tui (ADR 0004)", () => {
