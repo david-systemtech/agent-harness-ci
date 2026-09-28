@@ -21,7 +21,7 @@ import type { WireClient } from "../../test/wire-client.js";
 import type { Projector } from "../event-log/event-log.js";
 import type { Address } from "./http.js";
 import { DRAIN_CAP_MS } from "./lifecycle.js";
-import { IDLE_WINDOW_MS, PARKED_PROMPT_WINDOW_MS } from "./run-registry.js";
+import { PRESET_IDLE_WINDOW_MS } from "./run-registry.js";
 
 /**
  * The lifecycle through the primary seam: idle and busy on `environment.status`
@@ -118,7 +118,7 @@ describe("environment.status", () => {
     expect((await status(client)).activity).toEqual({
       state: "busy",
       reason: "recent-activity",
-      busyUntil: new Date(endedAt + IDLE_WINDOW_MS).toISOString(),
+      busyUntil: new Date(endedAt + PRESET_IDLE_WINDOW_MS).toISOString(),
     });
     t.clock.advance(2 * MINUTE);
     expect((await status(client)).activity).toEqual({ state: "idle" });
@@ -137,7 +137,7 @@ describe("environment.status", () => {
     expect((await status(client)).activity).toEqual({
       state: "busy",
       reason: "parked-prompt",
-      busyUntil: new Date(parkedAt + PARKED_PROMPT_WINDOW_MS).toISOString(),
+      busyUntil: new Date(parkedAt + PRESET_IDLE_WINDOW_MS).toISOString(),
     });
     t.clock.advance(2 * MINUTE);
     expect((await status(client)).activity).toEqual({ state: "idle" });

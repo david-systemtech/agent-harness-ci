@@ -255,8 +255,8 @@ export {
 } from "./serve/container.js";
 export { DRAIN_CAP_MS, type DrainOutcome } from "./serve/lifecycle.js";
 export {
-  IDLE_WINDOW_MS,
-  PARKED_PROMPT_WINDOW_MS,
+  ENDED_RUN_KEPT_MS,
+  PRESET_IDLE_WINDOW_MS,
   activityOf,
   createRunRegistry,
   type MemoryRunRegistry,

@@ -54,6 +54,7 @@ import type { SignInSpawn } from "../accounts/signin-process.js";
 import { CLAUDE_PROVIDER, type HostEnvironment } from "../adapters/claude/credentials.js";
 import { bundledExecutable } from "../adapters/claude/executable.js";
 import { claudeSignInProgram } from "../adapters/claude/signin.js";
+import { readClaudeCodeVersion } from "../adapters/claude/version.js";
 import { usageMethods } from "../accounts/usage-methods.js";
 import { createUsagePool } from "../accounts/usage-pool.js";
 import { processMethods } from "../adapter/processes-methods.js";
@@ -76,6 +77,7 @@ import { reviewMethods } from "../permissions/review-methods.js";
 import { createTtlSweeper } from "../permissions/ttl-sweeper.js";
 import { createProviderTranscriptStore, type ProviderTranscriptStore } from "../provider-transcripts/store.js";
 import { runMethods, startRunIn } from "../runs/run-methods.js";
+import { updateMethods } from "../updates/methods.js";
 import { runsProjector } from "../runs/runs-projector.js";
 import { scrubDiagnosticOutput } from "../scrub/diagnostic-output.js";
 import { createScrubRegistry, type ScrubRegistry } from "../scrub/registry.js";
@@ -173,6 +175,13 @@ export class StartupError extends Error {
 export interface EnvironmentOptions {
   /** The data directory; preset: the platform's user state directory (`defaultDataDirectory`). */
   readonly dataDir?: string;
+  /**
+   * The harness version the environment runs as: what discovery, health,
+   * `prepared`, `environment.started` and `updates.status` report. Preset:
+   * the package's (`HARNESS_VERSION`); a test starts one data directory as
+   * two versions with it.
+   */
+  readonly harnessVersion?: string;
   /** The loopback port; preset `DEFAULT_PORT`; 0 picks a free one. */
   readonly port?: number;
   /** The name a new environment is created with; preset: the machine's hostname. An existing environment keeps its own. */
@@ -292,6 +301,12 @@ export interface EnvironmentOptions {
   readonly workspaces?: WorkspaceSettings;
   /** How the ForgeService reaches a forge (#310). Preset: the global `fetch`; tests route github.com's API to their fake forge. */
   readonly forgeFetch?: ForgeFetch;
+  /**
+   * Reads the bundled Claude Code's version, which `updates.status` answers;
+   * called once, the first time it is asked for. Preset: the bundled
+   * binary's `--version` (`adapters/claude/version.ts`); tests script it.
+   */
+  readonly claudeCodeVersion?: () => Promise<string | null>;
 }
 
 /** Who starts a run that no client session starts: a routine, a bot, or the completions surface. */
@@ -425,11 +440,14 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
 
   // Absolute once, here: a relative `--data-dir` would make the denylist's data-directory preset and its exemption relative paths (#132).
   const dataDir = absolutePath(options.dataDir ?? defaultDataDirectory());
+  const harnessVersion = options.harnessVersion ?? HARNESS_VERSION;
   const clock: Clock = options.clock ?? systemClock;
   const now = () => clock.now();
   const scrub = options.scrub ?? createScrubRegistry();
   const launcher = options.launcher ?? processLauncherChannel();
-  const capabilities: CapabilityFlags = [];
+  // Under a launcher the environment can update itself to a client's version (ADR 0007); under a foreground `serve` it
+  // cannot, and `updates.status` says why. Managed outside, the flag waits for the host-side updater's poll (#348).
+  const capabilities: CapabilityFlags = launcher.present() ? ["self-update"] : [];
   // Set when the listeners are bound: local-only until then, which is what binding loopback alone means.
   let authPolicy: AuthPolicy = "local-only";
   // The name the Host check admits: set only once the tailnet address is bound.
@@ -686,7 +704,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     const document: DiscoveryDocument = {
       environmentId: record.id,
       environmentName: record.name,
-      harnessVersion: HARNESS_VERSION,
+      harnessVersion,
       protocolVersion: PROTOCOL_VERSION,
       capabilities,
       authPolicy,
@@ -695,7 +713,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     sendJson(response, 200, document, noStore);
   });
   surface.route("GET", HEALTH_PATH, (_request, response) => {
-    const health: HealthDocument = { status: readiness, version: HARNESS_VERSION };
+    const health: HealthDocument = { status: readiness, version: harnessVersion };
     sendJson(response, 200, health, noStore);
   });
 
@@ -704,6 +722,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // A prompt that parks, and its answer, are told to every client there (#130); stopped before the event log closes.
   closers.push(startPromptNotices({ log, stream: environmentStream }));
   const detector = options.containerDetector ?? processContainerDetector();
+  // A container with no launcher: a host-side updater manages its updates, and it never updates itself (ADR 0007).
+  const updatesManagedOutside = detector.inContainer() && !launcher.present();
   // The purge: `sessions.purge` runs it at once, the minute sweep for every session past its grace period.
   const deletion = createDeletion({ log, transcripts: host.transcripts, providerStore });
   const lifecycle = createLifecycle({
@@ -711,7 +731,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     runs: host.runs,
     log,
     stream: environmentStream,
-    updatesManagedOutside: detector.inContainer() && !launcher.present(),
+    updatesManagedOutside,
+    // The idle window (#342): how long nothing may start or end, and how long a parked prompt counts as busy.
+    idleWindowMs: () => readSettings({ all: (sql, ...params) => log.read(sql, ...params) })["updates.idleWindowMinutes"] * 60_000,
     readiness: () => readiness,
     onDraining: () => {
       readiness = "draining";
@@ -775,6 +797,15 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ...usageMethods({ pool: usagePool, accounts, clock }),
     ...terminalService.handlers,
     ...workspaceMethods({ log }),
+    // What runs, who manages its updates and what is installed, and the update settings (#342).
+    ...updateMethods({
+      log,
+      environmentId: record.id,
+      harnessVersion,
+      launcher,
+      managedOutside: updatesManagedOutside,
+      claudeCodeVersion: options.claudeCodeVersion ?? (() => readClaudeCodeVersion({ executable: bundledExecutable() })),
+    }),
   });
 
   // The two exchanges and the wire are routed before the bind; all three refuse work until the gate below.
@@ -852,13 +883,13 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
 
   // Under a launcher this waits for its `committed`: until then readiness stays `starting` and the wire serves no request,
   // so a trial the launcher rolls back never served a person. With no launcher it does not wait.
-  await step("prepared", () => launcher.prepared(HARNESS_VERSION));
+  await step("prepared", () => launcher.prepared(harnessVersion));
   readiness = "ready";
   // Only a start the launcher committed is noted, and before the wire opens, so a first subscriber finds it.
   try {
     log.append(
       environmentStream,
-      [{ type: "environment.started", payload: { harnessVersion: HARNESS_VERSION, protocolVersion: PROTOCOL_VERSION } }],
+      [{ type: "environment.started", payload: { harnessVersion, protocolVersion: PROTOCOL_VERSION } }],
       { actor: formatActor({ kind: "system", id: "lifecycle" }) },
     );
   } catch (error) {

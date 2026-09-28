@@ -86,6 +86,21 @@ describe("the settings keys", () => {
     expect(registry["settings.get"].params.safeParse({ keys: ["permissions.defaultCeiling"] }).success).toBe(true);
   });
 
+  it("name, in settings.update's refusal of a key a method of its own writes, that method (#342)", () => {
+    const commandId = "0f8fad5b-d9cb-469f-a165-70867728950e";
+    const issues = (values: Record<string, unknown>) => registry["settings.update"].params.safeParse({ commandId, values }).error?.issues;
+    expect(issues({ "updates.channel": "beta" })).toEqual([
+      expect.objectContaining({ code: "unrecognized_keys", path: ["values"], keys: ["updates.channel"], message: "updates.channel is written by updates.settings.set, not settings.update." }),
+    ]);
+    expect(issues({ "permissions.defaultCeiling": "plan", theme: "dark" })).toEqual([
+      expect.objectContaining({
+        code: "unrecognized_keys",
+        message: "permissions.defaultCeiling is written by permissions.settings.set, not settings.update; theme is not a setting.",
+      }),
+    ]);
+    expect(issues({ theme: "dark" })?.[0]?.message).not.toContain("settings.set");
+  });
+
   it("take an idle span of 1 to 1000 days, weeks or months, or null for never", () => {
     const idle = SETTINGS["sessions.autoSettleAfterIdle"].schema;
     for (const value of [null, { amount: 1, unit: "days" }, { amount: 2, unit: "weeks" }, { amount: MAX_IDLE_SPAN_AMOUNT, unit: "months" }]) {

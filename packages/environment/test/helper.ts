@@ -80,6 +80,8 @@ export interface TestEnvironmentOptions {
   readonly usageReadTimeoutMs?: number;
   /** A data directory to start on, kept by `close`: a restart on the same directory. Preset: a fresh temporary one, removed by `close`. */
   readonly dataDir?: string;
+  /** The harness version the environment runs as; preset: the package's. */
+  readonly harnessVersion?: string;
   readonly name?: string;
   /** Startup hooks, to hold the startup gate. */
   readonly hooks?: StartupHooks;
@@ -115,10 +117,15 @@ export interface TestEnvironmentOptions {
   readonly scrub?: ScrubRegistry;
   /** How the ForgeService reaches a forge (`test/fake-forge.ts` routes github.com's API to a fake one); preset: the environment's. */
   readonly forgeFetch?: EnvironmentOptions["forgeFetch"];
+  /** Reads the bundled Claude Code's version; preset: `TEST_CLAUDE_CODE_VERSION`, so no test runs the real binary. */
+  readonly claudeCodeVersion?: EnvironmentOptions["claudeCodeVersion"];
 }
 
 /** The bundled binary a test environment's sign-ins name unless told otherwise: a path that is not there. */
 export const TEST_BUNDLED_CLAUDE = "/nonexistent/agent-harness-sdk/claude";
+
+/** The bundled Claude Code's version a test environment reads unless told otherwise. */
+export const TEST_CLAUDE_CODE_VERSION = "2.1.0-test";
 
 /** A machine with no Tailscale address and no tailnet name. */
 export const NO_INTERFACES: InterfaceDetector = { tailscaleAddress: async () => undefined, tailnetName: async () => undefined };
@@ -257,6 +264,7 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
 
   const passed: Partial<EnvironmentOptions> = {
     ...(options.name !== undefined && { name: options.name }),
+    ...(options.harnessVersion !== undefined && { harnessVersion: options.harnessVersion }),
     ...(options.hooks !== undefined && { hooks: options.hooks }),
     ...(options.bindTailnet !== undefined && { bindTailnet: options.bindTailnet }),
     ...(options.bindLan !== undefined && { bindLan: options.bindLan }),
@@ -271,6 +279,7 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
     ...(options.workspaceResolver !== undefined && { workspaceResolver: options.workspaceResolver }),
     ...(options.workspaces !== undefined && { workspaces: options.workspaces }),
     ...(options.forgeFetch !== undefined && { forgeFetch: options.forgeFetch }),
+    claudeCodeVersion: options.claudeCodeVersion ?? (async () => TEST_CLAUDE_CODE_VERSION),
     signInProcess: { spawn: refusingSpawn, bundled: TEST_BUNDLED_CLAUDE, managedTool: () => null, hostEnv: { PATH: "/usr/bin" }, ...options.signInProcess },
   };
   let env: EnvironmentHandle;
