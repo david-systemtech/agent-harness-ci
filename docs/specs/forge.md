@@ -1,0 +1,188 @@
+# Spec: Forge accounts and the ForgeService
+
+Milestone 1 (Switch-over), phase B (daily use). Written 2026-09-28 from map ticket 87 of `david/agent-harness`. Implements ADR 0012, ADR 0020, ADR 0032 and, as milestone-2 direction, ADR 0033, with rules citing ADRs 0003, 0011, 0015, 0016, 0019, 0026, 0027, 0028, 0031 and 0034, and ADR 0017 for the phase and the placeholder. Those four ADRs are the records of tickets 26, 41, 49 and 50, whose Resolutions and later comments were read. It builds on the specifications and code on main at 863ab8f, re-deciding none. Peers read: on main, the step registry with #141's entry, `setup.check`, the vault, the Claude adapter's scrub and spawn key, the reserved pull-request events; Artemis's forge detection, per-bank credentials, landing and credential-helper environment; T3 Code at 96c4bfa0 (source-control providers); the 2026-09-22 forge research; the core port audit; memories `forgejo-agent-tokens`, `git-credential-helper-chain-forgejo`, `artemis-memory-tools-forge-landing`. The product name is the placeholder `agent-harness`.
+
+## Problem Statement
+
+David works on GitHub and his own Forgejo from several machines, and every Artemis session began by hunting for a forge credential. Artemis keeps one token or key-manager reference per memory bank, matched to a remote by host string, with no idea what the token may do until an operation fails; skill sources and the tracker the skills drive have no credential at all; the server lands bank changes with whatever git finds, falling back to `git credential fill`, and treats any host but github.com as Gitea (core audit, sections 3 and 4). Runs inherit the machine's helpers: on 2026-09-18 Git Credential Manager answered for Forgejo with an expired browser token and every agent push hung silently. The model is never told which forges exist or which is primary, and a session never sees the pull request it opened, so settle-on-merge (ADR 0003) has nothing to read.
+
+## Solution
+
+Each environment holds one forge account per forge origin, with verified aliases, an identity of login plus user id, and learned capabilities. Its credential is the environment's own `gh`, a `gh` token the attending client hands over once, a key-manager reference, or a pasted token in the environment's vault. One ForgeService, with a provider per kind (GitHub, Forgejo, Gitea; GitLab in milestone 2), is the harness's only way to a forge. A run's git reaches the forge through a harness credential helper named in process-only configuration that resets the machine's helper chain for those origins; tokens arrive as named variables, and the orientation block says which forges exist and which is primary. A session's pull requests are linked and kept current. The Forges step shows a card per forge account and says when one stops verifying.
+
+## User Stories
+
+1. As David, I want one forge account per forge on each environment, so that banks, skill sources, the tracker, pull requests and releases share one identity.
+2. As David, I want my Forgejo's public and tailnet addresses to be one forge account once the credential proves the same identity at both, so that clones either way authenticate.
+3. As David, I want the environment to reuse the `gh` already signed in on its machine, so that GitHub needs no paste there.
+4. As David, I want to hand my laptop's `gh` to a headless environment once, with the card saying so, so that a container gets GitHub without a terminal.
+5. As David, I want the paste form to link to the token page and name the scopes, so that I mint the right token first time.
+6. As David, I want a pasted token to cross the wire once and never come back, so that no client, log or transcript holds it.
+7. As David, I want a forge account to point at a key-manager path, so that a rotation in OpenBao is live at once.
+8. As David, I want to see what each forge account can do and when it was verified, a write failing loudly at its first refusal, so that a weak token is found early.
+9. As David, I want exactly one primary forge that every environment agrees on, so that new repositories land where I expect.
+10. As David, I want git in any run to use the forge account over https, never the machine's credential manager, and ssh to stay mine, so that no expired browser token hangs an agent.
+11. As David, I want the helper to fail at once with one line saying what to do, so that git never waits on a prompt nobody sees.
+12. As David, I want the model told which forges are connected, which is primary and which variables carry each token, so that sessions stop hunting.
+13. As David, I want a run's credential to die with its provider process, and one switch to keep runs away from my forges, so that a leak is bounded.
+14. As David, I want a session's pull request linked and kept current, and an unlink to stick, so that settle-on-merge works.
+15. As David, I want a harness operation on a forge with no forge account to try an anonymous read and then name the origin, so that public sources just work.
+16. As David, I want a forge account copied to my other environments without its stored token, so that no secret travels between machines.
+17. As David, I want an owner picker listing my organisations live, so that a team bank needs no stored list.
+18. As David, I want a token expiring within thirty days to turn the step amber, so that I replace it before a routine fails.
+19. As Seth, I want the terminal UI's Set up summary to say when a forge account needs attention, so that I know to open the desktop window.
+20. As the setup checklist, I want a Forges check that verifies within its budget and names a failing forge account with its action, so that re-run lands on it.
+21. As the setup checklist, I want zero forge accounts to count as skipped, so that someone with no forge is never nagged.
+22. As the setup checklist, I want a pasted URL's forge kind detected, so that the card shows the right walkthrough.
+23. As a routine, I want to push and open pull requests with the environment's forge account, so that unattended work lands.
+24. As a provider adapter, I want the injection as variables with a spawn key, so that I layer it after my scrub and respawn when it changes.
+25. As the Memory bank step, I want a private repository created on the primary forge and pushed, so that a bank exists before its first memory.
+26. As a build session, I want a fake forge and a real git behind the helper in the in-process environment, so that the chain reset and the helper are fast tests.
+27. As a client developer in another language, I want the forge methods, events and errors in the published schemas, so that I can build a Forges pane.
+
+## Implementation Decisions
+
+Every rule cites its decision; a rule marked chosen default was left open by the tickets and is listed again under Further Notes.
+
+### Modules
+
+- **Contracts**: the record; the kind (`github`, `forgejo`, `gitea`; `gitlab` reserved, unproduced in milestone 1); the normaliser, slug and variable derivations and URL parsers as pure functions; the methods, errors and events; the Forges registry entry.
+- **Environment**: the **ForgeService**, an in-process service the banks, skills, routines, launcher and Set up workstreams call, and the only thing that reaches a forge (ADR 0012): the forge-account store (projector, vault entries, verification scheduler), one **provider** per kind, the **injection composer**, the **credential route**, the **pull-request sync** and the step's checks.
+- **CLI**: the verb `git-credential` (ADR 0020).
+- **Client runtime**: `forge.accounts.list` in the request cache, refreshed on `forge.account.*`; a platform capability reading the local `gh` token, present in the desktop shell, absent-with-reason in a browser tab (ADR 0032, ADR 0004).
+
+### The forge account record
+
+- **Fields** (ADR 0020): client-minted id, canonical origin, aliases with verified-at, kind, slug, identity (login and user id), credential source, capabilities, primary flag, problem, token information (classic, fine-grained, OAuth or unknown; the scope header as a hint; expiry), created-at, and copied-from (the source environment of a copy, shown on the card).
+- **Origin**: `https`, or `http` for a LAN or tailnet instance; lower-cased host; default port omitted. One forge account per origin; an origin already held as another's canonical origin or alias is `conflict` reason `origin_held`.
+- **The normaliser** maps every remote git takes (https, http, ssh, `git://`, scp-like, bare `host:port`) to an origin and a repository path without `.git`, dropping and reporting userinfo (a token in a URL). ssh, scp and `git://` forms map to `https` on the same host with no port (`ssh.github.com` to `github.com`), marked ssh-derived. An http or https remote matches the forge account whose canonical origin or alias equals its origin; an ssh-derived one matches by host, canonical origins first, and nothing while two remain (chosen default). Repository identity (#85) must treat the ssh, scp, http and https forms of one repository as one (ADR 0020), may build on this, and owns the identity string.
+- **Slug** (ADR 0020): from the host, lower case, other runs to one underscore, `github` for github.com; on a collision the port, then a counter (chosen default). Editable, 1 to 40 of `a-z`, digits and underscore, unique (`conflict` reason `slug_taken`); variables use it upper-cased.
+- **Credential sources** (ADR 0012, 0020, 0032): `gh`, the environment's own `gh` for that host and login, read per operation so it follows `gh`'s rotations; `stored`, a vault token with provenance `pasted`, `client-gh` (the handing client session's id and label), `imported` or `oauth`; `reference`, a key-manager connection and path; `none`, a copy awaiting a credential.
+- **Capabilities** (ADR 0020): `readRepository`, `writeIssues`, `pullRequests`, `createRepository`, `readReleases`, each `verified`, `failed` or `unknown`, with verified-at and a failure's status. Reads are probed at verification; writes start `unknown` and flip on the first ForgeService operation of their kind: verified on success, failed on 401, 403, or 404 for a target just read. A denied pull-request read also fails `pullRequests`, GitHub's fine-grained permission for both (chosen default).
+- **Problem**: null, `needs-credential`, `credential-rejected` (401 on identity), `credential-unavailable` (key manager or `gh` signed out, entry missing), `identity-changed` (another user id answered; unused until replaced), `unreachable` or `expiring` (within thirty days), with since-time and one line.
+- **Git username**, derived, never stored (ADR 0020): `x-access-token` (GitHub), the login (Forgejo, Gitea), `oauth2` (GitLab, milestone 2).
+
+### Verification
+
+- Resolve the credential, call the identity endpoint, compare the user id, update a changed login (ADR 0020), read the token information, and probe `readRepository` on a repository this environment knows on that origin (a bank, a skill source, a session's repository identity), else by listing repositories, and `readReleases` there, else following `readRepository`, which grants release reads on all three kinds (chosen default). A probe's 404 is failed (ADR 0020).
+- It runs after startup's gate, every fifteen minutes (ADR 0020), on `forge.accounts.verify`, the Forges check, a credential change and a git rejection; one at a time per forge account, within ADR 0031's ten-second budget.
+- Recorded as the account store records its reads (claude-adapter spec, #134): `forge.account.verified` as `system:forge`, no command id, only when identity, a capability, token information or problem changed; verified-at times are kept beside the record.
+- An alias is verified on its own origin and accepted only on the same login and user id (ADR 0020), else `alias_identity_mismatch`.
+
+### Credentials
+
+- **A pasted token crosses the wire once** (ADR 0020), in `forge.accounts.add` or `update`, `admin` calls sent directly, never through the client's outbox (client-runtime spec). It is scrubbed on arrival, written to the vault before the command's transaction, removed if it rejects, and never in an event, receipt, log line, answer or `invalid_params` issue.
+- **The vault** gains delete (env spec: get and set). Removal or replacement deletes the entry after commit; a start removes entries of forge accounts gone (chosen default).
+- **The environment's `gh`** (ADR 0032): `gh auth token` for the host and recorded login, run without `GH_TOKEN`, `GITHUB_TOKEN` and `GH_ENTERPRISE_TOKEN` so it reports the stored login (chosen default), probed like a paste. `gh` is a Managed tools row, minimum 2.40 (the first taking a user on `gh auth token`, chosen default), verified by `gh auth status` (ADR 0026); until #91's registry exists the ForgeService probes it behind that seam.
+- **The attending client's `gh`** (ADR 0032): read through the client's own tools detection, sent once in the add call as `stored` with provenance `client-gh`; the card says it will not follow `gh`'s rotations.
+- **References** resolve per operation through the key-manager registry, are scrubbed and disposed when the operation ends, never cached (ADR 0020). The registry is #91's; while it holds no connection, a reference is rejected `credential_source_unavailable`.
+- **The scrub registry** (ADR 0011) is #91's. The forge puts the first secret into a run, so its build lands the registry's core if #91's is absent: register a value under an owner, dispose it, scrub at the log's append (so transcripts, tool outputs and client renders) and in the logger. A stored token is registered while held, a resolved one for its operation or process, each also Basic-auth and percent-encoded (chosen default). No build injects a token without that core.
+
+### Runs: the injection
+
+- **A provider process receives**, process-only, never on disk, in the log or in the user's git configuration (ADR 0012, ADR 0020):
+  - `GIT_CONFIG_COUNT` entries after inherited ones: for the canonical origin and every verified alias of each injected forge account, an empty `credential.<origin>.helper`, resetting the machine's chain for that origin only (the 2026-09-18 fix, moved into the process), then the helper: the absolute path of the `agent-harness` command the service runs, `git-credential` and the slug. ssh is untouched.
+  - The environment's loopback address and port, and the **run-scoped secret**.
+  - `FORGE_<SLUG>_URL` (the canonical origin), `FORGE_<SLUG>_TOKEN`, `FORGE_<SLUG>_KIND`; the primary's also bare as `FORGE_URL`, `FORGE_TOKEN`, `FORGE_KIND`; `GH_TOKEN` for the github.com forge account alone (ADR 0020). A token unresolvable at spawn is left out and the orientation says so. Inherited `FORGE_` variables are removed; the Claude scrub already removes names holding `_TOKEN`.
+- **The injected set**: every forge account without `identity-changed` or `needs-credential`, for attended runs, routines, the completions surface and minted sessions alike (ADR 0020, ADR 0019); per-bot forge accounts are milestone 2. The tracker the skills drive reaches the forge through these variables; its doc stays the setup skill's (ADR 0012).
+- **ADR 0011's injection setting** governs it: denying injection for the run's account, routine or bot removes the variables and the helper (ADR 0020). The setting is #91's; until then the ForgeService reads its preset, which injects (ADR 0028).
+- **Per provider process.** A provider process is the environment's, not the run's (ADR 0015), and a Claude process serves many runs with an environment fixed at spawn (claude-adapter spec, #120, #140). The run input gains a **process environment**: a non-secret key (injected ids, origins, slugs, kinds, primary, a credential generation each, the setting's answer) and a function the adapter calls once per spawn, which mints the process's secret, resolves the tokens (ADR 0020's operation) and answers the variables. The adapter layers them after its scrub and adds the key to its spawn key, so a differing process is let go for a fresh one, as for changed instructions or containment; the pool's stop disposes secret and values. #91's key-manager block can join the seam.
+- **The run-scoped secret** (ADR 0020): 32 random bytes in memory, valid while its provider process lives (ADR 0015), naming the injected forge accounts; no client session, no scopes, scrubbed; a restart voids all.
+- **Terminals** (chosen default): a session's terminal gets the same injection, its secret living with the terminal, so git in a pane or run with `!` behaves as the model's (ADR 0020's "git in a terminal pane").
+- **Containment** (permissions spec, #140): at `workspace` the helper honours the sandbox's proxy variables, so its loopback call passes the proxy and the gate like any host; at `workspace-no-network` neither it nor git reaches anything. Where an unattended run's denied reads cover the helper's executable (the data directory, if versions live there), its directory joins the run's exempt directories.
+
+### The helper and the credential route
+
+- `agent-harness git-credential` speaks git's credential protocol. On `get` it posts git's attributes and its slug to the credential route with the secret and prints username and password; when it cannot (no secret, environment unreachable, credential unavailable, origin outside the secret's set, fifteen seconds passed) it prints `quit=1`, so git neither asks another helper nor prompts, and one line on standard error naming the origin and the fix (Set up, Forges). On `erase` it reports and forgets nothing (ADR 0020): `forge.account.git-rejected`, then a verification. `store` is ignored.
+- **The credential route**: `POST /api/internal/git-credential`, loopback sockets only, behind the Host check, the secret a bearer credential compared in constant time; no client session, no scope (ADR 0020). It serves only the canonical origins and verified aliases of forge accounts in the secret's set still held, resolving per request so a rotation is live at once, rate-limited, `unauthorized` otherwise. A removed forge account stops being served at once; its token stays in a live process's variables until the next run lets the process go.
+- **The harness's own git** (bank checkouts, skill sources, a new repository's first push) uses the same helper with a secret per operation and `GIT_TERMINAL_PROMPT=0`, against the canonical origin's URL, never a configured remote (ADR 0020). On an origin with no forge account the chain is reset with no helper, so it reads anonymously.
+- **No forge account** (ADR 0020): a harness operation reads anonymously first; a refusal is `forge_account_missing` (the origin, and step `forges` for the deep link), a client notice and a Forges health failure. `forge.origin-missing` is recorded at most daily per origin and counts for seven days, until a forge account covers the origin (chosen default).
+
+### Providers
+
+- **One interface** (ADR 0012): detection, identity, read probes, organisations, repositories (read; create under the user or an organisation), issues, pull requests (create, read, list by head, merge), releases, a file on a branch and the default branch (bank landing's check), the pull-request URL parser. Every write updates its capability; issue bodies pass the scrub registry (ADR 0011).
+- **GitHub**: `api.github.com`, or `/api/v3` on an Enterprise origin; bearer tokens; organisations from the memberships endpoint, since the organisation list answers fine-grained tokens with an empty list (forge research, 1.3); token kind from prefix and scope header; expiry from the token-expiration header (chosen default).
+- **Forgejo and Gitea**: one provider over the Gitea API under `/api/v1`, kind recorded apart; `token` scheme; the walkthrough names `read:user`, `write:repository`, `write:issue`, `write:organization` (forge research, 5.4).
+- **Detection** (chosen order): github.com by name; Forgejo's version route; Gitea's (Forgejo's version carries `+gitea-`); the Enterprise meta route; ADR 0033's GitLab order, answering `kind_unsupported`. It answers origin, kind, version, the token page link and what to name: for GitHub a fine-grained link (Contents, Issues, Pull requests, Administration write) and a classic one (`repo`, `read:org`) (ADR 0012, ADR 0032).
+- `Retry-After` and GitHub's reset headers pause a forge account's background work; entity tags make re-reads conditional; `Link` pagination. Repositories and the release channel use the primary forge unless another origin is named (ADR 0012); the release repository is #86's.
+
+### Wire methods
+
+Scope `admin` unless stated; mutating methods take a `commandId`.
+
+- `forge.accounts.list` (`read`): the records with the exact variable names each injects; never a secret.
+- `forge.accounts.add`, a prepared command (it hears from the forge first, as `runs.withdraw` does): id, a URL in any form, optional kind, slug, aliases, primary, `copiedFrom`, and the credential (`stored` with token and provenance, `gh`, `reference`, `none`). A credential the identity call refuses is `verification_failed`, nothing stored; a transient failure keeps the forge account with its problem (chosen default). The first forge account becomes primary (ADR 0012).
+- `forge.accounts.update` (prepared): slug, aliases, or a credential, which must answer with the recorded user id, else `identity_mismatch`. The Key manager step's Move (ADR 0028) is this call with a `reference`; its read-back is #91's.
+- `forge.accounts.remove`; `forge.accounts.setPrimary` (every other cleared in the same event; removing the primary leaves none until a person chooses).
+- `forge.accounts.verify` (one or all): a query at `admin` recording what it finds, as `accounts.refresh` does (env spec).
+- `forge.detect`: a query at `admin`, since the environment calls an address the caller chose.
+- `forge.gh.probe` (`read`, as `accounts.probe`): installed, version against the minimum, and per signed-in host the login, whether active, the token's kind and scopes.
+- `forge.orgs.list` (`read`): owners a forge account may create repositories under, the user first, live, never stored (ADR 0020).
+- `forge.pullRequests.link` (`sessions:write`, prepared): a session and a URL, read from the forge (anonymously where uncovered), appended as `session.pull-request-linked`; `not_a_pull_request` when no provider parses it. `forge.pullRequests.unlink` (`sessions:write`). `forge.pullRequests.refresh` (`read`): re-reads a session's pull requests now.
+- Errors besides the shared union: `forge_account_missing`, `verification_failed`, `identity_mismatch`, `alias_identity_mismatch`, `credential_source_unavailable`, `kind_unsupported`, `not_a_forge`, `unreachable`, `not_a_pull_request`; `conflict` reasons `origin_held`, `slug_taken`.
+- Capability flag `forge` in `hello` and discovery; without it a client shows Forges absent-with-reason (ADR 0004).
+
+### Events
+
+- On the environment stream (ADR 0020), so `environment.subscribe` carries them to every client and the orientation composer: `forge.account.added`, `forge.account.updated` (slug, aliases, credential source), `forge.account.primary-set` (with the one cleared), `forge.account.verified`, `forge.account.capability-learned` (capability, state, operation, status), `forge.account.git-rejected`, `forge.account.removed`, `forge.origin-missing`. Not a stream per record, as the account store has: setting the primary changes two records in one event. A projector keeps the read model.
+- A failed capability, a new problem, a git rejection and a missing origin each become a row in the client runtime's notices (ADR 0020).
+- On session streams, session-state's reserved pull-request events and payloads (url, state, merged-at, closed-at), as `system:forge` or the linking client session.
+
+### Pull-request links and status
+
+- **Found** (ADR 0012; T3 Code's branch lookup): at a run's end, if the workspace's repository is on a non-default branch whose remote (its upstream's, else `origin`) normalises to a forge origin, pull requests with that head are linked when open, or closed or merged since the session was created; so are pull-request URLs on a connected origin in that run's tool outputs and assistant text, twenty at most, each read first. Discovery never relinks a URL whose latest event is an unlink (chosen defaults).
+- **Kept current** (chosen defaults): open pull requests read every five minutes while the session is in the active list, hourly otherwise; closed ones daily for fourteen days; merged ones never; unmerged ones also at each run's end and on refresh. `session.pull-request-synced` only on change; a 404 keeps the last state and stops reads. Merged is GitHub's `merged_at` or the Gitea API's `merged`. Settling is session-state's sweep reading `mergedAt` (ADR 0003).
+
+### Orientation
+
+The block is #91's (ADR 0011), empty until then (claude-adapter spec). The ForgeService supplies its lines from live state through the composer's seam (ADR 0012, ADR 0020): each forge with kind, login and when verified; the primary ("your primary forge is git.systemtech.dev (Forgejo); GitHub is also connected"); each slug's variables and API base; failed or unknown writes and tokens left out; that https git to these origins just works while ssh uses the user's keys; that repositories go to the primary forge unless the user names another; that other origins have no credential here. The instruction text is in the spawn key, so a change reaches the next process.
+
+### The Forges step
+
+The registry gains `forges`, fourth (ADR 0020, ADR 0034), in #141's shape (ADR 0016, ADR 0031):
+
+- **Writes** no settings key; its state goes through `forge.accounts.add`, `update`, `remove`, `setPrimary`. **Links** to the Forges pane in the Access band (ADR 0027) and the Key manager step, whose Move card takes stored tokens (ADR 0028). **Skippable**: zero forge accounts answers `skipped`, the first step that does (ADR 0020).
+- **State checks**: `forges.identity`, each forge account answers as the identity it was added with (`sign-in-again`, chosen as the vocabulary's word for replacing a credential; `check-again`); `forges.reads`, every read passes (`check-again`); `forges.primary`, exactly one primary; `forges.gh`, a `gh` source finds `gh` installed, at the minimum and signed in (`install`, `update`, `sign-in-again`); `forges.expiry`, nothing expires within thirty days, ADR 0033's rule applied to every kind that reports expiry (`sign-in-again`); `forges.coverage`, no counted missing origin.
+- **Budget and cadence** (ADR 0031): ten seconds; fifteen minutes, not the hour, because the orientation block reports each token's verification (ADR 0012), as for the Key manager and Account steps. `setup.check` on `forges` awaits a verification within the budget, else "could not check: timed out after 10 s" with `check-again` over the last good result; each `forge.account.*` event reruns it. State checks answer synchronously today, so the checker gains an awaited answer, from #88 or this build, whichever lands first.
+- The cards, walkthroughs, the "Use the gh signed in on this computer" card and expiry copy are #88's (ADR 0032, ADR 0033); the terminal UI shows the summary line and pointer (ADR 0016).
+
+### Copies and the Artemis import
+
+- **Same on every environment** (ADR 0020): the client calls `forge.accounts.add` on each target with origin, aliases, kind, slug, primary and `copiedFrom`; a reference copies as is; a stored token as `none`, which the target's check asks for; a `gh` source as `gh` (chosen default). Aliases without a credential wait unverified and unserved. The copied primary clears any other (ADR 0012).
+- **The Artemis import** (#56) calls the ForgeService in process: a credential probe answering identity and capabilities without storing, and the add with provenance `imported`; grouping and the winner rule are #56's (ADR 0020).
+
+### Milestones 2 and 3
+
+- **GitLab** (ADR 0033), under the reserved kind: the detection above, a pasted `api` token whose own record gives scopes and expiry, `oauth2`, `PRIVATE-TOKEN` or bearer, groups by minimum Developer access, merge requests by iid with `state` and `detailed_merge_status`. Milestone 1 leaves room: the kind, neutral capabilities (a merge request is `pullRequests`), expiry and `expiring`, the username rule, the detection slot.
+- **Device flow** (ADR 0032), milestone 3: one OAuth app under the harness's organisation, a build-time client id, `repo` and `read:org`, long-lived tokens, environment-side polling honouring `slow_down`, a prompt in the pairing card's shape, one flow at a time, the result `stored` with provenance `oauth`; gitlab.com likewise. Per-bot forge accounts join the Bot object (ADR 0020).
+
+### What this workstream does not decide
+
+78 env: wire, receipts, prepared commands. 79 session-state: pull-request payloads, the settle sweep. 80 client-runtime: the cache and notices. 81 tui: the summary line. 82 claude-adapter: scrub, spawn key, pool. 83 permissions: containment, gate, denylist. 84 gui: the Forges pane, the shell's `gh` read. 85 workspace-picker: the repository identity string. 86 launcher-update: the helper's stable path, the release source. 88 setup: cards, walkthroughs, result cache. 89 skills-instructions, 90 banks: their flows through this service. 91 key-managers: references, the injection setting, the orientation block, the whole scrub registry, managed tools. 92 routines, 93 browser: nothing beyond the shared injection. 94 switch-over and #56: the import rule.
+
+## Testing Decisions
+
+A good test is behaviour seen through the wire, in the helper's output to git or in a real git's result; never the projection's table, the secret map or the vault file, except at the lower seams.
+
+- **Primary seam: the in-process environment with a fake forge.** The env spec's helper (temporary data directory, loopback port 0, scripted fake provider, typed client over a real WebSocket) plus a **scripted fake forge** on loopback port 0: the slice of GitHub's REST API (as an Enterprise origin) and of the Gitea API the providers use, each token's answers scripted per route (401, 403, 404, no scope header, the empty organisation list, rate-limit and expiry headers), and git's smart HTTP through `git http-backend` behind basic auth. Through it: every method, error and event above, verification on an injectable clock, and pull requests found, synced until merged and settling their session. The fake provider reports its spawn environment and runs a scripted command in it, so a real `git clone` and `git push` prove the chain reset (a hostile helper in a temporary global configuration, `GIT_TERMINAL_PROMPT=0` under a timeout, as the 2026-09-18 memory checks), the helper, the variables, a respawn after a change and a stopped process's secret refused. Prior art: T3 Code's `apps/server/src/server.test.ts` (`buildAppUnderTest`, `withWsRpcClient`) and `sourceControl/GitHubSourceControlProvider.test.ts`; Artemis's `apps/desktop/main/gitCredentialEnv.test.ts` and `packages/core/src/memorybanks/__tests__/writer.test.ts`.
+- **Lower seams**: the helper verb against a scripted route, as the CLI's pairing tests script the network (the verbs, `quit=1` and its line, the timeout); each provider against the fake forge without the wire (mapping, paging, rate limits).
+- **Contract tests**: one scope per forge method; the normaliser over a table of remote forms (https with userinfo, http with port, ssh with port, scp, `ssh.github.com`, `git://`, a local path); slug and variables; URL parsers; the Forges entry's checks and actions from ADR 0031's vocabulary; the JSON Schema round trip.
+- **Framework**: Vitest, listener files serially. **Not tested here**: live forges, a real `gh`, the sandbox proxy, the Windows helper path (verify first), key managers (#91).
+
+## Out of Scope
+
+Everything under "What this workstream does not decide"; a harness verb opening a pull request for a session, review panes and viewed-file marks (milestone 2, ADR 0012); GitLab (milestone 2); device flows (milestone 3); per-bot forge accounts; rewriting ssh remotes (ADR 0020); stored organisations (ADR 0020); a Forgejo device flow (fog, ADR 0032).
+
+## Further Notes
+
+Chosen defaults, for review: ssh-derived matching; slug collisions; `readReleases` without a known repository; a denied pull-request read failing `pullRequests`; `gh` without its token variables, minimum 2.40; vault delete and orphan sweep; the scrub core here, with encoded forms; add refused on 401 or 403, kept on a transient failure; the first forge account primary, none after the primary's removal; `gh` copying as `gh`; the process-environment seam; terminals injected; a removed token living until its process goes; the helper's timeout, the secret's size, the route's path; the detection order and GitLab refusal; GitHub's expiry header and the thirty-day rule for every kind; pull-request discovery, twenty URLs a run, sticking unlinks and the sync cadence; zero forge accounts `skipped`; `sign-in-again` for a credential; missing origins daily and for seven days; events on the environment stream; the scopes of `forge.detect`, `forge.accounts.verify`, `forge.gh.probe`, `forge.orgs.list` and the pull-request methods; the flag `forge`.
+
+Verify first:
+
+1. An empty per-origin helper in process configuration clears a system or global helper for that origin only (the 2026-09-18 fix was global), and `quit=1` ends git without a prompt, Git for Windows included.
+2. The Claude CLI passes its environment to Bash commands, sandboxed or not, and the helper's loopback call passes the sandbox proxy at `workspace` on Linux and macOS; if not, the helper answers from its slug's `FORGE_<SLUG>_TOKEN`, losing live rotation only there.
+3. The helper's path: the stable `agent-harness` command (#86), quoted as Git for Windows' shell needs, reachable under unattended denied reads.
+4. `gh auth token` with a user on 2.40; GitHub's fine-grained token page prefill (else the classic link); the Enterprise meta route; Forgejo's own version route.
+5. The injection key changes only when the injection does.
+
+For the glossary (`/domain-modeling`): "run-scoped secret" (ADR 0020's term; it lives as long as a provider process or a terminal), "credential source" and "credential route" are used here and absent from `CONTEXT.md`.

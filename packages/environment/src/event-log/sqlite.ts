@@ -17,7 +17,7 @@ const isSqliteExperimentalWarning = (warning: string | Error, rest: readonly unk
 };
 
 /**
- * `node:sqlite`, loaded on first use. Node 22 prints a one-time
+ * `node:sqlite`, loaded on first use. Node prints a one-time
  * ExperimentalWarning when the module first loads; that one warning is
  * dropped here, at the load, and every other warning passes through.
  */

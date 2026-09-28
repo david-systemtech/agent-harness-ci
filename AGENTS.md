@@ -26,10 +26,11 @@ See `docs/agents/domain.md`.
 ## Building
 
 A pnpm workspace (`packages/`: `contracts`, `environment`, `client-runtime`,
-`tui`, and `cli`, the `agent-harness` binary). Node 22.16 or later, the first
-release whose `node:sqlite` has the busy `timeout` option and `isTransaction`
-the event log uses; pnpm comes from the `packageManager` pin through
-`corepack enable`.
+`tui`, and `cli`, the `agent-harness` binary). Node 24 or later: the LTS
+line, whose `node:sqlite` has the busy `timeout` option and `isTransaction` the
+event log uses. The floor was 22.16, the first 22 release with both, until
+2026-09-28, when David raised it because Node 22 ends its life in April 2027.
+pnpm comes from the `packageManager` pin through `corepack enable`.
 
 - `pnpm install`, then `pnpm typecheck` (`tsc -b`), `pnpm lint` and `pnpm test`
   (Vitest, every package's suite); CI runs the same three.
