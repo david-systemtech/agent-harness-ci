@@ -104,6 +104,7 @@ describe("the normaliser", () => {
       ["https with a user and a token", `https://x-access-token:${secret}@github.com/david/agent-harness.git`, remote("https://github.com", "david/agent-harness", false, true)],
       ["https with a token as the user", `https://${secret}@github.com/david/agent-harness`, remote("https://github.com", "david/agent-harness", false, true)],
       ["https with a login alone", "https://david@git.systemtech.dev:5526/david/agent-harness", remote("https://git.systemtech.dev:5526", "david/agent-harness", false, true)],
+      ["https with an @ inside its password, read up to the last @", `https://david:${secret}@x@github.com/david/agent-harness`, remote("https://github.com", "david/agent-harness", false, true)],
       ["http with a percent-encoded token", `http://david:${secret}%21@100.101.102.103:3000/david/agent-harness`, remote("http://100.101.102.103:3000", "david/agent-harness", false, true)],
       ["ssh with a password", `ssh://git:${secret}@git.systemtech.dev:2222/david/agent-harness.git`, remote("https://git.systemtech.dev", "david/agent-harness", true, true)],
       ["scp with a password", `git:${secret}@github.com:david/agent-harness.git`, remote("https://github.com", "david/agent-harness", true, true)],
@@ -119,10 +120,12 @@ describe("the normaliser", () => {
     });
   });
 
-  it("answers only canonical forge origins", () => {
+  it("answers only canonical forge origins, each of which reads back as itself", () => {
     for (const [, input] of table) {
       const origin = normaliseRemote(input)?.origin;
-      if (origin !== undefined) expect(ForgeOrigin.safeParse(origin).success, origin).toBe(true);
+      if (origin === undefined) continue;
+      expect(ForgeOrigin.safeParse(origin).success, origin).toBe(true);
+      expect(normaliseRemote(origin), origin).toEqual(remote(origin, null));
     }
   });
 });

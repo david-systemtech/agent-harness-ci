@@ -69,7 +69,7 @@ const originOf = (scheme: OriginScheme, host: string, port: string): ForgeOrigin
 };
 
 /** An origin's parts: its host and its port, empty for the default. */
-const ORIGIN_PARTS = /^https?:\/\/(\[[^\]]+\]|[^:]+)(?::(\d+))?$/;
+const ORIGIN_PARTS = /^https?:\/\/(\[[^\]]+\]|[^:/]+)(?::(\d+))?$/;
 const originParts = (origin: ForgeOrigin): { readonly host: string; readonly port: string } => {
   const [, host = "", port = ""] = ORIGIN_PARTS.exec(origin) ?? [];
   return { host, port };
@@ -97,8 +97,9 @@ const URL_FORM = /^([a-z][a-z0-9+.-]*):\/\/([^/?#]*)([^?#]*)/is;
 /** An authority: userinfo up to its last `@`, the host, and a port. */
 const AUTHORITY = /^(?:(.*)@)?(\[[^\]]*\]|[^:]*)(?::(\d*))?$/s;
 
-/** A URL's parts, or null for text that is no URL. */
+/** A URL's parts as it spells them. */
 interface UrlParts {
+  /** The scheme, lower-cased. */
   readonly scheme: string;
   /** The userinfo, or null when there is no `@`. */
   readonly userinfo: string | null;
@@ -107,12 +108,15 @@ interface UrlParts {
   readonly port: string;
   readonly path: string;
 }
+
+/** A URL's parts, or null for text that is no URL. */
 const urlParts = (text: string): UrlParts | null => {
   const url = URL_FORM.exec(text);
-  const authority = AUTHORITY.exec(url?.[2] ?? "");
-  if (url === null || authority === null) return null;
-  const [, scheme = "", , path = ""] = url;
-  const [, userinfo = null, host = "", port = ""] = authority;
+  if (url === null) return null;
+  const [, scheme = "", authority = "", path = ""] = url;
+  const parts = AUTHORITY.exec(authority);
+  if (parts === null) return null;
+  const [, userinfo = null, host = "", port = ""] = parts;
   return { scheme: scheme.toLowerCase(), userinfo, host, port, path };
 };
 
@@ -226,7 +230,7 @@ export const matchForgeAccount = <A extends ForgeAccountOrigins>(remote: ForgeRe
 // Slugs -----------------------------------------------------------------------
 
 /** The longest slug. */
-export const FORGE_SLUG_MAX = 40;
+const FORGE_SLUG_MAX = 40;
 
 /**
  * A forge account's slug (ADR 0020): 1 to 40 of `a-z`, digits and
