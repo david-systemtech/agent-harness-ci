@@ -24,7 +24,8 @@ import { servedOrigins } from "./git-helper.js";
  * serves the canonical origins and verified aliases of the forge accounts
  * the secret names and the environment still holds, reading the credential
  * on every request, so a replaced token is served at once and a removed
- * forge account is not. `erase`, git's word that it was refused the
+ * forge account is not; one whose credential answers as another user is
+ * given nothing until it is replaced. `erase`, git's word that it was refused the
  * credential, is reported and verified again, and nothing is forgotten.
  * Everything else is `unauthorized`.
  */
@@ -113,6 +114,10 @@ export const createCredentialRoute = ({ forge, clock }: CredentialRouteOptions):
       return void response.end();
     }
 
+    // A credential answering as another user is unused until it is replaced (forge spec, "Problem").
+    if (account.problem?.kind === "identity-changed") {
+      return answer(response, 503, { code: "credential_unavailable", message: account.problem.message, data: { origin } });
+    }
     const credential = await forge.resolveCredential(account.id, "git");
     if (credential === null) return answer(response, 401, unauthorized(`No forge account this secret names serves ${origin}.`));
     if (credential.outcome === "unavailable") {

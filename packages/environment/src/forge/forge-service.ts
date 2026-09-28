@@ -84,6 +84,12 @@ import { createRunSecrets, type RunSecrets } from "./run-secrets.js";
  *   once a credential is given. The records answered carry the verified-at
  *   times it keeps beside them. The state import's credential probe is one
  *   verification with no record.
+ * - **git** (#314): the run-scoped secrets the credential route
+ *   (`credential-route.ts`) serves; the harness's own git operation
+ *   (`harness-git.ts`), through the credential helper where a forge account
+ *   serves the origin and anonymously where none does; the origins found
+ *   missing (`missing-origins.ts`); and git's rejections, each reported and
+ *   verified again.
  */
 
 /** What every vault entry holding a forge token is named with. */
@@ -121,8 +127,8 @@ export interface ForgeServiceOptions {
   /**
    * The command line that runs the `agent-harness` binary before its verb,
    * which git names as its credential helper (`git-credential <slug>`): the
-   * one `serve` runs as. Absent, the harness's git refuses an origin a forge
-   * account covers, having no helper to name.
+   * one `serve` runs as. Absent, the harness's git fails on an origin a
+   * forge account covers, having no helper to name.
    */
   readonly harnessCommand?: readonly string[];
   /** The environment's loopback address, where the helper asks; undefined until it listens. */

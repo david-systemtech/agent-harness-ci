@@ -5,7 +5,7 @@ import { GitCredentialAnswer, GitCredentialError, type ForgeAccountRecord } from
 import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { startFakeForge, type FakeForge } from "../../test/fake-forge.js";
-import { DAVID, OTHER_TOKEN, TOKEN, added, askCredentialRoute as ask, forgeEvents, gitHost, pasted, remove, saidBack, update, type RouteAnswer } from "../../test/forge.js";
+import { DAVID, OTHER_TOKEN, TOKEN, added, askCredentialRoute as ask, forgeEvents, gitHost, pasted, remove, saidBack, update, verify, type RouteAnswer } from "../../test/forge.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 
 /**
@@ -173,6 +173,22 @@ describe("the credential route", () => {
     expect(asked.status).toBe(503);
     expect(GitCredentialError.parse(asked.body)).toMatchObject({ code: "credential_unavailable", data: { origin: forge.origin } });
     expect(JSON.stringify(asked.body)).toContain("Set up, Forges");
+  });
+
+  it("gives nothing for a forge account whose credential answers as another user, which is unused until replaced", async () => {
+    const { t, forge } = await withForge();
+    const client = await t.client();
+    const account = await added(client, { url: forge.origin, kind: "forgejo" });
+    const secret = t.env.forge.secrets.mint([account.id], "a provider process");
+    onCleanup(secret.release);
+    forge.user(TOKEN, { login: "someone", id: 7 });
+    const [changed] = await verify(client, account.id);
+    expect(changed?.problem?.kind).toBe("identity-changed");
+
+    const asked = await ask(t.address, secret.value, getFor(account));
+    expect(asked.status).toBe(503);
+    expect(GitCredentialError.parse(asked.body)).toEqual({ code: "credential_unavailable", message: changed?.problem?.message, data: { origin: forge.origin } });
+    expect(JSON.stringify(asked.body)).not.toContain(TOKEN);
   });
 
   it("refuses a body that is not git's attributes, and never reads a password in one", async () => {
